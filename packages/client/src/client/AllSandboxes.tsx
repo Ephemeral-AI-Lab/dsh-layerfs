@@ -105,6 +105,7 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
                       <span style={{ minWidth: 26 }} title={s.name ?? undefined}>-{s.id}</span><Meter used={s.used} capacity={s.capacity} /><span>{s.used}/{s.capacity}</span>
                       <span title="Written outside its Workspaces (/tmp, caches): goes when the Sandbox is deleted">scratch {s.scratch === null ? '?' : bytes(s.scratch)}</span>
                       {s.image && <span title={s.image} style={{ color: T.caption }}>{imageLabel(s)}</span>}
+                      {s.starting && <span title="Its container just started; its daemon does not answer yet" style={{ color: T.text2 }}>starting…</span>}
                     </span>
                   ))}
                   {p.note && <span style={{ fontSize: 11.5, color: p.level === 'down' ? T.danger : T.warn, wordBreak: 'break-word' }}>{p.note}</span>}

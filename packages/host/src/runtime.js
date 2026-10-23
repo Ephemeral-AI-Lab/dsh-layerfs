@@ -8,7 +8,9 @@
 //                 containers with their scratch, Store volumes and leftovers,
 //                 all from @layerfs/runtime (status, sandbox.list,
 //                 volume.list, sandbox.list_leftovers); each running
-//                 Sandbox's daemon pinged (a TCP connect) and its Workspaces
+//                 Sandbox's daemon pinged (a TCP connect; one that has not
+//                 answered within STARTING_MS of its container's start is
+//                 starting, not down) and its Workspaces
 //                 from the agents' traces: no daemon is asked for its state
 //                 (quickSandboxes). The Host runs no Docker command itself.
 // A read starts nothing, and waits for a project's Sandboxes only
@@ -25,12 +27,16 @@ export const CAPACITY = 16;
 /** A Workspace with uncommitted changes and no call for this long is flagged. */
 export const LEFT_MS = 10 * 60_000;
 const PING_MS = 1_000;
+/** A container this young whose daemon does not answer yet is starting: its daemon may not listen yet. */
+export const STARTING_MS = 15_000;
 /** Docker's free disk below these is degraded, then down (the host disk policy's 20 and 10 GiB). */
 export const DOCKER_LOW = 20 * 2 ** 30, DOCKER_CRITICAL = 10 * 2 ** 30;
 const RANK = { down: 0, degraded: 1, ok: 2 };
 
 const key = (sandbox, path) => `${sandbox}\n${path}`;
 const worst = (levels) => levels.reduce((a, b) => (RANK[b] < RANK[a] ? b : a), "ok");
+// whether a container that started at `at` (Docker's time) is still within STARTING_MS of `now`
+const young = (at, now) => { const t = Date.parse(at ?? ""); return Number.isFinite(t) && Math.abs(now - t) < STARTING_MS; };
 const refuse = (status, code, message) => Object.assign(new Error(message), { status, code });
 
 /**
@@ -81,6 +87,7 @@ export async function quickSandboxes(collector, project, containers, now = Date.
   const mounts = collector.mountsOf(project.name), busy = collector.busyOf(project.name);
   return Promise.all(containers.filter((c) => c.project === project.name && c.running).map(async (c) => {
     const answers = c.port ? await reachable(c.port) : false;
+    const starting = !answers && young(c.startedAt, now);
     const workspaces = Object.entries(mounts).filter(([k]) => k.split("\n")[0] === c.sandbox).map(([k, by]) => {
       const inUse = busy.has(k);
       return {
@@ -88,7 +95,7 @@ export async function quickSandboxes(collector, project, containers, now = Date.
         agent: by.agent ?? null, mountedAt: by.at, idleMs: inUse ? null : Math.max(0, now - by.lastAt), busy: inUse, processes: [], level: "ok",
       };
     });
-    return { id: c.sandbox, name: c.name, image: c.image || null, scratch: c.scratch, capacity: CAPACITY, workspaces, answers, level: answers ? "ok" : "down" };
+    return { id: c.sandbox, name: c.name, image: c.image || null, scratch: c.scratch, capacity: CAPACITY, workspaces, answers, starting, level: answers || starting ? "ok" : "down" };
   }));
 }
 
@@ -146,10 +153,10 @@ export async function overview(spec, bindings, trees, collector) {
       cards.push({ ...card, level: "down", note: error.message });
       continue;
     }
-    card.sandboxes = sandboxes.map((s) => ({ id: s.id, name: s.name, image: s.image, scratch: s.scratch, used: s.workspaces.length, capacity: s.capacity, level: s.level }));
+    card.sandboxes = sandboxes.map((s) => ({ id: s.id, name: s.name, image: s.image, scratch: s.scratch, used: s.workspaces.length, capacity: s.capacity, level: s.level, starting: s.starting }));
     card.workspaces = sandboxes.reduce((n, s) => n + s.workspaces.length, 0);
     card.level = worst(sandboxes.map((s) => (s.level === "ok" && s.workspaces.length >= CAPACITY ? "degraded" : s.level)));
-    const silent = sandboxes.filter((s) => s.answers === false);
+    const silent = sandboxes.filter((s) => s.answers === false && !s.starting);
     card.note = silent.length ? `${silent.map((s) => s.name).join(", ")} does not accept a connection` : null;
     cards.push(card);
   }

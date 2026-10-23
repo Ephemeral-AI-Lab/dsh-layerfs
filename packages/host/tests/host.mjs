@@ -25,7 +25,7 @@ const { removeProject } = await import("../src/remove.js");
 const { UNREACHABLE } = await import("../src/collector.js");
 const { adopt, prepareInit, randomName, runInit } = await import("../src/init.js");
 const { InitJobs } = await import("../src/jobs.js");
-const { overview, removeVolumes, DOCKER_LOW } = await import("../src/runtime.js");
+const { overview, removeVolumes, DOCKER_LOW, STARTING_MS } = await import("../src/runtime.js");
 const { clientFor } = await import("../src/layerfs-client.js");
 const { createServer } = await import("node:net");
 const { CALL, PROJECT } = await import("@dsh-layerfs/model/sources/records.js");
@@ -630,6 +630,19 @@ module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen
     assert.deepEqual([v.disk.docker, v.disk.dockerLevel, v.sweep.state], [DOCKER_LOW - 1, "degraded", "done"]);
     assert.deepEqual(v.reasons.map((r) => r.text), ["3 projects need a look", "Docker disk low", "2 leftovers"]);
     assert.deepEqual([v.level, v.totals], ["down", { projects: 5, sandboxes: 1, workspaces: 0 }]);
+    // a daemon that does not answer: starting within STARTING_MS of its container's start, then down
+    {
+      const closed = createServer().listen(0, "127.0.0.1");
+      await new Promise((resolve) => closed.once("listening", resolve));
+      const silentPort = closed.address().port;
+      await new Promise((resolve) => closed.close(resolve));
+      const silentAt = (ago) => ({ ...fake, sandbox: { ...fake.sandbox, list: async () => [{ name: "t-alpha-1", project: "alpha", sandbox: "1", state: "running", running: true, startedAt: new Date(Date.now() - ago).toISOString(), image: "sha256:abc", ports: [{ container: "7000/tcp", host: "127.0.0.1", port: silentPort }], scratch: 1, owned: true }] } });
+      const alphaOf = async (ago) => (await overview({ ...h.spec, runtime: Promise.resolve(silentAt(ago)) }, all, null, quiet)).projects.find((p) => p.name === "alpha");
+      const young = await alphaOf(2_000);
+      assert.deepEqual([young.level, young.note, young.sandboxes[0].starting], ["ok", null, true], "a just-started Sandbox is starting, not down");
+      const old = await alphaOf(STARTING_MS + 5_000);
+      assert.deepEqual([old.level, old.note, old.sandboxes[0].starting], ["down", "t-alpha-1 does not accept a connection", false], "still silent after STARTING_MS: down");
+    }
     // Docker down: no listing is read, and the page says why
     const down = await overview({ ...h.spec, runtime: Promise.resolve({ ...fake, status: async () => ({ docker: { level: "down" }, worker: null, disk: { home: null, volumes: null }, sweep: null }) }) }, all, null, quiet);
     // without Docker no volume is known missing; a lost home entry still shows

@@ -68,7 +68,7 @@ export interface Overview {
   /** every warning, worst first; none when all is well */
   reasons: { level: Level, text: string }[]
   /** projects with a running Sandbox or a problem; removable: nothing of it is left but its entry (no record, no Store volume) */
-  projects: { name: string, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level, scratch: number | null } & SandboxImage)[], workspaces: number, level: Level, note: string | null, removable: boolean }[]
+  projects: { name: string, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level, scratch: number | null, starting?: boolean } & SandboxImage)[], workspaces: number, level: Level, note: string | null, removable: boolean }[]
   /** the other projects, with their Store volume's size (null: not known) */
   idle: { name: string, volume: number | null }[]
   /** stopped Sandbox containers, or ones of no project of this home */
