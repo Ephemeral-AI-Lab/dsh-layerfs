@@ -15,6 +15,7 @@ import { LIMIT_MS, Progress } from "../src/progress.js";
 import { registerRoutes } from "../src/routes.js";
 import { compileScenario, loadScenarios, ScenarioError } from "../src/scenario.js";
 import { writeSeed } from "../src/seed.js";
+import { keepDefaultModel } from "../src/default-model.js";
 import { allTags, isScenarioProject, nextStarts, projectOf, runText, withTags } from "../../client/src/client/scenarios.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-mock-"));
@@ -331,6 +332,17 @@ try {
   assert.throws(() => compileScenario(minimal, { name: "seeded", folder: seeded }), /fixture.*not a plain absolute path/);
   assert.throws(() => compileScenario({ ...minimal, fixture: "missing.json" }, { name: "seeded", folder: seeded }), /missing\.json is not a file/);
 
+  // a run's scripted model is not saved as the default model; other picks are, and disposal restores the service
+  {
+    const saved = [], disposers = [];
+    const service = { saveSelection(next) { saved.push(next); return Promise.resolve(); } }, original = service.saveSelection;
+    keepDefaultModel({ agentDefaultModel: service, effect: (make) => disposers.push(make()) });
+    await service.saveSelection({ provider: "layerfs-mock", model: "crew" });
+    await service.saveSelection({ provider: "deepseek-account", model: "deepseek-flash" });
+    assert.deepEqual(saved, [{ provider: "deepseek-account", model: "deepseek-flash" }]);
+    disposers.forEach((dispose) => dispose());
+    assert.equal(service.saveSelection, original);
+  }
   console.log(`mock: ok (${shipped.size} scenarios)`);
 } finally {
   rmSync(dir, { recursive: true, force: true });

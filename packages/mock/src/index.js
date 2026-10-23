@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { LlmAdapter } from "@deepseek-ai/dsh-llm";
 import z from "@deepseek-ai/schemastery";
 import { createAdapter, PROVIDER } from "./adapter.js";
+import { keepDefaultModel } from "./default-model.js";
 import { Progress } from "./progress.js";
 import { registerRoutes } from "./routes.js";
 import { loadScenarios } from "./scenario.js";
@@ -41,4 +42,5 @@ export function apply(ctx, config) {
   ctx.effect(() => ctx.llm.registerAdapter([PROVIDER], createAdapter(LlmAdapter, scenarios, progress, () => ctx.get("layerfsTraces"))), "layerfs-mock: model");
   const options = { scenarios, progress, workspace, preset: config.preset, provider: PROVIDER, prompt: config.prompt };
   ctx.inject(["webServer", "connection"], (child) => registerRoutes(child, options));
+  ctx.inject(["agentDefaultModel"], (child) => keepDefaultModel(child));
 }
