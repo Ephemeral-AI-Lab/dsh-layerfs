@@ -1,7 +1,8 @@
-# The #352 history replay's runtime image (SPEC §2, Runtime image): the image
-# of every replay Sandbox and of the native test calibration, so both run the
-# same Node and package managers.
-#   docker build -t layerfs-352-runtime:node24 dsh/tools/history/runtime
+# The LayerFS runtime image Sandboxes and the macOS Store container run. It
+# began as the #352 history replay's runtime image (that replay stays in the
+# layerfs repository, dsh/tools/history/runtime at cea713e767); the image and
+# its tag are unchanged.
+#   docker build -t layerfs-352-runtime:node24 tools/runtime
 # Node 24 satisfies every range's engines (ranges 0–9 need >=24; the rest
 # ^22.19.0 || >=24.0.0). Corepack holds every package manager dsh's history
 # names, prepared at build time, and the network is off for it at run time:

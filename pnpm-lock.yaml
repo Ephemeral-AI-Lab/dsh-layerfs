@@ -26,22 +26,14 @@ importers:
         specifier: workspace:*
         version: link:../host
 
-  packages/dsh-layerfs-demo:
-    dependencies:
-      '@dsh-layerfs/mock':
-        specifier: workspace:*
-        version: link:../mock
-
   packages/host:
     dependencies:
       '@dsh-layerfs/model':
         specifier: workspace:*
         version: link:../model
       '@layerfs/sdk':
-        specifier: link:../../../sdk/js
-        version: link:../../../sdk/js
-
-  packages/mock: {}
+        specifier: link:../../.layerfs/sdk/js
+        version: link:../../.layerfs/sdk/js
 
   packages/model: {}
 

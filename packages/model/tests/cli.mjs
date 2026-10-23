@@ -1,10 +1,16 @@
 // The SDK-to-CLI table covers every SDK and operator method, and prints the
 // documented lines. A method the SDK gains without a row here fails.
-//   node dsh/packages/model/tests/cli.mjs
+//   node packages/model/tests/cli.mjs
+// The SDK is the LayerFS checkout's (LAYERFS_SOURCE).
 import assert from "node:assert/strict";
-import { LayerFS } from "../../../../sdk/js/src/index.js";
-import { LayerFSOperator } from "../../../../sdk/js/operator/index.js";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { LAYERFS } from "../../host/src/source.js";
 import { CLI, cliOf, commandOf, routeOf } from "../src/cli.js";
+
+const sdkDir = join(LAYERFS, "sdk/js");
+const { LayerFS } = await import(pathToFileURL(join(sdkDir, "src/index.js")).href);
+const { LayerFSOperator } = await import(pathToFileURL(join(sdkDir, "operator/index.js")).href);
 
 const methods = (client) => Object.entries(client)
   .filter(([, group]) => group && typeof group === "object" && !(group instanceof Set) && Object.values(group).some((f) => typeof f === "function"))

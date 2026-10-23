@@ -1,5 +1,6 @@
 /assets/
 node_modules/
+/.layerfs
 dist/
 lib/
 /demo/*/raw/

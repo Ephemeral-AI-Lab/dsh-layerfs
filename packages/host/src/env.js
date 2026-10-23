@@ -2,15 +2,17 @@
 // entry, the project name, its deployment and the calling agent's trace
 // file. dsh rebuilds the DSH_* namespace for every bash call, so these
 // values always describe the agent that runs the command.
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deploymentEnv, isSim } from "./layerfs-client.js";
 import { appendProject } from "./records.js";
+import { LAYERFS } from "./source.js";
 
 const CLI = fileURLToPath(new URL("./lfs.js", import.meta.url));
-// The LayerFS SDK skill of the checkout this plugin runs from, when it has one.
-const SKILL = fileURLToPath(new URL("../../../../.agents/skills/layerfs-js-sdk/SKILL.md", import.meta.url));
-const skill = existsSync(SKILL) ? SKILL : null;
+// The LayerFS SDK skill of the LayerFS checkout (LAYERFS_SOURCE, source.js), when it has one.
+const SKILL = join(LAYERFS, ".agents/skills/layerfs-js-sdk/SKILL.md");
+const skill = existsSync(SKILL) ? realpathSync(SKILL) : null;
 
 const VARIABLES = {
   DSH_LAYERFS_PROJECT: "LayerFS project of this conversation; pass it to new LayerFS(...)",

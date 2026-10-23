@@ -374,7 +374,8 @@ try {
   assert.equal(hostAccess({ ...h.spec, volumes: "/nowhere" }, { platform: "darwin", uid }), null, "macOS imports in the Store container");
   writeFileSync(join(dir, "volumes-file"), "");
   if (process.platform === "linux") assert.match(hostAccess({ ...h.spec, volumes: join(dir, "volumes-file", "x") }, { platform: "linux", uid }), /cannot write Docker's volumes directory .* \(ENOTDIR\)/);
-  assert.match(hostAccess(h.spec, { platform: "linux", uid: uid + 1 }), /belongs to uid \d+, not this Host's uid/);
+  // box: null, as on Linux; on macOS the spec's bundle sets a Store container, which skips the check
+  assert.match(hostAccess({ ...h.spec, box: null }, { platform: "linux", uid: uid + 1 }), /belongs to uid \d+, not this Host's uid/);
   if (process.platform === "linux") assert.throws(() => prepareInit({ ...h.spec, volumes: join(dir, "volumes-file", "x") }, h.bindings, { folder: dir }), { code: "host-access" });
   assert.equal(prepareInit({ ...h.spec, volumes: "/nowhere-file/x" }, h.bindings, { folder: dir, backend: "sim" }).project.backend, "sim", "a simulated project needs no Docker");
   assert.equal(prepareInit(h.spec, h.bindings, { folder: dir, source: join(dir, "website") }).project.name, "website", "a removed name is free again at once");

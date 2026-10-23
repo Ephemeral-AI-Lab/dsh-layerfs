@@ -11,7 +11,7 @@ const clientDir = join(dshRoot, 'packages', 'client');
 // `||`, not `??`: an empty DSH_SOURCE takes the default, like `${DSH_SOURCE:-...}`.
 const dshSource = resolve(
   clientDir,
-  process.env.DSH_SOURCE || '../../../../deepseek-harness',
+  process.env.DSH_SOURCE || '../../../deepseek-harness',
 );
 const hint = `set DSH_SOURCE to a built deepseek-harness checkout (looked in ${dshSource})`;
 const packageJson = join(dshSource, 'node_modules', 'tsdown', 'package.json');
