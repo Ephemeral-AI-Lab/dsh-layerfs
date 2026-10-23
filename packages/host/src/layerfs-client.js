@@ -92,7 +92,11 @@ export async function release(client) {
  * @param {object} client a project's client
  */
 export async function stateOf(client, snapshot) {
-  const snap = await olderCommits(client.layerfs, snapshot);
+  return drawState(await allCommits(client.layerfs, snapshot));
+}
+
+/** The mirror of a snapshot that already holds every Commit (allCommits). */
+export function drawState(snap) {
   const m = new Mirror();
   m.project = snap.project;
   const boxes = [
@@ -108,18 +112,55 @@ export async function stateOf(client, snapshot) {
  * fit one answer) and names in `more` every Branch it cut short; the rest come
  * from branch.list_commits, so History shows every Commit and links each to
  * its parent. A Commit another Branch already listed comes once.
+ *
+ * `known` (id -> Commit) holds the Commits of an earlier read of the same
+ * project. A Commit never changes, and list_commits walks a Branch's first
+ * parents newest first, so a Branch whose head is known is not listed, and a
+ * listing stops at its first known Commit. The answer then holds the Commits
+ * on each Branch head's first-parent chain, as a full listing would (a forced
+ * Commit's displaced head drops out); if a chain reaches a Commit neither read
+ * has, the Branches are listed in full instead.
  */
-async function olderCommits(layerfs, snap) {
+export async function allCommits(layerfs, snap, known) {
   const cut = Object.keys(snap.more || {});
   if (!cut.length) return snap;
+  if (known?.size) {
+    const chains = reachable(snap.branches, await listCut(layerfs, snap, cut, known), known);
+    if (chains) return { ...snap, commits: chains, more: {} };
+  }
+  return { ...snap, commits: await listCut(layerfs, snap, cut), more: {} };
+}
+
+/** snap's Commits and those its cut Branches list (each up to a `known` Commit). */
+async function listCut(layerfs, snap, cut, known) {
   const commits = [...snap.commits], seen = new Set(commits.map((c) => c.id));
+  const heads = new Map((snap.branches || []).map((b) => [b.name, b.head]));
   for (const branch of cut) {
+    if (known?.has(heads.get(branch))) continue;
     for (let pos = 0; pos !== null;) {
       const page = await layerfs.branch.list_commits(branch, LIST_PAGE, pos);
-      for (const c of page.items) if (!seen.has(c.id)) { seen.add(c.id); commits.push(c); }
-      pos = page.hasMore ? page.nextPagePos : null;
+      let reached = false;
+      for (const c of page.items) {
+        if (known?.has(c.id)) { reached = true; break; }
+        if (!seen.has(c.id)) { seen.add(c.id); commits.push(c); }
+      }
+      pos = !reached && page.hasMore ? page.nextPagePos : null;
     }
   }
-  return { ...snap, commits, more: {} };
+  return commits;
+}
+
+/** The Commits on the Branch heads' first-parent chains, from `listed` or `known`; null when one is in neither. */
+function reachable(branches, listed, known) {
+  const byId = new Map(listed.map((c) => [c.id, c])), out = new Map();
+  for (const branch of branches || []) {
+    for (let id = branch.head; id && !out.has(id);) {
+      const c = byId.get(id) ?? known.get(id);
+      if (!c) return null;
+      out.set(id, c);
+      id = c.parent;
+    }
+  }
+  return [...out.values()];
 }
 const LIST_PAGE = 50;

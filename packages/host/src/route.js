@@ -16,7 +16,8 @@
 //                                          changes?from&to&position, diff?from&to&path
 //   GET  /layerfs/projects                    every project, and each workspace folder's default
 //   GET  /layerfs/project/<name>/state        the project as LayerFS reports it, with who made each node
-//   GET  /layerfs/project/<name>/history      the same, History alone from the Store (no Sandbox asked)
+//   GET  /layerfs/project/<name>/history      the same, History alone from the Store (no Sandbox asked), with its
+//                                             `version`; ?since=<version> answers { kind: "unchanged", version } until it changes
 //   GET  /layerfs/project/<name>/{list,read,blame,changes,diff}?…  as the session's Files reads
 //   GET  /layerfs/project/<name>/storage      Store totals, what Init recorded, recent Commits' costs (storage.js)
 //   GET  /layerfs/runtime                     Docker, the home's worker, the older Store container (oldStore),
@@ -31,6 +32,7 @@
 //                                          stopSandboxes: stop its running Sandboxes first); see remove.js
 //   GET  /layerfs/runs                        recorded history replay runs and their traced ranges (runs.js)
 //   GET  /layerfs/runs/<id>/trace?range&attempt  one range attempt's trace lines, each with its agent
+import { createHash } from "node:crypto";
 import { missingDeployment } from "./config.js";
 import { prepareInit, runInit } from "./init.js";
 import { InitJobs } from "./jobs.js";
@@ -115,7 +117,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
         const project = bindings.byName(decodeURIComponent(parts[1]));
         if (!project) return send(res, 404, { code: "not-found", message: `no LayerFS project named ${decodeURIComponent(parts[1])}` });
         if (req.method === "GET" && parts[2] === "state") return send(res, 200, { ...(await trees.state(project)), ...collector.nodesOf(project.name) });
-        if (req.method === "GET" && parts[2] === "history") return send(res, 200, { ...(await trees.history(project)), ...collector.nodesOf(project.name) });
+        if (req.method === "GET" && parts[2] === "history") return send(res, 200, historyAnswer(await trees.history(project), collector.nodesOf(project.name), url.searchParams.get("since")));
         if (req.method === "GET" && Object.hasOwn(READS, parts[2])) return send(res, 200, await trees.files(project, parts[2], url.searchParams));
         if (req.method === "GET" && parts[2] === "storage") return send(res, 200, await trees.storage(project));
         if (req.method === "GET" && parts[2] === "runtime") {
@@ -155,4 +157,16 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
     }
   };
   ctx.effect(() => ctx.webServer.register({ kind: "prefix", path: PREFIX, handler }), `layerfs-host: ${PREFIX}`);
+}
+
+/**
+ * A History read's answer: the History and the traces' authors and times,
+ * with a `version` of both (the Store's History version and a digest of the
+ * traces' part). A caller that sends the version it holds as `since` gets
+ * { kind: "unchanged", version } while neither changed.
+ */
+export function historyAnswer(history, nodes, since) {
+  const version = history.version ? `${history.version}.${createHash("sha256").update(JSON.stringify(nodes)).digest("hex").slice(0, 16)}` : undefined;
+  if (version && since === version) return { kind: "unchanged", version };
+  return { ...history, ...nodes, version };
 }

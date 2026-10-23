@@ -139,12 +139,16 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
 
   // the project's whole History (undefined until read; null if it could not be read). The
   // board waits for it, so History never shows the session's calls alone while it loads.
-  const [seed, setSeed] = useState<ProjectState | null | undefined>(undefined)
+  // A History this page already read (either tab, or before a tab switch) draws at once
+  // and is checked with the Host; it is replaced only when it changed.
+  const [seed, setSeed] = useState<ProjectState | null | undefined>(() => api.keptHistory(name))
   useEffect(() => {
     let stopped = false
     const name = view.project!.name
-    // a Host without the History-only read answers the full state read
-    api.projectHistory(name).catch(() => api.projectState(name)).then((state) => { if (!stopped) setSeed(state) }, () => { if (!stopped) setSeed(null) })
+    const kept = api.keptHistory(name)
+    setSeed(kept)
+    // a Host without the History-only read answers the full state read; a failed check keeps the kept one
+    api.projectHistory(name).catch(() => api.projectState(name)).then((state) => { if (!stopped) setSeed(state) }, () => { if (!stopped) setSeed(kept ?? null) })
     return () => { stopped = true }
   }, [sessionId])
 
@@ -172,7 +176,8 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
   useEffect(() => {
     const b = board.current
     if (!b || seed === undefined) return
-    const agents = `${Object.values(view.agents).join(',')}|${seed ? 'seeded' : ''}`
+    // a new History (a changed version) rebuilds the board on it
+    const agents = `${Object.values(view.agents).join(',')}|${seed ? seed.version ?? 'seeded' : ''}`
     if (!play.current || play.current.agents !== agents) {
       // a rebuild (the tab opened, or an agent was named): labels follow call
       // order; what is past applies at once, so nothing plays twice

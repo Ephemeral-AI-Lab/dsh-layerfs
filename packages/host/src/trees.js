@@ -8,18 +8,29 @@
 // kept (the newest KEEP_READS of them). A read that asks the project's
 // Sandboxes runs once at a time (once): a reader while it runs shares its
 // answer, so a Sandbox that stops answering gets no pile of requests, and
-// readers wait for it only SANDBOX_MS (within).
-import { clientFor, release, SANDBOX_MS, stateOf, within } from "./layerfs-client.js";
+// readers wait for it only SANDBOX_MS (within). A project's last History is
+// kept with its Store `version`: the next History read asks the Store
+// whether it changed (get_history(since)) and, if not, answers the kept one
+// without listing a Commit. Every read keeps the project's Commits, so a
+// changed History lists only the Commits it has not seen (allCommits).
+import { allCommits, clientFor, drawState, release, SANDBOX_MS, within } from "./layerfs-client.js";
 import { READS } from "./reads.js";
 import { storageOf } from "./storage.js";
 
 const IDLE_MS = 60_000;
 /** The largest page of background processes the backend lists. */
 const PROCESSES = 1000;
-/** The project's History from its Store alone, as a state without Sandboxes. */
-const historyOf = async (client) => ({ ...(await client.backend.store.project.get_history()), sandboxes: [], gone: [] });
 /** Files reads kept (reads.js): each at most a page of 1000 names or a 48 KiB window. */
 const KEEP_READS = 500;
+/** Projects whose last History and Commits are kept, the most recently read. */
+const KEEP_PROJECTS = 8;
+
+/** Sets `key` in `map` as its newest entry, dropping the oldest past `most`. */
+function keep(map, key, value, most) {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > most) map.delete(map.keys().next().value);
+}
 
 export class TreeReader {
   /** @param {object} spec @param {(project: object) => Promise<object>} [open] a project's client, { layerfs, backend, state, close } */
@@ -34,6 +45,10 @@ export class TreeReader {
     this.running = new Map();
     /** how long a reader waits for the project's Sandboxes (SANDBOX_MS) */
     this.sandboxMs = SANDBOX_MS;
+    /** project name -> { version, state }: the last History read from the Store */
+    this.histories = new Map();
+    /** project name -> Map(id -> Commit): the Commits of the project's last read */
+    this.commits = new Map();
   }
 
   /**
@@ -80,17 +95,35 @@ export class TreeReader {
    * without Workspaces (`late`), while the snapshot runs on.
    */
   async state(project) {
-    const reading = this.snapshot(project);
-    const quick = await within(reading, this.sandboxMs);
-    return this.use(project, async (client) => {
-      if (!quick.late) return stateOf(client, quick.value);
-      return { ...(await stateOf(client, await historyOf(client))), late: true };
+    const quick = await within(this.snapshot(project), this.sandboxMs);
+    if (quick.late) return { ...(await this.history(project)), late: true };
+    return this.use(project, (client) => this.draw(project, client, quick.value));
+  }
+
+  /**
+   * The project's History alone, from its Store, with its `version`: no
+   * Sandbox is asked (a chat's History starts from it). Unchanged since the
+   * kept one, it is the kept one. One read at a time per project.
+   */
+  history(project) {
+    return this.once(project, "history", async (client) => {
+      const kept = this.histories.get(project.name);
+      const answer = await client.backend.store.project.get_history(kept?.version);
+      if (kept && answer.kind === "unchanged" && answer.version === kept.version) {
+        keep(this.histories, project.name, kept, KEEP_PROJECTS);
+        return kept.state;
+      }
+      const state = { ...(await this.draw(project, client, { ...answer, sandboxes: [], gone: [] })), version: answer.version };
+      if (answer.version) keep(this.histories, project.name, { version: answer.version, state }, KEEP_PROJECTS);
+      return state;
     });
   }
 
-  /** The project's History alone, from its Store: no Sandbox is asked (a chat's History starts from it). */
-  history(project) {
-    return this.use(project, async (client) => stateOf(client, await historyOf(client)));
+  /** A snapshot drawn with every Commit, listing only those the project's last read did not have. */
+  async draw(project, client, snapshot) {
+    const snap = await allCommits(client.layerfs, snapshot, this.commits.get(project.name));
+    keep(this.commits, project.name, new Map(snap.commits.map((c) => [c.id, c])), KEEP_PROJECTS);
+    return drawState(snap);
   }
 
   /** What the project's Store holds and what made it; see storageOf. */
@@ -126,6 +159,8 @@ export class TreeReader {
   /** Drops a project's kept reads and releases its client now (before removal). */
   async forget(name) {
     for (const key of [...this.reads.keys()]) if (key.startsWith(`${name}\n`)) this.reads.delete(key);
+    this.histories.delete(name);
+    this.commits.delete(name);
     const entry = this.clients.get(name);
     if (!entry) return;
     this.clients.delete(name);

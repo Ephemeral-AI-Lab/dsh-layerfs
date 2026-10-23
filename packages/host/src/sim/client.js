@@ -30,7 +30,7 @@ export function simClient(home, name) {
     },
     workspace: { unmount: (ws, discard = false) => send(call, "workspace.unmount", { sandbox: ws.sandbox, path: ws.path, discard }) },
   };
-  const get_history = () => send(backendCall, "backend.store.project.get_history", {});
+  const get_history = (since) => send(backendCall, "backend.store.project.get_history", since === undefined ? {} : { since });
   const backend = {
     store: {
       project: {

@@ -1,5 +1,7 @@
 // The Host's /layerfs route, from the page that dsh web or Desktop serves
 // (same origin, its session cookie).
+import { createHistoryCache } from './historyCache.ts'
+
 /** `empty`: started with nothing in it; `source` was a temporary empty folder. */
 export interface Project { name: string, source: string, volume: string, created: number, empty?: boolean }
 /**
@@ -7,7 +9,7 @@ export interface Project { name: string, source: string, volume: string, created
  * id), with what the session journals add: who made each node, when each
  * Layer was published (by real id) and when each Branch was forked (by name).
  */
-export interface ProjectState { s: any, labels: Record<string, string>, authors: Record<string, string>, times: Record<string, number>, forks: Record<string, number>, /** History alone (readProject): the full state with its Workspaces follows */ historyOnly?: boolean }
+export interface ProjectState { s: any, labels: Record<string, string>, authors: Record<string, string>, times: Record<string, number>, forks: Record<string, number>, /** History alone (readProject): the full state with its Workspaces follows */ historyOnly?: boolean, /** a History read's version (?since=) */ version?: string }
 export interface SessionView {
   session: string
   root: string
@@ -144,6 +146,10 @@ export function readProject(name: string, show: (state: ProjectState) => void, f
   history.catch(() => {})
   return () => { stopped = true }
 }
+/** Projects' History, kept while the page is open and checked with ?since= (historyCache.ts). */
+const histories = createHistoryCache<ProjectState>((name, since) =>
+  call('GET', `/project/${encodeURIComponent(name)}/history${since ? `?since=${encodeURIComponent(since)}` : ''}`))
+
 const filesQuery = (query: Record<string, string | number>) => new URLSearchParams(Object.entries(query).map(([k, v]) => [k, String(v)])).toString()
 
 export const api = {
@@ -155,13 +161,18 @@ export const api = {
   projects: () => call<{ projects: Project[], defaults: Record<string, string> }>('GET', '/projects'),
   setDefault: (folder: string, project: string) => call<{ projects: Project[], lastUsed: string | null }>('POST', '/workspace', { folder, project }),
   projectState: (name: string) => call<ProjectState>('GET', `/project/${encodeURIComponent(name)}/state`),
-  /** The project's History alone, from its Store, without waiting on its Sandboxes. */
-  projectHistory: (name: string) => call<ProjectState>('GET', `/project/${encodeURIComponent(name)}/history`),
+  /** The project's History alone, from its Store, without waiting on its Sandboxes; the kept one while unchanged. */
+  projectHistory: (name: string) => histories.read(name),
+  /** The project's History as last read on this page, if any: drawn at once, then checked with projectHistory. */
+  keptHistory: (name: string) => histories.kept(name),
   projectStorage: (name: string) => call<Storage>('GET', `/project/${encodeURIComponent(name)}/storage`),
   /** One Files read of saved ids (the Host's reads.js): list, read, changes or diff. */
   projectFiles: (name: string, kind: string, query: Record<string, string | number>) => call<any>('GET', `/project/${encodeURIComponent(name)}/${kind}?${filesQuery(query)}`),
   /** stopSandboxes: stop the project's running Sandboxes instead of refusing (a demo's own project) */
-  remove: (name: string, stopSandboxes = false) => call<{ removed: string, volume: string }>('POST', `/project/${encodeURIComponent(name)}/remove`, { confirm: name, stopSandboxes }),
+  remove: (name: string, stopSandboxes = false) => {
+    histories.forget(name)
+    return call<{ removed: string, volume: string }>('POST', `/project/${encodeURIComponent(name)}/remove`, { confirm: name, stopSandboxes })
+  },
   files: (id: string, kind: string, query: Record<string, string | number>) => call<any>('GET', `/session/${sid(id)}/${kind}?${filesQuery(query)}`),
   overview: () => call<Overview>('GET', '/runtime'),
   /** Starts the home's worker when it is stopped or missing. */

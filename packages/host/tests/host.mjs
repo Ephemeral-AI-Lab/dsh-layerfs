@@ -458,6 +458,63 @@ try {
     assert.equal(Object.keys(state.s.commits).length, 4, "the cut-off Commit is listed");
     assert.equal(state.s.commits[state.labels[id(2)]].parent, state.labels[id(1)], "and is its child's parent");
   }
+  // History is kept with its Store version: an unchanged History lists no Commit, a changed
+  // one lists only Commits it has not seen, and a chain it cannot finish is listed in full
+  {
+    const { allCommits } = await import("../src/layerfs-client.js");
+    const { historyAnswer } = await import("../src/route.js");
+    const id = (n) => "12" + String(n).padStart(64, "0"), L0 = "32" + "0".repeat(64);
+    const commit = (n, parent) => ({ id: id(n), branch: "feature", parent: parent && id(parent), base: L0, root: "a".repeat(63) + n, via: "fs", message: `c${n}`, time: n });
+    const chain = (...ns) => ns.map((n, i) => commit(n, ns[i + 1] ?? null));
+    const snapOf = (commits, head) => ({ project: "website", commits: commits.slice(0, 2), more: { feature: null }, layers: [{ id: L0, parent: null, root: "b".repeat(64) }], branches: [{ name: "main", base: L0, head: null }, { name: "feature", base: L0, head: id(head) }] });
+    const lister = (commits, pages) => ({ branch: { list_commits: async (branch, size, pos) => { pages.push(pos); const items = commits.slice(pos, pos + 2); return { items, hasMore: pos + 2 < commits.length, nextPagePos: pos + 2 < commits.length ? pos + 2 : null }; } } });
+    const ids = (snap) => snap.commits.map((c) => c.id).sort();
+    const byId = (commits) => new Map(commits.map((c) => [c.id, c]));
+    const first = chain(4, 3, 2, 1), pages = [];
+    const full = await allCommits(lister(first, pages), snapOf(first, 4));
+    assert.deepEqual([ids(full), pages], [first.map((c) => c.id).sort(), [0, 2]]);
+    // a known head: nothing listed
+    pages.length = 0;
+    assert.deepEqual([ids(await allCommits(lister(first, pages), snapOf(first, 4), byId(first))), pages], [ids(full), []]);
+    // one new Commit: one page, stopped at the first known Commit
+    const grown = chain(6, 5, 4, 3, 2, 1);
+    pages.length = 0;
+    assert.deepEqual([ids(await allCommits(lister(grown, pages), snapOf(grown, 6), byId(first))), pages], [grown.map((c) => c.id).sort(), [0, 2]]);
+    // a forced Commit displaced the head: the displaced Commits drop out, as in a full listing
+    const forced = [commit(7, 3), ...chain(3, 2, 1)];
+    pages.length = 0;
+    const kept = await allCommits(lister(forced, pages), snapOf(forced, 7), byId(grown));
+    assert.deepEqual([ids(kept), pages], [[id(1), id(2), id(3), id(7)], [0]]);
+    // known Commits that do not reach the root: the Branch is listed in full
+    pages.length = 0;
+    const partial = await allCommits(lister(grown, pages), snapOf(grown, 6), byId([commit(4, 3)]));
+    assert.deepEqual([ids(partial), pages], [grown.map((c) => c.id).sort(), [0, 2, 0, 2, 4]]);
+
+    // TreeReader.history: the Store is asked since the kept version; unchanged answers the kept History
+    let history = { kind: "ok", version: "v1", ...snapOf(first, 4) };
+    const sinces = [], listed = [];
+    const reader = new TreeReader(h.spec, async () => ({ layerfs: lister(first, listed), backend: { store: { project: { get_history: async (since) => (sinces.push(since), since === history.version ? { kind: "unchanged", version: since } : history) } } }, close: async () => {} }));
+    const P = { name: "website" };
+    const one = await reader.history(P), again = await reader.history(P);
+    assert.deepEqual([sinces, listed, one.version, again === one], [[undefined, "v1"], [0, 2], "v1", true], "the second read lists nothing and answers the kept History");
+    history = { kind: "ok", version: "v2", ...snapOf(grown, 6) };
+    reader.open = async () => ({ layerfs: lister(grown, listed), backend: { store: { project: { get_history: async (since) => (sinces.push(since), history) } } }, close: async () => {} });
+    await reader.forget("other");
+    listed.length = 0;
+    const [moved, shared] = await Promise.all([reader.history(P), reader.history(P)]);
+    assert.deepEqual([sinces.at(-1), sinces.length, listed, moved.version, moved === shared, Object.keys(moved.s.commits).length], ["v1", 3, [0], "v2", true, 6], "a changed History lists only its new Commits, once for both readers");
+    await reader.forget("website");
+    assert.deepEqual([reader.histories.size, reader.commits.size], [0, 0], "forgetting a project drops what was kept");
+    await reader.dispose();
+
+    // the route's version covers the Store's History and the traces' authors and times
+    const nodes = { authors: { [id(4)]: "ann" }, times: {}, forks: {} };
+    const answer = historyAnswer(one, nodes, null);
+    assert.equal(answer.authors[id(4)], "ann");
+    assert.deepEqual(historyAnswer(one, nodes, answer.version), { kind: "unchanged", version: answer.version });
+    assert.notEqual(historyAnswer(one, { ...nodes, authors: { [id(4)]: "bob" } }, answer.version).kind, "unchanged", "a new author is a new version");
+    assert.equal(historyAnswer({ ...one, version: undefined }, nodes, undefined).version, undefined, "a History without a version is never unchanged");
+  }
   // a live project's client: LayerFS.open with the project's deployment (here on a stand-in binding in
   // this process), its backend beside it, its state from the runtime; releasing it closes its Store
   {
