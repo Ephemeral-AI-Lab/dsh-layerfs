@@ -3,11 +3,10 @@
 // menu lists every project (the workspace folder's imports first) and "No
 // LayerFS", with "New empty project" and "Import project…" pinned below them.
 // Choosing one binds the session to it and makes it the folder's default. A
-// new empty project gets a random name from the Host (such as calm-otter). Like
-// "Add workspace…", Import opens the directory picker (Finder in dsh web on a
-// Mac); the chosen folder is imported as a new project (numbered name-1,
-// name-2, … when imported again), the folder's default, and chosen for this
-// session. Without a directory picker it opens InitDialog instead. The choice
+// new empty project gets a random name from the Host (such as calm-otter).
+// Import opens the same Init dialog as the LayerFS page's Import project: the
+// folder chooser at once, then the name and time limit; the imported project
+// is chosen for this session. The choice
 // is fixed once an agent's first bash call has used the project. Choosing a
 // project (or opening on one) switches the blank session to the LayerFS × DSH
 // minimalist preset; "No LayerFS" leaves the preset as it is.
@@ -91,21 +90,6 @@ export function ProjectPicker({ sessionId, directories, usePreset }: { sessionId
       if (next.project && !next.choice?.locked) await layerFsPreset()
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
-  // the picker answers null when the user cancels; nothing is imported then
-  const importProject = async () => {
-    // as dsh's native directory flow: the desktop bridge when present, else the Host's OS chooser
-    const desktop = (globalThis as { __DSH_DIRECTORY_PICKER__?: { pick(): Promise<string | null> } }).__DSH_DIRECTORY_PICKER__
-    const dirs = directories()
-    if (!desktop && !dirs?.pickDirectory) { setIniting(true); return }
-    await run(async () => {
-      const source = desktop ? await desktop.pick() : await dirs!.pickDirectory!()
-      if (!source) return view
-      try {
-        const { project } = await api.init(folder, undefined, source, setJob)
-        return await api.choose(sessionId, project.name)
-      } finally { setJob(null) }
-    })
-  }
   const startEmpty = () => run(async () => {
     setVerb('Creating')
     try {
@@ -115,7 +99,7 @@ export function ProjectPicker({ sessionId, directories, usePreset }: { sessionId
   })
   const select = (id: string) => {
     setOpen(false)
-    if (id === IMPORT) void importProject()
+    if (id === IMPORT) setIniting(true)
     else if (id === EMPTY) void startEmpty()
     else void run(() => api.choose(sessionId, id === NONE ? null : id))
   }
@@ -163,7 +147,7 @@ export function ProjectPicker({ sessionId, directories, usePreset }: { sessionId
           <span style={{ fontSize: 12, lineHeight: '17px', overflowWrap: 'anywhere', color: 'var(--dsw-alias-label-caption)' }}>{jobText(job, now)}</span>
         </span>
       )}
-      {initing && <InitDialog folder={folder} directories={directories()} onClose={() => setIniting(false)} onDone={(project) => { setIniting(false); void run(() => api.choose(sessionId, project.name)) }} />}
+      {initing && <InitDialog folder={null} directories={directories()} onClose={() => setIniting(false)} onDone={(project) => { setIniting(false); void run(() => api.choose(sessionId, project.name)) }} />}
     </span>
   )
 }
