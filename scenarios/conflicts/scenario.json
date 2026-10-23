@@ -1,0 +1,262 @@
+{
+ "type": "layerfs-scenario",
+ "version": 3,
+ "title": "Conflicts",
+ "blurb": "The two conflict kinds and how each is resolved: a Workspace against its Branch head (markers in the Workspace), and Branch against Branch (merge refused until the sides agree).",
+ "order": 3,
+ "layerfs": [
+  "mocked",
+  "real"
+ ],
+ "fixture": "../../demo-workspace",
+ "lib": "../shared/terminal.mjs",
+ "agents": {
+  "root": [
+   {
+    "bash": {
+     "description": "fork feature",
+     "run": [
+      [
+       "history",
+       "fork feature"
+      ]
+     ]
+    },
+    "phase": "Workspace conflict",
+    "expect": [
+     "branch.fork:Forked"
+    ]
+   },
+   {
+    "bash": {
+     "description": "sb1: open a Sandbox terminal on feature",
+     "run": [
+      [
+       "sandbox",
+       "feature"
+      ],
+      [
+       "open",
+       "sb1",
+       "feature",
+       "feature"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.create:Ready",
+     "sandbox.mount:Mounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "sb1: sed -i \"s/Hello world/Hello from the Workspace/\" app/page.tsx",
+     "run": [
+      [
+       "term",
+       "sb1",
+       "sed -i \"s/Hello world/Hello from the Workspace/\" app/page.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fs on feature: edit app/page.tsx \"Hello world\" \"Hello from fs\"",
+     "run": [
+      [
+       "fs",
+       "feature",
+       "edit",
+       "app/page.tsx",
+       "Hello world",
+       "Hello from fs"
+      ]
+     ]
+    },
+    "expect": [
+     "fs.edit:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "sb1: commit",
+     "run": [
+      [
+       "term",
+       "sb1",
+       "commit"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.commit:Conflict"
+    ]
+   },
+   {
+    "bash": {
+     "description": "sb1: cat app/page.tsx",
+     "run": [
+      [
+       "term",
+       "sb1",
+       "cat app/page.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "sb1: sed -i '/Hello from fs\\|^<<<<<<<\\|^=======\\|^>>>>>>>/d' app/page…",
+     "run": [
+      [
+       "term",
+       "sb1",
+       "sed -i '/Hello from fs\\|^<<<<<<<\\|^=======\\|^>>>>>>>/d' app/page.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "sb1: commit",
+     "run": [
+      [
+       "term",
+       "sb1",
+       "commit"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "sb1: unmount",
+     "run": [
+      [
+       "term",
+       "sb1",
+       "unmount"
+      ],
+      [
+       "closeAll"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.unmount:Unmounted",
+     "sandbox.close:Closed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fork header",
+     "run": [
+      [
+       "history",
+       "fork header"
+      ]
+     ]
+    },
+    "phase": "Branch conflict",
+    "expect": [
+     "branch.fork:Forked"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fs on header: edit app/page.tsx \"Hello world\" \"Hello from header\"",
+     "run": [
+      [
+       "fs",
+       "header",
+       "edit",
+       "app/page.tsx",
+       "Hello world",
+       "Hello from header"
+      ]
+     ]
+    },
+    "expect": [
+     "fs.edit:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "merge feature header as release",
+     "run": [
+      [
+       "history",
+       "merge feature header as release"
+      ]
+     ]
+    },
+    "expect": [
+     "branch.merge:Conflict"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fs on header: edit app/page.tsx \"Hello from header\" \"Hello from the W…",
+     "run": [
+      [
+       "fs",
+       "header",
+       "edit",
+       "app/page.tsx",
+       "Hello from header",
+       "Hello from the Workspace"
+      ]
+     ]
+    },
+    "expect": [
+     "fs.edit:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "merge feature header as release",
+     "run": [
+      [
+       "history",
+       "merge feature header as release"
+      ]
+     ]
+    },
+    "expect": [
+     "branch.merge:Merged"
+    ]
+   },
+   {
+    "bash": {
+     "description": "publish release",
+     "run": [
+      [
+       "history",
+       "publish release"
+      ]
+     ]
+    },
+    "phase": "Publish",
+    "expect": [
+     "branch.publish:Added"
+    ]
+   },
+   {
+    "reply": "Both conflicts are resolved and release is on main."
+   }
+  ]
+ }
+}

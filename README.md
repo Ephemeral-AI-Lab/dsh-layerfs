@@ -165,7 +165,7 @@ export DSH_HOME=$HOME/dsh-layerfs        # any empty folder
 pnpm --dir "$DSH" dsh plugin --profile web add "link:$DSH_LAYERFS/packages/dsh-layerfs"
 ```
 
-Install `dsh-layerfs` only. The demo bundle `dsh-layerfs-demo` is disabled permanently and is not in this repository.
+Install `dsh-layerfs` only. The demo bundle `dsh-layerfs-demo` is disabled permanently and is not in this repository. The bundle includes the LayerFS scripted model, switched off; see [Scripted runs](#scripted-runs).
 
 The profile is `$DSH_HOME/profiles/web/`. Its `package.json` should now read:
 
@@ -414,10 +414,18 @@ Branches into one, fix any Conflict, run the check once more, and publish to mai
 | Host plugin `layerfs-host` | `@dsh-layerfs/host` | bash environment, session records, the `/layerfs` web route |
 | Client plugin `layerfs-client` | `@dsh-layerfs/client` | Work and History tabs, project chip, LayerFS page (dsh web) |
 | Agent preset `layerfs-dsh-minimalist` | `dsh-layerfs` (`presets/`) | "LayerFS × DSH minimalist" in the preset menu |
+| LayerFS scripted model `layerfs-mock` (off by default) | `@dsh-layerfs/mock` | "LayerFS scripted model · …" models, the LayerFS page's Scenarios tab, the Run bar |
 | View model | `@dsh-layerfs/model` | used by the client and the Host |
 | Renderer | `@dsh-layerfs/view` | used by the client |
 
-The mock model `layerfs-mock` and its demo bundle `dsh-layerfs-demo` are disabled permanently (owner, 2026-10-21) and did not move here; they stay in the layerfs repository's history (`dsh/packages/mock` at `cea713e767`). The client's demo strip code remains and stays inert without that bundle.
+### Scripted runs
+
+The LayerFS scripted model plays scripted agent runs through the real dsh agent loop and tools, without a language model, to test and show the LayerFS UI ([dsh-layerfs#1](https://github.com/Ephemeral-AI-Lab/dsh-layerfs/issues/1)). It ships in the bundle switched off: turn on `@dsh-layerfs/mock` on dsh's Plugins page. Off, nothing of it shows.
+
+- **Scenarios** live in [`scenarios/`](scenarios/), one folder each with a `scenario.json` (loader: [`packages/mock/src/scenario.js`](packages/mock/src/scenario.js)). Every step is one tool call of the minimalist preset, a reply, or a wait; bash steps run LayerFS SDK calls (`scenarios/shared/terminal.mjs`, or the scenario's own `scripts/`). Each lists the backends it runs on: **Mocked LayerFS** (the simulator in [`packages/host/src/sim`](packages/host/src/sim)) and **Real LayerFS**.
+- **The Scenarios tab** on the LayerFS page lists every scenario with its latest run on each backend. A switch picks the backend; Run all queues every scenario it offers and runs up to 4 Mocked or 2 Real at once; each row has Run or Stop. A failed run shows why and keeps its project; Clean up removes the scenario projects no run is using.
+- **The Run bar** sits above a run's composer: the backend for the next run (locked while one goes), Stop or Run again, and "Step n of m · phase" with a thin bar.
+- **Each run** gets a new Session in the Scenarios workspace (`<profile>/dsh-layerfs-mock/Scenarios`) and its own project, `mock-<scenario>-<mocked|real>`, removed and Inited again from the scenario's fixture. A run fails on a failed step (a bash exit other than 0 included), a Stop, or after 15 minutes; nothing is retried. The latest run per scenario and backend is kept in `<profile>/dsh-layerfs-mock/runs.json`.
 
 The Work and History tabs and the LayerFS page are the only LayerFS UI. The standalone HTML pages that used to live in the root `sdk_sim/` (the terminal UI page and its design preview) and their live server are removed; do not build or revive a standalone HTML or TUI page. What remains, the simulation engine, lives in [`sim/`](sim/): `simulation_engine/model.js` and `files.js`, which the client and the Host import, the terminal engine (`terminal.js`, `backend/sim.js`) and demo stories (`demo.js`) that the demos were written from, and the avatars (`avatars/`).
 
@@ -480,12 +488,10 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
 
   An unbound session shows Setup: pick one of the folder's projects, or Init.
 
-  **Playback.** The tab plays calls in step with the run, for real agents and demos alike ([`playback.ts`](packages/client/src/client/playback.ts)):
+  **Playback.** The tab plays calls in step with the run, for real and scripted agents alike ([`playback.ts`](packages/client/src/client/playback.ts)):
   - each call shows 2 s after it ended, so the gaps on screen are the run's own gaps and the tab never falls behind. The 2 s are longer than the Host poll (1.5 s), so a call is usually here before its time;
   - calls whose time has passed (the tab opened, a rebuild when an agent is named, a late poll) appear at once, drawn once. Nothing plays twice;
   - a bash call that mounts, runs, commits and unmounts a Workspace within a second shows each step at its time, and the Workspace's pane then fades out over 1.2 s ("unmounted"), a trail kept by the view only ([`view.js`](packages/view/src/view.js)).
-
-  **Demo speed.** A demo's strip, above the composer, has a speed control beside Sim and Live: 1×, 2×, 4× and Max. It sets how fast the mock runs the demo, not how fast the tab animates it: the speed divides the scenario's pauses and the typing between streamed words, and Max leaves them out ([`pace.js`](packages/mock/src/pace.js), `POST /layerfs-demo/<id>/speed`). A pause under way follows a change at once. Commands, LayerFS calls and waits on other agents take their own time at any speed. A demo starts at its scenario's `speed`, 1× for every demo. Where a scenario's pauses order two agents' commits (5 agents: ben's `--lint` lands before cy's `--profile`, which then conflicts), a faster speed narrows that margin while the commands keep their time, so a planned Conflict may not happen; check-demo then fails it. It applies to a run under way too; the LayerFS tab has no speed control.
 
   **Terminals and their command lines.** Every SDK call an agent makes prints one command line in one terminal. The single table for both is [`packages/model/src/cli.js`](packages/model/src/cli.js); `node packages/model/tests/cli.mjs` fails when an SDK or operator method has no row there.
 
@@ -542,7 +548,6 @@ Sim needs no Docker, image or daemon. `POST /layerfs/init` with `backend: "sim"`
 The Host's own reads of a simulated project (Init, state, trees, storage) go to the binding directly. Store sizes are estimates from file text. Sim runs commands on the Host without a container.
 
 Known limits:
-- dsh's sidebar orders sessions by last activity by default, so the demo played last moves to the top. The manual order keeps each demo's place.
 - Sim imports the simulation engine's model from `sim/` at this repository's root, so the Host package needs this repository's tree beside it to Init or read a simulated project.
 - `demo-workspace` is inside this repository. A turn's "Edited" card lists every change made in the repository during the turn, including other work in the checkout.
 
@@ -567,7 +572,7 @@ Known limits:
 
 | Command | Does |
 |---|---|
-| `pnpm test` | Host, simulator, model, playback and checks tests, with LayerFS stubbed or simulated; under 10 seconds |
+| `pnpm test` | Host, simulator, scripted model, model, playback and checks tests, with LayerFS stubbed or simulated; under 10 seconds |
 | `pnpm run link:layerfs` | points `.layerfs` at `LAYERFS_SOURCE` (default `../layerfs`) |
 | `pnpm run check:layerfs` | fails unless `LAYERFS_SOURCE` (default `../layerfs`) is a LayerFS checkout at the commit in `layerfs.json` |
 | `pnpm run build` | the client bundle, with deepseek-harness's tsdown (`DSH_SOURCE`) |
@@ -588,4 +593,4 @@ The pin is LayerFS's #428 SDK branch (`claude/issue428-sdk-packages-cd9412`, in 
 
 ### What stayed in the layerfs repository
 
-The mock model and its demo bundle (disabled permanently, owner 2026-10-21), the demo scenarios (`scenarios/`), the demo tools (`demo.mjs`, `check-demo.mjs`, `check-scenario.mjs`), `init-project.mjs`, and the #352 history replay harness (`tools/history/`, `run-scenario`, `restore-store`, `import-run`) stayed in the layerfs repository; it measures LayerFS builds, not the plugin. They are in its history at `cea713e767`, under `dsh/`.
+The demo bundle (disabled permanently, owner 2026-10-21), the demo tools (`demo.mjs`, `check-demo.mjs`, `check-scenario.mjs`), `init-project.mjs`, and the #352 history replay harness (`tools/history/`, `run-scenario`, `restore-store`, `import-run`) stayed in the layerfs repository; it measures LayerFS builds, not the plugin. They are in its history at `cea713e767`, under `dsh/`.

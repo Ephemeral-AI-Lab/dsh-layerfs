@@ -25,13 +25,22 @@ export const simDir = (home, project) => join(home, project, "sim");
 /** Whether `project` under `home` is simulated: its state file exists. */
 export const isSimulated = (home, project) => existsSync(join(simDir(home, project), "state.json"));
 
-/** Files under `dir` as the model's tree, without inodes: `{ "/a/b": { type, content? } }`. */
+/** Files under `dir` as the model's tree, without inodes: `{ "/a/b": { type, content? } }`.
+ * A process may still be writing there (a background dev server), so an
+ * entry removed or renamed between the listing and its read is not there. */
 export function readTree(dir, base = "", tree = {}) {
-  for (const name of readdirSync(dir).sort()) {
-    const file = join(dir, name), path = `${base}/${name}`, stat = lstatSync(file);
-    if (stat.isDirectory()) { tree[path] = { type: "dir" }; readTree(file, path, tree); }
-    else if (stat.isSymbolicLink()) tree[path] = { type: "file", content: `→ ${readlinkSync(file)}` };
-    else if (stat.isFile()) tree[path] = { type: "file", content: readFileSync(file, "utf8") };
+  let names;
+  try { names = readdirSync(dir).sort(); } catch (error) { if (error.code === "ENOENT" && base) return tree; throw error; }
+  for (const name of names) {
+    const file = join(dir, name), path = `${base}/${name}`;
+    try {
+      const stat = lstatSync(file);
+      if (stat.isDirectory()) { tree[path] = { type: "dir" }; readTree(file, path, tree); }
+      else if (stat.isSymbolicLink()) tree[path] = { type: "file", content: `→ ${readlinkSync(file)}` };
+      else if (stat.isFile()) tree[path] = { type: "file", content: readFileSync(file, "utf8") };
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
   }
   return tree;
 }

@@ -37,7 +37,8 @@ try {
   const { LayerFS } = await import(spec.simSdk);
   const lf = await LayerFS.open(NAME);
   await lf.branch.fork("feature");
-  const ws = await lf.workspace.mount("feature");
+  const { sandbox } = await lf.sandbox.create();
+  const ws = await lf.workspace.mount(sandbox, "feature");
   await lf.workspace.exec(ws, "echo new > note.txt");
 
   const busy = new Set(), mountedAt = Date.now() - LEFT_MS - 1000;

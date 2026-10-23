@@ -26,7 +26,7 @@ export const fmtMs = (ms) => (ms < 1 ? ms.toFixed(2) : ms < 1000 ? ms.toFixed(0)
 
 export function timingText(t) {
   if (!t) return "";
-  if (t.simulated) return `${fmtMs(t.totalMs)} in the page (sim)`;
+  if (t.simulated) return `${fmtMs(t.totalMs)} in the page (Mocked LayerFS)`;
   if (t.reset) return `${fmtMs(t.totalMs)} · server reset: new volume + Init`;
   if (t.traced) return `${fmtMs(t.sdkMs)} SDK call, from its trace line`;
   const http = Math.max(0, t.totalMs - (t.sdkMs || 0) - (t.refreshMs || 0));
@@ -37,5 +37,5 @@ export function cmdTime(calls) {
   const ts = (calls || []).map((c) => c.timing).filter(Boolean);
   if (!ts.length) return "";
   const sum = ts.reduce((a, t) => a + (t.simulated || t.reset ? t.totalMs : t.sdkMs || 0), 0);
-  return `<span class="tm" title="${ts[0].simulated ? "Time of the simulator in the page, not the product" : "SDK call time, summed over this line's calls"}">${fmtMs(sum)}${ts[0].simulated ? " sim" : ""}</span>`;
+  return `<span class="tm" title="${ts[0].simulated ? "Time of Mocked LayerFS in the page, not the product" : "SDK call time, summed over this line's calls"}">${fmtMs(sum)}${ts[0].simulated ? " mocked" : ""}</span>`;
 }

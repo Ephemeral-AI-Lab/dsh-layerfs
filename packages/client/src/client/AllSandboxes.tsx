@@ -99,7 +99,7 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                     <span style={{ flex: 1 }} />
                     <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 400, color: T.caption, whiteSpace: 'nowrap' }}>
-                      {p.sandboxes.length ? `${p.sandboxes.length} Sandbox${p.sandboxes.length === 1 ? '' : 'es'} · ${p.workspaces} WS` : 'no Sandbox'}{p.simulated ? ' · sim' : ''}
+                      {p.sandboxes.length ? `${p.sandboxes.length} Sandbox${p.sandboxes.length === 1 ? '' : 'es'} · ${p.workspaces} WS` : 'no Sandbox'}{p.simulated ? ' · Mocked LayerFS' : ''}
                     </span>
                   </span>
                   {p.sandboxes.map((s) => (

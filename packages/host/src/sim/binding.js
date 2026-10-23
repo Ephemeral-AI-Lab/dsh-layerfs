@@ -7,8 +7,10 @@
 // the real binding's (`{ value }` or `{ refused }`, in the shapes it gives),
 // ids in LayerFS's formats; the decisions are the model's. Store sizes are
 // estimates from file text. One attempt per call; nothing is retried.
-// Sandboxes are numbered and placed as the real binding places them (#373);
-// a simulated Sandbox does not close when idle.
+// Sandboxes are numbered as the real binding numbers them: sandbox.create
+// starts the lowest free number, every mount names its Sandbox (nothing is
+// placed), and sandbox.close stops one; a simulated Sandbox does not close
+// when idle.
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { Project, Refusal, fileViews, model, readTree, simDir } from "./state.js";
@@ -141,10 +143,8 @@ function markerIds(c, ws) {
 const numbered = (c) => c.s.sandboxOrder.filter((id) => /^\d+$/.test(id) && !c.s.sandboxes[id].closed).sort((x, y) => x - y);
 const nameOf = (c, id) => `layerfs-${c.project.name}-${id}`;
 
-/** The Sandbox for a new Workspace: the lowest-numbered open one of `image` (a state saved before images matches any) with a free slot, else the next number, started on it. */
-function place(c, image) {
-  const free = numbered(c).find((id) => (c.s.sandboxes[id].image ?? image) === image && Object.values(c.s.sandboxes[id].workspaces).filter((w) => w.mounted).length < WORKSPACES);
-  if (free) return free;
+/** A new Sandbox on `image`: the lowest number not running. */
+function start(c, image) {
   let n = 1;
   while (c.s.sandboxes[n] && !c.s.sandboxes[n].closed) n++;
   const id = String(n);
@@ -152,6 +152,7 @@ function place(c, image) {
   if (!c.s.sandboxOrder.includes(id)) c.s.sandboxOrder.push(id);
   return id;
 }
+const mountedIn = (sb) => Object.values(sb.workspaces).filter((w) => w.mounted);
 /** The Sandbox a process id names (`proc_<sandbox>_<hex>`). */
 const sandboxOfProcess = (id) => /^proc_(\d+)_/.exec(String(id))?.[1] ?? null;
 
@@ -203,11 +204,13 @@ function read(c, a) {
 const change = (d) => ({ path: d.path, kind: d.kind, type: d.type, contentChanged: d.content ?? d.kind !== "Modified", identityChanged: d.identity ?? false });
 
 /** One open Sandbox of the project, else NoSuchSandbox (a closed one is not running). */
-function openSandbox(c, id) {
+function openSandbox(c, id, advice = "") {
   const sb = /^\d+$/.test(String(id)) && c.s.sandboxes[id];
-  if (!sb || sb.closed) throw new Refusal("NoSuchSandbox", `the project has no running Sandbox ${id}`, { sandbox: id });
+  if (!sb || sb.closed) throw new Refusal("NoSuchSandbox", `the project has no Sandbox ${id}${advice}`, { sandbox: id });
   return sb;
 }
+// the real binding's advice on a refused mount
+const MOUNT_ELSEWHERE = ". Create a Sandbox with `sandbox.create()` and mount there: `workspace.mount(sandbox, branch)` with the `sandbox` it returns";
 
 const CALLS = {
   "project.init": initProject,
@@ -216,6 +219,16 @@ const CALLS = {
     kind: "ok",
     items: numbered(c).map((id) => ({ sandbox: id, name: nameOf(c, id), image: c.s.sandboxes[id].image ?? null, workspaces: Object.values(c.s.sandboxes[id].workspaces).filter((w) => w.mounted).length })),
   })),
+  "sandbox.create": (p, a) => p.with((c) => {
+    const id = start(c, a.deploy?.image ?? null);
+    return { sandbox: id, name: nameOf(c, id), image: c.s.sandboxes[id].image };
+  }),
+  "sandbox.close": (p, a) => p.with((c) => {
+    const sb = openSandbox(c, a.sandbox), mounted = mountedIn(sb);
+    if (mounted.length) throw new Refusal("MountsActive", `Sandbox ${a.sandbox} still holds ${mounted.length} Workspace(s); commit or unmount them first`, { workspaces: mounted.map((w) => w.path) });
+    sb.closed = true;
+    return { kind: "Closed", sandbox: String(a.sandbox) };
+  }),
   "sandbox.list_workspaces": (p, a) => p.with((c) => {
     const sb = openSandbox(c, a.sandbox);
     return {
@@ -225,7 +238,12 @@ const CALLS = {
   }),
 
   "workspace.mount": (p, a) => p.with((c) => {
-    const sandbox = place(c, a.deploy?.image ?? null), r = c.run("sandbox.mount", { sandbox, branch: a.branch }), ws = c.s.sandboxes[sandbox].workspaces[r.path];
+    // the Sandbox the mount names, and nowhere else: nothing is placed and a mount starts no Sandbox
+    const sandbox = String(a.sandbox), sb = openSandbox(c, sandbox, MOUNT_ELSEWHERE);
+    if (mountedIn(sb).length >= WORKSPACES) {
+      throw new Refusal("Capacity", `Sandbox ${sandbox} already holds ${WORKSPACES} Workspaces. Create a new Sandbox with \`sandbox.create()\` and mount there, or list this one's Workspaces with \`sandbox.list_workspaces("${sandbox}")\` and unmount the ones you are done with (\`workspace.unmount(ws)\`)`, { sandbox, workspaces: WORKSPACES });
+    }
+    const r = c.run("sandbox.mount", { sandbox, branch: a.branch }), ws = sb.workspaces[r.path];
     return {
       kind: "Mounted", path: r.path, workspace: sha(`${p.name}/${sandbox}/${r.path}/${ws.slot}`), namespace: Number(r.path.slice(r.path.lastIndexOf("/") + 1)),
       branch: r.branch, base: c.hex(ws.baseCommit ?? null), baseLayer: c.hex(ws.baseLayer), root: c.hex(ws.baseRoot), sandbox, container: nameOf(c, sandbox), image: c.s.sandboxes[sandbox].image ?? null,

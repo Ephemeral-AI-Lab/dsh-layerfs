@@ -1,0 +1,393 @@
+{
+ "type": "layerfs-scenario",
+ "version": 3,
+ "title": "Checkpoints",
+ "blurb": "A small history replay in four ranges: two agents write on lanes of their own, and the lead merges, publishes and verifies each range. (#352; the gate numbers are fake.)",
+ "order": 10,
+ "layerfs": [
+  "mocked",
+  "real"
+ ],
+ "fixture": "../../demo-workspace",
+ "lib": "scripts/lib.mjs",
+ "agents": {
+  "root": [
+   {
+    "phase": "Range 1",
+    "say": "Four ranges, two agents each. Each range ends at a checkpoint.",
+    "subagent": {
+     "description": "a01",
+     "prompt": "You are a01 of the checkpoints demo. Each turn writes your part of the range the lead names on a lane of your own; report when it is done."
+    }
+   },
+   {
+    "subagent": {
+     "description": "a02",
+     "prompt": "You are a02 of the checkpoints demo. Each turn writes your part of the range the lead names on a lane of your own; report when it is done."
+    }
+   },
+   {
+    "reply": "Waiting for a01 and a02 to finish range 1.",
+    "until": [
+     "a01",
+     "a02"
+    ]
+   },
+   {
+    "say": "Both lanes of range 1 are done: merging and publishing.",
+    "bash": {
+     "description": "Range 1: merge the lanes and publish",
+     "run": [
+      [
+       "consolidate",
+       1
+      ]
+     ]
+    },
+    "expect": [
+     "branch.merge:Merged",
+     "branch.publish:Added"
+    ]
+   },
+   {
+    "say": "Checking main at the end of range 1.",
+    "bash": {
+     "description": "Range 1: verify the checkpoint",
+     "run": [
+      [
+       "verify",
+       1
+      ]
+     ]
+    }
+   },
+   {
+    "phase": "Range 2",
+    "send_message": {
+     "agent_id": "@a01",
+     "message": "Go on with range 2."
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@a02",
+     "message": "Go on with range 2."
+    }
+   },
+   {
+    "reply": "Waiting for a01 and a02 to finish range 2.",
+    "until": [
+     "a01",
+     "a02"
+    ]
+   },
+   {
+    "say": "Both lanes of range 2 are done: merging and publishing.",
+    "bash": {
+     "description": "Range 2: merge the lanes and publish",
+     "run": [
+      [
+       "consolidate",
+       2
+      ]
+     ]
+    },
+    "expect": [
+     "branch.merge:Merged",
+     "branch.publish:Added"
+    ]
+   },
+   {
+    "say": "Checking main at the end of range 2.",
+    "bash": {
+     "description": "Range 2: verify the checkpoint",
+     "run": [
+      [
+       "verify",
+       2
+      ]
+     ]
+    }
+   },
+   {
+    "phase": "Range 3",
+    "send_message": {
+     "agent_id": "@a01",
+     "message": "Go on with range 3."
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@a02",
+     "message": "Go on with range 3."
+    }
+   },
+   {
+    "reply": "Waiting for a01 and a02 to finish range 3.",
+    "until": [
+     "a01",
+     "a02"
+    ]
+   },
+   {
+    "say": "Both lanes of range 3 are done: merging and publishing.",
+    "bash": {
+     "description": "Range 3: merge the lanes and publish",
+     "run": [
+      [
+       "consolidate",
+       3
+      ]
+     ]
+    },
+    "expect": [
+     "branch.merge:Merged",
+     "branch.publish:Added"
+    ]
+   },
+   {
+    "say": "Checking main at the end of range 3.",
+    "bash": {
+     "description": "Range 3: verify the checkpoint",
+     "run": [
+      [
+       "verify",
+       3
+      ]
+     ]
+    }
+   },
+   {
+    "phase": "Range 4",
+    "send_message": {
+     "agent_id": "@a01",
+     "message": "Go on with range 4."
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@a02",
+     "message": "Go on with range 4."
+    }
+   },
+   {
+    "reply": "Waiting for a01 and a02 to finish range 4.",
+    "until": [
+     "a01",
+     "a02"
+    ]
+   },
+   {
+    "say": "Both lanes of range 4 are done: merging and publishing.",
+    "bash": {
+     "description": "Range 4: merge the lanes and publish",
+     "run": [
+      [
+       "consolidate",
+       4
+      ]
+     ]
+    },
+    "expect": [
+     "branch.merge:Merged",
+     "branch.publish:Added"
+    ]
+   },
+   {
+    "say": "Checking main at the end of range 4.",
+    "bash": {
+     "description": "Range 4: verify the checkpoint",
+     "run": [
+      [
+       "verify",
+       4
+      ]
+     ]
+    }
+   },
+   {
+    "reply": "All four ranges reached their checkpoints; every gate passed."
+   }
+  ],
+  "a01": [
+   {
+    "say": "Range 1: my lane, two files.",
+    "bash": {
+     "description": "a01: range 1 on lane r1-a01",
+     "run": [
+      [
+       "work",
+       "a01",
+       1
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked",
+     "fs.mkdir:Committed",
+     "fs.write:Committed",
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "reply": "a01: range 1 done."
+   },
+   {
+    "say": "Range 2: my lane, two files.",
+    "bash": {
+     "description": "a01: range 2 on lane r2-a01",
+     "run": [
+      [
+       "work",
+       "a01",
+       2
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked",
+     "fs.mkdir:Committed",
+     "fs.write:Committed",
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "reply": "a01: range 2 done."
+   },
+   {
+    "say": "Range 3: my lane, two files.",
+    "bash": {
+     "description": "a01: range 3 on lane r3-a01",
+     "run": [
+      [
+       "work",
+       "a01",
+       3
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked",
+     "fs.mkdir:Committed",
+     "fs.write:Committed",
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "reply": "a01: range 3 done."
+   },
+   {
+    "say": "Range 4: my lane, two files.",
+    "bash": {
+     "description": "a01: range 4 on lane r4-a01",
+     "run": [
+      [
+       "work",
+       "a01",
+       4
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked",
+     "fs.mkdir:Committed",
+     "fs.write:Committed",
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "reply": "a01: done."
+   }
+  ],
+  "a02": [
+   {
+    "say": "Range 1: my lane, two files.",
+    "bash": {
+     "description": "a02: range 1 on lane r1-a02",
+     "run": [
+      [
+       "work",
+       "a02",
+       1
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked",
+     "fs.mkdir:Committed",
+     "fs.write:Committed",
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "reply": "a02: range 1 done."
+   },
+   {
+    "say": "Range 2: my lane, two files.",
+    "bash": {
+     "description": "a02: range 2 on lane r2-a02",
+     "run": [
+      [
+       "work",
+       "a02",
+       2
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked",
+     "fs.mkdir:Committed",
+     "fs.write:Committed",
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "reply": "a02: range 2 done."
+   },
+   {
+    "say": "Range 3: my lane, two files.",
+    "bash": {
+     "description": "a02: range 3 on lane r3-a02",
+     "run": [
+      [
+       "work",
+       "a02",
+       3
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked",
+     "fs.mkdir:Committed",
+     "fs.write:Committed",
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "reply": "a02: range 3 done."
+   },
+   {
+    "say": "Range 4: my lane, two files.",
+    "bash": {
+     "description": "a02: range 4 on lane r4-a02",
+     "run": [
+      [
+       "work",
+       "a02",
+       4
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked",
+     "fs.mkdir:Committed",
+     "fs.write:Committed",
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "reply": "a02: done."
+   }
+  ]
+ }
+}

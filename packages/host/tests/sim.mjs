@@ -57,8 +57,13 @@ try {
   assert.equal(edit.commit.message, "headline");
   await refused(() => lf.fs.write("main", "/x", "x"), "ReadOnly");
 
-  // LayerFS places the Workspace: the project's first Sandbox, numbered 1
-  const ws = await lf.workspace.mount("feature");
+  // Every mount names its Sandbox: one without is refused, and sandbox.create starts number 1
+  const unnamed = await refused(() => lf.workspace.mount("feature"), "InvalidInput");
+  assert.match(unnamed.message, /sandbox\.create\(\)/);
+  const none = await refused(() => lf.workspace.mount("1", "feature"), "NoSuchSandbox");
+  assert.match(none.message, /sandbox\.create\(\)/);
+  assert.deepEqual(await lf.sandbox.create(), { sandbox: "1", image: "sim" });
+  const ws = await lf.workspace.mount("1", "feature");
   assert.deepEqual(ws, { sandbox: "1", path: "/workspaces/1", image: "sim" });
   const sb = ws.sandbox;
   const built = await lf.workspace.exec(ws, "sh install.sh && sh build.sh");
@@ -124,7 +129,7 @@ try {
   const codes = lines.filter((l) => l.method === "workspace.commit").map((l) => (l.ok ? l.kind : l.code));
   assert.deepEqual(codes, ["Conflict", "Conflict", "Committed"]);
   assert.match(lines.find((l) => l.method === "workspace.commit" && l.ok).commit, ID.commit);
-  assert.deepEqual([lines.find((l) => l.method === "workspace.mount").sandbox, lines.find((l) => l.method === "workspace.exec").args.sandbox], ["1", "1"]);
+  assert.deepEqual([lines.find((l) => l.method === "workspace.mount" && l.ok).sandbox, lines.find((l) => l.method === "workspace.exec").args.sandbox], ["1", "1"]);
 
   // The Host's views read the simulator: the state, Files reads of saved ids and the Store.
   const trees = new TreeReader(spec);
@@ -150,12 +155,12 @@ try {
   assert.equal((await backend.store.project.get_history(history.version)).kind, "unchanged");
 
   // `lfs run` (@layerfs/runtime's command, on the simulator: sim/lfs.js): each
-  // call mounts a Workspace, which LayerFS places in the project's Sandbox 1,
-  // and unmounts it; the Sandbox stays for the next call.
+  // call mounts a Workspace in the Sandbox it names and unmounts it; the
+  // Sandbox stays for the next call.
   const lfs = (...args) => execFileSync(process.execPath, [spec.simCli, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, DSH_LAYERFS_PROJECT: NAME } });
   const before = readFileSync(trace, "utf8").trim().split("\n").length;
-  assert.equal(lfs("run", "feature", "echo hi > note.txt && cat note.txt", "note"), "hi\n");
-  assert.equal(lfs("run", "feature", "cat note.txt", "--discard"), "hi\n");
+  assert.equal(lfs("run", "1", "feature", "echo hi > note.txt && cat note.txt", "note"), "hi\n");
+  assert.equal(lfs("run", "1", "feature", "cat note.txt", "--discard"), "hi\n");
   const runs = readFileSync(trace, "utf8").trim().split("\n").slice(before).map((l) => JSON.parse(l));
   assert.deepEqual(runs.filter((l) => ["workspace.mount", "workspace.unmount"].includes(l.method)).map((l) => [l.method, l.ok, l.sandbox ?? l.args.sandbox]), [["workspace.mount", true, "1"], ["workspace.unmount", true, "1"], ["workspace.mount", true, "1"], ["workspace.unmount", true, "1"]]);
   const kept = JSON.parse(readFileSync(join(home, NAME, "sim", "state.json"), "utf8")).sim.sandboxes["1"];
@@ -163,20 +168,34 @@ try {
   assert.deepEqual(Object.values(kept.workspaces).filter((w) => w.mounted), [], "no Workspace is left mounted");
 
   // Removal stops the project's background processes and deletes its home entry.
-  // placement: a 17th Workspace starts Sandbox 2
+  // A Sandbox holds 16 Workspaces: the 17th mount is refused Capacity, with what to do instead
   const held = [];
-  for (let i = 0; i < 16; i++) held.push(await lf.workspace.mount("feature"));
-  assert.deepEqual([...new Set(held.map((w) => w.sandbox))], ["1"]);
-  const ws2 = await lf.workspace.mount("feature");
-  assert.equal(ws2.sandbox, "2");
+  for (let i = 0; i < 16; i++) held.push(await lf.workspace.mount("1", "feature"));
+  const full = await refused(() => lf.workspace.mount("1", "feature"), "Capacity");
+  assert.match(full.message, /sandbox\.create\(\)/);
+  assert.match(full.message, /sandbox\.list_workspaces\("1"\)/);
+  assert.match(full.message, /workspace\.unmount/);
+  assert.equal((await lf.sandbox.create()).sandbox, "2");
+  const ws2 = await lf.workspace.mount("2", "feature");
   await lf.workspace.unmount(held[3], true);
-  assert.equal((await lf.workspace.mount("feature")).sandbox, "1", "the lowest-numbered Sandbox with room");
-  // a mount of another image goes only to a Sandbox of that image: Sandbox 1 has room but runs "sim"
+  assert.equal((await lf.workspace.mount("1", "feature")).sandbox, "1", "an unmount frees a place");
+  // a Sandbox runs one image, which sandbox.create picks
   await lf.workspace.unmount(held[4], true);
-  const other = await lf.workspace.mount("feature", { image: "sim-other" });
+  const made = await lf.sandbox.create({ image: "sim-other" });
+  assert.deepEqual(made, { sandbox: "3", image: "sim-other" });
+  const other = await lf.workspace.mount("3", "feature");
   assert.deepEqual([other.sandbox, other.image], ["3", "sim-other"]);
-  assert.deepEqual([(await lf.workspace.mount("feature")).sandbox, (await lf.workspace.mount("feature", { image: "sim-other" })).sandbox], ["1", "3"]);
+  await lf.workspace.mount("3", "feature");
   assert.deepEqual((await lf.project.list_sandboxes()).items.map(({ sandbox, image }) => [sandbox, image]), [["1", "sim"], ["2", "sim"], ["3", "sim-other"]]);
+  // sandbox.close refuses while Workspaces are mounted there, then stops it; its number is used again
+  const four = await lf.sandbox.create();
+  assert.equal(four.sandbox, "4");
+  const parked = await lf.workspace.mount("4", "feature");
+  assert.deepEqual((await refused(() => lf.sandbox.close("4"), "MountsActive")).detail.workspaces, [parked.path]);
+  await lf.workspace.unmount(parked, true);
+  assert.equal((await lf.sandbox.close("4")).kind, "Closed");
+  await refused(() => lf.sandbox.close("4"), "NoSuchSandbox");
+  assert.deepEqual((await lf.project.list_sandboxes()).items.map(({ sandbox }) => sandbox), ["1", "2", "3"]);
   // a Sandbox's Workspaces, as the agent lists them; one not running is refused
   const listed3 = await lf.sandbox.list_workspaces("3");
   assert.deepEqual(listed3.items.map((w) => [w.path, w.branch, w.activity, w.changed]), [[other.path, "feature", "Idle", false], ["/workspaces/2", "feature", "Idle", false]]);

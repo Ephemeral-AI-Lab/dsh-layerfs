@@ -1,6 +1,8 @@
 // The LayerFS sidebar page: one project at a time, like an editor. A slim
-// title bar has three tabs: Runs (RunsPage: recorded history replay runs,
-// played from their traces), All projects · Sandboxes (AllSandboxes: every
+// title bar has three tabs, four while the LayerFS scripted model is on:
+// Runs (RunsPage: recorded history replay runs, played from their traces),
+// Scenarios (ScenariosPage: the scripted model's runs on Mocked and Real
+// LayerFS), All projects · Sandboxes (AllSandboxes: every
 // project's Sandboxes and what they run on; a project's card opens it, and
 // Import project imports a workspace's folder, InitDialog) and the open
 // project. Then the project's one action, New session (in
@@ -20,12 +22,16 @@ import { InitDialog } from './InitDialog.tsx'
 import { ProjectBoard } from './ProjectBoard.tsx'
 import { RemoveDialog } from './RemoveDialog.tsx'
 import { RunsPage } from './RunsPage.tsx'
+import { ScenariosPage } from './ScenariosPage.tsx'
+import { mockApi, type RunServices } from './scenarios.ts'
 import { card, T } from './tokens.ts'
 
 /** What the panel uses of dsh's workspace services (read with ctx.get). */
 export interface PanelServices {
   workspaces?: { list: { getSnapshot(): { items: readonly Workspace[] }, subscribe(listener: () => void): () => void } }
-  uiWorkspace?: { startSession(workspaceId?: string, options?: { agentPreset?: string }): void, listDirectory(path?: string): Promise<any> }
+  uiWorkspace?: { startSession(workspaceId?: string, options?: { agentPreset?: string }): void, listDirectory(path?: string): Promise<any>, openSession?(sessionId: string): void }
+  /** what a scenario run uses of dsh's services, for the Scenarios tab */
+  runs?: RunServices
 }
 interface Workspace { workspaceId: string, path: string, title: string }
 
@@ -135,6 +141,13 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
   const [openTab, setOpenTab] = useState<'sandboxes' | undefined>(undefined)
   // the Runs page instead of either
   const [runsTab, setRunsTab] = useState(false)
+  // the Scenarios page instead of any, and whether the scripted model is on (its route answers)
+  const [scenariosTab, setScenariosTab] = useState(false)
+  const [scripted, setScripted] = useState(false)
+  useEffect(() => { mockApi.info().then((i) => setScripted(i !== null), () => setScripted(false)) }, [])
+  // a page beside the projects: Runs or Scenarios
+  const aside = runsTab || (scripted && scenariosTab)
+  const show = (page: 'all' | 'project' | 'runs' | 'scenarios') => { setAll(page === 'all'); setRunsTab(page === 'runs'); setScenariosTab(page === 'scenarios') }
 
   const loadProjects = useCallback(() => api.projects().then(({ projects, defaults }) => { setProjects(projects); setDefaults(defaults ?? {}); return projects }), [])
   useEffect(() => {
@@ -198,7 +211,7 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
       <style>{ROWS}</style>
       <main style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', padding: '12px 16px 16px' }}>
         {status && !status.configured && <div style={{ ...card, padding: '8px 12px', color: T.warn }}>LayerFS isn't set up: layerfs-host is missing {status.missing.join(', ')}.</div>}
-        {!all && !runsTab && projects && projects.length === 0 && (
+        {!all && !aside && projects && projects.length === 0 && (
           <Notice title="Start your first project">
             <div style={{ display: 'grid', gap: 8, justifyItems: 'start' }}>
               <span>Import a folder from a workspace: LayerFS keeps a versioned copy that agents fork, test and merge.</span>
@@ -206,29 +219,35 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
             </div>
           </Notice>
         )}
-        {(all || project || runsTab || projects?.length === 0) && (
+        {(all || project || aside || projects?.length === 0) && (
           <>
             <header style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <span style={{ display: 'flex', flex: 'none', color: T.text2 }}><LayerFsIcon size={20} /></span>
               <span role="tablist" aria-label="LayerFS" style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
-                <button type="button" role="tab" aria-selected={!runsTab && (all || !project)} className="lfs-switch lfs-tab" onClick={() => { setAll(true); setRunsTab(false) }} title="Every project and its Sandboxes; a card opens a project"
+                <button type="button" role="tab" aria-selected={!aside && (all || !project)} className="lfs-switch lfs-tab" onClick={() => show('all')} title="Every project and its Sandboxes; a card opens a project"
                   style={{ flex: 'none', padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', whiteSpace: 'nowrap' }}>
                   All projects · Sandboxes
                 </button>
                 {project && (
-                  <button type="button" role="tab" aria-selected={!all && !runsTab} className="lfs-switch lfs-tab" onClick={() => { setAll(false); setRunsTab(false) }} title={project.name}
+                  <button type="button" role="tab" aria-selected={!all && !aside} className="lfs-switch lfs-tab" onClick={() => show('project')} title={project.name}
                     style={{ minWidth: 0, maxWidth: 320, padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {project.name}
                   </button>
                 )}
-                <button type="button" role="tab" aria-selected={runsTab} className="lfs-switch lfs-tab" onClick={() => setRunsTab(true)} title="Recorded history replay runs, played from their traces"
+                <button type="button" role="tab" aria-selected={runsTab} className="lfs-switch lfs-tab" onClick={() => show('runs')} title="Recorded history replay runs, played from their traces"
                   style={{ flex: 'none', padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', whiteSpace: 'nowrap' }}>
                   Runs
                 </button>
+                {scripted && (
+                  <button type="button" role="tab" aria-selected={scripted && scenariosTab} className="lfs-switch lfs-tab" onClick={() => show('scenarios')} title="The LayerFS scripted model's scenarios, run on Mocked or Real LayerFS"
+                    style={{ flex: 'none', padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', whiteSpace: 'nowrap' }}>
+                    Scenarios
+                  </button>
+                )}
               </span>
-              {runsTab && <span style={{ flex: 1 }} />}
-              {!runsTab && (all || (!project && projects?.length !== 0)) && <><span style={{ flex: 1 }} />{importButton()}</>}
-              {!all && !runsTab && project && <>
+              {aside && <span style={{ flex: 1 }} />}
+              {!aside && (all || (!project && projects?.length !== 0)) && <><span style={{ flex: 1 }} />{importButton()}</>}
+              {!all && !aside && project && <>
               <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${project.empty ? 'started empty' : project.source} · volume ${project.volume}`}>
                 {project.empty ? 'started empty' : `from ${short(project.source)}`} · {day(project.created)}
               </span>
@@ -243,6 +262,8 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
             {(busy || error) && <div role="status" style={{ color: error ? T.danger : T.text2 }}>{error ?? busy}</div>}
             {runsTab
               ? <RunsPage />
+              : aside
+              ? <ScenariosPage services={() => services().runs ?? {}} />
               : all || !project
               ? <AllSandboxes onOpen={(name) => { setOpenTab('sandboxes'); setSelected(name); setAll(false) }} />
               : stateError

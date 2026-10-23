@@ -1,0 +1,1832 @@
+{
+ "type": "layerfs-scenario",
+ "version": 3,
+ "title": "5 agents",
+ "blurb": "A lead and five subagents on two Branches: every Bash call mounts a Workspace of its own in the Branch's shared Sandbox, commits and unmounts. Stale Workspaces merge on commit, .lww settles build output, two agents change the same line, a risky try goes to a fork, and the lead merges, publishes and blames.",
+ "order": 5,
+ "layerfs": [
+  "mocked",
+  "real"
+ ],
+ "fixture": "../../demo-workspace",
+ "lib": "../shared/terminal.mjs",
+ "agents": {
+  "root": [
+   {
+    "bash": {
+     "description": "fork checkout",
+     "run": [
+      [
+       "history",
+       "fork checkout"
+      ]
+     ]
+    },
+    "phase": "Kickoff",
+    "expect": [
+     "branch.fork:Forked"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fork search",
+     "run": [
+      [
+       "history",
+       "fork search"
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fs on checkout: write .lww \"%include .gitignore\"",
+     "run": [
+      [
+       "fs",
+       "checkout",
+       "write",
+       ".lww",
+       "%include .gitignore"
+      ]
+     ]
+    },
+    "expect": [
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fs on search: write .lww \"%include .gitignore\"",
+     "run": [
+      [
+       "fs",
+       "search",
+       "write",
+       ".lww",
+       "%include .gitignore"
+      ]
+     ]
+    },
+    "expect": [
+     "fs.write:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "Open checkout's Sandbox",
+     "run": [
+      [
+       "sandbox",
+       "checkout"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.create:Ready"
+    ]
+   },
+   {
+    "subagent": {
+     "description": "ava",
+     "prompt": "You are Ava, on the checkout Branch. Each message from the lead is one command: run it in a Workspace of your own on checkout, commit, unmount and report."
+    }
+   },
+   {
+    "subagent": {
+     "description": "ben",
+     "prompt": "You are Ben, on the checkout Branch. Each message from the lead is one command: run it in a Workspace of your own on checkout, commit, unmount and report."
+    }
+   },
+   {
+    "subagent": {
+     "description": "cy",
+     "prompt": "You are Cy, on the checkout Branch. Each message from the lead is one command: run it in a Workspace of your own on checkout, commit, unmount and report."
+    }
+   },
+   {
+    "reply": "Ava, Ben and Cy take checkout.",
+    "until": [
+     "ava",
+     "ben",
+     "cy"
+    ]
+   },
+   {
+    "bash": {
+     "description": "Open search's Sandbox",
+     "run": [
+      [
+       "sandbox",
+       "search"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.create:Ready"
+    ]
+   },
+   {
+    "subagent": {
+     "description": "dee",
+     "prompt": "You are Dee, on the search Branch. Each message from the lead is one command: run it in a Workspace of your own on search, commit, unmount and report."
+    }
+   },
+   {
+    "subagent": {
+     "description": "eli",
+     "prompt": "You are Eli, on the search Branch. Each message from the lead is one command: run it in a Workspace of your own on search, commit, unmount and report."
+    }
+   },
+   {
+    "reply": "Dee and Eli take search.",
+    "until": [
+     "dee",
+     "eli"
+    ]
+   },
+   {
+    "phase": "checkout 25%",
+    "send_message": {
+     "agent_id": "@ava",
+     "message": "sh install.sh"
+    }
+   },
+   {
+    "reply": "Ava is on it.",
+    "until": [
+     "ava"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "ls node_modules"
+    }
+   },
+   {
+    "reply": "Ben is on it.",
+    "until": [
+     "ben"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "mkdir -p app/cart && echo \"export default function Cart() { return <main><h1>Cart</h1></main>; }\" > app/cart/page.tsx"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "mkdir -p app/api && echo \"export async function GET() { return Response.json({ items: [] }); }\" > app/api/route.ts"
+    }
+   },
+   {
+    "reply": "Ben and Cy are on it.",
+    "until": [
+     "ben",
+     "cy"
+    ]
+   },
+   {
+    "phase": "search 25%",
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "sh install.sh"
+    }
+   },
+   {
+    "reply": "Dee is on it.",
+    "until": [
+     "dee"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "ls node_modules"
+    }
+   },
+   {
+    "reply": "Eli is on it.",
+    "until": [
+     "eli"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "mkdir -p app/search && echo 'import { index } from \"@/lib/index\"; export default function Search() { return <main><h1>Search</h1></main>; }' > app/search/page.tsx"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "mkdir -p lib && echo \"export const index = new Map();\" > lib/index.ts"
+    }
+   },
+   {
+    "reply": "Dee and Eli are on it.",
+    "until": [
+     "dee",
+     "eli"
+    ]
+   },
+   {
+    "phase": "checkout 50%",
+    "send_message": {
+     "agent_id": "@ava",
+     "message": "sh test.sh"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "mkdir -p lib && echo \"export const total = (items) => items.length;\" > lib/cart.ts"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "sed -i \"s/items: \\[\\]/items: await load()/\" app/api/route.ts"
+    }
+   },
+   {
+    "reply": "Ava, Ben and Cy are on it.",
+    "until": [
+     "ava",
+     "ben",
+     "cy"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "cat app/api/route.ts"
+    }
+   },
+   {
+    "reply": "Cy is on it.",
+    "until": [
+     "cy"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@ava",
+     "message": "sh build.sh"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "sh build.sh"
+    }
+   },
+   {
+    "reply": "Ava and Cy are on it.",
+    "until": [
+     "ava",
+     "cy"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "sh test.sh"
+    }
+   },
+   {
+    "reply": "Ben is on it.",
+    "until": [
+     "ben"
+    ]
+   },
+   {
+    "phase": "search 50%",
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "echo \"export const tokenize = (s) => s.toLowerCase().split(' ');\" > lib/tokenize.ts"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "sh test.sh"
+    }
+   },
+   {
+    "reply": "Eli and Dee are on it.",
+    "until": [
+     "eli",
+     "dee"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "sh build.sh"
+    }
+   },
+   {
+    "reply": "Dee is on it.",
+    "until": [
+     "dee"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "sh serve.sh &"
+    }
+   },
+   {
+    "reply": "Dee is on it.",
+    "until": [
+     "dee"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "sed -i \"s/sh build.sh/sh build.sh --profile/\" package.json"
+    },
+    "say": "Cy edits package.json's build line in a Workspace of its own and keeps it open.",
+    "phase": "checkout 75%"
+   },
+   {
+    "reply": "Cy is on it.",
+    "until": [
+     "cy"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "sed -i \"s/sh build.sh/sh build.sh --lint/\" package.json"
+    },
+    "say": "Ben changes the same line and commits first."
+   },
+   {
+    "reply": "Ben is on it.",
+    "until": [
+     "ben"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "commit"
+    }
+   },
+   {
+    "reply": "Cy is on it.",
+    "until": [
+     "cy"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "cat package.json"
+    }
+   },
+   {
+    "reply": "Cy is on it.",
+    "until": [
+     "cy"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "sed -i '/--lint\\|^<<<<<<<\\|^=======\\|^>>>>>>>/d' package.json"
+    }
+   },
+   {
+    "reply": "Cy is on it.",
+    "until": [
+     "cy"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "cat package.json"
+    }
+   },
+   {
+    "reply": "Ben is on it.",
+    "until": [
+     "ben"
+    ]
+   },
+   {
+    "phase": "search 75%",
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "echo \"export const rank = (hits) => hits.sort();\" > lib/rank.ts"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "sed -i \"s/<h1>Search</<h1>Search the shop</\" app/search/page.tsx"
+    }
+   },
+   {
+    "reply": "Eli and Dee are on it.",
+    "until": [
+     "eli",
+     "dee"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "curl -s http://localhost:3000/search"
+    }
+   },
+   {
+    "reply": "Dee is on it.",
+    "until": [
+     "dee"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fork search-try from search",
+     "run": [
+      [
+       "history",
+       "fork search-try from search"
+      ]
+     ]
+    },
+    "expect": [
+     "branch.fork:Forked"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "rm -r lib && sh test.sh"
+    }
+   },
+   {
+    "reply": "Eli is on it.",
+    "until": [
+     "eli"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "sh test.sh"
+    }
+   },
+   {
+    "reply": "Eli is on it.",
+    "until": [
+     "eli"
+    ]
+   },
+   {
+    "phase": "checkout 100%",
+    "send_message": {
+     "agent_id": "@ava",
+     "message": "echo \"export const currency = 'EUR';\" > lib/currency.ts"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "sed -i \"s/<h1>Cart</<h1>Your cart</\" app/cart/page.tsx"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "echo \"export const tax = 0.2;\" > lib/tax.ts"
+    }
+   },
+   {
+    "reply": "Ava, Ben and Cy are on it.",
+    "until": [
+     "ava",
+     "ben",
+     "cy"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "sed -i \"s/0.2/0.21/\" lib/tax.ts"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@ava",
+     "message": "echo \"# Checkout\" > CHECKOUT.md"
+    }
+   },
+   {
+    "reply": "Cy and Ava are on it.",
+    "until": [
+     "cy",
+     "ava"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "sed -i \"s#<body>{children}</body>#<body><a href=\\\"/cart\\\">Cart</a>{children}</body>#\" app/layout.tsx"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@ava",
+     "message": "sh build.sh"
+    }
+   },
+   {
+    "reply": "Ben and Ava are on it.",
+    "until": [
+     "ben",
+     "ava"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@cy",
+     "message": "sh test.sh"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@ben",
+     "message": "sh test.sh"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@ava",
+     "message": "sh test.sh"
+    }
+   },
+   {
+    "reply": "Cy, Ben and Ava are on it.",
+    "until": [
+     "cy",
+     "ben",
+     "ava"
+    ]
+   },
+   {
+    "phase": "search 100%",
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "sed -i \"s/new Map()/new Map([['cart', 1]])/\" lib/index.ts"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "echo \"export const debounce = 300;\" > lib/debounce.ts"
+    }
+   },
+   {
+    "reply": "Eli and Dee are on it.",
+    "until": [
+     "eli",
+     "dee"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "echo \"export const stem = (w) => w.replace(/s$/, '');\" > lib/stem.ts"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "sh test.sh"
+    }
+   },
+   {
+    "reply": "Eli and Dee are on it.",
+    "until": [
+     "eli",
+     "dee"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "sed -i \"s#<body>{children}</body>#<body><a href=\\\"/search\\\">Search</a>{children}</body>#\" app/layout.tsx"
+    }
+   },
+   {
+    "send_message": {
+     "agent_id": "@eli",
+     "message": "sh build.sh"
+    }
+   },
+   {
+    "reply": "Dee and Eli are on it.",
+    "until": [
+     "dee",
+     "eli"
+    ]
+   },
+   {
+    "send_message": {
+     "agent_id": "@dee",
+     "message": "stop"
+    }
+   },
+   {
+    "reply": "Dee is on it.",
+    "until": [
+     "dee"
+    ]
+   },
+   {
+    "bash": {
+     "description": "merge checkout search as release",
+     "run": [
+      [
+       "history",
+       "merge checkout search as release"
+      ]
+     ]
+    },
+    "phase": "Integrate",
+    "expect": [
+     "branch.merge:Conflict"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fs on checkout: edit app/layout.tsx \"<a href=\\\"/cart\\\">Cart</a>\" \"<a …",
+     "run": [
+      [
+       "fs",
+       "checkout",
+       "edit",
+       "app/layout.tsx",
+       "<a href=\"/cart\">Cart</a>",
+       "<a href=\"/cart\">Cart</a><a href=\"/search\">Search</a>"
+      ]
+     ]
+    },
+    "expect": [
+     "fs.edit:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fs on search: edit app/layout.tsx \"<a href=\\\"/search\\\">Search</a>\" \"<…",
+     "run": [
+      [
+       "fs",
+       "search",
+       "edit",
+       "app/layout.tsx",
+       "<a href=\"/search\">Search</a>",
+       "<a href=\"/cart\">Cart</a><a href=\"/search\">Search</a>"
+      ]
+     ]
+    },
+    "expect": [
+     "fs.edit:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "merge checkout search as release",
+     "run": [
+      [
+       "history",
+       "merge checkout search as release"
+      ]
+     ]
+    },
+    "expect": [
+     "branch.merge:Merged"
+    ]
+   },
+   {
+    "bash": {
+     "description": "Open release's Sandbox",
+     "run": [
+      [
+       "sandbox",
+       "release"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.create:Ready"
+    ]
+   },
+   {
+    "bash": {
+     "description": "sh build.sh && sh test.sh",
+     "run": [
+      [
+       "call",
+       "lead",
+       "release",
+       "release",
+       "sh build.sh && sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "publish release",
+     "run": [
+      [
+       "history",
+       "publish release"
+      ]
+     ]
+    },
+    "expect": [
+     "branch.publish:Added"
+    ]
+   },
+   {
+    "bash": {
+     "description": "fs on main: blame package.json",
+     "run": [
+      [
+       "fs",
+       "main",
+       "blame",
+       "package.json"
+      ]
+     ]
+    },
+    "expect": [
+     "fs.blame:ok"
+    ]
+   },
+   {
+    "bash": {
+     "description": "Close the Branch Sandboxes",
+     "run": [
+      [
+       "closeAll"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.close:Closed",
+     "sandbox.close:Closed",
+     "sandbox.close:Closed",
+     "sandbox.close:Closed"
+    ]
+   },
+   {
+    "reply": "release is on main with checkout and search, built and tested; blame credits each line to the call that wrote it."
+   }
+  ],
+  "ava": [
+   {
+    "reply": "Ava here, ready on checkout."
+   },
+   {
+    "bash": {
+     "description": "sh install.sh",
+     "run": [
+      [
+       "call",
+       "ava",
+       "checkout",
+       "checkout",
+       "sh install.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "sh test.sh",
+     "run": [
+      [
+       "call",
+       "ava",
+       "checkout",
+       "checkout",
+       "sh test.sh",
+       {
+        "run": 2400
+       }
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "sh build.sh",
+     "run": [
+      [
+       "call",
+       "ava",
+       "checkout",
+       "checkout",
+       "sh build.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "echo \"export const currency = 'EUR';\" > lib/currency.ts",
+     "run": [
+      [
+       "call",
+       "ava",
+       "checkout",
+       "checkout",
+       "echo \"export const currency = 'EUR';\" > lib/currency.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "echo \"# Checkout\" > CHECKOUT.md",
+     "run": [
+      [
+       "call",
+       "ava",
+       "checkout",
+       "checkout",
+       "echo \"# Checkout\" > CHECKOUT.md"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "sh build.sh",
+     "run": [
+      [
+       "call",
+       "ava",
+       "checkout",
+       "checkout",
+       "sh build.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "sh test.sh",
+     "run": [
+      [
+       "call",
+       "ava",
+       "checkout",
+       "checkout",
+       "sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   }
+  ],
+  "ben": [
+   {
+    "reply": "Ben here, ready on checkout."
+   },
+   {
+    "bash": {
+     "description": "ls node_modules",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "ls node_modules"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "mkdir -p app/cart && echo \"export default function Cart() { return <m…",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "mkdir -p app/cart && echo \"export default function Cart() { return <main><h1>Cart</h1></main>; }\" > app/cart/page.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "mkdir -p lib && echo \"export const total = (items) => items.length;\" …",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "mkdir -p lib && echo \"export const total = (items) => items.length;\" > lib/cart.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "sh test.sh",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "sed -i \"s/sh build.sh/sh build.sh --lint/\" package.json",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "sed -i \"s/sh build.sh/sh build.sh --lint/\" package.json"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "cat package.json",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "cat package.json"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "sed -i \"s/<h1>Cart</<h1>Your cart</\" app/cart/page.tsx",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "sed -i \"s/<h1>Cart</<h1>Your cart</\" app/cart/page.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "sed -i \"s#<body>{children}</body>#<body><a href=\\\"/cart\\\">Cart</a>{ch…",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "sed -i \"s#<body>{children}</body>#<body><a href=\\\"/cart\\\">Cart</a>{children}</body>#\" app/layout.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "sh test.sh",
+     "run": [
+      [
+       "call",
+       "ben",
+       "checkout",
+       "checkout",
+       "sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   }
+  ],
+  "cy": [
+   {
+    "reply": "Cy here, ready on checkout."
+   },
+   {
+    "bash": {
+     "description": "mkdir -p app/api && echo \"export async function GET() { return Respon…",
+     "run": [
+      [
+       "call",
+       "cy",
+       "checkout",
+       "checkout",
+       "mkdir -p app/api && echo \"export async function GET() { return Response.json({ items: [] }); }\" > app/api/route.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "sed -i \"s/items: \\[\\]/items: await load()/\" app/api/route.ts",
+     "run": [
+      [
+       "call",
+       "cy",
+       "checkout",
+       "checkout",
+       "sed -i \"s/items: \\[\\]/items: await load()/\" app/api/route.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "cat app/api/route.ts",
+     "run": [
+      [
+       "call",
+       "cy",
+       "checkout",
+       "checkout",
+       "cat app/api/route.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "sh build.sh",
+     "run": [
+      [
+       "call",
+       "cy",
+       "checkout",
+       "checkout",
+       "sh build.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout: my Workspace was stale, so it merged with the head and the last writer won the build output."
+   },
+   {
+    "bash": {
+     "description": "Edit the build line in a Workspace I keep open",
+     "run": [
+      [
+       "open",
+       "cy",
+       "checkout",
+       "checkout"
+      ],
+      [
+       "term",
+       "cy",
+       "sed -i \"s/sh build.sh/sh build.sh --profile/\" package.json"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.mount:Mounted",
+     "sandbox.exec:exit:0"
+    ]
+   },
+   {
+    "reply": "Edited package.json in a Workspace I keep open; not committed yet."
+   },
+   {
+    "bash": {
+     "description": "Commit my Workspace",
+     "run": [
+      [
+       "term",
+       "cy",
+       "commit"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.commit:Conflict"
+    ]
+   },
+   {
+    "reply": "Conflict: nothing committed, and my Workspace is kept with the markers."
+   },
+   {
+    "bash": {
+     "description": "cat package.json",
+     "run": [
+      [
+       "term",
+       "cy",
+       "cat package.json"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0"
+    ]
+   },
+   {
+    "reply": "The markers are in package.json: Ben's --lint against my --profile."
+   },
+   {
+    "bash": {
+     "description": "Keep --profile, commit and unmount",
+     "run": [
+      [
+       "term",
+       "cy",
+       "sed -i '/--lint\\|^<<<<<<<\\|^=======\\|^>>>>>>>/d' package.json"
+      ],
+      [
+       "term",
+       "cy",
+       "commit"
+      ],
+      [
+       "term",
+       "cy",
+       "unmount"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed",
+     "sandbox.unmount:Unmounted"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "echo \"export const tax = 0.2;\" > lib/tax.ts",
+     "run": [
+      [
+       "call",
+       "cy",
+       "checkout",
+       "checkout",
+       "echo \"export const tax = 0.2;\" > lib/tax.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "sed -i \"s/0.2/0.21/\" lib/tax.ts",
+     "run": [
+      [
+       "call",
+       "cy",
+       "checkout",
+       "checkout",
+       "sed -i \"s/0.2/0.21/\" lib/tax.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on checkout."
+   },
+   {
+    "bash": {
+     "description": "sh test.sh",
+     "run": [
+      [
+       "call",
+       "cy",
+       "checkout",
+       "checkout",
+       "sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   }
+  ],
+  "dee": [
+   {
+    "reply": "Dee here, ready on search."
+   },
+   {
+    "bash": {
+     "description": "sh install.sh",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "sh install.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search."
+   },
+   {
+    "bash": {
+     "description": "mkdir -p app/search && echo 'import { index } from \"@/lib/index\"; exp…",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "mkdir -p app/search && echo 'import { index } from \"@/lib/index\"; export default function Search() { return <main><h1>Search</h1></main>; }' > app/search/page.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "sh test.sh",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "sh build.sh",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "sh build.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search."
+   },
+   {
+    "bash": {
+     "description": "sh serve.sh &",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "sh serve.sh &"
+      ]
+     ]
+    },
+    "expect": [
+     "operator.process.start:running"
+    ]
+   },
+   {
+    "reply": "The server is running; its Workspace stays mounted."
+   },
+   {
+    "bash": {
+     "description": "sed -i \"s/<h1>Search</<h1>Search the shop</\" app/search/page.tsx",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "sed -i \"s/<h1>Search</<h1>Search the shop</\" app/search/page.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search."
+   },
+   {
+    "bash": {
+     "description": "curl -s http://localhost:3000/search",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "curl -s http://localhost:3000/search"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "echo \"export const debounce = 300;\" > lib/debounce.ts",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "echo \"export const debounce = 300;\" > lib/debounce.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search."
+   },
+   {
+    "bash": {
+     "description": "sh test.sh",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "sed -i \"s#<body>{children}</body>#<body><a href=\\\"/search\\\">Search</a…",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "sed -i \"s#<body>{children}</body>#<body><a href=\\\"/search\\\">Search</a>{children}</body>#\" app/layout.tsx"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search."
+   },
+   {
+    "bash": {
+     "description": "stop",
+     "run": [
+      [
+       "call",
+       "dee",
+       "search",
+       "search",
+       "stop"
+      ]
+     ]
+    },
+    "expect": [
+     "operator.process.cancel:Stopped"
+    ]
+   },
+   {
+    "reply": "Server stopped; its Workspace is unmounted."
+   }
+  ],
+  "eli": [
+   {
+    "reply": "Eli here, ready on search."
+   },
+   {
+    "bash": {
+     "description": "ls node_modules",
+     "run": [
+      [
+       "call",
+       "eli",
+       "search",
+       "search",
+       "ls node_modules"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "mkdir -p lib && echo \"export const index = new Map();\" > lib/index.ts",
+     "run": [
+      [
+       "call",
+       "eli",
+       "search",
+       "search",
+       "mkdir -p lib && echo \"export const index = new Map();\" > lib/index.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search."
+   },
+   {
+    "bash": {
+     "description": "echo \"export const tokenize = (s) => s.toLowerCase().split(' ');\" > l…",
+     "run": [
+      [
+       "call",
+       "eli",
+       "search",
+       "search",
+       "echo \"export const tokenize = (s) => s.toLowerCase().split(' ');\" > lib/tokenize.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search."
+   },
+   {
+    "bash": {
+     "description": "echo \"export const rank = (hits) => hits.sort();\" > lib/rank.ts",
+     "run": [
+      [
+       "call",
+       "eli",
+       "search",
+       "search",
+       "echo \"export const rank = (hits) => hits.sort();\" > lib/rank.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "rm -r lib && sh test.sh",
+     "run": [
+      [
+       "sandbox",
+       "search-try"
+      ],
+      [
+       "call",
+       "eli",
+       "search-try",
+       "search-try",
+       "rm -r lib && sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.create:Ready",
+     "sandbox.exec:exit:1",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "The command failed (1); committed on search-try."
+   },
+   {
+    "bash": {
+     "description": "sh test.sh",
+     "run": [
+      [
+       "call",
+       "eli",
+       "search",
+       "search",
+       "sh test.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:UpToDate"
+    ]
+   },
+   {
+    "reply": "Nothing to commit: up to date."
+   },
+   {
+    "bash": {
+     "description": "sed -i \"s/new Map()/new Map([['cart', 1]])/\" lib/index.ts",
+     "run": [
+      [
+       "call",
+       "eli",
+       "search",
+       "search",
+       "sed -i \"s/new Map()/new Map([['cart', 1]])/\" lib/index.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search: my Workspace was stale, so it merged with the head."
+   },
+   {
+    "bash": {
+     "description": "echo \"export const stem = (w) => w.replace(/s$/, '');\" > lib/stem.ts",
+     "run": [
+      [
+       "call",
+       "eli",
+       "search",
+       "search",
+       "echo \"export const stem = (w) => w.replace(/s$/, '');\" > lib/stem.ts"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search."
+   },
+   {
+    "bash": {
+     "description": "sh build.sh",
+     "run": [
+      [
+       "call",
+       "eli",
+       "search",
+       "search",
+       "sh build.sh"
+      ]
+     ]
+    },
+    "expect": [
+     "sandbox.exec:exit:0",
+     "sandbox.commit:Committed"
+    ]
+   },
+   {
+    "reply": "Committed on search: my Workspace was stale, so it merged with the head."
+   }
+  ]
+ }
+}

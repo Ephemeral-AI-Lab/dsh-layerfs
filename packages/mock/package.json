@@ -1,0 +1,21 @@
+{
+  "name": "@dsh-layerfs/mock",
+  "version": "0.1.0",
+  "description": "LayerFS scripted model for dsh: a scripted stand-in for the LLM whose scenarios drive dsh's real tools on Mocked or Real LayerFS, for UI tests without a model",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["src"],
+  "license": "MIT",
+  "engines": {
+    "dsh": ">=0.2.1-alpha.4 <0.3.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/schemastery": "*"
+  }
+}

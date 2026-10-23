@@ -1,8 +1,7 @@
 // The LayerFS tab: the root session's SDK calls, replayed into the shared
 // view (@dsh-layerfs/view). It follows
 // the Host's /layerfs/session route while it is shown, and plays each call
-// at its own time, a moment behind the run (playback.ts). A demo's speed is
-// set on its demo strip (DemoStrip.tsx), not here. History starts from the
+// at its own time, a moment behind the run (playback.ts). History starts from the
 // project's whole history as the session opens (seedEngine), and the
 // session's own calls play on top. The History pane's tabs
 // end with the project's Sandboxes (SandboxesTab), as on the project page.

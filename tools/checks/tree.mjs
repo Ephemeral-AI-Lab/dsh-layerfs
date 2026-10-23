@@ -113,7 +113,8 @@ const quote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
 export async function byteHashes(lf, branch, paths) {
   const hashes = {};
   if (!paths.length) return hashes;
-  const ws = await lf.workspace.mount(branch);
+  const { sandbox } = await lf.sandbox.create();
+  const ws = await lf.workspace.mount(sandbox, branch);
   try {
     for (let i = 0; i < paths.length; i += 200) {
       const chunk = paths.slice(i, i + 200);
@@ -129,6 +130,7 @@ export async function byteHashes(lf, branch, paths) {
     }
   } finally {
     await lf.workspace.unmount(ws, true);
+    await lf.sandbox.close(sandbox);
   }
   return hashes;
 }

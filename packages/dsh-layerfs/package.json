@@ -25,7 +25,8 @@
   },
   "dependencies": {
     "@dsh-layerfs/host": "workspace:*",
-    "@dsh-layerfs/client": "workspace:*"
+    "@dsh-layerfs/client": "workspace:*",
+    "@dsh-layerfs/mock": "workspace:*"
   },
   "dsh": {
     "bundle": {
