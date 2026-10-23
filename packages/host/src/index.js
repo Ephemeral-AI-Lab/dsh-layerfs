@@ -1,7 +1,8 @@
 // @dsh-layerfs/host: the Host half of LayerFS × DSH, a Cordis function
 // plugin that uses only public dsh services.
 //   ctx.shellEnv     a contributor gives bash calls in sessions bound to a
-//                    project the SDK's DSH_LAYERFS_* settings and a trace file
+//                    project the SDK's DSH_LAYERFS_* settings and a trace file;
+//                    the layerfs command is a shim on the process's PATH
 //   ctx.sessions     each traced call becomes a plugin:layerfs/call record in
 //                    the calling agent's own Session (subagents included)
 //   session/event    a subagent's descriptor names it
@@ -9,6 +10,8 @@
 //                    (only where a web server runs: Web and Desktop)
 //   ctx.systemPrompt each agent's runtime context names its conversation's
 //                    LayerFS project (where a system prompt is assembled)
+//   layerfsTraces    a service giving one bash call's trace lines (the
+//                    scripted model's live expect check)
 // LayerFS itself is @layerfs/runtime's (the worker on macOS and Windows, Init,
 // removal, Sandbox upkeep), opened once as the dsh adapter, and agents'
 // clients are @layerfs/agent's (#428).
@@ -16,7 +19,7 @@ import { BindingStore } from "./binding.js";
 import { Collector } from "./collector.js";
 import z from "@deepseek-ai/schemastery";
 import { openRuntime, resolveConfig } from "./config.js";
-import { contributor, projectContext } from "./env.js";
+import { contributor, projectContext, shimOnPath } from "./env.js";
 import { adopt } from "./init.js";
 import { registerRoutes } from "./route.js";
 import { TreeReader } from "./trees.js";
@@ -63,7 +66,9 @@ export function apply(ctx, config) {
   const collector = new Collector(ctx, spec, bindings);
   collector.onUnreachable = spec.worker ? start : null;
   ctx.effect(() => ctx.shellEnv.register(contributor(ctx, spec, bindings, collector)), "layerfs-host: bash environment");
+  ctx.effect(() => shimOnPath(), "layerfs-host: layerfs on PATH");
   ctx.effect(() => collector.start(), "layerfs-host: trace collection");
+  ctx.provide("layerfsTraces", { callLines: (sessionId, step) => collector.callLines(sessionId, step) });
   ctx.on("session/event", (session, event) => collector.observe(session, event));
   const trees = new TreeReader(spec);
   ctx.effect(() => () => trees.dispose(), "layerfs-host: tree clients");

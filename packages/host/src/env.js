@@ -4,9 +4,13 @@
 // agent's trace file. dsh may set only DSH_* names in a bash call; the agent
 // reads each LAYERFS_ setting from its DSH_LAYERFS_ twin. dsh rebuilds the
 // DSH_* namespace for every bash call, so these values always describe the
-// agent that runs the command.
+// agent that runs the command. The layerfs command itself is a shim
+// (bin/layerfs) on PATH: dsh lets a plugin set only DSH_* names, so the Host
+// puts its folder first on the dsh process's own PATH, which bash calls
+// inherit (shimOnPath).
 import { existsSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { deploymentEnv } from "./layerfs-client.js";
 import { appendProject } from "./records.js";
 import { LAYERFS } from "./source.js";
@@ -14,13 +18,26 @@ import { LAYERFS } from "./source.js";
 // The LayerFS SDK skill of the LayerFS checkout (LAYERFS_SOURCE, source.js), when it has one.
 const SKILL = join(LAYERFS, ".agents/skills/layerfs-js-sdk/SKILL.md");
 const skill = existsSync(SKILL) ? realpathSync(SKILL) : null;
+/** The folder of the layerfs shim. */
+export const BIN = fileURLToPath(new URL("./bin", import.meta.url));
+
+/**
+ * Puts BIN first on `env.PATH` (the dsh process's), so every bash call finds
+ * `layerfs`; the disposer takes it off again. Windows runs no bash here: its
+ * adapter has its own route.
+ */
+export function shimOnPath(env = process.env, platform = process.platform) {
+  if (platform === "win32") return () => {};
+  env.PATH = env.PATH ? `${BIN}${delimiter}${env.PATH}` : BIN;
+  return () => { env.PATH = (env.PATH ?? "").split(delimiter).filter((dir) => dir !== BIN).join(delimiter); };
+}
 
 const VARIABLES = {
   DSH_LAYERFS_PROJECT: "LayerFS project of this conversation; pass it to LayerFS.open(...)",
   DSH_LAYERFS_SDK: "file URL of @layerfs/agent, the LayerFS JavaScript SDK; import it from Node scripts",
   DSH_LAYERFS_BACKEND: "file URL of @layerfs/backend (background processes, a Workspace's status, Store and file storage)",
   DSH_LAYERFS_SKILL: "path of the LayerFS SDK skill (SKILL.md, its references beside it); read it before the first LayerFS call",
-  DSH_LAYERFS_CLI: "path of the layerfs command: node \"$DSH_LAYERFS_CLI\" <family> <call> runs one @layerfs/agent call (layerfs help lists them), JSON on stdout; exit 0 ok, 2 bad command line, 125 refused",
+  DSH_LAYERFS_CLI: "path of the CLI behind the layerfs command on PATH: layerfs <family> <call> runs one @layerfs/agent call (layerfs help lists them), JSON on stdout; exit 0 ok, 2 bad command line, 125 refused",
   DSH_LAYERFS_HOME: "LayerFS home the SDK reads its project and Sandbox records from",
   DSH_LAYERFS_DOCKER: "Docker Engine socket the SDK starts Sandboxes through",
   DSH_LAYERFS_IMAGE: "Runtime image digest a new LayerFS Sandbox runs; the SDK reads it",

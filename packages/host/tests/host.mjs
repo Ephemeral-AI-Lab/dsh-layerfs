@@ -17,7 +17,8 @@ export async function resolve(specifier, context, next) {
 const { resolveConfig } = await import("../src/config.js");
 const { BindingStore } = await import("../src/binding.js");
 const { Collector } = await import("../src/collector.js");
-const { contributor, projectContext } = await import("../src/env.js");
+const { BIN, contributor, projectContext, shimOnPath } = await import("../src/env.js");
+const { spawnSync } = await import("node:child_process");
 const { registerRoutes } = await import("../src/route.js");
 const { TreeReader } = await import("../src/trees.js");
 const { removeProject } = await import("../src/remove.js");
@@ -60,6 +61,21 @@ try {
   // the runtime context names it (a subagent sees its root's), before any bash call
   assert.match(projectContext(h.bindings, h.collector, child), /^LayerFS project of this conversation: website\./);
   assert.equal(projectContext(h.bindings, h.collector, undefined), "");
+  // the layerfs shim: first on PATH while the Host runs; it runs the conversation's CLI, or says there is none
+  {
+    const env = { PATH: "/usr/bin:/bin" }, off = shimOnPath(env, "darwin");
+    assert.equal(env.PATH, `${BIN}:/usr/bin:/bin`);
+    off();
+    assert.equal(env.PATH, "/usr/bin:/bin");
+    const win = { PATH: "C:\\x" };
+    shimOnPath(win, "win32");
+    assert.equal(win.PATH, "C:\\x", "Windows runs no bash here");
+    const cli = join(dir, "fake-cli.mjs");
+    writeFileSync(cli, "console.log(JSON.stringify(process.argv.slice(2)));\n");
+    const shim = (vars) => spawnSync(join(BIN, "layerfs"), ["branch", "fork", "cart"], { encoding: "utf8", env: { PATH: process.env.PATH, ...vars } });
+    assert.deepEqual([shim({ DSH_LAYERFS_CLI: cli }).status, shim({ DSH_LAYERFS_CLI: cli }).stdout], [0, '["branch","fork","cart"]\n']);
+    assert.deepEqual([shim({}).status, shim({}).stderr], [2, "layerfs: this conversation has no LayerFS project\n"]);
+  }
   const vars = h.env.resolve({ agent: { session: child }, callId: "c1", rootCallId: "r1" });
   assert.equal(vars.DSH_LAYERFS_PROJECT, "website");
   assert.equal(vars.DSH_LAYERFS_VOLUME, "dsh-layerfs-website-1");
@@ -100,6 +116,10 @@ try {
   assert.deepEqual(record.data.agent, { id: "child-1", name: "tester" });
   assert.equal(record.data.project, "website");
   assert.ok(!("daemon" in record.data.line) && !("scope" in record.data.line), "telemetry stays out of records");
+  // one bash call's finished lines, read from the agent's trace file at once (the live expect check)
+  const stepOf = (id) => JSON.parse(trace(id, "workspace.mount", "end")).step;
+  assert.deepEqual(h.collector.callLines("child-1", stepOf("a-1")).map((l) => [l.method, l.phase, "daemon" in l]), [["workspace.mount", "end", false]]);
+  assert.deepEqual(h.collector.callLines("nobody", "s"), []);
 
   // a partial line waits for its newline; a Session that is not live gets its records later
   h.live.delete("child-1");

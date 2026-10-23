@@ -203,6 +203,25 @@ export class Collector {
     return view;
   }
 
+  /**
+   * The finished trace lines of one bash call of agent `sessionId` (`step`,
+   * the tool call's id), read from its trace file now: the SDK writes a line
+   * before its call returns, so a finished bash call's lines are all there.
+   * Reads only; the collector's own reading is unchanged.
+   */
+  callLines(sessionId, step) {
+    const file = this.tails.get(sessionId)?.file;
+    if (!file || !existsSync(file)) return [];
+    const out = [];
+    for (const raw of readFileSync(file, "utf8").split("\n")) {
+      if (!raw.includes(step)) continue;
+      let line;
+      try { line = JSON.parse(raw); } catch { continue; /* a torn last line */ }
+      if (line?.layerfs_trace === 1 && line.step === step && line.phase !== "start") out.push(stripped(line));
+    }
+    return out;
+  }
+
   /** What the views need for one root session. */
   snapshot(rootId) {
     const view = this.load(rootId);

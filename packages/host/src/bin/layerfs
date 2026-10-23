@@ -1,0 +1,9 @@
+#!/bin/sh
+# The layerfs command in an agent's bash call: LayerFS's CLI for the
+# conversation's project, which the Host names in DSH_LAYERFS_CLI. The Host
+# puts this folder first on the dsh process's PATH (env.js shimOnPath).
+if [ -z "$DSH_LAYERFS_CLI" ]; then
+  echo "layerfs: this conversation has no LayerFS project" >&2
+  exit 2
+fi
+exec node "$DSH_LAYERFS_CLI" "$@"
