@@ -9,6 +9,8 @@
 //             publish | seal, entries, files, bytes } (a live Init's, from the
 //             runtime's job); the totals above make them a fraction
 //   project   the new project (done); error { code, message } (failed)
+//   timeout   the Init's own limit in ms, when the request set one (else
+//             LayerFS's default applies); started and ended are ms times
 // A job is kept for KEEP_MS after it ends, then dropped.
 import { randomUUID } from "node:crypto";
 
@@ -29,7 +31,7 @@ export class InitJobs {
 
   /** Starts a prepared Init; answers its job. */
   begin(prepared) {
-    const job = { id: randomUUID(), name: prepared.project.name, source: prepared.project.source, folder: prepared.folder, started: Date.now(), step: "scan", scanned: null, totals: null, imported: null, project: null, error: null, ended: null };
+    const job = { id: randomUUID(), name: prepared.project.name, source: prepared.project.source, folder: prepared.folder, started: Date.now(), timeout: prepared.timeout ?? null, step: "scan", scanned: null, totals: null, imported: null, project: null, error: null, ended: null };
     this.jobs.set(job.id, job);
     const end = (fields) => {
       Object.assign(job, fields, { ended: Date.now() });

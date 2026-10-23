@@ -21,7 +21,7 @@ const IMAGE = /^sha256:[0-9a-f]{64}$/;
 /** The demo scenarios (the mock plugin's default folder), for their `live` flag. */
 const SCENARIOS = fileURLToPath(new URL("../../../scenarios/", import.meta.url));
 
-const refuse = (code, message) => Object.assign(new Error(message), { code });
+const refuse = (code, message, status = undefined) => Object.assign(new Error(message), { code, ...(status ? { status } : {}) });
 
 /** A project name from a folder name: lowercase, the SDK's alphabet, at most 63 characters. */
 export function nameFrom(folder) {
@@ -78,18 +78,21 @@ export function liveOnlyDemo(name, scenarios = SCENARIOS) {
 /**
  * Checks an Init request and names its project, without changing anything.
  * `image` gives the project's Sandboxes their own runtime image (a replayed
- * demo's), instead of the Host's. Whether this process may install a Store
+ * demo's), instead of the Host's. `timeout` (milliseconds, a positive whole
+ * number) bounds a Live Init; omitted, LayerFS's default (INIT_TIMEOUT_MS,
+ * 300 s) applies. It stays on the prepared Init, not in the project's record. Whether this process may install a Store
  * (Linux: Docker's volumes directory, the home's owner) the runtime checks
  * when the Init starts.
  * @param {object} spec resolved Host settings
  * @param {import("./binding.js").BindingStore} bindings
- * @param {{ folder: string, source?: string, name?: string, backend?: "sim", image?: string, empty?: boolean }} request
+ * @param {{ folder: string, source?: string, name?: string, backend?: "sim", image?: string, timeout?: number, empty?: boolean }} request
  *   `empty`: a project with nothing in it (an empty folder made here, removed after Init), named at random unless `name` is given
  * @param {Set<string>} [pending] names of Inits still running
  */
-export function prepareInit(spec, bindings, { folder, source = folder, name, backend, image, empty = false }, pending = new Set()) {
+export function prepareInit(spec, bindings, { folder, source = folder, name, backend, image, timeout, empty = false }, pending = new Set()) {
   if (backend !== undefined && backend !== "sim") throw refuse("invalid-backend", "backend is \"sim\" or omitted");
   if (image !== undefined && (backend === "sim" || !IMAGE.test(image))) throw refuse("invalid-image", "image is a runtime image digest sha256:<64 hex>, for a Live project");
+  if (timeout !== undefined && (backend === "sim" || !(Number.isSafeInteger(timeout) && timeout > 0))) throw refuse("invalid-timeout", "timeout is a positive whole number of milliseconds, for a Live project", 400);
   if (backend === "sim" && liveOnlyDemo(name)) throw refuse("live-only", `${name} is a demo that runs on Live LayerFS only`);
   const missing = backend === "sim" ? [] : missingDeployment(spec);
   if (missing.length) throw refuse("not-configured", `LayerFS is not configured: set ${missing.join(" and ")} for layerfs-host in the profile patch`);
@@ -103,7 +106,7 @@ export function prepareInit(spec, bindings, { folder, source = folder, name, bac
   if (image) project.image = image;
   if (backend === "sim") Object.assign(project, { backend, volume: `sim-${project.name}` });
   if (empty) Object.assign(project, { source: mkdtempSync(join(tmpdir(), "dsh-layerfs-empty-")), empty: true });
-  return { folder, project };
+  return { folder, project, ...(timeout !== undefined ? { timeout } : {}) };
 }
 
 /**
@@ -114,9 +117,9 @@ export function prepareInit(spec, bindings, { folder, source = folder, name, bac
  * and what a failed Init made the runtime removes (an uncertain one it keeps
  * and records). An empty project's folder is removed once Init ends.
  */
-export async function runInit(spec, bindings, { folder, project }, report = () => {}) {
+export async function runInit(spec, bindings, { folder, project, timeout }, report = () => {}) {
   try {
-    const made = isSim(project) ? await initSimulated(spec, project, report) : await initLive(spec, project, report);
+    const made = isSim(project) ? await initSimulated(spec, project, report) : await initLive(spec, project, timeout, report);
     bindings.addProject(folder, made);
     return made;
   } finally {
@@ -133,9 +136,10 @@ async function initSimulated(spec, project, report) {
   return project;
 }
 
-async function initLive(spec, project, report) {
+async function initLive(spec, project, timeout, report) {
   const runtime = await openRuntime(spec);
-  let job = await runtime.project.start_init(project.name, project.source, project.image ? { image: project.image } : {});
+  const options = { ...(project.image ? { image: project.image } : {}), ...(timeout !== undefined ? { timeout } : {}) };
+  let job = await runtime.project.start_init(project.name, project.source, options);
   for (;;) {
     const { step, scanned, totals, imported } = job;
     if (step !== "done" && step !== "failed") report({ step, scanned, totals, imported });

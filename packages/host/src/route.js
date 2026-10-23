@@ -3,9 +3,10 @@
 //   GET  /layerfs/status                      configuration, the packages agents import and what Init offers (empty: new empty projects)
 //   GET  /layerfs/workspace?folder=<abs>      every project (the folder's imports first) and the folder's default
 //   POST /layerfs/workspace {folder, project}  make a project the folder's default for new sessions
-//   POST /layerfs/init {folder, source?, name?, backend?, image?, empty?}   start Init LayerFS (backend "sim": the simulator;
-//                                          image: the project's own runtime image; empty: a new empty project with a random
-//                                          name); answers its job (see jobs.js)
+//   POST /layerfs/init {folder, source?, name?, backend?, image?, timeout?, empty?}   start Init LayerFS (backend "sim": the
+//                                          simulator; image: the project's own runtime image; timeout: a Live Init's limit
+//                                          in ms, default LayerFS's 300 s; empty: a new empty project with a random name);
+//                                          answers its job (see jobs.js)
 //   GET  /layerfs/init/<job>                  the Init's step and counts
 //   GET  /layerfs/session/<id>                the root session's project, agents and trace lines
 //   POST /layerfs/session/<id>/project {project}  choose any project (null: none) until locked; answers as GET
@@ -92,7 +93,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
       }
       if (req.method === "POST" && parts[0] === "init" && parts.length === 1) {
         const body = await readJson(req);
-        const prepared = prepareInit(spec, bindings, { folder: body.folder, source: body.source || body.folder, name: body.name || undefined, backend: body.backend || undefined, image: body.image || undefined, empty: body.empty === true }, jobs.pending());
+        const prepared = prepareInit(spec, bindings, { folder: body.folder, source: body.source || body.folder, name: body.name || undefined, backend: body.backend || undefined, image: body.image || undefined, timeout: body.timeout ?? undefined, empty: body.empty === true }, jobs.pending());
         return send(res, 202, { job: jobs.begin(prepared) });
       }
       if (req.method === "GET" && parts[0] === "init" && parts.length === 2) {

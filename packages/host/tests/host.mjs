@@ -314,6 +314,17 @@ try {
   assert.equal(second.body.job.name, "src-folder-1", "a running Init keeps its name");
   assert.equal(randomName(new Set(["amber-badger"]), join(dir, "no-home"), () => 0), "amber-badger-1", "the pairs run out: numbered");
   assert.equal((await call("POST", "/layerfs/init", { folder: "relative" })).status, 409);
+  // an Init's time limit: a positive whole number of ms, for a Live project only, refused 400 before anything starts
+  for (const timeout of [0, -1, 1.5, "60000", { ms: 1 }]) {
+    const refused = await call("POST", "/layerfs/init", { folder: dir, source: src, timeout });
+    assert.deepEqual([refused.status, refused.body.code], [400, "invalid-timeout"], JSON.stringify(timeout));
+  }
+  assert.throws(() => prepareInit(h.spec, h.bindings, { folder: dir, source: src, backend: "sim", timeout: 60_000 }), { code: "invalid-timeout" }, "a simulated Init has no limit");
+  assert.equal(runs.length, 2, "a refused time limit starts no Init");
+  const limited = prepareInit(h.spec, h.bindings, { folder: dir, source: src, timeout: 900_000 });
+  assert.deepEqual([limited.timeout, "timeout" in limited.project], [900_000, false], "the limit stays on the prepared Init, not the project's record");
+  assert.equal("timeout" in prepareInit(h.spec, h.bindings, { folder: dir, source: src }), false);
+  assert.equal(started.body.job.timeout, null, "a job without a limit of its own");
   const job = (id) => call("GET", `/layerfs/init/${id}`).then((r) => r.body.job);
   runs[0].report({ step: "import", totals: { entries: 4, files: 2, bytes: 8 } });
   assert.deepEqual([(await job(started.body.job.id)).step, (await job(started.body.job.id)).totals.files], ["import", 2]);
@@ -335,19 +346,21 @@ try {
       start_init: async (name, folder, options) => (jobs.push([name, folder, options]), { id: "j1", step: "scan", scanned: null, totals: null, imported: null, ended: null }),
       get_init: async () => ({ id: "j1", scanned: null, totals: null, imported: null, ended: null, ...stages.shift() }),
     } }) };
-    const prepared = prepareInit(live, h.bindings, { folder: dir, source: src, name: "shop", image: "sha256:" + "1".repeat(64) });
+    const prepared = prepareInit(live, h.bindings, { folder: dir, source: src, name: "shop", image: "sha256:" + "1".repeat(64), timeout: 900_000 });
     const made = await runInit(live, h.bindings, prepared, (fields) => seen.push(fields.step));
-    assert.deepEqual(jobs, [["shop", src, { image: "sha256:" + "1".repeat(64) }]]);
+    assert.deepEqual(jobs, [["shop", src, { image: "sha256:" + "1".repeat(64), timeout: 900_000 }]], "the time limit reaches start_init");
+    assert.equal("timeout" in h.bindings.byName("shop"), false, "the bound project keeps no time limit");
     assert.deepEqual(seen, ["scan", "scan", "import"]);
     assert.equal(made.volume, "layerfs-shop-store-abc");
     assert.deepEqual([h.bindings.byName("shop").volume, h.bindings.workspace(dir).lastUsed], ["layerfs-shop-store-abc", "shop"]);
     // a failed Init fails the Host's job with the runtime's refusal, binds nothing and removes an empty project's folder
     const failing = { ...h.spec, runtime: Promise.resolve({ project: {
-      start_init: async () => ({ id: "j2", step: "scan", ended: null }),
+      start_init: async (name, folder, options) => (jobs.push([name, folder, options]), { id: "j2", step: "scan", ended: null }),
       get_init: async () => ({ id: "j2", step: "failed", ended: 3, error: { code: "Unsupported", message: "this process cannot write Docker's volumes directory" } }),
     } }) };
     const blankInit = prepareInit(failing, h.bindings, { folder: dir, empty: true, name: "blank-fail" });
     await assert.rejects(runInit(failing, h.bindings, blankInit), { code: "Unsupported" });
+    assert.deepEqual(jobs[1][2], {}, "no limit set: start_init gets no timeout");
     assert.deepEqual([h.bindings.byName("blank-fail"), existsSync(blankInit.project.source)], [null, false]);
     h.bindings.remove("shop");
   }
