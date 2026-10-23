@@ -2,7 +2,7 @@
  "type": "layerfs-scenario",
  "version": 3,
  "title": "Crew",
- "blurb": "Replay of a recorded run: a lead and its crew of agents building one application together, on Branches of their own. Every recorded write is applied, and a recorded command runs again in a Workspace unless it repeats an earlier run on a Branch that has not changed since, or it only verifies and is not one of the installs or a Branch's last build or test.",
+ "blurb": "Replay of a recorded run: a lead and its crew of agents building one application together, on Branches of their own. Every recorded write is applied, and a recorded command runs again in a Workspace unless it repeats an earlier run on a Branch that has not changed since, or it only verifies and is not one of the installs, a Branch's last build or test, or the build or prepare before that test.",
  "order": 9,
  "layerfs": [
   "real"
@@ -4058,6 +4058,47 @@
    },
    {
     "bash": {
+     "description": "lead-445 A03 prepare tests: fresh acceptance Workspace",
+     "command": "# lead-445 A03 prepare tests: fresh acceptance Workspace\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of root)\nws=$(layerfs workspace mount \"$sb\" acceptance | field ws); echo \"mounted acceptance as $ws\"\nkeep ws-root-lead-workspaces-72 \"$ws\"   # recorded as lead:/workspaces/72; a later step uses it"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.mount:Mounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-446 A03 prepare tests: frozen acceptance command",
+     "command": "# lead-446 A03 prepare tests: frozen acceptance command\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-72)   # mounted by an earlier step as lead:/workspaces/72\ncode=0; layerfs workspace exec \"$ws\" -m 'A03 prepare tests: frozen acceptance command' --stream -- 'timeout 110 bash -c '\\''export CREW_AGENT=lead CREW_LANE='\\''\"'\\''\"'\\''acceptance'\\''\"'\\''\"'\\'' CREW_WORKSPACE='\\''\"'\\''\"'\\''0d451d1e13fdb768ead2001e12a000a8f42320c94432c911abceaf581ce35374'\\''\"'\\''\"'\\'' CREW_INSTALL_TRACE_STEP='\\''\"'\\''\"'\\''lead-446 A03 prepare tests: frozen acceptance command'\\''\"'\\''\"'\\''; npm run prepare-tests'\\''' || code=$?\nexit_is \"$code\" 0",
+     "timeoutMs": 170000
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-447 A03 prepare tests: capture completed Bash including any failure",
+     "command": "# lead-447 A03 prepare tests: capture completed Bash including any failure\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-72)   # mounted by an earlier step as lead:/workspaces/72\nlayerfs workspace commit \"$ws\" -m 'lead A03 prepare tests frozen acceptance (exit 0)' | kind Committed UpToDate"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.commit:Committed|UpToDate"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-448 A03 prepare tests: terminal acceptance unmount",
+     "command": "# lead-448 A03 prepare tests: terminal acceptance unmount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-72)   # mounted by an earlier step as lead:/workspaces/72\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-root-lead-workspaces-72"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.unmount:Unmounted"
+    ]
+   },
+   {
+    "bash": {
      "description": "lead-449 A04 shared tests: fresh acceptance Workspace",
      "command": "# lead-449 A04 shared tests: fresh acceptance Workspace\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of root)\nws=$(layerfs workspace mount \"$sb\" acceptance | field ws); echo \"mounted acceptance as $ws\"\nkeep ws-root-lead-workspaces-73 \"$ws\"   # recorded as lead:/workspaces/73; a later step uses it"
     },
@@ -4221,6 +4262,47 @@
    },
    {
     "bash": {
+     "description": "lead-499 A03 prepare tests: fresh acceptance Workspace",
+     "command": "# lead-499 A03 prepare tests: fresh acceptance Workspace\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of root)\nws=$(layerfs workspace mount \"$sb\" acceptance.2 | field ws); echo \"mounted acceptance.2 as $ws\"\nkeep ws-root-lead-workspaces-84 \"$ws\"   # recorded as lead:/workspaces/84; a later step uses it"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.mount:Mounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-500 A03 prepare tests: frozen acceptance command",
+     "command": "# lead-500 A03 prepare tests: frozen acceptance command\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-84)   # mounted by an earlier step as lead:/workspaces/84\ncode=0; layerfs workspace exec \"$ws\" -m 'A03 prepare tests: frozen acceptance command' --stream -- 'timeout 110 bash -c '\\''export CREW_AGENT=lead CREW_LANE='\\''\"'\\''\"'\\''acceptance.2'\\''\"'\\''\"'\\'' CREW_WORKSPACE='\\''\"'\\''\"'\\''18faf13c7bf608d83c07c3f6d4a48ff0e31d8e824f621ea145bf71f674913236'\\''\"'\\''\"'\\'' CREW_INSTALL_TRACE_STEP='\\''\"'\\''\"'\\''lead-500 A03 prepare tests: frozen acceptance command'\\''\"'\\''\"'\\''; npm run prepare-tests'\\''' || code=$?\nexit_is \"$code\" 0",
+     "timeoutMs": 170000
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-501 A03 prepare tests: capture completed Bash including any failure",
+     "command": "# lead-501 A03 prepare tests: capture completed Bash including any failure\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-84)   # mounted by an earlier step as lead:/workspaces/84\nlayerfs workspace commit \"$ws\" -m 'lead A03 prepare tests frozen acceptance (exit 0)' | kind Committed UpToDate"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.commit:Committed|UpToDate"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-502 A03 prepare tests: terminal acceptance unmount",
+     "command": "# lead-502 A03 prepare tests: terminal acceptance unmount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-84)   # mounted by an earlier step as lead:/workspaces/84\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-root-lead-workspaces-84"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.unmount:Unmounted"
+    ]
+   },
+   {
+    "bash": {
      "description": "lead-503 A04 shared tests: fresh acceptance Workspace",
      "command": "# lead-503 A04 shared tests: fresh acceptance Workspace\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of root)\nws=$(layerfs workspace mount \"$sb\" acceptance.2 | field ws); echo \"mounted acceptance.2 as $ws\"\nkeep ws-root-lead-workspaces-85 \"$ws\"   # recorded as lead:/workspaces/85; a later step uses it"
     },
@@ -4376,6 +4458,47 @@
     "bash": {
      "description": "lead-531 A02 build: terminal acceptance unmount",
      "command": "# lead-531 A02 build: terminal acceptance unmount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-91)   # mounted by an earlier step as lead:/workspaces/91\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-root-lead-workspaces-91"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.unmount:Unmounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-532 A03 prepare tests: fresh acceptance Workspace",
+     "command": "# lead-532 A03 prepare tests: fresh acceptance Workspace\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of root)\nws=$(layerfs workspace mount \"$sb\" acceptance.3 | field ws); echo \"mounted acceptance.3 as $ws\"\nkeep ws-root-lead-workspaces-92 \"$ws\"   # recorded as lead:/workspaces/92; a later step uses it"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.mount:Mounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-533 A03 prepare tests: frozen acceptance command",
+     "command": "# lead-533 A03 prepare tests: frozen acceptance command\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-92)   # mounted by an earlier step as lead:/workspaces/92\ncode=0; layerfs workspace exec \"$ws\" -m 'A03 prepare tests: frozen acceptance command' --stream -- 'timeout 110 bash -c '\\''export CREW_AGENT=lead CREW_LANE='\\''\"'\\''\"'\\''acceptance.3'\\''\"'\\''\"'\\'' CREW_WORKSPACE='\\''\"'\\''\"'\\''593b150c6f0ea4790118b9d6c9d146ddebf73f02595ccca65b46920a33c38530'\\''\"'\\''\"'\\'' CREW_INSTALL_TRACE_STEP='\\''\"'\\''\"'\\''lead-533 A03 prepare tests: frozen acceptance command'\\''\"'\\''\"'\\''; npm run prepare-tests'\\''' || code=$?\nexit_is \"$code\" 0",
+     "timeoutMs": 170000
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-534 A03 prepare tests: capture completed Bash including any failure",
+     "command": "# lead-534 A03 prepare tests: capture completed Bash including any failure\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-92)   # mounted by an earlier step as lead:/workspaces/92\nlayerfs workspace commit \"$ws\" -m 'lead A03 prepare tests frozen acceptance (exit 0)' | kind Committed UpToDate"
+    },
+    "phase": "lead",
+    "expect": [
+     "workspace.commit:Committed|UpToDate"
+    ]
+   },
+   {
+    "bash": {
+     "description": "lead-535 A03 prepare tests: terminal acceptance unmount",
+     "command": "# lead-535 A03 prepare tests: terminal acceptance unmount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-root-lead-workspaces-92)   # mounted by an earlier step as lead:/workspaces/92\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-root-lead-workspaces-92"
     },
     "phase": "lead",
     "expect": [
@@ -5047,6 +5170,43 @@
    },
    {
     "bash": {
+     "description": "P1e-053 P1e prepare people build and syntax mount",
+     "command": "# P1e-053 P1e prepare people build and syntax mount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of people)\nws=$(layerfs workspace mount \"$sb\" people.6 | field ws); echo \"mounted people.6 as $ws\"\nkeep ws-people-P1e-workspaces-5 \"$ws\"   # recorded as P1e:/workspaces/5; a later step uses it"
+    },
+    "expect": [
+     "workspace.mount:Mounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "P1e-054 P1e prepare people build and syntax exec",
+     "command": "# P1e-054 P1e prepare people build and syntax exec\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-people-P1e-workspaces-5)   # mounted by an earlier step as P1e:/workspaces/5\ncode=0; layerfs workspace exec \"$ws\" -m 'P1e prepare people build and syntax' --stream -- 'timeout 110 bash -c '\\''npm run build && npm run prepare-tests'\\''' || code=$?\nexit_is \"$code\" 0",
+     "timeoutMs": 170000
+    },
+    "expect": [
+     "workspace.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "P1e-055 P1e prepare people build and syntax outcome",
+     "command": "# P1e-055 P1e prepare people build and syntax outcome\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-people-P1e-workspaces-5)   # mounted by an earlier step as P1e:/workspaces/5\nlayerfs workspace commit \"$ws\" -m 'P1e prepare people build and syntax (exit 0)' | kind Committed UpToDate"
+    },
+    "expect": [
+     "workspace.commit:Committed|UpToDate"
+    ]
+   },
+   {
+    "bash": {
+     "description": "P1e-056 P1e prepare people build and syntax unmount",
+     "command": "# P1e-056 P1e prepare people build and syntax unmount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-people-P1e-workspaces-5)   # mounted by an earlier step as P1e:/workspaces/5\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-people-P1e-workspaces-5"
+    },
+    "expect": [
+     "workspace.unmount:Unmounted"
+    ]
+   },
+   {
+    "bash": {
      "description": "P1e-057 people admin HTTP proofs",
      "command": "# P1e-057 people admin HTTP proofs\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nlayerfs fs apply people.6 -m 'P1e P06/P07/P08: actual HTTP access, revision and sanitized audit boundary cases' --from \"{{scenario}}/changes/1077.json\" | kind Committed   # 1 change(s)"
     },
@@ -5428,36 +5588,49 @@
    },
    {
     "bash": {
-     "description": "work-b: nothing of this turn is left to replay",
-     "command": "echo 'work-b: every recorded call of this turn repeats an earlier run or only verifies; nothing is left to replay'"
-    }
+     "description": "W2-0062 W-M2 prepare build board and CLI tests plus frozen LOC",
+     "command": "# W2-0062 W-M2 prepare build board and CLI tests plus frozen LOC\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of work-b)\nws=$(layerfs workspace mount \"$sb\" work.3 | field ws); echo \"mounted work.3 as $ws\"\nkeep ws-work-b-W2-workspaces-12 \"$ws\"   # recorded as W2:/workspaces/12; a later step uses it"
+    },
+    "expect": [
+     "workspace.mount:Mounted"
+    ]
    },
    {
     "reply": "work-b: turn 10 done, through W2-0062 W-M2 prepare build board and CLI tests plus frozen LOC."
    },
    {
     "bash": {
-     "description": "work-b: nothing of this turn is left to replay",
-     "command": "echo 'work-b: every recorded call of this turn repeats an earlier run or only verifies; nothing is left to replay'"
-    }
+     "description": "W2-0063 W-M2 prepare build board and CLI tests plus frozen LOC",
+     "command": "# W2-0063 W-M2 prepare build board and CLI tests plus frozen LOC\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-work-b-W2-workspaces-12)   # mounted by an earlier step as W2:/workspaces/12\ncode=0; layerfs workspace exec \"$ws\" -m 'W-M2 prepare build board and CLI tests plus frozen LOC' --stream -- 'timeout 110 bash -c '\\''npm run prepare-tests && npm run build && node --test packages/server/test/boards.test.js packages/web/test/board-state.test.js packages/cli/test/project.test.js && node scripts/count-loc.mjs\n'\\''' || code=$?\nexit_is \"$code\" 0",
+     "timeoutMs": 170000
+    },
+    "expect": [
+     "workspace.exec:exit:0"
+    ]
    },
    {
     "reply": "work-b: turn 11 done, through W2-0063 W-M2 prepare build board and CLI tests plus frozen LOC."
    },
    {
     "bash": {
-     "description": "work-b: nothing of this turn is left to replay",
-     "command": "echo 'work-b: every recorded call of this turn repeats an earlier run or only verifies; nothing is left to replay'"
-    }
+     "description": "W2-0064 W-M2 prepare build board and CLI tests plus frozen LOC",
+     "command": "# W2-0064 W-M2 prepare build board and CLI tests plus frozen LOC\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-work-b-W2-workspaces-12)   # mounted by an earlier step as W2:/workspaces/12\nlayerfs workspace commit \"$ws\" -m 'W2 65 W-M2 prepare build board and CLI tests plus frozen LOC (exit 0)' | kind Committed UpToDate"
+    },
+    "expect": [
+     "workspace.commit:Committed|UpToDate"
+    ]
    },
    {
     "reply": "work-b: turn 12 done, through W2-0064 W-M2 prepare build board and CLI tests plus frozen LOC."
    },
    {
     "bash": {
-     "description": "work-b: nothing of this turn is left to replay",
-     "command": "echo 'work-b: every recorded call of this turn repeats an earlier run or only verifies; nothing is left to replay'"
-    }
+     "description": "W2-0065 W-M2 prepare build board and CLI tests plus frozen LOC",
+     "command": "# W2-0065 W-M2 prepare build board and CLI tests plus frozen LOC\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-work-b-W2-workspaces-12)   # mounted by an earlier step as W2:/workspaces/12\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-work-b-W2-workspaces-12"
+    },
+    "expect": [
+     "workspace.unmount:Unmounted"
+    ]
    },
    {
     "reply": "work-b: turn 13 done, through W2-0065 W-M2 prepare build board and CLI tests plus frozen LOC."
@@ -5774,13 +5947,44 @@
     ]
    },
    {
+    "bash": {
+     "description": "W2b-085 verify restored sprint CLI compatibility and exact source count mount",
+     "command": "# W2b-085 verify restored sprint CLI compatibility and exact source count mount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of work-b)\nws=$(layerfs workspace mount \"$sb\" work.5 | field ws); echo \"mounted work.5 as $ws\"\nkeep ws-work-b-W2b-workspaces-17 \"$ws\"   # recorded as W2b:/workspaces/17; a later step uses it"
+    },
+    "expect": [
+     "workspace.mount:Mounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "W2b-086 verify restored sprint CLI compatibility and exact source count",
+     "command": "# W2b-086 verify restored sprint CLI compatibility and exact source count\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-work-b-W2b-workspaces-17)   # mounted by an earlier step as W2b:/workspaces/17\ncode=0; layerfs workspace exec \"$ws\" -m 'verify restored sprint CLI compatibility and exact source count' --stream -- 'timeout 110 bash -c '\\''npm run prepare-tests && npm test --workspace packages/cli && node scripts/count-loc.mjs'\\''' || code=$?\nexit_is \"$code\" 0",
+     "timeoutMs": 170000
+    },
+    "expect": [
+     "workspace.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "W2b-087 verify restored sprint CLI compatibility and exact source count commit",
+     "command": "# W2b-087 verify restored sprint CLI compatibility and exact source count commit\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-work-b-W2b-workspaces-17)   # mounted by an earlier step as W2b:/workspaces/17\nlayerfs workspace commit \"$ws\" -m 'W2b 087 W-05: verify restored sprint CLI compatibility and exact source count (exit 0)' | kind Committed UpToDate"
+    },
+    "expect": [
+     "workspace.commit:Committed|UpToDate"
+    ]
+   },
+   {
     "reply": "work-b: turn 28 done, through W2b-087 verify restored sprint CLI compatibility and exact source count commit."
    },
    {
     "bash": {
-     "description": "work-b: nothing of this turn is left to replay",
-     "command": "echo 'work-b: every recorded call of this turn repeats an earlier run or only verifies; nothing is left to replay'"
-    }
+     "description": "W2b-088 verify restored sprint CLI compatibility and exact source count unmount",
+     "command": "# W2b-088 verify restored sprint CLI compatibility and exact source count unmount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-work-b-W2b-workspaces-17)   # mounted by an earlier step as W2b:/workspaces/17\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-work-b-W2b-workspaces-17"
+    },
+    "expect": [
+     "workspace.unmount:Unmounted"
+    ]
    },
    {
     "reply": "work-b: turn 29 done, through W2b-088 verify restored sprint CLI compatibility and exact source count unmount."
@@ -7157,13 +7361,44 @@
     ]
    },
    {
+    "bash": {
+     "description": "I1-072 I-M3 corrected CLI fixture checkpoint",
+     "command": "# I1-072 I-M3 corrected CLI fixture checkpoint\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of insight-a)\nws=$(layerfs workspace mount \"$sb\" insight.2 | field ws); echo \"mounted insight.2 as $ws\"\nkeep ws-insight-a-I1-workspaces-14 \"$ws\"   # recorded as I1:/workspaces/14; a later step uses it"
+    },
+    "expect": [
+     "workspace.mount:Mounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "I1-073 I-M3 actual scoped-token search filter and plain-help proofs",
+     "command": "# I1-073 I-M3 actual scoped-token search filter and plain-help proofs\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-insight-a-I1-workspaces-14)   # mounted by an earlier step as I1:/workspaces/14\ncode=0; layerfs workspace exec \"$ws\" -m 'I-M3 actual scoped-token search filter and plain-help proofs' --stream -- 'timeout 110 bash -c '\\''npm run prepare-tests && node --test packages/cli/test/search.test.js'\\''' || code=$?\nexit_is \"$code\" 0",
+     "timeoutMs": 170000
+    },
+    "expect": [
+     "workspace.exec:exit:0"
+    ]
+   },
+   {
+    "bash": {
+     "description": "I1-074 I-M3 actual scoped-token search filter and plain-help proofs Commit",
+     "command": "# I1-074 I-M3 actual scoped-token search filter and plain-help proofs Commit\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-insight-a-I1-workspaces-14)   # mounted by an earlier step as I1:/workspaces/14\nlayerfs workspace commit \"$ws\" -m 'I1 074 I-M3 actual scoped-token search filter and plain-help proofs (exit 0)' | kind Committed UpToDate"
+    },
+    "expect": [
+     "workspace.commit:Committed|UpToDate"
+    ]
+   },
+   {
     "reply": "insight-a: turn 15 done, through I1-074 I-M3 actual scoped-token search filter and plain-help proofs Commit."
    },
    {
     "bash": {
-     "description": "insight-a: nothing of this turn is left to replay",
-     "command": "echo 'insight-a: every recorded call of this turn repeats an earlier run or only verifies; nothing is left to replay'"
-    }
+     "description": "I1-075 I-M3 actual scoped-token search filter and plain-help proofs unmount",
+     "command": "# I1-075 I-M3 actual scoped-token search filter and plain-help proofs unmount\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-insight-a-I1-workspaces-14)   # mounted by an earlier step as I1:/workspaces/14\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-insight-a-I1-workspaces-14"
+    },
+    "expect": [
+     "workspace.unmount:Unmounted"
+    ]
    },
    {
     "reply": "insight-a: turn 16 done, through I1-075 I-M3 actual scoped-token search filter and plain-help proofs unmount."
@@ -8498,6 +8733,43 @@
     },
     "expect": [
      "fs.apply:Committed"
+    ]
+   },
+   {
+    "bash": {
+     "description": "I2c-044 I-09: mount digest build and syntax before proof",
+     "command": "# I2c-044 I-09: mount digest build and syntax before proof\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(sandbox_of insight-b)\nws=$(layerfs workspace mount \"$sb\" insight.4 | field ws); echo \"mounted insight.4 as $ws\"\nkeep ws-insight-b-I2c-workspaces-5 \"$ws\"   # recorded as I2c:/workspaces/5; a later step uses it"
+    },
+    "expect": [
+     "workspace.mount:Mounted"
+    ]
+   },
+   {
+    "bash": {
+     "description": "I2c-045 I-09: digest build and syntax before proof",
+     "command": "# I2c-045 I-09: digest build and syntax before proof\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-insight-b-I2c-workspaces-5)   # mounted by an earlier step as I2c:/workspaces/5\ncode=0; layerfs workspace exec \"$ws\" -m 'digest build and syntax before proof' --stream -- 'timeout 110 bash -c '\\''npm run build && npm run prepare-tests'\\''' || code=$?\nexit_is \"$code\" 1",
+     "timeoutMs": 170000
+    },
+    "expect": [
+     "workspace.exec:exit:1"
+    ]
+   },
+   {
+    "bash": {
+     "description": "I2c-046 I-09: commit digest build and syntax before proof",
+     "command": "# I2c-046 I-09: commit digest build and syntax before proof\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-insight-b-I2c-workspaces-5)   # mounted by an earlier step as I2c:/workspaces/5\nlayerfs workspace commit \"$ws\" -m 'I2c I-09: digest build and syntax before proof (exit 1)' | kind Committed UpToDate"
+    },
+    "expect": [
+     "workspace.commit:Committed|UpToDate"
+    ]
+   },
+   {
+    "bash": {
+     "description": "I2c-047 I-09: unmount digest build and syntax before proof",
+     "command": "# I2c-047 I-09: unmount digest build and syntax before proof\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nws=$(kept ws-insight-b-I2c-workspaces-5)   # mounted by an earlier step as I2c:/workspaces/5\nlayerfs workspace unmount \"$ws\" | kind Unmounted\nforget ws-insight-b-I2c-workspaces-5"
+    },
+    "expect": [
+     "workspace.unmount:Unmounted"
     ]
    },
    {

@@ -30,7 +30,9 @@
 //                  is dropped unless it is an install (npm install / npm ci),
 //                  the last build (npm run build, esbuild, tsc) or the last
 //                  test run (npm test, npm run test, node --test) of its
-//                  Branch; commands that drive a browser stay out as before
+//                  Branch, or the latest build or prepare command (npm run
+//                  prepare-tests) before that kept test on its Branch;
+//                  commands that drive a browser stay out as before
 // A Workspace in which no command is left is not mounted at all (its Commits
 // would change nothing), and a Commit after no remaining command is dropped.
 // A bash step left with no call is dropped; a turn left with no call gets
@@ -83,6 +85,7 @@ if (!/^sha256:[0-9a-f]{64}$/.test(old.image ?? "")) fail("scenario.json names no
 const INSTALL = /\bnpm (install|ci)\b/;
 const BUILD = /\bnpm run build\b|\besbuild\b|\btsc\b/;
 const TEST = /\bnpm (run )?test\b|\bnode --test\b/;
+const PREPARE = /\bnpm run prepare-tests\b/;
 const verificationOff = name === "crew";
 const changed = (c) => c.expect?.includes("Committed") && !c.generated; // the record's Commit came back Committed
 
@@ -105,6 +108,13 @@ if (verificationOff) {
     if (TEST.test(c.command)) lastTest.set(c.branch, c);
   }
   for (const c of [...lastBuild.values(), ...lastTest.values()]) lastOf.add(c);
+  // a kept test also keeps the latest build or prepare command before it on
+  // its Branch: crew's people.6 test failed without P1e-054's build
+  for (const test of lastTest.values()) {
+    const before = execs.slice(0, execs.indexOf(test)).reverse()
+      .find((c) => !c.browser && c.branch === test.branch && (BUILD.test(c.command) || PREPARE.test(c.command)));
+    if (before) lastOf.add(before);
+  }
 }
 const verificationKept = (c) => (!c.browser && INSTALL.test(c.command)) || lastOf.has(c);
 
@@ -419,7 +429,7 @@ const entries = Object.keys(seed.entries);
 for (const [file, changes] of changeFiles) writeFileSync(join(folder, "changes", file), `${JSON.stringify(changes, null, 1)}\n`);
 writeFileSync(join(folder, "final.json"), source.final);
 
-const blurb = `Replay of a recorded run: ${old.blurb.replace(/^Replays /, "").replace(/ Every recorded write.*$/, "")} Every recorded write is applied, and a recorded command runs again in a Workspace unless it repeats an earlier run on a Branch that has not changed since${verificationOff ? ", or it only verifies and is not one of the installs or a Branch's last build or test" : ""}.`;
+const blurb = `Replay of a recorded run: ${old.blurb.replace(/^Replays /, "").replace(/ Every recorded write.*$/, "")} Every recorded write is applied, and a recorded command runs again in a Workspace unless it repeats an earlier run on a Branch that has not changed since${verificationOff ? ", or it only verifies and is not one of the installs, a Branch's last build or test, or the build or prepare before that test" : ""}.`;
 const scenario = { type: "layerfs-scenario", version: 3, title: old.title, blurb, order: old.order, layerfs: ["real"], fixture: "seed.json", agents };
 writeFileSync(join(folder, "scenario.json"), `${JSON.stringify(scenario, null, 1)}\n`);
 
@@ -466,8 +476,8 @@ const lines = [
   "",
 ];
 if (verificationOff) {
-  lines.push("Verification commands kept (install, or a Branch's last build or test):", "");
-  for (const c of keptExecs.filter((c) => c.verification)) lines.push(`- ${runs.get(c.number).step} (${c.branch}; ${[!c.browser && INSTALL.test(c.command) && "install", BUILD.test(c.command) && "build", TEST.test(c.command) && "test"].filter(Boolean).join(", ")}; ${(c.ms / 1000).toFixed(1)} s)`);
+  lines.push("Verification commands kept (install, a Branch's last build or test, or the latest build or prepare before that test):", "");
+  for (const c of keptExecs.filter((c) => c.verification)) lines.push(`- ${runs.get(c.number).step} (${c.branch}; ${[!c.browser && INSTALL.test(c.command) && "install", BUILD.test(c.command) && "build", PREPARE.test(c.command) && "prepare", TEST.test(c.command) && "test"].filter(Boolean).join(", ")}; ${(c.ms / 1000).toFixed(1)} s)`);
   lines.push("");
 }
 if (lostTracked.length) {
