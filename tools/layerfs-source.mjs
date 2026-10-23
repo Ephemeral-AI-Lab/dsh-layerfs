@@ -1,8 +1,11 @@
 // Points .layerfs at the LayerFS checkout this repository builds on, and
 // checks it against the pin. The checkout is LAYERFS_SOURCE, else layerfs.json's
 // `source` (../layerfs beside this repository); a relative path resolves from
-// this repository's root. Everything of LayerFS (the SDK the Host links as
-// @layerfs/sdk, the agent skill, the Linux build) is read through .layerfs.
+// this repository's root. Everything of LayerFS (the packages the Host links,
+// @layerfs/agent, @layerfs/backend and @layerfs/runtime from sdk/js/packages,
+// the agent skill, the Linux build) is read through .layerfs. @layerfs/backend
+// and @layerfs/runtime import @layerfs/agent from sdk/js's own node_modules,
+// which `npm install` in sdk/js links (it downloads nothing).
 //   node tools/layerfs-source.mjs [link]   point .layerfs (pnpm install and pnpm test run this first;
 //                                          pnpm skips preinstall when nothing else changed)
 //   node tools/layerfs-source.mjs check    also fail unless the checkout is at the pinned commit
@@ -21,8 +24,12 @@ if (mode !== "link" && mode !== "check") {
 }
 
 const source = resolve(ROOT, process.env.LAYERFS_SOURCE || pin.source);
-if (!existsSync(join(source, "sdk/js/package.json"))) {
-  console.error(`layerfs-source: ${source} is not a LayerFS checkout (no sdk/js/package.json); set LAYERFS_SOURCE to one at ${pin.commit.slice(0, 10)}`);
+if (!existsSync(join(source, "sdk/js/packages/agent/package.json"))) {
+  console.error(`layerfs-source: ${source} is not a LayerFS checkout with the #428 packages (no sdk/js/packages/agent); set LAYERFS_SOURCE to one at ${pin.commit.slice(0, 10)}`);
+  process.exit(1);
+}
+if (!existsSync(join(source, "sdk/js/node_modules/@layerfs/agent/package.json"))) {
+  console.error(`layerfs-source: ${source}/sdk/js has no node_modules/@layerfs/agent; run \`npm install\` in that sdk/js once (it only links its workspaces)`);
   process.exit(1);
 }
 

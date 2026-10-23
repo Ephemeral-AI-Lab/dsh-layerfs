@@ -31,9 +31,15 @@ importers:
       '@dsh-layerfs/model':
         specifier: workspace:*
         version: link:../model
-      '@layerfs/sdk':
-        specifier: link:../../.layerfs/sdk/js
-        version: link:../../.layerfs/sdk/js
+      '@layerfs/agent':
+        specifier: link:../../.layerfs/sdk/js/packages/agent
+        version: link:../../.layerfs/sdk/js/packages/agent
+      '@layerfs/backend':
+        specifier: link:../../.layerfs/sdk/js/packages/backend
+        version: link:../../.layerfs/sdk/js/packages/backend
+      '@layerfs/runtime':
+        specifier: link:../../.layerfs/sdk/js/packages/runtime
+        version: link:../../.layerfs/sdk/js/packages/runtime
 
   packages/model: {}
 
