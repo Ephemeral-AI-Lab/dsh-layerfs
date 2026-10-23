@@ -8,7 +8,7 @@ import * as X from "../../model/src/index.js";
 import { dueOf, Playback } from "../src/client/playback.ts";
 
 const lines = X.parseTrace(readFileSync(new URL("../../model/tests/fixtures/real-trace.jsonl", import.meta.url), "utf8"));
-const ends = X.endLines(lines), steps = ends.filter((l) => l.method !== "sandbox.service" && (!l.method.startsWith("operator.") || /^operator\.process\.(start|cancel)$/.test(l.method))).length;
+const ends = X.endLines(lines), steps = ends.filter((l) => !X.ridesAlong(l.method)).length;
 // the same calls, moved so the last ended `ago` ms before now
 const at = (ago) => {
   const shift = Date.now() - ago - Math.max(...ends.map((l) => Date.parse(l.start) + (l.ms || 0)));

@@ -249,12 +249,31 @@ export class ReplayEngine {
  * the Workspace's Sandbox as before (the mount's result, the others' args).
  */
 const WORKSPACE = new Set(["workspace.mount", "workspace.exec", "workspace.status", "workspace.commit", "workspace.unmount"]);
-const older = (line) => (WORKSPACE.has(line.method) ? { ...line, method: `sandbox.${line.method.slice("workspace.".length)}` } : line);
+/**
+ * #428 names (@layerfs/backend) of the calls the model draws, under their
+ * names before it: a background process, and a Workspace's status, which
+ * moved to the backend. Lines keep the name their call had when it ran.
+ */
+const RENAMED = {
+  "backend.daemon.process.start": "operator.process.start",
+  "backend.daemon.process.cancel": "operator.process.cancel",
+  "backend.daemon.workspace.status": "workspace.status",
+};
+const older = (raw) => {
+  const line = Object.hasOwn(RENAMED, raw.method) ? { ...raw, method: RENAMED[raw.method] } : raw;
+  return WORKSPACE.has(line.method) ? { ...line, method: `sandbox.${line.method.slice("workspace.".length)}` } : line;
+};
 /** The Sandbox of a process call: its args', or the one its id names (`proc_<sandbox>_<hex>`). */
 const processSandbox = (a) => a.sandbox ?? /^proc_(\d+)_/.exec(String(a.process))?.[1];
 
-/** Calls that only the client makes for itself, or reads with no line of their own. */
-const SKIP = (method) => method === "sandbox.service" || (method.startsWith("operator.") && method !== "operator.process.start" && method !== "operator.process.cancel");
+/** Calls that only the client makes for itself, or reads with no line of their own:
+ * the older SDK's service Sandbox and operator reads, and #428's reads of a
+ * project's Sandboxes and its other backend and runtime calls. */
+const SKIP = (method) => method === "sandbox.service" || method === "sandbox.list_workspaces" || method === "project.list_sandboxes"
+  || (/^(operator|backend|runtime)\./.test(method) && method !== "operator.process.start" && method !== "operator.process.cancel");
+
+/** Whether a trace line rides with the next drawn one instead of being a step (any SDK version's name). */
+export const ridesAlong = (method) => SKIP(older({ method }).method);
 
 /** The agent step a trace line stands for, in the story's call names, with
  * its Workspace bound by the ids on the line; null for a line not drawn. */
@@ -307,7 +326,7 @@ export function traceSteps(lines, { agent = "main", label = (line) => `${line.me
   let pending = [];
   for (const line of ends) {
     pending.push(line);
-    if (SKIP(line.method)) continue;
+    if (ridesAlong(line.method)) continue;
     const batch = pending; pending = [];
     steps.push({ a: line.agent || agent, label: label(line), line, replay: (W) => { for (const l of batch) replayLine(W, l, { agent, t0 }); } });
   }

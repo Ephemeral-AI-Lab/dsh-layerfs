@@ -1,30 +1,43 @@
-// The SDK-to-CLI table covers every SDK and operator method, and prints the
-// documented lines. A method the SDK gains without a row here fails.
+// The SDK-to-CLI table covers every method of @layerfs/agent and
+// @layerfs/backend (#428), and prints the documented lines. A method either
+// gains without a row here fails.
 //   node packages/model/tests/cli.mjs
-// The SDK is the LayerFS checkout's (LAYERFS_SOURCE).
+// The packages are the LayerFS checkout's (LAYERFS_SOURCE). A client is opened
+// on a stand-in binding that answers every call, so no Store is needed.
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LAYERFS } from "../../host/src/source.js";
 import { CLI, cliOf, commandOf, routeOf } from "../src/cli.js";
 
-const sdkDir = join(LAYERFS, "sdk/js");
-const { LayerFS } = await import(pathToFileURL(join(sdkDir, "src/index.js")).href);
-const { LayerFSOperator } = await import(pathToFileURL(join(sdkDir, "operator/index.js")).href);
+const packages = join(LAYERFS, "sdk/js/packages");
+const binding = join(mkdtempSync(join(tmpdir(), "dsh-layerfs-cli-")), "binding.cjs");
+writeFileSync(binding, "const ok = async () => ({ value: { items: [], hasMore: false } }); module.exports = { call: ok, backendCall: ok, storeOpen: ok, storeClose: ok };");
+Object.assign(process.env, { LAYERFS_NATIVE: binding, LAYERFS_STORE_PATH: "/stand-in/store.sqlite", LAYERFS_HOME: "/stand-in" });
+const { LayerFS } = await import(pathToFileURL(join(packages, "agent/src/index.js")).href);
+const { LayerFSBackend } = await import(pathToFileURL(join(packages, "backend/src/index.js")).href);
 
-const methods = (client) => Object.entries(client)
-  .filter(([, group]) => group && typeof group === "object" && !(group instanceof Set) && Object.values(group).some((f) => typeof f === "function"))
-  .flatMap(([name, group]) => Object.keys(group).filter((m) => typeof group[m] === "function").map((m) => `${name}.${m}`));
-const sdk = new LayerFS("cli-test");
-const all = [...methods(sdk), ...methods(new LayerFSOperator(sdk))];
-// the #328 standard's 29 methods, less sandbox.create and sandbox.close (#373)
-assert.equal(methods(sdk).length, 27, "the 27-method SDK");
+/** `group.method` of every function under `client`, groups nested as the backend's are. */
+const methods = (client, prefix = "") => Object.entries(client)
+  .filter(([, group]) => group && typeof group === "object" && !(group instanceof Set))
+  .flatMap(([name, group]) => Object.entries(group).flatMap(([m, f]) => (typeof f === "function" ? [`${prefix}${name}.${m}`] : f && typeof f === "object" ? methods({ [m]: f }, `${prefix}${name}.`) : [])));
+const sdk = await LayerFS.open("cli-test");
+const agent = methods(sdk), backend = methods(LayerFSBackend.of(sdk), "backend.");
+const all = [...agent, ...backend];
+// #373's 27 methods, less project.init (now LayerFS.init) and workspace.status
+// (now the backend's), with sandbox.create, list_workspaces and close and
+// project.list_sandboxes (#428)
+assert.equal(agent.length, 29, `the 29-method agent SDK: ${agent.join(" ")}`);
+assert.equal(backend.length, 14, `the 14-method backend: ${backend.join(" ")}`);
 for (const call of all) {
   assert.ok(CLI[call], `${call} has a row in cli.js`);
   assert.ok(["project", "fs", "workspace", null].includes(CLI[call].at), `${call}: terminal`);
   if (CLI[call].at === null) continue;
   // every drawn SDK line starts with its group, except a Workspace's shell command
-  if (call !== "workspace.exec" && call !== "process.start") assert.ok(commandOf(call, {}).startsWith(call.split(".")[0] + " "), `${call}: group prefix`);
+  // (a drawn backend call prints as its older name, checked below)
+  if (call !== "workspace.exec" && call !== "process.start" && !call.startsWith("backend.")) assert.ok(commandOf(call, {}).startsWith(call.split(".")[0] + " "), `${call}: group prefix`);
 }
 
 const image = "sha256:" + "2d929c6d66c2".padEnd(64, "0");
@@ -37,8 +50,9 @@ const lines = [
   ["branch.diff_branches", { from: "feature", to: "try-ui" }, "project", "branch diff_branches feature try-ui"],
   ["branch.merge", { branch: "feature", with: "try-ui", name: "release", message: "join" }, "project", 'branch merge feature try-ui release -m "join"'],
   ["branch.publish", { branch: "release" }, "project", "branch publish release"],
-  // an older trace's Sandbox calls
+  // an older trace's Sandbox calls, and #428's
   ["sandbox.create", { name: "tester", project: "docs", image }, "project", "sandbox create tester docs sha256:2d929c6d66c2"],
+  ["sandbox.create", { deploy: { image } }, "project", "sandbox create sha256:2d929c6d66c2"],
   ["sandbox.close", { sandbox: "tester" }, "project", "sandbox close tester"],
   ["fs.read", { branch: "try", path: "/app/theme.css", startLine: 1 }, "fs", "fs read /app/theme.css"],
   ["fs.read", { branch: "try", path: "/a.txt", startLine: 5, endLine: 9 }, "fs", "fs read /a.txt --start-line 5 --end-line 9"],
@@ -51,6 +65,9 @@ const lines = [
   ["process.start", { command: "npm run dev" }, "workspace", "npm run dev &"],
   ["process.cancel", { process: "proc_1_ab" }, "workspace", "process cancel proc_1_ab"],
   ["workspace.status", {}, "workspace", "workspace status"],
+  ["backend.daemon.workspace.status", {}, "workspace", "workspace status"],
+  ["backend.daemon.process.start", { command: "npm run dev" }, "workspace", "npm run dev &"],
+  ["backend.daemon.process.cancel", { process: "proc_1_ab" }, "workspace", "process cancel proc_1_ab"],
   ["workspace.commit", { message: "add hero", force: false }, "workspace", 'workspace commit -m "add hero"'],
   ["workspace.commit", { force: true }, "workspace", "workspace commit --force"],
   ["workspace.unmount", { discard: false }, "workspace", "workspace unmount"],

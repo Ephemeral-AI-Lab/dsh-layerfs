@@ -90,9 +90,13 @@ export const CLI = {
   "workspace.unmount": { at: "workspace", cli: (a) => line("workspace unmount", [], [["discard", a.discard]]) },
   // The simulator, the scenarios and older traces name these calls by the
   // older SDK's names; they print as the Workspace calls. Sandbox create and
-  // close have no successor: LayerFS starts and closes Sandboxes itself.
-  "sandbox.create": { at: "project", cli: (a) => line("sandbox create", [a.name, a.project, a.image && shortImage(a.image)]) },
+  // close are both the older SDK's named Sandboxes and #428's numbered ones
+  // (`deploy.image`); a placed Workspace's Sandbox closes when idle.
+  "sandbox.create": { at: "project", cli: (a) => { const image = a.image ?? a.deploy?.image; return line("sandbox create", [a.name, a.project, image && shortImage(image)]); } },
   "sandbox.close": { at: "project", cli: (a) => line("sandbox close", [a.sandbox]) },
+  // #428's reads of a project's Sandboxes
+  "project.list_sandboxes": { at: null },
+  "sandbox.list_workspaces": { at: null },
 
   // ------------------------------------------------------------- operator
   // process start and cancel are the only operator calls drawn; the rest are reads
@@ -116,6 +120,12 @@ export const CLI = {
 };
 
 for (const name of ["mount", "exec", "status", "commit", "unmount"]) CLI[`sandbox.${name}`] = CLI[`workspace.${name}`];
+// @layerfs/backend (#428): a background process and a Workspace's status are
+// drawn as before; its other calls are reads, with no line of their own
+for (const name of ["store.project.get_history", "store.project.get_storage", "store.project.get_comparable", "store.project.list_overwritten",
+  "store.branch.list_commit_storage", "store.fs.get_storage", "store.fs.list_revisions", "daemon.workspace.list_changes", "daemon.workspace.get_storage",
+  "daemon.process.list", "daemon.sandbox.get_log"]) CLI[`backend.${name}`] = { at: null };
+Object.assign(CLI, { "backend.daemon.process.start": CLI["process.start"], "backend.daemon.process.cancel": CLI["process.cancel"], "backend.daemon.workspace.status": CLI["workspace.status"] });
 
 /** The route of `call`; a call missing from the table prints its own name, dimmed, in the project terminal. */
 export const routeOf = (call) => CLI[call] ?? { at: "project", dim: true, cli: () => call };

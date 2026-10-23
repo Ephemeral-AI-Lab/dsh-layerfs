@@ -85,4 +85,28 @@ const steps = X.traceSteps([
 for (const st of steps) await X.runStep(V, st, {});
 assert.ok(V.panes["layerfs-q-1:/workspaces/1"], Object.keys(V.panes).join(","));
 assert.deepEqual(V.panes["layerfs-q-1:/workspaces/1"].lines.map((l) => l.text), ["mount e", "ls"]);
+// #428 names: a background process and a Workspace's status are @layerfs/backend
+// calls, drawn as before; the agent's reads of Sandboxes and other backend and
+// runtime calls ride with the next step
+end("workspace.mount", { branch: "d" }, { sandbox: "1", path: "/workspaces/2", branch: "d", base: C3, baseLayer: L1 });
+end("backend.daemon.process.start", { sandbox: "1", path: "/workspaces/2", command: "npm run dev" }, { process: "proc_1_cd" });
+assert.equal(R.s.sandboxes["layerfs-p-1"].processes.proc_1_cd.status, "running");
+end("backend.daemon.process.cancel", { process: "proc_1_cd" }, { kind: "Stopped" });
+assert.equal(R.s.sandboxes["layerfs-p-1"].processes.proc_1_cd.status, "stopped");
+assert.deepEqual(["backend.daemon.process.start", "backend.daemon.workspace.status", "workspace.exec", "operator.process.cancel"].map(X.ridesAlong), [false, false, false, false]);
+assert.deepEqual(["sandbox.list_workspaces", "project.list_sandboxes", "backend.store.project.get_history", "backend.daemon.workspace.get_storage", "runtime.project.get_init", "operator.store.stats", "sandbox.service"].map(X.ridesAlong), [true, true, true, true, true, true, true]);
+const N = X.createView(new X.ReplayEngine({ project: "n" }), { lead: "main" });
+X.derive(N);
+const renamed = X.traceSteps([
+  traced(1, "project.init", {}, {}),
+  traced(2, "branch.fork", { name: "e", from: "main" }, { branch: "e", base: L0, head: null }),
+  traced(3, "project.list_sandboxes", {}, {}),
+  traced(4, "workspace.mount", { branch: "e" }, { sandbox: "1", path: "/workspaces/1", branch: "e", base: null, baseLayer: L0 }),
+  traced(5, "backend.daemon.workspace.status", { ...WS }, {}),
+  traced(6, "backend.daemon.process.start", { ...WS, command: "npm run dev" }, { process: "proc_1_ef" }),
+  traced(7, "sandbox.list_workspaces", { sandbox: "1" }, {}),
+]);
+assert.deepEqual(renamed.map((st) => st.line.method), ["project.init", "branch.fork", "workspace.mount", "backend.daemon.workspace.status", "backend.daemon.process.start"]);
+for (const st of renamed) await X.runStep(N, st, {});
+assert.deepEqual(N.panes["layerfs-n-1:/workspaces/1"].lines.map((l) => l.text), ["mount e", "status", "npm run dev &"], "drawn as the older names were");
 console.log(`PASS model trace: ${lines.length} lines, ${s.branchOrder.length} Branches, ${s.sandboxOrder.length} Sandboxes, ${Object.keys(w.attrib).length} attributed nodes`);

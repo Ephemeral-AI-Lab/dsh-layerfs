@@ -1,18 +1,17 @@
 // Plays a session's SDK calls in the LayerFS tab in step with the run: each
-// step (one drawn trace line; the SDK's own service Sandbox and operator reads
-// ride with the next one) shows LAG_MS after the call ended, so the gaps on
-// screen are the run's own gaps and the view never falls behind it. LAG_MS is
-// longer than the Host poll (1.5 s), so a call is usually here before its
-// time. Steps whose time has passed (the tab opened, a rebuild, a late poll)
-// apply at once and draw once. How fast a demo runs is the mock's business
+// step (one drawn trace line; the SDK's own service Sandbox and its backend
+// reads ride with the next one, by the trace source's rule X.ridesAlong)
+// shows LAG_MS after the call ended, so the gaps on screen are the run's
+// own gaps and the view never falls behind it. LAG_MS is longer than the
+// Host poll (1.5 s), so a call is usually here before its time. Steps
+// whose time has passed (the tab opened, a rebuild, a late poll) apply at
+// once and draw once. How fast a demo runs is the mock's business
 // (mock/src/pace.js), not the playback's; a Workspace that a script mounts and
 // unmounts within a second still shows, as the view's fading trail.
 import * as X from '../../../model/src/index.js'
 
 const LAG_MS = 2000
 
-/** The same rule as the trace source's (model/src/sources/trace.js): lines that are not steps of their own. */
-const rides = (method: string) => method === 'sandbox.service' || (method.startsWith('operator.') && method !== 'operator.process.start' && method !== 'operator.process.cancel')
 
 export interface Step { a: string, line: any, replay: (W: any) => void, due: number }
 
@@ -63,7 +62,7 @@ export class Playback {
       if (this.seen.has(line.id)) continue
       this.seen.add(line.id)
       this.pending.push(line)
-      if (rides(line.method)) continue
+      if (X.ridesAlong(line.method)) continue
       const batch = this.pending
       this.pending = []
       // a step never shows before the one before it
