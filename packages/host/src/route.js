@@ -27,11 +27,14 @@
 //   POST /layerfs/project/<name>/runtime {action, sandbox?, path?, process?, confirm?}  unmount, discard or stop
 //   POST /layerfs/project/<name>/remove {confirm, stopSandboxes?}  remove it (confirm: its name;
 //                                          stopSandboxes: stop its running Sandboxes first); see remove.js
+//   GET  /layerfs/runs                        recorded history replay runs and their traced ranges (runs.js)
+//   GET  /layerfs/runs/<id>/trace?range&attempt  one range attempt's trace lines, each with its agent
 import { missingDeployment } from "./config.js";
 import { prepareInit, runInit } from "./init.js";
 import { InitJobs } from "./jobs.js";
 import { READS } from "./reads.js";
 import { removeProject } from "./remove.js";
+import { listRuns, readRange } from "./runs.js";
 import { cleanLeftovers, nameImages, overview, projectAction, projectRuntime, restartStore, startStore } from "./runtime.js";
 
 const PREFIX = "/layerfs";
@@ -102,6 +105,9 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
         if (req.method === "POST" && parts[1] === "store") return send(res, 200, await startStore(spec));
         if (req.method === "POST" && parts[1] === "leftovers") return send(res, 200, await cleanLeftovers(spec, bindings, (await readJson(req)).names));
       }
+      if (req.method === "GET" && parts[0] === "runs" && parts.length === 1) return send(res, 200, { dir: spec.runs, runs: listRuns(spec.runs) });
+      if (req.method === "GET" && parts[0] === "runs" && parts[2] === "trace" && parts.length === 3)
+        return send(res, 200, readRange(spec.runs, decodeURIComponent(parts[1]), url.searchParams.get("range") ?? "", url.searchParams.get("attempt") ?? "1"));
       if (req.method === "GET" && parts[0] === "projects" && parts.length === 1) return send(res, 200, { projects: bindings.projects(), defaults: bindings.defaults() });
       if (parts[0] === "project" && parts.length === 3) {
         const project = bindings.byName(decodeURIComponent(parts[1]));

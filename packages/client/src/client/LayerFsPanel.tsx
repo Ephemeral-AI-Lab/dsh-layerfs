@@ -1,5 +1,6 @@
 // The LayerFS sidebar page: one project at a time, like an editor. A slim
-// title bar has two tabs: All projects · Sandboxes (AllSandboxes: every
+// title bar has three tabs: Runs (RunsPage: recorded history replay runs,
+// played from their traces), All projects · Sandboxes (AllSandboxes: every
 // project's Sandboxes and what they run on; a project's card opens it, and
 // Import project imports a workspace's folder, InitDialog) and the open
 // project. Then the project's one action, New session (in
@@ -18,6 +19,7 @@ import { api, readProject, type Project, type ProjectState, type Status, type St
 import { InitDialog } from './InitDialog.tsx'
 import { ProjectBoard } from './ProjectBoard.tsx'
 import { RemoveDialog } from './RemoveDialog.tsx'
+import { RunsPage } from './RunsPage.tsx'
 import { card, T } from './tokens.ts'
 
 /** What the panel uses of dsh's workspace services (read with ctx.get). */
@@ -131,6 +133,8 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
   // the All projects page instead of a project, and the tab a project opens with when one of its cards was clicked
   const [all, setAll] = useState(false)
   const [openTab, setOpenTab] = useState<'sandboxes' | undefined>(undefined)
+  // the Runs page instead of either
+  const [runsTab, setRunsTab] = useState(false)
 
   const loadProjects = useCallback(() => api.projects().then(({ projects, defaults }) => { setProjects(projects); setDefaults(defaults ?? {}); return projects }), [])
   useEffect(() => {
@@ -194,7 +198,7 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
       <style>{ROWS}</style>
       <main style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', padding: '12px 16px 16px' }}>
         {status && !status.configured && <div style={{ ...card, padding: '8px 12px', color: T.warn }}>LayerFS isn't set up: layerfs-host is missing {status.missing.join(', ')}.</div>}
-        {!all && projects && projects.length === 0 && (
+        {!all && !runsTab && projects && projects.length === 0 && (
           <Notice title="Start your first project">
             <div style={{ display: 'grid', gap: 8, justifyItems: 'start' }}>
               <span>Import a folder from a workspace: LayerFS keeps a versioned copy that agents fork, test and merge.</span>
@@ -202,24 +206,29 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
             </div>
           </Notice>
         )}
-        {(all || project) && (
+        {(all || project || runsTab || projects?.length === 0) && (
           <>
             <header style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <span style={{ display: 'flex', flex: 'none', color: T.text2 }}><LayerFsIcon size={20} /></span>
               <span role="tablist" aria-label="LayerFS" style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
-                <button type="button" role="tab" aria-selected={all || !project} className="lfs-switch lfs-tab" onClick={() => setAll(true)} title="Every project and its Sandboxes; a card opens a project"
+                <button type="button" role="tab" aria-selected={!runsTab && (all || !project)} className="lfs-switch lfs-tab" onClick={() => { setAll(true); setRunsTab(false) }} title="Every project and its Sandboxes; a card opens a project"
                   style={{ flex: 'none', padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', whiteSpace: 'nowrap' }}>
                   All projects · Sandboxes
                 </button>
                 {project && (
-                  <button type="button" role="tab" aria-selected={!all} className="lfs-switch lfs-tab" onClick={() => setAll(false)} title={project.name}
+                  <button type="button" role="tab" aria-selected={!all && !runsTab} className="lfs-switch lfs-tab" onClick={() => { setAll(false); setRunsTab(false) }} title={project.name}
                     style={{ minWidth: 0, maxWidth: 320, padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {project.name}
                   </button>
                 )}
+                <button type="button" role="tab" aria-selected={runsTab} className="lfs-switch lfs-tab" onClick={() => setRunsTab(true)} title="Recorded history replay runs, played from their traces"
+                  style={{ flex: 'none', padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', whiteSpace: 'nowrap' }}>
+                  Runs
+                </button>
               </span>
-              {(all || !project) && <><span style={{ flex: 1 }} />{importButton()}</>}
-              {!all && project && <>
+              {runsTab && <span style={{ flex: 1 }} />}
+              {!runsTab && (all || (!project && projects?.length !== 0)) && <><span style={{ flex: 1 }} />{importButton()}</>}
+              {!all && !runsTab && project && <>
               <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${project.empty ? 'started empty' : project.source} · volume ${project.volume}`}>
                 {project.empty ? 'started empty' : `from ${short(project.source)}`} · {day(project.created)}
               </span>
@@ -232,7 +241,9 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
               </>}
             </header>
             {(busy || error) && <div role="status" style={{ color: error ? T.danger : T.text2 }}>{error ?? busy}</div>}
-            {all || !project
+            {runsTab
+              ? <RunsPage />
+              : all || !project
               ? <AllSandboxes onOpen={(name) => { setOpenTab('sandboxes'); setSelected(name); setAll(false) }} />
               : stateError
               ? (() => {

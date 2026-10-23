@@ -23,6 +23,7 @@ import { windowsConfig } from "./windows/host.js";
  * @property {string} [stateDir] Directory for project bindings and agent names.
  * @property {string} [traceDir] Directory for per-agent SDK trace files; bash calls must be able to write it.
  * @property {number} [pollMs] Interval at which trace files are read for new lines.
+ * @property {string} [runs] Folder of recorded history replay runs (layerfs #352) for the Runs player.
  * @property {string} [wslDistribution] Windows: WSL2 distribution running Docker and the SDK (default Ubuntu).
  * @property {string} [wslUser] Windows: Linux user owning Store volumes (default root).
  * @property {string} [wslHome] Windows: persistent Linux discovery directory (default derived from Windows home).
@@ -43,6 +44,7 @@ import { windowsConfig } from "./windows/host.js";
  * @property {string} traceDir
  * @property {boolean} traceInWorkspace Windows default: traces use the shell's writable workspace.
  * @property {number} pollMs
+ * @property {string} runs history replay runs: the setting, else $LFS_HISTORY/runs, else ~/lfs-history/runs (the harness's own default)
  * @property {string} sdk file URL of the SDK entry Live projects use (on macOS, port/sdk.js)
  * @property {string} operator file URL of its operator entry
  * @property {string} simSdk file URL of the SDK on the simulator (sim/sdk.js), for simulated projects
@@ -79,6 +81,7 @@ export function resolveConfig(config, profile) {
     traceDir: config.traceDir || join(temp, "traces"),
     traceInWorkspace: process.platform === "win32" && !config.traceDir,
     pollMs: config.pollMs ?? 400,
+    runs: config.runs || join(process.env.LFS_HISTORY || join(homedir(), "lfs-history"), "runs"),
     sdk: windows ? new URL("./windows/sdk.js", import.meta.url).href : ported ? new URL("./port/sdk.js", import.meta.url).href : import.meta.resolve("@layerfs/sdk"),
     operator: windows ? new URL("./windows/operator.js", import.meta.url).href : ported ? new URL("./port/operator.js", import.meta.url).href : import.meta.resolve("@layerfs/sdk/operator"),
     simSdk: new URL("./sim/sdk.js", import.meta.url).href,

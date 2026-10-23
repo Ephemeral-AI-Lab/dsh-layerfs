@@ -61,6 +61,16 @@ export interface Overview {
   leftovers: { name: string, project: string, running: boolean, status: string }[]
   totals: { projects: number, sandboxes: number, workspaces: number }
 }
+/** One traced attempt of a range of a recorded history replay run (Host runs.js). */
+export interface RunRange { range: number, attempt: number, bytes: number, verdict: string | null, reason: string | null, started: string | null }
+/** A recorded history replay run with at least one traced range (GET /runs). */
+export interface Run { id: string, phase: string | null, label: string | null, project: string | null, created: string | null, ranges: RunRange[] }
+/** One range attempt's trace lines, each with its agent (`agent`), and what its plan and gate say. */
+export interface RunTrace {
+  run: string, range: number, attempt: number, lines: any[], agents: string[]
+  plan: { checkpoint: string | null, lanes: string[], steps: number, conflicts: number } | null
+  verdict: string | null, reason: string | null
+}
 export interface Counts { entries: number, files: number, bytes: number }
 /** A running or ended Init on the Host (jobs.js). */
 export interface InitJob {
@@ -146,6 +156,9 @@ export const api = {
   restartStore: () => call<Overview['store']>('POST', '/runtime/store/restart', { confirm: 'restart' }),
   cleanLeftovers: (names: string[]) => call<{ results: { name: string, ok: boolean, message?: string }[] }>('POST', '/runtime/leftovers', { names }),
   projectRuntime: (name: string) => call<ProjectRuntime>('GET', `/project/${encodeURIComponent(name)}/runtime`),
+  /** Recorded history replay runs in the Host's runs folder (`dir`). */
+  runs: () => call<{ dir: string, runs: Run[] }>('GET', '/runs'),
+  runTrace: (id: string, range: number, attempt: number) => call<RunTrace>('GET', `/runs/${encodeURIComponent(id)}/trace?range=${range}&attempt=${attempt}`),
   /** unmount (nothing uncommitted), discard (confirm: the path) or stop a process */
   runtimeAction: (name: string, body: { action: 'unmount' | 'discard' | 'stop', sandbox?: string, path?: string, process?: string, confirm?: string }) =>
     call<unknown>('POST', `/project/${encodeURIComponent(name)}/runtime`, body),
