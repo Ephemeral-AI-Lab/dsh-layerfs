@@ -85,9 +85,9 @@ try {
   // the installed Store in the project's volume: in Docker's VM where the worker opens it, else under this engine's volumes directory
   assert.equal(vars.DSH_LAYERFS_STORE_PATH, `${process.platform === "linux" ? h.spec.volumes : "/var/lib/docker/volumes"}/dsh-layerfs-website-1/_data/global/store.sqlite`);
   // the packages agents import (#428), from the LayerFS checkout, and its layerfs command
-  assert.match(vars.DSH_LAYERFS_SDK, /^file:.*\/sdk\/js\/packages\/agent\/src\/index\.js$/);
-  assert.match(vars.DSH_LAYERFS_BACKEND, /^file:.*\/sdk\/js\/packages\/backend\/src\/index\.js$/);
-  assert.match(vars.DSH_LAYERFS_CLI, /\/cli\/src\/layerfs\.js$/);
+  assert.match(vars.DSH_LAYERFS_SDK, /^file:.*\/api\/agent\/sdk\/src\/index\.js$/);
+  assert.match(vars.DSH_LAYERFS_BACKEND, /^file:.*\/api\/backend\/src\/index\.js$/);
+  assert.match(vars.DSH_LAYERFS_CLI, /\/api\/agent\/cli\/src\/layerfs\.js$/);
   assert.ok(!("DSH_LAYERFS_OPERATOR" in vars) && !("DSH_LAYERFS_STORE_CONTAINER" in vars) && !("DSH_LAYERFS_BUNDLE" in vars));
   if (process.platform === "linux") assert.ok(!("DSH_LAYERFS_WORKER_ENDPOINT" in vars), "Linux makes Store calls in the caller");
   else assert.deepEqual([vars.DSH_LAYERFS_WORKER_ENDPOINT, vars.DSH_LAYERFS_WORKER_ADAPTER], [join(h.spec.home, "worker", "endpoint.json"), "dsh"], "macOS and Windows: the home's worker");

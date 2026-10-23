@@ -45,7 +45,7 @@ Rules for agents working in this repository: the dsh-layerfs plugin bundle.
   LayerFS only through `.layerfs` (`packages/host/src/source.js`) or the
   `@layerfs/agent`, `@layerfs/backend` and `@layerfs/runtime` packages linked
   through it. Never add a relative path into a sibling checkout
-  (`../../../sdk/js`, `../layerfs/core/target`, ...), and never deep-import a
+  (`../../../api`, `../layerfs/core/target`, ...), and never deep-import a
   package's files.
 - Use the packages' public entry points (#428). `@layerfs/agent/internal` is
   not a public API: do not import it. Clients come from `LayerFS.open` or

@@ -12,12 +12,12 @@ import { pathToFileURL } from "node:url";
 import { LAYERFS } from "../../host/src/source.js";
 import { CLI, cliOf, commandOf, routeOf } from "../src/cli.js";
 
-const packages = join(LAYERFS, "sdk/js/packages");
+const api = join(LAYERFS, "api");
 const binding = join(mkdtempSync(join(tmpdir(), "dsh-layerfs-cli-")), "binding.cjs");
 writeFileSync(binding, "const ok = async () => ({ value: { items: [], hasMore: false } }); module.exports = { call: ok, backendCall: ok, storeOpen: ok, storeClose: ok };");
 Object.assign(process.env, { LAYERFS_NATIVE: binding, LAYERFS_STORE_PATH: "/stand-in/store.sqlite", LAYERFS_HOME: "/stand-in" });
-const { LayerFS } = await import(pathToFileURL(join(packages, "agent/src/index.js")).href);
-const { LayerFSBackend } = await import(pathToFileURL(join(packages, "backend/src/index.js")).href);
+const { LayerFS } = await import(pathToFileURL(join(api, "agent/sdk/src/index.js")).href);
+const { LayerFSBackend } = await import(pathToFileURL(join(api, "backend/src/index.js")).href);
 
 /** `group.method` of every function under `client`, groups nested as the backend's are. */
 const methods = (client, prefix = "") => Object.entries(client)

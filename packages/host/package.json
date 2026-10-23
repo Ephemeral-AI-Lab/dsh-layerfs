@@ -15,9 +15,9 @@
   },
   "dependencies": {
     "@dsh-layerfs/model": "workspace:*",
-    "@layerfs/agent": "link:../../.layerfs/sdk/js/packages/agent",
-    "@layerfs/backend": "link:../../.layerfs/sdk/js/packages/backend",
-    "@layerfs/runtime": "link:../../.layerfs/sdk/js/packages/runtime"
+    "@layerfs/agent": "link:../../.layerfs/api/agent/sdk",
+    "@layerfs/backend": "link:../../.layerfs/api/backend",
+    "@layerfs/runtime": "link:../../.layerfs/api/runtime"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",

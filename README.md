@@ -91,9 +91,9 @@ Below, `$DSH_LAYERFS` is this repository's absolute path, `$LAYERFS_SOURCE` the 
 
 Live needs three things from the LayerFS checkout: the JavaScript SDK, a Linux build of the daemon and the SDK's native addon, and a runtime image. Nothing is published, so you build them there.
 
-**The SDK** is LayerFS #428's three packages in `sdk/js/packages`: `@layerfs/agent` (what agents' scripts call), `@layerfs/backend` (background processes, a Workspace's status, storage) and `@layerfs/runtime` (what the Host runs on a LayerFS home: the worker, Init, removal, status). They are plain JavaScript with no dependencies. Run `npm install` once in `$LAYERFS_SOURCE/sdk/js` (it only links the three to each other); the Host links each as `link:../../.layerfs/sdk/js/packages/<name>`, and step 2's `pnpm install` first points `.layerfs` at `$LAYERFS_SOURCE`, then makes those links. Only the native addon is built, and a fresh clone has none (`sdk/js/native/layerfs.node`). On macOS and Windows the Host never loads an addon itself: the home's worker runs the Linux build below. On Linux, see step 4.
+**The SDK** is LayerFS #428's three packages in its `api/` folder (`api/agent/sdk`, `api/backend`, `api/runtime`): `@layerfs/agent` (what agents' scripts call), `@layerfs/backend` (background processes, a Workspace's status, storage) and `@layerfs/runtime` (what the Host runs on a LayerFS home: the worker, Init, removal, status). They are plain JavaScript with no dependencies. Run `npm install` once in `$LAYERFS_SOURCE/api` (it only links the three to each other); the Host links them as `link:../../.layerfs/api/agent/sdk`, `…/api/backend` and `…/api/runtime`, and step 2's `pnpm install` first points `.layerfs` at `$LAYERFS_SOURCE`, then makes those links. Only the native addon is built, and a fresh clone has none (`api/binding/layerfs.node`). On macOS and Windows the Host never loads an addon itself: the home's worker runs the Linux build below. On Linux, see step 4.
 
-**The `layerfs` command** agents run (`DSH_LAYERFS_CLI`) is the checkout's `cli/` folder: one `@layerfs/agent` call per command, JSON on stdout ([cli/sdk-to-cli.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/cli/sdk-to-cli.md) on the #428 branch). Run `npm --prefix "$LAYERFS_SOURCE/cli" install` once: it only links `cli/node_modules/@layerfs/agent` to `sdk/js/packages/agent` and downloads nothing. `pnpm install` and `pnpm test` stop with that command when it is missing.
+**The `layerfs` command** agents run (`DSH_LAYERFS_CLI`) is the checkout's `api/agent/cli/` folder: one `@layerfs/agent` call per command, JSON on stdout ([api/agent/cli/sdk-to-cli.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/api/agent/cli/sdk-to-cli.md) on the #428 branch). Run `npm --prefix "$LAYERFS_SOURCE/api/agent/cli" install` once: it only links `api/agent/cli/node_modules/@layerfs/agent` to `api/agent/sdk` and downloads nothing. `pnpm install` and `pnpm test` stop with that command when it is missing.
 
 **The Linux build.** Build `layerfs-daemon` and the addon in the Rust 1.85.1 image, from the LayerFS checkout's root so Cargo picks up its [`.cargo/config.toml`](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/.cargo/config.toml) (the ARM64 profile). This is the recipe of LayerFS's [benchmark/AGENTS.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/benchmark/AGENTS.md#environment), with the crates fetched into a Docker volume instead of the host's `~/.cargo/registry`:
 
@@ -116,13 +116,14 @@ Then, still in `$LAYERFS_SOURCE`, gather the build into one folder, the `bundle`
 
 ```sh
 BUNDLE=$HOME/layerfs-linux-build
-mkdir -p "$BUNDLE/sdk/js"
+mkdir -p "$BUNDLE/api/agent"
 docker run --rm -v layerfs-target:/t:ro -v "$BUNDLE":/out rust:1.85.1-bookworm sh -c \
   "cp /t/release/layerfs-daemon /out/ && cp /t/release/liblayerfs_node.so /out/layerfs.node && chown $(id -u):$(id -g) /out/layerfs-daemon /out/layerfs.node"
-cp -R sdk/js/packages sdk/js/package.json "$BUNDLE/sdk/js/"
+cp -R api/package.json api/backend api/runtime "$BUNDLE/api/"
+cp -R api/agent/sdk "$BUNDLE/api/agent/"
 ```
 
-That folder serves Linux (`daemon` and `LAYERFS_NATIVE`). **macOS and Windows need a sealed bundle**: the home's worker runs the bundle's `sdk/js/packages/runtime/src/worker/server.js` and checks every file against its `manifest.json` before it listens, which only the tool below writes.
+That folder serves Linux (`daemon` and `LAYERFS_NATIVE`). **macOS and Windows need a sealed bundle**: the home's worker runs the bundle's `api/runtime/src/worker/server.js` and checks every file against its `manifest.json` before it listens, which only the tool below writes.
 
 Instead, LayerFS's [`tools/worktree.py`](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/tools/worktree.py) ([parallel worktrees](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/docs/general/parallel-worktrees.md)), run in `$LAYERFS_SOURCE`, does the same with per-checkout caches, and seals the folder with a `manifest.json`. It needs the runtime image below to exist first, and was not tried for this guide:
 
@@ -206,7 +207,7 @@ An Init without the required settings is refused with "LayerFS is not configured
 
 **On macOS** the Mac runs no Store call itself. `@layerfs/runtime` runs one long-lived Linux container per LayerFS home, the worker (`<containerPrefix>worker`, `layerfs-worker` by default, labelled `layerfs.role=worker`), and every Store call of the Host and of agents' scripts runs there with the sealed bundle's `layerfs.node`; its endpoint is `<home>/worker/endpoint.json`, and agents get it as `DSH_LAYERFS_WORKER_ENDPOINT` (the route is open to the dsh adapter only). The Host starts it when it starts; a worker of another build is replaced, so load a new `bundle` only while no dsh run is live. It runs with `--restart unless-stopped`. A call of the Host or an agent that finds it down keeps its own error, and the Host asks the runtime to start it again. The Store container of dsh before #428 (`<containerPrefix>store`) keeps the worker from starting while it runs: the LayerFS page's All projects tab then shows one banner, "Store calls wait for an upgrade", whose **Switch…** action (confirmed: any run still on it is cut off) stops and removes it, then starts the worker.
 
-**On Linux** the Host and agents' scripts load `@layerfs/agent` in their own process, from `sdk/js/packages` in the LayerFS checkout (through `.layerfs`). It loads the addon from `LAYERFS_NATIVE`, or else `sdk/js/native/layerfs.node`: build it on that machine with `npm --prefix "$LAYERFS_SOURCE/sdk/js" run build:native` ([SDK README](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/sdk/js/README.md#builds-and-compatibility); it needs Cargo 1.85.1 on the host), or set `LAYERFS_NATIVE` in dsh web's environment to a Linux build's `layerfs.node`. `daemon` is that build's `layerfs-daemon`. The Store must be on a local Linux filesystem (ext4, xfs or btrfs). Init installs the Store straight into the new project's volume directory under Docker's volumes directory (`volumes`, `/var/lib/docker/volumes` by default), which Docker keeps root-only, so run dsh web as a user that can write it, such as root, and give it a `home` that user owns; otherwise the runtime fails the Init (`Unsupported`) before it makes a volume.
+**On Linux** the Host and agents' scripts load `@layerfs/agent` in their own process, from `api/agent/sdk` in the LayerFS checkout (through `.layerfs`). It loads the addon from `LAYERFS_NATIVE`, or else `api/binding/layerfs.node`: build it on that machine with `npm --prefix "$LAYERFS_SOURCE/api" run build:native` ([SDK README](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/api/README.md#builds-and-compatibility); it needs Cargo 1.85.1 on the host), or set `LAYERFS_NATIVE` in dsh web's environment to a Linux build's `layerfs.node`. `daemon` is that build's `layerfs-daemon`. The Store must be on a local Linux filesystem (ext4, xfs or btrfs). Init installs the Store straight into the new project's volume directory under Docker's volumes directory (`volumes`, `/var/lib/docker/volumes` by default), which Docker keeps root-only, so run dsh web as a user that can write it, such as root, and give it a `home` that user owns; otherwise the runtime fails the Init (`Unsupported`) before it makes a volume.
 
 <a id="windows-live"></a>
 
@@ -436,7 +437,7 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
 
 - **Bash environment.** A bash call in a session bound to a project gets:
   - `DSH_LAYERFS_PROJECT` and the deployment settings;
-  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of `@layerfs/agent` and `@layerfs/backend`), `DSH_LAYERFS_CLI` (the checkout's `cli/src/layerfs.js`, which the `layerfs` shim on PATH, `packages/host/src/bin/layerfs`, runs) and `DSH_LAYERFS_SKILL`;
+  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of `@layerfs/agent` and `@layerfs/backend`), `DSH_LAYERFS_CLI` (the checkout's `api/agent/cli/src/layerfs.js`, which the `layerfs` shim on PATH, `packages/host/src/bin/layerfs`, runs) and `DSH_LAYERFS_SKILL`;
   - on macOS and Windows, `DSH_LAYERFS_WORKER_ENDPOINT` and `DSH_LAYERFS_WORKER_ADAPTER=dsh`;
   - a trace file per agent (`DSH_LAYERFS_TRACE`) and the bash call id as the trace step.
 
@@ -569,7 +570,7 @@ Nothing of LayerFS is published yet, so this repository builds on a LayerFS chec
 
 - **`LAYERFS_SOURCE`** names it: a path, relative to this repository's root or absolute. Unset, it is `../layerfs` beside this repository.
 - **[`layerfs.json`](layerfs.json)** pins it: the default path and the LayerFS commit this repository was moved and tested at.
-- **`.layerfs`** (git-ignored) is a link to it. `pnpm install` and `pnpm test` make the link first ([`tools/layerfs-source.mjs`](tools/layerfs-source.mjs)); after changing `LAYERFS_SOURCE`, run `pnpm run link:layerfs` (pnpm skips its install step when nothing else changed). Everything reads LayerFS through the link: the Host's `@layerfs/agent`, `@layerfs/backend` and `@layerfs/runtime` are `.layerfs/sdk/js/packages/*`, the agent skill is `.layerfs/.agents/skills/layerfs-js-sdk/`, and the model's CLI test loads the agent and backend from there.
+- **`.layerfs`** (git-ignored) is a link to it. `pnpm install` and `pnpm test` make the link first ([`tools/layerfs-source.mjs`](tools/layerfs-source.mjs)); after changing `LAYERFS_SOURCE`, run `pnpm run link:layerfs` (pnpm skips its install step when nothing else changed). Everything reads LayerFS through the link: the Host's `@layerfs/agent`, `@layerfs/backend` and `@layerfs/runtime` are `.layerfs/api/agent/sdk`, `.layerfs/api/backend` and `.layerfs/api/runtime`, the agent skill is `.layerfs/.agents/skills/layerfs-js-sdk/`, and the model's CLI test loads the agent and backend from there.
 - **The Linux build and the runtime image** (step 1) are built from the same checkout, so the SDK, `layerfs.node` and `layerfs-daemon` match.
 
 The pin is LayerFS's #428 SDK branch (`claude/issue428-sdk-packages-cd9412`, in its worktree `.claude/worktrees/issue428-sdk-packages-cd9412`), not yet merged into LayerFS `main`; it moves to `main` when that lands.

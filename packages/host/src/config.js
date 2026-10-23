@@ -53,7 +53,7 @@ export const VOLUMES = "/var/lib/docker/volumes";
  * @property {number} pollMs
  * @property {string} sdk file URL of @layerfs/agent, which agents' scripts import
  * @property {string} backend file URL of @layerfs/backend
- * @property {string} cli path of the layerfs command (the LayerFS checkout's cli/src/layerfs.js)
+ * @property {string} cli path of the layerfs command (the LayerFS checkout's api/agent/cli/src/layerfs.js)
  * @property {{ distribution: string, user: string, node: string, home: string }} [wsl] Windows: the WSL deployment
  * @property {Promise<LayerFSRuntime>} [runtime] the Host's runtime, once openRuntime has opened it
  */
@@ -87,7 +87,7 @@ export function resolveConfig(config, profile) {
     pollMs: config.pollMs ?? 400,
     sdk: import.meta.resolve("@layerfs/agent"),
     backend: import.meta.resolve("@layerfs/backend"),
-    cli: join(LAYERFS, "cli/src/layerfs.js"),
+    cli: join(LAYERFS, "api/agent/cli/src/layerfs.js"),
   };
   if (windows) {
     // the Host's default before #428, so an existing WSL home stays where it is

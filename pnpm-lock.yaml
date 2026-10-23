@@ -35,14 +35,14 @@ importers:
         specifier: workspace:*
         version: link:../model
       '@layerfs/agent':
-        specifier: link:../../.layerfs/sdk/js/packages/agent
-        version: link:../../.layerfs/sdk/js/packages/agent
+        specifier: link:../../.layerfs/api/agent/sdk
+        version: link:../../.layerfs/api/agent/sdk
       '@layerfs/backend':
-        specifier: link:../../.layerfs/sdk/js/packages/backend
-        version: link:../../.layerfs/sdk/js/packages/backend
+        specifier: link:../../.layerfs/api/backend
+        version: link:../../.layerfs/api/backend
       '@layerfs/runtime':
-        specifier: link:../../.layerfs/sdk/js/packages/runtime
-        version: link:../../.layerfs/sdk/js/packages/runtime
+        specifier: link:../../.layerfs/api/runtime
+        version: link:../../.layerfs/api/runtime
 
   packages/mock: {}
 

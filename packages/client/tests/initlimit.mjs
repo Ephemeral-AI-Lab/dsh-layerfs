@@ -9,7 +9,7 @@ import { LAYERFS } from "../../host/src/source.js";
 import { DEFAULT_LIMIT_MS, limitFromMinutes, limitOf, nextMinutes, timedOut, timedOutText } from "../src/client/initLimit.ts";
 
 // the client's default is the agent's
-const { INIT_TIMEOUT_MS } = await import(pathToFileURL(join(LAYERFS, "sdk/js/packages/agent/src/project/init.js")).href);
+const { INIT_TIMEOUT_MS } = await import(pathToFileURL(join(LAYERFS, "api/agent/sdk/src/project/init.js")).href);
 assert.equal(DEFAULT_LIMIT_MS, INIT_TIMEOUT_MS);
 
 const job = (fields) => ({ step: "failed", started: 1_000, ended: null, timeout: null, imported: null, totals: null, ...fields });

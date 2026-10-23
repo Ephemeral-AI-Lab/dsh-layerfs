@@ -1,4 +1,4 @@
-// Trace source: replays SDK trace lines (sdk/js/README.md, "Call trace") as
+// Trace source: replays SDK trace lines (api/README.md, "Call trace") as
 // agent events. A trace holds ids, never content, so ReplayEngine rebuilds
 // the project from the lines alone: Branches, Commits, Layers, Sandboxes,
 // Workspaces and processes, under the mirror's display ids (C1, L0, sb_01).
