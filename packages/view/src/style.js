@@ -54,6 +54,8 @@ ${HEROES_CSS}
 .lfs-ide .ide-tabs .ide-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); }
 .lfs-ide .ide-tabs .ide-dot.down { background: var(--red); }
 .lfs-ide .ide-tabs button[data-ide="file"] span { font-family: var(--mono); font-size: 12px; }
+.lfs-ide .ide-tabs .ide-close { font-style: normal; margin-left: 2px; padding: 0 4px; border-radius: 4px; color: var(--text-3); line-height: 18px; }
+.lfs-ide .ide-tabs .ide-close:hover { background: var(--well); color: var(--text); }
 .lfs-ide .ide-tabs .ide-toggle { padding: 0 11px; color: var(--text-3); }
 .lfs-ide .ide-tabs .ide-toggle[aria-pressed="true"] { color: var(--accent); }
 .lfs .lfs-ide.side-hidden > .ide-side { display: none; }

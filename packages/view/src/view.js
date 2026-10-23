@@ -556,21 +556,24 @@ export function createView(root, o) {
       host.prepend(ide);
     }
     const side = ide.querySelector(".ide-side"), tabsEl = ide.querySelector(".ide-tabs"), pane = ide.querySelector(".ide-pane");
-    const show = v.ide, tab = v.active, p = files.filesOf(tab);
+    const tab = v.active, p = files.filesOf(tab);
+    // the File tab exists only while a file is open: with none, History shows
+    if (v.ide === "file" && !p.path) v.ide = "history";
+    const show = v.ide;
     const keep = (el, sel) => { const x = el.querySelector(sel); return x ? x.scrollTop : 0; };
     const restore = (el, sel, top) => { const x = el.querySelector(sel); if (x) x.scrollTop = top; };
     const sideTop = keep(side, ".ftree");
     side.innerHTML = files.sideHtml(tab);
     restore(side, ".ftree", sideTop);
-    const name = p.path ? p.path.slice(p.path.lastIndexOf("/") + 1) : "File";
+    const name = p.path ? p.path.slice(p.path.lastIndexOf("/") + 1) : "";
     // Sandboxes: the page's own panel (W.engine.sandboxes), when it gives one, with its level as a dot
     const sbx = W.engine.sandboxes?.();
-    const tabs = [["file", name, FILEICON], ["history", "History", HISTICON], ["storage", "Storage", DBICON], ...(sbx ? [["sandboxes", "Sandboxes", BOXICON]] : [])];
+    const tabs = [...(p.path ? [["file", name, FILEICON]] : []), ["history", "History", HISTICON], ["storage", "Storage", DBICON], ...(sbx ? [["sandboxes", "Sandboxes", BOXICON]] : [])];
     // the sidebar folds away (a per-viewer preference) from a toggle before the tabs
     const hide = !!prefs.sideHidden;
     ide.classList.toggle("side-hidden", hide);
     const toggle = `<button class="ide-toggle" data-ideside="1" aria-pressed="${!hide}" title="${hide ? "Show the file tree" : "Hide the file tree"}" aria-label="${hide ? "Show the file tree" : "Hide the file tree"}">${SIDEICON}</button>`;
-    tabsEl.innerHTML = toggle + tabs.map(([k, l, i]) => `<button role="tab" data-ide="${k}" aria-selected="${show === k}" title="${k === "file" && p.path ? esc(p.path) : l}">${i}<span>${esc(l)}</span>${k === "sandboxes" && sbx.level !== "ok" ? `<i class="ide-dot ${sbx.level}" aria-label="${sbx.level}"></i>` : ""}</button>`).join("");
+    tabsEl.innerHTML = toggle + tabs.map(([k, l, i]) => `<button role="tab" data-ide="${k}" aria-selected="${show === k}" title="${k === "file" && p.path ? esc(p.path) : l}">${i}<span>${esc(l)}</span>${k === "file" ? `<i class="ide-close" data-ideclose="1" role="button" title="Close ${esc(name)}" aria-label="Close ${esc(name)}">×</i>` : ""}${k === "sandboxes" && sbx.level !== "ok" ? `<i class="ide-dot ${sbx.level}" aria-label="${sbx.level}"></i>` : ""}</button>`).join("");
     // History plays only while it is shown: another tab ends the replay, and History comes back at now
     v.rightMode[tab] = show === "history" ? "history" : "files";
     if (show !== "history") hist.stop();
@@ -743,6 +746,8 @@ export function createView(root, o) {
     {
       const t = e.target.closest(".ide-tabs [data-ide]");
       if (e.target.closest(".ide-tabs [data-ideside]")) { prefs.sideHidden = !prefs.sideHidden; savePrefs(); hist.toNow(); render(); return; }
+      // closing the open file takes its tab away; History shows
+      if (e.target.closest(".ide-tabs [data-ideclose]")) { files.filesOf(v.active).path = null; if (v.ide === "file") { hist.toNow(); v.ide = "history"; } closeMenu(); render(); return; }
       if (t) { if (t.dataset.ide === "history" && v.ide !== "history") hist.toNow(); v.ide = t.dataset.ide; closeMenu(); render(); return; }
       if (e.target.closest("[data-ftree][data-ftype='file'], [data-fopen]")) v.ide = "file";
       // a node picked in History holds the files there: following the acting agent would move them
