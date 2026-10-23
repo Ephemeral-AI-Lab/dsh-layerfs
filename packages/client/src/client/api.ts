@@ -157,6 +157,8 @@ export const api = {
   status: () => call<Status>('GET', '/status'),
   workspace: (folder: string) => call<{ projects: Project[], lastUsed: string | null }>('GET', `/workspace?folder=${encodeURIComponent(folder)}`),
   session: (id: string) => call<SessionView>('GET', `/session/${sid(id)}`),
+  /** The session's project and folder, without its calls: what the header names. */
+  binding: (id: string) => call<Pick<SessionView, 'session' | 'root' | 'folder' | 'choice' | 'project'>>('GET', `/session/${sid(id)}/binding`),
   choose: (id: string, project: string | null) => call<SessionView>('POST', `/session/${sid(id)}/project`, { project }),
   init,
   projects: () => call<{ projects: Project[], defaults: Record<string, string> }>('GET', '/projects'),

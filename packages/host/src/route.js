@@ -9,6 +9,7 @@
 //                                          answers its job (see jobs.js)
 //   GET  /layerfs/init/<job>                  the Init's step and counts
 //   GET  /layerfs/session/<id>                the root session's project, agents and trace lines
+//   GET  /layerfs/session/<id>/binding        the root session's project and folder alone (no trace lines)
 //   POST /layerfs/session/<id>/project {project}  choose any project (null: none) until locked; answers as GET
 //   GET  /layerfs/session/<id>/state          the project as LayerFS reports it
 //   GET  /layerfs/session/<id>/{list,read,blame,changes,diff}?…  one Files read of saved ids (reads.js):
@@ -129,6 +130,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
         const view = sessionView(decodeURIComponent(parts[1]));
         const full = (v) => ({ ...v, ...collector.snapshot(v.root) });
         if (req.method === "GET" && parts.length === 2) return send(res, 200, full(view));
+        if (req.method === "GET" && parts[2] === "binding" && parts.length === 3) return send(res, 200, view);
         if (req.method === "POST" && parts[2] === "project" && parts.length === 3) {
           const body = await readJson(req);
           if (!view.folder) return send(res, 409, { code: "no-folder", message: "this session has no workspace folder" });

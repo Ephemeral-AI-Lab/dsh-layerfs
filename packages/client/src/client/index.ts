@@ -1,9 +1,11 @@
 // @dsh-layerfs/client: the LayerFS Work and History tabs beside Chat and Trajectory, the
-// project picker in the New Session row, and the LayerFS sidebar panel.
+// session's project beside its title, the project picker in the New Session row,
+// and the LayerFS sidebar panel.
 // While the LayerFS scripted model (@dsh-layerfs/mock) is on, also the
 // panel's Scenarios tab and the Run bar above a scenario run's composer.
 import { LayerFsIcon, LayerFsPanel, type PanelServices } from './LayerFsPanel.tsx'
 import { LayerFsView } from './LayerFsView.tsx'
+import { ProjectChip } from './ProjectChip.tsx'
 import { ProjectPicker, type UsePreset } from './ProjectPicker.tsx'
 import { RunBar, type RunServicesWithStatus } from './RunBar.tsx'
 import { markLayerFsTabs } from './tablogo.ts'
@@ -31,6 +33,14 @@ export function apply(ctx: any): void {
     label: () => 'History',
     inject: (sessionId: string) => ({ sessionId, directories, pane: 'history' }),
   }, LayerFsView))
+  // the session's LayerFS project, named beside its title on every tab
+  ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+    name: 'conversation.session.header.actions',
+    id: 'layerfs-project',
+    // static session context, right after the agent preset (-10)
+    order: -5,
+    inject: (sessionId: string) => ({ sessionId }),
+  }, ProjectChip))
   if (typeof document !== 'undefined') ctx.effect?.(() => markLayerFsTabs(document, { work: 'Work', history: 'History' }), 'layerfs-client: the Work and History tab group')
   // the Remote session services a scenario run uses, while the scope that injects them is up
   let remote: RunServicesWithStatus['remote']

@@ -3,7 +3,8 @@
 // the Host's /layerfs/session route while it is shown, and plays each call
 // at its own time, a moment behind the run (playback.ts). History starts from the
 // project's whole history as the session opens (seedEngine), and the
-// session's own calls play on top. The History pane's tabs
+// session's own calls play on top; before the first call it shows that
+// project with nothing played yet. The History pane's tabs
 // end with the project's Sandboxes (SandboxesTab), as on the project page.
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -11,9 +12,8 @@ import FM from '../../../../sim/simulation_engine/files.js'
 import M from '../../../../sim/simulation_engine/model.js'
 import * as X from '../../../model/src/index.js'
 import { createFilesSource, createView, injectStyle } from '../../../view/src/index.js'
-import { api, readProject, type ProjectRuntime, type ProjectState, type SessionView, type Storage } from './api.ts'
+import { api, type ProjectRuntime, type ProjectState, type SessionView } from './api.ts'
 import { CASTS, MAID_AVATARS } from './avatars.ts'
-import { ProjectBoard } from './ProjectBoard.tsx'
 import { Setup } from './Setup.tsx'
 import type { Directories } from './InitDialog.tsx'
 import { Playback, type Step } from './playback.ts'
@@ -65,32 +65,7 @@ function TabBody({ sessionId, directories, pane }: { sessionId: string, director
   const { view, error, refresh } = useSessionView(sessionId)
   if (!view) return <div style={MESSAGE}>{error ? `LayerFS is not available: ${error}` : 'Loading LayerFS…'}</div>
   if (!view.project) return <Setup sessionId={sessionId} view={view} onChange={refresh} directories={directories} />
-  if (!view.lines.length) return <Before view={view} />
   return <Board sessionId={sessionId} view={view} error={error} pane={pane} />
-}
-
-/** Before the session's first call: the project as it is now, until the calls take over. */
-function Before({ view }: { view: SessionView }) {
-  const name = view.project!.name
-  const [state, setState] = useState<ProjectState | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [storage, setStorage] = useState<Storage | null>(null)
-  const [storageError, setStorageError] = useState<string | null>(null)
-  useEffect(() => {
-    // the Store's figures, read once alongside History, as the project page does
-    let stopped = false
-    setStorage(null); setStorageError(null)
-    api.projectStorage(name).then((z) => { if (!stopped) setStorage(z) }, (e: Error) => { if (!stopped) setStorageError(e.message) })
-    const stop = readProject(name, setState, setError)
-    return () => { stopped = true; stop() }
-  }, [name])
-  const note = view.running.length ? 'a call is running…' : 'no calls in this session yet; they show here as the agents make them'
-  return (
-    <div style={{ ...BAND, display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
-      <div style={{ ...MESSAGE, padding: '0 12px', paddingBottom: 0 }}><b>{name}</b> · {note}{error ? ` · the project could not be read: ${error}` : ''}</div>
-      {state ? <ProjectBoard name={name} state={state} storage={storage} storageError={storageError} /> : !error && <div style={{ ...MESSAGE, padding: 0, paddingBottom: 0 }}>Loading the project…</div>}
-    </div>
-  )
 }
 
 // The band of the conversation's scroll body that the composer leaves
@@ -197,7 +172,10 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     const lines = view.lines.map((line) => ({ ...line, agent: view.agents[line.agentId] ?? line.agent }))
     const playback = play.current.playback
     playback.feed(lines, 'main').catch((e: Error) => { b.note = `The calls could not be replayed: ${e.message}` })
-    if (!playback.waiting && b.W) { b.acting = runningAgents(view); b.note = noteOf(view, playback); b.render() }
+    // before the first call the board shows the project as it is: the Work
+    // layout with nothing played yet
+    if (!lines.length && b.W !== playback.W) show(b, playback.W, null, playback)
+    else if (!playback.waiting && b.W) { b.acting = runningAgents(view); b.note = noteOf(view, playback); b.render() }
   }, [view, sessionId, seed])
 
   /** Draws the model after a step (its agent acting, the view following it) or once caught up. */
@@ -229,5 +207,5 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
 }
 
 const runningAgents = (view: SessionView) => view.running.map((line) => view.agents[line.agentId] ?? line.agent)
-const noteOf = (view: SessionView, playback: Playback) => `${view.project!.name} · ${view.lines.length} calls`
+const noteOf = (view: SessionView, playback: Playback) => `${view.project!.name} · ${view.lines.length ? `${view.lines.length} calls` : 'no calls in this session yet'}`
   + (playback.waiting ? ` · ${playback.waiting} to play` : '') + (view.running.length ? ` · ${view.running.length} running` : '')

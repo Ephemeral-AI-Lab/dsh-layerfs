@@ -216,6 +216,9 @@ try {
   assert.equal((await call("GET", `/layerfs/workspace?folder=${encodeURIComponent(FOLDER)}`)).body.lastUsed, "website");
   const view = await call("GET", "/layerfs/session/child-1");
   assert.deepEqual([view.status, view.body.root, view.body.project.name, view.body.lines.length], [200, "session-root", "website", 2]);
+  // the binding alone: the same project and folder, without the trace lines
+  const binding = await call("GET", "/layerfs/session/child-1/binding");
+  assert.deepEqual([binding.status, binding.body.root, binding.body.project.name, "lines" in binding.body], [200, "session-root", "website", false]);
   assert.equal((await call("POST", "/layerfs/session/session-root/project", { project: null })).status, 409);
   const fresh = session("session-new", FOLDER);
   h.live.set(fresh.header.id, fresh);
