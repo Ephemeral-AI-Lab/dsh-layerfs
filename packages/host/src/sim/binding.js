@@ -1,6 +1,9 @@
 // A LayerFS native binding over the simulator (state.js), for projects Inited
-// as simulated. The SDK loads it as LAYERFS_NATIVE (sdk.js), so their bash
-// calls keep the SDK's argument checks, refusals and trace lines. Answers are
+// as simulated. @layerfs/agent loads it as LAYERFS_NATIVE (sdk.js), so their
+// bash calls keep the agent's and backend's argument checks, refusals and
+// trace lines. It answers the binding's two tables (#428): `call` (the
+// agent's methods) and `backendCall` (@layerfs/backend's, and the two
+// runtime reads an agent client may make). Answers are
 // the real binding's (`{ value }` or `{ refused }`, in the shapes it gives),
 // ids in LayerFS's formats; the decisions are the model's. Store sizes are
 // estimates from file text. One attempt per call; nothing is retried.
@@ -63,7 +66,7 @@ function workspaceView(c, ws) {
   const { inodes, entries } = overlay(c, ws);
   return {
     directory: ws.path, mounted: ws.mounted, branch: ws.branch, base: c.hex(ws.baseCommit ?? null), baseLayer: c.hex(ws.baseLayer),
-    root: c.hex(ws.baseRoot), dirty: { inodes, entries }, pendingMerge: false, headMovedSinceMount: moved(c, ws),
+    root: c.hex(ws.baseRoot), dirty: { inodes, entries }, pendingMerge: false, headMovedSinceMount: moved(c, ws), activity: "idle",
   };
 }
 
@@ -93,7 +96,7 @@ function storeStats(c) {
   return { logical, canonical, stored: canonical, metadata: 64 * entries, file: canonical + 64 * entries, free: 0, dedupe: (logical ? canonical / logical : 0).toFixed(6), compression: "1.000000", init: c.init };
 }
 
-/** One Sandbox's `operator.inspect.snapshot`: the project's history and that Sandbox's Workspaces. */
+/** The project's history (backend.store.project.get_history) and one Sandbox's Workspaces. */
 function snapshot(c, sandbox) {
   const commits = Object.keys(c.s.commits).sort((a, b) => c.at[b] - c.at[a]).map((label) => commitRecord(c, label));
   const layers = [];
@@ -199,9 +202,27 @@ function read(c, a) {
 
 const change = (d) => ({ path: d.path, kind: d.kind, type: d.type, contentChanged: d.content ?? d.kind !== "Modified", identityChanged: d.identity ?? false });
 
+/** One open Sandbox of the project, else NoSuchSandbox (a closed one is not running). */
+function openSandbox(c, id) {
+  const sb = /^\d+$/.test(String(id)) && c.s.sandboxes[id];
+  if (!sb || sb.closed) throw new Refusal("NoSuchSandbox", `the project has no running Sandbox ${id}`, { sandbox: id });
+  return sb;
+}
+
 const CALLS = {
   "project.init": initProject,
   "project.list_branches": (p, a) => p.with((c) => paged(branchList(c).sort((x, y) => x.name.localeCompare(y.name)), a)),
+  "project.list_sandboxes": (p) => p.with((c) => ({
+    kind: "ok",
+    items: numbered(c).map((id) => ({ sandbox: id, name: nameOf(c, id), image: c.s.sandboxes[id].image ?? null, workspaces: Object.values(c.s.sandboxes[id].workspaces).filter((w) => w.mounted).length })),
+  })),
+  "sandbox.list_workspaces": (p, a) => p.with((c) => {
+    const sb = openSandbox(c, a.sandbox);
+    return {
+      kind: "ok", version: sha(JSON.stringify(sb)).slice(0, 16),
+      workspaces: sb.wsOrder.map((path) => sb.workspaces[path]).filter((ws) => ws.mounted).map((ws) => ({ ...workspaceView(c, ws), workspace: sha(`${p.name}/${a.sandbox}/${ws.path}/${ws.slot}`) })),
+    };
+  }),
 
   "workspace.mount": (p, a) => p.with((c) => {
     const sandbox = place(c, a.deploy?.image ?? null), r = c.run("sandbox.mount", { sandbox, branch: a.branch }), ws = c.s.sandboxes[sandbox].workspaces[r.path];
@@ -211,14 +232,6 @@ const CALLS = {
     };
   }),
   "workspace.exec": exec,
-  "workspace.status": (p, a) => p.with((c) => {
-    const ws = c.sim.workspace(a.sandbox, a.path), sb = c.s.sandboxes[a.sandbox];
-    const running = Object.values(sb.processes).some((x) => x.status === "running" && x.path === a.path);
-    return {
-      kind: "ok", base: c.hex(ws.baseCommit ?? null), baseLayer: c.hex(ws.baseLayer), branchHead: c.hex(c.s.branches[ws.branch].head ?? null),
-      headMovedSinceMount: moved(c, ws), activity: running ? "Running" : "Idle", overlay: overlay(c, ws), branch: ws.branch,
-    };
-  }),
   "workspace.commit": (p, a) => p.with((c) => {
     const ws = c.sim.workspace(a.sandbox, a.path);
     let r;
@@ -307,13 +320,24 @@ const CALLS = {
   })),
 };
 
-const OPERATOR = {
-  "operator.project.progress": async () => null,
-  "operator.inspect.snapshot": (p, a) => p.with((c) => snapshot(c, a.sandbox)),
-  "operator.workspace.overlay": (p, a) => p.with((c) => overlay(c, c.sim.workspace(a.sandbox, a.path))),
-  "operator.store.stats": (p) => p.with((c) => storeStats(c)),
-  "operator.sandbox.list": (p) => p.with((c) => ({ kind: "ok", items: numbered(c).map((id) => ({ id, name: nameOf(c, id), image: c.s.sandboxes[id].image ?? null })) })),
-  "operator.process.start": (p, a) => p.with((c) => {
+/** @layerfs/backend's calls, and the runtime reads an agent client may make.
+ * Store ratios are decimal strings, as the real binding answers them. */
+const BACKEND = {
+  "backend.store.project.get_history": (p, a) => p.with((c) => {
+    const { workspaces, ...history } = snapshot(c, null);
+    return a.since === history.version ? { kind: "unchanged", version: history.version } : history;
+  }),
+  "backend.store.project.get_storage": (p) => p.with((c) => storeStats(c)),
+  "backend.daemon.workspace.get_storage": (p, a) => p.with((c) => overlay(c, c.sim.workspace(a.sandbox, a.path))),
+  "backend.daemon.workspace.status": (p, a) => p.with((c) => {
+    const ws = c.sim.workspace(a.sandbox, a.path), sb = c.s.sandboxes[a.sandbox];
+    const running = Object.values(sb.processes).some((x) => x.status === "running" && x.path === a.path);
+    return {
+      kind: "ok", base: c.hex(ws.baseCommit ?? null), baseLayer: c.hex(ws.baseLayer), branchHead: c.hex(c.s.branches[ws.branch].head ?? null),
+      headMovedSinceMount: moved(c, ws), activity: running ? "Running" : "Idle", overlay: overlay(c, ws), branch: ws.branch,
+    };
+  }),
+  "backend.daemon.process.start": (p, a) => p.with((c) => {
     c.sim.workspace(a.sandbox, a.path);
     const id = `proc_${a.sandbox}_${randomBytes(12).toString("hex")}`, sb = c.s.sandboxes[a.sandbox];
     const pid = startCommand(p.wsDir(a.sandbox, a.path), a.command, p.procFile(id, "log"), p.procFile(id, "code"));
@@ -321,11 +345,11 @@ const OPERATOR = {
     sb.procOrder.push(id);
     return { kind: "running", process: id, command: a.command };
   }),
-  "operator.process.list": (p) => p.with((c) => ({
+  "backend.daemon.process.list": (p) => p.with((c) => ({
     kind: "ok",
     items: numbered(c).flatMap((sandbox) => { const sb = c.s.sandboxes[sandbox]; return sb.procOrder.map((id) => { const x = sb.processes[id]; return { id, sandbox, path: x.path, command: x.command, status: x.status }; }); }),
   })),
-  "operator.process.cancel": (p, a) => p.with((c) => {
+  "backend.daemon.process.cancel": (p, a) => p.with((c) => {
     const sandbox = sandboxOfProcess(a.process);
     if (!sandbox || !c.s.sandboxes[sandbox]) throw new Refusal("NoSuchProcess", `${a.process} is not a process id`, { process: a.process });
     const proc = c.sandbox(sandbox).processes[a.process];
@@ -333,6 +357,9 @@ const OPERATOR = {
     const r = c.run("process.cancel", { sandbox, process: a.process });
     return { kind: "Stopped", process: r.process, status: r.status };
   }),
+  // Init runs at once here, so it has no counts to read; a simulated Sandbox never closes, so none is reclaimed
+  "runtime.project.get_init": async () => null,
+  "runtime.sandbox.reclaim": async () => ({ reclaimed: [] }),
 };
 
 async function answer(table, op, args = {}) {
@@ -348,23 +375,24 @@ async function answer(table, op, args = {}) {
   }
 }
 
-/** The binding's entry points, as the SDK's client.js calls them. The
+/** The binding's entry points, as @layerfs/agent's transport calls them. The
  * simulator keeps its Store in its own records, so opening and releasing a
  * client's Store (#352 F-020) only checks the project and home. */
 export const call = (op, args) => answer(CALLS, op, args);
-export const operatorCall = (op, args) => answer(OPERATOR, op, args);
+export const backendCall = (op, args) => answer(BACKEND, op, args);
 const STORE = { open: async () => null, close: async () => null };
 export const storeOpen = (args) => answer(STORE, "open", args);
 export const storeClose = (args) => answer(STORE, "close", args);
 
-/** The SDK's `inspect.snapshot` over every open Sandbox of the project, for the Host's views. */
+/** The project's state over every open Sandbox, as runtime.project.get_state answers it, for the Host's views. */
 export function snapshotAll(home, name) {
   return new Project(home, name).with((c) => {
     const ids = c.s.sandboxOrder.filter((id) => !c.s.sandboxes[id].closed);
     const { workspaces, ...history } = snapshot(c, null);
     return {
       ...history,
-      sandboxes: ids.map((id) => ({ id, name: nameOf(c, id), status: "Ready", workspaces: snapshot(c, id).workspaces.map((w) => ({ ...w, path: w.directory, overlay: overlay(c, c.s.sandboxes[id].workspaces[w.directory]) })) })),
+      sandboxes: ids.map((id) => ({ id, name: nameOf(c, id), image: c.s.sandboxes[id].image ?? null, status: "Ready", workspaces: snapshot(c, id).workspaces.map((w) => ({ ...w, sandbox: id, path: w.directory, overlay: overlay(c, c.s.sandboxes[id].workspaces[w.directory]) })) })),
+      gone: [],
     };
   });
 }
