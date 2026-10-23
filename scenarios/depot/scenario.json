@@ -13,7 +13,7 @@
    {
     "bash": {
      "description": "004-m1-scaffold",
-     "command": "# 004-m1-scaffold\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-root \"$sb\"; echo \"Sandbox $sb\"\nlayerfs branch fork implementation | kind Forked\nlayerfs fs apply implementation -m 'M1 scaffold frozen four-package workspace, health and CLI' --from \"{{scenario}}/changes/001.json\" | kind Committed   # 29 change(s)"
+     "command": "# 004-m1-scaffold\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-root \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb\"\nlayerfs branch fork implementation | kind Forked\nlayerfs fs apply implementation -m 'M1 scaffold frozen four-package workspace, health and CLI' --from \"{{scenario}}/changes/001.json\" | kind Committed   # 29 change(s)"
     },
     "phase": "m1",
     "expect": [

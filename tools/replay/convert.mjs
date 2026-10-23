@@ -77,6 +77,7 @@ try {
 const { scenario: old, seed, runs } = source;
 const history = JSON.parse(source.final.toString("utf8")).history;
 if (old.type !== "layerfs-mock-scenario" || old.version !== 2) fail("scenario.json is not a layerfs-mock-scenario v2");
+if (!/^sha256:[0-9a-f]{64}$/.test(old.image ?? "")) fail("scenario.json names no runtime image (sha256:…), which its Sandboxes need");
 
 // ------------------------------------------------------------------ the decisions, in recorded order
 const INSTALL = /\bnpm (install|ci)\b/;
@@ -263,7 +264,8 @@ function compile(number, run, description) {
     switch (c.op) {
       case "create": {
         const owner = c.for ?? agent;
-        lines.push(`sb=$(layerfs sandbox create | field sandbox)`, `keep sandbox-${owner} "$sb"; echo "Sandbox $sb${owner === agent ? "" : ` for ${owner}`}"`);
+        // the recorded run's image: the tools its commands need (cargo, Chromium) are in it
+        lines.push(`sb=$(layerfs sandbox create --image ${old.image} | field sandbox)`, `keep sandbox-${owner} "$sb"; keep image ${old.image}; echo "Sandbox $sb${owner === agent ? "" : ` for ${owner}`}"`);
         if (owner !== agent) sandboxRead = false;
         expect.push("sandbox.create:ok");
         break;

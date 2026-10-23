@@ -13,7 +13,7 @@
    {
     "bash": {
      "description": "006 M1: initialize project and skeleton",
-     "command": "# 006 M1: initialize project and skeleton\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-root \"$sb\"; echo \"Sandbox $sb\"\nlayerfs branch fork skeleton | kind Forked\nlayerfs fs apply skeleton -m '006 M1: scaffold server, scripts, health test and merge rules' --from \"{{scenario}}/changes/001.json\" | kind Committed   # 15 change(s)"
+     "command": "# 006 M1: initialize project and skeleton\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-root \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb\"\nlayerfs branch fork skeleton | kind Forked\nlayerfs fs apply skeleton -m '006 M1: scaffold server, scripts, health test and merge rules' --from \"{{scenario}}/changes/001.json\" | kind Committed   # 15 change(s)"
     },
     "phase": "M1",
     "expect": [

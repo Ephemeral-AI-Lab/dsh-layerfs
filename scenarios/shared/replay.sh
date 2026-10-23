@@ -6,6 +6,7 @@
 # What outlives one bash call is kept as small files under
 # $DSH_LAYERFS_HOME/$DSH_LAYERFS_PROJECT/replay/, removed with the project:
 #   sandbox-<agent>   the number of the agent's Sandbox
+#   image             the recorded run's runtime image, which its Sandboxes use
 #   ws-<agent>-<key>  a Workspace that stays mounted across steps, by its recorded path
 #   layer-<n>         main's Layer n (the n-th publish), for a fork from it
 # Every call is attempted once. A refusal or an answer the record does not
@@ -73,7 +74,8 @@ refused() {
 # sandbox_of <agent>: the agent's Sandbox number. A Sandbox closes itself two
 # minutes after its last Workspace is unmounted, and holds 16 Workspaces at
 # most; when the kept one is not running or is full (project.list_sandboxes),
-# a new one is created and kept, as the preset tells an agent to do.
+# a new one is created from the recorded image (`keep image`) and kept, as the
+# preset tells an agent to do.
 sandbox_of() {
   local sb state
   sb=$(kept "sandbox-$1") || return 1
@@ -82,7 +84,7 @@ const s = page.items.find((x) => String(x.sandbox) === process.argv[1]);
 console.log(!s ? "not running" : s.workspaces >= 16 ? "full" : "ok");' "$sb") || return 1
   if [ "$state" != ok ]; then
     echo "(Sandbox $sb of $1 is $state: a new one)" >&2
-    sb=$(layerfs sandbox create | field sandbox) || return 1
+    sb=$(layerfs sandbox create --image "$(kept image)" | field sandbox) || return 1
     keep "sandbox-$1" "$sb"
   fi
   printf '%s\n' "$sb"

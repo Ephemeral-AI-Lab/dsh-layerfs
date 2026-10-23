@@ -13,7 +13,7 @@
    {
     "bash": {
      "description": "lead-001 L0: create lead selected Sandbox",
-     "command": "# lead-001 L0: create lead selected Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-root \"$sb\"; echo \"Sandbox $sb\""
+     "command": "# lead-001 L0: create lead selected Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-root \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb\""
     },
     "phase": "lead",
     "expect": [
@@ -195,7 +195,7 @@
    {
     "bash": {
      "description": "lead-020 T1: serial create P1 Sandbox",
-     "command": "# lead-020 T1: serial create P1 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-people \"$sb\"; echo \"Sandbox $sb for people\""
+     "command": "# lead-020 T1: serial create P1 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-people \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for people\""
     },
     "phase": "lead",
     "expect": [
@@ -401,7 +401,7 @@
    {
     "bash": {
      "description": "lead-050 T1: serial create W1 Sandbox",
-     "command": "# lead-050 T1: serial create W1 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-work-a \"$sb\"; echo \"Sandbox $sb for work-a\""
+     "command": "# lead-050 T1: serial create W1 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-work-a \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for work-a\""
     },
     "phase": "lead",
     "expect": [
@@ -411,7 +411,7 @@
    {
     "bash": {
      "description": "lead-051 T1: serial create W2 Sandbox",
-     "command": "# lead-051 T1: serial create W2 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-work-b \"$sb\"; echo \"Sandbox $sb for work-b\""
+     "command": "# lead-051 T1: serial create W2 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-work-b \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for work-b\""
     },
     "phase": "lead",
     "expect": [
@@ -1083,7 +1083,7 @@
    {
     "bash": {
      "description": "lead-096 T1: serial create P1b Sandbox",
-     "command": "# lead-096 T1: serial create P1b Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-people \"$sb\"; echo \"Sandbox $sb for people\""
+     "command": "# lead-096 T1: serial create P1b Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-people \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for people\""
     },
     "phase": "lead",
     "expect": [
@@ -1305,7 +1305,7 @@
    {
     "bash": {
      "description": "lead-132 T1: serial create P1c Sandbox",
-     "command": "# lead-132 T1: serial create P1c Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-people \"$sb\"; echo \"Sandbox $sb for people\""
+     "command": "# lead-132 T1: serial create P1c Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-people \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for people\""
     },
     "phase": "lead",
     "expect": [
@@ -1376,7 +1376,7 @@
    {
     "bash": {
      "description": "lead-143 T1: serial create I1 Sandbox",
-     "command": "# lead-143 T1: serial create I1 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-insight-a \"$sb\"; echo \"Sandbox $sb for insight-a\""
+     "command": "# lead-143 T1: serial create I1 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-insight-a \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for insight-a\""
     },
     "phase": "lead",
     "expect": [
@@ -1386,7 +1386,7 @@
    {
     "bash": {
      "description": "lead-144 T1: serial create I2 Sandbox",
-     "command": "# lead-144 T1: serial create I2 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-insight-b \"$sb\"; echo \"Sandbox $sb for insight-b\""
+     "command": "# lead-144 T1: serial create I2 Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-insight-b \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for insight-b\""
     },
     "phase": "lead",
     "expect": [
@@ -2414,7 +2414,7 @@
    {
     "bash": {
      "description": "lead-174 T1: serial create W1b Sandbox",
-     "command": "# lead-174 T1: serial create W1b Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-work-a \"$sb\"; echo \"Sandbox $sb for work-a\""
+     "command": "# lead-174 T1: serial create W1b Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-work-a \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for work-a\""
     },
     "phase": "lead",
     "expect": [
@@ -2484,7 +2484,7 @@
    {
     "bash": {
      "description": "lead-190 T1: serial create W2b Sandbox",
-     "command": "# lead-190 T1: serial create W2b Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-work-b \"$sb\"; echo \"Sandbox $sb for work-b\""
+     "command": "# lead-190 T1: serial create W2b Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-work-b \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for work-b\""
     },
     "phase": "lead",
     "expect": [
@@ -3203,7 +3203,7 @@
    {
     "bash": {
      "description": "lead-214 T1: serial create P1d Sandbox",
-     "command": "# lead-214 T1: serial create P1d Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-people \"$sb\"; echo \"Sandbox $sb for people\""
+     "command": "# lead-214 T1: serial create P1d Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-people \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for people\""
     },
     "phase": "lead",
     "expect": [
@@ -3296,7 +3296,7 @@
    {
     "bash": {
      "description": "lead-263 T1: serial create I2c Sandbox",
-     "command": "# lead-263 T1: serial create I2c Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-insight-b \"$sb\"; echo \"Sandbox $sb for insight-b\""
+     "command": "# lead-263 T1: serial create I2c Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-insight-b \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for insight-b\""
     },
     "phase": "lead",
     "expect": [
@@ -3322,7 +3322,7 @@
    {
     "bash": {
      "description": "lead-268 T1: serial create W1c Sandbox",
-     "command": "# lead-268 T1: serial create W1c Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-work-a \"$sb\"; echo \"Sandbox $sb for work-a\""
+     "command": "# lead-268 T1: serial create W1c Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-work-a \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for work-a\""
     },
     "phase": "lead",
     "expect": [
@@ -3469,7 +3469,7 @@
    {
     "bash": {
      "description": "lead-313 T1: serial create P1e Sandbox",
-     "command": "# lead-313 T1: serial create P1e Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-people \"$sb\"; echo \"Sandbox $sb for people\""
+     "command": "# lead-313 T1: serial create P1e Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-people \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for people\""
     },
     "phase": "lead",
     "expect": [
@@ -3489,7 +3489,7 @@
    {
     "bash": {
      "description": "lead-315 T1: serial create I1b Sandbox",
-     "command": "# lead-315 T1: serial create I1b Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-insight-a \"$sb\"; echo \"Sandbox $sb for insight-a\""
+     "command": "# lead-315 T1: serial create I1b Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-insight-a \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for insight-a\""
     },
     "phase": "lead",
     "expect": [
@@ -3612,7 +3612,7 @@
    {
     "bash": {
      "description": "lead-350 T1: serial create I1c Sandbox",
-     "command": "# lead-350 T1: serial create I1c Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-insight-a \"$sb\"; echo \"Sandbox $sb for insight-a\""
+     "command": "# lead-350 T1: serial create I1c Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-insight-a \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for insight-a\""
     },
     "phase": "lead",
     "expect": [
@@ -3734,7 +3734,7 @@
    {
     "bash": {
      "description": "lead-365 T1: serial create I1d Sandbox",
-     "command": "# lead-365 T1: serial create I1d Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-insight-a \"$sb\"; echo \"Sandbox $sb for insight-a\""
+     "command": "# lead-365 T1: serial create I1d Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-insight-a \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for insight-a\""
     },
     "phase": "lead",
     "expect": [
@@ -3911,7 +3911,7 @@
    {
     "bash": {
      "description": "lead-423 T1: serial create P1f Sandbox",
-     "command": "# lead-423 T1: serial create P1f Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create | field sandbox)\nkeep sandbox-people \"$sb\"; echo \"Sandbox $sb for people\""
+     "command": "# lead-423 T1: serial create P1f Sandbox\nset -eo pipefail\nlayerfs() { node \"$DSH_LAYERFS_CLI\" \"$@\"; }\n. \"{{scenario}}/../shared/replay.sh\"\nsb=$(layerfs sandbox create --image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2 | field sandbox)\nkeep sandbox-people \"$sb\"; keep image sha256:091f785ba7d5d036dfa350e8fd69ee1fcd2d8320c3706841c8c95e6411eee9d2; echo \"Sandbox $sb for people\""
     },
     "phase": "lead",
     "expect": [
