@@ -1,8 +1,11 @@
 // The All projects page: what every project's Sandboxes run on and how full
-// they are. Docker, the Store container (macOS) and free disk on top, then a
-// card per project (problems first) that opens its Sandboxes tab, then
-// leftover containers no project owns. Its actions are the ones no single
-// project owns: start a stopped Store container, remove stopped leftovers.
+// they are. Docker, the home's worker (macOS, Windows: it makes every Store
+// call), the older Store container while it exists (macOS) and free disk on
+// top, then a card per project (problems first) that opens its Sandboxes tab,
+// then leftover containers no project owns. Its actions are the ones no
+// single project owns: start or restart the worker, retire the older Store
+// container (confirmed: it cuts off any run still on it), remove stopped
+// leftovers.
 import { useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, imageLabel, type Overview } from './api.ts'
@@ -18,11 +21,12 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
   const [busy, setBusy] = useState<string | null>(null)
   const [asking, setAsking] = useState(false)
   const [restarting, setRestarting] = useState(false)
+  const [retiring, setRetiring] = useState(false)
   const read = () => api.overview().then((v) => { setView(v); setError(null) }, (e: Error) => setError(e.message))
   usePoll(read, POLL_MS, [])
   const act = async (label: string, run: () => Promise<unknown>) => {
     setBusy(label); setError(null)
-    try { await run(); setAsking(false); setRestarting(false); await read() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
+    try { await run(); setAsking(false); setRestarting(false); setRetiring(false); await read() } catch (e) { setError((e as Error).message) } finally { setBusy(null) }
   }
 
   const tile = (title: string, level: Overview['level'] | null, body: React.ReactNode, extra?: React.ReactNode, actions?: React.ReactNode) => (
@@ -33,6 +37,7 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
     </div>
   )
   const store = view?.store
+  const old = view?.oldStore ?? null, oldRuns = old?.state === 'running'
   const stopped = view?.leftovers.filter((l) => !l.running) ?? []
 
   return (
@@ -48,23 +53,35 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
         {view && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8 }}>
             {tile('Docker', view.engine.level, view.engine.level === 'ok' ? `running · ${view.engine.version}` : 'not answering')}
-            {store && tile('layerfs-store', store.level,
+            {store && tile(store.name, store.level,
               store.state === 'running' ? `${store.answering ? 'ready' : 'not answering'}${store.build && store.build !== store.expected ? ' · older build' : ''}` : store.state,
               restarting
                 ? <span role="alertdialog" style={{ display: 'grid', gap: 6, marginTop: 4, padding: '6px 8px', borderRadius: T.sm, background: 'var(--dsw-alias-state-error-bg, rgba(210,69,94,.1))', fontSize: 12 }}>
-                  <span>Restart layerfs-store? Every project's Store calls stop for a few seconds{view.calls ? `; ${view.calls} agent call${view.calls === 1 ? ' is' : 's are'} running and may fail` : ''}.</span>
+                  <span>Restart {store.name}? Every project's Store calls stop for a few seconds{view.calls ? `; ${view.calls} agent call${view.calls === 1 ? ' is' : 's are'} running and may fail` : ''}.</span>
                   <span style={{ display: 'flex', gap: 6 }}>
-                    <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void act('Restarting layerfs-store…', api.restartStore)}>Restart</Button>
+                    <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void act(`Restarting ${store.name}…`, api.restartStore)}>Restart</Button>
                     <Button variant="ghost" size="sm" onClick={() => setRestarting(false)}>Cancel</Button>
                   </span>
                 </span>
                 : null,
               view.engine.level === 'ok' && <>
-                <Button variant={store.state === 'running' ? 'ghost' : 'primary'} size="sm" disabled={!!busy || store.state === 'running'}
-                  title={store.state === 'running' ? 'It is running' : 'Start the Store container'} onClick={() => void act('Starting layerfs-store…', api.startStore)}>Start</Button>
+                <Button variant={store.state === 'running' || oldRuns ? 'ghost' : 'primary'} size="sm" disabled={!!busy || store.state === 'running' || oldRuns}
+                  title={store.state === 'running' ? 'It is running' : oldRuns ? `${old!.name} still runs; retire it first` : 'Start the worker'} onClick={() => void act(`Starting ${store.name}…`, api.startStore)}>Start</Button>
                 <Button variant={store.level === 'ok' ? 'ghost' : 'outline'} size="sm" disabled={!!busy || store.state !== 'running'}
                   title={store.state === 'running' ? 'Stop and start it again: every Store call waits a few seconds' : 'It is not running; start it'} onClick={() => setRestarting(true)}>Restart…</Button>
               </>)}
+            {old && tile(`${old.name} (older)`, oldRuns ? 'degraded' : null, old.state,
+              <>
+                <span style={{ fontSize: 11.5, color: T.text2, wordBreak: 'break-word' }}>{oldRuns ? `The Store container before the worker. While it runs, ${store?.name ?? 'the worker'} does not start.` : 'Not used.'}</span>
+                {retiring && <span role="alertdialog" style={{ display: 'grid', gap: 6, marginTop: 4, padding: '6px 8px', borderRadius: T.sm, background: 'var(--dsw-alias-state-error-bg, rgba(210,69,94,.1))', fontSize: 12 }}>
+                  <span>Stop and remove {old.name}, then start {store?.name ?? 'the worker'}? Any run still on {old.name} is cut off{view.calls ? `; ${view.calls} agent call${view.calls === 1 ? ' is' : 's are'} running and may fail` : ''}.</span>
+                  <span style={{ display: 'flex', gap: 6 }}>
+                    <Button variant="primary" size="sm" disabled={!!busy} onClick={() => void act(`Retiring ${old.name}…`, api.restartStore)}>Retire and start</Button>
+                    <Button variant="ghost" size="sm" onClick={() => setRetiring(false)}>Cancel</Button>
+                  </span>
+                </span>}
+              </>,
+              oldRuns && view.engine.level === 'ok' && <Button variant="outline" size="sm" disabled={!!busy} title={old.message} onClick={() => setRetiring(true)}>Retire…</Button>)}
             {tile('Disk free', null, [view.disk.vm !== null ? `Docker ${bytes(view.disk.vm)}` : null, view.disk.host !== null ? `local ${bytes(view.disk.host)}` : null].filter(Boolean).join(' · ') || 'not read')}
           </div>
         )}

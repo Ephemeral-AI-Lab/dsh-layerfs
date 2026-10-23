@@ -53,8 +53,11 @@ export const imageLabel = (s: SandboxImage) => s.imageName ?? (s.image ? s.image
 export interface Overview {
   level: Level
   engine: { level: Level, version?: string, error?: string }
+  /** the home's worker (macOS, Windows), which makes every Store call; null on Linux (runtime.status().worker) */
   store: { level: Level, state: 'running' | 'stopped' | 'missing' | 'unknown', name: string, build?: string, expected?: string, startedAt?: string, answering?: boolean } | null
-  /** agents' LayerFS calls running now, in any project: a Store restart cuts them off */
+  /** macOS: the older dsh Store container while it exists (runtime.status().oldStore); while it runs the worker does not start */
+  oldStore: { name: string, id: string, state: string, message: string } | null
+  /** agents' LayerFS calls running now, in any project: a worker restart cuts them off */
   calls: number
   disk: { host: number | null, vm: number | null }
   projects: { name: string, simulated: boolean, containers: number, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level } & SandboxImage)[], workspaces: number, level: Level, note: string | null }[]
@@ -81,7 +84,7 @@ export interface InitJob {
   step: 'scan' | 'volume' | 'import' | 'done' | 'failed'
   scanned: Counts | null
   totals: Counts | null
-  /** LayerFS's own counts while it imports (SDK operator project.progress). */
+  /** LayerFS's own counts while it imports (the runtime's Init job). */
   imported: { step: 'scan' | 'files' | 'tree' | 'publish' | 'seal', entries: number, files: number, bytes: number } | null
   project: Project | null
   error: { code: string, message: string } | null
@@ -152,7 +155,9 @@ export const api = {
   remove: (name: string, stopSandboxes = false) => call<{ removed: string, volume: string }>('POST', `/project/${encodeURIComponent(name)}/remove`, { confirm: name, stopSandboxes }),
   files: (id: string, kind: string, query: Record<string, string | number>) => call<any>('GET', `/session/${sid(id)}/${kind}?${filesQuery(query)}`),
   overview: () => call<Overview>('GET', '/runtime'),
+  /** Starts the home's worker when it is stopped or missing. */
   startStore: () => call<Overview['store']>('POST', '/runtime/store'),
+  /** runtime.worker.restart({ confirm: 'restart' }): restarts the worker; with the older Store container running, stops and removes it, then starts the worker. */
   restartStore: () => call<Overview['store']>('POST', '/runtime/store/restart', { confirm: 'restart' }),
   cleanLeftovers: (names: string[]) => call<{ results: { name: string, ok: boolean, message?: string }[] }>('POST', '/runtime/leftovers', { names }),
   projectRuntime: (name: string) => call<ProjectRuntime>('GET', `/project/${encodeURIComponent(name)}/runtime`),
