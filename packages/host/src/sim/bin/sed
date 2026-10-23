@@ -1,0 +1,3 @@
+#!/bin/sh
+# GNU sed for the simulated Sandbox's commands on macOS (../sed.js)
+exec "$LAYERFS_SIM_NODE" "$LAYERFS_SIM_SED" "$@"
