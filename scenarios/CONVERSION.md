@@ -64,6 +64,26 @@ step names the Sandbox or Workspace with `{{sandbox}}` or `{{ws}}`.
 - **conflicts:** the first Sandbox's Workspace stays mounted through its
   conflict, repair and unmount.
 
+## Crew
+
+- **Turns with no call:** the converter used to give each one a bash
+  `echo`, so that the turn held a call. Those 113 echo steps are gone. Each
+  such turn was a child answering the lead ("turn N done, through …"), so it
+  is now the child's reply alone. No turn is dropped: the lead's message and
+  its wait still need that answer. Crew now has 967 steps (354 bash), down
+  from 1080. A turn may be a reply alone, but a reply next to one that waits
+  for children (`until`) still needs a call between them.
+- **Subagent prompts:** they describe each child's lane of the issue tracker,
+  in place of the record's "replays your recorded steps" (`PROMPTS` in
+  `tools/replay/convert.mjs`).
+- **`CREW_WORKSPACE=<id>`:** 18 commands keep the recorded Workspace ids.
+  The id is a label: `scripts/dependency-census.mjs` only prints it in its
+  census line, and nothing in the app reads it back.
+- **`project.list_branches`:** a crew run makes about 640 of these calls
+  (5 s). They come from the Host's own Branch poll
+  (`packages/host/src/storage.js`), not from the scenario. Throttling it is
+  left for later.
+
 ## Other changes
 
 - **tour:** its phases are now Build, Commit, Serve, and the header fork is

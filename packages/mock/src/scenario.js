@@ -28,6 +28,8 @@
 // the children in `until` finishing (or by a new user message), a child by a
 // message from its parent. `say` is said before the call; `phase` names the
 // part of the run the Run bar shows; `note` is for readers.
+// A turn may be a reply alone, as when a child only answers its parent; a
+// reply next to one that waits for children (`until`) needs a call between.
 //
 // Placeholders. When the scenario loads, "{{scenario}}" in a bash command
 // becomes the scenario folder's absolute path (write it inside double quotes:
@@ -218,7 +220,9 @@ function compileSteps(steps, path, context) {
     if ("reply" in step) {
       only(step, ["reply", "until", "phase", "note"], at, fail);
       if (typeof step.reply !== "string" || !step.reply) fail(at, "reply is a non-empty string");
-      if (out[out.length - 1]?.kind === "reply") fail(at, "two replies in a row: a turn holds at least one call");
+      // a turn may be a reply alone (a child answering its parent), but not next to a wait for children
+      const before = out[out.length - 1];
+      if (before?.kind === "reply" && (before.until.length || step.until !== undefined)) fail(at, "a reply next to a reply that waits for children: a turn around a wait holds at least one call");
       let until = [];
       if (step.until !== undefined) {
         if (!Array.isArray(step.until) || !step.until.length) fail(`${at}.until`, "lists the children to wait for");

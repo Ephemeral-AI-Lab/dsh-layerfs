@@ -9,7 +9,8 @@ Form `cli`: every bash step is plain `layerfs` lines. Each step that runs a comm
 | recorded steps (bash) | 1549 |
 | bash steps kept | 354 |
 | coordination steps (subagent, send_message, reply) | 613 |
-| turns left with no call, kept by one `echo` | 113 |
+| steps in all | 967 |
+| turns left with no call: the reply alone, no echo | 113 |
 | commands recorded | 304 |
 | dropped: identical re-run on an unchanged Branch | 0 |
 | dropped: verification off | 246 |

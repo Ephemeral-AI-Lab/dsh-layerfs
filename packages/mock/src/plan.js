@@ -12,8 +12,8 @@
 // call's exit must be its step's `exit`, and its trace lines (read from the
 // Host through `traceOf`) must show its step's `expect`; the first mismatch
 // stops the scenario. Nothing is retried. A text-only message is the reply
-// step when one is due, and otherwise what the agent said while it waited to
-// be woken.
+// step when one is due and the agent has been woken since its last reply, and
+// otherwise what the agent said while it waited to be woken.
 //
 // The placeholders a step's text holds ({{sandbox}}, {{ws}}, {{commit:<ref>}};
 // scenario.js) are filled from the same walk: the last Sandbox number the
@@ -97,12 +97,20 @@ export function nextReply(scenario, agent, messages, { traceOf = null, checked =
     if (step?.kind === "reply" && step.until.length && !unsettled(step.until, before).length) { index++; return true; }
     return false;
   };
+  // after a reply the agent is woken by the children of its `until` settling,
+  // or else by a message; a text it says before that is a wait, not its next reply
+  const woken = (before) => {
+    const previous = steps[index - 1];
+    if (previous?.kind !== "reply") return true;
+    if (previous.until.length) return !unsettled(previous.until, before).length;
+    return messages.slice(replyAt + 1, before).some((m) => m.role === "user" && !settledId(m));
+  };
   for (const [k, m] of messages.entries()) {
     if (m.role !== "assistant") continue;
     const calls = (m.content ?? []).filter((b) => b.type === "tool-call");
     if (calls.length) skipWait(k);
     if (!calls.length) {
-      if (steps[index]?.kind === "reply") { index++; replyAt = k; }
+      if (steps[index]?.kind === "reply" && woken(k)) { index++; replyAt = k; }
       continue;
     }
     const step = steps[index];
@@ -141,7 +149,7 @@ export function nextReply(scenario, agent, messages, { traceOf = null, checked =
     if (previous.until.length) {
       const waiting = unsettled(previous.until, messages.length);
       if (waiting.length) return reply({ kind: "text", text: `Still waiting for ${waiting.join(" and ")}.` });
-    } else if (!messages.slice(replyAt + 1).some((m) => m.role === "user" && !settledId(m))) {
+    } else if (!woken(messages.length)) {
       return reply({ kind: "text", text: "Waiting for a message." });
     }
   }

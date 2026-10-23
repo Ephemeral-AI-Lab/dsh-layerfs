@@ -234,7 +234,7 @@
    {
     "subagent": {
      "description": "people",
-     "prompt": "You are people of the Crew run. Each turn replays your recorded steps from the one the lead names; report when they are done."
+     "prompt": "You are people in the Crew team building an issue tracker. Your lane is people: organizations, teams, permissions, invitations and accounts. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done."
     }
    },
    {
@@ -308,14 +308,14 @@
    {
     "subagent": {
      "description": "work-b",
-     "prompt": "You are work-b of the Crew run. Each turn replays your recorded steps from the one the lead names; report when they are done."
+     "prompt": "You are work-b in the Crew team building an issue tracker. Your lane is projects and boards: the project schema, ranking, drag state, planning, uploads and attachments. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done."
     },
     "phase": "lead"
    },
    {
     "subagent": {
      "description": "work-a",
-     "prompt": "You are work-a of the Crew run. Each turn replays your recorded steps from the one the lead names; report when they are done."
+     "prompt": "You are work-a in the Crew team building an issue tracker. Your lane is the issue core: issues, validation, routes, mentions, discussion and Markdown editing. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done."
     }
    },
    {
@@ -1201,14 +1201,14 @@
    {
     "subagent": {
      "description": "insight-a",
-     "prompt": "You are insight-a of the Crew run. Each turn replays your recorded steps from the one the lead names; report when they are done."
+     "prompt": "You are insight-a in the Crew team building an issue tracker. Your lane is search: the query grammar, saved filters, and search over HTTP, the web app and the CLI. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done."
     },
     "phase": "lead"
    },
    {
     "subagent": {
      "description": "insight-b",
-     "prompt": "You are insight-b of the Crew run. Each turn replays your recorded steps from the one the lead names; report when they are done."
+     "prompt": "You are insight-b in the Crew team building an issue tracker. Your lane is activity and reporting: activity sources, project transfer previews and digests. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done."
     }
    },
    {
@@ -4090,14 +4090,8 @@
     "reply": "people: turn 1 done, through P1-0064 009 P-M1 final affected tests and LOC commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "people: turn 2 done, through P1-0067 011 P-M1 handoff close.",
     "note": "records P1-0065, P1-0067: no call left"
-   },
-   {
-    "reply": "people: turn 2 done, through P1-0067 011 P-M1 handoff close."
    },
    {
     "bash": {
@@ -4271,14 +4265,8 @@
     "reply": "people: turn 5 done, through P1b-0140 P1b 026 P-M3 final maintained-source size and custody check commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "people: turn 6 done, through P1b-0143 P-M3 final permanent close.",
     "note": "records P1b-0141, P1b-0143: no call left"
-   },
-   {
-    "reply": "people: turn 6 done, through P1b-0143 P-M3 final permanent close."
    },
    {
     "bash": {
@@ -4310,24 +4298,12 @@
     "reply": "people: turn 7 done, through P1c-019 P-04: affected server package proof save outcome."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "people: turn 8 done, through P1c-022 P-04: final owned-process census execute.",
     "note": "records P1c-020, P1c-021, P1c-022: no call left"
    },
    {
-    "reply": "people: turn 8 done, through P1c-022 P-04: final owned-process census execute."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "people: turn 9 done, through P1c-025 P-04: permanent close after zero mounts and preserved daemon streams.",
     "note": "records P1c-023, P1c-024, P1c-025: no call left"
-   },
-   {
-    "reply": "people: turn 9 done, through P1c-025 P-04: permanent close after zero mounts and preserved daemon streams."
    },
    {
     "bash": {
@@ -4396,14 +4372,8 @@
     "reply": "people: turn 10 done, through P1d-149 P-05: 024 P-05 final audit syntax commit. people.5 is at Commit {{commit:people.5#6}}."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "people: turn 11 done, through P1d-150 P-05: 024 P-05 final audit syntax unmount.",
     "note": "records P1d-150: no call left"
-   },
-   {
-    "reply": "people: turn 11 done, through P1d-150 P-05: 024 P-05 final audit syntax unmount."
    },
    {
     "bash": {
@@ -4461,14 +4431,8 @@
     "reply": "people: turn 12 done, through P1d-186 P-05: 035 P-05 terminal owned process census commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "people: turn 13 done, through P1d-189 P-05: permanent terminal close.",
     "note": "records P1d-187, P1d-189: no call left"
-   },
-   {
-    "reply": "people: turn 13 done, through P1d-189 P-05: permanent terminal close."
    },
    {
     "bash": {
@@ -4636,14 +4600,8 @@
     "reply": "people: turn 14 done, through P1e-124 P1e final owned process census outcome."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "people: turn 15 done, through P1e-126 P1e sole permanent terminal close after original daemon streams saved.",
     "note": "records P1e-125, P1e-126: no call left"
-   },
-   {
-    "reply": "people: turn 15 done, through P1e-126 P1e sole permanent terminal close after original daemon streams saved."
    },
    {
     "bash": {
@@ -4685,26 +4643,14 @@
     "reply": "people: turn 16 done, through P1f-046 people action lifetime: sandbox.commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'people: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "people: done.",
     "note": "records P1f-047, P1f-048: no call left"
-   },
-   {
-    "reply": "people: done."
    }
   ],
   "work-b": [
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 1 done, through W2-0034 W-M1 paired first source mount.",
     "note": "records W2-0034: no call left"
-   },
-   {
-    "reply": "work-b: turn 1 done, through W2-0034 W-M1 paired first source mount."
    },
    {
     "bash": {
@@ -4749,14 +4695,8 @@
     "reply": "work-b: turn 3 done, through W2-0042 W-M1 prepare build and project tests."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 4 done, through W2-0043 W-M1 prepare build and project tests.",
     "note": "records W2-0043: no call left"
-   },
-   {
-    "reply": "work-b: turn 4 done, through W2-0043 W-M1 prepare build and project tests."
    },
    {
     "bash": {
@@ -4808,14 +4748,8 @@
     "reply": "work-b: turn 7 done, through W2-0059 W-M2 prepare build board tests and frozen LOC."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 8 done, through W2-0060 W-M2 prepare build board tests and frozen LOC.",
     "note": "records W2-0060: no call left"
-   },
-   {
-    "reply": "work-b: turn 8 done, through W2-0060 W-M2 prepare build board tests and frozen LOC."
    },
    {
     "bash": {
@@ -4831,14 +4765,8 @@
     "reply": "work-b: turn 9 done, through W2-0061 W-M2 deterministic precision fixture and actual CLI board tests."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 10 done, through W2-0062 W-M2 prepare build board and CLI tests plus frozen LOC.",
     "note": "records W2-0062: no call left"
-   },
-   {
-    "reply": "work-b: turn 10 done, through W2-0062 W-M2 prepare build board and CLI tests plus frozen LOC."
    },
    {
     "bash": {
@@ -4860,24 +4788,12 @@
     "reply": "work-b: turn 11 done, through W2-0063 W-M2 prepare build board and CLI tests plus frozen LOC."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 12 done, through W2-0064 W-M2 prepare build board and CLI tests plus frozen LOC.",
     "note": "records W2-0064: no call left"
    },
    {
-    "reply": "work-b: turn 12 done, through W2-0064 W-M2 prepare build board and CLI tests plus frozen LOC."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 13 done, through W2-0065 W-M2 prepare build board and CLI tests plus frozen LOC.",
     "note": "records W2-0065: no call left"
-   },
-   {
-    "reply": "work-b: turn 13 done, through W2-0065 W-M2 prepare build board and CLI tests plus frozen LOC."
    },
    {
     "bash": {
@@ -4985,14 +4901,8 @@
     "reply": "work-b: turn 16 done, through W2-0110 W-M3 final complete package regression and frozen LOC."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 17 done, through W2-0111 W-M3 final complete package regression and frozen LOC.",
     "note": "records W2-0111: no call left"
-   },
-   {
-    "reply": "work-b: turn 17 done, through W2-0111 W-M3 final complete package regression and frozen LOC."
    },
    {
     "bash": {
@@ -5034,14 +4944,8 @@
     "reply": "work-b: turn 18 done, through W2-0128 W-M3 final owned application browser process audit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 19 done, through W2-0130 W-M3 terminal own Sandbox close after daemon log capture.",
     "note": "records W2-0129, W2-0130: no call left"
-   },
-   {
-    "reply": "work-b: turn 19 done, through W2-0130 W-M3 terminal own Sandbox close after daemon log capture."
    },
    {
     "bash": {
@@ -5090,14 +4994,8 @@
     "reply": "work-b: turn 21 done, through W2b-058 targeted planning revision and browser proofs commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 22 done, through W2b-059 targeted planning revision and browser proofs unmount.",
     "note": "records W2b-059: no call left"
-   },
-   {
-    "reply": "work-b: turn 22 done, through W2b-059 targeted planning revision and browser proofs unmount."
    },
    {
     "bash": {
@@ -5116,24 +5014,12 @@
     "reply": "work-b: turn 23 done, through W2b-067 verify repaired native board drag and pending planning navigation commit. work.5 is at Commit {{commit:work.5#25}}."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 24 done, through W2b-068 verify repaired native board drag and pending planning navigation unmount.",
     "note": "records W2b-068: no call left"
    },
    {
-    "reply": "work-b: turn 24 done, through W2b-068 verify repaired native board drag and pending planning navigation unmount."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 25 done, through W2b-070 W05 affected package regression and production census.",
     "note": "records W2b-069, W2b-070: no call left"
-   },
-   {
-    "reply": "work-b: turn 25 done, through W2b-070 W05 affected package regression and production census."
    },
    {
     "bash": {
@@ -5159,14 +5045,8 @@
     "reply": "work-b: turn 26 done, through W2b-081 W05 final web CLI regression and counter commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 27 done, through W2b-082 W05 final web CLI regression and counter unmount.",
     "note": "records W2b-082: no call left"
-   },
-   {
-    "reply": "work-b: turn 27 done, through W2b-082 W05 final web CLI regression and counter unmount."
    },
    {
     "bash": {
@@ -5198,14 +5078,8 @@
     "reply": "work-b: turn 28 done, through W2b-087 verify restored sprint CLI compatibility and exact source count commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 29 done, through W2b-088 verify restored sprint CLI compatibility and exact source count unmount.",
     "note": "records W2b-088: no call left"
-   },
-   {
-    "reply": "work-b: turn 29 done, through W2b-088 verify restored sprint CLI compatibility and exact source count unmount."
    },
    {
     "bash": {
@@ -5234,44 +5108,20 @@
     "reply": "work-b: turn 31 done, through W2b-093 prepare planning bundle and syntax before tests commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 32 done, through W2b-094 prepare planning bundle and syntax before tests unmount.",
     "note": "records W2b-094: no call left"
    },
    {
-    "reply": "work-b: turn 32 done, through W2b-094 prepare planning bundle and syntax before tests unmount."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 33 done, through W2b-096 W08 workflow and attachment queue targeted proofs.",
     "note": "records W2b-095, W2b-096: no call left"
    },
    {
-    "reply": "work-b: turn 33 done, through W2b-096 W08 workflow and attachment queue targeted proofs."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 34 done, through W2b-097 W08 workflow and attachment queue targeted proofs commit.",
     "note": "records W2b-097: no call left"
    },
    {
-    "reply": "work-b: turn 34 done, through W2b-097 W08 workflow and attachment queue targeted proofs commit."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 35 done, through W2b-098 W08 workflow and attachment queue targeted proofs unmount.",
     "note": "records W2b-098: no call left"
-   },
-   {
-    "reply": "work-b: turn 35 done, through W2b-098 W08 workflow and attachment queue targeted proofs unmount."
    },
    {
     "bash": {
@@ -5310,44 +5160,20 @@
     "reply": "work-b: turn 37 done, through W2b-112 prepare planning bundle and syntax before tests commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 38 done, through W2b-114 W08 final affected package verification mount.",
     "note": "records W2b-113, W2b-114: no call left"
    },
    {
-    "reply": "work-b: turn 38 done, through W2b-114 W08 final affected package verification mount."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 39 done, through W2b-115 W08 final affected package verification.",
     "note": "records W2b-115: no call left"
    },
    {
-    "reply": "work-b: turn 39 done, through W2b-115 W08 final affected package verification."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 40 done, through W2b-120 final production census file ceiling and process closure audit commit.",
     "note": "records W2b-116, W2b-117, W2b-118, W2b-119, W2b-120: no call left"
    },
    {
-    "reply": "work-b: turn 40 done, through W2b-120 final production census file ceiling and process closure audit commit."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: turn 41 done, through W2b-121 final production census file ceiling and process closure audit unmount.",
     "note": "records W2b-121: no call left"
-   },
-   {
-    "reply": "work-b: turn 41 done, through W2b-121 final production census file ceiling and process closure audit unmount."
    },
    {
     "bash": {
@@ -5363,14 +5189,8 @@
     "reply": "work-b: turn 42 done, through W2b-135 full web with authenticated initial navigation readiness commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-b: done.",
     "note": "records W2b-136, W2b-138: no call left"
-   },
-   {
-    "reply": "work-b: done."
    }
   ],
   "work-a": [
@@ -5394,24 +5214,12 @@
     "reply": "work-a: turn 1 done, through W1-0023 001 W-M1 issue core, validation, routes and client exports exec."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 2 done, through W1-0024 001 W-M1 issue core, validation, routes and client exports commit.",
     "note": "records W1-0024: no call left"
    },
    {
-    "reply": "work-a: turn 2 done, through W1-0024 001 W-M1 issue core, validation, routes and client exports commit."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 3 done, through W1-0025 001 W-M1 issue core, validation, routes and client exports unmount.",
     "note": "records W1-0025: no call left"
-   },
-   {
-    "reply": "work-a: turn 3 done, through W1-0025 001 W-M1 issue core, validation, routes and client exports unmount."
    },
    {
     "bash": {
@@ -5472,14 +5280,8 @@
     "reply": "work-a: turn 5 done, through W1-0046 006 W-M1 combined all package tests commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 6 done, through W1-0047 006 W-M1 combined all package tests unmount.",
     "note": "records W1-0047: no call left"
-   },
-   {
-    "reply": "work-a: turn 6 done, through W1-0047 006 W-M1 combined all package tests unmount."
    },
    {
     "bash": {
@@ -5508,44 +5310,20 @@
     "reply": "work-a: turn 8 done, through W1-0062 010 W-M2 markdown comments and relation HTTP tests commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 9 done, through W1-0064 011 W-M2 complete package regression and source census mount.",
     "note": "records W1-0063, W1-0064: no call left"
    },
    {
-    "reply": "work-a: turn 9 done, through W1-0064 011 W-M2 complete package regression and source census mount."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 10 done, through W1-0065 011 W-M2 complete package regression and source census exec.",
     "note": "records W1-0065: no call left"
    },
    {
-    "reply": "work-a: turn 10 done, through W1-0065 011 W-M2 complete package regression and source census exec."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 11 done, through W1-0066 011 W-M2 complete package regression and source census commit.",
     "note": "records W1-0066: no call left"
    },
    {
-    "reply": "work-a: turn 11 done, through W1-0066 011 W-M2 complete package regression and source census commit."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 12 done, through W1-0067 011 W-M2 complete package regression and source census unmount.",
     "note": "records W1-0067: no call left"
-   },
-   {
-    "reply": "work-a: turn 12 done, through W1-0067 011 W-M2 complete package regression and source census unmount."
    },
    {
     "bash": {
@@ -5577,14 +5355,8 @@
     "reply": "work-a: turn 13 done, through W1-0082 013 W-M2 complete issue syntax bundle HTTP shared web CLI checks commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 14 done, through W1-0083 013 W-M2 complete issue syntax bundle HTTP shared web CLI checks unmount.",
     "note": "records W1-0083: no call left"
-   },
-   {
-    "reply": "work-a: turn 14 done, through W1-0083 013 W-M2 complete issue syntax bundle HTTP shared web CLI checks unmount."
    },
    {
     "bash": {
@@ -5616,14 +5388,8 @@
     "reply": "work-a: turn 15 done, through W1-0092 016 W-M3 fresh Workspace unchanged data executable CLI read proof commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 16 done, through W1-0093 016 W-M3 fresh Workspace unchanged data executable CLI read proof unmount.",
     "note": "records W1-0093: no call left"
-   },
-   {
-    "reply": "work-a: turn 16 done, through W1-0093 016 W-M3 fresh Workspace unchanged data executable CLI read proof unmount."
    },
    {
     "bash": {
@@ -5649,14 +5415,8 @@
     "reply": "work-a: turn 17 done, through W1-0103 019 W-M3 complete changed package verification and maintained source census commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 18 done, through W1-0104 019 W-M3 complete changed package verification and maintained source census unmount.",
     "note": "records W1-0104: no call left"
-   },
-   {
-    "reply": "work-a: turn 18 done, through W1-0104 019 W-M3 complete changed package verification and maintained source census unmount."
    },
    {
     "bash": {
@@ -5672,14 +5432,8 @@
     "reply": "work-a: turn 19 done, through W1-0108 021 W-M3 all issue endpoint role permission HTTP audit commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 20 done, through W1-0110 022 W-M3 final close after saved daemon stdout and stderr.",
     "note": "records W1-0109, W1-0110: no call left"
-   },
-   {
-    "reply": "work-a: turn 20 done, through W1-0110 022 W-M3 final close after saved daemon stdout and stderr."
    },
    {
     "bash": {
@@ -5805,14 +5559,8 @@
     "reply": "work-a: turn 21 done, through W1b-116 W-04: commit final frozen identity file ceiling and owned live process audit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 22 done, through W1b-117 W-04: unmount final frozen identity file ceiling and owned live process audit.",
     "note": "records W1b-117: no call left"
-   },
-   {
-    "reply": "work-a: turn 22 done, through W1b-117 W-04: unmount final frozen identity file ceiling and owned live process audit."
    },
    {
     "bash": {
@@ -5828,14 +5576,8 @@
     "reply": "work-a: turn 23 done, through W1b-127 W-04: commit focused canonical Markdown code and safe inline proof."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 24 done, through W1b-128 W-04: unmount focused canonical Markdown code and safe inline proof.",
     "note": "records W1b-128: no call left"
-   },
-   {
-    "reply": "work-a: turn 24 done, through W1b-128 W-04: unmount focused canonical Markdown code and safe inline proof."
    },
    {
     "bash": {
@@ -5851,104 +5593,44 @@
     "reply": "work-a: turn 25 done, through W1b-132 W-04: commit canonical Markdown HTTP notification and actual preview checkpoint."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 26 done, through W1b-134 W-06: fresh mount canonical Markdown full affected package checkpoint.",
     "note": "records W1b-133, W1b-134: no call left"
    },
    {
-    "reply": "work-a: turn 26 done, through W1b-134 W-06: fresh mount canonical Markdown full affected package checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 27 done, through W1b-135 W-06: canonical Markdown full affected package checkpoint.",
     "note": "records W1b-135: no call left"
    },
    {
-    "reply": "work-a: turn 27 done, through W1b-135 W-06: canonical Markdown full affected package checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 28 done, through W1b-136 W-06: commit canonical Markdown full affected package checkpoint.",
     "note": "records W1b-136: no call left"
    },
    {
-    "reply": "work-a: turn 28 done, through W1b-136 W-06: commit canonical Markdown full affected package checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 29 done, through W1b-137 W-06: unmount canonical Markdown full affected package checkpoint.",
     "note": "records W1b-137: no call left"
    },
    {
-    "reply": "work-a: turn 29 done, through W1b-137 W-06: unmount canonical Markdown full affected package checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 30 done, through W1b-139 W-06: canonical Markdown CLI and frozen census checkpoint.",
     "note": "records W1b-138, W1b-139: no call left"
    },
    {
-    "reply": "work-a: turn 30 done, through W1b-139 W-06: canonical Markdown CLI and frozen census checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 31 done, through W1b-140 W-06: commit canonical Markdown CLI and frozen census checkpoint.",
     "note": "records W1b-140: no call left"
    },
    {
-    "reply": "work-a: turn 31 done, through W1b-140 W-06: commit canonical Markdown CLI and frozen census checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 32 done, through W1b-141 W-06: unmount canonical Markdown CLI and frozen census checkpoint.",
     "note": "records W1b-141: no call left"
    },
    {
-    "reply": "work-a: turn 32 done, through W1b-141 W-06: unmount canonical Markdown CLI and frozen census checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 33 done, through W1b-143 W-06: canonical Markdown current production census without test gating.",
     "note": "records W1b-142, W1b-143: no call left"
    },
    {
-    "reply": "work-a: turn 33 done, through W1b-143 W-06: canonical Markdown current production census without test gating."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 34 done, through W1b-144 W-06: commit canonical Markdown current production census without test gating.",
     "note": "records W1b-144: no call left"
    },
    {
-    "reply": "work-a: turn 34 done, through W1b-144 W-06: commit canonical Markdown current production census without test gating."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 35 done, through W1b-145 W-06: unmount canonical Markdown current production census without test gating.",
     "note": "records W1b-145: no call left"
-   },
-   {
-    "reply": "work-a: turn 35 done, through W1b-145 W-06: unmount canonical Markdown current production census without test gating."
    },
    {
     "bash": {
@@ -5980,14 +5662,8 @@
     "reply": "work-a: turn 36 done, through W1b-149 W-07: commit focused Markdown command selection and serialization proof."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 37 done, through W1b-150 W-07: unmount focused Markdown command selection and serialization proof.",
     "note": "records W1b-150: no call left"
-   },
-   {
-    "reply": "work-a: turn 37 done, through W1b-150 W-07: unmount focused Markdown command selection and serialization proof."
    },
    {
     "bash": {
@@ -6003,44 +5679,20 @@
     "reply": "work-a: turn 38 done, through W1b-154 W-07: commit actual shared Markdown toolbar keyboard and selection browser proof."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 39 done, through W1b-155 W-07: unmount actual shared Markdown toolbar keyboard and selection browser proof.",
     "note": "records W1b-155: no call left"
    },
    {
-    "reply": "work-a: turn 39 done, through W1b-155 W-07: unmount actual shared Markdown toolbar keyboard and selection browser proof."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 40 done, through W1b-157 W-07: shared Markdown editing final affected web and source checkpoint.",
     "note": "records W1b-156, W1b-157: no call left"
    },
    {
-    "reply": "work-a: turn 40 done, through W1b-157 W-07: shared Markdown editing final affected web and source checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 41 done, through W1b-158 W-07: commit shared Markdown editing final affected web and source checkpoint.",
     "note": "records W1b-158: no call left"
    },
    {
-    "reply": "work-a: turn 41 done, through W1b-158 W-07: commit shared Markdown editing final affected web and source checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 42 done, through W1b-159 W-07: unmount shared Markdown editing final affected web and source checkpoint.",
     "note": "records W1b-159: no call left"
-   },
-   {
-    "reply": "work-a: turn 42 done, through W1b-159 W-07: unmount shared Markdown editing final affected web and source checkpoint."
    },
    {
     "bash": {
@@ -6056,44 +5708,20 @@
     "reply": "work-a: turn 43 done, through W1b-160 W-06: assert render extraction agreement at exact nesting fallback boundary."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 44 done, through W1b-161 W-07: fresh mount final disjoint owned Markdown issue editing checkpoint and census.",
     "note": "records W1b-161: no call left"
    },
    {
-    "reply": "work-a: turn 44 done, through W1b-161 W-07: fresh mount final disjoint owned Markdown issue editing checkpoint and census."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 45 done, through W1b-162 W-07: final disjoint owned Markdown issue editing checkpoint and census.",
     "note": "records W1b-162: no call left"
    },
    {
-    "reply": "work-a: turn 45 done, through W1b-162 W-07: final disjoint owned Markdown issue editing checkpoint and census."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 46 done, through W1b-163 W-07: commit final disjoint owned Markdown issue editing checkpoint and census.",
     "note": "records W1b-163: no call left"
    },
    {
-    "reply": "work-a: turn 46 done, through W1b-163 W-07: commit final disjoint owned Markdown issue editing checkpoint and census."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 47 done, through W1b-164 W-07: unmount final disjoint owned Markdown issue editing checkpoint and census.",
     "note": "records W1b-164: no call left"
-   },
-   {
-    "reply": "work-a: turn 47 done, through W1b-164 W-07: unmount final disjoint owned Markdown issue editing checkpoint and census."
    },
    {
     "bash": {
@@ -6115,24 +5743,12 @@
     "reply": "work-a: turn 48 done, through W1b-166 W-07: final owned source hash ceiling and process custody after Markdown scopes."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 49 done, through W1b-167 W-07: commit final owned source hash ceiling and process custody after Markdown scopes.",
     "note": "records W1b-167: no call left"
    },
    {
-    "reply": "work-a: turn 49 done, through W1b-167 W-07: commit final owned source hash ceiling and process custody after Markdown scopes."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: turn 50 done, through W1b-170 W-07: terminal close after both original daemon streams saved.",
     "note": "records W1b-168, W1b-170: no call left"
-   },
-   {
-    "reply": "work-a: turn 50 done, through W1b-170 W-07: terminal close after both original daemon streams saved."
    },
    {
     "bash": {
@@ -6270,26 +5886,14 @@
     "reply": "work-a: turn 51 done, through W1c-090 W09/W10: commit owned live versus defunct process audit before terminal cleanup."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'work-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "work-a: done.",
     "note": "records W1c-091, W1c-093: no call left"
-   },
-   {
-    "reply": "work-a: done."
    }
   ],
   "insight-a": [
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 1 done, through I1-028 I-M1 first source query grammar.",
     "note": "records I1-028: no call left"
-   },
-   {
-    "reply": "insight-a: turn 1 done, through I1-028 I-M1 first source query grammar."
    },
    {
     "bash": {
@@ -6360,14 +5964,8 @@
     "reply": "insight-a: turn 5 done, through I1-045 I-M1 build syntax and shared query tests Commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 6 done, through I1-046 I-M1 build syntax and shared query tests unmount.",
     "note": "records I1-046: no call left"
-   },
-   {
-    "reply": "insight-a: turn 6 done, through I1-046 I-M1 build syntax and shared query tests unmount."
    },
    {
     "bash": {
@@ -6383,24 +5981,12 @@
     "reply": "insight-a: turn 7 done, through I1-047 I1 I-M3 HTTP permission index lifecycle shared completion and web state tests."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 8 done, through I1-052 I-M3 prepare tested current routes.",
     "note": "records I1-052: no call left"
    },
    {
-    "reply": "insight-a: turn 8 done, through I1-052 I-M3 prepare tested current routes."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 9 done, through I1-053 I-M3 build syntax and shared query completion tests.",
     "note": "records I1-053: no call left"
-   },
-   {
-    "reply": "insight-a: turn 9 done, through I1-053 I-M3 build syntax and shared query completion tests."
    },
    {
     "bash": {
@@ -6432,14 +6018,8 @@
     "reply": "insight-a: turn 10 done, through I1-059 I-M3 shared HTTP web and actual token CLI search-filter proofs Commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 11 done, through I1-060 I-M3 shared HTTP web and actual token CLI search-filter proofs unmount.",
     "note": "records I1-060: no call left"
-   },
-   {
-    "reply": "insight-a: turn 11 done, through I1-060 I-M3 shared HTTP web and actual token CLI search-filter proofs unmount."
    },
    {
     "bash": {
@@ -6455,24 +6035,12 @@
     "reply": "insight-a: turn 12 done, through I1-065 I1 I-M3 search saved-filter API grammar documentation and persisted acceptance checks."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 13 done, through I1-067 I-M3 CLI aggregator registered checkpoint.",
     "note": "records I1-067: no call left"
    },
    {
-    "reply": "insight-a: turn 13 done, through I1-067 I-M3 CLI aggregator registered checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 14 done, through I1-068 I-M3 actual scoped-token search and filter executable integration.",
     "note": "records I1-068: no call left"
-   },
-   {
-    "reply": "insight-a: turn 14 done, through I1-068 I-M3 actual scoped-token search and filter executable integration."
    },
    {
     "bash": {
@@ -6504,44 +6072,20 @@
     "reply": "insight-a: turn 15 done, through I1-074 I-M3 actual scoped-token search filter and plain-help proofs Commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 16 done, through I1-075 I-M3 actual scoped-token search filter and plain-help proofs unmount.",
     "note": "records I1-075: no call left"
    },
    {
-    "reply": "insight-a: turn 16 done, through I1-075 I-M3 actual scoped-token search filter and plain-help proofs unmount."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 17 done, through I1-077 I-M3 frozen production LOC and largest file census.",
     "note": "records I1-076, I1-077: no call left"
    },
    {
-    "reply": "insight-a: turn 17 done, through I1-077 I-M3 frozen production LOC and largest file census."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 18 done, through I1-078 I-M3 frozen production LOC and largest file census Commit.",
     "note": "records I1-078: no call left"
    },
    {
-    "reply": "insight-a: turn 18 done, through I1-078 I-M3 frozen production LOC and largest file census Commit."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 19 done, through I1-079 I-M3 frozen production LOC and largest file census unmount.",
     "note": "records I1-079: no call left"
-   },
-   {
-    "reply": "insight-a: turn 19 done, through I1-079 I-M3 frozen production LOC and largest file census unmount."
    },
    {
     "bash": {
@@ -6577,34 +6121,16 @@
     "reply": "insight-a: turn 20 done, through I1-086 I1 I-M3 candidate Unicode and write-scope regression proofs."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 21 done, through I1-088 I-M3 candidate-index Unicode and search UI-state regressions.",
     "note": "records I1-087, I1-088: no call left"
    },
    {
-    "reply": "insight-a: turn 21 done, through I1-088 I-M3 candidate-index Unicode and search UI-state regressions."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 22 done, through I1-089 I-M3 candidate-index Unicode and search UI-state regressions Commit.",
     "note": "records I1-089: no call left"
    },
    {
-    "reply": "insight-a: turn 22 done, through I1-089 I-M3 candidate-index Unicode and search UI-state regressions Commit."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 23 done, through I1-090 I-M3 candidate-index Unicode and search UI-state regressions unmount.",
     "note": "records I1-090: no call left"
-   },
-   {
-    "reply": "insight-a: turn 23 done, through I1-090 I-M3 candidate-index Unicode and search UI-state regressions unmount."
    },
    {
     "bash": {
@@ -6630,24 +6156,12 @@
     "reply": "insight-a: turn 24 done, through I1-100 I1 I-M3 reload authenticated browser fixture and retain failure diagnostics."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 25 done, through I1-101 I-M3 corrected browser fixture proof.",
     "note": "records I1-101: no call left"
    },
    {
-    "reply": "insight-a: turn 25 done, through I1-101 I-M3 corrected browser fixture proof."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 26 done, through I1-102 I-M3 actual pinned-browser keyboard search safe highlights saved-filter and live controls.",
     "note": "records I1-102: no call left"
-   },
-   {
-    "reply": "insight-a: turn 26 done, through I1-102 I-M3 actual pinned-browser keyboard search safe highlights saved-filter and live controls."
    },
    {
     "bash": {
@@ -6663,24 +6177,12 @@
     "reply": "insight-a: turn 27 done, through I1-105 I1 I-M3 explicit browser key release clear and enabled-search synchronization."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 28 done, through I1-106 I-M3 corrected browser fixture proof.",
     "note": "records I1-106: no call left"
    },
    {
-    "reply": "insight-a: turn 28 done, through I1-106 I-M3 corrected browser fixture proof."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 29 done, through I1-107 I-M3 actual pinned-browser keyboard search safe highlights saved-filter and live controls.",
     "note": "records I1-107: no call left"
-   },
-   {
-    "reply": "insight-a: turn 29 done, through I1-107 I-M3 actual pinned-browser keyboard search safe highlights saved-filter and live controls."
    },
    {
     "bash": {
@@ -6696,14 +6198,8 @@
     "reply": "insight-a: turn 30 done, through I1-113 I-M3 actual pinned-browser keyboard search safe highlights saved-filter and live controls Commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 31 done, through I1-114 I-M3 actual pinned-browser keyboard search safe highlights saved-filter and live controls unmount.",
     "note": "records I1-114: no call left"
-   },
-   {
-    "reply": "insight-a: turn 31 done, through I1-114 I-M3 actual pinned-browser keyboard search safe highlights saved-filter and live controls unmount."
    },
    {
     "bash": {
@@ -6788,14 +6284,8 @@
     "reply": "insight-a: turn 35 done, through I1-135 I-M3 browser typed-builder search-filter controls and actual token CLI final proof Commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 36 done, through I1-136 I-M3 browser typed-builder search-filter controls and actual token CLI final proof unmount.",
     "note": "records I1-136: no call left"
-   },
-   {
-    "reply": "insight-a: turn 36 done, through I1-136 I-M3 browser typed-builder search-filter controls and actual token CLI final proof unmount."
    },
    {
     "bash": {
@@ -6811,14 +6301,8 @@
     "reply": "insight-a: turn 37 done, through I1-140 I-M3 browser typed-builder search-filter controls and actual token CLI final proof Commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 38 done, through I1-141 I-M3 browser typed-builder search-filter controls and actual token CLI final proof unmount.",
     "note": "records I1-141: no call left"
-   },
-   {
-    "reply": "insight-a: turn 38 done, through I1-141 I-M3 browser typed-builder search-filter controls and actual token CLI final proof unmount."
    },
    {
     "bash": {
@@ -6834,14 +6318,8 @@
     "reply": "insight-a: turn 39 done, through I1-145 I-M3 actual browser saved-filter stale-edit recovery and access-loss custody Commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 40 done, through I1-146 I-M3 actual browser saved-filter stale-edit recovery and access-loss custody unmount.",
     "note": "records I1-146: no call left"
-   },
-   {
-    "reply": "insight-a: turn 40 done, through I1-146 I-M3 actual browser saved-filter stale-edit recovery and access-loss custody unmount."
    },
    {
     "bash": {
@@ -6857,44 +6335,20 @@
     "reply": "insight-a: turn 41 done, through I1-154 I-M3 frozen production LOC and largest file census Commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 42 done, through I1-155 I-M3 frozen production LOC and largest file census unmount.",
     "note": "records I1-155: no call left"
    },
    {
-    "reply": "insight-a: turn 42 done, through I1-155 I-M3 frozen production LOC and largest file census unmount."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 43 done, through I1-157 I1 final owned application browser process audit with defunct states separate.",
     "note": "records I1-156, I1-157: no call left"
    },
    {
-    "reply": "insight-a: turn 43 done, through I1-157 I1 final owned application browser process audit with defunct states separate."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 44 done, through I1-158 I1 final owned application browser process audit with defunct states separate Commit.",
     "note": "records I1-158: no call left"
    },
    {
-    "reply": "insight-a: turn 44 done, through I1-158 I1 final owned application browser process audit with defunct states separate Commit."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 45 done, through I1-160 I1 final permanently close selected Sandbox after both daemon streams saved.",
     "note": "records I1-159, I1-160: no call left"
-   },
-   {
-    "reply": "insight-a: turn 45 done, through I1-160 I1 final permanently close selected Sandbox after both daemon streams saved."
    },
    {
     "bash": {
@@ -6930,24 +6384,12 @@
     "reply": "insight-a: turn 46 done, through I1b-061 I-10: final frozen source census and live versus defunct process custody commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 47 done, through I1b-065 I-10: sole terminal close after both original daemon streams and zero mounts.",
     "note": "records I1b-062, I1b-065: no call left"
    },
    {
-    "reply": "insight-a: turn 47 done, through I1b-065 I-10: sole terminal close after both original daemon streams and zero mounts."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 48 done, through I1c-040 I-11 baseline frozen production census exec.",
     "note": "records I1c-039, I1c-040: no call left"
-   },
-   {
-    "reply": "insight-a: turn 48 done, through I1c-040 I-11 baseline frozen production census exec."
    },
    {
     "bash": {
@@ -7009,24 +6451,12 @@
     "reply": "insight-a: turn 49 done, through I1c-086 I-11 I-12 final frozen per-file hash physical census and live versus defunct custody commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 50 done, through I1c-090 I-11 I-12 sole terminal close after both daemon streams.",
     "note": "records I1c-087, I1c-090: no call left"
    },
    {
-    "reply": "insight-a: turn 50 done, through I1c-090 I-11 I-12 sole terminal close after both daemon streams."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: turn 51 done, through I1d-081 I-13: record exact initial production census exec.",
     "note": "records I1d-080, I1d-081: no call left"
-   },
-   {
-    "reply": "insight-a: turn 51 done, through I1d-081 I-13: record exact initial production census exec."
    },
    {
     "bash": {
@@ -7174,14 +6604,8 @@
     "reply": "insight-a: turn 52 done, through I1d-197 I-13: final follow-up production size and owned process custody commit."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-a: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-a: done.",
     "note": "records I1d-198, I1d-201: no call left"
-   },
-   {
-    "reply": "insight-a: done."
    }
   ],
   "insight-b": [
@@ -7205,24 +6629,12 @@
     "reply": "insight-b: turn 1 done, through I2-039 paired actual activity source."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 2 done, through I2-040 commit activity foundation.",
     "note": "records I2-040: no call left"
    },
    {
-    "reply": "insight-b: turn 2 done, through I2-040 commit activity foundation."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 3 done, through I2-041 unmount activity foundation.",
     "note": "records I2-041: no call left"
-   },
-   {
-    "reply": "insight-b: turn 3 done, through I2-041 unmount activity foundation."
    },
    {
     "bash": {
@@ -7277,34 +6689,16 @@
     "reply": "insight-b: turn 7 done, through I2-054 activity notification HTTP and live client behavior tests."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 8 done, through I2-056 I-M1 build syntax activity behavior proof.",
     "note": "records I2-055, I2-056: no call left"
    },
    {
-    "reply": "insight-b: turn 8 done, through I2-056 I-M1 build syntax activity behavior proof."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 9 done, through I2-057 commit I-M1 build syntax activity behavior proof.",
     "note": "records I2-057: no call left"
    },
    {
-    "reply": "insight-b: turn 9 done, through I2-057 commit I-M1 build syntax activity behavior proof."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 10 done, through I2-058 unmount I-M1 build syntax activity behavior proof.",
     "note": "records I2-058: no call left"
-   },
-   {
-    "reply": "insight-b: turn 10 done, through I2-058 unmount I-M1 build syntax activity behavior proof."
    },
    {
     "bash": {
@@ -7333,34 +6727,16 @@
     "reply": "insight-b: turn 12 done, through I2-067 SSE revocation cleanup and actual activity CLI tests."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 13 done, through I2-069 I-M2 live and CLI behavior checkpoint.",
     "note": "records I2-068, I2-069: no call left"
    },
    {
-    "reply": "insight-b: turn 13 done, through I2-069 I-M2 live and CLI behavior checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 14 done, through I2-070 commit I-M2 live and CLI behavior checkpoint.",
     "note": "records I2-070: no call left"
    },
    {
-    "reply": "insight-b: turn 14 done, through I2-070 commit I-M2 live and CLI behavior checkpoint."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 15 done, through I2-071 unmount I-M2 live and CLI behavior checkpoint.",
     "note": "records I2-071: no call left"
-   },
-   {
-    "reply": "insight-b: turn 15 done, through I2-071 unmount I-M2 live and CLI behavior checkpoint."
    },
    {
     "bash": {
@@ -7392,14 +6768,8 @@
     "reply": "insight-b: turn 16 done, through I2-075 commit changed M2 actual CLI proof."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 17 done, through I2-076 unmount changed M2 actual CLI proof.",
     "note": "records I2-076: no call left"
-   },
-   {
-    "reply": "insight-b: turn 17 done, through I2-076 unmount changed M2 actual CLI proof."
    },
    {
     "bash": {
@@ -7487,14 +6857,8 @@
     "reply": "insight-b: turn 22 done, through I2-094 commit M3 maintained build syntax and source census."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 23 done, through I2-095 unmount M3 maintained build syntax and source census.",
     "note": "records I2-095: no call left"
-   },
-   {
-    "reply": "insight-b: turn 23 done, through I2-095 unmount M3 maintained build syntax and source census."
    },
    {
     "bash": {
@@ -7520,14 +6884,8 @@
     "reply": "insight-b: turn 24 done, through I2-104 commit changed M3 transfer dashboard reporting behavior proof."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 25 done, through I2-105 unmount changed M3 transfer dashboard reporting behavior proof.",
     "note": "records I2-105: no call left"
-   },
-   {
-    "reply": "insight-b: turn 25 done, through I2-105 unmount changed M3 transfer dashboard reporting behavior proof."
    },
    {
     "bash": {
@@ -7615,14 +6973,8 @@
     "reply": "insight-b: turn 30 done, through I2-118 commit selector transfer and inbox depth build syntax checkpoint."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 31 done, through I2-119 unmount selector transfer and inbox depth build syntax checkpoint.",
     "note": "records I2-119: no call left"
-   },
-   {
-    "reply": "insight-b: turn 31 done, through I2-119 unmount selector transfer and inbox depth build syntax checkpoint."
    },
    {
     "bash": {
@@ -7651,14 +7003,8 @@
     "reply": "insight-b: turn 33 done, through I2-124 commit assigned selector transfer inbox dashboard usability depth proof."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 34 done, through I2-125 unmount assigned selector transfer inbox dashboard usability depth proof.",
     "note": "records I2-125: no call left"
-   },
-   {
-    "reply": "insight-b: turn 34 done, through I2-125 unmount assigned selector transfer inbox dashboard usability depth proof."
    },
    {
     "bash": {
@@ -7720,14 +7066,8 @@
     "reply": "insight-b: turn 35 done, through I2-141 commit final owned server web CLI package behavior proof."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 36 done, through I2-142 unmount final owned server web CLI package behavior proof.",
     "note": "records I2-142: no call left"
-   },
-   {
-    "reply": "insight-b: turn 36 done, through I2-142 unmount final owned server web CLI package behavior proof."
    },
    {
     "bash": {
@@ -7759,24 +7099,12 @@
     "reply": "insight-b: turn 37 done, through I2-155 commit diagnose retained browser descendant states before final close."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 38 done, through I2-157 final close after daemon streams saved.",
     "note": "records I2-156, I2-157: no call left"
    },
    {
-    "reply": "insight-b: turn 38 done, through I2-157 final close after daemon streams saved."
-   },
-   {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: turn 39 done, through I2c-038 I-09: baseline production census.",
     "note": "records I2c-037, I2c-038: no call left"
-   },
-   {
-    "reply": "insight-b: turn 39 done, through I2c-038 I-09: baseline production census."
    },
    {
     "bash": {
@@ -7920,14 +7248,8 @@
     "reply": "insight-b: turn 40 done, through I2c-084 I-09: commit final source counter physical and live-process census."
    },
    {
-    "bash": {
-     "description": "Nothing to run in this turn",
-     "command": "# insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs\necho 'insight-b: nothing to run in this turn; its recorded calls only verify or repeat earlier runs'"
-    },
+    "reply": "insight-b: done.",
     "note": "records I2c-085, I2c-087: no call left"
-   },
-   {
-    "reply": "insight-b: done."
    }
   ]
  }

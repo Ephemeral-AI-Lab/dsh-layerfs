@@ -9,7 +9,8 @@ Form `sdk`: every bash step is one inline Node script on the SDK. Each step that
 | recorded steps (bash) | 102 |
 | bash steps kept | 97 |
 | coordination steps (subagent, send_message, reply) | 0 |
-| turns left with no call, kept by one `echo` | 0 |
+| steps in all | 97 |
+| turns left with no call: the reply alone, no echo | 0 |
 | commands recorded | 82 |
 | dropped: identical re-run on an unchanged Branch | 0 |
 | dropped: verification off (not applied) | 0 |

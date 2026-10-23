@@ -121,6 +121,27 @@ try {
   r = nextReply(s, "root", [...m, called("c3", "bash"), result("c3", "2\n")]);
   assert.deepEqual([r.kind, r.text, r.done, r.of], ["text", "All done.", 5, 5]);
 
+  // a turn may be a reply alone: a text said before the agent is woken is a wait, not that reply
+  const answers = compileScenario({
+    type: "layerfs-scenario", version: 3, title: "Answers", tags: ["cli", "merge"],
+    agents: {
+      root: [{ subagent: { description: "helper", prompt: "Help." } }, { reply: "Waiting.", until: ["helper"] }, { send_message: { agent_id: "@helper", message: "Go on." } }],
+      helper: [{ bash: { description: "help", command: "echo help" } }, { reply: "Turn 1 done." }, { reply: "Turn 2 done." }],
+    },
+  }, { name: "answers", folder: dir });
+  let h = [user("Help."), called("h1", "bash"), result("h1", "help\n")];
+  assert.equal(nextReply(answers, "helper", h).text, "Turn 1 done.");
+  h = [...h, said("Turn 1 done.")];
+  assert.equal(nextReply(answers, "helper", h).text, "Waiting for a message.");
+  h = [...h, said("Waiting for a message.")];
+  assert.equal(nextReply(answers, "helper", h).text, "Waiting for a message.", "a wait is not the next reply");
+  h = [...h, user("Go on.")];
+  r = nextReply(answers, "helper", h);
+  assert.deepEqual([r.kind, r.text, r.done, r.of], ["text", "Turn 2 done.", 3, 3]);
+  for (const pair of [[{ reply: "a", until: ["helper"] }, { reply: "b" }], [{ reply: "a" }, { reply: "b", until: ["helper"] }]]) {
+    assert.throws(() => compileScenario({ type: "layerfs-scenario", version: 3, title: "x", tags: ["cli", "merge"], agents: { root: [{ subagent: { description: "helper", prompt: "p" } }, ...pair, { bash: { description: "x", command: "echo" } }], helper: [{ reply: "ok" }] } }, { name: "x", folder: dir }), /a reply next to a reply that waits for children/);
+  }
+
   // Live checks and placeholders: a step's exit, its expect against the call's trace lines (read once),
   // {{sandbox}} and {{commit:<ref>}} from what the agent saw, and a Commit id carried by a message
   const live = compileScenario({

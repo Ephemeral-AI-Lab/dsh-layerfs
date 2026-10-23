@@ -52,8 +52,8 @@
 //                  head anyway
 // A Workspace in which no command is left is not mounted at all, and a
 // Commit after no remaining command is dropped. A bash step left with no call
-// is dropped; a turn left with no call gets one `echo` so its agent's
-// coordination (send_message, reply/until) stays.
+// is dropped; a turn left with no call is its agent's reply alone (a child
+// answering the lead), which keeps the coordination (send_message, reply/until).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -64,6 +64,17 @@ import { readSeed } from "../../packages/mock/src/seed.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const NAMES = ["shop", "depot", "crew"];
+
+/** Subagent prompts that describe each child's work, in place of the record's; each stays unique, since a child is known by its prompt. */
+const PROMPTS = {
+  crew: {
+    people: "You are people in the Crew team building an issue tracker. Your lane is people: organizations, teams, permissions, invitations and accounts. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    "work-a": "You are work-a in the Crew team building an issue tracker. Your lane is the issue core: issues, validation, routes, mentions, discussion and Markdown editing. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    "work-b": "You are work-b in the Crew team building an issue tracker. Your lane is projects and boards: the project schema, ranking, drag state, planning, uploads and attachments. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    "insight-a": "You are insight-a in the Crew team building an issue tracker. Your lane is search: the query grammar, saved filters, and search over HTTP, the web app and the CLI. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    "insight-b": "You are insight-b in the Crew team building an issue tracker. Your lane is activity and reporting: activity sources, project transfer previews and digests. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+  },
+};
 
 /** Cargo settings depot's recorded commands set by environment on every call, now in its seed. */
 const CARGO_BUILD = [
@@ -326,7 +337,7 @@ function convert(name, repo, rev) {
   }
 
   // ---------------------------------------------------------------- steps, in each agent's order
-  const counts = { recordedSteps: 0, keptSteps: 0, placeholders: 0, otherSteps: 0 };
+  const counts = { recordedSteps: 0, keptSteps: 0, replyOnly: 0, otherSteps: 0 };
   const agents = {};
   const planned = new Map(); // run number -> its planned step
   for (const [agent, steps] of Object.entries(old.agents)) {
@@ -353,14 +364,17 @@ function convert(name, repo, rev) {
       }
       counts.otherSteps++;
       if ("reply" in step) {
-        if (!callsInTurn) {
-          out.push({ kind: "empty", agent, dropped });
-          counts.placeholders++;
-        }
-        dropped = [];
         const next = { reply: step.reply };
         if (step.until) next.until = step.until;
         if (step.phase) next.phase = step.phase;
+        if (!callsInTurn) {
+          // a turn with no call left is the reply alone; next to a wait for children it needs a call
+          const before = out[out.length - 1];
+          if (step.until || (before?.kind === "reply" && before.step.until)) fail(`${agent}: a turn with no call left next to a wait for children (${dropped.map(idOf).join(", ") || "no records"})`);
+          counts.replyOnly++;
+          if (dropped.length) next.note = `records ${dropped.map(idOf).join(", ")}: no call left`;
+        }
+        dropped = [];
         out.push({ kind: "reply", step: next });
         callsInTurn = 0;
         continue;
@@ -368,6 +382,8 @@ function convert(name, repo, rev) {
       const tools = ["subagent", "send_message"].filter((t) => t in step);
       if (tools.length !== 1) fail(`${agent}: a step this converter does not know: ${JSON.stringify(step).slice(0, 200)}`);
       const next = { [tools[0]]: step[tools[0]] };
+      const prompt = tools[0] === "subagent" ? PROMPTS[name]?.[step.subagent.description] : undefined;
+      if (prompt) next.subagent = { ...step.subagent, prompt };
       for (const k of ["say", "phase", "note"]) if (step[k] !== undefined) next[k] = step[k];
       if (phase && !next.phase) { next.phase = phase; phase = null; }
       out.push({ kind: tools[0], step: next, to: tools[0] === "subagent" ? step.subagent.description : String(step.send_message.agent_id).slice(1) });
@@ -645,12 +661,7 @@ function convert(name, repo, rev) {
   const scenarioAgents = {};
   for (const [agent, steps] of Object.entries(agents)) {
     scenarioAgents[agent] = steps.map((s) => {
-      if (s.kind !== "bash" && s.kind !== "empty") return s.step;
-      if (s.kind === "empty") {
-        const text = `${agent}: nothing to run in this turn; its recorded calls only verify or repeat earlier runs`;
-        const command = form === "sdk" ? `# ${text}\nnode --input-type=module <<'JS'\nconsole.log(${js(text)});\nJS` : `# ${text}\necho ${q(text)}`;
-        return { bash: { description: "Nothing to run in this turn", command }, ...(s.dropped.length ? { note: `records ${s.dropped.map(idOf).join(", ")}: no call left` } : {}) };
-      }
+      if (s.kind !== "bash") return s.step;
       if (s.sandbox) sandboxes.now++;
       const what = description(name, runs.get(s.number), idOf(s.number));
       const { command, expect, exit } = render(s, what);
@@ -735,7 +746,8 @@ function convert(name, repo, rev) {
     `| recorded steps (bash) | ${counts.recordedSteps} |`,
     `| bash steps kept | ${counts.keptSteps} |`,
     `| coordination steps (subagent, send_message, reply) | ${counts.otherSteps} |`,
-    `| turns left with no call, kept by one \`echo\` | ${counts.placeholders} |`,
+    `| steps in all | ${counts.keptSteps + counts.otherSteps} |`,
+    `| turns left with no call: the reply alone, no echo | ${counts.replyOnly} |`,
     `| commands recorded | ${execs.length} |`,
     `| dropped: identical re-run on an unchanged Branch | ${by("exec", "rerun")} |`,
     `| dropped: verification off${verificationOff ? "" : " (not applied)"} | ${by("exec", "verification")} |`,
