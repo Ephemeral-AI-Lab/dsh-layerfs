@@ -145,9 +145,10 @@ export class BindingStore {
     return new Set(Object.keys(this.data.projects));
   }
 
-  /** Adds a project, as the default of the folder it was imported for. @param {string} folder @param {Project} project */
+  /** Adds a project, as the default of the folder it was imported for, if any. @param {string|null} folder @param {Project} project */
   addProject(folder, project) {
-    this.update((data) => { data.projects[project.name] = project; this.setDefault(folder, project.name); });
+    // no folder (imported from All projects): the project is no workspace's default
+    this.update((data) => { data.projects[project.name] = project; if (folder) this.setDefault(folder, project.name); });
   }
 
   /** @param {string} name @returns {Project|null} */

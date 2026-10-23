@@ -1,5 +1,6 @@
-// "Init LayerFS": imports a folder as a new LayerFS project, the dsh
-// workspace folder's default project. A project is the runtime's Init
+// "Init LayerFS": imports a folder as a new LayerFS project, made the dsh
+// workspace folder's default project when Init names one (All projects'
+// Import names none). A project is the runtime's Init
 // (@layerfs/runtime start_init: count the source, make its own Docker volume,
 // one LayerFS Init), watched until it ends; the Host names the project, makes
 // an empty one's folder and binds the result.
@@ -49,16 +50,19 @@ export function randomName(taken, home, pick = Math.random) {
  * when the Init starts.
  * @param {object} spec resolved Host settings
  * @param {import("./binding.js").BindingStore} bindings
- * @param {{ folder: string, source?: string, name?: string, image?: string, timeout?: number, empty?: boolean }} request
+ * @param {{ folder?: string|null, source?: string, name?: string, image?: string, timeout?: number, empty?: boolean }} request
+ *   `folder`: the dsh workspace folder whose default the project becomes; without it (All projects' Import) the project
+ *   is no workspace's default and `source` names the folder to import
  *   `empty`: a project with nothing in it (an empty folder made here, removed after Init), named at random unless `name` is given
  * @param {Set<string>} [pending] names of Inits still running
  */
-export function prepareInit(spec, bindings, { folder, source = folder, name, image, timeout, empty = false }, pending = new Set()) {
+export function prepareInit(spec, bindings, { folder = null, source = folder, name, image, timeout, empty = false }, pending = new Set()) {
   if (image !== undefined && !IMAGE.test(image)) throw refuse("invalid-image", "image is a runtime image digest sha256:<64 hex>");
   if (timeout !== undefined && !(Number.isSafeInteger(timeout) && timeout > 0)) throw refuse("invalid-timeout", "timeout is a positive whole number of milliseconds", 400);
   const missing = missingDeployment(spec);
   if (missing.length) throw refuse("not-configured", `LayerFS is not configured: set ${missing.join(" and ")} for layerfs-host in the profile patch`);
-  for (const path of empty ? [folder] : [folder, source]) {
+  if (!empty && !source) throw refuse("invalid-folder", "name the folder to import (source), or a workspace folder");
+  for (const path of (empty ? [folder] : [folder, source]).filter((p) => p !== null)) {
     if (!isAbsolute(path) || !existsSync(path) || !statSync(path).isDirectory()) throw refuse("invalid-folder", `${path} is not an absolute directory`);
   }
   if (name !== undefined && !NAME.test(name)) throw refuse("invalid-name", "a project name is 1-63 lowercase letters, digits, _ . - and starts and ends alphanumeric");
@@ -71,7 +75,7 @@ export function prepareInit(spec, bindings, { folder, source = folder, name, ima
 }
 
 /**
- * Runs a prepared Init and makes the project `folder`'s default. `report`
+ * Runs a prepared Init and makes the project `folder`'s default, when it has a folder. `report`
  * sees each step (scan, volume, import), the counts as `scanned` and
  * `totals`, and LayerFS's own counts while it imports as `imported`. A live
  * Init is the runtime's job, read every WATCH_MS until it ends; one attempt,

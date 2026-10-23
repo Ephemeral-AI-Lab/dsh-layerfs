@@ -343,6 +343,14 @@ try {
     assert.deepEqual([refused.status, refused.body.code], [400, "invalid-timeout"], JSON.stringify(timeout));
   }
   assert.equal(runs.length, 2, "a refused time limit starts no Init");
+  // All projects' Import names no workspace folder: source is the folder, and the project is no folder's default
+  const loose = prepareInit(h.spec, h.bindings, { source: src });
+  assert.deepEqual([loose.folder, loose.project.source], [null, src]);
+  assert.equal((await call("POST", "/layerfs/init", {})).body.code, "invalid-folder", "neither a source nor a workspace folder");
+  assert.equal(runs.length, 2, "a refused Init starts nothing");
+  const defaultsBefore = h.bindings.defaults();
+  h.bindings.addProject(null, { name: "loose-import", source: src, created: Date.now() });
+  assert.deepEqual([h.bindings.byName("loose-import")?.source, h.bindings.defaults()], [src, defaultsBefore], "imported, and no workspace's default");
   const limited = prepareInit(h.spec, h.bindings, { folder: dir, source: src, timeout: 900_000 });
   assert.deepEqual([limited.timeout, "timeout" in limited.project], [900_000, false], "the limit stays on the prepared Init, not the project's record");
   assert.equal("timeout" in prepareInit(h.spec, h.bindings, { folder: dir, source: src }), false);

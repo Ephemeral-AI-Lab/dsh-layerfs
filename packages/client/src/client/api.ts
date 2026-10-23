@@ -105,8 +105,8 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * in ms, sent only when set (LayerFS's default otherwise). A failed Init
  * throws its error with the ended job as `job`.
  */
-async function init(folder: string, name?: string, source?: string, onProgress: (job: InitJob) => void = () => {}, empty = false, timeout?: number): Promise<{ project: Project }> {
-  let { job } = await call<{ job: InitJob }>('POST', '/init', { folder, name, source, ...(empty ? { empty } : {}), ...(timeout !== undefined ? { timeout } : {}) })
+async function init(folder: string | null, name?: string, source?: string, onProgress: (job: InitJob) => void = () => {}, empty = false, timeout?: number): Promise<{ project: Project }> {
+  let { job } = await call<{ job: InitJob }>('POST', '/init', { folder: folder ?? undefined, name, source, ...(empty ? { empty } : {}), ...(timeout !== undefined ? { timeout } : {}) })
   for (;;) {
     onProgress(job)
     if (job.step === 'done') return { project: job.project! }

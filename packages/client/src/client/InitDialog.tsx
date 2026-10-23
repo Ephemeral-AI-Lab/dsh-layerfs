@@ -1,7 +1,10 @@
-// Init LayerFS for a workspace folder. The source is the workspace folder by
-// default; another folder can be browsed to and picked: in the page when dsh
-// composes the browse picker, else in the Host's native folder dialog. Either way the new project becomes the workspace folder's
-// default, the project new sessions there use until they choose another.
+// Init LayerFS for a folder. With a workspace folder, that folder is the
+// source by default and the new project becomes its default, the project new
+// sessions there use until they choose another. Without one (All projects'
+// Import project, folder null) the folder chooser opens at once, the chosen
+// folder is the source, and no workspace gets a default. Another folder can
+// be browsed to and picked: in the page when dsh composes the browse picker,
+// else in the Host's native folder dialog.
 // An optional time limit (minutes; blank is LayerFS's 5 min default) bounds
 // the Init. One that runs out offers to start again with a longer limit: the
 // form refilled, for the user to start; nothing restarts on its own.
@@ -23,12 +26,12 @@ const primary = { ...button, background: 'var(--dsh-color-fg, #111)', color: 'va
 const base = (path: string) => path.split('/').filter(Boolean).pop() ?? path
 
 export function InitDialog({ folder, directories, onDone, onClose }: {
-  folder: string
+  folder: string | null
   directories?: Directories
   onDone: (project: Project) => void
   onClose: () => void
 }) {
-  const [source, setSource] = useState(folder)
+  const [source, setSource] = useState(folder ?? '')
   const [browsing, setBrowsing] = useState<Listing | null>(null)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -48,6 +51,8 @@ export function InitDialog({ folder, directories, onDone, onClose }: {
       try { const picked = await directories!.pickDirectory(); if (picked) setSource(picked) } catch (err) { setError((err as Error).message) }
     }
   }
+  // no workspace: choose the folder straight away
+  useEffect(() => { if (folder === null && directories) void open() }, [])
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose() }
     addEventListener('keydown', key)
@@ -73,9 +78,9 @@ export function InitDialog({ folder, directories, onDone, onClose }: {
         <div style={{ display: 'grid', gap: 4 }}>
           <span style={{ color: muted }}>Import files from</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <code style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', padding: '6px 8px', borderRadius: 6, border: `1px solid ${line}` }}>{source}</code>
-            {source !== folder && <button style={button} disabled={busy} onClick={() => { setSource(folder); setBrowsing(null) }}>Use the workspace</button>}
-            {directories && !browsing && <button style={button} disabled={busy} onClick={() => { void open(source) }}>Choose folder…</button>}
+            <code style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', padding: '6px 8px', borderRadius: 6, border: `1px solid ${line}`, color: source ? undefined : muted }}>{source || 'No folder chosen'}</code>
+            {folder !== null && source !== folder && <button style={button} disabled={busy} onClick={() => { setSource(folder); setBrowsing(null) }}>Use the workspace</button>}
+            {directories && !browsing && <button style={button} disabled={busy} onClick={() => { void open(source || undefined) }}>Choose folder…</button>}
           </div>
         </div>
 
@@ -105,7 +110,7 @@ export function InitDialog({ folder, directories, onDone, onClose }: {
 
         <label style={{ display: 'grid', gap: 4 }}>
           <span style={{ color: muted }}>Project name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${base(source)} (default)`} disabled={busy} style={{ ...button, cursor: 'text', padding: '6px 8px' }} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={source ? `${base(source)} (default)` : 'from the folder (default)'} disabled={busy} style={{ ...button, cursor: 'text', padding: '6px 8px' }} />
         </label>
 
         <div style={{ display: 'grid', gap: 4 }}>
@@ -121,7 +126,9 @@ export function InitDialog({ folder, directories, onDone, onClose }: {
         </div>
 
         <div style={{ color: muted }}>
-          New sessions in <code style={{ overflowWrap: 'anywhere' }}>{folder}</code> use the project until they choose another{source !== folder ? '; its first version holds the files of the folder above' : ''}.
+          {folder !== null
+            ? <>New sessions in <code style={{ overflowWrap: 'anywhere' }}>{folder}</code> use the project until they choose another{source !== folder ? '; its first version holds the files of the folder above' : ''}.</>
+            : 'Its first version holds the folder\'s files. No workspace uses it by default: a session picks it from its project menu.'}
         </div>
         {job && busy && <InitProgress job={job} />}
         {failed && timedOut(failed)
@@ -130,7 +137,7 @@ export function InitDialog({ folder, directories, onDone, onClose }: {
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button style={button} disabled={busy} onClick={onClose}>Cancel</button>
-          <button style={primary} disabled={busy || !!browsing} onClick={() => { void init() }}>{busy ? 'Initializing…' : 'Init'}</button>
+          <button style={primary} disabled={busy || !!browsing || !source} onClick={() => { void init() }}>{busy ? 'Initializing…' : 'Init'}</button>
         </div>
       </div>
     </div>,

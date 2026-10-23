@@ -2,7 +2,7 @@
 // title bar has two tabs, three while the LayerFS scripted model is on:
 // Scenarios (ScenariosPage: the scripted model's runs on LayerFS), All projects · Sandboxes (AllSandboxes: every
 // project's Sandboxes and what they run on; a project's card opens it, and
-// Import project imports a workspace's folder, InitDialog) and the open
+// Import project opens a folder chooser and imports the folder, bound to no workspace, InitDialog) and the open
 // project. Then the project's one action, New session (in
 // a workspace picked from its menu, which then uses the project by default),
 // and a menu for Refresh and Remove (RemoveDialog). The project (ProjectBoard)
@@ -129,10 +129,10 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reads, setReads] = useState(0)
-  const [initFor, setInitFor] = useState<Workspace | null>(null)
+  // Import project's Init dialog: a folder chosen in it, bound to no workspace
+  const [importing, setImporting] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [menu, setMenu] = useState<'project' | 'import' | 'session' | null>(null)
-  const [menuSwitch, setMenuSwitch] = useState(false)
   // the All projects page instead of a project, and the tab a project opens with when one of its cards was clicked
   const [all, setAll] = useState(false)
   const [openTab, setOpenTab] = useState<'sandboxes' | undefined>(undefined)
@@ -191,16 +191,8 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
     if (id === 'refresh') setReads((n) => n + 1)
     else if (id === 'remove') setRemoving(true)
   }
-  const importMenu: MenuEntry[] = items.length
-    ? [{ type: 'label', id: 'il', text: 'Import into a workspace' }, ...items.map((w) => ({ id: 'import:' + w.workspaceId, label: `${w.title} · ${short(w.path)}`, icon: <IconPlusOutlineRegular size={16} />, disabled: !status?.configured }))]
-    : [{ type: 'label', id: 'il', text: 'Add a workspace in dsh first' }]
-  const onImport = (id: string) => {
-    setMenuSwitch(false)
-    const w = items.find((x) => 'import:' + x.workspaceId === id)
-    if (w) setInitFor(w)
-  }
-  const importer = (anchor: React.ReactElement) => <Menu open={menuSwitch} onClose={() => setMenuSwitch(false)} items={importMenu} onSelect={onImport} align="end" portal anchor={anchor} />
-  const importButton = () => importer(<Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={16} />} onClick={() => setMenuSwitch(!menuSwitch)}>Import project</Button>)
+  // Import project: projects belong to no workspace here, so it opens the folder chooser directly
+  const importButton = () => <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={16} />} disabled={!status?.configured} onClick={() => setImporting(true)}>Import project</Button>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, fontSize: 13, lineHeight: '20px', color: T.text }}>
@@ -210,7 +202,7 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
         {!all && !aside && projects && projects.length === 0 && (
           <Notice title="Start your first project">
             <div style={{ display: 'grid', gap: 8, justifyItems: 'start' }}>
-              <span>Import a folder from a workspace: LayerFS keeps a versioned copy that agents fork, test and merge.</span>
+              <span>Import a folder: LayerFS keeps a versioned copy that agents fork, test and merge.</span>
               {importButton()}
             </div>
           </Notice>
@@ -279,7 +271,7 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
         setRemoving(false)
         void loadProjects().then((list) => setSelected(list[0]?.name ?? null))
       }} />}
-      {initFor && <InitDialog folder={initFor.path} directories={uiWorkspace} onClose={() => setInitFor(null)} onDone={(made) => { setInitFor(null); void loadProjects().then(() => { setOpenTab(undefined); setSelected(made.name); setAll(false) }) }} />}
+      {importing && <InitDialog folder={null} directories={uiWorkspace} onClose={() => setImporting(false)} onDone={(made) => { setImporting(false); void loadProjects().then(() => { setOpenTab(undefined); setSelected(made.name); setAll(false) }) }} />}
     </div>
   )
 }

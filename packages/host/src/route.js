@@ -3,7 +3,8 @@
 //   GET  /layerfs/status                      configuration, the packages agents import and what Init offers (empty: new empty projects)
 //   GET  /layerfs/workspace?folder=<abs>      every project (the folder's imports first) and the folder's default
 //   POST /layerfs/workspace {folder, project}  make a project the folder's default for new sessions
-//   POST /layerfs/init {folder, source?, name?, image?, timeout?, empty?}   start Init LayerFS (image: the project's
+//   POST /layerfs/init {folder?, source?, name?, image?, timeout?, empty?}   start Init LayerFS of source (default: folder),
+//                                          the workspace folder's default if folder is given (image: the project's
 //                                          own runtime image; timeout: the Init's limit
 //                                          in ms, default LayerFS's 300 s; empty: a new empty project with a random name);
 //                                          answers its job (see jobs.js)
@@ -95,7 +96,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
       }
       if (req.method === "POST" && parts[0] === "init" && parts.length === 1) {
         const body = await readJson(req);
-        const prepared = prepareInit(spec, bindings, { folder: body.folder, source: body.source || body.folder, name: body.name || undefined, image: body.image || undefined, timeout: body.timeout ?? undefined, empty: body.empty === true }, jobs.pending());
+        const prepared = prepareInit(spec, bindings, { folder: body.folder || null, source: body.source || body.folder || undefined, name: body.name || undefined, image: body.image || undefined, timeout: body.timeout ?? undefined, empty: body.empty === true }, jobs.pending());
         return send(res, 202, { job: jobs.begin(prepared) });
       }
       if (req.method === "GET" && parts[0] === "init" && parts.length === 2) {
