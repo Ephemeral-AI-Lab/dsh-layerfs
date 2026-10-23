@@ -84,13 +84,14 @@ try {
   assert.equal(vars.DSH_LAYERFS_VOLUME, "dsh-layerfs-website-1");
   // the installed Store in the project's volume: in Docker's VM where the worker opens it, else under this engine's volumes directory
   assert.equal(vars.DSH_LAYERFS_STORE_PATH, `${process.platform === "linux" ? h.spec.volumes : "/var/lib/docker/volumes"}/dsh-layerfs-website-1/_data/global/store.sqlite`);
-  // the packages agents import (#428), from the LayerFS checkout, and its layerfs command
-  assert.match(vars.DSH_LAYERFS_SDK, /^file:.*\/api\/agent\/sdk\/src\/index\.js$/);
-  assert.match(vars.DSH_LAYERFS_BACKEND, /^file:.*\/api\/backend\/src\/index\.js$/);
-  assert.match(vars.DSH_LAYERFS_CLI, /\/api\/agent\/cli\/src\/layerfs\.js$/);
+  // the packages agents import (#428) and the layerfs command, through the Host's wrappers, which set LAYERFS_* from DSH_LAYERFS_* first
+  assert.match(vars.DSH_LAYERFS_SDK, /^file:.*\/packages\/host\/src\/agent\/sdk\.js$/);
+  assert.match(vars.DSH_LAYERFS_BACKEND, /^file:.*\/packages\/host\/src\/agent\/backend\.js$/);
+  assert.match(vars.DSH_LAYERFS_CLI, /[\\/]packages[\\/]host[\\/]src[\\/]agent[\\/]cli\.js$/);
   assert.ok(!("DSH_LAYERFS_OPERATOR" in vars) && !("DSH_LAYERFS_STORE_CONTAINER" in vars) && !("DSH_LAYERFS_BUNDLE" in vars));
   if (process.platform === "linux") assert.ok(!("DSH_LAYERFS_WORKER_ENDPOINT" in vars), "Linux makes Store calls in the caller");
-  else assert.deepEqual([vars.DSH_LAYERFS_WORKER_ENDPOINT, vars.DSH_LAYERFS_WORKER_ADAPTER], [join(h.spec.home, "worker", "endpoint.json"), "dsh"], "macOS and Windows: the home's worker");
+  else assert.equal(vars.DSH_LAYERFS_WORKER_ENDPOINT, join(h.spec.home, "worker", "endpoint.json"), "macOS and Windows: the home's worker");
+  assert.ok(!("DSH_LAYERFS_WORKER_ADAPTER" in vars), "the worker route names no integration");
   assert.equal(vars.DSH_LAYERFS_IMAGE, "sha256:img");
   assert.equal(vars.DSH_LAYERFS_CONTAINER_PREFIX, "layerfs-", "Sandboxes are layerfs-<project>-<n>");
   assert.equal(vars.DSH_LAYERFS_TRACE_STEP, "r1");
@@ -597,7 +598,7 @@ module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen
     const fake = {
       // delta lost its home entry (project.record); epsilon has neither entry nor volume
       project: { list: async () => ["alpha", "beta", "gamma"].map((name) => ({ name, initialized: true })).concat([{ name: "delta", initialized: false }]) },
-      status: async () => ({ docker: { level: "ok", version: "29.0" }, worker: null, oldStore: null, disk: { home: 5e11, volumes: DOCKER_LOW - 1 }, sweep: { state: "done", at: "2026-10-24T00:00:00Z", reclaimed: { beta: ["1"] }, failed: [] } }),
+      status: async () => ({ docker: { level: "ok", version: "29.0" }, worker: null, disk: { home: 5e11, volumes: DOCKER_LOW - 1 }, sweep: { state: "done", at: "2026-10-24T00:00:00Z", reclaimed: { beta: ["1"] }, failed: [] } }),
       sandbox: {
         list: async () => [{ name: "t-alpha-1", project: "alpha", sandbox: "1", state: "running", running: true, image: "sha256:abc", ports: [{ container: "7000/tcp", host: "127.0.0.1", port }], scratch: 123456, owned: true }],
         list_leftovers: async () => [{ name: "t-old-1", running: false, status: "Exited (0)", project: "old" }],

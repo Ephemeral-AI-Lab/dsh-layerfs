@@ -56,9 +56,17 @@ Rules for agents working in this repository: the dsh-layerfs plugin bundle.
 - Never edit, commit or branch in the LayerFS checkout from here; its only
   writes are the Linux build of README step 1, and only when asked. If a
   change needs LayerFS to change, report it for the layerfs repository.
-- Store calls run only through the SDK. The macOS and Windows workers (the
-  runtime's, open to the dsh adapter only) are owner-approved exceptions for this plugin only
-  (layerfs `AGENTS.md`, 2026-10-20 and 2026-10-22); do not extend them.
+- Store calls run only through the SDK. On macOS and Windows they run in the
+  runtime's worker (layerfs `AGENTS.md`, 2026-10-20 and 2026-10-22), which
+  LayerFS opens to any integration that names its endpoint (owner,
+  2026-10-24): the Host reaches it through `@layerfs/runtime`, agents through
+  `DSH_LAYERFS_WORKER_ENDPOINT`. Do not add another route.
+- LayerFS reads `LAYERFS_*` names only, and dsh lets a plugin set only
+  `DSH_*` names in a bash call. So `DSH_LAYERFS_SDK`, `_BACKEND` and `_CLI`
+  name the Host's wrappers (`packages/host/src/agent/sdk.js`, `backend.js`,
+  `cli.js`), which load `agent/env.js` first: it sets each unset
+  `LAYERFS_<NAME>` from `DSH_LAYERFS_<NAME>` in the agent's own process. Any
+  other place an agent's process loads LayerFS goes through it too.
 
 ## Calls, tests and dsh web
 
@@ -75,8 +83,7 @@ Rules for agents working in this repository: the dsh-layerfs plugin bundle.
   worker's own live tests are LayerFS's) need a built LayerFS from
   `LAYERFS_SOURCE` and are run on purpose, never as part of `pnpm test`.
 - **Never restart dsh web while a run is live.** A restart stops the agents'
-  turns and replaces the worker under their calls. Never retire the older
-  macOS Store container (`layerfs-store`) while a run may be on it.
+  turns and replaces the worker under their calls.
   Change Host settings, the bundle or the worker only while no run is live.
   Do not start, stop or restart a dsh web you did not start.
 - When code moves or is refactored, a test that is hard to adapt is deleted,

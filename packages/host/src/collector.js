@@ -131,7 +131,7 @@ export class Collector {
     const view = this.view(agent.root);
     const own = { ...stripped(line), agent: agent.name, agentId: sessionId, project };
     if (line.phase === "start") { view.running.set(line.id, own); return; }
-    // an agent's call found the Store container down: the Host starts it again (the call keeps its answer)
+    // an agent's call found the home's worker down: the Host starts it again (the call keeps its answer)
     if (live && line.ok === false && UNREACHABLE.test(String(line.message ?? ""))) this.onUnreachable?.();
     view.running.delete(line.id);
     if (!this.keep(view, own)) return;

@@ -16,7 +16,7 @@ import { openRuntime, VOLUMES } from "./config.js";
  * agents' bash calls), as the @layerfs/agent README states it: the home, the
  * Sandboxes' Docker, image, daemon and volume, the installed Store
  * (global/store.sqlite in the volume) and, on macOS and Windows, the home's
- * worker (<home>/worker/endpoint.json, the dsh adapter).
+ * worker (<home>/worker/endpoint.json).
  */
 export function deploymentEnv(spec, project) {
   return {
@@ -29,7 +29,7 @@ export function deploymentEnv(spec, project) {
     STORE_PATH: `${spec.worker ? VOLUMES : spec.volumes}/${project.volume}/_data/global/store.sqlite`,
     // the project's Sandboxes are <prefix><project>-<n>
     CONTAINER_PREFIX: spec.prefix,
-    ...(spec.worker ? { WORKER_ENDPOINT: join(spec.home, "worker", "endpoint.json"), WORKER_ADAPTER: "dsh" } : {}),
+    ...(spec.worker ? { WORKER_ENDPOINT: join(spec.home, "worker", "endpoint.json") } : {}),
   };
 }
 

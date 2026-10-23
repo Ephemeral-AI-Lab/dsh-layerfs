@@ -47,7 +47,7 @@ When it is done, the lead reports what it did. In this run each subagent wrote i
 
 ## 3. The LayerFS page
 
-**LayerFS** in the sidebar opens one project at a time. **All projects · Sandboxes** is the switcher: a card per project, problems first, with its Sandboxes, below the Docker engine, the Store container (`layerfs-store`) and free disk. **Import project** is here too. A card opens its project.
+**LayerFS** in the sidebar opens one project at a time. **All projects · Sandboxes** is the switcher: a card per project, problems first, with its Sandboxes, below the Docker engine, Store calls (the worker on macOS and Windows) and free disk. **Import project** is here too. A card opens its project.
 
 ![All projects · Sandboxes](docs/tutorial/17-all-projects.jpg)
 

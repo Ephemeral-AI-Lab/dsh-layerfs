@@ -22,12 +22,11 @@
 //                                             `version`; ?since=<version> answers { kind: "unchanged", version } until it changes
 //   GET  /layerfs/project/<name>/{list,read,blame,changes,diff}?…  as the session's Files reads
 //   GET  /layerfs/project/<name>/storage      Store totals, what Init recorded, recent Commits' costs (storage.js)
-//   GET  /layerfs/runtime                     Docker, the home's worker, the older Store container (oldStore),
-//                                             disk, the last sweep, every project's Sandboxes with their
-//                                             scratch, idle projects' Store volumes and leftovers (runtime.js)
+//   GET  /layerfs/runtime                     Docker, the home's worker, disk, the last sweep,
+//                                             every project's Sandboxes with their scratch, idle
+//                                             projects' Store volumes and leftovers (runtime.js)
 //   POST /layerfs/runtime/store               start the worker when it is stopped or missing
-//   POST /layerfs/runtime/store/restart {confirm: "restart"}  restart the worker; with the older Store
-//                                          container running, stop and remove it, then start the worker
+//   POST /layerfs/runtime/store/restart {confirm: "restart"}  restart the worker
 //   POST /layerfs/runtime/leftovers {names}   remove stopped leftover Sandbox containers
 //   POST /layerfs/runtime/volumes {names}     remove this home's Store volumes no project uses
 //   GET  /layerfs/project/<name>/runtime      the project's Sandboxes, Workspaces and processes

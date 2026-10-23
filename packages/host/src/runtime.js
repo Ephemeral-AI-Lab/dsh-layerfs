@@ -3,8 +3,8 @@
 //   one project   its Sandboxes from one state read (which starts none),
 //                 each mounted Workspace with its Branch, uncommitted changes,
 //                 background processes, and who mounted it (the agents' traces)
-//   all projects  Docker, the home's worker (macOS, Windows) and the older
-//                 Store container, free disk, the last sweep, Sandbox
+//   all projects  Docker, the home's worker (macOS, Windows), free disk,
+//                 the last sweep, Sandbox
 //                 containers with their scratch, Store volumes and leftovers,
 //                 all from @layerfs/runtime (status, sandbox.list,
 //                 volume.list, sandbox.list_leftovers); each running
@@ -100,7 +100,7 @@ export async function quickSandboxes(collector, project, containers, now = Date.
 }
 
 /**
- * The home's worker as the page draws it (the Store container before #428):
+ * The home's worker as the page draws it:
  * ok when it runs, answers and is of the configured build; null on Linux,
  * where Store calls run in-process.
  */
@@ -165,13 +165,10 @@ export async function overview(spec, bindings, trees, collector) {
   const orphans = (volumes ?? []).filter((v) => v.owner === "this" && !v.live).map(({ name, size, project, containers: users, removable }) => ({ name, size, project, containers: users, removable }));
   const unknown = (volumes ?? []).filter((v) => v.owner === "unknown");
   const sandboxes = cards.reduce((n, c) => n + c.sandboxes.length, 0), workspaces = cards.reduce((n, c) => n + c.workspaces, 0);
-  // macOS: the older Store container, while it exists; a running one keeps the worker from starting
-  const oldStore = status.oldStore ?? null;
   const sweep = status.sweep ?? null;
   const reasons = [];
   if (!up) reasons.push({ level: "down", text: "Docker not answering" });
-  if (oldStore?.state === "running") reasons.push({ level: "degraded", text: "Store calls wait for an upgrade" });
-  else if (store && store.level !== "ok") reasons.push({ level: store.level, text: store.state !== "running" ? "Store calls stopped" : store.answering === false ? "Store calls not answering" : "Store calls run an older build" });
+  if (store && store.level !== "ok") reasons.push({ level: store.level, text: store.state !== "running" ? "Store calls stopped" : store.answering === false ? "Store calls not answering" : "Store calls run an older build" });
   if (disk.dockerLevel && disk.dockerLevel !== "ok") reasons.push({ level: disk.dockerLevel, text: disk.dockerLevel === "down" ? "Docker disk nearly full" : "Docker disk low" });
   const troubled = cards.filter((c) => c.level !== "ok").length;
   if (troubled) reasons.push({ level: worst(cards.map((c) => c.level)), text: `${troubled} project${troubled === 1 ? " needs" : "s need"} a look` });
@@ -182,7 +179,7 @@ export async function overview(spec, bindings, trees, collector) {
   return {
     level: worst(reasons.map((r) => r.level)), reasons,
     // agents' calls running now in any project: a worker restart cuts them off
-    engine, store, oldStore, calls: collector.runningCalls(), disk, sweep,
+    engine, store, calls: collector.runningCalls(), disk, sweep,
     projects: cards, idle, leftovers,
     volumes: volumes ? { orphans, unknown: { count: unknown.length, size: unknown.reduce((n, v) => n + (v.size ?? 0), 0) } } : null,
     totals: { projects: cards.length + idle.length, sandboxes, workspaces },
@@ -218,9 +215,7 @@ export async function startStore(spec) {
 
 /**
  * Restarts the home's worker (runtime.worker.restart): every project's Store
- * calls fail while it restarts, so `confirm` must be "restart". On macOS,
- * with the older Store container running, the same confirm stops and
- * removes it, then starts the worker.
+ * calls fail while it restarts, so `confirm` must be "restart".
  */
 export async function restartStore(spec, body) {
   if (!spec.worker) throw refuse(409, "no-store", "this Host runs no worker (Linux runs Store calls in-process)");

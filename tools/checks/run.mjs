@@ -26,7 +26,7 @@ const USAGE = "usage: node tools/checks/run.mjs <dsh home profile dir> <root ses
 
 /** Why the order and final-tree checks do not run here. */
 export const MISSING = [
-  "a LayerFS client on the run's project from outside dsh web: on macOS and Windows its Store calls go through the home's worker, whose endpoint and adapter the Host gives agents (DSH_LAYERFS_WORKER_*), not this command",
+  "a LayerFS client on the run's project from outside dsh web: on macOS and Windows its Store calls go through the home's worker, whose endpoint the Host gives agents (DSH_LAYERFS_WORKER_ENDPOINT), not this command",
   "a read-only byte hash of main's files: fs.read refuses binary files, so tree.mjs forks a Branch and mounts a Workspace to run sha256sum, which writes to the project",
   "main's Layers for the order check: backend.store.project.get_history, which the layerfs command does not offer",
 ];

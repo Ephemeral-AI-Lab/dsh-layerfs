@@ -13,8 +13,8 @@
 //   layerfsTraces    a service giving one bash call's trace lines (the
 //                    scripted model's live expect check)
 // LayerFS itself is @layerfs/runtime's (the worker on macOS and Windows, Init,
-// removal, Sandbox upkeep), opened once as the dsh adapter, and agents'
-// clients are @layerfs/agent's (#428).
+// removal, Sandbox upkeep), opened once, and agents' clients are
+// @layerfs/agent's (#428), through the Host's wrappers (agent/).
 import { BindingStore } from "./binding.js";
 import { Collector } from "./collector.js";
 import z from "@deepseek-ai/schemastery";
@@ -55,9 +55,7 @@ export function apply(ctx, config) {
   try { adopt(spec, bindings); } catch (error) { warn(`recording older projects for the runtime: ${error.message}`); }
   const opened = openRuntime(spec);
   ctx.effect(() => () => opened.then((runtime) => runtime.close()).catch((error) => warn(error.message)), "layerfs-host: LayerFS runtime");
-  // macOS and Windows: the home's worker makes every Store call. It starts with the Host; on macOS
-  // the runtime refuses while the older Store container runs (GET /layerfs/runtime shows it, and
-  // its confirmed restart retires it)
+  // macOS and Windows: the home's worker makes every Store call. It starts with the Host
   const start = () => opened.then((runtime) => runtime.worker.start()).catch((error) => warn(`the worker did not start: ${error.message}`));
   if (spec.worker && spec.bundle && spec.image) start();
   // a call of the Host's or an agent's that finds the worker down or gone starts it again, one start

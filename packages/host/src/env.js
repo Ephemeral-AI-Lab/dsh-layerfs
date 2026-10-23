@@ -1,13 +1,17 @@
 // The bash environment of a session bound to a LayerFS project: the
 // packages an agent imports (#428: @layerfs/agent and @layerfs/backend), the
-// layerfs command (one @layerfs/agent call per command), the project name, its deployment and the calling
-// agent's trace file. dsh may set only DSH_* names in a bash call; the agent
-// reads each LAYERFS_ setting from its DSH_LAYERFS_ twin. dsh rebuilds the
-// DSH_* namespace for every bash call, so these values always describe the
-// agent that runs the command. The layerfs command itself is a shim
-// (bin/layerfs) on PATH: dsh lets a plugin set only DSH_* names, so the Host
-// puts its folder first on the dsh process's own PATH, which bash calls
-// inherit (shimOnPath).
+// layerfs command (one @layerfs/agent call per command), the project name, its
+// deployment and the calling agent's trace file. dsh rebuilds the DSH_*
+// namespace for every bash call, so these values always describe the agent
+// that runs the command.
+// dsh may set only DSH_* names in a bash call, and LayerFS reads LAYERFS_*
+// names only. So the SDK, backend and CLI an agent gets are the Host's
+// wrappers (agent/sdk.js, agent/backend.js, agent/cli.js), which load
+// agent/env.js first: it sets each unset LAYERFS_<NAME> from DSH_LAYERFS_<NAME>
+// in the agent's own process, then hands over to LayerFS's own entry.
+// The layerfs command itself is a shim (bin/layerfs) on PATH: the Host puts
+// its folder first on the dsh process's own PATH, which bash calls inherit
+// (shimOnPath).
 import { existsSync, realpathSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,7 +38,7 @@ export function shimOnPath(env = process.env, platform = process.platform) {
 
 const VARIABLES = {
   DSH_LAYERFS_PROJECT: "LayerFS project of this conversation; pass it to LayerFS.open(...)",
-  DSH_LAYERFS_SDK: "file URL of @layerfs/agent, the LayerFS JavaScript SDK; import it from Node scripts",
+  DSH_LAYERFS_SDK: "file URL of @layerfs/agent, the LayerFS JavaScript SDK; import it from Node scripts (await import(process.env.DSH_LAYERFS_SDK))",
   DSH_LAYERFS_BACKEND: "file URL of @layerfs/backend (background processes, a Workspace's status, Store and file storage)",
   DSH_LAYERFS_SKILL: "path of the LayerFS SDK skill (SKILL.md, its references beside it); read it before the first LayerFS call",
   DSH_LAYERFS_CLI: "path of the CLI behind the layerfs command on PATH: layerfs <family> <call> runs one @layerfs/agent call (layerfs help lists them), JSON on stdout; exit 0 ok, 2 bad command line, 125 refused",
@@ -46,7 +50,6 @@ const VARIABLES = {
   DSH_LAYERFS_DAEMON: "Host path of the LayerFS daemon Sandboxes run",
   DSH_LAYERFS_STORE_PATH: "The project's installed Store file, which its Store calls open",
   DSH_LAYERFS_WORKER_ENDPOINT: "macOS and Windows: endpoint file of the LayerFS home's worker, which makes the Store calls",
-  DSH_LAYERFS_WORKER_ADAPTER: "macOS and Windows: dsh, the adapter the worker route is open to",
   DSH_LAYERFS_TRACE: "File the SDK appends one line per call to",
   DSH_LAYERFS_TRACE_STEP: "Label of this bash call on the SDK's trace lines",
   DSH_LAYERFS_TRACE_START: "1: the SDK also writes a line when each call starts",

@@ -1,8 +1,6 @@
 // The All projects page: what every project's Sandboxes run on and how full
 // they are. Top to bottom:
 //   header        the worst warning in words, or none when all is well
-//   upgrade       while the older Store container runs (macOS): one banner
-//                 that says why Store calls wait and switches to the worker
 //   health strip  Docker, Store calls, free disk on the host and in Docker,
 //                 and the last sweep of stopped Sandboxes
 //   projects      a card per project with a running Sandbox or a problem
@@ -13,7 +11,7 @@
 //                 are only counted
 // Every figure comes from the Host's runtime read (@layerfs/runtime); the
 // page computes nothing about Docker. Its actions are the ones no single
-// project owns: switch to the worker, start or restart it, remove stopped
+// project owns: start or restart the worker, remove stopped
 // leftovers and orphan volumes, each confirmed.
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -34,7 +32,7 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
   const [view, setView] = useState<Overview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  // which confirmation is open: switch, restart, containers, or a volume's name
+  // which confirmation is open: restart, containers, or a volume's name
   const [asking, setAsking] = useState<string | null>(null)
   const read = () => api.overview().then((v) => { setView(v); setError(null) }, (e: Error) => setError(e.message))
   usePoll(read, POLL_MS, [])
@@ -52,8 +50,6 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
     </span>
   )
 
-  const old = view?.oldStore ?? null, oldRuns = old?.state === 'running'
-  const store = view?.store ?? null
   const worst = view?.reasons[0] ?? null
 
   return (
@@ -68,20 +64,6 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
       </div>
       <div style={{ flex: 1, overflow: 'auto', display: 'grid', gap: 14, padding: '12px 14px 16px', alignContent: 'start', fontSize: 12.5 }}>
         {(error || busy) && <div role="status" style={{ color: error ? T.danger : T.text2, wordBreak: 'break-word' }}>{error ?? busy}</div>}
-
-        {view && old && oldRuns && (
-          <div role="alert" style={{ ...card, display: 'grid', gap: 6, padding: '10px 12px', borderLeft: `3px solid ${T.warn}` }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}><Dot level="degraded" />Store calls wait for an upgrade</span>
-            <span style={{ color: T.text2, wordBreak: 'break-word' }}>
-              {old.name}, the Store container from before the worker, still runs, so {store?.name ?? 'the worker'} cannot start.
-              Switching stops and removes {old.name}, then starts {store?.name ?? 'the worker'}; every project's Store calls go to it from then on.
-            </span>
-            {asking === 'switch'
-              ? confirm(<>Stop and remove {old.name}, then start {store?.name ?? 'the worker'}? Any run still on {old.name} is cut off{running(view.calls)}.</>,
-                'Switch', `Switching to ${store?.name ?? 'the worker'}…`, api.restartStore)
-              : <span><Button variant="primary" size="sm" disabled={!!busy || view.engine.level !== 'ok'} title={view.engine.level !== 'ok' ? 'Docker is not answering' : old.message} onClick={() => setAsking('switch')}>Switch…</Button></span>}
-          </div>
-        )}
 
         {view && <Health view={view} asking={asking} setAsking={setAsking} busy={!!busy} act={act} confirm={confirm} />}
 
@@ -154,7 +136,7 @@ interface Parts {
 
 /** One thin row: Docker, Store calls, free disk, the last sweep. */
 function Health({ view, asking, setAsking, busy, act, confirm }: Parts) {
-  const store = view.store, old = view.oldStore, oldRuns = old?.state === 'running', up = view.engine.level === 'ok'
+  const store = view.store, up = view.engine.level === 'ok'
   const cell = (label: string, level: Level | null, value: ReactNode, actions?: ReactNode) => (
     <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', whiteSpace: 'nowrap' }}>
       {level && <Dot level={level} />}
@@ -163,10 +145,9 @@ function Health({ view, asking, setAsking, busy, act, confirm }: Parts) {
       {actions}
     </span>
   )
-  // Store calls: the older container while it runs, else the worker (macOS, Windows), else in-process (Linux)
+  // Store calls: the worker (macOS, Windows), else in-process (Linux)
   let storeCell: ReactNode
-  if (oldRuns) storeCell = cell('Store calls', 'degraded', `old container ${old!.name}`)
-  else if (store) {
+  if (store) {
     const word = store.state !== 'running' ? store.state : store.answering === false ? 'not answering' : store.build && store.build !== store.expected ? 'worker ready · older build' : 'worker ready'
     storeCell = cell('Store calls', store.level, word, up && <>
       {store.state !== 'running' && <Button variant="primary" size="sm" disabled={busy} onClick={() => void act(`Starting ${store.name}…`, api.startStore)}>Start</Button>}

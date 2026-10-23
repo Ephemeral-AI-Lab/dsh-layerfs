@@ -93,7 +93,7 @@ Live needs three things from the LayerFS checkout: the JavaScript SDK, a Linux b
 
 **The SDK** is LayerFS #428's three packages in its `api/` folder (`api/agent/sdk`, `api/backend`, `api/runtime`): `@layerfs/agent` (what agents' scripts call), `@layerfs/backend` (background processes, a Workspace's status, storage) and `@layerfs/runtime` (what the Host runs on a LayerFS home: the worker, Init, removal, status). They are plain JavaScript with no dependencies. Run `npm install` once in `$LAYERFS_SOURCE/api` (it only links the three to each other); the Host links them as `link:../../.layerfs/api/agent/sdk`, `…/api/backend` and `…/api/runtime`, and step 2's `pnpm install` first points `.layerfs` at `$LAYERFS_SOURCE`, then makes those links. Only the native addon is built, and a fresh clone has none (`api/binding/layerfs.node`). On macOS and Windows the Host never loads an addon itself: the home's worker runs the Linux build below. On Linux, see step 4.
 
-**The `layerfs` command** agents run (`DSH_LAYERFS_CLI`) is the checkout's `api/agent/cli/` folder: one `@layerfs/agent` call per command, JSON on stdout ([api/agent/cli/sdk-to-cli.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/api/agent/cli/sdk-to-cli.md) on the #428 branch). Run `npm --prefix "$LAYERFS_SOURCE/api/agent/cli" install` once: it only links `api/agent/cli/node_modules/@layerfs/agent` to `api/agent/sdk` and downloads nothing. `pnpm install` and `pnpm test` stop with that command when it is missing.
+**The `layerfs` command** agents run (`DSH_LAYERFS_CLI`, the Host's wrapper `packages/host/src/agent/cli.js`) runs the checkout's `api/agent/cli/` folder: one `@layerfs/agent` call per command, JSON on stdout ([api/agent/cli/sdk-to-cli.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/api/agent/cli/sdk-to-cli.md) on the #428 branch). Run `npm --prefix "$LAYERFS_SOURCE/api/agent/cli" install` once: it only links `api/agent/cli/node_modules/@layerfs/agent` to `api/agent/sdk` and downloads nothing. `pnpm install` and `pnpm test` stop with that command when it is missing.
 
 **The Linux build.** Build `layerfs-daemon` and the addon in the Rust 1.85.1 image, from the LayerFS checkout's root so Cargo picks up its [`.cargo/config.toml`](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/.cargo/config.toml) (the ARM64 profile). This is the recipe of LayerFS's [benchmark/AGENTS.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/benchmark/AGENTS.md#environment), with the crates fetched into a Docker volume instead of the host's `~/.cargo/registry`:
 
@@ -205,7 +205,7 @@ An Init without the required settings is refused with "LayerFS is not configured
     # daemon: /path/to/layerfs-daemon           # Linux
 ```
 
-**On macOS** the Mac runs no Store call itself. `@layerfs/runtime` runs one long-lived Linux container per LayerFS home, the worker (`<containerPrefix>worker`, `layerfs-worker` by default, labelled `layerfs.role=worker`), and every Store call of the Host and of agents' scripts runs there with the sealed bundle's `layerfs.node`; its endpoint is `<home>/worker/endpoint.json`, and agents get it as `DSH_LAYERFS_WORKER_ENDPOINT` (the route is open to the dsh adapter only). The Host starts it when it starts; a worker of another build is replaced, so load a new `bundle` only while no dsh run is live. It runs with `--restart unless-stopped`. A call of the Host or an agent that finds it down keeps its own error, and the Host asks the runtime to start it again. The Store container of dsh before #428 (`<containerPrefix>store`) keeps the worker from starting while it runs: the LayerFS page's All projects tab then shows one banner, "Store calls wait for an upgrade", whose **Switch…** action (confirmed: any run still on it is cut off) stops and removes it, then starts the worker.
+**On macOS** the Mac runs no Store call itself. `@layerfs/runtime` runs one long-lived Linux container per LayerFS home, the worker (`<containerPrefix>worker`, `layerfs-worker` by default, labelled `layerfs.role=worker`), and every Store call of the Host and of agents' scripts runs there with the sealed bundle's `layerfs.node`; its endpoint is `<home>/worker/endpoint.json`, and agents get it as `DSH_LAYERFS_WORKER_ENDPOINT`. The Host starts it when it starts; a worker of another build is replaced, so load a new `bundle` only while no dsh run is live. It runs with `--restart unless-stopped`. A call of the Host or an agent that finds it down keeps its own error, and the Host asks the runtime to start it again.
 
 **On Linux** the Host and agents' scripts load `@layerfs/agent` in their own process, from `api/agent/sdk` in the LayerFS checkout (through `.layerfs`). It loads the addon from `LAYERFS_NATIVE`, or else `api/binding/layerfs.node`: build it on that machine with `npm --prefix "$LAYERFS_SOURCE/api" run build:native` ([SDK README](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/api/README.md#builds-and-compatibility); it needs Cargo 1.85.1 on the host), or set `LAYERFS_NATIVE` in dsh web's environment to a Linux build's `layerfs.node`. `daemon` is that build's `layerfs-daemon`. The Store must be on a local Linux filesystem (ext4, xfs or btrfs). Init installs the Store straight into the new project's volume directory under Docker's volumes directory (`volumes`, `/var/lib/docker/volumes` by default), which Docker keeps root-only, so run dsh web as a user that can write it, such as root, and give it a `home` that user owns; otherwise the runtime fails the Init (`Unsupported`) before it makes a volume.
 
@@ -287,7 +287,7 @@ Engine. This does not require running a second dsh server in WSL.
 The [verification record](docs/windows-live-verification-20261022.md) pins the
 tested source, native bundle, outcomes and platform gaps.
 
-**Running two dsh webs on one machine.** The default `home` and `traceDir` are the same for every profile, so two dsh webs would share projects and the worker. Give each its own pair under the OS temp area, and its own `containerPrefix`, since container names are per Docker engine (the Store container of another home is refused, never taken over):
+**Running two dsh webs on one machine.** The default `home` and `traceDir` are the same for every profile, so two dsh webs would share projects and the worker. Give each its own pair under the OS temp area, and its own `containerPrefix`, since container names are per Docker engine (a worker of another home is refused, never taken over):
 
 ```yaml
     home: /private/var/folders/…/T/dsh-layerfs-<name>/home        # node -p "require('fs').realpathSync(require('os').tmpdir())"
@@ -392,7 +392,7 @@ Branches into one, fix any Conflict, run the check once more, and publish to mai
 <table>
   <tr>
     <td width="50%" valign="top"><img src="media/first-layerfs-page.jpg" alt="The LayerFS page for tutorial-site: main's files beside its History, two subagent Branches merged and published as L1"><br><sub>A project: <code>main</code>'s files and its History.</sub></td>
-    <td width="50%" valign="top"><img src="media/first-all-projects.jpg" alt="All projects · Sandboxes: Docker, the Store container and free disk, then a card per project"><br><sub>All projects · Sandboxes.</sub></td>
+    <td width="50%" valign="top"><img src="media/first-all-projects.jpg" alt="All projects · Sandboxes: Docker, Store calls and free disk, then a card per project"><br><sub>All projects · Sandboxes.</sub></td>
   </tr>
 </table>
 
@@ -437,11 +437,11 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
 
 - **Bash environment.** A bash call in a session bound to a project gets:
   - `DSH_LAYERFS_PROJECT` and the deployment settings;
-  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of `@layerfs/agent` and `@layerfs/backend`), `DSH_LAYERFS_CLI` (the checkout's `api/agent/cli/src/layerfs.js`, which the `layerfs` shim on PATH, `packages/host/src/bin/layerfs`, runs) and `DSH_LAYERFS_SKILL`;
-  - on macOS and Windows, `DSH_LAYERFS_WORKER_ENDPOINT` and `DSH_LAYERFS_WORKER_ADAPTER=dsh`;
+  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of the Host's wrappers of `@layerfs/agent` and `@layerfs/backend`, `packages/host/src/agent/sdk.js` and `backend.js`), `DSH_LAYERFS_CLI` (the wrapper `agent/cli.js` of the checkout's `api/agent/cli/src/layerfs.js`, which the `layerfs` shim on PATH, `packages/host/src/bin/layerfs`, runs) and `DSH_LAYERFS_SKILL`;
+  - on macOS and Windows, `DSH_LAYERFS_WORKER_ENDPOINT`;
   - a trace file per agent (`DSH_LAYERFS_TRACE`) and the bash call id as the trace step.
 
-  The SDK reads the `DSH_LAYERFS_*` names as fallbacks for its own `LAYERFS_*` settings.
+  LayerFS reads only its own `LAYERFS_*` names, and dsh lets a plugin set only `DSH_*` names in a bash call. Each wrapper therefore loads `packages/host/src/agent/env.js` first, which sets every unset `LAYERFS_<NAME>` from `DSH_LAYERFS_<NAME>` in the agent's process, then exposes LayerFS's own entry unchanged (the same exports; the same arguments, output and exit codes for the CLI). A `LAYERFS_<NAME>` already set is kept.
 - **Records.** Each finished SDK call becomes a `plugin:layerfs/call` record in the calling agent's own session. The root session gets one `plugin:layerfs/project` record.
 - **Journal.** Finished lines are also journaled per root session under the state folder, because trace files live in temporary storage.
 - **Projects.** Each project is attached to at most one workspace folder, or detached; a folder can have several. Init imports a source folder (the workspace folder unless another is chosen) and attaches the new project to the workspace folder. A session uses the folder's only (or last used) project unless it picks another or none. The choice is fixed at the first bash call that uses it.

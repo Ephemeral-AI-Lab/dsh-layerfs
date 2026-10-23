@@ -57,8 +57,6 @@ export interface Overview {
   engine: { level: Level, version?: string, error?: string }
   /** the home's worker (macOS, Windows), which makes every Store call; null on Linux (runtime.status().worker) */
   store: { level: Level, state: 'running' | 'stopped' | 'missing' | 'unknown', name: string, build?: string, expected?: string, startedAt?: string, answering?: boolean } | null
-  /** macOS: the older dsh Store container while it exists (runtime.status().oldStore); while it runs the worker does not start */
-  oldStore: { name: string, id: string, state: string, message: string } | null
   /** agents' LayerFS calls running now, in any project: a worker restart cuts them off */
   calls: number
   /** free bytes on the host (the LayerFS home's disk) and in Docker's volumes (runtime.status().disk); null: not read */
@@ -180,7 +178,7 @@ export const api = {
   overview: () => call<Overview>('GET', '/runtime'),
   /** Starts the home's worker when it is stopped or missing. */
   startStore: () => call<Overview['store']>('POST', '/runtime/store'),
-  /** runtime.worker.restart({ confirm: 'restart' }): restarts the worker; with the older Store container running, stops and removes it, then starts the worker. */
+  /** runtime.worker.restart({ confirm: 'restart' }): restarts the worker. */
   restartStore: () => call<Overview['store']>('POST', '/runtime/store/restart', { confirm: 'restart' }),
   cleanLeftovers: (names: string[]) => call<{ results: { name: string, ok: boolean, message?: string }[] }>('POST', '/runtime/leftovers', { names }),
   removeVolumes: (names: string[]) => call<{ results: { name: string, ok: boolean, message?: string }[] }>('POST', '/runtime/volumes', { names }),

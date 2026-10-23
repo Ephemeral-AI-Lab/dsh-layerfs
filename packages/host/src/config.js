@@ -7,8 +7,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, posix } from "node:path";
+import { fileURLToPath } from "node:url";
 import { LayerFSRuntime } from "@layerfs/runtime";
-import { LAYERFS } from "./source.js";
 
 /** Docker's volumes directory, in Docker's VM on macOS and Windows. */
 export const VOLUMES = "/var/lib/docker/volumes";
@@ -51,9 +51,9 @@ export const VOLUMES = "/var/lib/docker/volumes";
  * @property {string} traceDir
  * @property {boolean} traceInWorkspace Windows default: traces use the shell's writable workspace.
  * @property {number} pollMs
- * @property {string} sdk file URL of @layerfs/agent, which agents' scripts import
- * @property {string} backend file URL of @layerfs/backend
- * @property {string} cli path of the layerfs command (the LayerFS checkout's api/agent/cli/src/layerfs.js)
+ * @property {string} sdk file URL of agent/sdk.js, @layerfs/agent as agents' scripts import it
+ * @property {string} backend file URL of agent/backend.js, @layerfs/backend for agents' scripts
+ * @property {string} cli path of agent/cli.js, the layerfs command (runs the LayerFS checkout's api/agent/cli/src/layerfs.js)
  * @property {{ distribution: string, user: string, node: string, home: string }} [wsl] Windows: the WSL deployment
  * @property {Promise<LayerFSRuntime>} [runtime] the Host's runtime, once openRuntime has opened it
  */
@@ -85,9 +85,10 @@ export function resolveConfig(config, profile) {
     traceDir: config.traceDir || join(temp, "traces"),
     traceInWorkspace: windows && !config.traceDir,
     pollMs: config.pollMs ?? 400,
-    sdk: import.meta.resolve("@layerfs/agent"),
-    backend: import.meta.resolve("@layerfs/backend"),
-    cli: join(LAYERFS, "api/agent/cli/src/layerfs.js"),
+    // agents' processes see DSH_LAYERFS_* only: these wrappers set LAYERFS_* from them first (agent/env.js)
+    sdk: new URL("./agent/sdk.js", import.meta.url).href,
+    backend: new URL("./agent/backend.js", import.meta.url).href,
+    cli: fileURLToPath(new URL("./agent/cli.js", import.meta.url)),
   };
   if (windows) {
     // the Host's default before #428, so an existing WSL home stays where it is
@@ -102,10 +103,10 @@ export function resolveConfig(config, profile) {
 /** Deployment settings Init and bash calls need that are not configured (macOS and Windows: a bundle too). */
 export const missingDeployment = (spec) => ["image", "daemon", ...(spec.worker ? ["bundle"] : [])].filter((name) => !spec[name]);
 
-/** What the Host hands LayerFSRuntime.open: its deployment, as the dsh adapter (the worker route is dsh's only). */
+/** What the Host hands LayerFSRuntime.open: its deployment. */
 export const runtimeSettings = (spec) => ({
   home: spec.home, image: spec.image, daemon: spec.daemon, bundle: spec.bundle, docker: spec.docker, volumes: spec.volumes,
-  traceDir: spec.traceDir, containerPrefix: spec.prefix, stateDir: runtimeState(spec), adapter: "dsh", pollMs: spec.pollMs,
+  traceDir: spec.traceDir, containerPrefix: spec.prefix, stateDir: runtimeState(spec), pollMs: spec.pollMs,
   // once at open, the runtime deletes this home's stopped Sandboxes in the background (status().sweep)
   sweep: true,
   ...(spec.wsl ? { wsl: spec.wsl } : {}),
@@ -115,9 +116,9 @@ export const runtimeSettings = (spec) => ({
 export const runtimeState = (spec) => join(spec.home, ".runtime");
 
 /**
- * The Host's runtime, opened once. With the dsh adapter on macOS and Windows
- * it hands its worker to @layerfs/agent, so every client this process makes
- * after it uses the worker. A test sets `spec.runtime` to a stand-in first.
+ * The Host's runtime, opened once. On macOS and Windows it hands its worker
+ * to @layerfs/agent, so every client this process makes after it uses the
+ * worker. A test sets `spec.runtime` to a stand-in first.
  * @returns {Promise<LayerFSRuntime>}
  */
 export function openRuntime(spec) {
