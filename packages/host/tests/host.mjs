@@ -22,7 +22,7 @@ const { registerRoutes } = await import("../src/route.js");
 const { TreeReader } = await import("../src/trees.js");
 const { removeProject } = await import("../src/remove.js");
 const { UNREACHABLE } = await import("../src/collector.js");
-const { adopt, prepareInit, randomName, runInit, scanSource } = await import("../src/init.js");
+const { adopt, prepareInit, randomName, runInit } = await import("../src/init.js");
 const { InitJobs } = await import("../src/jobs.js");
 const { CALL, PROJECT } = await import("@dsh-layerfs/model/sources/records.js");
 
@@ -58,7 +58,7 @@ try {
   // the folder's only project is used, locked at the first bash call and recorded on the root
   h.bindings.addProject(FOLDER, { name: "website", source: FOLDER, volume: "dsh-layerfs-website-1", created: 1 });
   // the runtime context names it (a subagent sees its root's), before any bash call
-  assert.match(projectContext(h.bindings, h.collector, child), /^LayerFS project of this conversation: website \(live\)\./);
+  assert.match(projectContext(h.bindings, h.collector, child), /^LayerFS project of this conversation: website\./);
   assert.equal(projectContext(h.bindings, h.collector, undefined), "");
   const vars = h.env.resolve({ agent: { session: child }, callId: "c1", rootCallId: "r1" });
   assert.equal(vars.DSH_LAYERFS_PROJECT, "website");
@@ -300,26 +300,22 @@ try {
   assert.equal((await call("POST", "/layerfs/workspace", { folder: OTHER, project: "nope" })).status, 404);
   assert.equal((await call("GET", "/layerfs/project/nope/storage")).status, 404);
 
-  // Init: the source is counted first; the route answers a job, and the job its steps
+  // Init: the route answers a job, and the job its steps
   const src = join(dir, "src-folder");
   mkdirSync(join(src, "lib"), { recursive: true });
   writeFileSync(join(src, "a.txt"), "hello");
   writeFileSync(join(src, "lib", "b.txt"), "abc");
-  const seen = [];
-  assert.deepEqual(await scanSource(src, (c) => seen.push(c.entries)), { entries: 4, files: 2, bytes: 8 });
-  assert.equal(seen.at(-1), 4);
   const started = await call("POST", "/layerfs/init", { folder: dir, source: src });
   assert.deepEqual([started.status, started.body.job.name, started.body.job.step], [202, "src-folder", "scan"]);
   const second = await call("POST", "/layerfs/init", { folder: dir, source: src });
   assert.equal(second.body.job.name, "src-folder-1", "a running Init keeps its name");
   assert.equal(randomName(new Set(["amber-badger"]), join(dir, "no-home"), () => 0), "amber-badger-1", "the pairs run out: numbered");
   assert.equal((await call("POST", "/layerfs/init", { folder: "relative" })).status, 409);
-  // an Init's time limit: a positive whole number of ms, for a Live project only, refused 400 before anything starts
+  // an Init's time limit: a positive whole number of ms, refused 400 before anything starts
   for (const timeout of [0, -1, 1.5, "60000", { ms: 1 }]) {
     const refused = await call("POST", "/layerfs/init", { folder: dir, source: src, timeout });
     assert.deepEqual([refused.status, refused.body.code], [400, "invalid-timeout"], JSON.stringify(timeout));
   }
-  assert.throws(() => prepareInit(h.spec, h.bindings, { folder: dir, source: src, backend: "sim", timeout: 60_000 }), { code: "invalid-timeout" }, "a simulated Init has no limit");
   assert.equal(runs.length, 2, "a refused time limit starts no Init");
   const limited = prepareInit(h.spec, h.bindings, { folder: dir, source: src, timeout: 900_000 });
   assert.deepEqual([limited.timeout, "timeout" in limited.project], [900_000, false], "the limit stays on the prepared Init, not the project's record");
@@ -386,16 +382,14 @@ try {
   const v2 = new BindingStore(two);
   assert.deepEqual([v2.data.version, v2.defaults(), Object.values(v2.data.projects).some((p) => "folder" in p)], [3, { "/one": "a" }, false]);
 
-  // projects bound before the runtime kept records get one in its format, once; a simulated one none
+  // projects bound before the runtime kept records get one in its format, once
   {
     const records = join(h.spec.home, ".runtime", "projects");
-    h.bindings.addProject("/work/sim", { name: "simmed", source: "/work/sim", volume: "sim-simmed", created: 3, backend: "sim" });
     assert.deepEqual(adopt(h.spec, h.bindings), ["website"]);
     assert.deepEqual(JSON.parse(readFileSync(join(records, "website.json"), "utf8")), { name: "website", volume: "dsh-layerfs-website-1", source: FOLDER, created: 1 });
     writeFileSync(join(records, "website.json"), JSON.stringify({ name: "website", volume: "kept" }));
     assert.deepEqual(adopt(h.spec, h.bindings), [], "a record the runtime has is never replaced");
     assert.equal(JSON.parse(readFileSync(join(records, "website.json"), "utf8")).volume, "kept");
-    h.bindings.remove("simmed");
   }
 
   // removal: confirmed by name; the runtime removes the Sandbox containers, the volume (the binding's,
@@ -423,7 +417,6 @@ try {
   ]);
   assert.deepEqual(forgot, ["website", "website"]);
   mkdirSync(join(dir, "website"), { recursive: true });
-  assert.equal(prepareInit({ ...h.spec, volumes: "/nowhere-file/x" }, h.bindings, { folder: dir, backend: "sim" }).project.backend, "sim", "a simulated project needs no Docker");
   assert.equal(prepareInit(h.spec, h.bindings, { folder: dir, source: join(dir, "website") }).project.name, "website", "a removed name is free again at once");
   assert.equal(prepareInit(h.spec, h.bindings, { folder: dir, name: "website" }).project.name, "website");
   // a new empty project: a random adjective-noun name, an empty folder of its own (runInit removes it)

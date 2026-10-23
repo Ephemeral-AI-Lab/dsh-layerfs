@@ -3,18 +3,16 @@
 // shows the Scenarios tab and the Run bar only then (a 404 hides them):
 //   GET  /layerfs-mock                      the Scenarios workspace folder, the
 //                                           preset, provider and first message,
-//                                           and each scenario with its backends,
-//                                           fixture and latest run on each backend
+//                                           and each scenario with its fixture
+//                                           and latest run
 //   GET  /layerfs-mock/session/<sessionId>  what that root Session plays, with
-//                                           its run: { scenario, backend, run }
+//                                           its run: { scenario, run }
 //   POST /layerfs-mock/session/<sessionId>/stop   stops that root Session's
 //                                           run: it fails, and its agents get
 //                                           no further step
-//   POST /layerfs-mock/<id>/session {backend, sessionId}   a new run's root
+//   POST /layerfs-mock/<id>/session {sessionId}   a new run's root
 //                                           Session, recorded before its first
 //                                           message (progress.js)
-import { BACKENDS } from "./progress.js";
-
 const PREFIX = "/layerfs-mock";
 const MAX_BODY = 4 * 1024;
 
@@ -41,8 +39,8 @@ async function readJson(req) {
  */
 export function registerRoutes(ctx, { scenarios, progress, workspace, preset, provider, prompt }) {
   const view = (id, s) => ({
-    id, title: s.title, blurb: s.blurb || null, agents: Object.keys(s.agents), layerfs: s.layerfs, fixture: s.fixture,
-    runs: Object.fromEntries(BACKENDS.map((b) => [b, progress.get(id, b)])),
+    id, title: s.title, blurb: s.blurb || null, agents: Object.keys(s.agents), fixture: s.fixture,
+    run: progress.get(id),
   });
   const handler = async (req, res) => {
     const rejection = ctx.connection.requestRejection(req);
@@ -55,7 +53,7 @@ export function registerRoutes(ctx, { scenarios, progress, workspace, preset, pr
       if (req.method === "GET" && parts[0] === "session" && parts.length === 2) {
         const at = progress.sessionOf(parts[1]);
         if (!at) return send(res, 404, { code: "not-found", message: "this Session plays no scenario" });
-        return send(res, 200, { ...at, run: progress.get(at.scenario, at.backend) });
+        return send(res, 200, { ...at, run: progress.get(at.scenario) });
       }
       if (req.method === "POST" && parts[0] === "session" && parts[2] === "stop" && parts.length === 3) {
         const run = progress.halt(parts[1]);
@@ -66,8 +64,7 @@ export function registerRoutes(ctx, { scenarios, progress, workspace, preset, pr
       if (req.method === "POST" && parts[1] === "session" && parts.length === 2) {
         const body = await readJson(req);
         if (typeof body.sessionId !== "string" || !body.sessionId) return send(res, 400, { code: "invalid-session", message: "sessionId is required" });
-        if (!scenario.layerfs.includes(body.backend)) return send(res, 400, { code: "invalid-backend", message: `${id} runs on ${scenario.layerfs.join(" and ")} LayerFS` });
-        progress.register(id, body.backend, body.sessionId);
+        progress.register(id, body.sessionId);
         return send(res, 200, view(id, scenario));
       }
       return send(res, 404, { code: "not-found", message: `no route ${req.method} ${url.pathname}` });

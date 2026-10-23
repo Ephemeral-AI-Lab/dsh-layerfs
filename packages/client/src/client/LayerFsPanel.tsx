@@ -1,8 +1,7 @@
 // The LayerFS sidebar page: one project at a time, like an editor. A slim
 // title bar has three tabs, four while the LayerFS scripted model is on:
 // Runs (RunsPage: recorded history replay runs, played from their traces),
-// Scenarios (ScenariosPage: the scripted model's runs on Mocked and Real
-// LayerFS), All projects · Sandboxes (AllSandboxes: every
+// Scenarios (ScenariosPage: the scripted model's runs on LayerFS), All projects · Sandboxes (AllSandboxes: every
 // project's Sandboxes and what they run on; a project's card opens it, and
 // Import project imports a workspace's folder, InitDialog) and the open
 // project. Then the project's one action, New session (in
@@ -239,7 +238,7 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
                   Runs
                 </button>
                 {scripted && (
-                  <button type="button" role="tab" aria-selected={scripted && scenariosTab} className="lfs-switch lfs-tab" onClick={() => show('scenarios')} title="The LayerFS scripted model's scenarios, run on Mocked or Real LayerFS"
+                  <button type="button" role="tab" aria-selected={scripted && scenariosTab} className="lfs-switch lfs-tab" onClick={() => show('scenarios')} title="The LayerFS scripted model's scenarios, run on LayerFS"
                     style={{ flex: 'none', padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', whiteSpace: 'nowrap' }}>
                     Scenarios
                   </button>

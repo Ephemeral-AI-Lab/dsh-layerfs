@@ -4,10 +4,6 @@
  "title": "Tour",
  "blurb": "One agent at the terminals: fs writes, a Sandbox terminal that installs, builds and serves, a stale Workspace that merges on commit, a second Workspace in the same Sandbox, and two publishes, the second overwriting the first.",
  "order": 1,
- "layerfs": [
-  "mocked",
-  "real"
- ],
  "fixture": "../../demo-workspace",
  "lib": "../shared/terminal.mjs",
  "agents": {

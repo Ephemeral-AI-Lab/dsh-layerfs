@@ -41,7 +41,7 @@ export interface RuntimeWorkspace {
 }
 /** A project's Sandboxes for its Sandboxes tab (GET /project/<name>/runtime). */
 export interface ProjectRuntime {
-  project: string, simulated: boolean, level: Level
+  project: string, level: Level
   sandboxes: ({ id: string, name: string | null, capacity: number, workspaces: RuntimeWorkspace[], level: Level } & SandboxImage)[]
   gone: ({ id: string, name: string | null } & SandboxImage)[]
   /** the daemons have not answered yet: Sandboxes from Docker and a ping, Workspaces from the agents' traces */
@@ -62,7 +62,7 @@ export interface Overview {
   /** agents' LayerFS calls running now, in any project: a worker restart cuts them off */
   calls: number
   disk: { host: number | null, vm: number | null }
-  projects: { name: string, simulated: boolean, containers: number, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level } & SandboxImage)[], workspaces: number, level: Level, note: string | null }[]
+  projects: { name: string, containers: number, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level } & SandboxImage)[], workspaces: number, level: Level, note: string | null }[]
   leftovers: { name: string, project: string, running: boolean, status: string }[]
   totals: { projects: number, sandboxes: number, workspaces: number }
 }

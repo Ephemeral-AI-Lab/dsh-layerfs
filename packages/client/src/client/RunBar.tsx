@@ -1,14 +1,13 @@
 // The Run bar above the composer, in a Session that plays a scenario of the
 // LayerFS scripted model (its run's root Session) only; other Sessions, and
-// every Session while the plugin is off, render nothing. One line: Mocked or
-// Real LayerFS (locked while the run goes; the choice applies to the next
-// run), Stop or Run again (a new run starts in a new Session), and how far
-// the run got with a thin bar. A failed run says where it stopped and which
+// every Session while the plugin is off, render nothing. One line: Stop or
+// Run again (a new run starts in a new Session), and how far the run got
+// with a thin bar. A failed run says where it stopped and which
 // project it left for a look.
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, IconPlayOutlineRegular, IconStopFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ProgressBar, jobFraction, jobText, useClock } from './Progress.tsx'
-import { BACKENDS, backendLabel, mockApi, projectOf, runText, startRun, stopRun, type Backend, type MockInfo, type RunServices, type SessionRun, type StartStep } from './scenarios.ts'
+import { mockApi, projectOf, runText, startRun, stopRun, type MockInfo, type RunServices, type SessionRun, type StartStep } from './scenarios.ts'
 import { T } from './tokens.ts'
 
 // while a run goes, and slower once it ended
@@ -35,7 +34,6 @@ export interface RunBarProps { sessionId: string, services: () => RunServicesWit
 export function RunBar({ sessionId, services }: RunBarProps) {
   const [info, setInfo] = useState<MockInfo | null>(null)
   const [played, setPlayed] = useState<SessionRun | null>(null)
-  const [chosen, setChosen] = useState<Backend | null>(null)
   const [starting, setStarting] = useState<StartStep | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -66,13 +64,11 @@ export function RunBar({ sessionId, services }: RunBarProps) {
   if (!info || !played) return null
   const scenario = info.scenarios.find((s) => s.id === played.scenario)
   if (!scenario) return null
-  const backend: Backend = chosen ?? played.backend
-  const busy = starting !== null || (running && !halted)
 
   const again = () => {
     setError(null)
     setStarting({ step: 'session' })
-    startRun(services(), info, scenario, backend, setStarting).then(
+    startRun(services(), info, scenario, setStarting).then(
       () => setStarting(null),
       (failure) => { setStarting(null); setError(failure instanceof Error ? failure.message : String(failure)) },
     )
@@ -90,22 +86,11 @@ export function RunBar({ sessionId, services }: RunBarProps) {
   } else {
     line = 'Not run yet'
   }
-  const detail = !starting && run?.state === 'failed' ? `${run.error ?? 'Failed'} · project ${projectOf(scenario.id, played.backend)} kept` : null
+  const detail = !starting && run?.state === 'failed' ? `${run.error ?? 'Failed'} · project ${projectOf(scenario.id)} kept` : null
 
-  const choice = (value: Backend) => {
-    const offered = scenario.layerfs.includes(value)
-    return (
-      <button type="button" key={value} aria-pressed={backend === value} disabled={busy || !offered} onClick={() => setChosen(value)}
-        title={!offered ? `${scenario.title} runs on ${scenario.layerfs.map(backendLabel).join(' and ')} only` : busy ? 'Applies to the next run' : undefined}
-        style={{ border: 0, padding: '2px 10px', font: 'inherit', fontSize: 12, cursor: busy || !offered ? 'default' : 'pointer', color: offered ? 'inherit' : T.caption, background: backend === value ? 'color-mix(in srgb, currentColor 14%, transparent)' : 'transparent' }}>{backendLabel(value)}</button>
-    )
-  }
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, margin: '0 0 6px', padding: '8px 12px', borderRadius: 10, border: '1px solid color-mix(in srgb, currentColor 12%, transparent)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flexWrap: 'wrap' }}>
-        <span role="group" aria-label="LayerFS" style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid color-mix(in srgb, currentColor 18%, transparent)' }}>
-          {BACKENDS.map(choice)}
-        </span>
         {running && !halted
           ? <Button variant="secondary" size="sm" onClick={stop} icon={<IconStopFillRegular size={14} />}>Stop</Button>
           : <Button variant="secondary" size="sm" disabled={starting !== null} onClick={again} icon={<IconPlayOutlineRegular size={14} />}>Run again</Button>}

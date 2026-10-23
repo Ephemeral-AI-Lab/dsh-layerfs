@@ -11,6 +11,6 @@ export * from "./pose.js";
 export * from "./fanout.js";
 export * from "./events.js";
 export { Mirror } from "./mirror.js";
-export { storyView, runStep, runCall, sdkCall, demoFrames } from "./sources/story.js";
+export { storyView, runStep, runCall, sdkCall } from "./sources/story.js";
 export { ReplayEngine, parseTrace, endLines, stepOf, replayLine, traceSteps, ridesAlong } from "./sources/trace.js";
 export { CALL as RECORD_CALL, PROJECT as RECORD_PROJECT, recordLines, recordProject } from "./sources/records.js";

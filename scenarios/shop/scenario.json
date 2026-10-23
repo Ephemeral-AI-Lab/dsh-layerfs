@@ -4,9 +4,6 @@
  "title": "Shop",
  "blurb": "Replay of a recorded run: a builder agent's recorded run of a small web shop, from skeleton to admin page, over six milestones. Every recorded write is applied, and a recorded command runs again in a Workspace unless it repeats an earlier run on a Branch that has not changed since.",
  "order": 7,
- "layerfs": [
-  "real"
- ],
  "fixture": "seed.json",
  "agents": {
   "root": [

@@ -1,7 +1,7 @@
 {
   "name": "@dsh-layerfs/mock",
   "version": "0.1.0",
-  "description": "LayerFS scripted model for dsh: a scripted stand-in for the LLM whose scenarios drive dsh's real tools on Mocked or Real LayerFS, for UI tests without a model",
+  "description": "LayerFS scripted model for dsh: a scripted stand-in for the LLM whose scenarios drive dsh's real tools on LayerFS, for UI tests without a model",
   "type": "module",
   "main": "src/index.js",
   "exports": {

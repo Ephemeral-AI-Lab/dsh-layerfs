@@ -7,7 +7,7 @@
 // agent that runs the command.
 import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { deploymentEnv, isSim } from "./layerfs-client.js";
+import { deploymentEnv } from "./layerfs-client.js";
 import { appendProject } from "./records.js";
 import { LAYERFS } from "./source.js";
 
@@ -48,7 +48,7 @@ export function projectContext(bindings, collector, session) {
   const agent = collector.agentOf(session);
   const project = bindings.projectFor(agent.root, agent.cwd);
   if (!project) return "";
-  return `LayerFS project of this conversation: ${project.name} (${isSim(project) ? "simulated" : "live"}). Every bash call has it as DSH_LAYERFS_PROJECT; work on it through the LayerFS SDK (LayerFS.open).`;
+  return `LayerFS project of this conversation: ${project.name}. Every bash call has it as DSH_LAYERFS_PROJECT; work on it through the LayerFS SDK (LayerFS.open).`;
 }
 
 /**
@@ -76,9 +76,9 @@ export function contributor(ctx, spec, bindings, collector) {
       const deploy = deploymentEnv(spec, project);
       return {
         DSH_LAYERFS_PROJECT: project.name,
-        DSH_LAYERFS_SDK: isSim(project) ? spec.simSdk : spec.sdk,
-        DSH_LAYERFS_BACKEND: isSim(project) ? spec.simBackend : spec.backend,
-        DSH_LAYERFS_CLI: isSim(project) ? spec.simCli : spec.cli,
+        DSH_LAYERFS_SDK: spec.sdk,
+        DSH_LAYERFS_BACKEND: spec.backend,
+        DSH_LAYERFS_CLI: spec.cli,
         ...(skill ? { DSH_LAYERFS_SKILL: skill } : {}),
         ...Object.fromEntries(Object.entries(deploy).filter(([, v]) => v).map(([k, v]) => [`DSH_LAYERFS_${k}`, v])),
         DSH_LAYERFS_TRACE: collector.track(agent, project),

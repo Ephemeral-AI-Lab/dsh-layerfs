@@ -1,19 +1,15 @@
 // LayerFS clients the Host uses for a project, and the deployment a
-// project's clients use, the Host's and its agents' alike. A live project's
+// project's clients use, the Host's and its agents' alike. A project's
 // client is an @layerfs/agent client opened as an agent script opens one
 // (LayerFS.open), with @layerfs/backend beside it; its state, the views'
 // whole project, is the runtime's get_state. The agent reads its deployment
 // from the environment when a client is made, so the project's settings are
-// set for that synchronous step only. A simulated project (backend "sim") has
-// a client of the simulator instead (sim/).
+// set for that synchronous step only.
 import { join } from "node:path";
 import { LayerFS } from "@layerfs/agent";
 import { LayerFSBackend } from "@layerfs/backend";
 import { Mirror } from "@dsh-layerfs/model/mirror.js";
 import { openRuntime, VOLUMES } from "./config.js";
-import { simClient } from "./sim/client.js";
-
-export const isSim = (project) => project.backend === "sim";
 
 /**
  * The LAYERFS_<name> deployment of one project (DSH_LAYERFS_<name> in its
@@ -23,8 +19,6 @@ export const isSim = (project) => project.backend === "sim";
  * worker (<home>/worker/endpoint.json, the dsh adapter).
  */
 export function deploymentEnv(spec, project) {
-  // the agent asks for every deployment setting and a Store path; a simulated project uses none of them
-  if (isSim(project)) return { HOME: spec.home, DOCKER: "sim", IMAGE: "sim", DAEMON: "sim", VOLUME: project.volume, STORE_PATH: "sim" };
   return {
     HOME: spec.wsl?.home ?? spec.home,
     DOCKER: spec.docker,
@@ -60,7 +54,6 @@ function withEnv(env, make) {
  * and Windows the client uses the home's worker.
  */
 export async function clientFor(spec, project) {
-  if (isSim(project)) return simClient(spec.home, project.name);
   const runtime = await openRuntime(spec);
   // LayerFS.open reads the environment before its first await
   const layerfs = await withEnv(deploymentEnv(spec, project), () => LayerFS.open(project.name));

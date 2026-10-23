@@ -1,7 +1,7 @@
 // Checks a finished scripted run from what dsh web left in its profile:
 //   node tools/checks/run.mjs <profile dir> <root session id> [--scenarios <dir>]
 // <profile dir> is a dsh home's profile (<dsh home>/profiles/web). The run's
-// scenario and backend come from <profile>/dsh-layerfs-mock/runs.json, which
+// scenario comes from <profile>/dsh-layerfs-mock/runs.json, which
 // the scripted model keeps for every run's root Session; the scenario is
 // loaded from --scenarios (default: this checkout's scenarios/). The trace
 // lines are the Host's journal for the root Session,
@@ -56,7 +56,7 @@ function readLines(file) {
 
 /**
  * Checks the run whose root Session is `rootId` in `profile`.
- * @returns {{ scenario: string, backend: string, failures: string[], notes: string[], notRun: string[] }}
+ * @returns {{ scenario: string, failures: string[], notes: string[], notRun: string[] }}
  */
 export function checkRun(profile, rootId, scenariosDir) {
   const runsFile = join(profile, "dsh-layerfs-mock", "runs.json");
@@ -64,14 +64,14 @@ export function checkRun(profile, rootId, scenariosDir) {
   const runs = JSON.parse(readFileSync(runsFile, "utf8"));
   const id = runs.sessions?.[rootId] ? rootId : runs.sessions?.[`session-${rootId}`] ? `session-${rootId}` : null;
   if (!id) throw Object.assign(new Error(`${rootId} is no scripted run's root Session in ${runsFile}`), { usage: true });
-  const { scenario: name, backend } = runs.sessions[id];
+  const { scenario: name } = runs.sessions[id];
   const folder = join(scenariosDir, name);
   if (!existsSync(join(folder, "scenario.json"))) throw Object.assign(new Error(`the run played ${name}, and ${folder} holds no scenario.json`), { usage: true });
   const scenario = loadScenario(folder);
   const failures = [], notes = [], notRun = [];
 
-  const run = runs.runs?.[`${name}:${backend}`];
-  if (run?.sessionId !== id) notes.push(`run: a newer run of ${name} on ${backend} replaced this one's record, so its state is unknown`);
+  const run = runs.runs?.[name];
+  if (run?.sessionId !== id) notes.push(`run: a newer run of ${name} replaced this one's record, so its state is unknown`);
   else if (run.state === "passed") notes.push(`run: passed in ${((run.ended - run.started) / 1000).toFixed(1)} s`);
   else failures.push(`run: ${run.state}${run.error ? ` (${run.error})` : ""}`);
 
@@ -88,7 +88,7 @@ export function checkRun(profile, rootId, scenariosDir) {
   if (existsSync(join(folder, "final.json"))) {
     notRun.push(`order and final tree against ${join(folder, "final.json")}: NOT_RUN, missing ${MISSING.join("; ")}`);
   }
-  return { scenario: name, backend, project: `mock-${name}-${backend}`, failures, notes, notRun };
+  return { scenario: name, project: `mock-${name}`, failures, notes, notRun };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -103,7 +103,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (error.usage) console.error(USAGE);
     process.exit(2);
   }
-  console.log(`${result.scenario} on ${result.backend} (project ${result.project})`);
+  console.log(`${result.scenario} (project ${result.project})`);
   for (const note of result.notes) console.log(`  ${note}`);
   for (const line of result.notRun) console.log(`  ${line}`);
   for (const failure of result.failures) console.log(`  FAIL ${failure}`);

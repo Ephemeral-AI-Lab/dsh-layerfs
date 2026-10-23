@@ -4,10 +4,6 @@
  "title": "Parallel Branches",
  "blurb": "Two subagents work at the same time on Branches of their own. The main agent publishes one; publish overwrites main, so it asks the other to merge main in first.",
  "order": 2,
- "layerfs": [
-  "mocked",
-  "real"
- ],
  "fixture": "../../demo-workspace",
  "agents": {
   "root": [

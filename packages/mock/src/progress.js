@@ -1,21 +1,22 @@
-// How far each scenario's latest run on each backend got, from the replies
-// the adapter sends. The client records a run's root Session with the
-// scenario and backend it plays (routes.js, POST …/session) before sending
-// its first message; that root's first request starts the run, and its
-// subagents add their own steps. One run per scenario and backend is kept:
+// How far each scenario's latest run got, from the replies the adapter
+// sends. The client records a run's root Session with the scenario it plays
+// (routes.js, POST …/session) before sending its first message; that root's
+// first request starts the run, and its subagents add their own steps. One
+// run per scenario is kept:
 //   { sessionId, state: running | passed | failed, done, of, phase, error, started, ended }
 // A run fails on a scenario error or when one of its requests is aborted;
 // it passes when the root agent sends its last step. `done` and `of` sum
 // every agent's finished and total steps. The runs are written whole to
 // <stateDir>/runs.json when one starts or ends, so they outlive a dsh web
 // restart; a run still running at a restart reads as failed (interrupted).
+// A runs.json written while runs had a backend keeps its LayerFS runs (keyed
+// "<scenario>:real") under the scenario's name and drops the rest.
 // A run has LIMIT_MS (15 minutes, owner 2026-10-23) from its start: past it,
 // the run fails as `timedOut` at its next read or request, the adapter answers
 // no further step, and the client cancels its root Session once.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const BACKENDS = ["mocked", "real"];
 export const LIMIT_MS = 15 * 60 * 1000;
 
 export class Progress {
@@ -29,13 +30,15 @@ export class Progress {
     this.file = stateDir ? join(stateDir, "runs.json") : null;
     this.stateDir = stateDir;
     const saved = this.read();
-    /** root Session id -> { scenario, backend } */
-    this.sessions = new Map(Object.entries(saved.sessions ?? {}));
+    /** root Session id -> { scenario } */
+    this.sessions = new Map(Object.entries(saved.sessions ?? {}).flatMap(([id, at]) => (at.backend && at.backend !== "real" ? [] : [[id, { scenario: at.scenario }]])));
     /** subagent Session id -> its run's root Session id; learned from the replies, kept in memory */
     this.children = new Map();
-    /** "<scenario>:<backend>" -> run, with each agent's counts in `agents` */
+    /** scenario -> run, with each agent's counts in `agents` */
     this.runs = new Map();
-    for (const [key, run] of Object.entries(saved.runs ?? {})) {
+    for (const [savedKey, run] of Object.entries(saved.runs ?? {})) {
+      const [key, backend] = savedKey.split(":");
+      if (backend && backend !== "real") continue;
       this.runs.set(key, run.state === "running" ? { ...run, state: "failed", error: "interrupted: dsh web restarted", ended: run.ended ?? run.started } : run);
     }
   }
@@ -64,13 +67,12 @@ export class Progress {
     return run?.timedOut === true;
   }
 
-  /** The client made `sessionId` the root of a new run of `scenario` on `backend`. */
-  register(scenario, backend, sessionId) {
+  /** The client made `sessionId` the root of a new run of `scenario`. */
+  register(scenario, sessionId) {
     if (!this.scenarios.has(scenario)) throw Object.assign(new Error(`no scenario named ${scenario}`), { status: 404 });
-    if (!BACKENDS.includes(backend)) throw Object.assign(new Error(`backend is one of ${BACKENDS.join(", ")}`), { status: 400 });
-    this.sessions.set(sessionId, { scenario, backend });
+    this.sessions.set(sessionId, { scenario });
     const steps = Object.entries(this.scenarios.get(scenario).agents);
-    this.runs.set(`${scenario}:${backend}`, {
+    this.runs.set(scenario, {
       sessionId, state: "running", agents: Object.fromEntries(steps.map(([name, list]) => [name, { done: 0, of: list.length }])),
       phase: null, error: null, timedOut: false, started: this.now(), ended: null,
     });
@@ -86,7 +88,7 @@ export class Progress {
   runOf(rootId) {
     const at = this.sessions.get(rootId);
     if (!at) return null;
-    const run = this.runs.get(`${at.scenario}:${at.backend}`);
+    const run = this.runs.get(at.scenario);
     return run?.sessionId === rootId ? run : null;
   }
 
@@ -123,7 +125,7 @@ export class Progress {
   /**
    * Why a request of `sessionId` gets no step, or null when it may go on: its
    * run was stopped or failed, ran out of time, or a newer run of the same
-   * scenario and backend replaced it. Sessions of no run go on.
+   * scenario replaced it. Sessions of no run go on.
    */
   refusal(sessionId) {
     const root = this.rootOf(sessionId);
@@ -143,9 +145,9 @@ export class Progress {
     }
   }
 
-  /** The latest run of `scenario` on `backend` with its summed counts, or null before any run. */
-  get(scenario, backend) {
-    const run = this.runs.get(`${scenario}:${backend}`);
+  /** The latest run of `scenario` with its summed counts, or null before any run. */
+  get(scenario) {
+    const run = this.runs.get(scenario);
     if (!run) return null;
     this.expire(run);
     const agents = Object.values(run.agents);

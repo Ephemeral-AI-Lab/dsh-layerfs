@@ -4,10 +4,6 @@
  "title": "Checkpoints",
  "blurb": "A small history replay in four ranges: two agents write on lanes of their own, and the lead merges, publishes and verifies each range. (#352; the gate numbers are fake.)",
  "order": 10,
- "layerfs": [
-  "mocked",
-  "real"
- ],
  "fixture": "../../demo-workspace",
  "lib": "scripts/lib.mjs",
  "agents": {

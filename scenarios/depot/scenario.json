@@ -4,9 +4,6 @@
  "title": "Depot",
  "blurb": "Replay of a recorded run: a builder agent's recorded run of a Rust inventory service and its browser client. Every recorded write is applied, and a recorded command runs again in a Workspace unless it repeats an earlier run on a Branch that has not changed since.",
  "order": 8,
- "layerfs": [
-  "real"
- ],
  "fixture": "seed.json",
  "agents": {
   "root": [

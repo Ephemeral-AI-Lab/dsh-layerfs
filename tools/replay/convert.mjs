@@ -11,7 +11,7 @@
 // final.json and run/NNN.json, one per recorded bash step, whose calls
 // scenarios/shared/replay.mjs used to make through the SDK. Rerunning
 // replaces scenarios/<name>/ whole:
-//   scenario.json   v3, Real LayerFS only; each recorded bash step is one bash
+//   scenario.json   v3; each recorded bash step is one bash
 //                   step whose command makes the recorded calls in order with
 //                   the layerfs command (helpers: scenarios/shared/replay.sh)
 //   seed.json       as recorded: the fixture, which the plugin writes out to a
@@ -444,7 +444,7 @@ for (const [file, changes] of changeFiles) writeFileSync(join(folder, "changes",
 writeFileSync(join(folder, "final.json"), source.final);
 
 const blurb = `Replay of a recorded run: ${old.blurb.replace(/^Replays /, "").replace(/ Every recorded write.*$/, "")} Every recorded write is applied, and a recorded command runs again in a Workspace unless it repeats an earlier run on a Branch that has not changed since${verificationOff ? ", or it only verifies and is not one of the installs, a Branch's last build or test, or the build or prepare before that test" : ""}.`;
-const scenario = { type: "layerfs-scenario", version: 3, title: old.title, blurb, order: old.order, layerfs: ["real"], fixture: "seed.json", agents };
+const scenario = { type: "layerfs-scenario", version: 3, title: old.title, blurb, order: old.order, fixture: "seed.json", agents };
 writeFileSync(join(folder, "scenario.json"), `${JSON.stringify(scenario, null, 1)}\n`);
 
 // ------------------------------------------------------------------ summary

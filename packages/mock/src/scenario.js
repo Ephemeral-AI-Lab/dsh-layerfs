@@ -5,10 +5,8 @@
 //
 // scenario.json:
 //   { type: "layerfs-scenario", version: 3, title, blurb?, order?,
-//     layerfs: ["mocked", "real"] | ["real"], fixture?, lib?,
-//     agents: { root: Step[], <child>: Step[], … } }
-// `layerfs` lists the backends the scenario runs on: Mocked LayerFS (the
-// Host's simulator) and Real LayerFS. `fixture` is the folder its project is
+//     fixture?, lib?, agents: { root: Step[], <child>: Step[], … } }
+// Every scenario runs on LayerFS. `fixture` is the folder its project is
 // Inited from, or a seed file (`*.json`, seed.js) the plugin writes out to
 // <stateDir>/seeds/<name>/ when it loads; `lib` a module its bash steps call
 // (below).
@@ -59,7 +57,6 @@ import { pathToFileURL } from "node:url";
 import { readSeed } from "./seed.js";
 
 const TYPE = "layerfs-scenario";
-const BACKENDS = ["mocked", "real"];
 const DELIMITER = "JS";
 const NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const REF = /^@([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$/;
@@ -118,21 +115,18 @@ export function loadScenario(folder) {
 
 /**
  * Checks a parsed scenario and compiles it.
- * @returns {{ name, title, blurb, order, layerfs: string[], fixture, agents: Record<string, object[]>, prompts: Map<string, string>, parents: Map<string, string> }}
+ * @returns {{ name, title, blurb, order, fixture, agents: Record<string, object[]>, prompts: Map<string, string>, parents: Map<string, string> }}
  */
 export function compileScenario(raw, { name, folder, where = name }) {
   const fail = (path, message) => { throw new ScenarioError(`${where} ${path}`, message); };
   if (!isAbsolute(folder)) folder = resolve(folder);
   if (!isObject(raw)) fail("", "must be an object");
-  only(raw, ["type", "version", "title", "blurb", "order", "layerfs", "fixture", "lib", "agents"], "", fail);
+  only(raw, ["type", "version", "title", "blurb", "order", "fixture", "lib", "agents"], "", fail);
   if (raw.type !== TYPE) fail("type", `must be "${TYPE}"`);
   if (raw.version !== 3) fail("version", "must be 3");
   if (typeof raw.title !== "string" || !raw.title) fail("title", "must be a non-empty string");
   if (raw.blurb !== undefined && typeof raw.blurb !== "string") fail("blurb", "must be a string");
   if (raw.order !== undefined && !Number.isInteger(raw.order)) fail("order", "must be an integer");
-  if (!Array.isArray(raw.layerfs) || !raw.layerfs.length || !raw.layerfs.every((b) => BACKENDS.includes(b)) || new Set(raw.layerfs).size !== raw.layerfs.length) {
-    fail("layerfs", `lists the backends it runs on: ${BACKENDS.join(", ")}`);
-  }
   let lib = null;
   if (raw.lib !== undefined) {
     lib = resolve(folder, String(raw.lib));
@@ -166,7 +160,7 @@ export function compileScenario(raw, { name, folder, where = name }) {
   for (const agent of Object.keys(agents)) {
     if (agent !== "root" && !parents.has(agent)) fail(`agents.${agent}`, "no subagent step starts this agent");
   }
-  return { name, title: raw.title, blurb: raw.blurb ?? "", order: raw.order ?? null, layerfs: [...raw.layerfs], fixture, seed, agents, prompts, parents };
+  return { name, title: raw.title, blurb: raw.blurb ?? "", order: raw.order ?? null, fixture, seed, agents, prompts, parents };
 }
 
 function compileSteps(steps, path, context) {

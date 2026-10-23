@@ -22,9 +22,8 @@ Rules for agents working in this repository: the dsh-layerfs plugin bundle.
   `disabled: true`; a person turns it on from dsh's Plugins page. Never turn
   it on in someone else's profile. Its scenarios (`scenarios/`) touch only
   projects named `mock-…`, and each run has a 15-minute limit
-  (`packages/mock/src/progress.js`). A scenario that needs POSIX the Mocked
-  LayerFS simulator does not cover runs on Real LayerFS only
-  (`"layerfs": ["real"]`).
+  (`packages/mock/src/progress.js`). Every scenario runs on LayerFS; the
+  simulator (Mocked LayerFS) was removed on 2026-10-23.
 - It moved here from the layerfs repository's `dsh/` folder at `cea713e767`.
   The #352 history replay harness stayed there; the demo scenarios moved
   here as the scripted model's scenarios.
@@ -71,8 +70,7 @@ Rules for agents working in this repository: the dsh-layerfs plugin bundle.
   that reaches the limit has failed as a hang: diagnose it from source and
   bounded output before any rerun. macOS has no `timeout`; use
   `perl -e 'alarm 120; exec @ARGV' <command>`.
-- `pnpm test` stubs LayerFS (fake Docker, the simulator backend, recorded
-  traces) and starts no container or daemon. Live tests (a dsh web run; the
+- `pnpm test` stubs LayerFS (fake Docker, recorded traces) and starts no container or daemon. Live tests (a dsh web run; the
   worker's own live tests are LayerFS's) need a built LayerFS from
   `LAYERFS_SOURCE` and are run on purpose, never as part of `pnpm test`.
 - **Never restart dsh web while a run is live.** A restart stops the agents'

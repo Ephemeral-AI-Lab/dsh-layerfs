@@ -4,10 +4,6 @@
  "title": "One Sandbox, two Workspaces",
  "blurb": "Two Workspaces in one Sandbox started for them with separate overlays, a slow build left to a background job, an fs write that makes a mount stale, and the refusals that keep teardown explicit: Busy, Dirty.",
  "order": 4,
- "layerfs": [
-  "mocked",
-  "real"
- ],
  "fixture": "../../demo-workspace",
  "agents": {
   "root": [

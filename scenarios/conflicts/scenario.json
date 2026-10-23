@@ -4,10 +4,6 @@
  "title": "Conflicts",
  "blurb": "The two conflict kinds and how each is resolved: a Workspace against its Branch head (markers in the Workspace), and Branch against Branch (merge refused until the sides agree).",
  "order": 3,
- "layerfs": [
-  "mocked",
-  "real"
- ],
  "fixture": "../../demo-workspace",
  "lib": "../shared/terminal.mjs",
  "agents": {

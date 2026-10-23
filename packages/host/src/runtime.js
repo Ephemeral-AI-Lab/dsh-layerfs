@@ -18,7 +18,7 @@ import { execFile } from "node:child_process";
 import { connect } from "node:net";
 import { promisify } from "node:util";
 import { openRuntime } from "./config.js";
-import { isSim, within } from "./layerfs-client.js";
+import { within } from "./layerfs-client.js";
 
 const run = promisify(execFile);
 /** Workspaces one Sandbox's daemon admits (the SDK's daemon setup, `namespaces`). */
@@ -45,8 +45,8 @@ export async function projectRuntime(trees, collector, project, now = Date.now()
   {
     const [read, listed] = await Promise.all([within(trees.snapshot(project), trees.sandboxMs), within(trees.processes(project), trees.sandboxMs)]);
     if (read.late || listed.late) {
-      const sandboxes = isSim(project) ? [] : await quickSandboxes(collector, project, await containersOf(trees.spec), now);
-      return { project: project.name, simulated: isSim(project), sandboxes, gone: [], pending: true, level: worst(sandboxes.map((s) => s.level)) };
+      const sandboxes = await quickSandboxes(collector, project, await containersOf(trees.spec), now);
+      return { project: project.name, sandboxes, gone: [], pending: true, level: worst(sandboxes.map((s) => s.level)) };
     }
     const snap = read.value, processes = listed.value.items ?? [];
     const busy = collector.busyOf(project.name), mounts = collector.mountsOf(project.name);
@@ -68,7 +68,7 @@ export async function projectRuntime(trees, collector, project, now = Date.now()
       return { id: sb.id, name: sb.name ?? null, image: sb.image ?? null, capacity: CAPACITY, workspaces, level: worst([full ? "degraded" : "ok", ...workspaces.map((w) => w.level)]) };
     });
     const gone = (snap.gone ?? []).map(({ id, name, image }) => ({ id, name: name ?? null, image: image ?? null }));
-    return { project: project.name, simulated: isSim(project), sandboxes, gone, level: worst([...sandboxes.map((s) => s.level), gone.length ? "degraded" : "ok"]) };
+    return { project: project.name, sandboxes, gone, level: worst([...sandboxes.map((s) => s.level), gone.length ? "degraded" : "ok"]) };
   }
 }
 
@@ -117,13 +117,13 @@ export async function overview(spec, bindings, trees, collector) {
   const projects = bindings.projects();
   const cards = await Promise.all(projects.map(async (p) => {
     const own = containers.filter((c) => c.project === p.name);
-    const card = { name: p.name, simulated: isSim(p), containers: own.length, sandboxes: [], workspaces: 0, level: "ok", note: null };
+    const card = { name: p.name, containers: own.length, sandboxes: [], workspaces: 0, level: "ok", note: null };
     // a project with nothing running is read from Docker alone: no client, no Store opened
-    if (!own.some((c) => c.running) && !card.simulated) return card;
-    // the simulator's Sandboxes are its own state, read at once; a real project's from Docker and pings
+    if (!own.some((c) => c.running)) return card;
+    // a project's Sandboxes from Docker and pings
     let sandboxes;
     try {
-      sandboxes = card.simulated ? (await projectRuntime(trees, collector, p)).sandboxes : await quickSandboxes(collector, p, own);
+      sandboxes = await quickSandboxes(collector, p, own);
     } catch (error) {
       return { ...card, level: "down", note: error.message };
     }

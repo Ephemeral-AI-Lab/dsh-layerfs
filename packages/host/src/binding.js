@@ -14,7 +14,6 @@ import { join } from "node:path";
  * @property {string} name LayerFS project name (also its LayerFS home entry)
  * @property {string} source the folder Init imported
  * @property {string} volume Docker volume holding the project's Store
- * @property {"sim"} [backend] "sim": a simulated project (sim/), with no volume
  * @property {number} created Unix epoch milliseconds
  */
 

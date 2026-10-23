@@ -75,8 +75,6 @@ It follows the six steps below and asks before anything it cannot do. Expect a f
 
 These steps take a fresh clone of this repository to LayerFS × DSH in dsh web: first LayerFS itself, then the dsh bundle. Only dsh web is supported. dsh desktop serves the same web client but was not tested. The headless profile composes no preset registry, so it offers no preset; the Host and the bash environment still load there.
 
-Live projects run on real LayerFS and need every step. Sim projects run on the simulator and need only steps 2, 3, 5 and 6.
-
 ### You need
 
 | What | For | Notes |
@@ -195,7 +193,7 @@ The Host reads its deployment settings from `layerfs-host` in the profile's `cor
 | `containerPrefix` | `layerfs-` by default: Sandboxes `<prefix><project>-<n>` | the same, and the worker `<prefix>worker` |
 | `stateDir` | `<profile>/dsh-layerfs` by default (bindings, agent names, journals) | the same |
 
-A Live Init without the required settings is refused with "LayerFS is not configured: set … for layerfs-host in the profile patch"; `GET /layerfs/status` lists what is `missing`.
+An Init without the required settings is refused with "LayerFS is not configured: set … for layerfs-host in the profile patch"; `GET /layerfs/status` lists what is `missing`.
 
 ```yaml
 # $DSH_HOME/profiles/web/cordis.patch.yml
@@ -314,17 +312,6 @@ What you see ([TUTORIAL.md](TUTORIAL.md) walks through a first run with pictures
 - The sidebar's **LayerFS** page shows one project at a time: its Files, History, Storage and Sandboxes, a New session action, and Refresh and Remove. Its **All projects · Sandboxes** tab is the switcher: a card per project with its Sandboxes, below Docker, the worker (and the older Store container while it exists) and free disk.
 - The LayerFS page's **Runs** tab plays a recorded history replay run (layerfs #352) from its SDK traces: pick a run, then Play, Pause, a speed (1×–64×) and a slider, with a chip per traced range coloured by its gate verdict. Idle gaps over 3 s are cut. The Host reads the run folders under its `runs` setting (default `$LFS_HISTORY/runs`, else `~/lfs-history/runs`); only measured ranges have traces, and Files stays empty, since a trace holds no file content.
 
-A **Sim project** needs no Docker, image or build, but the chip's Import makes Live projects. Ask the Host for one directly. The `?token=` link sets the cookie the route needs:
-
-  ```sh
-  curl -s -c jar.txt -o /dev/null 'http://127.0.0.1:3090/?token=…'
-  curl -s -b jar.txt -H 'content-type: application/json' \
-    -d '{"folder":"/abs/workspace/folder","backend":"sim","name":"my-sim"}' http://127.0.0.1:3090/layerfs/init
-  curl -s -b jar.txt http://127.0.0.1:3090/layerfs/init/<job id>     # until "step": "done"
-  ```
-
-  The project becomes that folder's default, and the chip lists it in every workspace. Leave out `backend` for a Live Init the same way.
-
 ### 6. Check
 
 ```sh
@@ -332,7 +319,7 @@ cd "$DSH_LAYERFS" && pnpm test
 node tools/check-session.mjs 'http://127.0.0.1:3090/?token=…' <session id>
 ```
 
-`pnpm test` runs the Host, simulator, model and playback tests, with LayerFS stubbed or simulated; it starts no Docker container or daemon. `check-session.mjs` checks that a finished session's tabs draw what LayerFS reports. The page's URL does not carry the session id: a session is the folder `$DSH_HOME/sessions/<workspace>/session-<uuid>`, whose name is the id.
+`pnpm test` runs the Host, scripted model, model and playback tests, with LayerFS stubbed; it starts no Docker container or daemon. `check-session.mjs` checks that a finished session's tabs draw what LayerFS reports. The page's URL does not carry the session id: a session is the folder `$DSH_HOME/sessions/<workspace>/session-<uuid>`, whose name is the id.
 
 </details>
 
@@ -424,14 +411,14 @@ Branches into one, fix any Conflict, run the check once more, and publish to mai
 
 The LayerFS scripted model plays scripted agent runs through the real dsh agent loop and tools, without a language model, to test and show the LayerFS UI ([dsh-layerfs#1](https://github.com/Ephemeral-AI-Lab/dsh-layerfs/issues/1)). It ships in the bundle switched off: turn on `@dsh-layerfs/mock` on dsh's Plugins page. Off, nothing of it shows.
 
-- **Scenarios** live in [`scenarios/`](scenarios/), one folder each with a `scenario.json` (loader: [`packages/mock/src/scenario.js`](packages/mock/src/scenario.js)). Every step is one tool call of the minimalist preset, a reply, or a wait; bash steps run LayerFS SDK calls (`scenarios/shared/terminal.mjs`, or the scenario's own `scripts/`). Each lists the backends it runs on: **Mocked LayerFS** (the simulator in [`packages/host/src/sim`](packages/host/src/sim)) and **Real LayerFS**. `{{scenario}}` in a bash command becomes the scenario folder's absolute path when it loads (write it in double quotes: `layerfs fs apply main --from "{{scenario}}/changes/007.json"`). A bash step's `expect` lists the LayerFS outcome codes its trace lines should show, with the SDK's names as the trace writes them (`workspace.exec:exit:0`, `workspace.commit:Committed|UpToDate`); the loader's header comment has the grammar and refuses the older SDK's names.
-- **Replays** (`shop`, `depot`, `crew`; Real LayerFS only) play recorded runs of real agents (layerfs #334, #337, #340) again: each recorded step is one bash step of plain `layerfs` commands (helpers in [`scenarios/shared/replay.sh`](scenarios/shared/replay.sh)), with recorded writes applied from `changes/` and recorded commands run again in Workspaces. [`tools/replay/convert.mjs`](tools/replay/convert.mjs) generates each folder from the recording at layerfs `0c7d9c47c1^`; rerun it rather than editing by hand, and see each folder's `CONVERSION.md` for what it kept. Two rules trim them: a command is dropped when it already ran on the same Branch and nothing there changed since, and crew runs only its installs and each Branch's last build and test (the rest only verified). Their fixture is the recorded `seed.json` (it holds a `.git/HEAD`, which cannot live here as a file); the plugin writes it out to `<profile>/dsh-layerfs-mock/seeds/<scenario>/` when it loads. `node tools/replay/check.mjs <scenario>` checks a converted folder without running it.
+- **Scenarios** live in [`scenarios/`](scenarios/), one folder each with a `scenario.json` (loader: [`packages/mock/src/scenario.js`](packages/mock/src/scenario.js)). Every step is one tool call of the minimalist preset, a reply, or a wait; bash steps run LayerFS SDK calls (`scenarios/shared/terminal.mjs`, or the scenario's own `scripts/`). Every scenario runs on LayerFS. `{{scenario}}` in a bash command becomes the scenario folder's absolute path when it loads (write it in double quotes: `layerfs fs apply main --from "{{scenario}}/changes/007.json"`). A bash step's `expect` lists the LayerFS outcome codes its trace lines should show, with the SDK's names as the trace writes them (`workspace.exec:exit:0`, `workspace.commit:Committed|UpToDate`); the loader's header comment has the grammar and refuses the older SDK's names.
+- **Replays** (`shop`, `depot`, `crew`) play recorded runs of real agents (layerfs #334, #337, #340) again: each recorded step is one bash step of plain `layerfs` commands (helpers in [`scenarios/shared/replay.sh`](scenarios/shared/replay.sh)), with recorded writes applied from `changes/` and recorded commands run again in Workspaces. [`tools/replay/convert.mjs`](tools/replay/convert.mjs) generates each folder from the recording at layerfs `0c7d9c47c1^`; rerun it rather than editing by hand, and see each folder's `CONVERSION.md` for what it kept. Two rules trim them: a command is dropped when it already ran on the same Branch and nothing there changed since, and crew runs only its installs and each Branch's last build and test (the rest only verified). Their fixture is the recorded `seed.json` (it holds a `.git/HEAD`, which cannot live here as a file); the plugin writes it out to `<profile>/dsh-layerfs-mock/seeds/<scenario>/` when it loads. `node tools/replay/check.mjs <scenario>` checks a converted folder without running it.
 - **Checking a finished run**: `node tools/checks/run.mjs <profile dir> <root session id>` (the profile is `<dsh home>/profiles/web`) loads the scenario the run played, reads the Host's trace lines for the root and its subagents, and checks the run's state and every `expect`. A recorded `final.json` beside the scenario is reported as not checked: the order and final-tree checks ([`tools/checks/`](tools/checks/)) need a LayerFS client on the project.
-- **The Scenarios tab** on the LayerFS page lists every scenario with its latest run on each backend. A switch picks the backend; Run all queues every scenario it offers and runs up to 4 Mocked or 2 Real at once; each row has Run or Stop. A failed run shows why and keeps its project; Clean up removes the scenario projects no run is using.
-- **The Run bar** sits above a run's composer: the backend for the next run (locked while one goes), Stop or Run again, and "Step n of m · phase" with a thin bar.
-- **Each run** gets a new Session in the Scenarios workspace (`<profile>/dsh-layerfs-mock/Scenarios`) and its own project, `mock-<scenario>-<mocked|real>`, removed and Inited again from the scenario's fixture. A run fails on a failed step (a bash exit other than 0 included), a Stop, or after 15 minutes; nothing is retried. The latest run per scenario and backend is kept in `<profile>/dsh-layerfs-mock/runs.json`.
+- **The Scenarios tab** on the LayerFS page lists every scenario with its latest run. Run all queues every scenario and runs up to 2 at once; each row has Run or Stop. A failed run shows why and keeps its project; Clean up removes the scenario projects no run is using.
+- **The Run bar** sits above a run's composer: Stop or Run again, and "Step n of m · phase" with a thin bar.
+- **Each run** gets a new Session in the Scenarios workspace (`<profile>/dsh-layerfs-mock/Scenarios`) and its own project, `mock-<scenario>`, removed and Inited again from the scenario's fixture. A run fails on a failed step (a bash exit other than 0 included), a Stop, or after 15 minutes; nothing is retried. The latest run per scenario is kept in `<profile>/dsh-layerfs-mock/runs.json`.
 
-The Work and History tabs and the LayerFS page are the only LayerFS UI. The standalone HTML pages that used to live in the root `sdk_sim/` (the terminal UI page and its design preview) and their live server are removed; do not build or revive a standalone HTML or TUI page. What remains, the simulation engine, lives in [`sim/`](sim/): `simulation_engine/model.js` and `files.js`, which the client and the Host import, the terminal engine (`terminal.js`, `backend/sim.js`) and demo stories (`demo.js`) that the demos were written from, and the avatars (`avatars/`).
+The Work and History tabs and the LayerFS page are the only LayerFS UI. The standalone HTML pages that used to live in the root `sdk_sim/` (the terminal UI page and its design preview) and their live server are removed; do not build or revive a standalone HTML or TUI page. The simulator (Mocked LayerFS) is removed too. What remains of [`sim/`](sim/) is drawing code: `simulation_engine/model.js` (the views' state shape and `lineDiff`) and `files.js` (the Files tab's helpers), which the client imports, and the avatars (`avatars/`).
 
 ## ⚙️ How it works
 
@@ -446,7 +433,7 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
 
 - **Bash environment.** A bash call in a session bound to a project gets:
   - `DSH_LAYERFS_PROJECT` and the deployment settings;
-  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of `@layerfs/agent` and `@layerfs/backend`), `DSH_LAYERFS_CLI` (the `layerfs` command, the checkout's `cli/src/layerfs.js`; Mocked LayerFS projects get [`sim/layerfs.js`](packages/host/src/sim/layerfs.js), the same command over the simulator) and `DSH_LAYERFS_SKILL`;
+  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of `@layerfs/agent` and `@layerfs/backend`), `DSH_LAYERFS_CLI` (the `layerfs` command, the checkout's `cli/src/layerfs.js`) and `DSH_LAYERFS_SKILL`;
   - on macOS and Windows, `DSH_LAYERFS_WORKER_ENDPOINT` and `DSH_LAYERFS_WORKER_ADAPTER=dsh`;
   - a trace file per agent (`DSH_LAYERFS_TRACE`) and the bash call id as the trace step.
 
@@ -461,7 +448,7 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
   |---|---|
   | `GET /layerfs/status` | configuration |
   | `GET /layerfs/workspace?folder=` | a folder's projects |
-  | `POST /layerfs/init {folder, source?, name?, timeout?}` | check the request and start Init; answers its job at once. `timeout`: a Live Init's limit in ms (a positive whole number; omitted, LayerFS's 300 s); refused `invalid-timeout` (400) otherwise or for a simulated project |
+  | `POST /layerfs/init {folder, source?, name?, timeout?}` | check the request and start Init; answers its job at once. `timeout`: the Init's limit in ms (a positive whole number; omitted, LayerFS's 300 s); refused `invalid-timeout` (400) otherwise |
   | `GET /layerfs/init/<job>` | the Init's step (`scan`, `volume`, `import`, `done` or `failed`), the source's file and byte counts, then its project or error |
   | `GET /layerfs/session/<id>` | project, agents and trace lines of the session's root |
   | `POST /layerfs/session/<id>/project {project}` | choose a project, or `null` for none |
@@ -540,19 +527,8 @@ Run the preset's sessions in Workspace Write mode; subagents inherit it.
 </details>
 
 <details>
-<summary><b>🧪 Simulated projects</b></summary>
+<summary><b>🧪 Known limits</b></summary>
 
-Sim needs no Docker, image or daemon. `POST /layerfs/init` with `backend: "sim"` imports the folder into the simulator (`packages/host/src/sim/`) instead of a Store. A simulated project's bash calls get the SDK on the simulator as `DSH_LAYERFS_SDK`, so the same scripts run on both:
-- `sim/sdk.js` is the SDK itself with `LAYERFS_NATIVE` set to `sim/binding.js`, a native binding in JavaScript. The SDK's argument checks, refusals and trace lines are unchanged.
-- The binding's decisions (Commits, stale Workspaces, merges, conflict markers, `.lww`, publish) are the simulation engine's model (`sim/`). Its answers have the real binding's shapes and LayerFS's id formats, so the views and checks read both alike.
-- The state is `<LayerFS home>/<project>/sim/state.json`, changed by one call at a time under a lock file.
-- A mounted Workspace is a folder, `sim/ws/<sandbox>/<n>`. Commands run there with `/bin/sh`, and each call reads the folder back. On macOS a GNU-compatible `sed` (`sim/sed.js`) comes first on the command's PATH.
-- Background processes run detached and leave their exit code in `sim/proc/`. Removing the project stops them.
-
-The Host's own reads of a simulated project (Init, state, trees, storage) go to the binding directly. Store sizes are estimates from file text. Sim runs commands on the Host without a container.
-
-Known limits:
-- Sim imports the simulation engine's model from `sim/` at this repository's root, so the Host package needs this repository's tree beside it to Init or read a simulated project.
 - `demo-workspace` is inside this repository. A turn's "Edited" card lists every change made in the repository during the turn, including other work in the checkout.
 
 </details>
@@ -576,7 +552,7 @@ Known limits:
 
 | Command | Does |
 |---|---|
-| `pnpm test` | Host, simulator, scripted model, model, playback and checks tests, with LayerFS stubbed or simulated; under 10 seconds |
+| `pnpm test` | Host, scripted model, model, playback and checks tests, with LayerFS stubbed; under 10 seconds |
 | `pnpm run link:layerfs` | points `.layerfs` at `LAYERFS_SOURCE` (default `../layerfs`) |
 | `pnpm run check:layerfs` | fails unless `LAYERFS_SOURCE` (default `../layerfs`) is a LayerFS checkout at the commit in `layerfs.json` |
 | `pnpm run build` | the client bundle, with deepseek-harness's tsdown (`DSH_SOURCE`) |

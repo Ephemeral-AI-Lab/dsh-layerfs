@@ -4,10 +4,6 @@
  "title": "Commit & merge",
  "blurb": "A stale Workspace that merges cleanly on commit, a commit conflict fixed in the Workspace, a merge of two Branches into a new one, a merge conflict, and a publish.",
  "order": 4,
- "layerfs": [
-  "mocked",
-  "real"
- ],
  "fixture": "../../demo-workspace",
  "lib": "../shared/terminal.mjs",
  "agents": {

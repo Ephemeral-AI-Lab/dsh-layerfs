@@ -28,7 +28,6 @@ export function SandboxesTab({ name, runtime, error, reload }: { name: string, r
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderBottom: `1px solid ${T.border}`, fontFamily: 'var(--mono, ui-monospace, monospace)', fontSize: 12 }}>
         {runtime && <Dot level={runtime.level} />}
         <span>{runtime ? `${sandboxes.length} Sandbox${sandboxes.length === 1 ? '' : 'es'} · ${workspaces} Workspace${workspaces === 1 ? '' : 's'} · up to ${sandboxes[0]?.capacity ?? 16} each` : error ? 'Sandboxes not read' : 'Reading Sandboxes…'}</span>
-        {runtime?.simulated && <span style={{ color: T.caption }}>· Mocked LayerFS</span>}
         <span style={{ flex: 1 }} />
         <Button variant="ghost" size="sm" onClick={reload} disabled={!!busy}>Refresh</Button>
       </div>

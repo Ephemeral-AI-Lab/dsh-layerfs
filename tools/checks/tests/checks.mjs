@@ -83,7 +83,7 @@ try {
   const scenarios = join(home, "scenarios"), profile = join(home, "profile");
   mkdirSync(join(scenarios, "small"), { recursive: true });
   writeFileSync(join(scenarios, "small", "scenario.json"), JSON.stringify({
-    type: "layerfs-scenario", version: 3, title: "Small", layerfs: ["real"],
+    type: "layerfs-scenario", version: 3, title: "Small",
     agents: {
       root: [{ bash: { description: "fork", command: "layerfs branch fork cart" }, expect: ["branch.fork:Forked"] }, { subagent: { description: "helper", prompt: "Help." } }, { reply: "Waiting.", until: ["helper"] }, { bash: { description: "log", command: "layerfs branch list_commits cart" } }],
       helper: [{ bash: { description: "apply", command: 'layerfs fs apply cart --from "{{scenario}}/changes/000.json"' }, expect: ["fs.apply:Committed|UpToDate"] }],
@@ -92,8 +92,8 @@ try {
   mkdirSync(join(profile, "dsh-layerfs-mock"), { recursive: true });
   mkdirSync(join(profile, "dsh-layerfs", "lines"), { recursive: true });
   const record = (state, error = null) => writeFileSync(join(profile, "dsh-layerfs-mock", "runs.json"), JSON.stringify({
-    sessions: { "session-r1": { scenario: "small", backend: "real" } },
-    runs: { "small:real": { sessionId: "session-r1", state, error, agents: {}, started: 0, ended: 4200 } },
+    sessions: { "session-r1": { scenario: "small" } },
+    runs: { "small": { sessionId: "session-r1", state, error, agents: {}, started: 0, ended: 4200 } },
   }));
   record("passed");
   const journal = (rows) => writeFileSync(join(profile, "dsh-layerfs", "lines", "session-r1.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
@@ -103,7 +103,7 @@ try {
     { ...line("s2", "02.000", "fs.apply", "UpToDate"), agent: "helper", agentId: "child-1" },
   ]);
   let result = checkRun(profile, "r1", scenarios);
-  assert.deepEqual([result.scenario, result.backend, result.project, result.failures], ["small", "real", "mock-small-real", []]);
+  assert.deepEqual([result.scenario, result.project, result.failures], ["small", "mock-small", []]);
   assert.deepEqual(result.notRun, []);
   // a failed run, a line of an agent the scenario lacks, and a missing outcome fail
   record("failed", "root: agents.root[0] failed");

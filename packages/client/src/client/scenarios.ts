@@ -1,27 +1,23 @@
 // The LayerFS scripted model's scenarios, read from the Host's /layerfs-mock
 // route (absent while the plugin is off: every read answers null), and one
-// run of a scenario on Mocked or Real LayerFS. Each run gets a new Session in
-// the Scenarios workspace and a project of its own, mock-<scenario>-<backend>,
-// Inited again from the scenario's fixture. A run's progress is the Host's
+// run of a scenario on LayerFS. Each run gets a new Session in the Scenarios
+// workspace and the scenario's own project, mock-<scenario>, Inited again from
+// the scenario's fixture. A run's progress is the Host's
 // (mock/src/progress.js): this file starts runs and reads them.
 import { api, type InitJob } from './api.ts'
 
-export type Backend = 'mocked' | 'real'
-export const BACKENDS: readonly Backend[] = ['mocked', 'real']
-export const backendLabel = (b: Backend) => (b === 'mocked' ? 'Mocked LayerFS' : 'Real LayerFS')
-
-/** Runs at once on each backend: Mocked runs are light, Real ones start Sandboxes. */
-export const MAX_RUNS: Record<Backend, number> = { mocked: 4, real: 2 }
-/** The queued runs ("<scenario>:<backend>") to start now on `backend`, with `going` already going. */
-export function nextStarts(queue: readonly string[], backend: Backend, going: number): string[] {
-  return queue.filter((k) => k.endsWith(`:${backend}`)).slice(0, Math.max(0, MAX_RUNS[backend] - going))
+/** Runs at once: each starts Sandboxes. */
+export const MAX_RUNS = 2
+/** The queued scenarios to start now, with `going` runs already going. */
+export function nextStarts(queue: readonly string[], going: number): string[] {
+  return queue.slice(0, Math.max(0, MAX_RUNS - going))
 }
 
 /** A run's progress, from the scripted model's replies. */
 export interface ScenarioRun { sessionId: string, state: 'running' | 'passed' | 'failed', done: number, of: number, phase: string | null, error: string | null, timedOut?: boolean, started: number, ended: number | null }
-export interface Scenario { id: string, title: string, blurb: string | null, agents: string[], layerfs: Backend[], fixture: string | null, runs: Record<Backend, ScenarioRun | null> }
+export interface Scenario { id: string, title: string, blurb: string | null, agents: string[], fixture: string | null, run: ScenarioRun | null }
 export interface MockInfo { workspace: string, preset: string, provider: string, prompt: string, scenarios: Scenario[] }
-export interface SessionRun { scenario: string, backend: Backend, run: ScenarioRun | null }
+export interface SessionRun { scenario: string, run: ScenarioRun | null }
 
 type Result<T> = { ok: true, value: T } | { ok: false, error: { code?: string, message?: string } }
 interface Workspace { workspaceId: string, path: string }
@@ -61,29 +57,29 @@ export const mockApi = {
   info: () => call<MockInfo>('GET', '').catch(orNull),
   /** what `sessionId` plays, or null when it plays no scenario (or the plugin is off) */
   session: (sessionId: string) => call<SessionRun>('GET', `/session/${encodeURIComponent(sessionId)}`).catch(orNull),
-  setSession: (id: string, backend: Backend, sessionId: string) => call<Scenario>('POST', `/${encodeURIComponent(id)}/session`, { backend, sessionId }),
+  setSession: (id: string, sessionId: string) => call<Scenario>('POST', `/${encodeURIComponent(id)}/session`, { sessionId }),
   /** marks the run stopped: its agents get no further step */
   stop: (sessionId: string) => call<{ state: string, error: string | null }>('POST', `/session/${encodeURIComponent(sessionId)}/stop`, {}),
 }
 
-/** A scenario's project on a backend: one each, Inited again on every run. */
-export const projectOf = (id: string, backend: Backend) => `mock-${id}-${backend}`
-export const isScenarioProject = (name: string) => /^mock-.+-(mocked|real)$/.test(name)
+/** A scenario's project: one each, Inited again on every run. */
+export const projectOf = (id: string) => `mock-${id}`
+export const isScenarioProject = (name: string) => /^mock-.+$/.test(name)
 
 const value = <T,>(what: string, result: Result<T>): T => {
   if (result.ok) return result.value
   throw Object.assign(new Error(`${what}: ${result.error.message ?? result.error.code ?? 'refused'}`), { code: result.error.code })
 }
 
-/** Inits `name` from `source` for `folder` on `backend` and reads its job until it ends. */
-async function initProject(folder: string, source: string, name: string, backend: Backend, onJob: (job: InitJob) => void): Promise<void> {
+/** Inits `name` from `source` for `folder` and reads its job until it ends. */
+async function initProject(folder: string, source: string, name: string, onJob: (job: InitJob) => void): Promise<void> {
   const request = async (method: string, path: string, body?: unknown): Promise<{ job: InitJob }> => {
     const res = await fetch(`/layerfs${path}`, { method, credentials: 'same-origin', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
     const data = await res.json().catch(() => null)
     if (!res.ok) throw Object.assign(new Error(data?.message ?? `the LayerFS route answered ${res.status}`), { code: data?.code, status: res.status })
     return data
   }
-  let { job } = await request('POST', '/init', { folder, name, source, ...(backend === 'mocked' ? { backend: 'sim' } : {}) })
+  let { job } = await request('POST', '/init', { folder, name, source })
   for (;;) {
     onJob(job)
     if (job.step === 'done') return
@@ -97,37 +93,33 @@ async function initProject(folder: string, source: string, name: string, backend
 export type StartStep = { step: 'session' } | { step: 'project' } | { step: 'init', job: InitJob | null } | { step: 'start' }
 
 /**
- * Starts a run of `scenario` on `backend`, attempting each step once: a new
- * Session in the Scenarios workspace on the scenario's model; the scenario's
- * project for the backend removed (its Sandboxes stopped) and Inited again
- * from its fixture; the Session bound to it and recorded as the run's root;
- * then the first message. Real LayerFS is refused before any of it while the
- * Host's deployment settings are missing. A failure before the first message ends the start
+ * Starts a run of `scenario`, attempting each step once: a new Session in the
+ * Scenarios workspace on the scenario's model; the scenario's project removed
+ * (its Sandboxes stopped) and Inited again from its fixture; the Session bound
+ * to it and recorded as the run's root; then the first message. A run is
+ * refused before any of it while the Host's deployment settings are missing. A failure before the first message ends the start
  * with its message; the unused Session stays, empty.
  * @returns the run's root Session id
  */
-export async function startRun(services: RunServices, info: MockInfo, scenario: Scenario, backend: Backend, onStep: (step: StartStep) => void, open = true): Promise<string> {
+export async function startRun(services: RunServices, info: MockInfo, scenario: Scenario, onStep: (step: StartStep) => void, open = true): Promise<string> {
   if (!services.remote) throw new Error('this client has no Remote session services')
-  if (!scenario.layerfs.includes(backend)) throw new Error(`${scenario.title} runs on ${scenario.layerfs.map(backendLabel).join(' and ')} only`)
   if (!scenario.fixture) throw new Error(`${scenario.title} has no fixture to Init its project from`)
   const { session, workspace } = services.remote
   onStep({ step: 'session' })
-  // Real LayerFS needs the Host's deployment settings: say so before making a Session
-  if (backend === 'real') {
-    const status = await api.status()
-    if (!status.configured) throw new Error(`Real LayerFS isn't set up: layerfs-host is missing ${status.missing.join(', ')}`)
-  }
+  // a run needs the Host's deployment settings: say so before making a Session
+  const status = await api.status()
+  if (!status.configured) throw new Error(`LayerFS isn't set up: layerfs-host is missing ${status.missing.join(', ')}`)
   const ws = value('register the Scenarios workspace', await workspace.create({ path: info.workspace })).workspace
   const { sessionId } = value('create the Session', await session.create({ workspaceId: ws.workspaceId, agentPreset: info.preset }))
-  value('name the Session', await session.rename({ sessionId, title: `${scenario.title} · ${backend === 'mocked' ? 'Mocked' : 'Real'}` }))
+  value('name the Session', await session.rename({ sessionId, title: scenario.title }))
   value('choose the scripted model', await session.selectModel({ sessionId, provider: info.provider, model: scenario.id }))
   onStep({ step: 'project' })
-  const project = projectOf(scenario.id, backend)
+  const project = projectOf(scenario.id)
   await api.remove(project, true).catch((error) => { if (error.status !== 404) throw error })
   onStep({ step: 'init', job: null })
-  await initProject(info.workspace, scenario.fixture, project, backend, (job) => onStep({ step: 'init', job }))
+  await initProject(info.workspace, scenario.fixture, project, (job) => onStep({ step: 'init', job }))
   await api.choose(sessionId, project)
-  await mockApi.setSession(scenario.id, backend, sessionId)
+  await mockApi.setSession(scenario.id, sessionId)
   onStep({ step: 'start' })
   value('send the first message', await session.prompt({ requestId: crypto.randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: info.prompt }] }))
   if (open) services.uiWorkspace?.openSession(sessionId)

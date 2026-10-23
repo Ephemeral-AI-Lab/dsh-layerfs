@@ -7,7 +7,6 @@ import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, posix } from "node:path";
-import { fileURLToPath } from "node:url";
 import { LayerFSRuntime } from "@layerfs/runtime";
 import { LAYERFS } from "./source.js";
 
@@ -53,12 +52,9 @@ export const VOLUMES = "/var/lib/docker/volumes";
  * @property {boolean} traceInWorkspace Windows default: traces use the shell's writable workspace.
  * @property {number} pollMs
  * @property {string} runs history replay runs: the setting, else $LFS_HISTORY/runs, else ~/lfs-history/runs (the harness's own default)
- * @property {string} sdk file URL of @layerfs/agent, which Live projects' scripts import
+ * @property {string} sdk file URL of @layerfs/agent, which agents' scripts import
  * @property {string} backend file URL of @layerfs/backend
  * @property {string} cli path of the layerfs command (the LayerFS checkout's cli/src/layerfs.js)
- * @property {string} simSdk file URL of the agent on the simulator (sim/sdk.js), for simulated projects
- * @property {string} simBackend file URL of its backend (sim/backend.js)
- * @property {string} simCli path of the layerfs command on the simulator (sim/layerfs.js)
  * @property {{ distribution: string, user: string, node: string, home: string }} [wsl] Windows: the WSL deployment
  * @property {Promise<LayerFSRuntime>} [runtime] the Host's runtime, once openRuntime has opened it
  */
@@ -94,9 +90,6 @@ export function resolveConfig(config, profile) {
     sdk: import.meta.resolve("@layerfs/agent"),
     backend: import.meta.resolve("@layerfs/backend"),
     cli: join(LAYERFS, "cli/src/layerfs.js"),
-    simSdk: new URL("./sim/sdk.js", import.meta.url).href,
-    simBackend: new URL("./sim/backend.js", import.meta.url).href,
-    simCli: fileURLToPath(new URL("./sim/layerfs.js", import.meta.url)),
   };
   if (windows) {
     // the Host's default before #428, so an existing WSL home stays where it is

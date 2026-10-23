@@ -1,25 +1,17 @@
 // "Init LayerFS": imports a folder as a new LayerFS project, the dsh
-// workspace folder's default project. A live project is the runtime's Init
+// workspace folder's default project. A project is the runtime's Init
 // (@layerfs/runtime start_init: count the source, make its own Docker volume,
 // one LayerFS Init), watched until it ends; the Host names the project, makes
-// an empty one's folder and binds the result. A simulated project (backend
-// "sim") is imported into the simulator (sim/) instead: no Docker, no
-// deployment settings.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { lstat, opendir } from "node:fs/promises";
+// an empty one's folder and binds the result.
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { setTimeout as pause } from "node:timers/promises";
 import { missingDeployment, openRuntime, runtimeState } from "./config.js";
-import { isSim } from "./layerfs-client.js";
-import { initSim } from "./sim/client.js";
 
 const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/;
 const WATCH_MS = 250;
 const IMAGE = /^sha256:[0-9a-f]{64}$/;
-/** The demo scenarios (the mock plugin's default folder), for their `live` flag. */
-const SCENARIOS = fileURLToPath(new URL("../../../scenarios/", import.meta.url));
 
 const refuse = (code, message, status = undefined) => Object.assign(new Error(message), { code, ...(status ? { status } : {}) });
 
@@ -48,53 +40,23 @@ export function randomName(taken, home, pick = Math.random) {
 }
 
 /**
- * Counts what a simulated Init imports, before it starts: every entry under
- * `source` (links not followed) and the bytes of its regular files. `report`
- * sees the running counts. (A live Init's counts are the runtime's.)
- * @returns {Promise<{ entries: number, files: number, bytes: number }>}
- */
-export async function scanSource(source, report = () => {}) {
-  const counts = { entries: 1, files: 0, bytes: 0 }, dirs = [source];
-  while (dirs.length) {
-    const dir = dirs.pop();
-    for await (const entry of await opendir(dir)) {
-      counts.entries++;
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) dirs.push(path);
-      else if (entry.isFile()) { counts.files++; counts.bytes += (await lstat(path)).size; }
-    }
-    report({ ...counts });
-  }
-  return counts;
-}
-
-/** Whether `name` is the simulator project of a demo that runs on Live LayerFS only (`live` in its scenario). */
-export function liveOnlyDemo(name, scenarios = SCENARIOS) {
-  const id = /^demo-(.+)-sim$/.exec(name ?? "")?.[1];
-  if (!id) return false;
-  try { return JSON.parse(readFileSync(join(scenarios, id, "scenario.json"), "utf8")).live === true; } catch { return false; }
-}
-
-/**
  * Checks an Init request and names its project, without changing anything.
  * `image` gives the project's Sandboxes their own runtime image (a replayed
  * demo's), instead of the Host's. `timeout` (milliseconds, a positive whole
- * number) bounds a Live Init; omitted, LayerFS's default (INIT_TIMEOUT_MS,
+ * number) bounds the Init; omitted, LayerFS's default (INIT_TIMEOUT_MS,
  * 300 s) applies. It stays on the prepared Init, not in the project's record. Whether this process may install a Store
  * (Linux: Docker's volumes directory, the home's owner) the runtime checks
  * when the Init starts.
  * @param {object} spec resolved Host settings
  * @param {import("./binding.js").BindingStore} bindings
- * @param {{ folder: string, source?: string, name?: string, backend?: "sim", image?: string, timeout?: number, empty?: boolean }} request
+ * @param {{ folder: string, source?: string, name?: string, image?: string, timeout?: number, empty?: boolean }} request
  *   `empty`: a project with nothing in it (an empty folder made here, removed after Init), named at random unless `name` is given
  * @param {Set<string>} [pending] names of Inits still running
  */
-export function prepareInit(spec, bindings, { folder, source = folder, name, backend, image, timeout, empty = false }, pending = new Set()) {
-  if (backend !== undefined && backend !== "sim") throw refuse("invalid-backend", "backend is \"sim\" or omitted");
-  if (image !== undefined && (backend === "sim" || !IMAGE.test(image))) throw refuse("invalid-image", "image is a runtime image digest sha256:<64 hex>, for a Live project");
-  if (timeout !== undefined && (backend === "sim" || !(Number.isSafeInteger(timeout) && timeout > 0))) throw refuse("invalid-timeout", "timeout is a positive whole number of milliseconds, for a Live project", 400);
-  if (backend === "sim" && liveOnlyDemo(name)) throw refuse("live-only", `${name} is a demo that runs on Live LayerFS only`);
-  const missing = backend === "sim" ? [] : missingDeployment(spec);
+export function prepareInit(spec, bindings, { folder, source = folder, name, image, timeout, empty = false }, pending = new Set()) {
+  if (image !== undefined && !IMAGE.test(image)) throw refuse("invalid-image", "image is a runtime image digest sha256:<64 hex>");
+  if (timeout !== undefined && !(Number.isSafeInteger(timeout) && timeout > 0)) throw refuse("invalid-timeout", "timeout is a positive whole number of milliseconds", 400);
+  const missing = missingDeployment(spec);
   if (missing.length) throw refuse("not-configured", `LayerFS is not configured: set ${missing.join(" and ")} for layerfs-host in the profile patch`);
   for (const path of empty ? [folder] : [folder, source]) {
     if (!isAbsolute(path) || !existsSync(path) || !statSync(path).isDirectory()) throw refuse("invalid-folder", `${path} is not an absolute directory`);
@@ -104,7 +66,6 @@ export function prepareInit(spec, bindings, { folder, source = folder, name, bac
   const project = { name: name ?? (empty ? randomName(taken, spec.home) : freeName(nameFrom(source), taken, spec.home)), source, created: Date.now() };
   if (taken.has(project.name) || existsSync(join(spec.home, project.name))) throw refuse("name-taken", `a LayerFS project named ${project.name} exists`);
   if (image) project.image = image;
-  if (backend === "sim") Object.assign(project, { backend, volume: `sim-${project.name}` });
   if (empty) Object.assign(project, { source: mkdtempSync(join(tmpdir(), "dsh-layerfs-empty-")), empty: true });
   return { folder, project, ...(timeout !== undefined ? { timeout } : {}) };
 }
@@ -119,7 +80,7 @@ export function prepareInit(spec, bindings, { folder, source = folder, name, bac
  */
 export async function runInit(spec, bindings, { folder, project, timeout }, report = () => {}) {
   try {
-    const made = isSim(project) ? await initSimulated(spec, project, report) : await initLive(spec, project, timeout, report);
+    const made = await initLayerFS(spec, project, timeout, report);
     bindings.addProject(folder, made);
     return made;
   } finally {
@@ -127,16 +88,7 @@ export async function runInit(spec, bindings, { folder, project, timeout }, repo
   }
 }
 
-async function initSimulated(spec, project, report) {
-  report({ step: "scan" });
-  const totals = await scanSource(project.source, (counts) => report({ scanned: counts }));
-  report({ step: "volume", totals });
-  report({ step: "import" });
-  await initSim(spec.home, project.name, project.source);
-  return project;
-}
-
-async function initLive(spec, project, timeout, report) {
+async function initLayerFS(spec, project, timeout, report) {
   const runtime = await openRuntime(spec);
   const options = { ...(project.image ? { image: project.image } : {}), ...(timeout !== undefined ? { timeout } : {}) };
   let job = await runtime.project.start_init(project.name, project.source, options);
@@ -156,7 +108,7 @@ async function initLive(spec, project, timeout, report) {
 export const initProject = (spec, bindings, request, report) => runInit(spec, bindings, prepareInit(spec, bindings, request), report);
 
 /**
- * Gives every live project the Host bound before it used the runtime its
+ * Gives every project the Host bound before it used the runtime its
  * runtime record (<home>/.runtime/projects/<name>.json: name, volume, image,
  * source, created), so runtime.project.get_state, sandbox.reclaim and remove
  * know its volume. The runtime has no call for this (a gap reported to
@@ -166,7 +118,7 @@ export const initProject = (spec, bindings, request, report) => runInit(spec, bi
 export function adopt(spec, bindings) {
   const dir = join(runtimeState(spec), "projects"), adopted = [];
   for (const project of bindings.projects()) {
-    if (isSim(project) || !NAME.test(project.name) || !project.volume) continue;
+    if (!NAME.test(project.name) || !project.volume) continue;
     const file = join(dir, `${project.name}.json`);
     if (existsSync(file)) continue;
     mkdirSync(dir, { recursive: true });
