@@ -1,0 +1,12 @@
+{"label": "qualified-live-check-crew", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-5872ec3f-709d-49e6-a9dc-2c53291a31fb"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+crew (project mock-crew-875e525a-89e9-4f93-b54e-bcd6dc588e4b)
+  run: passed in 619.3 s
+  lines: 1278 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-5872ec3f-709d-49e6-a9dc-2c53291a31fb.jsonl
+  root: 128 bash call(s) with LayerFS lines, 128 checked, 128 matched
+  people: 50 bash call(s) with LayerFS lines, 50 checked, 50 matched
+  work-b: 36 bash call(s) with LayerFS lines, 36 checked, 36 matched
+  work-a: 45 bash call(s) with LayerFS lines, 45 checked, 45 matched
+  insight-a: 49 bash call(s) with LayerFS lines, 49 checked, 49 matched
+  insight-b: 46 bash call(s) with LayerFS lines, 46 checked, 46 matched
+  order and final tree against C:\Users\yifan\code\Ephemeral-AI-Lab\dsh-layerfs\scenarios\crew\final.json: NOT_RUN, missing a LayerFS client on the run's project from outside dsh web: on macOS and Windows its Store calls go through the home's worker, whose endpoint the Host gives agents (DSH_LAYERFS_WORKER_ENDPOINT), not this command; a read-only byte hash of main's files: fs.read refuses binary files, so tree.mjs forks a Branch and mounts a Workspace to run sha256sum, which writes to the project; main's Layers for the order check: backend.store.project.get_history, which the layerfs command does not offer
+PASS: every check that ran holds

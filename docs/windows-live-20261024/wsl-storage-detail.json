@@ -1,0 +1,18 @@
+{
+  "label": "wsl-storage-detail",
+  "timeout": 110,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "105",
+    "bash",
+    "-s"
+  ],
+  "stdin": "set -eu\ndocker ps -a --format '{{.ID}} {{.Names}} {{.Status}}'\nfindmnt -T /var/lib/docker\ndf -B1 /var/lib/docker\nls -la /home/yifan\ncat ~/.cache/layerfs-worktrees/layerfs-35da0b81b957/resources.json\n",
+  "exit_code": 0,
+  "elapsed_s": 7.047,
+  "at": "2026-10-24T05:18:57.874596"
+}

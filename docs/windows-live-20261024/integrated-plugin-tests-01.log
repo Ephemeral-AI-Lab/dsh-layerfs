@@ -1,0 +1,17 @@
+{"label": "integrated-plugin-tests-01", "timeout": 120, "args": ["cmd.exe", "/d", "/c", "pnpm test"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+
+> dsh-layerfs-workspace@ test C:\Users\yifan\code\Ephemeral-AI-Lab\dsh-layerfs
+> node tools/layerfs-source.mjs link && node packages/host/tests/host.mjs && node packages/host/tests/agent.mjs && node packages/host/tests/bindings-shared.mjs && node packages/mock/tests/mock.mjs && node packages/model/tests/cli.mjs && node packages/client/tests/playback.mjs && node packages/client/tests/initlimit.mjs && node packages/client/tests/historycache.mjs && node packages/model/tests/trace.mjs && node tools/checks/tests/checks.mjs
+
+layerfs-source: .layerfs -> C:\Users\yifan\code\Ephemeral-AI-Lab\layerfs-428-verification, at the pinned commit
+host: ok
+agent wrappers: ok
+bindings-shared: ok
+seed POSIX executable modes and symlinks: NOT_RUN on Windows
+mock: ok (10 scenarios)
+PASS cli: 43 methods routed, 31 lines
+playback: ok (16 steps)
+initlimit: ok
+historycache: ok
+PASS model trace: 36 lines, 3 Branches, 1 Sandboxes, 7 attributed nodes
+checks: ok

@@ -1,0 +1,11 @@
+{"label": "failed-session-parallel", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-7664600f-60fc-43fd-b116-7560dc4de0e2"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+parallel (project mock-parallel)
+  lines: C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-7664600f-60fc-43fd-b116-7560dc4de0e2.jsonl does not exist (no LayerFS call was traced)
+  lines: 0 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-7664600f-60fc-43fd-b116-7560dc4de0e2.jsonl
+  FAIL run: failed (footer: agents.footer[0] (Fork footer, write and test it) expected branch.fork:Forked, fs.write:Committed, sandbox.create:ok, workspace.mount:Mounted, workspace.exec:exit:0, workspace.unmount:Unmounted, sandbox.close:Closed, branch.list_commits:ok; its LayerFS calls show nothing, so footer stops here: [stderr]
+      0 [main] bash (5912) E:\Git\bin\..\usr\bin\bash.exe: *** fatal error - CreateFileMapping S-1-5-21-137653902-1729454338-2926228789-1001.1, Win32 error 5.  Terminating.
+[exit code: 3221225794])
+  FAIL root: no LayerFS calls on the trace
+  FAIL header: no LayerFS calls on the trace
+  FAIL footer: no LayerFS calls on the trace
+FAIL: 4 failure(s)

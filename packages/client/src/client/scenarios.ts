@@ -1,7 +1,7 @@
 // The LayerFS scripted model's scenarios, read from the Host's /layerfs-mock
 // route (absent while the plugin is off: every read answers null), and one
 // run of a scenario on LayerFS. Each run gets a new Session in the Scenarios
-// workspace and the scenario's own project, mock-<scenario>, Inited again from
+// workspace and a fresh project, mock-<scenario>-<uuid>, Inited from
 // the scenario's fixture. A run's progress is the Host's
 // (mock/src/progress.js): this file starts runs and reads them.
 import { api, type InitJob } from './api.ts'
@@ -14,7 +14,7 @@ export function nextStarts(queue: readonly string[], going: number): string[] {
 }
 
 /** A run's progress, from the scripted model's replies. */
-export interface ScenarioRun { sessionId: string, state: 'running' | 'passed' | 'failed', done: number, of: number, phase: string | null, error: string | null, timedOut?: boolean, started: number, ended: number | null }
+export interface ScenarioRun { sessionId: string, project?: string | null, state: 'running' | 'passed' | 'failed', done: number, of: number, phase: string | null, error: string | null, timedOut?: boolean, started: number, ended: number | null }
 /** What the loader counts: agents, steps, and the LayerFS calls the steps' expect covers. */
 export interface ScenarioCounts { agents: number, steps: number, calls: string[] }
 export interface Scenario { id: string, title: string, blurb: string | null, tags: string[], counts: ScenarioCounts, agents: string[], fixture: string | null, run: ScenarioRun | null }
@@ -68,13 +68,13 @@ export const mockApi = {
   info: () => call<MockInfo>('GET', '').catch(orNull),
   /** what `sessionId` plays, or null when it plays no scenario (or the plugin is off) */
   session: (sessionId: string) => call<SessionRun>('GET', `/session/${encodeURIComponent(sessionId)}`).catch(orNull),
-  setSession: (id: string, sessionId: string) => call<Scenario>('POST', `/${encodeURIComponent(id)}/session`, { sessionId }),
+  setSession: (id: string, sessionId: string, project: string) => call<Scenario>('POST', `/${encodeURIComponent(id)}/session`, { sessionId, project }),
   /** marks the run stopped: its agents get no further step */
   stop: (sessionId: string) => call<{ state: string, error: string | null }>('POST', `/session/${encodeURIComponent(sessionId)}/stop`, {}),
 }
 
-/** A scenario's project: one each, Inited again on every run. */
-export const projectOf = (id: string) => `mock-${id}`
+/** A run's project, falling back to the older per-scenario name. */
+export const projectOf = (id: string, run?: ScenarioRun | null) => run?.project ?? `mock-${id}`
 export const isScenarioProject = (name: string) => /^mock-.+$/.test(name)
 
 const value = <T,>(what: string, result: Result<T>): T => {
@@ -105,8 +105,8 @@ export type StartStep = { step: 'session' } | { step: 'project' } | { step: 'ini
 
 /**
  * Starts a run of `scenario`, attempting each step once: a new Session in the
- * Scenarios workspace on the scenario's model; the scenario's project removed
- * (its Sandboxes stopped) and Inited again from its fixture; the Session bound
+ * Scenarios workspace on the scenario's model; a fresh project Inited from
+ * its fixture, preserving previous runs' projects; the Session bound
  * to it and recorded as the run's root; then the first message. A run is
  * refused before any of it while the Host's deployment settings are missing. A failure before the first message ends the start
  * with its message; the unused Session stays, empty.
@@ -125,12 +125,11 @@ export async function startRun(services: RunServices, info: MockInfo, scenario: 
   value('name the Session', await session.rename({ sessionId, title: scenario.title }))
   value('choose the scripted model', await session.selectModel({ sessionId, provider: info.provider, model: scenario.id }))
   onStep({ step: 'project' })
-  const project = projectOf(scenario.id)
-  await api.remove(project, true).catch((error) => { if (error.status !== 404) throw error })
+  const project = `${projectOf(scenario.id)}-${crypto.randomUUID()}`
   onStep({ step: 'init', job: null })
   await initProject(info.workspace, scenario.fixture, project, (job) => onStep({ step: 'init', job }))
   await api.choose(sessionId, project)
-  await mockApi.setSession(scenario.id, sessionId)
+  await mockApi.setSession(scenario.id, sessionId, project)
   onStep({ step: 'start' })
   value('send the first message', await session.prompt({ requestId: crypto.randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: info.prompt }] }))
   if (open) services.uiWorkspace?.openSession(sessionId)

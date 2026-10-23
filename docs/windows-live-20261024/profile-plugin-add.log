@@ -1,0 +1,15 @@
+{"label": "profile-plugin-add", "timeout": 110, "args": ["cmd.exe", "/d", "/c", "pnpm --dir C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness dsh plugin --profile web add link:C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/dsh-layerfs"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+$ node --import tsx/esm apps/cli/src/bin.ts plugin --profile web add link:C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/dsh-layerfs
+✓ Lockfile passes supply-chain policies (verified 1d ago)
+[WARN] deprecated dsh-codex-shell@0.1.2: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+Progress: resolved 1, reused 0, downloaded 0, added 0
+[ERR_PNPM_MALFORMED_METADATA] Received malformed metadata for "dsh-loop"
+
+This might mean that the package was unpublished from the registry
+[ERR_PNPM_MALFORMED_METADATA] Received malformed metadata for "dsh-loop"
+
+This error happened while installing a direct dependency of C:\Users\yifan\.dsh\profiles\web
+
+This might mean that the package was unpublished from the registry
+dsh: plugin command failed; diagnostics: C:\Users\yifan\.dsh\profiles\web\.plugin-manager\logs\operation-QcEHTQ\pnpm.log
+[ELIFECYCLE] Command failed with exit code 1.

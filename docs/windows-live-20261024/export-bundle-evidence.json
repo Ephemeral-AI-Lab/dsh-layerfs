@@ -1,0 +1,18 @@
+{
+  "label": "export-bundle-evidence",
+  "timeout": 30,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "25",
+    "bash",
+    "-s"
+  ],
+  "stdin": "set -eu\nr=/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3\nout=/mnt/c/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify\ncp \"$r/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072/manifest.json\" \"$out/bundle-manifest.json\"\ncp \"$r/resources.json\" \"$out/linux-resources.json\"\ncp \"$r/builds/build-linux-e068b8575eaf4c4cb34dde4d356ca072/output.log\" \"$out/linux-build-output.log\"\npython3 /home/yifan/layerfs-428-verification/tools/cleanup.py check\n",
+  "exit_code": 0,
+  "elapsed_s": 0.688,
+  "at": "2026-10-24T05:25:17.660024"
+}

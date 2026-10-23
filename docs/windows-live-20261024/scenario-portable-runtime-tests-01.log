@@ -1,0 +1,13 @@
+{"label": "scenario-portable-runtime-tests-01", "timeout": 120, "args": ["cmd.exe", "/d", "/c", "pnpm run test:scenarios"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+
+> dsh-layerfs-workspace@ test:scenarios C:\Users\yifan\code\Ephemeral-AI-Lab\dsh-layerfs
+> node packages/mock/tests/mock.mjs && node packages/mock/tests/windows-shell.mjs && node packages/mock/tests/fixture-checkout.mjs && node packages/mock/tests/progress-failures.mjs && node packages/client/tests/scenario-projects.mjs && node packages/mock/tests/runtime-image.mjs
+
+seed POSIX executable modes and symlinks: NOT_RUN on Windows
+mock: ok (10 scenarios)
+windows-shell: parsed 405 CLI steps
+windows-shell: PASS (native Node, Unicode, quotes, exit status, cleanup)
+Linux scenario fixtures remain LF with core.autocrlf=true: PASS
+PASS: adapter failures, child-registration race, failed settlement notices, persistent project identity, old-session isolation
+scenario-projects: PASS (fresh Stores per run, previous projects retained, project recorded)
+Shipped scenarios inherit deployment image; explicit custom images preserved: PASS

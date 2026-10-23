@@ -1,0 +1,7 @@
+{
+  "command": "wsl -d Ubuntu -- bash -lc 'uname -a; id; command -v node python3 docker; node --version; python3 --version; ls -l /dev/fuse; docker version; df -h /; ls -d ~/code/* ~/.cache/layerfs-worktrees/* 2>/dev/null'\n",
+  "timeout_s": 110,
+  "exit_code": 1,
+  "elapsed_s": 6.672,
+  "at": "2026-10-24T05:18:09.221030"
+}

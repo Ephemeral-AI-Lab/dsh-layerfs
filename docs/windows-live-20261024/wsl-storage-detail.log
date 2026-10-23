@@ -1,0 +1,40 @@
+{"label": "wsl-storage-detail", "timeout": 110, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "105", "bash", "-s"], "stdin": "set -eu\ndocker ps -a --format '{{.ID}} {{.Names}} {{.Status}}'\nfindmnt -T /var/lib/docker\ndf -B1 /var/lib/docker\nls -la /home/yifan\ncat ~/.cache/layerfs-worktrees/layerfs-35da0b81b957/resources.json\n"}
+TARGET          SOURCE                    FSTYPE OPTIONS
+/var/lib/docker /dev/sdd[/var/lib/docker] ext4   rw,relatime,discard,errors=remount-ro,data=ordered
+Filesystem         1B-blocks        Used     Available Use% Mounted on
+/dev/sdd       1081101176832 25330954240 1000777867264   3% /var/lib/docker
+total 56
+drwxr-x---  9 yifan yifan 4096 Oct 22 18:05 .
+drwxr-xr-x  3 root  root  4096 Aug 19 12:36 ..
+lrwxrwxrwx  1 yifan yifan   23 Oct 22 17:32 .aws -> /mnt/c/Users/yifan/.aws
+lrwxrwxrwx  1 yifan yifan   25 Oct 22 17:32 .azure -> /mnt/c/Users/yifan/.azure
+-rw-r--r--  1 yifan yifan  220 Aug 19 12:36 .bash_logout
+-rw-r--r--  1 yifan yifan 3771 Aug 19 12:36 .bashrc
+drwxr-x---  7 yifan yifan 4096 Oct 22 17:48 .cache
+drwxr-x---  3 yifan yifan 4096 Aug 19 12:36 .config
+drwxr-xr-x  4 yifan yifan 4096 Oct 22 17:32 .docker
+drwxr-xr-x  4 yifan yifan 4096 Oct 22 17:45 .local
+-rw-rw-r--  1 yifan yifan    0 Oct 24 05:17 .motd_shown
+drwxr-xr-x  4 yifan yifan 4096 Oct 22 18:05 .npm
+-rw-r--r--  1 yifan yifan  807 Aug 19 12:36 .profile
+drwxr-xr-x  8 yifan yifan 4096 Oct 22 18:05 dsh-layerfs-wsl
+drwxr-xr-x 10 yifan yifan 4096 Oct 22 17:36 layerfs-issue384
+-rw-r--r--  1 yifan yifan 1016 Oct 22 17:39 layerfs-issue384-commit.txt
+-rw-r--r--  1 yifan yifan 2683 Oct 22 17:38 layerfs-issue384-loc.json
+{
+  "version": 1,
+  "id": "layerfs-35da0b81b957",
+  "owner": "dsh-wsl-setup",
+  "worktree": "/home/yifan/dsh-layerfs-wsl/layerfs",
+  "state": "/home/yifan/.cache/layerfs-worktrees/layerfs-35da0b81b957",
+  "toolchain": "1.85.1",
+  "macos_target": "/home/yifan/dsh-layerfs-wsl/layerfs/core/target",
+  "macos_cargo_home": "/home/yifan/.cache/layerfs-worktrees/layerfs-35da0b81b957/cargo-home-macos",
+  "linux_target_volume": "lfs-dev-layerfs-35da0b81b957-target",
+  "linux_cargo_volume": "lfs-dev-layerfs-35da0b81b957-cargo",
+  "images": {
+    "build": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+    "runtime": "sha256:0751d2c2245af1c311a24565c63f73378eed5f08fa39be7a68da2193192b0c51",
+    "sandbox": "sha256:0751d2c2245af1c311a24565c63f73378eed5f08fa39be7a68da2193192b0c51"
+  }
+}

@@ -1,0 +1,9 @@
+{"label": "native-cli-sandbox-03", "timeout": 120, "args": ["node", "C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/native-cli-sandbox.mjs"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+file:///C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/native-cli-sandbox.mjs:37
+} finally { off(); await ctx.dispose(); }
+                             ^
+
+TypeError: ctx.dispose is not a function
+    at file:///C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/native-cli-sandbox.mjs:37:30
+
+Node.js v24.11.1

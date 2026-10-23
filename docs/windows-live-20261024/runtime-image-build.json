@@ -1,0 +1,18 @@
+{
+  "label": "runtime-image-build",
+  "timeout": 115,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "110",
+    "bash",
+    "-s"
+  ],
+  "stdin": "set -eu\ndf -B1 /var/lib/docker\ndocker build -t layerfs-428-verification:node24 /mnt/c/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/tools/runtime\ndocker image inspect --format '{{.Id}}' layerfs-428-verification:node24\n",
+  "exit_code": 0,
+  "elapsed_s": 4.187,
+  "at": "2026-10-24T05:19:30.057739"
+}

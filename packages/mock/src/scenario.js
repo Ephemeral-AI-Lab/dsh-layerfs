@@ -1,6 +1,6 @@
 // Loads and checks a scenario (scenarios/<name>/scenario.json) and compiles
 // each agent's steps. A scenario is data: every step is one call to a tool of
-// the layerfs-dsh-minimalist preset, with that tool's own arguments, and
+// the layerfs-scenarios preset, with that tool's own arguments, and
 // dsh's real tools run it; nothing here runs a tool or makes up a result.
 //
 // scenario.json:
@@ -316,6 +316,9 @@ function compileSteps(steps, path, context) {
 function loadTime(command, at, { folder, image, fail }) {
   let out = command;
   if (out.includes(FOLDER)) {
+    // Windows accepts forward separators in native Node paths; Bash and
+    // JavaScript strings must not interpret the native backslashes as escapes.
+    if (process.platform === "win32") folder = folder.replaceAll("\\", "/");
     if (UNQUOTABLE.test(folder)) fail(at, `uses ${FOLDER}, and the scenario folder ${folder} holds a character double quotes do not keep (", $, \` or \\)`);
     out = out.replaceAll(FOLDER, folder);
   }

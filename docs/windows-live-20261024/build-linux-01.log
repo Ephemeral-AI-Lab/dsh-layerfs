@@ -1,0 +1,2 @@
+{"label": "build-linux-01", "timeout": 118, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "--signal=INT", "--kill-after=8", "110", "bash", "-s"], "stdin": "set -eu\ncd /home/yifan/layerfs-428-verification\nexport LAYERFS_CONSTRUCTION_WORKERS=1\nexec python3 tools/worktree.py build --resources /home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/resources.json --platform linux --profile release --jobs 2\n"}
+/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072

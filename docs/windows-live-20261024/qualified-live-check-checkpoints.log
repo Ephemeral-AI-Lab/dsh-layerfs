@@ -1,0 +1,8 @@
+{"label": "qualified-live-check-checkpoints", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-6bdb70b8-98e9-4a33-b1f9-748822cc3ac5"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+checkpoints (project mock-checkpoints-c80dcb25-63ec-425f-ac0a-ac1ea4a16d64)
+  run: passed in 13.1 s
+  lines: 88 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-6bdb70b8-98e9-4a33-b1f9-748822cc3ac5.jsonl
+  root: 8 bash call(s) with LayerFS lines, 8 checked, 8 matched
+  a01: 4 bash call(s) with LayerFS lines, 4 checked, 4 matched
+  a02: 4 bash call(s) with LayerFS lines, 4 checked, 4 matched
+PASS: every check that ran holds

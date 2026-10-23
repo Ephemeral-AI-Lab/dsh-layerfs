@@ -1,0 +1,18 @@
+{"label": "plugin-install", "timeout": 110, "args": ["cmd.exe", "/d", "/c", "pnpm install"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+Scope: all 7 workspace projects
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+. preinstall$ node tools/layerfs-source.mjs link
+. preinstall: layerfs-source: .layerfs -> C:\Users\yifan\code\Ephemeral-AI-Lab\layerfs-428-verification, at the pinned commit
+. preinstall: Done
+Done in 381ms using pnpm v10.32.1
+
+   ╭──────────────────────────────────────────╮
+   │                                          │
+   │   Update available! 10.32.1 → 12.15.0.   │
+   │   Changelog: https://pnpm.io/v/12.15.0   │
+   │     To update, run: pnpm self-update     │
+   │                                          │
+   ╰──────────────────────────────────────────╯
+

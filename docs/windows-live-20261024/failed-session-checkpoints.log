@@ -1,0 +1,11 @@
+{"label": "failed-session-checkpoints", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-398224c2-317d-4090-92b3-822502eb0968"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+checkpoints (project mock-checkpoints)
+  lines: C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-398224c2-317d-4090-92b3-822502eb0968.jsonl does not exist (no LayerFS call was traced)
+  lines: 0 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-398224c2-317d-4090-92b3-822502eb0968.jsonl
+  FAIL run: failed (a01: agents.a01[0] (a01: range 1 on lane r1-a01) expected branch.fork:Forked, fs.mkdir:Committed, fs.write:Committed, fs.write:Committed; its LayerFS calls show nothing, so a01 stops here: [stderr]
+      0 [main] bash (43904) E:\Git\bin\..\usr\bin\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[exit code: 3221225794])
+  FAIL root: no LayerFS calls on the trace
+  FAIL a01: no LayerFS calls on the trace
+  FAIL a02: no LayerFS calls on the trace
+FAIL: 4 failure(s)

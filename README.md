@@ -260,6 +260,43 @@ Disposal drains admitted calls without killing mounted commands. Runtime Start
 and confirmed Restart act on this worker; a silent or busy worker is retained.
 Changing WSL deployment settings requires restarting dsh.
 
+The Host adds its Windows `layerfs.cmd` launcher to dsh's PATH. In a
+LayerFS-bound session, PowerShell and Command Prompt accept the same CLI
+commands as macOS, for example `layerfs project list_branches`. The launcher
+uses the session's `DSH_LAYERFS_CLI` wrapper and preserves stdin and exit codes.
+Shell syntax still follows the selected shell: PowerShell uses `$env:NAME`,
+not Bash's `$NAME`, and Bash heredocs are not PowerShell commands.
+
+SDK scenarios launch native Node scripts from the Scenarios workspace on
+Windows. CLI scenarios use a native runner for their limited command notation:
+quoted arguments, variables, substitutions, literal heredoc input, JSON field
+selection and tee. Each LayerFS operation invokes the real CLI wrapper; commands
+inside Linux Workspaces run unchanged. This runner is specific to scripted tests,
+not a Bash shell for arbitrary agent commands. Linux fixture files check out with
+LF even when Windows Git uses `core.autocrlf=true`.
+The dedicated `layerfs-scenarios` preset disables promotion of timed-out
+foreground commands to background jobs. Windows scripted calls have a 120-second
+dsh deadline; a 110-second watchdog attempts earlier cancellation. Captured CLI
+input/output uses temporary files because restricted Windows tokens deny Node
+named pipes. Explicit background steps keep their normal job ownership.
+Shipped scenarios use the configured Host image. The runtime Dockerfile includes
+Rust 1.85.1, SQLite development headers and Chromium/Selenium for Depot, alongside
+Node and the prepared package managers. Rebuild the image and configure its exact
+image ID when upgrading from the earlier Node-only image.
+Every scenario run creates a fresh project and retains earlier projects until
+explicit cleanup. Adapter or child failures immediately mark the run failed.
+`pnpm run test:scenarios` checks loading, launchers, fixtures and failure reporting;
+`node packages/host/tests/windows-cli.mjs` checks the Windows CLI launcher.
+
+For later Windows upgrades, keep the Windows checkout and WSL sealed bundle at
+the same `layerfs.json` pin, rebuild the runtime image when its Dockerfile changes,
+and run `check:layerfs`, `test:windows` and `test:scenarios` with a 120-second wall
+limit before live verification. A Cargo download timeout is a network failure:
+check registry access from the configured Sandbox image. This machine's optional
+[proxy deployment](docs/windows-live-20261024/deployment/README.md) records its
+network prerequisites; its addresses are not Windows defaults. WSL, Docker and
+any configured upstream proxy must be available before starting a run.
+
 A request lost before it is sent is `Failed`; a sent request whose reply is lost
 is `Unknown` and is never replayed. Failed Windows Init attempts retain their
 volume and Linux discovery state, with the original failure and volume recorded

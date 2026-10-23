@@ -1,0 +1,14 @@
+{
+  "label": "checkpoint-failed-check-depot",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-d4ccd496-9580-43f3-9b77-63ed58048c07"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 1,
+  "elapsed_s": 0.047,
+  "at": "2026-10-24T06:12:20.842140"
+}

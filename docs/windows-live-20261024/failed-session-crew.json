@@ -1,0 +1,14 @@
+{
+  "label": "failed-session-crew",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-99a5d1f8-8f5a-48c9-8448-d5e9391c2496"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 1,
+  "elapsed_s": 0.062,
+  "at": "2026-10-24T05:47:22.432082"
+}

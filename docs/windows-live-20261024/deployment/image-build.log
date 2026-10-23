@@ -1,0 +1,31 @@
+{"label": "runtime-proxy-derived-build-01", "timeout": 120, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "110", "docker", "build", "-t", "layerfs-428-verification:scenarios-proxy", "/mnt/c/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/proxy-runtime"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 323B done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/library/layerfs-428-verification:scenarios
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.1s
+
+#4 [1/1] FROM docker.io/library/layerfs-428-verification:scenarios@sha256:b9eeeaefd7edc6771193b2100f7afd904e4182faad66c776a866b25019082667
+#4 resolve docker.io/library/layerfs-428-verification:scenarios@sha256:b9eeeaefd7edc6771193b2100f7afd904e4182faad66c776a866b25019082667 0.0s done
+#4 DONE 0.0s
+
+#4 [1/1] FROM docker.io/library/layerfs-428-verification:scenarios@sha256:b9eeeaefd7edc6771193b2100f7afd904e4182faad66c776a866b25019082667
+#4 DONE 0.1s
+
+#5 exporting to image
+#5 exporting layers done
+#5 exporting manifest sha256:ed06a872e12e7cb007fee61e36c52c6297b9f80be514551056aff25c0bda6b59 0.0s done
+#5 exporting config sha256:13a4cbb7c21f7d54c4a6f59126331df4203c96aef6778b7c9fb26ed69f8c25eb 0.0s done
+#5 exporting attestation manifest sha256:63bf6316f37bfeca36a09878b8b46ebb9f3dd61d3755d23c382ff5b109ceb55d 0.0s done
+#5 exporting manifest list sha256:2b6690982aed26bebcb004c803db64d8769d5c1d10559d4062046af7a78d5390
+#5 exporting manifest list sha256:2b6690982aed26bebcb004c803db64d8769d5c1d10559d4062046af7a78d5390 0.0s done
+#5 naming to docker.io/library/layerfs-428-verification:scenarios-proxy done
+#5 unpacking to docker.io/library/layerfs-428-verification:scenarios-proxy 0.0s done
+#5 DONE 0.2s

@@ -24,7 +24,7 @@ import { PLACEHOLDER } from "./scenario.js";
 
 /** A child's id in the subagent tool's result, and in its settled notice; a background job's id. */
 const STARTED = /started subagent ([0-9a-f-]{8,})/;
-const SETTLED = /subagent ([0-9a-f-]{8,}) finished/;
+const SETTLED = /subagent ([0-9a-f-]{8,}) (finished|failed before|was stopped before|ran out of room before|declined the task|ended abnormally)/;
 const JOB = /background job ([A-Za-z0-9_.:-]+)/;
 
 /** The markers dsh's bash tool appends to a command that did not exit 0. */
@@ -36,7 +36,7 @@ const SANDBOX = /"sandbox"\s*:\s*"([^"]+)"/g;
 const WS = /"ws"\s*:\s*"([^"]+)"/g;
 
 const textOf = (message) => (message.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-const settledId = (message) => message.role === "user" ? message.source?.childId ?? textOf(message).match(SETTLED)?.[1] : undefined;
+const settledId = (message) => message.role === "user" ? (message.source?.kind === "subagent-settled" ? message.source.senderSessionId : message.source?.childId) ?? textOf(message).match(SETTLED)?.[1] : undefined;
 
 /** Which of the scenario's agents a conversation belongs to. */
 export function agentOf(scenario, messages) {
@@ -70,7 +70,10 @@ export function nextReply(scenario, agent, messages, { traceOf = null, checked =
   messages.forEach((m, k) => {
     if (m.role === "tool") results.set(String(m.toolCallId), { text: textOf(m), isError: m.isError === true });
     const id = settledId(m);
-    if (id) settled.push({ id: String(id), k });
+    if (id) {
+      const summary = m.source?.summary ?? textOf(m).split("\n")[0];
+      settled.push({ id: String(id), k, failure: summary.match(SETTLED)?.[2] !== "finished" ? summary : null });
+    }
     if (m.role === "assistant") return;
     const text = textOf(m);
     for (const found of text.matchAll(SANDBOX)) sandbox = found[1];
@@ -140,6 +143,8 @@ export function nextReply(scenario, agent, messages, { traceOf = null, checked =
     index++;
   }
 
+  const failedChild = settled.find((s) => s.failure && [...children.values()].includes(s.id));
+  if (failedChild) return reply({ kind: "error", message: failedChild.failure });
   skipWait(messages.length);
   const step = steps[index];
   if (!step) return reply({ kind: "text", text: "Done." });

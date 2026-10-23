@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const AGENT = fileURLToPath(new URL("../src/agent/", import.meta.url));
 const node = (args, env) => spawnSync(process.execPath, args, { encoding: "utf8", env: { PATH: process.env.PATH, ...env }, timeout: 60_000 });
@@ -19,7 +19,7 @@ const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-agent-"));
 
 // the mapping: an unset LAYERFS_X takes DSH_LAYERFS_X; a set one is kept
 {
-  const script = `await import(${JSON.stringify(join(AGENT, "env.js"))}); console.log(JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([k]) => /LAYERFS_/.test(k)).sort())));`;
+  const script = `await import(${JSON.stringify(pathToFileURL(join(AGENT, "env.js")).href)}); console.log(JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([k]) => /LAYERFS_/.test(k)).sort())));`;
   const run = node(["--input-type=module", "-e", script], { DSH_LAYERFS_PROJECT: "shop", DSH_LAYERFS_TRACE_STEP: "r1", DSH_LAYERFS_HOME: "/dsh/home", LAYERFS_HOME: "/own/home" });
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout), {
@@ -30,7 +30,7 @@ const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-agent-"));
 
 // the SDK and backend wrappers: the same named exports as their packages, the mapping done first
 {
-  const script = `const [a, w, b, v] = await Promise.all([import("@layerfs/agent"), import(${JSON.stringify(join(AGENT, "sdk.js"))}), import("@layerfs/backend"), import(${JSON.stringify(join(AGENT, "backend.js"))})]);
+  const script = `const [a, w, b, v] = await Promise.all([import("@layerfs/agent"), import(${JSON.stringify(pathToFileURL(join(AGENT, "sdk.js")).href)}), import("@layerfs/backend"), import(${JSON.stringify(pathToFileURL(join(AGENT, "backend.js")).href)})]);
 console.log(JSON.stringify({ same: Object.keys(a).every((k) => a[k] === w[k]) && Object.keys(b).every((k) => b[k] === v[k]), sdk: Object.keys(w).sort(), backend: Object.keys(v).sort(), project: process.env.LAYERFS_PROJECT }));`;
   const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: join(AGENT, ".."), encoding: "utf8", env: { PATH: process.env.PATH, DSH_LAYERFS_PROJECT: "shop" }, timeout: 60_000 });
   assert.equal(run.status, 0, run.stderr);

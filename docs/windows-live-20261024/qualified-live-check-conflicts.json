@@ -1,0 +1,14 @@
+{
+  "label": "qualified-live-check-conflicts",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-c7b56f74-a77f-46ef-8334-058634128ae5"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 0,
+  "elapsed_s": 0.047,
+  "at": "2026-10-24T06:33:58.607722"
+}

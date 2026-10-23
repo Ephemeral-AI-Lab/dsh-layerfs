@@ -1,0 +1,14 @@
+{
+  "label": "qualified-live-check-crew",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-5872ec3f-709d-49e6-a9dc-2c53291a31fb"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 0,
+  "elapsed_s": 0.063,
+  "at": "2026-10-24T06:33:58.658725"
+}

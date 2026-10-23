@@ -2,7 +2,7 @@
 
 Written by `node tools/replay/convert.mjs depot` from `0c7d9c47c1^` of the layerfs repository (`dsh/scenarios/depot/`). Rerun it to rewrite this folder; do not edit by hand.
 
-Form `sdk`: every bash step is one inline Node script on the SDK. Each step that runs a command creates its own Sandbox from the recorded runtime image (`image`), mounts a new Workspace, runs, Commits, unmounts and closes the Sandbox. The recorded outcome codes are each step's `expect`, checked live; the record id is each step's `note`.
+Form `sdk`: every bash step is one inline Node script on the SDK. Each step that runs a command creates its own Sandbox from the configured Host runtime image, mounts a new Workspace, runs, Commits, unmounts and closes the Sandbox. The recorded outcome codes are each step's `expect`, checked live; the record id is each step's `note`.
 
 | | count |
 | --- | ---: |

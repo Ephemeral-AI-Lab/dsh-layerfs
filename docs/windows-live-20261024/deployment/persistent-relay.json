@@ -1,0 +1,175 @@
+{
+  "at": "2026-10-24T07:01:35.882716",
+  "records": [
+    {
+      "args": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "timeout",
+        "10",
+        "mkdir",
+        "-p",
+        "/home/yifan/.local/share/dsh-layerfs-proxy"
+      ],
+      "timeout": 25,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "timeout",
+        "10",
+        "cp",
+        "/mnt/c/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/docs/windows-live-20261024/deployment/proxy-relay.mjs",
+        "/home/yifan/.local/share/dsh-layerfs-proxy/relay.mjs"
+      ],
+      "timeout": 25,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "timeout",
+        "15",
+        "docker",
+        "stop",
+        "-t",
+        "5",
+        "layerfs-428-proxy-20261024"
+      ],
+      "timeout": 25,
+      "exit_code": 0,
+      "stdout": "layerfs-428-proxy-20261024\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "timeout",
+        "10",
+        "docker",
+        "rename",
+        "layerfs-428-proxy-20261024",
+        "layerfs-428-proxy-20261024-original"
+      ],
+      "timeout": 25,
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "timeout",
+        "15",
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        "layerfs-428-proxy-20261024",
+        "--restart",
+        "unless-stopped",
+        "--network",
+        "host",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "-v",
+        "/home/yifan/.local/share/dsh-layerfs-proxy/relay.mjs:/relay.mjs:ro",
+        "--entrypoint",
+        "node",
+        "sha256:b9eeeaefd7edc6771193b2100f7afd904e4182faad66c776a866b25019082667",
+        "/relay.mjs"
+      ],
+      "timeout": 25,
+      "exit_code": 0,
+      "stdout": "6841933b7df6965b742829b12a44a75df48edd4b35a30bd5fcf48904474a5675\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "timeout",
+        "15",
+        "docker",
+        "restart",
+        "-t",
+        "5",
+        "layerfs-428-proxy-20261024"
+      ],
+      "timeout": 25,
+      "exit_code": 0,
+      "stdout": "layerfs-428-proxy-20261024\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "timeout",
+        "20",
+        "docker",
+        "run",
+        "--rm",
+        "--name",
+        "layerfs-428-persistent-proxy-check",
+        "sha256:2b6690982aed26bebcb004c803db64d8769d5c1d10559d4062046af7a78d5390",
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "15",
+        "https://index.crates.io/config.json"
+      ],
+      "timeout": 25,
+      "exit_code": 0,
+      "stdout": "{\n  \"dl\": \"https://static.crates.io/crates\",\n  \"api\": \"https://crates.io\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "timeout",
+        "10",
+        "docker",
+        "inspect",
+        "--format",
+        "{{.State.Running}} {{.HostConfig.RestartPolicy.Name}} {{range .Mounts}}{{.Source}}{{end}}",
+        "layerfs-428-proxy-20261024"
+      ],
+      "timeout": 25,
+      "exit_code": 0,
+      "stdout": "true unless-stopped /home/yifan/.local/share/dsh-layerfs-proxy/relay.mjs\n",
+      "stderr": ""
+    }
+  ]
+}

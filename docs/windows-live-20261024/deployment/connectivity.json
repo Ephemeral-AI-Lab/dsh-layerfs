@@ -1,0 +1,29 @@
+{
+  "label": "runtime-proxy-crates-connectivity-01",
+  "timeout": 120,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "20",
+    "docker",
+    "run",
+    "--rm",
+    "--name",
+    "layerfs-428-proxy-check-20261024",
+    "sha256:2b6690982aed26bebcb004c803db64d8769d5c1d10559d4062046af7a78d5390",
+    "curl",
+    "--fail",
+    "--silent",
+    "--show-error",
+    "--max-time",
+    "15",
+    "https://index.crates.io/config.json"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 0,
+  "elapsed_s": 1.985,
+  "at": "2026-10-24T06:27:25.825754"
+}

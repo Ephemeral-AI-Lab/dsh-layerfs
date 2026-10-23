@@ -1,0 +1,14 @@
+{
+  "label": "failed-session-conflicts",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-f3f60148-36bb-4f84-bb01-a8f41d377f12"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 1,
+  "elapsed_s": 0.047,
+  "at": "2026-10-24T05:47:22.374633"
+}

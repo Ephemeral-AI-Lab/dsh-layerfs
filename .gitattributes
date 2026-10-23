@@ -1,0 +1,2 @@
+# Scenario fixtures are imported into Linux, including on Windows hosts.
+demo-workspace/** text eol=lf

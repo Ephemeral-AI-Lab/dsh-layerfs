@@ -1,0 +1,13 @@
+{
+  "label": "web-readiness",
+  "timeout": 65,
+  "args": [
+    "node",
+    "--input-type=module",
+    "-e",
+    "const end=Date.now()+60000;while(Date.now()<end){try{const r=await fetch('http://127.0.0.1:3080',{signal:AbortSignal.timeout(1500)});console.log('HTTP',r.status);process.exit(0)}catch{} await new Promise(r=>setTimeout(r,2000));}console.error('No HTTP listener within 60 s readiness window');process.exit(1)"
+  ],
+  "exit_code": 0,
+  "elapsed_s": 8.125,
+  "at": "2026-10-24T05:23:26.125656"
+}

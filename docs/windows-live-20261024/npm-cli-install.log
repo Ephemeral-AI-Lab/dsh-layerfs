@@ -1,0 +1,5 @@
+{"label": "npm-cli-install", "timeout": 110, "args": ["cmd.exe", "/d", "/c", "npm --prefix api/agent/cli install"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification"}
+
+added 1 package, and audited 3 packages in 2s
+
+found 0 vulnerabilities

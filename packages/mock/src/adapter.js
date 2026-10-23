@@ -8,6 +8,7 @@
 // check (plan.js).
 import { randomUUID } from "node:crypto";
 import { agentOf, nextReply, offeredTools } from "./plan.js";
+import { windowsCall } from "./windows-shell.js";
 
 export const PROVIDER = "layerfs-mock";
 export const LABEL = "LayerFS scripted model";
@@ -18,7 +19,7 @@ export const LABEL = "LayerFS scripted model";
  * @param {import("./progress.js").Progress} [progress] where each reply's position is reported
  * @param {() => { callLines(sessionId: string, callId: string): object[] } | undefined} [traces] the Host's layerfsTraces service, while it runs
  */
-export function createAdapter(Base, scenarios, progress, traces = () => undefined) {
+export function createAdapter(Base, scenarios, progress, traces = () => undefined, scripts = null) {
   /** Session id -> the bash calls whose expect already held. */
   const checked = new Map();
   class LayerFsScriptedAdapter extends Base {
@@ -51,12 +52,19 @@ export function createAdapter(Base, scenarios, progress, traces = () => undefine
         const reply = nextReply(scenario, agent, options.messages ?? [], live);
         progress?.report(scenario.name, agent, reply, options.sessionId);
         if (reply.kind === "error") return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${reply.message}`, "MOCK_SCENARIO_STOPPED");
+        const childFailure = progress?.refusal(options.sessionId);
+        if (childFailure) return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${childFailure}`, "MOCK_RUN_ENDED");
         if (reply.kind === "text") return yield* text(reply.text);
         const missing = reply.calls.map((c) => c.name).filter((n) => !offered.has(n));
-        if (missing.length) return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${reply.step} calls ${missing.join(", ")}, which this agent's preset does not offer`, "MOCK_TOOL_NOT_OFFERED");
+        if (missing.length) {
+          const message = `${reply.step} calls ${missing.join(", ")}, which this agent's preset does not offer`;
+          progress?.fail(options.sessionId, agent, message);
+          return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${message}`, "MOCK_TOOL_NOT_OFFERED");
+        }
         let index = 0;
         if (reply.say) yield* block(index++, reply.say);
-        for (const call of reply.calls) {
+        for (const original of reply.calls) {
+          const call = scripts ? windowsCall(original, scripts) : original;
           yield { type: "block-start", index, blockType: "tool-call" };
           yield { type: "block-end", index, block: { type: "tool-call", id: `lfsmock_${randomUUID()}`, name: call.name, arguments: JSON.stringify(call.args) } };
           index++;
@@ -67,7 +75,9 @@ export function createAdapter(Base, scenarios, progress, traces = () => undefine
           if (scenario && agent) progress?.stop(options.sessionId, agent);
           return yield { type: "finish", reason: { kind: "aborted", failure: { message: "scripted request aborted", code: "ABORTED" } } };
         }
-        yield failure(error instanceof Error ? error.message : String(error), "MOCK_FAILED");
+        const message = error instanceof Error ? error.message : String(error);
+        progress?.fail(options.sessionId, agent ?? "root", message);
+        yield failure(message, "MOCK_FAILED");
       }
     }
   }

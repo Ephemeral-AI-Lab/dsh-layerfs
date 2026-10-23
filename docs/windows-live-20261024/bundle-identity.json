@@ -1,0 +1,18 @@
+{
+  "label": "bundle-identity",
+  "timeout": 30,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "25",
+    "bash",
+    "-s"
+  ],
+  "stdin": "set -eu\nb=/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072\nsha256sum \"$b/manifest.json\"\nls -l \"$b/api/runtime/src/worker/server.js\" \"$b/layerfs-daemon\" \"$b/layerfs.node\"\ndocker image inspect --format '{{.Id}}' layerfs-428-verification:node24\ndf -B1 /var/lib/docker\n",
+  "exit_code": 0,
+  "elapsed_s": 0.188,
+  "at": "2026-10-24T05:22:27.869290"
+}

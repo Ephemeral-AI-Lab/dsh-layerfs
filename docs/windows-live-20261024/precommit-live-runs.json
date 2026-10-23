@@ -1,0 +1,216 @@
+{
+  "at": "2026-10-23T23:01:27.117Z",
+  "calls": 0,
+  "runs": [
+    {
+      "id": "tour",
+      "run": {
+        "done": 14,
+        "ended": 1792795669959,
+        "error": null,
+        "of": 14,
+        "phase": "Publish",
+        "project": "mock-tour-437a7afd-75e7-403d-ab5c-cfe6ced56341",
+        "sessionId": "session-8e91885d-4f19-409b-85d1-b5e8dda96b62",
+        "started": 1792795653392,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "sdk",
+        "background",
+        "sandbox",
+        "publish"
+      ]
+    },
+    {
+      "id": "parallel",
+      "run": {
+        "done": 14,
+        "ended": 1792795660819,
+        "error": null,
+        "of": 14,
+        "phase": "Publish",
+        "project": "mock-parallel-89385e43-79d1-47ba-bd59-4a74570a2aab",
+        "sessionId": "session-240ca580-714e-406d-9450-d6d80cc3168a",
+        "started": 1792795653413,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "cli",
+        "multi-agent",
+        "merge",
+        "publish"
+      ]
+    },
+    {
+      "id": "conflicts",
+      "run": {
+        "done": 14,
+        "ended": 1792795674197,
+        "error": null,
+        "of": 14,
+        "phase": "Publish",
+        "project": "mock-conflicts-dc305a0b-715c-4b67-9c05-fa58d67eef2f",
+        "sessionId": "session-6800e4c5-c303-46cb-a8ac-7794dc91cd1c",
+        "started": 1792795662169,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "cli",
+        "conflicts",
+        "merge",
+        "publish"
+      ]
+    },
+    {
+      "id": "merge",
+      "run": {
+        "done": 14,
+        "ended": 1792795683193,
+        "error": null,
+        "of": 14,
+        "phase": "Publish",
+        "project": "mock-merge-5b67a3f4-9afb-4caa-832f-04d233f24411",
+        "sessionId": "session-194097f4-edef-4d47-9edb-1aa25092176d",
+        "started": 1792795671337,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "sdk",
+        "merge",
+        "conflicts",
+        "publish"
+      ]
+    },
+    {
+      "id": "sandbox",
+      "run": {
+        "done": 7,
+        "ended": 1792795689218,
+        "error": null,
+        "of": 7,
+        "phase": "Teardown",
+        "project": "mock-sandbox-ead80212-997a-41e5-bfbd-ab56281632de",
+        "sessionId": "session-642d59ac-51e4-4452-9b39-ad2b982c61f2",
+        "started": 1792795675022,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "sdk",
+        "sandbox",
+        "background"
+      ]
+    },
+    {
+      "id": "agents",
+      "run": {
+        "done": 197,
+        "ended": 1792795786837,
+        "error": null,
+        "of": 197,
+        "phase": "Integrate",
+        "project": "mock-agents-cbe45283-225e-44f6-bdd7-3d09fae448a4",
+        "sessionId": "session-b3746f94-0d77-4015-a75e-f9b6a8ca67b6",
+        "started": 1792795684968,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "sdk",
+        "multi-agent",
+        "conflicts",
+        "background"
+      ]
+    },
+    {
+      "id": "shop",
+      "run": {
+        "done": 18,
+        "ended": 1792795749937,
+        "error": null,
+        "of": 18,
+        "phase": "Acceptance",
+        "project": "mock-shop-f8ba2c07-2278-4359-9074-8b2d538624bc",
+        "sessionId": "session-cf82f7e6-980d-4a12-9aa6-2de6cd5e4a0c",
+        "started": 1792795691159,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "cli",
+        "node",
+        "publish",
+        "merge"
+      ]
+    },
+    {
+      "id": "depot",
+      "run": {
+        "done": 98,
+        "ended": 1792796317544,
+        "error": null,
+        "of": 98,
+        "phase": "final",
+        "project": "mock-depot-5e88174b-6487-4dc7-99d4-e7bbebd0c815",
+        "sessionId": "session-1cc798d2-1aaa-40de-b33c-ac1a166ea49f",
+        "started": 1792795752169,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "sdk",
+        "rust",
+        "publish",
+        "merge"
+      ]
+    },
+    {
+      "id": "crew",
+      "run": {
+        "done": 967,
+        "ended": 1792796468516,
+        "error": null,
+        "of": 967,
+        "phase": "lead",
+        "project": "mock-crew-d13b0e33-da20-43b8-abd7-407869527709",
+        "sessionId": "session-1a123ef0-9da4-4dcd-b5c6-1bae86ecf06f",
+        "started": 1792795788137,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "cli",
+        "node",
+        "multi-agent",
+        "merge",
+        "publish"
+      ]
+    },
+    {
+      "id": "checkpoints",
+      "run": {
+        "done": 37,
+        "ended": 1792794264296,
+        "error": null,
+        "of": 37,
+        "phase": "Range 4",
+        "project": "mock-checkpoints-c80dcb25-63ec-425f-ac0a-ac1ea4a16d64",
+        "sessionId": "session-6bdb70b8-98e9-4a33-b1f9-748822cc3ac5",
+        "started": 1792794251213,
+        "state": "passed",
+        "timedOut": false
+      },
+      "tags": [
+        "cli",
+        "multi-agent",
+        "merge",
+        "publish"
+      ]
+    }
+  ]
+}

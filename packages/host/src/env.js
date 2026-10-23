@@ -13,8 +13,7 @@
 // its folder first on the dsh process's own PATH, which bash calls inherit
 // (shimOnPath).
 import { existsSync, realpathSync } from "node:fs";
-import { delimiter, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { deploymentEnv } from "./layerfs-client.js";
 import { appendProject } from "./records.js";
 import { LAYERFS } from "./source.js";
@@ -22,19 +21,7 @@ import { LAYERFS } from "./source.js";
 // The LayerFS SDK skill of the LayerFS checkout (LAYERFS_SOURCE, source.js), when it has one.
 const SKILL = join(LAYERFS, ".agents/skills/layerfs-js-sdk/SKILL.md");
 const skill = existsSync(SKILL) ? realpathSync(SKILL) : null;
-/** The folder of the layerfs shim. */
-export const BIN = fileURLToPath(new URL("./bin", import.meta.url));
-
-/**
- * Puts BIN first on `env.PATH` (the dsh process's), so every bash call finds
- * `layerfs`; the disposer takes it off again. Windows runs no bash here: its
- * adapter has its own route.
- */
-export function shimOnPath(env = process.env, platform = process.platform) {
-  if (platform === "win32") return () => {};
-  env.PATH = env.PATH ? `${BIN}${delimiter}${env.PATH}` : BIN;
-  return () => { env.PATH = (env.PATH ?? "").split(delimiter).filter((dir) => dir !== BIN).join(delimiter); };
-}
+export { BIN, shimOnPath } from "./cli-path.js";
 
 const VARIABLES = {
   DSH_LAYERFS_PROJECT: "LayerFS project of this conversation; pass it to LayerFS.open(...)",

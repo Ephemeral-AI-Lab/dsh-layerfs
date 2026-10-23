@@ -1,0 +1,8 @@
+{"label": "backup-default-profile", "timeout": 30, "args": ["powershell.exe", "-NoProfile", "-Command", "$p = Join-Path $env:USERPROFILE '.dsh/profiles/web'; $b = Join-Path $env:USERPROFILE '.dsh/profile-backups/layerfs-428-20261024-0521'; New-Item -ItemType Directory -Path $b -ErrorAction Stop | Out-Null; Copy-Item -LiteralPath \"$p/package.json\",\"$p/cordis.patch.yml\" -Destination $b; Get-FileHash \"$b/package.json\",\"$b/cordis.patch.yml\"; if ($env:DSH_HOME) { throw 'DSH_HOME override is set' }"]}
+
+Algorithm       Hash                                                                   Path                            
+---------       ----                                                                   ----                            
+SHA256          702FF6D36D06BA6E022D7CBFC6AF37D0606416E9AF613DA628A55657AF2854A7       C:\Users\yifan\.dsh\profile-b...
+SHA256          8A97F87AF59CE984519EFCDF404F5C4C107546019442D559367EAB6C312E9C81       C:\Users\yifan\.dsh\profile-b...
+
+

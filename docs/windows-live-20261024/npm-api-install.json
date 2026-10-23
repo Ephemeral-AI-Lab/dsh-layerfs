@@ -1,0 +1,14 @@
+{
+  "label": "npm-api-install",
+  "timeout": 110,
+  "args": [
+    "cmd.exe",
+    "/d",
+    "/c",
+    "npm install"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification/api",
+  "exit_code": 0,
+  "elapsed_s": 7.609,
+  "at": "2026-10-24T05:20:00.792595"
+}

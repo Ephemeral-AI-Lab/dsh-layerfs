@@ -1,0 +1,6 @@
+{"label": "qualified-live-check-merge", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-e7095f68-5d0b-477b-900a-aedeacdbc3bf"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+merge (project mock-merge-68b4ae27-0579-471c-938d-3e0e3cfe35ed)
+  run: passed in 12.0 s
+  lines: 40 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-e7095f68-5d0b-477b-900a-aedeacdbc3bf.jsonl
+  root: 13 bash call(s) with LayerFS lines, 13 checked, 13 matched
+PASS: every check that ran holds

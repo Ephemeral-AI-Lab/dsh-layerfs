@@ -1,0 +1,21 @@
+{
+  "label": "runtime-rust-browser-build-02",
+  "timeout": 120,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "110",
+    "docker",
+    "build",
+    "-t",
+    "layerfs-428-verification:scenarios",
+    "/mnt/c/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/tools/runtime"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 130,
+  "elapsed_s": 48.922,
+  "at": "2026-10-24T06:16:04.333105"
+}

@@ -1,0 +1,7 @@
+{
+  "command": "wsl -d Ubuntu -- bash -lc 'docker context inspect default; docker info --format \"{{.DockerRootDir}}\"; docker images --no-trunc; docker ps -a --format \"{{.ID}} {{.Names}} {{.Status}}\"; findmnt -T /var/lib/docker; df -B1 /var/lib/docker; ls -la /home/yifan; cat ~/.cache/layerfs-worktrees/layerfs-35da0b81b957/resources.json'\n",
+  "timeout_s": 110,
+  "exit_code": 0,
+  "elapsed_s": 0.562,
+  "at": "2026-10-24T05:18:17.887102"
+}

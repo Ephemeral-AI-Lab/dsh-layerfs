@@ -18,6 +18,7 @@ import { writeSeed } from "../src/seed.js";
 import { keepDefaultModel } from "../src/default-model.js";
 import { allTags, isScenarioProject, nextStarts, projectOf, runText, withTags } from "../../client/src/client/scenarios.ts";
 
+const commandPath = (path) => process.platform === "win32" ? path.replaceAll("\\", "/") : path;
 const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-mock-"));
 try {
   // Every shipped scenario loads, in order, with its fixture
@@ -40,11 +41,12 @@ try {
     type: "layerfs-scenario", version: 3, title: "x", tags: ["cli", "merge"],
     agents: { root: [{ bash: { description: "apply", command }, ...(expect ? { expect } : {}) }] },
   }, { name: "x", folder }).agents.root[0].call.args.command;
-  assert.equal(one('layerfs fs apply main --from "{{scenario}}/changes/007.json" && cat "{{scenario}}/a"'), `layerfs fs apply main --from "${dir}/changes/007.json" && cat "${dir}/a"`);
+  assert.equal(one('layerfs fs apply main --from "{{scenario}}/changes/007.json" && cat "{{scenario}}/a"'), `layerfs fs apply main --from "${commandPath(dir)}/changes/007.json" && cat "${commandPath(dir)}/a"`);
   assert.equal(one("docker ps --format '{{.Names}}' {{ scenario }}"), "docker ps --format '{{.Names}}' {{ scenario }}");
-  assert.equal(one('cat "{{scenario}}/x"', "relative/folder"), `cat "${join(process.cwd(), "relative/folder")}/x"`);
+  if (process.platform === "win32") assert.equal(one('cat "{{scenario}}/x"', "C:\\source folder\\crew"), 'cat "C:/source folder/crew/x"');
+  assert.equal(one('cat "{{scenario}}/x"', "relative/folder"), `cat "${commandPath(join(process.cwd(), "relative/folder"))}/x"`);
   // a folder double quotes would not keep as written is refused, but only where {{scenario}} is used
-  for (const bad of ['a"b', "a$b", "a`b", "a\\b"]) {
+  for (const bad of ['a"b', "a$b", "a`b", ...(process.platform === "win32" ? [] : ["a\\b"])]) {
     assert.throws(() => one('cat "{{scenario}}/x"', join(dir, bad)), (e) => e instanceof ScenarioError && /agents\.root\[0\]\.bash\.command: uses \{\{scenario\}\}/.test(e.message), bad);
     assert.equal(one("echo plain", join(dir, bad)), "echo plain");
   }
@@ -72,7 +74,7 @@ try {
   const began = performance.now();
   for (let i = 0; i < 1600; i++) {
     const step = nextReply(long, "root", conversation, applied);
-    assert.equal(step.calls?.[0].args.command, `layerfs fs apply main --from "${dir}/changes/${i}.json"`);
+    assert.equal(step.calls?.[0].args.command, `layerfs fs apply main --from "${commandPath(dir)}/changes/${i}.json"`);
     conversation.push({ role: "assistant", content: [{ type: "tool-call", id: `l${i}`, name: "bash", arguments: "{}" }] }, { role: "tool", toolCallId: `l${i}`, content: [{ type: "text", text: "{}\n" }] });
   }
   const last = nextReply(long, "root", conversation, applied);
@@ -314,7 +316,8 @@ try {
   const seedFile = join(seeded, "seed.json");
   writeFileSync(seedFile, JSON.stringify({ format: "layerfs-demo-seed", version: 1, entries: {
     "/.git": { type: "dir", mode: 0o755 }, "/.git/HEAD": { type: "file", mode: 0o644, text: "ref: refs/heads/main\n" },
-    "/bin/run": { type: "file", mode: 0o755, base64: Buffer.from("#!/bin/sh\n").toString("base64") }, "/link": { type: "symlink", target: "bin/run" },
+    "/bin/run": { type: "file", mode: 0o755, base64: Buffer.from("#!/bin/sh\n").toString("base64") },
+    ...(process.platform === "win32" ? {} : { "/link": { type: "symlink", target: "bin/run" } }),
   } }));
   const minimal = { type: "layerfs-scenario", version: 3, title: "Seeded", tags: ["cli", "merge"], fixture: "seed.json", agents: { root: [{ reply: "done" }] } };
   const compiled = compileScenario(minimal, { name: "seeded", folder: seeded });
@@ -325,8 +328,11 @@ try {
   writeFileSync(join(out, "stale"), "x");
   assert.equal(writeSeed(seedFile, out), out);
   assert.equal(readFileSync(join(out, ".git/HEAD"), "utf8"), "ref: refs/heads/main\n");
-  assert.equal(statSync(join(out, "bin/run")).mode & 0o777, 0o755);
-  assert.equal(readlinkSync(join(out, "link")), "bin/run");
+  assert.equal(readFileSync(join(out, "bin/run"), "utf8"), "#!/bin/sh\n");
+  if (process.platform !== "win32") {
+    assert.equal(statSync(join(out, "bin/run")).mode & 0o777, 0o755);
+    assert.equal(readlinkSync(join(out, "link")), "bin/run");
+  } else console.log("seed POSIX executable modes and symlinks: NOT_RUN on Windows");
   assert.ok(!existsSync(join(out, "stale")));
   writeFileSync(seedFile, JSON.stringify({ format: "layerfs-demo-seed", version: 1, entries: { "/../x": { type: "file", text: "" } } }));
   assert.throws(() => compileScenario(minimal, { name: "seeded", folder: seeded }), /fixture.*not a plain absolute path/);

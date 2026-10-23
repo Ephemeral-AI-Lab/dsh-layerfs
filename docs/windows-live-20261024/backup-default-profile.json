@@ -1,0 +1,13 @@
+{
+  "label": "backup-default-profile",
+  "timeout": 30,
+  "args": [
+    "powershell.exe",
+    "-NoProfile",
+    "-Command",
+    "$p = Join-Path $env:USERPROFILE '.dsh/profiles/web'; $b = Join-Path $env:USERPROFILE '.dsh/profile-backups/layerfs-428-20261024-0521'; New-Item -ItemType Directory -Path $b -ErrorAction Stop | Out-Null; Copy-Item -LiteralPath \"$p/package.json\",\"$p/cordis.patch.yml\" -Destination $b; Get-FileHash \"$b/package.json\",\"$b/cordis.patch.yml\"; if ($env:DSH_HOME) { throw 'DSH_HOME override is set' }"
+  ],
+  "exit_code": 0,
+  "elapsed_s": 0.297,
+  "at": "2026-10-24T05:21:51.942228"
+}

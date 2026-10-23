@@ -1,0 +1,5 @@
+﻿Recorded: 2026-10-24T06:28:52.8748498+08:00 Command: wsl -d Ubuntu -- timeout 10 ss -ltn
+State  Recv-Q Send-Q  Local Address:Port  Peer Address:Port
+LISTEN 0      511        172.17.0.1:15237      0.0.0.0:*   
+Command: wsl -d Ubuntu -- timeout 10 docker inspect layerfs-428-proxy-20261024 --format {{.Id}},{{.State.Pid}},{{.State.Running}}
+8bdaddb77841a3bf6c1d570d0d96a1cafe46d358caac715c240c67b68fa1c797,66877,true

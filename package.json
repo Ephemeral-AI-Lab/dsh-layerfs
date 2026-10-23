@@ -13,6 +13,7 @@
     "check:layerfs": "node tools/layerfs-source.mjs check",
     "test": "node tools/layerfs-source.mjs link && node packages/host/tests/host.mjs && node packages/host/tests/agent.mjs && node packages/host/tests/bindings-shared.mjs && node packages/mock/tests/mock.mjs && node packages/model/tests/cli.mjs && node packages/client/tests/playback.mjs && node packages/client/tests/initlimit.mjs && node packages/client/tests/historycache.mjs && node packages/model/tests/trace.mjs && node tools/checks/tests/checks.mjs",
     "build": "node tools/build-client.mjs",
-    "test:windows": "node packages/host/tests/host.mjs && node packages/host/tests/agent.mjs && node packages/host/tests/bindings-shared.mjs"
+    "test:windows": "node packages/host/tests/windows-cli.mjs && node packages/host/tests/host.mjs && node packages/host/tests/agent.mjs && node packages/host/tests/bindings-shared.mjs",
+    "test:scenarios": "node packages/mock/tests/mock.mjs && node packages/mock/tests/windows-shell.mjs && node packages/mock/tests/fixture-checkout.mjs && node packages/mock/tests/progress-failures.mjs && node packages/client/tests/scenario-projects.mjs && node packages/mock/tests/runtime-image.mjs"
   }
 }

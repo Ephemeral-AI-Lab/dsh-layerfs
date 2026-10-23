@@ -1,0 +1,7 @@
+{
+  "command": "git -C ../dsh-layerfs checkout --detach 56fc353",
+  "timeout_s": 110,
+  "exit_code": 0,
+  "elapsed_s": 4.39,
+  "at": "2026-10-24T05:17:51.923929"
+}

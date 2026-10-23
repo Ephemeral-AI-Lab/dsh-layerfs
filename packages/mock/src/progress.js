@@ -34,6 +34,8 @@ export class Progress {
     this.sessions = new Map(Object.entries(saved.sessions ?? {}).flatMap(([id, at]) => (at.backend && at.backend !== "real" ? [] : [[id, { scenario: at.scenario }]])));
     /** subagent Session id -> its run's root Session id; learned from the replies, kept in memory */
     this.children = new Map();
+    // A child can fail before its parent receives the subagent tool result.
+    this.failures = new Map();
     /** scenario -> run, with each agent's counts in `agents` */
     this.runs = new Map();
     for (const [savedKey, run] of Object.entries(saved.runs ?? {})) {
@@ -68,12 +70,12 @@ export class Progress {
   }
 
   /** The client made `sessionId` the root of a new run of `scenario`. */
-  register(scenario, sessionId) {
+  register(scenario, sessionId, project = null) {
     if (!this.scenarios.has(scenario)) throw Object.assign(new Error(`no scenario named ${scenario}`), { status: 404 });
     this.sessions.set(sessionId, { scenario });
     const steps = Object.entries(this.scenarios.get(scenario).agents);
     this.runs.set(scenario, {
-      sessionId, state: "running", agents: Object.fromEntries(steps.map(([name, list]) => [name, { done: 0, of: list.length }])),
+      sessionId, project, state: "running", agents: Object.fromEntries(steps.map(([name, list]) => [name, { done: 0, of: list.length }])),
       phase: null, error: null, timedOut: false, started: this.now(), ended: null,
     });
     this.write();
@@ -102,13 +104,31 @@ export class Progress {
    */
   report(scenario, agent, reply, sessionId) {
     const rootId = this.rootOf(sessionId), run = this.runOf(rootId);
+    if (!run && reply.kind === "error") this.fail(sessionId, agent, reply.message);
     if (!run || run.state !== "running" || this.sessions.get(rootId).scenario !== scenario) return;
     // the subagents this agent started belong to the same run
-    for (const child of reply.children ?? []) this.children.set(child, rootId);
+    for (const child of reply.children ?? []) {
+      this.children.set(child, rootId);
+      const failure = this.failures.get(child);
+      if (failure) { this.failures.delete(child); this.fail(child, failure.agent, failure.message); }
+    }
+    if (run.state !== "running") return;
     run.agents[agent] = { done: reply.done, of: reply.of };
     if (agent === "root" && reply.phase) run.phase = reply.phase;
-    if (reply.kind === "error") { Object.assign(run, { state: "failed", error: `${agent}: ${reply.message}`, ended: this.now() }); this.write(); }
+    if (reply.kind === "error") this.fail(sessionId, agent, reply.message);
     else if (agent === "root" && reply.done === reply.of) { Object.assign(run, { state: "passed", ended: this.now() }); this.write(); }
+  }
+
+  /** A fatal adapter/child error ends the owning run, even before child registration. */
+  fail(sessionId, agent, message) {
+    const root = this.rootOf(sessionId), run = this.runOf(root);
+    if (!run) {
+      if (sessionId && !this.sessions.has(root)) this.failures.set(sessionId, { agent, message });
+      return;
+    }
+    if (run.state !== "running") return;
+    Object.assign(run, { state: "failed", error: agent ? `${agent}: ${message}` : message, ended: this.now() });
+    this.write();
   }
 
   /** The user stopped the run (Stop on the Run bar or the Tests tab): it fails, and its agents get no further step. */
@@ -138,11 +158,7 @@ export class Progress {
 
   /** A request of the run was aborted (the user stopped the agents): the run fails. */
   stop(sessionId, agent) {
-    const run = this.runOf(this.rootOf(sessionId));
-    if (run?.state === "running") {
-      Object.assign(run, { state: "failed", error: `stopped while ${agent} worked`, ended: this.now() });
-      this.write();
-    }
+    this.fail(sessionId, null, `stopped while ${agent} worked`);
   }
 
   /** The latest run of `scenario` with its summed counts, or null before any run. */

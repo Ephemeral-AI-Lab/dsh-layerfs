@@ -1,0 +1,13 @@
+{"label": "export-bundle-evidence", "timeout": 30, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "25", "bash", "-s"], "stdin": "set -eu\nr=/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3\nout=/mnt/c/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify\ncp \"$r/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072/manifest.json\" \"$out/bundle-manifest.json\"\ncp \"$r/resources.json\" \"$out/linux-resources.json\"\ncp \"$r/builds/build-linux-e068b8575eaf4c4cb34dde4d356ca072/output.log\" \"$out/linux-build-output.log\"\npython3 /home/yifan/layerfs-428-verification/tools/cleanup.py check\n"}
+{
+  "at_utc": "2026-10-23T21:25:17.622471+00:00",
+  "filesystem_path": "/home/yifan/layerfs-428-verification",
+  "free_bytes": 999106113536,
+  "free_GB": 999.106113536,
+  "free_GiB": 930.4900779724121,
+  "min_free_bytes": 100000000000,
+  "reclaim_target_bytes": 300000000000,
+  "units": "GB = 1,000,000,000 bytes; GiB = 1,073,741,824 bytes",
+  "cleanup_required": false,
+  "action": "Headroom threshold satisfied"
+}

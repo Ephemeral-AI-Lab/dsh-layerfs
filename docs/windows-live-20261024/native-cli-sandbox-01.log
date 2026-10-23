@@ -1,0 +1,19 @@
+{"label": "native-cli-sandbox-01", "timeout": 120, "args": ["node", "C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/native-cli-sandbox.mjs"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+node:internal/modules/cjs/loader:1421
+  const err = new Error(message);
+              ^
+
+Error: Cannot find module '@deepseek-ai/dsh-pwsh-sandbox'
+Require stack:
+- C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness/packages/shell/pwsh-sandbox/package.json
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at require.resolve (node:internal/modules/helpers:163:19)
+    at mod (file:///C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/native-cli-sandbox.mjs:7:50)
+    at file:///C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/native-cli-sandbox.mjs:12:39 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness/packages/shell/pwsh-sandbox/package.json'
+  ]
+}
+
+Node.js v24.11.1

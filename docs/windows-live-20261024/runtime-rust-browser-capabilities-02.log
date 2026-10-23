@@ -1,0 +1,10 @@
+{"label": "runtime-rust-browser-capabilities-02", "stdin": "set -eu\nexport CARGO_HOME=/tmp/scenario-cargo\nrustc --version\ncargo --version\ncargo fmt --version\ncargo clippy --version\npkg-config --modversion sqlite3\npython3 --version\nchromium --version\nchromedriver --version\npython3 - <<'PY'\nfrom selenium import webdriver\nfrom selenium.webdriver.chrome.service import Service\noptions = webdriver.ChromeOptions()\noptions.add_argument('--headless')\noptions.add_argument('--no-sandbox')\noptions.add_argument('--disable-dev-shm-usage')\ndriver = webdriver.Chrome(service=Service('/usr/bin/chromedriver'), options=options)\ntry:\n    driver.get('data:text/html,<title>LayerFS runtime check</title>')\n    assert driver.title == 'LayerFS runtime check', driver.title\n    print('PASS: Selenium headless Chromium')\nfinally:\n    driver.quit()\nPY", "timeout": 120, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "110", "docker", "run", "--rm", "-i", "--name", "layerfs-runtime-capabilities-20261024", "sha256:b9eeeaefd7edc6771193b2100f7afd904e4182faad66c776a866b25019082667", "timeout", "100", "bash", "-s"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+rustc 1.85.1 (4eb161250 2025-03-15)
+cargo 1.85.1 (d73d2caf9 2024-12-31)
+rustfmt 1.8.0-stable (4eb161250e 2025-03-15)
+clippy 0.1.85 (4eb161250e 2025-03-15)
+3.40.1
+Python 3.11.2
+Chromium 156.0.8078.47 built on Debian GNU/Linux 12 (bookworm)
+ChromeDriver 156.0.8078.47 (1d17a2e2ee147bb7d6ae2ab6abdb3a2510c17775-refs/branch-heads/8078@{#1313})
+PASS: Selenium headless Chromium

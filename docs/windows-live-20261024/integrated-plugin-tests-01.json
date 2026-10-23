@@ -1,0 +1,18 @@
+{
+  "label": "integrated-plugin-tests-01",
+  "timeout": 120,
+  "args": [
+    "cmd.exe",
+    "/d",
+    "/c",
+    "pnpm test"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "env": {
+    "LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification",
+    "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"
+  },
+  "exit_code": 0,
+  "elapsed_s": 6.157,
+  "at": "2026-10-24T05:57:11.082904"
+}

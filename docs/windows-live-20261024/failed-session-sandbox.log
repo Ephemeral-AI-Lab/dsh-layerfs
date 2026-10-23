@@ -1,0 +1,9 @@
+{"label": "failed-session-sandbox", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-b94d77c3-464a-4134-90d1-79b743dc9313"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+sandbox (project mock-sandbox)
+  lines: C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-b94d77c3-464a-4134-90d1-79b743dc9313.jsonl does not exist (no LayerFS call was traced)
+  lines: 0 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-b94d77c3-464a-4134-90d1-79b743dc9313.jsonl
+  FAIL run: failed (root: agents.root[0] (Fork docs and site; mount both in one new Sandbox) expected branch.fork:Forked, branch.fork:Forked, sandbox.create:ok, workspace.mount:Mounted, workspace.mount:Mounted, workspace.exec:exit:0, workspace.exec:exit:0, workspace.exec:exit:0; its LayerFS calls show nothing, so root stops here: [stderr]
+      0 [main] bash (40028) E:\Git\bin\..\usr\bin\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[exit code: 3221225794])
+  FAIL root: no LayerFS calls on the trace
+FAIL: 2 failure(s)

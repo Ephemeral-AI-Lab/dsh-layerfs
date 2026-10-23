@@ -1,0 +1,14 @@
+{
+  "label": "failed-session-tour",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-87de4d51-2f60-47b5-a957-f93bfdd1c565"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 1,
+  "elapsed_s": 0.078,
+  "at": "2026-10-24T05:47:02.450131"
+}

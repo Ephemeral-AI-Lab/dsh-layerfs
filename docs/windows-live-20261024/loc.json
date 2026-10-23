@@ -1,0 +1,579 @@
+{
+  "parent": "56fc353f45960dd3f1e502d06c9838602da2a466",
+  "before": 7944,
+  "after": 7944,
+  "delta": 0,
+  "method": "Pinned LayerFS production_loc.py blank_js, blob caf176ba66d0fc8978772a7d0c809be365c5294d; explicit plugin classification plus shipped YAML, locales, bundle entry and shell shim. YAML block scalar content counts as data, including heading lines. Exact git show blobs; excludes tests, tools, manifests, images and generated output. Proposed change adds docs only; verify production blob equality in candidate tree before commit.",
+  "files": [
+    {
+      "path": "packages/client/src/client/AllSandboxes.tsx",
+      "production_loc": 189,
+      "sha256": "f6ed05faf64bba30b4ad9f822e1675eb9212bc228193701ffc7709b4b59a4000",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/InitDialog.tsx",
+      "production_loc": 120,
+      "sha256": "2b3aa760fd597ffd3090bc5cbd54b3e2531039ed3de6b82e51ec3510eb81a7aa",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/LayerFsPanel.tsx",
+      "production_loc": 223,
+      "sha256": "71568aeaacf07e28ea134fc9a58d49e2e92bf79c78b1b03211114b183a69f0fe",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/LayerFsView.tsx",
+      "production_loc": 165,
+      "sha256": "8d4ba18b52e8fcdd9f7fbcb219fb698009751053948c28b6e39a53180e783bfb",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/Progress.tsx",
+      "production_loc": 88,
+      "sha256": "ce3fb6b214cca8f60f6b42ab2574e1f5a1bd44ca7e8131f30e3a3bc5c69c19bd",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/ProjectBoard.tsx",
+      "production_loc": 79,
+      "sha256": "20614393a463c0df3fa4704a8662385e3bfded4ce0a7291bb2e030af9f831621",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/ProjectChip.tsx",
+      "production_loc": 36,
+      "sha256": "2d48c05a31ab92568849a9c7f2fda4a497e6174b006625df1e998a4e8942011b",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/ProjectPicker.tsx",
+      "production_loc": 131,
+      "sha256": "68cdd825f7b8f515ccff50e406db1d7b7b3e5ca5382d62761df8b8641c46cefd",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/RemoveDialog.tsx",
+      "production_loc": 42,
+      "sha256": "a7bc71640c8268665bbafea003424ec33c728470a41910d81b1cad4b251994b6",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/RunBar.tsx",
+      "production_loc": 82,
+      "sha256": "37282a5b8bf6e62af79da1f2676e06b75cdd39b8b90413a93f3f3ff0686752ae",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/SandboxesTab.tsx",
+      "production_loc": 107,
+      "sha256": "829526a1f7df106cd6a4f37440ca20461eaf0970ffef5718a463b751a1f14650",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/ScenariosPage.tsx",
+      "production_loc": 203,
+      "sha256": "e5982fb5322ad0d63fb98a0f2292625bf54bdec88652dc9f0b7aee2db7d3cb2f",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/Setup.tsx",
+      "production_loc": 46,
+      "sha256": "8563cf917d2b8f6f3138fea7cfb1df30c61db4c568e7b43c6095b4d7b2bd173c",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/api.ts",
+      "production_loc": 132,
+      "sha256": "1702bb4e620e16e29daa3f02c2d0f2537a95c68de28e68b3407a485fc0b80953",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/avatars.ts",
+      "production_loc": 17,
+      "sha256": "09bc6023de68272d265b105a17eee0a5789a67a6f5cb4456ae46d3b10b1df543",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/composer.ts",
+      "production_loc": 27,
+      "sha256": "992de3285df28546826cec06caa8de828d1922922393090685df298c12582f81",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/historyCache.ts",
+      "production_loc": 33,
+      "sha256": "19bd0211a6d79007aa1cf8954fb1db3fd8015c7cf0e2b425396a9bcbbad032f0",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/index.ts",
+      "production_loc": 68,
+      "sha256": "2231a40aad336a6570c03ca3a650035110520fad9dd38fe2b9fa2676b9f4867c",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/initLimit.ts",
+      "production_loc": 26,
+      "sha256": "e368417f8ee65bb5c0c755c9270bb961cd8adbdde1e2d2369f7b1e937a9e5f36",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/maid.tsx",
+      "production_loc": 57,
+      "sha256": "808105409f72b8990d2871643318c25591af63061e054e675e5eecafa3aecaa2",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/playback.ts",
+      "production_loc": 74,
+      "sha256": "ba5c4da535be313290bdb9442604a82e0d0ddeb1b31437ee812e408f5c7c2509",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/replay.ts",
+      "production_loc": 54,
+      "sha256": "bb1030ca80954fd736571c725b97c6cb337b0b03461aa115c047839f64a0e1cf",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/runtimeParts.tsx",
+      "production_loc": 37,
+      "sha256": "161c5b753ebe858277c32ba9f3f80d2db5a5eeb457b5627c96cf2fa001bf140e",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/scenarios.ts",
+      "production_loc": 112,
+      "sha256": "dfbaaa5f75859ee5ff9f0dce0a302f21c03f1ca22b1d543da563ed815b79f96e",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/storage.ts",
+      "production_loc": 31,
+      "sha256": "787d6b7e17379df0fa2b740b6bb669943b789f58dffb46051310c40c3735bb69",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/tablogo.ts",
+      "production_loc": 32,
+      "sha256": "d3eec59ea946703f68161301d4034f6cf8c5821aba6ef6b61d483ce84a0d4679",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/theme.ts",
+      "production_loc": 11,
+      "sha256": "68f9bb07947b577642cf5cc74c55660976449bfb8c337fb4361d652a49509a0c",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/tokens.ts",
+      "production_loc": 8,
+      "sha256": "72dfbd279fd84ce04696c77fc144a12d7570e9f6f4e106dc34b7cb7ce6a44185",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/client/ui.ts",
+      "production_loc": 8,
+      "sha256": "832d0aa85ef137abc1f2f6998f19e67f50573887e902946cc39e44a0f06126ba",
+      "kind": "js"
+    },
+    {
+      "path": "packages/client/src/index.js",
+      "production_loc": 1,
+      "sha256": "406081e2512bc4c8cb7b4efaeef07d7ac525f112ea6e3b322f2b85270dec0802",
+      "kind": "js"
+    },
+    {
+      "path": "packages/dsh-layerfs/cordis.patch.yml",
+      "production_loc": 7,
+      "sha256": "afe60c1d2b61e7dfccbb4392c7329c00ef7b9b6e49075993347c31efc5d4131a",
+      "kind": "yaml"
+    },
+    {
+      "path": "packages/dsh-layerfs/index.js",
+      "production_loc": 1,
+      "sha256": "45f7161df56bfa007e74db680dc5d7ad8e49b0db1a0b9601fe147010d1e090e3",
+      "kind": "js"
+    },
+    {
+      "path": "packages/dsh-layerfs/locale/en.json",
+      "production_loc": 6,
+      "sha256": "d28a3254f0944086d8216b4cc3a633c1fbc5e9679ce6a8cf8b374217c999b841",
+      "kind": "json"
+    },
+    {
+      "path": "packages/dsh-layerfs/locale/zh.json",
+      "production_loc": 6,
+      "sha256": "b64de4404e9c03e9af784cb27287c6dfa05468bf53ef222f870d17efed1e0f86",
+      "kind": "json"
+    },
+    {
+      "path": "packages/dsh-layerfs/presets/layerfs-dsh-minimalist.patch.yml",
+      "production_loc": 90,
+      "sha256": "9e93133c7d72a6802bacdc6d241348edc620173edabc1c23d0c501e22c565ff8",
+      "kind": "yaml"
+    },
+    {
+      "path": "packages/host/src/agent/backend.js",
+      "production_loc": 2,
+      "sha256": "20dd896424814d29a7ac11f1ee27b8cf89e6546ee303ed1469774e81eedd5849",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/agent/cli.js",
+      "production_loc": 5,
+      "sha256": "a228ebf7cdc6344e065ff6971005a50333c6eae0c20df06be9aa39829a5b42a6",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/agent/env.js",
+      "production_loc": 5,
+      "sha256": "dd9cda8e11b57e8f800e1b70b76dea568fff12a479e507878ae5fbe94a628f7e",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/agent/sdk.js",
+      "production_loc": 2,
+      "sha256": "7519f058dec61af4f6cacda111bdb437c1dd54b39846f46354ae70e67b9708d5",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/bin/layerfs",
+      "production_loc": 5,
+      "sha256": "60059b5977400c4626484f2cbaf5b5112eee101c00b9b205ef4165efeb169d0e",
+      "kind": "shell"
+    },
+    {
+      "path": "packages/host/src/binding.js",
+      "production_loc": 150,
+      "sha256": "9d2a0f32d347bea21e7631108419b25d069e88e496958e8f362a467f0f893eed",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/collector.js",
+      "production_loc": 225,
+      "sha256": "5d220d56cb1cd47dcfc69d66a0327a47f7c867271a75a5ed9d27a406197f44b3",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/config.js",
+      "production_loc": 48,
+      "sha256": "7b40e181cca55600ebeabd4d8a3d3a9f556b0b9f53d08433b1b5633f0299a4fd",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/env.js",
+      "production_loc": 70,
+      "sha256": "69f9da790b098014bfc7c05e00ed6cbf8bfe43c5eb1f7bc883a30ebc55d39258",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/index.js",
+      "production_loc": 53,
+      "sha256": "632d1aef14a2cbfc45060d8300ddbde59ee78f5fd36829effbb56bdfc64d4a87",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/init.js",
+      "production_loc": 85,
+      "sha256": "47abec2953adca457412733e1fed1d53e49239b91f73b5520f60db85e671c707",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/jobs.js",
+      "production_loc": 28,
+      "sha256": "c775ef467d8a5fbf7e46675c6d353d4c4ab8adee93ab26bed21005d89db2e87b",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/layerfs-client.js",
+      "production_loc": 97,
+      "sha256": "ca5fb1dfe77e38921b1b94844c3ad20e83d434f3828b146bc0fd83722e3f8f8b",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/reads.js",
+      "production_loc": 77,
+      "sha256": "27427eab74b6783a8cadb915db37c07a6ca0679d9760b4a517916b8113c49615",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/records.js",
+      "production_loc": 8,
+      "sha256": "904a4bbc224d85a346dfa12d512d32e4c5fe13f09875b925f8386ab185a02dc9",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/remove.js",
+      "production_loc": 29,
+      "sha256": "a302685f8055bfea90ccb70fdff2d84fb7d4cdacd2eace53b7ed8d71d14e64ca",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/route.js",
+      "production_loc": 116,
+      "sha256": "e96078bec0472de2c7eb0ff2e55f90d81fb864883f53a99ee82753808c2cec67",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/runtime.js",
+      "production_loc": 174,
+      "sha256": "d3a3fe4b16cef9f8b219c32369c1329f423d07d4d612cd5cd7cc183ae0045560",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/source.js",
+      "production_loc": 2,
+      "sha256": "a040faa06ee2e2f178f2aede1ecb5c99c5fbe90979d25a36895703cb15bceae6",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/storage.js",
+      "production_loc": 21,
+      "sha256": "c3d538039144cf9b97ffab885e29683e04e1f9b21b349daa577fd29dfcf16a10",
+      "kind": "js"
+    },
+    {
+      "path": "packages/host/src/trees.js",
+      "production_loc": 117,
+      "sha256": "59c1219fdb6449aa1389ab5c146469e058133b76f31d6bef1adeeff9a03e4cb9",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/adapter.js",
+      "production_loc": 71,
+      "sha256": "f4255dc1db3971fec191f0c4ae3d3e3d50b012fb6d8445ecaa3643b9fdcb504c",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/default-model.js",
+      "production_loc": 8,
+      "sha256": "be2559b718b299573986ba46ec9c8dab23ec9504f2058428c590e01e6c0b0286",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/expect.js",
+      "production_loc": 13,
+      "sha256": "ee5cebc2474cf024e4e95ab9a8f280e4b5263750b403f5085b7d4ee3aabf9058",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/index.js",
+      "production_loc": 34,
+      "sha256": "6792a851c174c94017885c54a11faca9c6f9cf3ab96999b21e5952a5bbcc2228",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/plan.js",
+      "production_loc": 164,
+      "sha256": "ce4642b4a70b00a9e17b9826eb194af86ab7e466c3cdeebfcc28690ff1745071",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/progress.js",
+      "production_loc": 103,
+      "sha256": "0978be7dfa374e19be325e0e328a203561062e22bb088b54bfe89ae634e45ee0",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/routes.js",
+      "production_loc": 53,
+      "sha256": "94da04a3a16ad9f6c1652ac77c7dfe398fd207ce26a1fae4d076df667e79d05a",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/scenario.js",
+      "production_loc": 274,
+      "sha256": "94c735e81df2f8f3f9814d4a14732314c1c29b9a9b10b0e751c606221574314b",
+      "kind": "js"
+    },
+    {
+      "path": "packages/mock/src/seed.js",
+      "production_loc": 26,
+      "sha256": "5a4fec671bad2ebe2d6f32780c1db83f334df3dd0759b09146b7748fd0c4735a",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/attribution.js",
+      "production_loc": 84,
+      "sha256": "7ea9857948702038dfa9f01d77588921f3bf5f241e54de85f780159dff894233",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/cli.js",
+      "production_loc": 103,
+      "sha256": "10ec8cd42323853b9e1e82a533d6acdd47b4ed163be27b1d3b68ad93e0038292",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/derive.js",
+      "production_loc": 46,
+      "sha256": "eeaa61e180ec257176411c2e6efd82f2c8f95b09d1c7ec40b9a318f1a24453d8",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/events.js",
+      "production_loc": 8,
+      "sha256": "9eb18abd2cba56b3c623b7d9abff87582a92afe4902e0e9bd3b9cbfa0b53cd97",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/fanout.js",
+      "production_loc": 18,
+      "sha256": "aa96818d088b48bbc4270ca57868aef8318c480d9f77a091df1905db77ffe0c9",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/index.js",
+      "production_loc": 12,
+      "sha256": "1e7fed6bf99db3ceba27755f62b8bbc8c2156945ffeb4ea6ba869aa8acf6afb5",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/mirror.js",
+      "production_loc": 141,
+      "sha256": "86dd263b4f1238712bda84d239b76be8a24534ce0ac8934099c71ead85da7bd6",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/pose.js",
+      "production_loc": 25,
+      "sha256": "ee7c1faf36ccaf553805860c86459fc6f2b1fd0c35d5b804cef6ecbeb68a5ea5",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/sources/records.js",
+      "production_loc": 16,
+      "sha256": "d42c3209da72e18af2ae1768c6e560ac819520bc99932a99806e7cbb731a6cc7",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/sources/story.js",
+      "production_loc": 48,
+      "sha256": "3b8a877f9fd0a2af9b9c312b643b30b17f1afefe96739d81f2ca634d2405cff6",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/sources/trace.js",
+      "production_loc": 268,
+      "sha256": "ce3ec0451d8034a0910e639fc8509d93002519295ec9b914fb30066a786a886a",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/terminals.js",
+      "production_loc": 56,
+      "sha256": "08586e260e0cdb56a1496ccc80204e05e273e42fae575dd77ccd6bc2b68107ec",
+      "kind": "js"
+    },
+    {
+      "path": "packages/model/src/where.js",
+      "production_loc": 29,
+      "sha256": "1a33b97f5a91ded5f27f3eaa5ab86b5170ec775c40e041d2343fe746a2f954b2",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/cast.js",
+      "production_loc": 34,
+      "sha256": "a61e78e864f9ccb9e1a1710d287136d402823d3ec7c07b3e0d22954dff25e3c8",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/fileicons.js",
+      "production_loc": 24,
+      "sha256": "6ad4113bd1136ac7a117d366a5a29bef5064af6a16e4ff09ec2d7b3f2b232b0e",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/files.js",
+      "production_loc": 246,
+      "sha256": "b724f3bf65743623625368df5ff188e043f646910a67e8e7fa324f15aeba7bce",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/filesource.js",
+      "production_loc": 38,
+      "sha256": "bfb7c798d456af6d6b70661cfe552d6bea1e798d5b91681268d86e7a85737ef9",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/highlight.js",
+      "production_loc": 88,
+      "sha256": "1ecd1327f7ab3ea8560957d39f5ee16f1fbb5c444e4cc93f04686aa87aaebb00",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/history.js",
+      "production_loc": 277,
+      "sha256": "2683b36daf1bb5a2876bce8ce56daa800bc4837cbefafbcd981cc48547487697",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/index.js",
+      "production_loc": 5,
+      "sha256": "09c02ee2e9e4604653c6a866828fa1cbef35864c336cb1dabd7dad6ead716544",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/skins/heroes/cast.js",
+      "production_loc": 9,
+      "sha256": "8a66230ca611131a79bcc323d3991cc7d27c40bd0e24b89df2c9a153fdc9b5c5",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/skins/heroes/style.js",
+      "production_loc": 19,
+      "sha256": "33e170ef1f960fb6b08fda9070db65c8f86f18dc8936a763ecfbb28882c7db27",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/skins/maids/cast.js",
+      "production_loc": 14,
+      "sha256": "590adb14e0cd493787e162a2326137ebe38c62746d600f8148a131ac1d91d4b1",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/skins/maids/style.js",
+      "production_loc": 148,
+      "sha256": "3165d23aa3d12e8d97611de55b2d11ddc28988920aa169ec541fba6c35b0ac3b",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/skins/maids/voice.js",
+      "production_loc": 22,
+      "sha256": "5a0f31b528b4854b26366d873e6194703c43a08abc1b2e9524cfeb3893aef2e5",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/style.js",
+      "production_loc": 767,
+      "sha256": "40dd68349fb7a2302eaae09c1eb49a426bf798d2e3496b7939172cc99dc0a569",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/tree.js",
+      "production_loc": 191,
+      "sha256": "f37ac79acb06124a5ac856b12b307cb261e7918f92a9aa08839e5c88141a40ec",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/treezoom.js",
+      "production_loc": 117,
+      "sha256": "cfca8e06d22f93d138010d8ad45453665dbaff7e062b50d0313e2ac03f8bed62",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/util.js",
+      "production_loc": 29,
+      "sha256": "54e0049a4ed56cd8e4598564540e028f16cc8096b06be99a025951b4623ff1be",
+      "kind": "js"
+    },
+    {
+      "path": "packages/view/src/view.js",
+      "production_loc": 648,
+      "sha256": "870edeb511f2f580f46f0f58cbd4531ddd17dfa48579a431b51d7ea020b6b9e1",
+      "kind": "js"
+    }
+  ]
+}

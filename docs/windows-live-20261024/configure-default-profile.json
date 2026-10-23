@@ -1,0 +1,13 @@
+{
+  "label": "configure-default-profile",
+  "timeout": 30,
+  "args": [
+    "node",
+    "--input-type=module",
+    "-e",
+    "import fs from 'node:fs'; import path from 'node:path';\nconst p=path.join(process.env.USERPROFILE,'.dsh/profiles/web');\nconst file=path.join(p,'package.json');const pkg=JSON.parse(fs.readFileSync(file,'utf8'));\npkg.dependencies['dsh-layerfs']='link:C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/dsh-layerfs';\nfs.writeFileSync(file,JSON.stringify(pkg,null,2)+'\\n');\nconst link=path.join(p,'node_modules/dsh-layerfs');\nif(!fs.lstatSync(link).isSymbolicLink())throw Error('Expected existing plugin junction');\nconsole.log('Previous junction:',fs.readlinkSync(link));fs.unlinkSync(link);\nfs.symlinkSync('C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/dsh-layerfs',link,'junction');\nconst patch=path.join(p,'cordis.patch.yml');let text=fs.readFileSync(patch,'utf8');\ntext=text.replace('sha256:0751d2c2245af1c311a24565c63f73378eed5f08fa39be7a68da2193192b0c51','sha256:9781a93410ef8f32b0b4ceaa99bd9ff33b731958d2a0aee4a7e2fe7717877863').replace('/home/yifan/dsh-layerfs-wsl/build','/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072').replace('containerPrefix: layerfs-windows-','containerPrefix: layerfs-');\nfs.writeFileSync(patch,text);console.log('Plugin junction and layerfs-host settings updated; other patch entries preserved.');"
+  ],
+  "exit_code": 0,
+  "elapsed_s": 0.046,
+  "at": "2026-10-24T05:22:42.168182"
+}

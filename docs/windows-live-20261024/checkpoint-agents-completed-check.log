@@ -1,0 +1,11 @@
+{"label": "checkpoint-agents-completed-check", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-d08ca6fb-4553-4a78-9264-e2dbe697a7dd"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+agents (project mock-agents (older run; project not recorded))
+  run: a newer run of agents replaced this one's record, so its state is unknown
+  lines: 340 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-d08ca6fb-4553-4a78-9264-e2dbe697a7dd.jsonl
+  root: 12 bash call(s) with LayerFS lines, 12 checked, 12 matched
+  ava: 7 bash call(s) with LayerFS lines, 7 checked, 7 matched
+  ben: 9 bash call(s) with LayerFS lines, 9 checked, 9 matched
+  cy: 11 bash call(s) with LayerFS lines, 11 checked, 11 matched
+  dee: 11 bash call(s) with LayerFS lines, 11 checked, 11 matched
+  eli: 9 bash call(s) with LayerFS lines, 9 checked, 9 matched
+PASS: every check that ran holds

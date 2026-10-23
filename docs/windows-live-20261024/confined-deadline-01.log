@@ -1,0 +1,21 @@
+{"label": "confined-deadline-01", "timeout": 120, "args": ["node", "C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/sandbox-deadline.mjs"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+{"exitCode":1,"signal":null,"timedOut":true,"aborted":false,"timeoutMs":20000,"stdout":{"text":"","truncated":false},"stderr":{"text":"Scenario command exceeded its 1000 ms wall deadline; stopping its process tree\nERROR: Access denied\r\r\n","truncated":false},"sandbox":{"mode":"workspace-write","denied":false,"enforcement":"partial"}}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+1 !== 124
+
+    at file:///C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/sandbox-deadline.mjs:44:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 1,
+  expected: 124,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.11.1

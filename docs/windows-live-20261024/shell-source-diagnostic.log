@@ -1,0 +1,18 @@
+{"label": "shell-source-diagnostic", "timeout": 30, "args": ["node", "--input-type=module", "-e", "import { resolvePwshPath } from './packages/shell/pwsh-local/lib/resolve.js'; import {existsSync} from 'node:fs'; import {join} from 'node:path';const path=process.env.PATH;console.log(JSON.stringify({shell:resolvePwshPath(),pluginShimOnPath:path.split(';').some(x=>x.includes('dsh-layerfs')&&x.endsWith('bin')),layerfsCandidates:path.split(';').flatMap(p=>['layerfs.exe','layerfs.cmd','layerfs.bat','layerfs'].map(n=>join(p,n))).filter(existsSync),path},null,2));"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}
+node:internal/modules/esm/resolve:274
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'C:\Users\yifan\code\Ephemeral-AI-Lab\deepseek-harness\packages\shell\pwsh-local\lib\resolve.js' imported from C:\Users\yifan\code\Ephemeral-AI-Lab\deepseek-harness\[eval1]
+    at finalizeResolution (node:internal/modules/esm/resolve:274:11)
+    at moduleResolve (node:internal/modules/esm/resolve:864:10)
+    at defaultResolve (node:internal/modules/esm/resolve:990:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:737:20)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:714:38)
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:293:38)
+    at #link (node:internal/modules/esm/module_job:208:49) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness/packages/shell/pwsh-local/lib/resolve.js'
+}
+
+Node.js v24.11.1

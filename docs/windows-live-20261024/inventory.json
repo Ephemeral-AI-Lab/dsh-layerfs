@@ -1,0 +1,7 @@
+{
+  "command": "git config --get core.autocrlf; git -C ../deepseek-harness rev-parse HEAD; git -C ../deepseek-harness status --short; Get-Content ../deepseek-harness/package.json -TotalCount 45; Get-ChildItem $env:USERPROFILE/.dsh -Force | Select-Object Name; wsl -d Ubuntu -- bash -lc uname",
+  "timeout_s": 110,
+  "exit_code": 0,
+  "elapsed_s": 10.703,
+  "at": "2026-10-24T05:17:35.905359"
+}

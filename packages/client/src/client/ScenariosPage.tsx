@@ -132,7 +132,7 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
       if (run?.state === 'running') stopRun(services(), run.sessionId).catch((e) => setError(message(e)))
     }
   }
-  const inUse = new Set(runs.filter((r) => r.run?.state === 'running').map((r) => projectOf(r.s.id)).concat(Object.keys(starting).map(projectOf)))
+  const inUse = new Set(runs.filter((r) => r.run?.state === 'running').map((r) => projectOf(r.s.id, r.run)).concat(Object.keys(starting).map((id) => projectOf(id))))
   const removable = leftovers.filter((name) => !inUse.has(name))
   const cleanUp = async () => {
     for (const name of removable) {
@@ -181,7 +181,7 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
         <Button variant="outline" size="sm" icon={<IconStopFillRegular size={14} />} disabled={!anyGoing} onClick={stopAll}>Stop all</Button>
         <span style={{ flex: 1 }} />
         {removable.length > 0 && (
-          <Button variant="ghost" size="sm" icon={<IconTrashOutlineRegular size={14} />} disabled={!!cleaning} onClick={() => void cleanUp()}
+          <Button variant="ghost" size="sm" icon={<IconTrashOutlineRegular size={14} />} disabled={!!cleaning || busy} onClick={() => void cleanUp()}
             title={removable.join(', ')}>{`Clean up ${removable.length} ${removable.length === 1 ? 'project' : 'projects'}`}</Button>
         )}
       </div>
@@ -224,7 +224,7 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
                     {[s.counts.agents === 1 ? 'one agent' : `${s.counts.agents} agents`, `${s.counts.steps} steps`, `${s.counts.calls.length} LayerFS calls checked`].join(' · ')}
                   </span>
                 </div>
-                {failure && <div style={{ fontSize: 12, color: T.danger, overflowWrap: 'anywhere', marginTop: 4 }}>{failure}{failures[k] ? '' : ` · project ${projectOf(s.id)} kept`}</div>}
+                {failure && <div style={{ fontSize: 12, color: T.danger, overflowWrap: 'anywhere', marginTop: 4 }}>{failure}{failures[k] ? '' : ` · project ${projectOf(s.id, run)} kept`}</div>}
               </div>
               <div style={{ ...rule, padding: '8px 12px', fontSize: 12, minWidth: 0 }}>{cell(s)}</div>
               <div style={{ ...rule, padding: '6px 12px' }}>

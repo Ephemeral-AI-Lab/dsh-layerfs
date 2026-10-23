@@ -1,0 +1,18 @@
+{
+  "label": "clone-layerfs-wsl",
+  "timeout": 110,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "105",
+    "bash",
+    "-s"
+  ],
+  "stdin": "set -eu\ngit clone --no-hardlinks /mnt/c/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification /home/yifan/layerfs-428-verification\ngit -C /home/yifan/layerfs-428-verification checkout --detach 3c21c62c6edf800d3aabb8ecd83620a75ecf7084\ngit -C /home/yifan/layerfs-428-verification status --short\n",
+  "exit_code": 0,
+  "elapsed_s": 14.875,
+  "at": "2026-10-24T05:19:21.277693"
+}

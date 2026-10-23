@@ -88,7 +88,7 @@ export function checkRun(profile, rootId, scenariosDir) {
   if (existsSync(join(folder, "final.json"))) {
     notRun.push(`order and final tree against ${join(folder, "final.json")}: NOT_RUN, missing ${MISSING.join("; ")}`);
   }
-  return { scenario: name, project: `mock-${name}`, failures, notes, notRun };
+  return { scenario: name, project: run?.sessionId === id ? run.project ?? `mock-${name}` : `mock-${name} (older run; project not recorded)`, failures, notes, notRun };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

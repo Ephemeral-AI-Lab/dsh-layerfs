@@ -1,0 +1,2 @@
+git -C ../dsh-layerfs checkout --detach 56fc353
+HEAD is now at 56fc353 Map DSH_LAYERFS_* to LayerFS's own names; pin 3c21c62c6e

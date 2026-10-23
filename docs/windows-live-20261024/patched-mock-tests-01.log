@@ -1,0 +1,25 @@
+{"label": "patched-mock-tests-01", "timeout": 120, "args": ["node", "packages/mock/tests/mock.mjs"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
++ actual - expected
+
++ 'Passed · 0:05'
+- 'Passed Â· 0:05'
+          ^
+
+    at file:///C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/mock/tests/mock.mjs:230:10
+    at ModuleJob.run (node:internal/modules/esm/module_job:377:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:671:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'Passed · 0:05',
+  expected: 'Passed Â· 0:05',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.11.1

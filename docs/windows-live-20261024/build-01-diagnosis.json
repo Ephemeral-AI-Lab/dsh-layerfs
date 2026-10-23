@@ -1,0 +1,18 @@
+{
+  "label": "build-01-diagnosis",
+  "timeout": 30,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "25",
+    "bash",
+    "-s"
+  ],
+  "stdin": "set -eu\nr=/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3\ncat \"$r\"/builds/build-linux-*/receipt.json\ntail -25 \"$r\"/builds/build-linux-*/output.log\ndocker ps -a --filter label=layerfs.worktree=layerfs-428-verification-c2c22458d2d3\n",
+  "exit_code": 0,
+  "elapsed_s": 6.984,
+  "at": "2026-10-24T05:22:14.926496"
+}

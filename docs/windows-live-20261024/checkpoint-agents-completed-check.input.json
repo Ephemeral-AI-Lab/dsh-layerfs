@@ -1,0 +1,1 @@
+{"label":"checkpoint-agents-completed-check","timeout":120,"args":["node","tools/checks/run.mjs","C:/Users/yifan/.dsh/profiles/web","session-d08ca6fb-4553-4a78-9264-e2dbe697a7dd"],"cwd":"C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}

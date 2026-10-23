@@ -1,0 +1,32 @@
+{"label": "build-01-diagnosis", "timeout": 30, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "25", "bash", "-s"], "stdin": "set -eu\nr=/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3\ncat \"$r\"/builds/build-linux-*/receipt.json\ntail -25 \"$r\"/builds/build-linux-*/output.log\ndocker ps -a --filter label=layerfs.worktree=layerfs-428-verification-c2c22458d2d3\n"}
+{
+  "status": "sealed",
+  "bundle": "/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072",
+  "at": "2026-10-23T21:21:48.718305+00:00"
+}
+   Compiling fuser v0.18.0 (/work/core/vendor/fuser-0.18.0)
+   Compiling regex-syntax v0.8.11
+   Compiling regex-automata v0.4.18
+   Compiling layerfs-store-service v1.0.0 (/work/core/crates/layerfs-store-service)
+   Compiling num_enum v0.7.6
+   Compiling parking_lot v0.12.5
+   Compiling page_size v0.6.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling log v0.4.34
+   Compiling convert_case v0.6.0
+   Compiling regex v1.13.1
+   Compiling once_cell v1.21.4
+   Compiling napi-build v2.1.6
+   Compiling layerfs-node v1.0.0 (/work/api/binding)
+   Compiling napi-derive-backend v1.0.75
+   Compiling layerfs-fuse v1.0.0 (/work/core/crates/layerfs-fuse)
+   Compiling layerfs-project v1.0.0 (/work/core/crates/layerfs-project)
+   Compiling layerfs-sandbox v1.0.0 (/work/core/crates/layerfs-sandbox)
+   Compiling ctor v0.2.9
+   Compiling napi-sys v2.4.0
+   Compiling napi-derive v2.16.13
+   Compiling napi v2.16.17
+   Compiling layerfs-api v1.0.0 (/work/core/crates/layerfs-api)
+   Compiling layerfs-daemon v1.0.0 (/work/core/crates/layerfs-daemon)
+    Finished `release` profile [optimized] target(s) in 1m 31s
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES

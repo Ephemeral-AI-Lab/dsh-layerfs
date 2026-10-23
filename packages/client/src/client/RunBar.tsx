@@ -20,7 +20,7 @@ const unsubscribed = () => () => {}
 
 export const startText = (step: StartStep, now: number) => ({
   session: 'Starting a new session…',
-  project: 'Removing the previous run’s project…',
+  project: 'Preparing a fresh project…',
   init: step.step === 'init' && step.job ? `Preparing the project · ${jobText(step.job, now)}` : 'Preparing the project…',
   start: 'Starting the agents…',
 })[step.step]
@@ -86,7 +86,7 @@ export function RunBar({ sessionId, services }: RunBarProps) {
   } else {
     line = 'Not run yet'
   }
-  const detail = !starting && run?.state === 'failed' ? `${run.error ?? 'Failed'} · project ${projectOf(scenario.id)} kept` : null
+  const detail = !starting && run?.state === 'failed' ? `${run.error ?? 'Failed'} · project ${projectOf(scenario.id, run)} kept` : null
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, margin: '0 0 6px', padding: '8px 12px', borderRadius: 10, border: '1px solid color-mix(in srgb, currentColor 12%, transparent)' }}>

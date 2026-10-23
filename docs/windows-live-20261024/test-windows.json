@@ -1,0 +1,18 @@
+{
+  "label": "test-windows",
+  "timeout": 120,
+  "args": [
+    "cmd.exe",
+    "/d",
+    "/c",
+    "pnpm run test:windows"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "env": {
+    "LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification",
+    "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"
+  },
+  "exit_code": 1,
+  "elapsed_s": 1.234,
+  "at": "2026-10-24T05:20:43.185802"
+}

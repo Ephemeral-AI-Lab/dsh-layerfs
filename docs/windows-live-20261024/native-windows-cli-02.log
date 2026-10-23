@@ -1,0 +1,2 @@
+{"label": "native-windows-cli-02", "timeout": 120, "args": ["node", "packages/host/tests/windows-cli.mjs"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+windows-cli: PASS (PowerShell and cmd PATH, spaced paths/args, stdin, stderr, exit 125 and missing-project exit 2)

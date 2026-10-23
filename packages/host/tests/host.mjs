@@ -66,18 +66,21 @@ try {
   assert.equal(projectContext(h.bindings, h.collector, undefined), "");
   // the layerfs shim: first on PATH while the Host runs; it runs the conversation's CLI, or says there is none
   {
-    const env = { PATH: "/usr/bin:/bin" }, off = shimOnPath(env, "darwin");
-    assert.equal(env.PATH, `${BIN}:/usr/bin:/bin`);
+    const env = { PATH: "/usr/bin:/bin" }, off = shimOnPath(env);
+    assert.equal(env.PATH, `${BIN}${process.platform === "win32" ? ";" : ":"}/usr/bin:/bin`);
     off();
     assert.equal(env.PATH, "/usr/bin:/bin");
     const win = { PATH: "C:\\x" };
-    shimOnPath(win, "win32");
-    assert.equal(win.PATH, "C:\\x", "Windows runs no bash here");
+    const winOff = shimOnPath(win, "win32");
+    assert.equal(win.PATH, `${BIN};C:\\x`);
+    winOff();
+    assert.equal(win.PATH, "C:\\x");
     const cli = join(dir, "fake-cli.mjs");
     writeFileSync(cli, "console.log(JSON.stringify(process.argv.slice(2)));\n");
-    const shim = (vars) => spawnSync(join(BIN, "layerfs"), ["branch", "fork", "cart"], { encoding: "utf8", env: { PATH: process.env.PATH, ...vars } });
-    assert.deepEqual([shim({ DSH_LAYERFS_CLI: cli }).status, shim({ DSH_LAYERFS_CLI: cli }).stdout], [0, '["branch","fork","cart"]\n']);
-    assert.deepEqual([shim({}).status, shim({}).stderr], [2, "layerfs: this conversation has no LayerFS project\n"]);
+    const shim = (vars) => spawnSync(process.platform === "win32" ? "cmd.exe" : join(BIN, "layerfs"), process.platform === "win32" ? ["/d", "/c", "layerfs branch fork cart"] : ["branch", "fork", "cart"], { encoding: "utf8", timeout: 10000, env: { ...process.env, DSH_LAYERFS_CLI: "", PATH: `${BIN}${process.platform === "win32" ? ";" : ":"}${process.env.PATH}`, ...vars } });
+    const ok = shim({ DSH_LAYERFS_CLI: cli }), missing = shim({});
+    assert.deepEqual([ok.status, ok.stdout.trim()], [0, '["branch","fork","cart"]']);
+    assert.deepEqual([missing.status, missing.stderr.trim()], [2, "layerfs: this conversation has no LayerFS project"]);
   }
   const vars = h.env.resolve({ agent: { session: child }, callId: "c1", rootCallId: "r1" });
   assert.equal(vars.DSH_LAYERFS_PROJECT, "website");
@@ -568,7 +571,10 @@ module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen
     const lines = readFileSync(seen, "utf8").trim().split("\n").map((l) => JSON.parse(l));
     assert.deepEqual(lines.map((l) => l.fn), ["storeOpen", "call", "backendCall", "storeClose"]);
     const lookup = lines[1].args;
-    assert.deepEqual([lines[1].op, lookup.project, lookup.home, lookup.storePath], ["project.list_branches", "shop", h.spec.home, `${h.spec.volumes}/layerfs-shop-store-1/_data/global/store.sqlite`]);
+    // Windows projects belong to the configured Linux home even when this
+    // test substitutes an in-process binding for the worker transport.
+    const projectHome = process.platform === "win32" ? h.spec.wsl.home : h.spec.home;
+    assert.deepEqual([lines[1].op, lookup.project, lookup.home, lookup.storePath], ["project.list_branches", "shop", projectHome, `${h.spec.volumes}/layerfs-shop-store-1/_data/global/store.sqlite`]);
     assert.deepEqual([lookup.deploy.volume, lookup.deploy.image, lookup.deploy.containerPrefix], ["layerfs-shop-store-1", "sha256:" + "2".repeat(64), "layerfs-"]);
     assert.ok(!("LAYERFS_VOLUME" in process.env), "the deployment is set for the open only");
   }

@@ -1,0 +1,7 @@
+{"label": "shell-resolution-diagnostic", "timeout": 30, "args": ["node", "--import", "tsx/esm", "--input-type=module", "-e", "import {resolvePwshPath} from './packages/shell/pwsh-local/src/resolve.ts';import {existsSync} from 'node:fs';import {join} from 'node:path';console.log(JSON.stringify({shell:resolvePwshPath(),layerfsCandidates:process.env.PATH.split(';').flatMap(p=>['layerfs.exe','layerfs.cmd','layerfs.bat','layerfs'].map(n=>join(p,n))).filter(existsSync),shimDirectoryOnParentPath:process.env.PATH.includes('dsh-layerfs\\\\packages\\\\host\\\\src\\\\bin'),scope:'parent environment, not a scenario agent'},null,2));"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}
+{
+  "shell": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+  "layerfsCandidates": [],
+  "shimDirectoryOnParentPath": false,
+  "scope": "parent environment, not a scenario agent"
+}

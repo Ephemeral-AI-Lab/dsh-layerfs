@@ -1,0 +1,57 @@
+$ node --import tsx/esm apps/cli/src/bin.ts web --no-open --port 3080
+dsh: skipping profile bundle "dsh-sessions": Error: dsh: cannot resolve profile bundle "dsh-sessions" from the dsh installation or C:\Users\yifan\.dsh\profiles\web; run 'dsh plugin --profile web install' if its dependency is not installed
+dsh: warning: 1 entry did not activate
+loop (dsh-loop): failed to import: file:///C:/Users/yifan/.dsh/profiles/web/node_modules/dsh-loop/lib/commands.js:1
+import { CallId } from '@deepseek-ai/dsh-llm';
+         ^^^^^^
+SyntaxError: The requested module '@deepseek-ai/dsh-llm' does not provide an export named 'CallId'
+    at #_instantiate (node:internal/modules/esm/module_job:254:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:369:5)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:671:26)
+    at async <anonymous> (C:\Users\yifan\code\Ephemeral-AI-Lab\deepseek-harness\vendor\loader\src\config\tree.ts:122:16)
+    at async Entry._init (C:\Users\yifan\code\Ephemeral-AI-Lab\deepseek-harness\vendor\loader\src\config\entry.ts:226:25)
+    at async Entry.init (C:\Users\yifan\code\Ephemeral-AI-Lab\deepseek-harness\vendor\loader\src\config\entry.ts:212:7)
+    at async Entry.update (C:\Users\yifan\code\Ephemeral-AI-Lab\deepseek-harness\vendor\loader\src\config\entry.ts:155:7)
+    at async EntryGroup.create (C:\Users\yifan\code\Ephemeral-AI-Lab\deepseek-harness\vendor\loader\src\config\group.ts:27:5)
+    at async <anonymous> (C:\Users\yifan\code\Ephemeral-AI-Lab\deepseek-harness\vendor\loader\src\config\group.ts:58:9)
+    at async Promise.all (index 190)
+[deepseek-account] request failed {
+  path: '/auth-api/v0/users/current',
+  status: 403,
+  errorCode: 'network'
+}
+[deepseek-account] request failed {
+  path: '/auth-api/v0/users/current',
+  status: 403,
+  errorCode: 'network'
+}
+[deepseek-account] request failed {
+  path: '/auth-api/v0/users/current',
+  status: 403,
+  errorCode: 'network'
+}
+[deepseek-account] request failed {
+  path: '/auth-api/v0/users/current',
+  status: 403,
+  errorCode: 'network'
+}
+[deepseek-account] request failed {
+  path: '/auth-api/v0/users/current',
+  status: 403,
+  errorCode: 'network'
+}
+[deepseek-account] request failed {
+  path: '/auth-api/v0/users/current',
+  status: 403,
+  errorCode: 'network'
+}
+[deepseek-account] request failed {
+  path: '/auth-api/v0/users/current',
+  status: 403,
+  errorCode: 'network'
+}
+[deepseek-account] request failed {
+  path: '/auth-api/v0/users/current',
+  status: 403,
+  errorCode: 'network'
+}

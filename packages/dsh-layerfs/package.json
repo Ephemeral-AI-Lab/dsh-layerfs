@@ -32,7 +32,8 @@
     "bundle": {
       "patch": [
         "./cordis.patch.yml",
-        "./presets/layerfs-dsh-minimalist.patch.yml"
+        "./presets/layerfs-dsh-minimalist.patch.yml",
+        "./presets/layerfs-scenarios.patch.yml"
       ]
     }
   }

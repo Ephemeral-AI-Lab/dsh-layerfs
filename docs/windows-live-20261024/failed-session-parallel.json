@@ -1,0 +1,14 @@
+{
+  "label": "failed-session-parallel",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-7664600f-60fc-43fd-b116-7560dc4de0e2"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 1,
+  "elapsed_s": 0.063,
+  "at": "2026-10-24T05:47:22.370634"
+}

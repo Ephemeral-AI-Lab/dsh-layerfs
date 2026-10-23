@@ -1,0 +1,27 @@
+{"label": "test-plugin", "timeout": 120, "args": ["cmd.exe", "/d", "/c", "pnpm test"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+
+> dsh-layerfs-workspace@ test C:\Users\yifan\code\Ephemeral-AI-Lab\dsh-layerfs
+> node tools/layerfs-source.mjs link && node packages/host/tests/host.mjs && node packages/host/tests/agent.mjs && node packages/host/tests/bindings-shared.mjs && node packages/mock/tests/mock.mjs && node packages/model/tests/cli.mjs && node packages/client/tests/playback.mjs && node packages/client/tests/initlimit.mjs && node packages/client/tests/historycache.mjs && node packages/model/tests/trace.mjs && node tools/checks/tests/checks.mjs
+
+layerfs-source: .layerfs -> C:\Users\yifan\code\Ephemeral-AI-Lab\layerfs-428-verification, at the pinned commit
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
++ actual - expected
+
++ 'C:\\Users\\yifan\\code\\Ephemeral-AI-Lab\\dsh-layerfs\\packages\\host\\src\\bin;/usr/bin:/bin'
+- 'C:\\Users\\yifan\\code\\Ephemeral-AI-Lab\\dsh-layerfs\\packages\\host\\src\\bin:/usr/bin:/bin'
+
+    at file:///C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/host/tests/host.mjs:70:12 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: 'C:\\Users\\yifan\\code\\Ephemeral-AI-Lab\\dsh-layerfs\\packages\\host\\src\\bin;/usr/bin:/bin',
+  expected: 'C:\\Users\\yifan\\code\\Ephemeral-AI-Lab\\dsh-layerfs\\packages\\host\\src\\bin:/usr/bin:/bin',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.11.1
+ ELIFECYCLE  Test failed. See above for more details.

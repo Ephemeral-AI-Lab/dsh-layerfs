@@ -1,0 +1,112 @@
+[
+  {
+    "id": "tour",
+    "title": "Tour",
+    "tags": [
+      "sdk",
+      "background",
+      "sandbox",
+      "publish"
+    ],
+    "order": 1
+  },
+  {
+    "id": "parallel",
+    "title": "Parallel Branches",
+    "tags": [
+      "cli",
+      "multi-agent",
+      "merge",
+      "publish"
+    ],
+    "order": 2
+  },
+  {
+    "id": "conflicts",
+    "title": "Conflicts",
+    "tags": [
+      "cli",
+      "conflicts",
+      "merge",
+      "publish"
+    ],
+    "order": 3
+  },
+  {
+    "id": "merge",
+    "title": "Commit & merge",
+    "tags": [
+      "sdk",
+      "merge",
+      "conflicts",
+      "publish"
+    ],
+    "order": 4
+  },
+  {
+    "id": "sandbox",
+    "title": "One Sandbox, two Workspaces",
+    "tags": [
+      "sdk",
+      "sandbox",
+      "background"
+    ],
+    "order": 4
+  },
+  {
+    "id": "agents",
+    "title": "5 agents",
+    "tags": [
+      "sdk",
+      "multi-agent",
+      "conflicts",
+      "background"
+    ],
+    "order": 5
+  },
+  {
+    "id": "shop",
+    "title": "Shop",
+    "tags": [
+      "cli",
+      "node",
+      "publish",
+      "merge"
+    ],
+    "order": 7
+  },
+  {
+    "id": "depot",
+    "title": "Depot",
+    "tags": [
+      "sdk",
+      "rust",
+      "publish",
+      "merge"
+    ],
+    "order": 8
+  },
+  {
+    "id": "crew",
+    "title": "Crew",
+    "tags": [
+      "cli",
+      "node",
+      "multi-agent",
+      "merge",
+      "publish"
+    ],
+    "order": 9
+  },
+  {
+    "id": "checkpoints",
+    "title": "Checkpoints",
+    "tags": [
+      "cli",
+      "multi-agent",
+      "merge",
+      "publish"
+    ],
+    "order": 10
+  }
+]

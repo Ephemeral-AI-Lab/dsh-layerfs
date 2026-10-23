@@ -1,0 +1,14 @@
+{
+  "label": "depot-crates-network-failed-check",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-c2cdbbb4-9ddf-4dcd-a98f-14d5169ad278"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 1,
+  "elapsed_s": 0.062,
+  "at": "2026-10-24T06:25:57.180312"
+}

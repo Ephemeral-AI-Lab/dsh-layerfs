@@ -1,0 +1,29 @@
+{"label": "runtime-image-build", "timeout": 115, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "110", "bash", "-s"], "stdin": "set -eu\ndf -B1 /var/lib/docker\ndocker build -t layerfs-428-verification:node24 /mnt/c/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/tools/runtime\ndocker image inspect --format '{{.Id}}' layerfs-428-verification:node24\n"}
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.51kB dsha256:9781a93410ef8f32b0b4ceaa99bd9ff33b731958d2a0aee4a7e2fe7717877863
+:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+#2 DONE 2.8s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.1s
+
+#4 [1/2] FROM docker.io/library/node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+#4 resolve docker.io/library/node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0 0.0s done
+#4 DONE 0.0s
+
+#5 [2/2] RUN corepack enable  && corepack install --global pnpm@11.28.5  && corepack prepare pnpm@11.7.0 pnpm@11.28.5 yarn@4.14.1  && chmod -R a+rX /opt/corepack
+#5 CACHED
+
+#6 exporting to image
+#6 exporting layers done
+#6 exporting manifest sha256:e35ed03be4e5d052ae1bd89695a785d8811260aba469c25e060a2e813ae5dc2e done
+#6 exporting config sha256:694e0ee54e0cb538802c2f98d967b25f7ff862b8b6b8242d9d08b637b5fd16df done
+#6 exporting attestation manifest sha256:d8f836eb92e0c1504d4871f1388b47239758e5fe6c2a33d67e16438cbc62f420 0.0s done
+#6 exporting manifest list sha256:9781a93410ef8f32b0b4ceaa99bd9ff33b731958d2a0aee4a7e2fe7717877863 0.0s done
+#6 naming to docker.io/library/layerfs-428-verification:node24
+#6 naming to docker.io/library/layerfs-428-verification:node24 done
+#6 unpacking to docker.io/library/layerfs-428-verification:node24 0.0s done
+#6 DONE 0.1s

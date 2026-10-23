@@ -1,0 +1,2 @@
+{"label": "prepare-linux", "timeout": 118, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "--signal=INT", "--kill-after=8", "110", "bash", "-s"], "stdin": "set -eu\ncd /home/yifan/layerfs-428-verification\nexport CARGO_NET_RETRY=0 LAYERFS_CONSTRUCTION_WORKERS=1\nexec python3 tools/worktree.py prepare --resources /home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/resources.json --platform linux\n"}
+/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/builds/prepare-linux-5f16cb4a38c448188b040a5830a34395

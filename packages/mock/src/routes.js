@@ -53,7 +53,8 @@ export function registerRoutes(ctx, { scenarios, progress, workspace, preset, pr
       if (req.method === "GET" && parts[0] === "session" && parts.length === 2) {
         const at = progress.sessionOf(parts[1]);
         if (!at) return send(res, 404, { code: "not-found", message: "this Session plays no scenario" });
-        return send(res, 200, { ...at, run: progress.get(at.scenario) });
+        const run = progress.get(at.scenario);
+        return send(res, 200, { ...at, run: run?.sessionId === parts[1] ? run : null });
       }
       if (req.method === "POST" && parts[0] === "session" && parts[2] === "stop" && parts.length === 3) {
         const run = progress.halt(parts[1]);
@@ -64,7 +65,8 @@ export function registerRoutes(ctx, { scenarios, progress, workspace, preset, pr
       if (req.method === "POST" && parts[1] === "session" && parts.length === 2) {
         const body = await readJson(req);
         if (typeof body.sessionId !== "string" || !body.sessionId) return send(res, 400, { code: "invalid-session", message: "sessionId is required" });
-        progress.register(id, body.sessionId);
+        if (body.project != null && (typeof body.project !== "string" || !/^mock-[A-Za-z0-9_-]+$/.test(body.project))) return send(res, 400, { code: "invalid-project", message: "project must be a mock- project name" });
+        progress.register(id, body.sessionId, body.project ?? null);
         return send(res, 200, view(id, scenario));
       }
       return send(res, 404, { code: "not-found", message: `no route ${req.method} ${url.pathname}` });

@@ -1,0 +1,14 @@
+{
+  "label": "qualified-live-check-tour",
+  "timeout": 120,
+  "args": [
+    "node",
+    "tools/checks/run.mjs",
+    "C:/Users/yifan/.dsh/profiles/web",
+    "session-263d6bfa-0764-4820-9abc-1e27155740a6"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 0,
+  "elapsed_s": 0.063,
+  "at": "2026-10-24T06:33:58.604723"
+}

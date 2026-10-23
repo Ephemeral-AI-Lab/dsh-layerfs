@@ -1,0 +1,6 @@
+{"label": "sandbox-handshake-live-check", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-1e31d5fd-3bfc-46b1-835b-35fbe66ea3e2"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+sandbox (project mock-sandbox-87ceb5c5-a79d-43e1-826d-cfc61cdec7d5)
+  run: passed in 14.7 s
+  lines: 35 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-1e31d5fd-3bfc-46b1-835b-35fbe66ea3e2.jsonl
+  root: 4 bash call(s) with LayerFS lines, 4 checked, 4 matched
+PASS: every check that ran holds

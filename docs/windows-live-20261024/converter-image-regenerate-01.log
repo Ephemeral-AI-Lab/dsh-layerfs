@@ -1,0 +1,5 @@
+{"label": "converter-image-regenerate-01", "timeout": 120, "args": ["python", "C:\\Users\\yifan\\AppData\\Local\\Temp\\layerfs-428-20261024-verify\\converter-image-check.py"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+shop: generated default-image scenario matches shipped JSON exactly
+depot: generated default-image scenario matches shipped JSON exactly
+crew: generated default-image scenario matches shipped JSON exactly
+PASS; isolated regeneration retained at C:\Users\yifan\AppData\Local\Temp\layerfs-converter-image-289t1ke2

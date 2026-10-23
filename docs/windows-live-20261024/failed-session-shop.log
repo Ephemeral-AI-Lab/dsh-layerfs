@@ -1,0 +1,10 @@
+{"label": "failed-session-shop", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-bc10d629-d1b4-4c38-b8f3-ae9bc3dcd1cc"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+shop (project mock-shop)
+  lines: C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-bc10d629-d1b4-4c38-b8f3-ae9bc3dcd1cc.jsonl does not exist (no LayerFS call was traced)
+  lines: 0 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-bc10d629-d1b4-4c38-b8f3-ae9bc3dcd1cc.jsonl
+  order and final tree against C:\Users\yifan\code\Ephemeral-AI-Lab\dsh-layerfs\scenarios\shop\final.json: NOT_RUN, missing a LayerFS client on the run's project from outside dsh web: on macOS and Windows its Store calls go through the home's worker, whose endpoint the Host gives agents (DSH_LAYERFS_WORKER_ENDPOINT), not this command; a read-only byte hash of main's files: fs.read refuses binary files, so tree.mjs forks a Branch and mounts a Workspace to run sha256sum, which writes to the project; main's Layers for the order check: backend.store.project.get_history, which the layerfs command does not offer
+  FAIL run: failed (root: agents.root[0] (M1: initialize project and skeleton) expected branch.fork:Forked, fs.apply:Committed; its LayerFS calls show nothing, so root stops here: [stderr]
+      0 [main] bash (39476) E:\Git\bin\..\usr\bin\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[exit code: 3221225794])
+  FAIL root: no LayerFS calls on the trace
+FAIL: 2 failure(s)

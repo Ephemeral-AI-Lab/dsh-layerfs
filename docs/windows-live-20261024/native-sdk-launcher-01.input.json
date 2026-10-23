@@ -1,0 +1,1 @@
+{"label":"native-sdk-launcher-01","timeout":120,"args":["node","packages/mock/tests/windows-shell.mjs"],"cwd":"C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}

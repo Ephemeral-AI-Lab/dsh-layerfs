@@ -38,7 +38,7 @@
 //                  burndown day of a sprint that ended 2026-10-20; dropped
 //   one Sandbox and one Workspace per step
 //                  a step that runs commands creates its Sandbox from the
-//                  recorded runtime image (`image`), mounts a new Workspace
+//                  configured Host runtime image, mounts a new Workspace
 //                  of the Branch, runs, Commits, unmounts and closes the
 //                  Sandbox. The recorded Sandbox create and close calls are
 //                  dropped; a recorded Workspace's mount, Commits and unmount
@@ -148,7 +148,6 @@ function convert(name, repo, rev) {
   const final = JSON.parse(source.finalText);
   const history = final.history;
   if (old.type !== "layerfs-mock-scenario" || old.version !== 2) fail("scenario.json is not a layerfs-mock-scenario v2");
-  if (!/^sha256:[0-9a-f]{64}$/.test(old.image ?? "")) fail("scenario.json names no runtime image (sha256:…), which its Sandboxes need");
 
   // ---------------------------------------------------------------- the decisions, in recorded order
   const INSTALL = /\bnpm (install|ci)\b/;
@@ -523,7 +522,7 @@ function convert(name, repo, rev) {
     const firstMount = s.items.findIndex((c) => c.op === "mount");
     const lastUnmount = s.items.map((c) => c.op).lastIndexOf("unmount");
     s.items.forEach((c, i) => {
-      if (i === firstMount) { lines.push("sb=$(layerfs sandbox create --image {{image}} | jq -r .sandbox)"); expect.push("sandbox.create:ok"); }
+      if (i === firstMount) { lines.push("sb=$(layerfs sandbox create | jq -r .sandbox)"); expect.push("sandbox.create:ok"); }
       switch (c.op) {
         case "mount":
           lines.push(`${vars.get(c.w)}=$(layerfs workspace mount "$sb" ${q(c.w.branch)} | jq -r .ws)`);
@@ -591,7 +590,7 @@ function convert(name, repo, rev) {
     if (result || caught) body.push(`let ${[result && "r", caught && "run"].filter(Boolean).join(", ")};`);
     const say = "console.log(JSON.stringify({ kind: r.kind, head: r.head }));";
     s.items.forEach((c, i) => {
-      if (i === firstMount) { body.push('({ sandbox } = await lf.sandbox.create({ image: "{{image}}" }));'); expect.push("sandbox.create:ok"); }
+      if (i === firstMount) { body.push('({ sandbox } = await lf.sandbox.create());'); expect.push("sandbox.create:ok"); }
       switch (c.op) {
         case "mount":
           body.push(`${vars.get(c.w)} = await lf.workspace.mount(sandbox, ${js(c.w.branch)});`);
@@ -723,7 +722,7 @@ function convert(name, repo, rev) {
   writeFileSync(join(folder, "final.json"), finalText);
 
   const { tags, blurb } = META[name];
-  const scenario = { type: "layerfs-scenario", version: 3, title: old.title, blurb, order: old.order, tags, fixture: "seed.json", image: old.image, agents: scenarioAgents };
+  const scenario = { type: "layerfs-scenario", version: 3, title: old.title, blurb, order: old.order, tags, fixture: "seed.json", agents: scenarioAgents };
   writeFileSync(join(folder, "scenario.json"), `${JSON.stringify(scenario, null, 1)}\n`);
 
   // ---------------------------------------------------------------- summary
@@ -739,7 +738,7 @@ function convert(name, repo, rev) {
     "",
     `Written by \`node tools/replay/convert.mjs ${name}\` from \`${rev}\` of the layerfs repository (\`dsh/scenarios/${name}/\`). Rerun it to rewrite this folder; do not edit by hand.`,
     "",
-    `Form \`${form}\`: ${form === "cli" ? "every bash step is plain `layerfs` lines" : "every bash step is one inline Node script on the SDK"}. Each step that runs a command creates its own Sandbox from the recorded runtime image (\`image\`), mounts a new Workspace, runs, Commits, unmounts and closes the Sandbox. The recorded outcome codes are each step's \`expect\`, checked live; the record id is each step's \`note\`.`,
+    `Form \`${form}\`: ${form === "cli" ? "every bash step is plain `layerfs` lines" : "every bash step is one inline Node script on the SDK"}. Each step that runs a command creates its own Sandbox from the configured Host runtime image, mounts a new Workspace, runs, Commits, unmounts and closes the Sandbox. The recorded outcome codes are each step's \`expect\`, checked live; the record id is each step's \`note\`.`,
     "",
     "| | count |",
     "| --- | ---: |",

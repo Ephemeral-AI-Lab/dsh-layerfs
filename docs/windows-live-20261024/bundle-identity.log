@@ -1,0 +1,8 @@
+{"label": "bundle-identity", "timeout": 30, "args": ["wsl", "-d", "Ubuntu", "--", "timeout", "25", "bash", "-s"], "stdin": "set -eu\nb=/home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072\nsha256sum \"$b/manifest.json\"\nls -l \"$b/api/runtime/src/worker/server.js\" \"$b/layerfs-daemon\" \"$b/layerfs.node\"\ndocker image inspect --format '{{.Id}}' layerfs-428-verification:node24\ndf -B1 /var/lib/docker\n"}
+dc2321dabc605b81dbd4974cf868658eeba0e8db311cf2c4c082276478ccebf5  /home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072/manifest.json
+-r--r--r-- 1 yifan yifan    10887 Oct 24 05:19 /home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072/api/runtime/src/worker/server.js
+-r-xr-xr-x 1 yifan yifan 12043984 Oct 24 05:21 /home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072/layerfs-daemon
+-r-xr-xr-x 1 yifan yifan 12563192 Oct 24 05:21 /home/yifan/.cache/layerfs-worktrees/layerfs-428-verification-c2c22458d2d3/artifacts/build-linux-e068b8575eaf4c4cb34dde4d356ca072/layerfs.node
+sha256:9781a93410ef8f32b0b4ceaa99bd9ff33b731958d2a0aee4a7e2fe7717877863
+Filesystem         1B-blocks        Used    Available Use% Mounted on
+/dev/sdd       1081101176832 27010932736 999097888768   3% /var/lib/docker

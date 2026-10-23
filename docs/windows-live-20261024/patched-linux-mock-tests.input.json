@@ -1,0 +1,1 @@
+{"label":"patched-linux-mock-tests","timeout":120,"args":["wsl","-d","Ubuntu","--","timeout","110","/usr/local/bin/node","/mnt/c/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/mock/tests/mock.mjs"]}

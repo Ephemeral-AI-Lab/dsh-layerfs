@@ -1,0 +1,2 @@
+dsh web: http://127.0.0.1:3080/?token=[REDACTED]
+[llm-deepseek-account] model listing from https://api.deepseek.com/models loaded 2 model(s), skipped 0 row(s)

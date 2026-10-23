@@ -1,0 +1,17 @@
+{"label": "patched-mock-tests-02", "timeout": 120, "args": ["node", "packages/mock/tests/mock.mjs"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs", "env": {"LAYERFS_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification", "DSH_SOURCE": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness"}}
+node:fs:1879
+  binding.symlink(
+          ^
+
+Error: EPERM: operation not permitted, symlink 'bin\run' -> 'C:\Users\yifan\AppData\Local\Temp\dsh-layerfs-mock-XmODhS\seeds\seeded\link'
+    at symlinkSync (node:fs:1879:11)
+    at writeSeed (file:///C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/mock/src/seed.js:35:83)
+    at file:///C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs/packages/mock/tests/mock.mjs:328:16 {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'symlink',
+  path: 'bin\\run',
+  dest: 'C:\\Users\\yifan\\AppData\\Local\\Temp\\dsh-layerfs-mock-XmODhS\\seeds\\seeded\\link'
+}
+
+Node.js v24.11.1

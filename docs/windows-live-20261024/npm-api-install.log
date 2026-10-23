@@ -1,0 +1,3 @@
+{"label": "npm-api-install", "timeout": 110, "args": ["cmd.exe", "/d", "/c", "npm install"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/layerfs-428-verification/api"}
+
+added 3 packages in 6s

@@ -1,0 +1,12 @@
+{
+  "label": "cli-file-stdio-confined-01",
+  "timeout": 120,
+  "args": [
+    "node",
+    "C:/Users/yifan/AppData/Local/Temp/layerfs-428-20261024-verify/native-cli-file-sandbox.mjs"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs",
+  "exit_code": 0,
+  "elapsed_s": 0.859,
+  "at": "2026-10-24T06:08:23.225776"
+}

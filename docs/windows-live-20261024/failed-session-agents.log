@@ -1,0 +1,14 @@
+{"label": "failed-session-agents", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-fa9c9fc6-0392-47df-9f41-7c845d7d83b2"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+agents (project mock-agents)
+  lines: C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-fa9c9fc6-0392-47df-9f41-7c845d7d83b2.jsonl does not exist (no LayerFS call was traced)
+  lines: 0 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-fa9c9fc6-0392-47df-9f41-7c845d7d83b2.jsonl
+  FAIL run: failed (root: agents.root[0] (fork checkout) expected branch.fork:Forked; its LayerFS calls show nothing, so root stops here: [stderr]
+      0 [main] bash (10584) E:\Git\bin\..\usr\bin\bash.exe: *** fatal error - couldn't create signal pipe, Win32 error 5
+[exit code: 3221225794])
+  FAIL root: no LayerFS calls on the trace
+  FAIL ava: no LayerFS calls on the trace
+  FAIL ben: no LayerFS calls on the trace
+  FAIL cy: no LayerFS calls on the trace
+  FAIL dee: no LayerFS calls on the trace
+  FAIL eli: no LayerFS calls on the trace
+FAIL: 7 failure(s)

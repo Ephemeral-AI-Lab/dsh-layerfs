@@ -1,0 +1,8 @@
+{"label": "qualified-live-check-parallel", "timeout": 120, "args": ["node", "tools/checks/run.mjs", "C:/Users/yifan/.dsh/profiles/web", "session-84b0dcad-3c98-4a87-aec9-00566fa93898"], "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/dsh-layerfs"}
+parallel (project mock-parallel-139bd7f9-17ca-49e0-9304-ed0006511e53)
+  run: passed in 7.5 s
+  lines: 42 from C:\Users\yifan\.dsh\profiles\web\dsh-layerfs\lines\session-84b0dcad-3c98-4a87-aec9-00566fa93898.jsonl
+  root: 2 bash call(s) with LayerFS lines, 2 checked, 2 matched
+  header: 1 bash call(s) with LayerFS lines, 1 checked, 1 matched
+  footer: 2 bash call(s) with LayerFS lines, 2 checked, 2 matched
+PASS: every check that ran holds

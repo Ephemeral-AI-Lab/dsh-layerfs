@@ -1,0 +1,14 @@
+{
+  "label": "shell-source-diagnostic",
+  "timeout": 30,
+  "args": [
+    "node",
+    "--input-type=module",
+    "-e",
+    "import { resolvePwshPath } from './packages/shell/pwsh-local/lib/resolve.js'; import {existsSync} from 'node:fs'; import {join} from 'node:path';const path=process.env.PATH;console.log(JSON.stringify({shell:resolvePwshPath(),pluginShimOnPath:path.split(';').some(x=>x.includes('dsh-layerfs')&&x.endsWith('bin')),layerfsCandidates:path.split(';').flatMap(p=>['layerfs.exe','layerfs.cmd','layerfs.bat','layerfs'].map(n=>join(p,n))).filter(existsSync),path},null,2));"
+  ],
+  "cwd": "C:/Users/yifan/code/Ephemeral-AI-Lab/deepseek-harness",
+  "exit_code": 1,
+  "elapsed_s": 0.031,
+  "at": "2026-10-24T05:24:33.469419"
+}

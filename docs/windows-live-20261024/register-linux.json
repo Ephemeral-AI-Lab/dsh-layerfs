@@ -1,0 +1,18 @@
+{
+  "label": "register-linux",
+  "timeout": 110,
+  "args": [
+    "wsl",
+    "-d",
+    "Ubuntu",
+    "--",
+    "timeout",
+    "105",
+    "bash",
+    "-s"
+  ],
+  "stdin": "set -eu\ncd /home/yifan/layerfs-428-verification\npython3 -B core/tools/check_fuser_integrity.py\npython3 tools/worktree.py register --worktree /home/yifan/layerfs-428-verification --owner issue428-windows-verification-20261024 --build-image rust:1.85.1-bookworm --runtime-image layerfs-428-verification:node24 --sandbox-image layerfs-428-verification:node24\n",
+  "exit_code": 0,
+  "elapsed_s": 0.375,
+  "at": "2026-10-24T05:19:41.325140"
+}
