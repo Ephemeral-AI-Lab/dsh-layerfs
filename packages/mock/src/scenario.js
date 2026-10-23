@@ -9,7 +9,9 @@
 //     agents: { root: Step[], <child>: Step[], … } }
 // `layerfs` lists the backends the scenario runs on: Mocked LayerFS (the
 // Host's simulator) and Real LayerFS. `fixture` is the folder its project is
-// Inited from; `lib` a module its bash steps call (below).
+// Inited from, or a seed file (`*.json`, seed.js) the plugin writes out to
+// <stateDir>/seeds/<name>/ when it loads; `lib` a module its bash steps call
+// (below).
 // A step is one of:
 //   { <tool>: args, say?, phase?, note?, expect?, as? }   one tool call
 //   { reply: "…", until?: [child, …], phase?, note? }     the agent's text; ends its turn
@@ -23,11 +25,38 @@
 // After a reply the agent's next turn starts when it is woken: the root by
 // the children in `until` finishing (or by a new user message), a child by a
 // message from its parent. `say` is said before the call; `phase` names the
-// part of the run the Run bar shows; `note` is for readers; `expect` lists the
-// LayerFS outcome codes the bash call's trace lines should show in order.
+// part of the run the Run bar shows; `note` is for readers.
+//
+// "{{scenario}}" in a bash step's `command` is replaced, when the scenario
+// loads, by the scenario folder's absolute path, so a command can read the
+// folder's own files: `layerfs fs apply main --from "{{scenario}}/changes/007.json"`.
+// Write it inside double quotes. A scenario that uses it does not load from a
+// folder whose absolute path holds `"`, `$`, a backtick or a backslash, which
+// double quotes would not keep as written. Nothing else in a command is
+// replaced, so `docker ps --format '{{.Names}}'` stays as it is.
+//
+// `expect` lists the LayerFS outcome codes the bash call's trace lines should
+// show, in order (other lines may come between). The scripted model does not
+// check them while it runs; tools/checks/run.mjs does after the run, from the
+// Host's trace lines (tools/checks/gates.mjs). A line's code is
+// `<method>:<kind>` for a call that succeeded (`ok` when its answer has no
+// kind) and `<method>:<code>` for one LayerFS refused, with the SDK's method
+// names as the trace writes them: `sandbox.create:ok`, `workspace.mount:Mounted`,
+// `workspace.exec:exit:0`, `workspace.commit:Committed`, `workspace.commit:Conflict`,
+// `workspace.unmount:Busy`, `fs.apply:Committed`, `branch.fork:Forked`,
+// `branch.merge:Merged`, `branch.publish:Added`, `sandbox.close:Closed`,
+// `backend.daemon.process.start:running`. An entry is
+//   [<method>:]<outcome>[|<outcome>…]
+// Without a method it matches that outcome of any call. Alternatives share
+// what precedes the last ":" before the first "|": "workspace.exec:exit:1|0"
+// allows exit 1 or 0, "workspace.commit:Committed|UpToDate" either kind; an
+// alternative holds no ":". The older SDK's names (sandbox.mount, sandbox.exec,
+// sandbox.commit, sandbox.unmount, operator.process.*, sandbox.create:Ready)
+// are refused, naming today's.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readSeed } from "./seed.js";
 
 const TYPE = "layerfs-scenario";
 const BACKENDS = ["mocked", "real"];
@@ -35,6 +64,17 @@ const DELIMITER = "JS";
 const NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const REF = /^@([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$/;
 const CALL = /^[A-Za-z_$][\w$]*$/;
+/** The folder placeholder in a bash command, and what a folder path used for it may not hold. */
+const FOLDER = "{{scenario}}";
+const UNQUOTABLE = /["$`\\]/;
+/** An expect entry: [<method>:]<outcome>[|<outcome>…]. */
+const METHOD = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
+const OUTCOME = /^[A-Za-z0-9_-]+(?::[A-Za-z0-9_-]+)?$/;
+/** The older SDK's trace names, and today's. */
+const RETIRED = [
+  [/^sandbox\.(mount|exec|commit|unmount)$/, (m) => `workspace.${m[1]}`],
+  [/^operator\.process\.(.+)$/, (m) => `backend.daemon.process.${m[1]}`],
+];
 
 /** The preset's tools: argument names, and which arguments are agent or job ids. */
 export const TOOLS = {
@@ -82,6 +122,7 @@ export function loadScenario(folder) {
  */
 export function compileScenario(raw, { name, folder, where = name }) {
   const fail = (path, message) => { throw new ScenarioError(`${where} ${path}`, message); };
+  if (!isAbsolute(folder)) folder = resolve(folder);
   if (!isObject(raw)) fail("", "must be an object");
   only(raw, ["type", "version", "title", "blurb", "order", "layerfs", "fixture", "lib", "agents"], "", fail);
   if (raw.type !== TYPE) fail("type", `must be "${TYPE}"`);
@@ -97,10 +138,17 @@ export function compileScenario(raw, { name, folder, where = name }) {
     lib = resolve(folder, String(raw.lib));
     if (!existsSync(lib) || !statSync(lib).isFile()) fail("lib", `${raw.lib} is not a file`);
   }
-  let fixture = null;
+  let fixture = null, seed = null;
   if (raw.fixture !== undefined) {
-    fixture = resolve(folder, String(raw.fixture));
-    if (!existsSync(fixture) || !statSync(fixture).isDirectory()) fail("fixture", `${raw.fixture} is not a folder`);
+    const at = resolve(folder, String(raw.fixture));
+    if (at.endsWith(".json")) {
+      if (!existsSync(at) || !statSync(at).isFile()) fail("fixture", `${raw.fixture} is not a file`);
+      try { readSeed(at); } catch (error) { fail("fixture", error.message); }
+      seed = at;
+    } else {
+      if (!existsSync(at) || !statSync(at).isDirectory()) fail("fixture", `${raw.fixture} is not a folder`);
+      fixture = at;
+    }
   }
   if (!isObject(raw.agents) || !Array.isArray(raw.agents.root)) fail("agents", "must hold a root agent's steps");
 
@@ -118,7 +166,7 @@ export function compileScenario(raw, { name, folder, where = name }) {
   for (const agent of Object.keys(agents)) {
     if (agent !== "root" && !parents.has(agent)) fail(`agents.${agent}`, "no subagent step starts this agent");
   }
-  return { name, title: raw.title, blurb: raw.blurb ?? "", order: raw.order ?? null, layerfs: [...raw.layerfs], fixture, agents, prompts, parents };
+  return { name, title: raw.title, blurb: raw.blurb ?? "", order: raw.order ?? null, layerfs: [...raw.layerfs], fixture, seed, agents, prompts, parents };
 }
 
 function compileSteps(steps, path, context) {
@@ -159,6 +207,10 @@ function compileSteps(steps, path, context) {
       delete call.args.script;
       delete call.args.run;
       if (typeof call.args.command !== "string" || !call.args.command) fail(`${at}.bash.command`, "must be a non-empty string");
+      if ("command" in args && call.args.command.includes(FOLDER)) {
+        if (UNQUOTABLE.test(context.folder)) fail(`${at}.bash.command`, `uses ${FOLDER}, and the scenario folder ${context.folder} holds a character double quotes do not keep (", $, \` or \\)`);
+        call.args.command = call.args.command.replaceAll(FOLDER, context.folder);
+      }
       if (step.as !== undefined) {
         if (args.run_in_background !== true) fail(`${at}.as`, "names a background job: set run_in_background");
         if (!NAME.test(step.as) || jobs.has(step.as)) fail(`${at}.as`, "is a new job name: lowercase letters, digits and -");
@@ -168,7 +220,8 @@ function compileSteps(steps, path, context) {
     } else if (step.as !== undefined) fail(`${at}.as`, "only a background bash step names a job");
     if (step.expect !== undefined) {
       if (tool !== "bash") fail(`${at}.expect`, "only a bash step's LayerFS calls are traced");
-      if (!Array.isArray(step.expect) || !step.expect.every((c) => typeof c === "string" && c)) fail(`${at}.expect`, "lists outcome codes");
+      if (!Array.isArray(step.expect) || !step.expect.length) fail(`${at}.expect`, "lists outcome codes");
+      step.expect.forEach((code, k) => checkCode(code, `${at}.expect[${k}]`, fail));
     }
 
     if (tool === "subagent") {
@@ -221,6 +274,27 @@ function runCommand(calls, at, { lib, fail }) {
     return `await t.${c[0]}(${c.slice(1).map((a) => JSON.stringify(a)).join(", ")});`;
   });
   return [`node --input-type=module <<'${DELIMITER}'`, `const t = await import(${JSON.stringify(pathToFileURL(lib).href)});`, ...lines, "await t.done?.();", DELIMITER].join("\n");
+}
+
+/** One expect entry: its shape, and no name of the older SDK. */
+export function checkCode(code, at, fail) {
+  if (typeof code !== "string" || !code) fail(at, "an outcome code is a non-empty string");
+  const [first, ...more] = code.split("|");
+  const colon = first.indexOf(":"), dot = first.indexOf(".");
+  // a method has a dot before its first ":"; an outcome alone (Mounted, exit:0) has none
+  const method = dot >= 0 && (colon < 0 || dot < colon) ? first.slice(0, colon < 0 ? first.length : colon) : null;
+  const outcome = method === null ? first : first.slice(method.length + 1);
+  if (method !== null && !METHOD.test(method)) fail(at, `${code}: ${method} is not a method name (family.call)`);
+  if (method !== null && colon < 0) fail(at, `${code}: write the outcome after the method (${method}:<kind>)`);
+  for (const [pattern, today] of RETIRED) {
+    const m = method?.match(pattern);
+    if (m) fail(at, `${code}: ${method} is the older SDK's name; the trace calls it ${today(m)} (${today(m)}:${outcome}${more.length ? `|${more.join("|")}` : ""})`);
+  }
+  if (method === "sandbox.create" && outcome === "Ready") fail(at, `${code}: the older SDK's answer; today's sandbox.create has no kind, so its code is sandbox.create:ok`);
+  if (!OUTCOME.test(outcome)) fail(at, `${code}: ${outcome || "nothing"} is not an outcome (a kind, a refusal code, ok or exit:<n>)`);
+  for (const alt of more) {
+    if (!alt || alt.includes(":") || !/^[A-Za-z0-9_-]+$/.test(alt)) fail(at, `${code}: an alternative after "|" is one kind, code or number, with no ":"`);
+  }
 }
 
 function only(value, keys, at, fail) {

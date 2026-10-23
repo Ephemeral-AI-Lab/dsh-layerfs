@@ -40,7 +40,7 @@
     "as": "build",
     "expect": [
      "running",
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -52,7 +52,7 @@
     },
     "expect": [
      "fs.write:Committed",
-     "sandbox.unmount:Busy"
+     "workspace.unmount:Busy"
     ],
     "note": "The fs write is allowed while docs is mounted, and leaves that Workspace stale. A running build still owns site's mount, so unmount waits for it."
    },
@@ -72,9 +72,9 @@
      "script": "scripts/teardown.mjs"
     },
     "expect": [
-     "sandbox.commit:Committed",
+     "workspace.commit:Committed",
      "Unmounted",
-     "sandbox.unmount:Dirty",
+     "workspace.unmount:Dirty",
      "Unmounted",
      "fs.write:Committed"
     ],

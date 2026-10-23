@@ -5,7 +5,7 @@
 // and the client's queue and run text (client scenarios.ts).
 //   node packages/mock/tests/mock.mjs
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,21 +14,68 @@ import { agentOf, nextReply } from "../src/plan.js";
 import { LIMIT_MS, Progress } from "../src/progress.js";
 import { registerRoutes } from "../src/routes.js";
 import { compileScenario, loadScenarios, ScenarioError } from "../src/scenario.js";
+import { writeSeed } from "../src/seed.js";
 import { isScenarioProject, nextStarts, projectOf, runText } from "../../client/src/client/scenarios.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-mock-"));
 try {
   // Every shipped scenario loads, in order, on the backends it names; Real-only ones exist
-  const shipped = loadScenarios(fileURLToPath(new URL("../../../scenarios/", import.meta.url)));
-  assert.ok(shipped.size >= 7, `${shipped.size} scenarios`);
+  const scenariosDir = fileURLToPath(new URL("../../../scenarios/", import.meta.url));
+  const shipped = loadScenarios(scenariosDir);
+  const folders = readdirSync(scenariosDir).filter((name) => existsSync(join(scenariosDir, name, "scenario.json")));
+  assert.equal(shipped.size, folders.length, `${shipped.size} of ${folders.length} scenario folders load`);
   for (const [id, s] of shipped) {
-    assert.ok(s.layerfs.length && s.fixture, `${id} names its backends and fixture`);
+    assert.ok(s.layerfs.length && (s.fixture || s.seed), `${id} names its backends and fixture`);
     for (const steps of Object.values(s.agents)) for (const st of steps) {
       if (st.kind === "call" && st.call.name === "bash") assert.ok(!/\blf\.workspace\.mount\("/.test(st.call.args.command), `${st.at} mounts without naming a Sandbox`);
     }
   }
   assert.throws(() => compileScenario({ type: "layerfs-scenario", version: 3, title: "x", layerfs: ["sim"], agents: { root: [{ reply: "hi" }] } }, { name: "x", folder: dir }), ScenarioError);
   assert.throws(() => compileScenario({ type: "layerfs-scenario", version: 3, title: "x", layerfs: ["mocked"], agents: { root: [{ pause: 2 }] } }, { name: "x", folder: dir }), ScenarioError, "no pause steps");
+
+  // {{scenario}} in a bash command is the scenario folder's absolute path; nothing else is replaced
+  const one = (command, folder = dir, expect) => compileScenario({
+    type: "layerfs-scenario", version: 3, title: "x", layerfs: ["real"],
+    agents: { root: [{ bash: { description: "apply", command }, ...(expect ? { expect } : {}) }] },
+  }, { name: "x", folder }).agents.root[0].call.args.command;
+  assert.equal(one('layerfs fs apply main --from "{{scenario}}/changes/007.json" && cat "{{scenario}}/a"'), `layerfs fs apply main --from "${dir}/changes/007.json" && cat "${dir}/a"`);
+  assert.equal(one("docker ps --format '{{.Names}}' {{ scenario }}"), "docker ps --format '{{.Names}}' {{ scenario }}");
+  assert.equal(one('cat "{{scenario}}/x"', "relative/folder"), `cat "${join(process.cwd(), "relative/folder")}/x"`);
+  // a folder double quotes would not keep as written is refused, but only where {{scenario}} is used
+  for (const bad of ['a"b', "a$b", "a`b", "a\\b"]) {
+    assert.throws(() => one('cat "{{scenario}}/x"', join(dir, bad)), (e) => e instanceof ScenarioError && /agents\.root\[0\]\.bash\.command: uses \{\{scenario\}\}/.test(e.message), bad);
+    assert.equal(one("echo plain", join(dir, bad)), "echo plain");
+  }
+  // expect: today's names and | alternatives load; the older SDK's names are refused naming today's
+  for (const code of ["workspace.exec:exit:1|0", "workspace.commit:Committed|UpToDate", "sandbox.create:ok", "fs.apply:Committed", "backend.daemon.process.start:running", "Mounted", "exit:0"]) one("echo", dir, [code]);
+  const retired = (code, pattern) => assert.throws(() => one("echo", dir, ["branch.fork:Forked", code]), (e) => e instanceof ScenarioError && /agents\.root\[0\]\.expect\[1\]/.test(e.message) && pattern.test(e.message), code);
+  retired("sandbox.mount:Mounted", /the trace calls it workspace\.mount \(workspace\.mount:Mounted\)/);
+  retired("sandbox.exec:exit:1|0", /workspace\.exec:exit:1\|0/);
+  retired("sandbox.commit:Committed|UpToDate", /workspace\.commit:Committed\|UpToDate/);
+  retired("sandbox.unmount:Busy", /workspace\.unmount:Busy/);
+  retired("operator.process.start:running", /backend\.daemon\.process\.start:running/);
+  retired("sandbox.create:Ready", /sandbox\.create:ok/);
+  retired("workspace.exec", /write the outcome/);
+  retired("workspace.commit:Committed|", /alternative/);
+  retired("a|b:c", /alternative/);
+  assert.throws(() => one("echo", dir, []), /lists outcome codes/);
+
+  // A long replay: 1,600 bash steps play to the end; each request walks its conversation once
+  const long = compileScenario({
+    type: "layerfs-scenario", version: 3, title: "Long", layerfs: ["real"],
+    agents: { root: [...Array.from({ length: 1600 }, (_, i) => ({ ...(i % 100 ? {} : { phase: `part ${i / 100}` }), bash: { description: `s${i}`, command: `layerfs fs apply main --from "{{scenario}}/changes/${i}.json"` }, expect: ["fs.apply:Committed|UpToDate"] })), { reply: "Replayed." }] },
+  }, { name: "long", folder: dir });
+  const conversation = [{ role: "user", content: [{ type: "text", text: "Run the scenario." }] }];
+  const began = performance.now();
+  for (let i = 0; i < 1600; i++) {
+    const step = nextReply(long, "root", conversation);
+    assert.equal(step.calls?.[0].args.command, `layerfs fs apply main --from "${dir}/changes/${i}.json"`);
+    conversation.push({ role: "assistant", content: [{ type: "tool-call", id: `l${i}`, name: "bash", arguments: "{}" }] }, { role: "tool", toolCallId: `l${i}`, content: [{ type: "text", text: "{}\n" }] });
+  }
+  const last = nextReply(long, "root", conversation);
+  assert.deepEqual([last.kind, last.text, last.done, last.of, last.phase], ["text", "Replayed.", 1601, 1601, "part 15"]);
+  // about 0.3 s here; the bound only catches a request that stops being linear in its conversation
+  assert.ok(performance.now() - began < 20_000, `1,600 requests took ${Math.round(performance.now() - began)} ms`);
 
   // A small scenario: two bash calls, a child, and the root's last reply
   const s = compileScenario({
@@ -167,6 +214,31 @@ try {
   assert.deepEqual(nextStarts(queue, "real", 2), []);
   assert.equal(runText({ state: "running", done: 7, of: 23, phase: "Commit", started: 0, ended: null }), "Step 7 of 23 · Commit");
   assert.equal(runText({ state: "failed", done: 14, of: 31, phase: null, started: 0, ended: 65_000 }), "Failed at step 14 of 31 · 1:05");
+
+  // A seed file as the fixture: checked when the scenario loads, written out
+  // whole (a .git/HEAD included, modes kept), replacing what was there
+  const seeded = join(dir, "seeded");
+  mkdirSync(seeded);
+  const seedFile = join(seeded, "seed.json");
+  writeFileSync(seedFile, JSON.stringify({ format: "layerfs-demo-seed", version: 1, entries: {
+    "/.git": { type: "dir", mode: 0o755 }, "/.git/HEAD": { type: "file", mode: 0o644, text: "ref: refs/heads/main\n" },
+    "/bin/run": { type: "file", mode: 0o755, base64: Buffer.from("#!/bin/sh\n").toString("base64") }, "/link": { type: "symlink", target: "bin/run" },
+  } }));
+  const minimal = { type: "layerfs-scenario", version: 3, title: "Seeded", layerfs: ["real"], fixture: "seed.json", agents: { root: [{ reply: "done" }] } };
+  const compiled = compileScenario(minimal, { name: "seeded", folder: seeded });
+  assert.equal(compiled.seed, seedFile);
+  assert.equal(compiled.fixture, null);
+  const out = join(dir, "seeds", "seeded");
+  mkdirSync(out, { recursive: true });
+  writeFileSync(join(out, "stale"), "x");
+  assert.equal(writeSeed(seedFile, out), out);
+  assert.equal(readFileSync(join(out, ".git/HEAD"), "utf8"), "ref: refs/heads/main\n");
+  assert.equal(statSync(join(out, "bin/run")).mode & 0o777, 0o755);
+  assert.equal(readlinkSync(join(out, "link")), "bin/run");
+  assert.ok(!existsSync(join(out, "stale")));
+  writeFileSync(seedFile, JSON.stringify({ format: "layerfs-demo-seed", version: 1, entries: { "/../x": { type: "file", text: "" } } }));
+  assert.throws(() => compileScenario(minimal, { name: "seeded", folder: seeded }), /fixture.*not a plain absolute path/);
+  assert.throws(() => compileScenario({ ...minimal, fixture: "missing.json" }, { name: "seeded", folder: seeded }), /missing\.json is not a file/);
 
   console.log(`mock: ok (${shipped.size} scenarios)`);
 } finally {

@@ -15,6 +15,7 @@ import { createAdapter, PROVIDER } from "./adapter.js";
 import { Progress } from "./progress.js";
 import { registerRoutes } from "./routes.js";
 import { loadScenarios } from "./scenario.js";
+import { writeSeed } from "./seed.js";
 
 export const name = "layerfs-mock";
 export const inject = ["llm"];
@@ -33,6 +34,8 @@ export function apply(ctx, config) {
   const stateDir = config.stateDir || join(profile ? profile.dir : join(homedir(), ".dsh"), "dsh-layerfs-mock");
   const workspace = join(stateDir, "Scenarios");
   mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  // a scenario whose fixture is a seed file Inits from the seed written out here
+  for (const s of scenarios.values()) if (s.seed) s.fixture = writeSeed(s.seed, join(stateDir, "seeds", s.name));
   const progress = new Progress(scenarios, stateDir);
   ctx.effect(() => ctx.llm.registerAdapter([PROVIDER], createAdapter(LlmAdapter, scenarios, progress)), "layerfs-mock: model");
   const options = { scenarios, progress, workspace, preset: config.preset, provider: PROVIDER, prompt: config.prompt };

@@ -95,8 +95,8 @@
     },
     "phase": "Build",
     "expect": [
-     "sandbox.create:Ready",
-     "sandbox.mount:Mounted"
+     "sandbox.create:ok",
+     "workspace.mount:Mounted"
     ]
    },
    {
@@ -111,7 +111,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -126,7 +126,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:1"
+     "workspace.exec:exit:1"
     ]
    },
    {
@@ -141,7 +141,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -156,7 +156,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -172,7 +172,7 @@
     },
     "phase": "Serve",
     "expect": [
-     "operator.process.start:running"
+     "backend.daemon.process.start:running"
     ]
    },
    {
@@ -187,7 +187,7 @@
      ]
     },
     "expect": [
-     "sandbox.unmount:Busy"
+     "workspace.unmount:Busy"
     ]
    },
    {
@@ -202,7 +202,7 @@
      ]
     },
     "expect": [
-     "operator.process.cancel:Stopped"
+     "backend.daemon.process.cancel:Stopped"
     ]
    },
    {
@@ -218,7 +218,7 @@
     },
     "phase": "Commit",
     "expect": [
-     "sandbox.commit:Committed"
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -251,7 +251,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -266,7 +266,7 @@
      ]
     },
     "expect": [
-     "sandbox.commit:Committed"
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -282,7 +282,7 @@
     },
     "phase": "Split",
     "expect": [
-     "sandbox.mount:Mounted"
+     "workspace.mount:Mounted"
     ]
    },
    {
@@ -297,7 +297,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -312,7 +312,7 @@
      ]
     },
     "expect": [
-     "sandbox.commit:Committed"
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -327,7 +327,7 @@
      ]
     },
     "expect": [
-     "sandbox.unmount:Unmounted"
+     "workspace.unmount:Unmounted"
     ]
    },
    {
@@ -345,7 +345,7 @@
      ]
     },
     "expect": [
-     "sandbox.unmount:Unmounted",
+     "workspace.unmount:Unmounted",
      "sandbox.close:Closed"
     ]
    },

@@ -45,8 +45,8 @@
     },
     "phase": "Commit",
     "expect": [
-     "sandbox.create:Ready",
-     "sandbox.mount:Mounted"
+     "sandbox.create:ok",
+     "workspace.mount:Mounted"
     ]
    },
    {
@@ -61,7 +61,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -94,7 +94,7 @@
      ]
     },
     "expect": [
-     "sandbox.commit:Committed"
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -128,7 +128,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -143,7 +143,7 @@
      ]
     },
     "expect": [
-     "sandbox.commit:Conflict"
+     "workspace.commit:Conflict"
     ]
    },
    {
@@ -158,7 +158,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -173,7 +173,7 @@
      ]
     },
     "expect": [
-     "sandbox.commit:Conflict"
+     "workspace.commit:Conflict"
     ]
    },
    {
@@ -188,7 +188,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -203,7 +203,7 @@
      ]
     },
     "expect": [
-     "sandbox.commit:Committed"
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -221,7 +221,7 @@
      ]
     },
     "expect": [
-     "sandbox.unmount:Unmounted",
+     "workspace.unmount:Unmounted",
      "sandbox.close:Closed"
     ]
    },

@@ -1,7 +1,9 @@
-// The checks a finished demo run must pass, shared by check-demo.mjs (a dsh
-// web session) and run-scenario.mjs (a headless run):
+// The checks a finished scripted run must pass. run.mjs runs `expected` on a
+// run's trace lines; the others compare a finished run's project with a
+// replay's recorded final.json and need a LayerFS client:
 //   expected     each bash step with `expect` left those LayerFS outcomes, in
-//                order, on its agent's trace lines ("a|b" allows either)
+//                order, on its agent's trace lines ("a|b" allows either; the
+//                code grammar is in packages/mock/src/scenario.js)
 //   order        the project's history equals the recorded one (final.json):
 //                each Branch's Commits in the recorded order, each fork from
 //                and each merge and publish of the recorded node
@@ -16,28 +18,34 @@
 //                its last Workspace is unmounted (#373), so no Workspace is left
 //                mounted. Its stopped container does not count. The callers
 //                wait for it, bounded.
-// Recorded runs name the calls of the older SDK: sandbox.* for a Workspace
-// call (the SDK's workspace.* now), and sandbox.create and sandbox.close,
-// which no longer exist and leave nothing on the trace.
+// Codes use the SDK's method names as the trace writes them (workspace.exec,
+// sandbox.create); the scenario loader refuses the older SDK's names.
 import { execFileSync } from "node:child_process";
 import { compareHistory, historyOf } from "./history.mjs";
 import { trackedChanges, trackedHashes } from "./tree.mjs";
 
 // an expected entry is a code ("Committed"), method:code, or alternatives
-// sharing one method ("sandbox.commit:Committed|UpToDate")
-const matches = (code, want) => {
+// sharing what precedes the last ":" before the first "|"
+// ("workspace.commit:Committed|UpToDate", "workspace.exec:exit:1|0")
+export const matches = (code, want) => {
   const bar = want.indexOf("|");
   if (bar < 0) return code === want || code.endsWith(`:${want}`);
   const head = want.slice(0, want.lastIndexOf(":", bar) + 1);
   return want.slice(head.length).split("|").some((kind) => matches(code, head + kind));
 };
 /** Whether `want` appears in `codes` in order. */
-/** A recorded create or close, which no call makes now. */
-const retired = (want) => /^sandbox\.(create|close):/.test(want);
 const inOrder = (codes, want) => { let i = 0; for (const c of codes) if (i < want.length && matches(c, want[i])) i++; return i === want.length; };
-export const codeOf = (line) => `${line.method.replace(/^workspace\./, "sandbox.")}:${line.ok ? line.kind ?? "ok" : line.code}`;
+/** A trace line's code: method:kind (ok when the answer has none), or method:code for a refusal. */
+export const codeOf = (line) => `${line.method}:${line.ok ? line.kind ?? "ok" : line.code}`;
 
 /**
+ * Each bash step's `expect` against its agent's trace lines. The lines of one
+ * bash call share a `step`; the calls are taken in the order they began (a
+ * background call's first line may end after a later call's: lines arrive as
+ * their calls end). Expecting steps match the calls in order. A bash step
+ * without `expect` may have made LayerFS calls too, so before an expecting
+ * step as many unmatched calls as such steps (and earlier failed ones) since
+ * the last match may be passed over; more is a failure.
  * @param {object} scenario compiled scenario
  * @param {(agent: string) => object[]} linesOf the agent's finished trace lines, in order
  * @returns {{ failures: string[], notes: string[] }}
@@ -45,30 +53,35 @@ export const codeOf = (line) => `${line.method.replace(/^workspace\./, "sandbox.
 export function expectedOutcomes(scenario, linesOf) {
   const failures = [], notes = [];
   for (const [agent, steps] of Object.entries(scenario.agents)) {
-    const groups = [];
-    for (const line of linesOf(agent).filter((l) => l.ok !== undefined && l.method !== "sandbox.service")) {
-      let group = groups.find((g) => g.step === line.step);
-      if (!group) groups.push(group = { step: line.step, codes: [], start: line.start });
+    const byStep = new Map();
+    for (const line of linesOf(agent)) {
+      if (line.ok === undefined || line.method === "sandbox.service") continue;
+      let group = byStep.get(line.step);
+      if (!group) byStep.set(line.step, group = { step: line.step, codes: [], start: line.start });
       group.codes.push(codeOf(line));
       if (line.start < group.start) group.start = line.start;
     }
-    // bash calls in the order they began: a background call's first line may
-    // end after a later call's (the lines arrive as their calls end)
-    groups.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
-    const expecting = steps.filter((s) => s.kind === "call" && s.call.name === "bash" && s.expect)
-      .map((s) => ({ ...s, expect: s.expect.filter((w) => !retired(w)) })).filter((s) => s.expect.length);
-    if (expecting.length && !groups.length) { failures.push(`${agent}: no LayerFS calls on the trace`); continue; }
-    let next = 0;
-    for (const step of expecting) {
-      const at = groups.findIndex((g, i) => i >= next && inOrder(g.codes, step.expect));
+    const groups = [...byStep.values()].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+    const bash = steps.filter((s) => s.kind === "call" && s.call.name === "bash");
+    const expecting = bash.filter((s) => s.expect?.length).length;
+    if (expecting && !groups.length) { failures.push(`${agent}: no LayerFS calls on the trace`); continue; }
+    let next = 0, slack = 0, matched = 0;
+    for (const step of bash) {
+      if (!step.expect?.length) { slack++; continue; }
+      const end = Math.min(groups.length, next + slack + 1);
+      let at = -1;
+      for (let i = next; i < end && at < 0; i++) if (inOrder(groups[i].codes, step.expect)) at = i;
       if (at < 0) {
-        failures.push(`${step.at} (${step.call.args.description}): expected ${step.expect.join(", ")}; ${agent}'s later calls show ${groups.slice(next).map((g) => `[${g.codes.join(", ")}]`).join(" ") || "nothing"}`);
+        const shown = groups.slice(next, Math.max(end, next + 1)).map((g) => `[${g.codes.join(", ")}]`).join(" ") || "nothing";
+        failures.push(`${step.at} (${step.call.args.description}): expected ${step.expect.join(", ")}; ${agent}'s next call(s) show ${shown}`);
+        slack++;
         continue;
       }
-      if (at > next && !step.retry) failures.push(`${step.at}: ${at - next} earlier bash call(s) of ${agent} did not match and the step has no retry rule`);
+      matched++;
       next = at + 1;
+      slack = 0;
     }
-    notes.push(`${agent}: ${groups.length} bash call(s) with LayerFS lines, ${expecting.length} checked`);
+    notes.push(`${agent}: ${groups.length} bash call(s) with LayerFS lines, ${expecting} checked, ${matched} matched`);
   }
   return { failures, notes };
 }

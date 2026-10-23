@@ -86,7 +86,7 @@
      ]
     },
     "expect": [
-     "sandbox.create:Ready"
+     "sandbox.create:ok"
     ]
    },
    {
@@ -126,7 +126,7 @@
      ]
     },
     "expect": [
-     "sandbox.create:Ready"
+     "sandbox.create:ok"
     ]
    },
    {
@@ -732,7 +732,7 @@
      ]
     },
     "expect": [
-     "sandbox.create:Ready"
+     "sandbox.create:ok"
     ]
    },
    {
@@ -749,8 +749,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -821,8 +821,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -845,8 +845,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -866,8 +866,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -887,8 +887,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -908,8 +908,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -929,8 +929,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -950,8 +950,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -976,8 +976,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -997,8 +997,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1018,8 +1018,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1039,8 +1039,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1060,8 +1060,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1081,8 +1081,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1102,8 +1102,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1123,8 +1123,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1144,8 +1144,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1170,8 +1170,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1191,8 +1191,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1212,8 +1212,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1233,8 +1233,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1258,8 +1258,8 @@
      ]
     },
     "expect": [
-     "sandbox.mount:Mounted",
-     "sandbox.exec:exit:0"
+     "workspace.mount:Mounted",
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -1277,7 +1277,7 @@
      ]
     },
     "expect": [
-     "sandbox.commit:Conflict"
+     "workspace.commit:Conflict"
     ]
    },
    {
@@ -1295,7 +1295,7 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0"
+     "workspace.exec:exit:0"
     ]
    },
    {
@@ -1323,9 +1323,9 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed",
-     "sandbox.unmount:Unmounted"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed",
+     "workspace.unmount:Unmounted"
     ]
    },
    {
@@ -1345,8 +1345,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1366,8 +1366,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1387,8 +1387,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1413,8 +1413,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1434,8 +1434,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1455,8 +1455,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1476,8 +1476,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1497,7 +1497,7 @@
      ]
     },
     "expect": [
-     "operator.process.start:running"
+     "backend.daemon.process.start:running"
     ]
    },
    {
@@ -1517,8 +1517,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1538,8 +1538,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1559,8 +1559,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1580,8 +1580,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1601,8 +1601,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1622,7 +1622,7 @@
      ]
     },
     "expect": [
-     "operator.process.cancel:Stopped"
+     "backend.daemon.process.cancel:Stopped"
     ]
    },
    {
@@ -1647,8 +1647,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1668,8 +1668,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1689,8 +1689,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1710,8 +1710,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1735,9 +1735,9 @@
      ]
     },
     "expect": [
-     "sandbox.create:Ready",
-     "sandbox.exec:exit:1",
-     "sandbox.commit:Committed"
+     "sandbox.create:ok",
+     "workspace.exec:exit:1",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1757,8 +1757,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:UpToDate"
+     "workspace.exec:exit:0",
+     "workspace.commit:UpToDate"
     ]
    },
    {
@@ -1778,8 +1778,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1799,8 +1799,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
@@ -1820,8 +1820,8 @@
      ]
     },
     "expect": [
-     "sandbox.exec:exit:0",
-     "sandbox.commit:Committed"
+     "workspace.exec:exit:0",
+     "workspace.commit:Committed"
     ]
    },
    {
