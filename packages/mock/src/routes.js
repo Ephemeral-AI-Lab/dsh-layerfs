@@ -1,6 +1,6 @@
 // The /layerfs-mock route on the Host's web server, behind ctx.connection's
 // checks like /layerfs. It exists only while the plugin is on, so the client
-// shows the Scenarios tab and the Run bar only then (a 404 hides them):
+// shows the Tests tab and the Run bar only then (a 404 hides them):
 //   GET  /layerfs-mock                      the Scenarios workspace folder, the
 //                                           preset, provider and first message,
 //                                           and each scenario with its tags,

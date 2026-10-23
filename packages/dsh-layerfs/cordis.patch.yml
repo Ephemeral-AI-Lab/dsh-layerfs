@@ -8,7 +8,7 @@
     - id: layerfs-client
       name: '@dsh-layerfs/client'
     # The LayerFS scripted model: scripted runs of the LayerFS UI without a
-    # language model (Scenarios tab, Run bar). On by default, with this
+    # language model (Tests tab, Run bar). On by default, with this
     # checkout's scenarios/; dsh's Plugins page turns it off. Its scenarios
     # only touch projects named mock-….
     - id: layerfs-mock

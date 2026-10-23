@@ -111,7 +111,7 @@ export class Progress {
     else if (agent === "root" && reply.done === reply.of) { Object.assign(run, { state: "passed", ended: this.now() }); this.write(); }
   }
 
-  /** The user stopped the run (Stop on the Run bar or the Scenarios tab): it fails, and its agents get no further step. */
+  /** The user stopped the run (Stop on the Run bar or the Tests tab): it fails, and its agents get no further step. */
   halt(sessionId) {
     const run = this.runOf(this.rootOf(sessionId));
     if (!run) throw Object.assign(new Error("this Session is no run's root"), { status: 404 });

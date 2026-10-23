@@ -2,7 +2,7 @@
 // session's project beside its title, the project picker in the New Session row,
 // and the LayerFS sidebar panel.
 // While the LayerFS scripted model (@dsh-layerfs/mock) is on, also the
-// panel's Scenarios tab and the Run bar above a scenario run's composer.
+// panel's Tests tab and the Run bar above a scenario run's composer.
 import { LayerFsIcon, LayerFsPanel, type PanelServices } from './LayerFsPanel.tsx'
 import { LayerFsView } from './LayerFsView.tsx'
 import { ProjectChip } from './ProjectChip.tsx'

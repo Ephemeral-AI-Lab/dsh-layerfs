@@ -1,6 +1,7 @@
 // The LayerFS sidebar page: one project at a time, like an editor. A slim
-// title bar has two tabs, three while the LayerFS scripted model is on:
-// Scenarios (ScenariosPage: the scripted model's runs on LayerFS), All projects · Sandboxes (AllSandboxes: every
+// title bar has two tabs, three while the LayerFS scripted model is on, each
+// with an icon:
+// Tests (ScenariosPage: the scripted model's scenarios, run on LayerFS), All projects (AllSandboxes: every
 // project's Sandboxes and what they run on; a project's card opens it, and
 // Import project opens a folder chooser and imports the folder, bound to no workspace, InitDialog) and the open
 // project. Then the project's one action, New session (in
@@ -12,7 +13,7 @@
 // and the Store's size. ellen_joe shows full size where there is nothing else.
 // Colours, borders and radii are dsh's own tokens (--dsw-*, tokens.ts).
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import { Button, IconEllipsisOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconTrashOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChecklistOutlineRegular, IconEllipsisOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconTrashOutlineRegular, IconFlatListOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import ellen from '../../../../sim/avatars/ellen_joe.gif'
 import { AllSandboxes } from './AllSandboxes.tsx'
 import { api, readProject, type Project, type ProjectState, type Status, type Storage } from './api.ts'
@@ -27,7 +28,7 @@ import { card, T } from './tokens.ts'
 export interface PanelServices {
   workspaces?: { list: { getSnapshot(): { items: readonly Workspace[] }, subscribe(listener: () => void): () => void } }
   uiWorkspace?: { startSession(workspaceId?: string, options?: { agentPreset?: string }): void, listDirectory(path?: string): Promise<any>, openSession?(sessionId: string): void }
-  /** what a scenario run uses of dsh's services, for the Scenarios tab */
+  /** what a scenario run uses of dsh's services, for the Tests tab */
   runs?: RunServices
 }
 interface Workspace { workspaceId: string, path: string, title: string }
@@ -37,7 +38,7 @@ const NO_ITEMS = { items: [] as readonly Workspace[] }
 const NOT_LISTED = { getSnapshot: () => NO_ITEMS, subscribe: () => () => {} }
 
 const ROWS = `.lfs-switch, .lfs-chip { background: transparent; cursor: pointer; } .lfs-switch:hover, .lfs-switch[aria-expanded='true'], .lfs-chip:hover, .lfs-chip[aria-expanded='true'] { background: ${T.hover}; }
-.lfs-tab { border-radius: ${T.sm} ${T.sm} 0 0 !important; } .lfs-tab[aria-selected='true'] { box-shadow: inset 0 -2px 0 ${T.text}; } .lfs-tab[aria-selected='false'] { color: ${T.text2} !important; }
+.lfs-tab { border-radius: ${T.sm} ${T.sm} 0 0 !important; margin-bottom: -1px; } .lfs-tab[aria-selected='true'] { box-shadow: inset 0 -2px 0 ${T.text}; } .lfs-tab[aria-selected='false'] { color: ${T.text2} !important; } .lfs-tab[aria-selected='false'] .lfs-tab-icon { opacity: .75; }
 .lfs-card:hover { box-shadow: inset 0 0 0 999px ${T.hover}; }
 .lfs-bone { border-radius: 4px; background: ${T.well}; animation: lfs-bone 1.2s ease-in-out infinite alternate; } @keyframes lfs-bone { to { opacity: .45; } }`
 
@@ -50,6 +51,17 @@ export function LayerFsIcon({ size }: { size?: number }) {
       <path d="M27 161 L57 161 L100 117 L143 161 L173 161" stroke="currentColor" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx="100" cy="117" r="17" fill="currentColor" /><circle cx="27" cy="161" r="17" fill="currentColor" /><circle cx="173" cy="161" r="17" fill="currentColor" />
     </svg>
+  )
+}
+
+/** One tab of the title bar: an icon and a label; `shrink` lets a long label (a project's name) ellipsize. */
+function Tab({ on, onClick, icon, title, shrink, children }: { on: boolean, onClick: () => void, icon: React.ReactNode, title: string, shrink?: true, children: React.ReactNode }) {
+  return (
+    <button type="button" role="tab" aria-selected={on} className="lfs-switch lfs-tab" onClick={onClick} title={title}
+      style={{ display: 'flex', alignItems: 'center', gap: 6, flex: shrink ? '0 1 auto' : 'none', minWidth: 0, maxWidth: shrink ? 320 : undefined, padding: '0 10px', border: 0, color: 'inherit', font: 'inherit', fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap' }}>
+      <span className="lfs-tab-icon" style={{ display: 'flex', flex: 'none' }}>{icon}</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{children}</span>
+    </button>
   )
 }
 
@@ -136,12 +148,11 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
   // the All projects page instead of a project, and the tab a project opens with when one of its cards was clicked
   const [all, setAll] = useState(false)
   const [openTab, setOpenTab] = useState<'sandboxes' | undefined>(undefined)
-  // the Runs page instead of either
-  // the Scenarios page instead of any, and whether the scripted model is on (its route answers)
+  // the Tests page instead of any, and whether the scripted model is on (its route answers)
   const [scenariosTab, setScenariosTab] = useState(false)
   const [scripted, setScripted] = useState(false)
   useEffect(() => { mockApi.info().then((i) => setScripted(i !== null), () => setScripted(false)) }, [])
-  // a page beside the projects: Runs or Scenarios
+  // a page beside the projects: Tests
   const aside = scripted && scenariosTab
   const show = (page: 'all' | 'project' | 'scenarios') => { setAll(page === 'all'); setScenariosTab(page === 'scenarios') }
 
@@ -209,25 +220,14 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
         )}
         {(all || project || aside || projects?.length === 0) && (
           <>
-            <header style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <span style={{ display: 'flex', flex: 'none', color: T.text2 }}><LayerFsIcon size={20} /></span>
-              <span role="tablist" aria-label="LayerFS" style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
-                <button type="button" role="tab" aria-selected={!aside && (all || !project)} className="lfs-switch lfs-tab" onClick={() => show('all')} title="Every project and its Sandboxes; a card opens a project"
-                  style={{ flex: 'none', padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', whiteSpace: 'nowrap' }}>
-                  All projects · Sandboxes
-                </button>
-                {project && (
-                  <button type="button" role="tab" aria-selected={!all && !aside} className="lfs-switch lfs-tab" onClick={() => show('project')} title={project.name}
-                    style={{ minWidth: 0, maxWidth: 320, padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {project.name}
-                  </button>
-                )}
-                {scripted && (
-                  <button type="button" role="tab" aria-selected={scripted && scenariosTab} className="lfs-switch lfs-tab" onClick={() => show('scenarios')} title="The LayerFS scripted model's scenarios, run on LayerFS"
-                    style={{ flex: 'none', padding: '0 8px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', fontSize: 15, fontWeight: 500, lineHeight: '30px', whiteSpace: 'nowrap' }}>
-                    Scenarios
-                  </button>
-                )}
+            <header style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, minHeight: 40, borderBottom: `1px solid ${T.border}` }}>
+              <span style={{ display: 'flex', flex: 'none', color: T.text2, marginRight: 4 }}><LayerFsIcon size={20} /></span>
+              <span role="tablist" aria-label="LayerFS" style={{ display: 'flex', alignItems: 'stretch', alignSelf: 'stretch', gap: 2, minWidth: 0 }}>
+                <Tab on={!aside && (all || !project)} onClick={() => show('all')} icon={<IconFlatListOutlineRegular size={16} />}
+                  title="Every project and its Sandboxes; a card opens a project">All projects</Tab>
+                {project && <Tab on={!all && !aside} onClick={() => show('project')} icon={<IconFolderOpenOutlineRegular size={16} />} title={project.name} shrink>{project.name}</Tab>}
+                {scripted && <Tab on={scenariosTab} onClick={() => show('scenarios')} icon={<IconChecklistOutlineRegular size={16} />}
+                  title="The LayerFS scripted model's tests, each run on LayerFS">Tests</Tab>}
               </span>
               {aside && <span style={{ flex: 1 }} />}
               {!aside && (all || (!project && projects?.length !== 0)) && <><span style={{ flex: 1 }} />{importButton()}</>}

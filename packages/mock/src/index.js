@@ -3,7 +3,7 @@
 // dsh-layerfs bundle ships it switched on; dsh's Plugins page turns it off.
 // It registers the "layerfs-mock" provider with one model per scenario
 // folder, and, where a web server runs, the /layerfs-mock route the client's
-// Scenarios tab and Run bar read (routes.js). The LayerFS Host's
+// Tests tab and Run bar read (routes.js). The LayerFS Host's
 // layerfsTraces service gives it each bash call's trace lines. Each run's Session goes in the
 // Scenarios workspace, <stateDir>/Scenarios.
 import { mkdirSync } from "node:fs";

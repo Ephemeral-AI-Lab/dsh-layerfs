@@ -1,6 +1,7 @@
-// The LayerFS page's Scenarios tab, shown while the LayerFS scripted model's
-// plugin is on: every scenario with its latest run on LayerFS, its tags as
-// chips and what the loader counted. The tag row filters the list (a scenario
+// The LayerFS page's Tests tab, shown while the LayerFS scripted model's
+// plugin is on: every scenario (a test) with its latest run on LayerFS and a
+// status icon, its tags as chips and what the loader counted; a long
+// description shows two lines until clicked. The tag row filters the list (a scenario
 // shows when it has every chosen tag); Run all queues the scenarios shown and
 // starts them a few at a time (MAX_RUNS in scenarios.ts).
 // Each run gets a Session of its own in the Scenarios workspace, opened from
@@ -8,7 +9,7 @@
 // removes the scenario projects no run is using. A run over the Host's time
 // limit is cancelled once from here.
 import { useEffect, useRef, useState } from 'react'
-import { Button, IconPlayOutlineRegular, IconStopFillRegular, IconTrashOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckCircleFillRegular, IconCloseCircleFillRegular, IconLoadingOutlineRegular, IconPlayOutlineRegular, IconStopFillRegular, IconTrashOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api } from './api.ts'
 import { jobText, useClock } from './Progress.tsx'
 import { allTags, isScenarioProject, mockApi, nextStarts, projectOf, runText, startRun, stopRun, withTags, type MockInfo, type RunServices, type Scenario, type ScenarioRun, type StartStep } from './scenarios.ts'
@@ -23,8 +24,29 @@ const saveTags = (tags: string[]) => { try { localStorage.setItem(TAGS_KEY, JSON
 /** One tag as a chip; pressed while it filters the list. */
 function Chip({ tag, on, onClick }: { tag: string, on: boolean, onClick: () => void }) {
   return (
-    <button type="button" aria-pressed={on} onClick={onClick} title={on ? `Showing scenarios tagged ${tag}; click to stop filtering by it` : `Show only scenarios tagged ${tag}`}
-      style={{ border: `1px solid ${T.border}`, borderRadius: 999, padding: '0 8px', font: 'inherit', fontSize: 11, lineHeight: '18px', cursor: 'pointer', color: on ? T.text : T.text2, background: on ? T.active : 'transparent' }}>{tag}</button>
+    <button type="button" aria-pressed={on} onClick={onClick} title={on ? `Showing tests tagged ${tag}; click to stop filtering by it` : `Show only tests tagged ${tag}`}
+      style={{ border: `1px solid ${on ? T.text2 : T.border}`, borderRadius: 999, padding: '0 8px', font: 'inherit', fontSize: 11, lineHeight: '18px', cursor: 'pointer', color: on ? T.text : T.text2, background: on ? T.active : 'transparent' }}>{tag}</button>
+  )
+}
+
+const CSS = `.lfs-test-row:hover > div { background: ${T.hover}; } .lfs-spin { animation: lfs-spin 1s linear infinite; } @keyframes lfs-spin { to { transform: rotate(360deg); } }`
+
+type Mark = 'passed' | 'failed' | 'going' | 'none'
+/** A row's status: a filled check or cross, a spinner while it runs or waits, a hollow ring before its first run. */
+function StatusIcon({ mark }: { mark: Mark }) {
+  if (mark === 'passed') return <span style={{ display: 'flex', color: T.ok }}><IconCheckCircleFillRegular size={16} /></span>
+  if (mark === 'failed') return <span style={{ display: 'flex', color: T.danger }}><IconCloseCircleFillRegular size={16} /></span>
+  if (mark === 'going') return <span className="lfs-spin" style={{ display: 'flex', color: T.text2 }}><IconLoadingOutlineRegular size={16} /></span>
+  return <span style={{ display: 'block', width: 12, height: 12, margin: 2, borderRadius: '50%', boxSizing: 'border-box', border: `1.5px solid ${T.caption}` }} />
+}
+
+/** One count of the line above the list: a coloured dot, the number and what it counts. */
+function Count({ n, label, colour }: { n: number, label: string, colour: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: n ? T.text : T.caption }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: n ? colour : T.border }} />
+      <span><b style={{ fontWeight: 600 }}>{n}</b> {label}</span>
+    </span>
   )
 }
 
@@ -39,6 +61,7 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
   const [leftovers, setLeftovers] = useState<string[]>([])
   const [cleaning, setCleaning] = useState<string | null>(null)
   const [wanted, setWanted] = useState<string[]>(savedTags)
+  const [open, setOpen] = useState<string | null>(null)
   const toggle = (tag: string) => setWanted((w) => { const next = w.includes(tag) ? w.filter((t) => t !== tag) : [...w, tag]; saveTags(next); return next })
   // runs this view cancelled for the time limit, so each is cancelled once
   const cancelled = useRef(new Set<string>())
@@ -118,19 +141,18 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
   }
 
   if (error && !info) return <div role="status" style={{ color: T.danger }}>{error}</div>
-  if (!info) return <div role="status" style={{ color: T.text2 }}>Reading the scenarios…</div>
+  if (!info) return <div role="status" style={{ color: T.text2 }}>Reading the tests…</div>
 
   const offered = withTags(info.scenarios, wanted)
   const waiting = (s: Scenario) => !!starting[s.id] || queue.includes(s.id)
   const count = (state: ScenarioRun['state']) => offered.filter((s) => s.run?.state === state && !waiting(s)).length
   const queued = queue.length
-  const summary = [
-    `${count('passed')} passed`, `${count('failed')} failed`, `${going()} running`,
-    ...(queued ? [`${queued} queued`] : []), `${offered.filter((s) => !s.run && !waiting(s)).length} not run`,
-    ...(offered.length < info.scenarios.length ? [`${info.scenarios.length - offered.length} hidden by the tags`] : []),
-  ].join(' · ')
+  const hidden = info.scenarios.length - offered.length
+  const mark = (s: Scenario): Mark => waiting(s) || s.run?.state === 'running' ? 'going' : s.run?.state === 'passed' ? 'passed' : s.run?.state === 'failed' ? 'failed' : 'none'
   const anyGoing = queued > 0 || going() > 0
 
+  // each row sits under a hairline, the header's included
+  const rule = { borderTop: `1px solid ${T.border}` }
   const cell = (s: Scenario) => {
     const k = s.id, step = starting[k], run = s.run
     if (step) return <span style={{ color: T.text2 }}>{step.step === 'init' && step.job ? `Preparing · ${jobText(step.job, now)}` : 'Starting…'}</span>
@@ -144,7 +166,8 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 10, alignContent: 'start' }}>
+    <div style={{ display: 'grid', gap: 10, alignContent: 'start', paddingTop: 2 }}>
+      <style>{CSS}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <Button variant="primary" size="sm" icon={<IconPlayOutlineRegular size={14} />} disabled={!offered.length} onClick={runAll}>Run all</Button>
         <Button variant="outline" size="sm" icon={<IconStopFillRegular size={14} />} disabled={!anyGoing} onClick={stopAll}>Stop all</Button>
@@ -159,20 +182,29 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
         {allTags(info.scenarios).map((tag) => <Chip key={tag} tag={tag} on={wanted.includes(tag)} onClick={() => toggle(tag)} />)}
         {wanted.length > 0 && <button type="button" className="lfs-switch" onClick={() => { setWanted([]); saveTags([]) }} style={{ border: 0, background: 'transparent', font: 'inherit', fontSize: 12, color: T.text2, cursor: 'pointer' }}>Clear</button>}
       </div>
-      <div style={{ fontFamily: 'var(--dsw-font-mono, ui-monospace, monospace)', fontSize: 12, color: T.text2 }}>{summary}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12 }}>
+        <Count n={count('passed')} label="passed" colour={T.ok} />
+        <Count n={count('failed')} label="failed" colour={T.danger} />
+        <Count n={going()} label="running" colour={T.text2} />
+        {queued > 0 && <Count n={queued} label="queued" colour={T.text2} />}
+        <Count n={offered.filter((s) => !s.run && !waiting(s)).length} label="not run" colour={T.caption} />
+        {hidden > 0 && <span style={{ color: T.caption }}>{hidden} hidden by the tags</span>}
+      </div>
       {(error || cleaning) && <div role="status" style={{ color: error ? T.danger : T.text2 }}>{error ?? cleaning}</div>}
-      <div style={{ ...card, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 13em) auto', columnGap: 16, alignItems: 'start', padding: '4px 0' }}>
-        {['Scenario', 'Latest run', ''].map((h, i) => (
-          <div key={i} style={{ padding: '6px 12px', fontSize: 12, color: T.caption, borderBottom: `1px solid ${T.border}` }}>{h}</div>
+      <div style={{ ...card, display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) minmax(0, 13em) auto', alignItems: 'stretch', overflow: 'hidden' }}>
+        {['', 'Test', 'Latest run', ''].map((h, i) => (
+          <div key={i} style={{ padding: i ? '8px 12px' : '8px 0 8px 14px', fontSize: 12, fontWeight: 500, color: T.caption }}>{h}</div>
         ))}
         {offered.map((s) => {
           const k = s.id, run = s.run, failure = failures[k] ?? (run?.state === 'failed' && !starting[k] ? run.error : null)
           const runningHere = run?.state === 'running' && !starting[k]
           return (
-            <div key={s.id} style={{ display: 'contents' }}>
-              <div style={{ padding: '8px 12px', minWidth: 0 }}>
+            <div key={s.id} className="lfs-test-row" style={{ display: 'contents' }}>
+              <div style={{ ...rule, padding: '10px 0 10px 14px' }}><StatusIcon mark={mark(s)} /></div>
+              <div style={{ ...rule, padding: '8px 12px', minWidth: 0 }}>
                 <div style={{ fontWeight: 500 }}>{s.title}</div>
-                {s.blurb && <div style={{ fontSize: 12, color: T.text2 }}>{s.blurb}</div>}
+                {s.blurb && <div onClick={() => setOpen(open === k ? null : k)} title={open === k ? undefined : 'Show all of it'}
+                  style={{ fontSize: 12, color: T.text2, cursor: 'pointer', ...(open === k ? {} : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) }}>{s.blurb}</div>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
                   {s.tags.map((tag) => <Chip key={tag} tag={tag} on={wanted.includes(tag)} onClick={() => toggle(tag)} />)}
                   <span style={{ fontSize: 12, color: T.caption, marginLeft: 4 }} title={s.counts.calls.length ? `expect checks ${s.counts.calls.join(', ')}` : undefined}>
@@ -181,8 +213,8 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
                 </div>
                 {failure && <div style={{ fontSize: 12, color: T.danger, overflowWrap: 'anywhere', marginTop: 4 }}>{failure}{failures[k] ? '' : ` · project ${projectOf(s.id)} kept`}</div>}
               </div>
-              <div style={{ padding: '8px 12px', fontSize: 12, minWidth: 0 }}>{cell(s)}</div>
-              <div style={{ padding: '6px 12px' }}>
+              <div style={{ ...rule, padding: '8px 12px', fontSize: 12, minWidth: 0 }}>{cell(s)}</div>
+              <div style={{ ...rule, padding: '6px 12px' }}>
                 {runningHere
                   ? <Button variant="ghost" size="sm" aria-label={`Stop ${s.title}`} icon={<IconStopFillRegular size={14} />} onClick={() => stopRun(services(), run!.sessionId).catch((e) => setError(message(e)))}>Stop</Button>
                   : <Button variant="ghost" size="sm" aria-label={`Run ${s.title}`} icon={<IconPlayOutlineRegular size={14} />}

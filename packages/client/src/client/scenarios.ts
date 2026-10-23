@@ -100,7 +100,7 @@ async function initProject(folder: string, source: string, name: string, onJob: 
   }
 }
 
-/** The step a run is starting on, for the Run bar and the Scenarios tab. */
+/** The step a run is starting on, for the Run bar and the Tests tab. */
 export type StartStep = { step: 'session' } | { step: 'project' } | { step: 'init', job: InitJob | null } | { step: 'start' }
 
 /**
