@@ -449,7 +449,7 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
   |---|---|
   | `GET /layerfs/status` | configuration |
   | `GET /layerfs/workspace?folder=` | a folder's projects |
-  | `POST /layerfs/init {folder, source?, name?}` | check the request and start Init; answers its job at once |
+  | `POST /layerfs/init {folder, source?, name?, timeout?}` | check the request and start Init; answers its job at once. `timeout`: a Live Init's limit in ms (a positive whole number; omitted, LayerFS's 300 s); refused `invalid-timeout` (400) otherwise or for a simulated project |
   | `GET /layerfs/init/<job>` | the Init's step (`scan`, `volume`, `import`, `done` or `failed`), the source's file and byte counts, then its project or error |
   | `GET /layerfs/session/<id>` | project, agents and trace lines of the session's root |
   | `POST /layerfs/session/<id>/project {project}` | choose a project, or `null` for none |
