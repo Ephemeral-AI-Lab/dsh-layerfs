@@ -11,17 +11,20 @@
 // Sandboxes tabs,
 // and a status bar with where main is, Branches, Commits, the last publish
 // and the Store's size. ellen_joe shows full size where there is nothing else.
-// Colours, borders and radii are dsh's own tokens (--dsw-*, tokens.ts).
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+// Colours, borders and radii are dsh's own tokens (--dsw-*, tokens.ts), which
+// the sharky maid theme (maid.tsx) sets inside the page.
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, IconChecklistOutlineRegular, IconEllipsisOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconTrashOutlineRegular, IconFlatListOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import ellen from '../../../../sim/avatars/ellen_joe.gif'
 import { AllSandboxes } from './AllSandboxes.tsx'
 import { api, readProject, type Project, type ProjectState, type Status, type Storage } from './api.ts'
 import { InitDialog } from './InitDialog.tsx'
+import { MAID_CSS } from './maid.tsx'
 import { ProjectBoard } from './ProjectBoard.tsx'
 import { RemoveDialog } from './RemoveDialog.tsx'
 import { ScenariosPage } from './ScenariosPage.tsx'
 import { mockApi, type RunServices } from './scenarios.ts'
+import { followTheme } from './theme.ts'
 import { card, T } from './tokens.ts'
 
 /** What the panel uses of dsh's workspace services (read with ctx.get). */
@@ -38,7 +41,6 @@ const NO_ITEMS = { items: [] as readonly Workspace[] }
 const NOT_LISTED = { getSnapshot: () => NO_ITEMS, subscribe: () => () => {} }
 
 const ROWS = `.lfs-switch, .lfs-chip { background: transparent; cursor: pointer; } .lfs-switch:hover, .lfs-switch[aria-expanded='true'], .lfs-chip:hover, .lfs-chip[aria-expanded='true'] { background: ${T.hover}; }
-.lfs-tab { border-radius: ${T.sm} ${T.sm} 0 0 !important; margin-bottom: -1px; } .lfs-tab[aria-selected='true'] { box-shadow: inset 0 -2px 0 ${T.text}; } .lfs-tab[aria-selected='false'] { color: ${T.text2} !important; } .lfs-tab[aria-selected='false'] .lfs-tab-icon { opacity: .75; }
 .lfs-card:hover { box-shadow: inset 0 0 0 999px ${T.hover}; }
 .lfs-bone { border-radius: 4px; background: ${T.well}; animation: lfs-bone 1.2s ease-in-out infinite alternate; } @keyframes lfs-bone { to { opacity: .45; } }`
 
@@ -139,6 +141,8 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
   const [storage, setStorage] = useState<Storage | null>(null)
   const [storageError, setStorageError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => followTheme(root.current!), [])
   const [error, setError] = useState<string | null>(null)
   const [reads, setReads] = useState(0)
   // Import project's Init dialog: a folder chosen in it, bound to no workspace
@@ -206,8 +210,8 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
   const importButton = () => <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={16} />} disabled={!status?.configured} onClick={() => setImporting(true)}>Import project</Button>
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, fontSize: 13, lineHeight: '20px', color: T.text }}>
-      <style>{ROWS}</style>
+    <div ref={root} className="lfs-maid" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, fontSize: 13, lineHeight: '20px', color: T.text }}>
+      <style>{ROWS + MAID_CSS}</style>
       <main style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto', padding: '12px 16px 16px' }}>
         {status && !status.configured && <div style={{ ...card, padding: '8px 12px', color: T.warn }}>LayerFS isn't set up: layerfs-host is missing {status.missing.join(', ')}.</div>}
         {!all && !aside && projects && projects.length === 0 && (
@@ -220,8 +224,8 @@ export function LayerFsPanel({ services }: { services: () => PanelServices }) {
         )}
         {(all || project || aside || projects?.length === 0) && (
           <>
-            <header style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, minHeight: 40, borderBottom: `1px solid ${T.border}` }}>
-              <span style={{ display: 'flex', flex: 'none', color: T.text2, marginRight: 4 }}><LayerFsIcon size={20} /></span>
+            <header className="lfs-head" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, minHeight: 40 }}>
+              <span className="lfs-mark" style={{ display: 'flex', flex: 'none', color: T.text2, marginRight: 4 }}><LayerFsIcon size={20} /></span>
               <span role="tablist" aria-label="LayerFS" style={{ display: 'flex', alignItems: 'stretch', alignSelf: 'stretch', gap: 2, minWidth: 0 }}>
                 <Tab on={!aside && (all || !project)} onClick={() => show('all')} icon={<IconFlatListOutlineRegular size={16} />}
                   title="Every project and its Sandboxes; a card opens a project">All projects</Tab>

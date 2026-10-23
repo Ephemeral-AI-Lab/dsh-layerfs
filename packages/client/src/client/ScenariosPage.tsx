@@ -1,7 +1,8 @@
 // The LayerFS page's Tests tab, shown while the LayerFS scripted model's
 // plugin is on: every scenario (a test) with its latest run on LayerFS and a
 // status icon, its tags as chips and what the loader counted; a long
-// description shows two lines until clicked. The tag row filters the list (a scenario
+// description shows two lines until clicked. Tags are pastel chips in the
+// board's Branch hues, and Ellen's face says how the tests shown went. The tag row filters the list (a scenario
 // shows when it has every chosen tag); Run all queues the scenarios shown and
 // starts them a few at a time (MAX_RUNS in scenarios.ts).
 // Each run gets a Session of its own in the Scenarios workspace, opened from
@@ -13,6 +14,7 @@ import { Button, IconCheckCircleFillRegular, IconCloseCircleFillRegular, IconLoa
 import { api } from './api.ts'
 import { jobText, useClock } from './Progress.tsx'
 import { allTags, isScenarioProject, mockApi, nextStarts, projectOf, runText, startRun, stopRun, withTags, type MockInfo, type RunServices, type Scenario, type ScenarioRun, type StartStep } from './scenarios.ts'
+import { Ellen, hueOf, type Pose } from './maid.tsx'
 import { card, T } from './tokens.ts'
 
 const POLL_MS = 1000, IDLE_POLL_MS = 4000
@@ -21,11 +23,12 @@ const TAGS_KEY = 'layerfs-scenarios-tags'
 const savedTags = (): string[] => { try { const v = JSON.parse(localStorage.getItem(TAGS_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((t) => typeof t === 'string') : [] } catch { return [] } }
 const saveTags = (tags: string[]) => { try { localStorage.setItem(TAGS_KEY, JSON.stringify(tags)) } catch { /* the filter lasts this view only */ } }
 
-/** One tag as a chip; pressed while it filters the list. */
+/** One tag as a pastel chip in its hue; filled while it filters the list. */
 function Chip({ tag, on, onClick }: { tag: string, on: boolean, onClick: () => void }) {
+  const hue = hueOf(tag)
   return (
     <button type="button" aria-pressed={on} onClick={onClick} title={on ? `Showing tests tagged ${tag}; click to stop filtering by it` : `Show only tests tagged ${tag}`}
-      style={{ border: `1px solid ${on ? T.text2 : T.border}`, borderRadius: 999, padding: '0 8px', font: 'inherit', fontSize: 11, lineHeight: '18px', cursor: 'pointer', color: on ? T.text : T.text2, background: on ? T.active : 'transparent' }}>{tag}</button>
+      style={{ border: `1px solid color-mix(in srgb, ${hue} ${on ? 100 : 35}%, transparent)`, borderRadius: 999, padding: '0 9px', font: 'inherit', fontSize: 11, fontWeight: 500, lineHeight: '18px', cursor: 'pointer', color: on ? '#fff' : `color-mix(in srgb, ${hue} 80%, ${T.text})`, background: on ? hue : `color-mix(in srgb, ${hue} 12%, transparent)` }}>{tag}</button>
   )
 }
 
@@ -147,9 +150,14 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
   const waiting = (s: Scenario) => !!starting[s.id] || queue.includes(s.id)
   const count = (state: ScenarioRun['state']) => offered.filter((s) => s.run?.state === state && !waiting(s)).length
   const queued = queue.length
-  const hidden = info.scenarios.length - offered.length
-  const mark = (s: Scenario): Mark => waiting(s) || s.run?.state === 'running' ? 'going' : s.run?.state === 'passed' ? 'passed' : s.run?.state === 'failed' ? 'failed' : 'none'
   const anyGoing = queued > 0 || going() > 0
+  const hidden = info.scenarios.length - offered.length
+  // Ellen's face for the tests shown: thinking while any runs, crying at a failure,
+  // a thumbs up when every one passed, sleepy before any ran, else happy
+  const failed = count('failed'), passed = count('passed')
+  const pose: Pose = anyGoing ? 'thinking' : failed ? 'crying' : passed && passed === offered.length ? 'thumbs_up' : !passed ? 'sleepy' : 'happy'
+  const mood = pose === 'thinking' ? 'Running the tests…' : pose === 'crying' ? `${failed} failed` : pose === 'thumbs_up' ? 'All passed!' : pose === 'sleepy' ? 'Nothing run yet' : `${passed} passed so far`
+  const mark = (s: Scenario): Mark => waiting(s) || s.run?.state === 'running' ? 'going' : s.run?.state === 'passed' ? 'passed' : s.run?.state === 'failed' ? 'failed' : 'none'
 
   // each row sits under a hairline, the header's included
   const rule = { borderTop: `1px solid ${T.border}` }
@@ -183,15 +191,20 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
         {wanted.length > 0 && <button type="button" className="lfs-switch" onClick={() => { setWanted([]); saveTags([]) }} style={{ border: 0, background: 'transparent', font: 'inherit', fontSize: 12, color: T.text2, cursor: 'pointer' }}>Clear</button>}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12 }}>
-        <Count n={count('passed')} label="passed" colour={T.ok} />
-        <Count n={count('failed')} label="failed" colour={T.danger} />
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Ellen pose={pose} height={44} title={mood} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: pose === 'crying' ? T.danger : T.text }}>{mood}</span>
+        </span>
+        <Count n={passed} label="passed" colour={T.ok} />
+        <Count n={failed} label="failed" colour={T.danger} />
         <Count n={going()} label="running" colour={T.text2} />
         {queued > 0 && <Count n={queued} label="queued" colour={T.text2} />}
         <Count n={offered.filter((s) => !s.run && !waiting(s)).length} label="not run" colour={T.caption} />
         {hidden > 0 && <span style={{ color: T.caption }}>{hidden} hidden by the tags</span>}
       </div>
       {(error || cleaning) && <div role="status" style={{ color: error ? T.danger : T.text2 }}>{error ?? cleaning}</div>}
-      <div style={{ ...card, display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) minmax(0, 13em) auto', alignItems: 'stretch', overflow: 'hidden' }}>
+      <div className="lfs-bow" style={{ marginTop: 6 }}>
+      <div className="lfs-lace" style={{ ...card, display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) minmax(0, 13em) auto', alignItems: 'stretch', overflow: 'hidden' }}>
         {['', 'Test', 'Latest run', ''].map((h, i) => (
           <div key={i} style={{ padding: i ? '8px 12px' : '8px 0 8px 14px', fontSize: 12, fontWeight: 500, color: T.caption }}>{h}</div>
         ))}
@@ -202,7 +215,7 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
             <div key={s.id} className="lfs-test-row" style={{ display: 'contents' }}>
               <div style={{ ...rule, padding: '10px 0 10px 14px' }}><StatusIcon mark={mark(s)} /></div>
               <div style={{ ...rule, padding: '8px 12px', minWidth: 0 }}>
-                <div style={{ fontWeight: 500 }}>{s.title}</div>
+                <div style={{ fontWeight: 600 }}>{s.title}</div>
                 {s.blurb && <div onClick={() => setOpen(open === k ? null : k)} title={open === k ? undefined : 'Show all of it'}
                   style={{ fontSize: 12, color: T.text2, cursor: 'pointer', ...(open === k ? {} : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }) }}>{s.blurb}</div>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
@@ -223,6 +236,7 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

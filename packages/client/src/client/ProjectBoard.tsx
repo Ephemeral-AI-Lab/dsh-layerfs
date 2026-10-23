@@ -17,7 +17,7 @@ import { Dot, POLL_MS, usePoll } from './runtimeParts.tsx'
 import { SandboxesTab } from './SandboxesTab.tsx'
 import { bytes, saved, storeOf, times } from './storage.ts'
 import { followTheme } from './theme.ts'
-import { T } from './tokens.ts'
+import { card, T } from './tokens.ts'
 
 /**
  * `tab`: the tab to open with (the All projects page opens Sandboxes).
@@ -71,7 +71,7 @@ export function ProjectBoard({ name, state, storage, storageError, status, tab }
   const gain = storage ? saved(storage) : null
   const sbx = runtime?.sandboxes ?? [], wsCount = sbx.reduce((n, x) => n + x.workspaces.length, 0)
   return (
-    <div style={{ flex: 1, minHeight: 560, display: 'flex', flexDirection: 'column', borderRadius: 'var(--dsw-radius-md)', overflow: 'hidden', border: `1px solid ${T.border}` }}>
+    <div style={{ flex: 1, minHeight: 560, display: 'flex', flexDirection: 'column', borderRadius: T.md, overflow: 'hidden', border: card.border, boxShadow: card.boxShadow }}>
       <div ref={host} style={{ position: 'relative', flex: 1, minHeight: 0 }} />
       <footer style={{ flex: 'none', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 16px', minWidth: 0, padding: '4px 12px', borderTop: `1px solid ${T.border}`, background: T.well, fontSize: 12 }}>
         {status}

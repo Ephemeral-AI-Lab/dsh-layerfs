@@ -20,9 +20,11 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, imageLabel, type Level, type Overview } from './api.ts'
 import { Dot, LEVEL_COLOR, Meter, POLL_MS, span, usePoll } from './runtimeParts.tsx'
 import { bytes } from './storage.ts'
+import { Ellen } from './maid.tsx'
 import { card, T } from './tokens.ts'
 
-const MONO = 'var(--mono, ui-monospace, monospace)'
+// figures: the maid theme's rounded figures inside the page, else monospace
+const MONO = 'var(--lfs-num, var(--mono, ui-monospace, monospace))'
 const HEADING: CSSProperties = { margin: '0 0 6px', fontSize: 11, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', color: T.caption }
 const ASK: CSSProperties = { display: 'grid', gap: 6, padding: '8px 10px', borderRadius: T.sm, background: 'var(--dsw-alias-state-error-bg, rgba(210,69,94,.1))', fontSize: 12 }
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
@@ -55,8 +57,9 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
   const worst = view?.reasons[0] ?? null
 
   return (
-    <div style={{ ...card, flex: 1, minHeight: 440, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderBottom: `1px solid ${T.border}`, background: T.well, fontFamily: MONO, fontSize: 12, flexWrap: 'wrap' }}>
+    <div className="lfs-bow" style={{ flex: 1, minHeight: 440, display: 'flex', flexDirection: 'column' }}>
+    <div className="lfs-lace" style={{ ...card, flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 8px', borderBottom: `1px solid ${T.border}`, background: T.well, fontSize: 12.5, fontWeight: 500, flexWrap: 'wrap' }}>
         {worst && <><Dot level={worst.level} /><span title={view!.reasons.map((r) => r.text).join('\n')} style={{ color: LEVEL_COLOR[worst.level] }}>
           {worst.text}{view!.reasons.length > 1 ? ` · +${view!.reasons.length - 1} more` : ''}</span><span style={{ color: T.caption }}>·</span></>}
         <span>{view ? `${plural(view.totals.projects, 'project')} · ${plural(view.totals.sandboxes, 'Sandbox', 'Sandboxes')} · ${plural(view.totals.workspaces, 'Workspace')}` : 'Reading LayerFS…'}</span>
@@ -84,8 +87,8 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
 
         {view && (
           <section>
-            <h4 style={HEADING}>Running · problems first</h4>
-            {!view.projects.length && <div style={{ color: T.text2 }}>No project runs a Sandbox now.</div>}
+            <h4 className="lfs-h" style={HEADING}>Running · problems first</h4>
+            {!view.projects.length && <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: T.text2 }}><Ellen pose="sleepy" height={40} />No project runs a Sandbox now.</div>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
               {view.projects.map((p) => (
                 <div key={p.name} style={{ ...card, display: 'grid', alignContent: 'start', overflow: 'hidden', borderLeft: p.level === 'ok' ? card.border : `3px solid ${p.level === 'down' ? T.danger : T.warn}` }}>
@@ -119,7 +122,7 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
 
         {view && view.idle.length > 0 && (
           <section>
-            <h4 style={HEADING}>Idle · start a Sandbox on the next mount</h4>
+            <h4 className="lfs-h" style={HEADING}>Idle · start a Sandbox on the next mount</h4>
             <div style={{ ...card, display: 'grid' }}>
               {view.idle.map((p, i) => (
                 <button key={p.name} type="button" className="lfs-card" onClick={() => onOpen(p.name)} title={`Open ${p.name}'s Sandboxes`}
@@ -138,6 +141,7 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
         {view && <Leftovers view={view} asking={asking} setAsking={setAsking} busy={!!busy} act={act} confirm={confirm} />}
       </div>
     </div>
+    </div>
   )
 }
 
@@ -154,7 +158,7 @@ function Health({ view, asking, setAsking, busy, act, confirm }: Parts) {
     <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', whiteSpace: 'nowrap' }}>
       {level && <Dot level={level} />}
       <span style={{ color: T.text2 }}>{label}</span>
-      <span style={{ fontFamily: MONO, color: level && level !== 'ok' ? LEVEL_COLOR[level] : T.text }}>{value}</span>
+      <span style={{ fontFamily: MONO, fontWeight: 600, color: level && level !== 'ok' ? LEVEL_COLOR[level] : T.text }}>{value}</span>
       {actions}
     </span>
   )
@@ -202,7 +206,7 @@ function Leftovers({ view, asking, setAsking, busy, act, confirm }: Parts) {
   let i = 0
   return (
     <section>
-      <h4 style={HEADING}>Leftovers</h4>
+      <h4 className="lfs-h" style={HEADING}>Leftovers</h4>
       <div style={{ ...card, display: 'grid' }}>
         {view.leftovers.map((l) => row(i++, <>
           <span style={{ alignSelf: 'center', display: 'flex' }}><Dot level="degraded" /></span>
