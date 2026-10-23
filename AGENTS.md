@@ -16,11 +16,12 @@ Rules for agents working in this repository: the dsh-layerfs plugin bundle.
 - **The demo bundle stays retired.** The `dsh-layerfs-demo` bundle is
   disabled permanently (owner, 2026-10-21): do not add it back, install it,
   or write guides that do.
-- **The LayerFS scripted model ships off** (owner, 2026-10-23,
+- **The LayerFS scripted model ships on** (owner, 2026-10-24, replacing
+  "ships off" of 2026-10-23;
   [dsh-layerfs#1](https://github.com/Ephemeral-AI-Lab/dsh-layerfs/issues/1)).
-  `@dsh-layerfs/mock` is a row of the dsh-layerfs bundle with
-  `disabled: true`; a person turns it on from dsh's Plugins page. Never turn
-  it on in someone else's profile. Its scenarios (`scenarios/`) touch only
+  `@dsh-layerfs/mock` is a row of the dsh-layerfs bundle, enabled, with this
+  checkout's `scenarios/`; a person can turn it off from dsh's Plugins page.
+  Its scenarios touch only
   projects named `mock-…`, and each run has a 15-minute limit
   (`packages/mock/src/progress.js`). Every scenario runs on LayerFS; the
   simulator (Mocked LayerFS) was removed on 2026-10-23.

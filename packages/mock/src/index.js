@@ -1,6 +1,6 @@
 // @dsh-layerfs/mock: the LayerFS scripted model, a Cordis function plugin
 // for testing and showing the LayerFS UI without a language model. The
-// dsh-layerfs bundle ships it switched off; dsh's Plugins page turns it on.
+// dsh-layerfs bundle ships it switched on; dsh's Plugins page turns it off.
 // It registers the "layerfs-mock" provider with one model per scenario
 // folder, and, where a web server runs, the /layerfs-mock route the client's
 // Scenarios tab and Run bar read (routes.js). The LayerFS Host's

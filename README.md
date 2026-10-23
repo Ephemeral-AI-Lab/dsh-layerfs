@@ -402,13 +402,13 @@ Branches into one, fix any Conflict, run the check once more, and publish to mai
 | Host plugin `layerfs-host` | `@dsh-layerfs/host` | bash environment, session records, the `/layerfs` web route |
 | Client plugin `layerfs-client` | `@dsh-layerfs/client` | Work and History tabs, project chip, LayerFS page (dsh web) |
 | Agent preset `layerfs-dsh-minimalist` | `dsh-layerfs` (`presets/`) | "LayerFS × DSH minimalist" in the preset menu |
-| LayerFS scripted model `layerfs-mock` (off by default) | `@dsh-layerfs/mock` | "LayerFS scripted model · …" models, the LayerFS page's Scenarios tab, the Run bar |
+| LayerFS scripted model `layerfs-mock` (on by default) | `@dsh-layerfs/mock` | "LayerFS scripted model · …" models, the LayerFS page's Scenarios tab, the Run bar |
 | View model | `@dsh-layerfs/model` | used by the client and the Host |
 | Renderer | `@dsh-layerfs/view` | used by the client |
 
 ### Scripted runs
 
-The LayerFS scripted model plays scripted agent runs through the real dsh agent loop and tools, without a language model, to test and show the LayerFS UI ([dsh-layerfs#1](https://github.com/Ephemeral-AI-Lab/dsh-layerfs/issues/1)). It ships in the bundle switched off: turn on `@dsh-layerfs/mock` on dsh's Plugins page. Off, nothing of it shows.
+The LayerFS scripted model plays scripted agent runs through the real dsh agent loop and tools, without a language model, to test and show the LayerFS UI ([dsh-layerfs#1](https://github.com/Ephemeral-AI-Lab/dsh-layerfs/issues/1)). It ships in the bundle switched on, with this checkout's `scenarios/`; turn `@dsh-layerfs/mock` off on dsh's Plugins page to hide it. Off, nothing of it shows.
 
 - **Scenarios** live in [`scenarios/`](scenarios/), one folder each with a `scenario.json` (loader and full format: [`packages/mock/src/scenario.js`](packages/mock/src/scenario.js)). Every step is one tool call of the minimalist preset (bash, subagent, send_message, the job tools) or a reply, written as an agent would type it. A scenario has one form, its first tag: in a `cli` scenario every bash step is plain `layerfs …` lines; in an `sdk` one every bash step is one inline Node script on the SDK. Half the scenarios are each: `cli` for shop, crew, parallel, checkpoints and conflicts; `sdk` for depot, tour, sandbox, agents and merge. A step that runs commands creates its own Sandbox, mounts one Workspace, runs, commits, unmounts and closes the Sandbox.
 - **Placeholders.** `{{scenario}}` (the folder's absolute path, written in double quotes) and `{{image}}` (the scenario's runtime image) are filled when it loads. `{{sandbox}}` and `{{commit:<ref>}}` are filled when the scripted model sends the step, from what that agent has seen: the last Sandbox number, and the Commit id a step with `commits: [<ref>]` printed or a received message carried. A Commit id reaches another agent in a `send_message`.
