@@ -93,7 +93,7 @@ Below, `$DSH_LAYERFS` is this repository's absolute path, `$LAYERFS_SOURCE` the 
 
 Live needs three things from the LayerFS checkout: the JavaScript SDK, a Linux build of the daemon and the SDK's native addon, and a runtime image. Nothing is published, so you build them there.
 
-**The SDK** (`sdk/js`, `@layerfs/sdk` and `@layerfs/sdk/operator`) is plain JavaScript with no dependencies, so it needs no install or build step. The Host links it as `link:../../.layerfs/sdk/js`; step 2's `pnpm install` first points `.layerfs` at `$LAYERFS_SOURCE`, then makes that link. Only its native addon is built, and a fresh clone has none (`sdk/js/native/layerfs.node`). On macOS the Host never loads an addon on the Mac: the Linux build below supplies it. On Linux, see step 4.
+**The SDK** is LayerFS #428's three packages in `sdk/js/packages`: `@layerfs/agent` (what agents' scripts call), `@layerfs/backend` (background processes, a Workspace's status, storage) and `@layerfs/runtime` (what the Host runs on a LayerFS home: the worker, Init, removal, status, the `lfs` command). They are plain JavaScript with no dependencies. Run `npm install` once in `$LAYERFS_SOURCE/sdk/js` (it only links the three to each other); the Host links each as `link:../../.layerfs/sdk/js/packages/<name>`, and step 2's `pnpm install` first points `.layerfs` at `$LAYERFS_SOURCE`, then makes those links. Only the native addon is built, and a fresh clone has none (`sdk/js/native/layerfs.node`). On macOS and Windows the Host never loads an addon itself: the home's worker runs the Linux build below. On Linux, see step 4.
 
 **The Linux build.** Build `layerfs-daemon` and the addon in the Rust 1.85.1 image, from the LayerFS checkout's root so Cargo picks up its [`.cargo/config.toml`](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/.cargo/config.toml) (the ARM64 profile). This is the recipe of LayerFS's [benchmark/AGENTS.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/benchmark/AGENTS.md#environment), with the crates fetched into a Docker volume instead of the host's `~/.cargo/registry`:
 
@@ -119,10 +119,10 @@ BUNDLE=$HOME/layerfs-linux-build
 mkdir -p "$BUNDLE/sdk/js"
 docker run --rm -v layerfs-target:/t:ro -v "$BUNDLE":/out rust:1.85.1-bookworm sh -c \
   "cp /t/release/layerfs-daemon /out/ && cp /t/release/liblayerfs_node.so /out/layerfs.node && chown $(id -u):$(id -g) /out/layerfs-daemon /out/layerfs.node"
-cp -R sdk/js/src sdk/js/operator sdk/js/package.json "$BUNDLE/sdk/js/"
+cp -R sdk/js/packages sdk/js/package.json "$BUNDLE/sdk/js/"
 ```
 
-On macOS the Host uses all three parts: the Store container loads `layerfs.node`, Sandboxes run `layerfs-daemon`, and the Mac side imports `sdk/js` from the bundle.
+That folder serves Linux (`daemon` and `LAYERFS_NATIVE`). **macOS and Windows need a sealed bundle**: the home's worker runs the bundle's `sdk/js/packages/runtime/src/worker/server.js` and checks every file against its `manifest.json` before it listens, which only the tool below writes.
 
 Instead, LayerFS's [`tools/worktree.py`](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/tools/worktree.py) ([parallel worktrees](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/docs/general/parallel-worktrees.md)), run in `$LAYERFS_SOURCE`, does the same with per-checkout caches, and seals the folder with a `manifest.json`. It needs the runtime image below to exist first, and was not tried for this guide:
 
@@ -135,14 +135,14 @@ python3 tools/worktree.py build --resources <printed resources.json> --platform 
 
 `build` prints the sealed folder, `~/.cache/layerfs-worktrees/<id>/artifacts/build-linux-<hash>`, which serves as `bundle`.
 
-**The runtime image** is the Linux image Sandboxes and the Store container run. The Store container runs `node` from it, so it must carry Node, plus whatever your agents' commands run in Workspaces. The one in use is built from [`tools/runtime/Dockerfile`](tools/runtime/Dockerfile): Node 24.21 on Debian bookworm (the daemon's own base), with corepack's pnpm and yarn prepared offline, and the base's git, python3, gcc and make.
+**The runtime image** is the Linux image Sandboxes and the macOS worker run. The worker runs `node` from it, so it must carry Node, plus whatever your agents' commands run in Workspaces. The one in use is built from [`tools/runtime/Dockerfile`](tools/runtime/Dockerfile): Node 24.21 on Debian bookworm (the daemon's own base), with corepack's pnpm and yarn prepared offline, and the base's git, python3, gcc and make.
 
 ```sh
 docker build -t layerfs-352-runtime:node24 "$DSH_LAYERFS/tools/runtime"
 docker image inspect --format '{{.Id}}' layerfs-352-runtime:node24     # the image setting
 ```
 
-Use the ID your machine prints: the same build can get a different ID in another image store. Images are never pulled for LayerFS (the Store container starts with `--pull never`).
+Use the ID your machine prints: the same build can get a different ID in another image store. Images are never pulled for LayerFS (the worker starts with `--pull never`).
 
 ### 2. Build the dsh bundle
 
@@ -190,7 +190,7 @@ The Host reads its deployment settings from `layerfs-host` in the profile's `cor
 | `docker` | `/var/run/docker.sock` by default | the same |
 | `volumes` | `/var/lib/docker/volumes` by default (Docker's data-root); the Host's user must write it | not used |
 | `home`, `traceDir` | `<OS temp>/dsh-layerfs/{home,traces}` by default | the same |
-| `containerPrefix` | `layerfs-` by default: Sandboxes `<prefix><project>-<n>` | the same, and the Store container `<prefix>store` |
+| `containerPrefix` | `layerfs-` by default: Sandboxes `<prefix><project>-<n>` | the same, and the worker `<prefix>worker` |
 | `stateDir` | `<profile>/dsh-layerfs` by default (bindings, agent names, journals) | the same |
 
 A Live Init without the required settings is refused with "LayerFS is not configured: set … for layerfs-host in the profile patch"; `GET /layerfs/status` lists what is `missing`.
@@ -200,19 +200,19 @@ A Live Init without the required settings is refused with "LayerFS is not config
 - id: layerfs-host
   config:
     image: "sha256:<64 hex>"                   # step 1's image ID
-    bundle: /Users/<you>/layerfs-linux-build    # macOS: step 1's folder
+    bundle: /Users/<you>/layerfs-build          # macOS: step 1's sealed bundle (manifest.json)
     # daemon: /path/to/layerfs-daemon           # Linux
 ```
 
-**On macOS** the Mac runs no Store call itself. The Host starts one long-lived Linux container per LayerFS home, the Store container (`<containerPrefix>store`, `layerfs-store` by default, labelled `layerfs.role=store`; [`box.js`](packages/host/src/box.js)), and every SDK call of the Host and of agents' scripts runs there with the bundle's `layerfs.node`. A new `bundle` or worker replaces it when the Host starts it (at Host start and before an Init), so load one only while no dsh run is live. It runs with `--restart unless-stopped`, so Docker starts it again after its own restart. A call of the Host or an agent that finds it stopped, missing or not answering keeps its own error, and the Host starts it again once (`docker start`, or a new one if it is gone) and waits for its worker; a running container that does not answer is left as it is. The Host removes an older-named `dsh-layerfs-box-<hash>` container of its home, and the containers of the retired `<home>/_sandboxes` records, when it starts.
+**On macOS** the Mac runs no Store call itself. `@layerfs/runtime` runs one long-lived Linux container per LayerFS home, the worker (`<containerPrefix>worker`, `layerfs-worker` by default, labelled `layerfs.role=worker`), and every Store call of the Host and of agents' scripts runs there with the sealed bundle's `layerfs.node`; its endpoint is `<home>/worker/endpoint.json`, and agents get it as `DSH_LAYERFS_WORKER_ENDPOINT` (the route is open to the dsh adapter only). The Host starts it when it starts; a worker of another build is replaced, so load a new `bundle` only while no dsh run is live. It runs with `--restart unless-stopped`. A call of the Host or an agent that finds it down keeps its own error, and the Host asks the runtime to start it again. The Store container of dsh before #428 (`<containerPrefix>store`) keeps the worker from starting while it runs: the LayerFS page's All projects tab shows it, and its **Retire…** action (confirmed: any run still on it is cut off) stops and removes it, then starts the worker.
 
-**On Linux** the Host and agents' scripts load the SDK in their own process, from `sdk/js` in the LayerFS checkout (through `.layerfs`). It loads the addon from `LAYERFS_NATIVE`, or else `sdk/js/native/layerfs.node`: build it on that machine with `npm --prefix "$LAYERFS_SOURCE/sdk/js" run build:native` ([SDK README](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/sdk/js/README.md#builds-and-compatibility); it needs Cargo 1.85.1 on the host), or set `LAYERFS_NATIVE` in dsh web's environment to a Linux build's `layerfs.node`. `daemon` is that build's `layerfs-daemon`. The Store must be on a local Linux filesystem (ext4, xfs or btrfs). Init installs the Store straight into the new project's volume directory under Docker's volumes directory (`volumes`, `/var/lib/docker/volumes` by default), which Docker keeps root-only, so run dsh web as a user that can write it, such as root, and give it a `home` that user owns; otherwise Init refuses with `host-access` before it makes a volume.
+**On Linux** the Host and agents' scripts load `@layerfs/agent` in their own process, from `sdk/js/packages` in the LayerFS checkout (through `.layerfs`). It loads the addon from `LAYERFS_NATIVE`, or else `sdk/js/native/layerfs.node`: build it on that machine with `npm --prefix "$LAYERFS_SOURCE/sdk/js" run build:native` ([SDK README](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/sdk/js/README.md#builds-and-compatibility); it needs Cargo 1.85.1 on the host), or set `LAYERFS_NATIVE` in dsh web's environment to a Linux build's `layerfs.node`. `daemon` is that build's `layerfs-daemon`. The Store must be on a local Linux filesystem (ext4, xfs or btrfs). Init installs the Store straight into the new project's volume directory under Docker's volumes directory (`volumes`, `/var/lib/docker/volumes` by default), which Docker keeps root-only, so run dsh web as a user that can write it, such as root, and give it a `home` that user owns; otherwise the runtime fails the Init (`Unsupported`) before it makes a volume.
 
 <a id="windows-live"></a>
 
-**On Windows** dsh web and the default profile remain on Windows. The separate
-[`windows/` adapter](packages/host/src/windows/host.js) starts one long-lived Node
-worker in a selected WSL2 distribution. That distribution needs its own running
+**On Windows** dsh web and the default profile remain on Windows. `@layerfs/runtime`
+starts one long-lived Node worker in a selected WSL2 distribution, owned by the
+Host through its stdin. That distribution needs its own running
 Docker Engine, `/dev/fuse`, Node 22.19 or newer, and a **sealed Linux bundle** from
 `tools/worktree.py build` (run the build inside WSL, using the private resources
 described above). Docker Desktop's Windows named pipe is not used by this adapter.
@@ -286,7 +286,7 @@ Engine. This does not require running a second dsh server in WSL.
 The [verification record](docs/windows-live-verification-20261022.md) pins the
 tested source, native bundle, outcomes and platform gaps.
 
-**Running two dsh webs on one machine.** The default `home` and `traceDir` are the same for every profile, so two dsh webs would share projects and the Store container. Give each its own pair under the OS temp area, and its own `containerPrefix`, since container names are per Docker engine (the Store container of another home is refused, never taken over):
+**Running two dsh webs on one machine.** The default `home` and `traceDir` are the same for every profile, so two dsh webs would share projects and the worker. Give each its own pair under the OS temp area, and its own `containerPrefix`, since container names are per Docker engine (the Store container of another home is refused, never taken over):
 
 ```yaml
     home: /private/var/folders/…/T/dsh-layerfs-<name>/home        # node -p "require('fs').realpathSync(require('os').tmpdir())"
@@ -309,7 +309,7 @@ What you see ([TUTORIAL.md](TUTORIAL.md) walks through a first run with pictures
 - **LayerFS × DSH minimalist** is the default preset of a new session. A preset picked in dsh's settings still wins.
 - The New Session row has a **project chip** beside the preset chip. Its menu lists every project (the workspace folder's first) and "No LayerFS", with **New empty project** (a random name, such as calm-otter) and **Import project…** below. Import opens the same folder picker and imports the folder as a new project, which becomes the workspace folder's default; importing the same folder again gives `name-1`, `name-2`, …. Both make Live projects. Picking a project switches a blank session to the minimalist preset.
 - A session on a project has two more tabs beside Chat and Trajectory: **Work** (the agents' terminals, Branches and Sandboxes) and **History** (File, History, Storage and Sandboxes: the project's Sandboxes tab, as on the LayerFS page).
-- The sidebar's **LayerFS** page shows one project at a time: its Files, History, Storage and Sandboxes, a New session action, and Refresh and Remove. Its **All projects · Sandboxes** tab is the switcher: a card per project with its Sandboxes, below Docker, the Store container and free disk.
+- The sidebar's **LayerFS** page shows one project at a time: its Files, History, Storage and Sandboxes, a New session action, and Refresh and Remove. Its **All projects · Sandboxes** tab is the switcher: a card per project with its Sandboxes, below Docker, the worker (and the older Store container while it exists) and free disk.
 - The LayerFS page's **Runs** tab plays a recorded history replay run (layerfs #352) from its SDK traces: pick a run, then Play, Pause, a speed (1×–64×) and a slider, with a chip per traced range coloured by its gate verdict. Idle gaps over 3 s are cut. The Host reads the run folders under its `runs` setting (default `$LFS_HISTORY/runs`, else `~/lfs-history/runs`); only measured ranges have traces, and Files stays empty, since a trace holds no file content.
 
 A **Sim project** needs no Docker, image or build, but the chip's Import makes Live projects. Ask the Host for one directly. The `?token=` link sets the cookie the route needs:
@@ -425,7 +425,7 @@ The Work and History tabs and the LayerFS page are the only LayerFS UI. The stan
 
 dsh session (agents, subagents, bash) → `layerfs-host` (bash environment, records) → LayerFS JS SDK (short Node scripts) → Store and Sandboxes.
 
-A bash call in a session bound to a project gets the project, the SDK and a trace file per agent (`DSH_LAYERFS_*`). Each finished SDK call becomes a `plugin:layerfs/call` record in the calling agent's own session, and the client plugin reads those records back to draw the tabs. On Linux, the Host and the agents' scripts open the Store in their own process. On Windows, SDK calls run in the authenticated WSL worker, whose Docker Engine owns the Sandbox volumes. On macOS the Mac runs no Store call itself: the Host starts one long-lived Linux container, `layerfs-store`, and every SDK call runs there. Agents' Workspaces are placed in the project's numbered Sandboxes, 16 to a Sandbox, and each Sandbox closes itself two minutes after its last Workspace is unmounted.
+A bash call in a session bound to a project gets the project, the SDK and a trace file per agent (`DSH_LAYERFS_*`). Each finished SDK call becomes a `plugin:layerfs/call` record in the calling agent's own session, and the client plugin reads those records back to draw the tabs. On Linux, the Host and the agents' scripts open the Store in their own process. On Windows, Store calls run in the authenticated WSL worker, whose Docker Engine owns the Sandbox volumes. On macOS the Mac runs no Store call itself: `@layerfs/runtime` runs one long-lived Linux container, `layerfs-worker`, and every Store call runs there. Agents' Workspaces are placed in the project's numbered Sandboxes, 16 to a Sandbox, and each Sandbox closes itself two minutes after its last Workspace is unmounted.
 
 ## 📖 Reference
 
@@ -434,7 +434,8 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
 
 - **Bash environment.** A bash call in a session bound to a project gets:
   - `DSH_LAYERFS_PROJECT` and the deployment settings;
-  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_OPERATOR` (file URLs of the SDK);
+  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of `@layerfs/agent` and `@layerfs/backend`), `DSH_LAYERFS_CLI` (the runtime's `lfs` command) and `DSH_LAYERFS_SKILL`;
+  - on macOS and Windows, `DSH_LAYERFS_WORKER_ENDPOINT` and `DSH_LAYERFS_WORKER_ADAPTER=dsh`;
   - a trace file per agent (`DSH_LAYERFS_TRACE`) and the bash call id as the trace step.
 
   The SDK reads the `DSH_LAYERFS_*` names as fallbacks for its own `LAYERFS_*` settings.
@@ -452,19 +453,19 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
   | `GET /layerfs/init/<job>` | the Init's step (`scan`, `volume`, `import`, `done` or `failed`), the source's file and byte counts, then its project or error |
   | `GET /layerfs/session/<id>` | project, agents and trace lines of the session's root |
   | `POST /layerfs/session/<id>/project {project}` | choose a project, or `null` for none |
-  | `GET /layerfs/session/<id>/state` | the project as `inspect.snapshot` reports it |
+  | `GET /layerfs/session/<id>/state` | the project as `runtime.project.get_state` reports it |
   | `GET /layerfs/session/<id>/tree?ref=<saved id>` | a Commit's or Layer's files |
   | `GET /layerfs/projects` | every project and the workspace folder it is attached to |
-  | `GET /layerfs/project/<name>/state` | the project as `inspect.snapshot` reports it, plus who made each node and when Layers and forks happened, from the journals |
+  | `GET /layerfs/project/<name>/state` | the project as `runtime.project.get_state` reports it, plus who made each node and when Layers and forks happened, from the journals |
   | `GET /layerfs/project/<name>/tree?ref=<saved id>` | as the session's tree route |
   | `POST /layerfs/project/<name>/attach {folder}` | attach to a workspace folder, or `null` to detach |
   | `POST /layerfs/project/<name>/remove {confirm}` | remove the project; `confirm` must repeat its name |
 
-  Init first counts the source (every entry, links not followed, as LayerFS reads it), then makes the volume, then runs LayerFS Init (in the WSL worker on Windows, or a container of its own on macOS), which scans, imports and installs the Store into the volume in one process; it starts no Sandbox. While LayerFS imports, the Host reads its counts every 250 ms (the SDK operator's `project.progress()`: step, entries scanned, files and bytes built) into the job's `imported`. The page reads the job every 300 ms and fills the bar from those counts over the Host's totals: scan 0–15%, files 15–95% (bytes plus 4 KB per file), then tree, publish and seal.
+  Init is the runtime's (`runtime.project.start_init`): it counts the source (every entry, links not followed, as LayerFS reads it), then makes the volume, then runs LayerFS Init (in the WSL worker on Windows, or a container of its own on macOS), which scans, imports and installs the Store into the volume in one process; it starts no Sandbox. The Host reads the runtime's job every 250 ms (`get_init`: step, counts, and LayerFS's own counts while it imports as `imported`), then binds the project to the folder. The page reads the job every 300 ms and fills the bar from those counts over the Host's totals: scan 0–15%, files 15–95% (bytes plus 4 KB per file), then tree, publish and seal.
 
-  Removal deletes the project's Docker volume and LayerFS home entry, and drops it from the bindings; sessions on it become unbound. It is refused while any container still uses the volume. Workspace files and transcripts stay. A LayerFS project is its home entry, so a removed name can be initialized again at once.
+  Removal (`runtime.project.remove`) deletes the project's Sandbox containers, Docker volume and LayerFS home entry, and the Host drops it from the bindings; sessions on it become unbound. It is refused while any container still uses the volume. Workspace files and transcripts stay. A LayerFS project is its home entry, so a removed name can be initialized again at once.
 
-  The Host reads each project (state and trees) through one shared SDK client, released after a quiet minute. Reading starts no Sandbox: history comes from the project's Store (in the WSL worker on Windows or the Store container on macOS), and Workspaces only from Sandboxes already running, so a project nobody works on shows its history with no container. LayerFS places agents' Workspaces in the project's numbered Sandboxes, `layerfs-<project>-<n>`, 16 to a Sandbox; each Sandbox closes itself two minutes after its last Workspace is unmounted, and the tab then draws it closed.
+  The Host reads each project (state and trees) through one shared client (`LayerFS.open`, with `LayerFSBackend` beside it), released after a quiet minute. Reading starts no Sandbox: history comes from the project's Store (in the home's worker on macOS and Windows), and Workspaces only from Sandboxes already running, so a project nobody works on shows its history with no container. LayerFS places agents' Workspaces in the project's numbered Sandboxes, `layerfs-<project>-<n>`, 16 to a Sandbox; each Sandbox closes itself two minutes after its last Workspace is unmounted, and the tab then draws it closed.
 
   The Files pane reads only what is on screen, one SDK call each ([`reads.js`](packages/host/src/reads.js)): a folder a page of up to 1,000 names at a time, a file a window of at most 2,000 lines or 48 KiB. A read costs the same in a small project and a huge one. `node_modules`, `.git` and `.next` start collapsed.
 
@@ -492,8 +493,8 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
   | --- | --- | --- |
   | project (one per project) | the project and its Branches | `project.*`, `branch.*`, and a mount that failed (it has no pane); an older trace's `sandbox.create` and `sandbox.close` |
   | fs (one per Branch) | Store reads and writes on that Branch | `fs.*` |
-  | workspace (one pane per mounted Workspace) | the Workspace's life and the commands run in it | `workspace.mount`, `workspace.exec`, `workspace.status`, `workspace.commit`, `workspace.unmount` (an older trace's `sandbox.*` forms too), operator `process.start` and `process.cancel` |
-  | none | the client's own calls and operator reads | `operator.sandbox.list`, the other operator methods |
+  | workspace (one pane per mounted Workspace) | the Workspace's life and the commands run in it | `workspace.mount`, `workspace.exec`, `workspace.commit`, `workspace.unmount`, the backend's `daemon.workspace.status` and `daemon.process.start` and `.cancel` (an older trace's `sandbox.*` and `operator.process.*` forms too) |
+  | none | the client's own calls and reads | `project.list_sandboxes`, `sandbox.list_workspaces`, the backend's other calls, an older trace's operator reads |
 
   A command line is `<group> <method> <required args> [--optional value] [-m "message"]`, using the SDK's own group and method names: `branch merge feature try-ui release -m "join"`, `fs read /app/page.tsx --start-line 5`, `workspace commit -m "add hero" --force`.
   - Required arguments are positional, in SDK order. Optional ones are `--kebab-case` flags shown only when they differ from the SDK default; a true boolean is a bare flag (`--force`, `--discard`).
@@ -557,7 +558,7 @@ Known limits:
   directory. The Host retains each trace path across restarts. An explicit
   `traceDir` must be writable by the agents. Other platforms keep the default
   traces in the OS temp area.
-- Everything else follows LayerFS's platform limits: Store calls need Linux and a local ext4, xfs or btrfs filesystem, which on macOS the Store container provides.
+- Everything else follows LayerFS's platform limits: Store calls need Linux and a local ext4, xfs or btrfs filesystem, which on macOS the worker's container provides.
 - Windows Live uses WSL2 and its Linux Docker Engine through the Windows adapter;
   native Windows Store execution remains unsupported. Sim's local `/bin/sh`
   executor is not ported to Windows. macOS execution was not rerun for this change.
@@ -580,10 +581,10 @@ Nothing of LayerFS is published yet, so this repository builds on a LayerFS chec
 
 - **`LAYERFS_SOURCE`** names it: a path, relative to this repository's root or absolute. Unset, it is `../layerfs` beside this repository.
 - **[`layerfs.json`](layerfs.json)** pins it: the default path and the LayerFS commit this repository was moved and tested at.
-- **`.layerfs`** (git-ignored) is a link to it. `pnpm install` and `pnpm test` make the link first ([`tools/layerfs-source.mjs`](tools/layerfs-source.mjs)); after changing `LAYERFS_SOURCE`, run `pnpm run link:layerfs` (pnpm skips its install step when nothing else changed). Everything reads LayerFS through the link: the Host's `@layerfs/sdk` is `.layerfs/sdk/js`, the agent skill is `.layerfs/.agents/skills/layerfs-js-sdk/`, and the model's CLI test loads the SDK from there.
+- **`.layerfs`** (git-ignored) is a link to it. `pnpm install` and `pnpm test` make the link first ([`tools/layerfs-source.mjs`](tools/layerfs-source.mjs)); after changing `LAYERFS_SOURCE`, run `pnpm run link:layerfs` (pnpm skips its install step when nothing else changed). Everything reads LayerFS through the link: the Host's `@layerfs/agent`, `@layerfs/backend` and `@layerfs/runtime` are `.layerfs/sdk/js/packages/*`, the agent skill is `.layerfs/.agents/skills/layerfs-js-sdk/`, and the model's CLI test loads the agent and backend from there.
 - **The Linux build and the runtime image** (step 1) are built from the same checkout, so the SDK, `layerfs.node` and `layerfs-daemon` match.
 
-The SDK is today's `sdk/js` API. Moving to `@layerfs/agent`, `@layerfs/backend` and `@layerfs/runtime` is a later step.
+The pin is LayerFS's #428 SDK branch (`claude/issue428-sdk-packages-cd9412`, in its worktree `.claude/worktrees/issue428-sdk-packages-cd9412`), not yet merged into LayerFS `main`; it moves to `main` when that lands.
 
 ### What stayed in the layerfs repository
 
