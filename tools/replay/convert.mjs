@@ -86,6 +86,14 @@ const INSTALL = /\bnpm (install|ci)\b/;
 const BUILD = /\bnpm run build\b|\besbuild\b|\btsc\b/;
 const TEST = /\bnpm (run )?test\b|\bnode --test\b/;
 const PREPARE = /\bnpm run prepare-tests\b/;
+// recorded commands whose tests read today's date (owner, 2026-10-23): exit 1
+// is accepted when the named tests are the only ones that fail
+const DATE_DEPENDENT = new Map([
+  ["P1e-059", {
+    tests: ["confirmed category changes reuse canonical issue and sprint ledger updates"],
+    why: "the test's sprint runs 2026-10-01 to 2026-10-20 and it reads today's burndown day",
+  }],
+]);
 const verificationOff = name === "crew";
 const changed = (c) => c.expect?.includes("Committed") && !c.generated; // the record's Commit came back Committed
 
@@ -328,10 +336,16 @@ function compile(number, run, description) {
         break;
       }
       case "exec": {
-        const v = wsVar(c), codes = exits(c);
+        const v = wsVar(c), dated = DATE_DEPENDENT.get(runs.get(c.number).step.split(" ")[0]);
+        const codes = dated ? [...new Set([...exits(c), 1])] : exits(c);
         const call = `layerfs workspace exec "$${v}"${msg(c.message)} --stream -- ${sq(c.command)}`;
         if (c.flaky) lines.push(`# exit ${c.exit} in the record came from a racing test only: ${c.flaky.tests?.join("; ") ?? `${c.flaky.errors.join(" or ")} in ${c.flaky.where}`}`);
-        if (c.sandboxOwn) {
+        if (dated) {
+          lines.push(`# date-dependent: ${dated.why}; exit 1 is accepted only when these are the only failing tests`);
+          lines.push(`out=$(mktemp); code=0; ${call} >"$out" 2>&1 || code=$?; cat "$out"`);
+          lines.push(`exit_is "$code" ${codes.join(" ")}`);
+          lines.push(`[ "$code" = ${c.exit} ] || only_failed "$out" ${dated.tests.map(q).join(" ")}`);
+        } else if (c.sandboxOwn) {
           lines.push(`out=$(mktemp); code=0; ${call} >"$out" 2>&1 || code=$?; cat "$out"`);
           lines.push(`exit_is "$code" ${codes.join(" ")}`);
           lines.push(`# the census was written for the recorded runtime: it may fail only by finding the Sandbox's own ${c.sandboxOwn.join(", ")}`);

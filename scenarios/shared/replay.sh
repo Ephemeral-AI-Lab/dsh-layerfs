@@ -129,3 +129,13 @@ const others = census?.unexpected?.filter((p) => !own.includes(p.comm)) ?? null;
 if (!census?.unexpected?.length || others.length) { console.error(`✕ the census found ${others?.length ? "processes other than the Sandbox’s own: " + others.map((p) => p.pid + " " + p.comm).join(", ") : "no census line"}`); process.exit(1); }
 console.log(`(the census found only the Sandbox’s own ${census.unexpected.map((p) => p.comm).join(", ")})`);' "$@"
 }
+
+# only_failed <output file> <test name>...: node --test's TAP output fails
+# only these tests (a date-dependent test the record passed before its date)
+only_failed() {
+  node -e 'const [file, ...allowed] = process.argv.slice(1);
+const failed = [...require("fs").readFileSync(file, "utf8").matchAll(/^not ok \d+ - (.*)$/gm)].map((m) => m[1].trim());
+const others = failed.filter((name) => !allowed.includes(name));
+if (!failed.length || others.length) { console.error(`✕ ${failed.length ? "other tests failed too: " + others.join("; ") : "exit 1 without a failing test"}`); process.exit(1); }
+console.log(`(only the date-dependent test failed: ${failed.join("; ")})`);' "$@"
+}
