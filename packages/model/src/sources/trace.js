@@ -7,6 +7,7 @@
 // Files reads, view/src/filesource.js).
 import { Mirror } from "../mirror.js";
 import { prepare, record } from "../attribution.js";
+import { cliOf } from "../cli.js";
 
 // No tree is held: the Files pane reads through `files` instead.
 const EMPTY = Object.freeze({});
@@ -318,6 +319,34 @@ export function replayLine(W, line, { agent = W.lead, t0 = null } = {}) {
   if (!st) return null;
   record(W, st, p, o, null, [{ call: p.call, code: o.code, timing: timingOf(line) }]);
   return o;
+}
+
+/** Calls that print in a Workspace pane (their older names), for runningLines. */
+const PANE_CALLS = new Set(["sandbox.exec", "operator.process.start", "sandbox.commit", "sandbox.unmount", "sandbox.status"]);
+
+/**
+ * The calls still running in each Workspace pane, from their start lines
+ * (LAYERFS_TRACE_START): { "<sandbox>:<path>": [line] }, each its command
+ * line with "… running" under it. The views add them after the pane's own
+ * lines until the end line plays; a call given twice (its start and its
+ * unplayed end) shows once. A pane not drawn yet (its mount still to play)
+ * or already unmounted gets none.
+ */
+export function runningLines(W, starts) {
+  const E = W.engine, out = {}, seen = new Set();
+  // in call order, as the pane's own lines are (endLines' order)
+  const ordered = [...starts].sort((x, y) => Date.parse(x.start) - Date.parse(y.start) || seqOf(x) - seqOf(y));
+  for (const raw of ordered) {
+    const line = older(raw), a = line.args || {};
+    if (!PANE_CALLS.has(line.method) || seen.has(line.id)) continue;
+    seen.add(line.id);
+    const sb = E.m.toLabel.get(a.sandbox), pane = sb && `${sb}:${a.path}`;
+    if (!pane || !W.panes[pane] || W.panes[pane].left) continue;
+    const sh = line.method === "sandbox.exec" || line.method === "operator.process.start" ? a.command : undefined;
+    const text = sh ? cliOf("sandbox.exec", {}, sh) : cliOf(line.method, { message: a.message });
+    (out[pane] ||= []).push({ agent: line.agent, text, out: [{ t: "… running", c: "dim" }], t: `run:${line.id}`, running: true, group: line.step || null });
+  }
+  return out;
 }
 
 /** Story steps for trace lines: one step per drawn end line. */

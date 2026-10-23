@@ -13,7 +13,7 @@ import * as X from '../../../model/src/index.js'
 const LAG_MS = 2000
 
 
-export interface Step { a: string, line: any, replay: (W: any) => void, due: number }
+export interface Step { a: string, line: any, lines: any[], replay: (W: any) => void, due: number }
 
 /** When a line shows: LAG_MS after it ended, by the Host's clock. */
 export const dueOf = (line: { start: string, ms?: number }) => Date.parse(line.start) + (line.ms || 0) + LAG_MS
@@ -21,6 +21,7 @@ export const dueOf = (line: { start: string, ms?: number }) => Date.parse(line.s
 export class Playback {
   W: any
   private seen = new Set<string>()
+  private done = new Set<string>()
   private pending: any[] = []
   private queue: Step[] = []
   private t0: number | null = null
@@ -46,6 +47,9 @@ export class Playback {
   /** Steps still to play. */
   get waiting() { return this.queue.length }
 
+  /** Of a session's `lines`, the end lines not played yet (queued, or not taken yet): their calls still show as running. */
+  unplayed(lines: any[]) { return lines.filter((line) => line.phase !== 'start' && !this.done.has(line.id)) }
+
   /** Takes a session's lines so far (agents named): the new ones queue, each for its time. */
   feed(lines: any[], agent: string): Promise<void> {
     const next = this.feeding.then(() => this.take(lines, agent))
@@ -68,7 +72,7 @@ export class Playback {
       // a step never shows before the one before it
       // a line ended before now, so with a browser clock behind the Host's it still shows within LAG_MS
       const due = Math.max(Math.min(dueOf(line), this.now() + LAG_MS), this.queue.length ? this.queue[this.queue.length - 1].due : 0)
-      this.queue.push({ a: line.agent || agent, line, due, replay: (W) => { for (const l of batch) X.replayLine(W, l, { agent, t0 }) } })
+      this.queue.push({ a: line.agent || agent, line, lines: batch, due, replay: (W) => { for (const l of batch) X.replayLine(W, l, { agent, t0 }) } })
     }
     this.wake?.()
     await this.play()
@@ -90,6 +94,7 @@ export class Playback {
         while (this.queue.length && this.queue[0].due <= now) {
           last = this.queue.shift()!
           await X.runStep(this.W, last, {})
+          for (const line of last.lines) this.done.add(line.id)
           this.played++
         }
         if (last) this.show(this.W, now - last.due < LAG_MS ? last : null)

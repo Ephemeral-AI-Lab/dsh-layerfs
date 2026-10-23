@@ -175,7 +175,7 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     // before the first call the board shows the project as it is: the Work
     // layout with nothing played yet
     if (!lines.length && b.W !== playback.W) show(b, playback.W, null, playback)
-    else if (!playback.waiting && b.W) { b.acting = runningAgents(view); b.note = noteOf(view, playback); b.render() }
+    else if (!playback.waiting && b.W) { markRunning(b.W, view, playback); b.acting = runningAgents(view); b.note = noteOf(view, playback); b.render() }
   }, [view, sessionId, seed])
 
   /** Draws the model after a step (its agent acting, the view following it) or once caught up. */
@@ -188,6 +188,7 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     b.W = W
     if (step) { b.acting = [step.a]; b.lastLoc = X.locKey(X.where(W, step.a)) } else b.acting = runningAgents(v)
     if (b.follow && W.lastTab) b.active = W.lastTab
+    markRunning(W, v, playback)
     b.note = noteOf(v, playback)
     b.render()
     if (step) b.animate(step.a)
@@ -206,6 +207,12 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
   )
 }
 
+/** The calls still running, or ended and not played yet: their Workspace panes show them as running. */
+function markRunning(W: any, view: SessionView, playback: Playback) {
+  const named = (lines: any[]) => lines.map((line) => ({ ...line, agent: view.agents[line.agentId] ?? line.agent }))
+  const ended = new Set(view.lines.map((line) => line.id))
+  W.running = X.runningLines(W, [...named(view.running.filter((line) => !ended.has(line.id))), ...playback.unplayed(named(view.lines))])
+}
 const runningAgents = (view: SessionView) => view.running.map((line) => view.agents[line.agentId] ?? line.agent)
 const noteOf = (view: SessionView, playback: Playback) => `${view.project!.name} · ${view.lines.length ? `${view.lines.length} calls` : 'no calls in this session yet'}`
   + (playback.waiting ? ` · ${playback.waiting} to play` : '') + (view.running.length ? ` · ${view.running.length} running` : '')

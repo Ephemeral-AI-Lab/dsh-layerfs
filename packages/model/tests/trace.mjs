@@ -109,4 +109,18 @@ const renamed = X.traceSteps([
 assert.deepEqual(renamed.map((st) => st.line.method), ["project.init", "branch.fork", "workspace.mount", "backend.daemon.workspace.status", "backend.daemon.process.start"]);
 for (const st of renamed) await X.runStep(N, st, {});
 assert.deepEqual(N.panes["layerfs-n-1:/workspaces/1"].lines.map((l) => l.text), ["mount e", "status", "npm run dev &"], "drawn as the older names were");
+// A call still running (its start line, LAYERFS_TRACE_START) shows in its
+// Workspace pane as "… running", once even when its unplayed end line is
+// given too; calls outside a drawn pane show nowhere.
+const started = (n, method, args) => ({ ...traced(n, method, args, {}), phase: "start", agent: "main" });
+const running = X.runningLines(N, [
+  // given out of order (the running commit before the ended build): drawn in call order
+  { ...started(9, "workspace.commit", { ...WS, message: "build" }), start: "2026-10-21T00:00:01.000Z" },
+  started(8, "workspace.exec", { ...WS, command: "npm run build" }),
+  traced(8, "workspace.exec", { ...WS, command: "npm run build" }, { exitCode: 0 }),
+  started(10, "workspace.exec", { sandbox: "9", path: "/workspaces/1", command: "ls" }),
+  started(11, "fs.write", { branch: "e", path: "a.txt" }),
+]);
+assert.deepEqual(Object.keys(running), ["layerfs-n-1:/workspaces/1"]);
+assert.deepEqual(running["layerfs-n-1:/workspaces/1"].map((l) => [l.text, l.out[0].t, l.running]), [["npm run build", "… running", true], ["commit -m \"build\"", "… running", true]]);
 console.log(`PASS model trace: ${lines.length} lines, ${s.branchOrder.length} Branches, ${s.sandboxOrder.length} Sandboxes, ${Object.keys(w.attrib).length} attributed nodes`);

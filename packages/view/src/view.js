@@ -498,7 +498,7 @@ export function createView(root, o) {
       const pill = w.leftAt ? TAG("grey", ws + " · unmounted") : w.bad ? TAG("coral", ws + " · conflict") : TAG("blue", ws + " · mounted");
       return term(cls, `data-loc="ws:${esc(w.id)}" data-sb="${esc(sb)}" data-sbhl="${esc(sb)}"${w.leftAt ? ` style="animation-delay:${w.leftAt - Date.now()}ms;--ld:${w.leftAt - Date.now()}ms"` : ""}`,
         `${mascot(w.agent)}<span class="t">${esc(w.agent)}</span><button class="ghost sbchip" data-sbchip="${esc(sb)}" title="Runs in Sandbox ${esc(sb)} · click: its cards on main">sandbox ${esc(sb)}</button><span class="sp"></span>${pill}`,
-        ["sandbox " + sb, "workspace " + ws], tailHtml(w.lines, '<span class="prompt">$ </span>', "ws")); });
+        ["sandbox " + sb, "workspace " + ws], tailHtml(w.leftAt ? w.lines : [...w.lines, ...((W.running || {})[w.id] || [])], '<span class="prompt">$ </span>', "ws")); });
     // one notebook page: the fs log fills it; each Workspace splits it, two blocks across, three
     // as fs beside two stacked, then rows of two (CSS by count). With no Workspace, a faint line
     // at the foot of the page says where one will appear.

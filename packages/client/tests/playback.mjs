@@ -41,9 +41,17 @@ const fresh = () => X.storyView(new X.ReplayEngine({ project: "website" }), { le
 // stopped: nothing more plays
 {
   const shows = [], p = new Playback(fresh, (W, step) => shows.push(step));
-  const done = p.feed(at(0), "main");
+  const recent = at(0), done = p.feed(recent, "main");
+  assert.equal(p.unplayed(recent).length, X.endLines(recent).length, "lines not taken yet still count as running");
   p.stop();
   await done;
   assert.ok(p.played < steps);
+  assert.ok(p.unplayed(recent).length > 0, "a stopped playback leaves its queued lines unplayed");
+}
+// played lines no longer count as running
+{
+  const p = new Playback(fresh, () => {}), past = at(3_600_000);
+  await p.feed(past, "main");
+  assert.ok(p.unplayed(past).every((l) => X.ridesAlong(l.method)), "only trailing lines that ride along stay unplayed");
 }
 console.log(`playback: ok (${steps} steps)`);
