@@ -51,7 +51,6 @@ export const VOLUMES = "/var/lib/docker/volumes";
  * @property {string} traceDir
  * @property {boolean} traceInWorkspace Windows default: traces use the shell's writable workspace.
  * @property {number} pollMs
- * @property {string} runs history replay runs: the setting, else $LFS_HISTORY/runs, else ~/lfs-history/runs (the harness's own default)
  * @property {string} sdk file URL of @layerfs/agent, which agents' scripts import
  * @property {string} backend file URL of @layerfs/backend
  * @property {string} cli path of the layerfs command (the LayerFS checkout's cli/src/layerfs.js)
@@ -86,7 +85,6 @@ export function resolveConfig(config, profile) {
     traceDir: config.traceDir || join(temp, "traces"),
     traceInWorkspace: windows && !config.traceDir,
     pollMs: config.pollMs ?? 400,
-    runs: config.runs || join(process.env.LFS_HISTORY || join(homedir(), "lfs-history"), "runs"),
     sdk: import.meta.resolve("@layerfs/agent"),
     backend: import.meta.resolve("@layerfs/backend"),
     cli: join(LAYERFS, "cli/src/layerfs.js"),

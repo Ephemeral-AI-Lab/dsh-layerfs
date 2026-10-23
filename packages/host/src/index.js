@@ -41,7 +41,6 @@ export const Config = z.object({
   stateDir: z.string().description("Project bindings and agent names (default: <profile>/dsh-layerfs)"),
   traceDir: z.string().description("Per-agent SDK traces (Windows default: <workspace>/.dsh-layerfs-traces; other platforms: <temp>/dsh-layerfs/traces)"),
   pollMs: z.natural().min(50).max(10_000).default(400).description("How often trace files are read, in milliseconds"),
-  runs: z.string().description("Recorded history replay runs (layerfs #352) for the Runs page (default: $LFS_HISTORY/runs, else ~/lfs-history/runs)"),
 });
 
 /**
