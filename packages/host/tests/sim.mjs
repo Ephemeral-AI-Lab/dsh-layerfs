@@ -1,10 +1,10 @@
 // Simulated LayerFS checks without Docker or a Store: @layerfs/agent and
 // @layerfs/backend on the simulator's binding (src/sim) through a Workspace's
-// life, the runtime's lfs command on it, the Host's Init, views and removal
+// life, the layerfs command on it, the Host's Init, views and removal
 // of a simulated project, and the sed stand-in.
 //   node dsh/packages/host/tests/sim.mjs
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -154,15 +154,33 @@ try {
   const history = await backend.store.project.get_history();
   assert.equal((await backend.store.project.get_history(history.version)).kind, "unchanged");
 
-  // `lfs run` (@layerfs/runtime's command, on the simulator: sim/lfs.js): each
-  // call mounts a Workspace in the Sandbox it names and unmounts it; the
-  // Sandbox stays for the next call.
-  const lfs = (...args) => execFileSync(process.execPath, [spec.simCli, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, DSH_LAYERFS_PROJECT: NAME } });
+  // The layerfs command (LayerFS's cli/src/layerfs.js, on the simulator: sim/layerfs.js), as
+  // agents run it: one call per command, JSON on stdout; exit 125 for a refusal, 2 for a
+  // wrong command line; exec --stream passes the command's output and exit code through.
+  const layerfs = (args, input) => {
+    const r = spawnSync(process.execPath, [spec.simCli, ...args], { encoding: "utf8", input, env: { ...process.env, DSH_LAYERFS_PROJECT: NAME } });
+    return { code: r.status, out: r.stdout, err: r.stderr, json: r.status === 0 && r.stdout.startsWith("{") ? JSON.parse(r.stdout) : null };
+  };
   const before = readFileSync(trace, "utf8").trim().split("\n").length;
-  assert.equal(lfs("run", "1", "feature", "echo hi > note.txt && cat note.txt", "note"), "hi\n");
-  assert.equal(lfs("run", "1", "feature", "cat note.txt", "--discard"), "hi\n");
+  const mounted = layerfs(["workspace", "mount", "1", "feature"]);
+  assert.equal(mounted.code, 0, mounted.err);
+  const handle = mounted.json.ws;
+  assert.equal(handle, `1:${mounted.json.path}`);
+  const streamed = layerfs(["workspace", "exec", handle, "echo hi > note.txt && cat note.txt", "--stream"]);
+  assert.deepEqual([streamed.code, streamed.out], [0, "hi\n"]);
+  assert.equal(layerfs(["workspace", "exec", handle, "exit 3", "--stream"]).code, 3, "--stream exits with the command's code");
+  assert.equal(layerfs(["workspace", "commit", handle, "-m", "note"]).json.kind, "Committed");
+  assert.equal(layerfs(["workspace", "unmount", handle]).json.kind, "Unmounted");
+  assert.equal(layerfs(["fs", "read", "feature", "/note.txt"]).json.text, "hi\n");
+  assert.equal(layerfs(["fs", "write", "feature", "/cli.txt", "-m", "from stdin"], "piped\n").json.kind, "Committed");
+  assert.equal(layerfs(["fs", "read", "feature", "/cli.txt"]).json.text, "piped\n");
+  const missing = layerfs(["workspace", "mount", "9", "feature"]);
+  assert.equal(missing.code, 125);
+  assert.equal(JSON.parse(missing.err).code, "NoSuchSandbox");
+  assert.match(JSON.parse(missing.err).message, /sandbox\.create\(\)/);
+  assert.equal(layerfs(["workspace", "mount", "1"]).code, 2, "a wrong command line calls nothing");
   const runs = readFileSync(trace, "utf8").trim().split("\n").slice(before).map((l) => JSON.parse(l));
-  assert.deepEqual(runs.filter((l) => ["workspace.mount", "workspace.unmount"].includes(l.method)).map((l) => [l.method, l.ok, l.sandbox ?? l.args.sandbox]), [["workspace.mount", true, "1"], ["workspace.unmount", true, "1"], ["workspace.mount", true, "1"], ["workspace.unmount", true, "1"]]);
+  assert.deepEqual(runs.filter((l) => ["workspace.mount", "workspace.unmount"].includes(l.method)).map((l) => [l.method, l.ok]), [["workspace.mount", true], ["workspace.unmount", true], ["workspace.mount", false]]);
   const kept = JSON.parse(readFileSync(join(home, NAME, "sim", "state.json"), "utf8")).sim.sandboxes["1"];
   assert.equal(kept.closed, false, "the Sandbox stays for the next call");
   assert.deepEqual(Object.values(kept.workspaces).filter((w) => w.mounted), [], "no Workspace is left mounted");

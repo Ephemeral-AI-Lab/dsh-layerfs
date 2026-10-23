@@ -28,7 +28,7 @@
 
 `dsh-layerfs` is a plugin bundle for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It changes no dsh code.
 
-With the bundle, agents in a dsh session work on a LayerFS project from bash, through short Node scripts that use the LayerFS JavaScript SDK. They fork Branches, test them in Sandboxes, and merge and publish, and you watch every agent's Branch grow, live. The conversation gets **Work** and **History** tabs that draw what each agent did, subagents included. The design is in [#346](https://github.com/Ephemeral-AI-Lab/layerfs/issues/346). This repository is the LayerFS UI: it moved here from the layerfs repository's `dsh/` folder at `cea713e767` ([#428](https://github.com/Ephemeral-AI-Lab/layerfs/issues/428)), and builds on a LayerFS checkout named by `LAYERFS_SOURCE` (see [Where LayerFS comes from](#where-layerfs-comes-from)).
+With the bundle, agents in a dsh session work on a LayerFS project from bash, with the `layerfs` command: one LayerFS SDK call per command (or a short Node script on the SDK for many calls). They fork Branches, test them in Sandboxes, and merge and publish, and you watch every agent's Branch grow, live. The conversation gets **Work** and **History** tabs that draw what each agent did, subagents included. The design is in [#346](https://github.com/Ephemeral-AI-Lab/layerfs/issues/346). This repository is the LayerFS UI: it moved here from the layerfs repository's `dsh/` folder at `cea713e767` ([#428](https://github.com/Ephemeral-AI-Lab/layerfs/issues/428)), and builds on a LayerFS checkout named by `LAYERFS_SOURCE` (see [Where LayerFS comes from](#where-layerfs-comes-from)).
 
 ## 📦 Install
 
@@ -93,7 +93,9 @@ Below, `$DSH_LAYERFS` is this repository's absolute path, `$LAYERFS_SOURCE` the 
 
 Live needs three things from the LayerFS checkout: the JavaScript SDK, a Linux build of the daemon and the SDK's native addon, and a runtime image. Nothing is published, so you build them there.
 
-**The SDK** is LayerFS #428's three packages in `sdk/js/packages`: `@layerfs/agent` (what agents' scripts call), `@layerfs/backend` (background processes, a Workspace's status, storage) and `@layerfs/runtime` (what the Host runs on a LayerFS home: the worker, Init, removal, status, the `lfs` command). They are plain JavaScript with no dependencies. Run `npm install` once in `$LAYERFS_SOURCE/sdk/js` (it only links the three to each other); the Host links each as `link:../../.layerfs/sdk/js/packages/<name>`, and step 2's `pnpm install` first points `.layerfs` at `$LAYERFS_SOURCE`, then makes those links. Only the native addon is built, and a fresh clone has none (`sdk/js/native/layerfs.node`). On macOS and Windows the Host never loads an addon itself: the home's worker runs the Linux build below. On Linux, see step 4.
+**The SDK** is LayerFS #428's three packages in `sdk/js/packages`: `@layerfs/agent` (what agents' scripts call), `@layerfs/backend` (background processes, a Workspace's status, storage) and `@layerfs/runtime` (what the Host runs on a LayerFS home: the worker, Init, removal, status). They are plain JavaScript with no dependencies. Run `npm install` once in `$LAYERFS_SOURCE/sdk/js` (it only links the three to each other); the Host links each as `link:../../.layerfs/sdk/js/packages/<name>`, and step 2's `pnpm install` first points `.layerfs` at `$LAYERFS_SOURCE`, then makes those links. Only the native addon is built, and a fresh clone has none (`sdk/js/native/layerfs.node`). On macOS and Windows the Host never loads an addon itself: the home's worker runs the Linux build below. On Linux, see step 4.
+
+**The `layerfs` command** agents run (`DSH_LAYERFS_CLI`) is the checkout's `cli/` folder: one `@layerfs/agent` call per command, JSON on stdout ([cli/sdk-to-cli.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/cli/sdk-to-cli.md) on the #428 branch). Run `npm --prefix "$LAYERFS_SOURCE/cli" install` once: it only links `cli/node_modules/@layerfs/agent` to `sdk/js/packages/agent` and downloads nothing. `pnpm install` and `pnpm test` stop with that command when it is missing.
 
 **The Linux build.** Build `layerfs-daemon` and the addon in the Rust 1.85.1 image, from the LayerFS checkout's root so Cargo picks up its [`.cargo/config.toml`](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/.cargo/config.toml) (the ARM64 profile). This is the recipe of LayerFS's [benchmark/AGENTS.md](https://github.com/Ephemeral-AI-Lab/layerfs/blob/main/benchmark/AGENTS.md#environment), with the crates fetched into a Docker volume instead of the host's `~/.cargo/registry`:
 
@@ -431,7 +433,7 @@ The Work and History tabs and the LayerFS page are the only LayerFS UI. The stan
 
 ## ⚙️ How it works
 
-dsh session (agents, subagents, bash) → `layerfs-host` (bash environment, records) → LayerFS JS SDK (short Node scripts) → Store and Sandboxes.
+dsh session (agents, subagents, bash) → `layerfs-host` (bash environment, records) → `layerfs` command or LayerFS JS SDK scripts → Store and Sandboxes.
 
 A bash call in a session bound to a project gets the project, the SDK and a trace file per agent (`DSH_LAYERFS_*`). Each finished SDK call becomes a `plugin:layerfs/call` record in the calling agent's own session, and the client plugin reads those records back to draw the tabs. On Linux, the Host and the agents' scripts open the Store in their own process. On Windows, Store calls run in the authenticated WSL worker, whose Docker Engine owns the Sandbox volumes. On macOS the Mac runs no Store call itself: `@layerfs/runtime` runs one long-lived Linux container, `layerfs-worker`, and every Store call runs there. Agents' Workspaces are placed in the project's numbered Sandboxes, 16 to a Sandbox, and each Sandbox closes itself two minutes after its last Workspace is unmounted.
 
@@ -442,7 +444,7 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
 
 - **Bash environment.** A bash call in a session bound to a project gets:
   - `DSH_LAYERFS_PROJECT` and the deployment settings;
-  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of `@layerfs/agent` and `@layerfs/backend`), `DSH_LAYERFS_CLI` (the runtime's `lfs` command) and `DSH_LAYERFS_SKILL`;
+  - `DSH_LAYERFS_SDK` and `DSH_LAYERFS_BACKEND` (file URLs of `@layerfs/agent` and `@layerfs/backend`), `DSH_LAYERFS_CLI` (the `layerfs` command, the checkout's `cli/src/layerfs.js`; Mocked LayerFS projects get [`sim/layerfs.js`](packages/host/src/sim/layerfs.js), the same command over the simulator) and `DSH_LAYERFS_SKILL`;
   - on macOS and Windows, `DSH_LAYERFS_WORKER_ENDPOINT` and `DSH_LAYERFS_WORKER_ADAPTER=dsh`;
   - a trace file per agent (`DSH_LAYERFS_TRACE`) and the bash call id as the trace step.
 

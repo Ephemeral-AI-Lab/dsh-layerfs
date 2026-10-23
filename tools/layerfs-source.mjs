@@ -3,7 +3,8 @@
 // `source` (../layerfs beside this repository); a relative path resolves from
 // this repository's root. Everything of LayerFS (the packages the Host links,
 // @layerfs/agent, @layerfs/backend and @layerfs/runtime from sdk/js/packages,
-// the agent skill, the Linux build) is read through .layerfs. @layerfs/backend
+// the layerfs command in cli/, the agent skill, the Linux build) is read
+// through .layerfs. @layerfs/backend
 // and @layerfs/runtime import @layerfs/agent from sdk/js's own node_modules,
 // which `npm install` in sdk/js links (it downloads nothing).
 //   node tools/layerfs-source.mjs [link]   point .layerfs (pnpm install and pnpm test run this first;
@@ -30,6 +31,15 @@ if (!existsSync(join(source, "sdk/js/packages/agent/package.json"))) {
 }
 if (!existsSync(join(source, "sdk/js/node_modules/@layerfs/agent/package.json"))) {
   console.error(`layerfs-source: ${source}/sdk/js has no node_modules/@layerfs/agent; run \`npm install\` in that sdk/js once (it only links its workspaces)`);
+  process.exit(1);
+}
+// the layerfs command agents run (DSH_LAYERFS_CLI) imports @layerfs/agent from cli/'s own node_modules
+if (!existsSync(join(source, "cli/src/layerfs.js"))) {
+  console.error(`layerfs-source: ${source} has no cli/src/layerfs.js, the layerfs command; set LAYERFS_SOURCE to a checkout at ${pin.commit.slice(0, 10)}`);
+  process.exit(1);
+}
+if (!existsSync(join(source, "cli/node_modules/@layerfs/agent/package.json"))) {
+  console.error(`layerfs-source: ${source}/cli has no node_modules/@layerfs/agent; run \`npm --prefix "${join(source, "cli")}" install\` once (it only links the SDK)`);
   process.exit(1);
 }
 

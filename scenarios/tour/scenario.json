@@ -72,6 +72,13 @@
    },
    {
     "bash": {
+     "description": "layerfs: list feature-home's /app",
+     "command": "node \"$DSH_LAYERFS_CLI\" fs list feature-home /app"
+    },
+    "say": "Each LayerFS call is also one command: the layerfs command lists the Branch's /app."
+   },
+   {
+    "bash": {
      "description": "sb1: open a Sandbox terminal on feature-home",
      "run": [
       [

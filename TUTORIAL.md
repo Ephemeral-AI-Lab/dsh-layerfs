@@ -37,7 +37,7 @@ Describe the work as you would to any agent. This run asked for two subagents, e
 
 ![The prompt, ready to send](docs/tutorial/05-prompt.jpg)
 
-The agents use only bash: each call is a short Node script on the LayerFS SDK. The lead reads the project and the SDK guide first, then forks the Branches and starts the subagents.
+The agents use only bash: each LayerFS step is a `layerfs` command (one SDK call: fork, read, write, mount, exec, commit), or a short Node script on the SDK for many calls. The lead reads the project and the SDK guide first, then forks the Branches and starts the subagents.
 
 ![The lead agent at work](docs/tutorial/06-chat-running.jpg)
 

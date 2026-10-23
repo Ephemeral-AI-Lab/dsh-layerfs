@@ -1,6 +1,6 @@
 // The bash environment of a session bound to a LayerFS project: the
 // packages an agent imports (#428: @layerfs/agent and @layerfs/backend), the
-// runtime's `lfs` command, the project name, its deployment and the calling
+// layerfs command (one @layerfs/agent call per command), the project name, its deployment and the calling
 // agent's trace file. dsh may set only DSH_* names in a bash call; the agent
 // reads each LAYERFS_ setting from its DSH_LAYERFS_ twin. dsh rebuilds the
 // DSH_* namespace for every bash call, so these values always describe the
@@ -20,7 +20,7 @@ const VARIABLES = {
   DSH_LAYERFS_SDK: "file URL of @layerfs/agent, the LayerFS JavaScript SDK; import it from Node scripts",
   DSH_LAYERFS_BACKEND: "file URL of @layerfs/backend (background processes, a Workspace's status, Store and file storage)",
   DSH_LAYERFS_SKILL: "path of the LayerFS SDK skill (SKILL.md, its references beside it); read it before the first LayerFS call",
-  DSH_LAYERFS_CLI: "path of @layerfs/runtime's lfs command: status, log, ls, cat, grep, diff, fork, write and run, one command each",
+  DSH_LAYERFS_CLI: "path of the layerfs command: node \"$DSH_LAYERFS_CLI\" <family> <call> runs one @layerfs/agent call (layerfs help lists them), JSON on stdout; exit 0 ok, 2 bad command line, 125 refused",
   DSH_LAYERFS_HOME: "LayerFS home the SDK reads its project and Sandbox records from",
   DSH_LAYERFS_DOCKER: "Docker Engine socket the SDK starts Sandboxes through",
   DSH_LAYERFS_IMAGE: "Runtime image digest a new LayerFS Sandbox runs; the SDK reads it",
