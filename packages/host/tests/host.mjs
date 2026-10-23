@@ -21,9 +21,8 @@ const { contributor, projectContext } = await import("../src/env.js");
 const { registerRoutes } = await import("../src/route.js");
 const { TreeReader } = await import("../src/trees.js");
 const { removeProject } = await import("../src/remove.js");
-const { migrate } = await import("../src/migrate.js");
-const { UNREACHABLE } = await import("../src/port/binding.js");
-const { hostAccess, prepareInit, randomName, scanSource, watching } = await import("../src/init.js");
+const { UNREACHABLE } = await import("../src/collector.js");
+const { adopt, prepareInit, randomName, runInit, scanSource } = await import("../src/init.js");
 const { InitJobs } = await import("../src/jobs.js");
 const { CALL, PROJECT } = await import("@dsh-layerfs/model/sources/records.js");
 
@@ -64,17 +63,17 @@ try {
   const vars = h.env.resolve({ agent: { session: child }, callId: "c1", rootCallId: "r1" });
   assert.equal(vars.DSH_LAYERFS_PROJECT, "website");
   assert.equal(vars.DSH_LAYERFS_VOLUME, "dsh-layerfs-website-1");
-  assert.equal(vars.DSH_LAYERFS_STORE_PATH, "/var/lib/docker/volumes/dsh-layerfs-website-1/_data/global/store.sqlite");
-  if (process.platform === "darwin") {
-    // macOS: the SDK is ported, its calls run in the Store container (src/port/, src/box.js)
-    assert.match(vars.DSH_LAYERFS_SDK, /\/port\/sdk\.js$/);
-    assert.equal(vars.DSH_LAYERFS_DAEMON_HOST, "host.docker.internal");
-    assert.equal(vars.DSH_LAYERFS_STORE_CONTAINER, "layerfs-store", "one per home, named by its prefix");
-    assert.equal(vars.DSH_LAYERFS_BUNDLE, "/b");
-  }
+  // the installed Store in the project's volume: in Docker's VM where the worker opens it, else under this engine's volumes directory
+  assert.equal(vars.DSH_LAYERFS_STORE_PATH, `${process.platform === "linux" ? h.spec.volumes : "/var/lib/docker/volumes"}/dsh-layerfs-website-1/_data/global/store.sqlite`);
+  // the packages agents import (#428), from the LayerFS checkout, and the runtime's lfs command
+  assert.match(vars.DSH_LAYERFS_SDK, /^file:.*\/sdk\/js\/packages\/agent\/src\/index\.js$/);
+  assert.match(vars.DSH_LAYERFS_BACKEND, /^file:.*\/sdk\/js\/packages\/backend\/src\/index\.js$/);
+  assert.match(vars.DSH_LAYERFS_CLI, /\/sdk\/js\/packages\/runtime\/src\/cli\/lfs\.js$/);
+  assert.ok(!("DSH_LAYERFS_OPERATOR" in vars) && !("DSH_LAYERFS_STORE_CONTAINER" in vars) && !("DSH_LAYERFS_BUNDLE" in vars));
+  if (process.platform === "linux") assert.ok(!("DSH_LAYERFS_WORKER_ENDPOINT" in vars), "Linux makes Store calls in the caller");
+  else assert.deepEqual([vars.DSH_LAYERFS_WORKER_ENDPOINT, vars.DSH_LAYERFS_WORKER_ADAPTER], [join(h.spec.home, "worker", "endpoint.json"), "dsh"], "macOS and Windows: the home's worker");
   assert.equal(vars.DSH_LAYERFS_IMAGE, "sha256:img");
   assert.equal(vars.DSH_LAYERFS_CONTAINER_PREFIX, "layerfs-", "Sandboxes are layerfs-<project>-<n>");
-  assert.match(vars.DSH_LAYERFS_OPERATOR, process.platform === "win32" ? /^file:.*\/windows\/operator\.js$/ : process.platform === "darwin" ? /^file:.*\/port\/operator\.js$/ : /^file:.*\/operator\/index\.js$/);
   assert.equal(vars.DSH_LAYERFS_TRACE_STEP, "r1");
   assert.equal(vars.DSH_LAYERFS_TRACE, join(h.spec.traceDir, "child-1.jsonl"));
   assert.ok(Object.keys(vars).every((key) => key in h.env.variables), "every value is a declared variable");
@@ -167,8 +166,15 @@ try {
   // the root each Commit's diff answer reports: "f…" and "g…" are Commits of retired Branches, not in the snapshot
   const rootOf = { ["a".repeat(64)]: "r1", ["b".repeat(64)]: "r0", ["f".repeat(64)]: "r7", ["0".repeat(64)]: "r6" };
   const fakeBranch = { async diff_commits(from, to, size, position, options) { diffed.push([size, position, options]); return { from: { root: rootOf[from] }, to: { root: rootOf[to] }, items: [{ path: "/src/a.js", kind: "Modified", type: "file", hunks: [] }], hasMore: true, nextPagePos: 1000 }; } };
-  const trees = new TreeReader(h.spec, async () => ({ layerfs: { fs: fakeFs, branch: fakeBranch, close: async () => closed.push("store") },
-    operator: { inspect: { snapshot: async () => ({ commits: [{ id: "a".repeat(64), root: "r1" }, { id: "b".repeat(64), root: "r0" }], layers: [{ id: "c".repeat(64), root: "r1" }, { id: "d".repeat(64), root: "r9" }, { id: "e".repeat(64), root: "r7", sourceCommit: "f".repeat(64) }, { id: "9".repeat(64), root: "r8", sourceCommit: "0".repeat(64) }] }) } } }));
+  // backend.store.project.get_comparable's answers: Commits are themselves; Layer c has Commit a's files;
+  // d has no Commit with its files; e and 9 were published from Commits it does not list (not exact)
+  const comparable = {
+    ["a".repeat(64)]: { commit: "a".repeat(64), root: "r1", exact: true }, ["b".repeat(64)]: { commit: "b".repeat(64), root: "r0", exact: true },
+    ["c".repeat(64)]: { commit: "a".repeat(64), root: "r1", exact: true },
+    ["e".repeat(64)]: { commit: "f".repeat(64), root: "r7", exact: false }, ["9".repeat(64)]: { commit: "0".repeat(64), root: "r8", exact: false },
+  };
+  const get_comparable = async (ref) => comparable[ref] ?? Promise.reject(Object.assign(new Error("NotComparable: no Commit"), { code: "NotComparable" }));
+  const trees = new TreeReader(h.spec, async () => ({ layerfs: { fs: fakeFs, branch: fakeBranch }, backend: { store: { project: { get_comparable } } }, close: async () => closed.push("store") }));
 
   // the route answers only requests Connection accepts
   let handler;
@@ -224,7 +230,7 @@ try {
   // state reads go through the same per-project client: one client, not one per read
   let opened = 0, snapshots = 0;
   const empty = { project: "p", branches: [], commits: [], layers: [], sandboxes: [], store: {} };
-  const shared = new TreeReader(h.spec, async () => { opened++; return { layerfs: { fs: fakeFs, close: async () => {} }, operator: { inspect: { snapshot: async () => (snapshots++, empty) } } }; });
+  const shared = new TreeReader(h.spec, async () => { opened++; return { layerfs: { fs: fakeFs }, state: async () => (snapshots++, empty), close: async () => {} }; });
   const P = { name: "p" };
   const [stateA, stateB] = await Promise.all([shared.state(P), shared.state(P), shared.files(P, "list", new URLSearchParams({ ref: REF }))]);
   assert.deepEqual([opened, snapshots, typeof stateA.s, typeof stateB.labels], [1, 1, "object", "object"], "one client, and one snapshot for reads made while it runs");
@@ -235,7 +241,7 @@ try {
     let asked = 0, answer;
     const stuck = new Promise((resolve) => { answer = resolve; });
     const history = { project: "p", branches: [{ name: "main", base: null, head: null }], commits: [], layers: [], more: {} };
-    const slow = new TreeReader(h.spec, async () => ({ layerfs: { close: async () => {} }, history: async () => history, operator: { inspect: { snapshot: () => (asked++, stuck) } } }));
+    const slow = new TreeReader(h.spec, async () => ({ layerfs: {}, backend: { store: { project: { get_history: async () => history } } }, state: () => (asked++, stuck), close: async () => {} }));
     slow.sandboxMs = 50;
     const first = await slow.state(P), second = await slow.state(P);
     assert.deepEqual([first.late, second.late, asked], [true, true, 1], "drawn without Workspaces; the stuck snapshot is not asked again");
@@ -252,14 +258,14 @@ try {
   // the project's running Sandboxes are drawn under their container names; one
   // the snapshot found gone after the listing (#373: idle close) is drawn closed
   const placed = { ...empty, sandboxes: [{ id: "1", name: "layerfs-p-1", workspaces: [{ directory: "/workspaces/1", mounted: true, branch: "f", base: null, baseLayer: null, root: null }] }], gone: [{ id: "2", name: "layerfs-p-2", detail: { containerGone: true } }] };
-  const drawn = new TreeReader(h.spec, async () => ({ layerfs: { close: async () => {} }, operator: { inspect: { snapshot: async () => placed } } }));
+  const drawn = new TreeReader(h.spec, async () => ({ layerfs: {}, state: async () => placed, close: async () => {} }));
   const shown = (await drawn.state(P)).s;
   assert.deepEqual(shown.sandboxOrder.map((id) => [id, shown.sandboxes[id].closed]), [["layerfs-p-1", false], ["layerfs-p-2", true]]);
   assert.deepEqual(shown.sandboxes["layerfs-p-1"].wsOrder, ["/workspaces/1"]);
   await drawn.dispose();
   // forgetting a project releases its client now
   const forgotten = [];
-  const owner = new TreeReader(h.spec, async () => ({ layerfs: { close: async () => forgotten.push("store") }, operator: { inspect: { snapshot: async () => empty } } }));
+  const owner = new TreeReader(h.spec, async () => ({ layerfs: {}, state: async () => empty, close: async () => forgotten.push("store") }));
   await owner.state(P);
   await owner.forget("p");
   assert.deepEqual(forgotten, ["store"]);
@@ -270,11 +276,11 @@ try {
   const listed = [];
   const stores = new TreeReader(h.spec, async () => ({
     layerfs: {
-      close: async () => {},
       project: { list_branches: async () => ({ items: ["main", "feature", "fix"].map((name) => ({ name })), hasMore: false }) },
       branch: { list_commits: async (b) => (listed.push(b), { items: commitsOf[b], hasMore: false }) },
     },
-    operator: { store: { stats: async () => ({ file: 4096, logical: 30, init: { entries: 3 } }) } },
+    backend: { store: { project: { get_storage: async () => ({ file: 4096, logical: 30, init: { entries: 3 } }) } } },
+    close: async () => {},
   }));
   const storage = await stores.storage(P);
   assert.deepEqual([storage.store, storage.init, storage.commits.map((c) => c.id), storage.branches, storage.partial, listed], [{ file: 4096, logical: 30 }, { entries: 3 }, ["c3", "c2", "c1"], 2, false, ["feature", "fix"]]);
@@ -319,17 +325,32 @@ try {
   runs[1].report({ step: "import" });
   assert.equal((await job(second.body.job.id)).step, "failed", "an ended job takes no more reports");
   assert.equal((await call("GET", "/layerfs/init/nope")).status, 404);
-  // LayerFS's counts are read while its Init runs; a failed read stops only the counts
-  const later = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
-  let progressReads = 0;
-  const counted = [], counting = { operator: { project: { progress: async () => ({ step: "files", entries: 3, files: ++progressReads, bytes: 10 }) } } };
-  assert.equal(await watching(counting, (f) => counted.push(f.imported), () => later(600, "sealed")), "sealed");
-  assert.ok(counted.length >= 2 && counted.every((c) => c.step === "files"), "counts while Init runs");
-  const after = progressReads;
-  await later(300);
-  assert.equal(progressReads, after, "no reads after Init ends");
-  const broken = { operator: { project: { progress: async () => { throw new Error("no binding"); } } } };
-  assert.equal(await watching(broken, () => assert.fail("no counts"), () => later(300, "sealed")), "sealed");
+  // a live Init is the runtime's job, read until it ends: its steps and counts reach the Host's job,
+  // and the project it made (its volume and time) is bound to the folder
+  {
+    const jobs = [], seen = [];
+    const record = { name: "shop", source: src, volume: "layerfs-shop-store-abc", created: 7 };
+    const stages = [{ step: "scan", scanned: { entries: 2 } }, { step: "import", totals: { entries: 4, files: 2, bytes: 8 }, imported: { step: "files", entries: 3, files: 1, bytes: 5 } }, { step: "done", project: record, ended: 9 }];
+    const live = { ...h.spec, runtime: Promise.resolve({ project: {
+      start_init: async (name, folder, options) => (jobs.push([name, folder, options]), { id: "j1", step: "scan", scanned: null, totals: null, imported: null, ended: null }),
+      get_init: async () => ({ id: "j1", scanned: null, totals: null, imported: null, ended: null, ...stages.shift() }),
+    } }) };
+    const prepared = prepareInit(live, h.bindings, { folder: dir, source: src, name: "shop", image: "sha256:" + "1".repeat(64) });
+    const made = await runInit(live, h.bindings, prepared, (fields) => seen.push(fields.step));
+    assert.deepEqual(jobs, [["shop", src, { image: "sha256:" + "1".repeat(64) }]]);
+    assert.deepEqual(seen, ["scan", "scan", "import"]);
+    assert.equal(made.volume, "layerfs-shop-store-abc");
+    assert.deepEqual([h.bindings.byName("shop").volume, h.bindings.workspace(dir).lastUsed], ["layerfs-shop-store-abc", "shop"]);
+    // a failed Init fails the Host's job with the runtime's refusal, binds nothing and removes an empty project's folder
+    const failing = { ...h.spec, runtime: Promise.resolve({ project: {
+      start_init: async () => ({ id: "j2", step: "scan", ended: null }),
+      get_init: async () => ({ id: "j2", step: "failed", ended: 3, error: { code: "Unsupported", message: "this process cannot write Docker's volumes directory" } }),
+    } }) };
+    const blankInit = prepareInit(failing, h.bindings, { folder: dir, empty: true, name: "blank-fail" });
+    await assert.rejects(runInit(failing, h.bindings, blankInit), { code: "Unsupported" });
+    assert.deepEqual([h.bindings.byName("blank-fail"), existsSync(blankInit.project.source)], [null, false]);
+    h.bindings.remove("shop");
+  }
 
   // who made each node: every journaled session's lines of that project
   const journal = (line) => appendFileSync(join(h.spec.stateDir, "lines", "session-root.jsonl"), JSON.stringify({ agentId: "child-1", agent: "tester", project: "website", ok: true, start: "2026-10-16T00:00:01.000Z", ms: 5, ...line }) + "\n");
@@ -352,31 +373,43 @@ try {
   const v2 = new BindingStore(two);
   assert.deepEqual([v2.data.version, v2.defaults(), Object.values(v2.data.projects).some((p) => "folder" in p)], [3, { "/one": "a" }, false]);
 
-  // The shared removal contract uses a supplied Docker runner; Windows integration has its own real proof.
-  delete h.spec.windows;
-  // removal: confirmed by name, refused while a running container uses the volume; stopped ones go with it, then volume, home entry and binding
+  // projects bound before the runtime kept records get one in its format, once; a simulated one none
+  {
+    const records = join(h.spec.home, ".runtime", "projects");
+    h.bindings.addProject("/work/sim", { name: "simmed", source: "/work/sim", volume: "sim-simmed", created: 3, backend: "sim" });
+    assert.deepEqual(adopt(h.spec, h.bindings), ["website"]);
+    assert.deepEqual(JSON.parse(readFileSync(join(records, "website.json"), "utf8")), { name: "website", volume: "dsh-layerfs-website-1", source: FOLDER, created: 1 });
+    writeFileSync(join(records, "website.json"), JSON.stringify({ name: "website", volume: "kept" }));
+    assert.deepEqual(adopt(h.spec, h.bindings), [], "a record the runtime has is never replaced");
+    assert.equal(JSON.parse(readFileSync(join(records, "website.json"), "utf8")).volume, "kept");
+    h.bindings.remove("simmed");
+  }
+
+  // removal: confirmed by name; the runtime removes the Sandbox containers, the volume (the binding's,
+  // for a project made before the runtime) and the home entry, refusing Busy while a container runs;
+  // then the binding goes
   assert.equal((await call("POST", "/layerfs/project/website/remove", { confirm: "web" })).status, 400);
-  const ran = [], dockerWith = (users) => async (file, args) => { ran.push(args.slice(2).join(" ")); return { stdout: args[2] === "ps" ? users : "" }; };
+  const removed = [];
+  let busy = true;
+  h.spec.runtime = Promise.resolve({ project: { remove: async (name, options) => {
+    removed.push([name, options]);
+    if (busy && !options.stopSandboxes) throw Object.assign(new Error("Busy: 1 running container(s) use dsh-layerfs-website-1"), { code: "Busy" });
+    return { kind: "Removed", project: name, volume: options.volume };
+  } } });
   const forgot = [], fakeTrees = { forget: async (name) => { forgot.push(name); } };
-  mkdirSync(join(h.spec.home, "website"), { recursive: true });
-  await assert.rejects(removeProject(h.spec, h.bindings, fakeTrees, "website", dockerWith("abc running\nold exited\n")), { code: "busy" });
-  assert.deepEqual([ran, h.bindings.byName("website") !== null], [["ps -a --filter volume=dsh-layerfs-website-1 --format {{.ID}} {{.State}}"], true]);
-  ran.length = 0;
-  // idle-closed Sandboxes (exited) and a failed start (created) do not refuse removal; they go with it
-  assert.deepEqual(await removeProject(h.spec, h.bindings, fakeTrees, "website", dockerWith("layerfs-website-1 exited\nlayerfs-website-2 exited\nnew created\n")), { removed: "website", volume: "dsh-layerfs-website-1" });
-  assert.deepEqual(ran, ["ps -a --filter volume=dsh-layerfs-website-1 --format {{.ID}} {{.State}}", "rm layerfs-website-1 layerfs-website-2 new", "volume rm dsh-layerfs-website-1"]);
+  await assert.rejects(removeProject(h.spec, h.bindings, fakeTrees, "website"), { code: "busy" });
+  assert.notEqual(h.bindings.byName("website"), null, "a refused removal keeps the binding");
+  const answered = await call("POST", "/layerfs/project/website/remove", { confirm: "website" });
+  assert.deepEqual([answered.status, answered.body.code], [409, "busy"]);
+  busy = false;
+  assert.deepEqual(await removeProject(h.spec, h.bindings, fakeTrees, "website"), { removed: "website", volume: "dsh-layerfs-website-1" });
+  assert.deepEqual(removed.map(([name, o]) => [name, o]), [
+    ["website", { confirm: "website", stopSandboxes: false, volume: "dsh-layerfs-website-1" }],
+    ["website", { confirm: "website", stopSandboxes: false, volume: "dsh-layerfs-website-1" }],
+    ["website", { confirm: "website", stopSandboxes: false, volume: "dsh-layerfs-website-1" }],
+  ]);
   assert.deepEqual(forgot, ["website", "website"]);
   mkdirSync(join(dir, "website"), { recursive: true });
-  // Linux: a Host that cannot write Docker's volumes directory, or does not own the LayerFS home, is refused before a volume is made
-  const uid = statSync(h.spec.home).uid;
-  assert.equal(hostAccess(h.spec, { platform: "linux", uid }), null);
-  assert.equal(hostAccess({ ...h.spec, volumes: join(dir, "no-volumes") }, { platform: "linux", uid }), null, "an engine without that directory is not checked");
-  assert.equal(hostAccess({ ...h.spec, volumes: "/nowhere" }, { platform: "darwin", uid }), null, "macOS imports in the Store container");
-  writeFileSync(join(dir, "volumes-file"), "");
-  if (process.platform === "linux") assert.match(hostAccess({ ...h.spec, volumes: join(dir, "volumes-file", "x") }, { platform: "linux", uid }), /cannot write Docker's volumes directory .* \(ENOTDIR\)/);
-  // box: null, as on Linux; on macOS the spec's bundle sets a Store container, which skips the check
-  assert.match(hostAccess({ ...h.spec, box: null }, { platform: "linux", uid: uid + 1 }), /belongs to uid \d+, not this Host's uid/);
-  if (process.platform === "linux") assert.throws(() => prepareInit({ ...h.spec, volumes: join(dir, "volumes-file", "x") }, h.bindings, { folder: dir }), { code: "host-access" });
   assert.equal(prepareInit({ ...h.spec, volumes: "/nowhere-file/x" }, h.bindings, { folder: dir, backend: "sim" }).project.backend, "sim", "a simulated project needs no Docker");
   assert.equal(prepareInit(h.spec, h.bindings, { folder: dir, source: join(dir, "website") }).project.name, "website", "a removed name is free again at once");
   assert.equal(prepareInit(h.spec, h.bindings, { folder: dir, name: "website" }).project.name, "website");
@@ -386,22 +419,15 @@ try {
   assert.deepEqual([blank.empty, readdirSync(blank.source)], [true, []]);
   rmSync(blank.source, { recursive: true });
   assert.equal(prepareInit(h.spec, h.bindings, { folder: dir, empty: true, name: "blank" }).project.name, "blank");
-  assert.equal(existsSync(join(h.spec.home, "website")), false);
   assert.deepEqual([h.bindings.byName("website"), h.bindings.workspace(FOLDER).lastUsed, h.bindings.session("session-root").project], [null, null, null]);
   assert.equal(h.bindings.projectFor("session-root", FOLDER), null, "a session on a removed project has none");
-  await assert.rejects(removeProject(h.spec, h.bindings, fakeTrees, "website", dockerWith("")), { code: "not-found" });
+  await assert.rejects(removeProject(h.spec, h.bindings, fakeTrees, "website"), { code: "not-found" });
   // a demo's Replay asks to stop the running Sandboxes instead of refusing
   h.bindings.addProject(FOLDER, { name: "website", source: FOLDER, volume: "dsh-layerfs-website-2", created: 2 });
-  ran.length = 0;
-  // its Sandbox records of the older layout go too: the service Sandbox's (an empty claim, as a stopped call leaves it) and each naming its volume
-  const records = join(h.spec.home, "_sandboxes");
-  for (const [entry, volume] of [["_service.website", null], ["website-a", "dsh-layerfs-website-2"], ["other-b", "dsh-layerfs-other-1"]]) {
-    mkdirSync(join(records, entry), { recursive: true });
-    if (volume) writeFileSync(join(records, entry, "sandbox.record"), Buffer.concat([Buffer.from("LFSA\u0002\u0000volume\u0004"), Buffer.from(volume)]));
-  }
-  assert.deepEqual(await removeProject(h.spec, h.bindings, fakeTrees, "website", dockerWith("abc running\nold exited\n"), { stopSandboxes: true }), { removed: "website", volume: "dsh-layerfs-website-2" });
-  assert.deepEqual(ran, ["ps -a --filter volume=dsh-layerfs-website-2 --format {{.ID}} {{.State}}", "rm -f abc old", "volume rm dsh-layerfs-website-2"]);
-  assert.deepEqual(readdirSync(records), ["other-b"], "another project's Sandbox record stays");
+  busy = true;
+  removed.length = 0;
+  assert.deepEqual(await removeProject(h.spec, h.bindings, fakeTrees, "website", { stopSandboxes: true }), { removed: "website", volume: "dsh-layerfs-website-2" });
+  assert.deepEqual(removed, [["website", { confirm: "website", stopSandboxes: true, volume: "dsh-layerfs-website-2" }]]);
   // the snapshot keeps a few Commits per Branch: History gets the rest from
   // branch.list_commits, so a cut-off Commit keeps its place as a parent
   {
@@ -411,76 +437,54 @@ try {
     const all = [commit(4, 3), commit(3, 2), commit(2, 1), commit(1, null)];
     const pages = [];
     const client = {
-      operator: { inspect: { snapshot: async () => ({ project: "website", commits: all.slice(0, 3), more: { feature: "cursor" }, layers: [{ id: L0, parent: null, root: "b".repeat(64) }], branches: [{ name: "main", base: L0, head: null }, { name: "feature", base: L0, head: id(4) }], workspaces: [] }) } },
+      state: async () => ({ project: "website", commits: all.slice(0, 3), more: { feature: "cursor" }, layers: [{ id: L0, parent: null, root: "b".repeat(64) }], branches: [{ name: "main", base: L0, head: null }, { name: "feature", base: L0, head: id(4) }], sandboxes: [], gone: [] }),
       layerfs: { branch: { list_commits: async (branch, size, pos) => { pages.push([branch, pos]); return pos === 0 ? { items: all.slice(0, 2), hasMore: true, nextPagePos: 2 } : { items: all.slice(2), hasMore: false, nextPagePos: null }; } } },
     };
-    const state = await stateOf(client, await client.operator.inspect.snapshot());
+    const state = await stateOf(client, await client.state());
     assert.deepEqual(pages, [["feature", 0], ["feature", 2]]);
     assert.equal(Object.keys(state.s.commits).length, 4, "the cut-off Commit is listed");
     assert.equal(state.s.commits[state.labels[id(2)]].parent, state.labels[id(1)], "and is its child's parent");
   }
-  // the move to #373's layout: an older Sandbox is removed only when it has
-  // nothing to lose; one running with a mounted Workspace is kept, with every
-  // record, and reported; records go once every older container is gone
+  // a live project's client: LayerFS.open with the project's deployment (here on a stand-in binding in
+  // this process), its backend beside it, its state from the runtime; releasing it closes its Store
   {
-    const home = join(dir, "migrate-home"), records = join(home, "_sandboxes");
-    const older = (name, container, mounts = 0) => {
-      mkdirSync(join(records, name), { recursive: true });
-      if (container) writeFileSync(join(records, name, "container"), container);
-      for (let i = 0; i < mounts; i++) writeFileSync(join(records, name, `mount-${i}.record`), "");
-    };
-    older("_service.a", "dead", 1); // a container Docker no longer has: removed whatever its records say
-    older("_service.b", "idle"); // running, no Workspace
-    older("named", "busy", 2); // running, two mounted Workspaces
-    older("claimed", null); // a claim that never started
-    mkdirSync(join(home, "a"), { recursive: true });
-    writeFileSync(join(home, "a", "service.record"), "");
-    const state = { dead: null, idle: "true", busy: "true" }, ran = [], warned = [];
-    const docker = async (file, args) => {
-      const [verb, ...rest] = args.slice(2);
-      ran.push(`${verb} ${rest.at(-1)}`);
-      const id = rest.at(-1);
-      if (verb === "inspect" && state[id] === null) throw Object.assign(new Error("exit 1"), { stderr: `Error: No such object: ${id}` });
-      if (verb === "rm" && id === "stuck") throw Object.assign(new Error("permission denied"), { stderr: "permission denied" });
-      return { stdout: verb === "inspect" ? `${state[id]}\n` : "" };
-    };
-    const spec = { home, docker: "/var/run/docker.sock" };
-    const first = await migrate(spec, docker, (text) => warned.push(text));
-    assert.deepEqual(first.kept.map((k) => [k.sandbox, k.container, k.workspaces]), [["named", "busy", 2]]);
-    assert.ok(!ran.includes("rm busy"), "a Sandbox with mounted Workspaces is never removed");
-    assert.ok(ran.includes("rm idle"));
-    assert.match(warned.join("\n"), /named .*left running: 2 mounted Workspaces.*docker rm -f busy/);
-    assert.ok(existsSync(join(records, "_service.b")) && existsSync(join(home, "a", "service.record")), "records stay while one is kept");
-    // the user removed it: the next start finds every older container gone and forgets the records
-    state.busy = null;
-    assert.deepEqual((await migrate(spec, docker, () => {})).kept, []);
-    assert.deepEqual([existsSync(records), existsSync(join(home, "a", "service.record"))], [false, false]);
-    // a removal Docker refuses keeps every record too, reported
-    older("_service.c", "stuck");
-    state.stuck = "false";
-    const refused = await migrate(spec, docker, () => {});
-    assert.deepEqual(refused.kept.map((k) => k.sandbox), ["_service.c"]);
-    assert.match(refused.kept[0].reason, /could not remove/);
-    assert.ok(existsSync(join(records, "_service.c")));
+    const { clientFor, release } = await import("../src/layerfs-client.js");
+    const binding = join(dir, "binding.cjs"), seen = join(dir, "binding-calls.jsonl");
+    writeFileSync(binding, `const { appendFileSync } = require("node:fs");
+const log = (fn) => async (op, args) => { appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ fn, op, args }) + "\\n"); return { value: op === "backend.store.project.get_storage" ? { logical: 5, dedupe: "1.5", compression: null } : { items: [], hasMore: false } }; };
+module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen: (args) => log("storeOpen")("open", args), storeClose: (args) => log("storeClose")("close", args) };`);
+    process.env.LAYERFS_NATIVE = binding;
+    const states = [];
+    const live = { ...h.spec, worker: false, runtime: Promise.resolve({ project: { get_state: async (name) => (states.push(name), { kind: "ok", project: name }) } }) };
+    const client = await clientFor(live, { name: "shop", volume: "layerfs-shop-store-1", image: "sha256:" + "2".repeat(64) });
+    assert.deepEqual(await client.backend.store.project.get_storage(), { logical: 5, dedupe: 1.5, compression: null });
+    assert.deepEqual(await client.state(), { kind: "ok", project: "shop" });
+    assert.deepEqual(states, ["shop"]);
+    await release(client);
+    const lines = readFileSync(seen, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    assert.deepEqual(lines.map((l) => l.fn), ["storeOpen", "call", "backendCall", "storeClose"]);
+    const lookup = lines[1].args;
+    assert.deepEqual([lines[1].op, lookup.project, lookup.home, lookup.storePath], ["project.list_branches", "shop", h.spec.home, `${h.spec.volumes}/layerfs-shop-store-1/_data/global/store.sqlite`]);
+    assert.deepEqual([lookup.deploy.volume, lookup.deploy.image, lookup.deploy.containerPrefix], ["layerfs-shop-store-1", "sha256:" + "2".repeat(64), "layerfs-"]);
+    assert.ok(!("LAYERFS_VOLUME" in process.env), "the deployment is set for the open only");
   }
-  // an agent's call that found the Store container down tells the Host, which starts it again; other failures do not
+  // an agent's call that found the home's worker down or gone tells the Host, which starts it again; other failures do not
   {
     const healing = host();
     let heals = 0;
     healing.collector.onUnreachable = () => heals++;
     const file = healing.collector.track({ id: "heal-1", root: "heal-root" }, { name: "website" });
     const failed = (id, message) => JSON.stringify({ layerfs_trace: 1, id, method: "fs.read", start: new Date().toISOString(), ms: 1, ok: false, code: "Failed", message }) + "\n";
-    appendFileSync(file, failed("u-1", "the Store container layerfs-store's worker did not answer (connect ECONNREFUSED 127.0.0.1:55012): dsh starts it again; run the call again once it is up")
+    appendFileSync(file, failed("u-1", "the LayerFS worker did not answer (connect ECONNREFUSED 127.0.0.1:55012); the call was not sent")
       + failed("u-2", "NoSuchPath: /nope.js"));
     healing.collector.poll();
     assert.equal(heals, 1);
   }
-  // the ported binding's answers when the Store container is down, as trace lines carry them
-  for (const message of ["the Store container layerfs-store has not started for /h: dsh starts it; run the call again once it is up",
-    "the Store container layerfs-store's worker did not answer (connect ECONNREFUSED 127.0.0.1:1): dsh starts it again",
-    "the connection to the Store container layerfs-store was lost (read ECONNRESET): check the project before going on",
-    "the Store container layerfs-store is not there to run project.init"]) assert.match(message, UNREACHABLE);
-  assert.doesNotMatch("NoSuchPath: the Store container docs is a folder", UNREACHABLE);
+  // @layerfs/agent's worker client answers when the worker is down or went away, as trace lines carry them
+  for (const message of ["the LayerFS worker is not running for this home: ENOENT: no such file or directory, open '/h/worker/endpoint.json'",
+    "the LayerFS worker did not answer (connect ECONNREFUSED 127.0.0.1:1); the call was not sent",
+    "the connection to the LayerFS worker was lost (read ECONNRESET) after the call was sent; it may have completed: check the project before going on"]) assert.match(message, UNREACHABLE);
+  assert.doesNotMatch("NoSuchPath: the LayerFS worker folder is not here", UNREACHABLE);
   console.log("host: ok");
 } finally {
   rmSync(dir, { recursive: true, force: true });

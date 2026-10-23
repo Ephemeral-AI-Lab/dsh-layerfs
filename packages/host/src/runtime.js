@@ -1,35 +1,37 @@
 // Sandbox management for the LayerFS page (#373): what runs, and the few
 // actions on it.
-//   one project   its Sandboxes from one inspect.snapshot (which starts none),
+//   one project   its Sandboxes from one state read (which starts none),
 //                 each mounted Workspace with its Branch, uncommitted changes,
 //                 background processes, and who mounted it (the agents' traces)
-//   all projects  Docker, the Store container, free disk, and each project's
+//   all projects  Docker, the home's worker (macOS, Windows) and the older
+//                 Store container, free disk and leftovers from the runtime
+//                 (@layerfs/runtime status and sandbox calls); each project's
 //                 Sandbox containers from one `docker ps`, each daemon pinged
 //                 (a TCP connect) and its Workspaces from the agents' traces:
 //                 no daemon is asked for its state (quickSandboxes)
 // A read starts nothing, and waits for a project's Sandboxes only
 // trees.sandboxMs: after that the tab shows the quick view (`pending`) while
-// the daemons' answer is read on. An
-// action is one SDK or Docker call, never repeated;
-// one that would cut off an agent's call running in that Workspace is refused.
+// the daemons' answer is read on. An action is one SDK, runtime or Docker
+// call, never repeated; one that would cut off an agent's call running in
+// that Workspace is refused.
 import { execFile } from "node:child_process";
-import { readFileSync, statfsSync } from "node:fs";
 import { connect } from "node:net";
 import { promisify } from "node:util";
-import { buildOf, ensureBox, storeFile, VOLUMES } from "./box.js";
+import { openRuntime } from "./config.js";
 import { isSim, within } from "./layerfs-client.js";
-import { frame, readFrames } from "./port/frames.mjs";
-import { windowsDocker, windowsState, windowsFree, startWindows, restartWindows } from "./windows/host.js";
 
 const run = promisify(execFile);
 /** Workspaces one Sandbox's daemon admits (the SDK's daemon setup, `namespaces`). */
 export const CAPACITY = 16;
 /** A Workspace with uncommitted changes and no call for this long is flagged. */
 export const LEFT_MS = 10 * 60_000;
-const DOCKER_MS = 5_000, PING_MS = 1_000, RESTART_MS = 20_000;
+const DOCKER_MS = 5_000, PING_MS = 1_000;
 const RANK = { down: 0, degraded: 1, ok: 2 };
 
-const docker = (spec, ...args) => (spec.windows ? windowsDocker(spec, args, { timeout: DOCKER_MS }) : run("docker", ["-H", `unix://${spec.docker}`, ...args], { timeout: DOCKER_MS })).then((r) => r.stdout.trim());
+// Docker of this home: on Windows, the WSL distribution's engine
+const docker = (spec, ...args) => (spec.wsl
+  ? run("wsl.exe", ["--distribution", spec.wsl.distribution, "--user", spec.wsl.user, "--exec", "docker", "-H", `unix://${spec.docker}`, ...args], { timeout: DOCKER_MS, windowsHide: true })
+  : run("docker", ["-H", `unix://${spec.docker}`, ...args], { timeout: DOCKER_MS })).then((r) => r.stdout.trim());
 const key = (sandbox, path) => `${sandbox}\n${path}`;
 const worst = (levels) => levels.reduce((a, b) => (RANK[b] < RANK[a] ? b : a), "ok");
 const refuse = (status, code, message) => Object.assign(new Error(message), { status, code });
@@ -92,13 +94,27 @@ export async function quickSandboxes(collector, project, containers, now = Date.
   }));
 }
 
+/**
+ * The home's worker as the page draws it (the Store container before #428):
+ * ok when it runs, answers and is of the configured build; null on Linux,
+ * where Store calls run in-process.
+ */
+function workerCard(worker) {
+  if (!worker) return null;
+  const { name, state, build, expected, startedAt, answering } = worker;
+  const level = state !== "running" || answering === false ? "down" : expected && build !== expected ? "degraded" : "ok";
+  return { level, state: ["running", "stopped", "missing"].includes(state) ? state : "unknown", name, ...(build ? { build } : {}), ...(expected ? { expected } : {}), ...(startedAt ? { startedAt } : {}), ...(answering === undefined ? {} : { answering }) };
+}
+
 /** Every project's Sandboxes and the shared parts, as the All projects page draws them. */
 export async function overview(spec, bindings, trees, collector) {
-  const engine = await engineState(spec);
-  const containers = engine.level === "ok" ? await containersOf(spec) : [];
-  const store = spec.windows ? await windowsState(spec) : spec.box ? await storeState(spec, engine) : null;
-  const disk = { host: freeBytes(spec.home), vm: spec.windows ? await windowsFree(spec) : store?.level === "ok" ? await vmFree(spec) : null };
-  const projects = bindings.projects(), known = new Set(projects.map((p) => p.name));
+  const runtime = await openRuntime(spec), status = await runtime.status();
+  const engine = status.docker;
+  // Docker answered the runtime; a listing that fails now draws no containers rather than no page
+  const containers = engine.level === "ok" ? await containersOf(spec).catch(() => []) : [];
+  const store = workerCard(status.worker);
+  const disk = { host: status.disk.home, vm: spec.worker ? status.disk.volumes : null };
+  const projects = bindings.projects();
   const cards = await Promise.all(projects.map(async (p) => {
     const own = containers.filter((c) => c.project === p.name);
     const card = { name: p.name, simulated: isSim(p), containers: own.length, sandboxes: [], workspaces: 0, level: "ok", note: null };
@@ -120,16 +136,15 @@ export async function overview(spec, bindings, trees, collector) {
   }));
   cards.sort((a, b) => RANK[a.level] - RANK[b.level] || b.workspaces - a.workspaces || a.name.localeCompare(b.name));
   // a Sandbox container of no project of this home, or one left stopped
-  const leftovers = containers.filter((c) => !known.has(c.project) || !c.running).map(({ name, project, running, status }) => ({ name, project, running, status }));
-  // older Sandboxes the startup cleanup kept because they may hold work (migrate.js): yours to commit or discard, then remove
-  for (const k of spec.migration?.kept ?? [])
-    if (!leftovers.some((l) => l.name === k.container)) leftovers.push({ name: k.sandbox, project: "", running: true, status: `older Sandbox (container ${k.container.slice(0, 12)}), kept: ${k.reason}` });
+  const leftovers = engine.level === "ok" ? await runtime.sandbox.list_leftovers().catch(() => []) : [];
   if (engine.level === "ok") await nameImages(spec, cards.flatMap((c) => c.sandboxes));
   const sandboxes = cards.reduce((n, c) => n + c.sandboxes.length, 0), workspaces = cards.reduce((n, c) => n + c.workspaces, 0);
+  // macOS: the older Store container, while it exists; a running one keeps the worker from starting
+  const oldStore = status.oldStore ?? null;
   return {
-    level: worst([engine.level, store?.level ?? "ok", leftovers.length ? "degraded" : "ok"]),
-    // agents' calls running now in any project: a Store restart cuts them off
-    engine, store, calls: collector.runningCalls(), disk, projects: cards, leftovers, totals: { projects: cards.length, sandboxes, workspaces },
+    level: worst([engine.level, store?.level ?? "ok", leftovers.length || oldStore?.state === "running" ? "degraded" : "ok"]),
+    // agents' calls running now in any project: a worker restart cuts them off
+    engine, store, oldStore, calls: collector.runningCalls(), disk, projects: cards, leftovers, totals: { projects: cards.length, sandboxes, workspaces },
   };
 }
 
@@ -145,57 +160,39 @@ export async function projectAction(trees, collector, project, body) {
   }
   if (action === "stop") {
     if (typeof body.process !== "string") throw refuse(400, "invalid-process", "a process is its id");
-    return trees.use(project, ({ operator }) => operator.process.cancel(body.process));
+    return trees.use(project, ({ backend }) => backend.daemon.process.cancel(body.process));
   }
   throw refuse(400, "invalid-action", "the action is unmount, discard or stop");
 }
 
-/** Starts the Store container when it is stopped or missing; a running one is left alone. */
+/** Starts the home's worker when it is stopped or missing (runtime.worker.start); a running one is left alone. */
 export async function startStore(spec) {
-  if (spec.windows) return startWindows(spec);
-  if (!spec.box) throw refuse(409, "no-store", "this Host runs no Store container (Linux runs Store calls in-process)");
-  const state = await storeState(spec, await engineState(spec));
-  if (state.state === "running") throw refuse(409, "running", state.answering ? "layerfs-store is running and answering" : "layerfs-store runs but does not answer; restart it instead");
-  if (state.state === "unknown") throw refuse(409, "no-docker", "Docker does not answer; start Docker first");
-  await ensureBox(spec);
-  return storeState(spec, await engineState(spec));
+  if (!spec.worker) throw refuse(409, "no-store", "this Host runs no worker (Linux runs Store calls in-process)");
+  const runtime = await openRuntime(spec);
+  const before = workerCard((await runtime.status()).worker);
+  if (before?.state === "running" && before.answering) throw refuse(409, "running", `${before.name} is running and answering`);
+  await runtime.worker.start();
+  return workerCard((await runtime.status()).worker);
 }
 
 /**
- * Restarts a running Store container: one `docker restart`, then the Host
- * reads its new port and waits for its worker (ensureBox). Every project's
- * Store calls fail while it restarts, so `confirm` must be "restart".
+ * Restarts the home's worker (runtime.worker.restart): every project's Store
+ * calls fail while it restarts, so `confirm` must be "restart". On macOS,
+ * with the older Store container running, the same confirm stops and
+ * removes it, then starts the worker.
  */
 export async function restartStore(spec, body) {
-  if (spec.windows) return restartWindows(spec, body);
-  if (!spec.box) throw refuse(409, "no-store", "this Host runs no Store container (Linux runs Store calls in-process)");
+  if (!spec.worker) throw refuse(409, "no-store", "this Host runs no worker (Linux runs Store calls in-process)");
   if (body?.confirm !== "restart") throw refuse(409, "not-confirmed", "a restart cuts off every project's Store calls; confirm it");
-  const state = await storeState(spec, await engineState(spec));
-  if (state.state === "unknown") throw refuse(409, "no-docker", "Docker does not answer; start Docker first");
-  if (state.state !== "running") throw refuse(409, state.state, `layerfs-store is ${state.state}; start it instead`);
-  // up to 5 s for the worker to stop, then its start: longer than other Docker calls
-  await run("docker", ["-H", `unix://${spec.docker}`, "restart", "-t", "5", spec.box], { timeout: RESTART_MS });
-  await ensureBox(spec);
-  return storeState(spec, await engineState(spec));
+  const runtime = await openRuntime(spec);
+  await runtime.worker.restart({ confirm: "restart" });
+  return workerCard((await runtime.status()).worker);
 }
 
-/** Removes the stopped leftover containers named in `names`; one `docker rm` each, a running one refused. */
-export async function cleanLeftovers(spec, bindings, names) {
+/** Removes the stopped leftover containers named in `names` (runtime.sandbox.clean_leftovers); a running one is refused. */
+export async function cleanLeftovers(spec, names) {
   if (!Array.isArray(names) || !names.length || names.some((n) => typeof n !== "string")) throw refuse(400, "invalid-names", "names lists the leftover containers to remove");
-  const known = new Set(bindings.projects().map((p) => p.name));
-  const left = new Map((await containersOf(spec)).filter((c) => !known.has(c.project) || !c.running).map((c) => [c.name, c]));
-  const results = [];
-  for (const name of names) {
-    const c = left.get(name);
-    if (!c) { results.push({ name, ok: false, message: "not a leftover of this home" }); continue; }
-    if (c.running) { results.push({ name, ok: false, message: "still running; stop it first" }); continue; }
-    try { await docker(spec, "rm", name); results.push({ name, ok: true }); } catch (error) { results.push({ name, ok: false, message: error.stderr?.trim() || error.message }); }
-  }
-  return { results };
-}
-
-async function engineState(spec) {
-  try { return { level: "ok", version: await docker(spec, "version", "--format", "{{.Server.Version}}") }; } catch (error) { return { level: "down", error: error.stderr?.trim() || error.message }; }
+  return (await openRuntime(spec)).sandbox.clean_leftovers(names);
 }
 
 /** Gives each Sandbox (`{ image }`, an exact digest; one project's may differ) its `imageName`: the
@@ -227,30 +224,6 @@ async function containersOf(spec) {
   }).filter((c) => c.name.startsWith(spec.prefix));
 }
 
-async function storeState(spec, engine) {
-  if (engine.level !== "ok") return { level: "down", state: "unknown", name: spec.box };
-  let row;
-  try { row = await docker(spec, "inspect", "-f", '{{.State.Running}}\t{{index .Config.Labels "layerfs.build"}}\t{{.State.StartedAt}}', spec.box); } catch { return { level: "down", state: "missing", name: spec.box }; }
-  const [running, build, startedAt] = row.split("\t"), expected = buildOf(spec.bundle);
-  if (running !== "true") return { level: "down", state: "stopped", name: spec.box, build };
-  const answering = await ping(spec.home);
-  return { level: !answering ? "down" : build !== expected ? "degraded" : "ok", state: "running", name: spec.box, build, expected, startedAt, answering };
-}
-
-/** Whether the Store container's worker answers a ping within PING_MS. */
-function ping(home) {
-  let file;
-  try { file = JSON.parse(readFileSync(storeFile(home), "utf8")); } catch { return Promise.resolve(false); }
-  return new Promise((resolve) => {
-    const socket = connect({ host: "127.0.0.1", port: file.port }, () => socket.write(Buffer.concat([frame({ secret: file.secret }), frame({ id: 1, fn: "ping" })])));
-    const done = (value) => { clearTimeout(timer); socket.destroy(); resolve(value); };
-    const timer = setTimeout(() => done(false), PING_MS);
-    readFrames(socket, (value) => { if (value?.id === 1) done(value.answer?.value === "ready"); }, () => done(false));
-    socket.on("error", () => done(false));
-    socket.on("close", () => done(false));
-  });
-}
-
 /** Whether something accepts a TCP connection on the host's loopback `port` within PING_MS. */
 export function reachable(port, ms = PING_MS) {
   return new Promise((resolve) => {
@@ -260,17 +233,4 @@ export function reachable(port, ms = PING_MS) {
     socket.on("connect", () => done(true));
     socket.on("error", () => done(false));
   });
-}
-
-function freeBytes(path) {
-  try { const s = statfsSync(path); return s.bavail * s.bsize; } catch { return null; }
-}
-
-/** Free bytes of Docker's volume disk, as the Store container sees it. */
-async function vmFree(spec) {
-  try {
-    const out = await docker(spec, "exec", spec.box, "df", "-kP", VOLUMES);
-    const kb = Number(out.split("\n").pop().trim().split(/\s+/)[3]);
-    return Number.isFinite(kb) ? kb * 1024 : null;
-  } catch { return null; }
 }

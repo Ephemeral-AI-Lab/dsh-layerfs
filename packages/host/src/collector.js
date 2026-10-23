@@ -6,10 +6,15 @@
 // live in temporary storage.
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { UNREACHABLE } from "./port/binding.js";
 import { appendCall } from "./records.js";
 
 const MAX_CHUNK = 1 << 20;
+/**
+ * The refusals @layerfs/agent's worker client gives when the home's worker
+ * (macOS, Windows) is down or went away, as an agent's trace line carries
+ * them: the Host then starts it again (onUnreachable). Other failures do not.
+ */
+export const UNREACHABLE = /the LayerFS worker (?:did not answer|is not running for this home)|the connection to the LayerFS worker was lost/;
 
 export class Collector {
   /**

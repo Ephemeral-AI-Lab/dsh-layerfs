@@ -22,13 +22,13 @@ export const CHECK_PREFIX = "final-tree-check-";
 
 /**
  * Reads the history of the project `lf` names.
- * @param {object} lf LayerFS client
- * @param {object} operator its LayerFSOperator (for the Layers)
+ * @param {object} lf LayerFS client (@layerfs/agent)
+ * @param {object} backend its LayerFSBackend (@layerfs/backend), for the Layers
  * @returns {Promise<{ branches: Record<string, { forkedFrom: string | null, commits: object[] }>, layers: object[], ids: Map<string, string> }>}
  */
-export async function historyOf(lf, operator) {
-  const snap = await operator.inspect.snapshot();
-  if (snap.moreLayers) throw new Error("more Layers than one snapshot lists");
+export async function historyOf(lf, backend) {
+  const snap = await backend.store.project.get_history();
+  if (snap.moreLayers) throw new Error("more Layers than one History read lists");
   // main's Layers from Init's, each the parent of the next
   const byParent = new Map(snap.layers.map((l) => [l.parent ?? null, l]));
   const layers = [];

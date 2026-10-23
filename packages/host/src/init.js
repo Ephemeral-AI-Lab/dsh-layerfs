@@ -1,21 +1,20 @@
-// "Init LayerFS": imports a folder as a new LayerFS project on its own
-// Docker volume, the dsh workspace folder's default project. A simulated project
-// (backend "sim") is imported into the simulator (sim/) instead: no Docker,
-// no deployment settings.
-import { execFile } from "node:child_process";
-import { accessSync, appendFileSync, constants, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+// "Init LayerFS": imports a folder as a new LayerFS project, the dsh
+// workspace folder's default project. A live project is the runtime's Init
+// (@layerfs/runtime start_init: count the source, make its own Docker volume,
+// one LayerFS Init), watched until it ends; the Host names the project, makes
+// an empty one's folder and binds the result. A simulated project (backend
+// "sim") is imported into the simulator (sim/) instead: no Docker, no
+// deployment settings.
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { lstat, opendir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as pause } from "node:timers/promises";
-import { promisify } from "node:util";
-import { ensureBox } from "./box.js";
-import { ensureWindows, windowsDocker } from "./windows/host.js";
-import { missingDeployment } from "./config.js";
-import { clientFor, isSim, release } from "./layerfs-client.js";
+import { missingDeployment, openRuntime, runtimeState } from "./config.js";
+import { isSim } from "./layerfs-client.js";
+import { initSim } from "./sim/client.js";
 
-const run = promisify(execFile);
 const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/;
 const WATCH_MS = 250;
 const IMAGE = /^sha256:[0-9a-f]{64}$/;
@@ -49,9 +48,9 @@ export function randomName(taken, home, pick = Math.random) {
 }
 
 /**
- * Counts what Init will import, before it starts: every entry under `source`
- * (no ignore rules, links not followed, as Init itself reads it) and the
- * bytes of its regular files. `report` sees the running counts.
+ * Counts what a simulated Init imports, before it starts: every entry under
+ * `source` (links not followed) and the bytes of its regular files. `report`
+ * sees the running counts. (A live Init's counts are the runtime's.)
  * @returns {Promise<{ entries: number, files: number, bytes: number }>}
  */
 export async function scanSource(source, report = () => {}) {
@@ -77,30 +76,11 @@ export function liveOnlyDemo(name, scenarios = SCENARIOS) {
 }
 
 /**
- * Why this Host process cannot run a Live Init on Linux, or null. Init
- * installs the Store straight into the new volume's directory under Docker's
- * volumes directory, which Docker keeps root-only, and the native binding
- * requires the LayerFS home to belong to this process's user. Either failing
- * used to surface only after the volume was made, as LayerFS's `Unsupported`
- * (EACCES) or `Unauthorized`. macOS (the Store container imports) is not checked.
- * @returns {string|null}
- */
-export function hostAccess(spec, { platform = process.platform, uid = process.getuid?.() } = {}) {
-  if (platform !== "linux" || spec.box || uid === undefined) return null;
-  try {
-    accessSync(spec.volumes, constants.R_OK | constants.W_OK | constants.X_OK);
-  } catch (error) {
-    if (error.code !== "ENOENT") return `this Host runs as uid ${uid} and cannot write Docker's volumes directory ${spec.volumes} (${error.code}), where Init installs the Store; run dsh as a user that can, such as root`;
-  }
-  const owner = existsSync(spec.home) ? statSync(spec.home).uid : uid;
-  if (owner !== uid) return `the LayerFS home ${spec.home} belongs to uid ${owner}, not this Host's uid ${uid}; set layerfs-host home to a folder this user owns`;
-  return null;
-}
-
-/**
  * Checks an Init request and names its project, without changing anything.
  * `image` gives the project's Sandboxes their own runtime image (a replayed
- * demo's), instead of the Host's.
+ * demo's), instead of the Host's. Whether this process may install a Store
+ * (Linux: Docker's volumes directory, the home's owner) the runtime checks
+ * when the Init starts.
  * @param {object} spec resolved Host settings
  * @param {import("./binding.js").BindingStore} bindings
  * @param {{ folder: string, source?: string, name?: string, backend?: "sim", image?: string, empty?: boolean }} request
@@ -113,17 +93,13 @@ export function prepareInit(spec, bindings, { folder, source = folder, name, bac
   if (backend === "sim" && liveOnlyDemo(name)) throw refuse("live-only", `${name} is a demo that runs on Live LayerFS only`);
   const missing = backend === "sim" ? [] : missingDeployment(spec);
   if (missing.length) throw refuse("not-configured", `LayerFS is not configured: set ${missing.join(" and ")} for layerfs-host in the profile patch`);
-  const denied = backend === "sim" ? null : hostAccess(spec);
-  if (denied) throw refuse("host-access", denied);
   for (const path of empty ? [folder] : [folder, source]) {
     if (!isAbsolute(path) || !existsSync(path) || !statSync(path).isDirectory()) throw refuse("invalid-folder", `${path} is not an absolute directory`);
   }
   if (name !== undefined && !NAME.test(name)) throw refuse("invalid-name", "a project name is 1-63 lowercase letters, digits, _ . - and starts and ends alphanumeric");
   const taken = new Set([...bindings.allNames(), ...pending]);
-  const project = { name: name ?? (empty ? randomName(taken, spec.home) : freeName(nameFrom(source), taken, spec.home)), source, volume: "", created: Date.now() };
+  const project = { name: name ?? (empty ? randomName(taken, spec.home) : freeName(nameFrom(source), taken, spec.home)), source, created: Date.now() };
   if (taken.has(project.name) || existsSync(join(spec.home, project.name))) throw refuse("name-taken", `a LayerFS project named ${project.name} exists`);
-  // a project made before #373 keeps its `dsh-layerfs-…` volume, recorded in its binding
-  project.volume = `${spec.prefix}${project.name}-store-${project.created.toString(36)}`;
   if (image) project.image = image;
   if (backend === "sim") Object.assign(project, { backend, volume: `sim-${project.name}` });
   if (empty) Object.assign(project, { source: mkdtempSync(join(tmpdir(), "dsh-layerfs-empty-")), empty: true });
@@ -131,73 +107,69 @@ export function prepareInit(spec, bindings, { folder, source = folder, name, bac
 }
 
 /**
- * Runs a prepared Init: counts the source, makes the volume, imports the
- * source (LayerFS's Init, which seals the Store under the LayerFS home and
- * installs it into the volume in the same process, starting no Sandbox) and
- * makes it `folder`'s default. `report` sees each step (scan, volume,
- * import) and, while LayerFS imports in this process, its counts as
- * `imported`. On macOS the import runs in its own container beside the
- * Store container (box.js), where no counts are read. One attempt; a failure
- * leaves no project, and the volume and project entry it made are removed.
+ * Runs a prepared Init and makes the project `folder`'s default. `report`
+ * sees each step (scan, volume, import), the counts as `scanned` and
+ * `totals`, and LayerFS's own counts while it imports as `imported`. A live
+ * Init is the runtime's job, read every WATCH_MS until it ends; one attempt,
+ * and what a failed Init made the runtime removes (an uncertain one it keeps
+ * and records). An empty project's folder is removed once Init ends.
  */
 export async function runInit(spec, bindings, { folder, project }, report = () => {}) {
   try {
-    return await initFrom(spec, bindings, { folder, project }, report);
+    const made = isSim(project) ? await initSimulated(spec, project, report) : await initLive(spec, project, report);
+    bindings.addProject(folder, made);
+    return made;
   } finally {
     if (project.empty) rmSync(project.source, { recursive: true, force: true });
   }
 }
-async function initFrom(spec, bindings, { folder, project }, report) {
+
+async function initSimulated(spec, project, report) {
   report({ step: "scan" });
   const totals = await scanSource(project.source, (counts) => report({ scanned: counts }));
   report({ step: "volume", totals });
-  const docker = ["-H", `unix://${spec.docker}`];
-  if (spec.windows && !isSim(project)) await ensureWindows(spec);
-  if (!isSim(project)) await (spec.windows ? windowsDocker(spec, ["volume", "create", project.volume]) : run("docker", [...docker, "volume", "create", project.volume]));
   report({ step: "import" });
-  let client;
-  try {
-    if (spec.box && !isSim(project)) await ensureBox(spec);
-    client = await clientFor(spec, project);
-    const init = () => client.layerfs.project.init(project.source);
-    await (spec.box && !isSim(project) ? init() : watching(client, report, init));
-  } catch (error) {
-    if (client) await release(client).catch(() => {});
-    if (!isSim(project) && (spec.windows || error?.code === "Unknown")) {
-      // A reply may have been lost after Init installed the Store. Retain both sides, never guess cleanup.
-      appendFileSync(join(spec.stateDir, spec.windows ? "windows-init-failures.jsonl" : "init-failures.jsonl"), JSON.stringify({ project, home: spec.windows?.home ?? spec.home, code: error.code, message: error.message }) + "\n");
-      throw error;
-    }
-    // Init made the project's entry unless another project holds the name
-    if (!isSim(project) && error?.code !== "Exists") rmSync(join(spec.home, project.name), { recursive: true, force: true });
-    if (!isSim(project)) await run("docker", [...docker, "volume", "rm", project.volume]).catch(() => {});
-    throw error;
-  }
-  await release(client);
-  bindings.addProject(folder, project);
+  await initSim(spec.home, project.name, project.source);
   return project;
 }
 
-/**
- * Runs `init`, reading its counts (operator project.progress) every WATCH_MS
- * until it ends. One read at a time; a failed read stops the counts, not Init.
- */
-export async function watching(client, report, init) {
-  let running = true;
-  const watch = (async () => {
-    while (running) {
-      const counts = await client.operator.project.progress().catch(() => (running = false, null));
-      if (counts && running) report({ imported: counts });
-      if (running) await pause(WATCH_MS);
-    }
-  })();
-  try {
-    return await init();
-  } finally {
-    running = false;
-    await watch;
+async function initLive(spec, project, report) {
+  const runtime = await openRuntime(spec);
+  let job = await runtime.project.start_init(project.name, project.source, project.image ? { image: project.image } : {});
+  for (;;) {
+    const { step, scanned, totals, imported } = job;
+    if (step !== "done" && step !== "failed") report({ step, scanned, totals, imported });
+    if (job.ended) break;
+    await pause(WATCH_MS);
+    job = (await runtime.project.get_init(job.id)) ?? { ...job, step: "failed", ended: Date.now(), error: { code: "Unknown", message: "the runtime no longer has this Init's job" } };
   }
+  if (job.step !== "done") throw refuse(job.error?.code ?? "Failed", job.error?.message ?? "Init failed");
+  // the runtime's record: its volume and creation time
+  return { ...project, ...job.project, ...(project.empty ? { empty: true } : {}) };
 }
 
 /** Imports `source` (default: the workspace folder) as a LayerFS project, `folder`'s default. */
 export const initProject = (spec, bindings, request, report) => runInit(spec, bindings, prepareInit(spec, bindings, request), report);
+
+/**
+ * Gives every live project the Host bound before it used the runtime its
+ * runtime record (<home>/.runtime/projects/<name>.json: name, volume, image,
+ * source, created), so runtime.project.get_state, sandbox.reclaim and remove
+ * know its volume. The runtime has no call for this (a gap reported to
+ * LayerFS); the record is written in the runtime's documented format, never
+ * over one it has. Answers the names given a record.
+ */
+export function adopt(spec, bindings) {
+  const dir = join(runtimeState(spec), "projects"), adopted = [];
+  for (const project of bindings.projects()) {
+    if (isSim(project) || !NAME.test(project.name) || !project.volume) continue;
+    const file = join(dir, `${project.name}.json`);
+    if (existsSync(file)) continue;
+    mkdirSync(dir, { recursive: true });
+    const { name, volume, image, source, created } = project;
+    writeFileSync(`${file}.new`, JSON.stringify({ name, volume, ...(image ? { image } : {}), source: source ?? null, created: created ?? null }));
+    renameSync(`${file}.new`, file);
+    adopted.push(name);
+  }
+  return adopted;
+}

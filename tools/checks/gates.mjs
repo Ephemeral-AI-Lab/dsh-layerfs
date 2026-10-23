@@ -74,8 +74,8 @@ export function expectedOutcomes(scenario, linesOf) {
 }
 
 /** The order checks: the run's history against final.json's recorded one. */
-export async function orderFailures(final, lf, operator) {
-  const run = await historyOf(lf, operator), failures = compareHistory(final.history, run);
+export async function orderFailures(final, lf, backend) {
+  const run = await historyOf(lf, backend), failures = compareHistory(final.history, run);
   // a run's Commit where the record has UpToDate must change no tracked file
   const byRef = new Map([...run.ids].map(([id, ref]) => [ref, id]));
   for (const ref of failures.extras) {

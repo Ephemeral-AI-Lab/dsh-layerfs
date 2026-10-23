@@ -1,11 +1,13 @@
 // Init jobs: POST /layerfs/init checks the request, starts the Init and
-// answers with its job at once; the page reads the job until it ends.
+// answers with its job at once; the page reads the job until it ends. A live
+// Init is the runtime's own job (init.js), which this one follows, so the
+// page reads one kind of job for both backends and the Host binds the result.
 //   step      scan | volume | import | done | failed
 //   scanned   running counts while the source is counted
 //   totals    { entries, files, bytes } once counted
 //   imported  LayerFS's counts while it imports: { step: scan | files | tree |
-//             publish | seal, entries, files, bytes } (see the SDK operator's
-//             project.progress); the totals above make them a fraction
+//             publish | seal, entries, files, bytes } (a live Init's, from the
+//             runtime's job); the totals above make them a fraction
 //   project   the new project (done); error { code, message } (failed)
 // A job is kept for KEEP_MS after it ends, then dropped.
 import { randomUUID } from "node:crypto";

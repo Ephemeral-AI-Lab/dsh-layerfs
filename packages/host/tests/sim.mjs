@@ -1,6 +1,7 @@
-// Simulated LayerFS checks without Docker or a Store: the SDK on the
-// simulator's binding (src/sim) through a Workspace's life, the Host's Init,
-// views and removal of a simulated project, and the sed stand-in.
+// Simulated LayerFS checks without Docker or a Store: @layerfs/agent and
+// @layerfs/backend on the simulator's binding (src/sim) through a Workspace's
+// life, the runtime's lfs command on it, the Host's Init, views and removal
+// of a simulated project, and the sed stand-in.
 //   node dsh/packages/host/tests/sim.mjs
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -36,12 +37,12 @@ try {
   assert.equal(bindings.byName(NAME).backend, "sim");
   assert.deepEqual(deploymentEnv(spec, project), { HOME: home, DOCKER: "sim", IMAGE: "sim", DAEMON: "sim", VOLUME: `sim-${NAME}`, STORE_PATH: "sim" });
 
-  // The SDK on the simulator, with the environment the Host gives a simulated project's bash calls.
+  // The agent and backend on the simulator, with the environment the Host gives a simulated project's bash calls.
   for (const [name, value] of Object.entries(deploymentEnv(spec, project))) process.env[`LAYERFS_${name}`] = value;
   process.env.LAYERFS_TRACE = trace;
-  const { LayerFS, isRefusal } = await import("../src/sim/sdk.js");
-  const { LayerFSOperator } = await import("../src/sim/operator.js");
-  const lf = new LayerFS(NAME), op = new LayerFSOperator(lf);
+  const { LayerFS, isRefusal } = await import(spec.simSdk);
+  const { LayerFSBackend } = await import(spec.simBackend);
+  const lf = await LayerFS.open(NAME), backend = LayerFSBackend.of(lf), op = backend.daemon;
   const refused = async (call, code) => {
     try { await call(); } catch (error) { assert.ok(isRefusal(error, code), `expected ${code}, got ${error.code}: ${error.message}`); return error; }
     assert.fail(`expected ${code}`);
@@ -81,7 +82,7 @@ try {
 
   // The head moves under the Workspace: commit writes the merge's markers and refuses, twice.
   await lf.fs.edit("feature", "/app/page.tsx", "<h1>Home</h1>", "<h1>Hi</h1>", "greeting");
-  assert.equal((await lf.workspace.status(ws)).headMovedSinceMount, true);
+  assert.equal((await op.workspace.status(ws)).headMovedSinceMount, true);
   const conflict = await refused(() => lf.workspace.commit(ws, "welcome"), "Conflict");
   assert.equal(conflict.message, "Conflict: the head moved and 1 file(s) conflict with this Workspace; markers are written and nothing was committed");
   assert.deepEqual(conflict.detail.conflicts.map((c) => c.path), ["/app/page.tsx"]);
@@ -96,7 +97,7 @@ try {
   assert.equal(saved.commit.via, "exec");
   assert.equal((await lf.workspace.unmount(ws)).kind, "Unmounted");
   assert.ok(!existsSync(join(home, NAME, "sim", "ws", sb, "1")), "an unmounted Workspace's folder is removed");
-  assert.deepEqual((await op.sandbox.list()).map((x) => [x.id, x.name]), [["1", `layerfs-${NAME}-1`]]);
+  assert.deepEqual((await lf.project.list_sandboxes()).items.map((x) => [x.sandbox, x.name]), [["1", `layerfs-${NAME}-1`]]);
 
   // Publish, then read main.
   const published = await lf.branch.publish("feature");
@@ -142,10 +143,16 @@ try {
   assert.equal(typeof storage.store.dedupe, "number");
   assert.equal(storage.commits.length, 3);
 
-  // `lfs run`: each call mounts a Workspace, which LayerFS places in the
-  // project's Sandbox 1, and unmounts it; the Sandbox stays for the next call.
-  const cli = fileURLToPath(new URL("../src/lfs.js", import.meta.url));
-  const lfs = (...args) => execFileSync(process.execPath, [cli, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, DSH_LAYERFS_PROJECT: NAME, DSH_LAYERFS_SDK: spec.simSdk } });
+  // The Store totals and History through the backend, as agents read them
+  const totals = await backend.store.project.get_storage();
+  assert.ok(totals.logical > 0 && typeof totals.dedupe === "number");
+  const history = await backend.store.project.get_history();
+  assert.equal((await backend.store.project.get_history(history.version)).kind, "unchanged");
+
+  // `lfs run` (@layerfs/runtime's command, on the simulator: sim/lfs.js): each
+  // call mounts a Workspace, which LayerFS places in the project's Sandbox 1,
+  // and unmounts it; the Sandbox stays for the next call.
+  const lfs = (...args) => execFileSync(process.execPath, [spec.simCli, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, DSH_LAYERFS_PROJECT: NAME } });
   const before = readFileSync(trace, "utf8").trim().split("\n").length;
   assert.equal(lfs("run", "feature", "echo hi > note.txt && cat note.txt", "note"), "hi\n");
   assert.equal(lfs("run", "feature", "cat note.txt", "--discard"), "hi\n");
@@ -169,11 +176,16 @@ try {
   const other = await lf.workspace.mount("feature", { image: "sim-other" });
   assert.deepEqual([other.sandbox, other.image], ["3", "sim-other"]);
   assert.deepEqual([(await lf.workspace.mount("feature")).sandbox, (await lf.workspace.mount("feature", { image: "sim-other" })).sandbox], ["1", "3"]);
-  assert.deepEqual((await op.sandbox.list()).map(({ id, image }) => [id, image]), [["1", "sim"], ["2", "sim"], ["3", "sim-other"]]);
+  assert.deepEqual((await lf.project.list_sandboxes()).items.map(({ sandbox, image }) => [sandbox, image]), [["1", "sim"], ["2", "sim"], ["3", "sim-other"]]);
+  // a Sandbox's Workspaces, as the agent lists them; one not running is refused
+  const listed3 = await lf.sandbox.list_workspaces("3");
+  assert.deepEqual(listed3.items.map((w) => [w.path, w.branch, w.activity, w.changed]), [[other.path, "feature", "Idle", false], ["/workspaces/2", "feature", "Idle", false]]);
+  await refused(() => lf.sandbox.list_workspaces("9"), "NoSuchSandbox");
   await op.process.start(ws2, "sleep 30");
   const running = Object.values(JSON.parse(readFileSync(join(home, NAME, "sim", "state.json"), "utf8")).sim.sandboxes["2"].processes)[0].pid;
   assert.ok(alive(running));
-  assert.deepEqual(await removeProject(spec, bindings, trees, NAME, () => assert.fail("a simulated project runs no docker")), { removed: NAME, volume: `sim-${NAME}` });
+  spec.runtime = Promise.resolve({ project: { remove: () => assert.fail("a simulated project is not the runtime's") } });
+  assert.deepEqual(await removeProject(spec, bindings, trees, NAME), { removed: NAME, volume: `sim-${NAME}` });
   for (let i = 0; i < 50 && alive(running); i++) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.ok(!alive(running), "removal stops the background process");
   assert.ok(!existsSync(join(home, NAME)));

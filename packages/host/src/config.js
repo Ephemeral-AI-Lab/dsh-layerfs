@@ -1,30 +1,37 @@
-// Host plugin configuration and its resolution into absolute settings.
+// Host plugin configuration and its resolution into absolute settings: the
+// Host's own (bindings, traces, runs) and the deployment it hands
+// @layerfs/runtime (runtimeSettings), whose runtime the Host opens once
+// (openRuntime). The runtime owns the worker (macOS, Windows), Init, removal
+// and Sandbox upkeep; the Host keeps what is dsh's.
+import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
-import { storeName, VOLUMES } from "./box.js";
-import { windowsConfig } from "./windows/host.js";
+import { LayerFSRuntime } from "@layerfs/runtime";
+
+/** Docker's volumes directory, in Docker's VM on macOS and Windows. */
+export const VOLUMES = "/var/lib/docker/volumes";
 
 /**
  * @typedef {object} Config
  * @property {string} [image] LayerFS runtime image digest (`sha256:…`) Sandboxes run; Init refuses without it.
- * @property {string} [daemon] Host path of the built Linux layerfs-daemon; Init refuses without it.
- * @property {string} [bundle] Folder of a sealed Linux LayerFS build (layerfs-daemon, layerfs.node,
- *   sdk/js). On macOS, Live projects need it: their SDK calls run in the Store container (box.js).
+ * @property {string} [daemon] Host path of the built Linux layerfs-daemon (default: the bundle's).
+ * @property {string} [bundle] Folder of a sealed Linux LayerFS build. macOS and Windows need it: the
+ *   home's worker runs its worker/server.js and makes every Store call (@layerfs/runtime).
  * @property {string} [containerPrefix] Prefix of this home's container names (default `layerfs-`):
- *   Sandboxes `<prefix><project>-<n>`, the Store container `<prefix>store`. A second home on
- *   the same Docker engine (a test, another checkout) sets its own.
+ *   Sandboxes `<prefix><project>-<n>`, the macOS worker `<prefix>worker`. A second home on the
+ *   same Docker engine (a test, another checkout) sets its own.
  * @property {string} [docker] Local Docker Engine Unix socket.
- * @property {string} [volumes] Docker's volumes directory (default `/var/lib/docker/volumes`), for an
- *   engine whose data-root is elsewhere. On Linux, Init installs the Store into a volume's directory
+ * @property {string} [volumes] Docker's volumes directory on Linux (default `/var/lib/docker/volumes`), for an
+ *   engine whose data-root is elsewhere. Init installs the Store into a volume's directory
  *   there, so the Host's user must be able to write it.
  * @property {string} [home] LayerFS home for discovery records, shared by the Host and agents' bash calls.
  * @property {string} [stateDir] Directory for project bindings and agent names.
  * @property {string} [traceDir] Directory for per-agent SDK trace files; bash calls must be able to write it.
  * @property {number} [pollMs] Interval at which trace files are read for new lines.
  * @property {string} [runs] Folder of recorded history replay runs (layerfs #352) for the Runs player.
- * @property {string} [wslDistribution] Windows: WSL2 distribution running Docker and the SDK (default Ubuntu).
+ * @property {string} [wslDistribution] Windows: WSL2 distribution running Docker and the worker (default Ubuntu).
  * @property {string} [wslUser] Windows: Linux user owning Store volumes (default root).
  * @property {string} [wslHome] Windows: persistent Linux discovery directory (default derived from Windows home).
  * @property {string} [wslNode] Windows: Linux Node executable (default /usr/local/bin/node).
@@ -36,7 +43,7 @@ import { windowsConfig } from "./windows/host.js";
  * @property {string|null} daemon
  * @property {string|null} bundle
  * @property {string} prefix this home's container name prefix
- * @property {string|null} box the Store container's name, on macOS with a bundle (else null)
+ * @property {boolean} worker Store calls run in the home's worker (macOS, Windows), not in the caller
  * @property {string} docker
  * @property {string} volumes
  * @property {string} home
@@ -45,11 +52,14 @@ import { windowsConfig } from "./windows/host.js";
  * @property {boolean} traceInWorkspace Windows default: traces use the shell's writable workspace.
  * @property {number} pollMs
  * @property {string} runs history replay runs: the setting, else $LFS_HISTORY/runs, else ~/lfs-history/runs (the harness's own default)
- * @property {string} sdk file URL of the SDK entry Live projects use (on macOS, port/sdk.js)
- * @property {string} operator file URL of its operator entry
- * @property {string} simSdk file URL of the SDK on the simulator (sim/sdk.js), for simulated projects
- * @property {string} simOperator file URL of its operator entry (sim/operator.js)
- * @property {object} [windows] Windows-only WSL deployment and private endpoint-file location; never its secret.
+ * @property {string} sdk file URL of @layerfs/agent, which Live projects' scripts import
+ * @property {string} backend file URL of @layerfs/backend
+ * @property {string} cli path of @layerfs/runtime's `lfs` command
+ * @property {string} simSdk file URL of the agent on the simulator (sim/sdk.js), for simulated projects
+ * @property {string} simBackend file URL of its backend (sim/backend.js)
+ * @property {string} simCli path of its `lfs` command (sim/lfs.js)
+ * @property {{ distribution: string, user: string, node: string, home: string }} [wsl] Windows: the WSL deployment
+ * @property {Promise<LayerFSRuntime>} [runtime] the Host's runtime, once openRuntime has opened it
  */
 
 /**
@@ -64,37 +74,59 @@ import { windowsConfig } from "./windows/host.js";
 export function resolveConfig(config, profile) {
   const temp = join(realpathSync(tmpdir()), "dsh-layerfs");
   const bundle = config.bundle || null, home = config.home || join(temp, "home");
-  // macOS runs no Store call itself: a bundle's SDK calls run in the Store container (port/)
-  const ported = process.platform === "darwin" && bundle !== null;
-  const prefix = config.containerPrefix || "layerfs-";
-  const windows = process.platform === "win32" ? windowsConfig(config, home, prefix) : null;
+  const windows = process.platform === "win32";
   const spec = {
     image: config.image || null,
     daemon: config.daemon || (bundle && (windows ? posix.join(bundle, "layerfs-daemon") : join(bundle, "layerfs-daemon"))),
     bundle,
-    prefix,
-    box: ported ? storeName(prefix) : null,
+    prefix: config.containerPrefix || "layerfs-",
+    // Linux makes Store calls in the caller's process; macOS and Windows in the home's worker
+    worker: process.platform !== "linux",
     docker: config.docker || "/var/run/docker.sock",
     volumes: config.volumes || VOLUMES,
     home,
     stateDir: config.stateDir || join(profile ? profile.dir : join(homedir(), ".dsh"), "dsh-layerfs"),
     traceDir: config.traceDir || join(temp, "traces"),
-    traceInWorkspace: process.platform === "win32" && !config.traceDir,
+    traceInWorkspace: windows && !config.traceDir,
     pollMs: config.pollMs ?? 400,
     runs: config.runs || join(process.env.LFS_HISTORY || join(homedir(), "lfs-history"), "runs"),
-    sdk: windows ? new URL("./windows/sdk.js", import.meta.url).href : ported ? new URL("./port/sdk.js", import.meta.url).href : import.meta.resolve("@layerfs/sdk"),
-    operator: windows ? new URL("./windows/operator.js", import.meta.url).href : ported ? new URL("./port/operator.js", import.meta.url).href : import.meta.resolve("@layerfs/sdk/operator"),
+    sdk: import.meta.resolve("@layerfs/agent"),
+    backend: import.meta.resolve("@layerfs/backend"),
+    cli: fileURLToPath(import.meta.resolve("@layerfs/runtime/cli")),
     simSdk: new URL("./sim/sdk.js", import.meta.url).href,
-    simOperator: new URL("./sim/operator.js", import.meta.url).href,
+    simBackend: new URL("./sim/backend.js", import.meta.url).href,
+    simCli: fileURLToPath(new URL("./sim/lfs.js", import.meta.url)),
   };
-  if (windows) spec.windows = windows;
+  if (windows) {
+    // the Host's default before #428, so an existing WSL home stays where it is
+    const hash = createHash("sha256").update(home).digest("hex").slice(0, 16);
+    spec.wsl = { distribution: config.wslDistribution || "Ubuntu", user: config.wslUser || "root", node: config.wslNode || "/usr/local/bin/node", home: config.wslHome || `/var/lib/dsh-layerfs-windows/${hash}` };
+  }
   for (const dir of [spec.stateDir, spec.traceDir]) mkdirSync(dir, { recursive: true });
   mkdirSync(spec.home, { recursive: true, mode: 0o700 });
   return spec;
 }
 
-/** Deployment settings Init and bash calls need that are not configured (macOS: a bundle too). */
-export const missingDeployment = (spec) => ["image", "daemon", ...(spec.windows || process.platform === "darwin" ? ["bundle"] : [])].filter((name) => !spec[name]);
+/** Deployment settings Init and bash calls need that are not configured (macOS and Windows: a bundle too). */
+export const missingDeployment = (spec) => ["image", "daemon", ...(spec.worker ? ["bundle"] : [])].filter((name) => !spec[name]);
 
-/** The SDK entry as a path, for Node imports in the Host. */
-export const sdkPath = (spec) => fileURLToPath(spec.sdk);
+/** What the Host hands LayerFSRuntime.open: its deployment, as the dsh adapter (the worker route is dsh's only). */
+export const runtimeSettings = (spec) => ({
+  home: spec.home, image: spec.image, daemon: spec.daemon, bundle: spec.bundle, docker: spec.docker, volumes: spec.volumes,
+  traceDir: spec.traceDir, containerPrefix: spec.prefix, stateDir: runtimeState(spec), adapter: "dsh", pollMs: spec.pollMs,
+  ...(spec.wsl ? { wsl: spec.wsl } : {}),
+});
+
+/** The runtime's own records (its default, named so the Host can find them). */
+export const runtimeState = (spec) => join(spec.home, ".runtime");
+
+/**
+ * The Host's runtime, opened once. With the dsh adapter on macOS and Windows
+ * it hands its worker to @layerfs/agent, so every client this process makes
+ * after it uses the worker. A test sets `spec.runtime` to a stand-in first.
+ * @returns {Promise<LayerFSRuntime>}
+ */
+export function openRuntime(spec) {
+  spec.runtime ??= LayerFSRuntime.open(runtimeSettings(spec));
+  return spec.runtime;
+}

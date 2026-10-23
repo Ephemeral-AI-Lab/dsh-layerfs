@@ -1,7 +1,6 @@
 // The /layerfs route on the Host's web server. Every request first passes
 // Connection's Host/Origin checks and browser authentication, like /api.
-//   GET  /layerfs/status                      configuration, SDK location and what Init offers (empty: new empty projects);
-//                                             migration.kept: older Sandboxes left running at start (migrate.js)
+//   GET  /layerfs/status                      configuration, the packages agents import and what Init offers (empty: new empty projects)
 //   GET  /layerfs/workspace?folder=<abs>      every project (the folder's imports first) and the folder's default
 //   POST /layerfs/workspace {folder, project}  make a project the folder's default for new sessions
 //   POST /layerfs/init {folder, source?, name?, backend?, image?, empty?}   start Init LayerFS (backend "sim": the simulator;
@@ -19,9 +18,11 @@
 //   GET  /layerfs/project/<name>/history      the same, History alone from the Store (no Sandbox asked)
 //   GET  /layerfs/project/<name>/{list,read,blame,changes,diff}?…  as the session's Files reads
 //   GET  /layerfs/project/<name>/storage      Store totals, what Init recorded, recent Commits' costs (storage.js)
-//   GET  /layerfs/runtime                     Docker, the Store container, disk and every project's Sandboxes (runtime.js)
-//   POST /layerfs/runtime/store               start the Store container when it is stopped or missing
-//   POST /layerfs/runtime/store/restart {confirm: "restart"}  restart a running Store container
+//   GET  /layerfs/runtime                     Docker, the home's worker, the older Store container (oldStore),
+//                                             disk and every project's Sandboxes (runtime.js)
+//   POST /layerfs/runtime/store               start the worker when it is stopped or missing
+//   POST /layerfs/runtime/store/restart {confirm: "restart"}  restart the worker; with the older Store
+//                                          container running, stop and remove it, then start the worker
 //   POST /layerfs/runtime/leftovers {names}   remove stopped leftover Sandbox containers
 //   GET  /layerfs/project/<name>/runtime      the project's Sandboxes, Workspaces and processes
 //   POST /layerfs/project/<name>/runtime {action, sandbox?, path?, process?, confirm?}  unmount, discard or stop
@@ -76,7 +77,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
     const url = new URL(String(req.url), "http://localhost"), parts = url.pathname.slice(PREFIX.length).split("/").filter(Boolean);
     try {
       if (req.method === "GET" && parts[0] === "status" && parts.length === 1)
-        return send(res, 200, { configured: missingDeployment(spec).length === 0, missing: missingDeployment(spec), sdk: spec.sdk, operator: spec.operator, box: spec.box, bundle: spec.bundle, traceDir: spec.traceDir, home: spec.home, docker: spec.docker, image: spec.image, daemon: spec.daemon, empty: true, migration: spec.migration ?? null, ...(spec.windows ? { windows: spec.windows } : {}) });
+        return send(res, 200, { configured: missingDeployment(spec).length === 0, missing: missingDeployment(spec), sdk: spec.sdk, backend: spec.backend, cli: spec.cli, worker: spec.worker, bundle: spec.bundle, traceDir: spec.traceDir, home: spec.home, docker: spec.docker, image: spec.image, daemon: spec.daemon, empty: true, ...(spec.wsl ? { wsl: spec.wsl } : {}) });
       if (req.method === "GET" && parts[0] === "workspace" && parts.length === 1) {
         const folder = url.searchParams.get("folder");
         if (!folder) return send(res, 400, { code: "invalid-folder", message: "folder is required" });
@@ -103,7 +104,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
       if (parts[0] === "runtime" && parts.length <= 2) {
         if (req.method === "GET" && parts.length === 1) return send(res, 200, await overview(spec, bindings, trees, collector));
         if (req.method === "POST" && parts[1] === "store") return send(res, 200, await startStore(spec));
-        if (req.method === "POST" && parts[1] === "leftovers") return send(res, 200, await cleanLeftovers(spec, bindings, (await readJson(req)).names));
+        if (req.method === "POST" && parts[1] === "leftovers") return send(res, 200, await cleanLeftovers(spec, (await readJson(req)).names));
       }
       if (req.method === "GET" && parts[0] === "runs" && parts.length === 1) return send(res, 200, { dir: spec.runs, runs: listRuns(spec.runs) });
       if (req.method === "GET" && parts[0] === "runs" && parts[2] === "trace" && parts.length === 3)
@@ -125,7 +126,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
         if (req.method === "POST" && parts[2] === "remove") {
           const body = await readJson(req);
           if (body.confirm !== project.name) return send(res, 400, { code: "not-confirmed", message: `confirm with the project's name, ${project.name}` });
-          return send(res, 200, await removeProject(spec, bindings, trees, project.name, undefined, { stopSandboxes: body.stopSandboxes === true }));
+          return send(res, 200, await removeProject(spec, bindings, trees, project.name, { stopSandboxes: body.stopSandboxes === true }));
         }
       }
       if (parts[0] === "session" && parts.length >= 2) {
