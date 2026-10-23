@@ -1,6 +1,8 @@
 // The LayerFS page's Scenarios tab, shown while the LayerFS scripted model's
-// plugin is on: every scenario with its latest run on LayerFS. Run all queues
-// every scenario and starts them a few at a time (MAX_RUNS in scenarios.ts).
+// plugin is on: every scenario with its latest run on LayerFS, its tags as
+// chips and what the loader counted. The tag row filters the list (a scenario
+// shows when it has every chosen tag); Run all queues the scenarios shown and
+// starts them a few at a time (MAX_RUNS in scenarios.ts).
 // Each run gets a Session of its own in the Scenarios workspace, opened from
 // its row. A failed run shows why and keeps its project for a look; Clean up
 // removes the scenario projects no run is using. A run over the Host's time
@@ -9,11 +11,22 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, IconPlayOutlineRegular, IconStopFillRegular, IconTrashOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api } from './api.ts'
 import { jobText, useClock } from './Progress.tsx'
-import { isScenarioProject, mockApi, nextStarts, projectOf, runText, startRun, stopRun, type MockInfo, type RunServices, type Scenario, type ScenarioRun, type StartStep } from './scenarios.ts'
+import { allTags, isScenarioProject, mockApi, nextStarts, projectOf, runText, startRun, stopRun, withTags, type MockInfo, type RunServices, type Scenario, type ScenarioRun, type StartStep } from './scenarios.ts'
 import { card, T } from './tokens.ts'
 
 const POLL_MS = 1000, IDLE_POLL_MS = 4000
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const TAGS_KEY = 'layerfs-scenarios-tags'
+const savedTags = (): string[] => { try { const v = JSON.parse(localStorage.getItem(TAGS_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((t) => typeof t === 'string') : [] } catch { return [] } }
+const saveTags = (tags: string[]) => { try { localStorage.setItem(TAGS_KEY, JSON.stringify(tags)) } catch { /* the filter lasts this view only */ } }
+
+/** One tag as a chip; pressed while it filters the list. */
+function Chip({ tag, on, onClick }: { tag: string, on: boolean, onClick: () => void }) {
+  return (
+    <button type="button" aria-pressed={on} onClick={onClick} title={on ? `Showing scenarios tagged ${tag}; click to stop filtering by it` : `Show only scenarios tagged ${tag}`}
+      style={{ border: `1px solid ${T.border}`, borderRadius: 999, padding: '0 8px', font: 'inherit', fontSize: 11, lineHeight: '18px', cursor: 'pointer', color: on ? T.text : T.text2, background: on ? T.active : 'transparent' }}>{tag}</button>
+  )
+}
 
 export interface ScenariosPageProps { services: () => RunServices }
 
@@ -25,6 +38,8 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
   const [failures, setFailures] = useState<Record<string, string>>({})
   const [leftovers, setLeftovers] = useState<string[]>([])
   const [cleaning, setCleaning] = useState<string | null>(null)
+  const [wanted, setWanted] = useState<string[]>(savedTags)
+  const toggle = (tag: string) => setWanted((w) => { const next = w.includes(tag) ? w.filter((t) => t !== tag) : [...w, tag]; saveTags(next); return next })
   // runs this view cancelled for the time limit, so each is cancelled once
   const cancelled = useRef(new Set<string>())
 
@@ -82,8 +97,8 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
 
   const runAll = () => {
     if (!info) return
-    const wanted = info.scenarios.filter((s) => s.run?.state !== 'running' && !starting[s.id]).map((s) => s.id)
-    setQueue((q) => [...q.filter((k) => !wanted.includes(k)), ...wanted])
+    const queued = withTags(info.scenarios, wanted).filter((s) => s.run?.state !== 'running' && !starting[s.id]).map((s) => s.id)
+    setQueue((q) => [...q.filter((k) => !queued.includes(k)), ...queued])
   }
   const stopAll = () => {
     setQueue([])
@@ -105,13 +120,14 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
   if (error && !info) return <div role="status" style={{ color: T.danger }}>{error}</div>
   if (!info) return <div role="status" style={{ color: T.text2 }}>Reading the scenarios…</div>
 
-  const offered = info.scenarios
+  const offered = withTags(info.scenarios, wanted)
   const waiting = (s: Scenario) => !!starting[s.id] || queue.includes(s.id)
   const count = (state: ScenarioRun['state']) => offered.filter((s) => s.run?.state === state && !waiting(s)).length
   const queued = queue.length
   const summary = [
     `${count('passed')} passed`, `${count('failed')} failed`, `${going()} running`,
     ...(queued ? [`${queued} queued`] : []), `${offered.filter((s) => !s.run && !waiting(s)).length} not run`,
+    ...(offered.length < info.scenarios.length ? [`${info.scenarios.length - offered.length} hidden by the tags`] : []),
   ].join(' · ')
   const anyGoing = queued > 0 || going() > 0
 
@@ -138,13 +154,18 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
             title={removable.join(', ')}>{`Clean up ${removable.length} ${removable.length === 1 ? 'project' : 'projects'}`}</Button>
         )}
       </div>
+      <div role="group" aria-label="Filter by tag" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: T.caption }}>Tags</span>
+        {allTags(info.scenarios).map((tag) => <Chip key={tag} tag={tag} on={wanted.includes(tag)} onClick={() => toggle(tag)} />)}
+        {wanted.length > 0 && <button type="button" className="lfs-switch" onClick={() => { setWanted([]); saveTags([]) }} style={{ border: 0, background: 'transparent', font: 'inherit', fontSize: 12, color: T.text2, cursor: 'pointer' }}>Clear</button>}
+      </div>
       <div style={{ fontFamily: 'var(--dsw-font-mono, ui-monospace, monospace)', fontSize: 12, color: T.text2 }}>{summary}</div>
       {(error || cleaning) && <div role="status" style={{ color: error ? T.danger : T.text2 }}>{error ?? cleaning}</div>}
       <div style={{ ...card, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 13em) auto', columnGap: 16, alignItems: 'start', padding: '4px 0' }}>
         {['Scenario', 'Latest run', ''].map((h, i) => (
           <div key={i} style={{ padding: '6px 12px', fontSize: 12, color: T.caption, borderBottom: `1px solid ${T.border}` }}>{h}</div>
         ))}
-        {info.scenarios.map((s) => {
+        {offered.map((s) => {
           const k = s.id, run = s.run, failure = failures[k] ?? (run?.state === 'failed' && !starting[k] ? run.error : null)
           const runningHere = run?.state === 'running' && !starting[k]
           return (
@@ -152,7 +173,12 @@ export function ScenariosPage({ services }: ScenariosPageProps) {
               <div style={{ padding: '8px 12px', minWidth: 0 }}>
                 <div style={{ fontWeight: 500 }}>{s.title}</div>
                 {s.blurb && <div style={{ fontSize: 12, color: T.text2 }}>{s.blurb}</div>}
-                <div style={{ fontSize: 12, color: T.caption }}>{s.agents.length === 1 ? 'one agent' : `${s.agents.length} agents`}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                  {s.tags.map((tag) => <Chip key={tag} tag={tag} on={wanted.includes(tag)} onClick={() => toggle(tag)} />)}
+                  <span style={{ fontSize: 12, color: T.caption, marginLeft: 4 }} title={s.counts.calls.length ? `expect checks ${s.counts.calls.join(', ')}` : undefined}>
+                    {[s.counts.agents === 1 ? 'one agent' : `${s.counts.agents} agents`, `${s.counts.steps} steps`, `${s.counts.calls.length} LayerFS calls checked`].join(' · ')}
+                  </span>
+                </div>
                 {failure && <div style={{ fontSize: 12, color: T.danger, overflowWrap: 'anywhere', marginTop: 4 }}>{failure}{failures[k] ? '' : ` · project ${projectOf(s.id)} kept`}</div>}
               </div>
               <div style={{ padding: '8px 12px', fontSize: 12, minWidth: 0 }}>{cell(s)}</div>

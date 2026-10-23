@@ -2,10 +2,15 @@
  "type": "layerfs-scenario",
  "version": 3,
  "title": "Checkpoints",
- "blurb": "A small history replay in four ranges: two agents write on lanes of their own, and the lead merges, publishes and verifies each range. (#352; the gate numbers are fake.)",
+ "blurb": "A small history replay in four ranges. In each range two subagents fork lanes of their own from main and write a folder of two files with layerfs fs; the lead merges the lanes, publishes the range to main and checks that main lists every file written so far.",
  "order": 10,
+ "tags": [
+  "cli",
+  "multi-agent",
+  "merge",
+  "publish"
+ ],
  "fixture": "../../demo-workspace",
- "lib": "scripts/lib.mjs",
  "agents": {
   "root": [
    {
@@ -33,12 +38,7 @@
     "say": "Both lanes of range 1 are done: merging and publishing.",
     "bash": {
      "description": "Range 1: merge the lanes and publish",
-     "run": [
-      [
-       "consolidate",
-       1
-      ]
-     ]
+     "command": "layerfs branch merge r1-a01 r1-a02 r1 -m \"range 1\"\nlayerfs branch publish r1"
     },
     "expect": [
      "branch.merge:Merged",
@@ -49,13 +49,12 @@
     "say": "Checking main at the end of range 1.",
     "bash": {
      "description": "Range 1: verify the checkpoint",
-     "run": [
-      [
-       "verify",
-       1
-      ]
-     ]
-    }
+     "command": "layerfs fs glob main 'r*-a0*/change-*.ts'"
+    },
+    "expect": [
+     "fs.glob:ok"
+    ],
+    "note": "main lists the 4 files ranges 1 to 1 wrote."
    },
    {
     "phase": "Range 2",
@@ -81,12 +80,7 @@
     "say": "Both lanes of range 2 are done: merging and publishing.",
     "bash": {
      "description": "Range 2: merge the lanes and publish",
-     "run": [
-      [
-       "consolidate",
-       2
-      ]
-     ]
+     "command": "layerfs branch merge r2-a01 r2-a02 r2 -m \"range 2\"\nlayerfs branch publish r2"
     },
     "expect": [
      "branch.merge:Merged",
@@ -97,13 +91,12 @@
     "say": "Checking main at the end of range 2.",
     "bash": {
      "description": "Range 2: verify the checkpoint",
-     "run": [
-      [
-       "verify",
-       2
-      ]
-     ]
-    }
+     "command": "layerfs fs glob main 'r*-a0*/change-*.ts'"
+    },
+    "expect": [
+     "fs.glob:ok"
+    ],
+    "note": "main lists the 8 files ranges 1 to 2 wrote."
    },
    {
     "phase": "Range 3",
@@ -129,12 +122,7 @@
     "say": "Both lanes of range 3 are done: merging and publishing.",
     "bash": {
      "description": "Range 3: merge the lanes and publish",
-     "run": [
-      [
-       "consolidate",
-       3
-      ]
-     ]
+     "command": "layerfs branch merge r3-a01 r3-a02 r3 -m \"range 3\"\nlayerfs branch publish r3"
     },
     "expect": [
      "branch.merge:Merged",
@@ -145,13 +133,12 @@
     "say": "Checking main at the end of range 3.",
     "bash": {
      "description": "Range 3: verify the checkpoint",
-     "run": [
-      [
-       "verify",
-       3
-      ]
-     ]
-    }
+     "command": "layerfs fs glob main 'r*-a0*/change-*.ts'"
+    },
+    "expect": [
+     "fs.glob:ok"
+    ],
+    "note": "main lists the 12 files ranges 1 to 3 wrote."
    },
    {
     "phase": "Range 4",
@@ -177,12 +164,7 @@
     "say": "Both lanes of range 4 are done: merging and publishing.",
     "bash": {
      "description": "Range 4: merge the lanes and publish",
-     "run": [
-      [
-       "consolidate",
-       4
-      ]
-     ]
+     "command": "layerfs branch merge r4-a01 r4-a02 r4 -m \"range 4\"\nlayerfs branch publish r4"
     },
     "expect": [
      "branch.merge:Merged",
@@ -193,13 +175,12 @@
     "say": "Checking main at the end of range 4.",
     "bash": {
      "description": "Range 4: verify the checkpoint",
-     "run": [
-      [
-       "verify",
-       4
-      ]
-     ]
-    }
+     "command": "layerfs fs glob main 'r*-a0*/change-*.ts'"
+    },
+    "expect": [
+     "fs.glob:ok"
+    ],
+    "note": "main lists the 16 files ranges 1 to 4 wrote."
    },
    {
     "reply": "All four ranges reached their checkpoints; every gate passed."
@@ -210,13 +191,7 @@
     "say": "Range 1: my lane, two files.",
     "bash": {
      "description": "a01: range 1 on lane r1-a01",
-     "run": [
-      [
-       "work",
-       "a01",
-       1
-      ]
-     ]
+     "command": "layerfs branch fork r1-a01\nlayerfs fs mkdir r1-a01 /r1-a01 -m \"r1 a01 folder\"\nlayerfs fs write r1-a01 /r1-a01/change-1.ts -m \"r1 a01 change 1\" <<'EOF'\n// range 1, a01, change 1\nexport const r1a011 = 11;\nEOF\nlayerfs fs write r1-a01 /r1-a01/change-2.ts -m \"r1 a01 change 2\" <<'EOF'\n// range 1, a01, change 2\nexport const r1a012 = 12;\nEOF"
     },
     "expect": [
      "branch.fork:Forked",
@@ -232,13 +207,7 @@
     "say": "Range 2: my lane, two files.",
     "bash": {
      "description": "a01: range 2 on lane r2-a01",
-     "run": [
-      [
-       "work",
-       "a01",
-       2
-      ]
-     ]
+     "command": "layerfs branch fork r2-a01\nlayerfs fs mkdir r2-a01 /r2-a01 -m \"r2 a01 folder\"\nlayerfs fs write r2-a01 /r2-a01/change-1.ts -m \"r2 a01 change 1\" <<'EOF'\n// range 2, a01, change 1\nexport const r2a011 = 21;\nEOF\nlayerfs fs write r2-a01 /r2-a01/change-2.ts -m \"r2 a01 change 2\" <<'EOF'\n// range 2, a01, change 2\nexport const r2a012 = 22;\nEOF"
     },
     "expect": [
      "branch.fork:Forked",
@@ -254,13 +223,7 @@
     "say": "Range 3: my lane, two files.",
     "bash": {
      "description": "a01: range 3 on lane r3-a01",
-     "run": [
-      [
-       "work",
-       "a01",
-       3
-      ]
-     ]
+     "command": "layerfs branch fork r3-a01\nlayerfs fs mkdir r3-a01 /r3-a01 -m \"r3 a01 folder\"\nlayerfs fs write r3-a01 /r3-a01/change-1.ts -m \"r3 a01 change 1\" <<'EOF'\n// range 3, a01, change 1\nexport const r3a011 = 31;\nEOF\nlayerfs fs write r3-a01 /r3-a01/change-2.ts -m \"r3 a01 change 2\" <<'EOF'\n// range 3, a01, change 2\nexport const r3a012 = 32;\nEOF"
     },
     "expect": [
      "branch.fork:Forked",
@@ -276,13 +239,7 @@
     "say": "Range 4: my lane, two files.",
     "bash": {
      "description": "a01: range 4 on lane r4-a01",
-     "run": [
-      [
-       "work",
-       "a01",
-       4
-      ]
-     ]
+     "command": "layerfs branch fork r4-a01\nlayerfs fs mkdir r4-a01 /r4-a01 -m \"r4 a01 folder\"\nlayerfs fs write r4-a01 /r4-a01/change-1.ts -m \"r4 a01 change 1\" <<'EOF'\n// range 4, a01, change 1\nexport const r4a011 = 41;\nEOF\nlayerfs fs write r4-a01 /r4-a01/change-2.ts -m \"r4 a01 change 2\" <<'EOF'\n// range 4, a01, change 2\nexport const r4a012 = 42;\nEOF"
     },
     "expect": [
      "branch.fork:Forked",
@@ -300,13 +257,7 @@
     "say": "Range 1: my lane, two files.",
     "bash": {
      "description": "a02: range 1 on lane r1-a02",
-     "run": [
-      [
-       "work",
-       "a02",
-       1
-      ]
-     ]
+     "command": "layerfs branch fork r1-a02\nlayerfs fs mkdir r1-a02 /r1-a02 -m \"r1 a02 folder\"\nlayerfs fs write r1-a02 /r1-a02/change-1.ts -m \"r1 a02 change 1\" <<'EOF'\n// range 1, a02, change 1\nexport const r1a021 = 11;\nEOF\nlayerfs fs write r1-a02 /r1-a02/change-2.ts -m \"r1 a02 change 2\" <<'EOF'\n// range 1, a02, change 2\nexport const r1a022 = 12;\nEOF"
     },
     "expect": [
      "branch.fork:Forked",
@@ -322,13 +273,7 @@
     "say": "Range 2: my lane, two files.",
     "bash": {
      "description": "a02: range 2 on lane r2-a02",
-     "run": [
-      [
-       "work",
-       "a02",
-       2
-      ]
-     ]
+     "command": "layerfs branch fork r2-a02\nlayerfs fs mkdir r2-a02 /r2-a02 -m \"r2 a02 folder\"\nlayerfs fs write r2-a02 /r2-a02/change-1.ts -m \"r2 a02 change 1\" <<'EOF'\n// range 2, a02, change 1\nexport const r2a021 = 21;\nEOF\nlayerfs fs write r2-a02 /r2-a02/change-2.ts -m \"r2 a02 change 2\" <<'EOF'\n// range 2, a02, change 2\nexport const r2a022 = 22;\nEOF"
     },
     "expect": [
      "branch.fork:Forked",
@@ -344,13 +289,7 @@
     "say": "Range 3: my lane, two files.",
     "bash": {
      "description": "a02: range 3 on lane r3-a02",
-     "run": [
-      [
-       "work",
-       "a02",
-       3
-      ]
-     ]
+     "command": "layerfs branch fork r3-a02\nlayerfs fs mkdir r3-a02 /r3-a02 -m \"r3 a02 folder\"\nlayerfs fs write r3-a02 /r3-a02/change-1.ts -m \"r3 a02 change 1\" <<'EOF'\n// range 3, a02, change 1\nexport const r3a021 = 31;\nEOF\nlayerfs fs write r3-a02 /r3-a02/change-2.ts -m \"r3 a02 change 2\" <<'EOF'\n// range 3, a02, change 2\nexport const r3a022 = 32;\nEOF"
     },
     "expect": [
      "branch.fork:Forked",
@@ -366,13 +305,7 @@
     "say": "Range 4: my lane, two files.",
     "bash": {
      "description": "a02: range 4 on lane r4-a02",
-     "run": [
-      [
-       "work",
-       "a02",
-       4
-      ]
-     ]
+     "command": "layerfs branch fork r4-a02\nlayerfs fs mkdir r4-a02 /r4-a02 -m \"r4 a02 folder\"\nlayerfs fs write r4-a02 /r4-a02/change-1.ts -m \"r4 a02 change 1\" <<'EOF'\n// range 4, a02, change 1\nexport const r4a021 = 41;\nEOF\nlayerfs fs write r4-a02 /r4-a02/change-2.ts -m \"r4 a02 change 2\" <<'EOF'\n// range 4, a02, change 2\nexport const r4a022 = 42;\nEOF"
     },
     "expect": [
      "branch.fork:Forked",

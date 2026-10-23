@@ -15,7 +15,18 @@ export function nextStarts(queue: readonly string[], going: number): string[] {
 
 /** A run's progress, from the scripted model's replies. */
 export interface ScenarioRun { sessionId: string, state: 'running' | 'passed' | 'failed', done: number, of: number, phase: string | null, error: string | null, timedOut?: boolean, started: number, ended: number | null }
-export interface Scenario { id: string, title: string, blurb: string | null, agents: string[], fixture: string | null, run: ScenarioRun | null }
+/** What the loader counts: agents, steps, and the LayerFS calls the steps' expect covers. */
+export interface ScenarioCounts { agents: number, steps: number, calls: string[] }
+export interface Scenario { id: string, title: string, blurb: string | null, tags: string[], counts: ScenarioCounts, agents: string[], fixture: string | null, run: ScenarioRun | null }
+
+/** The scenarios that carry every tag in `wanted` (all of them when it is empty). */
+export const withTags = (scenarios: readonly Scenario[], wanted: readonly string[]) => scenarios.filter((s) => wanted.every((t) => s.tags.includes(t)))
+/** Every tag the scenarios use, forms first, then workloads and topics, each once. */
+export function allTags(scenarios: readonly Scenario[]): string[] {
+  const order = ['cli', 'sdk', 'node', 'rust']
+  const tags = [...new Set(scenarios.flatMap((s) => s.tags))]
+  return tags.sort((a, b) => (order.includes(a) ? order.indexOf(a) : 9) - (order.includes(b) ? order.indexOf(b) : 9) || a.localeCompare(b))
+}
 export interface MockInfo { workspace: string, preset: string, provider: string, prompt: string, scenarios: Scenario[] }
 export interface SessionRun { scenario: string, run: ScenarioRun | null }
 

@@ -3,8 +3,8 @@
 // shows the Scenarios tab and the Run bar only then (a 404 hides them):
 //   GET  /layerfs-mock                      the Scenarios workspace folder, the
 //                                           preset, provider and first message,
-//                                           and each scenario with its fixture
-//                                           and latest run
+//                                           and each scenario with its tags,
+//                                           counts, fixture and latest run
 //   GET  /layerfs-mock/session/<sessionId>  what that root Session plays, with
 //                                           its run: { scenario, run }
 //   POST /layerfs-mock/session/<sessionId>/stop   stops that root Session's
@@ -39,7 +39,7 @@ async function readJson(req) {
  */
 export function registerRoutes(ctx, { scenarios, progress, workspace, preset, provider, prompt }) {
   const view = (id, s) => ({
-    id, title: s.title, blurb: s.blurb || null, agents: Object.keys(s.agents), fixture: s.fixture,
+    id, title: s.title, blurb: s.blurb || null, tags: s.tags, counts: s.counts, agents: Object.keys(s.agents), fixture: s.fixture,
     run: progress.get(id),
   });
   const handler = async (req, res) => {

@@ -5,10 +5,6 @@
  },
  {
   "op": "mkdir",
-  "path": "/.cargo"
- },
- {
-  "op": "mkdir",
   "path": "/crates"
  },
  {
@@ -50,7 +46,7 @@
  {
   "op": "write",
   "path": "/.cargo/config.toml",
-  "content": "[resolver]\nincompatible-rust-versions = \"fallback\"\n[net]\nretry = 0\n[http]\ntimeout = 30\n"
+  "content": "[build]\ntarget-dir = \"target\"\njobs = 3\nrustc-wrapper = \"\"\nrustc-workspace-wrapper = \"\"\n[resolver]\nincompatible-rust-versions = \"fallback\"\n[net]\nretry = 0\n[http]\ntimeout = 30\n"
  },
  {
   "op": "write",

@@ -3,7 +3,8 @@
 // dsh-layerfs bundle ships it switched off; dsh's Plugins page turns it on.
 // It registers the "layerfs-mock" provider with one model per scenario
 // folder, and, where a web server runs, the /layerfs-mock route the client's
-// Scenarios tab and Run bar read (routes.js). Each run's Session goes in the
+// Scenarios tab and Run bar read (routes.js). The LayerFS Host's
+// layerfsTraces service gives it each bash call's trace lines. Each run's Session goes in the
 // Scenarios workspace, <stateDir>/Scenarios.
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -37,7 +38,7 @@ export function apply(ctx, config) {
   // a scenario whose fixture is a seed file Inits from the seed written out here
   for (const s of scenarios.values()) if (s.seed) s.fixture = writeSeed(s.seed, join(stateDir, "seeds", s.name));
   const progress = new Progress(scenarios, stateDir);
-  ctx.effect(() => ctx.llm.registerAdapter([PROVIDER], createAdapter(LlmAdapter, scenarios, progress)), "layerfs-mock: model");
+  ctx.effect(() => ctx.llm.registerAdapter([PROVIDER], createAdapter(LlmAdapter, scenarios, progress, () => ctx.get("layerfsTraces"))), "layerfs-mock: model");
   const options = { scenarios, progress, workspace, preset: config.preset, provider: PROVIDER, prompt: config.prompt };
   ctx.inject(["webServer", "connection"], (child) => registerRoutes(child, options));
 }

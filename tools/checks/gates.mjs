@@ -23,20 +23,9 @@
 import { execFileSync } from "node:child_process";
 import { compareHistory, historyOf } from "./history.mjs";
 import { trackedChanges, trackedHashes } from "./tree.mjs";
+import { codeOf, inOrder, matches } from "../../packages/mock/src/expect.js";
 
-// an expected entry is a code ("Committed"), method:code, or alternatives
-// sharing what precedes the last ":" before the first "|"
-// ("workspace.commit:Committed|UpToDate", "workspace.exec:exit:1|0")
-export const matches = (code, want) => {
-  const bar = want.indexOf("|");
-  if (bar < 0) return code === want || code.endsWith(`:${want}`);
-  const head = want.slice(0, want.lastIndexOf(":", bar) + 1);
-  return want.slice(head.length).split("|").some((kind) => matches(code, head + kind));
-};
-/** Whether `want` appears in `codes` in order. */
-const inOrder = (codes, want) => { let i = 0; for (const c of codes) if (i < want.length && matches(c, want[i])) i++; return i === want.length; };
-/** A trace line's code: method:kind (ok when the answer has none), or method:code for a refusal. */
-export const codeOf = (line) => `${line.method}:${line.ok ? line.kind ?? "ok" : line.code}`;
+export { codeOf, matches };
 
 /**
  * Each bash step's `expect` against its agent's trace lines. The lines of one

@@ -3,7 +3,9 @@
 // Its answers are the scenario's steps; dsh's own agent loop and tools run
 // every call. A subagent starts on its parent's model, so children get the
 // same scenario and answer as the agent their prompt names. Replies come at
-// once: there is no typing effect and no pause.
+// once: there is no typing effect and no pause. Each bash call's trace lines
+// come from the LayerFS Host's layerfsTraces service, for the live expect
+// check (plan.js).
 import { randomUUID } from "node:crypto";
 import { agentOf, nextReply, offeredTools } from "./plan.js";
 
@@ -14,8 +16,11 @@ export const LABEL = "LayerFS scripted model";
  * @param {typeof import("@deepseek-ai/dsh-llm").LlmAdapter} Base dsh's adapter class
  * @param {Map<string, object>} scenarios compiled scenarios by model id
  * @param {import("./progress.js").Progress} [progress] where each reply's position is reported
+ * @param {() => { callLines(sessionId: string, callId: string): object[] } | undefined} [traces] the Host's layerfsTraces service, while it runs
  */
-export function createAdapter(Base, scenarios, progress) {
+export function createAdapter(Base, scenarios, progress, traces = () => undefined) {
+  /** Session id -> the bash calls whose expect already held. */
+  const checked = new Map();
   class LayerFsScriptedAdapter extends Base {
     providerInfo(provider) { return { id: provider, name: LABEL }; }
 
@@ -40,7 +45,10 @@ export function createAdapter(Base, scenarios, progress) {
         agent = agentOf(scenario, options.messages ?? []);
         const ended = progress?.refusal(options.sessionId);
         if (ended) return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${ended}`, ended.includes("limit") ? "MOCK_TIME_LIMIT" : "MOCK_RUN_ENDED");
-        const reply = nextReply(scenario, agent, options.messages ?? []);
+        const service = traces(), sessionId = String(options.sessionId);
+        if (!checked.has(sessionId)) checked.set(sessionId, new Set());
+        const live = { traceOf: service ? (callId) => service.callLines(sessionId, callId) : null, checked: checked.get(sessionId) };
+        const reply = nextReply(scenario, agent, options.messages ?? [], live);
         progress?.report(scenario.name, agent, reply, options.sessionId);
         if (reply.kind === "error") return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${reply.message}`, "MOCK_SCENARIO_STOPPED");
         if (reply.kind === "text") return yield* text(reply.text);

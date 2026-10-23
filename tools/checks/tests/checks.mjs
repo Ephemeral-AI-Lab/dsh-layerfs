@@ -1,6 +1,5 @@
-// The checks' pure parts: a replay's recorded refs, the expected outcomes
-// gate and the run checker (run.mjs) on a made-up profile. No Docker, no
-// project.
+// The checks' pure parts: the expected outcomes gate and the run checker
+// (run.mjs) on a made-up profile. No Docker, no project.
 //   node tools/checks/tests/checks.mjs
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -8,24 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codeOf, expectedOutcomes, matches, openContainers } from "../gates.mjs";
 import { checkRun } from "../run.mjs";
-import { differenceAt, runIndex } from "../refs.mjs";
-
-// a ref counts the record's Commits; skipped optional ones and extra ones shift it
-const none = { skipped: [], extra: [] };
-assert.equal(runIndex(3, none), 3);
-// Crew's people.5: the record's #1 and #4 were optional and this run skipped both
-assert.equal(runIndex(6, { skipped: [1, 4], extra: [] }), 4);
-// a ref to a skipped Commit names the one before it; none before: -1
-assert.equal(runIndex(4, { skipped: [1, 4], extra: [] }), 2);
-assert.equal(runIndex(0, { skipped: [0], extra: [] }), -1);
-// an extra Commit at this run's #2 moves every later ref one on
-assert.equal(runIndex(1, { skipped: [], extra: [2] }), 1);
-assert.equal(runIndex(3, { skipped: [], extra: [2] }), 4);
-// where each difference is noted, from the Branch's own Commits after the call
-assert.equal(differenceAt("skipped", 1, none), 1); // record #0 made, #1 skipped
-assert.equal(differenceAt("skipped", 3, { skipped: [1], extra: [] }), 4);
-assert.equal(differenceAt("extra", 3, none), 2);
-assert.equal(differenceAt("skipped", 3, { skipped: [], extra: [2] }), 2);
 
 // expected outcomes: bash calls in the order they began, though a background
 // call's first line may end after a later call's lines; codes are the SDK's
@@ -83,7 +64,7 @@ try {
   const scenarios = join(home, "scenarios"), profile = join(home, "profile");
   mkdirSync(join(scenarios, "small"), { recursive: true });
   writeFileSync(join(scenarios, "small", "scenario.json"), JSON.stringify({
-    type: "layerfs-scenario", version: 3, title: "Small",
+    type: "layerfs-scenario", version: 3, title: "Small", tags: ["cli", "merge"],
     agents: {
       root: [{ bash: { description: "fork", command: "layerfs branch fork cart" }, expect: ["branch.fork:Forked"] }, { subagent: { description: "helper", prompt: "Help." } }, { reply: "Waiting.", until: ["helper"] }, { bash: { description: "log", command: "layerfs branch list_commits cart" } }],
       helper: [{ bash: { description: "apply", command: 'layerfs fs apply cart --from "{{scenario}}/changes/000.json"' }, expect: ["fs.apply:Committed|UpToDate"] }],

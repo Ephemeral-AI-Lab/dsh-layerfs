@@ -2,8 +2,14 @@
  "type": "layerfs-scenario",
  "version": 3,
  "title": "Parallel Branches",
- "blurb": "Two subagents work at the same time on Branches of their own. The main agent publishes one; publish overwrites main, so it asks the other to merge main in first.",
+ "blurb": "Two subagents fork header and footer Branches from main at the same time, each writes its component with layerfs fs write and runs the tests in a Workspace of its Branch. The lead publishes header; publish overwrites main, so footer merges main into footer-2 before the lead publishes that.",
  "order": 2,
+ "tags": [
+  "cli",
+  "multi-agent",
+  "merge",
+  "publish"
+ ],
  "fixture": "../../demo-workspace",
  "agents": {
   "root": [
@@ -34,10 +40,10 @@
     "say": "Both are ready. Only I publish to main: header first.",
     "bash": {
      "description": "Publish header to main",
-     "script": "scripts/publish-header.mjs"
+     "command": "layerfs branch publish header"
     },
     "expect": [
-     "Added"
+     "branch.publish:Added"
     ],
     "note": "main moves to a new Layer with the header."
    },
@@ -58,10 +64,11 @@
     "say": "footer-2 has both. Publishing it.",
     "bash": {
      "description": "Publish footer-2 and check main",
-     "script": "scripts/publish-footer.mjs"
+     "command": "layerfs branch publish footer-2\nlayerfs fs list main /app"
     },
     "expect": [
-     "Added"
+     "branch.publish:Added",
+     "fs.list:ok"
     ],
     "note": "main has both changes, and nothing was overwritten."
    },
@@ -74,14 +81,17 @@
     "say": "Forking header and writing the component with fs; then a Workspace to test it.",
     "bash": {
      "description": "Fork header, write and test it",
-     "script": "scripts/header-work.mjs"
+     "command": "layerfs branch fork header\nlayerfs fs write header /app/header.tsx -m \"add app/header.tsx\" <<'EOF'\nexport const Header = () => <header>LayerFS</header>;\nEOF\nsb=$(layerfs sandbox create | jq -r .sandbox)\nws=$(layerfs workspace mount \"$sb\" header | jq -r .ws)\nlayerfs workspace exec \"$ws\" \"sh test.sh && ls app\" --stream\nlayerfs workspace unmount \"$ws\"\nlayerfs sandbox close \"$sb\"\nlayerfs branch list_commits header --page-size 1"
     },
     "expect": [
-     "Forked",
+     "branch.fork:Forked",
      "fs.write:Committed",
-     "Mounted",
-     "exit:0",
-     "Unmounted"
+     "sandbox.create:ok",
+     "workspace.mount:Mounted",
+     "workspace.exec:exit:0",
+     "workspace.unmount:Unmounted",
+     "sandbox.close:Closed",
+     "branch.list_commits:ok"
     ]
    },
    {
@@ -93,14 +103,17 @@
     "say": "Forking footer and writing the component with fs; then a Workspace to test it.",
     "bash": {
      "description": "Fork footer, write and test it",
-     "script": "scripts/footer-work.mjs"
+     "command": "layerfs branch fork footer\nlayerfs fs write footer /app/footer.tsx -m \"add app/footer.tsx\" <<'EOF'\nexport const Footer = () => <footer>© 2026</footer>;\nEOF\nsb=$(layerfs sandbox create | jq -r .sandbox)\nws=$(layerfs workspace mount \"$sb\" footer | jq -r .ws)\nlayerfs workspace exec \"$ws\" \"sh test.sh && ls app\" --stream\nlayerfs workspace unmount \"$ws\"\nlayerfs sandbox close \"$sb\"\nlayerfs branch list_commits footer --page-size 1"
     },
     "expect": [
-     "Forked",
+     "branch.fork:Forked",
      "fs.write:Committed",
-     "Mounted",
-     "exit:0",
-     "Unmounted"
+     "sandbox.create:ok",
+     "workspace.mount:Mounted",
+     "workspace.exec:exit:0",
+     "workspace.unmount:Unmounted",
+     "sandbox.close:Closed",
+     "branch.list_commits:ok"
     ]
    },
    {
@@ -110,10 +123,11 @@
     "say": "Merging main into footer-2; footer itself stays as it is.",
     "bash": {
      "description": "Merge main into footer-2",
-     "script": "scripts/merge-main.mjs"
+     "command": "layerfs branch merge footer main footer-2 -m \"bring in the header\"\nlayerfs fs list footer-2 /app"
     },
     "expect": [
-     "Merged"
+     "branch.merge:Merged",
+     "fs.list:ok"
     ],
     "note": "a + b = c: footer and main stay as they are; footer-2 holds both files."
    },

@@ -2,26 +2,51 @@
 
 Written by `node tools/replay/convert.mjs crew` from `0c7d9c47c1^` of the layerfs repository (`dsh/scenarios/crew/`). Rerun it to rewrite this folder; do not edit by hand.
 
+Form `cli`: every bash step is plain `layerfs` lines. Each step that runs a command creates its own Sandbox from the recorded runtime image (`image`), mounts a new Workspace, runs, Commits, unmounts and closes the Sandbox. The recorded outcome codes are each step's `expect`, checked live; the record id is each step's `note`.
+
 | | count |
 | --- | ---: |
 | recorded steps (bash) | 1549 |
-| steps kept | 565 |
+| bash steps kept | 354 |
 | coordination steps (subagent, send_message, reply) | 613 |
-| turns left with no call, kept by one `echo` | 78 |
+| turns left with no call, kept by one `echo` | 113 |
 | commands recorded | 304 |
-| removed: identical re-run on an unchanged Branch | 0 |
-| removed: verification off | 246 |
-| commands kept | 58 |
-| recorded seconds of the commands kept | 298.8 |
+| dropped: identical re-run on an unchanged Branch | 0 |
+| dropped: verification off | 246 |
+| dropped: date-dependent | 1 |
+| commands kept | 57 |
+| recorded seconds of the commands kept | 289.1 |
 | recorded seconds of all commands | 2860.9 |
-| Workspace mounts kept / recorded | 58 / 304 |
-| Workspace Commits kept / recorded | 58 / 304 |
-| recorded Committed Commits this replay does not make | 40 (0 not optional in the recorded history) |
+| Workspace mounts now / recorded | 57 / 304 |
+| Workspace Commits kept / recorded | 57 / 304 |
+| Sandbox creates now / recorded | 57 / 18 (+39) |
+| recorded Committed Commits this scenario does not make | 40 (0 not optional in the recorded history) |
 | writes (fs.apply) | 219 |
+| forks from a recorded Commit: own id / a reply's id / Branch head | 5 / 2 / 1 |
+| forks from a Layer of main (now main's head) | 0 |
 
-Commands removed as identical re-runs (step: same as step):
+Forks from a recorded Commit or Layer:
+
+- lead-193 (root) forks work-w04-w05-w06-checkpoint from work.5#26: work.5#25 from work-b's W2b-060, carried to root by work-b's reply closing that turn; this scenario does not make work.5#26 (its command is dropped), so work.5#25, the one before it
+- lead-256 (root) forks insight.4 from people.5#6: people.5#6 from people's P1d-129, carried to root by people's reply closing that turn
+- lead-267 (root) forks work.6 from people.5#10: people.5's head, which the record forked from (its step P1d-161 makes a Commit that may be UpToDate, so the ids it prints are not fixed)
+- lead-312 (root) forks people.6 from int-depth-spine#0: its own int-depth-spine#0 from lead-307
+- lead-314 (root) forks insight.5 from int-depth-spine#0: its own int-depth-spine#0 from lead-307
+- lead-324 (root) forks lead-acceptance-review.1 from int-depth-spine#0: its own int-depth-spine#0 from lead-307
+- lead-352 (root) forks insight.6 from int-depth-admin#0: its own int-depth-admin#0 from lead-351
+- lead-364 (root) forks insight.7 from int-filter-workflow.1#0: its own int-filter-workflow.1#0 from lead-363
+
+Workspaces the record had mounted on one Branch at once, kept together in one step:
 
 - none
+
+Commands dropped as identical re-runs (step: same as step):
+
+- none
+
+Commands dropped as date-dependent:
+
+- P1e-059 P1e targeted HTTP and canonical work revision regression exec: its workflow-impact test 16, "confirmed category changes reuse canonical issue and sprint ledger updates", reads today's burndown day of a sprint that ended 2026-10-20 (an app test unrelated to LayerFS)
 
 Commands kept that repeat an earlier kept command on the same Branch, and why they run again:
 
@@ -63,7 +88,6 @@ Verification commands kept (install, a Branch's last build or test, or the lates
 - W1c-061 W09/W10: prepare and corrected pure and same-timestamp HTTP field resolution proofs (work.6; prepare, test; 6.5 s)
 - I2c-083 I-09: final source counter physical and live-process census (insight.4; build; 0.4 s)
 - P1e-054 P1e prepare people build and syntax exec (people.6; build, prepare; 6.0 s)
-- P1e-059 P1e targeted HTTP and canonical work revision regression exec (people.6; prepare, test; 9.8 s)
 - lead-327 L0: changed A13 census tooling proof and diagnostic current runtime smoke; formal acceptance remains open (lead-acceptance-review.1; build, prepare; 11.3 s)
 - P1e-095 P1e final build and syntax exec (people.6; build, prepare; 6.1 s)
 - I1c-045 I-11 I-12 product build and syntax before tests exec (insight.6; build, prepare; 6.2 s)

@@ -11,6 +11,15 @@
    "type": "file",
    "mode": 420,
    "text": "ref: refs/heads/main\n"
+  },
+  "/.cargo": {
+   "type": "dir",
+   "mode": 493
+  },
+  "/.cargo/config.toml": {
+   "type": "file",
+   "mode": 420,
+   "text": "[build]\ntarget-dir = \"target\"\njobs = 3\nrustc-wrapper = \"\"\nrustc-workspace-wrapper = \"\"\n\n[net]\nretry = 0\n"
   }
  }
 }
