@@ -2,10 +2,14 @@
 // default; another folder can be browsed to and picked: in the page when dsh
 // composes the browse picker, else in the Host's native folder dialog. Either way the new project becomes the workspace folder's
 // default, the project new sessions there use until they choose another.
+// An optional time limit (minutes; blank is LayerFS's 5 min default) bounds
+// the Init. One that runs out offers to start again with a longer limit: the
+// form refilled, for the user to start; nothing restarts on its own.
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api, type InitJob, type Project } from './api.ts'
-import { InitProgress } from './Progress.tsx'
+import { InitProgress, InitTimedOut } from './Progress.tsx'
+import { limitFromMinutes, limitOf, minutes, nextMinutes, QUICK_MINUTES, timedOut } from './initLimit.ts'
 
 interface Entry { name: string, path: string, hidden: boolean }
 interface Listing { path: string, home: string, crumbs: Entry[], entries: Entry[], truncated: boolean }
@@ -30,6 +34,8 @@ export function InitDialog({ folder, directories, onDone, onClose }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [job, setJob] = useState<InitJob | null>(null)
+  const [limit, setLimit] = useState('')
+  const [failed, setFailed] = useState<InitJob | null>(null)
 
   const open = async (path?: string) => {
     setError(null)
@@ -49,8 +55,14 @@ export function InitDialog({ folder, directories, onDone, onClose }: {
   }, [busy, onClose])
 
   const init = async () => {
-    setBusy(true); setError(null)
-    try { onDone((await api.init(folder, name.trim() || undefined, source, setJob)).project) } catch (e) { setError((e as Error).message); setBusy(false); setJob(null) }
+    const { ms, error: invalid } = limitFromMinutes(limit)
+    if (invalid) { setError(invalid); return }
+    setBusy(true); setError(null); setFailed(null)
+    try { onDone((await api.init(folder, name.trim() || undefined, source, setJob, false, ms)).project) } catch (e) { setError((e as Error).message); setFailed((e as { job?: InitJob }).job ?? null); setBusy(false); setJob(null) }
+  }
+  // the same folder and name, the next limit filled in; the user starts it
+  const again = (job: InitJob) => {
+    setSource(job.source); setName(job.name); setLimit(String(nextMinutes(limitOf(job)))); setFailed(null); setError(null)
   }
 
   return createPortal(
@@ -96,11 +108,25 @@ export function InitDialog({ folder, directories, onDone, onClose }: {
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${base(source)} (default)`} disabled={busy} style={{ ...button, cursor: 'text', padding: '6px 8px' }} />
         </label>
 
+        <div style={{ display: 'grid', gap: 4 }}>
+          <span style={{ color: muted }}>Time limit <span style={{ opacity: 0.8 }}>(optional)</span></span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+            {QUICK_MINUTES.map((m) => {
+              const on = limit.trim() === String(m)
+              return <button key={m} aria-pressed={on} disabled={busy} style={on ? primary : button} onClick={() => setLimit(on ? '' : String(m))}>{m} min</button>
+            })}
+            <input aria-label="Time limit in minutes" inputMode="numeric" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder={`${minutes(limitOf({ timeout: null }))} min (default)`} disabled={busy} style={{ ...button, cursor: 'text', padding: '4px 8px', width: 130 }} />
+            {limit.trim() !== '' && <span style={{ color: muted }}>min</span>}
+          </div>
+        </div>
+
         <div style={{ color: muted }}>
           New sessions in <code style={{ overflowWrap: 'anywhere' }}>{folder}</code> use the project until they choose another{source !== folder ? '; its first version holds the files of the folder above' : ''}.
         </div>
         {job && busy && <InitProgress job={job} />}
-        {error && <div style={{ color: 'var(--dsh-color-fg-danger, #d33)' }}>{error}</div>}
+        {failed && timedOut(failed)
+          ? <InitTimedOut job={failed} onAgain={() => again(failed)} />
+          : error && <div style={{ color: 'var(--dsh-color-fg-danger, #d33)' }}>{error}</div>}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button style={button} disabled={busy} onClick={onClose}>Cancel</button>

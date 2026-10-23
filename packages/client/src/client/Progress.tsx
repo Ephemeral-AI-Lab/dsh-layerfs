@@ -3,6 +3,7 @@
 // imports, its counts over the Host's totals fill it (jobFraction).
 import { useEffect, useState } from 'react'
 import type { InitJob } from './api.ts'
+import { limitOf, nextMinutes, timedOutText } from './initLimit.ts'
 
 const RULE = `@keyframes lfs-progress { from { left: -40%; } to { left: 100%; } }`
 
@@ -95,6 +96,22 @@ export function InitProgress({ job }: { job: InitJob }) {
     <div style={{ display: 'grid', gap: 6 }}>
       <span style={{ fontSize: 12, opacity: 0.75 }}>{jobText(job, now)}</span>
       <ProgressBar fraction={jobFraction(job)} />
+    </div>
+  )
+}
+
+/**
+ * A failed Init that ran into its time limit (initLimit.ts timedOut): the
+ * limit and how far the import got, and a button that refills the form with
+ * the next limit for the user to start. Other failures keep their message.
+ */
+export function InitTimedOut({ job, onAgain }: { job: InitJob, onAgain: () => void }) {
+  return (
+    <div role="alert" style={{ display: 'grid', gap: 8, justifyItems: 'start', color: 'var(--dsh-color-fg-danger, #d33)' }}>
+      <span>{timedOutText(job)}</span>
+      <button onClick={onAgain} style={{ font: 'inherit', fontSize: 12, padding: '4px 12px', borderRadius: 6, border: '1px solid var(--dsh-color-border, #8884)', background: 'transparent', color: 'var(--dsh-color-fg, #111)', cursor: 'pointer' }}>
+        Start again with a longer limit ({nextMinutes(limitOf(job))} min)
+      </button>
     </div>
   )
 }

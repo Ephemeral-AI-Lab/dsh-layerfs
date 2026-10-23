@@ -81,6 +81,10 @@ export interface InitJob {
   name: string
   source: string
   started: number
+  /** when it ended (done or failed), null while it runs */
+  ended: number | null
+  /** its own time limit in ms, null for LayerFS's default */
+  timeout: number | null
   step: 'scan' | 'volume' | 'import' | 'done' | 'failed'
   scanned: Counts | null
   totals: Counts | null
@@ -92,13 +96,18 @@ export interface InitJob {
 const POLL_MS = 300
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-/** Starts an Init and reads its job until it ends; `onProgress` sees each read. `empty`: a new empty project with a random name. */
-async function init(folder: string, name?: string, source?: string, onProgress: (job: InitJob) => void = () => {}, empty = false): Promise<{ project: Project }> {
-  let { job } = await call<{ job: InitJob }>('POST', '/init', { folder, name, source, ...(empty ? { empty } : {}) })
+/**
+ * Starts an Init and reads its job until it ends; `onProgress` sees each read.
+ * `empty`: a new empty project with a random name. `timeout`: its time limit
+ * in ms, sent only when set (LayerFS's default otherwise). A failed Init
+ * throws its error with the ended job as `job`.
+ */
+async function init(folder: string, name?: string, source?: string, onProgress: (job: InitJob) => void = () => {}, empty = false, timeout?: number): Promise<{ project: Project }> {
+  let { job } = await call<{ job: InitJob }>('POST', '/init', { folder, name, source, ...(empty ? { empty } : {}), ...(timeout !== undefined ? { timeout } : {}) })
   for (;;) {
     onProgress(job)
     if (job.step === 'done') return { project: job.project! }
-    if (job.step === 'failed') throw Object.assign(new Error(job.error!.message), { code: job.error!.code })
+    if (job.step === 'failed') throw Object.assign(new Error(job.error!.message), { code: job.error!.code, job })
     await pause(POLL_MS)
     job = (await call<{ job: InitJob }>('GET', `/init/${encodeURIComponent(job.id)}`)).job
   }
