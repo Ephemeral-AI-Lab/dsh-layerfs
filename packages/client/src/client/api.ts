@@ -47,10 +47,10 @@ export interface ProjectRuntime {
   /** the daemons have not answered yet: Sandboxes from Docker and a ping, Workspaces from the agents' traces */
   pending?: boolean
 }
-/** The image a Sandbox runs: its exact digest and first tag (Host runtime.js); one project's Sandboxes may differ. */
-export interface SandboxImage { image: string | null, imageName?: string | null }
-/** A Sandbox's image as shown: its tag, else the digest's first 12 hex digits. */
-export const imageLabel = (s: SandboxImage) => s.imageName ?? (s.image ? s.image.replace(/^sha256:/, '').slice(0, 12) : null)
+/** The image a Sandbox runs: its exact digest (runtime.sandbox.list); one project's Sandboxes may differ. */
+export interface SandboxImage { image: string | null }
+/** A Sandbox's image as shown: the digest's first 12 hex digits. */
+export const imageLabel = (s: SandboxImage) => (s.image ? s.image.replace(/^sha256:/, '').slice(0, 12) : null)
 /** Every project's Sandboxes and the shared parts (GET /runtime). */
 export interface Overview {
   level: Level
@@ -61,9 +61,20 @@ export interface Overview {
   oldStore: { name: string, id: string, state: string, message: string } | null
   /** agents' LayerFS calls running now, in any project: a worker restart cuts them off */
   calls: number
-  disk: { host: number | null, vm: number | null }
-  projects: { name: string, containers: number, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level } & SandboxImage)[], workspaces: number, level: Level, note: string | null }[]
+  /** free bytes on the host (the LayerFS home's disk) and in Docker's volumes (runtime.status().disk); null: not read */
+  disk: { host: number | null, docker: number | null, dockerLevel: Level | null }
+  /** the runtime's sweep of stopped Sandboxes when it opened (runtime.status().sweep); null when off */
+  sweep: { state: 'running' } | { state: 'done', at: string, reclaimed: Record<string, string[]>, failed: { project: string, code: string, message: string }[] } | { state: 'failed', at: string, code: string, message: string } | null
+  /** every warning, worst first; none when all is well */
+  reasons: { level: Level, text: string }[]
+  /** projects with a running Sandbox or a problem */
+  projects: { name: string, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level, scratch: number | null } & SandboxImage)[], workspaces: number, level: Level, note: string | null }[]
+  /** the other projects, with their Store volume's size (null: not known) */
+  idle: { name: string, volume: number | null }[]
+  /** stopped Sandbox containers, or ones of no project of this home */
   leftovers: { name: string, project: string, running: boolean, status: string }[]
+  /** this home's Store volumes no project uses, and volumes no LayerFS home claims; null when Docker's volumes were not read */
+  volumes: { orphans: { name: string, size: number | null, project: string | null, containers: number, removable: boolean }[], unknown: { count: number, size: number } } | null
   totals: { projects: number, sandboxes: number, workspaces: number }
 }
 /** One traced attempt of a range of a recorded history replay run (Host runs.js). */
@@ -180,6 +191,7 @@ export const api = {
   /** runtime.worker.restart({ confirm: 'restart' }): restarts the worker; with the older Store container running, stops and removes it, then starts the worker. */
   restartStore: () => call<Overview['store']>('POST', '/runtime/store/restart', { confirm: 'restart' }),
   cleanLeftovers: (names: string[]) => call<{ results: { name: string, ok: boolean, message?: string }[] }>('POST', '/runtime/leftovers', { names }),
+  removeVolumes: (names: string[]) => call<{ results: { name: string, ok: boolean, message?: string }[] }>('POST', '/runtime/volumes', { names }),
   projectRuntime: (name: string) => call<ProjectRuntime>('GET', `/project/${encodeURIComponent(name)}/runtime`),
   /** Recorded history replay runs in the Host's runs folder (`dir`). */
   runs: () => call<{ dir: string, runs: Run[] }>('GET', '/runs'),
