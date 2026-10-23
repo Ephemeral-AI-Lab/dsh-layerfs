@@ -108,6 +108,8 @@ export const missingDeployment = (spec) => ["image", "daemon", ...(spec.worker ?
 export const runtimeSettings = (spec) => ({
   home: spec.home, image: spec.image, daemon: spec.daemon, bundle: spec.bundle, docker: spec.docker, volumes: spec.volumes,
   traceDir: spec.traceDir, containerPrefix: spec.prefix, stateDir: runtimeState(spec), adapter: "dsh", pollMs: spec.pollMs,
+  // once at open, the runtime deletes this home's stopped Sandboxes in the background (status().sweep)
+  sweep: true,
   ...(spec.wsl ? { wsl: spec.wsl } : {}),
 });
 

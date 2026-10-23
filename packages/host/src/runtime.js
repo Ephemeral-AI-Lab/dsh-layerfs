@@ -4,34 +4,31 @@
 //                 each mounted Workspace with its Branch, uncommitted changes,
 //                 background processes, and who mounted it (the agents' traces)
 //   all projects  Docker, the home's worker (macOS, Windows) and the older
-//                 Store container, free disk and leftovers from the runtime
-//                 (@layerfs/runtime status and sandbox calls); each project's
-//                 Sandbox containers from one `docker ps`, each daemon pinged
-//                 (a TCP connect) and its Workspaces from the agents' traces:
-//                 no daemon is asked for its state (quickSandboxes)
+//                 Store container, free disk, the last sweep, Sandbox
+//                 containers with their scratch, Store volumes and leftovers,
+//                 all from @layerfs/runtime (status, sandbox.list,
+//                 volume.list, sandbox.list_leftovers); each running
+//                 Sandbox's daemon pinged (a TCP connect) and its Workspaces
+//                 from the agents' traces: no daemon is asked for its state
+//                 (quickSandboxes). The Host runs no Docker command itself.
 // A read starts nothing, and waits for a project's Sandboxes only
 // trees.sandboxMs: after that the tab shows the quick view (`pending`) while
 // the daemons' answer is read on. An action is one SDK, runtime or Docker
 // call, never repeated; one that would cut off an agent's call running in
 // that Workspace is refused.
-import { execFile } from "node:child_process";
 import { connect } from "node:net";
-import { promisify } from "node:util";
 import { openRuntime } from "./config.js";
 import { within } from "./layerfs-client.js";
 
-const run = promisify(execFile);
 /** Workspaces one Sandbox's daemon admits (the SDK's daemon setup, `namespaces`). */
 export const CAPACITY = 16;
 /** A Workspace with uncommitted changes and no call for this long is flagged. */
 export const LEFT_MS = 10 * 60_000;
-const DOCKER_MS = 5_000, PING_MS = 1_000;
+const PING_MS = 1_000;
+/** Docker's free disk below these is degraded, then down (the host disk policy's 20 and 10 GiB). */
+export const DOCKER_LOW = 20 * 2 ** 30, DOCKER_CRITICAL = 10 * 2 ** 30;
 const RANK = { down: 0, degraded: 1, ok: 2 };
 
-// Docker of this home: on Windows, the WSL distribution's engine
-const docker = (spec, ...args) => (spec.wsl
-  ? run("wsl.exe", ["--distribution", spec.wsl.distribution, "--user", spec.wsl.user, "--exec", "docker", "-H", `unix://${spec.docker}`, ...args], { timeout: DOCKER_MS, windowsHide: true })
-  : run("docker", ["-H", `unix://${spec.docker}`, ...args], { timeout: DOCKER_MS })).then((r) => r.stdout.trim());
 const key = (sandbox, path) => `${sandbox}\n${path}`;
 const worst = (levels) => levels.reduce((a, b) => (RANK[b] < RANK[a] ? b : a), "ok");
 const refuse = (status, code, message) => Object.assign(new Error(message), { status, code });
@@ -45,7 +42,7 @@ export async function projectRuntime(trees, collector, project, now = Date.now()
   {
     const [read, listed] = await Promise.all([within(trees.snapshot(project), trees.sandboxMs), within(trees.processes(project), trees.sandboxMs)]);
     if (read.late || listed.late) {
-      const sandboxes = await quickSandboxes(collector, project, await containersOf(trees.spec), now);
+      const sandboxes = await quickSandboxes(collector, project, containersOf(await (await openRuntime(trees.spec)).sandbox.list()), now);
       return { project: project.name, sandboxes, gone: [], pending: true, level: worst(sandboxes.map((s) => s.level)) };
     }
     const snap = read.value, processes = listed.value.items ?? [];
@@ -74,6 +71,7 @@ export async function projectRuntime(trees, collector, project, now = Date.now()
 
 /**
  * A project's running Sandbox containers (`containers`, from containersOf),
+ * each with its scratch (the container's writable layer, from the runtime),
  * each daemon pinged (it accepts a connection within PING_MS), with the
  * Workspaces the agents' traces mounted there. No daemon is asked anything,
  * so a busy or stuck one cannot hold the read; uncommitted changes and
@@ -90,7 +88,7 @@ export async function quickSandboxes(collector, project, containers, now = Date.
         agent: by.agent ?? null, mountedAt: by.at, idleMs: inUse ? null : Math.max(0, now - by.lastAt), busy: inUse, processes: [], level: "ok",
       };
     });
-    return { id: c.sandbox, name: c.name, image: c.image || null, capacity: CAPACITY, workspaces, answers, level: answers ? "ok" : "down" };
+    return { id: c.sandbox, name: c.name, image: c.image || null, scratch: c.scratch, capacity: CAPACITY, workspaces, answers, level: answers ? "ok" : "down" };
   }));
 }
 
@@ -106,45 +104,76 @@ function workerCard(worker) {
   return { level, state: ["running", "stopped", "missing"].includes(state) ? state : "unknown", name, ...(build ? { build } : {}), ...(expected ? { expected } : {}), ...(startedAt ? { startedAt } : {}), ...(answering === undefined ? {} : { answering }) };
 }
 
-/** Every project's Sandboxes and the shared parts, as the All projects page draws them. */
+/**
+ * Every project's Sandboxes and the shared parts, as the All projects page
+ * draws them. A project with a running Sandbox gets a card (problems first);
+ * the others are listed idle with their Store volume's size. Leftovers are
+ * stopped or ownerless Sandbox containers and this home's Store volumes no
+ * project uses; volumes of unknown owner are only counted. `reasons` names
+ * every warning, worst first; none when all is well.
+ */
 export async function overview(spec, bindings, trees, collector) {
   const runtime = await openRuntime(spec), status = await runtime.status();
-  const engine = status.docker;
-  // Docker answered the runtime; a listing that fails now draws no containers rather than no page
-  const containers = engine.level === "ok" ? await containersOf(spec).catch(() => []) : [];
+  const engine = status.docker, up = engine.level === "ok";
+  // Docker answered the runtime; a listing that fails now draws less, not no page (null: not read)
+  const [listed, volumes, leftovers] = up
+    ? await Promise.all([runtime.sandbox.list().catch(() => null), runtime.volume.list().catch(() => null), runtime.sandbox.list_leftovers().catch(() => [])])
+    : [null, null, []];
+  const containers = containersOf(listed ?? []);
   const store = workerCard(status.worker);
-  const disk = { host: status.disk.home, vm: spec.worker ? status.disk.volumes : null };
-  const projects = bindings.projects();
-  const cards = await Promise.all(projects.map(async (p) => {
+  const disk = { host: status.disk?.home ?? null, docker: status.disk?.volumes ?? null };
+  disk.dockerLevel = disk.docker === null ? null : disk.docker < DOCKER_CRITICAL ? "down" : disk.docker < DOCKER_LOW ? "degraded" : "ok";
+  const cards = [], idle = [];
+  for (const p of bindings.projects()) {
     const own = containers.filter((c) => c.project === p.name);
-    const card = { name: p.name, containers: own.length, sandboxes: [], workspaces: 0, level: "ok", note: null };
-    // a project with nothing running is read from Docker alone: no client, no Store opened
-    if (!own.some((c) => c.running)) return card;
-    // a project's Sandboxes from Docker and pings
+    const card = { name: p.name, sandboxes: [], workspaces: 0, level: "ok", note: null };
+    if (!own.some((c) => c.running)) {
+      const volume = volumes?.find((v) => v.name === p.volume) ?? null;
+      // a Store volume Docker no longer has: the project cannot run
+      if (volumes && !volume) cards.push({ ...card, level: "down", note: `its Store volume ${p.volume} is missing` });
+      else idle.push({ name: p.name, volume: volume?.size ?? null });
+      continue;
+    }
     let sandboxes;
     try {
       sandboxes = await quickSandboxes(collector, p, own);
     } catch (error) {
-      return { ...card, level: "down", note: error.message };
+      cards.push({ ...card, level: "down", note: error.message });
+      continue;
     }
-    card.sandboxes = sandboxes.map((s) => ({ id: s.id, name: s.name, image: s.image, used: s.workspaces.length, capacity: s.capacity, level: s.level }));
+    card.sandboxes = sandboxes.map((s) => ({ id: s.id, name: s.name, image: s.image, scratch: s.scratch, used: s.workspaces.length, capacity: s.capacity, level: s.level }));
     card.workspaces = sandboxes.reduce((n, s) => n + s.workspaces.length, 0);
     card.level = worst(sandboxes.map((s) => (s.level === "ok" && s.workspaces.length >= CAPACITY ? "degraded" : s.level)));
     const silent = sandboxes.filter((s) => s.answers === false);
     card.note = silent.length ? `${silent.map((s) => s.name).join(", ")} does not accept a connection` : null;
-    return card;
-  }));
+    cards.push(card);
+  }
   cards.sort((a, b) => RANK[a.level] - RANK[b.level] || b.workspaces - a.workspaces || a.name.localeCompare(b.name));
-  // a Sandbox container of no project of this home, or one left stopped
-  const leftovers = engine.level === "ok" ? await runtime.sandbox.list_leftovers().catch(() => []) : [];
-  if (engine.level === "ok") await nameImages(spec, cards.flatMap((c) => c.sandboxes));
+  // this home's Store volumes no project uses; volumes no LayerFS home claims are only counted
+  const orphans = (volumes ?? []).filter((v) => v.owner === "this" && !v.live).map(({ name, size, project, containers: users, removable }) => ({ name, size, project, containers: users, removable }));
+  const unknown = (volumes ?? []).filter((v) => v.owner === "unknown");
   const sandboxes = cards.reduce((n, c) => n + c.sandboxes.length, 0), workspaces = cards.reduce((n, c) => n + c.workspaces, 0);
   // macOS: the older Store container, while it exists; a running one keeps the worker from starting
   const oldStore = status.oldStore ?? null;
+  const sweep = status.sweep ?? null;
+  const reasons = [];
+  if (!up) reasons.push({ level: "down", text: "Docker not answering" });
+  if (oldStore?.state === "running") reasons.push({ level: "degraded", text: "Store calls wait for an upgrade" });
+  else if (store && store.level !== "ok") reasons.push({ level: store.level, text: store.state !== "running" ? "Store calls stopped" : store.answering === false ? "Store calls not answering" : "Store calls run an older build" });
+  if (disk.dockerLevel && disk.dockerLevel !== "ok") reasons.push({ level: disk.dockerLevel, text: disk.dockerLevel === "down" ? "Docker disk nearly full" : "Docker disk low" });
+  const troubled = cards.filter((c) => c.level !== "ok").length;
+  if (troubled) reasons.push({ level: worst(cards.map((c) => c.level)), text: `${troubled} project${troubled === 1 ? " needs" : "s need"} a look` });
+  const left = leftovers.length + orphans.length;
+  if (left) reasons.push({ level: "degraded", text: `${left} leftover${left === 1 ? "" : "s"}` });
+  if (sweep?.state === "failed" || sweep?.failed?.length) reasons.push({ level: "degraded", text: "The last sweep failed" });
+  reasons.sort((a, b) => RANK[a.level] - RANK[b.level]);
   return {
-    level: worst([engine.level, store?.level ?? "ok", leftovers.length || oldStore?.state === "running" ? "degraded" : "ok"]),
+    level: worst(reasons.map((r) => r.level)), reasons,
     // agents' calls running now in any project: a worker restart cuts them off
-    engine, store, oldStore, calls: collector.runningCalls(), disk, projects: cards, leftovers, totals: { projects: cards.length, sandboxes, workspaces },
+    engine, store, oldStore, calls: collector.runningCalls(), disk, sweep,
+    projects: cards, idle, leftovers,
+    volumes: volumes ? { orphans, unknown: { count: unknown.length, size: unknown.reduce((n, v) => n + (v.size ?? 0), 0) } } : null,
+    totals: { projects: cards.length + idle.length, sandboxes, workspaces },
   };
 }
 
@@ -195,33 +224,15 @@ export async function cleanLeftovers(spec, names) {
   return (await openRuntime(spec)).sandbox.clean_leftovers(names);
 }
 
-/** Gives each Sandbox (`{ image }`, an exact digest; one project's may differ) its `imageName`: the
- * image's first tag, else null. One `docker image inspect` for all; an image Docker no longer has stays unnamed. */
-export async function nameImages(spec, sandboxes) {
-  const digests = [...new Set(sandboxes.map((s) => s.image).filter(Boolean))];
-  const names = new Map();
-  if (digests.length) {
-    let out;
-    // a missing image fails the command, yet the found ones are on stdout
-    try { out = await docker(spec, "image", "inspect", "-f", "{{.Id}}\t{{join .RepoTags \",\"}}", ...digests); } catch (error) { out = String(error.stdout ?? ""); }
-    for (const row of out.split("\n").filter(Boolean)) {
-      const [id, tags] = row.split("\t");
-      names.set(id, tags?.split(",").filter(Boolean)[0] ?? null);
-    }
-  }
-  for (const s of sandboxes) s.imageName = names.get(s.image) ?? null;
-  return sandboxes;
+/** Removes this home's Store volumes named in `names` that no project uses (runtime.volume.remove); anything else is refused by name. */
+export async function removeVolumes(spec, names) {
+  if (!Array.isArray(names) || !names.length || names.some((n) => typeof n !== "string")) throw refuse(400, "invalid-names", "names lists the volumes to remove");
+  return (await openRuntime(spec)).volume.remove(names);
 }
 
-/** This home's Sandbox containers (named `<prefix><project>-<n>`), running or not. */
-async function containersOf(spec) {
-  const out = await docker(spec, "ps", "-a", "--no-trunc", "--filter", "label=layerfs.role=sandbox", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Label \"layerfs.project\"}}\t{{.Label \"layerfs.sandbox\"}}\t{{.Image}}\t{{.Ports}}");
-  return out.split("\n").filter(Boolean).map((row) => {
-    const [name, state, status, project, sandbox, image, ports] = row.split("\t");
-    // the daemon's port, published on the host's loopback
-    const port = Number(/127\.0\.0\.1:(\d+)->/.exec(ports ?? "")?.[1]) || null;
-    return { name, running: state === "running", status, project, sandbox, image, port };
-  }).filter((c) => c.name.startsWith(spec.prefix));
+/** This home's Sandbox containers from runtime.sandbox.list, with each one's daemon port on the host's loopback. */
+function containersOf(listed) {
+  return listed.map((c) => ({ ...c, port: c.ports?.find((p) => p.host === "127.0.0.1")?.port ?? null }));
 }
 
 /** Whether something accepts a TCP connection on the host's loopback `port` within PING_MS. */

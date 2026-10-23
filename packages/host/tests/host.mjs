@@ -25,6 +25,8 @@ const { removeProject } = await import("../src/remove.js");
 const { UNREACHABLE } = await import("../src/collector.js");
 const { adopt, prepareInit, randomName, runInit } = await import("../src/init.js");
 const { InitJobs } = await import("../src/jobs.js");
+const { overview, removeVolumes, DOCKER_LOW } = await import("../src/runtime.js");
+const { createServer } = await import("node:net");
 const { CALL, PROJECT } = await import("@dsh-layerfs/model/sources/records.js");
 
 const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-host-"));
@@ -401,6 +403,12 @@ try {
   writeFileSync(join(two, "bindings.json"), JSON.stringify({ version: 2, projects: { a: project("a", "/one"), b: project("b", "/two"), c: project("c", "/two"), d: project("d", null) }, workspaces: { "/two": { lastUsed: null } }, sessions: {}, agents: {} }));
   const v2 = new BindingStore(two);
   assert.deepEqual([v2.data.version, v2.defaults(), Object.values(v2.data.projects).some((p) => "folder" in p)], [3, { "/one": "a" }, false]);
+  // the retired simulator's projects are forgotten on read, as a removal forgets them
+  const simDir = join(dir, "sim");
+  mkdirSync(simDir);
+  writeFileSync(join(simDir, "bindings.json"), JSON.stringify({ version: 3, projects: { a: project("a"), "demo-sim": { ...project("demo-sim"), backend: "sim" } }, workspaces: { "/w": { lastUsed: "demo-sim" } }, sessions: { s: { project: "demo-sim", locked: true, folder: "/w" } }, agents: {} }));
+  const sim = new BindingStore(simDir);
+  assert.deepEqual([sim.projects().map((p) => p.name), sim.defaults(), sim.session("s")], [["a"], {}, { project: null, locked: false, folder: "/w" }]);
 
   // projects bound before the runtime kept records get one in its format, once
   {
@@ -562,6 +570,52 @@ module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen
       + failed("u-2", "NoSuchPath: /nope.js"));
     healing.collector.poll();
     assert.equal(heals, 1);
+  }
+  // All projects: everything Docker-side comes from the runtime; a running project gets a card with
+  // each Sandbox's scratch, an idle one a row with its Store volume, a missing volume a problem card
+  {
+    const daemon = createServer().listen(0, "127.0.0.1");
+    await new Promise((resolve) => daemon.once("listening", resolve));
+    const port = daemon.address().port;
+    const allDir = join(dir, "all");
+    mkdirSync(allDir);
+    const all = new BindingStore(allDir);
+    for (const [name, created] of [["alpha", 1], ["beta", 2], ["gamma", 3]]) all.addProject("/w", { name, source: "/w", volume: `vol-${name}`, created });
+    const removedVolumes = [];
+    const fake = {
+      status: async () => ({ docker: { level: "ok", version: "29.0" }, worker: null, oldStore: null, disk: { home: 5e11, volumes: DOCKER_LOW - 1 }, sweep: { state: "done", at: "2026-10-24T00:00:00Z", reclaimed: { beta: ["1"] }, failed: [] } }),
+      sandbox: {
+        list: async () => [{ name: "t-alpha-1", project: "alpha", sandbox: "1", state: "running", running: true, image: "sha256:abc", ports: [{ container: "7000/tcp", host: "127.0.0.1", port }], scratch: 123456, owned: true }],
+        list_leftovers: async () => [{ name: "t-old-1", running: false, status: "Exited (0)", project: "old" }],
+      },
+      volume: {
+        list: async () => [
+          { name: "vol-alpha", size: 1e6, containers: 1, owner: "this", project: "alpha", live: true, removable: false },
+          { name: "vol-beta", size: 2e6, containers: 0, owner: "this", project: "beta", live: true, removable: false },
+          { name: "vol-old", size: 3e6, containers: 0, owner: "this", project: "old", live: false, removable: true },
+          { name: "anon", size: 4e6, containers: 0, owner: "unknown", project: null, live: false, removable: false },
+          { name: "theirs", size: 5e6, containers: 0, owner: "other", project: "x", live: false, removable: false },
+        ],
+        remove: async (names) => { removedVolumes.push(names); return { results: names.map((name) => ({ name, ok: true })) }; },
+      },
+    };
+    const allSpec = { ...h.spec, runtime: Promise.resolve(fake) };
+    const quiet = { mountsOf: () => ({}), busyOf: () => new Set(), runningCalls: () => 0 };
+    const v = await overview(allSpec, all, null, quiet);
+    daemon.close();
+    assert.deepEqual(v.projects.map((p) => [p.name, p.level, p.note]), [["gamma", "down", "its Store volume vol-gamma is missing"], ["alpha", "ok", null]]);
+    assert.deepEqual(v.projects[1].sandboxes.map((s) => [s.id, s.scratch, s.used]), [["1", 123456, 0]]);
+    assert.deepEqual(v.idle, [{ name: "beta", volume: 2e6 }]);
+    assert.deepEqual(v.volumes, { orphans: [{ name: "vol-old", size: 3e6, project: "old", containers: 0, removable: true }], unknown: { count: 1, size: 4e6 } });
+    assert.deepEqual([v.disk.docker, v.disk.dockerLevel, v.sweep.state], [DOCKER_LOW - 1, "degraded", "done"]);
+    assert.deepEqual(v.reasons.map((r) => r.text), ["1 project needs a look", "Docker disk low", "2 leftovers"]);
+    assert.deepEqual([v.level, v.totals], ["down", { projects: 3, sandboxes: 1, workspaces: 0 }]);
+    // Docker down: no listing is read, and the page says why
+    const down = await overview({ ...h.spec, runtime: Promise.resolve({ ...fake, status: async () => ({ docker: { level: "down" }, worker: null, disk: { home: null, volumes: null }, sweep: null }) }) }, all, null, quiet);
+    assert.deepEqual([down.reasons[0].text, down.volumes, down.disk.dockerLevel, down.idle.length], ["Docker not answering", null, null, 3]);
+    assert.deepEqual(await removeVolumes(allSpec, ["vol-old"]), { results: [{ name: "vol-old", ok: true }] });
+    await assert.rejects(removeVolumes(allSpec, []), { code: "invalid-names" });
+    assert.deepEqual(removedVolumes, [["vol-old"]]);
   }
   // @layerfs/agent's worker client answers when the worker is down or went away, as trace lines carry them
   for (const message of ["the LayerFS worker is not running for this home: ENOENT: no such file or directory, open '/h/worker/endpoint.json'",

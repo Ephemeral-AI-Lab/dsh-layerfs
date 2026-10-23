@@ -37,6 +37,23 @@ function upgrade(data) {
   return { ...data, version: 3, projects, workspaces };
 }
 
+/**
+ * Projects of the retired simulator (`backend: "sim"`, removed 2026-10-23)
+ * have no Store, so nothing can open them. They are forgotten on read as
+ * `remove` forgets a project, and leave the file with its next change.
+ */
+function dropRetired(data) {
+  const gone = new Set(Object.values(data.projects).filter((p) => p.backend === "sim").map((p) => p.name));
+  if (!gone.size) return data;
+  for (const name of gone) delete data.projects[name];
+  for (const w of Object.values(data.workspaces ?? {})) if (gone.has(w.lastUsed)) w.lastUsed = null;
+  for (const choice of Object.values(data.sessions ?? {})) if (gone.has(choice.project)) {
+    choice.project = null;
+    choice.locked = false;
+  }
+  return data;
+}
+
 export class BindingStore {
   /** @param {string} stateDir */
   constructor(stateDir) {
@@ -57,7 +74,7 @@ export class BindingStore {
     try { stat = statSync(this.file); } catch { return; }
     const stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
     if (stamp === this.stamp) return;
-    this._data = upgrade(JSON.parse(readFileSync(this.file, "utf8")));
+    this._data = dropRetired(upgrade(JSON.parse(readFileSync(this.file, "utf8"))));
     this.stamp = stamp;
   }
 

@@ -21,11 +21,13 @@
 //   GET  /layerfs/project/<name>/{list,read,blame,changes,diff}?…  as the session's Files reads
 //   GET  /layerfs/project/<name>/storage      Store totals, what Init recorded, recent Commits' costs (storage.js)
 //   GET  /layerfs/runtime                     Docker, the home's worker, the older Store container (oldStore),
-//                                             disk and every project's Sandboxes (runtime.js)
+//                                             disk, the last sweep, every project's Sandboxes with their
+//                                             scratch, idle projects' Store volumes and leftovers (runtime.js)
 //   POST /layerfs/runtime/store               start the worker when it is stopped or missing
 //   POST /layerfs/runtime/store/restart {confirm: "restart"}  restart the worker; with the older Store
 //                                          container running, stop and remove it, then start the worker
 //   POST /layerfs/runtime/leftovers {names}   remove stopped leftover Sandbox containers
+//   POST /layerfs/runtime/volumes {names}     remove this home's Store volumes no project uses
 //   GET  /layerfs/project/<name>/runtime      the project's Sandboxes, Workspaces and processes
 //   POST /layerfs/project/<name>/runtime {action, sandbox?, path?, process?, confirm?}  unmount, discard or stop
 //   POST /layerfs/project/<name>/remove {confirm, stopSandboxes?}  remove it (confirm: its name;
@@ -39,7 +41,7 @@ import { InitJobs } from "./jobs.js";
 import { READS } from "./reads.js";
 import { removeProject } from "./remove.js";
 import { listRuns, readRange } from "./runs.js";
-import { cleanLeftovers, nameImages, overview, projectAction, projectRuntime, restartStore, startStore } from "./runtime.js";
+import { cleanLeftovers, overview, projectAction, projectRuntime, removeVolumes, restartStore, startStore } from "./runtime.js";
 
 const PREFIX = "/layerfs";
 const MAX_BODY = 64 * 1024;
@@ -108,6 +110,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
         if (req.method === "GET" && parts.length === 1) return send(res, 200, await overview(spec, bindings, trees, collector));
         if (req.method === "POST" && parts[1] === "store") return send(res, 200, await startStore(spec));
         if (req.method === "POST" && parts[1] === "leftovers") return send(res, 200, await cleanLeftovers(spec, (await readJson(req)).names));
+        if (req.method === "POST" && parts[1] === "volumes") return send(res, 200, await removeVolumes(spec, (await readJson(req)).names));
       }
       if (req.method === "GET" && parts[0] === "runs" && parts.length === 1) return send(res, 200, { dir: spec.runs, runs: listRuns(spec.runs) });
       if (req.method === "GET" && parts[0] === "runs" && parts[2] === "trace" && parts.length === 3)
@@ -120,11 +123,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
         if (req.method === "GET" && parts[2] === "history") return send(res, 200, historyAnswer(await trees.history(project), collector.nodesOf(project.name), url.searchParams.get("since")));
         if (req.method === "GET" && Object.hasOwn(READS, parts[2])) return send(res, 200, await trees.files(project, parts[2], url.searchParams));
         if (req.method === "GET" && parts[2] === "storage") return send(res, 200, await trees.storage(project));
-        if (req.method === "GET" && parts[2] === "runtime") {
-          const runtime = await projectRuntime(trees, collector, project);
-          await nameImages(spec, [...runtime.sandboxes, ...runtime.gone]);
-          return send(res, 200, runtime);
-        }
+        if (req.method === "GET" && parts[2] === "runtime") return send(res, 200, await projectRuntime(trees, collector, project));
         if (req.method === "POST" && parts[2] === "runtime") return send(res, 200, await projectAction(trees, collector, project, await readJson(req)));
         if (req.method === "POST" && parts[2] === "remove") {
           const body = await readJson(req);
