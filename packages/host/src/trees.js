@@ -1,6 +1,7 @@
-// The Host's reads of a project, through one SDK client per project: the
-// project's state (inspect.snapshot), its storage (storage.js) and the Files
-// pane's reads of saved ids (reads.js). One client keeps the project's Store
+// The Host's reads of a project, through one client per project
+// (layerfs-client.js: an @layerfs/agent client with its backend): the
+// project's state (runtime.project.get_state), its storage (storage.js) and
+// the Files pane's reads of saved ids (reads.js). One client keeps the project's Store
 // and its daemon connections open across reads; it is released after a quiet
 // minute. Reads start no Sandbox, and open connections do not keep an idle
 // Sandbox from closing (#373). Saved ids never change, so a Files read is
@@ -13,11 +14,15 @@ import { READS } from "./reads.js";
 import { storageOf } from "./storage.js";
 
 const IDLE_MS = 60_000;
+/** The largest page of background processes the backend lists. */
+const PROCESSES = 1000;
+/** The project's History from its Store alone, as a state without Sandboxes. */
+const historyOf = async (client) => ({ ...(await client.backend.store.project.get_history()), sandboxes: [], gone: [] });
 /** Files reads kept (reads.js): each at most a page of 1000 names or a 48 KiB window. */
 const KEEP_READS = 500;
 
 export class TreeReader {
-  /** @param {object} spec @param {(project: object) => Promise<object>} [open] a project's SDK client */
+  /** @param {object} spec @param {(project: object) => Promise<object>} [open] a project's client, { layerfs, backend, state, close } */
   constructor(spec, open = (project) => clientFor(spec, project)) {
     this.spec = spec;
     this.open = open;
@@ -47,14 +52,14 @@ export class TreeReader {
     return reading;
   }
 
-  /** The project's snapshot (History from its Store, Workspaces from its Sandboxes), once at a time. */
+  /** The project's state (History from its Store, Workspaces from its Sandboxes), once at a time. */
   snapshot(project) {
-    return this.once(project, "snapshot", (client) => client.operator.inspect.snapshot());
+    return this.once(project, "snapshot", (client) => client.state());
   }
 
-  /** The project's background processes (asks its Sandboxes), once at a time. */
+  /** The project's background processes (asks its Sandboxes), once at a time: one page of the most. */
   processes(project) {
-    return this.once(project, "processes", (client) => client.operator.process.list());
+    return this.once(project, "processes", (client) => client.backend.daemon.process.list(PROCESSES, 0));
   }
 
   /** One Files read of saved ids (reads.js: list, read, changes, diff); kept, unless it fails. */
@@ -79,19 +84,13 @@ export class TreeReader {
     const quick = await within(reading, this.sandboxMs);
     return this.use(project, async (client) => {
       if (!quick.late) return stateOf(client, quick.value);
-      // the simulator has no Store read of its own; its snapshot answers quickly anyway
-      if (!client.history) return stateOf(client, await reading);
-      return { ...(await stateOf(client, { ...(await client.history()), sandboxes: [], gone: [] })), late: true };
+      return { ...(await stateOf(client, await historyOf(client))), late: true };
     });
   }
 
   /** The project's History alone, from its Store: no Sandbox is asked (a chat's History starts from it). */
   history(project) {
-    return this.use(project, async (client) => {
-      // the simulator has no Store read of its own; its snapshot answers quickly anyway
-      if (!client.history) return stateOf(client, await client.operator.inspect.snapshot());
-      return stateOf(client, { ...(await client.history()), sandboxes: [], gone: [] });
-    });
+    return this.use(project, async (client) => stateOf(client, await historyOf(client)));
   }
 
   /** What the project's Store holds and what made it; see storageOf. */

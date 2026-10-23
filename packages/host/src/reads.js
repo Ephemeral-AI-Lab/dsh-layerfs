@@ -28,24 +28,21 @@ const count = (q, name, min) => {
 };
 const refuse = (code, message) => Object.assign(new Error(message), { code, status: 409 });
 
-/** Saved id -> { commit, root, check }: the Commit with the same files, from one
- * snapshot. For a Layer that is a listed Commit with its root, else the Commit it
- * was published from (its Branch may be gone), whose root the diff answer must
- * then show equal (`check`): a publish that merged has other files. Saved ids
- * never change, so what is learned is kept. */
-const sameTree = new Map();
+/** Saved id -> { commit, root, check }: the Commit with the same files
+ * (backend.store.project.get_comparable, which keeps what it learns per
+ * client). One that is not exact is the Commit a Layer was published from,
+ * whose root the diff answer must then show equal (`check`). It refuses
+ * NotComparable for a Layer with no such Commit. */
 const unlike = () => refuse("NotComparable", "LayerFS compares Commits, and this Layer has no Commit with the same files (Init's Layer, or a publish that merged)");
 async function asCommit(client, ref) {
-  if (!sameTree.has(ref)) {
-    const snap = await client.operator.inspect.snapshot();
-    if (sameTree.size > 100_000) sameTree.clear();
-    const byRoot = new Map();
-    for (const c of snap.commits || []) { sameTree.set(c.id, { commit: c.id, root: c.root }); byRoot.set(c.root, c.id); }
-    for (const l of snap.layers || []) sameTree.set(l.id, { commit: byRoot.get(l.root) ?? l.sourceCommit ?? null, root: l.root, check: !byRoot.has(l.root) });
+  let found;
+  try {
+    found = await client.backend.store.project.get_comparable(ref);
+  } catch (error) {
+    if (error?.code === "NotComparable") throw unlike();
+    throw error;
   }
-  const found = sameTree.get(ref);
-  if (!found?.commit) throw unlike();
-  return found;
+  return { commit: found.commit, root: found.root, check: !found.exact };
 }
 
 const next = (page, position) => (page.hasMore ? page.nextPagePos ?? position + page.items.length : null);

@@ -1,61 +1,70 @@
-// LayerFS SDK clients the Host uses for a project: Init, and the project
-// state the views draw (inspect.snapshot through the model's mirror). The
-// SDK captures its deployment from the environment at construction, so the
-// project's settings are set for that synchronous step only. A simulated
-// project (backend "sim") has a client of the simulator instead (sim/).
+// LayerFS clients the Host uses for a project, and the deployment a
+// project's clients use, the Host's and its agents' alike. A live project's
+// client is an @layerfs/agent client opened as an agent script opens one
+// (LayerFS.open), with @layerfs/backend beside it; its state, the views'
+// whole project, is the runtime's get_state. The agent reads its deployment
+// from the environment when a client is made, so the project's settings are
+// set for that synchronous step only. A simulated project (backend "sim") has
+// a client of the simulator instead (sim/).
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { LayerFS } from "@layerfs/agent";
+import { LayerFSBackend } from "@layerfs/backend";
 import { Mirror } from "@dsh-layerfs/model/mirror.js";
-import { DAEMON_HOST, storePathOf } from "./box.js";
+import { openRuntime, VOLUMES } from "./config.js";
 import { simClient } from "./sim/client.js";
 
 export const isSim = (project) => project.backend === "sim";
 
-/** The environment one project's SDK client and its agents' bash calls use. */
+/**
+ * The LAYERFS_<name> deployment of one project (DSH_LAYERFS_<name> in its
+ * agents' bash calls), as the @layerfs/agent README states it: the home, the
+ * Sandboxes' Docker, image, daemon and volume, the installed Store
+ * (global/store.sqlite in the volume) and, on macOS and Windows, the home's
+ * worker (<home>/worker/endpoint.json, the dsh adapter).
+ */
 export function deploymentEnv(spec, project) {
-  // the SDK asks for every deployment setting and, for Store calls, a Store
-  // path (#352 F-020); a simulated project uses none of them
+  // the agent asks for every deployment setting and a Store path; a simulated project uses none of them
   if (isSim(project)) return { HOME: spec.home, DOCKER: "sim", IMAGE: "sim", DAEMON: "sim", VOLUME: project.volume, STORE_PATH: "sim" };
   return {
-    HOME: spec.windows?.home ?? spec.home,
+    HOME: spec.wsl?.home ?? spec.home,
     DOCKER: spec.docker,
     IMAGE: project.image ?? spec.image ?? "",
     DAEMON: spec.daemon ?? "",
     VOLUME: project.volume,
-    // the Store in the volume, under Docker's volume directory: Import
-    // installs it there and Store calls open it
-    STORE_PATH: storePathOf(project.volume),
+    // the worker opens it in Docker's VM; Linux, under this engine's volumes directory
+    STORE_PATH: `${spec.worker ? VOLUMES : spec.volumes}/${project.volume}/_data/global/store.sqlite`,
     // the project's Sandboxes are <prefix><project>-<n>
     CONTAINER_PREFIX: spec.prefix,
-    // macOS: the calls run in the Store container, which sees that directory and
-    // Sandbox daemons at the Docker host
-    ...(spec.box ? { DAEMON_HOST, STORE_CONTAINER: spec.box, BUNDLE: spec.bundle } : {}),
-    ...(spec.windows ? { WSL_ENDPOINT: spec.windows.endpoint } : {}),
+    ...(spec.worker ? { WORKER_ENDPOINT: join(spec.home, "worker", "endpoint.json"), WORKER_ADAPTER: "dsh" } : {}),
   };
 }
 
-/** Constructs a LayerFS client and operator for one project. */
-export async function clientFor(spec, project) {
-  if (isSim(project)) return simClient(spec.home, project.name);
-  const { LayerFS } = await import(spec.sdk);
-  const { LayerFSOperator } = await import(spec.operator);
-  const env = deploymentEnv(spec, project), saved = {};
+/** Runs `make` with LAYERFS_<name> set from `env`, restoring them before it returns. */
+function withEnv(env, make) {
+  const saved = {};
   for (const [name, value] of Object.entries(env)) { saved[name] = process.env[`LAYERFS_${name}`]; process.env[`LAYERFS_${name}`] = value; }
   try {
-    const layerfs = new LayerFS(project.name);
-    const { invokeOperator } = await import(clientEntryOf(spec));
-    // the project's History from its Store in this process, as inspect.snapshot reads it, asking no Sandbox
-    const history = async () => {
-      await layerfs.store();
-      return invokeOperator("operator.inspect.history", { project: layerfs.projectName, home: layerfs.options.home, storePath: layerfs.options.storePath }, layerfs.options);
-    };
-    return { layerfs, operator: new LayerFSOperator(layerfs), history };
+    return make();
   } finally {
     for (const [name, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[`LAYERFS_${name}`];
       else process.env[`LAYERFS_${name}`] = value;
     }
   }
+}
+
+/**
+ * A project's client: `{ layerfs, backend, state(), close() }`. `layerfs` is
+ * the agent client, `backend` its LayerFSBackend and `state` the project as
+ * runtime.project.get_state answers it. The runtime opens first, so on macOS
+ * and Windows the client uses the home's worker.
+ */
+export async function clientFor(spec, project) {
+  if (isSim(project)) return simClient(spec.home, project.name);
+  const runtime = await openRuntime(spec);
+  // LayerFS.open reads the environment before its first await
+  const layerfs = await withEnv(deploymentEnv(spec, project), () => LayerFS.open(project.name));
+  return { layerfs, backend: LayerFSBackend.of(layerfs), state: () => runtime.project.get_state(project.name), close: () => layerfs.close() };
 }
 
 /** How long a reader waits for a project's Sandboxes to answer (their daemons); the read runs on. */
@@ -68,22 +77,18 @@ export function within(promise, ms) {
   return Promise.race([promise.then((value) => ({ value })), late]).finally(() => clearTimeout(timer));
 }
 
-/** The SDK's call module beside its operator: the ported build's, or the installed package's. */
-const clientEntryOf = (spec) => spec.box ? pathToFileURL(join(spec.bundle, "sdk/js/src/client.js")).href : new URL("../src/client.js", spec.windows ? import.meta.resolve("@layerfs/sdk/operator") : spec.operator).href;
-
 /** Releases a Host client: its Store. The project's Sandboxes close themselves when idle (#373). */
-export async function release({ layerfs }) {
-  await layerfs.close?.();
+export async function release(client) {
+  await client.close?.();
 }
 
 /**
- * The project as the views draw it: the mirror of one inspect.snapshot.
- * History comes from the Store and Workspaces from the project's running
- * Sandboxes, found from their records, so reading starts no Sandbox; one
- * found stopped (closed when idle) is reclaimed by the listing and not
- * drawn. A Sandbox the listing found running but whose snapshot then found
- * gone is drawn closed. Read through the Host's shared client for the
- * project (TreeReader.use).
+ * The project as the views draw it: the mirror of one state read
+ * (runtime.project.get_state). History comes from the Store and Workspaces
+ * from the project's running Sandboxes, found from their records, so reading
+ * starts no Sandbox. A recorded Sandbox found stopped or gone is drawn
+ * closed. Read through the Host's shared client for the project
+ * (TreeReader.use).
  * @param {object} client a project's client
  */
 export async function stateOf(client, snapshot) {
@@ -99,7 +104,7 @@ export async function stateOf(client, snapshot) {
 }
 
 /**
- * The snapshot holds only each Branch's newest Commits (a few per Branch, to
+ * The state holds only each Branch's newest Commits (a few per Branch, to
  * fit one answer) and names in `more` every Branch it cut short; the rest come
  * from branch.list_commits, so History shows every Commit and links each to
  * its parent. A Commit another Branch already listed comes once.

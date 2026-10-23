@@ -1,5 +1,5 @@
 // What a project's Store holds and what made it, for the LayerFS page: the
-// Store totals and what Init recorded (operator store.stats), and what each
+// Store totals and what Init recorded (backend.store.project.get_storage), and what each
 // recent Commit added (branch.list_commits on every Branch, newest first).
 // `main` is a line of Layers, so it lists no Commits. A Commit shared by
 // forked Branches is listed once. Bytes are LayerFS's integers; the page
@@ -9,9 +9,9 @@ const BRANCHES = 50;
 const PER_BRANCH = 20;
 const KEEP = 60;
 
-/** @param {{ layerfs: object, operator: object }} client a project's SDK client */
-export async function storageOf({ layerfs, operator }) {
-  const { init = null, ...store } = await operator.store.stats();
+/** @param {{ layerfs: object, backend: object }} client a project's client */
+export async function storageOf({ layerfs, backend }) {
+  const { init = null, ...store } = await backend.store.project.get_storage();
   const listed = await layerfs.project.list_branches(BRANCHES, 0);
   const branches = listed.items.map((b) => b.name).filter((name) => name !== "main");
   const seen = new Set(), commits = [];
