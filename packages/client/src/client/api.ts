@@ -67,8 +67,8 @@ export interface Overview {
   sweep: { state: 'running' } | { state: 'done', at: string, reclaimed: Record<string, string[]>, failed: { project: string, code: string, message: string }[] } | { state: 'failed', at: string, code: string, message: string } | null
   /** every warning, worst first; none when all is well */
   reasons: { level: Level, text: string }[]
-  /** projects with a running Sandbox or a problem */
-  projects: { name: string, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level, scratch: number | null } & SandboxImage)[], workspaces: number, level: Level, note: string | null }[]
+  /** projects with a running Sandbox or a problem; removable: nothing of it is left but its entry (no record, no Store volume) */
+  projects: { name: string, sandboxes: ({ id: string, name: string | null, used: number, capacity: number, level: Level, scratch: number | null } & SandboxImage)[], workspaces: number, level: Level, note: string | null, removable: boolean }[]
   /** the other projects, with their Store volume's size (null: not known) */
   idle: { name: string, volume: number | null }[]
   /** stopped Sandbox containers, or ones of no project of this home */
@@ -182,7 +182,7 @@ export const api = {
   /** stopSandboxes: stop the project's running Sandboxes instead of refusing (a demo's own project) */
   remove: (name: string, stopSandboxes = false) => {
     histories.forget(name)
-    return call<{ removed: string, volume: string }>('POST', `/project/${encodeURIComponent(name)}/remove`, { confirm: name, stopSandboxes })
+    return call<{ removed: string, volume: string | null }>('POST', `/project/${encodeURIComponent(name)}/remove`, { confirm: name, stopSandboxes })
   },
   files: (id: string, kind: string, query: Record<string, string | number>) => call<any>('GET', `/session/${sid(id)}/${kind}?${filesQuery(query)}`),
   overview: () => call<Overview>('GET', '/runtime'),

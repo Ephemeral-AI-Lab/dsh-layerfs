@@ -55,10 +55,15 @@ function withEnv(env, make) {
  */
 export async function clientFor(spec, project) {
   const runtime = await openRuntime(spec);
+  // without its home entry (project.record) the Store cannot open; say so rather than the native ENOENT
+  if (!(await runtime.project.list()).some((p) => p.name === project.name && p.initialized)) throw noRecord(project.name);
   // LayerFS.open reads the environment before its first await
   const layerfs = await withEnv(deploymentEnv(spec, project), () => LayerFS.open(project.name));
   return { layerfs, backend: LayerFSBackend.of(layerfs), state: () => runtime.project.get_state(project.name), close: () => layerfs.close() };
 }
+
+/** A project whose home entry (`<home>/<name>/project.record`) is gone: the runtime can rebuild it from the Store's volume. */
+export const noRecord = (name) => Object.assign(new Error(`${name}: its record is missing; see layerfs-home.md`), { code: "no-record", status: 409 });
 
 /** How long a reader waits for a project's Sandboxes to answer (their daemons); the read runs on. */
 export const SANDBOX_MS = 4_000;

@@ -8,9 +8,13 @@
 // project made before it kept records. The Host's own cached client is
 // released first. The workspace folder, session transcripts and line
 // journals are untouched; sessions that used the project have no LayerFS
-// project afterwards.
+// project afterwards. A project with no home entry whose Store volume Docker
+// no longer has (a retired simulator project, or one whose home and volume
+// were both lost) is only entries: its binding and the runtime record adopt
+// wrote for it are forgotten, with no runtime call.
 import { join, relative } from "node:path";
 import { openRuntime } from "./config.js";
+import { unadopt } from "./init.js";
 
 const refuse = (code, message, status = 409) => Object.assign(new Error(message), { code, status });
 
@@ -20,7 +24,7 @@ const refuse = (code, message, status = 409) => Object.assign(new Error(message)
  * @param {import("./trees.js").TreeReader} trees
  * @param {string} name the project
  * @param {{ stopSandboxes?: boolean }} [options] stopSandboxes: stop the running containers on the volume instead of refusing
- * @returns {Promise<{ removed: string, volume: string }>}
+ * @returns {Promise<{ removed: string, volume: string | null }>} volume: the Store volume deleted, null when there was none
  */
 export async function removeProject(spec, bindings, trees, name, { stopSandboxes = false } = {}) {
   const project = bindings.byName(name);
@@ -29,6 +33,15 @@ export async function removeProject(spec, bindings, trees, name, { stopSandboxes
   if (!inside || inside.startsWith("..") || inside.includes("/")) throw refuse("invalid-name", `${project.name} is not a project name`);
   await trees.forget(project.name);
   const runtime = await openRuntime(spec);
+  const known = (await runtime.project.list()).find((p) => p.name === project.name) ?? null;
+  if (!known?.initialized) {
+    const volume = known?.volume ?? project.volume ?? null;
+    if (!volume || !(await runtime.volume.list()).some((v) => v.name === volume)) {
+      unadopt(spec, project.name);
+      bindings.remove(project.name);
+      return { removed: project.name, volume: null };
+    }
+  }
   try {
     await runtime.project.remove(project.name, { confirm: project.name, stopSandboxes, volume: project.volume });
   } catch (error) {

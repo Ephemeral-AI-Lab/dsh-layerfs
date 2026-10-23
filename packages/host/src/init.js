@@ -115,6 +115,11 @@ export const initProject = (spec, bindings, request, report) => runInit(spec, bi
  * LayerFS); the record is written in the runtime's documented format, never
  * over one it has. Answers the names given a record.
  */
+/** Drops the record adopt wrote for a project that is only a binding now (no home entry, no Store volume), so its name is free again. */
+export function unadopt(spec, name) {
+  if (NAME.test(name)) rmSync(join(runtimeState(spec), "projects", `${name}.json`), { force: true });
+}
+
 export function adopt(spec, bindings) {
   const dir = join(runtimeState(spec), "projects"), adopted = [];
   for (const project of bindings.projects()) {

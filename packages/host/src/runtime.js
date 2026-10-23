@@ -119,6 +119,8 @@ export async function overview(spec, bindings, trees, collector) {
   const [listed, volumes, leftovers] = up
     ? await Promise.all([runtime.sandbox.list().catch(() => null), runtime.volume.list().catch(() => null), runtime.sandbox.list_leftovers().catch(() => [])])
     : [null, null, []];
+  // the home's projects: one with no home entry (project.record) cannot open its Store
+  const homes = await runtime.project.list().then((all) => new Map(all.map((p) => [p.name, p])), () => null);
   const containers = containersOf(listed ?? []);
   const store = workerCard(status.worker);
   const disk = { host: status.disk?.home ?? null, docker: status.disk?.volumes ?? null };
@@ -126,11 +128,14 @@ export async function overview(spec, bindings, trees, collector) {
   const cards = [], idle = [];
   for (const p of bindings.projects()) {
     const own = containers.filter((c) => c.project === p.name);
-    const card = { name: p.name, sandboxes: [], workspaces: 0, level: "ok", note: null };
+    const card = { name: p.name, sandboxes: [], workspaces: 0, level: "ok", note: null, removable: false };
     if (!own.some((c) => c.running)) {
       const volume = volumes?.find((v) => v.name === p.volume) ?? null;
-      // a Store volume Docker no longer has: the project cannot run
-      if (volumes && !volume) cards.push({ ...card, level: "down", note: `its Store volume ${p.volume} is missing` });
+      const noStore = volumes !== null && !volume, noRecord = homes !== null && !homes.get(p.name)?.initialized;
+      // nothing of it left but this entry: the page may remove it from the list
+      if (noStore && noRecord) cards.push({ ...card, level: "down", note: `it has no record and no Store volume${p.volume ? ` (${p.volume})` : ""}: nothing to recover`, removable: true });
+      else if (noRecord) cards.push({ ...card, level: "down", note: "its record is missing; see layerfs-home.md" });
+      else if (noStore) cards.push({ ...card, level: "down", note: `its Store volume ${p.volume} is missing` });
       else idle.push({ name: p.name, volume: volume?.size ?? null });
       continue;
     }

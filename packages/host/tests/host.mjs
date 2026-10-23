@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { register } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const STAND_IN = "export function appendPluginRecord(session, type, data) { session.records.push({ type, data }); }";
 register(`data:text/javascript,${encodeURIComponent(`
@@ -14,7 +14,7 @@ export async function resolve(specifier, context, next) {
   if (specifier === "@deepseek-ai/dsh-session") return { url: ${JSON.stringify(`data:text/javascript,${encodeURIComponent(STAND_IN)}`)}, shortCircuit: true };
   return next(specifier, context);
 }`)}`);
-const { resolveConfig } = await import("../src/config.js");
+const { resolveConfig, runtimeState } = await import("../src/config.js");
 const { BindingStore } = await import("../src/binding.js");
 const { Collector } = await import("../src/collector.js");
 const { BIN, contributor, projectContext, shimOnPath } = await import("../src/env.js");
@@ -26,6 +26,7 @@ const { UNREACHABLE } = await import("../src/collector.js");
 const { adopt, prepareInit, randomName, runInit } = await import("../src/init.js");
 const { InitJobs } = await import("../src/jobs.js");
 const { overview, removeVolumes, DOCKER_LOW } = await import("../src/runtime.js");
+const { clientFor } = await import("../src/layerfs-client.js");
 const { createServer } = await import("node:net");
 const { CALL, PROJECT } = await import("@dsh-layerfs/model/sources/records.js");
 
@@ -426,7 +427,7 @@ try {
   assert.equal((await call("POST", "/layerfs/project/website/remove", { confirm: "web" })).status, 400);
   const removed = [];
   let busy = true;
-  h.spec.runtime = Promise.resolve({ project: { remove: async (name, options) => {
+  h.spec.runtime = Promise.resolve({ project: { list: async () => [{ name: "website", initialized: true }], remove: async (name, options) => {
     removed.push([name, options]);
     if (busy && !options.stopSandboxes) throw Object.assign(new Error("Busy: 1 running container(s) use dsh-layerfs-website-1"), { code: "Busy" });
     return { kind: "Removed", project: name, volume: options.volume };
@@ -546,7 +547,7 @@ const log = (fn) => async (op, args) => { appendFileSync(${JSON.stringify(seen)}
 module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen: (args) => log("storeOpen")("open", args), storeClose: (args) => log("storeClose")("close", args) };`);
     process.env.LAYERFS_NATIVE = binding;
     const states = [];
-    const live = { ...h.spec, worker: false, runtime: Promise.resolve({ project: { get_state: async (name) => (states.push(name), { kind: "ok", project: name }) } }) };
+    const live = { ...h.spec, worker: false, runtime: Promise.resolve({ project: { list: async () => [{ name: "shop", initialized: true }], get_state: async (name) => (states.push(name), { kind: "ok", project: name }) } }) };
     const client = await clientFor(live, { name: "shop", volume: "layerfs-shop-store-1", image: "sha256:" + "2".repeat(64) });
     assert.deepEqual(await client.backend.store.project.get_storage(), { logical: 5, dedupe: 1.5, compression: null });
     assert.deepEqual(await client.state(), { kind: "ok", project: "shop" });
@@ -580,9 +581,11 @@ module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen
     const allDir = join(dir, "all");
     mkdirSync(allDir);
     const all = new BindingStore(allDir);
-    for (const [name, created] of [["alpha", 1], ["beta", 2], ["gamma", 3]]) all.addProject("/w", { name, source: "/w", volume: `vol-${name}`, created });
+    for (const [name, created] of [["alpha", 1], ["beta", 2], ["gamma", 3], ["delta", 4], ["epsilon", 5]]) all.addProject("/w", { name, source: "/w", volume: `vol-${name}`, created });
     const removedVolumes = [];
     const fake = {
+      // delta lost its home entry (project.record); epsilon has neither entry nor volume
+      project: { list: async () => ["alpha", "beta", "gamma"].map((name) => ({ name, initialized: true })).concat([{ name: "delta", initialized: false }]) },
       status: async () => ({ docker: { level: "ok", version: "29.0" }, worker: null, oldStore: null, disk: { home: 5e11, volumes: DOCKER_LOW - 1 }, sweep: { state: "done", at: "2026-10-24T00:00:00Z", reclaimed: { beta: ["1"] }, failed: [] } }),
       sandbox: {
         list: async () => [{ name: "t-alpha-1", project: "alpha", sandbox: "1", state: "running", running: true, image: "sha256:abc", ports: [{ container: "7000/tcp", host: "127.0.0.1", port }], scratch: 123456, owned: true }],
@@ -592,6 +595,7 @@ module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen
         list: async () => [
           { name: "vol-alpha", size: 1e6, containers: 1, owner: "this", project: "alpha", live: true, removable: false },
           { name: "vol-beta", size: 2e6, containers: 0, owner: "this", project: "beta", live: true, removable: false },
+          { name: "vol-delta", size: 6e6, containers: 0, owner: "unknown", project: null, live: false, removable: false },
           { name: "vol-old", size: 3e6, containers: 0, owner: "this", project: "old", live: false, removable: true },
           { name: "anon", size: 4e6, containers: 0, owner: "unknown", project: null, live: false, removable: false },
           { name: "theirs", size: 5e6, containers: 0, owner: "other", project: "x", live: false, removable: false },
@@ -603,16 +607,30 @@ module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen
     const quiet = { mountsOf: () => ({}), busyOf: () => new Set(), runningCalls: () => 0 };
     const v = await overview(allSpec, all, null, quiet);
     daemon.close();
-    assert.deepEqual(v.projects.map((p) => [p.name, p.level, p.note]), [["gamma", "down", "its Store volume vol-gamma is missing"], ["alpha", "ok", null]]);
-    assert.deepEqual(v.projects[1].sandboxes.map((s) => [s.id, s.scratch, s.used]), [["1", 123456, 0]]);
+    assert.deepEqual(v.projects.map((p) => [p.name, p.level, p.note, p.removable]), [
+      ["delta", "down", "its record is missing; see layerfs-home.md", false],
+      ["epsilon", "down", "it has no record and no Store volume (vol-epsilon): nothing to recover", true],
+      ["gamma", "down", "its Store volume vol-gamma is missing", false],
+      ["alpha", "ok", null, false],
+    ]);
+    assert.deepEqual(v.projects[3].sandboxes.map((s) => [s.id, s.scratch, s.used]), [["1", 123456, 0]]);
     assert.deepEqual(v.idle, [{ name: "beta", volume: 2e6 }]);
-    assert.deepEqual(v.volumes, { orphans: [{ name: "vol-old", size: 3e6, project: "old", containers: 0, removable: true }], unknown: { count: 1, size: 4e6 } });
+    assert.deepEqual(v.volumes, { orphans: [{ name: "vol-old", size: 3e6, project: "old", containers: 0, removable: true }], unknown: { count: 2, size: 10e6 } });
     assert.deepEqual([v.disk.docker, v.disk.dockerLevel, v.sweep.state], [DOCKER_LOW - 1, "degraded", "done"]);
-    assert.deepEqual(v.reasons.map((r) => r.text), ["1 project needs a look", "Docker disk low", "2 leftovers"]);
-    assert.deepEqual([v.level, v.totals], ["down", { projects: 3, sandboxes: 1, workspaces: 0 }]);
+    assert.deepEqual(v.reasons.map((r) => r.text), ["3 projects need a look", "Docker disk low", "2 leftovers"]);
+    assert.deepEqual([v.level, v.totals], ["down", { projects: 5, sandboxes: 1, workspaces: 0 }]);
     // Docker down: no listing is read, and the page says why
     const down = await overview({ ...h.spec, runtime: Promise.resolve({ ...fake, status: async () => ({ docker: { level: "down" }, worker: null, disk: { home: null, volumes: null }, sweep: null }) }) }, all, null, quiet);
-    assert.deepEqual([down.reasons[0].text, down.volumes, down.disk.dockerLevel, down.idle.length], ["Docker not answering", null, null, 3]);
+    // without Docker no volume is known missing; a lost home entry still shows
+    assert.deepEqual([down.reasons[0].text, down.volumes, down.disk.dockerLevel, down.idle.map((p) => p.name)], ["Docker not answering", null, null, ["alpha", "beta", "gamma"]]);
+    // a project with no home entry and no Store volume is only forgotten, with the record adopt wrote for it;
+    // a project with no home entry does not open
+    const forgotten = [], adopted = join(runtimeState(allSpec), "projects", "epsilon.json");
+    mkdirSync(dirname(adopted), { recursive: true });
+    writeFileSync(adopted, JSON.stringify({ name: "epsilon", volume: "vol-epsilon" }));
+    assert.deepEqual(await removeProject(allSpec, all, { forget: async (name) => { forgotten.push(name); } }, "epsilon"), { removed: "epsilon", volume: null });
+    assert.deepEqual([forgotten, all.byName("epsilon"), existsSync(adopted)], [["epsilon"], null, false]);
+    await assert.rejects(clientFor(allSpec, { name: "delta" }), { code: "no-record", message: "delta: its record is missing; see layerfs-home.md" });
     assert.deepEqual(await removeVolumes(allSpec, ["vol-old"]), { results: [{ name: "vol-old", ok: true }] });
     await assert.rejects(removeVolumes(allSpec, []), { code: "invalid-names" });
     assert.deepEqual(removedVolumes, [["vol-old"]]);

@@ -88,9 +88,9 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
             {!view.projects.length && <div style={{ color: T.text2 }}>No project runs a Sandbox now.</div>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
               {view.projects.map((p) => (
-                <button key={p.name} type="button" className="lfs-card" onClick={() => onOpen(p.name)} title={`Open ${p.name}'s Sandboxes`}
-                  style={{ ...card, textAlign: 'left', cursor: 'pointer', padding: '8px 10px', display: 'grid', gap: 4, color: 'inherit', font: 'inherit', alignContent: 'start',
-                    borderLeft: p.level === 'ok' ? card.border : `3px solid ${p.level === 'down' ? T.danger : T.warn}` }}>
+                <div key={p.name} style={{ ...card, display: 'grid', alignContent: 'start', overflow: 'hidden', borderLeft: p.level === 'ok' ? card.border : `3px solid ${p.level === 'down' ? T.danger : T.warn}` }}>
+                <button type="button" className="lfs-card" onClick={() => onOpen(p.name)} title={`Open ${p.name}'s Sandboxes`}
+                  style={{ textAlign: 'left', cursor: 'pointer', padding: '8px 10px', display: 'grid', gap: 4, color: 'inherit', font: 'inherit', alignContent: 'start', border: 0, background: 'transparent' }}>
                   <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontWeight: 600, minWidth: 0 }}>
                     <span style={{ alignSelf: 'center', display: 'flex' }}><Dot level={p.level} /></span>
                     <span style={{ wordBreak: 'break-all' }}>{p.name}</span>
@@ -106,6 +106,12 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
                   ))}
                   {p.note && <span style={{ fontSize: 11.5, color: p.level === 'down' ? T.danger : T.warn, wordBreak: 'break-word' }}>{p.note}</span>}
                 </button>
+                {p.removable && <span style={{ padding: '0 10px 8px' }}>
+                  {asking === `project:${p.name}`
+                    ? confirm(<>Remove {p.name} from the list? Nothing of it is left to recover; only its entry goes.</>, 'Remove', `Removing ${p.name}…`, () => api.remove(p.name))
+                    : <Button variant="outline" size="sm" disabled={!!busy} onClick={() => setAsking(`project:${p.name}`)}>Remove from list…</Button>}
+                </span>}
+                </div>
               ))}
             </div>
           </section>
