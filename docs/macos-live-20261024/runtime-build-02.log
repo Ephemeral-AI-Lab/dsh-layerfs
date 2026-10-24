@@ -1,0 +1,78 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.33kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/rust:1.85.1-bookworm@sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [rust 1/1] FROM docker.io/library/rust:1.85.1-bookworm@sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4
+#5 resolve docker.io/library/rust:1.85.1-bookworm@sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4 0.0s done
+#5 DONE 0.0s
+
+#6 [stage-1 1/6] FROM docker.io/library/node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+#6 resolve docker.io/library/node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0
+#6 resolve docker.io/library/node:24.21.0-bookworm@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0 0.0s done
+#6 DONE 0.0s
+
+#7 [stage-1 2/6] RUN corepack enable  && corepack install --global pnpm@11.28.5  && corepack prepare pnpm@11.7.0 pnpm@11.28.5 yarn@4.14.1  && chmod -R a+rX /opt/corepack
+#7 CACHED
+
+#8 [stage-1 3/6] COPY --from=rust /usr/local/cargo /usr/local/cargo
+#8 CACHED
+
+#9 [stage-1 4/6] COPY --from=rust /usr/local/rustup /usr/local/rustup
+#9 CACHED
+
+#10 [stage-1 5/6] RUN apt-get update  && apt-get install -y --no-install-recommends libsqlite3-dev pkg-config chromium chromium-driver python3-selenium  && rm -rf /var/lib/apt/lists/*
+#10 0.974 Get:1 http://deb.debian.org/debian bookworm InRelease [151 kB]
+#10 1.341 Get:2 http://deb.debian.org/debian bookworm-updates InRelease [55.4 kB]
+#10 1.681 Get:3 http://deb.debian.org/debian-security bookworm-security InRelease [34.8 kB]
+#10 16.80 Ign:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+#10 17.10 Get:5 http://deb.debian.org/debian bookworm-updates/main arm64 Packages [6936 B]
+#10 18.59 Get:6 http://deb.debian.org/debian-security bookworm-security/main arm64 Packages [355 kB]
+#10 34.58 Err:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+#10 34.58   500  reading HTTP response body: unexpected EOF [IP: 192.168.65.1 3128]
+#10 50.96 Ign:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+#10 68.58 Err:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+#10 68.58   500  reading HTTP response body: unexpected EOF [IP: 192.168.65.1 3128]
+#10 69.07 Ign:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+#10 69.54 Err:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+#10 69.54   500  reading HTTP response body: unexpected EOF [IP: 192.168.65.1 3128]
+#10 69.55 Fetched 603 kB in 1min 9s (8701 B/s)
+#10 69.55 Reading package lists...
+#10 69.57 E: Failed to fetch http://deb.debian.org/debian/dists/bookworm/main/binary-arm64/Packages  500  reading HTTP response body: unexpected EOF [IP: 192.168.65.1 3128]
+#10 69.57 E: Some index files failed to download. They have been ignored, or old ones used instead.
+#10 ERROR: process "/bin/sh -c apt-get update  && apt-get install -y --no-install-recommends libsqlite3-dev pkg-config chromium chromium-driver python3-selenium  && rm -rf /var/lib/apt/lists/*" did not complete successfully: exit code: 100
+------
+ > [stage-1 5/6] RUN apt-get update  && apt-get install -y --no-install-recommends libsqlite3-dev pkg-config chromium chromium-driver python3-selenium  && rm -rf /var/lib/apt/lists/*:
+50.96 Ign:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+68.58 Err:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+68.58   500  reading HTTP response body: unexpected EOF [IP: 192.168.65.1 3128]
+69.07 Ign:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+69.54 Err:4 http://deb.debian.org/debian bookworm/main arm64 Packages
+69.54   500  reading HTTP response body: unexpected EOF [IP: 192.168.65.1 3128]
+69.55 Fetched 603 kB in 1min 9s (8701 B/s)
+69.55 Reading package lists...
+69.57 E: Failed to fetch http://deb.debian.org/debian/dists/bookworm/main/binary-arm64/Packages  500  reading HTTP response body: unexpected EOF [IP: 192.168.65.1 3128]
+69.57 E: Some index files failed to download. They have been ignored, or old ones used instead.
+------
+Dockerfile:35
+--------------------
+  34 |         PATH=/usr/local/cargo/bin:$PATH
+  35 | >>> RUN apt-get update \
+  36 | >>>  && apt-get install -y --no-install-recommends libsqlite3-dev pkg-config chromium chromium-driver python3-selenium \
+  37 | >>>  && rm -rf /var/lib/apt/lists/*
+  38 |     ENV CARGO_HOME=/usr/local/cargo
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c apt-get update  && apt-get install -y --no-install-recommends libsqlite3-dev pkg-config chromium chromium-driver python3-selenium  && rm -rf /var/lib/apt/lists/*" did not complete successfully: exit code: 100
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/7pxc3wtt4e8lgxx6ah9akb5l5

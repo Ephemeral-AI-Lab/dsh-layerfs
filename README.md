@@ -1,4 +1,4 @@
-> **Status:** Current general guide. Windows WSL2 support describes current main, added after the v1.0.0 source release.
+> **Status:** Current general guide, for LayerFS v1.1.0. Windows WSL2 support is part of v1.1.0.
 
 <h1 align="center"><img src="brand/logo.svg" alt="LayerFS × DSH" width="280"></h1>
 
@@ -610,7 +610,7 @@ Nothing of LayerFS is published yet, so this repository builds on a LayerFS chec
 - **`.layerfs`** (git-ignored) is a link to it. `pnpm install` and `pnpm test` make the link first ([`tools/layerfs-source.mjs`](tools/layerfs-source.mjs)); after changing `LAYERFS_SOURCE`, run `pnpm run link:layerfs` (pnpm skips its install step when nothing else changed). Everything reads LayerFS through the link: the Host's `@layerfs/agent`, `@layerfs/backend` and `@layerfs/runtime` are `.layerfs/api/agent/sdk`, `.layerfs/api/backend` and `.layerfs/api/runtime`, the agent skill is `.layerfs/.agents/skills/layerfs-js-sdk/`, and the model's CLI test loads the agent and backend from there.
 - **The Linux build and the runtime image** (step 1) are built from the same checkout, so the SDK, `layerfs.node` and `layerfs-daemon` match.
 
-The pin is LayerFS's #428 SDK branch (`claude/issue428-sdk-packages-cd9412`, in its worktree `.claude/worktrees/issue428-sdk-packages-cd9412`), not yet merged into LayerFS `main`; it moves to `main` when that lands.
+The pin is LayerFS [v1.1.0](https://github.com/Ephemeral-AI-Lab/layerfs/releases/tag/v1.1.0) (`9f97a7ec95`, on LayerFS `main`). Check out that tag in `../layerfs`, or set `LAYERFS_SOURCE` to a checkout of it.
 
 ### What stayed in the layerfs repository
 

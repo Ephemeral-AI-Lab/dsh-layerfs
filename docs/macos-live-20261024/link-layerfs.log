@@ -1,0 +1,2 @@
+$ node tools/layerfs-source.mjs link
+layerfs-source: .layerfs -> /Users/yifanxu/Ephemeral-AI-Lab/layerfs/.claude/worktrees/verify-3c21c62c6e, at the pinned commit

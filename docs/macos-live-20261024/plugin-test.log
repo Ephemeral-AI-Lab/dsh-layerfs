@@ -1,0 +1,12 @@
+$ node tools/layerfs-source.mjs link && node packages/host/tests/host.mjs && node packages/host/tests/agent.mjs && node packages/host/tests/bindings-shared.mjs && node packages/mock/tests/mock.mjs && node packages/model/tests/cli.mjs && node packages/client/tests/playback.mjs && node packages/client/tests/initlimit.mjs && node packages/client/tests/historycache.mjs && node packages/model/tests/trace.mjs && node tools/checks/tests/checks.mjs
+layerfs-source: .layerfs -> /Users/yifanxu/Ephemeral-AI-Lab/layerfs/.claude/worktrees/verify-3c21c62c6e, at the pinned commit
+host: ok
+agent wrappers: ok
+bindings-shared: ok
+mock: ok (10 scenarios)
+PASS cli: 43 methods routed, 31 lines
+playback: ok (16 steps)
+initlimit: ok
+historycache: ok
+PASS model trace: 36 lines, 3 Branches, 1 Sandboxes, 7 attributed nodes
+checks: ok

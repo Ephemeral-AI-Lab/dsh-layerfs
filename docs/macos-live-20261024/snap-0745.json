@@ -1,0 +1,456 @@
+{
+ "workspace": "/Users/yifanxu/.dsh/profiles/web/dsh-layerfs-mock/Scenarios",
+ "preset": "layerfs-scenarios",
+ "provider": "layerfs-mock",
+ "prompt": "Run the scenario.",
+ "scenarios": [
+  {
+   "id": "tour",
+   "title": "Tour",
+   "blurb": "One agent builds a small site on a feature Branch: fs edits, an install and a failing build fixed and rebuilt in Workspaces, a server that keeps unmount refused Busy until it is stopped, a stale Workspace that merges on commit, two Workspaces in one Sandbox, and two publishes, the second overwriting the first.",
+   "tags": [
+    "sdk",
+    "background",
+    "sandbox",
+    "publish"
+   ],
+   "counts": {
+    "agents": 1,
+    "steps": 13,
+    "calls": [
+     "backend.daemon.process.cancel",
+     "backend.daemon.process.start",
+     "branch.fork",
+     "branch.publish",
+     "fs.edit",
+     "fs.mkdir",
+     "fs.write",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.commit",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root"
+   ],
+   "fixture": "/Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/demo-workspace",
+   "run": {
+    "sessionId": "session-b378b04c-30b5-4a50-b3b1-acbe4453ae76",
+    "project": "mock-tour-566446e2-bfa7-493c-9508-f0a0b44c98c2",
+    "state": "passed",
+    "phase": "Publish",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798920707,
+    "ended": 1792798931466,
+    "done": 14,
+    "of": 14
+   }
+  },
+  {
+   "id": "parallel",
+   "title": "Parallel Branches",
+   "blurb": "Two subagents fork header and footer Branches from main at the same time, each writes its component with layerfs fs write and runs the tests in a Workspace of its Branch. The lead publishes header; publish overwrites main, so footer merges main into footer-2 before the lead publishes that.",
+   "tags": [
+    "cli",
+    "multi-agent",
+    "merge",
+    "publish"
+   ],
+   "counts": {
+    "agents": 3,
+    "steps": 8,
+    "calls": [
+     "branch.fork",
+     "branch.list_commits",
+     "branch.merge",
+     "branch.publish",
+     "fs.list",
+     "fs.write",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root",
+    "header",
+    "footer"
+   ],
+   "fixture": "/Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/demo-workspace",
+   "run": {
+    "sessionId": "session-f7d5ef39-235e-4b7e-933a-62fdec0677a8",
+    "project": "mock-parallel-1c8a962f-5337-4136-b683-8de484c20b89",
+    "state": "passed",
+    "phase": "Publish",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798076105,
+    "ended": 1792798086740,
+    "done": 14,
+    "of": 14
+   }
+  },
+  {
+   "id": "conflicts",
+   "title": "Conflicts",
+   "blurb": "Both conflict kinds, resolved. A Workspace on feature changes the page heading while an fs edit changes the same line on the Branch, so its commit is refused Conflict and leaves markers; the agent keeps its own line, clears the markers and commits. Then header edits that line too, so merging feature and header is refused until header agrees, and the merge is published.",
+   "tags": [
+    "cli",
+    "conflicts",
+    "merge",
+    "publish"
+   ],
+   "counts": {
+    "agents": 1,
+    "steps": 13,
+    "calls": [
+     "branch.fork",
+     "branch.merge",
+     "branch.publish",
+     "fs.edit",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.commit",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root"
+   ],
+   "fixture": "/Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/demo-workspace",
+   "run": {
+    "sessionId": "session-2af96c1e-b47b-4ea0-b303-90c5e51a7bc2",
+    "project": "mock-conflicts-92a54984-7be6-4e34-9242-07f8e49fad04",
+    "state": "passed",
+    "phase": "Publish",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798088029,
+    "ended": 1792798101935,
+    "done": 14,
+    "of": 14
+   }
+  },
+  {
+   "id": "merge",
+   "title": "Commit & merge",
+   "blurb": "One agent on two Branches: a stale Workspace's commit merges cleanly, an fs edit of the same line makes a commit refuse Conflict until the markers are fixed in the Workspace, two Branches merge into a new one, a merge conflict is fixed on its source Branch, and the result is published.",
+   "tags": [
+    "sdk",
+    "merge",
+    "conflicts",
+    "publish"
+   ],
+   "counts": {
+    "agents": 1,
+    "steps": 13,
+    "calls": [
+     "branch.fork",
+     "branch.merge",
+     "branch.publish",
+     "fs.edit",
+     "fs.write",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.commit",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root"
+   ],
+   "fixture": "/Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/demo-workspace",
+   "run": {
+    "sessionId": "session-6c8fd25f-99ba-439c-9865-34c0a7fe5670",
+    "project": "mock-merge-23cdb442-8ade-4e26-b00c-2808aa70888d",
+    "state": "passed",
+    "phase": "Publish",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798088815,
+    "ended": 1792798099678,
+    "done": 14,
+    "of": 14
+   }
+  },
+  {
+   "id": "sandbox",
+   "title": "One Sandbox, two Workspaces",
+   "blurb": "Two Branches share one Sandbox: their Workspaces have separate overlays, a slow site build runs as a background process while an fs write makes the docs Workspace stale, and teardown is explicit: unmount refuses Busy and Dirty, closing refuses MountsActive, and the Sandbox closes once both Workspaces are gone.",
+   "tags": [
+    "sdk",
+    "sandbox",
+    "background"
+   ],
+   "counts": {
+    "agents": 1,
+    "steps": 6,
+    "calls": [
+     "backend.daemon.process.start",
+     "branch.fork",
+     "fs.write",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.commit",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root"
+   ],
+   "fixture": "/Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/demo-workspace",
+   "run": {
+    "sessionId": "session-01882084-f6c7-43a5-9dd9-1759d78f29cd",
+    "project": "mock-sandbox-42fdb08c-cdfe-42d0-a3f8-951bfb2bae75",
+    "state": "passed",
+    "phase": "Teardown",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798101030,
+    "ended": 1792798113455,
+    "done": 7,
+    "of": 7
+   }
+  },
+  {
+   "id": "agents",
+   "title": "5 agents",
+   "blurb": "A lead forks checkout and search and hands one command at a time to five subagents, three on checkout and two on search. Every command runs in a Sandbox and Workspace of its own and commits: stale Workspaces merge with the head, and .lww settles node_modules and build output. Cy keeps a Workspace open while Ben commits the same package.json line, gets a Conflict and resolves it; Dee serves the search pages from a background process and curls them; Eli's risky delete goes to a fork. The lead's merge conflicts on the layout, is fixed on both Branches, then built, tested, published and blamed.",
+   "tags": [
+    "sdk",
+    "multi-agent",
+    "conflicts",
+    "background"
+   ],
+   "counts": {
+    "agents": 6,
+    "steps": 111,
+    "calls": [
+     "backend.daemon.process.cancel",
+     "backend.daemon.process.start",
+     "branch.fork",
+     "branch.merge",
+     "branch.publish",
+     "fs.blame",
+     "fs.edit",
+     "fs.write",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.commit",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root",
+    "ava",
+    "ben",
+    "cy",
+    "dee",
+    "eli"
+   ],
+   "fixture": "/Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/demo-workspace",
+   "run": {
+    "sessionId": "session-cbcef503-c9ae-4146-bbd5-9046f64eedab",
+    "project": "mock-agents-d983b5f5-8c6a-4378-920c-a0d53945dc2c",
+    "state": "passed",
+    "phase": "Integrate",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798103058,
+    "ended": 1792798154900,
+    "done": 197,
+    "of": 197
+   }
+  },
+  {
+   "id": "shop",
+   "title": "Shop",
+   "blurb": "A builder agent grows a small Node web shop from a skeleton to an admin page over six milestones: a product catalog, carts and totals, checkout with orders and discounts, a browser storefront and an admin page. It writes each milestone's code, installs, builds and tests it in a Workspace, smoke-tests the server, merges the storefront with the orders work and publishes every milestone to main.",
+   "tags": [
+    "cli",
+    "node",
+    "publish",
+    "merge"
+   ],
+   "counts": {
+    "agents": 1,
+    "steps": 17,
+    "calls": [
+     "branch.fork",
+     "branch.merge",
+     "branch.publish",
+     "fs.apply",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.commit",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root"
+   ],
+   "fixture": "/Users/yifanxu/.dsh/profiles/web/dsh-layerfs-mock/seeds/shop",
+   "run": {
+    "sessionId": "session-74d49615-cd78-4dff-8754-e59dd3bb6a46",
+    "project": "mock-shop-f561dfe3-21de-4d68-9c3a-c57f3429b990",
+    "state": "passed",
+    "phase": "Acceptance",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798115984,
+    "ended": 1792798198970,
+    "done": 18,
+    "of": 18
+   }
+  },
+  {
+   "id": "depot",
+   "title": "Depot",
+   "blurb": "A builder agent writes Depot, a Rust inventory service (a four-crate Cargo workspace: domain, store, HTTP server and CLI) with a browser client. Milestone by milestone it fetches the locked dependencies, builds and tests each crate and runs Python acceptance tests against the server; it works on a registry and a web Branch in parallel and merges them, then runs a release candidate of clean builds, tests, docs, Clippy, rustfmt and packaging, and checks the published main once more.",
+   "tags": [
+    "sdk",
+    "rust",
+    "publish",
+    "merge"
+   ],
+   "counts": {
+    "agents": 1,
+    "steps": 97,
+    "calls": [
+     "branch.fork",
+     "branch.merge",
+     "branch.publish",
+     "fs.apply",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.commit",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root"
+   ],
+   "fixture": "/Users/yifanxu/.dsh/profiles/web/dsh-layerfs-mock/seeds/depot",
+   "run": {
+    "sessionId": "session-92a44003-6afa-4c6b-864e-3da5bc93d374",
+    "project": "mock-depot-a69fe2a7-e293-4e68-93f1-b55297b26c20",
+    "state": "failed",
+    "phase": "m1",
+    "error": "root: agents.root[1] (M1: fetch) expected sandbox.create:ok, workspace.mount:Mounted, workspace.exec:exit:0, workspace.commit:Committed|UpToDate, workspace.unmount:Unmounted, sandbox.close:Closed; its LayerFS calls show project.list_branches:ok, sandbox.create:ok, workspace.mount:Mounted, workspace.exec:exit:127, workspace.commit:UpToDate, workspace.unmount:Unmounted, sandbox.close:Closed, so root stops here: {\"kind\":\"UpToDate\",\"head\":\"125b7736e9d2df5fa21d7e27179eb22f1d96f56d5b3a759934e0dc8eb093fbf91a\"}\n[stderr]\ntimeout: failed to run command 'cargo': No such file or directory\n",
+    "timedOut": false,
+    "started": 1792798788352,
+    "ended": 1792798790121,
+    "done": 1,
+    "of": 98
+   }
+  },
+  {
+   "id": "crew",
+   "title": "Crew",
+   "blurb": "A lead and five agents build one issue-tracking application together: people and organizations, work boards, search and insight, each lane on Branches of its own. The agents write their code and install, build and test it in Workspaces; the lead forks fresh Branches from main and from their Commits, merges the lanes into integration Branches, checks them and publishes them to main.",
+   "tags": [
+    "cli",
+    "node",
+    "multi-agent",
+    "merge",
+    "publish"
+   ],
+   "counts": {
+    "agents": 6,
+    "steps": 560,
+    "calls": [
+     "branch.fork",
+     "branch.merge",
+     "branch.publish",
+     "fs.apply",
+     "sandbox.close",
+     "sandbox.create",
+     "workspace.commit",
+     "workspace.exec",
+     "workspace.mount",
+     "workspace.unmount"
+    ]
+   },
+   "agents": [
+    "root",
+    "people",
+    "work-b",
+    "work-a",
+    "insight-a",
+    "insight-b"
+   ],
+   "fixture": "/Users/yifanxu/.dsh/profiles/web/dsh-layerfs-mock/seeds/crew",
+   "run": {
+    "sessionId": "session-49d01fe3-82c7-4cd5-95a2-95711dc7340d",
+    "project": "mock-crew-1b46b8f7-8be7-443a-a183-7c659e632541",
+    "state": "passed",
+    "phase": "lead",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798159037,
+    "ended": 1792798835632,
+    "done": 967,
+    "of": 967
+   }
+  },
+  {
+   "id": "checkpoints",
+   "title": "Checkpoints",
+   "blurb": "A small history replay in four ranges. In each range two subagents fork lanes of their own from main and write a folder of two files with layerfs fs; the lead merges the lanes, publishes the range to main and checks that main lists every file written so far.",
+   "tags": [
+    "cli",
+    "multi-agent",
+    "merge",
+    "publish"
+   ],
+   "counts": {
+    "agents": 3,
+    "steps": 24,
+    "calls": [
+     "branch.fork",
+     "branch.merge",
+     "branch.publish",
+     "fs.glob",
+     "fs.mkdir",
+     "fs.write"
+    ]
+   },
+   "agents": [
+    "root",
+    "a01",
+    "a02"
+   ],
+   "fixture": "/Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/demo-workspace",
+   "run": {
+    "sessionId": "session-783811f4-a29a-40b8-ba51-cabc33d15778",
+    "project": "mock-checkpoints-0e74488a-5ec8-48fe-87c8-70119ad8f213",
+    "state": "passed",
+    "phase": "Range 4",
+    "error": null,
+    "timedOut": false,
+    "started": 1792798200019,
+    "ended": 1792798222912,
+    "done": 37,
+    "of": 37
+   }
+  }
+ ]
+}

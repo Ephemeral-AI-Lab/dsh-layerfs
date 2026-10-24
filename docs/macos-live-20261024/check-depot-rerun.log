@@ -1,0 +1,6 @@
+depot (project mock-depot-3c21a025-28b4-4d93-b228-8c5b7c243f74)
+  run: passed in 376.8 s
+  lines: 607 from /Users/yifanxu/.dsh/profiles/web/dsh-layerfs/lines/session-f70887d6-dca8-46ec-8786-946c379171f6.jsonl
+  root: 97 bash call(s) with LayerFS lines, 97 checked, 97 matched
+  order and final tree against /Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/scenarios/depot/final.json: NOT_RUN, missing a LayerFS client on the run's project from outside dsh web: on macOS and Windows its Store calls go through the home's worker, whose endpoint the Host gives agents (DSH_LAYERFS_WORKER_ENDPOINT), not this command; a read-only byte hash of main's files: fs.read refuses binary files, so tree.mjs forks a Branch and mounts a Workspace to run sha256sum, which writes to the project; main's Layers for the order check: backend.store.project.get_history, which the layerfs command does not offer
+PASS: every check that ran holds

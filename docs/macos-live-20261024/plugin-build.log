@@ -1,0 +1,14 @@
+$ node tools/build-client.mjs
+ℹ tsdown v0.22.2 powered by rolldown v1.1.1
+ℹ config file: /Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/packages/client/tsdown.config.ts 
+ℹ [@dsh-layerfs/client] entry: src/index.js
+ℹ [@dsh-layerfs/client] target: es2024
+ℹ [@dsh-layerfs/client/client] entry: src/client/index.ts
+ℹ Build start
+ℹ [@dsh-layerfs/client] [ESM] lib/index.js  0.11 kB │ gzip: 0.12 kB
+ℹ [@dsh-layerfs/client] [ESM] 1 files, total: 0.11 kB
+✔ [@dsh-layerfs/client] Build complete in 50ms
+ℹ [@dsh-layerfs/client/client] [CJS] lib/client.js      1.24 MB
+ℹ [@dsh-layerfs/client/client] [CJS] lib/client.js.map  1.57 MB
+ℹ [@dsh-layerfs/client/client] [CJS] 2 files, total: 2.81 MB
+✔ [@dsh-layerfs/client/client] Build complete in 113ms

@@ -1,0 +1,8 @@
+$ node packages/mock/tests/mock.mjs && node packages/mock/tests/windows-shell.mjs && node packages/mock/tests/fixture-checkout.mjs && node packages/mock/tests/progress-failures.mjs && node packages/client/tests/scenario-projects.mjs && node packages/mock/tests/runtime-image.mjs
+mock: ok (10 scenarios)
+windows-shell: parsed 405 CLI steps
+windows-shell: NOT_RUN (Windows only)
+Linux scenario fixtures remain LF with core.autocrlf=true: PASS
+PASS: adapter failures, child-registration race, failed settlement notices, persistent project identity, old-session isolation
+scenario-projects: PASS (fresh Stores per run, previous projects retained, project recorded)
+Shipped scenarios inherit deployment image; explicit custom images preserved: PASS
