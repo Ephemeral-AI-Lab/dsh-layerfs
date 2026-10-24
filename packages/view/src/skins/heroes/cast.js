@@ -4,8 +4,20 @@
 // name. Each colour is a readable shade of the hero's own, for its name in
 // tags, History and cards.
 export const HEROES = {
-  cloud: "#4F86C9", crab: "#D2603F", frog: "#4E9A35", jelly: "#A66BC0", ghost: "#5C6B8C", sprout: "#8C6E45", shroom: "#B8483A",
-  axolotl: "#D9707A", bat: "#8E6BB0", bot: "#5F7AA8", cactus: "#6E8A45", flame: "#D9861E", penguin: "#3F5D8C", snail: "#B88A1E",
+  cloud: "#4F86C9",
+  crab: "#D2603F",
+  frog: "#4E9A35",
+  jelly: "#A66BC0",
+  ghost: "#5C6B8C",
+  sprout: "#8C6E45",
+  shroom: "#B8483A",
+  axolotl: "#D9707A",
+  bat: "#8E6BB0",
+  bot: "#5F7AA8",
+  cactus: "#6E8A45",
+  flame: "#D9861E",
+  penguin: "#3F5D8C",
+  snail: "#B88A1E",
 };
 export const LEAD_HERO = "cloud";
 

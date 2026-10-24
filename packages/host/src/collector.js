@@ -4,7 +4,17 @@
 // calling agent's session as a plugin:layerfs/call record. Finished lines are
 // also journaled per root session under the state folder, since trace files
 // live in temporary storage.
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 import { appendCall } from "./records.js";
 
@@ -14,7 +24,8 @@ const MAX_CHUNK = 1 << 20;
  * (macOS, Windows) is down or went away, as an agent's trace line carries
  * them: the Host then starts it again (onUnreachable). Other failures do not.
  */
-export const UNREACHABLE = /the LayerFS worker (?:did not answer|is not running for this home)|the connection to the LayerFS worker was lost/;
+export const UNREACHABLE =
+  /the LayerFS worker (?:did not answer|is not running for this home)|the connection to the LayerFS worker was lost/;
 
 export class Collector {
   /**
@@ -41,14 +52,19 @@ export class Collector {
   /** The agent a Session belongs to: its id, root session, display name and folder. */
   agentOf(session) {
     const id = session.header.id;
-    let root = session, guard = 0;
+    let root = session,
+      guard = 0;
     while (root.header.origin === "subagent" && root.header.parentSession && guard++ < 16) {
       const parent = this.ctx.sessions.get(root.header.parentSession);
       if (!parent) break;
       root = parent;
     }
-    const rootId = root === session && session.header.origin === "subagent" ? this.bindings.agent(id)?.root ?? id : root.header.id;
-    const name = id === rootId ? "main" : this.labels.get(id) ?? this.bindings.agent(id)?.name ?? `agent-${String(id).slice(-4)}`;
+    const rootId =
+      root === session && session.header.origin === "subagent" ? (this.bindings.agent(id)?.root ?? id) : root.header.id;
+    const name =
+      id === rootId
+        ? "main"
+        : (this.labels.get(id) ?? this.bindings.agent(id)?.name ?? `agent-${String(id).slice(-4)}`);
     this.bindings.setAgent(id, rootId, name);
     return { id, root: rootId, name, cwd: root.header.cwd };
   }
@@ -62,7 +78,12 @@ export class Collector {
     this.afterEvent(session.header.id);
     const data = event.data;
     if (!data || typeof data.label !== "string") return;
-    const id = event.type === "subagent/catalog" ? data.childId : event.type === "subagent/descriptor" ? session.header.id : undefined;
+    const id =
+      event.type === "subagent/catalog"
+        ? data.childId
+        : event.type === "subagent/descriptor"
+          ? session.header.id
+          : undefined;
     const label = data.label.trim().slice(0, 40);
     if (typeof id !== "string" || !label) return;
     this.labels.set(id, label);
@@ -95,11 +116,16 @@ export class Collector {
    */
   afterEvent(sessionId) {
     if (!this.tails.has(sessionId) && !this.pending.has(sessionId)) return;
-    if (this.soon.size === 0) setImmediate(() => {
-      const ids = [...this.soon];
-      this.soon.clear();
-      try { this.poll(ids); } catch (error) { this.ctx.logger?.warn?.(`layerfs: trace collection failed: ${error.message}`); }
-    });
+    if (this.soon.size === 0)
+      setImmediate(() => {
+        const ids = [...this.soon];
+        this.soon.clear();
+        try {
+          this.poll(ids);
+        } catch (error) {
+          this.ctx.logger?.warn?.(`layerfs: trace collection failed: ${error.message}`);
+        }
+      });
     this.soon.add(sessionId);
   }
 
@@ -110,12 +136,22 @@ export class Collector {
       const tail = this.tails.get(sessionId);
       if (!tail || !existsSync(tail.file)) continue;
       const size = statSync(tail.file).size;
-      if (size < tail.offset) { tail.offset = 0; tail.rest = ""; }
+      if (size < tail.offset) {
+        tail.offset = 0;
+        tail.rest = "";
+      }
       while (tail.offset < size) {
-        const length = Math.min(MAX_CHUNK, size - tail.offset), buffer = Buffer.alloc(length), fd = openSync(tail.file, "r");
-        try { readSync(fd, buffer, 0, length, tail.offset); } finally { closeSync(fd); }
+        const length = Math.min(MAX_CHUNK, size - tail.offset),
+          buffer = Buffer.alloc(length),
+          fd = openSync(tail.file, "r");
+        try {
+          readSync(fd, buffer, 0, length, tail.offset);
+        } finally {
+          closeSync(fd);
+        }
         tail.offset += length;
-        const text = tail.rest + buffer.toString("utf8"), parts = text.split("\n");
+        const text = tail.rest + buffer.toString("utf8"),
+          parts = text.split("\n");
         tail.rest = parts.pop();
         for (const raw of parts) this.take(sessionId, tail.project, raw, true);
       }
@@ -125,12 +161,19 @@ export class Collector {
   /** One trace line from an agent's file. */
   take(sessionId, project, raw, live) {
     let line;
-    try { line = JSON.parse(raw); } catch { return; }
+    try {
+      line = JSON.parse(raw);
+    } catch {
+      return;
+    }
     if (!line || line.layerfs_trace !== 1) return;
     const agent = this.bindings.agent(sessionId) ?? { root: sessionId, name: "main" };
     const view = this.view(agent.root);
     const own = { ...stripped(line), agent: agent.name, agentId: sessionId, project };
-    if (line.phase === "start") { view.running.set(line.id, own); return; }
+    if (line.phase === "start") {
+      view.running.set(line.id, own);
+      return;
+    }
     // an agent's call found the home's worker down: the Host starts it again (the call keeps its answer)
     if (live && line.ok === false && UNREACHABLE.test(String(line.message ?? ""))) this.onUnreachable?.();
     view.running.delete(line.id);
@@ -145,14 +188,16 @@ export class Collector {
 
   /** Appends an agent's waiting records once its Session is live. */
   flush(sessionId) {
-    const records = this.pending.get(sessionId), session = records && this.ctx.sessions.get(sessionId);
+    const records = this.pending.get(sessionId),
+      session = records && this.ctx.sessions.get(sessionId);
     if (!session) return;
     this.pending.delete(sessionId);
     for (const record of records) appendCall(session, record);
   }
 
   view(rootId) {
-    if (!this.roots.has(rootId)) this.roots.set(rootId, { lines: [], seen: new Set(), running: new Map(), loaded: false });
+    if (!this.roots.has(rootId))
+      this.roots.set(rootId, { lines: [], seen: new Set(), running: new Map(), loaded: false });
     return this.roots.get(rootId);
   }
 
@@ -165,13 +210,17 @@ export class Collector {
     return true;
   }
 
-  journalFile(rootId) { return join(this.spec.stateDir, "lines", `${encodeURIComponent(rootId)}.jsonl`); }
+  journalFile(rootId) {
+    return join(this.spec.stateDir, "lines", `${encodeURIComponent(rootId)}.jsonl`);
+  }
 
   journal(rootId, line) {
     try {
       mkdirSync(join(this.spec.stateDir, "lines"), { recursive: true });
       appendFileSync(this.journalFile(rootId), `${JSON.stringify(line)}\n`);
-    } catch (error) { this.ctx.logger?.warn?.(`layerfs: the line journal could not be written: ${error.message}`); }
+    } catch (error) {
+      this.ctx.logger?.warn?.(`layerfs: the line journal could not be written: ${error.message}`);
+    }
   }
 
   /** Loads the lines a root session's agents wrote before this Host started. */
@@ -180,13 +229,19 @@ export class Collector {
     if (view.loaded) return view;
     view.loaded = true;
     const journal = this.journalFile(rootId);
-    if (existsSync(journal)) for (const raw of readFileSync(journal, "utf8").split("\n")) {
-      try { if (raw) this.keep(view, JSON.parse(raw)); } catch { /* a torn last line */ }
-    }
+    if (existsSync(journal))
+      for (const raw of readFileSync(journal, "utf8").split("\n")) {
+        try {
+          if (raw) this.keep(view, JSON.parse(raw));
+        } catch {
+          /* a torn last line */
+        }
+      }
     const files = new Map();
-    if (existsSync(this.spec.traceDir)) for (const entry of readdirSync(this.spec.traceDir)) {
-      if (entry.endsWith(".jsonl")) files.set(entry.slice(0, -6), join(this.spec.traceDir, entry));
-    }
+    if (existsSync(this.spec.traceDir))
+      for (const entry of readdirSync(this.spec.traceDir)) {
+        if (entry.endsWith(".jsonl")) files.set(entry.slice(0, -6), join(this.spec.traceDir, entry));
+      }
     for (const id of Object.keys(this.bindings.agentsOf(rootId))) {
       const file = this.bindings.agent(id)?.traceFile;
       if (file && existsSync(file)) files.set(id, file);
@@ -195,9 +250,16 @@ export class Collector {
       const agent = this.bindings.agent(sessionId);
       if (!agent || agent.root !== rootId) continue;
       const tail = this.tails.get(sessionId);
-      const end = tail ? tail.offset : statSync(file).size, fd = openSync(file, "r"), buffer = Buffer.alloc(end);
-      try { readSync(fd, buffer, 0, end, 0); } finally { closeSync(fd); }
-      for (const raw of buffer.toString("utf8").split("\n")) this.take(sessionId, tail ? tail.project : null, raw, false);
+      const end = tail ? tail.offset : statSync(file).size,
+        fd = openSync(file, "r"),
+        buffer = Buffer.alloc(end);
+      try {
+        readSync(fd, buffer, 0, end, 0);
+      } finally {
+        closeSync(fd);
+      }
+      for (const raw of buffer.toString("utf8").split("\n"))
+        this.take(sessionId, tail ? tail.project : null, raw, false);
     }
     view.lines.sort((x, y) => Date.parse(x.start) - Date.parse(y.start));
     return view;
@@ -216,7 +278,11 @@ export class Collector {
     for (const raw of readFileSync(file, "utf8").split("\n")) {
       if (!raw.includes(step)) continue;
       let line;
-      try { line = JSON.parse(raw); } catch { continue; /* a torn last line */ }
+      try {
+        line = JSON.parse(raw);
+      } catch {
+        continue; /* a torn last line */
+      }
       if (line?.layerfs_trace === 1 && line.step === step && line.phase !== "start") out.push(stripped(line));
     }
     return out;
@@ -236,14 +302,18 @@ export class Collector {
    * @param {string} project
    */
   nodesOf(project) {
-    const authors = {}, times = {}, forks = {}, out = { authors, times, forks };
+    const authors = {},
+      times = {},
+      forks = {},
+      out = { authors, times, forks };
     for (const line of this.journaled(project)) {
       if (!line.ok) continue;
       const made = line.kind === "Committed" ? line.commit : line.method === "branch.publish" ? line.layer : null;
       if (made && !authors[made]) authors[made] = this.bindings.agent(line.agentId)?.name ?? line.agent;
       const at = Date.parse(line.start) + (line.ms || 0);
       if (line.method === "branch.publish" && line.layer) times[line.layer] = at;
-      if ((line.kind === "Forked" || line.kind === "Merged") && line.branch) forks[line.branch] = Math.max(forks[line.branch] ?? 0, at);
+      if ((line.kind === "Forked" || line.kind === "Merged") && line.branch)
+        forks[line.branch] = Math.max(forks[line.branch] ?? 0, at);
     }
     return out;
   }
@@ -256,12 +326,16 @@ export class Collector {
    * @param {string} project
    */
   mountsOf(project) {
-    const lines = [...this.journaled(project)].sort((x, y) => Date.parse(x.start) - Date.parse(y.start)), out = {};
+    const lines = [...this.journaled(project)].sort((x, y) => Date.parse(x.start) - Date.parse(y.start)),
+      out = {};
     for (const line of lines) {
-      const sandbox = line.sandbox ?? line.args?.sandbox, path = line.path ?? line.args?.path;
+      const sandbox = line.sandbox ?? line.args?.sandbox,
+        path = line.path ?? line.args?.path;
       if (typeof sandbox !== "string" || typeof path !== "string") continue;
-      const key = `${sandbox}\n${path}`, at = Date.parse(line.start) + (line.ms || 0);
-      if (line.method === "workspace.mount" && line.ok) out[key] = { agent: this.bindings.agent(line.agentId)?.name ?? line.agent, at, lastAt: at };
+      const key = `${sandbox}\n${path}`,
+        at = Date.parse(line.start) + (line.ms || 0);
+      if (line.method === "workspace.mount" && line.ok)
+        out[key] = { agent: this.bindings.agent(line.agentId)?.name ?? line.agent, at, lastAt: at };
       else if (line.method === "workspace.unmount" && line.ok) delete out[key];
       else if (out[key]) out[key].lastAt = Math.max(out[key].lastAt, at);
     }
@@ -280,7 +354,8 @@ export class Collector {
     const out = new Set();
     for (const view of this.roots.values()) {
       for (const line of view.running.values()) {
-        if (line.project === project && typeof line.args?.sandbox === "string" && typeof line.args?.path === "string") out.add(`${line.args.sandbox}\n${line.args.path}`);
+        if (line.project === project && typeof line.args?.sandbox === "string" && typeof line.args?.path === "string")
+          out.add(`${line.args.sandbox}\n${line.args.path}`);
       }
     }
     return out;
@@ -294,7 +369,11 @@ export class Collector {
       if (!entry.endsWith(".jsonl")) continue;
       for (const raw of readFileSync(join(dir, entry), "utf8").split("\n")) {
         let line;
-        try { line = raw ? JSON.parse(raw) : null; } catch { continue; /* a torn last line */ }
+        try {
+          line = raw ? JSON.parse(raw) : null;
+        } catch {
+          continue; /* a torn last line */
+        }
         if (line && line.project === project) yield line;
       }
     }
@@ -303,10 +382,17 @@ export class Collector {
   /** Polls on an interval until the returned disposer runs. */
   start() {
     const timer = setInterval(() => {
-      try { this.poll(); } catch (error) { this.ctx.logger?.warn?.(`layerfs: trace collection failed: ${error.message}`); }
+      try {
+        this.poll();
+      } catch (error) {
+        this.ctx.logger?.warn?.(`layerfs: trace collection failed: ${error.message}`);
+      }
     }, this.spec.pollMs);
     timer.unref?.();
-    return () => { clearInterval(timer); this.poll(); };
+    return () => {
+      clearInterval(timer);
+      this.poll();
+    };
   }
 }
 

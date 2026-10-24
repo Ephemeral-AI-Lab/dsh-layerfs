@@ -14,33 +14,78 @@ export function nextStarts(queue: readonly string[], going: number): string[] {
 }
 
 /** A run's progress, from the scripted model's replies. */
-export interface ScenarioRun { sessionId: string, project?: string | null, state: 'running' | 'passed' | 'failed', done: number, of: number, phase: string | null, error: string | null, timedOut?: boolean, started: number, ended: number | null }
+export interface ScenarioRun {
+  sessionId: string
+  project?: string | null
+  state: 'running' | 'passed' | 'failed'
+  done: number
+  of: number
+  phase: string | null
+  error: string | null
+  timedOut?: boolean
+  started: number
+  ended: number | null
+}
 /** What the loader counts: agents, steps, and the LayerFS calls the steps' expect covers. */
-export interface ScenarioCounts { agents: number, steps: number, calls: string[] }
-export interface Scenario { id: string, title: string, blurb: string | null, tags: string[], counts: ScenarioCounts, agents: string[], fixture: string | null, run: ScenarioRun | null }
+export interface ScenarioCounts {
+  agents: number
+  steps: number
+  calls: string[]
+}
+export interface Scenario {
+  id: string
+  title: string
+  blurb: string | null
+  tags: string[]
+  counts: ScenarioCounts
+  agents: string[]
+  fixture: string | null
+  run: ScenarioRun | null
+}
 
 /** The scenarios that carry every tag in `wanted` (all of them when it is empty). */
-export const withTags = (scenarios: readonly Scenario[], wanted: readonly string[]) => scenarios.filter((s) => wanted.every((t) => s.tags.includes(t)))
+export const withTags = (scenarios: readonly Scenario[], wanted: readonly string[]) =>
+  scenarios.filter((s) => wanted.every((t) => s.tags.includes(t)))
 /** Every tag the scenarios use, forms first, then workloads and topics, each once. */
 export function allTags(scenarios: readonly Scenario[]): string[] {
   const order = ['cli', 'sdk', 'node', 'rust']
   const tags = [...new Set(scenarios.flatMap((s) => s.tags))]
-  return tags.sort((a, b) => (order.includes(a) ? order.indexOf(a) : 9) - (order.includes(b) ? order.indexOf(b) : 9) || a.localeCompare(b))
+  return tags.sort(
+    (a, b) =>
+      (order.includes(a) ? order.indexOf(a) : 9) - (order.includes(b) ? order.indexOf(b) : 9) || a.localeCompare(b),
+  )
 }
-export interface MockInfo { workspace: string, preset: string, provider: string, prompt: string, scenarios: Scenario[] }
-export interface SessionRun { scenario: string, run: ScenarioRun | null }
+export interface MockInfo {
+  workspace: string
+  preset: string
+  provider: string
+  prompt: string
+  scenarios: Scenario[]
+}
+export interface SessionRun {
+  scenario: string
+  run: ScenarioRun | null
+}
 
-type Result<T> = { ok: true, value: T } | { ok: false, error: { code?: string, message?: string } }
-interface Workspace { workspaceId: string, path: string }
+type Result<T> = { ok: true; value: T } | { ok: false; error: { code?: string; message?: string } }
+interface Workspace {
+  workspaceId: string
+  path: string
+}
 
 /** What a run uses of dsh's Client services (read with ctx.get and the Remote scope). */
 export interface RunServices {
   remote?: {
     session: {
-      create(request: { workspaceId?: string, agentPreset?: string }): Promise<Result<{ sessionId: string }>>
-      rename(request: { sessionId: string, title: string }): Promise<Result<unknown>>
-      selectModel(request: { sessionId: string, provider: string, model: string }): Promise<Result<unknown>>
-      prompt(request: { requestId: string, sessionId: string, mode: 'queue', content: { type: 'text', text: string }[] }): Promise<Result<unknown>>
+      create(request: { workspaceId?: string; agentPreset?: string }): Promise<Result<{ sessionId: string }>>
+      rename(request: { sessionId: string; title: string }): Promise<Result<unknown>>
+      selectModel(request: { sessionId: string; provider: string; model: string }): Promise<Result<unknown>>
+      prompt(request: {
+        requestId: string
+        sessionId: string
+        mode: 'queue'
+        content: { type: 'text'; text: string }[]
+      }): Promise<Result<unknown>>
       cancel(request: { sessionId: string }): Promise<Result<unknown>>
     }
     workspace: { create(request: { path: string }): Promise<Result<{ workspace: Workspace }>> }
@@ -57,37 +102,61 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   })
   const text = await res.text()
   let data: any = null
-  try { data = text ? JSON.parse(text) : null } catch { /* not JSON */ }
-  if (!res.ok) throw Object.assign(new Error(data?.message ?? `the scenarios route answered ${res.status}`), { code: data?.code, status: res.status })
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    /* not JSON */
+  }
+  if (!res.ok)
+    throw Object.assign(new Error(data?.message ?? `the scenarios route answered ${res.status}`), {
+      code: data?.code,
+      status: res.status,
+    })
   return data as T
 }
-const orNull = (error: any) => { if (error.status === 404) return null; throw error }
+const orNull = (error: any) => {
+  if (error.status === 404) return null
+  throw error
+}
 
 export const mockApi = {
   /** null while the scripted model's plugin is off */
   info: () => call<MockInfo>('GET', '').catch(orNull),
   /** what `sessionId` plays, or null when it plays no scenario (or the plugin is off) */
   session: (sessionId: string) => call<SessionRun>('GET', `/session/${encodeURIComponent(sessionId)}`).catch(orNull),
-  setSession: (id: string, sessionId: string, project: string) => call<Scenario>('POST', `/${encodeURIComponent(id)}/session`, { sessionId, project }),
+  setSession: (id: string, sessionId: string, project: string) =>
+    call<Scenario>('POST', `/${encodeURIComponent(id)}/session`, { sessionId, project }),
   /** marks the run stopped: its agents get no further step */
-  stop: (sessionId: string) => call<{ state: string, error: string | null }>('POST', `/session/${encodeURIComponent(sessionId)}/stop`, {}),
+  stop: (sessionId: string) =>
+    call<{ state: string; error: string | null }>('POST', `/session/${encodeURIComponent(sessionId)}/stop`, {}),
 }
 
 /** A run's project, falling back to the older per-scenario name. */
 export const projectOf = (id: string, run?: ScenarioRun | null) => run?.project ?? `mock-${id}`
 export const isScenarioProject = (name: string) => /^mock-.+$/.test(name)
 
-const value = <T,>(what: string, result: Result<T>): T => {
+const value = <T>(what: string, result: Result<T>): T => {
   if (result.ok) return result.value
-  throw Object.assign(new Error(`${what}: ${result.error.message ?? result.error.code ?? 'refused'}`), { code: result.error.code })
+  throw Object.assign(new Error(`${what}: ${result.error.message ?? result.error.code ?? 'refused'}`), {
+    code: result.error.code,
+  })
 }
 
 /** Inits `name` from `source` for `folder` and reads its job until it ends. */
 async function initProject(folder: string, source: string, name: string, onJob: (job: InitJob) => void): Promise<void> {
   const request = async (method: string, path: string, body?: unknown): Promise<{ job: InitJob }> => {
-    const res = await fetch(`/layerfs${path}`, { method, credentials: 'same-origin', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
+    const res = await fetch(`/layerfs${path}`, {
+      method,
+      credentials: 'same-origin',
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    })
     const data = await res.json().catch(() => null)
-    if (!res.ok) throw Object.assign(new Error(data?.message ?? `the LayerFS route answered ${res.status}`), { code: data?.code, status: res.status })
+    if (!res.ok)
+      throw Object.assign(new Error(data?.message ?? `the LayerFS route answered ${res.status}`), {
+        code: data?.code,
+        status: res.status,
+      })
     return data
   }
   let { job } = await request('POST', '/init', { folder, name, source })
@@ -101,7 +170,11 @@ async function initProject(folder: string, source: string, name: string, onJob: 
 }
 
 /** The step a run is starting on, for the Run bar and the Tests tab. */
-export type StartStep = { step: 'session' } | { step: 'project' } | { step: 'init', job: InitJob | null } | { step: 'start' }
+export type StartStep =
+  | { step: 'session' }
+  | { step: 'project' }
+  | { step: 'init'; job: InitJob | null }
+  | { step: 'start' }
 
 /**
  * Starts a run of `scenario`, attempting each step once: a new Session in the
@@ -112,7 +185,13 @@ export type StartStep = { step: 'session' } | { step: 'project' } | { step: 'ini
  * with its message; the unused Session stays, empty.
  * @returns the run's root Session id
  */
-export async function startRun(services: RunServices, info: MockInfo, scenario: Scenario, onStep: (step: StartStep) => void, open = true): Promise<string> {
+export async function startRun(
+  services: RunServices,
+  info: MockInfo,
+  scenario: Scenario,
+  onStep: (step: StartStep) => void,
+  open = true,
+): Promise<string> {
   if (!services.remote) throw new Error('this client has no Remote session services')
   if (!scenario.fixture) throw new Error(`${scenario.title} has no fixture to Init its project from`)
   const { session, workspace } = services.remote
@@ -121,9 +200,15 @@ export async function startRun(services: RunServices, info: MockInfo, scenario: 
   const status = await api.status()
   if (!status.configured) throw new Error(`LayerFS isn't set up: layerfs-host is missing ${status.missing.join(', ')}`)
   const ws = value('register the Scenarios workspace', await workspace.create({ path: info.workspace })).workspace
-  const { sessionId } = value('create the Session', await session.create({ workspaceId: ws.workspaceId, agentPreset: info.preset }))
+  const { sessionId } = value(
+    'create the Session',
+    await session.create({ workspaceId: ws.workspaceId, agentPreset: info.preset }),
+  )
   value('name the Session', await session.rename({ sessionId, title: scenario.title }))
-  value('choose the scripted model', await session.selectModel({ sessionId, provider: info.provider, model: scenario.id }))
+  value(
+    'choose the scripted model',
+    await session.selectModel({ sessionId, provider: info.provider, model: scenario.id }),
+  )
   onStep({ step: 'project' })
   const project = `${projectOf(scenario.id)}-${crypto.randomUUID()}`
   onStep({ step: 'init', job: null })
@@ -131,7 +216,15 @@ export async function startRun(services: RunServices, info: MockInfo, scenario: 
   await api.choose(sessionId, project)
   await mockApi.setSession(scenario.id, sessionId, project)
   onStep({ step: 'start' })
-  value('send the first message', await session.prompt({ requestId: crypto.randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: info.prompt }] }))
+  value(
+    'send the first message',
+    await session.prompt({
+      requestId: crypto.randomUUID(),
+      sessionId,
+      mode: 'queue',
+      content: [{ type: 'text', text: info.prompt }],
+    }),
+  )
   if (open) services.uiWorkspace?.openSession(sessionId)
   return sessionId
 }

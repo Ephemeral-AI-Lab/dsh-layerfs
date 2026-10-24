@@ -3,19 +3,53 @@
 // lead's sheet has expressions instead, mapped by LEAD_POSES.
 import { where } from "./where.js";
 
-export const POSES = ["idle", "sleep", "laptop", "read", "cheer", "arms_open", "heart", "serve_tea", "wave", "conflict", "refused", "failed", "run"];
-export const LEAD_POSES = { idle: "shy", sleep: "sleepy", laptop: "thinking", read: "thinking", cheer: "thumbs_up", arms_open: "happy", heart: "smug", serve_tea: "happy", wave: "happy", conflict: "crying", refused: "surprised", failed: "angry" };
+export const POSES = [
+  "idle",
+  "sleep",
+  "laptop",
+  "read",
+  "cheer",
+  "arms_open",
+  "heart",
+  "serve_tea",
+  "wave",
+  "conflict",
+  "refused",
+  "failed",
+  "run",
+];
+export const LEAD_POSES = {
+  idle: "shy",
+  sleep: "sleepy",
+  laptop: "thinking",
+  read: "thinking",
+  cheer: "thumbs_up",
+  arms_open: "happy",
+  heart: "smug",
+  serve_tea: "happy",
+  wave: "happy",
+  conflict: "crying",
+  refused: "surprised",
+  failed: "angry",
+};
 
 /** True while a running process belongs to Workspace `wsId` ("sb_01:/workspaces/2"). */
 export function serving(W, wsId) {
-  const i = wsId.indexOf(":"), id = wsId.slice(0, i), sb = W.engine.s.sandboxes[id];
-  return !!sb && (sb.procOrder || []).some((p) => sb.processes[p].status === "running" && `${id}:${sb.processes[p].path}` === wsId);
+  const i = wsId.indexOf(":"),
+    id = wsId.slice(0, i),
+    sb = W.engine.s.sandboxes[id];
+  return (
+    !!sb &&
+    (sb.procOrder || []).some((p) => sb.processes[p].status === "running" && `${id}:${sb.processes[p].path}` === wsId)
+  );
 }
 
 /** `mode` is the host the agent stands on ("bench", "row", "term", "pane",
  * "chip"); `acting` is true for the agent(s) of the current step. */
 export function poseOf(W, n, mode, acting) {
-  const A = W.agents[n], o = A.out && A.out.tick === W.tick ? A.out : null, l = where(W, n);
+  const A = W.agents[n],
+    o = A.out && A.out.tick === W.tick ? A.out : null,
+    l = where(W, n);
   const mine = Object.values(W.ws).filter((w) => w.agent === n);
   if (A.spawned === W.tick) return "wave";
   if (o && !o.ok) return o.code === "Conflict" ? "conflict" : "refused";

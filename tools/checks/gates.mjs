@@ -40,29 +40,44 @@ export { codeOf, matches };
  * @returns {{ failures: string[], notes: string[] }}
  */
 export function expectedOutcomes(scenario, linesOf) {
-  const failures = [], notes = [];
+  const failures = [],
+    notes = [];
   for (const [agent, steps] of Object.entries(scenario.agents)) {
     const byStep = new Map();
     for (const line of linesOf(agent)) {
       if (line.ok === undefined || line.method === "sandbox.service") continue;
       let group = byStep.get(line.step);
-      if (!group) byStep.set(line.step, group = { step: line.step, codes: [], start: line.start });
+      if (!group) byStep.set(line.step, (group = { step: line.step, codes: [], start: line.start }));
       group.codes.push(codeOf(line));
       if (line.start < group.start) group.start = line.start;
     }
     const groups = [...byStep.values()].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
     const bash = steps.filter((s) => s.kind === "call" && s.call.name === "bash");
     const expecting = bash.filter((s) => s.expect?.length).length;
-    if (expecting && !groups.length) { failures.push(`${agent}: no LayerFS calls on the trace`); continue; }
-    let next = 0, slack = 0, matched = 0;
+    if (expecting && !groups.length) {
+      failures.push(`${agent}: no LayerFS calls on the trace`);
+      continue;
+    }
+    let next = 0,
+      slack = 0,
+      matched = 0;
     for (const step of bash) {
-      if (!step.expect?.length) { slack++; continue; }
+      if (!step.expect?.length) {
+        slack++;
+        continue;
+      }
       const end = Math.min(groups.length, next + slack + 1);
       let at = -1;
       for (let i = next; i < end && at < 0; i++) if (inOrder(groups[i].codes, step.expect)) at = i;
       if (at < 0) {
-        const shown = groups.slice(next, Math.max(end, next + 1)).map((g) => `[${g.codes.join(", ")}]`).join(" ") || "nothing";
-        failures.push(`${step.at} (${step.call.args.description}): expected ${step.expect.join(", ")}; ${agent}'s next call(s) show ${shown}`);
+        const shown =
+          groups
+            .slice(next, Math.max(end, next + 1))
+            .map((g) => `[${g.codes.join(", ")}]`)
+            .join(" ") || "nothing";
+        failures.push(
+          `${step.at} (${step.call.args.description}): expected ${step.expect.join(", ")}; ${agent}'s next call(s) show ${shown}`,
+        );
         slack++;
         continue;
       }
@@ -77,12 +92,16 @@ export function expectedOutcomes(scenario, linesOf) {
 
 /** The order checks: the run's history against final.json's recorded one. */
 export async function orderFailures(final, lf, backend) {
-  const run = await historyOf(lf, backend), failures = compareHistory(final.history, run);
+  const run = await historyOf(lf, backend),
+    failures = compareHistory(final.history, run);
   // a run's Commit where the record has UpToDate must change no tracked file
   const byRef = new Map([...run.ids].map(([id, ref]) => [ref, id]));
   for (const ref of failures.extras) {
     const changes = await trackedChanges(lf, run.items.get(byRef.get(ref)));
-    if (changes.length) failures.push(`${ref} is a Commit where the record has UpToDate, and it changes ${changes.length} tracked path(s), first ${changes[0].path}`);
+    if (changes.length)
+      failures.push(
+        `${ref} is a Commit where the record has UpToDate, and it changes ${changes.length} tracked path(s), first ${changes[0].path}`,
+      );
   }
   return [...failures];
 }
@@ -102,13 +121,15 @@ const CONTENT = [
  */
 export function variesOf(main) {
   const content = {};
-  for (const path of Object.keys(main)) for (const [pattern, why] of CONTENT) if (pattern.test(path)) content[path] = why;
+  for (const path of Object.keys(main))
+    for (const [pattern, why] of CONTENT) if (pattern.test(path)) content[path] = why;
   return { stamp: STAMP.source, content };
 }
 
 /** The final-tree check: main's tracked files against final.json's. */
 export async function finalTreeFailures(final, lf) {
-  const run = await trackedHashes(lf), failures = [];
+  const run = await trackedHashes(lf),
+    failures = [];
   const varies = final.varies ?? { stamp: null, content: {} };
   const stamp = varies.stamp ? new RegExp(varies.stamp, "g") : null;
   const name = (path) => (stamp ? path.replace(stamp, "<stamp>") : path);
@@ -126,22 +147,38 @@ export async function finalTreeFailures(final, lf) {
   for (const [key, paths] of want) {
     const have = got.get(key)?.length ?? 0;
     if (have >= paths.length) continue;
-    const pattern = key.slice(0, key.lastIndexOf(" ")), there = [...got].filter(([k]) => k.startsWith(`${pattern} `)).flatMap(([, p]) => p);
+    const pattern = key.slice(0, key.lastIndexOf(" ")),
+      there = [...got].filter(([k]) => k.startsWith(`${pattern} `)).flatMap(([, p]) => p);
     const recorded = paths.map((p) => final.main[p].slice(0, 12)).join(", ");
-    failures.push(there.length ? `${paths[have]} differs: ${there.map((p) => run.files[p].slice(0, 12)).join(", ")}, recorded ${recorded}` : `${paths[have]} is missing from main`);
+    failures.push(
+      there.length
+        ? `${paths[have]} differs: ${there.map((p) => run.files[p].slice(0, 12)).join(", ")}, recorded ${recorded}`
+        : `${paths[have]} is missing from main`,
+    );
   }
   for (const [key, paths] of got) {
     const extra = paths.length - (want.get(key)?.length ?? 0);
-    if (extra > 0) failures.push(`${paths[paths.length - extra]} (${run.files[paths[0]].slice(0, 12)}) is tracked on main but not in the record`);
+    if (extra > 0)
+      failures.push(
+        `${paths[paths.length - extra]} (${run.files[paths[0]].slice(0, 12)}) is tracked on main but not in the record`,
+      );
   }
-  return { failures, files: Object.keys(run.files).length, varies: { stamped: Object.keys(final.main).filter((p) => name(p) !== p).length, content: exempt.size } };
+  return {
+    failures,
+    files: Object.keys(run.files).length,
+    varies: { stamped: Object.keys(final.main).filter((p) => name(p) !== p).length, content: exempt.size },
+  };
 }
 
 /** Container states that hold the volume but run nothing: an idle-closed Sandbox, a failed start. */
 const STOPPED = new Set(["created", "exited", "dead"]);
 /** The containers on the project's volume, `name state` each. */
 export function volumeContainers(volume, docker = "/var/run/docker.sock", run = execFileSync) {
-  const out = run("docker", ["-H", `unix://${docker}`, "ps", "-a", "--filter", `volume=${volume}`, "--format", "{{.Names}} {{.State}}"], { encoding: "utf8" });
+  const out = run(
+    "docker",
+    ["-H", `unix://${docker}`, "ps", "-a", "--filter", `volume=${volume}`, "--format", "{{.Names}} {{.State}}"],
+    { encoding: "utf8" },
+  );
   return out.split("\n").filter(Boolean);
 }
 /** The closed check: the containers still running on the project's volume. A stopped one, such as a

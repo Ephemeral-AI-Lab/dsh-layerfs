@@ -29,7 +29,11 @@ async function readJson(req) {
     text += chunk;
     if (text.length > MAX_BODY) throw Object.assign(new Error("request body too large"), { status: 413 });
   }
-  try { return text ? JSON.parse(text) : {}; } catch { throw Object.assign(new Error("request body is not JSON"), { status: 400 }); }
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw Object.assign(new Error("request body is not JSON"), { status: 400 });
+  }
 }
 
 /**
@@ -39,16 +43,33 @@ async function readJson(req) {
  */
 export function registerRoutes(ctx, { scenarios, progress, workspace, preset, provider, prompt }) {
   const view = (id, s) => ({
-    id, title: s.title, blurb: s.blurb || null, tags: s.tags, counts: s.counts, agents: Object.keys(s.agents), fixture: s.fixture,
+    id,
+    title: s.title,
+    blurb: s.blurb || null,
+    tags: s.tags,
+    counts: s.counts,
+    agents: Object.keys(s.agents),
+    fixture: s.fixture,
     run: progress.get(id),
   });
   const handler = async (req, res) => {
     const rejection = ctx.connection.requestRejection(req);
-    if (rejection !== undefined) { res.statusCode = rejection; res.end(); return; }
-    const url = new URL(String(req.url), "http://localhost"), parts = url.pathname.slice(PREFIX.length).split("/").filter(Boolean).map(decodeURIComponent);
+    if (rejection !== undefined) {
+      res.statusCode = rejection;
+      res.end();
+      return;
+    }
+    const url = new URL(String(req.url), "http://localhost"),
+      parts = url.pathname.slice(PREFIX.length).split("/").filter(Boolean).map(decodeURIComponent);
     try {
       if (req.method === "GET" && parts.length === 0) {
-        return send(res, 200, { workspace, preset, provider, prompt, scenarios: [...scenarios].map(([id, s]) => view(id, s)) });
+        return send(res, 200, {
+          workspace,
+          preset,
+          provider,
+          prompt,
+          scenarios: [...scenarios].map(([id, s]) => view(id, s)),
+        });
       }
       if (req.method === "GET" && parts[0] === "session" && parts.length === 2) {
         const at = progress.sessionOf(parts[1]);
@@ -60,12 +81,15 @@ export function registerRoutes(ctx, { scenarios, progress, workspace, preset, pr
         const run = progress.halt(parts[1]);
         return send(res, 200, { state: run.state, error: run.error });
       }
-      const id = parts[0] ?? "", scenario = scenarios.get(id);
+      const id = parts[0] ?? "",
+        scenario = scenarios.get(id);
       if (!scenario) return send(res, 404, { code: "not-found", message: `no scenario named ${id}` });
       if (req.method === "POST" && parts[1] === "session" && parts.length === 2) {
         const body = await readJson(req);
-        if (typeof body.sessionId !== "string" || !body.sessionId) return send(res, 400, { code: "invalid-session", message: "sessionId is required" });
-        if (body.project != null && (typeof body.project !== "string" || !/^mock-[A-Za-z0-9_-]+$/.test(body.project))) return send(res, 400, { code: "invalid-project", message: "project must be a mock- project name" });
+        if (typeof body.sessionId !== "string" || !body.sessionId)
+          return send(res, 400, { code: "invalid-session", message: "sessionId is required" });
+        if (body.project != null && (typeof body.project !== "string" || !/^mock-[A-Za-z0-9_-]+$/.test(body.project)))
+          return send(res, 400, { code: "invalid-project", message: "project must be a mock- project name" });
         progress.register(id, body.sessionId, body.project ?? null);
         return send(res, 200, view(id, scenario));
       }

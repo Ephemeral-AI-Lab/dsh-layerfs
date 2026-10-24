@@ -15,7 +15,9 @@ export function windowsCall(call, directory) {
   const quote = (value) => `'${value.replaceAll("'", "''")}'`;
   // Keep dsh's process ownership, streams, environment and cancellation. Remove
   // this call's script even on a nonzero exit; cancellation may leave it behind.
-  const args = match ? quote(file) : `${quote(fileURLToPath(new URL("./windows-cli-run.js", import.meta.url)))} ${quote(file)}`;
+  const args = match
+    ? quote(file)
+    : `${quote(fileURLToPath(new URL("./windows-cli-run.js", import.meta.url)))} ${quote(file)}`;
   const supervisor = quote(fileURLToPath(new URL("./windows-command.js", import.meta.url)));
   const command = `try { & ${quote(process.execPath)} ${supervisor} 110000 ${args}; $code = $LASTEXITCODE } finally { Remove-Item -LiteralPath ${quote(file)} -Force }; exit $code`;
   return { ...call, args: { ...call.args, command, timeoutMs: 120000 } };

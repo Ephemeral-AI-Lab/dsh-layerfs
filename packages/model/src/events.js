@@ -14,7 +14,10 @@ import { endLines } from "./sources/trace.js";
 /** The events of trace lines, in call order, for tests and inspection. */
 export function traceEvents(lines, agent = "main") {
   return endLines(lines).map((l) => ({
-    agent: l.agent || agent, call: l.method, args: l.args, group: l.step || null,
+    agent: l.agent || agent,
+    call: l.method,
+    args: l.args,
+    group: l.step || null,
     outcome: l.ok ? { ok: true, code: l.kind || "ok" } : { ok: false, code: l.code },
     timing: { totalMs: l.ms },
   }));

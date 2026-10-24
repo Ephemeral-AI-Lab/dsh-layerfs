@@ -16,9 +16,12 @@ if (!rev || !names.length) {
   console.error("usage: coverage.mjs <rev|-> <scenario>...");
   process.exit(2);
 }
-const read = (name) => JSON.parse(rev === "-"
-  ? readFileSync(join(ROOT, "scenarios", name, "scenario.json"), "utf8")
-  : execFileSync("git", ["-C", ROOT, "show", `${rev}:scenarios/${name}/scenario.json`], { encoding: "utf8" }));
+const read = (name) =>
+  JSON.parse(
+    rev === "-"
+      ? readFileSync(join(ROOT, "scenarios", name, "scenario.json"), "utf8")
+      : execFileSync("git", ["-C", ROOT, "show", `${rev}:scenarios/${name}/scenario.json`], { encoding: "utf8" }),
+  );
 
 const codes = new Set();
 for (const name of names) {

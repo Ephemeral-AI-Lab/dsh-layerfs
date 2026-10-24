@@ -31,8 +31,13 @@ export function markLayerFsTabs(doc: Document, labels: { work: string; history: 
       else if (label === labels.history) tab.setAttribute(MARK, 'history')
     }
   }
-  const seen = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(mark) })
+  const seen = new MutationObserver(() => {
+    if (!frame) frame = requestAnimationFrame(mark)
+  })
   seen.observe(doc.body, { childList: true, subtree: true })
   mark()
-  return () => { seen.disconnect(); if (frame) cancelAnimationFrame(frame) }
+  return () => {
+    seen.disconnect()
+    if (frame) cancelAnimationFrame(frame)
+  }
 }

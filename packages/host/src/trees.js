@@ -79,9 +79,15 @@ export class TreeReader {
 
   /** One Files read of saved ids (reads.js: list, read, changes, diff); kept, unless it fails. */
   files(project, kind, query) {
-    const r = READS[kind], args = r.args(query), key = `${project.name}\n${kind}\n${JSON.stringify(args)}`;
+    const r = READS[kind],
+      args = r.args(query),
+      key = `${project.name}\n${kind}\n${JSON.stringify(args)}`;
     const kept = this.reads.get(key);
-    if (kept) { this.reads.delete(key); this.reads.set(key, kept); return kept; }
+    if (kept) {
+      this.reads.delete(key);
+      this.reads.set(key, kept);
+      return kept;
+    }
     const reading = this.use(project, (client) => r.run(client, args));
     this.reads.set(key, reading);
     reading.catch(() => this.reads.delete(key));
@@ -113,7 +119,10 @@ export class TreeReader {
         keep(this.histories, project.name, kept, KEEP_PROJECTS);
         return kept.state;
       }
-      const state = { ...(await this.draw(project, client, { ...answer, sandboxes: [], gone: [] })), version: answer.version };
+      const state = {
+        ...(await this.draw(project, client, { ...answer, sandboxes: [], gone: [] })),
+        version: answer.version,
+      };
       if (answer.version) keep(this.histories, project.name, { version: answer.version, state }, KEEP_PROJECTS);
       return state;
     });
@@ -136,7 +145,9 @@ export class TreeReader {
     if (!entry) {
       entry = { client: this.open(project), users: 0, timer: null };
       this.clients.set(project.name, entry);
-      entry.client.catch(() => { if (this.clients.get(project.name) === entry) this.clients.delete(project.name); });
+      entry.client.catch(() => {
+        if (this.clients.get(project.name) === entry) this.clients.delete(project.name);
+      });
     }
     clearTimeout(entry.timer);
     entry.users++;

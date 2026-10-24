@@ -768,6 +768,11 @@ ${MAID_CSS}
 /** Adds the stylesheet once per document; returns its element. */
 export function injectStyle(doc = document) {
   let el = doc.querySelector("style[data-lfs]");
-  if (!el) { el = doc.createElement("style"); el.dataset.lfs = "1"; el.textContent = CSS; doc.head.appendChild(el); }
+  if (!el) {
+    el = doc.createElement("style");
+    el.dataset.lfs = "1";
+    el.textContent = CSS;
+    doc.head.appendChild(el);
+  }
   return el;
 }

@@ -7,11 +7,18 @@
 // look (../heroes/style.js); LayerFS words and numbers never change.
 
 const M = '.lfs[data-skin="maids"]';
-const svg = (body) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${body}</svg>`)}")`;
+const svg = (body) =>
+  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${body}</svg>`)}")`;
 // the notebook's tools: a pencil (tip at the bottom left), an eraser and a paperclip
-const PENCIL = svg('<g transform="rotate(45 12 12)" stroke="#5B4636" stroke-width=".9" stroke-linejoin="round"><rect x="9.6" y="1" width="4.8" height="15" fill="#F6C453"/><rect x="9.6" y="1" width="4.8" height="3" fill="#F49AB5"/><path d="M9.6 16 12 22.2 14.4 16Z" fill="#F7E1BC"/><path d="M11.3 20.4 12 22.2 12.7 20.4Z" fill="#3A3A48"/></g>');
-const ERASER = svg('<g transform="rotate(-25 12 12)" stroke="#B8406A" stroke-width="1"><rect x="2.5" y="8" width="19" height="9" rx="2.2" fill="#F7B3C8"/><rect x="12" y="8" width="9.5" height="9" rx="1.6" fill="#E3ECFA"/></g>');
-const CLIP = svg('<path d="M8.5 7v9.5a3.5 3.5 0 0 0 7 0V5.2a2.4 2.4 0 0 0-4.8 0v10.3a1.1 1.1 0 0 0 2.2 0V7.5" fill="none" stroke="#D4537E" stroke-width="1.7" stroke-linecap="round"/>');
+const PENCIL = svg(
+  '<g transform="rotate(45 12 12)" stroke="#5B4636" stroke-width=".9" stroke-linejoin="round"><rect x="9.6" y="1" width="4.8" height="15" fill="#F6C453"/><rect x="9.6" y="1" width="4.8" height="3" fill="#F49AB5"/><path d="M9.6 16 12 22.2 14.4 16Z" fill="#F7E1BC"/><path d="M11.3 20.4 12 22.2 12.7 20.4Z" fill="#3A3A48"/></g>',
+);
+const ERASER = svg(
+  '<g transform="rotate(-25 12 12)" stroke="#B8406A" stroke-width="1"><rect x="2.5" y="8" width="19" height="9" rx="2.2" fill="#F7B3C8"/><rect x="12" y="8" width="9.5" height="9" rx="1.6" fill="#E3ECFA"/></g>',
+);
+const CLIP = svg(
+  '<path d="M8.5 7v9.5a3.5 3.5 0 0 0 7 0V5.2a2.4 2.4 0 0 0-4.8 0v10.3a1.1 1.1 0 0 0 2.2 0V7.5" fill="none" stroke="#D4537E" stroke-width="1.7" stroke-linecap="round"/>',
+);
 // the floor: bubbles and small hearts, pale, on cool white
 const PATTERN = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="10" cy="12" r="3" fill="none" stroke="#D6E3F7" stroke-width="1.2"/><circle cx="16" cy="6" r="1.6" fill="#DCE8FA"/><path d="M44 40c-2-3.4-7-2-6.2 1.4.7 2.8 6.2 5.6 6.2 5.6s5.5-2.8 6.2-5.6C51 38 46 36.6 44 40z" fill="#FBE1EA"/><circle cx="52" cy="14" r="1.2" fill="#DCE8FA"/></svg>')}")`;
 

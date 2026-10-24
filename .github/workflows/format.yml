@@ -1,0 +1,47 @@
+# Checks that the JavaScript and TypeScript are formatted (biome.jsonc), with
+# the Biome version pinned in package.json's format:check script. Lint
+# findings are not checked.
+name: format
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.js"
+      - "**/*.mjs"
+      - "**/*.cjs"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "biome.jsonc"
+      - "package.json"
+      - ".github/workflows/format.yml"
+      - "!demo-workspace/**"
+      - "!docs/**"
+  pull_request:
+    paths:
+      - "**/*.js"
+      - "**/*.mjs"
+      - "**/*.cjs"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "biome.jsonc"
+      - "package.json"
+      - ".github/workflows/format.yml"
+      - "!demo-workspace/**"
+      - "!docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: format-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  biome:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: npm run format:check

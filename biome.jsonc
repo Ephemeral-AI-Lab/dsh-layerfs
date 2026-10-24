@@ -1,0 +1,25 @@
+// Biome formats this repository's JavaScript and TypeScript.
+// .github/workflows/format.yml runs format:check on pushes and pull requests.
+// From the repository root:
+//   pnpm run format          (npx @biomejs/biome@2.6.2 format --write .)
+//   pnpm run format:check    (reports files that need formatting)
+//   npx @biomejs/biome@2.6.2 lint .
+// JSON is left alone (scenarios, recorded traces, fixtures). demo-workspace/ is
+// the scenarios' fixture site and docs/ holds verification evidence; both stay
+// byte for byte as recorded.
+{
+  "$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": ["**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx", "!demo-workspace", "!docs"]
+  },
+  "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
+  "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } },
+  "overrides": [
+    {
+      // The client package is written with single quotes and no semicolons.
+      "includes": ["packages/client/**"],
+      "javascript": { "formatter": { "quoteStyle": "single", "semicolons": "asNeeded" } }
+    }
+  ]
+}

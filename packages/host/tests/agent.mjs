@@ -14,17 +14,27 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const AGENT = fileURLToPath(new URL("../src/agent/", import.meta.url));
-const node = (args, env) => spawnSync(process.execPath, args, { encoding: "utf8", env: { PATH: process.env.PATH, ...env }, timeout: 60_000 });
+const node = (args, env) =>
+  spawnSync(process.execPath, args, { encoding: "utf8", env: { PATH: process.env.PATH, ...env }, timeout: 60_000 });
 const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-agent-"));
 
 // the mapping: an unset LAYERFS_X takes DSH_LAYERFS_X; a set one is kept
 {
   const script = `await import(${JSON.stringify(pathToFileURL(join(AGENT, "env.js")).href)}); console.log(JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([k]) => /LAYERFS_/.test(k)).sort())));`;
-  const run = node(["--input-type=module", "-e", script], { DSH_LAYERFS_PROJECT: "shop", DSH_LAYERFS_TRACE_STEP: "r1", DSH_LAYERFS_HOME: "/dsh/home", LAYERFS_HOME: "/own/home" });
+  const run = node(["--input-type=module", "-e", script], {
+    DSH_LAYERFS_PROJECT: "shop",
+    DSH_LAYERFS_TRACE_STEP: "r1",
+    DSH_LAYERFS_HOME: "/dsh/home",
+    LAYERFS_HOME: "/own/home",
+  });
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout), {
-    DSH_LAYERFS_HOME: "/dsh/home", DSH_LAYERFS_PROJECT: "shop", DSH_LAYERFS_TRACE_STEP: "r1",
-    LAYERFS_HOME: "/own/home", LAYERFS_PROJECT: "shop", LAYERFS_TRACE_STEP: "r1",
+    DSH_LAYERFS_HOME: "/dsh/home",
+    DSH_LAYERFS_PROJECT: "shop",
+    DSH_LAYERFS_TRACE_STEP: "r1",
+    LAYERFS_HOME: "/own/home",
+    LAYERFS_PROJECT: "shop",
+    LAYERFS_TRACE_STEP: "r1",
   });
 }
 
@@ -32,7 +42,12 @@ const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-agent-"));
 {
   const script = `const [a, w, b, v] = await Promise.all([import("@layerfs/agent"), import(${JSON.stringify(pathToFileURL(join(AGENT, "sdk.js")).href)}), import("@layerfs/backend"), import(${JSON.stringify(pathToFileURL(join(AGENT, "backend.js")).href)})]);
 console.log(JSON.stringify({ same: Object.keys(a).every((k) => a[k] === w[k]) && Object.keys(b).every((k) => b[k] === v[k]), sdk: Object.keys(w).sort(), backend: Object.keys(v).sort(), project: process.env.LAYERFS_PROJECT }));`;
-  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: join(AGENT, ".."), encoding: "utf8", env: { PATH: process.env.PATH, DSH_LAYERFS_PROJECT: "shop" }, timeout: 60_000 });
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: join(AGENT, ".."),
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, DSH_LAYERFS_PROJECT: "shop" },
+    timeout: 60_000,
+  });
   assert.equal(run.status, 0, run.stderr);
   const out = JSON.parse(run.stdout);
   assert.ok(out.same, "the wrappers re-export the packages' own bindings");
@@ -43,18 +58,34 @@ console.log(JSON.stringify({ same: Object.keys(a).every((k) => a[k] === w[k]) &&
 
 // the CLI wrapper: DSH_LAYERFS_PROJECT alone names the project its Store opens; exit codes and stdout are the CLI's
 {
-  const opened = join(dir, "opened.jsonl"), binding = join(dir, "binding.cjs");
-  writeFileSync(binding, `const fs = require("node:fs");
+  const opened = join(dir, "opened.jsonl"),
+    binding = join(dir, "binding.cjs");
+  writeFileSync(
+    binding,
+    `const fs = require("node:fs");
 const ok = async () => ({ value: { items: [], hasMore: false } });
-module.exports = { call: ok, backendCall: ok, storeOpen: async (args) => { fs.appendFileSync(${JSON.stringify(opened)}, JSON.stringify(args) + "\\n"); return ok(); }, storeClose: ok };`);
+module.exports = { call: ok, backendCall: ok, storeOpen: async (args) => { fs.appendFileSync(${JSON.stringify(opened)}, JSON.stringify(args) + "\\n"); return ok(); }, storeClose: ok };`,
+  );
   const cli = join(AGENT, "cli.js");
-  const env = { DSH_LAYERFS_PROJECT: "wrapped", DSH_LAYERFS_NATIVE: binding, DSH_LAYERFS_STORE_PATH: "/stand-in/store.sqlite", DSH_LAYERFS_HOME: "/stand-in" };
+  const env = {
+    DSH_LAYERFS_PROJECT: "wrapped",
+    DSH_LAYERFS_NATIVE: binding,
+    DSH_LAYERFS_STORE_PATH: "/stand-in/store.sqlite",
+    DSH_LAYERFS_HOME: "/stand-in",
+  };
   const run = node([cli, "project", "list_branches"], env);
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout), { items: [], hasMore: false });
-  const [args] = readFileSync(opened, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const [args] = readFileSync(opened, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
   assert.deepEqual([args.project, args.home], ["wrapped", "/stand-in"]);
-  assert.equal(JSON.stringify(args).includes("/stand-in/store.sqlite"), true, "the Store path comes from DSH_LAYERFS_STORE_PATH");
+  assert.equal(
+    JSON.stringify(args).includes("/stand-in/store.sqlite"),
+    true,
+    "the Store path comes from DSH_LAYERFS_STORE_PATH",
+  );
   // no project: the CLI's own usage refusal (exit 2); help exits 0
   const none = node([cli, "project", "list_branches"], { DSH_LAYERFS_NATIVE: binding });
   assert.equal(none.status, 2, none.stderr);

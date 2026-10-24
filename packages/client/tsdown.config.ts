@@ -18,5 +18,7 @@ const gif = {
 }
 
 const preset = clientBundle(import.meta.dirname, ['src/index.js'])
-export default async (context: unknown) => (await preset(context)).map((config: any) =>
-  config && typeof config === 'object' ? { ...config, plugins: [gif, ...(config.plugins ?? [])] } : config)
+export default async (context: unknown) =>
+  (await preset(context)).map((config: any) =>
+    config && typeof config === 'object' ? { ...config, plugins: [gif, ...(config.plugins ?? [])] } : config,
+  )

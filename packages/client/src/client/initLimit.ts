@@ -32,17 +32,21 @@ export function nextMinutes(limitMs: number): number {
 }
 
 /** The dialog's minutes field: blank is LayerFS's default (no timeout sent), else a whole number of minutes ≥ 1. */
-export function limitFromMinutes(text: string): { ms?: number, error?: string } {
+export function limitFromMinutes(text: string): { ms?: number; error?: string } {
   const t = text.trim()
   if (!t) return {}
   const m = Number(t)
-  if (!/^\d+$/.test(t) || !Number.isSafeInteger(m * MINUTE) || m < 1) return { error: 'The time limit is a whole number of minutes, at least 1.' }
+  if (!/^\d+$/.test(t) || !Number.isSafeInteger(m * MINUTE) || m < 1)
+    return { error: 'The time limit is a whole number of minutes, at least 1.' }
   return { ms: m * MINUTE }
 }
 
 /** What a timed-out job says: the limit it stopped at and, when known, how far its import got. */
 export function timedOutText(job: Pick<InitJob, 'timeout' | 'imported' | 'totals'>): string {
   const head = `Init stopped at its ${minutes(limitOf(job))} min limit`
-  const done = job.imported?.files, total = job.totals?.files
-  return done != null && total != null ? `${head} after importing ${number.format(Math.min(done, total))} of ${number.format(total)} files.` : `${head}.`
+  const done = job.imported?.files,
+    total = job.totals?.files
+  return done != null && total != null
+    ? `${head} after importing ${number.format(Math.min(done, total))} of ${number.format(total)} files.`
+    : `${head}.`
 }

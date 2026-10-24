@@ -26,9 +26,11 @@ assert.deepEqual(maidBubble(["C3", "good"], "win"), ["C3 (๑•̀ㅂ•́)و✧
 assert.deepEqual(maidBubble(["Conflict!", "bad"], "oops"), ["Conflict! Σ(°△°|||)", "bad"]);
 assert.equal(maidBubble(null, "win"), null);
 
-
 // a sheet's frame: the mood's pose, the first one the sheet has
-const maid = { src: "m.png", poses: ["idle", "run", "laptop", "read", "cheer", "heart", "sleep", "wave", "serve_tea", "arms_open"] };
+const maid = {
+  src: "m.png",
+  poses: ["idle", "run", "laptop", "read", "cheer", "heart", "sleep", "wave", "serve_tea", "arms_open"],
+};
 assert.match(figureStyle(maid, "win"), / 44\.444% 0 \/ 1000% 100%/);
 assert.match(figureStyle(maid, "sleep"), / 66\.667% 0 /);
 assert.match(figureStyle({ src: "h.png" }, "win"), /^background-image:url\(h\.png\)$/);
@@ -41,5 +43,8 @@ assert.deepEqual(cast.heroes["3"].head, { src: "heads.png", index: 2, count: 12 
 assert.equal(cast.heroes["13"].src, "13.png");
 
 // everything the skin draws is scoped to it, but its burst animation
-for (const rule of MAID_CSS.split("\n").filter((l) => /^[.@]/.test(l.trim()) && !/^\.lfs \.maidfx|^@keyframes|^@media/.test(l.trim()))) assert.match(rule, /data-skin="maids"/, rule);
+for (const rule of MAID_CSS.split("\n").filter(
+  (l) => /^[.@]/.test(l.trim()) && !/^\.lfs \.maidfx|^@keyframes|^@media/.test(l.trim()),
+))
+  assert.match(rule, /data-skin="maids"/, rule);
 console.log("maid: ok");

@@ -30,16 +30,30 @@ export const inject = ["shellEnv", "sessions"];
 export const Config = z.object({
   image: z.string().description("LayerFS runtime image digest (sha256:…) that Sandboxes run"),
   daemon: z.string().description("Host path of the built Linux layerfs-daemon"),
-  bundle: z.string().description("Folder of a sealed Linux LayerFS build; on macOS and Windows the home's worker runs it and makes every Store call"),
-  wslDistribution: z.string().description("Windows: WSL distribution running the Linux SDK and Docker Engine (default Ubuntu)"),
+  bundle: z
+    .string()
+    .description(
+      "Folder of a sealed Linux LayerFS build; on macOS and Windows the home's worker runs it and makes every Store call",
+    ),
+  wslDistribution: z
+    .string()
+    .description("Windows: WSL distribution running the Linux SDK and Docker Engine (default Ubuntu)"),
   wslUser: z.string().description("Windows: WSL user owning the Store volumes (default root)"),
   wslHome: z.string().description("Windows: persistent Linux discovery home, separate from the Windows home"),
   wslNode: z.string().description("Windows: absolute Linux Node executable (default /usr/local/bin/node)"),
-  containerPrefix: z.string().description("Prefix of this home's container names (default layerfs-): Sandboxes <prefix><project>-<n>, the macOS worker <prefix>worker"),
+  containerPrefix: z
+    .string()
+    .description(
+      "Prefix of this home's container names (default layerfs-): Sandboxes <prefix><project>-<n>, the macOS worker <prefix>worker",
+    ),
   docker: z.string().description("Local Docker Engine Unix socket"),
   home: z.string().description("LayerFS home for discovery records (default: <temp>/dsh-layerfs/home)"),
   stateDir: z.string().description("Project bindings and agent names (default: <profile>/dsh-layerfs)"),
-  traceDir: z.string().description("Per-agent SDK traces (Windows default: <workspace>/.dsh-layerfs-traces; other platforms: <temp>/dsh-layerfs/traces)"),
+  traceDir: z
+    .string()
+    .description(
+      "Per-agent SDK traces (Windows default: <workspace>/.dsh-layerfs-traces; other platforms: <temp>/dsh-layerfs/traces)",
+    ),
   pollMs: z.natural().min(50).max(10_000).default(400).description("How often trace files are read, in milliseconds"),
 });
 
@@ -52,17 +66,30 @@ export function apply(ctx, config) {
   const warn = (text) => ctx.logger?.warn?.(`layerfs: ${text}`);
   const bindings = new BindingStore(spec.stateDir);
   // projects bound before the runtime kept records get one, so it knows their volumes
-  try { adopt(spec, bindings); } catch (error) { warn(`recording older projects for the runtime: ${error.message}`); }
+  try {
+    adopt(spec, bindings);
+  } catch (error) {
+    warn(`recording older projects for the runtime: ${error.message}`);
+  }
   const opened = openRuntime(spec);
-  ctx.effect(() => () => opened.then((runtime) => runtime.close()).catch((error) => warn(error.message)), "layerfs-host: LayerFS runtime");
+  ctx.effect(
+    () => () => opened.then((runtime) => runtime.close()).catch((error) => warn(error.message)),
+    "layerfs-host: LayerFS runtime",
+  );
   // macOS and Windows: the home's worker makes every Store call. It starts with the Host
-  const start = () => opened.then((runtime) => runtime.worker.start()).catch((error) => warn(`the worker did not start: ${error.message}`));
+  const start = () =>
+    opened
+      .then((runtime) => runtime.worker.start())
+      .catch((error) => warn(`the worker did not start: ${error.message}`));
   if (spec.worker && spec.bundle && spec.image) start();
   // a call of the Host's or an agent's that finds the worker down or gone starts it again, one start
   // at a time (the runtime's); the failed call keeps its own answer
   const collector = new Collector(ctx, spec, bindings);
   collector.onUnreachable = spec.worker ? start : null;
-  ctx.effect(() => ctx.shellEnv.register(contributor(ctx, spec, bindings, collector)), "layerfs-host: bash environment");
+  ctx.effect(
+    () => ctx.shellEnv.register(contributor(ctx, spec, bindings, collector)),
+    "layerfs-host: bash environment",
+  );
   ctx.effect(() => shimOnPath(), "layerfs-host: layerfs on PATH");
   ctx.effect(() => collector.start(), "layerfs-host: trace collection");
   ctx.provide("layerfsTraces", { callLines: (sessionId, step) => collector.callLines(sessionId, step) });

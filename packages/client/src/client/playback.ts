@@ -12,11 +12,16 @@ import * as X from '../../../model/src/index.js'
 
 const LAG_MS = 2000
 
-
-export interface Step { a: string, line: any, lines: any[], replay: (W: any) => void, due: number }
+export interface Step {
+  a: string
+  line: any
+  lines: any[]
+  replay: (W: any) => void
+  due: number
+}
 
 /** When a line shows: LAG_MS after it ended, by the Host's clock. */
-export const dueOf = (line: { start: string, ms?: number }) => Date.parse(line.start) + (line.ms || 0) + LAG_MS
+export const dueOf = (line: { start: string; ms?: number }) => Date.parse(line.start) + (line.ms || 0) + LAG_MS
 
 export class Playback {
   W: any
@@ -45,10 +50,14 @@ export class Playback {
   private now: () => number
 
   /** Steps still to play. */
-  get waiting() { return this.queue.length }
+  get waiting() {
+    return this.queue.length
+  }
 
   /** Of a session's `lines`, the end lines not played yet (queued, or not taken yet): their calls still show as running. */
-  unplayed(lines: any[]) { return lines.filter((line) => line.phase !== 'start' && !this.done.has(line.id)) }
+  unplayed(lines: any[]) {
+    return lines.filter((line) => line.phase !== 'start' && !this.done.has(line.id))
+  }
 
   /** Takes a session's lines so far (agents named): the new ones queue, each for its time. */
   feed(lines: any[], agent: string): Promise<void> {
@@ -71,14 +80,29 @@ export class Playback {
       this.pending = []
       // a step never shows before the one before it
       // a line ended before now, so with a browser clock behind the Host's it still shows within LAG_MS
-      const due = Math.max(Math.min(dueOf(line), this.now() + LAG_MS), this.queue.length ? this.queue[this.queue.length - 1].due : 0)
-      this.queue.push({ a: line.agent || agent, line, lines: batch, due, replay: (W) => { for (const l of batch) X.replayLine(W, l, { agent, t0 }) } })
+      const due = Math.max(
+        Math.min(dueOf(line), this.now() + LAG_MS),
+        this.queue.length ? this.queue[this.queue.length - 1].due : 0,
+      )
+      this.queue.push({
+        a: line.agent || agent,
+        line,
+        lines: batch,
+        due,
+        replay: (W) => {
+          for (const l of batch) X.replayLine(W, l, { agent, t0 })
+        },
+      })
     }
     this.wake?.()
     await this.play()
   }
 
-  stop() { this.stopped = true; this.queue = []; this.wake?.() }
+  stop() {
+    this.stopped = true
+    this.queue = []
+    this.wake?.()
+  }
 
   private async play() {
     if (this.running) return
@@ -108,7 +132,13 @@ export class Playback {
   private async until(due: number) {
     const left = due - this.now()
     if (left <= 0) return
-    await new Promise<void>((resolve) => { const timer = setTimeout(resolve, left); this.wake = () => { clearTimeout(timer); resolve() } })
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, left)
+      this.wake = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+    })
     this.wake = null
   }
 }

@@ -89,3 +89,6 @@ Rules for agents working in this repository: the dsh-layerfs plugin bundle.
 - When code moves or is refactored, a test that is hard to adapt is deleted,
   not nursed; list deleted or skipped tests in the commit message. Never
   weaken a surviving test's assertion to make it pass.
+- Format changed JavaScript/TypeScript with `pnpm run format` (Biome, pinned
+  in `biome.jsonc`); `pnpm run format:check` reports what is left, and
+  `.github/workflows/format.yml` runs it on pushes and pull requests.

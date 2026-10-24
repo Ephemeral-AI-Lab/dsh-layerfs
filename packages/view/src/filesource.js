@@ -13,22 +13,37 @@ const KEEP = 1000;
  * @param {() => void} onchange
  */
 export function createFilesSource(fetch, onchange) {
-  const kept = new Map(), wanted = new Map();
+  const kept = new Map(),
+    wanted = new Map();
   const keyOf = (kind, q) => `${kind}\n${JSON.stringify(q)}`;
   /** { value, error } of one read, started on first use */
   function one(kind, q) {
     const key = keyOf(kind, q);
     let e = kept.get(key);
-    if (e) { kept.delete(key); kept.set(key, e); return e; }
+    if (e) {
+      kept.delete(key);
+      kept.set(key, e);
+      return e;
+    }
     e = { value: undefined, error: null };
     kept.set(key, e);
-    fetch(kind, q).then((value) => { e.value = value; }, (error) => { e.error = error; }).then(() => onchange());
+    fetch(kind, q)
+      .then(
+        (value) => {
+          e.value = value;
+        },
+        (error) => {
+          e.error = error;
+        },
+      )
+      .then(() => onchange());
     while (kept.size > KEEP) kept.delete(kept.keys().next().value);
     return e;
   }
   /** The pages asked for so far, joined: { items, more, loading, error } */
   function paged(kind, q) {
-    const pages = wanted.get(keyOf(kind, q)) ?? 1, items = [];
+    const pages = wanted.get(keyOf(kind, q)) ?? 1,
+      items = [];
     let position = 0;
     for (let n = 0; n < pages; n++) {
       const e = one(kind, { ...q, position });
@@ -40,7 +55,10 @@ export function createFilesSource(fetch, onchange) {
     }
     return { items, more: true, loading: false, error: null };
   }
-  const ask = (kind, q) => { const key = keyOf(kind, q); wanted.set(key, (wanted.get(key) ?? 1) + 1); };
+  const ask = (kind, q) => {
+    const key = keyOf(kind, q);
+    wanted.set(key, (wanted.get(key) ?? 1) + 1);
+  };
   return {
     /** A folder's entries: [{ name, path, type }] in the SDK's order. */
     list: (ref, dir) => paged("list", { ref, dir }),

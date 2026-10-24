@@ -5,7 +5,17 @@
 // and the client's queue and run text (client scenarios.ts).
 //   node packages/mock/tests/mock.mjs
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,9 +26,16 @@ import { registerRoutes } from "../src/routes.js";
 import { compileScenario, loadScenarios, ScenarioError } from "../src/scenario.js";
 import { writeSeed } from "../src/seed.js";
 import { keepDefaultModel } from "../src/default-model.js";
-import { allTags, isScenarioProject, nextStarts, projectOf, runText, withTags } from "../../client/src/client/scenarios.ts";
+import {
+  allTags,
+  isScenarioProject,
+  nextStarts,
+  projectOf,
+  runText,
+  withTags,
+} from "../../client/src/client/scenarios.ts";
 
-const commandPath = (path) => process.platform === "win32" ? path.replaceAll("\\", "/") : path;
+const commandPath = (path) => (process.platform === "win32" ? path.replaceAll("\\", "/") : path);
 const dir = mkdtempSync(join(tmpdir(), "dsh-layerfs-mock-"));
 try {
   // Every shipped scenario loads, in order, with its fixture
@@ -28,31 +45,92 @@ try {
   assert.equal(shipped.size, folders.length, `${shipped.size} of ${folders.length} scenario folders load`);
   for (const [id, s] of shipped) {
     assert.ok(s.fixture || s.seed, `${id} names its fixture`);
-    for (const steps of Object.values(s.agents)) for (const st of steps) {
-      // a Sandbox is named by a variable or {{sandbox}}, never a hard-coded id
-      if (st.kind === "call" && st.call.name === "bash") assert.ok(!/\blf\.workspace\.mount\("(?!\{\{sandbox\}\}")|\blayerfs workspace mount "?[0-9]/.test(st.call.args.command), `${st.at} mounts in a hard-coded Sandbox`);
-    }
+    for (const steps of Object.values(s.agents))
+      for (const st of steps) {
+        // a Sandbox is named by a variable or {{sandbox}}, never a hard-coded id
+        if (st.kind === "call" && st.call.name === "bash")
+          assert.ok(
+            !/\blf\.workspace\.mount\("(?!\{\{sandbox\}\}")|\blayerfs workspace mount "?[0-9]/.test(
+              st.call.args.command,
+            ),
+            `${st.at} mounts in a hard-coded Sandbox`,
+          );
+      }
   }
-  assert.throws(() => compileScenario({ type: "layerfs-scenario", version: 3, title: "x", tags: ["cli", "merge"], layerfs: ["real"], agents: { root: [{ reply: "hi" }] } }, { name: "x", folder: dir }), /unknown field layerfs/);
-  assert.throws(() => compileScenario({ type: "layerfs-scenario", version: 3, title: "x", tags: ["cli", "merge"], agents: { root: [{ pause: 2 }] } }, { name: "x", folder: dir }), ScenarioError, "no pause steps");
+  assert.throws(
+    () =>
+      compileScenario(
+        {
+          type: "layerfs-scenario",
+          version: 3,
+          title: "x",
+          tags: ["cli", "merge"],
+          layerfs: ["real"],
+          agents: { root: [{ reply: "hi" }] },
+        },
+        { name: "x", folder: dir },
+      ),
+    /unknown field layerfs/,
+  );
+  assert.throws(
+    () =>
+      compileScenario(
+        { type: "layerfs-scenario", version: 3, title: "x", tags: ["cli", "merge"], agents: { root: [{ pause: 2 }] } },
+        { name: "x", folder: dir },
+      ),
+    ScenarioError,
+    "no pause steps",
+  );
 
   // {{scenario}} in a bash command is the scenario folder's absolute path; nothing else is replaced
-  const one = (command, folder = dir, expect) => compileScenario({
-    type: "layerfs-scenario", version: 3, title: "x", tags: ["cli", "merge"],
-    agents: { root: [{ bash: { description: "apply", command }, ...(expect ? { expect } : {}) }] },
-  }, { name: "x", folder }).agents.root[0].call.args.command;
-  assert.equal(one('layerfs fs apply main --from "{{scenario}}/changes/007.json" && cat "{{scenario}}/a"'), `layerfs fs apply main --from "${commandPath(dir)}/changes/007.json" && cat "${commandPath(dir)}/a"`);
+  const one = (command, folder = dir, expect) =>
+    compileScenario(
+      {
+        type: "layerfs-scenario",
+        version: 3,
+        title: "x",
+        tags: ["cli", "merge"],
+        agents: { root: [{ bash: { description: "apply", command }, ...(expect ? { expect } : {}) }] },
+      },
+      { name: "x", folder },
+    ).agents.root[0].call.args.command;
+  assert.equal(
+    one('layerfs fs apply main --from "{{scenario}}/changes/007.json" && cat "{{scenario}}/a"'),
+    `layerfs fs apply main --from "${commandPath(dir)}/changes/007.json" && cat "${commandPath(dir)}/a"`,
+  );
   assert.equal(one("docker ps --format '{{.Names}}' {{ scenario }}"), "docker ps --format '{{.Names}}' {{ scenario }}");
-  if (process.platform === "win32") assert.equal(one('cat "{{scenario}}/x"', "C:\\source folder\\crew"), 'cat "C:/source folder/crew/x"');
-  assert.equal(one('cat "{{scenario}}/x"', "relative/folder"), `cat "${commandPath(join(process.cwd(), "relative/folder"))}/x"`);
+  if (process.platform === "win32")
+    assert.equal(one('cat "{{scenario}}/x"', "C:\\source folder\\crew"), 'cat "C:/source folder/crew/x"');
+  assert.equal(
+    one('cat "{{scenario}}/x"', "relative/folder"),
+    `cat "${commandPath(join(process.cwd(), "relative/folder"))}/x"`,
+  );
   // a folder double quotes would not keep as written is refused, but only where {{scenario}} is used
   for (const bad of ['a"b', "a$b", "a`b", ...(process.platform === "win32" ? [] : ["a\\b"])]) {
-    assert.throws(() => one('cat "{{scenario}}/x"', join(dir, bad)), (e) => e instanceof ScenarioError && /agents\.root\[0\]\.bash\.command: uses \{\{scenario\}\}/.test(e.message), bad);
+    assert.throws(
+      () => one('cat "{{scenario}}/x"', join(dir, bad)),
+      (e) => e instanceof ScenarioError && /agents\.root\[0\]\.bash\.command: uses \{\{scenario\}\}/.test(e.message),
+      bad,
+    );
     assert.equal(one("echo plain", join(dir, bad)), "echo plain");
   }
   // expect: today's names and | alternatives load; the older SDK's names are refused naming today's
-  for (const code of ["workspace.exec:exit:1|0", "workspace.commit:Committed|UpToDate", "sandbox.create:ok", "fs.apply:Committed", "backend.daemon.process.start:running", "Mounted", "exit:0"]) one("echo", dir, [code]);
-  const retired = (code, pattern) => assert.throws(() => one("echo", dir, ["branch.fork:Forked", code]), (e) => e instanceof ScenarioError && /agents\.root\[0\]\.expect\[1\]/.test(e.message) && pattern.test(e.message), code);
+  for (const code of [
+    "workspace.exec:exit:1|0",
+    "workspace.commit:Committed|UpToDate",
+    "sandbox.create:ok",
+    "fs.apply:Committed",
+    "backend.daemon.process.start:running",
+    "Mounted",
+    "exit:0",
+  ])
+    one("echo", dir, [code]);
+  const retired = (code, pattern) =>
+    assert.throws(
+      () => one("echo", dir, ["branch.fork:Forked", code]),
+      (e) => e instanceof ScenarioError && /agents\.root\[0\]\.expect\[1\]/.test(e.message) && pattern.test(e.message),
+      code,
+    );
   retired("sandbox.mount:Mounted", /the trace calls it workspace\.mount \(workspace\.mount:Mounted\)/);
   retired("sandbox.exec:exit:1|0", /workspace\.exec:exit:1\|0/);
   retired("sandbox.commit:Committed|UpToDate", /workspace\.commit:Committed\|UpToDate/);
@@ -65,47 +143,85 @@ try {
   assert.throws(() => one("echo", dir, []), /lists outcome codes/);
 
   // A long replay: 1,600 bash steps play to the end; each request walks its conversation once
-  const long = compileScenario({
-    type: "layerfs-scenario", version: 3, title: "Long", tags: ["cli", "merge"],
-    agents: { root: [...Array.from({ length: 1600 }, (_, i) => ({ ...(i % 100 ? {} : { phase: `part ${i / 100}` }), bash: { description: `s${i}`, command: `layerfs fs apply main --from "{{scenario}}/changes/${i}.json"` }, expect: ["fs.apply:Committed|UpToDate"] })), { reply: "Replayed." }] },
-  }, { name: "long", folder: dir });
+  const long = compileScenario(
+    {
+      type: "layerfs-scenario",
+      version: 3,
+      title: "Long",
+      tags: ["cli", "merge"],
+      agents: {
+        root: [
+          ...Array.from({ length: 1600 }, (_, i) => ({
+            ...(i % 100 ? {} : { phase: `part ${i / 100}` }),
+            bash: { description: `s${i}`, command: `layerfs fs apply main --from "{{scenario}}/changes/${i}.json"` },
+            expect: ["fs.apply:Committed|UpToDate"],
+          })),
+          { reply: "Replayed." },
+        ],
+      },
+    },
+    { name: "long", folder: dir },
+  );
   const conversation = [{ role: "user", content: [{ type: "text", text: "Run the scenario." }] }];
   const applied = { traceOf: () => [{ method: "fs.apply", ok: true, kind: "Committed" }], checked: new Set() };
   const began = performance.now();
   for (let i = 0; i < 1600; i++) {
     const step = nextReply(long, "root", conversation, applied);
     assert.equal(step.calls?.[0].args.command, `layerfs fs apply main --from "${commandPath(dir)}/changes/${i}.json"`);
-    conversation.push({ role: "assistant", content: [{ type: "tool-call", id: `l${i}`, name: "bash", arguments: "{}" }] }, { role: "tool", toolCallId: `l${i}`, content: [{ type: "text", text: "{}\n" }] });
+    conversation.push(
+      { role: "assistant", content: [{ type: "tool-call", id: `l${i}`, name: "bash", arguments: "{}" }] },
+      { role: "tool", toolCallId: `l${i}`, content: [{ type: "text", text: "{}\n" }] },
+    );
   }
   const last = nextReply(long, "root", conversation, applied);
-  assert.deepEqual([last.kind, last.text, last.done, last.of, last.phase], ["text", "Replayed.", 1601, 1601, "part 15"]);
+  assert.deepEqual(
+    [last.kind, last.text, last.done, last.of, last.phase],
+    ["text", "Replayed.", 1601, 1601, "part 15"],
+  );
   // about 0.3 s here; the bound only catches a request that stops being linear in its conversation
   assert.ok(performance.now() - began < 20_000, `1,600 requests took ${Math.round(performance.now() - began)} ms`);
 
   // A small scenario: two bash calls, a child, and the root's last reply
-  const s = compileScenario({
-    type: "layerfs-scenario", version: 3, title: "Small", tags: ["cli", "merge"],
-    agents: {
-      root: [
-        { phase: "Set up", bash: { description: "one", command: "echo 1" } },
-        { subagent: { description: "helper", prompt: "Help with the second step." } },
-        { reply: "Waiting.", until: ["helper"] },
-        { phase: "Finish", bash: { description: "two", command: "echo 2" } },
-        { reply: "All done." },
-      ],
-      helper: [{ bash: { description: "help", command: "echo help" } }, { reply: "Helped." }],
+  const s = compileScenario(
+    {
+      type: "layerfs-scenario",
+      version: 3,
+      title: "Small",
+      tags: ["cli", "merge"],
+      agents: {
+        root: [
+          { phase: "Set up", bash: { description: "one", command: "echo 1" } },
+          { subagent: { description: "helper", prompt: "Help with the second step." } },
+          { reply: "Waiting.", until: ["helper"] },
+          { phase: "Finish", bash: { description: "two", command: "echo 2" } },
+          { reply: "All done." },
+        ],
+        helper: [{ bash: { description: "help", command: "echo help" } }, { reply: "Helped." }],
+      },
     },
-  }, { name: "small", folder: dir });
+    { name: "small", folder: dir },
+  );
   const user = (text) => ({ role: "user", content: [{ type: "text", text }] });
-  const called = (id, name, args = {}) => ({ role: "assistant", content: [{ type: "tool-call", id, name, arguments: JSON.stringify(args) }] });
-  const result = (id, text, isError = false) => ({ role: "tool", toolCallId: id, isError, content: [{ type: "text", text }] });
+  const called = (id, name, args = {}) => ({
+    role: "assistant",
+    content: [{ type: "tool-call", id, name, arguments: JSON.stringify(args) }],
+  });
+  const result = (id, text, isError = false) => ({
+    role: "tool",
+    toolCallId: id,
+    isError,
+    content: [{ type: "text", text }],
+  });
   const said = (text) => ({ role: "assistant", content: [{ type: "text", text }] });
 
   assert.equal(agentOf(s, [user("Run the scenario.")]), "root");
   assert.equal(agentOf(s, [user("Help with the second step.")]), "helper");
   let m = [user("Run the scenario.")];
   let r = nextReply(s, "root", m);
-  assert.deepEqual([r.kind, r.calls[0].name, r.calls[0].args.command, r.done, r.of, r.phase], ["calls", "bash", "echo 1", 0, 5, "Set up"]);
+  assert.deepEqual(
+    [r.kind, r.calls[0].name, r.calls[0].args.command, r.done, r.of, r.phase],
+    ["calls", "bash", "echo 1", 0, 5, "Set up"],
+  );
   m = [...m, called("c1", "bash"), result("c1", "1\n")];
   r = nextReply(s, "root", m);
   assert.deepEqual([r.kind, r.calls[0].name, r.done], ["calls", "subagent", 1]);
@@ -114,7 +230,14 @@ try {
   assert.deepEqual([r.kind, r.text, r.done, r.children], ["text", "Waiting.", 3, ["0a1b2c3d-0000"]]);
   m = [...m, said("Waiting.")];
   assert.equal(nextReply(s, "root", m).text, "Still waiting for helper.");
-  m = [...m, { role: "user", source: { childId: "0a1b2c3d-0000" }, content: [{ type: "text", text: "subagent 0a1b2c3d-0000 finished" }] }];
+  m = [
+    ...m,
+    {
+      role: "user",
+      source: { childId: "0a1b2c3d-0000" },
+      content: [{ type: "text", text: "subagent 0a1b2c3d-0000 finished" }],
+    },
+  ];
   r = nextReply(s, "root", m);
   assert.deepEqual([r.kind, r.calls[0].args.command, r.phase], ["calls", "echo 2", "Finish"]);
   // a bash call that exits non-zero stops the scenario; nothing is retried
@@ -125,13 +248,27 @@ try {
   assert.deepEqual([r.kind, r.text, r.done, r.of], ["text", "All done.", 5, 5]);
 
   // a turn may be a reply alone: a text said before the agent is woken is a wait, not that reply
-  const answers = compileScenario({
-    type: "layerfs-scenario", version: 3, title: "Answers", tags: ["cli", "merge"],
-    agents: {
-      root: [{ subagent: { description: "helper", prompt: "Help." } }, { reply: "Waiting.", until: ["helper"] }, { send_message: { agent_id: "@helper", message: "Go on." } }],
-      helper: [{ bash: { description: "help", command: "echo help" } }, { reply: "Turn 1 done." }, { reply: "Turn 2 done." }],
+  const answers = compileScenario(
+    {
+      type: "layerfs-scenario",
+      version: 3,
+      title: "Answers",
+      tags: ["cli", "merge"],
+      agents: {
+        root: [
+          { subagent: { description: "helper", prompt: "Help." } },
+          { reply: "Waiting.", until: ["helper"] },
+          { send_message: { agent_id: "@helper", message: "Go on." } },
+        ],
+        helper: [
+          { bash: { description: "help", command: "echo help" } },
+          { reply: "Turn 1 done." },
+          { reply: "Turn 2 done." },
+        ],
+      },
     },
-  }, { name: "answers", folder: dir });
+    { name: "answers", folder: dir },
+  );
   let h = [user("Help."), called("h1", "bash"), result("h1", "help\n")];
   assert.equal(nextReply(answers, "helper", h).text, "Turn 1 done.");
   h = [...h, said("Turn 1 done.")];
@@ -141,43 +278,113 @@ try {
   h = [...h, user("Go on.")];
   r = nextReply(answers, "helper", h);
   assert.deepEqual([r.kind, r.text, r.done, r.of], ["text", "Turn 2 done.", 3, 3]);
-  for (const pair of [[{ reply: "a", until: ["helper"] }, { reply: "b" }], [{ reply: "a" }, { reply: "b", until: ["helper"] }]]) {
-    assert.throws(() => compileScenario({ type: "layerfs-scenario", version: 3, title: "x", tags: ["cli", "merge"], agents: { root: [{ subagent: { description: "helper", prompt: "p" } }, ...pair, { bash: { description: "x", command: "echo" } }], helper: [{ reply: "ok" }] } }, { name: "x", folder: dir }), /a reply next to a reply that waits for children/);
+  for (const pair of [
+    [{ reply: "a", until: ["helper"] }, { reply: "b" }],
+    [{ reply: "a" }, { reply: "b", until: ["helper"] }],
+  ]) {
+    assert.throws(
+      () =>
+        compileScenario(
+          {
+            type: "layerfs-scenario",
+            version: 3,
+            title: "x",
+            tags: ["cli", "merge"],
+            agents: {
+              root: [
+                { subagent: { description: "helper", prompt: "p" } },
+                ...pair,
+                { bash: { description: "x", command: "echo" } },
+              ],
+              helper: [{ reply: "ok" }],
+            },
+          },
+          { name: "x", folder: dir },
+        ),
+      /a reply next to a reply that waits for children/,
+    );
   }
 
   // Live checks and placeholders: a step's exit, its expect against the call's trace lines (read once),
   // {{sandbox}} and {{commit:<ref>}} from what the agent saw, and a Commit id carried by a message
-  const live = compileScenario({
-    type: "layerfs-scenario", version: 3, title: "Live", tags: ["cli", "conflicts", "multi-agent"],
-    agents: {
-      root: [
-        { bash: { description: "create", command: "layerfs sandbox create" }, expect: ["sandbox.create:ok"] },
-        { bash: { description: "work", command: "layerfs workspace mount {{sandbox}} cart" }, expect: ["workspace.mount:Mounted", "workspace.commit:Committed"], commits: ["first"] },
-        { bash: { description: "refused", command: "layerfs workspace commit {{ws}}" }, expect: ["workspace.commit:Conflict"], exit: 125 },
-        { subagent: { description: "peer", prompt: "Fork from what the lead sends." } },
-        { send_message: { agent_id: "@peer", message: "Fork from {{commit:first}} now." } },
-        { reply: "Sent.", until: ["peer"] },
-        { bash: { description: "log", command: "layerfs branch list_commits side" } },
-        { reply: "Peer forked from {{commit:first}}." },
-      ],
-      peer: [{ reply: "Waiting." }, { bash: { description: "fork", command: "layerfs branch fork side {{commit:first}}" }, expect: ["branch.fork:Forked"] }, { reply: "Forked." }],
+  const live = compileScenario(
+    {
+      type: "layerfs-scenario",
+      version: 3,
+      title: "Live",
+      tags: ["cli", "conflicts", "multi-agent"],
+      agents: {
+        root: [
+          { bash: { description: "create", command: "layerfs sandbox create" }, expect: ["sandbox.create:ok"] },
+          {
+            bash: { description: "work", command: "layerfs workspace mount {{sandbox}} cart" },
+            expect: ["workspace.mount:Mounted", "workspace.commit:Committed"],
+            commits: ["first"],
+          },
+          {
+            bash: { description: "refused", command: "layerfs workspace commit {{ws}}" },
+            expect: ["workspace.commit:Conflict"],
+            exit: 125,
+          },
+          { subagent: { description: "peer", prompt: "Fork from what the lead sends." } },
+          { send_message: { agent_id: "@peer", message: "Fork from {{commit:first}} now." } },
+          { reply: "Sent.", until: ["peer"] },
+          { bash: { description: "log", command: "layerfs branch list_commits side" } },
+          { reply: "Peer forked from {{commit:first}}." },
+        ],
+        peer: [
+          { reply: "Waiting." },
+          {
+            bash: { description: "fork", command: "layerfs branch fork side {{commit:first}}" },
+            expect: ["branch.fork:Forked"],
+          },
+          { reply: "Forked." },
+        ],
+      },
     },
-  }, { name: "live", folder: dir });
-  assert.deepEqual([live.tags, live.form, live.counts], [["cli", "conflicts", "multi-agent"], "cli", { agents: 2, steps: 7, calls: ["branch.fork", "sandbox.create", "workspace.commit", "workspace.mount"] }]);
-  const trace = new Map(), reads = [];
-  const traceOf = (id) => { reads.push(id); return trace.get(id) ?? []; };
-  const line = (method, outcome, ok = true) => ({ method, ok, ...(ok ? (outcome === "ok" ? {} : { kind: outcome }) : { code: outcome }) });
+    { name: "live", folder: dir },
+  );
+  assert.deepEqual(
+    [live.tags, live.form, live.counts],
+    [
+      ["cli", "conflicts", "multi-agent"],
+      "cli",
+      { agents: 2, steps: 7, calls: ["branch.fork", "sandbox.create", "workspace.commit", "workspace.mount"] },
+    ],
+  );
+  const trace = new Map(),
+    reads = [];
+  const traceOf = (id) => {
+    reads.push(id);
+    return trace.get(id) ?? [];
+  };
+  const line = (method, outcome, ok = true) => ({
+    method,
+    ok,
+    ...(ok ? (outcome === "ok" ? {} : { kind: outcome }) : { code: outcome }),
+  });
   const checkedLive = new Set();
   const opts = { traceOf, checked: checkedLive };
   let lm = [user("Run the scenario.")];
   assert.equal(nextReply(live, "root", lm, opts).calls[0].args.command, "layerfs sandbox create");
   lm = [...lm, called("l1", "bash"), result("l1", '{"sandbox":"3","image":"sha256:x"}\n')];
   trace.set("l1", [line("sandbox.create", "ok")]);
-  assert.equal(nextReply(live, "root", lm, opts).calls[0].args.command, "layerfs workspace mount 3 cart", "{{sandbox}} is the number the agent saw");
+  assert.equal(
+    nextReply(live, "root", lm, opts).calls[0].args.command,
+    "layerfs workspace mount 3 cart",
+    "{{sandbox}} is the number the agent saw",
+  );
   // expect that the trace does not show stops the run, naming what it shows
-  lm = [...lm, called("l2", "bash"), result("l2", '{"ws":"3:/workspaces/1"}\n{"kind":"Committed","head":"c0ffee01","commit":{"id":"c0ffee01"}}\n')];
+  lm = [
+    ...lm,
+    called("l2", "bash"),
+    result("l2", '{"ws":"3:/workspaces/1"}\n{"kind":"Committed","head":"c0ffee01","commit":{"id":"c0ffee01"}}\n'),
+  ];
   trace.set("l2", [line("workspace.mount", "Mounted"), line("workspace.commit", "Conflict", false)]);
-  assert.match(nextReply(live, "root", lm, opts).message, /agents\.root\[1\] \(work\) expected workspace\.mount:Mounted, workspace\.commit:Committed; its LayerFS calls show workspace\.mount:Mounted, workspace\.commit:Conflict/);
+  assert.match(
+    nextReply(live, "root", lm, opts).message,
+    /agents\.root\[1\] \(work\) expected workspace\.mount:Mounted, workspace\.commit:Committed; its LayerFS calls show workspace\.mount:Mounted, workspace\.commit:Conflict/,
+  );
   trace.set("l2", [line("workspace.mount", "Mounted"), line("workspace.commit", "Committed")]);
   assert.equal(nextReply(live, "root", lm, opts).calls[0].args.command, "layerfs workspace commit 3:/workspaces/1");
   // a step's exit: 125 for a refusal it shows; 0 then fails it
@@ -186,30 +393,89 @@ try {
   reads.length = 0;
   assert.equal(nextReply(live, "root", lm, opts).calls[0].name, "subagent");
   assert.deepEqual(reads, ["l3"], "a call whose expect held is not read again");
-  assert.match(nextReply(live, "root", [...lm.slice(0, -1), result("l3", "{}\n")], { traceOf }).message, /agents\.root\[2\] exited 0, and the step expects 125/);
+  assert.match(
+    nextReply(live, "root", [...lm.slice(0, -1), result("l3", "{}\n")], { traceOf }).message,
+    /agents\.root\[2\] exited 0, and the step expects 125/,
+  );
   // without a Host, a step with expect stops the run
   assert.match(nextReply(live, "root", lm, {}).message, /no LayerFS Host gives its trace lines/);
   lm = [...lm, called("l4", "subagent"), result("l4", "started subagent 0bad0000-0001")];
   const sent = nextReply(live, "root", lm, opts);
-  assert.equal(sent.calls[0].args.message, "Fork from c0ffee01 now.", "a message carries the id the agent's own step printed");
+  assert.equal(
+    sent.calls[0].args.message,
+    "Fork from c0ffee01 now.",
+    "a message carries the id the agent's own step printed",
+  );
   // the peer finds the id in the message it received, by the sender's text
-  const pm = [user("Fork from what the lead sends."), said("Waiting."), user("Message from the lead: Fork from c0ffee01 now.")];
+  const pm = [
+    user("Fork from what the lead sends."),
+    said("Waiting."),
+    user("Message from the lead: Fork from c0ffee01 now."),
+  ];
   assert.equal(nextReply(live, "peer", pm, opts).calls[0].args.command, "layerfs branch fork side c0ffee01");
-  assert.match(nextReply(live, "peer", [user("Fork from what the lead sends."), said("Waiting."), user("go")], opts).message, /peer has seen no value for \{\{commit:first\}\}/);
+  assert.match(
+    nextReply(live, "peer", [user("Fork from what the lead sends."), said("Waiting."), user("go")], opts).message,
+    /peer has seen no value for \{\{commit:first\}\}/,
+  );
   // a commits step must print as many Commits as it names
-  assert.match(nextReply(live, "root", [...lm.slice(0, 3), called("l2", "bash"), result("l2", "{}\n")], opts).message, /names 1 Commit\(s\) \(first\) and its call printed 0/);
+  assert.match(
+    nextReply(live, "root", [...lm.slice(0, 3), called("l2", "bash"), result("l2", "{}\n")], opts).message,
+    /names 1 Commit\(s\) \(first\) and its call printed 0/,
+  );
   // the loader: forms, tags and refs
-  const bad = (patch, pattern) => assert.throws(() => compileScenario({ type: "layerfs-scenario", version: 3, title: "B", tags: ["cli", "merge"], agents: { root: [{ bash: { description: "x", command: "layerfs project list_branches" } }] }, ...patch }, { name: "b", folder: dir }), pattern);
+  const bad = (patch, pattern) =>
+    assert.throws(
+      () =>
+        compileScenario(
+          {
+            type: "layerfs-scenario",
+            version: 3,
+            title: "B",
+            tags: ["cli", "merge"],
+            agents: { root: [{ bash: { description: "x", command: "layerfs project list_branches" } }] },
+            ...patch,
+          },
+          { name: "b", folder: dir },
+        ),
+      pattern,
+    );
   bad({ tags: ["cli"] }, /one to three topics/);
   bad({ tags: ["cli", "sdk", "merge"] }, /exactly one form/);
   bad({ tags: ["cli", "merge", "speedy"] }, /speedy is not a tag/);
   bad({ tags: ["sdk", "merge"] }, /one inline Node script/);
-  bad({ agents: { root: [{ bash: { description: "x", command: "node -e 'import(process.env.DSH_LAYERFS_SDK)'" } }] } }, /uses the layerfs command, not the SDK/);
-  bad({ agents: { root: [{ bash: { description: "x", command: "layerfs branch fork a {{commit:nowhere}}" } }] } }, /names a Commit no step's commits lists/);
-  bad({ agents: { root: [{ bash: { description: "x", command: "layerfs sandbox create --image {{image}}" } }] } }, /names no image/);
+  bad(
+    { agents: { root: [{ bash: { description: "x", command: "node -e 'import(process.env.DSH_LAYERFS_SDK)'" } }] } },
+    /uses the layerfs command, not the SDK/,
+  );
+  bad(
+    { agents: { root: [{ bash: { description: "x", command: "layerfs branch fork a {{commit:nowhere}}" } }] } },
+    /names a Commit no step's commits lists/,
+  );
+  bad(
+    { agents: { root: [{ bash: { description: "x", command: "layerfs sandbox create --image {{image}}" } }] } },
+    /names no image/,
+  );
   bad({ agents: { root: [{ bash: { description: "x", script: "a.mjs" } }] } }, /unknown field script/);
-  const sdk = compileScenario({ type: "layerfs-scenario", version: 3, title: "S", tags: ["sdk", "sandbox"], image: `sha256:${"a".repeat(64)}`,
-    agents: { root: [{ bash: { description: "x", command: "# make a Sandbox\nnode --input-type=module <<'JS'\nconsole.log('{{image}}');\nJS" } }] } }, { name: "s", folder: dir });
+  const sdk = compileScenario(
+    {
+      type: "layerfs-scenario",
+      version: 3,
+      title: "S",
+      tags: ["sdk", "sandbox"],
+      image: `sha256:${"a".repeat(64)}`,
+      agents: {
+        root: [
+          {
+            bash: {
+              description: "x",
+              command: "# make a Sandbox\nnode --input-type=module <<'JS'\nconsole.log('{{image}}');\nJS",
+            },
+          },
+        ],
+      },
+    },
+    { name: "s", folder: dir },
+  );
   assert.match(sdk.agents.root[0].call.args.command, /console\.log\('sha256:a{64}'\)/);
 
   // Progress: a registered run, its child's steps, passing on the root's last step
@@ -230,8 +496,16 @@ try {
   assert.equal(runText(passed), "Passed · 0:05");
   // a scenario error fails the run; a later report changes nothing
   progress.register("small", "root-2");
-  progress.report("small", "root", { kind: "error", done: 1, of: 5, phase: null, children: [], message: "agents.root[1] failed" }, "root-2");
-  assert.deepEqual([progress.get("small").state, progress.get("small").error], ["failed", "root: agents.root[1] failed"]);
+  progress.report(
+    "small",
+    "root",
+    { kind: "error", done: 1, of: 5, phase: null, children: [], message: "agents.root[1] failed" },
+    "root-2",
+  );
+  assert.deepEqual(
+    [progress.get("small").state, progress.get("small").error],
+    ["failed", "root: agents.root[1] failed"],
+  );
   // an aborted request fails a running run
   progress.register("small", "root-3");
   progress.stop("root-3", "root");
@@ -241,7 +515,10 @@ try {
   progress.report("small", "root", { kind: "calls", done: 1, of: 5, phase: null, children: ["child-3b"] }, "root-3b");
   assert.equal(progress.refusal("child-3b"), null);
   assert.equal(progress.halt("root-3b").error, "stopped");
-  assert.deepEqual([progress.refusal("root-3b"), progress.refusal("child-3b")], ["the run ended: stopped", "the run ended: stopped"]);
+  assert.deepEqual(
+    [progress.refusal("root-3b"), progress.refusal("child-3b")],
+    ["the run ended: stopped", "the run ended: stopped"],
+  );
   assert.throws(() => progress.halt("nobody"), /no run's root/);
   // a newer run of the same scenario replaces the older one's Sessions
   progress.register("small", "root-3c");
@@ -256,34 +533,92 @@ try {
   // a run still running when dsh web restarts reads as interrupted
   progress.register("small", "root-5");
   progress = new Progress(scenarios, state, () => clock);
-  assert.deepEqual([progress.get("small").state, progress.get("small").error], ["failed", "interrupted: dsh web restarted"]);
+  assert.deepEqual(
+    [progress.get("small").state, progress.get("small").error],
+    ["failed", "interrupted: dsh web restarted"],
+  );
   assert.deepEqual(progress.sessionOf("root-4"), { scenario: "small" });
 
   // The adapter: a tool call for the next step, no step past the limit
   const adapter = createAdapter(class {}, scenarios, progress);
-  const collect = async (options) => { const out = []; for await (const e of adapter.stream(options)) out.push(e); return out; };
+  const collect = async (options) => {
+    const out = [];
+    for await (const e of adapter.stream(options)) out.push(e);
+    return out;
+  };
   progress.register("small", "root-6");
-  const events = await collect({ model: "small", sessionId: "root-6", tools: [{ name: "bash" }, { name: "subagent" }], messages: [user("Run the scenario.")] });
+  const events = await collect({
+    model: "small",
+    sessionId: "root-6",
+    tools: [{ name: "bash" }, { name: "subagent" }],
+    messages: [user("Run the scenario.")],
+  });
   const call = events.find((e) => e.type === "block-end" && e.block.type === "tool-call").block;
-  assert.deepEqual([call.name, JSON.parse(call.arguments).command, events.at(-1).reason.kind], ["bash", "echo 1", "tool-calls"]);
+  assert.deepEqual(
+    [call.name, JSON.parse(call.arguments).command, events.at(-1).reason.kind],
+    ["bash", "echo 1", "tool-calls"],
+  );
   clock += LIMIT_MS + 1;
-  const stopped = await collect({ model: "small", sessionId: "root-6", tools: [{ name: "bash" }], messages: [user("Run the scenario.")] });
+  const stopped = await collect({
+    model: "small",
+    sessionId: "root-6",
+    tools: [{ name: "bash" }],
+    messages: [user("Run the scenario.")],
+  });
   assert.equal(stopped.at(-1).reason.failure.code, "MOCK_TIME_LIMIT");
-  const missing = await collect({ model: "small", sessionId: "x", tools: [{ name: "subagent" }], messages: [user("Run the scenario.")] });
+  const missing = await collect({
+    model: "small",
+    sessionId: "x",
+    tools: [{ name: "subagent" }],
+    messages: [user("Run the scenario.")],
+  });
   assert.equal(missing.at(-1).reason.failure.code, "MOCK_TOOL_NOT_OFFERED");
 
   // The route: the list, a run's root Session, and refusals
   let handler;
-  registerRoutes({ connection: { requestRejection: () => undefined }, effect: (f) => f(), webServer: { register: (r) => { handler = r.handler; return () => {}; } } },
-    { scenarios, progress, workspace: join(dir, "Scenarios"), preset: "p", provider: "layerfs-mock", prompt: "Run the scenario." });
+  registerRoutes(
+    {
+      connection: { requestRejection: () => undefined },
+      effect: (f) => f(),
+      webServer: {
+        register: (r) => {
+          handler = r.handler;
+          return () => {};
+        },
+      },
+    },
+    {
+      scenarios,
+      progress,
+      workspace: join(dir, "Scenarios"),
+      preset: "p",
+      provider: "layerfs-mock",
+      prompt: "Run the scenario.",
+    },
+  );
   const ask = async (method, url, body) => {
-    const req = { method, url, async *[Symbol.asyncIterator]() { if (body !== undefined) yield JSON.stringify(body); } };
-    const res = { statusCode: 0, setHeader() {}, end(text) { this.body = text ? JSON.parse(text) : null; } };
+    const req = {
+      method,
+      url,
+      async *[Symbol.asyncIterator]() {
+        if (body !== undefined) yield JSON.stringify(body);
+      },
+    };
+    const res = {
+      statusCode: 0,
+      setHeader() {},
+      end(text) {
+        this.body = text ? JSON.parse(text) : null;
+      },
+    };
     await handler(req, res);
     return res;
   };
   const list = await ask("GET", "/layerfs-mock");
-  assert.deepEqual([list.statusCode, list.body.provider, list.body.scenarios[0].id, list.body.scenarios[0].agents], [200, "layerfs-mock", "small", ["root", "helper"]]);
+  assert.deepEqual(
+    [list.statusCode, list.body.provider, list.body.scenarios[0].id, list.body.scenarios[0].agents],
+    [200, "layerfs-mock", "small", ["root", "helper"]],
+  );
   assert.equal((await ask("GET", "/layerfs-mock/session/nobody")).statusCode, 404);
   assert.equal((await ask("POST", "/layerfs-mock/small/session", {})).statusCode, 400);
   assert.equal((await ask("POST", "/layerfs-mock/nope/session", { sessionId: "s" })).statusCode, 404);
@@ -293,7 +628,12 @@ try {
   const halted = await ask("POST", "/layerfs-mock/session/root-7/stop", {});
   assert.deepEqual([halted.statusCode, halted.body.state, halted.body.error], [200, "failed", "stopped"]);
   assert.equal((await ask("POST", "/layerfs-mock/session/nobody/stop", {})).statusCode, 404);
-  const refused = await collect({ model: "small", sessionId: "root-7", tools: [{ name: "bash" }], messages: [user("Run the scenario.")] });
+  const refused = await collect({
+    model: "small",
+    sessionId: "root-7",
+    tools: [{ name: "bash" }],
+    messages: [user("Run the scenario.")],
+  });
   assert.equal(refused.at(-1).reason.failure.code, "MOCK_RUN_ENDED");
 
   // The client: projects, the queue's limit, and run text
@@ -302,24 +642,52 @@ try {
   assert.deepEqual(nextStarts(["a", "b", "c"], 0), ["a", "b"]);
   assert.deepEqual(nextStarts(["a", "b", "c"], 1), ["a"]);
   assert.deepEqual(nextStarts(["a", "b", "c"], 2), []);
-  const tagged = [{ id: "a", tags: ["sdk", "merge"] }, { id: "b", tags: ["cli", "rust", "merge"] }, { id: "c", tags: ["cli", "conflicts"] }];
+  const tagged = [
+    { id: "a", tags: ["sdk", "merge"] },
+    { id: "b", tags: ["cli", "rust", "merge"] },
+    { id: "c", tags: ["cli", "conflicts"] },
+  ];
   assert.deepEqual(allTags(tagged), ["cli", "sdk", "rust", "conflicts", "merge"]);
-  assert.deepEqual(withTags(tagged, ["cli", "merge"]).map((t) => t.id), ["b"]);
+  assert.deepEqual(
+    withTags(tagged, ["cli", "merge"]).map((t) => t.id),
+    ["b"],
+  );
   assert.equal(withTags(tagged, []).length, 3);
-  assert.equal(runText({ state: "running", done: 7, of: 23, phase: "Commit", started: 0, ended: null }), "Step 7 of 23 · Commit");
-  assert.equal(runText({ state: "failed", done: 14, of: 31, phase: null, started: 0, ended: 65_000 }), "Failed at step 14 of 31 · 1:05");
+  assert.equal(
+    runText({ state: "running", done: 7, of: 23, phase: "Commit", started: 0, ended: null }),
+    "Step 7 of 23 · Commit",
+  );
+  assert.equal(
+    runText({ state: "failed", done: 14, of: 31, phase: null, started: 0, ended: 65_000 }),
+    "Failed at step 14 of 31 · 1:05",
+  );
 
   // A seed file as the fixture: checked when the scenario loads, written out
   // whole (a .git/HEAD included, modes kept), replacing what was there
   const seeded = join(dir, "seeded");
   mkdirSync(seeded);
   const seedFile = join(seeded, "seed.json");
-  writeFileSync(seedFile, JSON.stringify({ format: "layerfs-demo-seed", version: 1, entries: {
-    "/.git": { type: "dir", mode: 0o755 }, "/.git/HEAD": { type: "file", mode: 0o644, text: "ref: refs/heads/main\n" },
-    "/bin/run": { type: "file", mode: 0o755, base64: Buffer.from("#!/bin/sh\n").toString("base64") },
-    ...(process.platform === "win32" ? {} : { "/link": { type: "symlink", target: "bin/run" } }),
-  } }));
-  const minimal = { type: "layerfs-scenario", version: 3, title: "Seeded", tags: ["cli", "merge"], fixture: "seed.json", agents: { root: [{ reply: "done" }] } };
+  writeFileSync(
+    seedFile,
+    JSON.stringify({
+      format: "layerfs-demo-seed",
+      version: 1,
+      entries: {
+        "/.git": { type: "dir", mode: 0o755 },
+        "/.git/HEAD": { type: "file", mode: 0o644, text: "ref: refs/heads/main\n" },
+        "/bin/run": { type: "file", mode: 0o755, base64: Buffer.from("#!/bin/sh\n").toString("base64") },
+        ...(process.platform === "win32" ? {} : { "/link": { type: "symlink", target: "bin/run" } }),
+      },
+    }),
+  );
+  const minimal = {
+    type: "layerfs-scenario",
+    version: 3,
+    title: "Seeded",
+    tags: ["cli", "merge"],
+    fixture: "seed.json",
+    agents: { root: [{ reply: "done" }] },
+  };
   const compiled = compileScenario(minimal, { name: "seeded", folder: seeded });
   assert.equal(compiled.seed, seedFile);
   assert.equal(compiled.fixture, null);
@@ -334,14 +702,30 @@ try {
     assert.equal(readlinkSync(join(out, "link")), "bin/run");
   } else console.log("seed POSIX executable modes and symlinks: NOT_RUN on Windows");
   assert.ok(!existsSync(join(out, "stale")));
-  writeFileSync(seedFile, JSON.stringify({ format: "layerfs-demo-seed", version: 1, entries: { "/../x": { type: "file", text: "" } } }));
-  assert.throws(() => compileScenario(minimal, { name: "seeded", folder: seeded }), /fixture.*not a plain absolute path/);
-  assert.throws(() => compileScenario({ ...minimal, fixture: "missing.json" }, { name: "seeded", folder: seeded }), /missing\.json is not a file/);
+  writeFileSync(
+    seedFile,
+    JSON.stringify({ format: "layerfs-demo-seed", version: 1, entries: { "/../x": { type: "file", text: "" } } }),
+  );
+  assert.throws(
+    () => compileScenario(minimal, { name: "seeded", folder: seeded }),
+    /fixture.*not a plain absolute path/,
+  );
+  assert.throws(
+    () => compileScenario({ ...minimal, fixture: "missing.json" }, { name: "seeded", folder: seeded }),
+    /missing\.json is not a file/,
+  );
 
   // a run's scripted model is not saved as the default model; other picks are, and disposal restores the service
   {
-    const saved = [], disposers = [];
-    const service = { saveSelection(next) { saved.push(next); return Promise.resolve(); } }, original = service.saveSelection;
+    const saved = [],
+      disposers = [];
+    const service = {
+        saveSelection(next) {
+          saved.push(next);
+          return Promise.resolve();
+        },
+      },
+      original = service.saveSelection;
     keepDefaultModel({ agentDefaultModel: service, effect: (make) => disposers.push(make()) });
     await service.saveSelection({ provider: "layerfs-mock", model: "crew" });
     await service.saveSelection({ provider: "deepseek-account", model: "deepseek-flash" });

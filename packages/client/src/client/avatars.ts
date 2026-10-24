@@ -18,7 +18,21 @@ import m9 from '../../../../sim/avatars/9.png'
 import ellen from '../../../../sim/avatars/ellen_joe.png'
 import heads from '../../../../sim/avatars/heads.png'
 
-const SHEET: Record<string, string> = { ellen_joe: ellen, 2: m2, 3: m3, 4: m4, 5: m5, 6: m6, 7: m7, 8: m8, 9: m9, 11: m11, 12: m12, 13: m13, heads }
+const SHEET: Record<string, string> = {
+  ellen_joe: ellen,
+  2: m2,
+  3: m3,
+  4: m4,
+  5: m5,
+  6: m6,
+  7: m7,
+  8: m8,
+  9: m9,
+  11: m11,
+  12: m12,
+  13: m13,
+  heads,
+}
 
 export const MAID_AVATARS = maidAvatars((name: string) => SHEET[name])
 

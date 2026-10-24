@@ -5,7 +5,10 @@
 // double-click zooms in (⇧ out), + − 0 work while the tree has focus, and the
 // controls in its corner zoom, show the zoom (click: 100%) and fit it all.
 
-const MIN = 0.25, MAX = 4, STEP = 1.25, DRAG_PX = 4;
+const MIN = 0.25,
+  MAX = 4,
+  STEP = 1.25,
+  DRAG_PX = 4;
 const clamp = (z) => Math.min(MAX, Math.max(MIN, z));
 
 /**
@@ -13,7 +16,9 @@ const clamp = (z) => Math.min(MAX, Math.max(MIN, z));
  *   zoomed or panned (the view leaves "now" and moves the overview's box)
  */
 export function createTreeZoom({ root, onZoom }) {
-  let z = 1, pan = null, swallow = false;
+  let z = 1,
+    pan = null,
+    swallow = false;
   const box = () => root.querySelector("[data-tree]");
   const svgOf = (el) => el && el.querySelector("svg.tree");
   const label = () => `${Math.round(z * 100)}%`;
@@ -39,17 +44,25 @@ export function createTreeZoom({ root, onZoom }) {
     const el = box();
     if (!el) return;
     next = clamp(next);
-    if (px == null) { px = el.clientWidth / 2; py = el.clientHeight / 2; }
-    const cx = (el.scrollLeft + px) / z, cy = (el.scrollTop + py) / z;
+    if (px == null) {
+      px = el.clientWidth / 2;
+      py = el.clientHeight / 2;
+    }
+    const cx = (el.scrollLeft + px) / z,
+      cy = (el.scrollTop + py) / z;
     z = next;
     apply(el);
     el.scrollLeft = cx * z - px;
     el.scrollTop = cy * z - py;
     onZoom();
   }
-  const at = (el, e) => { const r = el.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const at = (el, e) => {
+    const r = el.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  };
   function fit() {
-    const el = box(), svg = svgOf(el);
+    const el = box(),
+      svg = svgOf(el);
     if (!svg) return;
     zoomTo(Math.min(el.clientWidth / +svg.dataset.w, el.clientHeight / +svg.dataset.h, 1));
   }
@@ -70,30 +83,49 @@ export function createTreeZoom({ root, onZoom }) {
   }
   function onMove(e) {
     if (!pan) return;
-    const dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+    const dx = e.clientX - pan.x,
+      dy = e.clientY - pan.y;
     if (!pan.moved && Math.hypot(dx, dy) < DRAG_PX) return;
-    if (!pan.moved) { pan.moved = true; pan.el.classList.add("panning"); }
+    if (!pan.moved) {
+      pan.moved = true;
+      pan.el.classList.add("panning");
+    }
     pan.el.scrollLeft = pan.left - dx;
     pan.el.scrollTop = pan.top - dy;
     onZoom();
   }
   function onUp() {
     removeEventListener("pointermove", onMove);
-    if (pan && pan.moved) { swallow = true; setTimeout(() => { swallow = false; }, 0); } // the drag's click is not a click
+    if (pan && pan.moved) {
+      swallow = true;
+      setTimeout(() => {
+        swallow = false;
+      }, 0);
+    } // the drag's click is not a click
     if (pan) pan.el.classList.remove("panning");
     pan = null;
   }
   /** Clicks the view hands over first: the controls, a drag's end, ⌘-click. True when handled. */
   function click(e) {
-    if (swallow) { swallow = false; e.preventDefault(); return true; }
+    if (swallow) {
+      swallow = false;
+      e.preventDefault();
+      return true;
+    }
     const b = e.target.closest && e.target.closest("[data-tz]");
     if (b) {
       const k = b.dataset.tz;
-      if (k === "in") zoomTo(z * STEP); else if (k === "out") zoomTo(z / STEP); else if (k === "reset") zoomTo(1); else fit();
+      if (k === "in") zoomTo(z * STEP);
+      else if (k === "out") zoomTo(z / STEP);
+      else if (k === "reset") zoomTo(1);
+      else fit();
       return true;
     }
     const el = onTree(e);
-    if (el && (e.metaKey || e.ctrlKey)) { zoomTo(e.shiftKey ? z / STEP : z * STEP, ...at(el, e)); return true; }
+    if (el && (e.metaKey || e.ctrlKey)) {
+      zoomTo(e.shiftKey ? z / STEP : z * STEP, ...at(el, e));
+      return true;
+    }
     return false;
   }
   function onDbl(e) {
@@ -107,10 +139,15 @@ export function createTreeZoom({ root, onZoom }) {
     root.classList.toggle("tz-key", mod);
     root.classList.toggle("tz-out", mod && e.shiftKey);
     if (e.type !== "keydown" || mod || !onTree(e)) return;
-    if (e.key === "+" || e.key === "=") zoomTo(z * STEP); else if (e.key === "-") zoomTo(z / STEP); else if (e.key === "0") zoomTo(1); else return;
+    if (e.key === "+" || e.key === "=") zoomTo(z * STEP);
+    else if (e.key === "-") zoomTo(z / STEP);
+    else if (e.key === "0") zoomTo(1);
+    else return;
     e.preventDefault();
   }
-  const onBlur = () => { root.classList.remove("tz-key", "tz-out"); };
+  const onBlur = () => {
+    root.classList.remove("tz-key", "tz-out");
+  };
   root.addEventListener("wheel", onWheel, { passive: false });
   root.addEventListener("pointerdown", onDown);
   root.addEventListener("dblclick", onDbl);
@@ -118,8 +155,12 @@ export function createTreeZoom({ root, onZoom }) {
   addEventListener("keyup", onKey);
   addEventListener("blur", onBlur);
   return {
-    get zoom() { return z; },
-    controlsHtml, apply, click,
+    get zoom() {
+      return z;
+    },
+    controlsHtml,
+    apply,
+    click,
     dispose() {
       root.removeEventListener("wheel", onWheel);
       root.removeEventListener("pointerdown", onDown);

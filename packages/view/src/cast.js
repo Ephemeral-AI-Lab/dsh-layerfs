@@ -8,7 +8,9 @@
 
 /** What a call shows on its agent: a mood, which each sheet draws with its own pose. */
 export function moodOf(last) {
-  const o = last.o, r = o.result, call = last.call || "";
+  const o = last.o,
+    r = o.result,
+    call = last.call || "";
   if (!o.ok) return o.code === "Conflict" ? "oops" : "fail";
   if (o.code === "Committed") return "win";
   if (o.code === "Merged") return "merge";
@@ -29,16 +31,26 @@ export function nodeMood(node) {
 
 // a mood's pose: the first of these a sheet has (the numbered maids' poses, then Ellen's expressions)
 const POSES = {
-  work: ["laptop", "thinking"], read: ["read", "thinking"], win: ["cheer", "thumbs_up"], merge: ["heart", "love"],
-  serve: ["serve_tea", "smug"], move: ["run", "happy"], hello: ["wave", "happy"], oops: ["arms_open", "surprised"],
-  fail: ["arms_open", "crying"], idle: ["idle", "happy"], sleep: ["sleep", "sleepy"],
+  work: ["laptop", "thinking"],
+  read: ["read", "thinking"],
+  win: ["cheer", "thumbs_up"],
+  merge: ["heart", "love"],
+  serve: ["serve_tea", "smug"],
+  move: ["run", "happy"],
+  hello: ["wave", "happy"],
+  oops: ["arms_open", "surprised"],
+  fail: ["arms_open", "crying"],
+  idle: ["idle", "happy"],
+  sleep: ["sleep", "sleepy"],
 };
-const frameOf = (hero, mood) => Math.max(0, hero.poses.indexOf((POSES[mood] || POSES.idle).find((p) => hero.poses.includes(p))));
+const frameOf = (hero, mood) =>
+  Math.max(0, hero.poses.indexOf((POSES[mood] || POSES.idle).find((p) => hero.poses.includes(p))));
 
 /** The hero's figure inside an `.av` box: its image, or its pose's frame of the sheet. */
 export function figureStyle(hero, mood) {
   if (!hero.poses) return `background-image:url(${hero.src})`;
-  const n = hero.poses.length, k = frameOf(hero, mood);
+  const n = hero.poses.length,
+    k = frameOf(hero, mood);
   return `background:url(${hero.src}) ${n > 1 ? ((k / (n - 1)) * 100).toFixed(3) : 0}% 0 / ${n * 100}% 100% no-repeat;aspect-ratio:3/4;width:auto`;
 }
 

@@ -26,26 +26,38 @@ if (mode !== "link" && mode !== "check") {
 
 const source = resolve(ROOT, process.env.LAYERFS_SOURCE || pin.source);
 if (!existsSync(join(source, "api/agent/sdk/package.json"))) {
-  console.error(`layerfs-source: ${source} is not a LayerFS checkout with the #428 packages (no api/agent/sdk); set LAYERFS_SOURCE to one at ${pin.commit.slice(0, 10)}`);
+  console.error(
+    `layerfs-source: ${source} is not a LayerFS checkout with the #428 packages (no api/agent/sdk); set LAYERFS_SOURCE to one at ${pin.commit.slice(0, 10)}`,
+  );
   process.exit(1);
 }
 if (!existsSync(join(source, "api/node_modules/@layerfs/agent/package.json"))) {
-  console.error(`layerfs-source: ${source}/api has no node_modules/@layerfs/agent; run \`npm install\` in that api/ once (it only links its workspaces)`);
+  console.error(
+    `layerfs-source: ${source}/api has no node_modules/@layerfs/agent; run \`npm install\` in that api/ once (it only links its workspaces)`,
+  );
   process.exit(1);
 }
 // the layerfs command agents run (DSH_LAYERFS_CLI) imports @layerfs/agent from api/agent/cli/'s own node_modules
 if (!existsSync(join(source, "api/agent/cli/src/layerfs.js"))) {
-  console.error(`layerfs-source: ${source} has no api/agent/cli/src/layerfs.js, the layerfs command; set LAYERFS_SOURCE to a checkout at ${pin.commit.slice(0, 10)}`);
+  console.error(
+    `layerfs-source: ${source} has no api/agent/cli/src/layerfs.js, the layerfs command; set LAYERFS_SOURCE to a checkout at ${pin.commit.slice(0, 10)}`,
+  );
   process.exit(1);
 }
 if (!existsSync(join(source, "api/agent/cli/node_modules/@layerfs/agent/package.json"))) {
-  console.error(`layerfs-source: ${source}/api/agent/cli has no node_modules/@layerfs/agent; run \`npm --prefix "${join(source, "api/agent/cli")}" install\` once (it only links the SDK)`);
+  console.error(
+    `layerfs-source: ${source}/api/agent/cli has no node_modules/@layerfs/agent; run \`npm --prefix "${join(source, "api/agent/cli")}" install\` once (it only links the SDK)`,
+  );
   process.exit(1);
 }
 
 let current = null;
-try { if (lstatSync(LINK).isSymbolicLink()) current = resolve(ROOT, readlinkSync(LINK)); else throw new Error(`${LINK} exists and is not a link; remove it`); }
-catch (error) { if (error.code !== "ENOENT") throw error; }
+try {
+  if (lstatSync(LINK).isSymbolicLink()) current = resolve(ROOT, readlinkSync(LINK));
+  else throw new Error(`${LINK} exists and is not a link; remove it`);
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
 if (current !== source) {
   if (current !== null) rmSync(LINK);
   // a junction on Windows needs no extra privilege
@@ -53,7 +65,18 @@ if (current !== source) {
 }
 
 let head = null;
-try { head = execFileSync("git", ["-C", source, "rev-parse", "HEAD"], { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {}
-const at = head === pin.commit ? "at the pinned commit" : head ? `at ${head.slice(0, 10)}, not the pinned ${pin.commit.slice(0, 10)}` : `not a git checkout (pinned ${pin.commit.slice(0, 10)})`;
+try {
+  head = execFileSync("git", ["-C", source, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+    timeout: 10_000,
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+} catch {}
+const at =
+  head === pin.commit
+    ? "at the pinned commit"
+    : head
+      ? `at ${head.slice(0, 10)}, not the pinned ${pin.commit.slice(0, 10)}`
+      : `not a git checkout (pinned ${pin.commit.slice(0, 10)})`;
 console.log(`layerfs-source: .layerfs -> ${source}, ${at}`);
 if (mode === "check" && head !== pin.commit) process.exit(1);

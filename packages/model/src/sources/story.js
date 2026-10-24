@@ -25,15 +25,29 @@ export function storyView(engine, { lead = "main" } = {}) {
 
 /** Runs one story step and rederives the view. */
 export async function runStep(W, st, env) {
-  const before = rootsOf(W), known = new Set(Object.keys(W.nodes));
-  W.last = null; W.check = null; W.tick = (W.tick || 0) + 1; // one tick per step: poses show this step's outcomes
-  if (st.burst) { W.clock += 4; for (const e of st.burst) await runCall(W, e, env); W.lastTab = st.tab; }
-  else if (st.script) { W.clock += 4; for (const c of st.calls) await runCall(W, { a: st.a, group: st.script, ...c }, env); if (st.tab) W.lastTab = st.tab; }
-  else if (st.call === "dsh.view") W.lastTab = st.tab;
-  else if (st.call === "dsh.spawn") { W.clock += 4; for (const n of st.args.agents) (W.agents[n] ||= newAgent()).spawned = W.tick; }
-  else if (st.call === "dsh.idle") W.clock += st.args.seconds;
+  const before = rootsOf(W),
+    known = new Set(Object.keys(W.nodes));
+  W.last = null;
+  W.check = null;
+  W.tick = (W.tick || 0) + 1; // one tick per step: poses show this step's outcomes
+  if (st.burst) {
+    W.clock += 4;
+    for (const e of st.burst) await runCall(W, e, env);
+    W.lastTab = st.tab;
+  } else if (st.script) {
+    W.clock += 4;
+    for (const c of st.calls) await runCall(W, { a: st.a, group: st.script, ...c }, env);
+    if (st.tab) W.lastTab = st.tab;
+  } else if (st.call === "dsh.view") W.lastTab = st.tab;
+  else if (st.call === "dsh.spawn") {
+    W.clock += 4;
+    for (const n of st.args.agents) (W.agents[n] ||= newAgent()).spawned = W.tick;
+  } else if (st.call === "dsh.idle") W.clock += st.args.seconds;
   else if (st.replay) await st.replay(W, st);
-  else { W.clock += 4; await runCall(W, st, env); }
+  else {
+    W.clock += 4;
+    await runCall(W, st, env);
+  }
   derive(W);
   W.newNodes = new Set(Object.keys(W.nodes).filter((id) => !known.has(id)));
   W.flash = env.diffTrees ? changedPaths(W, before, rootsOf(W), env) : {};
@@ -52,13 +66,21 @@ export async function sdkCall(W, env, calls, call, args) {
     o.result = { kind: "Initialized", project: s.project.name, main: { headLayer: s.main.head } };
     o.timing = { totalMs: performance.now() - t0, reset: true };
   } else o = await W.engine.run(call, args);
-  calls.push({ call, code: o.code, timing: o.timing, script: env.scriptFor ? env.scriptFor({ call, args }, (W.engine.s.project || {}).name || "website") : undefined });
+  calls.push({
+    call,
+    code: o.code,
+    timing: o.timing,
+    script: env.scriptFor ? env.scriptFor({ call, args }, (W.engine.s.project || {}).name || "website") : undefined,
+  });
   return o;
 }
 
 export async function runCall(W, st, env) {
-  const p = prepare(W, st), calls = [];
-  let s = W.engine.s, shOut = null, o;
+  const p = prepare(W, st),
+    calls = [];
+  let s = W.engine.s,
+    shOut = null,
+    o;
   const { call, args, mine, bind } = p;
   if (st.sh) {
     // sim: the shell is simulated and its writes go to the call; live: the
@@ -66,11 +88,22 @@ export async function runCall(W, st, env) {
     const r = env.live ? env.liveCommand(st.sh) : env.simulateShell(st.sh, mine, s.sandboxes[bind.sandbox]);
     shOut = r.out || null;
     if (r.refuse) o = { ok: false, code: "ShellRefused", refusal: { message: r.out.map((x) => x.t).join(" ") } };
-    else if (env.live) { o = await sdkCall(W, env, calls, call, { ...args, command: r.command, background: r.background || undefined }); shOut = o.ok ? env.execLines(o.result) : []; }
-    else o = await sdkCall(W, env, calls, call, { ...args, command: st.sh, writes: r.writes, output: r.out.map((x) => x.t).join("\n"), exitCode: r.code, background: r.background || undefined });
+    else if (env.live) {
+      o = await sdkCall(W, env, calls, call, { ...args, command: r.command, background: r.background || undefined });
+      shOut = o.ok ? env.execLines(o.result) : [];
+    } else
+      o = await sdkCall(W, env, calls, call, {
+        ...args,
+        command: st.sh,
+        writes: r.writes,
+        output: r.out.map((x) => x.t).join("\n"),
+        exitCode: r.code,
+        background: r.background || undefined,
+      });
   } else o = await sdkCall(W, env, calls, call, args);
   s = W.engine.s; // live: the server answers with a new state object
   // live reads name a raw snapshot id: show the ref at its head instead, like the simulator
-  if (env.live && call === "fs.read" && o.ok && s.branches[args.ref]) o.result.snapshot = `${args.ref} @ ${s.branches[args.ref].head || s.branches[args.ref].base}`;
+  if (env.live && call === "fs.read" && o.ok && s.branches[args.ref])
+    o.result.snapshot = `${args.ref} @ ${s.branches[args.ref].head || s.branches[args.ref].base}`;
   record(W, st, p, o, shOut, calls);
 }

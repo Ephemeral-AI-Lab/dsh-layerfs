@@ -19,15 +19,18 @@
     try {
       const v = sim.resolve(ref);
       if (v.kind === "live") return null;
-      const node = v.kind === "main" ? s.main.head : v.kind === "branch" ? (v.head || s.branches[ref].from) : ref;
+      const node = v.kind === "main" ? s.main.head : v.kind === "branch" ? v.head || s.branches[ref].from : ref;
       return { ref, label: v.label, tree: v.tree, node };
-    } catch (e) { return null; }
+    } catch (e) {
+      return null;
+    }
   }
 
   // The ref one step back: a Commit's parent (or its Branch's fork point),
   // a Layer's parent, a Branch head's parent.
   function parentRef(sim, ref) {
-    const s = sim.s, r = resolveRef(sim, ref);
+    const s = sim.s,
+      r = resolveRef(sim, ref);
     if (!r) return null;
     const id = r.node;
     if (s.commits[id]) {
@@ -44,9 +47,11 @@
   // Layers. A published Layer continues through its source Commit, so main's
   // lines are credited to the Commit that wrote them.
   function chainOf(sim, ref) {
-    const s = sim.s, r = resolveRef(sim, ref);
+    const s = sim.s,
+      r = resolveRef(sim, ref);
     if (!r) return [];
-    const out = [], seen = new Set();
+    const out = [],
+      seen = new Set();
     let id = r.node;
     while (id && !seen.has(id)) {
       seen.add(id);
@@ -56,8 +61,17 @@
         id = c.parent || c.base;
       } else if (s.layers[id]) {
         const l = s.layers[id];
-        if (l.sourceCommit && !seen.has(l.sourceCommit)) { id = l.sourceCommit; continue; }
-        out.push({ id, kind: "layer", branch: "main", via: l.sourceCommit ? `published from ${l.sourceCommit}` : "project.init", root: l.root });
+        if (l.sourceCommit && !seen.has(l.sourceCommit)) {
+          id = l.sourceCommit;
+          continue;
+        }
+        out.push({
+          id,
+          kind: "layer",
+          branch: "main",
+          via: l.sourceCommit ? `published from ${l.sourceCommit}` : "project.init",
+          root: l.root,
+        });
         id = l.parent;
       } else break;
     }
@@ -67,25 +81,45 @@
   // Each line of `path` at `ref`, with the oldest saved version in the chain
   // from which the line is unchanged.
   function blame(sim, ref, path) {
-    const s = sim.s, chain = chainOf(sim, ref);
-    const text = (n) => { const e = s.roots[n.root][path]; return e && e.type === "file" ? e.content : null; };
+    const s = sim.s,
+      chain = chainOf(sim, ref);
+    const text = (n) => {
+      const e = s.roots[n.root][path];
+      return e && e.type === "file" ? e.content : null;
+    };
     if (!chain.length || text(chain[0]) == null) return null;
     const lines = text(chain[0]).split("\n");
-    const track = lines.map((_, i) => i), owner = new Array(lines.length).fill(null);
+    const track = lines.map((_, i) => i),
+      owner = new Array(lines.length).fill(null);
     let open = lines.length;
     for (let k = 0; k < chain.length && open; k++) {
-      const cur = chain[k], older = chain[k + 1], curText = text(cur), oldText = older ? text(older) : null;
-      if (oldText == null) { for (let i = 0; i < lines.length; i++) if (!owner[i]) owner[i] = cur; break; }
+      const cur = chain[k],
+        older = chain[k + 1],
+        curText = text(cur),
+        oldText = older ? text(older) : null;
+      if (oldText == null) {
+        for (let i = 0; i < lines.length; i++) if (!owner[i]) owner[i] = cur;
+        break;
+      }
       if (oldText === curText) continue;
       const map = {};
-      let ci = 0, oi = 0;
+      let ci = 0,
+        oi = 0;
       for (const op of M.lineDiff(oldText, curText)) {
-        if (op.op === " ") { map[ci] = oi; ci++; oi++; } else if (op.op === "+") ci++; else oi++;
+        if (op.op === " ") {
+          map[ci] = oi;
+          ci++;
+          oi++;
+        } else if (op.op === "+") ci++;
+        else oi++;
       }
       for (let i = 0; i < lines.length; i++) {
         if (owner[i]) continue;
         const j = map[track[i]];
-        if (j === undefined) { owner[i] = cur; open--; } else track[i] = j;
+        if (j === undefined) {
+          owner[i] = cur;
+          open--;
+        } else track[i] = j;
       }
     }
     return { versions: chain.length, lines: lines.map((t, i) => ({ n: i + 1, text: t, origin: owner[i] })) };
@@ -95,10 +129,16 @@
   // { node, change: "A" | "M" | "D", content }. A preview of a file-history
   // read (issue #329); live trees load lazily, so early answers can be short.
   function history(sim, ref, path) {
-    const s = sim.s, chain = chainOf(sim, ref), out = [];
-    const text = (n) => { const e = n && s.roots[n.root] && s.roots[n.root][path]; return e && e.type === "file" ? e.content : null; };
+    const s = sim.s,
+      chain = chainOf(sim, ref),
+      out = [];
+    const text = (n) => {
+      const e = n && s.roots[n.root] && s.roots[n.root][path];
+      return e && e.type === "file" ? e.content : null;
+    };
     for (let k = 0; k < chain.length; k++) {
-      const cur = text(chain[k]), old = text(chain[k + 1]);
+      const cur = text(chain[k]),
+        old = text(chain[k + 1]);
       if (cur === old) continue;
       out.push({ node: chain[k], change: cur == null ? "D" : old == null ? "A" : "M", content: cur });
     }
@@ -107,7 +147,8 @@
 
   // path -> "A" | "M" | "D" from base to subject, plus folder roll-ups.
   function changeMap(subjectTree, baseTree) {
-    const files = {}, dirs = {};
+    const files = {},
+      dirs = {};
     for (const d of M.diffTrees(baseTree, subjectTree)) {
       if (d.type === "dir" && d.kind === "Modified") continue;
       files[d.path] = d.kind === "Added" ? "A" : d.kind === "Removed" ? "D" : "M";
@@ -121,7 +162,8 @@
     const set = new Set(M.childrenOf(subjectTree, dir));
     if (baseTree) for (const p of M.childrenOf(baseTree, dir)) set.add(p);
     const typeOf = (p) => (subjectTree[p] || baseTree[p]).type;
-    return [...set].sort((a, b) => (typeOf(a) === typeOf(b) ? a.localeCompare(b) : typeOf(a) === "dir" ? -1 : 1))
+    return [...set]
+      .sort((a, b) => (typeOf(a) === typeOf(b) ? a.localeCompare(b) : typeOf(a) === "dir" ? -1 : 1))
       .map((p) => ({ path: p, name: M.baseName(p), type: typeOf(p), gone: !subjectTree[p] }));
   }
 

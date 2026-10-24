@@ -18,11 +18,13 @@ const id = (q, name) => {
 };
 const path = (q, name, fallback) => {
   const value = q.get(name) ?? fallback;
-  if (typeof value !== "string" || !value.startsWith("/") || value.includes("\0") || value.split("/").includes("..")) throw bad(`${name} must be an absolute path`);
+  if (typeof value !== "string" || !value.startsWith("/") || value.includes("\0") || value.split("/").includes(".."))
+    throw bad(`${name} must be an absolute path`);
   return value;
 };
 const count = (q, name, min) => {
-  const raw = q.get(name), value = raw == null ? min : Number(raw);
+  const raw = q.get(name),
+    value = raw == null ? min : Number(raw);
   if (!Number.isSafeInteger(value) || value < min) throw bad(`${name} must be a whole number from ${min}`);
   return value;
 };
@@ -33,7 +35,11 @@ const refuse = (code, message) => Object.assign(new Error(message), { code, stat
  * client). One that is not exact is the Commit a Layer was published from,
  * whose root the diff answer must then show equal (`check`). It refuses
  * NotComparable for a Layer with no such Commit. */
-const unlike = () => refuse("NotComparable", "LayerFS compares Commits, and this Layer has no Commit with the same files (Init's Layer, or a publish that merged)");
+const unlike = () =>
+  refuse(
+    "NotComparable",
+    "LayerFS compares Commits, and this Layer has no Commit with the same files (Init's Layer, or a publish that merged)",
+  );
 async function asCommit(client, ref) {
   let found;
   try {
@@ -45,7 +51,7 @@ async function asCommit(client, ref) {
   return { commit: found.commit, root: found.root, check: !found.exact };
 }
 
-const next = (page, position) => (page.hasMore ? page.nextPagePos ?? position + page.items.length : null);
+const next = (page, position) => (page.hasMore ? (page.nextPagePos ?? position + page.items.length) : null);
 
 /** kind -> { args(query): checked arguments, run(client, args): the answer } */
 export const READS = {
@@ -63,7 +69,13 @@ export const READS = {
     async run({ layerfs }, a) {
       try {
         const w = await layerfs.fs.read(a.ref, a.path, a.line);
-        return { text: w.text, startLine: w.startLine ?? a.line, nextLine: w.nextLine ?? null, lineTruncated: !!w.lineTruncated, size: w.size ?? null };
+        return {
+          text: w.text,
+          startLine: w.startLine ?? a.line,
+          nextLine: w.nextLine ?? null,
+          lineTruncated: !!w.lineTruncated,
+          size: w.size ?? null,
+        };
       } catch (error) {
         if (error?.code !== "Binary") throw error;
         const stat = await layerfs.fs.stat(a.ref, a.path);
@@ -76,7 +88,17 @@ export const READS = {
     args: (q) => ({ ref: id(q, "ref"), path: path(q, "path"), line: count(q, "line", 1) }),
     async run({ layerfs }, a) {
       const b = await layerfs.fs.blame(a.ref, a.path, a.line);
-      return { lines: b.lines.map(({ n, text, lineTruncated, commit, message }) => ({ n, text, lineTruncated: !!lineTruncated, commit, message: message ?? "" })), versions: b.versions ?? null, nextLine: b.nextLine ?? null };
+      return {
+        lines: b.lines.map(({ n, text, lineTruncated, commit, message }) => ({
+          n,
+          text,
+          lineTruncated: !!lineTruncated,
+          commit,
+          message: message ?? "",
+        })),
+        versions: b.versions ?? null,
+        nextLine: b.nextLine ?? null,
+      };
     },
   },
   /** One page of the paths that differ from `from` to `to`, without line hunks.
@@ -84,7 +106,8 @@ export const READS = {
   changes: {
     args: (q) => ({ from: id(q, "from"), to: id(q, "to"), position: count(q, "position", 0) }),
     async run(client, a) {
-      const from = await asCommit(client, a.from), to = await asCommit(client, a.to);
+      const from = await asCommit(client, a.from),
+        to = await asCommit(client, a.to);
       if (from.root === to.root) return { items: [], next: null };
       const page = await client.layerfs.branch.diff_commits(from.commit, to.commit, PAGE, a.position, { hunks: false });
       if ((from.check && page.from?.root !== from.root) || (to.check && page.to?.root !== to.root)) throw unlike();

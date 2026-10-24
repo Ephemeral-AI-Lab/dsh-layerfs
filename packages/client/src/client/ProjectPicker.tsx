@@ -11,7 +11,12 @@
 // project (or opening on one) switches the blank session to the LayerFS × DSH
 // minimalist preset; "No LayerFS" leaves the preset as it is.
 import { useEffect, useRef, useState } from 'react'
-import { IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  IconChevronDownOutlineRegular,
+  IconFolderOpenOutlineRegular,
+  IconPlusOutlineRegular,
+  Menu,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, type InitJob, type SessionView } from './api.ts'
 import { ProgressBar, jobFraction, jobText, useClock } from './Progress.tsx'
 import { InitDialog, type Directories } from './InitDialog.tsx'
@@ -32,9 +37,23 @@ const RULE = `[${MARK}] { margin-left: 0 !important; }
 .lfs-seat > svg { flex: none; }
 .lfs-seat > .lfs-chevron { color: var(--dsw-alias-label-caption); }`
 const seat = {
-  display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: 240, minHeight: 28, padding: '0 8px',
-  border: 'none', borderRadius: 'var(--dsw-radius-sm)', background: 'transparent', color: 'var(--dsw-alias-label-primary)',
-  font: 'inherit', fontSize: 13, lineHeight: '20px', fontWeight: 500, whiteSpace: 'nowrap', cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  minWidth: 0,
+  maxWidth: 240,
+  minHeight: 28,
+  padding: '0 8px',
+  border: 'none',
+  borderRadius: 'var(--dsw-radius-sm)',
+  background: 'transparent',
+  color: 'var(--dsw-alias-label-primary)',
+  font: 'inherit',
+  fontSize: 13,
+  lineHeight: '20px',
+  fontWeight: 500,
+  whiteSpace: 'nowrap',
+  cursor: 'pointer',
 } as const
 
 /** Marks the nearest laid-out ancestor (dsh's hero options box) so the rule above applies while mounted. */
@@ -51,12 +70,24 @@ function useBesidePreset(anchor: React.RefObject<HTMLElement | null>) {
       doc.head.append(style)
     }
     box.setAttribute(MARK, '')
-    return () => { box.removeAttribute(MARK) }
+    return () => {
+      box.removeAttribute(MARK)
+    }
   })
 }
 
-export function ProjectPicker({ sessionId, directories, usePreset }: { sessionId: string, directories: () => Directories | undefined, usePreset: () => UsePreset | undefined }) {
-  const layerFsPreset = async () => { await usePreset()?.(sessionId, LAYERFS_PRESET) }
+export function ProjectPicker({
+  sessionId,
+  directories,
+  usePreset,
+}: {
+  sessionId: string
+  directories: () => Directories | undefined
+  usePreset: () => UsePreset | undefined
+}) {
+  const layerFsPreset = async () => {
+    await usePreset()?.(sessionId, LAYERFS_PRESET)
+  }
   const [initing, setIniting] = useState(false)
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<SessionView | null>(null)
@@ -70,33 +101,59 @@ export function ProjectPicker({ sessionId, directories, usePreset }: { sessionId
   const now = useClock(job !== null)
   useEffect(() => {
     let stopped = false
-    api.session(sessionId).then((v) => {
-      if (stopped) return
-      setView(v)
-      // opening on a project (the folder's default) counts as choosing it
-      if (v.project && !v.choice?.locked) layerFsPreset().catch(() => {})
-    }, (e: Error) => { if (!stopped) setError(e.message) })
-    api.status().then((s) => { if (!stopped) setCanEmpty(!!s.empty) }, () => {})
-    return () => { stopped = true }
+    api.session(sessionId).then(
+      (v) => {
+        if (stopped) return
+        setView(v)
+        // opening on a project (the folder's default) counts as choosing it
+        if (v.project && !v.choice?.locked) layerFsPreset().catch(() => {})
+      },
+      (e: Error) => {
+        if (!stopped) setError(e.message)
+      },
+    )
+    api.status().then(
+      (s) => {
+        if (!stopped) setCanEmpty(!!s.empty)
+      },
+      () => {},
+    )
+    return () => {
+      stopped = true
+    }
   }, [sessionId])
-  if (!view?.folder) return <span ref={anchor} title={error ?? undefined} style={{ fontSize: 12, opacity: 0.6 }}>{error ? 'LayerFS unavailable' : null}</span>
+  if (!view?.folder)
+    return (
+      <span ref={anchor} title={error ?? undefined} style={{ fontSize: 12, opacity: 0.6 }}>
+        {error ? 'LayerFS unavailable' : null}
+      </span>
+    )
   const folder = view.folder
 
   const run = async (step: () => Promise<SessionView>) => {
-    setBusy(true); setError(null)
+    setBusy(true)
+    setError(null)
     try {
       const next = await step()
       setView(next)
       if (next.project && !next.choice?.locked) await layerFsPreset()
-    } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
-  const startEmpty = () => run(async () => {
-    setVerb('Creating')
-    try {
-      const { project } = await api.init(folder, undefined, undefined, setJob, true)
-      return await api.choose(sessionId, project.name)
-    } finally { setJob(null); setVerb('Importing') }
-  })
+  const startEmpty = () =>
+    run(async () => {
+      setVerb('Creating')
+      try {
+        const { project } = await api.init(folder, undefined, undefined, setJob, true)
+        return await api.choose(sessionId, project.name)
+      } finally {
+        setJob(null)
+        setVerb('Importing')
+      }
+    })
   const select = (id: string) => {
     setOpen(false)
     if (id === IMPORT) setIniting(true)
@@ -115,39 +172,101 @@ export function ProjectPicker({ sessionId, directories, usePreset }: { sessionId
           { id: NONE, label: 'No LayerFS', icon: <span style={{ width: 16 }} /> },
         ]}
         footer={[
-          ...(canEmpty ? [{ id: EMPTY, label: 'New empty project', icon: <IconPlusOutlineRegular size={16} />, disabled: busy }] : []),
+          ...(canEmpty
+            ? [{ id: EMPTY, label: 'New empty project', icon: <IconPlusOutlineRegular size={16} />, disabled: busy }]
+            : []),
           { id: IMPORT, label: 'Import project…', icon: <IconFolderOpenOutlineRegular size={16} />, disabled: busy },
         ]}
         selectedId={view.project?.name ?? NONE}
         onSelect={select}
         align="start"
         portal
-        anchor={(
+        anchor={
           <button
             type="button"
             className="lfs-seat"
-            style={{ ...seat, ...(busy || locked ? { cursor: 'default' } : {}), ...(error ? { color: 'var(--dsh-color-fg-danger, #d33)' } : {}) }}
+            style={{
+              ...seat,
+              ...(busy || locked ? { cursor: 'default' } : {}),
+              ...(error ? { color: 'var(--dsh-color-fg-danger, #d33)' } : {}),
+            }}
             aria-haspopup="menu"
             aria-expanded={open}
             aria-label="LayerFS project"
-            title={job ? jobText(job, now) : error ?? (locked ? 'Fixed: an agent has used this project' : 'LayerFS project for this session')}
+            title={
+              job
+                ? jobText(job, now)
+                : (error ?? (locked ? 'Fixed: an agent has used this project' : 'LayerFS project for this session'))
+            }
             disabled={busy || locked}
             onClick={() => setOpen((value) => !value)}
           >
             <LayerFsIcon size={16} />
-            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{job ? `${verb} ${job.name}…` : view.project?.name ?? 'No LayerFS'}</span>
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {job ? `${verb} ${job.name}…` : (view.project?.name ?? 'No LayerFS')}
+            </span>
             {!locked && <IconChevronDownOutlineRegular size={14} className="lfs-chevron" />}
           </button>
-        )}
+        }
       />
       {job && (
-        <span role="status" style={{ position: 'absolute', left: 0, top: '100%', marginTop: 6, zIndex: 20, width: 300, maxWidth: 'calc(100vw - 32px)', boxSizing: 'border-box', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8, padding: '10px 12px', borderRadius: 12, background: 'var(--dsw-alias-bg-base, #fff)', border: '1px solid var(--dsw-alias-border-subtle, #8883)', boxShadow: '0 8px 24px rgba(0,0,0,.12)', pointerEvents: 'none' }}>
-          <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{verb} {job.name}</span>
+        <span
+          role="status"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: '100%',
+            marginTop: 6,
+            zIndex: 20,
+            width: 300,
+            maxWidth: 'calc(100vw - 32px)',
+            boxSizing: 'border-box',
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr)',
+            gap: 8,
+            padding: '10px 12px',
+            borderRadius: 12,
+            background: 'var(--dsw-alias-bg-base, #fff)',
+            border: '1px solid var(--dsw-alias-border-subtle, #8883)',
+            boxShadow: '0 8px 24px rgba(0,0,0,.12)',
+            pointerEvents: 'none',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {verb} {job.name}
+          </span>
           <ProgressBar fraction={jobFraction(job)} />
-          <span style={{ fontSize: 12, lineHeight: '17px', overflowWrap: 'anywhere', color: 'var(--dsw-alias-label-caption)' }}>{jobText(job, now)}</span>
+          <span
+            style={{
+              fontSize: 12,
+              lineHeight: '17px',
+              overflowWrap: 'anywhere',
+              color: 'var(--dsw-alias-label-caption)',
+            }}
+          >
+            {jobText(job, now)}
+          </span>
         </span>
       )}
-      {initing && <InitDialog folder={null} directories={directories()} onClose={() => setIniting(false)} onDone={(project) => { setIniting(false); void run(() => api.choose(sessionId, project.name)) }} />}
+      {initing && (
+        <InitDialog
+          folder={null}
+          directories={directories()}
+          onClose={() => setIniting(false)}
+          onDone={(project) => {
+            setIniting(false)
+            void run(() => api.choose(sessionId, project.name))
+          }}
+        />
+      )}
     </span>
   )
 }

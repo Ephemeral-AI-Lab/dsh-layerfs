@@ -23,31 +23,78 @@ import { card, T } from './tokens.ts'
  * `tab`: the tab to open with (the All projects page opens Sandboxes).
  * `storage`: the Store's figures, which the page reads alongside History (null while it reads).
  */
-export function ProjectBoard({ name, state, storage, storageError, status, tab }: { name: string, state: ProjectState, storage: Storage | null, storageError: string | null, status?: ReactNode, tab?: 'sandboxes' }) {
+export function ProjectBoard({
+  name,
+  state,
+  storage,
+  storageError,
+  status,
+  tab,
+}: {
+  name: string
+  state: ProjectState
+  storage: Storage | null
+  storageError: string | null
+  status?: ReactNode
+  tab?: 'sandboxes'
+}) {
   const host = useRef<HTMLDivElement>(null)
   const board = useRef<any>(null)
   const files = useRef<FilesSource | null>(null)
   const store = useRef<any>(null)
   // the Sandboxes tab's element: the view shows it as the tab's page and keeps it across draws
   const sbxEl = useRef<HTMLDivElement>(null as unknown as HTMLDivElement)
-  if (!sbxEl.current) { sbxEl.current = document.createElement('div'); sbxEl.current.className = 'lfs-own'; sbxEl.current.style.height = '100%' }
+  if (!sbxEl.current) {
+    sbxEl.current = document.createElement('div')
+    sbxEl.current.className = 'lfs-own'
+    sbxEl.current.style.height = '100%'
+  }
   const runtimeRef = useRef<ProjectRuntime | null>(null)
   const [runtime, setRuntime] = useState<ProjectRuntime | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
-  const readRuntime = () => api.projectRuntime(name).then((r) => { setRuntime(r); setRuntimeError(null) }, (e: Error) => setRuntimeError(e.message))
+  const readRuntime = () =>
+    api.projectRuntime(name).then(
+      (r) => {
+        setRuntime(r)
+        setRuntimeError(null)
+      },
+      (e: Error) => setRuntimeError(e.message),
+    )
   usePoll(readRuntime, POLL_MS, [name])
-  useEffect(() => { setRuntime(null); setRuntimeError(null) }, [name])
+  useEffect(() => {
+    setRuntime(null)
+    setRuntimeError(null)
+  }, [name])
 
   useEffect(() => {
     injectStyle(document)
     const root = host.current!
     let soon: ReturnType<typeof setTimeout> | undefined
-    board.current = createView(root, { avatars: MAID_AVATARS, casts: CASTS, files: FM, lineDiff: M.lineDiff, live: false, lead: 'main', project: true })
-    board.current.rerender = () => { clearTimeout(soon); soon = setTimeout(() => board.current?.W && board.current.render(), 40) }
+    board.current = createView(root, {
+      avatars: MAID_AVATARS,
+      casts: CASTS,
+      files: FM,
+      lineDiff: M.lineDiff,
+      live: false,
+      lead: 'main',
+      project: true,
+    })
+    board.current.rerender = () => {
+      clearTimeout(soon)
+      soon = setTimeout(() => board.current?.W && board.current.render(), 40)
+    }
     if (tab) board.current.ide = tab
     const unfollow = followTheme(root)
-    files.current = createFilesSource((kind, query) => api.projectFiles(name, kind, query), () => board.current?.rerender?.())
-    return () => { clearTimeout(soon); unfollow(); board.current.dispose(); board.current = null }
+    files.current = createFilesSource(
+      (kind, query) => api.projectFiles(name, kind, query),
+      () => board.current?.rerender?.(),
+    )
+    return () => {
+      clearTimeout(soon)
+      unfollow()
+      board.current.dispose()
+      board.current = null
+    }
   }, [name])
 
   useEffect(() => {
@@ -66,32 +113,118 @@ export function ProjectBoard({ name, state, storage, storageError, status, tab }
     board.current?.rerender?.()
   }, [storage, state])
 
-  useEffect(() => { runtimeRef.current = runtime; board.current?.rerender?.() }, [runtime])
+  useEffect(() => {
+    runtimeRef.current = runtime
+    board.current?.rerender?.()
+  }, [runtime])
 
   const gain = storage ? saved(storage) : null
-  const sbx = runtime?.sandboxes ?? [], wsCount = sbx.reduce((n, x) => n + x.workspaces.length, 0)
+  const sbx = runtime?.sandboxes ?? [],
+    wsCount = sbx.reduce((n, x) => n + x.workspaces.length, 0)
   return (
-    <div style={{ flex: 1, minHeight: 560, display: 'flex', flexDirection: 'column', borderRadius: T.md, overflow: 'hidden', border: card.border, boxShadow: card.boxShadow }}>
+    <div
+      style={{
+        flex: 1,
+        minHeight: 560,
+        display: 'flex',
+        flexDirection: 'column',
+        borderRadius: T.md,
+        overflow: 'hidden',
+        border: card.border,
+        boxShadow: card.boxShadow,
+      }}
+    >
       <div ref={host} style={{ position: 'relative', flex: 1, minHeight: 0 }} />
-      <footer style={{ flex: 'none', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '2px 16px', minWidth: 0, padding: '4px 12px', borderTop: `1px solid ${T.border}`, background: T.well, fontSize: 12 }}>
+      <footer
+        style={{
+          flex: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '2px 16px',
+          minWidth: 0,
+          padding: '4px 12px',
+          borderTop: `1px solid ${T.border}`,
+          background: T.well,
+          fontSize: 12,
+        }}
+      >
         {status}
         <span style={{ flex: 1 }} />
-        <button type="button" className="lfs-chip" onClick={() => { if (board.current) board.current.ide = 'sandboxes' }}
-          title={runtime ? 'Sandboxes running for this project and their Workspaces. Click for Sandboxes.' : runtimeError ?? 'Reading Sandboxes…'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, margin: '0 -6px', padding: '0 6px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', whiteSpace: 'nowrap' }}>
-          {runtime
-            ? <><Dot level={runtime.level} /><span style={{ fontWeight: 500 }}>{sbx.length}</span><span style={{ color: T.text2 }}>Sandbox{sbx.length === 1 ? '' : 'es'} · {wsCount} WS</span></>
-            : <span style={{ color: T.caption }}>{runtimeError ? 'Sandboxes not read' : 'reading Sandboxes…'}</span>}
+        <button
+          type="button"
+          className="lfs-chip"
+          onClick={() => {
+            if (board.current) board.current.ide = 'sandboxes'
+          }}
+          title={
+            runtime
+              ? 'Sandboxes running for this project and their Workspaces. Click for Sandboxes.'
+              : (runtimeError ?? 'Reading Sandboxes…')
+          }
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            margin: '0 -6px',
+            padding: '0 6px',
+            border: 0,
+            borderRadius: T.sm,
+            color: 'inherit',
+            font: 'inherit',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {runtime ? (
+            <>
+              <Dot level={runtime.level} />
+              <span style={{ fontWeight: 500 }}>{sbx.length}</span>
+              <span style={{ color: T.text2 }}>
+                Sandbox{sbx.length === 1 ? '' : 'es'} · {wsCount} WS
+              </span>
+            </>
+          ) : (
+            <span style={{ color: T.caption }}>{runtimeError ? 'Sandboxes not read' : 'reading Sandboxes…'}</span>
+          )}
         </button>
-        <button type="button" className="lfs-chip" disabled={!storage} onClick={() => { if (board.current) board.current.ide = 'storage' }}
-          title={storage ? `The Store's database is ${bytes(storage.store.file)}; every saved version as plain files would be ${bytes(storage.store.logical)}. Click for Storage.` : storageError ?? 'Reading the Store…'}
-          style={{ display: 'inline-flex', gap: 4, margin: '0 -6px', padding: '0 6px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', whiteSpace: 'nowrap' }}>
-          {storage
-            ? <><span style={{ fontWeight: 500 }}>{bytes(storage.store.file)}</span><span style={{ color: T.text2 }}>on disk{gain ? ` · ${times(gain)} smaller than raw` : ''}</span></>
-            : <span style={{ color: T.caption }}>{storageError ? 'storage not read' : 'reading storage…'}</span>}
+        <button
+          type="button"
+          className="lfs-chip"
+          disabled={!storage}
+          onClick={() => {
+            if (board.current) board.current.ide = 'storage'
+          }}
+          title={
+            storage
+              ? `The Store's database is ${bytes(storage.store.file)}; every saved version as plain files would be ${bytes(storage.store.logical)}. Click for Storage.`
+              : (storageError ?? 'Reading the Store…')
+          }
+          style={{
+            display: 'inline-flex',
+            gap: 4,
+            margin: '0 -6px',
+            padding: '0 6px',
+            border: 0,
+            borderRadius: T.sm,
+            color: 'inherit',
+            font: 'inherit',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {storage ? (
+            <>
+              <span style={{ fontWeight: 500 }}>{bytes(storage.store.file)}</span>
+              <span style={{ color: T.text2 }}>on disk{gain ? ` · ${times(gain)} smaller than raw` : ''}</span>
+            </>
+          ) : (
+            <span style={{ color: T.caption }}>{storageError ? 'storage not read' : 'reading storage…'}</span>
+          )}
         </button>
       </footer>
-      {createPortal(<SandboxesTab name={name} runtime={runtime} error={runtimeError} reload={readRuntime} />, sbxEl.current)}
+      {createPortal(
+        <SandboxesTab name={name} runtime={runtime} error={runtimeError} reload={readRuntime} />,
+        sbxEl.current,
+      )}
     </div>
   )
 }

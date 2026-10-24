@@ -16,16 +16,25 @@ type Binding = Awaited<ReturnType<typeof api.binding>>
 export function ProjectChip({ sessionId }: { sessionId: string }) {
   const [binding, setBinding] = useState<Binding | null>(null)
   useEffect(() => {
-    let stopped = false, timer: ReturnType<typeof setTimeout> | undefined
+    let stopped = false,
+      timer: ReturnType<typeof setTimeout> | undefined
     const read = async () => {
       if (document.visibilityState === 'visible') {
         // a failed read keeps what was shown; LayerFS being away is the Work tab's to say
-        try { const next = await api.binding(sessionId); if (!stopped) setBinding(next) } catch { /* kept */ }
+        try {
+          const next = await api.binding(sessionId)
+          if (!stopped) setBinding(next)
+        } catch {
+          /* kept */
+        }
       }
       if (!stopped) timer = setTimeout(read, POLL_MS)
     }
     void read()
-    return () => { stopped = true; clearTimeout(timer) }
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
   }, [sessionId])
   const name = binding?.project?.name
   if (!name) return null
@@ -33,15 +42,28 @@ export function ProjectChip({ sessionId }: { sessionId: string }) {
   const title = `LayerFS project ${name}${binding?.folder ? ` · folder ${binding.folder}` : ''}${fixed ? ' · fixed: an agent has used it' : ' · it can still be changed in the Work tab'}`
   return (
     <span title={title} style={CHIP}>
-      <span aria-hidden="true" style={{ width: 13, height: 13, flex: 'none', background: `${ICON} center / contain no-repeat` }} />
+      <span
+        aria-hidden="true"
+        style={{ width: 13, height: 13, flex: 'none', background: `${ICON} center / contain no-repeat` }}
+      />
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
     </span>
   )
 }
 
 const CHIP = {
-  display: 'inline-flex', alignItems: 'center', gap: 5, maxWidth: 220, height: 22, padding: '0 7px 0 5px',
-  borderRadius: 'var(--dsw-radius-xs, 4px)', background: 'color-mix(in srgb, #2F5BB5 9%, transparent)',
-  border: '1px solid color-mix(in srgb, #2F5BB5 22%, transparent)', fontSize: 12, lineHeight: '20px',
-  color: 'var(--dsw-alias-label-secondary, #3d4450)', whiteSpace: 'nowrap', boxSizing: 'border-box',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  maxWidth: 220,
+  height: 22,
+  padding: '0 7px 0 5px',
+  borderRadius: 'var(--dsw-radius-xs, 4px)',
+  background: 'color-mix(in srgb, #2F5BB5 9%, transparent)',
+  border: '1px solid color-mix(in srgb, #2F5BB5 22%, transparent)',
+  fontSize: 12,
+  lineHeight: '20px',
+  color: 'var(--dsw-alias-label-secondary, #3d4450)',
+  whiteSpace: 'nowrap',
+  boxSizing: 'border-box',
 } as const

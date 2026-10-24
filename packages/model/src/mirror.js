@@ -19,10 +19,16 @@ export class Mirror {
     /** The project, for its numbered Sandboxes' labels. */
     this.project = null;
     this.s = {
-      project: null, main: null, roots: {}, commits: {}, layers: {},
-      branches: {}, branchOrder: [], sandboxes: {}, sandboxOrder: [],
+      project: null,
+      main: null,
+      roots: {},
+      commits: {},
+      layers: {},
+      branches: {},
+      branchOrder: [],
+      sandboxes: {},
+      sandboxOrder: [],
     };
-
   }
 
   // ------------------------------------------------------------ ids
@@ -33,16 +39,21 @@ export class Mirror {
     const n = this.next[kind]++;
     // a numbered Sandbox is named as its container; a named one keeps its
     // name; an older opaque sb_<hex> id gets sb_01, sb_02, …
-    const label = kind !== "sb" ? `${kind}${n}`
-      : /^\d+$/.test(real) && this.project ? `layerfs-${this.project}-${real}`
-      : /^sb_[0-9a-f]{16,}$/.test(real) ? `sb_${String(n).padStart(2, "0")}` : real;
+    const label =
+      kind !== "sb"
+        ? `${kind}${n}`
+        : /^\d+$/.test(real) && this.project
+          ? `layerfs-${this.project}-${real}`
+          : /^sb_[0-9a-f]{16,}$/.test(real)
+            ? `sb_${String(n).padStart(2, "0")}`
+            : real;
     this.toLabel.set(real, label);
     this.toReal.set(label, real);
     return label;
   }
   /** A node id (Commit or Layer) the UI knows, or null. */
   node(real) {
-    return real ? this.toLabel.get(real) ?? null : null;
+    return real ? (this.toLabel.get(real) ?? null) : null;
   }
   root(real) {
     return this.label("R", real);
@@ -61,7 +72,8 @@ export class Mirror {
   // ------------------------------------------------------------ snapshot
   /** Folds one `inspect.snapshot` answer (kind "ok") into the mirror. */
   absorb(snap, sandboxes) {
-    const s = this.s, before = JSON.stringify(s);
+    const s = this.s,
+      before = JSON.stringify(s);
     s.project = { name: snap.project };
     s.store = snap.store;
     // Commit labels follow the order Commits were made, before a Layer names one.
@@ -75,7 +87,8 @@ export class Mirror {
     for (const b of snap.branches) {
       if (b.name === "main") continue;
       const known = s.branches[b.name];
-      const base = this.label("L", b.base), head = this.node(b.head) ?? (b.head ? this.commitLabel(b.head) : null);
+      const base = this.label("L", b.base),
+        head = this.node(b.head) ?? (b.head ? this.commitLabel(b.head) : null);
       const from = this.node(b.forkedFrom) ?? base;
       if (!known) {
         s.branches[b.name] = { name: b.name, base, head, from, slot: this.slot++ };
@@ -90,26 +103,48 @@ export class Mirror {
     const id = this.label("L", l.id);
     if (this.s.layers[id]) return;
     this.s.layers[id] = {
-      id, parent: this.node(l.parent), root: this.root(l.root), sourceBranch: l.sourceBranch ?? null,
-      sourceCommit: l.sourceCommit ? this.commitLabel(l.sourceCommit) : null, logical: l.logical ?? null, slot: this.slot++, time: this.slot,
+      id,
+      parent: this.node(l.parent),
+      root: this.root(l.root),
+      sourceBranch: l.sourceBranch ?? null,
+      sourceCommit: l.sourceCommit ? this.commitLabel(l.sourceCommit) : null,
+      logical: l.logical ?? null,
+      slot: this.slot++,
+      time: this.slot,
     };
   }
   absorbCommit(c) {
     const id = this.commitLabel(c.id);
     if (this.s.commits[id]) {
-
       return;
     }
 
     const record = {
-      id, parent: this.node(c.parent), root: this.root(c.root), base: this.label("L", c.base), branch: c.branch,
-      slot: this.slot++, time: c.time, by: c.via === "fs" ? "fs" : c.via === "merge" ? "merge" : "workspace",
+      id,
+      parent: this.node(c.parent),
+      root: this.root(c.root),
+      base: this.label("L", c.base),
+      branch: c.branch,
+      slot: this.slot++,
+      time: c.time,
+      by: c.via === "fs" ? "fs" : c.via === "merge" ? "merge" : "workspace",
       via: c.via === "exec" ? "commit" : c.via,
-      message: c.message, logical: c.logical, newCanonical: c.newCanonical, newStored: c.newStored, newMetadata: c.newMetadata,
+      message: c.message,
+      logical: c.logical,
+      newCanonical: c.newCanonical,
+      newStored: c.newStored,
+      newMetadata: c.newMetadata,
     };
-    if (c.secondParent) { record.mergedFrom = this.node(c.secondParent); record.lww = this.ids(c.lww || []); }
-    if (c.mergedFrom) record.merged = { from: this.node(c.mergedFrom), head: record.parent, lww: this.ids(c.lww || []) };
-    if (c.displaced) { const displaced = this.commitLabel(c.displaced); if (this.s.commits[displaced]) this.s.commits[displaced].displacedBy = id; }
+    if (c.secondParent) {
+      record.mergedFrom = this.node(c.secondParent);
+      record.lww = this.ids(c.lww || []);
+    }
+    if (c.mergedFrom)
+      record.merged = { from: this.node(c.mergedFrom), head: record.parent, lww: this.ids(c.lww || []) };
+    if (c.displaced) {
+      const displaced = this.commitLabel(c.displaced);
+      if (this.s.commits[displaced]) this.s.commits[displaced].displacedBy = id;
+    }
     this.s.commits[id] = record;
   }
   absorbWorkspaces(snap, sandboxes) {
@@ -130,8 +165,16 @@ export class Mirror {
         if (!box.wsOrder.includes(path)) box.wsOrder.push(path);
         const dirty = w.dirty ? Math.max(w.dirty.inodes, w.dirty.entries) : 0;
         Object.assign(ws, {
-          branch: w.branch, baseCommit: this.node(w.base), baseLayer: this.label("L", w.baseLayer), baseRoot: this.root(w.root),
-          mounted: true, live: null, dirty, overlay: tracked.overlay ?? null, pendingMerge: w.pendingMerge, stale: w.headMovedSinceMount === true,
+          branch: w.branch,
+          baseCommit: this.node(w.base),
+          baseLayer: this.label("L", w.baseLayer),
+          baseRoot: this.root(w.root),
+          mounted: true,
+          live: null,
+          dirty,
+          overlay: tracked.overlay ?? null,
+          pendingMerge: w.pendingMerge,
+          stale: w.headMovedSinceMount === true,
           markers: (tracked.changes?.items || []).filter((c) => c.markers).map((c) => c.path),
           changes: tracked.changes,
         });
@@ -151,7 +194,8 @@ export class Mirror {
     for (const id of this.s.sandboxOrder) {
       const sb = this.s.sandboxes[id];
       if (sb.closed) continue;
-      for (const p of sb.wsOrder) if (sb.workspaces[p].mounted && sb.workspaces[p].branch === branch) out.push(`${id}:${p}`);
+      for (const p of sb.wsOrder)
+        if (sb.workspaces[p].mounted && sb.workspaces[p].branch === branch) out.push(`${id}:${p}`);
     }
     return out;
   }
@@ -160,12 +204,15 @@ export class Mirror {
   /** Text with every known Commit, Layer or Sandbox id shown as its display
    *  id (conflict markers name a Commit; refusals name a Sandbox). */
   text(value) {
-    return typeof value === "string" ? value.replace(/\b(?:[0-9a-f]{66}|sb_[0-9a-f]+)\b/g, (id) => this.toLabel.get(id) ?? id) : value;
+    return typeof value === "string"
+      ? value.replace(/\b(?:[0-9a-f]{66}|sb_[0-9a-f]+)\b/g, (id) => this.toLabel.get(id) ?? id)
+      : value;
   }
   /** Maps every real id inside an SDK answer to its display id. */
   ids(value) {
     if (Array.isArray(value)) return value.map((v) => this.ids(v));
-    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, this.ids(v)]));
+    if (value && typeof value === "object")
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, this.ids(v)]));
     if (typeof value === "string" && /^[0-9a-f]{64,68}$/.test(value)) {
       if (this.toLabel.has(value)) return this.toLabel.get(value);
       if (value.length === 64) return this.root(value);

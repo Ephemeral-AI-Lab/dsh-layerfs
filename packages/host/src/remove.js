@@ -29,8 +29,10 @@ const refuse = (code, message, status = 409) => Object.assign(new Error(message)
 export async function removeProject(spec, bindings, trees, name, { stopSandboxes = false } = {}) {
   const project = bindings.byName(name);
   if (!project) throw refuse("not-found", `no LayerFS project named ${name}`, 404);
-  const home = join(spec.home, project.name), inside = relative(spec.home, home);
-  if (!inside || inside.startsWith("..") || inside.includes("/")) throw refuse("invalid-name", `${project.name} is not a project name`);
+  const home = join(spec.home, project.name),
+    inside = relative(spec.home, home);
+  if (!inside || inside.startsWith("..") || inside.includes("/"))
+    throw refuse("invalid-name", `${project.name} is not a project name`);
   await trees.forget(project.name);
   const runtime = await openRuntime(spec);
   const known = (await runtime.project.list()).find((p) => p.name === project.name) ?? null;

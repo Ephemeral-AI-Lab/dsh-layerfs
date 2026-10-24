@@ -18,7 +18,7 @@ import { CHECK_PREFIX } from "./history.mjs";
 /** Every entry of `dir` in `ref`, page by page. */
 export async function listAll(lf, ref, dir) {
   const items = [];
-  for (let pos = 0; ;) {
+  for (let pos = 0; ; ) {
     const page = await lf.fs.list(ref, dir, 1000, pos);
     items.push(...page.items);
     if (!page.hasMore) return items;
@@ -28,10 +28,14 @@ export async function listAll(lf, ref, dir) {
 
 /** A file's whole text in `ref`, window by window: { text, size } or { problem }. */
 export async function readAll(lf, ref, path) {
-  let text = "", line = 1, size = 0;
+  let text = "",
+    line = 1,
+    size = 0;
   for (;;) {
     let r;
-    try { r = await lf.fs.read(ref, path, line); } catch (error) {
+    try {
+      r = await lf.fs.read(ref, path, line);
+    } catch (error) {
       if (error.code === "Binary") return { problem: "binary" };
       throw error;
     }
@@ -66,7 +70,10 @@ export async function trackedTree(lf, ref) {
         mkdirSync(dirname(target), { recursive: true });
         writeFileSync(target, read.text);
       }
-      const ignored = ignoredOf(scratch, items.map((item) => item.path.slice(1) + (item.type === "dir" ? "/" : "")));
+      const ignored = ignoredOf(
+        scratch,
+        items.map((item) => item.path.slice(1) + (item.type === "dir" ? "/" : "")),
+      );
       for (const item of items) {
         if (ignored.has(item.path.slice(1) + (item.type === "dir" ? "/" : ""))) continue;
         tree.set(item.path, item.type);
@@ -96,12 +103,17 @@ export async function trackedChanges(lf, commit, treeOf = (ref) => trackedTree(l
     const was = a.get(path);
     if (!was) out.push({ path, kind: "Added", type });
     else if (was !== type) out.push({ path, kind: "Removed", type: was }, { path, kind: "Added", type });
-    else if (type === "file" && !(await lf.fs.diff_files(before, path, commit.id, path)).contentEqual) out.push({ path, kind: "Modified", type });
+    else if (type === "file" && !(await lf.fs.diff_files(before, path, commit.id, path)).contentEqual)
+      out.push({ path, kind: "Modified", type });
     else if (type === "symlink") throw new Error(`${path}: a symlink in the tracked tree is not compared yet`);
   }
   for (const [path, type] of a) if (!b.has(path)) out.push({ path, kind: "Removed", type });
   const segments = (p) => p.split("/");
-  return out.sort((x, y) => { const [p, q] = [segments(x.path), segments(y.path)]; for (let i = 0; i < Math.min(p.length, q.length); i++) if (p[i] !== q[i]) return p[i] < q[i] ? -1 : 1; return p.length - q.length; });
+  return out.sort((x, y) => {
+    const [p, q] = [segments(x.path), segments(y.path)];
+    for (let i = 0; i < Math.min(p.length, q.length); i++) if (p[i] !== q[i]) return p[i] < q[i] ? -1 : 1;
+    return p.length - q.length;
+  });
 }
 
 const quote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
@@ -140,7 +152,8 @@ export async function byteHashes(lf, branch, paths) {
  * @returns {Promise<{ files: Record<string, string> }>}
  */
 export async function trackedHashes(lf) {
-  const tree = await trackedTree(lf, "main"), files = {};
+  const tree = await trackedTree(lf, "main"),
+    files = {};
   const regular = [...tree].filter(([, type]) => type === "file").map(([path]) => path);
   if (regular.length) {
     const branch = `${CHECK_PREFIX}${Date.now().toString(36)}`;
@@ -159,7 +172,11 @@ export function ignoredOf(scratch, paths) {
   if (!paths.length) return new Set();
   let out = "";
   try {
-    out = execFileSync("git", ["-C", scratch, "check-ignore", "--no-index", "-z", "--stdin"], { input: paths.join("\0") + "\0", encoding: "utf8", maxBuffer: 1 << 30 });
+    out = execFileSync("git", ["-C", scratch, "check-ignore", "--no-index", "-z", "--stdin"], {
+      input: paths.join("\0") + "\0",
+      encoding: "utf8",
+      maxBuffer: 1 << 30,
+    });
   } catch (error) {
     // exit 1: none of the paths is ignored
     if (error.status !== 1) throw error;
@@ -168,4 +185,5 @@ export function ignoredOf(scratch, paths) {
   return new Set(out.split("\0").filter(Boolean));
 }
 
-const sortKeys = (object) => Object.fromEntries(Object.entries(object).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+const sortKeys = (object) =>
+  Object.fromEntries(Object.entries(object).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
