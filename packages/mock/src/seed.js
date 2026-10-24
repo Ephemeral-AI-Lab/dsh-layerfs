@@ -15,11 +15,22 @@ const FIELDS = ["type", "mode", "text", "base64", "target"];
 /** Reads and checks a seed file; throws naming the entry at fault. */
 export function readSeed(file) {
   const seed = JSON.parse(readFileSync(file, "utf8"));
-  if (seed?.format !== "layerfs-demo-seed" || seed.version !== 1) throw new Error(`${file}: not a layerfs-demo-seed v1`);
+  if (seed?.format !== "layerfs-demo-seed" || seed.version !== 1)
+    throw new Error(`${file}: not a layerfs-demo-seed v1`);
   for (const [path, e] of Object.entries(seed.entries ?? {})) {
-    if (!path.startsWith("/") || path === "/" || path.split("/").slice(1).some((p) => !p || p === "." || p === "..")) throw new Error(`${file}: entry ${path} is not a plain absolute path`);
-    for (const k of Object.keys(e)) if (!FIELDS.includes(k)) throw new Error(`${file}: entry ${path} has an unknown field ${k}`);
-    if (!["file", "dir", "symlink"].includes(e.type)) throw new Error(`${file}: entry ${path} has an unknown type ${e.type}`);
+    if (
+      !path.startsWith("/") ||
+      path === "/" ||
+      path
+        .split("/")
+        .slice(1)
+        .some((p) => !p || p === "." || p === "..")
+    )
+      throw new Error(`${file}: entry ${path} is not a plain absolute path`);
+    for (const k of Object.keys(e))
+      if (!FIELDS.includes(k)) throw new Error(`${file}: entry ${path} has an unknown field ${k}`);
+    if (!["file", "dir", "symlink"].includes(e.type))
+      throw new Error(`${file}: entry ${path} has an unknown type ${e.type}`);
   }
   return seed;
 }
@@ -32,10 +43,16 @@ export function writeSeed(file, to) {
   for (const [path, e] of entries) {
     const at = join(to, path);
     if (e.type === "dir") mkdirSync(at, { recursive: true });
-    else if (e.type === "symlink") { mkdirSync(dirname(at), { recursive: true }); symlinkSync(e.target, at); }
-    else { mkdirSync(dirname(at), { recursive: true }); writeFileSync(at, e.text !== undefined ? e.text : Buffer.from(e.base64 ?? "", "base64")); }
+    else if (e.type === "symlink") {
+      mkdirSync(dirname(at), { recursive: true });
+      symlinkSync(e.target, at);
+    } else {
+      mkdirSync(dirname(at), { recursive: true });
+      writeFileSync(at, e.text !== undefined ? e.text : Buffer.from(e.base64 ?? "", "base64"));
+    }
   }
   // modes last, deepest first, so a read-only folder does not stop its own files
-  for (const [path, e] of entries.reverse()) if (e.type !== "symlink" && e.mode !== undefined) chmodSync(join(to, path), e.mode);
+  for (const [path, e] of entries.reverse())
+    if (e.type !== "symlink" && e.mode !== undefined) chmodSync(join(to, path), e.mode);
   return to;
 }

@@ -69,11 +69,13 @@ export const VOLUMES = "/var/lib/docker/volumes";
  */
 export function resolveConfig(config, profile) {
   const temp = join(realpathSync(tmpdir()), "dsh-layerfs");
-  const bundle = config.bundle || null, home = config.home || join(temp, "home");
+  const bundle = config.bundle || null,
+    home = config.home || join(temp, "home");
   const windows = process.platform === "win32";
   const spec = {
     image: config.image || null,
-    daemon: config.daemon || (bundle && (windows ? posix.join(bundle, "layerfs-daemon") : join(bundle, "layerfs-daemon"))),
+    daemon:
+      config.daemon || (bundle && (windows ? posix.join(bundle, "layerfs-daemon") : join(bundle, "layerfs-daemon"))),
     bundle,
     prefix: config.containerPrefix || "layerfs-",
     // Linux makes Store calls in the caller's process; macOS and Windows in the home's worker
@@ -93,7 +95,12 @@ export function resolveConfig(config, profile) {
   if (windows) {
     // the Host's default before #428, so an existing WSL home stays where it is
     const hash = createHash("sha256").update(home).digest("hex").slice(0, 16);
-    spec.wsl = { distribution: config.wslDistribution || "Ubuntu", user: config.wslUser || "root", node: config.wslNode || "/usr/local/bin/node", home: config.wslHome || `/var/lib/dsh-layerfs-windows/${hash}` };
+    spec.wsl = {
+      distribution: config.wslDistribution || "Ubuntu",
+      user: config.wslUser || "root",
+      node: config.wslNode || "/usr/local/bin/node",
+      home: config.wslHome || `/var/lib/dsh-layerfs-windows/${hash}`,
+    };
   }
   for (const dir of [spec.stateDir, spec.traceDir]) mkdirSync(dir, { recursive: true });
   mkdirSync(spec.home, { recursive: true, mode: 0o700 });
@@ -101,12 +108,21 @@ export function resolveConfig(config, profile) {
 }
 
 /** Deployment settings Init and bash calls need that are not configured (macOS and Windows: a bundle too). */
-export const missingDeployment = (spec) => ["image", "daemon", ...(spec.worker ? ["bundle"] : [])].filter((name) => !spec[name]);
+export const missingDeployment = (spec) =>
+  ["image", "daemon", ...(spec.worker ? ["bundle"] : [])].filter((name) => !spec[name]);
 
 /** What the Host hands LayerFSRuntime.open: its deployment. */
 export const runtimeSettings = (spec) => ({
-  home: spec.home, image: spec.image, daemon: spec.daemon, bundle: spec.bundle, docker: spec.docker, volumes: spec.volumes,
-  traceDir: spec.traceDir, containerPrefix: spec.prefix, stateDir: runtimeState(spec), pollMs: spec.pollMs,
+  home: spec.home,
+  image: spec.image,
+  daemon: spec.daemon,
+  bundle: spec.bundle,
+  docker: spec.docker,
+  volumes: spec.volumes,
+  traceDir: spec.traceDir,
+  containerPrefix: spec.prefix,
+  stateDir: runtimeState(spec),
+  pollMs: spec.pollMs,
   // once at open, the runtime deletes this home's stopped Sandboxes in the background (status().sweep)
   sweep: true,
   ...(spec.wsl ? { wsl: spec.wsl } : {}),

@@ -18,18 +18,31 @@ if (typeof document !== 'undefined' && !document.getElementById('lfs-progress-ru
 const number = new Intl.NumberFormat()
 export function size(bytes: number) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let n = bytes, unit = 0
-  while (n >= 1024 && unit < units.length - 1) { n /= 1024; unit++ }
+  let n = bytes,
+    unit = 0
+  while (n >= 1024 && unit < units.length - 1) {
+    n /= 1024
+    unit++
+  }
   return `${unit ? n.toFixed(n < 10 ? 1 : 0) : n} ${units[unit]}`
 }
-const clock = (ms: number) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` }
+const clock = (ms: number) => {
+  const s = Math.floor(ms / 1000)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
 
 /**
  * Where each of LayerFS's Init steps sits on the bar. Constructing the files
  * is most of the work; within it, each file weighs its bytes plus FILE_COST,
  * so a tree of many small files still moves.
  */
-const SPANS = { scan: [0, 0.15], files: [0.15, 0.95], tree: [0.95, 0.98], publish: [0.98, 0.99], seal: [0.99, 1] } as const
+const SPANS = {
+  scan: [0, 0.15],
+  files: [0.15, 0.95],
+  tree: [0.95, 0.98],
+  publish: [0.98, 0.99],
+  seal: [0.99, 1],
+} as const
 const FILE_COST = 4096
 const ratio = (done: number, total: number) => (total > 0 ? Math.min(1, done / total) : 1)
 
@@ -37,10 +50,14 @@ const ratio = (done: number, total: number) => (total > 0 ? Math.min(1, done / t
 export function jobFraction(job: InitJob): number | null {
   if (job.step === 'done') return 1
   if (job.step !== 'import' || !job.imported || !job.totals) return null
-  const { step, entries, files, bytes } = job.imported, totals = job.totals
-  const within = step === 'scan' ? ratio(entries, totals.entries)
-    : step === 'files' ? ratio(bytes + files * FILE_COST, totals.bytes + totals.files * FILE_COST)
-      : 0
+  const { step, entries, files, bytes } = job.imported,
+    totals = job.totals
+  const within =
+    step === 'scan'
+      ? ratio(entries, totals.entries)
+      : step === 'files'
+        ? ratio(bytes + files * FILE_COST, totals.bytes + totals.files * FILE_COST)
+        : 0
   const [from, to] = SPANS[step]
   return from + (to - from) * within
 }
@@ -49,7 +66,8 @@ export function jobFraction(job: InitJob): number | null {
 export function jobText(job: InitJob, now = Date.now()) {
   const elapsed = clock(Math.max(0, now - job.started))
   const fraction = jobFraction(job)
-  const t = job.totals, i = job.imported
+  const t = job.totals,
+    i = job.imported
   if (job.step === 'import' && i && t) {
     const of = (done: number, total: number) => `${number.format(Math.min(done, total))} of ${number.format(total)}`
     const what = {
@@ -63,17 +81,53 @@ export function jobText(job: InitJob, now = Date.now()) {
   }
   const counts = t ?? job.scanned
   const what = counts ? `${number.format(counts.files)} files · ${size(counts.bytes)}` : ''
-  const step = { scan: 'Counting files', volume: 'Creating the volume', import: 'Importing', done: 'Imported', failed: 'Failed' }[job.step]
+  const step = {
+    scan: 'Counting files',
+    volume: 'Creating the volume',
+    import: 'Importing',
+    done: 'Imported',
+    failed: 'Failed',
+  }[job.step]
   return [step, what, elapsed].filter(Boolean).join(' · ')
 }
 
 /** A thin bar: `fraction` fills it (0–1); null moves a segment across it. */
-export function ProgressBar({ fraction, height = 4 }: { fraction: number | null, height?: number }) {
+export function ProgressBar({ fraction, height = 4 }: { fraction: number | null; height?: number }) {
   return (
-    <div role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)} style={{ position: 'relative', overflow: 'hidden', height, borderRadius: height, background: 'color-mix(in srgb, currentColor 12%, transparent)' }}>
-      <div style={fraction === null
-        ? { position: 'absolute', top: 0, bottom: 0, width: '40%', borderRadius: height, background: 'var(--dsw-alias-brand-primary, #4c7dff)', animation: 'lfs-progress 1.2s ease-in-out infinite' }
-        : { width: `${Math.min(1, Math.max(0, fraction)) * 100}%`, height: '100%', borderRadius: height, background: 'var(--dsw-alias-brand-primary, #4c7dff)', transition: 'width .3s ease' }} />
+    <div
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
+      style={{
+        position: 'relative',
+        overflow: 'hidden',
+        height,
+        borderRadius: height,
+        background: 'color-mix(in srgb, currentColor 12%, transparent)',
+      }}
+    >
+      <div
+        style={
+          fraction === null
+            ? {
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                width: '40%',
+                borderRadius: height,
+                background: 'var(--dsw-alias-brand-primary, #4c7dff)',
+                animation: 'lfs-progress 1.2s ease-in-out infinite',
+              }
+            : {
+                width: `${Math.min(1, Math.max(0, fraction)) * 100}%`,
+                height: '100%',
+                borderRadius: height,
+                background: 'var(--dsw-alias-brand-primary, #4c7dff)',
+                transition: 'width .3s ease',
+              }
+        }
+      />
     </div>
   )
 }
@@ -105,11 +159,26 @@ export function InitProgress({ job }: { job: InitJob }) {
  * limit and how far the import got, and a button that refills the form with
  * the next limit for the user to start. Other failures keep their message.
  */
-export function InitTimedOut({ job, onAgain }: { job: InitJob, onAgain: () => void }) {
+export function InitTimedOut({ job, onAgain }: { job: InitJob; onAgain: () => void }) {
   return (
-    <div role="alert" style={{ display: 'grid', gap: 8, justifyItems: 'start', color: 'var(--dsh-color-fg-danger, #d33)' }}>
+    <div
+      role="alert"
+      style={{ display: 'grid', gap: 8, justifyItems: 'start', color: 'var(--dsh-color-fg-danger, #d33)' }}
+    >
       <span>{timedOutText(job)}</span>
-      <button onClick={onAgain} style={{ font: 'inherit', fontSize: 12, padding: '4px 12px', borderRadius: 6, border: '1px solid var(--dsh-color-border, #8884)', background: 'transparent', color: 'var(--dsh-color-fg, #111)', cursor: 'pointer' }}>
+      <button
+        onClick={onAgain}
+        style={{
+          font: 'inherit',
+          fontSize: 12,
+          padding: '4px 12px',
+          borderRadius: 6,
+          border: '1px solid var(--dsh-color-border, #8884)',
+          background: 'transparent',
+          color: 'var(--dsh-color-fg, #111)',
+          cursor: 'pointer',
+        }}
+      >
         Start again with a longer limit ({nextMinutes(limitOf(job))} min)
       </button>
     </div>

@@ -34,12 +34,16 @@ export function useSessionView(sessionId: string) {
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   useEffect(() => {
-    let stopped = false, timer: ReturnType<typeof setTimeout> | undefined
+    let stopped = false,
+      timer: ReturnType<typeof setTimeout> | undefined
     const read = async () => {
       if (document.visibilityState === 'visible') {
         try {
           const next = await api.session(sessionId)
-          if (!stopped) { setView(next); setError(null) }
+          if (!stopped) {
+            setView(next)
+            setError(null)
+          }
         } catch (e) {
           if (!stopped) setError((e as Error).message)
         }
@@ -47,21 +51,51 @@ export function useSessionView(sessionId: string) {
       if (!stopped) timer = setTimeout(read, POLL_MS)
     }
     void read()
-    return () => { stopped = true; clearTimeout(timer) }
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
   }, [sessionId, tick])
-  return { view, error, refresh: (next?: SessionView) => { if (next) setView(next); setTick((n) => n + 1) } }
+  return {
+    view,
+    error,
+    refresh: (next?: SessionView) => {
+      if (next) setView(next)
+      setTick((n) => n + 1)
+    },
+  }
 }
 
 /** One of the session's LayerFS tabs in dsh: Work or History (`pane`). */
-export function LayerFsView({ sessionId, directories, pane }: { sessionId: string, directories: () => Directories | undefined, pane: Pane }) {
+export function LayerFsView({
+  sessionId,
+  directories,
+  pane,
+}: {
+  sessionId: string
+  directories: () => Directories | undefined
+  pane: Pane
+}) {
   const anchor = useRef<HTMLDivElement>(null)
   useHiddenComposer(anchor)
-  return <div ref={anchor} style={{ display: 'contents' }}><TabBody sessionId={sessionId} directories={directories} pane={pane} /></div>
+  return (
+    <div ref={anchor} style={{ display: 'contents' }}>
+      <TabBody sessionId={sessionId} directories={directories} pane={pane} />
+    </div>
+  )
 }
 
 type Pane = 'work' | 'history'
 
-function TabBody({ sessionId, directories, pane }: { sessionId: string, directories: () => Directories | undefined, pane: Pane }) {
+function TabBody({
+  sessionId,
+  directories,
+  pane,
+}: {
+  sessionId: string
+  directories: () => Directories | undefined
+  pane: Pane
+}) {
   const { view, error, refresh } = useSessionView(sessionId)
   if (!view) return <div style={MESSAGE}>{error ? `LayerFS is not available: ${error}` : 'Loading LayerFS…'}</div>
   if (!view.project) return <Setup sessionId={sessionId} view={view} onChange={refresh} directories={directories} />
@@ -70,15 +104,36 @@ function TabBody({ sessionId, directories, pane }: { sessionId: string, director
 
 // The band of the conversation's scroll body that the composer leaves
 // visible (dsh publishes both heights on the scroll body).
-const BAND = { height: 'calc(var(--dsh-conversation-viewport-height, 100vh) - var(--dsh-composer-height, 0px))', minHeight: 320, position: 'relative' } as const
+const BAND = {
+  height: 'calc(var(--dsh-conversation-viewport-height, 100vh) - var(--dsh-composer-height, 0px))',
+  minHeight: 320,
+  position: 'relative',
+} as const
 
-function Board({ sessionId, view, error, pane }: { sessionId: string, view: SessionView, error: string | null, pane: Pane }) {
+function Board({
+  sessionId,
+  view,
+  error,
+  pane,
+}: {
+  sessionId: string
+  view: SessionView
+  error: string | null
+  pane: Pane
+}) {
   const host = useRef<HTMLDivElement>(null)
   const board = useRef<any>(null)
   // Files reads for this session's project; kept across rebuilds, a saved id never changes
-  const files = useRef<{ session: string, source: FilesSource } | null>(null)
-  if (files.current?.session !== sessionId) files.current = { session: sessionId, source: createFilesSource((kind, query) => api.files(sessionId, kind, query), () => board.current?.rerender?.()) }
-  const play = useRef<{ playback: Playback, agents: string } | null>(null)
+  const files = useRef<{ session: string; source: FilesSource } | null>(null)
+  if (files.current?.session !== sessionId)
+    files.current = {
+      session: sessionId,
+      source: createFilesSource(
+        (kind, query) => api.files(sessionId, kind, query),
+        () => board.current?.rerender?.(),
+      ),
+    }
+  const play = useRef<{ playback: Playback; agents: string } | null>(null)
   const latest = useRef(view)
   latest.current = view
   // the project's Store sizes for store.stats, read at most every STORE_MS while calls arrive
@@ -102,14 +157,37 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
   // project's Sandboxes, read every RUNTIME_MS while History is the pane
   const name = view.project!.name
   const sbxEl = useRef<HTMLDivElement>(null as unknown as HTMLDivElement)
-  if (!sbxEl.current) { sbxEl.current = document.createElement('div'); sbxEl.current.className = 'lfs-own'; sbxEl.current.style.height = '100%' }
+  if (!sbxEl.current) {
+    sbxEl.current = document.createElement('div')
+    sbxEl.current.className = 'lfs-own'
+    sbxEl.current.style.height = '100%'
+  }
   const runtimeRef = useRef<ProjectRuntime | null>(null)
   const [runtime, setRuntime] = useState<ProjectRuntime | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
-  const readRuntime = () => api.projectRuntime(name).then((r) => { setRuntime(r); setRuntimeError(null) }, (e: Error) => setRuntimeError(e.message))
-  usePoll(() => { if (pane === 'history') void readRuntime() }, RUNTIME_MS, [name, pane])
-  useEffect(() => { setRuntime(null); setRuntimeError(null) }, [name])
-  useEffect(() => { runtimeRef.current = runtime; board.current?.rerender?.() }, [runtime])
+  const readRuntime = () =>
+    api.projectRuntime(name).then(
+      (r) => {
+        setRuntime(r)
+        setRuntimeError(null)
+      },
+      (e: Error) => setRuntimeError(e.message),
+    )
+  usePoll(
+    () => {
+      if (pane === 'history') void readRuntime()
+    },
+    RUNTIME_MS,
+    [name, pane],
+  )
+  useEffect(() => {
+    setRuntime(null)
+    setRuntimeError(null)
+  }, [name])
+  useEffect(() => {
+    runtimeRef.current = runtime
+    board.current?.rerender?.()
+  }, [runtime])
 
   // the project's whole History (undefined until read; null if it could not be read). The
   // board waits for it, so History never shows the session's calls alone while it loads.
@@ -122,8 +200,20 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     const kept = api.keptHistory(name)
     setSeed(kept)
     // a Host without the History-only read answers the full state read; a failed check keeps the kept one
-    api.projectHistory(name).catch(() => api.projectState(name)).then((state) => { if (!stopped) setSeed(state) }, () => { if (!stopped) setSeed(kept ?? null) })
-    return () => { stopped = true }
+    api
+      .projectHistory(name)
+      .catch(() => api.projectState(name))
+      .then(
+        (state) => {
+          if (!stopped) setSeed(state)
+        },
+        () => {
+          if (!stopped) setSeed(kept ?? null)
+        },
+      )
+    return () => {
+      stopped = true
+    }
   }, [sessionId])
 
   // the view lives as long as the tab; dsh's colour scheme sets its theme
@@ -132,10 +222,19 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     const root = host.current!
     let soon: ReturnType<typeof setTimeout> | undefined
     board.current = createView(root, {
-      avatars: MAID_AVATARS, casts: CASTS, files: FM, lineDiff: M.lineDiff, live: false, lead: 'main', pane,
+      avatars: MAID_AVATARS,
+      casts: CASTS,
+      files: FM,
+      lineDiff: M.lineDiff,
+      live: false,
+      lead: 'main',
+      pane,
     })
     const unfollow = followTheme(root)
-    board.current.rerender = () => { clearTimeout(soon); soon = setTimeout(() => board.current?.W && board.current.render(), 40) }
+    board.current.rerender = () => {
+      clearTimeout(soon)
+      soon = setTimeout(() => board.current?.W && board.current.render(), 40)
+    }
     return () => {
       clearTimeout(soon)
       play.current?.playback.stop()
@@ -151,16 +250,20 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     const b = board.current
     if (!b || seed === undefined) return
     // a new History (a changed version) rebuilds the board on it
-    const agents = `${Object.values(view.agents).join(',')}|${seed ? seed.version ?? 'seeded' : ''}`
+    const agents = `${Object.values(view.agents).join(',')}|${seed ? (seed.version ?? 'seeded') : ''}`
     if (!play.current || play.current.agents !== agents) {
       // a rebuild (the tab opened, or an agent was named): labels follow call
       // order; what is past applies at once, so nothing plays twice
       play.current?.playback.stop()
       const fresh = () => {
-        const engine: any = new X.ReplayEngine({ project: view.project?.name ?? 'project', files: files.current!.source })
+        const engine: any = new X.ReplayEngine({
+          project: view.project?.name ?? 'project',
+          files: files.current!.source,
+        })
         engine.onchange = () => b.rerender()
         engine.storage = () => store.current
-        if (pane === 'history') engine.sandboxes = () => ({ el: sbxEl.current, level: runtimeRef.current?.level ?? 'ok' })
+        if (pane === 'history')
+          engine.sandboxes = () => ({ el: sbxEl.current, level: runtimeRef.current?.level ?? 'ok' })
         // the project's history first; the session's Workspaces come from its calls
         if (seed) seedEngine(engine, seed, { workspaces: false })
         const W = X.storyView(engine, { lead: 'main' })
@@ -171,11 +274,18 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     }
     const lines = view.lines.map((line) => ({ ...line, agent: view.agents[line.agentId] ?? line.agent }))
     const playback = play.current.playback
-    playback.feed(lines, 'main').catch((e: Error) => { b.note = `The calls could not be replayed: ${e.message}` })
+    playback.feed(lines, 'main').catch((e: Error) => {
+      b.note = `The calls could not be replayed: ${e.message}`
+    })
     // before the first call the board shows the project as it is: the Work
     // layout with nothing played yet
     if (!lines.length && b.W !== playback.W) show(b, playback.W, null, playback)
-    else if (!playback.waiting && b.W) { markRunning(b.W, view, playback); b.acting = runningAgents(view); b.note = noteOf(view, playback); b.render() }
+    else if (!playback.waiting && b.W) {
+      markRunning(b.W, view, playback)
+      b.acting = runningAgents(view)
+      b.note = noteOf(view, playback)
+      b.render()
+    }
   }, [view, sessionId, seed])
 
   /** Draws the model after a step (its agent acting, the view following it) or once caught up. */
@@ -186,7 +296,10 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     if (step) b.avatar(step.a)
     else for (const line of v.lines) b.avatar(v.agents[line.agentId] ?? line.agent)
     b.W = W
-    if (step) { b.acting = [step.a]; b.lastLoc = X.locKey(X.where(W, step.a)) } else b.acting = runningAgents(v)
+    if (step) {
+      b.acting = [step.a]
+      b.lastLoc = X.locKey(X.where(W, step.a))
+    } else b.acting = runningAgents(v)
     if (b.follow && W.lastTab) b.active = W.lastTab
     markRunning(W, v, playback)
     b.note = noteOf(v, playback)
@@ -194,15 +307,23 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
     if (step) b.animate(step.a)
   }
 
-  useEffect(() => { if (board.current && error) board.current.note = `LayerFS is not answering: ${error}` }, [error])
+  useEffect(() => {
+    if (board.current && error) board.current.note = `LayerFS is not answering: ${error}`
+  }, [error])
 
   return (
     <>
       <div style={BAND}>
         <div ref={host} style={{ height: '100%', position: 'relative' }} />
-        {seed === undefined && <div style={{ ...MESSAGE, position: 'absolute', inset: 0, zIndex: 1 }}>Loading {name}'s History…</div>}
+        {seed === undefined && (
+          <div style={{ ...MESSAGE, position: 'absolute', inset: 0, zIndex: 1 }}>Loading {name}'s History…</div>
+        )}
       </div>
-      {pane === 'history' && createPortal(<SandboxesTab name={name} runtime={runtime} error={runtimeError} reload={readRuntime} />, sbxEl.current)}
+      {pane === 'history' &&
+        createPortal(
+          <SandboxesTab name={name} runtime={runtime} error={runtimeError} reload={readRuntime} />,
+          sbxEl.current,
+        )}
     </>
   )
 }
@@ -211,8 +332,13 @@ function Board({ sessionId, view, error, pane }: { sessionId: string, view: Sess
 function markRunning(W: any, view: SessionView, playback: Playback) {
   const named = (lines: any[]) => lines.map((line) => ({ ...line, agent: view.agents[line.agentId] ?? line.agent }))
   const ended = new Set(view.lines.map((line) => line.id))
-  W.running = X.runningLines(W, [...named(view.running.filter((line) => !ended.has(line.id))), ...playback.unplayed(named(view.lines))])
+  W.running = X.runningLines(W, [
+    ...named(view.running.filter((line) => !ended.has(line.id))),
+    ...playback.unplayed(named(view.lines)),
+  ])
 }
 const runningAgents = (view: SessionView) => view.running.map((line) => view.agents[line.agentId] ?? line.agent)
-const noteOf = (view: SessionView, playback: Playback) => `${view.project!.name} · ${view.lines.length ? `${view.lines.length} calls` : 'no calls in this session yet'}`
-  + (playback.waiting ? ` · ${playback.waiting} to play` : '') + (view.running.length ? ` · ${view.running.length} running` : '')
+const noteOf = (view: SessionView, playback: Playback) =>
+  `${view.project!.name} · ${view.lines.length ? `${view.lines.length} calls` : 'no calls in this session yet'}` +
+  (playback.waiting ? ` · ${playback.waiting} to play` : '') +
+  (view.running.length ? ` · ${view.running.length} running` : '')

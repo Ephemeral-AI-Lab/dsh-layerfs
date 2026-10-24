@@ -39,7 +39,15 @@ import { prepareInit, runInit } from "./init.js";
 import { InitJobs } from "./jobs.js";
 import { READS } from "./reads.js";
 import { removeProject } from "./remove.js";
-import { cleanLeftovers, overview, projectAction, projectRuntime, removeVolumes, restartStore, startStore } from "./runtime.js";
+import {
+  cleanLeftovers,
+  overview,
+  projectAction,
+  projectRuntime,
+  removeVolumes,
+  restartStore,
+  startStore,
+} from "./runtime.js";
 
 const PREFIX = "/layerfs";
 const MAX_BODY = 64 * 1024;
@@ -52,35 +60,77 @@ const send = (res, status, body) => {
 };
 
 async function readJson(req) {
-  let size = 0, text = "";
+  let size = 0,
+    text = "";
   for await (const chunk of req) {
     size += chunk.length;
     if (size > MAX_BODY) throw Object.assign(new Error("request body too large"), { status: 413 });
     text += chunk;
   }
-  try { return text ? JSON.parse(text) : {}; } catch { throw Object.assign(new Error("request body is not JSON"), { status: 400 }); }
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw Object.assign(new Error("request body is not JSON"), { status: 400 });
+  }
 }
 
 /**
  * Registers the route; its disposer runs with the plugin fiber.
  * @param {object} ctx plugin context with webServer and connection
  */
-export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = new InitJobs((prepared, report) => runInit(spec, bindings, prepared, report)) }) {
+export function registerRoutes(
+  ctx,
+  {
+    spec,
+    bindings,
+    collector,
+    trees,
+    jobs = new InitJobs((prepared, report) => runInit(spec, bindings, prepared, report)),
+  },
+) {
   const sessionView = (id) => {
     const session = ctx.sessions.get(id);
     const agent = session ? collector.agentOf(session) : { id, root: bindings.agent(id)?.root ?? id, cwd: undefined };
     // a Session that is not loaded has no header here; its choice keeps the folder
-    const choice = bindings.session(agent.root), folder = agent.cwd ?? choice?.folder ?? null;
+    const choice = bindings.session(agent.root),
+      folder = agent.cwd ?? choice?.folder ?? null;
     const project = bindings.projectFor(agent.root, folder);
-    return { session: id, root: agent.root, folder, choice, project, choices: folder ? bindings.workspace(folder) : { projects: [], lastUsed: null } };
+    return {
+      session: id,
+      root: agent.root,
+      folder,
+      choice,
+      project,
+      choices: folder ? bindings.workspace(folder) : { projects: [], lastUsed: null },
+    };
   };
   const handler = async (req, res) => {
     const rejection = ctx.connection.requestRejection(req);
-    if (rejection !== undefined) { res.statusCode = rejection; res.end(); return; }
-    const url = new URL(String(req.url), "http://localhost"), parts = url.pathname.slice(PREFIX.length).split("/").filter(Boolean);
+    if (rejection !== undefined) {
+      res.statusCode = rejection;
+      res.end();
+      return;
+    }
+    const url = new URL(String(req.url), "http://localhost"),
+      parts = url.pathname.slice(PREFIX.length).split("/").filter(Boolean);
     try {
       if (req.method === "GET" && parts[0] === "status" && parts.length === 1)
-        return send(res, 200, { configured: missingDeployment(spec).length === 0, missing: missingDeployment(spec), sdk: spec.sdk, backend: spec.backend, cli: spec.cli, worker: spec.worker, bundle: spec.bundle, traceDir: spec.traceDir, home: spec.home, docker: spec.docker, image: spec.image, daemon: spec.daemon, empty: true, ...(spec.wsl ? { wsl: spec.wsl } : {}) });
+        return send(res, 200, {
+          configured: missingDeployment(spec).length === 0,
+          missing: missingDeployment(spec),
+          sdk: spec.sdk,
+          backend: spec.backend,
+          cli: spec.cli,
+          worker: spec.worker,
+          bundle: spec.bundle,
+          traceDir: spec.traceDir,
+          home: spec.home,
+          docker: spec.docker,
+          image: spec.image,
+          daemon: spec.daemon,
+          empty: true,
+          ...(spec.wsl ? { wsl: spec.wsl } : {}),
+        });
       if (req.method === "GET" && parts[0] === "workspace" && parts.length === 1) {
         const folder = url.searchParams.get("folder");
         if (!folder) return send(res, 400, { code: "invalid-folder", message: "folder is required" });
@@ -88,42 +138,87 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
       }
       if (req.method === "POST" && parts[0] === "workspace" && parts.length === 1) {
         const body = await readJson(req);
-        if (typeof body.folder !== "string" || !body.folder) return send(res, 400, { code: "invalid-folder", message: "folder is required" });
-        if (typeof body.project !== "string") return send(res, 400, { code: "invalid-project", message: "project is a project name" });
+        if (typeof body.folder !== "string" || !body.folder)
+          return send(res, 400, { code: "invalid-folder", message: "folder is required" });
+        if (typeof body.project !== "string")
+          return send(res, 400, { code: "invalid-project", message: "project is a project name" });
         bindings.setDefault(body.folder, body.project);
         return send(res, 200, bindings.workspace(body.folder));
       }
       if (req.method === "POST" && parts[0] === "init" && parts.length === 1) {
         const body = await readJson(req);
-        const prepared = prepareInit(spec, bindings, { folder: body.folder || null, source: body.source || body.folder || undefined, name: body.name || undefined, image: body.image || undefined, timeout: body.timeout ?? undefined, empty: body.empty === true }, jobs.pending());
+        const prepared = prepareInit(
+          spec,
+          bindings,
+          {
+            folder: body.folder || null,
+            source: body.source || body.folder || undefined,
+            name: body.name || undefined,
+            image: body.image || undefined,
+            timeout: body.timeout ?? undefined,
+            empty: body.empty === true,
+          },
+          jobs.pending(),
+        );
         return send(res, 202, { job: jobs.begin(prepared) });
       }
       if (req.method === "GET" && parts[0] === "init" && parts.length === 2) {
         const job = jobs.get(decodeURIComponent(parts[1]));
         return job ? send(res, 200, { job }) : send(res, 404, { code: "not-found", message: "no such Init job" });
       }
-      if (req.method === "POST" && parts[0] === "runtime" && parts[1] === "store" && parts[2] === "restart" && parts.length === 3)
+      if (
+        req.method === "POST" &&
+        parts[0] === "runtime" &&
+        parts[1] === "store" &&
+        parts[2] === "restart" &&
+        parts.length === 3
+      )
         return send(res, 200, await restartStore(spec, await readJson(req)));
       if (parts[0] === "runtime" && parts.length <= 2) {
-        if (req.method === "GET" && parts.length === 1) return send(res, 200, await overview(spec, bindings, trees, collector));
+        if (req.method === "GET" && parts.length === 1)
+          return send(res, 200, await overview(spec, bindings, trees, collector));
         if (req.method === "POST" && parts[1] === "store") return send(res, 200, await startStore(spec));
-        if (req.method === "POST" && parts[1] === "leftovers") return send(res, 200, await cleanLeftovers(spec, (await readJson(req)).names));
-        if (req.method === "POST" && parts[1] === "volumes") return send(res, 200, await removeVolumes(spec, (await readJson(req)).names));
+        if (req.method === "POST" && parts[1] === "leftovers")
+          return send(res, 200, await cleanLeftovers(spec, (await readJson(req)).names));
+        if (req.method === "POST" && parts[1] === "volumes")
+          return send(res, 200, await removeVolumes(spec, (await readJson(req)).names));
       }
-      if (req.method === "GET" && parts[0] === "projects" && parts.length === 1) return send(res, 200, { projects: bindings.projects(), defaults: bindings.defaults() });
+      if (req.method === "GET" && parts[0] === "projects" && parts.length === 1)
+        return send(res, 200, { projects: bindings.projects(), defaults: bindings.defaults() });
       if (parts[0] === "project" && parts.length === 3) {
         const project = bindings.byName(decodeURIComponent(parts[1]));
-        if (!project) return send(res, 404, { code: "not-found", message: `no LayerFS project named ${decodeURIComponent(parts[1])}` });
-        if (req.method === "GET" && parts[2] === "state") return send(res, 200, { ...(await trees.state(project)), ...collector.nodesOf(project.name) });
-        if (req.method === "GET" && parts[2] === "history") return send(res, 200, historyAnswer(await trees.history(project), collector.nodesOf(project.name), url.searchParams.get("since")));
-        if (req.method === "GET" && Object.hasOwn(READS, parts[2])) return send(res, 200, await trees.files(project, parts[2], url.searchParams));
+        if (!project)
+          return send(res, 404, {
+            code: "not-found",
+            message: `no LayerFS project named ${decodeURIComponent(parts[1])}`,
+          });
+        if (req.method === "GET" && parts[2] === "state")
+          return send(res, 200, { ...(await trees.state(project)), ...collector.nodesOf(project.name) });
+        if (req.method === "GET" && parts[2] === "history")
+          return send(
+            res,
+            200,
+            historyAnswer(await trees.history(project), collector.nodesOf(project.name), url.searchParams.get("since")),
+          );
+        if (req.method === "GET" && Object.hasOwn(READS, parts[2]))
+          return send(res, 200, await trees.files(project, parts[2], url.searchParams));
         if (req.method === "GET" && parts[2] === "storage") return send(res, 200, await trees.storage(project));
-        if (req.method === "GET" && parts[2] === "runtime") return send(res, 200, await projectRuntime(trees, collector, project));
-        if (req.method === "POST" && parts[2] === "runtime") return send(res, 200, await projectAction(trees, collector, project, await readJson(req)));
+        if (req.method === "GET" && parts[2] === "runtime")
+          return send(res, 200, await projectRuntime(trees, collector, project));
+        if (req.method === "POST" && parts[2] === "runtime")
+          return send(res, 200, await projectAction(trees, collector, project, await readJson(req)));
         if (req.method === "POST" && parts[2] === "remove") {
           const body = await readJson(req);
-          if (body.confirm !== project.name) return send(res, 400, { code: "not-confirmed", message: `confirm with the project's name, ${project.name}` });
-          return send(res, 200, await removeProject(spec, bindings, trees, project.name, { stopSandboxes: body.stopSandboxes === true }));
+          if (body.confirm !== project.name)
+            return send(res, 400, {
+              code: "not-confirmed",
+              message: `confirm with the project's name, ${project.name}`,
+            });
+          return send(
+            res,
+            200,
+            await removeProject(spec, bindings, trees, project.name, { stopSandboxes: body.stopSandboxes === true }),
+          );
         }
       }
       if (parts[0] === "session" && parts.length >= 2) {
@@ -133,22 +228,30 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
         if (req.method === "GET" && parts[2] === "binding" && parts.length === 3) return send(res, 200, view);
         if (req.method === "POST" && parts[2] === "project" && parts.length === 3) {
           const body = await readJson(req);
-          if (!view.folder) return send(res, 409, { code: "no-folder", message: "this session has no workspace folder" });
+          if (!view.folder)
+            return send(res, 409, { code: "no-folder", message: "this session has no workspace folder" });
           const taken = bindings.choose(view.root, view.folder, body.project ?? null);
-          return taken ? send(res, 200, full(sessionView(view.root))) : send(res, 409, { code: "locked", message: "the session's project is fixed once an agent has used it" });
+          return taken
+            ? send(res, 200, full(sessionView(view.root)))
+            : send(res, 409, { code: "locked", message: "the session's project is fixed once an agent has used it" });
         }
         if (req.method === "GET" && parts[2] === "state" && parts.length === 3) {
-          if (!view.project) return send(res, 404, { code: "no-project", message: "this session has no LayerFS project" });
+          if (!view.project)
+            return send(res, 404, { code: "no-project", message: "this session has no LayerFS project" });
           return send(res, 200, await trees.state(view.project));
         }
         if (req.method === "GET" && Object.hasOwn(READS, parts[2] ?? "") && parts.length === 3) {
-          if (!view.project) return send(res, 404, { code: "no-project", message: "this session has no LayerFS project" });
+          if (!view.project)
+            return send(res, 404, { code: "no-project", message: "this session has no LayerFS project" });
           return send(res, 200, await trees.files(view.project, parts[2], url.searchParams));
         }
       }
       return send(res, 404, { code: "not-found", message: `no route ${req.method} ${url.pathname}` });
     } catch (error) {
-      return send(res, error.status || (error.code ? 409 : 500), { code: error.code || "failed", message: error.message });
+      return send(res, error.status || (error.code ? 409 : 500), {
+        code: error.code || "failed",
+        message: error.message,
+      });
     }
   };
   ctx.effect(() => ctx.webServer.register({ kind: "prefix", path: PREFIX, handler }), `layerfs-host: ${PREFIX}`);
@@ -161,7 +264,9 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
  * { kind: "unchanged", version } while neither changed.
  */
 export function historyAnswer(history, nodes, since) {
-  const version = history.version ? `${history.version}.${createHash("sha256").update(JSON.stringify(nodes)).digest("hex").slice(0, 16)}` : undefined;
+  const version = history.version
+    ? `${history.version}.${createHash("sha256").update(JSON.stringify(nodes)).digest("hex").slice(0, 16)}`
+    : undefined;
   if (version && since === version) return { kind: "unchanged", version };
   return { ...history, ...nodes, version };
 }

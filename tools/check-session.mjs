@@ -18,7 +18,10 @@ if (!address || !sessionId) {
 
 // the token URL sets the browser session cookie; the route accepts it
 const login = await fetch(address, { redirect: "manual" });
-const cookie = login.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+const cookie = login.headers
+  .getSetCookie()
+  .map((c) => c.split(";")[0])
+  .join("; ");
 const origin = new URL(address).origin;
 async function get(path) {
   const res = await fetch(`${origin}/layerfs${path}`, { headers: { cookie } });
@@ -38,36 +41,62 @@ const W = X.storyView(E, { lead: "main" });
 for (const step of X.traceSteps(lines, { agent: "main" })) await X.runStep(W, step, {});
 
 const failures = [];
-const check = (ok, message) => { if (!ok) failures.push(message); };
+const check = (ok, message) => {
+  if (!ok) failures.push(message);
+};
 const realOf = Object.fromEntries(Object.entries(state.labels).map(([real, label]) => [label, real]));
-const reported = state.s, drawn = E.s;
+const reported = state.s,
+  drawn = E.s;
 
 // Branches and heads
-const reportedBranches = Object.keys(reported.branches).sort(), drawnBranches = Object.keys(drawn.branches).sort();
-check(JSON.stringify(reportedBranches) === JSON.stringify(drawnBranches), `Branches: LayerFS has ${reportedBranches}, the tab draws ${drawnBranches}`);
+const reportedBranches = Object.keys(reported.branches).sort(),
+  drawnBranches = Object.keys(drawn.branches).sort();
+check(
+  JSON.stringify(reportedBranches) === JSON.stringify(drawnBranches),
+  `Branches: LayerFS has ${reportedBranches}, the tab draws ${drawnBranches}`,
+);
 for (const name of reportedBranches) {
-  const want = realOf[reported.branches[name].head] ?? null, got = drawn.branches[name] ? E.m.real(drawn.branches[name].head) ?? null : undefined;
+  const want = realOf[reported.branches[name].head] ?? null,
+    got = drawn.branches[name] ? (E.m.real(drawn.branches[name].head) ?? null) : undefined;
   check(want === got, `Branch ${name}: LayerFS head ${want}, the tab draws ${got}`);
 }
-const mainWant = realOf[reported.main.head], mainGot = E.m.real(drawn.main.head);
+const mainWant = realOf[reported.main.head],
+  mainGot = E.m.real(drawn.main.head);
 check(mainWant === mainGot, `main: LayerFS Layer ${mainWant}, the tab draws ${mainGot}`);
 
 // Sandboxes the agents created
 for (const box of Object.values(reported.sandboxes)) {
-  const real = realOf[box.id] ?? box.real, label = E.m.toLabel.get(real);
+  const real = realOf[box.id] ?? box.real,
+    label = E.m.toLabel.get(real);
   check(label !== undefined, `Sandbox ${real} is not drawn`);
-  if (label !== undefined) check(!!drawn.sandboxes[label].closed === !!box.closed, `Sandbox ${real}: LayerFS closed=${!!box.closed}, the tab draws closed=${!!drawn.sandboxes[label].closed}`);
+  if (label !== undefined)
+    check(
+      !!drawn.sandboxes[label].closed === !!box.closed,
+      `Sandbox ${real}: LayerFS closed=${!!box.closed}, the tab draws closed=${!!drawn.sandboxes[label].closed}`,
+    );
 }
 
 // attribution: names, and the nodes each agent made
-for (const line of lines) check(view.agents[line.agentId] !== undefined && !/^agent-/.test(line.agent), `line ${line.id} (${line.method}) has no agent name`);
+for (const line of lines)
+  check(
+    view.agents[line.agentId] !== undefined && !/^agent-/.test(line.agent),
+    `line ${line.id} (${line.method}) has no agent name`,
+  );
 let nodes = 0;
 for (const line of lines) {
-  const made = line.ok && line.kind === "Committed" ? line.commit : line.ok && line.method === "branch.publish" ? line.layer : null;
+  const made =
+    line.ok && line.kind === "Committed"
+      ? line.commit
+      : line.ok && line.method === "branch.publish"
+        ? line.layer
+        : null;
   if (!made) continue;
   nodes++;
   const label = E.m.toLabel.get(made);
-  check(W.attrib[label] === line.agent, `${line.method} ${made.slice(0, 12)}: made by ${line.agent}, drawn as ${W.attrib[label]}`);
+  check(
+    W.attrib[label] === line.agent,
+    `${line.method} ${made.slice(0, 12)}: made by ${line.agent}, drawn as ${W.attrib[label]}`,
+  );
 }
 
 // groups: one trace step per bash call, shared by that call's lines
@@ -83,7 +112,9 @@ for (const [key, count] of groups) {
 }
 
 const agents = [...new Set(lines.map((l) => l.agent))];
-console.log(`${view.project.name}: ${lines.length} lines from ${agents.join(", ")}; ${drawnBranches.length} Branches, ${Object.keys(reported.sandboxes).length} Sandboxes, ${nodes} Commits and Layers attributed, ${groups.size} bash calls (${[...groups.values()].filter((n) => n > 1).length} with several calls)`);
+console.log(
+  `${view.project.name}: ${lines.length} lines from ${agents.join(", ")}; ${drawnBranches.length} Branches, ${Object.keys(reported.sandboxes).length} Sandboxes, ${nodes} Commits and Layers attributed, ${groups.size} bash calls (${[...groups.values()].filter((n) => n > 1).length} with several calls)`,
+);
 if (failures.length) {
   for (const failure of failures) console.log(`FAIL ${failure}`);
   process.exit(1);

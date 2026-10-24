@@ -37,7 +37,10 @@ export function linesByAgent(scenario, rootId, lines) {
   const unknown = new Map();
   for (const line of lines) {
     const agent = line.agentId === rootId ? "root" : line.agent;
-    if (agent !== "root" && (agent === "main" || !out.has(agent))) { unknown.set(agent, (unknown.get(agent) ?? 0) + 1); continue; }
+    if (agent !== "root" && (agent === "main" || !out.has(agent))) {
+      unknown.set(agent, (unknown.get(agent) ?? 0) + 1);
+      continue;
+    }
     out.get(agent).push(line);
   }
   return { byAgent: out, unknown };
@@ -49,7 +52,11 @@ function readLines(file) {
   let bad = 0;
   for (const raw of readFileSync(file, "utf8").split("\n")) {
     if (!raw.trim()) continue;
-    try { lines.push(JSON.parse(raw)); } catch { bad++; }
+    try {
+      lines.push(JSON.parse(raw));
+    } catch {
+      bad++;
+    }
   }
   return { lines, bad };
 }
@@ -60,18 +67,26 @@ function readLines(file) {
  */
 export function checkRun(profile, rootId, scenariosDir) {
   const runsFile = join(profile, "dsh-layerfs-mock", "runs.json");
-  if (!existsSync(runsFile)) throw Object.assign(new Error(`${runsFile} does not exist: no scripted run was made in this profile`), { usage: true });
+  if (!existsSync(runsFile))
+    throw Object.assign(new Error(`${runsFile} does not exist: no scripted run was made in this profile`), {
+      usage: true,
+    });
   const runs = JSON.parse(readFileSync(runsFile, "utf8"));
   const id = runs.sessions?.[rootId] ? rootId : runs.sessions?.[`session-${rootId}`] ? `session-${rootId}` : null;
-  if (!id) throw Object.assign(new Error(`${rootId} is no scripted run's root Session in ${runsFile}`), { usage: true });
+  if (!id)
+    throw Object.assign(new Error(`${rootId} is no scripted run's root Session in ${runsFile}`), { usage: true });
   const { scenario: name } = runs.sessions[id];
   const folder = join(scenariosDir, name);
-  if (!existsSync(join(folder, "scenario.json"))) throw Object.assign(new Error(`the run played ${name}, and ${folder} holds no scenario.json`), { usage: true });
+  if (!existsSync(join(folder, "scenario.json")))
+    throw Object.assign(new Error(`the run played ${name}, and ${folder} holds no scenario.json`), { usage: true });
   const scenario = loadScenario(folder);
-  const failures = [], notes = [], notRun = [];
+  const failures = [],
+    notes = [],
+    notRun = [];
 
   const run = runs.runs?.[name];
-  if (run?.sessionId !== id) notes.push(`run: a newer run of ${name} replaced this one's record, so its state is unknown`);
+  if (run?.sessionId !== id)
+    notes.push(`run: a newer run of ${name} replaced this one's record, so its state is unknown`);
   else if (run.state === "passed") notes.push(`run: passed in ${((run.ended - run.started) / 1000).toFixed(1)} s`);
   else failures.push(`run: ${run.state}${run.error ? ` (${run.error})` : ""}`);
 
@@ -80,7 +95,8 @@ export function checkRun(profile, rootId, scenariosDir) {
   if (!existsSync(file)) notes.push(`lines: ${file} does not exist (no LayerFS call was traced)`);
   if (bad) failures.push(`lines: ${bad} line(s) of ${file} do not parse`);
   const { byAgent, unknown } = linesByAgent(scenario, id, lines);
-  for (const [agent, count] of unknown) failures.push(`lines: ${count} line(s) of an agent named ${agent}, which ${name} does not have`);
+  for (const [agent, count] of unknown)
+    failures.push(`lines: ${count} line(s) of an agent named ${agent}, which ${name} does not have`);
   const expected = expectedOutcomes(scenario, (agent) => byAgent.get(agent) ?? []);
   failures.push(...expected.failures);
   notes.push(`lines: ${lines.length} from ${file}`, ...expected.notes);
@@ -88,17 +104,31 @@ export function checkRun(profile, rootId, scenariosDir) {
   if (existsSync(join(folder, "final.json"))) {
     notRun.push(`order and final tree against ${join(folder, "final.json")}: NOT_RUN, missing ${MISSING.join("; ")}`);
   }
-  return { scenario: name, project: run?.sessionId === id ? run.project ?? `mock-${name}` : `mock-${name} (older run; project not recorded)`, failures, notes, notRun };
+  return {
+    scenario: name,
+    project: run?.sessionId === id ? (run.project ?? `mock-${name}`) : `mock-${name} (older run; project not recorded)`,
+    failures,
+    notes,
+    notRun,
+  };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   let scenarios = fileURLToPath(new URL("../../scenarios/", import.meta.url));
   const at = args.indexOf("--scenarios");
-  if (at >= 0) { scenarios = resolve(args[at + 1] ?? ""); args.splice(at, 2); }
-  if (args.length !== 2) { console.error(USAGE); process.exit(2); }
+  if (at >= 0) {
+    scenarios = resolve(args[at + 1] ?? "");
+    args.splice(at, 2);
+  }
+  if (args.length !== 2) {
+    console.error(USAGE);
+    process.exit(2);
+  }
   let result;
-  try { result = checkRun(resolve(args[0]), args[1], scenarios); } catch (error) {
+  try {
+    result = checkRun(resolve(args[0]), args[1], scenarios);
+  } catch (error) {
     console.error(`run check: ${error.message}`);
     if (error.usage) console.error(USAGE);
     process.exit(2);
@@ -107,6 +137,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   for (const note of result.notes) console.log(`  ${note}`);
   for (const line of result.notRun) console.log(`  ${line}`);
   for (const failure of result.failures) console.log(`  FAIL ${failure}`);
-  console.log(result.failures.length ? `FAIL: ${result.failures.length} failure(s)` : "PASS: every check that ran holds");
+  console.log(
+    result.failures.length ? `FAIL: ${result.failures.length} failure(s)` : "PASS: every check that ran holds",
+  );
   process.exit(result.failures.length ? 1 : 0);
 }

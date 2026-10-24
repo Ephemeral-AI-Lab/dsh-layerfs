@@ -34,6 +34,8 @@ export function useHiddenComposer(anchor: RefObject<Element | null>) {
     if (!parent) return
     injectRule(el.ownerDocument)
     parent.setAttribute(MARK, '')
-    return () => { parent.removeAttribute(MARK) }
+    return () => {
+      parent.removeAttribute(MARK)
+    }
   }, [anchor])
 }

@@ -9,7 +9,7 @@ import { inspect } from "node:util";
 
 async function pages(read) {
   const items = [];
-  for (let pos = 0; ;) {
+  for (let pos = 0; ; ) {
     const page = await read(1000, pos);
     items.push(...page.items);
     if (!page.hasMore) return items;
@@ -36,7 +36,9 @@ export async function historyOf(lf, backend) {
   if (layers.length !== snap.layers.length) throw new Error("main's Layers are not one line");
   const ids = new Map(layers.map((l, i) => [l.id, `L${i}`]));
 
-  const branches = (await pages((size, pos) => lf.project.list_branches(size, pos))).filter((b) => b.name !== "main" && !b.name.startsWith(CHECK_PREFIX));
+  const branches = (await pages((size, pos) => lf.project.list_branches(size, pos))).filter(
+    (b) => b.name !== "main" && !b.name.startsWith(CHECK_PREFIX),
+  );
   const chains = {};
   for (const b of branches) {
     // a Branch made by a merge lists its first input's Commits too, up to the
@@ -47,8 +49,11 @@ export async function historyOf(lf, backend) {
     chains[b.name] = { branch: b, commits: newest.reverse() };
     chains[b.name].commits.forEach((c, i) => ids.set(c.id, `${b.name}#${i}`));
   }
-  const name = (id) => (id == null ? null : ids.get(id) ?? `unknown:${id}`);
-  const out = { branches: {}, layers: layers.map((l, i) => (i === 0 ? { source: null } : { source: name(l.sourceCommit) })) };
+  const name = (id) => (id == null ? null : (ids.get(id) ?? `unknown:${id}`));
+  const out = {
+    branches: {},
+    layers: layers.map((l, i) => (i === 0 ? { source: null } : { source: name(l.sourceCommit) })),
+  };
   for (const [branch, { branch: b, commits }] of Object.entries(chains).sort(([x], [y]) => (x < y ? -1 : 1))) {
     out.branches[branch] = {
       forkedFrom: name(b.forkedFrom ?? b.base),
@@ -71,42 +76,68 @@ export function compareHistory(recorded, run) {
   const failures = [];
   const names = new Set([...Object.keys(recorded.branches), ...Object.keys(run.branches)]);
   // a recorded name ("orders#3") is the run's name after missing optional Commits
-  const shift = new Map(), extras = [];
+  const shift = new Map(),
+    extras = [];
   for (const branch of names) {
-    const want = recorded.branches[branch], got = run.branches[branch];
-    if (!want) { failures.push(`Branch ${branch} is not in the record`); continue; }
-    if (!got) { failures.push(`Branch ${branch} is missing`); continue; }
+    const want = recorded.branches[branch],
+      got = run.branches[branch];
+    if (!want) {
+      failures.push(`Branch ${branch} is not in the record`);
+      continue;
+    }
+    if (!got) {
+      failures.push(`Branch ${branch} is missing`);
+      continue;
+    }
     let j = 0;
-    const extra = (i) => { for (const e of want.extras ?? []) if (e.after === i && got.commits[j]?.message === e.message) extras.push(`${branch}#${j++}`); };
+    const extra = (i) => {
+      for (const e of want.extras ?? [])
+        if (e.after === i && got.commits[j]?.message === e.message) extras.push(`${branch}#${j++}`);
+    };
     extra(-1);
     want.commits.forEach((c, i) => {
       const actual = got.commits[j];
-      if (actual && actual.message === c.message) { shift.set(`${branch}#${i}`, `${branch}#${j}`); j++; }
+      if (actual && actual.message === c.message) {
+        shift.set(`${branch}#${i}`, `${branch}#${j}`);
+        j++;
+      }
       // a missing optional first Commit leaves the Branch at its fork point
       else if (c.optional) shift.set(`${branch}#${i}`, j ? `${branch}#${j - 1}` : { base: branch });
-      else failures.push(`${branch}#${i}: recorded "${c.message}", the run has ${actual ? `"${actual.message}"` : "no Commit"} there`);
+      else
+        failures.push(
+          `${branch}#${i}: recorded "${c.message}", the run has ${actual ? `"${actual.message}"` : "no Commit"} there`,
+        );
       extra(i);
     });
-    if (j < got.commits.length) failures.push(`${branch}: ${got.commits.length - j} Commit(s) after the recorded ones, first "${got.commits[j].message}"`);
+    if (j < got.commits.length)
+      failures.push(
+        `${branch}: ${got.commits.length - j} Commit(s) after the recorded ones, first "${got.commits[j].message}"`,
+      );
   }
   const mapped = (ref) => {
     const to = ref && shift.has(ref) ? shift.get(ref) : ref;
     return to?.base ? mapped(recorded.branches[to.base].forkedFrom) : to;
   };
   for (const branch of names) {
-    const want = recorded.branches[branch], got = run.branches[branch];
+    const want = recorded.branches[branch],
+      got = run.branches[branch];
     if (!want || !got) continue;
-    if (mapped(want.forkedFrom) !== got.forkedFrom) failures.push(`${branch} forked from ${got.forkedFrom}, recorded ${want.forkedFrom}`);
+    if (mapped(want.forkedFrom) !== got.forkedFrom)
+      failures.push(`${branch} forked from ${got.forkedFrom}, recorded ${want.forkedFrom}`);
     want.commits.forEach((c, i) => {
-      const at = shift.get(`${branch}#${i}`), k = typeof at === "string" && Number(at.split("#")[1]);
+      const at = shift.get(`${branch}#${i}`),
+        k = typeof at === "string" && Number(at.split("#")[1]);
       if (typeof at === "string" && at.startsWith(`${branch}#`) && got.commits[k]?.message === c.message) {
         const actual = got.commits[k];
-        if (actual.via !== c.via) failures.push(`${branch}#${i} "${c.message}" was made by ${actual.via}, recorded ${c.via}`);
-        if (mapped(c.merged) !== actual.merged) failures.push(`${branch}#${i} "${c.message}" merged ${actual.merged}, recorded ${c.merged}`);
+        if (actual.via !== c.via)
+          failures.push(`${branch}#${i} "${c.message}" was made by ${actual.via}, recorded ${c.via}`);
+        if (mapped(c.merged) !== actual.merged)
+          failures.push(`${branch}#${i} "${c.message}" merged ${actual.merged}, recorded ${c.merged}`);
       }
     });
   }
-  if (recorded.layers.length !== run.layers.length) failures.push(`main has ${run.layers.length} Layers, recorded ${recorded.layers.length}`);
+  if (recorded.layers.length !== run.layers.length)
+    failures.push(`main has ${run.layers.length} Layers, recorded ${recorded.layers.length}`);
   recorded.layers.forEach((l, i) => {
     const got = run.layers[i];
     if (got && mapped(l.source) !== got.source) failures.push(`L${i} published ${got.source}, recorded ${l.source}`);

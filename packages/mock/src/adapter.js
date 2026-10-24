@@ -23,7 +23,9 @@ export function createAdapter(Base, scenarios, progress, traces = () => undefine
   /** Session id -> the bash calls whose expect already held. */
   const checked = new Map();
   class LayerFsScriptedAdapter extends Base {
-    providerInfo(provider) { return { id: provider, name: LABEL }; }
+    providerInfo(provider) {
+      return { id: provider, name: LABEL };
+    }
 
     listModels(provider) {
       return Promise.resolve([...scenarios.values()].map((s) => model(provider, s)));
@@ -31,7 +33,11 @@ export function createAdapter(Base, scenarios, progress, traces = () => undefine
 
     resolveModel(provider, id) {
       const scenario = scenarios.get(id);
-      return Promise.resolve(scenario ? model(provider, scenario) : { provider, id, name: `${LABEL} · ${id} (no such scenario)`, inputModalities: ["text"] });
+      return Promise.resolve(
+        scenario
+          ? model(provider, scenario)
+          : { provider, id, name: `${LABEL} · ${id} (no such scenario)`, inputModalities: ["text"] },
+      );
     }
 
     async *stream(options) {
@@ -39,21 +45,35 @@ export function createAdapter(Base, scenarios, progress, traces = () => undefine
       let scenario, agent;
       try {
         scenario = scenarios.get(options.model);
-        if (!scenario) return yield failure(`no scenario named ${options.model}; scenarios: ${[...scenarios.keys()].join(", ") || "none"}`, "MOCK_NO_SCENARIO");
+        if (!scenario)
+          return yield failure(
+            `no scenario named ${options.model}; scenarios: ${[...scenarios.keys()].join(", ") || "none"}`,
+            "MOCK_NO_SCENARIO",
+          );
         const offered = offeredTools(options);
         // dsh's own requests without tools (a session title): the scenario's title
         if (!offered.size) return yield* text(scenario.title);
         agent = agentOf(scenario, options.messages ?? []);
         const ended = progress?.refusal(options.sessionId);
-        if (ended) return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${ended}`, ended.includes("limit") ? "MOCK_TIME_LIMIT" : "MOCK_RUN_ENDED");
-        const service = traces(), sessionId = String(options.sessionId);
+        if (ended)
+          return yield failure(
+            `${LABEL} (${scenario.name}, ${agent}): ${ended}`,
+            ended.includes("limit") ? "MOCK_TIME_LIMIT" : "MOCK_RUN_ENDED",
+          );
+        const service = traces(),
+          sessionId = String(options.sessionId);
         if (!checked.has(sessionId)) checked.set(sessionId, new Set());
-        const live = { traceOf: service ? (callId) => service.callLines(sessionId, callId) : null, checked: checked.get(sessionId) };
+        const live = {
+          traceOf: service ? (callId) => service.callLines(sessionId, callId) : null,
+          checked: checked.get(sessionId),
+        };
         const reply = nextReply(scenario, agent, options.messages ?? [], live);
         progress?.report(scenario.name, agent, reply, options.sessionId);
-        if (reply.kind === "error") return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${reply.message}`, "MOCK_SCENARIO_STOPPED");
+        if (reply.kind === "error")
+          return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${reply.message}`, "MOCK_SCENARIO_STOPPED");
         const childFailure = progress?.refusal(options.sessionId);
-        if (childFailure) return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${childFailure}`, "MOCK_RUN_ENDED");
+        if (childFailure)
+          return yield failure(`${LABEL} (${scenario.name}, ${agent}): ${childFailure}`, "MOCK_RUN_ENDED");
         if (reply.kind === "text") return yield* text(reply.text);
         const missing = reply.calls.map((c) => c.name).filter((n) => !offered.has(n));
         if (missing.length) {
@@ -66,14 +86,26 @@ export function createAdapter(Base, scenarios, progress, traces = () => undefine
         for (const original of reply.calls) {
           const call = scripts ? windowsCall(original, scripts) : original;
           yield { type: "block-start", index, blockType: "tool-call" };
-          yield { type: "block-end", index, block: { type: "tool-call", id: `lfsmock_${randomUUID()}`, name: call.name, arguments: JSON.stringify(call.args) } };
+          yield {
+            type: "block-end",
+            index,
+            block: {
+              type: "tool-call",
+              id: `lfsmock_${randomUUID()}`,
+              name: call.name,
+              arguments: JSON.stringify(call.args),
+            },
+          };
           index++;
         }
         yield { type: "finish", reason: { kind: "tool-calls" } };
       } catch (error) {
         if (signal?.aborted) {
           if (scenario && agent) progress?.stop(options.sessionId, agent);
-          return yield { type: "finish", reason: { kind: "aborted", failure: { message: "scripted request aborted", code: "ABORTED" } } };
+          return yield {
+            type: "finish",
+            reason: { kind: "aborted", failure: { message: "scripted request aborted", code: "ABORTED" } },
+          };
         }
         const message = error instanceof Error ? error.message : String(error);
         progress?.fail(options.sessionId, agent ?? "root", message);

@@ -23,7 +23,9 @@ export const name = "layerfs-mock";
 export const inject = ["llm"];
 export const Config = z.object({
   scenarios: z.string().description("Folder of scenario folders (default: the scenarios folder of this checkout)"),
-  stateDir: z.string().description("Each scenario's latest runs and the Scenarios workspace (default: <profile>/dsh-layerfs-mock)"),
+  stateDir: z
+    .string()
+    .description("Each scenario's latest runs and the Scenarios workspace (default: <profile>/dsh-layerfs-mock)"),
   preset: z.string().default("layerfs-scenarios").description("Agent preset of the runs' Sessions"),
   prompt: z.string().default("Run the scenario.").description("The message that starts a run"),
 });
@@ -40,7 +42,14 @@ export function apply(ctx, config) {
   for (const s of scenarios.values()) if (s.seed) s.fixture = writeSeed(s.seed, join(stateDir, "seeds", s.name));
   const progress = new Progress(scenarios, stateDir);
   const scripts = process.platform === "win32" ? join(workspace, ".commands") : null;
-  ctx.effect(() => ctx.llm.registerAdapter([PROVIDER], createAdapter(LlmAdapter, scenarios, progress, () => ctx.get("layerfsTraces"), scripts)), "layerfs-mock: model");
+  ctx.effect(
+    () =>
+      ctx.llm.registerAdapter(
+        [PROVIDER],
+        createAdapter(LlmAdapter, scenarios, progress, () => ctx.get("layerfsTraces"), scripts),
+      ),
+    "layerfs-mock: model",
+  );
   const options = { scenarios, progress, workspace, preset: config.preset, provider: PROVIDER, prompt: config.prompt };
   ctx.inject(["webServer", "connection"], (child) => registerRoutes(child, options));
   ctx.inject(["agentDefaultModel"], (child) => keepDefaultModel(child));

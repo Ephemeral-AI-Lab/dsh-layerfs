@@ -8,7 +8,8 @@
 // Ellen shows how the tests went with one of her expressions.
 import ellen from '../../../../sim/avatars/ellen_joe.png'
 
-const bubbles = (ring: string, dot: string, heart: string) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="10" cy="12" r="3" fill="none" stroke="${ring}" stroke-width="1.2"/><circle cx="16" cy="6" r="1.6" fill="${dot}"/><path d="M44 40c-2-3.4-7-2-6.2 1.4.7 2.8 6.2 5.6 6.2 5.6s5.5-2.8 6.2-5.6C51 38 46 36.6 44 40z" fill="${heart}"/><circle cx="52" cy="14" r="1.2" fill="${dot}"/></svg>`)}")`
+const bubbles = (ring: string, dot: string, heart: string) =>
+  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="10" cy="12" r="3" fill="none" stroke="${ring}" stroke-width="1.2"/><circle cx="16" cy="6" r="1.6" fill="${dot}"/><path d="M44 40c-2-3.4-7-2-6.2 1.4.7 2.8 6.2 5.6 6.2 5.6s5.5-2.8 6.2-5.6C51 38 46 36.6 44 40z" fill="${heart}"/><circle cx="52" cy="14" r="1.2" fill="${dot}"/></svg>`)}")`
 
 const LIGHT = `
   --lfs-paper: #F6F9FF; --lfs-floor: ${bubbles('#D6E3F7', '#DCE8FA', '#FBE1EA')};
@@ -28,7 +29,8 @@ const DARK = `
   --dsw-alias-interactive-bg-hover: rgba(112,136,255,.10); --dsw-alias-interactive-bg-active: rgba(112,136,255,.18);
   --dsw-alias-state-success-primary: #4CC9A0; --dsw-alias-state-error-primary: #F0708A; --dsw-alias-state-warn-primary: #E8B85A;
   --dsw-alias-button-primary-fill: #5C78FF; --dsw-alias-button-primary-hover: #7088FF; --dsw-alias-label-primary-foreground: #FFFFFF;`
-const LACE = 'radial-gradient(circle at 6px 0, transparent 3.4px, var(--lfs-lace) 3.9px, var(--lfs-lace) 4.6px, transparent 5.1px) 0 0 / 12px 6px repeat-x'
+const LACE =
+  'radial-gradient(circle at 6px 0, transparent 3.4px, var(--lfs-lace) 3.9px, var(--lfs-lace) 4.6px, transparent 5.1px) 0 0 / 12px 6px repeat-x'
 
 export const MAID_CSS = `
 .lfs-maid {${LIGHT}
@@ -66,12 +68,38 @@ const HUES = ['#4D6BFE', '#2AA4C8', '#7B5FE0', '#E0A63A', '#36AE8C', '#E8739A']
 export const hueOf = (tag: string) => HUES[[...tag].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % HUES.length]
 
 // Ellen's sheet: ten 72×96 expressions side by side (view/src/skins/maids/cast.js)
-const POSES = ['happy', 'thinking', 'thumbs_up', 'surprised', 'crying', 'angry', 'smug', 'sleepy', 'shy', 'love'] as const
-export type Pose = typeof POSES[number]
+const POSES = [
+  'happy',
+  'thinking',
+  'thumbs_up',
+  'surprised',
+  'crying',
+  'angry',
+  'smug',
+  'sleepy',
+  'shy',
+  'love',
+] as const
+export type Pose = (typeof POSES)[number]
 
 /** Ellen in one expression, `height` pixels tall. */
-export function Ellen({ pose, height = 48, title }: { pose: Pose, height?: number, title?: string }) {
+export function Ellen({ pose, height = 48, title }: { pose: Pose; height?: number; title?: string }) {
   const k = POSES.indexOf(pose)
-  return <span role="img" aria-label={title ?? `Ellen, ${pose.replace('_', ' ')}`} title={title}
-    style={{ display: 'block', flex: 'none', width: height * 0.75, height, backgroundImage: `url(${ellen})`, backgroundSize: `${POSES.length * 100}% 100%`, backgroundPosition: `${(k / (POSES.length - 1)) * 100}% 0`, backgroundRepeat: 'no-repeat' }} />
+  return (
+    <span
+      role="img"
+      aria-label={title ?? `Ellen, ${pose.replace('_', ' ')}`}
+      title={title}
+      style={{
+        display: 'block',
+        flex: 'none',
+        width: height * 0.75,
+        height,
+        backgroundImage: `url(${ellen})`,
+        backgroundSize: `${POSES.length * 100}% 100%`,
+        backgroundPosition: `${(k / (POSES.length - 1)) * 100}% 0`,
+        backgroundRepeat: 'no-repeat',
+      }}
+    />
+  )
 }

@@ -68,11 +68,16 @@ const NAMES = ["shop", "depot", "crew"];
 /** Subagent prompts that describe each child's work, in place of the record's; each stays unique, since a child is known by its prompt. */
 const PROMPTS = {
   crew: {
-    people: "You are people in the Crew team building an issue tracker. Your lane is people: organizations, teams, permissions, invitations and accounts. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
-    "work-a": "You are work-a in the Crew team building an issue tracker. Your lane is the issue core: issues, validation, routes, mentions, discussion and Markdown editing. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
-    "work-b": "You are work-b in the Crew team building an issue tracker. Your lane is projects and boards: the project schema, ranking, drag state, planning, uploads and attachments. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
-    "insight-a": "You are insight-a in the Crew team building an issue tracker. Your lane is search: the query grammar, saved filters, and search over HTTP, the web app and the CLI. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
-    "insight-b": "You are insight-b in the Crew team building an issue tracker. Your lane is activity and reporting: activity sources, project transfer previews and digests. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    people:
+      "You are people in the Crew team building an issue tracker. Your lane is people: organizations, teams, permissions, invitations and accounts. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    "work-a":
+      "You are work-a in the Crew team building an issue tracker. Your lane is the issue core: issues, validation, routes, mentions, discussion and Markdown editing. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    "work-b":
+      "You are work-b in the Crew team building an issue tracker. Your lane is projects and boards: the project schema, ranking, drag state, planning, uploads and attachments. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    "insight-a":
+      "You are insight-a in the Crew team building an issue tracker. Your lane is search: the query grammar, saved filters, and search over HTTP, the web app and the CLI. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
+    "insight-b":
+      "You are insight-b in the Crew team building an issue tracker. Your lane is activity and reporting: activity sources, project transfer previews and digests. Each turn, pick up your work where the lead's message points, write, build and test it on your Branches, and report what is done.",
   },
 };
 
@@ -98,40 +103,52 @@ const FORMS = { shop: "cli", crew: "cli", depot: "sdk" };
 const META = {
   shop: {
     tags: ["cli", "node", "publish", "merge"],
-    blurb: "A builder agent grows a small Node web shop from a skeleton to an admin page over six milestones: a product catalog, carts and totals, checkout with orders and discounts, a browser storefront and an admin page. It writes each milestone's code, installs, builds and tests it in a Workspace, smoke-tests the server, merges the storefront with the orders work and publishes every milestone to main.",
+    blurb:
+      "A builder agent grows a small Node web shop from a skeleton to an admin page over six milestones: a product catalog, carts and totals, checkout with orders and discounts, a browser storefront and an admin page. It writes each milestone's code, installs, builds and tests it in a Workspace, smoke-tests the server, merges the storefront with the orders work and publishes every milestone to main.",
   },
   depot: {
     tags: ["sdk", "rust", "publish", "merge"],
-    blurb: "A builder agent writes Depot, a Rust inventory service (a four-crate Cargo workspace: domain, store, HTTP server and CLI) with a browser client. Milestone by milestone it fetches the locked dependencies, builds and tests each crate and runs Python acceptance tests against the server; it works on a registry and a web Branch in parallel and merges them, then runs a release candidate of clean builds, tests, docs, Clippy, rustfmt and packaging, and checks the published main once more.",
+    blurb:
+      "A builder agent writes Depot, a Rust inventory service (a four-crate Cargo workspace: domain, store, HTTP server and CLI) with a browser client. Milestone by milestone it fetches the locked dependencies, builds and tests each crate and runs Python acceptance tests against the server; it works on a registry and a web Branch in parallel and merges them, then runs a release candidate of clean builds, tests, docs, Clippy, rustfmt and packaging, and checks the published main once more.",
   },
   crew: {
     tags: ["cli", "node", "multi-agent", "merge", "publish"],
-    blurb: "A lead and five agents build one issue-tracking application together: people and organizations, work boards, search and insight, each lane on Branches of its own. The agents write their code and install, build and test it in Workspaces; the lead forks fresh Branches from main and from their Commits, merges the lanes into integration Branches, checks them and publishes them to main.",
+    blurb:
+      "A lead and five agents build one issue-tracking application together: people and organizations, work boards, search and insight, each lane on Branches of its own. The agents write their code and install, build and test it in Workspaces; the lead forks fresh Branches from main and from their Commits, merges the lanes into integration Branches, checks them and publishes them to main.",
   },
 };
 
 function main() {
   const argv = process.argv.slice(2);
-  const opt = (name, fallback) => { const i = argv.indexOf(name); return i < 0 ? fallback : argv.splice(i, 2)[1]; };
+  const opt = (name, fallback) => {
+    const i = argv.indexOf(name);
+    return i < 0 ? fallback : argv.splice(i, 2)[1];
+  };
   const repo = resolve(ROOT, opt("--repo", process.env.LAYERFS_SOURCE || "../layerfs"));
   const rev = opt("--rev", "0c7d9c47c1^");
   const name = argv[0];
   if (!NAMES.includes(name) || argv.length !== 1) {
-    console.error(`usage: node tools/replay/convert.mjs <${NAMES.join("|")}> [--repo <layerfs checkout>] [--rev <commit>]`);
+    console.error(
+      `usage: node tools/replay/convert.mjs <${NAMES.join("|")}> [--repo <layerfs checkout>] [--rev <commit>]`,
+    );
     process.exit(2);
   }
   convert(name, repo, rev);
 }
 
 function convert(name, repo, rev) {
-  const fail = (message) => { throw new Error(`${name}: ${message}`); };
+  const fail = (message) => {
+    throw new Error(`${name}: ${message}`);
+  };
   const form = FORMS[name];
 
   // ---------------------------------------------------------------- source
   const src = mkdtempSync(join(tmpdir(), "replay-convert-"));
   let source;
   try {
-    const tar = execFileSync("git", ["-C", repo, "archive", "--format=tar", rev, `dsh/scenarios/${name}`], { maxBuffer: 1 << 30 });
+    const tar = execFileSync("git", ["-C", repo, "archive", "--format=tar", rev, `dsh/scenarios/${name}`], {
+      maxBuffer: 1 << 30,
+    });
     execFileSync("tar", ["-x", "-C", src], { input: tar });
     const dir = join(src, "dsh/scenarios", name);
     const json = (file) => JSON.parse(readFileSync(join(dir, file), "utf8"));
@@ -139,7 +156,11 @@ function convert(name, repo, rev) {
       scenario: json("scenario.json"),
       seedText: readFileSync(join(dir, "seed.json"), "utf8"),
       finalText: readFileSync(join(dir, "final.json"), "utf8"),
-      runs: new Map(readdirSync(join(dir, "run")).sort().map((f) => [f.replace(/\.json$/, ""), json(`run/${f}`)])),
+      runs: new Map(
+        readdirSync(join(dir, "run"))
+          .sort()
+          .map((f) => [f.replace(/\.json$/, ""), json(`run/${f}`)]),
+      ),
     };
   } finally {
     rmSync(src, { recursive: true, force: true });
@@ -147,7 +168,8 @@ function convert(name, repo, rev) {
   const { scenario: old, runs } = source;
   const final = JSON.parse(source.finalText);
   const history = final.history;
-  if (old.type !== "layerfs-mock-scenario" || old.version !== 2) fail("scenario.json is not a layerfs-mock-scenario v2");
+  if (old.type !== "layerfs-mock-scenario" || old.version !== 2)
+    fail("scenario.json is not a layerfs-mock-scenario v2");
 
   // ---------------------------------------------------------------- the decisions, in recorded order
   const INSTALL = /\bnpm (install|ci)\b/;
@@ -155,7 +177,15 @@ function convert(name, repo, rev) {
   const TEST = /\bnpm (run )?test\b|\bnode --test\b/;
   const PREPARE = /\bnpm run prepare-tests\b/;
   // crew's command whose test reads today's date (owner, 2026-10-23): dropped
-  const DATED = name === "crew" ? new Map([["P1e-059", "its workflow-impact test 16, \"confirmed category changes reuse canonical issue and sprint ledger updates\", reads today's burndown day of a sprint that ended 2026-10-20 (an app test unrelated to LayerFS)"]]) : new Map();
+  const DATED =
+    name === "crew"
+      ? new Map([
+          [
+            "P1e-059",
+            'its workflow-impact test 16, "confirmed category changes reuse canonical issue and sprint ledger updates", reads today\'s burndown day of a sprint that ended 2026-10-20 (an app test unrelated to LayerFS)',
+          ],
+        ])
+      : new Map();
   const verificationOff = name === "crew";
   const changed = (c) => c.expect?.includes("Committed") && !c.generated; // the record's Commit came back Committed
   const idOf = (number) => runs.get(number).step.split(/[ ]/)[0];
@@ -169,12 +199,16 @@ function convert(name, repo, rev) {
       c.agent = run.agent;
       c.seq = seq++;
       if (c.op === "mount") wsOf.set(`${run.agent}|${c.ws}`, c.branch);
-      if (c.op === "exec") { c.branch = wsOf.get(`${run.agent}|${c.ws}`) ?? fail(`${number}: exec in ${c.ws}, which is not mounted`); execs.push(c); }
+      if (c.op === "exec") {
+        c.branch = wsOf.get(`${run.agent}|${c.ws}`) ?? fail(`${number}: exec in ${c.ws}, which is not mounted`);
+        execs.push(c);
+      }
     }
   }
   const lastOf = new Set();
   if (verificationOff) {
-    const lastBuild = new Map(), lastTest = new Map();
+    const lastBuild = new Map(),
+      lastTest = new Map();
     for (const c of execs) {
       if (c.browser) continue;
       if (BUILD.test(c.command)) lastBuild.set(c.branch, c);
@@ -184,7 +218,9 @@ function convert(name, repo, rev) {
     // a kept test also keeps the latest build or prepare command before it on
     // its Branch: crew's people.6 test failed without P1e-054's build
     for (const test of lastTest.values()) {
-      const before = execs.slice(0, execs.indexOf(test)).reverse()
+      const before = execs
+        .slice(0, execs.indexOf(test))
+        .reverse()
         .find((c) => !c.browser && c.branch === test.branch && (BUILD.test(c.command) || PREPARE.test(c.command)));
       if (before) lastOf.add(before);
     }
@@ -204,7 +240,16 @@ function convert(name, repo, rev) {
       const key = `${run.agent}|${c.ws}`;
       switch (c.op) {
         case "mount": {
-          const w = { agent: run.agent, branch: c.branch, version: version.get(c.branch) ?? 0, dirty: false, removedSince: false, kept: 0, calls: [c], mount: c };
+          const w = {
+            agent: run.agent,
+            branch: c.branch,
+            version: version.get(c.branch) ?? 0,
+            dirty: false,
+            removedSince: false,
+            kept: 0,
+            calls: [c],
+            mount: c,
+          };
           live.set(key, w);
           lifetimes.push(w);
           c.w = w;
@@ -214,18 +259,42 @@ function convert(name, repo, rev) {
           const w = live.get(key);
           w.calls.push(c);
           c.w = w;
-          if (DATED.has(idOf(number))) { c.removed = "dated"; c.dated = DATED.get(idOf(number)); }
+          if (DATED.has(idOf(number))) {
+            c.removed = "dated";
+            c.dated = DATED.get(idOf(number));
+          }
           if (!c.removed && verificationOff && c.verification && !verificationKept(c)) c.removed = "verification";
           const same = `${w.branch}\0${w.version}\0${c.command}`;
           const before = !w.dirty && w.version !== null ? ran.get(same) : null;
-          if (!c.removed && before && before.exit === c.exit && before.expect === c.expect && !c.flaky && !c.sandboxOwn) {
+          if (
+            !c.removed &&
+            before &&
+            before.exit === c.exit &&
+            before.expect === c.expect &&
+            !c.flaky &&
+            !c.sandboxOwn
+          ) {
             c.removed = "rerun";
             c.sameAs = before.number;
           }
-          if (c.removed) { w.removedSince = true; break; }
+          if (c.removed) {
+            w.removedSince = true;
+            break;
+          }
           const earlier = ranOnBranch.get(`${w.branch}\0${c.command}`);
           if (earlier) {
-            c.ranAgain = { as: earlier.number, why: w.dirty ? "its Workspace held uncommitted changes" : w.version === null ? "its Workspace may not show the Branch's head" : w.version !== earlier.at ? "the Branch changed since (a write or a Commit recorded as Committed)" : c.flaky || c.sandboxOwn ? "its recorded exit is a race or a census" : "its recorded exit differs" };
+            c.ranAgain = {
+              as: earlier.number,
+              why: w.dirty
+                ? "its Workspace held uncommitted changes"
+                : w.version === null
+                  ? "its Workspace may not show the Branch's head"
+                  : w.version !== earlier.at
+                    ? "the Branch changed since (a write or a Commit recorded as Committed)"
+                    : c.flaky || c.sandboxOwn
+                      ? "its recorded exit is a race or a census"
+                      : "its recorded exit differs",
+            };
           }
           ranOnBranch.set(`${w.branch}\0${c.command}`, { number, at: w.version });
           if (!w.dirty && w.version !== null && !ran.has(same)) ran.set(same, c);
@@ -244,10 +313,14 @@ function convert(name, repo, rev) {
             w.removedSince = false;
             break;
           }
-          c.kinds = c.expect === "sandbox.commit:Committed" && !w.removedSince ? ["Committed"] : ["Committed", "UpToDate"];
+          c.kinds =
+            c.expect === "sandbox.commit:Committed" && !w.removedSince ? ["Committed"] : ["Committed", "UpToDate"];
           c.after = w.lastExec; // the command whose changes it Commits
           const head = version.get(w.branch) ?? 0;
-          if (changed(c)) { version.set(w.branch, head + 1); w.version = head + 1; } else if (w.version !== head) w.version = null;
+          if (changed(c)) {
+            version.set(w.branch, head + 1);
+            w.version = head + 1;
+          } else if (w.version !== head) w.version = null;
           w.dirty = false;
           w.removedSince = false;
           break;
@@ -260,19 +333,34 @@ function convert(name, repo, rev) {
           live.delete(key);
           break;
         }
-        case "write": version.set(c.branch, (version.get(c.branch) ?? 0) + 1); break;
-        case "merge": version.set(c.name, 0); break;
-        case "fork": if (c.expect === "branch.fork:Forked") version.set(c.name, 0); break;
-        case "publish": c.ordinal = ++publishes; publishAt[publishes] = c; c.lostBefore = (lost.get(c.branch) ?? []).length > 0; break;
-        case "create": case "close": c.removed = "sandbox"; break; // each step now has a Sandbox of its own
-        default: fail(`${number}: unknown call ${c.op}`);
+        case "write":
+          version.set(c.branch, (version.get(c.branch) ?? 0) + 1);
+          break;
+        case "merge":
+          version.set(c.name, 0);
+          break;
+        case "fork":
+          if (c.expect === "branch.fork:Forked") version.set(c.name, 0);
+          break;
+        case "publish":
+          c.ordinal = ++publishes;
+          publishAt[publishes] = c;
+          c.lostBefore = (lost.get(c.branch) ?? []).length > 0;
+          break;
+        case "create":
+        case "close":
+          c.removed = "sandbox";
+          break; // each step now has a Sandbox of its own
+        default:
+          fail(`${number}: unknown call ${c.op}`);
       }
     }
   }
   if (live.size) fail(`Workspaces left mounted at the end: ${[...live.keys()].join(", ")}`);
   for (const w of lifetimes) {
     // a Workspace with no command left is not mounted; the others' mounts and unmounts are placed per step
-    for (const c of w.calls) if (c.op === "mount" || c.op === "unmount" || !w.kept) c.removed ??= w.kept ? "placed" : "nothing";
+    for (const c of w.calls)
+      if (c.op === "mount" || c.op === "unmount" || !w.kept) c.removed ??= w.kept ? "placed" : "nothing";
   }
 
   // ---------------------------------------------------------------- Workspaces per step
@@ -280,21 +368,25 @@ function convert(name, repo, rev) {
   // together: their calls go to the step of the group's first command
   const kept = lifetimes.filter((w) => w.kept);
   const group = new Map(kept.map((w) => [w, [w]]));
-  for (const a of kept) for (const b of kept) {
-    if (a === b || a.branch !== b.branch || a.agent !== b.agent || group.get(a) === group.get(b)) continue;
-    if (b.mount.seq > a.mount.seq && b.mount.seq < a.unmount.seq) {
-      const merged = [...group.get(a), ...group.get(b)];
-      for (const w of merged) group.set(w, merged);
+  for (const a of kept)
+    for (const b of kept) {
+      if (a === b || a.branch !== b.branch || a.agent !== b.agent || group.get(a) === group.get(b)) continue;
+      if (b.mount.seq > a.mount.seq && b.mount.seq < a.unmount.seq) {
+        const merged = [...group.get(a), ...group.get(b)];
+        for (const w of merged) group.set(w, merged);
+      }
     }
-  }
   const blocksAt = new Map(); // run number -> [{ at, items }]
   const together = [];
   for (const members of new Set(group.values())) {
     members.sort((x, y) => x.mount.seq - y.mount.seq);
-    const work = members.flatMap((w) => w.calls.filter((c) => !c.removed && (c.op === "exec" || c.op === "commit"))).sort((x, y) => x.seq - y.seq);
+    const work = members
+      .flatMap((w) => w.calls.filter((c) => !c.removed && (c.op === "exec" || c.op === "commit")))
+      .sort((x, y) => x.seq - y.seq);
     // a command runs in its own step (a Commit in its command's), or in the group's first when the group has several Workspaces
     const stepOf = (c) => (members.length > 1 ? work[0].number : c.op === "exec" ? c.number : c.after.number);
-    if (members.length > 1) together.push({ members, steps: [...new Set(members.flatMap((w) => w.calls.map((c) => c.number)))].sort() });
+    if (members.length > 1)
+      together.push({ members, steps: [...new Set(members.flatMap((w) => w.calls.map((c) => c.number)))].sort() });
     const byStep = new Map();
     for (const c of work) {
       const n = stepOf(c);
@@ -312,7 +404,10 @@ function convert(name, repo, rev) {
       const items = [
         ...here.map((w) => ({ op: "mount", w })),
         ...cs,
-        ...here.slice().sort((x, y) => x.unmount.seq - y.unmount.seq).map((w) => ({ op: "unmount", w })),
+        ...here
+          .slice()
+          .sort((x, y) => x.unmount.seq - y.unmount.seq)
+          .map((w) => ({ op: "unmount", w })),
       ];
       if (!blocksAt.has(n)) blocksAt.set(n, []);
       blocksAt.get(n).push({ at, items });
@@ -341,17 +436,24 @@ function convert(name, repo, rev) {
   const planned = new Map(); // run number -> its planned step
   for (const [agent, steps] of Object.entries(old.agents)) {
     const out = [];
-    let phase = null, callsInTurn = 0, dropped = [];
+    let phase = null,
+      callsInTurn = 0,
+      dropped = [];
     for (const step of steps) {
       if ("pause" in step) continue;
       if (step.bash) {
         counts.recordedSteps++;
         const [call, ...more] = step.bash.run ?? [];
-        if (!call || more.length || call[0] !== "step" || call[1] !== name) fail(`${agent}: a bash step that is not one recorded step: ${JSON.stringify(step.bash)}`);
+        if (!call || more.length || call[0] !== "step" || call[1] !== name)
+          fail(`${agent}: a bash step that is not one recorded step: ${JSON.stringify(step.bash)}`);
         const run = runs.get(call[2]) ?? fail(`${agent}: no run/${call[2]}.json`);
         if (run.agent !== agent) fail(`${call[2]} is ${run.agent}'s, in ${agent}'s steps`);
         const p = plan(call[2]);
-        if (!p) { dropped.push(call[2]); if (step.phase && !phase) phase = step.phase; continue; }
+        if (!p) {
+          dropped.push(call[2]);
+          if (step.phase && !phase) phase = step.phase;
+          continue;
+        }
         counts.keptSteps++;
         p.phase = step.phase ?? phase;
         p.timeoutMs = step.bash.timeoutMs;
@@ -369,7 +471,10 @@ function convert(name, repo, rev) {
         if (!callsInTurn) {
           // a turn with no call left is the reply alone; next to a wait for children it needs a call
           const before = out[out.length - 1];
-          if (step.until || (before?.kind === "reply" && before.step.until)) fail(`${agent}: a turn with no call left next to a wait for children (${dropped.map(idOf).join(", ") || "no records"})`);
+          if (step.until || (before?.kind === "reply" && before.step.until))
+            fail(
+              `${agent}: a turn with no call left next to a wait for children (${dropped.map(idOf).join(", ") || "no records"})`,
+            );
           counts.replyOnly++;
           if (dropped.length) next.note = `records ${dropped.map(idOf).join(", ")}: no call left`;
         }
@@ -379,13 +484,21 @@ function convert(name, repo, rev) {
         continue;
       }
       const tools = ["subagent", "send_message"].filter((t) => t in step);
-      if (tools.length !== 1) fail(`${agent}: a step this converter does not know: ${JSON.stringify(step).slice(0, 200)}`);
+      if (tools.length !== 1)
+        fail(`${agent}: a step this converter does not know: ${JSON.stringify(step).slice(0, 200)}`);
       const next = { [tools[0]]: step[tools[0]] };
       const prompt = tools[0] === "subagent" ? PROMPTS[name]?.[step.subagent.description] : undefined;
       if (prompt) next.subagent = { ...step.subagent, prompt };
       for (const k of ["say", "phase", "note"]) if (step[k] !== undefined) next[k] = step[k];
-      if (phase && !next.phase) { next.phase = phase; phase = null; }
-      out.push({ kind: tools[0], step: next, to: tools[0] === "subagent" ? step.subagent.description : String(step.send_message.agent_id).slice(1) });
+      if (phase && !next.phase) {
+        next.phase = phase;
+        phase = null;
+      }
+      out.push({
+        kind: tools[0],
+        step: next,
+        to: tools[0] === "subagent" ? step.subagent.description : String(step.send_message.agent_id).slice(1),
+      });
       callsInTurn++;
     }
     agents[agent] = out;
@@ -396,7 +509,12 @@ function convert(name, repo, rev) {
   const all = [...runs.values()].flatMap((r) => r.calls);
   const madeBy = new Map(); // Branch -> [call | null] by history index
   for (const [branch, h] of Object.entries(history?.branches ?? {})) {
-    const candidates = all.filter((c) => (c.op === "write" && c.branch === branch) || (c.op === "merge" && c.name === branch) || (c.op === "commit" && c.w.branch === branch));
+    const candidates = all.filter(
+      (c) =>
+        (c.op === "write" && c.branch === branch) ||
+        (c.op === "merge" && c.name === branch) ||
+        (c.op === "commit" && c.w.branch === branch),
+    );
     let from = 0;
     const made = h.commits.map((entry) => {
       const k = candidates.findIndex((c, i) => i >= from && c.message === entry.message);
@@ -404,7 +522,9 @@ function convert(name, repo, rev) {
       from = k + 1;
       return candidates[k];
     });
-    made.forEach((c, i) => { if (c) c.historyRef = `${branch}#${i}`; });
+    made.forEach((c, i) => {
+      if (c) c.historyRef = `${branch}#${i}`;
+    });
     madeBy.set(branch, made);
   }
   const printing = (c) => !c.removed && (c.op === "write" || c.op === "merge" || c.op === "commit");
@@ -422,13 +542,18 @@ function convert(name, repo, rev) {
     if (layer) {
       // a Layer of main is not a Commit: main's head, when no later publish came before the fork
       const p = publishAt[Number(layer[1])] ?? fail(`${where}: no publish made it`);
-      if (p.seq > fork.seq || publishAt.slice(Number(layer[1]) + 1).some((x) => x && x.seq < fork.seq)) fail(`${where}: main's head then was not ${fork.from}`);
+      if (p.seq > fork.seq || publishAt.slice(Number(layer[1]) + 1).some((x) => x && x.seq < fork.seq))
+        fail(`${where}: main's head then was not ${fork.from}`);
       refCounts.main++;
       refNotes.push(`${where}: main's head (main showed ${fork.from} then)`);
       continue;
     }
     const [, branch, index] = /^(.+)#([0-9]+)$/.exec(fork.from) ?? [];
-    if (!branch) { fork.fromArg = { branch: fork.from }; refCounts.branch++; continue; }
+    if (!branch) {
+      fork.fromArg = { branch: fork.from };
+      refCounts.branch++;
+      continue;
+    }
     const made = madeBy.get(branch) ?? fail(`${where}: no recorded history of ${branch}`);
     if (!(Number(index) < made.length)) fail(`${where}: past ${branch}'s recorded Commits`);
     // the recorded Commit, or the one before it this scenario makes
@@ -442,12 +567,23 @@ function convert(name, repo, rev) {
       refCounts.head++;
       refNotes.push(`${where}: ${branch}'s head, which the record forked from (${why})`);
     };
-    if (!producer) { headFallback("this scenario makes none of its Commits up to it"); continue; }
+    if (!producer) {
+      headFallback("this scenario makes none of its Commits up to it");
+      continue;
+    }
     const ref = producer.historyRef;
     const step = stepOfCall(producer);
     const prints = step.items.filter(printing);
-    if (!prints.every(deterministic)) { headFallback(`its step ${idOf(step.number)} makes a Commit that may be UpToDate, so the ids it prints are not fixed`); continue; }
-    const tag = i === Number(index) ? "" : `; this scenario does not make ${fork.from} (its command is dropped), so ${ref}, the one before it`;
+    if (!prints.every(deterministic)) {
+      headFallback(
+        `its step ${idOf(step.number)} makes a Commit that may be UpToDate, so the ids it prints are not fixed`,
+      );
+      continue;
+    }
+    const tag =
+      i === Number(index)
+        ? ""
+        : `; this scenario does not make ${fork.from} (its command is dropped), so ${ref}, the one before it`;
     const refs = prints.map((c, k) => c.historyRef ?? `${idOf(step.number)}.${k}`);
     if (producer.agent === fork.agent) {
       step.commits = refs;
@@ -458,16 +594,22 @@ function convert(name, repo, rev) {
     }
     // another agent's: the producer's reply that closes the turn carries it, when the user waits for that turn first
     const carrier = carrierOf(producer.agent, step, fork.agent, user);
-    if (!carrier) { headFallback(`no reply of ${producer.agent} reaches ${fork.agent} before it`); continue; }
+    if (!carrier) {
+      headFallback(`no reply of ${producer.agent} reaches ${fork.agent} before it`);
+      continue;
+    }
     step.commits = refs;
     replyEdits.set(carrier, [...new Set([...(replyEdits.get(carrier) ?? []), ref])]);
     fork.fromArg = { ref };
     refCounts.message++;
-    refNotes.push(`${where}: ${ref} from ${producer.agent}'s ${idOf(step.number)}, carried to ${fork.agent} by ${producer.agent}'s reply closing that turn${tag}`);
+    refNotes.push(
+      `${where}: ${ref} from ${producer.agent}'s ${idOf(step.number)}, carried to ${fork.agent} by ${producer.agent}'s reply closing that turn${tag}`,
+    );
   }
   /** The reply of child `from` that closes the turn holding `step`, when its parent `to` waits for that turn before `use`. */
   function carrierOf(from, step, to, use) {
-    const theirs = agents[from], ours = agents[to];
+    const theirs = agents[from],
+      ours = agents[to];
     const k = theirs.indexOf(step);
     const turn = theirs.slice(0, k).filter((s) => s.kind === "reply").length;
     const reply = theirs.slice(k).find((s) => s.kind === "reply");
@@ -479,27 +621,32 @@ function convert(name, repo, rev) {
     }
     return null;
   }
-  for (const [reply, refs] of replyEdits) reply.step.reply = `${reply.step.reply} ${refs.map((r) => `${r.replace(/#[0-9]+$/, "")} is at Commit {{commit:${r}}}.`).join(" ")}`;
+  for (const [reply, refs] of replyEdits)
+    reply.step.reply = `${reply.step.reply} ${refs.map((r) => `${r.replace(/#[0-9]+$/, "")} is at Commit {{commit:${r}}}.`).join(" ")}`;
 
   // ---------------------------------------------------------------- seed and changes
   const additions = SEED_ADDITIONS[name] ?? {};
   const changeFiles = new Map();
   const transform = (changes) => {
     if (!additions["/.cargo/config.toml"]) return changes;
-    return changes.filter((ch) => !(ch.op === "mkdir" && additions[ch.path])).map((ch) => {
-      if (ch.op !== "write" || ch.path !== "/.cargo/config.toml") return ch;
-      if (/^\[build\]/m.test(ch.content) || !/^\[net\]\nretry = 0$/m.test(ch.content)) fail("the recorded .cargo/config.toml has a [build] table or no net.retry = 0");
-      return { ...ch, content: `${CARGO_BUILD}${ch.content}` };
-    });
+    return changes
+      .filter((ch) => !(ch.op === "mkdir" && additions[ch.path]))
+      .map((ch) => {
+        if (ch.op !== "write" || ch.path !== "/.cargo/config.toml") return ch;
+        if (/^\[build\]/m.test(ch.content) || !/^\[net\]\nretry = 0$/m.test(ch.content))
+          fail("the recorded .cargo/config.toml has a [build] table or no net.retry = 0");
+        return { ...ch, content: `${CARGO_BUILD}${ch.content}` };
+      });
   };
-  for (const steps of Object.values(agents)) for (const s of steps) {
-    if (s.kind !== "bash") continue;
-    const writes = s.items.filter((c) => c.op === "write");
-    writes.forEach((c, k) => {
-      c.file = writes.length > 1 ? `${s.number}-${k + 1}.json` : `${s.number}.json`;
-      changeFiles.set(c.file, transform(c.changes));
-    });
-  }
+  for (const steps of Object.values(agents))
+    for (const s of steps) {
+      if (s.kind !== "bash") continue;
+      const writes = s.items.filter((c) => c.op === "write");
+      writes.forEach((c, k) => {
+        c.file = writes.length > 1 ? `${s.number}-${k + 1}.json` : `${s.number}.json`;
+        changeFiles.set(c.file, transform(c.changes));
+      });
+    }
 
   // ---------------------------------------------------------------- commands
   /** The exits a recorded exec allows ("sandbox.exec:exit:1|0"), the recorded one first. */
@@ -509,7 +656,10 @@ function convert(name, repo, rev) {
     if (!codes.includes(String(c.exit))) codes.unshift(String(c.exit));
     return [...new Set(codes)];
   };
-  const streams = (c) => { const codes = exits(c); return codes.length === 1 && codes[0] === "0"; };
+  const streams = (c) => {
+    const codes = exits(c);
+    return codes.length === 1 && codes[0] === "0";
+  };
   const commandOf = (c) => simplify(name === "depot" ? cargo(c.command) : c.command);
   const wsNames = (s) => {
     const ws = [...new Set(s.items.filter((c) => c.op === "mount").map((c) => c.w))];
@@ -517,12 +667,16 @@ function convert(name, repo, rev) {
   };
 
   function renderCli(s, what) {
-    const lines = [`# ${what}`], expect = [];
+    const lines = [`# ${what}`],
+      expect = [];
     const vars = wsNames(s);
     const firstMount = s.items.findIndex((c) => c.op === "mount");
     const lastUnmount = s.items.map((c) => c.op).lastIndexOf("unmount");
     s.items.forEach((c, i) => {
-      if (i === firstMount) { lines.push("sb=$(layerfs sandbox create | jq -r .sandbox)"); expect.push("sandbox.create:ok"); }
+      if (i === firstMount) {
+        lines.push("sb=$(layerfs sandbox create | jq -r .sandbox)");
+        expect.push("sandbox.create:ok");
+      }
       switch (c.op) {
         case "mount":
           lines.push(`${vars.get(c.w)}=$(layerfs workspace mount "$sb" ${q(c.w.branch)} | jq -r .ws)`);
@@ -538,7 +692,9 @@ function convert(name, repo, rev) {
             lines.push(`IFS= read -r -d '' cmd <<'${end}'`, command, end);
             arg = '"$cmd"';
           }
-          lines.push(`layerfs workspace exec "$${vars.get(c.w)}" ${arg}${msg(c.message)}${streams(c) ? " --stream" : ""}`);
+          lines.push(
+            `layerfs workspace exec "$${vars.get(c.w)}" ${arg}${msg(c.message)}${streams(c) ? " --stream" : ""}`,
+          );
           expect.push(`workspace.exec:exit:${exits(c).join("|")}`);
           break;
         }
@@ -555,7 +711,11 @@ function convert(name, repo, rev) {
           expect.push("fs.apply:Committed");
           break;
         case "fork": {
-          const from = c.fromArg?.ref ? ` {{commit:${c.fromArg.ref}}}` : c.fromArg?.branch ? ` ${q(c.fromArg.branch)}` : "";
+          const from = c.fromArg?.ref
+            ? ` {{commit:${c.fromArg.ref}}}`
+            : c.fromArg?.branch
+              ? ` ${q(c.fromArg.branch)}`
+              : "";
           lines.push(`layerfs branch fork ${q(c.name)}${from}`);
           expect.push(c.expect);
           break;
@@ -571,18 +731,24 @@ function convert(name, repo, rev) {
           lines.push(`layerfs branch publish ${q(c.branch)}`);
           expect.push(c.lostBefore ? "branch.publish:Added|NoChanges" : c.expect);
           break;
-        default: fail(`${s.number}: unknown call ${c.op}`);
+        default:
+          fail(`${s.number}: unknown call ${c.op}`);
       }
-      if (i === lastUnmount) { lines.push('layerfs sandbox close "$sb"'); expect.push("sandbox.close:Closed"); }
+      if (i === lastUnmount) {
+        lines.push('layerfs sandbox close "$sb"');
+        expect.push("sandbox.close:Closed");
+      }
     });
     // the call's exit is its last line's: 125 when LayerFS refuses that call
     const last = s.items[s.items.length - 1];
-    const refused = s.items.length - 1 !== lastUnmount && last.expect && !/:(Forked|Merged|Added|Committed)$/.test(last.expect);
+    const refused =
+      s.items.length - 1 !== lastUnmount && last.expect && !/:(Forked|Merged|Added|Committed)$/.test(last.expect);
     return { command: lines.join("\n"), expect, exit: refused ? 125 : 0 };
   }
 
   function renderSdk(s, what) {
-    const expect = [], body = [];
+    const expect = [],
+      body = [];
     const vars = wsNames(s);
     const firstMount = s.items.findIndex((c) => c.op === "mount");
     const result = s.items.some((c) => ["commit", "write", "merge"].includes(c.op));
@@ -590,7 +756,10 @@ function convert(name, repo, rev) {
     if (result || caught) body.push(`let ${[result && "r", caught && "run"].filter(Boolean).join(", ")};`);
     const say = "console.log(JSON.stringify({ kind: r.kind, head: r.head }));";
     s.items.forEach((c, i) => {
-      if (i === firstMount) { body.push('({ sandbox } = await lf.sandbox.create());'); expect.push("sandbox.create:ok"); }
+      if (i === firstMount) {
+        body.push("({ sandbox } = await lf.sandbox.create());");
+        expect.push("sandbox.create:ok");
+      }
       switch (c.op) {
         case "mount":
           body.push(`${vars.get(c.w)} = await lf.workspace.mount(sandbox, ${js(c.w.branch)});`);
@@ -598,30 +767,51 @@ function convert(name, repo, rev) {
           break;
         case "exec": {
           const args = `${vars.get(c.w)}, ${js(commandOf(c))}, ${js(c.message ?? null)}`;
-          if (streams(c)) body.push(`await lf.workspace.exec(${args}, { stdout: process.stdout, stderr: process.stderr });`);
-          else body.push(`run = await lf.workspace.exec(${args});`, "console.log(`exit ${run.exitCode}`);", "process.stdout.write(run.stdout);", "process.stderr.write(run.stderr);");
+          if (streams(c))
+            body.push(`await lf.workspace.exec(${args}, { stdout: process.stdout, stderr: process.stderr });`);
+          else
+            body.push(
+              `run = await lf.workspace.exec(${args});`,
+              "console.log(`exit ${run.exitCode}`);",
+              "process.stdout.write(run.stdout);",
+              "process.stderr.write(run.stderr);",
+            );
           expect.push(`workspace.exec:exit:${exits(c).join("|")}`);
           break;
         }
         case "commit":
-          body.push(`r = await lf.workspace.commit(${vars.get(c.w)}, ${js(c.message ?? null)}${c.force ? ", true" : ""});`, say);
+          body.push(
+            `r = await lf.workspace.commit(${vars.get(c.w)}, ${js(c.message ?? null)}${c.force ? ", true" : ""});`,
+            say,
+          );
           expect.push(`workspace.commit:${c.kinds.join("|")}`);
           break;
-        case "unmount": break; // in finally
+        case "unmount":
+          break; // in finally
         case "write":
-          body.push(`r = await lf.fs.apply(${js(c.branch)}, JSON.parse(readFileSync("{{scenario}}/changes/${c.file}", "utf8")), ${js(c.message ?? null)});`, say);
+          body.push(
+            `r = await lf.fs.apply(${js(c.branch)}, JSON.parse(readFileSync("{{scenario}}/changes/${c.file}", "utf8")), ${js(c.message ?? null)});`,
+            say,
+          );
           expect.push("fs.apply:Committed");
           break;
         case "fork": {
           if (c.expect !== "branch.fork:Forked") fail(`${s.number}: an sdk step's fork expects ${c.expect}`);
-          const from = c.fromArg?.ref ? ', "{{commit:' + c.fromArg.ref + '}}"' : c.fromArg?.branch ? `, ${js(c.fromArg.branch)}` : "";
+          const from = c.fromArg?.ref
+            ? ', "{{commit:' + c.fromArg.ref + '}}"'
+            : c.fromArg?.branch
+              ? `, ${js(c.fromArg.branch)}`
+              : "";
           body.push(`console.log((await lf.branch.fork(${js(c.name)}${from})).kind);`);
           expect.push(c.expect);
           break;
         }
         case "merge":
           if (c.expect !== "branch.merge:Merged") fail(`${s.number}: merge expects ${c.expect}`);
-          body.push(`r = await lf.branch.merge(${js(c.a)}, ${js(c.b)}, ${js(c.name)}${c.message ? `, ${js(c.message)}` : ""});`, say);
+          body.push(
+            `r = await lf.branch.merge(${js(c.a)}, ${js(c.b)}, ${js(c.name)}${c.message ? `, ${js(c.message)}` : ""});`,
+            say,
+          );
           expect.push(c.expect);
           break;
         case "publish":
@@ -630,7 +820,8 @@ function convert(name, repo, rev) {
           body.push(`console.log((await lf.branch.publish(${js(c.branch)})).kind);`);
           expect.push(c.lostBefore ? "branch.publish:Added|NoChanges" : c.expect);
           break;
-        default: fail(`${s.number}: unknown call ${c.op}`);
+        default:
+          fail(`${s.number}: unknown call ${c.op}`);
       }
     });
     const names = [...vars.values()];
@@ -666,7 +857,11 @@ function convert(name, repo, rev) {
       const { command, expect, exit } = render(s, what);
       const execsHere = s.items.filter((c) => c.op === "exec");
       const bash = { description: what, command };
-      if (execsHere.length) bash.timeoutMs = Math.max(s.timeoutMs ?? 0, execsHere.reduce((n, c) => n + timeoutOf(commandOf(c)) * 1000, 0) + 90000);
+      if (execsHere.length)
+        bash.timeoutMs = Math.max(
+          s.timeoutMs ?? 0,
+          execsHere.reduce((n, c) => n + timeoutOf(commandOf(c)) * 1000, 0) + 90000,
+        );
       const next = { bash };
       if (s.phase) next.phase = s.phase;
       next.note = noteOf(s);
@@ -678,11 +873,33 @@ function convert(name, repo, rev) {
   }
   function noteOf(s) {
     // the recorded steps whose calls this step makes: a Workspace's mount in its first step, its unmount in its last
-    const absorbed = [...new Set(s.items.flatMap((c) => (c.op === "mount" ? (c.w.steps[0] === s.number ? [c.w.mount.number] : []) : c.op === "unmount" ? (c.w.steps.at(-1) === s.number ? [c.w.unmount.number] : []) : [c.number])))].filter((n) => n !== s.number).sort();
+    const absorbed = [
+      ...new Set(
+        s.items.flatMap((c) =>
+          c.op === "mount"
+            ? c.w.steps[0] === s.number
+              ? [c.w.mount.number]
+              : []
+            : c.op === "unmount"
+              ? c.w.steps.at(-1) === s.number
+                ? [c.w.unmount.number]
+                : []
+              : [c.number],
+        ),
+      ),
+    ]
+      .filter((n) => n !== s.number)
+      .sort();
     const parts = [`record ${idOf(s.number)}${absorbed.length ? ` (with ${absorbed.map(idOf).join(", ")})` : ""}`];
     for (const c of s.items.filter((c) => c.op === "exec")) {
-      if (c.flaky) parts.push(`exit ${c.exit} in the record came from a racing test only: ${c.flaky.tests?.join("; ") ?? `${c.flaky.errors.join(" or ")} in ${c.flaky.where}`}`);
-      if (c.sandboxOwn) parts.push(`a process census written for the recorded runtime; it may also find the Sandbox's own ${c.sandboxOwn.join(", ")}`);
+      if (c.flaky)
+        parts.push(
+          `exit ${c.exit} in the record came from a racing test only: ${c.flaky.tests?.join("; ") ?? `${c.flaky.errors.join(" or ")} in ${c.flaky.where}`}`,
+        );
+      if (c.sandboxOwn)
+        parts.push(
+          `a process census written for the recorded runtime; it may also find the Sandbox's own ${c.sandboxOwn.join(", ")}`,
+        );
     }
     return parts.join("; ");
   }
@@ -701,18 +918,27 @@ function convert(name, repo, rev) {
     seedText = `${JSON.stringify(seed, null, 1)}\n`;
   }
   writeFileSync(join(folder, "seed.json"), seedText);
-  try { readSeed(join(folder, "seed.json")); } catch (error) { fail(error.message); }
+  try {
+    readSeed(join(folder, "seed.json"));
+  } catch (error) {
+    fail(error.message);
+  }
 
-  for (const [file, changes] of changeFiles) writeFileSync(join(folder, "changes", file), `${JSON.stringify(changes, null, 1)}\n`);
+  for (const [file, changes] of changeFiles)
+    writeFileSync(join(folder, "changes", file), `${JSON.stringify(changes, null, 1)}\n`);
 
   // final.json: main's hashes of the files the seed's additions change
   let finalText = source.finalText;
   const finalChanged = [];
   if (additions["/.cargo/config.toml"]) {
     const sha = (text) => createHash("sha256").update(text).digest("hex");
-    const written = all.filter((c) => c.op === "write").flatMap((c) => c.changes).filter((ch) => ch.op === "write" && ch.path === "/.cargo/config.toml");
+    const written = all
+      .filter((c) => c.op === "write")
+      .flatMap((c) => c.changes)
+      .filter((ch) => ch.op === "write" && ch.path === "/.cargo/config.toml");
     const last = written[written.length - 1];
-    if (!last || final.main["/.cargo/config.toml"] !== sha(last.content)) fail("main's recorded .cargo/config.toml is not the last one written");
+    if (!last || final.main["/.cargo/config.toml"] !== sha(last.content))
+      fail("main's recorded .cargo/config.toml is not the last one written");
     const now = sha(`${CARGO_BUILD}${last.content}`);
     finalChanged.push(`main /.cargo/config.toml: ${final.main["/.cargo/config.toml"]} -> ${now}`);
     final.main["/.cargo/config.toml"] = now;
@@ -722,7 +948,16 @@ function convert(name, repo, rev) {
   writeFileSync(join(folder, "final.json"), finalText);
 
   const { tags, blurb } = META[name];
-  const scenario = { type: "layerfs-scenario", version: 3, title: old.title, blurb, order: old.order, tags, fixture: "seed.json", agents: scenarioAgents };
+  const scenario = {
+    type: "layerfs-scenario",
+    version: 3,
+    title: old.title,
+    blurb,
+    order: old.order,
+    tags,
+    fixture: "seed.json",
+    agents: scenarioAgents,
+  };
   writeFileSync(join(folder, "scenario.json"), `${JSON.stringify(scenario, null, 1)}\n`);
 
   // ---------------------------------------------------------------- summary
@@ -730,9 +965,15 @@ function convert(name, repo, rev) {
   const keptExecs = execs.filter((c) => !c.removed);
   const seconds = (list) => (list.reduce((n, c) => n + c.ms, 0) / 1000).toFixed(1);
   const lostCommits = [...lost.values()].flat();
-  const required = new Set(Object.entries(history?.branches ?? {}).flatMap(([b, h]) => h.commits.filter((c) => c.via === "exec" && !c.optional).map((c) => `${b}\0${c.message}`)));
+  const required = new Set(
+    Object.entries(history?.branches ?? {}).flatMap(([b, h]) =>
+      h.commits.filter((c) => c.via === "exec" && !c.optional).map((c) => `${b}\0${c.message}`),
+    ),
+  );
   const lostTracked = lostCommits.filter((c) => required.has(`${c.w.branch}\0${c.message}`));
-  const bashSteps = Object.values(agents).flat().filter((s) => s.kind === "bash");
+  const bashSteps = Object.values(agents)
+    .flat()
+    .filter((s) => s.kind === "bash");
   const lines = [
     `# ${old.title}: conversion`,
     "",
@@ -768,11 +1009,20 @@ function convert(name, repo, rev) {
     "",
     "Workspaces the record had mounted on one Branch at once, kept together in one step:",
     "",
-    ...(together.length ? together.map((t) => `- ${t.members.map((w) => `${w.branch} ${w.mount.ws}`).join(" and ")}: records ${t.steps.map(idOf).join(", ")}`) : ["- none"]),
+    ...(together.length
+      ? together.map(
+          (t) =>
+            `- ${t.members.map((w) => `${w.branch} ${w.mount.ws}`).join(" and ")}: records ${t.steps.map(idOf).join(", ")}`,
+        )
+      : ["- none"]),
     "",
     "Commands dropped as identical re-runs (step: same as step):",
     "",
-    ...execs.filter((c) => c.removed === "rerun").map((c) => `- ${runs.get(c.number).step}: same as ${runs.get(c.sameAs).step}, nothing changed on ${c.branch} since`),
+    ...execs
+      .filter((c) => c.removed === "rerun")
+      .map(
+        (c) => `- ${runs.get(c.number).step}: same as ${runs.get(c.sameAs).step}, nothing changed on ${c.branch} since`,
+      ),
     ...(by("exec", "rerun") ? [] : ["- none"]),
     "",
     "Commands dropped as date-dependent:",
@@ -782,23 +1032,39 @@ function convert(name, repo, rev) {
     "",
     "Commands kept that repeat an earlier kept command on the same Branch, and why they run again:",
     "",
-    ...keptExecs.filter((c) => c.ranAgain).map((c) => `- ${runs.get(c.number).step}: same as ${runs.get(c.ranAgain.as).step}; ${c.ranAgain.why}`),
+    ...keptExecs
+      .filter((c) => c.ranAgain)
+      .map((c) => `- ${runs.get(c.number).step}: same as ${runs.get(c.ranAgain.as).step}; ${c.ranAgain.why}`),
     ...(keptExecs.some((c) => c.ranAgain) ? [] : ["- none"]),
     "",
   ];
   if (verificationOff) {
-    lines.push("Verification commands kept (install, a Branch's last build or test, or the latest build or prepare before that test):", "");
-    for (const c of keptExecs.filter((c) => c.verification)) lines.push(`- ${runs.get(c.number).step} (${c.branch}; ${[!c.browser && INSTALL.test(c.command) && "install", BUILD.test(c.command) && "build", PREPARE.test(c.command) && "prepare", TEST.test(c.command) && "test"].filter(Boolean).join(", ")}; ${(c.ms / 1000).toFixed(1)} s)`);
+    lines.push(
+      "Verification commands kept (install, a Branch's last build or test, or the latest build or prepare before that test):",
+      "",
+    );
+    for (const c of keptExecs.filter((c) => c.verification))
+      lines.push(
+        `- ${runs.get(c.number).step} (${c.branch}; ${[!c.browser && INSTALL.test(c.command) && "install", BUILD.test(c.command) && "build", PREPARE.test(c.command) && "prepare", TEST.test(c.command) && "test"].filter(Boolean).join(", ")}; ${(c.ms / 1000).toFixed(1)} s)`,
+      );
     lines.push("");
   }
   if (Object.keys(additions).length) {
     lines.push("Seed additions (tools/replay/check.mjs accepts exactly these):", "");
-    for (const [path, e] of Object.entries(additions)) lines.push(`- ${path} (${e.type}${e.text ? `: ${JSON.stringify(e.text)}` : ""})`);
-    lines.push("", "The settings every recorded command set by environment (`CARGO_TARGET_DIR`, `CARGO_BUILD_JOBS=3`, `CARGO_NET_RETRY=0`, an empty `RUSTC_WRAPPER` and `RUSTC_WORKSPACE_WRAPPER`) are in the seed's `.cargo/config.toml`; `RUSTUP_HOME` is left to the image. `CARGO_HOME` cannot be set there, so each cargo command is prefixed with `CARGO_HOME=$PWD/.cargo-home`. The recorded first write replaces `.cargo/config.toml`, so the file it writes carries the same `[build]` table ahead of its recorded content, and its `mkdir /.cargo` is dropped (the seed has the folder).", "");
+    for (const [path, e] of Object.entries(additions))
+      lines.push(`- ${path} (${e.type}${e.text ? `: ${JSON.stringify(e.text)}` : ""})`);
+    lines.push(
+      "",
+      "The settings every recorded command set by environment (`CARGO_TARGET_DIR`, `CARGO_BUILD_JOBS=3`, `CARGO_NET_RETRY=0`, an empty `RUSTC_WRAPPER` and `RUSTC_WORKSPACE_WRAPPER`) are in the seed's `.cargo/config.toml`; `RUSTUP_HOME` is left to the image. `CARGO_HOME` cannot be set there, so each cargo command is prefixed with `CARGO_HOME=$PWD/.cargo-home`. The recorded first write replaces `.cargo/config.toml`, so the file it writes carries the same `[build]` table ahead of its recorded content, and its `mkdir /.cargo` is dropped (the seed has the folder).",
+      "",
+    );
     lines.push("final.json:", "", ...finalChanged.map((l) => `- ${l}`), "");
   }
   if (lostTracked.length) {
-    lines.push("Recorded Commits with tracked changes this scenario does not make (main's files may differ from final.json where they reached main):", "");
+    lines.push(
+      "Recorded Commits with tracked changes this scenario does not make (main's files may differ from final.json where they reached main):",
+      "",
+    );
     for (const c of lostTracked) lines.push(`- ${c.w.branch}: ${c.message}`);
     lines.push("");
   }
@@ -832,7 +1098,8 @@ function timeoutOf(command) {
   return m ? Number(m[1]) : 110;
 }
 
-const KEYWORD = /^(cd|export|set|unset|source|\.|exec|eval|if|for|while|until|case|\[|\[\[|\{|!|function|declare|local|read|shopt|trap|ulimit|umask)$/;
+const KEYWORD =
+  /^(cd|export|set|unset|source|\.|exec|eval|if|for|while|until|case|\[|\[\[|\{|!|function|declare|local|read|shopt|trap|ulimit|umask)$/;
 /** `timeout N bash -c '<cmd>'` as `timeout N <cmd>` when <cmd> is one simple command; its leading VAR=value words go before timeout. */
 function simplify(command) {
   const m = /^timeout ([0-9]+) bash -c '((?:[^']|'\\'')*)'$/.exec(command);
@@ -847,33 +1114,63 @@ function simplify(command) {
   return [...words.slice(0, k), `timeout ${m[1]}`, ...words.slice(k)].join(" ");
 }
 
-const CARGO_ENV = /^(timeout [0-9]+ bash -c ')export CARGO_HOME="\$PWD\/\.cargo-home" CARGO_TARGET_DIR="\$PWD\/target" CARGO_NET_RETRY=0 CARGO_BUILD_JOBS=3 RUSTUP_HOME=\/usr\/local\/rustup RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER=; /;
+const CARGO_ENV =
+  /^(timeout [0-9]+ bash -c ')export CARGO_HOME="\$PWD\/\.cargo-home" CARGO_TARGET_DIR="\$PWD\/target" CARGO_NET_RETRY=0 CARGO_BUILD_JOBS=3 RUSTUP_HOME=\/usr\/local\/rustup RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER=; /;
 /** Depot's recorded command without its Cargo exports (now in .cargo/config.toml), each cargo command prefixed with CARGO_HOME. */
 function cargo(command) {
   if (!CARGO_ENV.test(command)) {
-    if (/\bcargo\b|CARGO_|RUSTC_/.test(command) && !/<<'AUDIT'/.test(command)) throw new Error(`depot: a Cargo command outside the recorded export line: ${command.slice(0, 200)}`);
+    if (/\bcargo\b|CARGO_|RUSTC_/.test(command) && !/<<'AUDIT'/.test(command))
+      throw new Error(`depot: a Cargo command outside the recorded export line: ${command.slice(0, 200)}`);
     return command;
   }
-  return command.replace(CARGO_ENV, "$1").replace(/(^timeout [0-9]+ bash -c '|; |&& |\|\| )((?:timeout [0-9]+ )?)cargo /g, "$1CARGO_HOME=$$PWD/.cargo-home $2cargo ");
+  return command
+    .replace(CARGO_ENV, "$1")
+    .replace(
+      /(^timeout [0-9]+ bash -c '|; |&& |\|\| )((?:timeout [0-9]+ )?)cargo /g,
+      "$1CARGO_HOME=$$PWD/.cargo-home $2cargo ",
+    );
 }
 
 /** A step's description in readable words: what it does, without the record id. */
 function description(name, run, id) {
   if (name === "depot") {
     const commit = run.calls.find((c) => c.op === "commit");
-    if (commit) return capital(commit.message.replace(/ \(exit [0-9]+\)$/, "").replace(/^final-main acceptance /, "Final main: ").replace(/^(M[0-9]+)( candidate)? /, "$1$2: "));
+    if (commit)
+      return capital(
+        commit.message
+          .replace(/ \(exit [0-9]+\)$/, "")
+          .replace(/^final-main acceptance /, "Final main: ")
+          .replace(/^(M[0-9]+)( candidate)? /, "$1$2: "),
+      );
     const write = run.calls.find((c) => c.op === "write");
     if (write) return capital(write.message.replace(/^(M[0-9]+) /, "$1: "));
     // Branch calls only: say what they do
-    const said = run.calls.flatMap((c) => c.op === "publish" ? [`publish ${c.branch} to main`] : c.op === "fork" ? [`fork ${c.name}`] : c.op === "merge" ? [`merge ${c.a} and ${c.b} into ${c.name}`] : []);
+    const said = run.calls.flatMap((c) =>
+      c.op === "publish"
+        ? [`publish ${c.branch} to main`]
+        : c.op === "fork"
+          ? [`fork ${c.name}`]
+          : c.op === "merge"
+            ? [`merge ${c.a} and ${c.b} into ${c.name}`]
+            : [],
+    );
     const milestone = /-m([0-9]+)\b/.exec(run.step)?.[1];
     if (said.length) {
       const text = said.length > 1 ? `${said.slice(0, -1).join(", ")} and ${said.at(-1)}` : said[0];
       return milestone ? `M${milestone}: ${text}` : capital(text);
     }
-    return capital(run.step.replace(/^[0-9]+-/, "").replace(/-/g, " ").replace(/\bm([0-9]+)\b/g, "M$1"));
+    return capital(
+      run.step
+        .replace(/^[0-9]+-/, "")
+        .replace(/-/g, " ")
+        .replace(/\bm([0-9]+)\b/g, "M$1"),
+    );
   }
-  const text = run.step.slice(id.length).trim().replace(/^[0-9]{3} /, "").replace(/ (exec|execute)$/, "");
+  const text = run.step
+    .slice(id.length)
+    .trim()
+    .replace(/^[0-9]{3} /, "")
+    .replace(/ (exec|execute)$/, "");
   return capital(text || run.step);
 }
 const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);

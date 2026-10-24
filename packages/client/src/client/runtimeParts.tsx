@@ -7,17 +7,48 @@ import { T } from './tokens.ts'
 export const LEVEL_COLOR: Record<Level, string> = { ok: T.ok, degraded: T.warn, down: T.danger }
 export const LEVEL_WORD: Record<Level, string> = { ok: 'ok', degraded: 'needs a look', down: 'down' }
 
-export function Dot({ level, title }: { level: Level, title?: string }) {
-  return <span role="img" aria-label={title ?? LEVEL_WORD[level]} title={title ?? LEVEL_WORD[level]}
-    style={{ display: 'inline-block', flex: 'none', width: 8, height: 8, borderRadius: '50%', background: LEVEL_COLOR[level] }} />
+export function Dot({ level, title }: { level: Level; title?: string }) {
+  return (
+    <span
+      role="img"
+      aria-label={title ?? LEVEL_WORD[level]}
+      title={title ?? LEVEL_WORD[level]}
+      style={{
+        display: 'inline-block',
+        flex: 'none',
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        background: LEVEL_COLOR[level],
+      }}
+    />
+  )
 }
 
 /** Used out of capacity, as a thin bar. */
-export function Meter({ used, capacity }: { used: number, capacity: number }) {
+export function Meter({ used, capacity }: { used: number; capacity: number }) {
   const share = Math.min(1, used / capacity)
   return (
-    <span title={`${used} of ${capacity} Workspaces`} style={{ display: 'inline-block', flex: 'none', width: 64, height: 6, borderRadius: 3, background: T.well, overflow: 'hidden' }}>
-      <span style={{ display: 'block', height: '100%', width: `${share * 100}%`, background: used >= capacity ? T.warn : 'var(--dsw-alias-state-business-primary)' }} />
+    <span
+      title={`${used} of ${capacity} Workspaces`}
+      style={{
+        display: 'inline-block',
+        flex: 'none',
+        width: 64,
+        height: 6,
+        borderRadius: 3,
+        background: T.well,
+        overflow: 'hidden',
+      }}
+    >
+      <span
+        style={{
+          display: 'block',
+          height: '100%',
+          width: `${share * 100}%`,
+          background: used >= capacity ? T.warn : 'var(--dsw-alias-state-business-primary)',
+        }}
+      />
     </span>
   )
 }
@@ -40,10 +71,17 @@ export function usePoll(read: () => void, ms: number, deps: unknown[]) {
   latest.current = read
   useEffect(() => {
     latest.current()
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') latest.current() }, ms)
-    const back = () => { if (document.visibilityState === 'visible') latest.current() }
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') latest.current()
+    }, ms)
+    const back = () => {
+      if (document.visibilityState === 'visible') latest.current()
+    }
     document.addEventListener('visibilitychange', back)
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', back) }
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', back)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 }

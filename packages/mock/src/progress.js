@@ -31,7 +31,11 @@ export class Progress {
     this.stateDir = stateDir;
     const saved = this.read();
     /** root Session id -> { scenario } */
-    this.sessions = new Map(Object.entries(saved.sessions ?? {}).flatMap(([id, at]) => (at.backend && at.backend !== "real" ? [] : [[id, { scenario: at.scenario }]])));
+    this.sessions = new Map(
+      Object.entries(saved.sessions ?? {}).flatMap(([id, at]) =>
+        at.backend && at.backend !== "real" ? [] : [[id, { scenario: at.scenario }]],
+      ),
+    );
     /** subagent Session id -> its run's root Session id; learned from the replies, kept in memory */
     this.children = new Map();
     // A child can fail before its parent receives the subagent tool result.
@@ -41,13 +45,20 @@ export class Progress {
     for (const [savedKey, run] of Object.entries(saved.runs ?? {})) {
       const [key, backend] = savedKey.split(":");
       if (backend && backend !== "real") continue;
-      this.runs.set(key, run.state === "running" ? { ...run, state: "failed", error: "interrupted: dsh web restarted", ended: run.ended ?? run.started } : run);
+      this.runs.set(
+        key,
+        run.state === "running"
+          ? { ...run, state: "failed", error: "interrupted: dsh web restarted", ended: run.ended ?? run.started }
+          : run,
+      );
     }
   }
 
   read() {
     if (!this.file) return {};
-    try { return JSON.parse(readFileSync(this.file, "utf8")); } catch (error) {
+    try {
+      return JSON.parse(readFileSync(this.file, "utf8"));
+    } catch (error) {
       if (error.code === "ENOENT") return {};
       throw error;
     }
@@ -56,14 +67,22 @@ export class Progress {
   write() {
     if (!this.file) return;
     mkdirSync(this.stateDir, { recursive: true, mode: 0o700 });
-    writeFileSync(`${this.file}.tmp`, JSON.stringify({ sessions: Object.fromEntries(this.sessions), runs: Object.fromEntries(this.runs) }, null, 2));
+    writeFileSync(
+      `${this.file}.tmp`,
+      JSON.stringify({ sessions: Object.fromEntries(this.sessions), runs: Object.fromEntries(this.runs) }, null, 2),
+    );
     renameSync(`${this.file}.tmp`, this.file);
   }
 
   /** Fails `run` when it outlived LIMIT_MS; true when it did (now or before). */
   expire(run) {
     if (run?.state === "running" && this.now() - run.started > LIMIT_MS) {
-      Object.assign(run, { state: "failed", error: `over the ${LIMIT_MS / 60000}-minute limit`, timedOut: true, ended: run.started + LIMIT_MS });
+      Object.assign(run, {
+        state: "failed",
+        error: `over the ${LIMIT_MS / 60000}-minute limit`,
+        timedOut: true,
+        ended: run.started + LIMIT_MS,
+      });
       this.write();
     }
     return run?.timedOut === true;
@@ -75,8 +94,15 @@ export class Progress {
     this.sessions.set(sessionId, { scenario });
     const steps = Object.entries(this.scenarios.get(scenario).agents);
     this.runs.set(scenario, {
-      sessionId, project, state: "running", agents: Object.fromEntries(steps.map(([name, list]) => [name, { done: 0, of: list.length }])),
-      phase: null, error: null, timedOut: false, started: this.now(), ended: null,
+      sessionId,
+      project,
+      state: "running",
+      agents: Object.fromEntries(steps.map(([name, list]) => [name, { done: 0, of: list.length }])),
+      phase: null,
+      error: null,
+      timedOut: false,
+      started: this.now(),
+      ended: null,
     });
     this.write();
   }
@@ -103,25 +129,33 @@ export class Progress {
    * @param {string | undefined} sessionId the requesting agent's Session
    */
   report(scenario, agent, reply, sessionId) {
-    const rootId = this.rootOf(sessionId), run = this.runOf(rootId);
+    const rootId = this.rootOf(sessionId),
+      run = this.runOf(rootId);
     if (!run && reply.kind === "error") this.fail(sessionId, agent, reply.message);
     if (!run || run.state !== "running" || this.sessions.get(rootId).scenario !== scenario) return;
     // the subagents this agent started belong to the same run
     for (const child of reply.children ?? []) {
       this.children.set(child, rootId);
       const failure = this.failures.get(child);
-      if (failure) { this.failures.delete(child); this.fail(child, failure.agent, failure.message); }
+      if (failure) {
+        this.failures.delete(child);
+        this.fail(child, failure.agent, failure.message);
+      }
     }
     if (run.state !== "running") return;
     run.agents[agent] = { done: reply.done, of: reply.of };
     if (agent === "root" && reply.phase) run.phase = reply.phase;
     if (reply.kind === "error") this.fail(sessionId, agent, reply.message);
-    else if (agent === "root" && reply.done === reply.of) { Object.assign(run, { state: "passed", ended: this.now() }); this.write(); }
+    else if (agent === "root" && reply.done === reply.of) {
+      Object.assign(run, { state: "passed", ended: this.now() });
+      this.write();
+    }
   }
 
   /** A fatal adapter/child error ends the owning run, even before child registration. */
   fail(sessionId, agent, message) {
-    const root = this.rootOf(sessionId), run = this.runOf(root);
+    const root = this.rootOf(sessionId),
+      run = this.runOf(root);
     if (!run) {
       if (sessionId && !this.sessions.has(root)) this.failures.set(sessionId, { agent, message });
       return;

@@ -6,9 +6,15 @@ import { PROVIDER } from "./adapter.js";
 // would become everyone's default: a scripted model is kept off the default,
 // and other picks are saved as before.
 export function keepDefaultModel(ctx) {
-  const service = ctx.agentDefaultModel, save = service.saveSelection;
+  const service = ctx.agentDefaultModel,
+    save = service.saveSelection;
   service.saveSelection = function (next) {
     return next?.provider === PROVIDER ? Promise.resolve() : save.call(this, next);
   };
-  ctx.effect(() => () => { service.saveSelection = save; }, "layerfs-mock: default model kept");
+  ctx.effect(
+    () => () => {
+      service.saveSelection = save;
+    },
+    "layerfs-mock: default model kept",
+  );
 }

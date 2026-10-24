@@ -14,7 +14,8 @@ export async function storageOf({ layerfs, backend }) {
   const { init = null, ...store } = await backend.store.project.get_storage();
   const listed = await layerfs.project.list_branches(BRANCHES, 0);
   const branches = listed.items.map((b) => b.name).filter((name) => name !== "main");
-  const seen = new Set(), commits = [];
+  const seen = new Set(),
+    commits = [];
   let partial = listed.hasMore;
   for (const branch of branches) {
     const page = await layerfs.branch.list_commits(branch, PER_BRANCH, 0);
@@ -22,9 +23,24 @@ export async function storageOf({ layerfs, backend }) {
     for (const c of page.items) {
       if (seen.has(c.id)) continue;
       seen.add(c.id);
-      commits.push({ id: c.id, time: c.time, message: c.message ?? null, via: c.via, logical: c.logical, newCanonical: c.newCanonical, newStored: c.newStored, newMetadata: c.newMetadata });
+      commits.push({
+        id: c.id,
+        time: c.time,
+        message: c.message ?? null,
+        via: c.via,
+        logical: c.logical,
+        newCanonical: c.newCanonical,
+        newStored: c.newStored,
+        newMetadata: c.newMetadata,
+      });
     }
   }
   commits.sort((a, b) => b.time - a.time);
-  return { store, init, commits: commits.slice(0, KEEP), branches: branches.length, partial: partial || commits.length > KEEP };
+  return {
+    store,
+    init,
+    commits: commits.slice(0, KEEP),
+    branches: branches.length,
+    partial: partial || commits.length > KEEP,
+  };
 }

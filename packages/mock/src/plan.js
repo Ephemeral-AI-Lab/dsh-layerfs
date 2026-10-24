@@ -24,7 +24,8 @@ import { PLACEHOLDER } from "./scenario.js";
 
 /** A child's id in the subagent tool's result, and in its settled notice; a background job's id. */
 const STARTED = /started subagent ([0-9a-f-]{8,})/;
-const SETTLED = /subagent ([0-9a-f-]{8,}) (finished|failed before|was stopped before|ran out of room before|declined the task|ended abnormally)/;
+const SETTLED =
+  /subagent ([0-9a-f-]{8,}) (finished|failed before|was stopped before|ran out of room before|declined the task|ended abnormally)/;
 const JOB = /background job ([A-Za-z0-9_.:-]+)/;
 
 /** The markers dsh's bash tool appends to a command that did not exit 0. */
@@ -35,8 +36,16 @@ const SANDBOX = /"sandbox"\s*:\s*"([^"]+)"/g;
 /** A Workspace in a result or message, as `workspace mount` prints it. */
 const WS = /"ws"\s*:\s*"([^"]+)"/g;
 
-const textOf = (message) => (message.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
-const settledId = (message) => message.role === "user" ? (message.source?.kind === "subagent-settled" ? message.source.senderSessionId : message.source?.childId) ?? textOf(message).match(SETTLED)?.[1] : undefined;
+const textOf = (message) =>
+  (message.content ?? [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+const settledId = (message) =>
+  message.role === "user"
+    ? ((message.source?.kind === "subagent-settled" ? message.source.senderSessionId : message.source?.childId) ??
+      textOf(message).match(SETTLED)?.[1])
+    : undefined;
 
 /** Which of the scenario's agents a conversation belongs to. */
 export function agentOf(scenario, messages) {
@@ -61,11 +70,19 @@ export function agentOf(scenario, messages) {
 export function nextReply(scenario, agent, messages, { traceOf = null, checked = null } = {}) {
   const steps = scenario.agents[agent];
   let index = 0;
-  const children = new Map(), contact = new Map(), jobs = new Map();
-  const reply = placed(steps, () => index, () => [...children.values()]);
-  const results = new Map(), settled = [];
+  const children = new Map(),
+    contact = new Map(),
+    jobs = new Map();
+  const reply = placed(
+    steps,
+    () => index,
+    () => [...children.values()],
+  );
+  const results = new Map(),
+    settled = [];
   // what the agent has seen: the last Sandbox number, and Commit ids by ref
-  let sandbox = null, ws = null;
+  let sandbox = null,
+    ws = null;
   const commits = new Map();
   messages.forEach((m, k) => {
     if (m.role === "tool") results.set(String(m.toolCallId), { text: textOf(m), isError: m.isError === true });
@@ -89,15 +106,20 @@ export function nextReply(scenario, agent, messages, { traceOf = null, checked =
   let replyAt = -1;
   // the children of `until` that have not settled since the agent last
   // contacted them, counting the messages before `before`
-  const unsettled = (until, before) => until.filter((child) => {
-    const id = children.get(child), since = contact.get(child) ?? -1;
-    return !id || !settled.some((s) => s.id === id && s.k > since && s.k < before);
-  });
+  const unsettled = (until, before) =>
+    until.filter((child) => {
+      const id = children.get(child),
+        since = contact.get(child) ?? -1;
+      return !id || !settled.some((s) => s.id === id && s.k > since && s.k < before);
+    });
   // a wait whose children all settled already is not said: saying it would end
   // the turn, and no notice would come to wake the agent again
   const skipWait = (before) => {
     const step = steps[index];
-    if (step?.kind === "reply" && step.until.length && !unsettled(step.until, before).length) { index++; return true; }
+    if (step?.kind === "reply" && step.until.length && !unsettled(step.until, before).length) {
+      index++;
+      return true;
+    }
     return false;
   };
   // after a reply the agent is woken by the children of its `until` settling,
@@ -113,13 +135,23 @@ export function nextReply(scenario, agent, messages, { traceOf = null, checked =
     const calls = (m.content ?? []).filter((b) => b.type === "tool-call");
     if (calls.length) skipWait(k);
     if (!calls.length) {
-      if (steps[index]?.kind === "reply" && woken(k)) { index++; replyAt = k; }
+      if (steps[index]?.kind === "reply" && woken(k)) {
+        index++;
+        replyAt = k;
+      }
       continue;
     }
     const step = steps[index];
-    if (step?.kind !== "call") return reply({ kind: "error", message: `the conversation has a ${calls[0].name} call where ${step ? `${step.at} is a reply` : `${agent} has no steps left`}` });
+    if (step?.kind !== "call")
+      return reply({
+        kind: "error",
+        message: `the conversation has a ${calls[0].name} call where ${step ? `${step.at} is a reply` : `${agent} has no steps left`}`,
+      });
     if (calls.length !== 1 || calls[0].name !== step.call.name) {
-      return reply({ kind: "error", message: `${step.at} calls ${step.call.name}, but the conversation has ${calls.map((c) => c.name).join(", ")}` });
+      return reply({
+        kind: "error",
+        message: `${step.at} calls ${step.call.name}, but the conversation has ${calls.map((c) => c.name).join(", ")}`,
+      });
     }
     const result = results.get(String(calls[0].id));
     if (!result) return reply({ kind: "error", message: `${step.at}: the ${step.call.name} call has no result yet` });
@@ -133,11 +165,20 @@ export function nextReply(scenario, agent, messages, { traceOf = null, checked =
       const id = result.text.match(JOB)?.[1];
       if (id) jobs.set(step.call.job, id);
     }
-    const failure = result.isError ? `${step.at} failed` : step.call.name === "bash" ? checkBash(step, String(calls[0].id), result.text, { traceOf, checked }) : null;
-    if (failure) return reply({ kind: "error", message: `${failure}, so ${agent} stops here: ${result.text.slice(-400)}` });
+    const failure = result.isError
+      ? `${step.at} failed`
+      : step.call.name === "bash"
+        ? checkBash(step, String(calls[0].id), result.text, { traceOf, checked })
+        : null;
+    if (failure)
+      return reply({ kind: "error", message: `${failure}, so ${agent} stops here: ${result.text.slice(-400)}` });
     if (step.commits) {
       const printed = commitsIn(result.text);
-      if (printed.length !== step.commits.length) return reply({ kind: "error", message: `${step.at} names ${step.commits.length} Commit(s) (${step.commits.join(", ")}) and its call printed ${printed.length}, so ${agent} stops here` });
+      if (printed.length !== step.commits.length)
+        return reply({
+          kind: "error",
+          message: `${step.at} names ${step.commits.length} Commit(s) (${step.commits.join(", ")}) and its call printed ${printed.length}, so ${agent} stops here`,
+        });
       step.commits.forEach((ref, i) => commits.set(ref, printed[i]));
     }
     index++;
@@ -160,26 +201,30 @@ export function nextReply(scenario, agent, messages, { traceOf = null, checked =
   }
   // the step's placeholders, from what the agent has seen
   const missing = [];
-  const fill = (text) => text.replace(PLACEHOLDER, (all, what, ref) => {
-    const value = what === "sandbox" ? sandbox : what === "ws" ? ws : commits.get(ref);
-    if (value == null) missing.push(all);
-    return value ?? all;
-  });
+  const fill = (text) =>
+    text.replace(PLACEHOLDER, (all, what, ref) => {
+      const value = what === "sandbox" ? sandbox : what === "ws" ? ws : commits.get(ref);
+      if (value == null) missing.push(all);
+      return value ?? all;
+    });
   if (step.kind === "reply") {
     const text = fill(step.text);
-    if (missing.length) return reply({ kind: "error", message: `${step.at}: ${agent} has seen no value for ${missing.join(", ")}` });
+    if (missing.length)
+      return reply({ kind: "error", message: `${step.at}: ${agent} has seen no value for ${missing.join(", ")}` });
     return reply({ kind: "text", text }, 1);
   }
 
   const args = { ...step.call.args };
   for (const [key, ref] of Object.entries(step.call.refs ?? {})) {
     const id = ref.agent ? children.get(ref.agent) : jobs.get(ref.job);
-    if (!id) return reply({ kind: "error", message: `${step.at}: no id for @${ref.agent ?? ref.job} in the results so far` });
+    if (!id)
+      return reply({ kind: "error", message: `${step.at}: no id for @${ref.agent ?? ref.job} in the results so far` });
     args[key] = id;
   }
   if (step.call.name === "bash") args.command = fill(args.command);
   if (step.call.name === "send_message") args.message = fill(String(args.message));
-  if (missing.length) return reply({ kind: "error", message: `${step.at}: ${agent} has seen no value for ${missing.join(", ")}` });
+  if (missing.length)
+    return reply({ kind: "error", message: `${step.at}: ${agent} has seen no value for ${missing.join(", ")}` });
   return reply({ kind: "calls", calls: [{ name: step.call.name, args }], say: step.say, step: step.at });
 }
 
@@ -195,7 +240,8 @@ function checkBash(step, callId, text, { traceOf, checked }) {
     const lines = traceOf?.(callId);
     if (!lines) return `${step.at} has expect, and no LayerFS Host gives its trace lines`;
     const codes = callCodes(lines);
-    if (!inOrder(codes, step.expect)) return `${step.at} (${step.call.args.description}) expected ${step.expect.join(", ")}; its LayerFS calls show ${codes.length ? codes.join(", ") : "nothing"}`;
+    if (!inOrder(codes, step.expect))
+      return `${step.at} (${step.call.args.description}) expected ${step.expect.join(", ")}; its LayerFS calls show ${codes.length ? codes.join(", ") : "nothing"}`;
     checked?.add(callId);
   }
   const code = Number(text.match(EXIT)?.[1] ?? 0);
@@ -211,10 +257,15 @@ export function commitsIn(text) {
   const out = [];
   for (const line of text.split("\n")) {
     const t = line.trim();
-    if (!t.startsWith("{") || !t.includes("\"head\"")) continue;
+    if (!t.startsWith("{") || !t.includes('"head"')) continue;
     let value;
-    try { value = JSON.parse(t); } catch { continue; }
-    if ((value?.kind === "Committed" || value?.kind === "Merged") && typeof value.head === "string") out.push(value.head);
+    try {
+      value = JSON.parse(t);
+    } catch {
+      continue;
+    }
+    if ((value?.kind === "Committed" || value?.kind === "Merged") && typeof value.head === "string")
+      out.push(value.head);
   }
   return out;
 }

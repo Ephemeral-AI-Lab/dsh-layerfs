@@ -36,7 +36,10 @@ export function deploymentEnv(spec, project) {
 /** Runs `make` with LAYERFS_<name> set from `env`, restoring them before it returns. */
 function withEnv(env, make) {
   const saved = {};
-  for (const [name, value] of Object.entries(env)) { saved[name] = process.env[`LAYERFS_${name}`]; process.env[`LAYERFS_${name}`] = value; }
+  for (const [name, value] of Object.entries(env)) {
+    saved[name] = process.env[`LAYERFS_${name}`];
+    process.env[`LAYERFS_${name}`] = value;
+  }
   try {
     return make();
   } finally {
@@ -56,14 +59,21 @@ function withEnv(env, make) {
 export async function clientFor(spec, project) {
   const runtime = await openRuntime(spec);
   // without its home entry (project.record) the Store cannot open; say so rather than the native ENOENT
-  if (!(await runtime.project.list()).some((p) => p.name === project.name && p.initialized)) throw noRecord(project.name);
+  if (!(await runtime.project.list()).some((p) => p.name === project.name && p.initialized))
+    throw noRecord(project.name);
   // LayerFS.open reads the environment before its first await
   const layerfs = await withEnv(deploymentEnv(spec, project), () => LayerFS.open(project.name));
-  return { layerfs, backend: LayerFSBackend.of(layerfs), state: () => runtime.project.get_state(project.name), close: () => layerfs.close() };
+  return {
+    layerfs,
+    backend: LayerFSBackend.of(layerfs),
+    state: () => runtime.project.get_state(project.name),
+    close: () => layerfs.close(),
+  };
 }
 
 /** A project whose home entry (`<home>/<name>/project.record`) is gone: the runtime can rebuild it from the Store's volume. */
-export const noRecord = (name) => Object.assign(new Error(`${name}: its record is missing; see layerfs-home.md`), { code: "no-record", status: 409 });
+export const noRecord = (name) =>
+  Object.assign(new Error(`${name}: its record is missing; see layerfs-home.md`), { code: "no-record", status: 409 });
 
 /** How long a reader waits for a project's Sandboxes to answer (their daemons); the read runs on. */
 export const SANDBOX_MS = 4_000;
@@ -71,7 +81,9 @@ export const SANDBOX_MS = 4_000;
 /** `{ value }` when `promise` settles within `ms`, `{ late: true }` otherwise; a failure within `ms` is thrown. */
 export function within(promise, ms) {
   let timer;
-  const late = new Promise((resolve) => { timer = setTimeout(() => resolve({ late: true }), ms); });
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ late: true }), ms);
+  });
   return Promise.race([promise.then((value) => ({ value })), late]).finally(() => clearTimeout(timer));
 }
 
@@ -98,8 +110,20 @@ export function drawState(snap) {
   const m = new Mirror();
   m.project = snap.project;
   const boxes = [
-    ...(snap.sandboxes || []).map((x) => ({ label: m.label("sb", x.id), real: x.id, closed: false, workspaces: {}, processes: [] })),
-    ...(snap.gone || []).map((x) => ({ label: m.label("sb", x.id), real: x.id, closed: true, workspaces: {}, processes: [] })),
+    ...(snap.sandboxes || []).map((x) => ({
+      label: m.label("sb", x.id),
+      real: x.id,
+      closed: false,
+      workspaces: {},
+      processes: [],
+    })),
+    ...(snap.gone || []).map((x) => ({
+      label: m.label("sb", x.id),
+      real: x.id,
+      closed: true,
+      workspaces: {},
+      processes: [],
+    })),
   ];
   m.absorb(snap, boxes);
   return { s: { ...m.s, roots: {} }, labels: Object.fromEntries(m.toLabel) };
@@ -131,16 +155,23 @@ export async function allCommits(layerfs, snap, known) {
 
 /** snap's Commits and those its cut Branches list (each up to a `known` Commit). */
 async function listCut(layerfs, snap, cut, known) {
-  const commits = [...snap.commits], seen = new Set(commits.map((c) => c.id));
+  const commits = [...snap.commits],
+    seen = new Set(commits.map((c) => c.id));
   const heads = new Map((snap.branches || []).map((b) => [b.name, b.head]));
   for (const branch of cut) {
     if (known?.has(heads.get(branch))) continue;
-    for (let pos = 0; pos !== null;) {
+    for (let pos = 0; pos !== null; ) {
       const page = await layerfs.branch.list_commits(branch, LIST_PAGE, pos);
       let reached = false;
       for (const c of page.items) {
-        if (known?.has(c.id)) { reached = true; break; }
-        if (!seen.has(c.id)) { seen.add(c.id); commits.push(c); }
+        if (known?.has(c.id)) {
+          reached = true;
+          break;
+        }
+        if (!seen.has(c.id)) {
+          seen.add(c.id);
+          commits.push(c);
+        }
       }
       pos = !reached && page.hasMore ? page.nextPagePos : null;
     }
@@ -150,9 +181,10 @@ async function listCut(layerfs, snap, cut, known) {
 
 /** The Commits on the Branch heads' first-parent chains, from `listed` or `known`; null when one is in neither. */
 function reachable(branches, listed, known) {
-  const byId = new Map(listed.map((c) => [c.id, c])), out = new Map();
+  const byId = new Map(listed.map((c) => [c.id, c])),
+    out = new Map();
   for (const branch of branches || []) {
-    for (let id = branch.head; id && !out.has(id);) {
+    for (let id = branch.head; id && !out.has(id); ) {
       const c = byId.get(id) ?? known.get(id);
       if (!c) return null;
       out.set(id, c);

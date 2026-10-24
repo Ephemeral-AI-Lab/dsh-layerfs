@@ -25,15 +25,25 @@ import { join } from "node:path";
  */
 function upgrade(data) {
   if (data.version === 3) return data;
-  const projects = {}, workspaces = {}, attached = {};
-  const add = (p, folder) => { const { folder: _, ...rest } = p; projects[p.name] = rest; if (folder) (attached[folder] ||= []).push(p.name); };
+  const projects = {},
+    workspaces = {},
+    attached = {};
+  const add = (p, folder) => {
+    const { folder: _, ...rest } = p;
+    projects[p.name] = rest;
+    if (folder) (attached[folder] ||= []).push(p.name);
+  };
   if (data.version === 1) {
-    for (const [folder, w] of Object.entries(data.workspaces)) { for (const p of w.projects) add(p, folder); workspaces[folder] = { lastUsed: w.lastUsed ?? null }; }
+    for (const [folder, w] of Object.entries(data.workspaces)) {
+      for (const p of w.projects) add(p, folder);
+      workspaces[folder] = { lastUsed: w.lastUsed ?? null };
+    }
   } else {
     for (const p of Object.values(data.projects)) add(p, p.folder);
     for (const [folder, w] of Object.entries(data.workspaces)) workspaces[folder] = { lastUsed: w.lastUsed ?? null };
   }
-  for (const [folder, names] of Object.entries(attached)) if (names.length === 1) (workspaces[folder] ||= { lastUsed: null }).lastUsed ??= names[0];
+  for (const [folder, names] of Object.entries(attached))
+    if (names.length === 1) (workspaces[folder] ||= { lastUsed: null }).lastUsed ??= names[0];
   return { ...data, version: 3, projects, workspaces };
 }
 
@@ -43,14 +53,19 @@ function upgrade(data) {
  * `remove` forgets a project, and leave the file with its next change.
  */
 function dropRetired(data) {
-  const gone = new Set(Object.values(data.projects).filter((p) => p.backend === "sim").map((p) => p.name));
+  const gone = new Set(
+    Object.values(data.projects)
+      .filter((p) => p.backend === "sim")
+      .map((p) => p.name),
+  );
   if (!gone.size) return data;
   for (const name of gone) delete data.projects[name];
   for (const w of Object.values(data.workspaces ?? {})) if (gone.has(w.lastUsed)) w.lastUsed = null;
-  for (const choice of Object.values(data.sessions ?? {})) if (gone.has(choice.project)) {
-    choice.project = null;
-    choice.locked = false;
-  }
+  for (const choice of Object.values(data.sessions ?? {}))
+    if (gone.has(choice.project)) {
+      choice.project = null;
+      choice.locked = false;
+    }
   return data;
 }
 
@@ -71,7 +86,11 @@ export class BindingStore {
     // Admission precedes the read; a failed rename itself is never retried.
     if (process.platform === "win32" && this.depth === 0) return this.locked(() => this.reload());
     let stat;
-    try { stat = statSync(this.file); } catch { return; }
+    try {
+      stat = statSync(this.file);
+    } catch {
+      return;
+    }
     const stamp = `${stat.ino}:${stat.size}:${stat.mtimeMs}`;
     if (stamp === this.stamp) return;
     this._data = dropRetired(upgrade(JSON.parse(readFileSync(this.file, "utf8"))));
@@ -79,7 +98,10 @@ export class BindingStore {
   }
 
   /** The current bindings, re-read when another process changed them. */
-  get data() { if (this.depth === 0) this.reload(); return this._data; }
+  get data() {
+    if (this.depth === 0) this.reload();
+    return this._data;
+  }
 
   /**
    * One change: under the directory's lock, re-reads the file, applies `change`
@@ -101,15 +123,33 @@ export class BindingStore {
   locked(work) {
     const deadline = Date.now() + 10_000;
     for (;;) {
-      try { mkdirSync(this.lockDir); break; } catch (error) {
+      try {
+        mkdirSync(this.lockDir);
+        break;
+      } catch (error) {
         if (error.code !== "EEXIST") throw error;
-        try { if (Date.now() - statSync(this.lockDir).mtimeMs > 10_000) { rmdirSync(this.lockDir); continue; } } catch { continue; }
-        if (Date.now() > deadline) throw Object.assign(new Error(`bindings are locked: ${this.lockDir}`), { code: "busy" });
+        try {
+          if (Date.now() - statSync(this.lockDir).mtimeMs > 10_000) {
+            rmdirSync(this.lockDir);
+            continue;
+          }
+        } catch {
+          continue;
+        }
+        if (Date.now() > deadline)
+          throw Object.assign(new Error(`bindings are locked: ${this.lockDir}`), { code: "busy" });
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
       }
     }
     this.depth++;
-    try { return work(); } finally { this.depth--; try { rmdirSync(this.lockDir); } catch {} }
+    try {
+      return work();
+    } finally {
+      this.depth--;
+      try {
+        rmdirSync(this.lockDir);
+      } catch {}
+    }
   }
 
   save() {
@@ -126,13 +166,21 @@ export class BindingStore {
    * @param {string} folder @returns {{ projects: Project[], lastUsed: string|null }}
    */
   workspace(folder) {
-    const all = this.projects(), lastUsed = this.data.workspaces[folder]?.lastUsed ?? null;
-    return { projects: [...all.filter((p) => p.source === folder), ...all.filter((p) => p.source !== folder)], lastUsed };
+    const all = this.projects(),
+      lastUsed = this.data.workspaces[folder]?.lastUsed ?? null;
+    return {
+      projects: [...all.filter((p) => p.source === folder), ...all.filter((p) => p.source !== folder)],
+      lastUsed,
+    };
   }
 
   /** Each workspace folder's default project, as { folder: name }. */
   defaults() {
-    return Object.fromEntries(Object.entries(this.data.workspaces).filter(([, w]) => w.lastUsed).map(([folder, w]) => [folder, w.lastUsed]));
+    return Object.fromEntries(
+      Object.entries(this.data.workspaces)
+        .filter(([, w]) => w.lastUsed)
+        .map(([folder, w]) => [folder, w.lastUsed]),
+    );
   }
 
   /** @returns {Project[]} every project, oldest first */
@@ -148,7 +196,10 @@ export class BindingStore {
   /** Adds a project, as the default of the folder it was imported for, if any. @param {string|null} folder @param {Project} project */
   addProject(folder, project) {
     // no folder (imported from All projects): the project is no workspace's default
-    this.update((data) => { data.projects[project.name] = project; if (folder) this.setDefault(folder, project.name); });
+    this.update((data) => {
+      data.projects[project.name] = project;
+      if (folder) this.setDefault(folder, project.name);
+    });
   }
 
   /** @param {string} name @returns {Project|null} */
@@ -163,7 +214,8 @@ export class BindingStore {
    */
   setDefault(folder, name) {
     this.update((data) => {
-      if (!this.byName(name)) throw Object.assign(new Error(`no LayerFS project named ${name}`), { code: "not-found", status: 404 });
+      if (!this.byName(name))
+        throw Object.assign(new Error(`no LayerFS project named ${name}`), { code: "not-found", status: 404 });
       (data.workspaces[folder] ||= { lastUsed: null }).lastUsed = name;
     });
   }
@@ -194,7 +246,8 @@ export class BindingStore {
     return this.update((data) => {
       const current = this.session(rootId);
       if (current && current.locked) return false;
-      if (name !== null && !this.byName(name)) throw Object.assign(new Error(`no LayerFS project named ${name}`), { code: "not-found" });
+      if (name !== null && !this.byName(name))
+        throw Object.assign(new Error(`no LayerFS project named ${name}`), { code: "not-found" });
       data.sessions[rootId] = { project: name, locked: false, folder };
       if (name !== null) (data.workspaces[folder] ||= { lastUsed: null }).lastUsed = name;
       return true;
@@ -210,10 +263,11 @@ export class BindingStore {
     this.update((data) => {
       delete data.projects[name];
       for (const w of Object.values(data.workspaces)) if (w.lastUsed === name) w.lastUsed = null;
-      for (const choice of Object.values(data.sessions)) if (choice.project === name) {
-        choice.project = null;
-        choice.locked = false;
-      }
+      for (const choice of Object.values(data.sessions))
+        if (choice.project === name) {
+          choice.project = null;
+          choice.locked = false;
+        }
     });
   }
 
@@ -237,11 +291,17 @@ export class BindingStore {
     const known = this.data.agents[sessionId];
     const file = traceFile ?? known?.traceFile;
     if (known && known.root === root && known.name === name && known.traceFile === file) return;
-    this.update((data) => { data.agents[sessionId] = { root, name, ...(file ? { traceFile: file } : {}) }; });
+    this.update((data) => {
+      data.agents[sessionId] = { root, name, ...(file ? { traceFile: file } : {}) };
+    });
   }
 
   /** Agents of one root session, as { id: name }. */
   agentsOf(rootId) {
-    return Object.fromEntries(Object.entries(this.data.agents).filter(([, a]) => a.root === rootId).map(([id, a]) => [id, a.name]));
+    return Object.fromEntries(
+      Object.entries(this.data.agents)
+        .filter(([, a]) => a.root === rootId)
+        .map(([id, a]) => [id, a.name]),
+    );
   }
 }

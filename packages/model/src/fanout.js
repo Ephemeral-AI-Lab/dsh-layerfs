@@ -4,7 +4,8 @@
 import { where } from "./where.js";
 
 export function fanOf(W, n) {
-  const l = where(W, n), others = Object.values(W.ws).filter((w) => w.agent === n && !(l.kind === "ws" && l.ws === w.id));
+  const l = where(W, n),
+    others = Object.values(W.ws).filter((w) => w.agent === n && !(l.kind === "ws" && l.ws === w.id));
   return { n: others.length + (l.kind === "bench" ? 0 : 1), others };
 }
 
@@ -21,7 +22,8 @@ export function ghostSpot(active, w) {
 export function spotOf(W, n, active, recently) {
   const l = where(W, n);
   if (l.kind === "bench") return active !== "main" && recently.includes(n) ? { loc: "bench", mode: "bench" } : null;
-  if (active === "main") return l.kind === "hist" ? { loc: "hist", mode: "term" } : { loc: "row:" + l.branch, mode: "row" };
+  if (active === "main")
+    return l.kind === "hist" ? { loc: "hist", mode: "term" } : { loc: "row:" + l.branch, mode: "row" };
   if (l.kind === "hist") return { tab: "main", mode: "chip" };
   if (l.branch !== active) return { tab: l.branch, mode: "chip" };
   return l.kind === "ws" ? { loc: "ws:" + l.ws, mode: "pane" } : { loc: "fs:" + l.branch, mode: "term" };

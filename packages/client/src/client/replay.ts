@@ -29,13 +29,16 @@ export function seedEngine(engine: any, state: ProjectState, { workspaces = true
   const m = engine.m
   m.s = { ...structuredClone(state.s), roots: {}, ...(workspaces ? {} : { sandboxes: {}, sandboxOrder: [] }) }
   for (const [real, label] of Object.entries(state.labels)) {
-    m.toLabel.set(real, label); m.toReal.set(label, real)
+    m.toLabel.set(real, label)
+    m.toReal.set(label, real)
     const n = /^([CLR])(\d+)$/.exec(label)
     if (n) m.next[n[1]] = Math.max(m.next[n[1]], Number(n[2]) + 1)
   }
   for (const node of [...Object.values(m.s.commits), ...Object.values(m.s.layers)] as any[]) node.root = node.id
   chronological(m.s, state)
-  const slots = [...Object.values(m.s.commits), ...Object.values(m.s.layers), ...Object.values(m.s.branches)].map((x: any) => x.slot ?? 0)
+  const slots = [...Object.values(m.s.commits), ...Object.values(m.s.layers), ...Object.values(m.s.branches)].map(
+    (x: any) => x.slot ?? 0,
+  )
   m.slot = Math.max(m.slot, ...slots, -1) + 1
   engine.seeded = true
 }

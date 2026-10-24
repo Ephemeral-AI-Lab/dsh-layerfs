@@ -25,10 +25,14 @@ export { BIN, shimOnPath } from "./cli-path.js";
 
 const VARIABLES = {
   DSH_LAYERFS_PROJECT: "LayerFS project of this conversation; pass it to LayerFS.open(...)",
-  DSH_LAYERFS_SDK: "file URL of @layerfs/agent, the LayerFS JavaScript SDK; import it from Node scripts (await import(process.env.DSH_LAYERFS_SDK))",
-  DSH_LAYERFS_BACKEND: "file URL of @layerfs/backend (background processes, a Workspace's status, Store and file storage)",
-  DSH_LAYERFS_SKILL: "path of the LayerFS SDK skill (SKILL.md, its references beside it); read it before the first LayerFS call",
-  DSH_LAYERFS_CLI: "path of the CLI behind the layerfs command on PATH: layerfs <family> <call> runs one @layerfs/agent call (layerfs help lists them), JSON on stdout; exit 0 ok, 2 bad command line, 125 refused",
+  DSH_LAYERFS_SDK:
+    "file URL of @layerfs/agent, the LayerFS JavaScript SDK; import it from Node scripts (await import(process.env.DSH_LAYERFS_SDK))",
+  DSH_LAYERFS_BACKEND:
+    "file URL of @layerfs/backend (background processes, a Workspace's status, Store and file storage)",
+  DSH_LAYERFS_SKILL:
+    "path of the LayerFS SDK skill (SKILL.md, its references beside it); read it before the first LayerFS call",
+  DSH_LAYERFS_CLI:
+    "path of the CLI behind the layerfs command on PATH: layerfs <family> <call> runs one @layerfs/agent call (layerfs help lists them), JSON on stdout; exit 0 ok, 2 bad command line, 125 refused",
   DSH_LAYERFS_HOME: "LayerFS home the SDK reads its project and Sandbox records from",
   DSH_LAYERFS_DOCKER: "Docker Engine socket the SDK starts Sandboxes through",
   DSH_LAYERFS_IMAGE: "Runtime image digest a new LayerFS Sandbox runs; the SDK reads it",
@@ -36,7 +40,8 @@ const VARIABLES = {
   DSH_LAYERFS_VOLUME: "Docker volume holding this project's Store",
   DSH_LAYERFS_DAEMON: "Host path of the LayerFS daemon Sandboxes run",
   DSH_LAYERFS_STORE_PATH: "The project's installed Store file, which its Store calls open",
-  DSH_LAYERFS_WORKER_ENDPOINT: "macOS and Windows: endpoint file of the LayerFS home's worker, which makes the Store calls",
+  DSH_LAYERFS_WORKER_ENDPOINT:
+    "macOS and Windows: endpoint file of the LayerFS home's worker, which makes the Store calls",
   DSH_LAYERFS_TRACE: "File the SDK appends one line per call to",
   DSH_LAYERFS_TRACE_STEP: "Label of this bash call on the SDK's trace lines",
   DSH_LAYERFS_TRACE_START: "1: the SDK also writes a line when each call starts",
@@ -87,7 +92,11 @@ export function contributor(ctx, spec, bindings, collector) {
         DSH_LAYERFS_BACKEND: spec.backend,
         DSH_LAYERFS_CLI: spec.cli,
         ...(skill ? { DSH_LAYERFS_SKILL: skill } : {}),
-        ...Object.fromEntries(Object.entries(deploy).filter(([, v]) => v).map(([k, v]) => [`DSH_LAYERFS_${k}`, v])),
+        ...Object.fromEntries(
+          Object.entries(deploy)
+            .filter(([, v]) => v)
+            .map(([k, v]) => [`DSH_LAYERFS_${k}`, v]),
+        ),
         DSH_LAYERFS_TRACE: collector.track(agent, project),
         DSH_LAYERFS_TRACE_STEP: String(execution.rootCallId ?? execution.callId),
         DSH_LAYERFS_TRACE_START: "1",
