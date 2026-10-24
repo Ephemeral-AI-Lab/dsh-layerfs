@@ -90,5 +90,5 @@ Rules for agents working in this repository: the dsh-layerfs plugin bundle.
   not nursed; list deleted or skipped tests in the commit message. Never
   weaken a surviving test's assertion to make it pass.
 - Format changed JavaScript/TypeScript with `pnpm run format` (Biome, pinned
-  in `biome.jsonc`); `pnpm run format:check` reports what is left. No CI job
-  or pre-push step runs it.
+  in `biome.jsonc`); `pnpm run format:check` reports what is left, and
+  `.github/workflows/format.yml` runs it on pushes and pull requests.

@@ -1,5 +1,6 @@
-// Biome formats this repository's JavaScript and TypeScript. No CI job or
-// pre-push step runs it. From the repository root:
+// Biome formats this repository's JavaScript and TypeScript.
+// .github/workflows/format.yml runs format:check on pushes and pull requests.
+// From the repository root:
 //   pnpm run format          (npx @biomejs/biome@2.6.2 format --write .)
 //   pnpm run format:check    (reports files that need formatting)
 //   npx @biomejs/biome@2.6.2 lint .
