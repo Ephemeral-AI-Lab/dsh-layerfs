@@ -7,4 +7,4 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LAYERFS } from "../source.js";
 
-await import(pathToFileURL(join(LAYERFS, "api/agent/cli/src/layerfs.js")).href);
+await import(pathToFileURL(join(LAYERFS, "api/cli/src/layerfs.js")).href);

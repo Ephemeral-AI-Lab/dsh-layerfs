@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@dsh-layerfs/model": "workspace:*",
-    "@layerfs/agent": "link:../../.layerfs/api/agent/sdk",
+    "@layerfs/agent": "link:../../.layerfs/api/agent",
     "@layerfs/backend": "link:../../.layerfs/api/backend",
     "@layerfs/runtime": "link:../../.layerfs/api/runtime"
   },

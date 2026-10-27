@@ -53,7 +53,7 @@ export const VOLUMES = "/var/lib/docker/volumes";
  * @property {number} pollMs
  * @property {string} sdk file URL of agent/sdk.js, @layerfs/agent as agents' scripts import it
  * @property {string} backend file URL of agent/backend.js, @layerfs/backend for agents' scripts
- * @property {string} cli path of agent/cli.js, the layerfs command (runs the LayerFS checkout's api/agent/cli/src/layerfs.js)
+ * @property {string} cli path of agent/cli.js, the layerfs command (runs the LayerFS checkout's api/cli/src/layerfs.js)
  * @property {{ distribution: string, user: string, node: string, home: string }} [wsl] Windows: the WSL deployment
  * @property {Promise<LayerFSRuntime>} [runtime] the Host's runtime, once openRuntime has opened it
  */

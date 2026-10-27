@@ -35,8 +35,8 @@ importers:
         specifier: workspace:*
         version: link:../model
       '@layerfs/agent':
-        specifier: link:../../.layerfs/api/agent/sdk
-        version: link:../../.layerfs/api/agent/sdk
+        specifier: link:../../.layerfs/api/agent
+        version: link:../../.layerfs/api/agent
       '@layerfs/backend':
         specifier: link:../../.layerfs/api/backend
         version: link:../../.layerfs/api/backend
