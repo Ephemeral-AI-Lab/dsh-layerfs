@@ -3,7 +3,10 @@
 // per root session for the views, and writes each finished call to the
 // calling agent's session as a plugin:layerfs/call record. Finished lines are
 // also journaled per root session under the state folder, since trace files
-// live in temporary storage.
+// live in temporary storage. A traced unmount's abort-path telemetry is read
+// before that telemetry is stripped: its outcome is journaled and counted by
+// the use case (packages/model/src/unmount-count.js) through the Host's
+// adapter (unmount-journal.js).
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { appendCall } from "./records.js";
@@ -21,11 +24,13 @@ export class Collector {
    * @param {object} ctx plugin context (ctx.sessions)
    * @param {object} spec resolved Host settings
    * @param {import("./binding.js").BindingStore} bindings
+   * @param {import("@dsh-layerfs/model/unmount-count.js").UnmountOutcomes} outcomes the unmount outcome use case
    */
-  constructor(ctx, spec, bindings) {
+  constructor(ctx, spec, bindings, outcomes) {
     this.ctx = ctx;
     this.spec = spec;
     this.bindings = bindings;
+    this.outcomes = outcomes;
     /** sessionId -> { file, offset, rest, project } */
     this.tails = new Map();
     /** rootId -> { lines: [], seen: Set<agentId|id>, running: Map<id, line>, loaded } */
@@ -137,10 +142,29 @@ export class Collector {
     if (!this.keep(view, own)) return;
     if (!live) return;
     this.journal(agent.root, own);
+    this.recordUnmount({ project, agent: agent.name, at: Date.parse(line.start) + (line.ms || 0), line });
     const record = { agent: { id: sessionId, name: agent.name }, project, line: stripped(line) };
     if (!this.pending.has(sessionId)) this.pending.set(sessionId, []);
     this.pending.get(sessionId).push(record);
     this.flush(sessionId);
+  }
+
+  /** Journals and counts one line's unmount outcome, when it carries one; a journal failure is warned, never the call's. */
+  recordUnmount(seen) {
+    try {
+      this.outcomes.record({ ...seen, at: Number.isFinite(seen.at) ? seen.at : null });
+    } catch (error) {
+      this.ctx.logger?.warn?.(`layerfs: the unmount outcome could not be journaled: ${error.message}`);
+    }
+  }
+
+  /**
+   * A project's unmount outcomes: counts by stage and abort disposition, the
+   * waited time, and the journaled records (the use case's aggregate).
+   * @param {string} project
+   */
+  unmountsOf(project) {
+    return this.outcomes.summaryOf(project);
   }
 
   /** Appends an agent's waiting records once its Session is live. */

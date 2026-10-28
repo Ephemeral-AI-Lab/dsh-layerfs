@@ -17,6 +17,8 @@ export async function resolve(specifier, context, next) {
 const { resolveConfig, runtimeState } = await import("../src/config.js");
 const { BindingStore } = await import("../src/binding.js");
 const { Collector } = await import("../src/collector.js");
+const { UnmountJournal } = await import("../src/unmount-journal.js");
+const { UnmountOutcomes } = await import("@dsh-layerfs/model/unmount-count.js");
 const { BIN, contributor, projectContext, shimOnPath } = await import("../src/env.js");
 const { spawnSync } = await import("node:child_process");
 const { registerRoutes } = await import("../src/route.js");
@@ -44,8 +46,9 @@ function host() {
   const live = new Map();
   const ctx = { sessions: { get: (id) => live.get(id) } };
   const bindings = new BindingStore(spec.stateDir);
-  const collector = new Collector(ctx, spec, bindings);
-  return { spec, live, ctx, bindings, collector, env: contributor(ctx, spec, bindings, collector) };
+  const outcomes = new UnmountOutcomes(new UnmountJournal(spec.stateDir));
+  const collector = new Collector(ctx, spec, bindings, outcomes);
+  return { spec, live, ctx, bindings, collector, outcomes, env: contributor(ctx, spec, bindings, collector) };
 }
 
 const trace = (id, method, phase, extra = {}) => JSON.stringify({ layerfs_trace: 1, id, step: "call_1", method, args: {}, start: "2026-10-16T00:00:00.000Z", phase, ...(phase === "end" ? { ms: 1, ok: true, daemon: { t: 1 }, scope: "x" } : {}), ...extra }) + "\n";
@@ -152,6 +155,40 @@ try {
   // finished lines outlive the temporary trace files through the journal
   rmSync(h.spec.traceDir, { recursive: true, force: true });
   assert.deepEqual(host().collector.snapshot("session-root").lines.map((l) => l.method), ["workspace.mount", "workspace.exec"]);
+
+  // A traced unmount's abort path (layerfs #501, tokenaissance/layerfs#2): the
+  // `unmount` section of its daemon telemetry is counted by stage and abort
+  // disposition and journaled under the state folder, on success and on a
+  // retained stop; a plain unmount has no section and adds nothing.
+  {
+    const unmounted = session("session-unmount", FOLDER), traced = host();
+    traced.live.set("child-unmount", unmounted);
+    traced.bindings.setAgent("child-unmount", "session-unmount", "tracer");
+    const file = traced.collector.track({ id: "child-unmount", root: "session-unmount", cwd: FOLDER }, { name: "website" });
+    const section = (fields) => [{ timing: [] }, { timing: [], unmount: fields }];
+    const unmount = (id, extra) => trace(id, "workspace.unmount", "end", { sandbox: "1", path: "/workspaces/1", ...extra });
+    const at = Date.parse("2026-10-16T00:00:00.000Z") + 1;
+    appendFileSync(file, unmount("u-1", { kind: "Unmounted", daemon: section({ stage: "Join", abort: "Written", detached: true, loops_exited: 3, loops_joined: 3, active: 0, retained: 0, waited_ms: 5000 }) }));
+    appendFileSync(file, unmount("u-2", { ok: false, code: "Failed", message: "Retained: TeardownCustody { stage: Revoke }", daemon: section({ stage: "Revoke", abort: "Short", bytes: 0, detached: true, loops_exited: 3, loops_joined: 2, active: 1, retained: 1, waited_ms: 4000 }) }));
+    appendFileSync(file, unmount("u-3", { ok: false, code: "Failed", message: "Retained: TeardownCustody { stage: Abort }", daemon: section({ stage: "Abort", abort: "Failed", errno: "EIO", detached: true, loops_exited: 3, loops_joined: 2, active: 0, retained: 1, waited_ms: 4000 }) }));
+    traced.collector.poll();
+    const outcomes = traced.collector.unmountsOf("website");
+    assert.deepEqual([outcomes.total, outcomes.byStage, outcomes.byAbort, outcomes.waitedMs], [3, { Join: 1, Abort: 1, Revoke: 1, Close: 0 }, { Written: 1, Short: 1, Failed: 1 }, { total: 13_000, max: 5_000 }]);
+    assert.deepEqual(outcomes.records[0], { at, project: "website", agent: "tracer", id: "u-1", stage: "Join", abort: "Written", detached: true, loopsExited: 3, loopsJoined: 3, active: 0, retained: 0, waitedMs: 5000, reply: "Unmounted" });
+    assert.deepEqual(outcomes.records.map((r) => [r.id, r.reply, r.stage, r.abort, "bytes" in r ? r.bytes : null, "errno" in r ? r.errno : null, r.loopsJoined, r.active, r.retained]),
+      [["u-1", "Unmounted", "Join", "Written", null, null, 3, 0, 0], ["u-2", "Failed", "Revoke", "Short", 0, null, 2, 1, 1], ["u-3", "Failed", "Abort", "Failed", null, "EIO", 2, 0, 1]]);
+    // a plain unmount's telemetry (timing only), and a call with no section at all
+    appendFileSync(file, unmount("u-4", { kind: "Unmounted", daemon: [{ timing: [] }] }));
+    appendFileSync(file, trace("u-5", "workspace.exec", "end", { sandbox: "1", path: "/workspaces/1", exitCode: 0 }));
+    traced.collector.poll();
+    assert.equal(traced.collector.unmountsOf("website").total, 3, "a plain unmount records nothing");
+    // the journal is one JSON line per outcome, and a restarted Host reads the aggregate from it
+    const journaled = readFileSync(join(traced.spec.stateDir, "unmounts.jsonl"), "utf8").trim().split("\n").map((raw) => JSON.parse(raw));
+    assert.deepEqual(journaled.map((r) => [r.id, r.project, r.agent, r.stage, r.abort]), [["u-1", "website", "tracer", "Join", "Written"], ["u-2", "website", "tracer", "Revoke", "Short"], ["u-3", "website", "tracer", "Abort", "Failed"]]);
+    assert.deepEqual(host().collector.unmountsOf("website"), outcomes);
+    assert.deepEqual([traced.collector.unmountsOf("other").total, traced.collector.unmountsOf("other").byStage.Close], [0, 0]);
+    assert.ok(unmounted.records.every((r) => !("daemon" in r.data.line)), "no daemon telemetry in records");
+  }
 
   // Windows traces live under the writable workspace. Keep their location
   // across renaming and a Host restart, including a line not yet journaled.
