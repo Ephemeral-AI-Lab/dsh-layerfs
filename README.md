@@ -481,6 +481,22 @@ A bash call in a session bound to a project gets the project, the SDK and a trac
   LayerFS reads only its own `LAYERFS_*` names, and dsh lets a plugin set only `DSH_*` names in a bash call. Each wrapper therefore loads `packages/host/src/agent/env.js` first, which sets every unset `LAYERFS_<NAME>` from `DSH_LAYERFS_<NAME>` in the agent's process, then exposes LayerFS's own entry unchanged (the same exports; the same arguments, output and exit codes for the CLI). A `LAYERFS_<NAME>` already set is kept.
 - **Records.** Each finished SDK call becomes a `plugin:layerfs/call` record in the calling agent's own session. The root session gets one `plugin:layerfs/project` record.
 - **Journal.** Finished lines are also journaled per root session under the state folder, because trace files live in temporary storage.
+- **Unmount outcomes.** A normal unmount that has to end a stalled, already-detached connection on LayerFS's abort path reports it beside the ordinary reply, as the `unmount` telemetry section of its `Observed` envelope ([layerfs #501](https://github.com/Ephemeral-AI-Lab/layerfs/pull/501), [tokenaissance/layerfs#2](https://github.com/tokenaissance/layerfs/pull/2)). The SDK trace line carries that telemetry under `daemon`; the Host reads the section before telemetry is stripped from the records, journals it to `<stateDir>/unmounts.jsonl`, and counts it by stage and abort disposition. A plain unmount carries no section and adds nothing. The section's stable keys are:
+
+  | Key | Meaning |
+  | --- | --- |
+  | `stage` | the boundary the unmount was at: `Join` (the stalled drain ended by the abort), `Abort` (the one write was short or failed), or `Revoke`/`Close` (a later step stopped with the abort recorded) |
+  | `abort` | the connection's single abort write: `Written`, `Short` or `Failed` |
+  | `bytes` | a `Short` write's accepted byte count (present only then) |
+  | `errno` | a `Failed` write's original errno (present only then) |
+  | `detached` | kernel detach was already known when the abort was made |
+  | `loops_exited` | receive loops exited, at the observation |
+  | `loops_joined` | receive loops joined, at the observation |
+  | `active` | request owner count at the observation |
+  | `retained` | request owner count retained at the observation |
+  | `waited_ms` | milliseconds from the stalled drain to the end of the abort path |
+
+  The Host's journal record adds `at`, `project`, `agent`, `id` and `reply` (`Unmounted` on success, or the refusal's code: `Failed` for a retained stop) beside those; the file is append-only, never pruned, and gets one record per abort path, not one per unmount. The count surfaces as the `layerfsTraces` service's `unmountsOf(project)` answer, `{ total, byStage, byAbort, waitedMs: { total, max }, records }`, counted from the journal, so a restarted Host answers the same. Its layers are the Entities value `packages/model/src/unmount.js`, the Use Case (journal port and counting) `packages/model/src/unmount-count.js`, the Interface Adapter `packages/host/src/unmount-journal.js`, and the trace collection that feeds them `packages/host/src/collector.js` (wired in `packages/host/src/index.js`). No metrics server, OTel or event bus is added: the journal is the one sink and `unmountsOf` its one reader. Only the structured trace section is read: the daemon's `LAYERFS_DAEMON_UNMOUNT_ABORT` stderr line is not, and only a Linux daemon takes the abort path.
 - **Projects.** Each project is attached to at most one workspace folder, or detached; a folder can have several. Init imports a source folder (the workspace folder unless another is chosen) and attaches the new project to the workspace folder. A session uses the folder's only (or last used) project unless it picks another or none. The choice is fixed at the first bash call that uses it.
 - **Agent names.** Subagents are named by the label their parent gave them.
 - **Web route.** `/layerfs` sits behind dsh's own connection checks:
@@ -585,6 +601,7 @@ Run the preset's sessions in Workspace Write mode; subagents inherit it.
   `traceDir` must be writable by the agents. Other platforms keep the default
   traces in the OS temp area.
 - Everything else follows LayerFS's platform limits: Store calls need Linux and a local ext4, xfs or btrfs filesystem, which on macOS the worker's container provides.
+- The unmount outcome count covers the trace lines the Host read while it ran: a line already in an agent's trace file when the Host starts is history and is not journaled. Records are keyed by project name, as the trace-line journal is, so a removed project re-initialized under the same name counts the older ones.
 - Windows Live uses WSL2 and its Linux Docker Engine through the Windows adapter;
   native Windows Store execution remains unsupported. Sim's local `/bin/sh`
   executor is not ported to Windows. macOS execution was not rerun for this change.
