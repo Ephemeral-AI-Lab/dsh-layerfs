@@ -577,6 +577,8 @@ ${HEROES_CSS}
 .lfs .frev td.n, .lfs .frev th.n { text-align: right; }
 .lfs .frev .zero { color: var(--term-dim); }
 .lfs .fempty { padding: 18px 12px; color: var(--term-dim); line-height: 1.6; }
+.lfs .fimg { margin: 0 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow: auto; max-height: 70vh; }
+.lfs .fimg img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
 .lfs .code { padding: 4px 0 12px; font: 12px/1.65 var(--mono); tab-size: 2; min-width: max-content; }
 .lfs .cl { display: flex; white-space: pre; min-height: 19px; }
 .lfs .cl:hover { background: #F6F4EF; }
