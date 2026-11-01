@@ -167,7 +167,10 @@ export async function overview(spec, bindings, trees, collector) {
   const sandboxes = cards.reduce((n, c) => n + c.sandboxes.length, 0), workspaces = cards.reduce((n, c) => n + c.workspaces, 0);
   const sweep = status.sweep ?? null;
   const reasons = [];
-  if (!up) reasons.push({ level: "down", text: "Docker not answering" });
+  // The native route uses no Docker engine, so its unavailability is not a fault
+  // the page should report.
+  const native = spec.native === true;
+  if (!up && !native) reasons.push({ level: "down", text: "Docker not answering" });
   if (store && store.level !== "ok") reasons.push({ level: store.level, text: store.state !== "running" ? "Store calls stopped" : store.answering === false ? "Store calls not answering" : "Store calls run an older build" });
   if (disk.dockerLevel && disk.dockerLevel !== "ok") reasons.push({ level: disk.dockerLevel, text: disk.dockerLevel === "down" ? "Docker disk nearly full" : "Docker disk low" });
   const troubled = cards.filter((c) => c.level !== "ok").length;

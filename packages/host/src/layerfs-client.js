@@ -20,16 +20,20 @@ import { openRuntime, VOLUMES } from "./config.js";
  */
 export function deploymentEnv(spec, project) {
   return {
-    HOME: spec.wsl?.home ?? spec.home,
+    // The native route keeps the Windows home and the volume's NTFS Store path;
+    // the worker route uses the WSL forms.
+    HOME: spec.native ? spec.home : spec.wsl?.home ?? spec.home,
     DOCKER: spec.docker,
     IMAGE: project.image ?? spec.image ?? "",
     DAEMON: spec.daemon ?? "",
     VOLUME: project.volume,
     // the worker opens it in Docker's VM; Linux, under this engine's volumes directory
-    STORE_PATH: `${spec.worker ? VOLUMES : spec.volumes}/${project.volume}/_data/global/store.sqlite`,
+    STORE_PATH: spec.native
+      ? `${project.volume}/global/store.sqlite`
+      : `${spec.worker ? VOLUMES : spec.volumes}/${project.volume}/_data/global/store.sqlite`,
     // the project's Sandboxes are <prefix><project>-<n>
     CONTAINER_PREFIX: spec.prefix,
-    ...(spec.worker ? { WORKER_ENDPOINT: join(spec.home, "worker", "endpoint.json") } : {}),
+    ...(!spec.native && spec.worker ? { WORKER_ENDPOINT: join(spec.home, "worker", "endpoint.json") } : {}),
   };
 }
 

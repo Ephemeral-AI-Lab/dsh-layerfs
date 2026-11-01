@@ -77,7 +77,10 @@ export function resolveConfig(config, profile) {
     bundle,
     prefix: config.containerPrefix || "layerfs-",
     // Linux makes Store calls in the caller's process; macOS and Windows in the home's worker
-    worker: process.platform !== "linux",
+    // `route: "native"` runs the Windows-native Store route (#352): Store calls in
+    // this process, no worker and no Docker engine. It exists on Windows only.
+    native: config.route === "native" && windows,
+    worker: config.route === "native" || process.env.DSH_LAYERFS_NATIVE === "1" ? false : process.platform !== "linux",
     docker: config.docker || "/var/run/docker.sock",
     volumes: config.volumes || VOLUMES,
     home,
@@ -101,11 +104,12 @@ export function resolveConfig(config, profile) {
 }
 
 /** Deployment settings Init and bash calls need that are not configured (macOS and Windows: a bundle too). */
-export const missingDeployment = (spec) => ["image", "daemon", ...(spec.worker ? ["bundle"] : [])].filter((name) => !spec[name]);
+export const missingDeployment = (spec) => spec.native ? [] : ["image", "daemon", ...(spec.worker ? ["bundle"] : [])].filter((name) => !spec[name]);
 
 /** What the Host hands LayerFSRuntime.open: its deployment. */
 export const runtimeSettings = (spec) => ({
-  home: spec.home, image: spec.image, daemon: spec.daemon, bundle: spec.bundle, docker: spec.docker, volumes: spec.volumes,
+  home: spec.home,
+  native: spec.native === true, image: spec.image, daemon: spec.daemon, bundle: spec.bundle, docker: spec.docker, volumes: spec.volumes,
   traceDir: spec.traceDir, containerPrefix: spec.prefix, stateDir: runtimeState(spec), pollMs: spec.pollMs,
   // once at open, the runtime deletes this home's stopped Sandboxes in the background (status().sweep)
   sweep: true,
