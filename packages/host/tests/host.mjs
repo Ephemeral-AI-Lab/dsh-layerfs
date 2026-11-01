@@ -671,6 +671,25 @@ module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen
     "the LayerFS worker did not answer (connect ECONNREFUSED 127.0.0.1:1); the call was not sent",
     "the connection to the LayerFS worker was lost (read ECONNRESET) after the call was sent; it may have completed: check the project before going on"]) assert.match(message, UNREACHABLE);
   assert.doesNotMatch("NoSuchPath: the LayerFS worker folder is not here", UNREACHABLE);
+  // a route without a daemon (the Windows-native Store route) runs no Sandbox,
+  // so it has no background process: its Unsupported refusal draws an empty page
+  {
+    const asked = [];
+    const noDaemon = new TreeReader(h.spec, async () => ({
+      layerfs: {},
+      backend: { daemon: { process: { list: async () => { asked.push("list"); throw Object.assign(new Error("Unsupported: this backend call needs a daemon"), { code: "Unsupported" }); } } } },
+      close: async () => {},
+    }));
+    assert.deepEqual(await noDaemon.processes({ name: "website" }), { items: [] });
+    assert.deepEqual(asked, ["list"]);
+    // any other failure of the same read still surfaces
+    const broken = new TreeReader(h.spec, async () => ({
+      layerfs: {},
+      backend: { daemon: { process: { list: async () => { throw Object.assign(new Error("Failed: the daemon is down"), { code: "Failed" }); } } } },
+      close: async () => {},
+    }));
+    await assert.rejects(broken.processes({ name: "website" }), { code: "Failed" });
+  }
   console.log("host: ok");
 } finally {
   rmSync(dir, { recursive: true, force: true });
