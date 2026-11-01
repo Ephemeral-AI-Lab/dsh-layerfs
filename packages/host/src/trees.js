@@ -72,9 +72,17 @@ export class TreeReader {
     return this.once(project, "snapshot", (client) => client.state());
   }
 
-  /** The project's background processes (asks its Sandboxes), once at a time: one page of the most. */
+  /**
+   * The project's background processes (asks its Sandboxes), once at a time:
+   * one page of the most. A route without a daemon runs no Sandbox and so has
+   * no process: its `Unsupported` refusal draws an empty page (the
+   * Windows-native Store route serves Store calls in-process).
+   */
   processes(project) {
-    return this.once(project, "processes", (client) => client.backend.daemon.process.list(PROCESSES, 0));
+    return this.once(project, "processes", (client) => client.backend.daemon.process.list(PROCESSES, 0).catch((error) => {
+      if (error?.code === "Unsupported") return { items: [] };
+      throw error;
+    }));
   }
 
   /** One Files read of saved ids (reads.js: list, read, changes, diff); kept, unless it fails. */
