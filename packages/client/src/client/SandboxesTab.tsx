@@ -27,7 +27,7 @@ export function SandboxesTab({ name, runtime, error, reload }: { name: string, r
     <div style={{ height: '100%', overflow: 'auto', background: T.card, color: T.text, fontSize: 12.5, lineHeight: '18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderBottom: `1px solid ${T.border}`, fontFamily: 'var(--mono, ui-monospace, monospace)', fontSize: 12 }}>
         {runtime && <Dot level={runtime.level} />}
-        <span>{runtime ? `${sandboxes.length} Sandbox${sandboxes.length === 1 ? '' : 'es'} · ${workspaces} Workspace${workspaces === 1 ? '' : 's'} · up to ${sandboxes[0]?.capacity ?? 16} each` : error ? 'Sandboxes not read' : 'Reading Sandboxes…'}</span>
+        <span>{runtime ? (runtime.route === 'native' ? `native route · ${workspaces} Workspace${workspaces === 1 ? '' : 's'} · up to 16 mounts per instance` : `${sandboxes.length} Sandbox${sandboxes.length === 1 ? '' : 'es'} · ${workspaces} Workspace${workspaces === 1 ? '' : 's'} · up to ${sandboxes[0]?.capacity ?? 16} each`) : error ? 'Sandboxes not read' : 'Reading Sandboxes…'}</span>
         <span style={{ flex: 1 }} />
         <Button variant="ghost" size="sm" onClick={reload} disabled={!!busy}>Refresh</Button>
       </div>
@@ -36,7 +36,9 @@ export function SandboxesTab({ name, runtime, error, reload }: { name: string, r
         {busy && <div role="status" style={{ color: T.text2 }}>{busy}</div>}
         {runtime?.pending && <div role="status" style={{ color: T.text2 }}>Still reading the Sandboxes' Workspaces; shown meanwhile from Docker and the agents' calls, without changes, Branches or processes.</div>}
         {runtime && !sandboxes.length && (
-          <div style={{ color: T.text2 }}>No Sandbox runs. LayerFS starts one when an agent mounts a Workspace and closes it once it sits idle; reading this page starts none.</div>
+          runtime.route === 'native'
+            ? <div style={{ color: T.text2 }}>This route is Windows-native: there is no Sandbox family here. A Workspace mounts in-process against the native Store and a restricted target, so mounting starts no container; reading this page starts nothing.</div>
+            : <div style={{ color: T.text2 }}>No Sandbox runs. LayerFS starts one when an agent mounts a Workspace and closes it once it sits idle; reading this page starts none.</div>
         )}
         {sandboxes.map((sb) => (
           <section key={sb.id} style={{ ...card, overflow: 'hidden' }} aria-label={sb.name ?? `Sandbox ${sb.id}`}>

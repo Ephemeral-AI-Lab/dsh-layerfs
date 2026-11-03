@@ -42,6 +42,8 @@ export interface RuntimeWorkspace {
 /** A project's Sandboxes for its Sandboxes tab (GET /project/<name>/runtime). */
 export interface ProjectRuntime {
   project: string, level: Level
+  /** `native`: the Windows-native Store route, which has no Sandbox family; `daemon`: Docker Sandboxes */
+  route?: 'native' | 'daemon'
   sandboxes: ({ id: string, name: string | null, capacity: number, workspaces: RuntimeWorkspace[], level: Level } & SandboxImage)[]
   gone: ({ id: string, name: string | null } & SandboxImage)[]
   /** the daemons have not answered yet: Sandboxes from Docker and a ping, Workspaces from the agents' traces */

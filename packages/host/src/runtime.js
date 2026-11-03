@@ -49,7 +49,7 @@ export async function projectRuntime(trees, collector, project, now = Date.now()
     const [read, listed] = await Promise.all([within(trees.snapshot(project), trees.sandboxMs), within(trees.processes(project), trees.sandboxMs)]);
     if (read.late || listed.late) {
       const sandboxes = await quickSandboxes(collector, project, containersOf(await (await openRuntime(trees.spec)).sandbox.list()), now);
-      return { project: project.name, sandboxes, gone: [], pending: true, level: worst(sandboxes.map((s) => s.level)) };
+      return { project: project.name, route: trees.spec.native ? "native" : "daemon", sandboxes, gone: [], pending: true, level: worst(sandboxes.map((s) => s.level)) };
     }
     const snap = read.value, processes = listed.value.items ?? [];
     const busy = collector.busyOf(project.name), mounts = collector.mountsOf(project.name);
@@ -71,7 +71,7 @@ export async function projectRuntime(trees, collector, project, now = Date.now()
       return { id: sb.id, name: sb.name ?? null, image: sb.image ?? null, capacity: CAPACITY, workspaces, level: worst([full ? "degraded" : "ok", ...workspaces.map((w) => w.level)]) };
     });
     const gone = (snap.gone ?? []).map(({ id, name, image }) => ({ id, name: name ?? null, image: image ?? null }));
-    return { project: project.name, sandboxes, gone, level: worst([...sandboxes.map((s) => s.level), gone.length ? "degraded" : "ok"]) };
+    return { project: project.name, route: trees.spec.native ? "native" : "daemon", sandboxes, gone, level: worst([...sandboxes.map((s) => s.level), gone.length ? "degraded" : "ok"]) };
   }
 }
 
