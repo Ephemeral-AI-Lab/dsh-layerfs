@@ -80,6 +80,7 @@ export function resolveConfig(config, profile) {
     // `route: "native"` runs the Windows-native Store route (#352): Store calls in
     // this process, no worker and no Docker engine. It exists on Windows only.
     native: config.route === "native" && windows,
+    nativeWorkspace: config.nativeWorkspace ?? null,
     worker: config.route === "native" || process.env.DSH_LAYERFS_NATIVE === "1" ? false : process.platform !== "linux",
     docker: config.docker || "/var/run/docker.sock",
     volumes: config.volumes || VOLUMES,

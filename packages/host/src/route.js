@@ -38,6 +38,7 @@ import { missingDeployment } from "./config.js";
 import { prepareInit, runInit } from "./init.js";
 import { InitJobs } from "./jobs.js";
 import { READS } from "./reads.js";
+import { nativeOwner, nativeValue } from "./native.js";
 import { removeProject } from "./remove.js";
 import { cleanLeftovers, overview, projectAction, projectRuntime, removeVolumes, restartStore, startStore } from "./runtime.js";
 
@@ -120,6 +121,8 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
         if (req.method === "GET" && parts[2] === "storage") return send(res, 200, await trees.storage(project));
         if (req.method === "GET" && parts[2] === "runtime") return send(res, 200, await projectRuntime(trees, collector, project));
         if (req.method === "POST" && parts[2] === "runtime") return send(res, 200, await projectAction(trees, collector, project, await readJson(req)));
+        if (req.method === "GET" && parts[2] === "native") return send(res, 200, await nativeOwner(spec).list(project));
+        if (req.method === "POST" && parts[2] === "native") return send(res, 200, await nativeOwner(spec).action(project, await readJson(req)));
         if (req.method === "POST" && parts[2] === "remove") {
           const body = await readJson(req);
           if (body.confirm !== project.name) return send(res, 400, { code: "not-confirmed", message: `confirm with the project's name, ${project.name}` });
@@ -148,7 +151,7 @@ export function registerRoutes(ctx, { spec, bindings, collector, trees, jobs = n
       }
       return send(res, 404, { code: "not-found", message: `no route ${req.method} ${url.pathname}` });
     } catch (error) {
-      return send(res, error.status || (error.code ? 409 : 500), { code: error.code || "failed", message: error.message });
+      return send(res, error.status || (error.code ? 409 : 500), nativeValue({ code: error.code || "failed", message: error.message, ...(error.detail !== undefined ? { detail: error.detail } : {}) }));
     }
   };
   ctx.effect(() => ctx.webServer.register({ kind: "prefix", path: PREFIX, handler }), `layerfs-host: ${PREFIX}`);

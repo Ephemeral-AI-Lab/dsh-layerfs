@@ -21,6 +21,7 @@
 import { connect } from "node:net";
 import { openRuntime } from "./config.js";
 import { within } from "./layerfs-client.js";
+import { nativeOwner } from "./native.js";
 
 /** Workspaces one Sandbox's daemon admits (the SDK's daemon setup, `namespaces`). */
 export const CAPACITY = 16;
@@ -45,6 +46,10 @@ const refuse = (status, code, message) => Object.assign(new Error(message), { st
  * trees.sandboxMs, the quick view (`pending: true`) is drawn and the read runs on.
  */
 export async function projectRuntime(trees, collector, project, now = Date.now()) {
+  if (trees.spec.native) {
+    const native = await nativeOwner(trees.spec).list(project);
+    return { project: project.name, route: "native", sandboxes: [], gone: [], native, level: native.instances.some((i) => i.error || i.state === "retained") ? "degraded" : "ok" };
+  }
   {
     const [read, listed] = await Promise.all([within(trees.snapshot(project), trees.sandboxMs), within(trees.processes(project), trees.sandboxMs)]);
     if (read.late || listed.late) {

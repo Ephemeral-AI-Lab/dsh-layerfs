@@ -31,8 +31,10 @@ export async function removeProject(spec, bindings, trees, name, { stopSandboxes
   if (!project) throw refuse("not-found", `no LayerFS project named ${name}`, 404);
   const home = join(spec.home, project.name), inside = relative(spec.home, home);
   if (!inside || inside.startsWith("..") || inside.includes("/")) throw refuse("invalid-name", `${project.name} is not a project name`);
-  await trees.forget(project.name);
   const runtime = await openRuntime(spec);
+  if (spec.native && (await runtime.native.instances()).some((i) => i.project === project.name))
+    throw refuse("busy", "this host runtime retains a native instance for the project; close its original handle explicitly first");
+  await trees.forget(project.name);
   const known = (await runtime.project.list()).find((p) => p.name === project.name) ?? null;
   if (!known?.initialized) {
     const volume = known?.volume ?? project.volume ?? null;

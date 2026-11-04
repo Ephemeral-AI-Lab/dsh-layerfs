@@ -28,6 +28,10 @@ export const name = "layerfs-host";
 export const inject = ["shellEnv", "sessions"];
 /** Host settings; see config.js for each field. */
 export const Config = z.object({
+  route: z.union([z.const("native"), z.const("worker")]).description("Windows Store route: native uses local NTFS, worker uses WSL"),
+  nativeWorkspace: z.object({
+    executable: z.string(), host: z.string(), winfsp: z.string(), restrictedLauncher: z.string(), workRoot: z.string(),
+  }).description("Explicit absolute Windows-native product paths and private instance work root; no default instance or auto-start"),
   image: z.string().description("LayerFS runtime image digest (sha256:…) that Sandboxes run"),
   daemon: z.string().description("Host path of the built Linux layerfs-daemon"),
   bundle: z.string().description("Folder of a sealed Linux LayerFS build; on macOS and Windows the home's worker runs it and makes every Store call"),
