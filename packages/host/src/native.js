@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { openRuntime } from "./config.js";
 import { clientFor } from "./layerfs-client.js";
+import { editNative } from "./native-text.js";
 
 const owners = new WeakMap();
 const fail = (code, message, detail = null) => Object.assign(new Error(message), { code, detail, status: 409 });
@@ -71,13 +72,13 @@ export class NativeOwner {
   }
   async action(project, input) {
     this.#enabled();
-    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((k) => !["action", "instance", "path", "branch", "message", "discard", "confirm"].includes(k)))
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((k) => !["action", "instance", "path", "branch", "message", "discard", "confirm", "file", "text", "revision"].includes(k)))
       throw fail("InvalidInput", "native action takes action, instance and its operation's fields only");
     if (input.action === "create") {
       if (Object.keys(input).some((k) => k !== "action")) throw fail("InvalidInput", "instance creation uses configured product paths only");
       return this.create(project);
     }
-    const operations = { mount: ["branch"], status: ["path"], commit: ["path", "message"], unmount: ["path", "discard", "confirm"], close: [] };
+    const operations = { mount: ["branch"], status: ["path"], commit: ["path", "message"], unmount: ["path", "discard", "confirm"], readText: ["path", "file"], writeText: ["path", "file", "text", "revision"], close: [] };
     const fields = Object.hasOwn(operations, input.action) ? operations[input.action] : null;
     if (!fields || Object.keys(input).some((k) => !["action", "instance", ...fields].includes(k))) throw fail("InvalidInput", "unsupported native action or fields");
     const entry = this.#entries.get(input.instance);
@@ -88,13 +89,14 @@ export class NativeOwner {
     if (input.action === "unmount" && input.discard !== undefined && typeof input.discard !== "boolean") throw fail("InvalidInput", "discard must be boolean");
     if (input.discard === true && input.confirm !== input.path) throw fail("InvalidInput", "confirm discard with the original Workspace path");
     // Resolve by the original handle, not a host-supplied filesystem path.
-    if (["status", "commit", "unmount"].includes(input.action)) entry.handle.workspace(input.path);
+    if (["status", "commit", "unmount", "readText", "writeText"].includes(input.action)) entry.handle.workspace(input.path);
     entry.busy = true;
     try {
       let value;
       const lf = entry.client?.layerfs, sandbox = entry.registration?.sandbox;
       if (input.action === "mount") value = await lf.workspace.mount(sandbox, input.branch);
       if (input.action === "status") value = await entry.client.backend.daemon.workspace.status({ sandbox, path: input.path });
+      if (["readText", "writeText"].includes(input.action)) value = await editNative(entry.handle.workspace(input.path), input);
       if (input.action === "commit") value = await lf.workspace.commit({ sandbox, path: input.path }, input.message);
       if (input.action === "unmount") value = await lf.workspace.unmount({ sandbox, path: input.path }, input.discard === true);
       if (input.action === "close") {

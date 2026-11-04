@@ -70,6 +70,8 @@ export function ProjectBoard({ name, state, storage, storageError, status, tab }
 
   const gain = storage ? saved(storage) : null
   const sbx = runtime?.sandboxes ?? [], wsCount = sbx.reduce((n, x) => n + x.workspaces.length, 0)
+  const native = runtime?.native
+  const nativeCount = native && native.instances.every(i => i.sessions !== null) ? native.instances.reduce((n, i) => n + i.sessions!, 0) : null
   return (
     <div style={{ flex: 1, minHeight: 560, display: 'flex', flexDirection: 'column', borderRadius: T.md, overflow: 'hidden', border: card.border, boxShadow: card.boxShadow }}>
       <div ref={host} style={{ position: 'relative', flex: 1, minHeight: 0 }} />
@@ -80,7 +82,9 @@ export function ProjectBoard({ name, state, storage, storageError, status, tab }
           title={runtime ? 'Sandboxes running for this project and their Workspaces. Click for Sandboxes.' : runtimeError ?? 'Reading Sandboxes…'}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, margin: '0 -6px', padding: '0 6px', border: 0, borderRadius: T.sm, color: 'inherit', font: 'inherit', whiteSpace: 'nowrap' }}>
           {runtime
-            ? <><Dot level={runtime.level} /><span style={{ fontWeight: 500 }}>{sbx.length}</span><span style={{ color: T.text2 }}>Sandbox{sbx.length === 1 ? '' : 'es'} · {wsCount} WS</span></>
+            ? <><Dot level={runtime.level} />{runtime.route === 'native'
+                ? <span>{native?.instances.length ?? '?'} native instances · {nativeCount ?? '?'} owned sessions</span>
+                : <><span style={{ fontWeight: 500 }}>{sbx.length}</span><span style={{ color: T.text2 }}>Sandbox{sbx.length === 1 ? '' : 'es'} · {wsCount} WS</span></>}</>
             : <span style={{ color: T.caption }}>{runtimeError ? 'Sandboxes not read' : 'reading Sandboxes…'}</span>}
         </button>
         <button type="button" className="lfs-chip" disabled={!storage} onClick={() => { if (board.current) board.current.ide = 'storage' }}

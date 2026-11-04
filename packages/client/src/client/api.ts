@@ -40,8 +40,16 @@ export interface RuntimeWorkspace {
   processes: { id: string, command: string, status: string }[], level: Level
 }
 /** A project's Sandboxes for its Sandboxes tab (GET /project/<name>/runtime). */
+export interface NativeSnapshot {
+  scope: "this-host-runtime", configured: boolean
+  instances: { id: string, nativeId: string | null, state: string, busy: boolean, sessions: number | null, retainedSessions: number | null, workspacesKnown: boolean,
+    workspaces: { path: string, branch: string, activity: string, dirty: { inodes: string, entries: string }, headMovedSinceMount: boolean | null }[],
+    error: { code: string, message: string } | null }[]
+}
+export interface NativeAction { action: "create" | "mount" | "status" | "commit" | "unmount" | "close" | "readText" | "writeText", instance?: string, branch?: string, path?: string, message?: string, discard?: boolean, confirm?: string, file?: string, text?: string, revision?: string | null }
 export interface ProjectRuntime {
   project: string, level: Level
+  native?: NativeSnapshot
   /** `native`: the Windows-native Store route, which has no Sandbox family; `daemon`: Docker Sandboxes */
   route?: 'native' | 'daemon'
   sandboxes: ({ id: string, name: string | null, capacity: number, workspaces: RuntimeWorkspace[], level: Level } & SandboxImage)[]
@@ -185,6 +193,7 @@ export const api = {
   cleanLeftovers: (names: string[]) => call<{ results: { name: string, ok: boolean, message?: string }[] }>('POST', '/runtime/leftovers', { names }),
   removeVolumes: (names: string[]) => call<{ results: { name: string, ok: boolean, message?: string }[] }>('POST', '/runtime/volumes', { names }),
   projectRuntime: (name: string) => call<ProjectRuntime>('GET', `/project/${encodeURIComponent(name)}/runtime`),
+  nativeAction: (name: string, body: NativeAction) => call<any>('POST', `/project/${encodeURIComponent(name)}/native`, body),
   /** unmount (nothing uncommitted), discard (confirm: the path) or stop a process */
   runtimeAction: (name: string, body: { action: 'unmount' | 'discard' | 'stop', sandbox?: string, path?: string, process?: string, confirm?: string }) =>
     call<unknown>('POST', `/project/${encodeURIComponent(name)}/runtime`, body),

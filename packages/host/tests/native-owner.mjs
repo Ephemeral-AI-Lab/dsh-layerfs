@@ -41,5 +41,20 @@ await assert.rejects(uncertain.action(project,{action:"create"}),{code:"Unknown"
 const held=await uncertain.list(project);assert(held.instances.some(i=>i.state==="retained"));assert(held.instances.some(i=>i.error?.code==="Unknown"));
 await assert.rejects(uncertain.action(project,{action:"close",instance:held.instances.find(i=>i.error?.code==="Unknown").id}),{code:"Unknown"});
 await assert.rejects(new NativeOwner({native:true,runtime:spec.runtime}).create(project),{code:"NotConfigured"});
+// Binding failure must keep the returned original handle, so explicit close is possible.
+let bindCloses=0;
+const bindRows=[];
+const badBindSpec={...spec,runtime:Promise.resolve({native:{
+ instances:async()=>bindRows,
+ create:async({work})=>{bindRows.push({id:"bind-owner",project:"test",work,state:"running",sessions:0});return {id:"bind-owner",close:async()=>{bindCloses++;bindRows.length=0;return {processExit:0};}};},
+ bindClient:async()=>{throw Object.assign(Error("binding rejected"),{code:"Unauthorized"});}
+}})};
+const badBind=new NativeOwner(badBindSpec,async()=>({layerfs:lf,close:async()=>{}}));
+await assert.rejects(badBind.create(project),{code:"Unauthorized"});
+const boundFailure=(await badBind.list(project)).instances[0];
+assert.equal(boundFailure.nativeId,"bind-owner");assert.equal(boundFailure.workspacesKnown,false);
+assert.equal(boundFailure.state,"running");assert.equal(boundFailure.error.code,"Unauthorized");
+await badBind.action(project,{action:"close",instance:boundFailure.id});assert.equal(bindCloses,1);
+assert.equal((await badBind.list(project)).instances.length,0);
 assert.equal(created,1,"no implicit create/replay during refusals or reads");
 console.log("PASS native owner contracts: original identity, scoped action validation, one in-flight mutation, exact bigint projection, retained unknown create and no auto-start");

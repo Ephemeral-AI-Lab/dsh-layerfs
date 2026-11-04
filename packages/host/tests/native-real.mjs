@@ -59,13 +59,20 @@ try {
  await assert.rejects(removeProject(spec,{byName:()=>project},{forget:()=>{throw Error("must not forget the client before refusing")}},project.name),{code:"busy"});
  writeFileSync(join(mount.path,"gui-lifecycle.txt"),"published through original native owner\n");
  await drained();
+ const loaded=await owner.action(project,{action:"readText",instance:instance.id,path:mount.path,file:"/gui-lifecycle.txt"});
+ assert.equal(loaded.text,"published through original native owner\n");
+ const saved=await owner.action(project,{action:"writeText",instance:instance.id,path:mount.path,file:"/gui-lifecycle.txt",text:"edited through original restricted Session 中文\n",revision:loaded.revision});
+ assert.equal(saved.kind,"Saved");assert.equal(saved.committed,false);
+ await assert.rejects(owner.action(project,{action:"writeText",instance:instance.id,path:mount.path,file:"/gui-lifecycle.txt",text:"stale overwrite",revision:loaded.revision}),{code:"EditorRefused"});
+ await assert.rejects(owner.action(project,{action:"readText",instance:instance.id,path:mount.path,file:"/../escape"}),{code:"InvalidInput"});
+ await drained();
  await assert.rejects(owner.action(project,{action:"unmount",instance:instance.id,path:mount.path}),{code:"Dirty"});
  await assert.rejects(owner.action(project,{action:"unmount",instance:instance.id,path:mount.path,discard:true,confirm:"wrong"}),{code:"InvalidInput"});
  const dirty=await owner.list(project);assert.equal(dirty.instances[0].workspaces.length,1);
  assert.equal(dirty.instances[0].workspacesKnown,true,"a prior Dirty refusal does not invalidate a fresh successful snapshot");
  const commit=await owner.action(project,{action:"commit",instance:instance.id,path:mount.path,message:"native owner product integration"});
  assert.equal(commit.kind,"Committed");assert.equal(commit.published,true);
- assert.equal((await client.layerfs.fs.read("feature","/gui-lifecycle.txt")).text,"published through original native owner\n");
+ assert.equal((await client.layerfs.fs.read("feature","/gui-lifecycle.txt")).text,"edited through original restricted Session 中文\n");
  const history=await client.layerfs.branch.list_commits("feature");assert.equal(history.items[0].message,"native owner product integration");
  const state=await owner.list(project);assert.equal(state.instances[0].workspaces.length,1);assert.equal(state.instances[0].workspacesKnown,true);
  assert.equal(typeof state.instances[0].workspaces[0].dirty.inodes,"string","HTTP projection preserves bigint exactly as decimal");
@@ -77,7 +84,7 @@ try {
  assert.equal((await owner.list(project)).instances.length,0);
  // The normal plugin accessor also uses the original runtime, not a Sandbox fallback.
  const empty=await projectRuntime({spec},null,project);assert.equal(empty.native.scope,"this-host-runtime");assert.equal(empty.native.instances.length,0);
- steps.push({label:"lifecycle",commit:commit.head,branch:history.items[0].message,terminal,closeActive:"MountsActive",dirtyUnmount:"Dirty",removeActive:"busy",foreignProject:"NoSuchSandbox",badBranchBeforeEffect:true});
+ steps.push({label:"lifecycle",editor:{loaded:loaded.kind,saved:saved.kind,committedBySave:saved.committed,staleRevision:"EditorRefused",invalidPath:"InvalidInput",utf8:"中文"},commit:commit.head,branch:history.items[0].message,terminal,closeActive:"MountsActive",dirtyUnmount:"Dirty",removeActive:"busy",foreignProject:"NoSuchSandbox",badBranchBeforeEffect:true});
  await client.close();client=null;await runtime.close();
  console.log("PASS native Host owner: create/list/mount/Dirty/Commit/unmount/close; same original runtime Sessions");
 } catch(e) {error={code:e.code??null,message:e.message};throw e;}

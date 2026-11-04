@@ -9,6 +9,7 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { api, imageLabel, type ProjectRuntime, type RuntimeWorkspace } from './api.ts'
 import { Dot, Meter, span, wsName } from './runtimeParts.tsx'
 import { card, T } from './tokens.ts'
+import { NativeWorkspaces } from './NativeWorkspaces.tsx'
 
 type Ask = { kind: 'discard' | 'stop', sandbox: string, path: string, process?: string, command?: string } | null
 
@@ -22,12 +23,13 @@ export function SandboxesTab({ name, runtime, error, reload }: { name: string, r
   }
   const sandboxes = runtime?.sandboxes ?? []
   const workspaces = sandboxes.reduce((n, s) => n + s.workspaces.length, 0)
+  const nativeCount = runtime?.native && runtime.native.instances.every(i => i.sessions !== null) ? String(runtime.native.instances.reduce((n, i) => n + i.sessions!, 0)) : 'unknown'
 
   return (
     <div style={{ height: '100%', overflow: 'auto', background: T.card, color: T.text, fontSize: 12.5, lineHeight: '18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderBottom: `1px solid ${T.border}`, fontFamily: 'var(--mono, ui-monospace, monospace)', fontSize: 12 }}>
         {runtime && <Dot level={runtime.level} />}
-        <span>{runtime ? (runtime.route === 'native' ? `native route · ${workspaces} Workspace${workspaces === 1 ? '' : 's'} · up to 16 mounts per instance` : `${sandboxes.length} Sandbox${sandboxes.length === 1 ? '' : 'es'} · ${workspaces} Workspace${workspaces === 1 ? '' : 's'} · up to ${sandboxes[0]?.capacity ?? 16} each`) : error ? 'Sandboxes not read' : 'Reading Sandboxes…'}</span>
+        <span>{runtime ? (runtime.route === 'native' ? `native route · ${nativeCount} owned sessions · up to 16 mounts per instance` : `${sandboxes.length} Sandbox${sandboxes.length === 1 ? '' : 'es'} · ${workspaces} Workspace${workspaces === 1 ? '' : 's'} · up to ${sandboxes[0]?.capacity ?? 16} each`) : error ? 'Sandboxes not read' : 'Reading Sandboxes…'}</span>
         <span style={{ flex: 1 }} />
         <Button variant="ghost" size="sm" onClick={reload} disabled={!!busy}>Refresh</Button>
       </div>
@@ -40,6 +42,7 @@ export function SandboxesTab({ name, runtime, error, reload }: { name: string, r
             ? <div style={{ color: T.text2 }}>This route is Windows-native: there is no Sandbox family here. A Workspace mounts in-process against the native Store and a restricted target, so mounting starts no container; reading this page starts nothing.</div>
             : <div style={{ color: T.text2 }}>No Sandbox runs. LayerFS starts one when an agent mounts a Workspace and closes it once it sits idle; reading this page starts none.</div>
         )}
+        {runtime?.route === 'native' && <NativeWorkspaces name={name} snapshot={runtime.native} reload={reload} />}
         {sandboxes.map((sb) => (
           <section key={sb.id} style={{ ...card, overflow: 'hidden' }} aria-label={sb.name ?? `Sandbox ${sb.id}`}>
             <header style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: T.well }}>
