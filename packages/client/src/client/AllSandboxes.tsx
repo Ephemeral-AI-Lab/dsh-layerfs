@@ -51,6 +51,7 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
   )
 
   const worst = view?.reasons[0] ?? null
+  const native = view?.engine.level === 'not-used'
 
   return (
     <div className="lfs-bow" style={{ flex: 1, minHeight: 440, display: 'flex', flexDirection: 'column' }}>
@@ -70,7 +71,7 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
         {view && (
           <section>
             <h4 className="lfs-h" style={HEADING}>Running · problems first</h4>
-            {!view.projects.length && <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: T.text2 }}><Ellen pose="sleepy" height={40} />No project runs a Sandbox now.</div>}
+            {!view.projects.length && <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: T.text2 }}><Ellen pose="sleepy" height={40} />{native ? 'Windows-native route: no Sandbox containers are used.' : 'No project runs a Sandbox now.'}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
               {view.projects.map((p) => (
                 <div key={p.name} style={{ ...card, display: 'grid', alignContent: 'start', overflow: 'hidden', borderLeft: p.level === 'ok' ? card.border : `3px solid ${p.level === 'down' ? T.danger : T.warn}` }}>
@@ -105,15 +106,15 @@ export function AllSandboxes({ onOpen }: { onOpen: (project: string) => void }) 
 
         {view && view.idle.length > 0 && (
           <section>
-            <h4 className="lfs-h" style={HEADING}>Idle · start a Sandbox on the next mount</h4>
+            <h4 className="lfs-h" style={HEADING}>{native ? 'Native projects · no containers required' : 'Idle · start a Sandbox on the next mount'}</h4>
             <div style={{ ...card, display: 'grid' }}>
               {view.idle.map((p, i) => (
                 <button key={p.name} type="button" className="lfs-card" onClick={() => onOpen(p.name)} title={`Open ${p.name}'s Sandboxes`}
                   style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '5px 10px', border: 0, borderTop: i ? `1px solid ${T.border}` : 0, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
                   <span style={{ wordBreak: 'break-all' }}>{p.name}</span>
                   <span style={{ flex: 1 }} />
-                  <span style={{ fontFamily: MONO, fontSize: 11, color: T.caption, whiteSpace: 'nowrap' }} title="Its Store volume in Docker">
-                    Store {view.volumes === null ? '?' : p.volume === null ? '—' : bytes(p.volume)}
+                  <span style={{ fontFamily: MONO, fontSize: 11, color: T.caption, whiteSpace: 'nowrap' }} title={native ? 'Store size is shown in the project Storage tab' : 'Its Store volume in Docker'}>
+                    Store {native ? 'local' : view.volumes === null ? '?' : p.volume === null ? '—' : bytes(p.volume)}
                   </span>
                 </button>
               ))}
@@ -136,7 +137,7 @@ interface Parts {
 
 /** One thin row: Docker, Store calls, free disk, the last sweep. */
 function Health({ view, asking, setAsking, busy, act, confirm }: Parts) {
-  const store = view.store, up = view.engine.level === 'ok'
+  const store = view.store, up = view.engine.level === 'ok', native = view.engine.level === 'not-used'
   const cell = (label: string, level: Level | null, value: ReactNode, actions?: ReactNode) => (
     <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', whiteSpace: 'nowrap' }}>
       {level && <Dot level={level} />}
@@ -167,12 +168,12 @@ function Health({ view, asking, setAsking, busy, act, confirm }: Parts) {
   return (
     <div style={{ display: 'grid', gap: 6 }}>
       <div style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', fontSize: 12, rowGap: 2 }}>
-        {cell('Docker', view.engine.level, up ? view.engine.version : 'not answering')}
+        {native ? cell('Docker', null, 'not used · Windows-native') : cell('Docker', view.engine.level as Level, up ? view.engine.version : 'not answering')}
         {storeCell}
         {cell('Host', null, free(view.disk.host))}
-        {cell('Docker', view.disk.dockerLevel, free(view.disk.docker))}
+        {!native && cell('Docker', view.disk.dockerLevel, free(view.disk.docker))}
         <span style={{ flex: 1 }} />
-        <span style={{ padding: '4px 10px', fontSize: 11.5, color: sweep?.state === 'failed' || (sweep?.state === 'done' && sweep.failed.length) ? T.warn : T.caption }}>{swept}</span>
+        <span style={{ padding: '4px 10px', fontSize: 11.5, color: sweep?.state === 'failed' || (sweep?.state === 'done' && sweep.failed.length) ? T.warn : T.caption }}>{native ? 'no container sweep needed' : swept}</span>
       </div>
       {store && asking === 'restart' && confirm(<>Restart {store.name}? Every project's Store calls stop for a few seconds{running(view.calls)}.</>, 'Restart', `Restarting ${store.name}…`, api.restartStore)}
     </div>

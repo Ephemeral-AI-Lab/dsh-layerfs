@@ -56,7 +56,7 @@ export const imageLabel = (s: SandboxImage) => (s.image ? s.image.replace(/^sha2
 /** Every project's Sandboxes and the shared parts (GET /runtime). */
 export interface Overview {
   level: Level
-  engine: { level: Level, version?: string, error?: string }
+  engine: { level: Level | 'not-used', version?: string, error?: string, note?: string }
   /** the home's worker (macOS, Windows), which makes every Store call; null on Linux (runtime.status().worker) */
   store: { level: Level, state: 'running' | 'stopped' | 'missing' | 'unknown', name: string, build?: string, expected?: string, startedAt?: string, answering?: boolean } | null
   /** agents' LayerFS calls running now, in any project: a worker restart cuts them off */
