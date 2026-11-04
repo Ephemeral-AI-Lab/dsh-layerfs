@@ -91,6 +91,7 @@ try {
   assert.match(vars.DSH_LAYERFS_SDK, /^file:.*\/packages\/host\/src\/agent\/sdk\.js$/);
   assert.match(vars.DSH_LAYERFS_BACKEND, /^file:.*\/packages\/host\/src\/agent\/backend\.js$/);
   assert.match(vars.DSH_LAYERFS_CLI, /[\\/]packages[\\/]host[\\/]src[\\/]agent[\\/]cli\.js$/);
+  assert.ok(!("DSH_LAYERFS_RUNTIME" in vars) && !("DSH_LAYERFS_NATIVE_WORKSPACE" in vars), "non-native or unconfigured calls receive no native deployment");
   assert.ok(!("DSH_LAYERFS_OPERATOR" in vars) && !("DSH_LAYERFS_STORE_CONTAINER" in vars) && !("DSH_LAYERFS_BUNDLE" in vars));
   if (process.platform === "linux") assert.ok(!("DSH_LAYERFS_WORKER_ENDPOINT" in vars), "Linux makes Store calls in the caller");
   else assert.equal(vars.DSH_LAYERFS_WORKER_ENDPOINT, join(h.spec.home, "worker", "endpoint.json"), "macOS and Windows: the home's worker");
@@ -100,6 +101,17 @@ try {
   assert.equal(vars.DSH_LAYERFS_TRACE_STEP, "r1");
   assert.equal(vars.DSH_LAYERFS_TRACE, join(h.spec.traceDir, "child-1.jsonl"));
   assert.ok(Object.keys(vars).every((key) => key in h.env.variables), "every value is a declared variable");
+  {
+    const native = { ...h.spec, native: true, nativeWorkspace: { executable: "/configured/parent", host: "/configured/host", winfsp: "/configured/winfsp", restrictedLauncher: "/configured/resident", workRoot: "/configured/work" } };
+    const nativeVars = contributor(h.ctx, native, h.bindings, h.collector).resolve({ agent: { session: child }, callId: "native-env" });
+    assert.match(nativeVars.DSH_LAYERFS_RUNTIME, /agent\/runtime[.]js$/);
+    assert.deepEqual(JSON.parse(nativeVars.DSH_LAYERFS_NATIVE_WORKSPACE), native.nativeWorkspace);
+    assert.ok(Object.keys(nativeVars).every(k => k in h.env.variables));
+    const unset = contributor(h.ctx, { ...native, nativeWorkspace: null }, h.bindings, h.collector).resolve({ agent: { session: child }, callId: "native-unconfigured" });
+    assert.ok(!("DSH_LAYERFS_RUNTIME" in unset) && !("DSH_LAYERFS_NATIVE_WORKSPACE" in unset));
+    const inactive = contributor(h.ctx, { ...native, native: false }, h.bindings, h.collector).resolve({ agent: { session: child }, callId: "worker-env" });
+    assert.ok(!("DSH_LAYERFS_RUNTIME" in inactive) && !("DSH_LAYERFS_NATIVE_WORKSPACE" in inactive));
+  }
   assert.deepEqual(h.bindings.session("session-root"), { project: "website", locked: true, folder: FOLDER });
   assert.equal(h.bindings.choose("session-root", FOLDER, null), false, "a locked choice is refused");
   assert.deepEqual(root.records.map((r) => r.type), [PROJECT]);

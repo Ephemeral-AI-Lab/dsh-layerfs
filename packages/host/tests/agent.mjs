@@ -41,6 +41,14 @@ console.log(JSON.stringify({ same: Object.keys(a).every((k) => a[k] === w[k]) &&
   assert.equal(out.project, "shop");
 }
 
+// The runtime wrapper has the package's public exports, maps env, and import creates no runtime/instance.
+{
+  const script = `const [r,w] = await Promise.all([import("@layerfs/runtime"),import(${JSON.stringify(pathToFileURL(join(AGENT,"runtime.js")).href)})]); console.log(JSON.stringify({same:Object.keys(r).every(k=>r[k]===w[k]),keys:Object.keys(w),home:process.env.LAYERFS_HOME}));`;
+  const run = spawnSync(process.execPath,["--input-type=module","-e",script],{cwd:join(AGENT,".."),encoding:"utf8",env:{PATH:process.env.PATH,DSH_LAYERFS_HOME:"/explicit/home"},timeout:10000});
+  assert.equal(run.status,0,run.stderr); const value=JSON.parse(run.stdout);
+  assert.equal(value.same,true); assert(value.keys.includes("LayerFSRuntime")); assert.equal(value.home,"/explicit/home");
+}
+
 // the CLI wrapper: DSH_LAYERFS_PROJECT alone names the project its Store opens; exit codes and stdout are the CLI's
 {
   const opened = join(dir, "opened.jsonl"), binding = join(dir, "binding.cjs");

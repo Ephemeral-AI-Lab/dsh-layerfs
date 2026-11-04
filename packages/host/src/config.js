@@ -52,6 +52,7 @@ export const VOLUMES = "/var/lib/docker/volumes";
  * @property {boolean} traceInWorkspace Windows default: traces use the shell's writable workspace.
  * @property {number} pollMs
  * @property {string} sdk file URL of agent/sdk.js, @layerfs/agent as agents' scripts import it
+ * @property {string} agentRuntime file URL of agent/runtime.js, public runtime exports with DSH env mapping
  * @property {string} backend file URL of agent/backend.js, @layerfs/backend for agents' scripts
  * @property {string} cli path of agent/cli.js, the layerfs command (runs the LayerFS checkout's api/cli/src/layerfs.js)
  * @property {{ distribution: string, user: string, node: string, home: string }} [wsl] Windows: the WSL deployment
@@ -91,6 +92,7 @@ export function resolveConfig(config, profile) {
     pollMs: config.pollMs ?? 400,
     // agents' processes see DSH_LAYERFS_* only: these wrappers set LAYERFS_* from them first (agent/env.js)
     sdk: new URL("./agent/sdk.js", import.meta.url).href,
+    agentRuntime: new URL("./agent/runtime.js", import.meta.url).href,
     backend: new URL("./agent/backend.js", import.meta.url).href,
     cli: fileURLToPath(new URL("./agent/cli.js", import.meta.url)),
   };

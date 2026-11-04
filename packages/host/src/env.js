@@ -26,6 +26,8 @@ export { BIN, shimOnPath } from "./cli-path.js";
 const VARIABLES = {
   DSH_LAYERFS_PROJECT: "LayerFS project of this conversation; pass it to LayerFS.open(...)",
   DSH_LAYERFS_SDK: "file URL of @layerfs/agent, the LayerFS JavaScript SDK; import it from Node scripts (await import(process.env.DSH_LAYERFS_SDK))",
+  DSH_LAYERFS_RUNTIME: "file URL of the public @layerfs/runtime exports with DSH environment mapping; explicitly open a native runtime in this process, no host-handle borrowing",
+  DSH_LAYERFS_NATIVE_WORKSPACE: "JSON deployment options for explicit runtime.native.create: product executables and private workRoot; no instance id, secret, implicit creation or global discovery",
   DSH_LAYERFS_BACKEND: "file URL of @layerfs/backend (background processes, a Workspace's status, Store and file storage)",
   DSH_LAYERFS_SKILL: "path of the LayerFS SDK skill (SKILL.md, its references beside it); read it before the first LayerFS call",
   DSH_LAYERFS_CLI: "path of the CLI behind the layerfs command on PATH: layerfs <family> <call> runs one @layerfs/agent call (layerfs help lists them), JSON on stdout; exit 0 ok, 2 bad command line, 125 refused",
@@ -85,6 +87,7 @@ export function contributor(ctx, spec, bindings, collector) {
         DSH_LAYERFS_PROJECT: project.name,
         DSH_LAYERFS_SDK: spec.sdk,
         DSH_LAYERFS_BACKEND: spec.backend,
+        ...(spec.native && spec.nativeWorkspace ? { DSH_LAYERFS_RUNTIME: spec.agentRuntime ?? new URL("./agent/runtime.js", import.meta.url).href, DSH_LAYERFS_NATIVE_WORKSPACE: JSON.stringify(spec.nativeWorkspace) } : {}),
         DSH_LAYERFS_CLI: spec.cli,
         ...(skill ? { DSH_LAYERFS_SKILL: skill } : {}),
         ...Object.fromEntries(Object.entries(deploy).filter(([, v]) => v).map(([k, v]) => [`DSH_LAYERFS_${k}`, v])),
