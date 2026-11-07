@@ -15,7 +15,7 @@
 // the sharky maid theme (maid.tsx) sets inside the page.
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, IconChecklistOutlineRegular, IconEllipsisOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconTrashOutlineRegular, IconFlatListOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
-import ellen from '../../../../sim/avatars/ellen_joe.gif'
+import ellen from './assets/ellen_joe.gif'
 import { AllSandboxes } from './AllSandboxes.tsx'
 import { api, readProject, type Project, type ProjectState, type Status, type Storage } from './api.ts'
 import { InitDialog } from './InitDialog.tsx'

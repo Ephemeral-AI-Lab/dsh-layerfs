@@ -7,11 +7,13 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./assets/*": "./lib/assets/*"
   },
   "files": [
     "lib/index.js",
-    "lib/client.js"
+    "lib/client.js",
+    "lib/assets"
   ],
   "dsh": {
     "client": {

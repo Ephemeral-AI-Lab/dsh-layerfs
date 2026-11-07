@@ -6,7 +6,7 @@
 // follow; menus and dialogs open outside it and keep dsh's look. Dark follows
 // dsh's colour scheme (data-theme, from followTheme), else the system's.
 // Ellen shows how the tests went with one of her expressions.
-import ellen from '../../../../sim/avatars/ellen_joe.png'
+import ellen from './assets/ellen_joe.png'
 
 const bubbles = (ring: string, dot: string, heart: string) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="10" cy="12" r="3" fill="none" stroke="${ring}" stroke-width="1.2"/><circle cx="16" cy="6" r="1.6" fill="${dot}"/><path d="M44 40c-2-3.4-7-2-6.2 1.4.7 2.8 6.2 5.6 6.2 5.6s5.5-2.8 6.2-5.6C51 38 46 36.6 44 40z" fill="${heart}"/><circle cx="52" cy="14" r="1.2" fill="${dot}"/></svg>`)}")`
 
