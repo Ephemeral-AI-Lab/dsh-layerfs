@@ -4,9 +4,9 @@ export const LayerFSBackend = {
     return {
       store: {
         project: {
-          get_comparable: (name) => client.store.get_comparable(name),
-          get_history: (name) => client.store.get_history(name),
-          get_storage: (name) => client.store.get_storage(name),
+          get_comparable: (name) => client.branch.diff(name),
+          get_history: (name) => client.commit.list(name),
+          get_storage: (name) => client.store.stats(name),
         },
       },
     };
