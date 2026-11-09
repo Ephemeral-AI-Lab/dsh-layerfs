@@ -25,20 +25,22 @@ if (mode !== "link" && mode !== "check") {
 }
 
 const source = resolve(ROOT, process.env.LAYERFS_SOURCE || pin.source);
-if (!existsSync(join(source, "api/agent/package.json"))) {
+const hasV1 = existsSync(join(source, "api/agent/package.json"));
+const hasV2 = existsSync(join(source, "api/node/package.json"));
+if (!hasV1 && !hasV2) {
   console.error(`layerfs-source: ${source} is not a LayerFS checkout with the #428 packages (no api/agent); set LAYERFS_SOURCE to one at ${pin.commit.slice(0, 10)}`);
   process.exit(1);
 }
-if (!existsSync(join(source, "api/node_modules/@layerfs/agent/package.json"))) {
+if (!hasV2 && !existsSync(join(source, "api/node_modules/@layerfs/agent/package.json"))) {
   console.error(`layerfs-source: ${source}/api has no node_modules/@layerfs/agent; run \`npm install\` in that api/ once (it only links its workspaces)`);
   process.exit(1);
 }
 // the layerfs command agents run (DSH_LAYERFS_CLI) imports @layerfs/agent from api/cli/'s own node_modules
-if (!existsSync(join(source, "api/cli/src/layerfs.js"))) {
+if (!hasV2 && !existsSync(join(source, "api/cli/src/layerfs.js"))) {
   console.error(`layerfs-source: ${source} has no api/cli/src/layerfs.js, the layerfs command; set LAYERFS_SOURCE to a checkout at ${pin.commit.slice(0, 10)}`);
   process.exit(1);
 }
-if (!existsSync(join(source, "api/cli/node_modules/@layerfs/agent/package.json"))) {
+if (!hasV2 && !existsSync(join(source, "api/cli/node_modules/@layerfs/agent/package.json"))) {
   console.error(`layerfs-source: ${source}/api/cli has no node_modules/@layerfs/agent; run \`npm --prefix "${join(source, "api/cli")}" install\` once (it only links the SDK)`);
   process.exit(1);
 }

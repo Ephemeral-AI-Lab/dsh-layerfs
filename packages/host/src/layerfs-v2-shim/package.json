@@ -1,0 +1,10 @@
+{
+  "name": "@layerfs/v2-shim",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./agent.js": "./agent.js",
+    "./backend.js": "./backend.js",
+    "./runtime.js": "./runtime.js"
+  }
+}

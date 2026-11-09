@@ -17,9 +17,9 @@
   },
   "dependencies": {
     "@dsh-layerfs/model": "workspace:*",
-    "@layerfs/agent": "./src/layerfs-v2-shim/agent.js",
-    "@layerfs/backend": "./src/layerfs-v2-shim/backend.js",
-    "@layerfs/runtime": "./src/layerfs-v2-shim/runtime.js",
+    "@layerfs/agent": "link:./src/layerfs-v2-shim/agent",
+    "@layerfs/backend": "link:./src/layerfs-v2-shim/backend",
+    "@layerfs/runtime": "link:./src/layerfs-v2-shim/runtime",
     "@layerfs/node": "link:../../.layerfs/api/node"
   },
   "peerDependencies": {

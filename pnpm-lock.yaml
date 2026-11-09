@@ -35,14 +35,17 @@ importers:
         specifier: workspace:*
         version: link:../model
       '@layerfs/agent':
-        specifier: link:../../.layerfs/api/agent
-        version: link:../../.layerfs/api/agent
+        specifier: link:./src/layerfs-v2-shim/agent
+        version: link:src/layerfs-v2-shim/agent
       '@layerfs/backend':
-        specifier: link:../../.layerfs/api/backend
-        version: link:../../.layerfs/api/backend
+        specifier: link:./src/layerfs-v2-shim/backend
+        version: link:src/layerfs-v2-shim/backend
+      '@layerfs/node':
+        specifier: link:../../.layerfs/api/node
+        version: link:../../.layerfs/api/node
       '@layerfs/runtime':
-        specifier: link:../../.layerfs/api/runtime
-        version: link:../../.layerfs/api/runtime
+        specifier: link:./src/layerfs-v2-shim/runtime
+        version: link:src/layerfs-v2-shim/runtime
 
   packages/mock: {}
 
