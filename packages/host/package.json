@@ -8,16 +8,19 @@
     ".": "./src/index.js",
     "./package.json": "./package.json"
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "license": "MIT",
   "engines": {
     "dsh": ">=0.2.1-alpha.4 <0.3.0"
   },
   "dependencies": {
     "@dsh-layerfs/model": "workspace:*",
-    "@layerfs/agent": "link:../../.layerfs/api/agent",
-    "@layerfs/backend": "link:../../.layerfs/api/backend",
-    "@layerfs/runtime": "link:../../.layerfs/api/runtime"
+    "@layerfs/agent": "./src/layerfs-v2-shim/agent.js",
+    "@layerfs/backend": "./src/layerfs-v2-shim/backend.js",
+    "@layerfs/runtime": "./src/layerfs-v2-shim/runtime.js",
+    "@layerfs/node": "link:../../.layerfs/api/node"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
