@@ -117,7 +117,76 @@ export const CLI = {
   "workspace.changes": { at: null },
   "inspect.snapshot": { at: null },
   "process.list": { at: null },
+
+  // v2 (the 2.0 call table): @layerfs/node, nine families, 66 calls
+  "project.init": { at: "project", cli: (a) => line("project init", [a.path]) },
+  "project.list": { at: null },
+  "project.get": { at: null },
+  "project.stats": { at: null },
+  "project.export": { at: "project", dim: true, cli: (a) => line("project export", [a.name]) },
+  "project.remove": { at: "project", cli: (a) => line("project remove", [a.name]) },
+  "branch.list": { at: "project", dim: true, cli: (a) => line("branch list", [a.project], page(a)) },
+  "branch.get": { at: null },
+  "branch.commits": { at: "project", dim: true, cli: (a) => line("branch commits", [a.branch], page(a)) },
+  "branch.get_commit": { at: null },
+  "branch.fork": { at: "project", cli: (a) => a.project ? line("branch fork", [a.project, a.name, a.from]) : line("branch fork", [a.name], [["from", a.from ?? a.branch, "main"]]) },
+  "branch.merge": { at: "project", cli: (a) => line("branch merge", [a.branch, a.with, a.name], [], a.message) },
+  "branch.publish": { at: "project", cli: (a) => line("branch publish", [a.branch]) },
+  "branch.diff": { at: "project", dim: true, cli: (a) => line("branch diff", [a.from, a.to], page(a)) },
+  "commit.list": { at: null },
+  "commit.get": { at: null },
+  "commit.diff": { at: "project", dim: true, cli: (a) => line("commit diff", [a.left, a.right]) },
+  "file.read": { at: "fs", dim: true, cli: (a) => line("file read", [a.path]) },
+  "file.stat": { at: "fs", dim: true, cli: (a) => line("file stat", [a.path]) },
+  "file.list": { at: "fs", dim: true, cli: (a) => line("file list", [a.path], page(a)) },
+  "file.glob": { at: "fs", dim: true, cli: (a) => line("file glob", [a.pattern, a.path], page(a)) },
+  "file.grep": { at: "fs", dim: true, cli: (a) => line("file grep", [a.pattern, a.path], page(a)) },
+  "file.revision": { at: null },
+  "file.blame": { at: "fs", dim: true, cli: (a) => line("file blame", [a.path]) },
+  "file.diff": { at: "fs", dim: true, cli: (a) => line("file diff", [a.left, a.right]) },
+  "file.write": { at: "fs", cli: (a) => line("file write", [a.path], [], a.message) },
+  "file.edit": { at: "fs", cli: (a) => line("file edit", [a.path], [], a.message) },
+  "file.rm": { at: "fs", cli: (a) => line("file rm", [a.path], [], a.message) },
+  "file.mkdir": { at: "fs", cli: (a) => line("file mkdir", [a.path], [], a.message) },
+  "file.mv": { at: "fs", cli: (a) => line("file mv", [a.from, a.to], [], a.message) },
+  "file.cp": { at: "fs", cli: (a) => line("file cp", [a.from, a.to], [], a.message) },
+  "file.apply": { at: "fs", cli: (a) => line("file apply", [], [], a.message) },
+  "sandbox.create": { at: "project", cli: (a) => { const image = a.image ?? a.deploy?.image; return line("sandbox create", [a.name, a.project, image && shortImage(image)]); } },
+  "sandbox.list": { at: null },
+  "sandbox.get": { at: null },
+  "sandbox.close": { at: "project", cli: (a) => line("sandbox close", [a.sandbox]) },
+  "workspace.mount": { at: "workspace", dim: true, cli: (a) => line("workspace mount", [a.branch]) },
+  "workspace.exec": { at: "workspace", cli: (a, sh) => (sh ?? a.command) + (a.background && !/\s*&\s*$/.test(sh ?? a.command) ? " &" : "") },
+  "workspace.exec_cancel": { at: "workspace", cli: (a) => line("workspace exec_cancel", [a.exec]) },
+  "workspace.commit": { at: "workspace", cli: (a) => line("workspace commit", [], [["force", a.force]], a.message) },
+  "workspace.unmount": { at: "workspace", cli: (a) => line("workspace unmount", [a.branch], [["discard", a.discard]]) },
+  "workspace.status": { at: "workspace", dim: true, cli: () => "workspace status" },
+  "machine.list": { at: "project", dim: true, cli: (a) => line("machine list", [], page(a)) },
+  "machine.platforms": { at: "project", dim: true, cli: () => "machine platforms" },
+  "machine.get": { at: null },
+  "machine.status": { at: "project", dim: true, cli: (a) => line("machine status", [a.name]) },
+  "machine.start": { at: "project", cli: (a) => line("machine start", [a.name]) },
+  "machine.stop": { at: "project", cli: (a) => line("machine stop", [a.name]) },
+  "machine.create": { at: "project", cli: (a) => line("machine create", [a.name, a.platform]) },
+  "machine.remove": { at: "project", cli: (a) => line("machine remove", [a.name]) },
+  "machine.update": { at: "project", cli: (a) => line("machine update", [a.name]) },
+  "store.list": { at: "project", dim: true, cli: (a) => line("store list", [], page(a)) },
+  "store.get": { at: null },
+  "store.status": { at: null },
+  "store.stats": { at: null },
+  "store.create": { at: "project", cli: (a) => line("store create", [a.name]) },
+  "store.connect": { at: "project", cli: (a) => line("store connect", [a.name]) },
+  "store.push": { at: "project", cli: (a) => line("store push", [a.name]) },
+  "store.pull": { at: "project", cli: (a) => line("store pull", [a.name]) },
+  "store.remove": { at: "project", cli: (a) => line("store remove", [a.name]) },
+  "store.disconnect": { at: "project", cli: (a) => line("store disconnect", [a.name]) },
+  "backup.connect": { at: "project", cli: (a) => line("backup connect", [a.name]) },
+  "backup.disconnect": { at: "project", cli: (a) => line("backup disconnect", [a.name]) },
+  "backup.list": { at: "project", dim: true, cli: (a) => line("backup list", [], page(a)) },
+  "backup.create": { at: "project", cli: (a) => line("backup create", [a.name]) },
+  "backup.restore": { at: "project", cli: (a) => line("backup restore", [a.name]) },
 };
+
 
 for (const name of ["mount", "exec", "status", "commit", "unmount"]) CLI[`sandbox.${name}`] = CLI[`workspace.${name}`];
 // @layerfs/backend (#428): a background process and a Workspace's status are
@@ -131,7 +200,7 @@ Object.assign(CLI, { "backend.daemon.process.start": CLI["process.start"], "back
 export const routeOf = (call) => CLI[call] ?? { at: "project", dim: true, cli: () => call };
 
 /** The group each terminal implies, hidden from its lines. */
-const IMPLIED = { fs: "fs ", workspace: "workspace " };
+const IMPLIED = { fs: ["fs ", "file "], file: "file ", workspace: "workspace " };
 
 /** The full command line of `call` with `args` (and, for a Workspace command, its shell text `sh`). */
 export const commandOf = (call, args = {}, sh) => routeOf(call).cli?.(args, sh) ?? call;
@@ -139,5 +208,9 @@ export const commandOf = (call, args = {}, sh) => routeOf(call).cli?.(args, sh) 
 /** The line `call` prints in its terminal: the command line without the group the terminal implies. */
 export function cliOf(call, args = {}, sh) {
   const text = commandOf(call, args, sh), implied = IMPLIED[routeOf(call).at];
-  return implied && text.startsWith(implied) ? text.slice(implied.length) : text;
+  if (!implied) return text;
+  for (const prefix of [].concat(implied)) {
+    if (text.startsWith(prefix)) return text.slice(prefix.length);
+  }
+  return text;
 }

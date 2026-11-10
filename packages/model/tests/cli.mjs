@@ -5,7 +5,7 @@
 // The packages are the LayerFS checkout's (LAYERFS_SOURCE). A client is opened
 // on a stand-in binding that answers every call, so no Store is needed.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,45 +13,22 @@ import { LAYERFS } from "../../host/src/source.js";
 import { CLI, cliOf, commandOf, routeOf } from "../src/cli.js";
 
 const api = join(LAYERFS, "api");
-// v2 pending: the CLI table below binds the V1 29+14 method face; LayerFS
-// 2.0 ships 9 families / 66 calls and the table rewrite is its own batch.
-if (!existsSync(join(api, "agent/src/index.js"))) {
-  console.log("model cli: SKIP (v2 table rewrite pending; V1 packages absent)");
-  process.exit(0);
-}
-const binding = join(mkdtempSync(join(tmpdir(), "dsh-layerfs-cli-")), "binding.cjs");
-writeFileSync(binding, "const ok = async () => ({ value: { items: [], hasMore: false } }); module.exports = { call: ok, backendCall: ok, storeOpen: ok, storeClose: ok };");
-Object.assign(process.env, { LAYERFS_NATIVE: binding, LAYERFS_STORE_PATH: "/stand-in/store.sqlite", LAYERFS_HOME: "/stand-in" });
-const { LayerFS } = await import(pathToFileURL(join(api, "agent/src/index.js")).href);
-const { LayerFSBackend } = await import(pathToFileURL(join(api, "backend/src/index.js")).href);
+const node = await import(pathToFileURL(join(api, "node/src/index.js")).href);
 
-/** `group.method` of every function under `client`, groups nested as the backend's are. */
-const methods = (client, prefix = "") => Object.entries(client)
-  .filter(([, group]) => group && typeof group === "object" && !(group instanceof Set))
-  .flatMap(([name, group]) => Object.entries(group).flatMap(([m, f]) => (typeof f === "function" ? [`${prefix}${name}.${m}`] : f && typeof f === "object" ? methods({ [m]: f }, `${prefix}${name}.`) : [])));
-const sdk = await LayerFS.open("cli-test");
-const agent = methods(sdk), backend = methods(LayerFSBackend.of(sdk), "backend.");
-const all = [...agent, ...backend];
-// #373's 27 methods, less project.init (now LayerFS.init) and workspace.status
-// (now the backend's), with sandbox.create, list_workspaces and close and
-// project.list_sandboxes (#428)
-assert.equal(agent.length, 29, `the 29-method agent SDK: ${agent.join(" ")}`);
-assert.equal(backend.length, 14, `the 14-method backend: ${backend.join(" ")}`);
-for (const call of all) {
+// every call of the 2.0 table has a row: family.call keys, 66 of them
+assert.equal(node.table.length, 66, "the shipped 2.0 table");
+const calls = node.table.map((spec) => `${spec.family}.${spec.call}`);
+for (const call of calls) {
   assert.ok(CLI[call], `${call} has a row in cli.js`);
   assert.ok(["project", "fs", "workspace", null].includes(CLI[call].at), `${call}: terminal`);
   if (CLI[call].at === null) continue;
-  // every drawn SDK line starts with its group, except a Workspace's shell command
-  // (a drawn backend call prints as its older name, checked below)
-  if (call !== "workspace.exec" && call !== "process.start" && !call.startsWith("backend.")) assert.ok(commandOf(call, {}).startsWith(call.split(".")[0] + " "), `${call}: group prefix`);
+  if (call !== "workspace.exec" && !call.startsWith("backend.")) assert.ok(commandOf(call, {}).startsWith(call.split(".")[0] + " "), `${call}: group prefix`);
 }
 
 const image = "sha256:" + "2d929c6d66c2".padEnd(64, "0");
 const lines = [
   ["project.init", { path: "/src/website" }, "project", "project init /src/website"],
   ["project.list_branches", { pageSize: 50, pagePos: 0 }, "project", "project list_branches"],
-  ["branch.fork", { name: "feature", from: "main" }, "project", "branch fork feature"],
-  ["branch.fork", { name: "try-ui", branch: "feature" }, "project", "branch fork try-ui --from-ref feature"],
   ["branch.list_commits", { branch: "feature", pageSize: 20, pagePos: 0 }, "project", "branch list_commits feature --page-size 20"],
   ["branch.diff_branches", { from: "feature", to: "try-ui" }, "project", "branch diff_branches feature try-ui"],
   ["branch.merge", { branch: "feature", with: "try-ui", name: "release", message: "join" }, "project", 'branch merge feature try-ui release -m "join"'],
@@ -74,7 +51,7 @@ const lines = [
   ["backend.daemon.workspace.status", {}, "workspace", "workspace status"],
   ["backend.daemon.process.start", { command: "npm run dev" }, "workspace", "npm run dev &"],
   ["backend.daemon.process.cancel", { process: "proc_1_ab" }, "workspace", "process cancel proc_1_ab"],
-  ["workspace.commit", { message: "add hero", force: false }, "workspace", 'workspace commit -m "add hero"'],
+['workspace.commit', { message: 'add hero' }, 'workspace', 'workspace commit -m \"add hero\"'],
   ["workspace.commit", { force: true }, "workspace", "workspace commit --force"],
   ["workspace.unmount", { discard: false }, "workspace", "workspace unmount"],
   ["workspace.unmount", { discard: true }, "workspace", "workspace unmount --discard"],
@@ -82,6 +59,30 @@ const lines = [
   ["sandbox.mount", { sandbox: "tester", branch: "feature" }, "workspace", "workspace mount feature"],
   ["sandbox.commit", { message: "add hero" }, "workspace", 'workspace commit -m "add hero"'],
 ];
+
+// the 2.0 face: positional arguments, family.call keys
+const v2lines = [
+['branch.fork', { name: 'feature', from: 'main' }, 'project', 'branch fork feature'],
+['branch.commits', { branch: 'feature' }, 'project', 'branch commits feature'],
+['branch.diff', { from: 'feature', to: 'try-ui' }, 'project', 'branch diff feature try-ui'],
+['file.write', { path: '/app/theme.css', message: 'warm theme' }, 'fs', 'file write /app/theme.css -m \"warm theme\"'],
+['file.mv', { from: '/a', to: '/b' }, 'fs', 'file mv /a /b'],
+['file.rm', { path: '/old' }, 'fs', 'file rm /old'],
+['file.mkdir', { path: '/new' }, 'fs', 'file mkdir /new'],
+['workspace.exec', { command: 'npm test' }, 'workspace', 'npm test'],
+['workspace.exec_cancel', { exec: 'proc_1_ab' }, 'workspace', 'workspace exec_cancel proc_1_ab'],
+['workspace.commit', { message: 'add hero' }, 'workspace', 'workspace commit -m \"add hero\"'],
+['workspace.unmount', {}, 'workspace', 'workspace unmount'],
+['store.create', { name: 'shop' }, 'project', 'store create shop'],
+['machine.start', { name: 'native' }, 'project', 'machine start native'],
+['sandbox.close', { sandbox: 'tester' }, 'project', 'sandbox close tester'],
+];
+for (const [call, args, at, text] of v2lines) {
+  assert.equal(routeOf(call).at, at, call + ': terminal');
+  assert.equal(commandOf(call, args), text, call);
+  const shown = at === 'fs' ? text.replace(/^file /, '') : at === 'workspace' ? text.replace(/^workspace /, '') : text;
+  assert.equal(cliOf(call, args), shown, call + ' in its terminal');
+}
 for (const [call, args, at, text] of lines) {
   assert.equal(routeOf(call).at, at, `${call}: terminal`);
   assert.equal(commandOf(call, args), text, call);
@@ -94,4 +95,4 @@ assert.equal(cliOf("workspace.commit", { message: "x" }), 'commit -m "x"');
 assert.equal(cliOf("process.cancel", { process: "p" }), "process cancel p", "an operator group stays");
 assert.equal(cliOf("sandbox.create", { name: "b" }), "sandbox create b", "the project terminal keeps every group");
 assert.equal(routeOf("no.such").at, "project", "an unknown call falls back to the project terminal");
-console.log(`PASS cli: ${all.length} methods routed, ${lines.length} lines`);
+console.log(`PASS cli: ${calls.length} calls routed, ${lines.length} legacy lines, ${v2lines.length} v2 lines`);
