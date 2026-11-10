@@ -49,24 +49,18 @@ console.log(JSON.stringify({ same: Object.keys(a).every((k) => a[k] === w[k]) &&
   assert.equal(value.same,true); assert(value.keys.includes("LayerFSRuntime")); assert.equal(value.home,"/explicit/home");
 }
 
-// the CLI wrapper: DSH_LAYERFS_PROJECT alone names the project its Store opens; exit codes and stdout are the CLI's
+// the CLI wrapper: LayerFS 2.0 ships the command as the checkout Rust
+// binary (V1 JavaScript CLI and its stand-in binding protocol are gone);
+// env.js maps DSH_LAYERFS_* to LAYERFS_*, exit codes and stdout are the command own
 {
-  const opened = join(dir, "opened.jsonl"), binding = join(dir, "binding.cjs");
-  writeFileSync(binding, `const fs = require("node:fs");
-const ok = async () => ({ value: { items: [], hasMore: false } });
-module.exports = { call: ok, backendCall: ok, storeOpen: async (args) => { fs.appendFileSync(${JSON.stringify(opened)}, JSON.stringify(args) + "\\n"); return ok(); }, storeClose: ok };`);
   const cli = join(AGENT, "cli.js");
-  const env = { DSH_LAYERFS_PROJECT: "wrapped", DSH_LAYERFS_NATIVE: binding, DSH_LAYERFS_STORE_PATH: "/stand-in/store.sqlite", DSH_LAYERFS_HOME: "/stand-in" };
-  const run = node([cli, "project", "list_branches"], env);
+  const home = join(dir, "cli-home");
+  const run = node([cli, "store", "list"], { DSH_LAYERFS_HOME: home });
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual(JSON.parse(run.stdout), { items: [], hasMore: false });
-  const [args] = readFileSync(opened, "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.deepEqual([args.project, args.home], ["wrapped", "/stand-in"]);
-  assert.equal(JSON.stringify(args).includes("/stand-in/store.sqlite"), true, "the Store path comes from DSH_LAYERFS_STORE_PATH");
-  // no project: the CLI's own usage refusal (exit 2); help exits 0
-  const none = node([cli, "project", "list_branches"], { DSH_LAYERFS_NATIVE: binding });
+  assert.deepEqual(JSON.parse(run.stdout), { items: [] });
+  // an unknown call: the command own usage refusal; help exits 0
+  const none = node([cli, "bogus"], {});
   assert.equal(none.status, 2, none.stderr);
-  assert.match(none.stderr, /no LayerFS project/);
   assert.equal(node([cli, "help"], {}).status, 0);
 }
 console.log("agent wrappers: ok");

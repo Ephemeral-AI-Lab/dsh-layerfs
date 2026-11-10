@@ -564,31 +564,40 @@ try {
     assert.notEqual(historyAnswer(one, { ...nodes, authors: { [id(4)]: "bob" } }, answer.version).kind, "unchanged", "a new author is a new version");
     assert.equal(historyAnswer({ ...one, version: undefined }, nodes, undefined).version, undefined, "a History without a version is never unchanged");
   }
-  // a live project's client: LayerFS.open with the project's deployment (here on a stand-in binding in
-  // this process), its backend beside it, its state from the runtime; releasing it closes its Store
+  // a live project's client: LayerFS.open with the project's deployment (a stand-in client
+  // injected into the shim), its backend beside it, its state from the runtime; releasing it closes its Store
   {
     const { clientFor, release } = await import("../src/layerfs-client.js");
-    const binding = join(dir, "binding.cjs"), seen = join(dir, "binding-calls.jsonl");
-    writeFileSync(binding, `const { appendFileSync } = require("node:fs");
-const log = (fn) => async (op, args) => { appendFileSync(${JSON.stringify(seen)}, JSON.stringify({ fn, op, args }) + "\\n"); return { value: op === "backend.store.project.get_storage" ? { logical: 5, dedupe: "1.5", compression: null } : { items: [], hasMore: false } }; };
-module.exports = { call: log("call"), backendCall: log("backendCall"), storeOpen: (args) => log("storeOpen")("open", args), storeClose: (args) => log("storeClose")("close", args) };`);
-    process.env.LAYERFS_NATIVE = binding;
-    const states = [];
-    const live = { ...h.spec, worker: false, runtime: Promise.resolve({ project: { list: async () => [{ name: "shop", initialized: true }], get_state: async (name) => (states.push(name), { kind: "ok", project: name }) } }) };
-    const client = await clientFor(live, { name: "shop", volume: "layerfs-shop-store-1", image: "sha256:" + "2".repeat(64) });
-    assert.deepEqual(await client.backend.store.project.get_storage(), { logical: 5, dedupe: 1.5, compression: null });
-    assert.deepEqual(await client.state(), { kind: "ok", project: "shop" });
-    assert.deepEqual(states, ["shop"]);
-    await release(client);
-    const lines = readFileSync(seen, "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    assert.deepEqual(lines.map((l) => l.fn), ["storeOpen", "call", "backendCall", "storeClose"]);
-    const lookup = lines[1].args;
-    // Windows projects belong to the configured Linux home even when this
-    // test substitutes an in-process binding for the worker transport.
-    const projectHome = process.platform === "win32" ? h.spec.wsl.home : h.spec.home;
-    assert.deepEqual([lines[1].op, lookup.project, lookup.home, lookup.storePath], ["project.list_branches", "shop", projectHome, `${h.spec.volumes}/layerfs-shop-store-1/_data/global/store.sqlite`]);
-    assert.deepEqual([lookup.deploy.volume, lookup.deploy.image, lookup.deploy.containerPrefix], ["layerfs-shop-store-1", "sha256:" + "2".repeat(64), "layerfs-"]);
-    assert.ok(!("LAYERFS_VOLUME" in process.env), "the deployment is set for the open only");
+    const { LayerFS } = await import("@layerfs/agent");
+    const calls = [];
+    const layerfsEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => name.startsWith("LAYERFS_")));
+    LayerFS.use(() => {
+      calls.push({ fn: "open", env: layerfsEnv() });
+      return {
+        store: { stats: async () => { calls.push({ fn: "store.stats" }); return { logical: 5, dedupe: 1.5, compression: null }; } },
+        close: () => { calls.push({ fn: "close" }); },
+      };
+    });
+    try {
+      const states = [];
+      const live = { ...h.spec, worker: false, runtime: Promise.resolve({ project: { list: async () => [{ name: "shop", initialized: true }], get_state: async (name) => (states.push(name), { kind: "ok", project: name }) } }) };
+      const client = await clientFor(live, { name: "shop", volume: "layerfs-shop-store-1", image: "sha256:" + "2".repeat(64) });
+      assert.deepEqual(await client.backend.store.project.get_storage(), { logical: 5, dedupe: 1.5, compression: null });
+      assert.deepEqual(await client.state(), { kind: "ok", project: "shop" });
+      assert.deepEqual(states, ["shop"]);
+      await release(client);
+      assert.deepEqual(calls.map((c) => c.fn), ["open", "store.stats", "close"]);
+      const lookup = calls[0].env;
+      // Windows projects belong to the configured Linux home even when this
+      // test substitutes a stand-in client for the worker transport.
+      const projectHome = process.platform === "win32" ? h.spec.wsl.home : h.spec.home;
+      assert.equal(lookup.LAYERFS_HOME, projectHome);
+      assert.equal(lookup.LAYERFS_STORE_PATH, h.spec.volumes + "/layerfs-shop-store-1/_data/global/store.sqlite");
+      assert.deepEqual([lookup.LAYERFS_VOLUME, lookup.LAYERFS_IMAGE, lookup.LAYERFS_CONTAINER_PREFIX], ["layerfs-shop-store-1", "sha256:" + "2".repeat(64), "layerfs-"]);
+      assert.ok(!("LAYERFS_VOLUME" in process.env), "the deployment is set for the open only");
+    } finally {
+      LayerFS.use(null);
+    }
   }
   // an agent's call that found the home's worker down or gone tells the Host, which starts it again; other failures do not
   {
