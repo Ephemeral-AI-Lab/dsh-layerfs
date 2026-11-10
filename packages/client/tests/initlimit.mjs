@@ -3,14 +3,21 @@
 // default); the minutes field and the next limit offered after a time-out.
 //   node packages/client/tests/initlimit.mjs
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LAYERFS } from "../../host/src/source.js";
 import { DEFAULT_LIMIT_MS, limitFromMinutes, limitOf, nextMinutes, timedOut, timedOutText } from "../src/client/initLimit.ts";
 
 // the client's default is the agent's
-const { INIT_TIMEOUT_MS } = await import(pathToFileURL(join(LAYERFS, "api/agent/src/project/init.js")).href);
-assert.equal(DEFAULT_LIMIT_MS, INIT_TIMEOUT_MS);
+// v2: the V1 agent module is gone; LayerFS 2.0 Init carries no such default
+// (sync call), so the parity check applies only when the V1 packages exist.
+if (existsSync(join(LAYERFS, "api/agent/src/project/init.js"))) {
+  const { INIT_TIMEOUT_MS } = await import(pathToFileURL(join(LAYERFS, "api/agent/src/project/init.js")).href);
+  assert.equal(DEFAULT_LIMIT_MS, INIT_TIMEOUT_MS);
+} else {
+  console.log("initlimit: V1 default parity SKIP (v2 has no INIT_TIMEOUT_MS)");
+}
 
 const job = (fields) => ({ step: "failed", started: 1_000, ended: null, timeout: null, imported: null, totals: null, ...fields });
 const MIN = 60_000;

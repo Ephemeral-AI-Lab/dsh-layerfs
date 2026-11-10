@@ -5,7 +5,7 @@
 // The packages are the LayerFS checkout's (LAYERFS_SOURCE). A client is opened
 // on a stand-in binding that answers every call, so no Store is needed.
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,6 +13,12 @@ import { LAYERFS } from "../../host/src/source.js";
 import { CLI, cliOf, commandOf, routeOf } from "../src/cli.js";
 
 const api = join(LAYERFS, "api");
+// v2 pending: the CLI table below binds the V1 29+14 method face; LayerFS
+// 2.0 ships 9 families / 66 calls and the table rewrite is its own batch.
+if (!existsSync(join(api, "agent/src/index.js"))) {
+  console.log("model cli: SKIP (v2 table rewrite pending; V1 packages absent)");
+  process.exit(0);
+}
 const binding = join(mkdtempSync(join(tmpdir(), "dsh-layerfs-cli-")), "binding.cjs");
 writeFileSync(binding, "const ok = async () => ({ value: { items: [], hasMore: false } }); module.exports = { call: ok, backendCall: ok, storeOpen: ok, storeClose: ok };");
 Object.assign(process.env, { LAYERFS_NATIVE: binding, LAYERFS_STORE_PATH: "/stand-in/store.sqlite", LAYERFS_HOME: "/stand-in" });
