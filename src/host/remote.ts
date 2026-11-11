@@ -37,7 +37,7 @@ export class LayerfsRemote extends TypertRemoteService {
 
   constructor(ctx: Context) {
     super(ctx, SERVICE, { namespace: NAMESPACE })
-    ctx.effect(() => ctx.typert.register({
+    ctx.effect(() => (ctx.typert as any).register({
       package: PACKAGE,
       face: 'host',
       schemas: [],
