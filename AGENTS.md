@@ -33,8 +33,10 @@ DeepSeek Harness (DSH) cordis plugin bundle. Design docs: `../layerfs-connect/do
 - `src/client/` browser half (React 18, CSS Modules, bundled to `lib/client.js` in
   DSH's `__ModuleLoader__` factory format)
   - `api.ts` `LayerfsApi` (`call(method,path,body)`, `op(name,args)`, `onEvent`)
-  - `machines/`, `storage/`, `presets/`, `session/`, `picker/` areas, each `register<Area>(ctx, api)`;
-    `picker/` fills ui-workspace's directory-flow holes with the LayerFS project picker
+  - `machines/`, `storage/`, `presets/`, `session/`, `picker/`, `hero/` areas, each
+    `register<Area>(ctx, api)`; `picker/` fills ui-workspace's directory-flow holes with
+    the LayerFS project picker, `hero/` puts the same project choice on the New Session
+    row (`conversation.hero.options` + the `session.place` op), sharing `picker/NewProjectForm`
 - `src/shared/remote-spec.ts` Remote descriptors shared by both faces.
 
 ## Commands
