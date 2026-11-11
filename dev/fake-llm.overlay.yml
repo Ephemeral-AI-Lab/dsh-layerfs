@@ -1,0 +1,25 @@
+# DEV-ONLY overlay: scripted offline model `fake/scripted` as the default model.
+# Use with scripts/dev.mjs:  DSH_LAYERFS_DEV_OVERLAY=$PWD/dev/fake-llm.overlay.yml node scripts/dev.mjs
+# See dev/fake-llm/README.md.
+- insert:
+    - id: fake-llm
+      name: /Users/yifanxu/Ephemeral-AI-Lab/dsh-layerfs/dev/fake-llm/index.js
+      config:
+        provider: fake
+        model: scripted
+        # Answer approval prompts with allowed-once (set DSH_FAKE_LLM_AUTO_APPROVE=0 to keep prompts).
+        autoApprove: !!js "process.env.DSH_FAKE_LLM_AUTO_APPROVE !== '0'"
+
+# Fresh agents (new sessions) use the fake model.
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: fake
+    model: scripted
+
+# First-use default workspace under the dev dir (<DSH_HOME>/../documents/deepseek-harness/default-workspace)
+# instead of ~/Documents.
+- id: workspace-controller
+  name: '@deepseek-ai/dsh-api-workspace-controller'
+  config:
+    documentsDirectory: !!js "process.env.DSH_HOME + '/../documents'"

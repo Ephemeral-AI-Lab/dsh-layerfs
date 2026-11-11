@@ -24,7 +24,12 @@ export function apply(ctx: any): void {
     return () => { gone = true; void dispose?.() }
   }, 'dsh-layerfs: remote')
   ctx.inject(['remote.layerfs'], (ctx: any) => {
-    const api = createApi(ctx, (id) => ctx.layout.selectPanel(id))
+    const workspace = () => ctx.get?.('uiWorkspace')
+    const api = createApi(ctx, {
+      openPanel: (id) => ctx.layout.selectPanel(id),
+      openWorkspace: async (id) => { await workspace()?.openWorkspace(id) },
+      openSession: (id) => { workspace()?.openSession(id) },
+    })
     ctx.effect(() => () => api.dispose(), 'dsh-layerfs: api')
     // Browser automation handle (tools/, test/e2e): opt-in per browser profile.
     if (typeof window !== 'undefined' && window.localStorage?.getItem('dsh-layerfs:debug') === '1') {

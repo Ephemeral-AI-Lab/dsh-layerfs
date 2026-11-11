@@ -1,0 +1,128 @@
+#!/usr/bin/env node
+// End-to-end: a LayerFS project session in the real DSH web UI with the
+// scripted fake model (dev/fake-llm). Needs a dev server started with
+// DSH_LAYERFS_DEV_OVERLAY=dev/fake-llm.overlay.yml.
+//   node test/e2e-sessions.mjs [--keep]
+// Checks: project workspace + session binding (branch, sandbox, mount, scratch),
+// per-turn checkpoints, restore files to a checkpoint, branch session at a
+// checkpoint (conversation fork + files fork), the LayerFS session store.
+import assert from 'node:assert/strict'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { openDev, runTurn } from '../tools/e2e-lib.mjs'
+
+const step = (m) => console.log(`\n== ${m}`)
+const { browser, page, logs } = await openDev()
+await page.waitForFunction(() => window.__dshLayerfs, null, { timeout: 30000 })
+const op = (name, args = {}) => page.evaluate(async ([n, a]) => {
+  try { return { ok: true, value: await window.__dshLayerfs.op(n, a) } } catch (e) { return { ok: false, code: e.code, message: e.message } }
+}, [name, args])
+const must = async (name, args) => { const r = await op(name, args); if (!r.ok) throw new Error(`${name}: ${r.code} ${r.message}`); return r.value }
+const http = async (method, path, body) => {
+  const r = await must('http', { method, path, ...(body === undefined ? {} : { body }) })
+  if (r.status < 200 || r.status >= 300) throw new Error(`${method} ${path}: ${r.status} ${JSON.stringify(r.body)}`)
+  return r.body
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const until = async (what, fn, ms = 30000) => {
+  const end = Date.now() + ms
+  for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out: ${what}`); await sleep(500) }
+}
+
+const tag = Date.now().toString(36)
+const store = `e2e${tag}`, name = 'demo', project = `${store}/${name}`
+let failed = false
+try {
+  step(`store + project ${project}`)
+  const src = mkdtempSync(join(tmpdir(), 'dshlfs-e2e-'))
+  writeFileSync(join(src, 'README.md'), '# demo\n')
+  mkdirSync(join(src, 'src')); writeFileSync(join(src, 'src', 'main.js'), 'console.log(1)\n')
+  await http('POST', '/api/stores', { name: store })
+  const init = await http('POST', '/api/projects', { store, name, source: src })
+  await until('project init', async () => (await http('GET', `/api/project-inits/${init.id}`)).step === 'done', 60000)
+
+  step('new session in the project workspace')
+  const prepared = await must('sessions.create', { project })
+  assert.ok(prepared.workspaceId)
+  await page.waitForTimeout(1500)
+  const t1 = await runTurn(page, { workspace: name, message: 'bash: echo one > one.txt\nbash: echo note > "$HOME/scratch-note.txt" || true', newSession: false })
+  assert.ok(t1.ok, `turn 1: ${t1.error}`)
+  const sid = t1.sessionId
+  assert.ok(sid, 'session id')
+  let state = await until('bound + 1 checkpoint', async () => {
+    const s = await must('session.state', { sessionId: sid })
+    return s.binding?.state === 'bound' && s.checkpoints.some((c) => c.kind === 'turn') ? s : null
+  })
+  const b = state.binding
+  console.log({ branch: b.branch, sandbox: b.sandbox, mount: b.mount, scratch: b.scratch })
+  assert.equal(b.project, project)
+  assert.ok(existsSync(join(b.mount, 'one.txt')), 'one.txt in the mount')
+  assert.ok(existsSync(join(b.mount, 'README.md')), 'project files in the mount')
+  assert.ok(existsSync(b.scratch), 'scratch folder')
+  const cp1 = state.checkpoints.find((c) => c.kind === 'turn')
+  assert.ok(cp1.commit, 'turn 1 committed')
+
+  step('turn 2')
+  const t2 = await runTurn(page, { message: 'bash: echo two > two.txt', newSession: false })
+  assert.ok(t2.ok, `turn 2: ${t2.error}`)
+  state = await until('2 checkpoints', async () => {
+    const s = await must('session.state', { sessionId: sid })
+    return s.checkpoints.filter((c) => c.kind === 'turn' && c.commit).length >= 2 ? s : null
+  })
+  assert.ok(existsSync(join(state.binding.mount, 'two.txt')))
+
+  step('unchanged turn records no commit')
+  const t3 = await runTurn(page, { message: 'bash: ls', newSession: false })
+  assert.ok(t3.ok)
+  await sleep(1000)
+  state = await must('session.state', { sessionId: sid })
+  assert.equal(state.checkpoints.filter((c) => c.kind === 'turn' && c.commit).length, 2, 'ls made no checkpoint')
+
+  step('restore files to turn 1')
+  const restored = await must('checkpoints.restore', { sessionId: sid, commit: cp1.commit })
+  const mount = restored.binding.mount
+  assert.ok(existsSync(join(mount, 'one.txt')), 'one.txt after restore')
+  assert.ok(!existsSync(join(mount, 'two.txt')), 'two.txt gone after restore')
+  console.log({ restoredBranch: restored.binding.branch, mount })
+
+  step('branch the session at turn 1')
+  await sleep(1500)
+  state = await must('session.state', { sessionId: sid })
+  const turn1 = state.checkpoints.find((c) => c.kind === 'turn' && c.turn === cp1.turn)
+  assert.ok(turn1.endSeq !== undefined, 'turn 1 end seq recorded')
+  const branched = await must('checkpoints.branch', { sessionId: sid, commit: turn1.commit, turn: turn1.turn })
+  const child = branched.sessionId
+  assert.ok(child && child !== sid)
+  await page.waitForTimeout(2000)
+  const t4 = await runTurn(page, { message: 'bash: ls > listing.txt', newSession: false })
+  assert.ok(t4.ok, `child turn: ${t4.error}`)
+  const cstate = await until('child bound', async () => {
+    const s = await must('session.state', { sessionId: child })
+    return s.binding?.state === 'bound' ? s : null
+  })
+  assert.equal(cstate.binding.from?.session, sid)
+  assert.ok(existsSync(join(cstate.binding.mount, 'one.txt')), 'child has turn 1 files')
+  assert.ok(!existsSync(join(cstate.binding.mount, 'two.txt')), 'child lacks turn 2 files')
+  const listing = readFileSync(join(cstate.binding.mount, 'listing.txt'), 'utf8')
+  assert.match(listing, /one\.txt/)
+
+  step('LayerFS session store')
+  await must('session.mirror', { sessionId: sid })
+  const listed = await must('sessions.list', { project })
+  console.log(listed.sessions.map((s) => ({ id: s.sessionId, stored: s.stored, cps: s.checkpoints, title: s.title })))
+  const row = listed.sessions.find((s) => s.sessionId === sid)
+  assert.ok(row?.stored, 'session stored in the project')
+  const files = await http('GET', `/api/projects/${encodeURIComponent(project)}/fs?branch=${encodeURIComponent(`dsh.session.${sid.replace(/^session-/, '').replace(/[^A-Za-z0-9]/g, '').toLowerCase()}`)}&path=${encodeURIComponent('/.dsh/session')}`)
+  console.log(JSON.stringify(files).slice(0, 300))
+
+  console.log('\nE2E PASS')
+} catch (error) {
+  failed = true
+  console.error('\nE2E FAIL:', error?.stack ?? error)
+  await page.screenshot({ path: '/tmp/e2e-sessions-fail.png' }).catch(() => {})
+} finally {
+  if (logs.length) console.log('console:', logs.slice(0, 20).join('\n'))
+  await browser.close()
+  process.exit(failed ? 1 : 0)
+}

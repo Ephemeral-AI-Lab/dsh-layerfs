@@ -39,6 +39,17 @@ export interface LayerfsApi {
   connected(): boolean
   /** Select a DSH panel (sidebar main page) by id. */
   openPanel(id: string): void
+  /** Open (or start) a session in a DSH workspace. */
+  openWorkspace(workspaceId: string): Promise<void>
+  /** Show a DSH session. */
+  openSession(sessionId: string): void
+}
+
+/** Navigation the host may ask for in an operation result (`navigate`). */
+export interface Navigator {
+  openPanel(id: string): void
+  openWorkspace(workspaceId: string): Promise<void>
+  openSession(sessionId: string): void
 }
 
 /** Encode one path segment. */
@@ -56,9 +67,9 @@ type RemoteResult = { ok: true, value: any } | { ok: false, error: { code: strin
 /**
  * Build the API over the mounted `remote.layerfs` namespace.
  * @param ctx - a client context injected with `remote.layerfs`.
- * @param openPanel - selects a main panel.
+ * @param nav - DSH navigation (panels, workspaces, sessions).
  */
-export function createApi(ctx: any, openPanel: (id: string) => void): LayerfsApi & { dispose(): void } {
+export function createApi(ctx: any, nav: Navigator): LayerfsApi & { dispose(): void } {
   const listeners = new Map<string, Set<(e: HostEvent) => void>>()
   let live = false
   let disposed = false
@@ -78,7 +89,12 @@ export function createApi(ctx: any, openPanel: (id: string) => void): LayerfsApi
   async function op<T>(name: string, args?: unknown): Promise<T> {
     const r: RemoteResult = await ctx.remote.layerfs.call({ op: name, args: args ?? {} })
     if (!r.ok) fail(r)
-    return (r as { value: T }).value
+    const value = (r as { value: any }).value
+    // A host answer may ask the client to navigate (e.g. open the new session).
+    const go = value && typeof value === 'object' ? value.navigate : undefined
+    if (go?.sessionId) nav.openSession(String(go.sessionId))
+    else if (go?.workspaceId) await nav.openWorkspace(String(go.workspaceId))
+    return value as T
   }
 
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -118,7 +134,10 @@ export function createApi(ctx: any, openPanel: (id: string) => void): LayerfsApi
   void connect()
 
   return {
-    call, op, openPanel,
+    call, op,
+    openPanel: (id) => nav.openPanel(id),
+    openWorkspace: (id) => nav.openWorkspace(id),
+    openSession: (id) => nav.openSession(id),
     connected: () => live,
     onEvent(type, listener) {
       if (!listeners.has(type)) listeners.set(type, new Set())

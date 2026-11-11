@@ -1,4 +1,5 @@
 node_modules/
 lib/
-.dev/
+.dev*/
 *.log
+.dev*.log

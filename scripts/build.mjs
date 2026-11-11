@@ -23,7 +23,7 @@ const CLIENT_EXTERNALS = [
 
 const hostOptions = {
   absWorkingDir: root,
-  entryPoints: { index: 'src/host/index.ts' },
+  entryPoints: { index: 'src/host/index.ts', 'sandbox-policy': 'src/host/sandbox-policy.ts' },
   outdir: 'lib',
   bundle: true,
   format: 'esm',
@@ -77,6 +77,10 @@ if (watch) {
   await Promise.all([host.watch(), client.watch()])
   console.log('watching')
 } else {
-  await Promise.all([build(hostOptions), build(clientOptions)])
-  console.log('built lib/index.js and lib/client.js')
+  // Faces build independently: a broken one does not block the other.
+  const only = process.argv.includes('--host') ? ['host'] : process.argv.includes('--client') ? ['client'] : ['host', 'client']
+  const results = await Promise.allSettled(only.map((face) => build(face === 'host' ? hostOptions : clientOptions)))
+  const failed = only.filter((_, i) => results[i].status === 'rejected')
+  console.log(`built ${only.filter((f) => !failed.includes(f)).join(' + ') || 'nothing'}${failed.length ? `; FAILED: ${failed.join(', ')}` : ''}`)
+  if (failed.length) process.exitCode = 1
 }

@@ -1,4 +1,22 @@
-# dsh-layerfs bundle layer: applied after dsh-base and dsh-web-app.
+# dsh-layerfs bundle layer, applied after dsh-base and dsh-web-app.
+#
+# - `layerfs`: the plugin (host services + browser half). `root` holds the
+#   LayerFS home, the projects' scratch-folder workspaces and plugin state.
+#   `sessionStore: layerfs` keeps each project session's log in its project.
+# - `sandbox-policy` is replaced by a subclass that makes a bound session's
+#   LayerFS Workspace mount (its working directory) its workspace-write root.
+- id: sandbox-policy
+  disabled: true
 - insert:
     - id: layerfs
       name: dsh-layerfs
+      config:
+        root: !!js dshHomePath('layerfs')
+        sessionStore: layerfs
+        checkpoints: turn
+        idleMinutes: 30
+    - id: layerfs-sandbox-policy
+      name: dsh-layerfs/sandbox-policy
+      config:
+        mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
+        workspaceRoot: !!js process.cwd()
