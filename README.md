@@ -62,8 +62,9 @@ folder before dsh-layerfs (a legacy session) is refused with how to continue
 - **Presets Build and Reset empty this LayerFS home first**: every store (with its
   projects, branches, files and the session logs mirrored into them), sandbox,
   workspace and custom machine. The confirmation lists the detected inventory and the
-  DSH project workspaces that are dropped; it is refused while a project session has an
-  open Sandbox (close it first) or a storage job, import or doctor run is active. While
+  DSH project workspaces that are dropped; project sessions with an open Sandbox are
+  force-closed and their changes discarded. It is refused while a storage job, import
+  or doctor run is active. While
   a build runs, other changes are refused and new project sessions wait; pages stay
   readable. Studio needs Docker and Lima with a matching Linux bundle; Mixed mode also
   needs the matching native daemon.

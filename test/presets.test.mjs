@@ -72,13 +72,30 @@ test('admission: bound sessions and active work refuse a reset with their names'
     return true
   })
   await assert.rejects(m.resetEnvironment('studio', { ...body, confirm: false }), (e) => e.code === 'InvalidInput')
+  // force skips the session check, never the other work
+  await assert.rejects(m.resetEnvironment('studio', { ...body, requestId: 'r2', force: true }), (e) => {
+    assert.equal(e.code, 'ConnectBusy')
+    assert.deepEqual(e.detail.sessions, [])
+    assert.deepEqual(e.detail.work, ['a storage job'])
+    assert.doesNotMatch(e.message, /open Sandbox/)
+    return true
+  })
+  rmSync(d.base, { recursive: true, force: true })
+})
+
+test('admission: a forced reset is admitted with bound sessions', async () => {
+  const d = dirs()
+  const m = new PresetManager(fakeHost({ ...d, sessions: [{ id: 'session-abc', project: 's/p' }] }).host, d.state, d.home)
+  const body = { requestId: 'r1', expectedPlan: 'x', confirm: true, rebuild: false, sandboxes: false, force: true }
+  // admitted, then fails inside the run: this home was never initialized
+  await assert.rejects(m.resetEnvironment('studio', body), (e) => e.code !== 'ConnectBusy')
   rmSync(d.base, { recursive: true, force: true })
 })
 
 test('restart: running jobs become interrupted, a dead lock is cleared; request IDs reconcile', async () => {
   const d = dirs()
   mkdirSync(d.state, { recursive: true })
-  const job = { id: 'j1', requestId: 'r1', fingerprint: JSON.stringify(['studio', 'environment-reset', 'sig', false, false, 'filesystem']), preset: 'studio', command: 'environment-reset', executionMode: 'filesystem', rebuild: false, actionId: 'a', state: 'running', phase: 'x', created: 1, log: [] }
+  const job = { id: 'j1', requestId: 'r1', fingerprint: JSON.stringify(['studio', 'environment-reset', 'sig', false, false, 'filesystem', false]), preset: 'studio', command: 'environment-reset', executionMode: 'filesystem', rebuild: false, actionId: 'a', state: 'running', phase: 'x', created: 1, log: [] }
   writeFileSync(join(d.state, 'demo-preset-jobs.json'), JSON.stringify([job]))
   writeFileSync(join(d.state, 'demo-fixtures.lock'), JSON.stringify({ pid: 2 ** 22 + 12345, actionId: 'a' }))
   const m = new PresetManager(fakeHost(d).host, d.state, d.home)
@@ -151,19 +168,21 @@ test('live: environment plan and reset of a private home drop the removed projec
     cli('store', 'create', '--', 'ps')
     const src = join(base, 'src'); mkdirSync(src); writeFileSync(join(src, 'a.txt'), 'a\n')
     cli('project', 'init', '--', 'ps/p1', src)
-    const f = fakeHost({ cli: pin.cli, home, state, projects: [{ project: 'ps/p1', sessions: 2 }, { project: 'other/x', sessions: 1 }] })
+    const f = fakeHost({ cli: pin.cli, home, state, sessions: [{ id: 'session-x', project: 'ps/p1' }], projects: [{ project: 'ps/p1', sessions: 2 }, { project: 'other/x', sessions: 1 }] })
     const m = new PresetManager(f.host, state, home)
     assert.equal(m.list().items[0].initialized, true)
     const plan = await m.route('GET', ['studio', 'environment-plan'], undefined, new URLSearchParams())
     assert.deepEqual(plan.remove.stores, ['ps'])
     assert.deepEqual(plan.projectKeys, ['ps/p1'])
     assert.deepEqual(plan.dsh.workspaces, [{ project: 'ps/p1', sessions: 2 }])
-    assert.deepEqual(plan.dsh.sessions, [])
+    assert.deepEqual(plan.dsh.sessions, [{ id: 'session-x', project: 'ps/p1' }])
     // a stale signature is refused before anything is removed
-    const stale = await m.resetEnvironment('studio', { requestId: 'stale1', expectedPlan: 'nope', confirm: true, rebuild: false, sandboxes: false }).then(() => null, (e) => e)
+    const stale = await m.resetEnvironment('studio', { requestId: 'stale1', expectedPlan: 'nope', confirm: true, rebuild: false, sandboxes: false, force: true }).then(() => null, (e) => e)
     assert.equal(stale?.code, 'Conflict')
     assert.deepEqual(cli('store', 'list').items.map((s) => s.name), ['ps'])
-    const job = await m.resetEnvironment('studio', { requestId: 'live1', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false })
+    // a bound session refuses an unforced reset, and force overrides it
+    await assert.rejects(m.resetEnvironment('studio', { requestId: 'blocked1', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false }), (e) => e.code === 'ConnectBusy' && e.detail.sessions.length === 1)
+    const job = await m.resetEnvironment('studio', { requestId: 'live1', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false, force: true })
     assert.equal(job.state, 'running')
     assert.equal(m.exclusive(), true)
     await m.settle()

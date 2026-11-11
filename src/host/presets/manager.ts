@@ -9,7 +9,8 @@
  * Build and Reset remove every store, sandbox, workspace and custom machine
  * in the home, so they are admitted only when
  *   - the confirmed plan's signature still matches the inventory,
- *   - no DSH project session holds an open Sandbox (each is named), and
+ *   - the request forces (open DSH project sessions are discarded with their
+ *     Sandboxes) or no such session holds one, and
  *   - no storage job, project import or doctor run is in flight.
  * While a job runs, other changes through the routes are refused (reads stay
  * open) and new project sessions wait. After the stores are gone, the
@@ -143,7 +144,7 @@ export class PresetManager {
     return { items, home: this.home, busy: this.exclusive() || !!liveReceipt(join(this.state, 'demo-fixtures.lock')) }
   }
 
-  /** The DSH side of a reset: blocking sessions, and project workspaces it drops. */
+  /** The DSH side of a reset: sessions a force tears down, and project workspaces it drops. */
   private impact(projectKeys: readonly string[]): DshImpact {
     const removed = new Set(projectKeys)
     return {
@@ -152,9 +153,9 @@ export class PresetManager {
     }
   }
 
-  /** Refuse while other work holds the home. */
-  private idle(): void {
-    const sessions = this.host.boundSessions()
+  /** Refuse while other work holds the home. A forced reset skips the session check. */
+  private idle(force = false): void {
+    const sessions = force ? [] : this.host.boundSessions()
     const work = this.host.busy()
     if (!sessions.length && !work.length) return
     const parts = [
@@ -221,16 +222,17 @@ export class PresetManager {
   }
 
   async resetEnvironment(name: string, body: any): Promise<PresetJob> {
-    if (!body || !/^[\w-]{1,80}$/.test(body.requestId ?? '') || typeof body.expectedPlan !== 'string' || body.confirm !== true || typeof body.rebuild !== 'boolean' || typeof body.sandboxes !== 'boolean') throw error(400, 'InvalidInput', 'Review and confirm the environment reset plan.')
+    if (!body || !/^[\w-]{1,80}$/.test(body.requestId ?? '') || typeof body.expectedPlan !== 'string' || body.confirm !== true || typeof body.rebuild !== 'boolean' || typeof body.sandboxes !== 'boolean' || (body.force !== undefined && typeof body.force !== 'boolean')) throw error(400, 'InvalidInput', 'Review and confirm the environment reset plan.')
     const executionMode = modeOf(body.executionMode)
-    const fingerprint = JSON.stringify([name, 'environment-reset', body.expectedPlan, body.rebuild, body.sandboxes, executionMode])
+    const force = body.force === true
+    const fingerprint = JSON.stringify([name, 'environment-reset', body.expectedPlan, body.rebuild, body.sandboxes, executionMode, force])
     const duplicate = [...this.jobs.values()].find((j) => j.requestId === body.requestId)
     if (duplicate) {
       if (duplicate.fingerprint !== fingerprint) throw error(409, 'Conflict', 'This request ID was already used with different settings.')
       return duplicate
     }
     if (this.list().busy) throw busy('Another preset operation is in progress.')
-    this.idle()
+    this.idle(force)
     const spec = this.spec()
     this.switching = true
     try {
@@ -248,7 +250,7 @@ export class PresetManager {
       let admitted!: (job: PresetJob) => void, rejected!: (e: unknown) => void
       const ready = new Promise<PresetJob>((yes, no) => { admitted = yes; rejected = no })
       const onReady = async (action: { id: string }) => { Object.assign(job, { actionId: action.id, state: 'running', started: Date.now() }); this.publish(job); admitted(job) }
-      const options = { expectedPlan: body.expectedPlan, assertIdle: async () => this.idle(), onReady }
+      const options = { expectedPlan: body.expectedPlan, assertIdle: async () => this.idle(force), onReady }
       const operation: Promise<any> = body.rebuild
         ? buildPreset({ spec, preset: name, driver, sandboxes: body.sandboxes, executionMode, ...options, report, progress,
           onCleanup: async (receipt: any) => { job.cleanup = receipt; await this.forget(job, receipt); this.publish(job) },

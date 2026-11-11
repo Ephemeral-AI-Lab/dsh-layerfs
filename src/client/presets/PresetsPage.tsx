@@ -81,7 +81,7 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
     const requestId = crypto.randomUUID()
     setWaiting(true); setFailure(undefined)
     try {
-      await api.call<PresetJob>('POST', `/api/demo-presets/${enc(preset.id)}/environment-reset`, { requestId, expectedPlan: confirmation.plan.signature, confirm: true, rebuild: confirmation.build, sandboxes: confirmation.sandboxes, executionMode: confirmation.executionMode })
+      await api.call<PresetJob>('POST', `/api/demo-presets/${enc(preset.id)}/environment-reset`, { requestId, expectedPlan: confirmation.plan.signature, confirm: true, rebuild: confirmation.build, sandboxes: confirmation.sandboxes, executionMode: confirmation.executionMode, force: confirmation.plan.dsh.sessions.length > 0 })
       setConfirmation(undefined)
     } catch (e: any) {
       setFailure(e); setConfirmation(undefined)
@@ -104,7 +104,7 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
   const requirements = executionMode === preset.executionMode ? preset.requirements : [...preset.requirements.filter((r) => r !== 'daemon'), ...(executionMode === 'mixed' ? ['daemon'] : [])]
   const blocked = sessionsOf(failure)
   const plan = confirmation?.plan
-  const planBlocked = !!plan?.dsh.sessions.length
+  const planSessions = !!plan?.dsh.sessions.length
 
   return (
     <>
@@ -155,7 +155,7 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
         footer={(
           <div className={css.modalFooter}>
             <Button variant="outline" disabled={waiting} data-modal-autofocus="" onClick={() => setConfirmation(undefined)}>{t('cancel')}</Button>
-            <Button variant="primary" className={css.dangerPrimary} disabled={waiting || data.busy || planBlocked} aria-busy={waiting} onClick={() => { void execute() }}>
+            <Button variant="primary" className={css.dangerPrimary} disabled={waiting || data.busy} aria-busy={waiting} onClick={() => { void execute() }}>
               {waiting ? t('starting') : confirmation?.build ? t('resetAndBuild') : t('resetAction')}
             </Button>
           </div>
@@ -163,7 +163,7 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
         {plan && (
           <div className={css.confirm}>
             <Notice tone="danger">{t('confirmLoss')}</Notice>
-            {planBlocked && <Notice tone="warning"><span>{t('confirmBlocked')}</span><SessionLinks api={api} t={t} sessions={plan.dsh.sessions} onOpen={() => setConfirmation(undefined)} /></Notice>}
+            {planSessions && <Notice tone="warning"><span>{t('confirmForce')}</span><SessionLinks api={api} t={t} sessions={plan.dsh.sessions} onOpen={() => setConfirmation(undefined)} /></Notice>}
             {plan.dsh.workspaces.length > 0 && (
               <div>
                 <p>{t('confirmWorkspaces')}</p>

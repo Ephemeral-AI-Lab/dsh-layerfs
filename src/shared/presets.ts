@@ -7,7 +7,7 @@
 
 export type PresetExecutionMode = 'filesystem' | 'mixed'
 
-/** A DSH session whose open Sandbox blocks a reset. */
+/** A DSH session whose open Sandbox a forced reset tears down. */
 export interface BusySession {
   readonly id: string
   readonly project: string | null
@@ -15,7 +15,7 @@ export interface BusySession {
 
 /** What a reset does to dsh-layerfs's own records (the DSH side of the plan). */
 export interface DshImpact {
-  /** Bound project sessions: the reset is refused until they are closed. */
+  /** Bound project sessions: a forced reset discards their Sandboxes and drops their records. */
   readonly sessions: readonly BusySession[]
   /** Projects with a DSH workspace that the reset drops, with their session count. */
   readonly workspaces: readonly { readonly project: string, readonly sessions: number }[]
