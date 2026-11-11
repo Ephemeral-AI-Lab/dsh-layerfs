@@ -13,6 +13,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDev, runTurn } from '../tools/e2e-lib.mjs'
+import { openPanel } from '../tools/ui.mjs'
 
 const step = (m) => console.log(`\n== ${m}`)
 const { browser, page, logs } = await openDev()
@@ -149,7 +150,13 @@ try {
   step('UI: the LayerFS Projects workspace group holds the project workspaces')
   await until('the projects group row', async () => (await page.locator('button[aria-label="New session in LayerFS Projects"]').count()) > 0)
   await until('the project workspace row', async () => (await page.locator(`button[aria-label="New session in ${name} · ${store}"]`).count()) > 0)
-  await must('sessions.create', { project })
+
+  step('UI: the Projects page lists the project and opens a session in it')
+  await openPanel(page, 'Projects')
+  const projectsPage = page.getByRole('region', { name: 'LayerFS Projects' })
+  await projectsPage.getByText(name, { exact: true }).first().waitFor({ timeout: 15000 })
+  const card = projectsPage.getByRole('region', { name }).filter({ hasText: store }).first()
+  await card.getByRole('button', { name: 'New session' }).click()
   await page.waitForTimeout(1500)
   const tp = await runTurn(page, { message: 'bash: echo picked > picked.txt', newSession: false })
   assert.ok(tp.ok, `picked project turn: ${tp.error}`)
