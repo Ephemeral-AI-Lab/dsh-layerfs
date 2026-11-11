@@ -116,15 +116,28 @@ try {
   const files = await http('GET', `/api/projects/${encodeURIComponent(project)}/fs?branch=${encodeURIComponent(`dsh.session.${sid.replace(/^session-/, '').replace(/[^A-Za-z0-9]/g, '').toLowerCase()}`)}&path=${encodeURIComponent('/.dsh/session')}`)
   console.log(JSON.stringify(files).slice(0, 300))
 
+  step('Scratch session (no project)')
+  const scratchWs = await must('sessions.prepareScratch')
+  assert.ok(scratchWs.workspaceId)
+  await page.waitForTimeout(1500)
+  const ts = await runTurn(page, { message: 'bash: echo s > s.txt', newSession: false })
+  assert.ok(ts.ok, `scratch turn: ${ts.error}`)
+  const sstate = await until('scratch bound', async () => {
+    const s = await must('session.state', { sessionId: ts.sessionId })
+    return s.binding?.kind === 'scratch' ? s : null
+  })
+  assert.ok(existsSync(join(sstate.binding.scratch, 's.txt')), 's.txt in the scratch folder')
+  assert.equal(sstate.checkpoints.length, 0, 'scratch sessions have no checkpoints')
+
   step('UI: the session panel shows the checkpoints')
-  await page.locator('[role=treeitem][data-row-key^="session:"]', { hasText: 'Fake session' }).first().click()
+  await page.locator(`[role=treeitem][data-row-key="session:${sid}"]`).first().click()
   await page.getByRole('button', { name: 'Open the LayerFS panel' }).first().click({ timeout: 15000 })
   await page.getByText('Checkpoints', { exact: true }).first().waitFor({ timeout: 15000 })
   await page.screenshot({ path: '/tmp/e2e-sessions-panel.png' })
 
   if (!process.argv.includes('--keep')) {
     step('cleanup')
-    for (const id of [child, sid]) await must('sessions.forget', { sessionId: id })
+    for (const id of [child, sid, ts.sessionId]) await must('sessions.forget', { sessionId: id })
     await http('DELETE', `/api/projects/${encodeURIComponent(project)}`)
     await http('DELETE', `/api/stores/${encodeURIComponent(store)}?confirm=${encodeURIComponent(store)}`).catch((e) => console.log('store kept:', e.message))
   }

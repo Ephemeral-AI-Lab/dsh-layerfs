@@ -454,7 +454,10 @@ export class Projects {
   /** project.remove: refused InUse while any of its Sandbox records exists, Unsupported for a PostgreSQL project. */
   async remove(key: string) {
     const { key: project } = projectRef(key)
+    // DSH sessions of the project hold Sandboxes (InUse): save and close them first.
+    await this.host.projectRemoving?.(project)
     await this.lfs.project.remove(project)
+    await this.host.projectRemoved?.(project)
     return { removed: true }
   }
 

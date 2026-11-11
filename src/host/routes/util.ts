@@ -29,6 +29,10 @@ export interface RouteHost {
   log(line: string): void
   /** Close a Sandbox a DSH session owns the way the session does (save first); false when no session owns it. */
   closeSessionSandbox?(name: string): Promise<boolean>
+  /** Before project.remove: close the project's session Sandboxes. */
+  projectRemoving?(project: string): Promise<void>
+  /** After project.remove: drop the project's DSH workspace and session bindings. */
+  projectRemoved?(project: string): Promise<void>
 }
 
 /** An error the routes throw: answered as `{ code, message }` with `status` (or the code's mapped status). */

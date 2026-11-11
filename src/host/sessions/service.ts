@@ -25,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CliError, sandboxWorkspaces, type Lfs } from '../layerfs/cli.ts'
+import { CliError, pages, sandboxWorkspaces, type Lfs } from '../layerfs/cli.ts'
 import { JsonFile } from '../service.ts'
 import { initialState, type Binding, type Checkpoint, type SessionsState } from './state.ts'
 
@@ -441,6 +441,35 @@ export class LayerfsSessions extends Service {
     if (binding.kind === 'project' && binding.sandbox) await this.lfs.sandbox.close(binding.sandbox, { force: true }).catch(() => {})
     if (binding.kind !== 'shared' && binding.scratch.startsWith(binding.anchor)) rmSync(binding.scratch, { recursive: true, force: true })
     this.state.update((s) => { delete s.sessions[sessionId]; delete s.pending[sessionId] })
+  }
+
+  /** Save and close every session Sandbox of a project (before the project is removed). */
+  async closeProject(project: string): Promise<void> {
+    for (const b of Object.values(this.state.read().sessions)) {
+      if (b.project !== project || b.kind !== 'project') continue
+      if (b.state === 'bound') await this.close(b.sessionId, 'user').catch(() => {})
+      if (b.sandbox) await this.lfs.sandbox.close(b.sandbox, { force: true }).catch(() => {})
+    }
+    // Session Sandboxes another DSH on this LayerFS home made (same naming) block removal too.
+    const listed = await pages((paging) => this.lfs.sandbox.list(project, paging)).catch(() => [] as any[])
+    for (const s of listed) if (typeof s?.name === 'string' && s.name.startsWith('dsh-')) await this.lfs.sandbox.close(s.name, { force: true }).catch(() => {})
+  }
+
+  /** After a project is removed: drop its bindings, its DSH workspace and its scratch-folder workspace. */
+  async forgetProject(project: string): Promise<void> {
+    const state = this.state.read()
+    const entry = state.projects[project]
+    if (entry?.workspaceId) await this.ctx.workspaceRegistry.delete(entry.workspaceId as never).catch(() => false)
+    this.state.update((s) => {
+      for (const [id, b] of Object.entries(s.sessions)) {
+        if (b.project !== project) continue
+        delete s.sessions[id]; delete s.checkpoints[id]; delete s.mirror[id]; delete s.pending[id]
+      }
+      delete s.projects[project]
+    })
+    const anchor = entry?.anchor ?? this.anchorOf(project)
+    if (anchor.startsWith(join(this.ctx.layerfs.root, 'projects'))) rmSync(anchor, { recursive: true, force: true })
+    this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
   }
 
   /** Everything the session panel shows. */

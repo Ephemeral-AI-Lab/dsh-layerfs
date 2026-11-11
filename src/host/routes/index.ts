@@ -50,6 +50,8 @@ export function apply(ctx: Context): void {
     discover: () => ctx.layerfs.discovery(),
     ensureNative: () => ctx.layerfs.ensureNative(),
     emit: (type, data) => ctx.layerfs.emit(type, data),
+    projectRemoving: async (project) => { await (ctx.get('layerfsSessions' as never) as any)?.closeProject(project) },
+    projectRemoved: async (project) => { await (ctx.get('layerfsSessions' as never) as any)?.forgetProject(project) },
     closeSessionSandbox: async (name) => {
       const sessions = ctx.get('layerfsSessions' as never) as any
       const owner = sessions && Object.values(sessions.state.read().sessions as Record<string, any>).find((b) => b.sandbox === name && b.state === 'bound')
