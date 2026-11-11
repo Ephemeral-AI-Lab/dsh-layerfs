@@ -2,7 +2,7 @@
  * Storage area of dsh-layerfs: the sidebar's Storage entry and the page it
  * opens in the main column (Stores, their projects, backups and moves).
  */
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import type { LayerfsApi } from '../api.ts'
 import { NS as DOCTOR_NS, type DoctorT } from '../doctor/locale.ts'
 import { ChildGlyph } from '../overview/child.tsx'
@@ -48,6 +48,33 @@ export function registerStorage(ctx: any, api: LayerfsApi, group: SidebarGroup):
     locale: NS,
     inject: () => ({ api, doctorT }),
   }, StorageMain)), 'dsh-layerfs: storage page')
+  // Storage opens from places outside the folded sidebar (the LayerFS card,
+  // Machines links, a session's panel): unfold the group so its row shows and,
+  // when the sidebar itself sits collapsed as the icon rail, expand it like
+  // the shell's own expandSidebar (`if (collapsed) toggleSidebar()`). The
+  // shell's `wide` owner share arrives through a sidebar.footer.action probe.
+  let wide = true
+  ctx.effect(() => ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'layerfs-sidebar-wide',
+  }, function RailProbe({ wide: w }: { wide?: boolean | undefined }): ReactNode {
+    useEffect(() => { wide = w !== false }, [w])
+    return null
+  })), 'dsh-layerfs: sidebar rail probe')
+  ctx.effect(() => {
+    // Fires on every layout change, including the toggle below: act only on
+    // the transition into Storage so the expand cannot re-enter itself.
+    let was = false
+    const sync = (): void => {
+      const now = ctx.layout?.panelInfo?.getSnapshot?.().activePanelId === PANEL_ID
+      if (was || !now) { was = now; return }
+      was = true
+      group.unfold()
+      if (!wide) ctx.layout?.toggleSidebar?.()
+    }
+    sync()
+    return ctx.layout?.panelInfo?.subscribe?.(sync) ?? (() => {})
+  }, 'dsh-layerfs: storage unfold')
   ctx.effect(() => group.whileExpanded(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,

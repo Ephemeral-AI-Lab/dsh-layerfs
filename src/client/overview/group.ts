@@ -14,6 +14,11 @@ export interface SidebarGroup {
   readonly unfolded: Source<boolean>
   toggle(): void
   /**
+   * Unfold the group. A child page calls this when it opens so its sidebar
+   * row — and the rows beside it — show; a no-op while already unfolded.
+   */
+  unfold(): void
+  /**
    * Keep a sidebar registration alive while the group is unfolded.
    * @param register - registers the row and returns its disposer.
    * @returns the disposer for the whole binding.
@@ -38,18 +43,21 @@ export function createSidebarGroup(): SidebarGroup {
     getSnapshot: () => value,
     subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener) } },
   }
+  const set = (next: boolean): void => {
+    if (value === next) return
+    value = next
+    try {
+      window.localStorage?.setItem(UNFOLDED_KEY, next ? '1' : '0')
+    } catch (error) {
+      // The fold still applies to this page; it is just not remembered.
+      void error
+    }
+    for (const l of [...listeners]) l()
+  }
   return {
     unfolded,
-    toggle() {
-      value = !value
-      try {
-        window.localStorage?.setItem(UNFOLDED_KEY, value ? '1' : '0')
-      } catch (error) {
-        // The fold still applies to this page; it is just not remembered.
-        void error
-      }
-      for (const l of [...listeners]) l()
-    },
+    toggle() { set(!value) },
+    unfold() { set(true) },
     whileExpanded(register) {
       let dispose: (() => void) | undefined
       const sync = (): void => {

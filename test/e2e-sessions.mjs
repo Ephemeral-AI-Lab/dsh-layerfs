@@ -149,7 +149,7 @@ try {
 
   step('UI: the LayerFS Projects workspace group holds the project workspaces')
   await until('the projects group row', async () => (await page.locator('button[aria-label="New session in LayerFS Projects"]').count()) > 0)
-  await until('the project workspace row', async () => (await page.locator(`button[aria-label="New session in ${name} · ${store}"]`).count()) > 0)
+  await until('the project workspace row', async () => (await page.locator(`button[aria-label="New session in LayerFS · ${name} · ${store}"]`).count()) > 0)
 
   step('UI: the Projects page lists the project and opens a session in it')
   await openPanel(page, 'Projects')

@@ -285,3 +285,10 @@
   height: 16px;
   flex: none;
 }
+
+.rowMark {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}

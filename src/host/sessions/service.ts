@@ -46,6 +46,12 @@ export const branchOf = (sessionId: string, generation = 0) => `dsh.${compact(se
 export const sandboxOf = (sessionId: string) => `dsh-${compact(sessionId).slice(0, 20)}`
 const WS_NAME = 'main'
 
+/** A project workspace's sidebar title: the LayerFS mark leads so truncation keeps it. */
+export const projectTitle = (project: string): string => {
+  const [store, name] = project.split('/')
+  return `LayerFS · ${name} · ${store}`
+}
+
 const real = (path: string): string => { try { return realpathSync(path) } catch { return path } }
 const errorOf = (error: any) => ({ code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) })
 const exists = (error: any) => error?.code === 'Exists' || error?.code === 'NameTaken'
@@ -119,6 +125,14 @@ export class LayerfsSessions extends Service {
     const dir = join(this.ctx.layerfs.root, 'projects')
     mkdirSync(dir, { recursive: true })
     const workspace = await this.ctx.workspaceRegistry.create(dir, 'LayerFS Projects')
+    // Older project workspaces keep their created title; retitle them. Skip the
+    // Scratch entry old state may hold: its workspace is a plain folder now.
+    for (const entry of Object.values(this.state.read().projects)) {
+      if (this.isScratch(entry.project) || !entry.anchor.startsWith(`${dir}/`)) continue
+      const title = projectTitle(entry.project)
+      const ws = this.ctx.workspaceRegistry.get(entry.workspaceId as never)
+      if (ws && ws.title !== title) await ws.setTitle(title)
+    }
     return { workspaceId: String(workspace.id) }
   }
 
@@ -132,8 +146,9 @@ export class LayerfsSessions extends Service {
     await this.ensureProjectsGroup()
     const anchor = this.anchorOf(project)
     this.writeAnchor(anchor, `# ${project}\n\nThe DeepSeek Harness workspace of LayerFS project \`${project}\`.\n\nEach session works in its own LayerFS Workspace (branch \`dsh.<session>\`), mounted as its\nworking directory and checkpointed at the end of every turn. \`sessions/<session>/\` is that\nsession's scratch folder: it is never saved into the project.\n`)
-    const [store, name] = project.split('/')
-    const workspace = await this.ctx.workspaceRegistry.create(anchor, `${name} · ${store}`)
+    const title = projectTitle(project)
+    const workspace = await this.ctx.workspaceRegistry.create(anchor, title)
+    if (workspace.title !== title) await workspace.setTitle(title)
     this.state.update((s) => { s.projects[project] = { project, anchor, workspaceId: String(workspace.id), createdAt: s.projects[project]?.createdAt ?? Date.now() } })
     this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
     return { workspaceId: String(workspace.id), anchor }
@@ -153,6 +168,7 @@ export class LayerfsSessions extends Service {
     const anchor = this.scratchAnchor
     this.writeAnchor(anchor, `# Scratch\n\nA workspace for sessions without a LayerFS project: sessions here run as ordinary\nDeepSeek Harness sessions in this folder.\n`)
     const workspace = await this.ctx.workspaceRegistry.create(anchor, 'Scratch')
+    if (workspace.title !== 'Scratch') await workspace.setTitle('Scratch')
     return { workspaceId: String(workspace.id), anchor }
   }
 
@@ -216,10 +232,19 @@ export class LayerfsSessions extends Service {
     return { kind: 'folder', cwd: String(header.cwd ?? '') }
   }
 
-  /** The project a live session works in, for the New Session project control; null when it is not live. */
+  /**
+   * The project a session works in, for the New Session control and the sidebar
+   * row mark. A live session is asked for its place; one that is only
+   * persisted answers from its recorded binding.
+   */
   placeOfId(sessionId: string): { project: string | null } | null {
+    const persisted = this.binding(sessionId)
     const session = this.ctx.sessions.get(sessionId as never) as any
-    if (!session) return null
+    if (!session) {
+      if (!persisted) return null
+      if (persisted.kind === 'shared') return { project: this.binding(String(persisted.parent))?.project ?? persisted.project ?? null }
+      return { project: persisted.project ?? null }
+    }
     const place = this.placeOf(session)
     if (place.kind === 'shared') return { project: this.binding(place.parent)?.project ?? null }
     if (place.kind === 'folder') return { project: null }

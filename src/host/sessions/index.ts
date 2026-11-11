@@ -54,7 +54,7 @@ export function apply(ctx: Context): void {
     // Sessions stored in known projects by another DSH appear here too, and
     // the LayerFS Projects workspace groups the project workspaces.
     ctx.effect(() => {
-      const timer = setTimeout(() => { void Promise.all([store.syncAll(), sessions.ensureProjectsGroup()]) }, 1500)
+      const timer = setTimeout(() => { void Promise.all([store.syncAll(), sessions.ensureProjectsGroup(), sessions.ensureScratchWorkspace()]) }, 1500)
       return () => clearTimeout(timer)
     }, 'dsh-layerfs: session store sync + projects group')
     const idle = new Map<string, NodeJS.Timeout>()

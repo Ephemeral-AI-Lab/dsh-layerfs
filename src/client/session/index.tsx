@@ -6,6 +6,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
+import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { NS, locales } from './locale.ts'
 import { SessionPanel } from './SessionPanel.tsx'
 import css from './session.module.css'
@@ -60,9 +61,28 @@ function HeaderAction({ sessionId, api, open, t }: { sessionId: string, api: Lay
   )
 }
 
+/** The Workspace list's LayerFS mark: a small layers glyph on a project session's row. */
+function RowMark({ sessionId, api, t }: { sessionId: string, api: LayerfsApi, t: Translate }): ReactNode {
+  const [project, setProject] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    const read = () => api.op<{ place: { project: string | null } | null }>('session.place', { sessionId })
+      .then((r) => { if (live) setProject(r.place?.project ?? null) }, () => {})
+    read()
+    const off = api.onEvent('layerfs-session', read)
+    return () => { live = false; off() }
+  }, [api, sessionId])
+  if (!project) return null
+  return <span className={css.rowMark} title={t('inProject', { project })}><LayerfsGlyph size={11} /></span>
+}
+
 export function registerSession(ctx: any, api: LayerfsApi): void {
   ctx.effect(() => ctx.locale.register(NS, locales), 'dsh-layerfs: session locale')
   const t: Translate = ctx.locale.bind(NS)
+  ctx.effect(() => ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
+    name: 'sidebar.session.row.trailing', id: 'dsh-layerfs.mark', order: 40, locale: NS,
+    inject: (sessionId: string) => ({ sessionId: String(sessionId), api, t }),
+  }, RowMark)), 'dsh-layerfs: session row mark')
   ctx.inject(['sidebarRight', 'sidebarRightTabs'], (ctx: any) => {
     ctx.effect(() => ctx.sidebarRightTabs.register({
       id: TAB_ID, kind: TAB_KIND, priority: 'plugin', title: () => t('tab'),
