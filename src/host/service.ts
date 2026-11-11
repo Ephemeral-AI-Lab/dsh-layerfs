@@ -24,6 +24,8 @@ export interface LayerfsConfig {
   cli?: string
   /** Absolute matching `layerfs-daemon` (macOS native machine). */
   daemon?: string
+  /** Absolute Linux bundle folder (holds bundle.json) the docker/VM machines start workers from. */
+  bundle?: string
   /** LAYERFS_HOME; default `<root>/home`, or DSH_LAYERFS_HOME. */
   home?: string
   /** Where project sessions are kept: `layerfs` mirrors each session into its project. */
@@ -39,6 +41,9 @@ export interface RuntimeStatus {
   readonly ok: boolean
   readonly cli: string | null
   readonly daemon: string | null
+  readonly bundle: string | null
+  /** The bundle's sealed hash and source commit (bundle.json), when readable. */
+  readonly bundleInfo: { readonly hash: string | null, readonly source: string | null } | null
   readonly home: string
   readonly root: string
   readonly sessionStore: 'layerfs' | 'local'
@@ -86,8 +91,8 @@ export class LayerfsService extends Service {
   readonly checkpoints: 'turn' | 'off'
   readonly idleMinutes: number
   /** `<root>/runtime.json`: the CLI/daemon chosen in the UI (wins over env). */
-  readonly settings: JsonFile<{ cli?: string, daemon?: string }>
-  private pin!: { cli: string | null, daemon: string | null, source: RuntimeStatus['source'] }
+  readonly settings: JsonFile<{ cli?: string, daemon?: string, bundle?: string }>
+  private pin!: { cli: string | null, daemon: string | null, bundle: string | null, source: RuntimeStatus['source'] }
   private sdk: Lfs | undefined
   private nativeRecorded: Promise<unknown> | undefined
 
@@ -109,7 +114,8 @@ export class LayerfsService extends Service {
     const cli = c ?? s ?? e ?? null
     const source = c ? 'config' : s ? 'settings' : e ? 'env' : 'none'
     const daemon = (c ? abs(this.config.daemon) : s ? abs(saved.daemon) : abs(process.env.DSH_LAYERFS_DAEMON)) ?? null
-    this.pin = { cli, daemon, source }
+    const bundle = (c ? abs(this.config.bundle) : s ? abs(saved.bundle) : undefined) ?? abs(process.env.DSH_LAYERFS_BUNDLE) ?? abs(process.env.LAYERFS_BUNDLE) ?? null
+    this.pin = { cli, daemon, bundle, source }
     this.sdk = undefined
     this.nativeRecorded = undefined
   }
@@ -117,13 +123,23 @@ export class LayerfsService extends Service {
   /** The SDK over the pinned CLI. Throws `CliUnavailable` when nothing is pinned. */
   get lfs(): Lfs {
     if (!this.pin.cli) throw new CliError('CliUnavailable', 'No LayerFS CLI is pinned. Set it in Machines → LayerFS runtime, or DSH_LAYERFS_CLI.', null, 'unavailable')
-    return this.sdk ??= client({ cli: this.pin.cli, home: this.home })
+    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle })
   }
 
   /** The pinned CLI path, if any. */
   get cli(): string | null { return this.pin.cli }
   /** The pinned daemon path, if any. */
   get daemon(): string | null { return this.pin.daemon }
+  /** The pinned Linux bundle folder, if any. */
+  get bundle(): string | null { return this.pin.bundle }
+
+  private bundleInfo(): RuntimeStatus['bundleInfo'] {
+    if (!this.pin.bundle) return null
+    try {
+      const b = JSON.parse(readFileSync(join(this.pin.bundle, 'bundle.json'), 'utf8'))
+      return { hash: typeof b.hash === 'string' ? b.hash : null, source: typeof b.source?.head === 'string' ? b.source.head : null }
+    } catch { return { hash: null, source: null } }
+  }
 
   /** Discovery for the pinned CLI. */
   async discovery(fresh = false): Promise<Discovery> {
@@ -150,7 +166,7 @@ export class LayerfsService extends Service {
   /** Runtime facts for the UI. */
   async status(): Promise<RuntimeStatus> {
     const base = {
-      cli: this.pin.cli, daemon: this.pin.daemon, home: this.home, root: this.root, source: this.pin.source,
+      cli: this.pin.cli, daemon: this.pin.daemon, bundle: this.pin.bundle, bundleInfo: this.bundleInfo(), home: this.home, root: this.root, source: this.pin.source,
       sessionStore: this.sessionStore, checkpoints: this.checkpoints,
     }
     try {
@@ -165,13 +181,14 @@ export class LayerfsService extends Service {
    * Save a new CLI/daemon pin (or clear it with nulls) and switch to it.
    * The new CLI is discovered first; an incompatible one is refused unchanged.
    */
-  async savePin(next: { cli: string | null, daemon: string | null }): Promise<RuntimeStatus> {
+  async savePin(next: { cli: string | null, daemon: string | null, bundle?: string | null }): Promise<RuntimeStatus> {
     if (next.cli !== null) {
       if (!abs(next.cli) || !existsSync(next.cli)) throw new CliError('InvalidInput', 'The CLI must be an absolute path to an existing file')
       if (next.daemon !== null && (!abs(next.daemon) || !existsSync(next.daemon))) throw new CliError('InvalidInput', 'The daemon must be an absolute path to an existing file')
+      if (next.bundle && (!abs(next.bundle) || !existsSync(join(next.bundle, 'bundle.json')))) throw new CliError('InvalidInput', 'The Linux bundle must be an absolute folder holding bundle.json')
       await discover({ cli: next.cli }, true)
     }
-    this.settings.write(next.cli === null ? {} : { cli: next.cli, ...(next.daemon ? { daemon: next.daemon } : {}) })
+    this.settings.write(next.cli === null ? {} : { cli: next.cli, ...(next.daemon ? { daemon: next.daemon } : {}), ...(next.bundle ? { bundle: next.bundle } : {}) })
     this.resolvePin()
     this.emit('runtime-changed')
     return await this.status()

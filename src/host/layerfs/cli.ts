@@ -35,6 +35,8 @@ export interface CliSpec {
   readonly home: string
   /** Optional folder scope. */
   readonly scope?: { readonly project: string, readonly folder: string, readonly branch?: string }
+  /** The Linux bundle folder VM/container machines start workers from (LAYERFS_BUNDLE). */
+  readonly bundle?: string | null
 }
 
 /** One `help --json` call table row. */
@@ -184,7 +186,7 @@ export function execute(spec: CliSpec, argv: readonly string[], options: Execute
     })
     const child = spawn(spec.cli, [...argv], {
       shell: false, stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...options.env, ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), LAYERFS_PROGRESS_JSON: '1' },
+      env: { ...process.env, ...options.env, ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), LAYERFS_PROGRESS_JSON: '1' },
     })
     children.add(child)
     child.once('error', (error) => { spawnError = error })

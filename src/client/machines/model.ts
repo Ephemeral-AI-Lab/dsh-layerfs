@@ -193,6 +193,8 @@ export interface RuntimeStatus {
   ok: boolean
   cli: string | null
   daemon: string | null
+  bundle?: string | null
+  bundleInfo?: { hash: string | null, source: string | null } | null
   home: string
   root?: string
   source?: string

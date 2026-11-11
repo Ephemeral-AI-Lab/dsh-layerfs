@@ -44,6 +44,7 @@ export function RuntimeSection(): ReactNode {
             <Facts label={t('runtimeLabel')}>
               <Fact label={t('runtimeCli')} mono>{r.cli}</Fact>
               <Fact label={t('runtimeDaemon')} mono>{r.daemon}</Fact>
+              <Fact label={t('runtimeBundle')} mono>{r.bundle ? `${r.bundle}${r.bundleInfo?.hash ? ` (${r.bundleInfo.hash.slice(0, 12)})` : ''}` : t('runtimeBundleDefault')}</Fact>
               <Fact label={t('runtimeHome')} mono>{r.home}</Fact>
               <Fact label={t('runtimeVersionLabel')} mono>{r.version}</Fact>
               <Fact label={t('runtimeCommit')} mono>{r.commit}</Fact>
@@ -63,11 +64,14 @@ function RuntimeDialog({ current, onClose }: { current: RuntimeStatus, onClose: 
   const { t, saveRuntime, refusal } = useMachinesContext()
   const [cli, setCli] = useState(current.cli ?? '')
   const [daemon, setDaemon] = useState(current.daemon ?? '')
+  const [bundle, setBundle] = useState(current.bundle ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const cliBad = cli.trim() !== '' && !isAbsolute(cli.trim())
   const daemonBad = daemon.trim() !== '' && !isAbsolute(daemon.trim())
-  const save = async (pin: { cli: string | null, daemon: string | null }) => {
+  const bundleBad = bundle.trim() !== '' && !isAbsolute(bundle.trim())
+  const pin = () => ({ cli: cli.trim(), daemon: daemon.trim() || null, bundle: bundle.trim() || null })
+  const save = async (pin: { cli: string | null, daemon: string | null, bundle?: string | null }) => {
     setBusy(true)
     setError(null)
     try { await saveRuntime(pin); onClose() } catch (e) { setError(e) } finally { setBusy(false) }
@@ -79,15 +83,18 @@ function RuntimeDialog({ current, onClose }: { current: RuntimeStatus, onClose: 
           <Button variant="ghost" disabled={busy || current.source !== 'settings'} onClick={() => void save({ cli: null, daemon: null })} title={t('runtimeResetTitle')}>{t('runtimeReset')}</Button>
           <span className={css.footerSpacer} />
           <Button variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" disabled={busy || !cli.trim() || cliBad || daemonBad} onClick={() => void save({ cli: cli.trim(), daemon: daemon.trim() || null })}>{busy ? t('saving') : t('save')}</Button>
+          <Button variant="primary" disabled={busy || !cli.trim() || cliBad || daemonBad || bundleBad} onClick={() => void save(pin())}>{busy ? t('saving') : t('save')}</Button>
         </>
       )}>
-      <form className={css.form} onSubmit={(e) => { e.preventDefault(); if (cli.trim() && !cliBad && !daemonBad) void save({ cli: cli.trim(), daemon: daemon.trim() || null }) }}>
+      <form className={css.form} onSubmit={(e) => { e.preventDefault(); if (cli.trim() && !cliBad && !daemonBad && !bundleBad) void save(pin()) }}>
         <Field label={t('runtimeCli')} error={cliBad ? t('errAbsolute') : null}>
           <Input value={cli} onChange={(e) => setCli(e.target.value)} placeholder="/path/to/layerfs" spellCheck={false} disabled={busy} autoFocus />
         </Field>
         <Field label={t('runtimeDaemon')} error={daemonBad ? t('errAbsolute') : null} hint={t('runtimeDaemonHint')}>
           <Input value={daemon} onChange={(e) => setDaemon(e.target.value)} placeholder="/path/to/layerfs-daemon" spellCheck={false} disabled={busy} />
+        </Field>
+        <Field label={t('runtimeBundle')} error={bundleBad ? t('errAbsolute') : null} hint={t('runtimeBundleHint')}>
+          <Input value={bundle} onChange={(e) => setBundle(e.target.value)} placeholder="/path/to/bundle/2.0.0/linux-aarch64" spellCheck={false} disabled={busy} />
         </Field>
         {error != null && <Refusal error={error} labels={refusal} className={css.errorText} />}
       </form>

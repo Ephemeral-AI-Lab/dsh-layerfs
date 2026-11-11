@@ -75,7 +75,7 @@ export interface MachinesFace {
   readSandbox: (name: string) => Promise<SandboxInfo>
   createSandbox: (project: string, input: { name: string, machine: string, image?: string | { archive: string, digest?: string } }) => Promise<unknown>
   closeSandbox: (name: string, force: boolean) => Promise<string[]>
-  saveRuntime: (pin: { cli: string | null, daemon: string | null }) => Promise<RuntimeStatus>
+  saveRuntime: (pin: { cli: string | null, daemon: string | null, bundle?: string | null }) => Promise<RuntimeStatus>
   clearStartup: (name: string) => void
   /** Open another dsh-layerfs page (Storage) by its panel id. */
   openPanel: (id: string) => void
