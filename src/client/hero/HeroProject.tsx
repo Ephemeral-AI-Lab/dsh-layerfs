@@ -1,9 +1,10 @@
 /**
  * The New Session row's LayerFS project control (`conversation.hero.options`):
- * shows the project the new session will work in, and switches it — another
- * project, Scratch, a new empty project, or a project imported from a host
- * folder. Switching opens a new session in that project's workspace. While an
- * import runs, the control shows its progress.
+ * shows the project the new session will work in, or "No project" for a plain
+ * workspace session, and switches it — another project, a new empty project,
+ * or a project imported from a host folder. Switching opens a new session in
+ * that project's workspace. While an import runs, the control shows its
+ * progress.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -33,9 +34,8 @@ export class Imports {
   set(next: ImportState | null): void { this.state = next; for (const l of this.listeners) l() }
 }
 
-interface Place { project: string | null, scratch: boolean, legacy: boolean }
+interface Place { project: string | null }
 
-const SCRATCH = '@scratch'
 const NEW = '@new'
 const IMPORT = '@import'
 const nameOf = (key: string) => key.split('/')[1] ?? key
@@ -97,12 +97,11 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     return () => clearInterval(timer)
   }, [running])
 
-  /** Open a new session in a project's workspace (null: the Scratch workspace). */
-  const switchTo = async (key: string | null) => {
+  /** Open a new session in a project's workspace. */
+  const switchTo = async (key: string) => {
     setError(null)
     try {
-      if (key === null || key === scratchKey) await api.op('sessions.prepareScratch')
-      else await api.op('sessions.create', { project: key })
+      await api.op('sessions.create', { project: key })
     } catch (e) {
       setError(t('switchFailed', { message: messageOf(e) }))
     }
@@ -153,22 +152,23 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     )
   }
 
-  const current = place?.legacy ? null : place?.scratch ? SCRATCH : place?.project ?? null
-  const label = place === null ? '' : place.legacy ? t('hostFolder') : place.scratch ? t('scratch') : nameOf(place.project ?? '')
+  const current = place?.project ?? null
+  const label = place === null ? '' : place.project ? nameOf(place.project) : t('noProject')
   const projects = (rows ?? []).filter((r) => r.key !== scratchKey)
   const items: MenuEntry[] = [
     ...(rows === null && !loadError ? [{ type: 'label' as const, id: 'loading', text: t('loading') }] : []),
     ...(loadError ? [{ type: 'label' as const, id: 'failed', text: t('loadFailed') }] : []),
     ...projects.map((p) => {
       const remote = remoteMachine(p)
+      const store = p.key.split('/')[0] ?? ''
+      const note = remote ? t('onMachine', { machine: remote }) : store
       return {
         id: p.key,
         icon: <LayerfsGlyph size={14} />,
         disabled: !!remote,
-        label: remote ? <span className={css.option}><span>{p.name ?? nameOf(p.key)}</span><span className={css.optionNote}>{t('onMachine', { machine: remote })}</span></span> : (p.name ?? nameOf(p.key)),
+        label: <span className={css.option}><span>{p.name ?? nameOf(p.key)}</span><span className={css.optionNote}>{note}</span></span>,
       }
     }),
-    { id: SCRATCH, label: t('noProject') },
     { type: 'separator', id: 'actions' },
     { id: NEW, label: t('newEmpty'), icon: <IconPlusOutlineRegular size={14} /> },
     { id: IMPORT, label: t('importProject'), icon: <IconFolderOpenOutlineRegular size={14} /> },
@@ -180,7 +180,7 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
           setOpen(false)
           if (id === NEW) setDialog('empty')
           else if (id === IMPORT) setDialog('import')
-          else if (id !== current) void switchTo(id === SCRATCH ? null : id)
+          else if (id !== current) void switchTo(id)
         }}
         anchor={(
           <button ref={anchor} type="button" className={css.chip} aria-label={t('chipAria', { project: label })} aria-haspopup="menu" aria-expanded={open}

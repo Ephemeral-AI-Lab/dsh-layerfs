@@ -1,5 +1,6 @@
-// One session mode: where a session works (placeOf), the Scratch project made
-// on first use, the pre-step guarantee (ensureBound) and the LayerFS session
+// Two session modes: where a session works (placeOf: a project anchor binds,
+// anywhere else is a plain folder session), the Scratch project made on first
+// use, the pre-step guarantee (ensureBound) and the LayerFS session
 // persistence row's import on a local miss, over fakes.
 //   node --test test/sessions.test.mjs
 import { test } from 'node:test'
@@ -54,13 +55,13 @@ function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root
 const session = (id, header, events = []) => ({ id, header: { id, ...header }, snapshotEvents: () => events })
 const ran = [{ type: 'turn/start', data: { turn: 1 } }]
 
-test('placeOf: project anchors, Scratch for new sessions elsewhere, legacy for sessions that already ran', () => {
+test('placeOf: project anchors bind, everywhere else is a plain folder session', () => {
   const { s } = sessions()
   assert.deepEqual(s.placeOf(session('a', { cwd: '/lfs-root/projects/st/app' })),
     { kind: 'project', project: 'st/app', anchor: '/lfs-root/projects/st/app' })
-  assert.deepEqual(s.placeOf(session('b', { cwd: '/lfs-root/scratch' })), { kind: 'project', project: 'dsh-scratch/scratch', anchor: '/lfs-root/scratch' })
-  assert.deepEqual(s.placeOf(session('c', { cwd: '/Users/me/Documents/default-workspace' })), { kind: 'project', project: 'dsh-scratch/scratch', anchor: '/lfs-root/scratch' })
-  assert.deepEqual(s.placeOf(session('d', { cwd: '/Users/me/repo' }, ran)), { kind: 'legacy', cwd: '/Users/me/repo' })
+  assert.deepEqual(s.placeOf(session('b', { cwd: '/lfs-root/scratch' })), { kind: 'folder', cwd: '/lfs-root/scratch' })
+  assert.deepEqual(s.placeOf(session('c', { cwd: '/Users/me/Documents/default-workspace' })), { kind: 'folder', cwd: '/Users/me/Documents/default-workspace' })
+  assert.deepEqual(s.placeOf(session('d', { cwd: '/Users/me/repo' }, ran)), { kind: 'folder', cwd: '/Users/me/repo' })
   // A project anchor wins even when the session already ran (resumed after a restart).
   assert.equal(s.placeOf(session('e', { cwd: '/lfs-root/projects/st/app' }, ran)).kind, 'project')
 })
@@ -68,22 +69,26 @@ test('placeOf: project anchors, Scratch for new sessions elsewhere, legacy for s
 test('placeOf: bindings, subagents and forks follow what they come from', () => {
   const state = S.initialState()
   state.sessions.p = { sessionId: 'p', kind: 'project', project: 'st/app', anchor: '/lfs-root/projects/st/app', scratch: '/x', state: 'bound' }
-  state.sessions.old = { sessionId: 'old', kind: 'scratch', anchor: '/lfs-root/scratch', scratch: '/y', state: 'bound' }
+  state.sessions.old = { sessionId: 'old', kind: 'project', project: 'dsh-scratch/scratch', anchor: '/lfs-root/scratch', scratch: '/y', state: 'bound' }
   const { s } = sessions({ state })
   assert.deepEqual(s.placeOf(session('p', { cwd: '/elsewhere' }, ran)), { kind: 'project', project: 'st/app', anchor: '/lfs-root/projects/st/app' })
-  // A binding from before one mode (a scratch folder only) becomes a Scratch project session.
+  // A binding from the one-mode era (the Scratch project) still binds to it.
   assert.deepEqual(s.placeOf(session('old', { cwd: '/lfs-root/scratch' }, ran)), { kind: 'project', project: 'dsh-scratch/scratch', anchor: '/lfs-root/scratch' })
   assert.deepEqual(s.placeOf(session('sub', { cwd: '/lfs-root/projects/st/app', origin: 'subagent', parentSession: 'p' })),
     { kind: 'shared', parent: 'p', anchor: '/lfs-root/projects/st/app' })
+  // A subagent of a folder session (no parent binding) is a folder session too.
+  assert.deepEqual(s.placeOf(session('sub2', { cwd: '/Users/me/repo', origin: 'subagent', parentSession: 'nobody' }, ran)),
+    { kind: 'folder', cwd: '/Users/me/repo' })
   // DSH's Fork of a session started in the default workspace copies turns but follows the parent.
   assert.deepEqual(s.placeOf(session('fork', { cwd: '/Users/me/Documents/default-workspace', parentSession: 'p' }, ran)),
     { kind: 'project', project: 'st/app', anchor: '/lfs-root/projects/st/app' })
 })
 
-test('ensureBound refuses a legacy host-folder session before the step runs', async () => {
-  const { s } = sessions()
+test('ensureBound lets a folder session run untouched (stock DSH)', async () => {
+  const { s, state } = sessions()
   const agent = { id: 'leg', session: session('leg', { cwd: '/Users/me/repo' }, ran) }
-  await assert.rejects(s.ensureBound(agent), (e) => e.code === 'LegacyFolderSession' && /\/Users\/me\/repo/.test(e.message))
+  await s.ensureBound(agent)
+  assert.equal(state().sessions.leg, undefined, 'a folder session records no binding')
 })
 
 test('ensureBound fails the step when the Workspace cannot be bound', async () => {

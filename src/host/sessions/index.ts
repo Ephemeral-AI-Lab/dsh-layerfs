@@ -1,14 +1,15 @@
 /**
- * Sessions area: every session works in a LayerFS project (or the Scratch
- * project) + its own scratch folder. Session binding, trajectory checkpoints
- * and the LayerFS session store, wired to DSH's agent lifecycle.
+ * Sessions area: sessions in a LayerFS project workspace work in that project
+ * + their own scratch folder; sessions elsewhere run as stock DSH. Session
+ * binding, trajectory checkpoints and the LayerFS session store, wired to
+ * DSH's agent lifecycle.
  *
  *   agent/created        bind the session (fresh, resumed, forked, subagent). Binding
  *                        happens here, not lazily: DSH assembles the step's system prompt
- *                        (working directory, LayerFS section) before `agent/pre-step`
- *   agent/pre-step       a step runs only in the session's mounted Workspace: re-bind a
- *                        failed/closed binding, else fail the turn (legacy host-folder
- *                        sessions, LayerFS refusals)
+ *                        (working directory, LayerFS section) before `agent/pre-step`;
+ *                        a session in a folder workspace binds to nothing
+ *   agent/pre-step       a bound session's step runs only in its mounted Workspace:
+ *                        re-bind a failed/closed binding, else fail the turn
  *   agent/turn-stopping  checkpoint the turn (awaited before `turn/end`)
  *   session/event        `turn/end`: complete the checkpoint, schedule the store mirror
  *   agent/disposed       mirror now; close the Sandbox after `idleMinutes`
@@ -16,7 +17,7 @@
  * Operations (the `layerfs` Remote):
  *   sessions.prepare {project}          ensure the project's DSH workspace -> {workspaceId, navigate}
  *   sessions.create {project}           same, and ask the client to open a new session there
- *   sessions.prepareScratch             the Scratch workspace (Scratch project made on first use)
+ *   sessions.prepareScratch             the Scratch workspace (a plain folder workspace)
  *   sessions.list {project}             local bindings + sessions stored in the project (imports missing ones)
  *   sessions.open {sessionId, project?} open a session, importing it from the project if missing locally
  *   sessions.close {sessionId}          save and close its Sandbox
@@ -50,11 +51,12 @@ export function apply(ctx: Context): void {
     const store = new SessionStore(ctx, sessions)
     sessions.store = store
     ctx.effect(() => () => { store.dispose(); if (sessions.store === store) sessions.store = undefined }, 'dsh-layerfs: session store')
-    // Sessions stored in known projects by another DSH appear here too.
+    // Sessions stored in known projects by another DSH appear here too, and
+    // the LayerFS Projects workspace groups the project workspaces.
     ctx.effect(() => {
-      const timer = setTimeout(() => { void store.syncAll() }, 1500)
+      const timer = setTimeout(() => { void Promise.all([store.syncAll(), sessions.ensureProjectsGroup()]) }, 1500)
       return () => clearTimeout(timer)
-    }, 'dsh-layerfs: session store sync')
+    }, 'dsh-layerfs: session store sync + projects group')
     const idle = new Map<string, NodeJS.Timeout>()
     ctx.effect(() => () => { for (const t of idle.values()) clearTimeout(t); idle.clear() }, 'dsh-layerfs: idle timers')
 

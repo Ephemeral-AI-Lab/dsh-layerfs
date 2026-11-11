@@ -1,5 +1,6 @@
 /**
- * `ctx.layerfsSessions`: every DSH session works in a LayerFS project + its own scratch folder.
+ * `ctx.layerfsSessions`: sessions in a LayerFS project workspace work in that
+ * project + their own scratch folder; sessions anywhere else are plain DSH.
  *
  * A LayerFS project becomes one DSH workspace whose directory is the project's
  * scratch-folder workspace (an "anchor" under `<root>/projects/<store>/<name>`):
@@ -8,17 +9,18 @@
  *   - its own Branch `dsh.<session>` (forked from `main`, or from a checkpoint),
  *   - its own Sandbox + Workspace mount, which becomes its working directory,
  *   - its own scratch folder `<anchor>/sessions/<session>` (never committed).
- * A new session outside a project workspace (DSH's default workspace, the
- * Scratch workspace `<root>/scratch`) works the same way in the Scratch
- * project (`scratchProject`, made on first use). Subagents share their
- * parent's mount. A fork of a session starts its files from the parent's
- * checkpoint at the fork point. A session that already ran in a host folder
- * before dsh-layerfs (a legacy session) is refused instead of moved.
+ * A session in any other workspace (a host folder, DSH's default workspace,
+ * the Scratch workspace `<root>/scratch`) runs as stock DSH: no binding, no
+ * Workspace mount, no checkpoints, nothing mirrored. Subagents of a bound
+ * session share their parent's mount; subagents of a folder session are plain
+ * too. A fork of a bound session starts its files from the parent's
+ * checkpoint at the fork point.
  *
  * Checkpoints: every turn that changed files ends with `workspace.commit`
  * (`agent/turn-stopping`); restore = fork a new Branch from a checkpoint and
  * remount; "branch here" = DSH session fork + Branch fork from the checkpoint.
- * The LayerFS session store keeps each session's log in its project (`store.ts`).
+ * The LayerFS session store keeps each bound session's log in its project
+ * (`store.ts`).
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'
@@ -48,17 +50,11 @@ const real = (path: string): string => { try { return realpathSync(path) } catch
 const errorOf = (error: any) => ({ code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) })
 const exists = (error: any) => error?.code === 'Exists' || error?.code === 'NameTaken'
 
-/** Where a session works: a project (or the Scratch project), its parent's Workspace, or nowhere (legacy). */
+/** Where a session works: a LayerFS project, its parent's Workspace, or a plain folder (stock DSH). */
 export type Place =
   | { readonly kind: 'project', readonly project: string, readonly anchor: string }
   | { readonly kind: 'shared', readonly parent: string, readonly anchor: string }
-  | { readonly kind: 'legacy', readonly cwd: string }
-
-/** Refusal for a session that ran in a host folder before dsh-layerfs. */
-export const legacyError = (cwd: string) => new CliError(
-  'LegacyFolderSession',
-  `This session ran in the host folder ${cwd} before dsh-layerfs. Every session now works in a LayerFS project: import the folder as a project (Storage → New project) and start a new session there.`,
-)
+  | { readonly kind: 'folder', readonly cwd: string }
 
 /** The state a session panel shows. */
 export interface SessionView {
@@ -68,8 +64,6 @@ export interface SessionView {
   readonly project: string | null
   /** The session works in the Scratch project (it has no project of its own). */
   readonly scratchProject: boolean
-  /** Why the session cannot run (a legacy host-folder session), or null. */
-  readonly refusal: { readonly code: string, readonly message: string } | null
   readonly status: unknown
   readonly mirror: unknown
 }
@@ -118,12 +112,24 @@ export class LayerfsSessions extends Service {
   }
 
   /**
+   * The "LayerFS Projects" workspace: `<root>/projects`, the parent every
+   * project workspace nests under in the sidebar's Workspace Tree view.
+   */
+  async ensureProjectsGroup(): Promise<{ workspaceId: string }> {
+    const dir = join(this.ctx.layerfs.root, 'projects')
+    mkdirSync(dir, { recursive: true })
+    const workspace = await this.ctx.workspaceRegistry.create(dir, 'LayerFS Projects')
+    return { workspaceId: String(workspace.id) }
+  }
+
+  /**
    * Ensure a project's scratch-folder workspace exists as a DSH workspace.
    * @returns the DSH workspace id and anchor.
    */
   async ensureProjectWorkspace(project: string): Promise<{ workspaceId: string, anchor: string }> {
     if (this.isScratch(project)) return await this.ensureScratchWorkspace()
     await this.lfs.project.get(project)
+    await this.ensureProjectsGroup()
     const anchor = this.anchorOf(project)
     this.writeAnchor(anchor, `# ${project}\n\nThe DeepSeek Harness workspace of LayerFS project \`${project}\`.\n\nEach session works in its own LayerFS Workspace (branch \`dsh.<session>\`), mounted as its\nworking directory and checkpointed at the end of every turn. \`sessions/<session>/\` is that\nsession's scratch folder: it is never saved into the project.\n`)
     const [store, name] = project.split('/')
@@ -142,14 +148,11 @@ export class LayerfsSessions extends Service {
     }
   }
 
-  /** Ensure the Scratch workspace: sessions without a project of their own, in the Scratch project. */
+  /** Ensure the Scratch workspace: a plain folder workspace for sessions without a project. */
   async ensureScratchWorkspace(): Promise<{ workspaceId: string, anchor: string }> {
-    await this.ensureScratchProject()
     const anchor = this.scratchAnchor
-    this.writeAnchor(anchor, `# Scratch\n\nSessions here have no project of their own. Each works in its own LayerFS Workspace of the\nScratch project \`${this.ctx.layerfs.scratchProject}\` (branch \`dsh.<session>\`), checkpointed at the end of every turn;\n\`sessions/<session>/\` is that session's scratch folder.\n`)
+    this.writeAnchor(anchor, `# Scratch\n\nA workspace for sessions without a LayerFS project: sessions here run as ordinary\nDeepSeek Harness sessions in this folder.\n`)
     const workspace = await this.ctx.workspaceRegistry.create(anchor, 'Scratch')
-    const project = this.ctx.layerfs.scratchProject
-    this.state.update((s) => { s.projects[project] = { project, anchor, workspaceId: String(workspace.id), createdAt: s.projects[project]?.createdAt ?? Date.now() } })
     return { workspaceId: String(workspace.id), anchor }
   }
 
@@ -176,15 +179,16 @@ export class LayerfsSessions extends Service {
     return key
   }
 
-  /** Which project workspace (or the Scratch workspace) a session `cwd` is. */
+  /** Which project workspace a session `cwd` is, if it is one. */
   classify(cwd: string | undefined): { project: string, anchor: string } | undefined {
     if (!cwd) return undefined
     const at = real(cwd)
-    if (at === real(this.scratchAnchor)) return { project: this.ctx.layerfs.scratchProject, anchor: this.scratchAnchor }
-    for (const entry of Object.values(this.state.read().projects)) {
-      if (real(entry.anchor) === at) return { project: entry.project, anchor: entry.anchor }
-    }
     const root = real(join(this.ctx.layerfs.root, 'projects'))
+    for (const entry of Object.values(this.state.read().projects)) {
+      // Only anchors under the projects root: state may hold an old entry for
+      // the Scratch workspace, which is a plain folder now.
+      if (real(entry.anchor) === at && at.startsWith(`${root}/`)) return { project: entry.project, anchor: entry.anchor }
+    }
     if (at.startsWith(`${root}/`)) {
       const [store, name, extra] = at.slice(root.length + 1).split('/')
       if (store && name && !extra) return { project: `${store}/${name}`, anchor: join(this.ctx.layerfs.root, 'projects', store, name) }
@@ -193,38 +197,33 @@ export class LayerfsSessions extends Service {
   }
 
   /**
-   * Where a session works. In order: its existing binding; a subagent's
-   * parent; a project workspace's anchor; the place of the session it was
-   * forked from; the Scratch project for a session that has not run yet;
-   * otherwise it is a legacy host-folder session.
+   * Where a session works. In order: its existing binding; a bound parent's
+   * Workspace (a subagent); a project workspace's anchor; the place of the
+   * session it was forked from; otherwise a plain folder (stock DSH).
    */
   placeOf(session: any): Place {
     const sessionId = String(session.id)
     const header = session.header ?? {}
     const existing = this.binding(sessionId)
     if (existing?.kind === 'shared' && existing.parent) return { kind: 'shared', parent: existing.parent, anchor: existing.anchor }
-    if (existing) return { kind: 'project', project: existing.project ?? this.ctx.layerfs.scratchProject, anchor: existing.anchor }
-    if (header.origin === 'subagent' && header.parentSession) return { kind: 'shared', parent: String(header.parentSession), anchor: header.cwd }
+    if (existing?.project) return { kind: 'project', project: existing.project, anchor: existing.anchor }
+    if (existing) return { kind: 'folder', cwd: existing.anchor }
+    const parent = header.parentSession ? this.binding(String(header.parentSession)) : undefined
+    if (header.origin === 'subagent' && parent) return { kind: 'shared', parent: String(header.parentSession), anchor: header.cwd }
     const where = this.classify(header.cwd)
     if (where) return { kind: 'project', ...where }
-    const parent = header.parentSession ? this.binding(String(header.parentSession)) : undefined
     if (parent?.project) return { kind: 'project', project: parent.project, anchor: parent.anchor }
-    const ran = (session.snapshotEvents?.(0) ?? []).some((e: any) => e.type === 'turn/start')
-    if (!ran || this.state.read().pending[sessionId]) return { kind: 'project', project: this.ctx.layerfs.scratchProject, anchor: this.scratchAnchor }
-    return { kind: 'legacy', cwd: String(header.cwd ?? '') }
+    return { kind: 'folder', cwd: String(header.cwd ?? '') }
   }
 
-  /** Where a live session works, for the New Session project control; null when it is not live. */
-  placeOfId(sessionId: string): { project: string | null, scratch: boolean, legacy: boolean } | null {
+  /** The project a live session works in, for the New Session project control; null when it is not live. */
+  placeOfId(sessionId: string): { project: string | null } | null {
     const session = this.ctx.sessions.get(sessionId as never) as any
     if (!session) return null
     const place = this.placeOf(session)
-    if (place.kind === 'shared') {
-      const parent = this.binding(place.parent)
-      return { project: parent?.project ?? null, scratch: this.isScratch(parent?.project), legacy: false }
-    }
-    if (place.kind === 'legacy') return { project: null, scratch: false, legacy: true }
-    return { project: place.project, scratch: this.isScratch(place.project), legacy: false }
+    if (place.kind === 'shared') return { project: this.binding(place.parent)?.project ?? null }
+    if (place.kind === 'folder') return { project: null }
+    return { project: place.project }
   }
 
   // ------------------------------------------------------------- binding
@@ -285,10 +284,7 @@ export class LayerfsSessions extends Service {
   async bindAgent(agent: any, source: string, strict = false): Promise<void> {
     const sessionId = String(agent.id)
     const place = this.placeOf(agent.session)
-    if (place.kind === 'legacy') {
-      if (strict) throw legacyError(place.cwd)
-      return
-    }
+    if (place.kind === 'folder') return
     await this.lane(sessionId, async () => {
       try {
         if (place.kind === 'shared') return await this.bindShared(agent, place.parent, place.anchor, strict)
@@ -588,19 +584,12 @@ export class LayerfsSessions extends Service {
     if (effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {
       status = await this.lfs.workspace.status(effective.ws).catch((error: any) => ({ error: errorOf(error) }))
     }
-    let refusal: SessionView['refusal'] = null
-    if (!binding) {
-      const session = this.ctx.sessions.get(sessionId as never) as any
-      const place = session ? this.placeOf(session) : null
-      if (place?.kind === 'legacy') refusal = errorOf(legacyError(place.cwd))
-    }
     return {
       sessionId,
       binding: effective,
       checkpoints: effective ? this.checkpoints(effective.sessionId) : [],
       project: effective?.project ?? null,
       scratchProject: this.isScratch(effective?.project),
-      refusal,
       status,
       mirror: effective ? this.state.read().mirror[effective.sessionId] ?? null : null,
     }

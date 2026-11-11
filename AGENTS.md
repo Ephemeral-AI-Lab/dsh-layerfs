@@ -1,9 +1,10 @@
 # dsh-layerfs — agent notes
 
-LayerFS Connect's Machines, Storage and its one session mode (every session works
-in a LayerFS project + its own scratch folder; sessions without a project use the
-Scratch project), the LayerFS session store and trajectory checkpoints, as a
-DeepSeek Harness (DSH) cordis plugin bundle. Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
+LayerFS Connect's Machines, Storage and its project session mode (a session in a
+LayerFS project workspace works in that project + its own scratch folder;
+sessions anywhere else are plain DSH), the LayerFS session store and trajectory
+checkpoints, as a DeepSeek Harness (DSH) cordis plugin bundle. Design docs:
+`../layerfs-connect/docs/dsh-layerfs/`.
 
 ## Hard rules
 
@@ -21,8 +22,9 @@ DeepSeek Harness (DSH) cordis plugin bundle. Design docs: `../layerfs-connect/do
   - `service.ts` `ctx.layerfs` (pinned CLI/daemon, LAYERFS_HOME, events, JSON state)
   - `layerfs/cli.ts` pinned-CLI SDK (`ctx.layerfs.lfs.<family>.<call>(...)`), port of Connect `host/cli`
   - `routes/` Connect's host HTTP API served as op `http` `{method,path,body}` -> `{status,body}`
-  - `sessions/` session binding (`placeOf`: project, Scratch project, subagent, legacy),
-    scratch folders, checkpoints, LayerFS session store (mirror, discover, import, sync)
+  - `sessions/` session binding (`placeOf`: project, subagent's shared mount, or a plain
+    folder session), scratch folders, the LayerFS Projects group workspace, checkpoints,
+    LayerFS session store (mirror, discover, import, sync)
   - `session-persistence.ts` the `layerfs-session-persistence` row (`lib/session-persistence.js`):
     DSH's JSONL backend in an isolated `sessionPersistence` slot, plus imports on a local miss
   - `presets/` Presets: `manager.ts` (`/api/demo-presets…` on the `http` op, admission,
@@ -34,9 +36,9 @@ DeepSeek Harness (DSH) cordis plugin bundle. Design docs: `../layerfs-connect/do
   DSH's `__ModuleLoader__` factory format)
   - `api.ts` `LayerfsApi` (`call(method,path,body)`, `op(name,args)`, `onEvent`)
   - `machines/`, `storage/`, `presets/`, `session/`, `picker/`, `hero/` areas, each
-    `register<Area>(ctx, api)`; `picker/` fills ui-workspace's directory-flow holes with
-    the LayerFS project picker, `hero/` puts the same project choice on the New Session
-    row (`conversation.hero.options` + the `session.place` op), sharing `picker/NewProjectForm`
+    `register<Area>(ctx, api)`; `picker/` owns the shared `NewProjectForm` + locale,
+    `hero/` puts the project choice on the New Session row (`conversation.hero.options`
+    + the `session.place` op). Add-workspace flows are stock DSH folder picking.
 - `src/shared/remote-spec.ts` Remote descriptors shared by both faces.
 
 ## Commands
@@ -67,12 +69,12 @@ DeepSeek Harness (DSH) cordis plugin bundle. Design docs: `../layerfs-connect/do
 - End to end with the keyless scripted model (`dev/fake-llm`): start the dev server with
   `DSH_LAYERFS_DEV_OVERLAY=$PWD/dev/fake-llm.overlay.yml node scripts/dev.mjs`, then
   `node test/e2e-sessions.mjs` (project session, checkpoints, restore, branch, store,
-  persistence row, Scratch and default-workspace sessions, legacy refusal, Add workspace
-  project picker, panel UI; cleans up unless `--keep`).
+  persistence row, plain folder sessions, the LayerFS Projects group, the New Session
+  project control, panel UI; cleans up unless `--keep`).
 - Session store portability: a second server sharing the LayerFS home
   (`DSH_LAYERFS_DEV_DIR=$PWD/.dev-import DSH_LAYERFS_HOME=$PWD/.dev/layerfs-home ... --port 3096`),
   then `A_DIR=$PWD/.dev B_DIR=$PWD/.dev-import node test/e2e-store-import.mjs` (explicit
-  import, open by id alone through the persistence row, Scratch workspace sync).
+  import, open by id alone through the persistence row, folder sessions never stored).
 - Presets: `test/presets.test.mjs` (admission, request-ID reconciliation, restart recovery,
   the router's exclusive guard, script paging, live reset of a private home). A real Studio
   Build needs Docker, Lima and `DSH_LAYERFS_BUNDLE` (a Linux bundle matching the CLI) on the

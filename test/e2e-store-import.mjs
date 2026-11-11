@@ -4,8 +4,8 @@
 // (a second dev server with its own DSH_HOME but the same LayerFS home) lists
 // the session from the project, imports it, shows its conversation and
 // continues it on the same branch. Then: a session opened in B by id alone is
-// imported by the session persistence row, and B's Scratch workspace syncs
-// A's Scratch sessions.
+// imported by the session persistence row, and a folder session (no project)
+// is never stored, so B cannot see it.
 //   A_DIR=<dev dir A> B_DIR=<dev dir B> node test/e2e-store-import.mjs
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
@@ -101,24 +101,17 @@ try {
   const xrow = (await B.op('sessions.list', { project })).sessions.find((s) => s.sessionId === xid)
   assert.equal(xrow?.local, true, 'imported into B by opening it')
 
-  step('A: a Scratch session; B\'s Scratch workspace syncs it')
-  const runtime = await A.op('runtime.status')
+  step('A: a folder session (Scratch workspace); it is never stored, so B cannot see it')
   await A.op('sessions.prepareScratch')
   await A.page.waitForTimeout(1500)
   const ts = await runTurn(A.page, { message: 'bash: echo sx > sx.txt', newSession: false })
   assert.ok(ts.ok, ts.error)
+  const sstate = await A.op('session.state', { sessionId: ts.sessionId })
+  assert.equal(sstate.binding, null, 'a folder session binds to nothing')
   await new Promise((r) => setTimeout(r, 2500))
   await A.op('session.mirror', { sessionId: ts.sessionId })
-  await B.op('sessions.prepareScratch', { navigate: false })
-  const synced = await (async () => {
-    for (let i = 0; i < 60; i++) {
-      const row = (await B.op('sessions.list', { project: runtime.scratchProject })).sessions.find((s) => s.sessionId === ts.sessionId)
-      if (row?.local) return row
-      await new Promise((r) => setTimeout(r, 500))
-    }
-    return null
-  })()
-  assert.ok(synced, 'B imported A\'s Scratch session')
+  const missing = await B.op('sessions.open', { sessionId: ts.sessionId }).then(() => null, () => true)
+  assert.ok(missing, 'B cannot open a session that was never stored in a project')
 
   step('cleanup')
   for (const id of [sid, xid, ts.sessionId]) {

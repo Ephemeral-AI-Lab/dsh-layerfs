@@ -1,8 +1,8 @@
 /**
  * dsh-layerfs, browser half: mounts the `layerfs` Remote namespace, opens the
- * host event stream, and contributes the Machines, Storage and Presets pages,
- * the per-session LayerFS panel, the add-workspace project picker and the New
- * Session project control through DSH's slots.
+ * host event stream, and contributes the Overview, Machines, Storage and
+ * Presets pages, the per-session LayerFS panel and the New Session project
+ * control through DSH's slots.
  */
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 import { z } from 'zod'

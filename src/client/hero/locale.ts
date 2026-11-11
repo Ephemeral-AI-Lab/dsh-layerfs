@@ -3,9 +3,7 @@ export const NS = 'layerfsHero'
 
 const en = {
   chipAria: 'LayerFS project: {project}',
-  scratch: 'Scratch',
-  noProject: 'Scratch (no project)',
-  hostFolder: 'Host folder',
+  noProject: 'No project',
   loading: 'Loading projects…',
   loadFailed: 'Could not list projects',
   onMachine: 'On {machine}',
@@ -31,9 +29,7 @@ const en = {
 
 const zh: typeof en = {
   chipAria: 'LayerFS 项目：{project}',
-  scratch: '草稿',
-  noProject: '草稿（无项目）',
-  hostFolder: '主机文件夹',
+  noProject: '无项目',
   loading: '正在加载项目…',
   loadFailed: '无法列出项目',
   onMachine: '位于 {machine}',

@@ -2,8 +2,8 @@
  * The per-session LayerFS panel (right sidebar tab): where this session's
  * project files are (branch, Workspace mount, scratch folder), what is unsaved,
  * the trajectory checkpoints with their changes, and restore / branch actions.
- * A session that cannot run (a legacy host-folder session) says why and offers
- * to start a session in a project.
+ * A session in a folder workspace (no LayerFS binding) says so and offers to
+ * start a session in a project.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -47,7 +47,6 @@ interface SessionView {
   checkpoints: Checkpoint[]
   project: string | null
   scratchProject: boolean
-  refusal: { code: string, message: string } | null
   status: { overlay?: { entries?: number }, error?: { message: string } } | null
   mirror: { count: number, error?: string, updatedAt: number } | null
 }
@@ -112,7 +111,7 @@ function Path({ path }: { path: string }): ReactNode {
   return <code className={css.path} title={path}>{path}</code>
 }
 
-function StartSession({ api, t, refusal }: { api: LayerfsApi, t: Translate, refusal: SessionView['refusal'] }): ReactNode {
+function StartSession({ api, t }: { api: LayerfsApi, t: Translate }): ReactNode {
   const [projects, setProjects] = useState<{ key: string, name?: string, store?: string, scratch?: boolean }[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -129,8 +128,8 @@ function StartSession({ api, t, refusal }: { api: LayerfsApi, t: Translate, refu
   }
   return (
     <div className={css.empty}>
-      <div className={css.emptyTitle}>{refusal ? t('legacyTitle') : t('notLayerfsTitle')}</div>
-      <p className={css.emptyBody}>{refusal ? refusal.message : t('notLayerfsBody')}</p>
+      <div className={css.emptyTitle}>{t('notLayerfsTitle')}</div>
+      <p className={css.emptyBody}>{t('notLayerfsBody')}</p>
       <div className={css.sectionLabel}>{t('chooseProject')}</div>
       {projects === null ? <div className={css.muted}>{t('loading')}</div>
         : projects.length === 0 ? (
@@ -150,9 +149,6 @@ function StartSession({ api, t, refusal }: { api: LayerfsApi, t: Translate, refu
             ))}
           </ul>
         )}
-      <div className={css.actions}>
-        <Button variant="ghost" size="sm" disabled={busy} onClick={() => run(() => api.op('sessions.prepareScratch'))}>{t('startScratch')}</Button>
-      </div>
       {message ? <div className={css.error}>{message}</div> : null}
     </div>
   )
@@ -184,7 +180,7 @@ export function SessionPanel({ sessionId, api, t }: SessionPanelProps): ReactNod
     )
   }
   const b = view!.binding
-  if (!b) return <div className={css.pad}><StartSession api={api} t={t} refusal={view!.refusal} /></div>
+  if (!b) return <div className={css.pad}><StartSession api={api} t={t} /></div>
 
   const dot: StateDotState = b.state === 'bound' ? 'done' : b.state === 'failed' ? 'error' : 'idle'
   const pending = Number(view!.status?.overlay?.entries ?? 0)

@@ -1,23 +1,22 @@
 # dsh-layerfs bundle layer, applied after dsh-base and dsh-web-app.
 #
-# One session mode: every session works in a LayerFS project (or the Scratch
-# project) with its own Workspace mount and scratch folder.
+# Two session modes: a session in a LayerFS project workspace works in that
+# project with its own Workspace mount and scratch folder; a session anywhere
+# else (a folder workspace, DSH's default workspace, the Scratch workspace)
+# runs as stock DSH.
 #
 # - `layerfs`: the plugin (host services + browser half). `root` holds the
 #   LayerFS home, the projects' scratch-folder workspaces and plugin state;
-#   `scratchProject` is where sessions without a project of their own work.
+#   `scratchProject` names the project sessions bound to the Scratch project
+#   used before folder sessions became plain.
 # - `session-persistence-jsonl` is replaced by `layerfs-session-persistence`
 #   (same root): DSH's JSONL backend keeps running inside it as the local
 #   log, and a session missing locally is imported from the LayerFS project
 #   that stores it.
-# - `directory-picker` is disabled: the add-workspace flows pick a LayerFS
-#   project (the browser half fills ui-workspace's directory-flow holes)
-#   instead of a host folder.
 # - `sandbox-policy` is replaced by a subclass that makes a bound session's
-#   LayerFS Workspace mount (its working directory) its workspace-write root.
+#   LayerFS Workspace mount (its working directory) its workspace-write root;
+#   sessions with no binding fall back to the stock policy.
 - id: session-persistence-jsonl
-  disabled: true
-- id: directory-picker
   disabled: true
 - id: sandbox-policy
   disabled: true
