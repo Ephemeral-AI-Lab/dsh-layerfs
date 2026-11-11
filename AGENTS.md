@@ -43,6 +43,19 @@ cordis plugin bundle. Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
   host operation through a real page (`window.__dshLayerfs`, enabled by the
   `dsh-layerfs:debug` localStorage flag the tools set).
 
+## Verification
+
+- `node scripts/build.mjs && npx tsc -p tsconfig.json && node --test test/*.test.mjs`
+- End to end with the keyless scripted model (`dev/fake-llm`): start the dev server with
+  `DSH_LAYERFS_DEV_OVERLAY=$PWD/dev/fake-llm.overlay.yml node scripts/dev.mjs`, then
+  `node test/e2e-sessions.mjs` (project session, checkpoints, restore, branch, store, scratch,
+  panel UI; cleans up unless `--keep`).
+- Session store portability: a second server sharing the LayerFS home
+  (`DSH_LAYERFS_DEV_DIR=$PWD/.dev-import DSH_LAYERFS_HOME=$PWD/.dev/layerfs-home ... --port 3096`),
+  then `A_DIR=$PWD/.dev B_DIR=$PWD/.dev-import node test/e2e-store-import.mjs`.
+- `node tools/cleanup-dev.mjs` removes leftover `e2e*`/`imp*` Stores through the host API.
+- Kill only your own dev server (match its `.dev*/overlay.yml` path in the command line).
+
 ## UI rules (match DSH)
 
 Follow DSH's `docs/web-styling.md` (in `../deepseek-harness-source`): CSS Modules +
