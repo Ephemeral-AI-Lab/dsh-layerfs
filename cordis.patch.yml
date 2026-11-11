@@ -1,0 +1,4 @@
+# dsh-layerfs bundle layer: applied after dsh-base and dsh-web-app.
+- insert:
+    - id: layerfs
+      name: dsh-layerfs

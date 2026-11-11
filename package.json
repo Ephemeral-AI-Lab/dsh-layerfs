@@ -1,0 +1,75 @@
+{
+  "name": "dsh-layerfs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LayerFS Machines, Storage, project workspaces and trajectory checkpoints for DeepSeek Harness",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "dev": "node scripts/dev.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.1",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-store": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-layout": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-theme": "^0.2.2-rc.1",
+    "@types/node": "^24.19.2",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.1",
+    "clsx": "^2.1.1",
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.64.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^6.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "@deepseek-ai/dsh-subprocess-local@0.2.2-rc.1": true,
+    "node-pty@1.2.0-beta.15": true,
+    "koffi@3.1.1": true,
+    "protobufjs@7.6.6": true
+  },
+  "packageManager": "pnpm@11.28.5+sha512.484563d30b4c2ad27cb48aa94ff2b302dbcebc8ff6bf28816c2589886e146ce7f76f354f3bc1a438e6f5e9768c302aa0a6f7add8232903cd4cf81426cbc14d9e"
+}

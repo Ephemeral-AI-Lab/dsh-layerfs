@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+// Build both faces: the host ESM plugin (lib/index.js) and the browser
+// closure-factory bundle (lib/client.js) in the format dsh-client-modules
+// serves: window.__ModuleLoader__.load({ id, factory: (require) => exports }).
+import { build, context } from 'esbuild'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { builtinModules } from 'node:module'
+import { join } from 'node:path'
+
+const root = new URL('..', import.meta.url).pathname
+const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+const watch = process.argv.includes('--watch')
+
+// Shell-seeded platform modules plus runtime rows the client must share (packages/client/web/src/platform.ts).
+const CLIENT_EXTERNALS = [
+  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
+  'zod', '@tanstack/react-virtual',
+  '@deepseek-ai/dsh-client-store',
+  '@deepseek-ai/dsh-client-ui-slots',
+  '@deepseek-ai/dsh-client-ui-primitives',
+  '@deepseek-ai/dsh-client-ui-dockkit',
+]
+
+const hostOptions = {
+  absWorkingDir: root,
+  entryPoints: { index: 'src/host/index.ts' },
+  outdir: 'lib',
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node24',
+  sourcemap: true,
+  external: ['@deepseek-ai/*', 'zod', ...builtinModules, ...builtinModules.map((m) => `node:${m}`)],
+  logLevel: 'warning',
+}
+
+/** Wrap the CJS client output into the module-loader handoff and inject compiled CSS. */
+const wrapClient = {
+  name: 'dsh-client-wrap',
+  setup(b) {
+    b.onEnd(async (result) => {
+      if (result.errors.length) return
+      const files = result.outputFiles ?? []
+      const js = files.find((f) => f.path.endsWith('client.js'))
+      const css = files.find((f) => f.path.endsWith('client.css'))
+      if (!js) return
+      const style = css && css.text.trim()
+        ? `(function(){if(typeof document==='undefined')return;var id=${JSON.stringify(pkg.name + '/client.css')};if(document.querySelector('style[data-plugin-css="'+id+'"]'))return;var t=document.createElement('style');t.dataset.plugin=${JSON.stringify(pkg.name)};t.dataset.pluginCss=id;t.textContent=${JSON.stringify(css.text)};document.head.appendChild(t);})();\n`
+        : ''
+      const out = `window.__ModuleLoader__.load({\n\tid: ${JSON.stringify(pkg.name)},\n\tfactory: (require) => {\n\t\tvar module = { exports: {} };\n\t\tvar exports = module.exports;\n${style}${js.text}\n\t\treturn module.exports;\n\t}\n});\n`
+      await mkdir(join(root, 'lib'), { recursive: true })
+      await writeFile(join(root, 'lib/client.js'), out)
+    })
+  },
+}
+
+const clientOptions = {
+  absWorkingDir: root,
+  entryPoints: { client: 'src/client/index.tsx' },
+  outdir: 'lib',
+  bundle: true,
+  write: false,
+  format: 'cjs',
+  platform: 'browser',
+  target: 'es2022',
+  jsx: 'automatic',
+  loader: { '.module.css': 'local-css', '.css': 'css', '.svg': 'text' },
+  external: CLIENT_EXTERNALS,
+  define: { 'process.env.NODE_ENV': '"production"' },
+  logLevel: 'warning',
+  plugins: [wrapClient],
+}
+
+if (watch) {
+  const host = await context(hostOptions)
+  const client = await context(clientOptions)
+  await Promise.all([host.watch(), client.watch()])
+  console.log('watching')
+} else {
+  await Promise.all([build(hostOptions), build(clientOptions)])
+  console.log('built lib/index.js and lib/client.js')
+}
