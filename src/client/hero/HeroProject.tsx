@@ -36,6 +36,7 @@ export class Imports {
 
 interface Place { project: string | null }
 
+const NONE = '@none'
 const NEW = '@new'
 const IMPORT = '@import'
 const nameOf = (key: string) => key.split('/')[1] ?? key
@@ -66,6 +67,7 @@ export interface HeroProjectProps {
 }
 
 export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps): ReactNode {
+  const root = useRef<HTMLSpanElement>(null)
   const anchor = useRef<HTMLButtonElement>(null)
   const [place, setPlace] = useState<Place | null>(null)
   const [rows, setRows] = useState<ProjectRow[] | null>(null)
@@ -97,11 +99,11 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     return () => clearInterval(timer)
   }, [running])
 
-  /** Open a new session in a project's workspace. */
-  const switchTo = async (key: string) => {
+  /** Place this session in a LayerFS project (or back in a plain folder). */
+  const switchTo = async (key: string | null) => {
     setError(null)
     try {
-      await api.op('sessions.create', { project: key })
+      await api.op('sessions.choose', { sessionId, project: key })
     } catch (e) {
       setError(t('switchFailed', { message: messageOf(e) }))
     }
@@ -120,6 +122,21 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
       (e) => imports.set({ key, job, error: messageOf(e) }),
     )
   }
+
+  // A session placed in a LayerFS project no longer works in the workspace's
+  // folder: hide DSH's workspace chip on the shared hero row so the LayerFS
+  // mark reads as "the folder". Best-effort — if the hero's markup changes,
+  // the workspace chip simply stays.
+  const bound = !!place?.project
+  useEffect(() => {
+    if (!bound) return
+    for (let el = root.current?.parentElement; el; el = el.parentElement) {
+      if (el.querySelector(':scope > button')) {
+        el.setAttribute('data-layerfs-bound', '')
+        return () => el.removeAttribute('data-layerfs-bound')
+      }
+    }
+  }, [bound])
 
   if (running) {
     const name = nameOf(running.key)
@@ -156,6 +173,8 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
   const label = place === null ? '' : place.project ? nameOf(place.project) : t('noProject')
   const projects = (rows ?? []).filter((r) => r.key !== scratchKey)
   const items: MenuEntry[] = [
+    { id: NONE, label: t('noProject'), icon: <IconFolderOpenOutlineRegular size={14} /> },
+    { type: 'separator', id: 'none' },
     ...(rows === null && !loadError ? [{ type: 'label' as const, id: 'loading', text: t('loading') }] : []),
     ...(loadError ? [{ type: 'label' as const, id: 'failed', text: t('loadFailed') }] : []),
     ...projects.map((p) => {
@@ -165,7 +184,6 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
       return {
         id: p.key,
         icon: <LayerfsGlyph size={14} />,
-        disabled: !!remote,
         label: <span className={css.option}><span>{p.name ?? nameOf(p.key)}</span><span className={css.optionNote}>{note}</span></span>,
       }
     }),
@@ -174,13 +192,13 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     { id: IMPORT, label: t('importProject'), icon: <IconFolderOpenOutlineRegular size={14} /> },
   ]
   return (
-    <span className={css.root} data-layerfs-hero="">
-      <Menu open={open} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? undefined} dense
+    <span ref={root} className={css.root} data-layerfs-hero="">
+      <Menu open={open} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense
         onSelect={(id) => {
           setOpen(false)
           if (id === NEW) setDialog('empty')
           else if (id === IMPORT) setDialog('import')
-          else if (id !== current) void switchTo(id)
+          else if (id !== (current ?? NONE)) void switchTo(id === NONE ? null : id)
         }}
         anchor={(
           <button ref={anchor} type="button" className={css.chip} aria-label={t('chipAria', { project: label })} aria-haspopup="menu" aria-expanded={open}

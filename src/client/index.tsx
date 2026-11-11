@@ -37,7 +37,7 @@ export function apply(ctx: any): void {
     openPanel: (id) => ctx.layout.selectPanel(id),
     openWorkspace: async (id) => { await workspace()?.openWorkspace(id) },
     openSession: (id) => { workspace()?.openSession(id) },
-  })
+  }, workspace)
   ctx.effect(() => () => api.dispose(), 'dsh-layerfs: api')
   // Browser automation handle (tools/, test/): opt-in per browser profile.
   if (typeof window !== 'undefined' && window.localStorage?.getItem('dsh-layerfs:debug') === '1') {

@@ -53,6 +53,12 @@ export interface CommitInfo {
   sourceTime?: number | null
   savedKind?: 'commit' | 'layer' | string
   changes?: { path: string, kind: string }[]
+  /** Saved-tree measurements (storage reads only): exact wire integers. */
+  logical?: unknown
+  newCanonical?: unknown
+  newStored?: unknown
+  newMetadata?: unknown
+  timeStatus?: 'recorded' | 'unavailable'
 }
 
 /** GET /api/projects/<key>/history: the Branches. */

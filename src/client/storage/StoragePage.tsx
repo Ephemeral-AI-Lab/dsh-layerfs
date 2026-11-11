@@ -6,12 +6,13 @@
  * read again on the host's `storage` events, after each action and on a poll;
  * jobs move on `storage-job` events.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, IconCloseOutlineRegular, IconDatabaseOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { DoctorT } from '../doctor/locale.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery, type Query } from '../files/use-query.ts'
+import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { Empty, LoadError, Loading, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
 import { BucketPage } from './BucketPage.tsx'
 import { StorageDetails } from './Details.tsx'
@@ -70,19 +71,33 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
   useEffect(() => { if (endedCount) reload() }, [endedCount])
 
   const view = storage.data
+  // Machine groups open by default, but a machine you folded stays folded.
+  const seenPlaces = useRef(new Set<string>())
+  useEffect(() => {
+    const fresh = (view?.machines ?? []).filter((m) => m.name !== 'native' && m.supports?.sqlite !== false && !seenPlaces.current.has(m.name))
+    if (!fresh.length) return
+    for (const m of fresh) seenPlaces.current.add(m.name)
+    setExpanded((had) => {
+      const next = new Set(had)
+      for (const m of fresh) next.add(`m:${m.name}`)
+      return next
+    })
+  }, [view?.machines])
   const catalog = useMemo(() => new Map((catalogRead.data ?? []).map((p) => [p.key, p])), [catalogRead.data])
   const [manual, setManual] = useState(false)
   useEffect(() => { if (!storage.loading) setManual(false) }, [storage.loading])
   const refresh = () => { reload(); setChecks((n) => n + 1) }
 
-  /** The outline keys an opened page reveals (its place group and its folder). */
+  /** The outline keys an opened page reveals (its place group, machine and folder). */
   const revealOf = (id: TabId): TreeKey[] => {
     if (id === 'overview') return []
     const body = id.slice(id.indexOf(':') + 1)
     const storeName = id.startsWith('project:') ? body.slice(0, body.indexOf('/')) : body
     if (id.startsWith('bucket:')) return ['g:backups', `b:${body}`]
     const s = view?.stores.find((x) => x.name === storeName)
-    return s ? [`g:${groupOf(s)}` as TreeKey, `s:${s.name}`] : [`s:${storeName}`]
+    if (!s) return [`s:${storeName}`]
+    const g = groupOf(s)
+    return [`g:${g}` as TreeKey, ...(g === 'machines' && s.machine ? [`m:${s.machine}` as TreeKey] : []), `s:${s.name}`]
   }
   const open = (id: TabId) => {
     setTabs((had) => had.includes(id) ? had : [...had, id])
@@ -121,6 +136,8 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
     setFailed(undefined)
     work().then((v) => { if (v && typeof v === 'object' && 'id' in v && 'kind' in v && 'store' in v) take([v as StorageJob]); reload() }, (e: unknown) => setFailed(e))
   }
+  /** A Store dropped on a place in the explorer: the host picks the push, pull or move. */
+  const place = (store: string, machine: string) => act(() => api.call('POST', `/api/machines/${enc(machine)}/stores`, { store }))
   const retry = (j: StorageJob): Promise<unknown> => {
     if (j.kind === 'push' || (j.kind === 'move' && j.error?.note === 'pulled')) return api.call('POST', `/api/stores/${enc(j.store)}/push`, { machine: j.target })
     if (j.kind === 'pull') return api.call('POST', `/api/stores/${enc(j.store)}/pull`)
@@ -175,7 +192,7 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
       const s = view?.stores.find((x) => x.name === body)
       return { icon: s ? <StoreGlyph kind={s.kind} size={14} /> : <FileGlyph />, label: body }
     }
-    if (id.startsWith('project:')) return { icon: <FileGlyph />, label: body.slice(body.indexOf('/') + 1) }
+    if (id.startsWith('project:')) return { icon: <LayerfsGlyph size={14} />, label: body.slice(body.indexOf('/') + 1) }
     return { icon: <BucketGlyph size={14} />, label: body }
   }
 
@@ -206,7 +223,7 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
       const store = key.slice(0, key.indexOf('/'))
       return (
         <Page wide label={t('title')}>
-          <ProjectPage api={api} t={t} project={key} onDialog={setDialog}
+          <ProjectPage api={api} t={t} project={key} onDialog={setDialog} onOpenStore={(store) => open(`store:${store}`)}
             onRemoved={() => { refresh(); setTabs((had) => had.filter((x) => x !== id)); open(`store:${store}`) }} />
         </Page>
       )
@@ -232,7 +249,7 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
   return (
     <div className={css.ide}>
       <Explorer view={explorerView} t={t} now={now} jobs={jobs} dismissed={dismissed} active={active} expanded={expanded} query={query}
-        refreshing={manual || storage.loading} listing={listing} listingAll={listingAll} onQuery={setQuery} onToggle={toggle} onOpen={open}
+        refreshing={manual || storage.loading} listing={listing} listingAll={listingAll} onQuery={setQuery} onToggle={toggle} onOpen={open} onPlace={place}
         onRefresh={() => { setManual(true); refresh() }} onNewStore={() => setDialog({ kind: 'new-store' })} onListAll={listAll}
         onAddBucket={() => setDialog({ kind: 'bucket' })} />
       <div className={css.editor}>

@@ -3,6 +3,7 @@
  * host answers the same shapes).
  */
 import type { BranchInfo, CommitInfo } from '../files/types.ts'
+import type { WireInteger } from './exact-count.ts'
 
 export interface SdkOperation { id: string, name: string, phase: string, started: number | null, uncertain: boolean }
 export interface SdkRefusal { code: string, message: string, detail?: any }
@@ -163,4 +164,59 @@ export interface SessionRow {
   state: string | null
   checkpoints: number | null
   updatedAt: number | null
+}
+
+// ---------- saved-revision storage reads ----------
+
+/** A saved Commit or Layer the storage reads pin. */
+export interface SavedStorageRef { id: string, kind: 'Commit' | 'Layer' | string, branch: string | null, root?: string }
+
+/** GET /api/projects/<key>/storage-history: one page of saved revisions, newest first. */
+export interface StorageHistoryPage { items: CommitInfo[], head: SavedStorageRef | null, next: string | null }
+
+/** GET /api/projects/<key>/stats?branch=&pin=: saved-tree entry counts at one revision. */
+export interface ProjectTreeStats {
+  projectKey: string
+  at: { id: string, kind: string }
+  files: unknown
+  directories: unknown
+  symlinks: unknown
+  others: unknown
+  logical: unknown
+  complete: boolean
+  reason?: string
+}
+
+/** GET /api/projects/<key>/storage-report: the bounded canonical-reuse analysis. */
+export interface StorageReport {
+  scope: 'project' | 'store'
+  project?: string
+  name?: string
+  definition_version: number
+  population_id: string
+  population: 'explicit_saved_snapshots' | string
+  snapshots: { project: string, branch: string, at: SavedStorageRef }[]
+  complete: boolean
+  reason?: string
+  examined_objects: WireInteger | null
+  canonical_bytes_read: WireInteger | null
+  referenced_canonical_bytes: WireInteger | null
+  unique_canonical_bytes: WireInteger | null
+  payload_encoding?: {
+    definition_version: number
+    population: string
+    available: boolean
+    reason?: string
+    referenced_canonical_bytes: WireInteger | null
+    unique_canonical_bytes: WireInteger | null
+    encoded_record_bytes: WireInteger | null
+    dependency_closure_included: boolean
+    shared_framing_included: boolean
+    external_direct_base_count: WireInteger | null
+  }
+  projects: { project: string, referenced_canonical_bytes: WireInteger | null, exclusive_within_population_canonical_bytes: WireInteger | null, shared_within_population_canonical_bytes: WireInteger | null }[]
+  physical_bytes: WireInteger | null
+  reclaimable_bytes: WireInteger | null
+  physical_reason: string
+  selection: { scope: 'project_saved_revisions' | string, limit: number, selected: number, hasEarlier: boolean, head: SavedStorageRef | null }
 }

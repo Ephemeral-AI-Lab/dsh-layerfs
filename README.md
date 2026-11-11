@@ -69,9 +69,14 @@ or moved.
   readable. Studio needs Docker and Lima with a matching Linux bundle; Mixed mode also
   needs the matching native daemon.
 
-- Session Workspaces run on the **native** machine (macOS loopback NFS, Linux FUSE),
-  where the mount is a host path DSH's tools use directly. A project whose SQLite
-  Store lives on another machine must be pulled to this host first.
+- Session Workspaces run on the project's own machine. On **native** (macOS
+  loopback NFS, Linux FUSE) the mount is a host path used as the session's
+  working directory. On any other machine the mount lives inside the Sandbox:
+  the session works from its host scratch folder and drives the Workspace
+  through the LayerFS CLI (`$DSH_LAYERFS_CLI`, e.g.
+  `workspace exec "$DSH_LAYERFS_WS" '<command>' --stream`); bound sessions run
+  the `layerfs` agent preset (bash + delegation, no host filesystem tools), so
+  file tools that would only see the scratch folder are not offered.
 - Restore and branch never rewrite history: a restore forks a new branch from the
   checkpoint and remounts it; the old branch stays.
 

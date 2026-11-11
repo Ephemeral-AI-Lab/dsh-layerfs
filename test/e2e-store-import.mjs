@@ -41,7 +41,9 @@ async function open(dir) {
     if (r.status < 200 || r.status >= 300) throw new Error(`${method} ${path}: ${r.status} ${JSON.stringify(r.body)}`)
     return r.body
   }
-  return { page, op, http }
+  // A session in the currently selected workspace, placed in the project.
+  const openProject = (key) => page.evaluate(async (k) => window.__dshLayerfs.openProjectSession(k), key)
+  return { page, op, http, openProject }
 }
 
 let failed = false
@@ -55,11 +57,13 @@ try {
   await A.http('POST', '/api/stores', { name: store })
   const init = await A.http('POST', '/api/projects', { store, name: 'app', source: src })
   for (let i = 0; i < 120 && (await A.http('GET', `/api/project-inits/${init.id}`)).step !== 'done'; i++) await new Promise((r) => setTimeout(r, 500))
-  await A.op('sessions.create', { project })
+  const placed1 = await A.openProject(project)
   await A.page.waitForTimeout(1500)
   const t1 = await runTurn(A.page, { message: 'bash: echo from-a > a.txt', newSession: false })
   assert.ok(t1.ok, t1.error)
-  const sid = t1.sessionId
+  // The placed blank keeps its id when the first turn materializes it; the
+  // sidebar's selected-row scrape can lag behind navigation.
+  const sid = placed1.sessionId
   await new Promise((r) => setTimeout(r, 2500))
   await A.op('session.mirror', { sessionId: sid })
 
@@ -87,11 +91,11 @@ try {
   await B.page.screenshot({ path: '/tmp/e2e-import-b.png' })
 
   step('A: a second session; B opens it by id alone (the persistence row finds and imports it)')
-  await A.op('sessions.create', { project })
+  const placed2 = await A.openProject(project)
   await A.page.waitForTimeout(1500)
   const tx = await runTurn(A.page, { message: 'bash: echo x > x.txt', newSession: false })
   assert.ok(tx.ok, tx.error)
-  const xid = tx.sessionId
+  const xid = placed2.sessionId
   await new Promise((r) => setTimeout(r, 2500))
   await A.op('session.mirror', { sessionId: xid })
   const xopened = await B.op('sessions.open', { sessionId: xid })

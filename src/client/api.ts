@@ -43,6 +43,10 @@ export interface LayerfsApi {
   openWorkspace(workspaceId: string): Promise<void>
   /** Show a DSH session. */
   openSession(sessionId: string): void
+  /** The workspace the client would open a new session in (current, then recent). */
+  selectedWorkspaceId(): string | undefined
+  /** Open a new session placed in a LayerFS project, in the selected workspace. */
+  openProjectSession(project: string, workspaceId?: string): Promise<{ sessionId: string, workspaceId: string }>
 }
 
 /** Navigation the host may ask for in an operation result (`navigate`). */
@@ -70,8 +74,9 @@ type RemoteResult = { ok: true, value: any } | { ok: false, error: { code: strin
  * holding it outlive remounts.
  * @param remote - the mounted namespace, or undefined while it is (re)mounting.
  * @param nav - DSH navigation (panels, workspaces, sessions).
+ * @param workspace - the `uiWorkspace` service, or undefined while it mounts.
  */
-export function createApi(remote: () => any, nav: Navigator): LayerfsApi & { dispose(): void } {
+export function createApi(remote: () => any, nav: Navigator, workspace: () => any): LayerfsApi & { dispose(): void } {
   const listeners = new Map<string, Set<(e: HostEvent) => void>>()
   let live = false
   let disposed = false
@@ -144,11 +149,31 @@ export function createApi(remote: () => any, nav: Navigator): LayerfsApi & { dis
   }
   void connect()
 
+  // The workspace a new session opens in: the one holding the current session,
+  // else the first listed (ui-workspace's "recent" order follows).
+  const selectedWorkspaceId = (): string | undefined => {
+    const ws = workspace()
+    const snap = ws?.workspaces?.list?.getSnapshot?.()
+    const items = snap?.items ?? []
+    const current = ws?.selection?.getSnapshot?.()?.sessionId
+    return items.find((item: any) => item.sessionIds?.includes?.(current))?.workspaceId ?? items[0]?.workspaceId
+  }
+
   return {
     call, op,
     openPanel: (id) => nav.openPanel(id),
     openWorkspace: (id) => nav.openWorkspace(id),
     openSession: (id) => nav.openSession(id),
+    selectedWorkspaceId,
+    async openProjectSession(project: string, workspaceId?: string) {
+      const ws = workspace()
+      const target = workspaceId ?? selectedWorkspaceId()
+      if (!ws?.connectWorkspace || !target) throw new HostError('no-workspace', 'No DSH workspace is available to hold the session', 0)
+      const sessionId = String(await ws.connectWorkspace(target))
+      await op('sessions.choose', { sessionId, project })
+      nav.openSession(sessionId)
+      return { sessionId, workspaceId: target }
+    },
     connected: () => live,
     onEvent(type, listener) {
       if (!listeners.has(type)) listeners.set(type, new Set())

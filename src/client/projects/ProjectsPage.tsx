@@ -1,8 +1,9 @@
 /**
  * The sidebar's Projects page: every LayerFS project as a card holding its
  * sessions. A session opens with `sessions.open` (imported first when it is
- * only stored in the project); "New session" goes through `sessions.create`,
- * so both reuse the session mechanism. Plain folder workspaces stay in the
+ * only stored in the project); "New session" goes through
+ * `openProjectSession`, which places the session in the selected workspace —
+ * no project workspaces are made. Plain folder workspaces stay in the
  * Workspaces list — this page is the LayerFS half of the sidebar.
  */
 import { useState, type ReactNode } from 'react'
@@ -60,18 +61,18 @@ export function ProjectsPage({ api, t, tp }: { api: LayerfsApi, t: ProjectsT, tp
     try {
       await waitProject(api, job)
       setRunning(null)
-      await api.op('sessions.create', { project: key })
+      await api.openProjectSession(key)
     } catch (error) {
       setRunning({ key, error: messageOf(error) })
     }
   }
 
   const openSession = (entry: ProjectEntry, session: SessionRow) => {
-    void api.op('sessions.open', { sessionId: session.sessionId, project: entry.project.key })
+    void api.op('sessions.open', { sessionId: session.sessionId, project: entry.project.key, workspaceId: api.selectedWorkspaceId() })
   }
   const newSession = (entry: ProjectEntry) => {
     setBusy(entry.project.key)
-    void api.op('sessions.create', { project: entry.project.key }).finally(() => setBusy(null))
+    void api.openProjectSession(entry.project.key).finally(() => setBusy(null))
   }
 
   const when = (at: number) => at ? new Date(at).toLocaleString() : ''
@@ -110,12 +111,12 @@ export function ProjectsPage({ api, t, tp }: { api: LayerfsApi, t: ProjectsT, tp
                     <span className={css.headIcon}><LayerfsGlyph size={16} /></span>
                     <div className={css.headMain}>
                       <span className={css.headTitle}>{entry.project.name ?? nameOf(entry.project.key)}</span>
-                      <span className={css.headSub} data-tone={remote ? 'warn' : undefined}>
+                      <span className={css.headSub}>
                         {remote ? t('onMachine', { machine: remote }) : entry.project.store ?? entry.project.key.split('/')[0]}
                       </span>
                     </div>
                     <span className={css.headActions}>
-                      <Button variant="outline" size="sm" disabled={!!remote || busy !== null} aria-busy={busy === entry.project.key}
+                      <Button variant="outline" size="sm" disabled={busy !== null} aria-busy={busy === entry.project.key}
                         onClick={() => newSession(entry)}>{t('newSession')}</Button>
                     </span>
                   </div>

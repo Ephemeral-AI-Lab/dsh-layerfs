@@ -18,6 +18,7 @@ import type { StorageT } from './locale.ts'
 import { refusalLabels } from './parts.tsx'
 import type { ProjectState, SandboxInfo, SessionRow } from './types.ts'
 import css from './Storage.module.css'
+import { ProjectStorage } from './ProjectStorage.tsx'
 
 type Tab = 'files' | 'history' | 'sandboxes' | 'sessions' | 'stats'
 
@@ -30,9 +31,11 @@ export interface ProjectPageProps {
   onDialog: (dialog: StorageDialog) => void
   /** The project is gone: back to its Store. */
   onRemoved: () => void
+  /** Opens the owning Store's page. */
+  onOpenStore: (store: string) => void
 }
 
-export function ProjectPage({ api, t, project, onDialog, onRemoved }: ProjectPageProps): ReactNode {
+export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore }: ProjectPageProps): ReactNode {
   const name = project.slice(project.indexOf('/') + 1)
   const [tab, setTab] = useState<Tab>('files')
   const [tick, setTick] = useState(0)
@@ -75,7 +78,7 @@ export function ProjectPage({ api, t, project, onDialog, onRemoved }: ProjectPag
         ) : tab === 'sessions' ? (
           <Sessions api={api} t={t} project={project} tick={tick} />
         ) : (
-          <Stats api={api} t={t} project={project} tick={tick} />
+          <Stats api={api} t={t} project={project} tick={tick} onOpenStore={onOpenStore} />
         )}
       </div>
     </div>
@@ -140,7 +143,7 @@ function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, pro
   if (!q.data) return <Loading label={t('loading')} />
   const create = (
     <Button variant="primary" size="sm" icon={busy === 'new' ? <StateDot state="ongoing" size={13} /> : <IconPlusOutlineRegular size={13} />} disabled={busy !== null}
-      onClick={() => act('new', () => api.op('sessions.create', { project }))}>{t('sessionsNew')}</Button>
+      onClick={() => act('new', () => api.openProjectSession(project))}>{t('sessionsNew')}</Button>
   )
   return (
     <Section title={t('sessions')} count={String(q.data.length)} actions={q.data.length ? create : undefined}>
@@ -173,7 +176,7 @@ function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, pro
   )
 }
 
-function Stats({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, project: string, tick: number }): ReactNode {
+function Stats({ api, t, project, tick, onOpenStore }: { api: LayerfsApi, t: StorageT, project: string, tick: number, onOpenStore: (store: string) => void }): ReactNode {
   const q = useQuery(() => api.call<ProjectState>('GET', `/api/projects/${enc(project)}`), [api, project, tick])
   if (q.error && !q.data) return <LoadError title={t('projectFailed')} error={q.error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={q.reload} />
   if (!q.data) return <Loading label={t('loading')} />
@@ -194,19 +197,18 @@ function Stats({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, projec
         </Card>
       </Section>
       <Section title={t('statsStorage')}>
-        <Card>
-          {s.storage ? (
-            <>
-              <Facts>
-                <Fact label={t('statsLogical')}>{bytes(s.storage.logical)}</Fact>
-                <Fact label={t('statsCanonical')}>{bytes(s.storage.canonical)}</Fact>
-                <Fact label={t('statsStored')}>{bytes(s.storage.stored)}</Fact>
-                <Fact label={t('statsMetadata')}>{bytes(s.storage.metadata)}</Fact>
-              </Facts>
-              {s.storage.partial ? <p className={css.cardNote}>{t('statsPartial')}</p> : null}
-            </>
-          ) : <p className={css.cardNote}>{t('statsNoStorage')}</p>}
-        </Card>
+        {s.storage ? (
+          <Card>
+            <Facts>
+              <Fact label={t('statsLogical')}>{bytes(s.storage.logical)}</Fact>
+              <Fact label={t('statsCanonical')}>{bytes(s.storage.canonical)}</Fact>
+              <Fact label={t('statsStored')}>{bytes(s.storage.stored)}</Fact>
+              <Fact label={t('statsMetadata')}>{bytes(s.storage.metadata)}</Fact>
+            </Facts>
+            {s.storage.partial ? <p className={css.cardNote}>{t('statsPartial')}</p> : null}
+          </Card>
+        ) : <Card><p className={css.cardNote}>{t('statsNoStorage')}</p></Card>}
+        <ProjectStorage api={api} t={t} state={s} onOpenStore={onOpenStore} />
       </Section>
     </>
   )

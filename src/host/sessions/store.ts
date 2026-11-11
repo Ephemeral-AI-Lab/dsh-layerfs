@@ -181,20 +181,24 @@ export class SessionStore {
 
   /**
    * Rebuild a stored session in DSH's local session store. Its header's `cwd`
-   * becomes this host's project workspace, so DSH lists it under the project.
+   * becomes this host's project anchor, so `classify` re-binds it to the
+   * project. `workspaceId` lists it under a DSH workspace (the caller's
+   * selected one, else the anchor's recorded workspace from before project
+   * workspaces went away).
    */
-  async import(project: string, sessionId: string): Promise<{ sessionId: string, imported: boolean }> {
-    return await this.sessions.lane(`import:${sessionId}`, () => this.importNow(project, sessionId))
+  async import(project: string, sessionId: string, workspaceId?: string): Promise<{ sessionId: string, imported: boolean }> {
+    return await this.sessions.lane(`import:${sessionId}`, () => this.importNow(project, sessionId, workspaceId))
   }
 
-  private async importNow(project: string, sessionId: string): Promise<{ sessionId: string, imported: boolean }> {
+  private async importNow(project: string, sessionId: string, workspaceId?: string): Promise<{ sessionId: string, imported: boolean }> {
     const persistence = localPersistence(this.ctx)
     if (!persistence) throw new CliError('Unavailable', 'DSH session persistence is not available')
     if (await persistence.stat(sessionId).catch(() => undefined)) return { sessionId, imported: false }
     const branch = storeBranchOf(sessionId)
     const manifest = await this.readManifest(project, branch)
     if (manifest.sessionId !== sessionId) throw new CliError('InvalidInput', 'The stored manifest names another session')
-    const { anchor, workspaceId } = await this.sessions.ensureProjectWorkspace(project)
+    const anchor = this.sessions.ensureAnchor(project)
+    const list = workspaceId ?? this.sessions.recordedWorkspace(project)
     const events: unknown[] = []
     for (const segment of manifest.segments ?? []) {
       const text = await this.readText(project, branch, `${DIR}/${segment.file}`)
@@ -222,7 +226,7 @@ export class SessionStore {
       }
       s.mirror[sessionId] = { project, branch, count: manifest.count ?? events.length, segments: manifest.segments ?? [], updatedAt: Date.now() }
     })
-    await this.sessions.attach(workspaceId, sessionId)
+    await this.sessions.attach(list, sessionId)
     return { sessionId, imported: true }
   }
 

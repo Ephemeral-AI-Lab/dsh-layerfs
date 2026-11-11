@@ -10,6 +10,7 @@ import clsx from 'clsx'
 import { Button, RiskConfirmation, StateDot, Tag, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { CommitDiff } from '../files/index.ts'
+import { remoteMachine } from '../picker/NewProjectForm.tsx'
 import css from './session.module.css'
 
 type Translate = (key: string, params?: Record<string, string | number>) => string
@@ -33,6 +34,8 @@ interface Binding {
   project?: string
   branch?: string
   sandbox?: string
+  ws?: string
+  machine?: string
   mount?: string
   scratch: string
   anchor: string
@@ -111,8 +114,8 @@ function Path({ path }: { path: string }): ReactNode {
   return <code className={css.path} title={path}>{path}</code>
 }
 
-function StartSession({ api, t }: { api: LayerfsApi, t: Translate }): ReactNode {
-  const [projects, setProjects] = useState<{ key: string, name?: string, store?: string, scratch?: boolean }[] | null>(null)
+function StartSession({ sessionId, api, t }: { sessionId: string, api: LayerfsApi, t: Translate }): ReactNode {
+  const [projects, setProjects] = useState<{ key: string, name?: string, store?: string, machine?: string | null, kind?: string | null, scratch?: boolean }[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   useEffect(() => {
@@ -141,9 +144,9 @@ function StartSession({ api, t }: { api: LayerfsApi, t: Translate }): ReactNode 
           <ul className={css.projectList}>
             {projects.filter((p) => !p.scratch).map((p) => (
               <li key={p.key}>
-                <button type="button" className={css.projectRow} disabled={busy} onClick={() => run(() => api.op('sessions.create', { project: p.key }))}>
+                <button type="button" className={css.projectRow} disabled={busy} onClick={() => run(() => api.op('sessions.choose', { sessionId, project: p.key }))}>
                   <span className={css.projectName}>{p.name ?? p.key.split('/')[1]}</span>
-                  <span className={css.projectStore}>{p.store ?? p.key.split('/')[0]}</span>
+                  <span className={css.projectStore}>{remoteMachine(p) ?? p.store ?? p.key.split('/')[0]}</span>
                 </button>
               </li>
             ))}
@@ -180,7 +183,7 @@ export function SessionPanel({ sessionId, api, t }: SessionPanelProps): ReactNod
     )
   }
   const b = view!.binding
-  if (!b) return <div className={css.pad}><StartSession api={api} t={t} /></div>
+  if (!b) return <div className={css.pad}><StartSession sessionId={sessionId} api={api} t={t} /></div>
 
   const dot: StateDotState = b.state === 'bound' ? 'done' : b.state === 'failed' ? 'error' : 'idle'
   const pending = Number(view!.status?.overlay?.entries ?? 0)
@@ -201,7 +204,8 @@ export function SessionPanel({ sessionId, api, t }: SessionPanelProps): ReactNod
 
       <div className={css.card}>
         <Field label={t('branch')}><code className={css.path}>{b.branch}</code></Field>
-        {b.mount ? <Field label={t('workingDirectory')}><Path path={b.mount} /></Field> : null}
+        {b.mount ? <Field label={t('workingDirectory')}><Path path={b.mount} /></Field>
+          : b.ws ? <Field label={t('workspace')} hint={t('workspaceRemote', { machine: b.machine ?? '?' })}><code className={css.path}>{b.ws}</code></Field> : null}
         <Field label={t('scratch')} hint={t('scratchHint')}><Path path={b.scratch} /></Field>
         <div className={css.statusRow}>
           <span className={clsx(css.muted, pending > 0 && css.warn)}>{b.state === 'bound' ? (pending > 0 ? t('pending', { n: pending }) : t('pendingNone')) : ''}</span>

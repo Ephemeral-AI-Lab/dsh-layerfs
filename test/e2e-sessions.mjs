@@ -3,11 +3,12 @@
 // scripted fake model (dev/fake-llm). Needs a dev server started with
 // DSH_LAYERFS_DEV_OVERLAY=dev/fake-llm.overlay.yml.
 //   node test/e2e-sessions.mjs [--keep]
-// Checks: project workspace + session binding (branch, sandbox, mount, scratch),
-// per-turn checkpoints, restore files to a checkpoint, branch session at a
-// checkpoint (conversation fork + files fork), the LayerFS session store and
-// persistence row, plain folder sessions (Scratch workspace and DSH's default
-// workspace run as stock DSH), the Projects page and the New Session project control.
+// Checks: a session placed in a project binds in its own workspace (branch,
+// sandbox, mount, scratch), per-turn checkpoints, restore files to a checkpoint,
+// branch session at a checkpoint (conversation fork + files fork), the LayerFS
+// session store and persistence row, plain folder sessions (Scratch workspace
+// and DSH's default workspace run as stock DSH), the Projects page and the
+// New Session project control.
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -22,6 +23,8 @@ const op = (name, args = {}) => page.evaluate(async ([n, a]) => {
   try { return { ok: true, value: await window.__dshLayerfs.op(n, a) } } catch (e) { return { ok: false, code: e.code, message: e.message } }
 }, [name, args])
 const must = async (name, args) => { const r = await op(name, args); if (!r.ok) throw new Error(`${name}: ${r.code} ${r.message}`); return r.value }
+// A session in the currently selected workspace, placed in the project.
+const openProject = (key) => page.evaluate(async (k) => window.__dshLayerfs.openProjectSession(k), key)
 const http = async (method, path, body) => {
   const r = await must('http', { method, path, ...(body === undefined ? {} : { body }) })
   if (r.status < 200 || r.status >= 300) throw new Error(`${method} ${path}: ${r.status} ${JSON.stringify(r.body)}`)
@@ -45,14 +48,15 @@ try {
   const init = await http('POST', '/api/projects', { store, name, source: src })
   await until('project init', async () => (await http('GET', `/api/project-inits/${init.id}`)).step === 'done', 60000)
 
-  step('new session in the project workspace')
-  const prepared = await must('sessions.create', { project })
-  assert.ok(prepared.workspaceId)
+  step('a session in the selected workspace, placed in the project')
+  const placed = await openProject(project)
+  assert.ok(placed.sessionId && placed.workspaceId)
   await page.waitForTimeout(1500)
-  const t1 = await runTurn(page, { workspace: name, message: 'bash: echo one > one.txt\nbash: echo note > "$HOME/scratch-note.txt" || true', newSession: false })
+  const t1 = await runTurn(page, { message: 'bash: echo one > one.txt\nbash: echo note > "$HOME/scratch-note.txt" || true', newSession: false })
   assert.ok(t1.ok, `turn 1: ${t1.error}`)
-  const sid = t1.sessionId
-  assert.ok(sid, 'session id')
+  // The placed blank keeps its id when the first turn materializes it.
+  const sid = placed.sessionId
+  assert.equal(t1.sessionId, sid, 'the turn ran in the placed session')
   let state = await until('bound + 1 checkpoint', async () => {
     const s = await must('session.state', { sessionId: sid })
     return s.binding?.state === 'bound' && s.checkpoints.some((c) => c.kind === 'turn') ? s : null
@@ -146,10 +150,6 @@ try {
   assert.ok(tl.ok, `second folder turn: ${tl.error}`)
   const lstate = await must('session.state', { sessionId: td.sessionId })
   assert.equal(lstate.binding, null)
-
-  step('UI: the LayerFS Projects workspace group holds the project workspaces')
-  await until('the projects group row', async () => (await page.locator('button[aria-label="New session in LayerFS Projects"]').count()) > 0)
-  await until('the project workspace row', async () => (await page.locator(`button[aria-label="New session in LayerFS · ${name} · ${store}"]`).count()) > 0)
 
   step('UI: the Projects page lists the project and opens a session in it')
   await openPanel(page, 'Projects')

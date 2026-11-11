@@ -2,11 +2,12 @@
  * Storage area of dsh-layerfs: the sidebar's Storage entry and the page it
  * opens in the main column (Stores, their projects, backups and moves).
  */
-import { useEffect, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import type { LayerfsApi } from '../api.ts'
 import { NS as DOCTOR_NS, type DoctorT } from '../doctor/locale.ts'
 import { ChildGlyph } from '../overview/child.tsx'
 import type { SidebarGroup } from '../overview/group.ts'
+import { createSidebarRail } from '../overview/rail.tsx'
 import { locales, NS, type StorageT } from './locale.ts'
 import { StoragePage } from './StoragePage.tsx'
 
@@ -48,33 +49,43 @@ export function registerStorage(ctx: any, api: LayerfsApi, group: SidebarGroup):
     locale: NS,
     inject: () => ({ api, doctorT }),
   }, StorageMain)), 'dsh-layerfs: storage page')
-  // Storage opens from places outside the folded sidebar (the LayerFS card,
-  // Machines links, a session's panel): unfold the group so its row shows and,
-  // when the sidebar itself sits collapsed as the icon rail, expand it like
-  // the shell's own expandSidebar (`if (collapsed) toggleSidebar()`). The
-  // shell's `wide` owner share arrives through a sidebar.footer.action probe.
-  let wide = true
+  // Opening Storage folds the sidebar to its icon rail so the page keeps the
+  // column: unfold the group so the row's icon shows in the rail, and collapse
+  // like the shell's own toggle. The shell's `wide` owner share arrives
+  // through a sidebar.footer.action probe; panelInfo fires on every layout
+  // change including the collapse itself, so act only on the transition in.
+  const rail = createSidebarRail(ctx.layout)
   ctx.effect(() => ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
     id: 'layerfs-sidebar-wide',
-  }, function RailProbe({ wide: w }: { wide?: boolean | undefined }): ReactNode {
-    useEffect(() => { wide = w !== false }, [w])
-    return null
-  })), 'dsh-layerfs: sidebar rail probe')
+  }, rail.Probe)), 'dsh-layerfs: sidebar rail probe')
   ctx.effect(() => {
-    // Fires on every layout change, including the toggle below: act only on
-    // the transition into Storage so the expand cannot re-enter itself.
     let was = false
     const sync = (): void => {
       const now = ctx.layout?.panelInfo?.getSnapshot?.().activePanelId === PANEL_ID
       if (was || !now) { was = now; return }
       was = true
       group.unfold()
-      if (!wide) ctx.layout?.toggleSidebar?.()
+      rail.collapse()
     }
     sync()
     return ctx.layout?.panelInfo?.subscribe?.(sync) ?? (() => {})
-  }, 'dsh-layerfs: storage unfold')
+  }, 'dsh-layerfs: storage sidebar fold')
+  // The row's button is the shell's — a re-click on the active panel changes
+  // nothing panelInfo can see. The only per-row fact we own is the label the
+  // registration resolves onto the button, so a document listener watches for
+  // clicks on the nav button carrying it.
+  ctx.effect(() => {
+    const onClick = (event: MouseEvent): void => {
+      const button = (event.target as Element | null)?.closest?.('button[aria-label]')
+      if (button == null) return
+      if (button.getAttribute('aria-label') !== t('panel')) return
+      if (button.closest('nav') === null) return
+      rail.collapse()
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, 'dsh-layerfs: storage row fold')
   ctx.effect(() => group.whileExpanded(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,

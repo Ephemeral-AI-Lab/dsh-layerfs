@@ -15,11 +15,11 @@
  *   agent/disposed       mirror now; close the Sandbox after `idleMinutes`
  *
  * Operations (the `layerfs` Remote):
- *   sessions.prepare {project}          ensure the project's DSH workspace -> {workspaceId, navigate}
- *   sessions.create {project}           same, and ask the client to open a new session there
+ *   sessions.choose {sessionId, project|null}  place the session in a LayerFS project (or clear it);
+ *                                              it stays in whichever workspace it was selected in
  *   sessions.prepareScratch             the Scratch workspace (a plain folder workspace)
  *   sessions.list {project}             local bindings + sessions stored in the project (imports missing ones)
- *   sessions.open {sessionId, project?} open a session, importing it from the project if missing locally
+ *   sessions.open {sessionId, project?, workspaceId?} open a session, importing it from the project if missing locally
  *   sessions.close {sessionId}          save and close its Sandbox
  *   sessions.forget {sessionId}         close, delete its scratch folder (branch stays)
  *   session.state {sessionId}           binding, checkpoints, Workspace status, store progress
@@ -28,9 +28,10 @@
  *   checkpoints.diff {sessionId, from, to}
  *   checkpoints.restore {sessionId, commit}
  *   checkpoints.branch {sessionId, commit, turn}
- *   projects.workspaces                 the project workspaces this DSH knows
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
@@ -44,6 +45,33 @@ const need = (args: any, key: string): string => {
   return v
 }
 
+const q = (s: string) => `'${s.replaceAll("'", "'\\''")}'`
+
+/**
+ * `<root>/bin/layerfs`: the `layerfs` command agents get in bash. A thin wrapper
+ * that exports this plugin's LayerFS home (and bundle) and execs the pinned
+ * CLI — model shell calls get a scrubbed environment, so the home cannot come
+ * from the host process's own env. Rewritten when the pin changes.
+ */
+function agentCli(ctx: Context): string | null {
+  const cli = ctx.layerfs.cli
+  if (!cli) return null
+  const file = join(ctx.layerfs.root, 'bin', 'layerfs')
+  const body = [
+    '#!/bin/sh',
+    `export LAYERFS_HOME=${q(ctx.layerfs.home)}`,
+    ...(ctx.layerfs.bundle ? [`export LAYERFS_BUNDLE=${q(ctx.layerfs.bundle)}`] : []),
+    `exec ${q(cli)} "$@"`,
+    '',
+  ].join('\n')
+  if (!existsSync(file) || readFileSync(file, 'utf8') !== body) {
+    mkdirSync(join(ctx.layerfs.root, 'bin'), { recursive: true })
+    writeFileSync(file, body)
+    chmodSync(file, 0o755)
+  }
+  return file
+}
+
 export function apply(ctx: Context): void {
   ctx.plugin(LayerfsSessions)
   ctx.inject(['layerfsSessions', 'layerfs', 'layerfsRemote'], (ctx) => {
@@ -51,12 +79,11 @@ export function apply(ctx: Context): void {
     const store = new SessionStore(ctx, sessions)
     sessions.store = store
     ctx.effect(() => () => { store.dispose(); if (sessions.store === store) sessions.store = undefined }, 'dsh-layerfs: session store')
-    // Sessions stored in known projects by another DSH appear here too, and
-    // the LayerFS Projects workspace groups the project workspaces.
+    // Sessions stored in known projects by another DSH appear here too.
     ctx.effect(() => {
-      const timer = setTimeout(() => { void Promise.all([store.syncAll(), sessions.ensureProjectsGroup(), sessions.ensureScratchWorkspace()]) }, 1500)
+      const timer = setTimeout(() => { void store.syncAll() }, 1500)
       return () => clearTimeout(timer)
-    }, 'dsh-layerfs: session store sync + projects group')
+    }, 'dsh-layerfs: session store sync')
     const idle = new Map<string, NodeJS.Timeout>()
     ctx.effect(() => () => { for (const t of idle.values()) clearTimeout(t); idle.clear() }, 'dsh-layerfs: idle timers')
 
@@ -100,6 +127,37 @@ export function apply(ctx: Context): void {
       }, minutes * 60_000))
     })
 
+    // The LayerFS CLI and the session's Workspace coordinates reach bash
+    // through the managed DSH_* namespace (remote-bound sessions drive their
+    // project files through `$DSH_LAYERFS_CLI`).
+    ctx.inject(['shellEnv' as never], (scope) => {
+      const dispose = (scope as any).shellEnv.register({
+        name: 'layerfs',
+        variables: {
+          DSH_LAYERFS_CLI: { description: 'The pinned LayerFS CLI for this session\'s project (already bound to this app\'s LayerFS home)' },
+          DSH_LAYERFS_PROJECT: { description: 'The LayerFS project this session works in' },
+          DSH_LAYERFS_BRANCH: { description: 'The session\'s private LayerFS branch' },
+          DSH_LAYERFS_WS: { description: 'The session\'s mounted LayerFS Workspace handle (`<sandbox>:<name>`)' },
+        },
+        resolve: (execution: any) => {
+          const agent = execution?.agent
+          if (!agent) return {}
+          let b = sessions.binding(String(agent.id))
+          if (b?.kind === 'shared' && b.parent) b = sessions.binding(b.parent) ?? b
+          if (!b || b.state !== 'bound') return {}
+          const cli = agentCli(ctx)
+          if (!cli) return {}
+          return {
+            DSH_LAYERFS_CLI: cli,
+            ...(b.project ? { DSH_LAYERFS_PROJECT: b.project } : {}),
+            ...(b.branch ? { DSH_LAYERFS_BRANCH: b.branch } : {}),
+            ...(b.ws ? { DSH_LAYERFS_WS: b.ws } : {}),
+          }
+        },
+      })
+      ctx.effect(() => () => dispose(), 'dsh-layerfs: shell env')
+    })
+
     // What the agent is told about its LayerFS Workspace and scratch folder.
     ctx.inject(['systemPrompt'], (scope) => {
       const sp = scope.systemPrompt as any
@@ -114,18 +172,27 @@ export function apply(ctx: Context): void {
           if (b?.kind === 'shared' && b.parent) b = sessions.binding(b.parent) ?? b
           if (!b) return ''
           const scratch = sessions.isScratch(b.project)
-          if (b.state !== 'bound' || !b.mount) {
-            return `## LayerFS project\nThis session belongs to LayerFS project ${JSON.stringify(b.project)}, but its Workspace is not mounted${b.error ? ` (${b.error})` : ''}.`
+          if (b.state !== 'bound' || (!b.mount && !b.ws)) {
+            return `## LayerFS project\nThis session belongs to LayerFS project ${JSON.stringify(b.project)}, but its Workspace is not ready${b.error ? ` (${b.error})` : ''}.`
           }
           return [
             '## LayerFS project Workspace',
-            scratch
-              ? `- Files: this session has no project of its own; it works in the Scratch project ${JSON.stringify(b.project)}, branch ${JSON.stringify(b.branch)}, mounted at ${JSON.stringify(b.mount)} (the working directory). It starts empty.`
-              : `- Project files: LayerFS project ${JSON.stringify(b.project)}, branch ${JSON.stringify(b.branch)}, mounted at ${JSON.stringify(b.mount)} (the working directory). Work on the project there.`,
+            b.mount
+              ? scratch
+                ? `- Files: this session has no project of its own; it works in the Scratch project ${JSON.stringify(b.project)}, branch ${JSON.stringify(b.branch)}, mounted at ${JSON.stringify(b.mount)} (the working directory). It starts empty.`
+                : `- Project files: LayerFS project ${JSON.stringify(b.project)}, branch ${JSON.stringify(b.branch)}, mounted at ${JSON.stringify(b.mount)} (the working directory). Work on the project there.`
+              : [
+                `- Project files: LayerFS project ${JSON.stringify(b.project)}, branch ${JSON.stringify(b.branch)}. Its Workspace is mounted in a Sandbox on machine ${JSON.stringify(b.machine ?? '?')}: no path on this host reaches it. Drive it through the LayerFS CLI \`$DSH_LAYERFS_CLI\`.`,
+                '- Commands: `"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" \'<command>\' --stream` runs bash inside the Workspace root with live output (quote the command once). Read, search, edit and test files that way — only through `workspace exec`, never `file write`: those write the branch directly and bypass the mounted Workspace.',
+                '- Saved history without a command: `"$DSH_LAYERFS_CLI" file read "$DSH_LAYERFS_PROJECT" "$DSH_LAYERFS_BRANCH" <path>`, `"$DSH_LAYERFS_CLI" branch commits "$DSH_LAYERFS_PROJECT" "$DSH_LAYERFS_BRANCH"`.',
+                '- Never call `machine.*`, `store.*` or `backup.*`: machines, Stores and backups are the user\'s setup, not part of the task.',
+              ].join('\n'),
             ctx.layerfs.checkpoints === 'turn'
               ? '- Checkpoints: at the end of every turn that changed files, the whole Workspace tree is committed to the branch as a checkpoint (including untracked files, build outputs and caches; .gitignore does not apply). The user can restore or branch from any checkpoint.'
               : '- Checkpoints are off: changes stay in the Workspace until saved.',
-            `- Scratch folder: ${JSON.stringify(b.scratch)} is private to this session and never saved into the project. Put downloads, temporary files, logs and notes there instead of the Workspace.`,
+            b.mount
+              ? `- Scratch folder: ${JSON.stringify(b.scratch)} is private to this session and never saved into the project. Put downloads, temporary files, logs and notes there instead of the Workspace.`
+              : `- Scratch folder: ${JSON.stringify(b.scratch)} (the working directory) is private to this session on this host and never saved into the project. It is not inside the Workspace.`,
             '- The branch is never published to main automatically. Do not unmount the Workspace, close its Sandbox, or write `dsh.session.*` branches.',
           ].join('\n')
         },
@@ -133,17 +200,12 @@ export function apply(ctx: Context): void {
     })
 
     ctx.layerfsRemote.operate(ctx, {
-      'sessions.prepare': async (args: any) => {
-        const project = need(args, 'project')
-        const out = await sessions.ensureProjectWorkspace(project)
-        void store.sync(project).catch(() => {})
-        return { ...out }
-      },
-      'sessions.create': async (args: any) => {
-        const project = need(args, 'project')
-        const out = await sessions.ensureProjectWorkspace(project)
-        void store.sync(project).catch(() => {})
-        return { ...out, navigate: { workspaceId: out.workspaceId } }
+      'sessions.choose': async (args: any) => {
+        const sessionId = need(args, 'sessionId')
+        const project = typeof args?.project === 'string' && args.project ? args.project : null
+        await sessions.choose(sessionId, project)
+        if (project) void store.sync(project).catch(() => {})
+        return { sessionId, project }
       },
       'sessions.prepareScratch': async (args: any) => {
         const out = await sessions.ensureScratchWorkspace()
@@ -175,10 +237,14 @@ export function apply(ctx: Context): void {
       },
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')
-        if (await localPersistence(ctx)?.stat(sessionId).catch(() => undefined)) return { sessionId, imported: false, navigate: { sessionId } }
+        const workspaceId = typeof args?.workspaceId === 'string' && args.workspaceId ? args.workspaceId : undefined
+        if (await localPersistence(ctx)?.stat(sessionId).catch(() => undefined)) {
+          await sessions.attach(workspaceId, sessionId)
+          return { sessionId, imported: false, navigate: { sessionId } }
+        }
         // A project hint imports from that project; otherwise DSH's resume reaches the
         // session persistence row, which finds and imports the session itself.
-        const out = args?.project ? await store.import(String(args.project), sessionId) : { sessionId, imported: true }
+        const out = args?.project ? await store.import(String(args.project), sessionId, workspaceId) : { sessionId, imported: true }
         // Resuming the session announces it to every client (api-session/added) and binds its Workspace.
         const controller = ctx.get('sessionController' as never) as any
         if (!controller?.resolveAgent) throw new CliError('Unavailable', 'DSH\'s session controller is not available')
@@ -187,6 +253,7 @@ export function apply(ctx: Context): void {
           if (resolved.error?.code === 'session/not-found') throw new CliError('NotFound', 'This session is not stored locally or in any LayerFS project this DSH knows')
           throw resolved.error
         }
+        await sessions.attach(workspaceId, sessionId)
         return { ...out, navigate: { sessionId } }
       },
       'sessions.close': async (args: any) => { await sessions.close(need(args, 'sessionId'), 'user'); return { ok: true } },
@@ -219,7 +286,6 @@ export function apply(ctx: Context): void {
         const out = await sessions.branchAt(need(args, 'sessionId'), typeof args?.commit === 'string' ? args.commit : null, Number(args?.turn ?? 0))
         return { ...out, navigate: { sessionId: out.sessionId } }
       },
-      'projects.workspaces': async () => ({ projects: Object.values(sessions.state.read().projects) }),
       'projects.branches': async (args: any) => ({ items: await pages((p) => ctx.layerfs.lfs.branch.list(need(args, 'project'), p)) }),
     })
   })

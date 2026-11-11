@@ -37,7 +37,7 @@ export async function listProjects(api: LayerfsApi): Promise<{ rows: ProjectRow[
   return { rows: Array.isArray(list) ? list : [], scratchKey: status?.scratchProject ?? null }
 }
 
-/** A project on another machine cannot hold session Workspaces here: its machine, else null. */
+/** The machine a project's SQLite Store lives on when it is not this host (its Sandboxes run there), else null. */
 export const remoteMachine = (p: ProjectRow): string | null => (p.kind !== 'postgresql' && p.machine && p.machine !== 'native' ? p.machine : null)
 
 /** Poll an Init job until it ends; throws its refusal. */

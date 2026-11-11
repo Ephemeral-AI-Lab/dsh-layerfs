@@ -24,6 +24,17 @@ export function orderStores(stores: readonly StoreRow[]): StoreRow[] {
 /** Which group of the board a Store belongs to. */
 export const groupOf = (s: StoreRow): 'home' | 'machines' | 'postgresql' => s.kind === 'postgresql' ? 'postgresql' : inHome(s) ? 'home' : 'machines'
 
+/** The machines a sqlite Store can live on (native is the home), by name. */
+export function machinePlaces(view: StorageView): StorageView['machines'] {
+  return view.machines
+    .filter((m) => m.name !== 'native' && m.supports?.sqlite !== false)
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** A Store the explorer lets you drag to another place (the Store menu's move gating). */
+export const canMove = (s: StoreRow): boolean =>
+  s.kind === 'sqlite' && !s.job && (inHome(s) ? s.state === 'idle' : s.state !== 'busy')
+
 const listedOf = (s: StoreRow, bucket: string, file: string, buckets: readonly BucketRow[]) =>
   buckets.find((b) => b.name === bucket)?.files?.find((f) => f.file === file && f.store === s.name)
 
