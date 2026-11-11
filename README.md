@@ -1,10 +1,10 @@
 # dsh-layerfs
 
 LayerFS for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): the
-Machines and Storage pages of LayerFS Connect and one session mode, as in Connect:
-every session works in a LayerFS project + its own scratch folder, with a LayerFS
-session store and per-turn trajectory checkpoints. One DSH plugin bundle; DSH itself
-is not modified.
+Machines and Storage pages of LayerFS Connect and its project session mode — a
+session placed in a LayerFS project works in that project + its own scratch
+folder, with a LayerFS session store and per-turn trajectory checkpoints; every
+other session is plain DSH. One DSH plugin bundle; DSH itself is not modified.
 
 ## What it adds
 
@@ -13,9 +13,9 @@ is not modified.
 | Sidebar → **Machines** | LayerFS machines (native, docker, VMs): state, Sandboxes, Stores, spec, start/stop, add machine; the pinned LayerFS runtime (CLI, daemon, home) |
 | Sidebar → **Storage** | Stores (SQLite, PostgreSQL), projects (import a folder), files, history and commit diffs, branches, Sandboxes, backups to buckets and restore, Store push/pull/move, home checks; a project's **Sessions** |
 | Sidebar → **Presets** | LayerFS Connect's Studio project library (4 machines, 4 stores, 8 projects with dense branch/merge/publish histories) built into this LayerFS home: the machine → store → project plan, each project's paged CLI script, Filesystem or Mixed (workspace exec/commit) mode, **Build projects** and **Reset**, with real stage/count progress and a job log |
-| Workspaces | Each LayerFS project is a DSH workspace titled `LayerFS · <project> · <store>` (its scratch-folder workspace), nested under the **LayerFS Projects** group workspace in the sidebar's tree view. A project session's row carries a small LayerFS mark after its time. **Add workspace** picks a host folder as usual |
-| New Session row | A project chip on the conversation hero shows which project the new session will work in — or **No project** for a plain workspace session — and switches it: another project, **New empty project** or **Import project…** (a host folder), following the import's progress |
-| Project sessions | Its own branch `dsh.<session>`, Sandbox and Workspace mount (the working directory) and its own scratch folder that is never saved into the project. A session anywhere else (a folder workspace, DSH's default workspace, the **Scratch** workspace) runs as stock DSH: no binding, no checkpoints, nothing stored |
+| Sidebar → **Projects** | Every LayerFS project as a card holding its sessions; **New session** per project, **New empty project** / **Import project…** in the header, sessions stored in a project open by id |
+| New Session row | A LayerFS project chip on the conversation hero: **No project** for a plain workspace session, or the project the session works in — shown in place of DSH's folder chip, since the session's files live in the project. The menu places the session: another project, **No project**, **New empty project** or **Import project…** (a host folder), following the import's progress |
+| Project sessions | A session placed in a project keeps the workspace it was opened in — no project workspaces are created. It gets its own branch `dsh.<session>`, Sandbox and Workspace mount (the working directory) and its own scratch folder under `<root>/projects/<store>/<name>/`, never saved into the project. A session without a placement (a folder workspace, DSH's default workspace, the **Scratch** workspace) runs as stock DSH: no binding, no checkpoints, nothing stored |
 | Turn end | A checkpoint: the Workspace is committed to the branch when the turn changed files |
 | Conversation header / right sidebar → **LayerFS** | The session's branch, mount, scratch folder, unsaved changes, checkpoints with their diffs, **Restore files**, **Branch here**, **Checkpoint now** |
 | Session store | Each session's log is mirrored into its project (`dsh.session.<session>` branch, `/.dsh/session/`), so it travels with the project. Another DSH on the same LayerFS home imports a project's sessions when it opens the project, and DSH's session persistence imports a missing session when it is opened |
@@ -53,8 +53,8 @@ The bundle patch also changes three DSH rows:
 | `sandbox-policy` | Replaced by a subclass that makes a bound session's Workspace mount its workspace-write root; unbound sessions fall back to the stock policy |
 
 A bound session's step only runs in its mounted Workspace: when the Workspace
-cannot be bound, the turn fails with LayerFS's reason. A session outside a
-project workspace is simply a plain DSH session — nothing is bound, refused
+cannot be bound, the turn fails with LayerFS's reason. A session without a
+project placement is simply a plain DSH session — nothing is bound, refused
 or moved.
 
 ## Limits

@@ -1,10 +1,11 @@
 # dsh-layerfs — agent notes
 
-LayerFS Connect's Machines, Storage and its project session mode (a session in a
-LayerFS project workspace works in that project + its own scratch folder;
-sessions anywhere else are plain DSH), the LayerFS session store and trajectory
-checkpoints, as a DeepSeek Harness (DSH) cordis plugin bundle. Design docs:
-`../layerfs-connect/docs/dsh-layerfs/`.
+LayerFS Connect's Machines, Storage and its project session mode (a session
+placed in a LayerFS project — `sessions.choose` / `state.pending` — works in
+that project + its own scratch folder, staying in whichever workspace it was
+opened in; sessions anywhere else are plain DSH), the LayerFS session store
+and trajectory checkpoints, as a DeepSeek Harness (DSH) cordis plugin bundle.
+Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
 
 ## Hard rules
 
@@ -22,8 +23,9 @@ checkpoints, as a DeepSeek Harness (DSH) cordis plugin bundle. Design docs:
   - `service.ts` `ctx.layerfs` (pinned CLI/daemon, LAYERFS_HOME, events, JSON state)
   - `layerfs/cli.ts` pinned-CLI SDK (`ctx.layerfs.lfs.<family>.<call>(...)`), port of Connect `host/cli`
   - `routes/` Connect's host HTTP API served as op `http` `{method,path,body}` -> `{status,body}`
-  - `sessions/` session binding (`placeOf`: project, subagent's shared mount, or a plain
-    folder session), scratch folders, the LayerFS Projects group workspace, checkpoints,
+  - `sessions/` session binding (`placeOf`: existing binding, pending placement,
+    subagent's shared mount, or a plain folder session), project anchors under
+    `<root>/projects` (scratch-folder parents, not DSH workspaces), checkpoints,
     LayerFS session store (mirror, discover, import, sync)
   - `session-persistence.ts` the `layerfs-session-persistence` row (`lib/session-persistence.js`):
     DSH's JSONL backend in an isolated `sessionPersistence` slot, plus imports on a local miss
