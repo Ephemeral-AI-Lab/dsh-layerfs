@@ -88,7 +88,7 @@ export function sandboxOf(b: any) {
 }
 
 /** One machine.status() answer (the reason is `down_reason`). */
-export const statusOf = (s: any) => ({ name: String(s.name), state: text(s.state), freeDisk: num(s.free_disk), toolVersion: text(s.tool_version), down: text(s.down_reason ?? s.why_down), op: opOf(s.op) })
+export const statusOf = (s: any) => ({ name: String(s.name), state: text(s.state), freeDisk: num(s.free_disk), toolVersion: text(s.tool_version), down: /^the machine is stopped\.?$/i.test(String(s.down_reason ?? s.why_down ?? '')) ? null : text(s.down_reason ?? s.why_down), op: opOf(s.op) })
 
 /** The options a call takes, without empty ones. */
 function pick(body: Record<string, unknown>, keys: string[]): Record<string, unknown> {
@@ -165,7 +165,16 @@ export class Machines {
   /** machine.start(name): a stopped machine and its worker, waited for; native and a running one answer at once. */
   async start(name: string) {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to start')
-    return this.lfs.machine.start(name)
+    return this.lfs.machine.start(name, { on_progress: this.progress(name, 'start') })
+  }
+
+  /** Startup phases as `machine-progress` events (the Machines page shows them live). */
+  private progress(name: string, kind: 'start' | 'create') {
+    const started = Date.now()
+    return (progress: any) => this.host.emit('machine-progress', {
+      type: 'machine-progress', name, kind,
+      progress: { ...(progress && typeof progress === 'object' ? progress : { stage: String(progress) }), elapsed_ms: Date.now() - started },
+    })
   }
 
   /** machine.stop(name): refused InUse while Sandboxes run on it (`detail.related` names them). */
@@ -190,7 +199,7 @@ export class Machines {
     const given = pick(rest, Object.keys(rest))
     const extra = Object.keys(given).filter((k) => !declared.includes(k))
     if (extra.length) throw refuse(null, 'InvalidInput', `${platform} takes no ${extra.join(', ')} (its options: ${declared.join(', ') || 'none'})`)
-    return this.lfs.machine.create(name, platform, given)
+    return this.lfs.machine.create(name, platform, { ...given, on_progress: this.progress(name, 'create') })
   }
 
   /** Removes a VM; LayerFS refuses InUse while it holds Stores or running Sandboxes. */

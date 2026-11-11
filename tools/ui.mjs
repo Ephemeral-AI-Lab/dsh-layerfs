@@ -21,6 +21,9 @@ export async function dismiss(page) {
 }
 export async function openPanel(page, label) {
   await dismiss(page)
-  await page.locator('[class*=panelTitle]', { hasText: new RegExp(`^${label}$`) }).first().click()
+  const titled = page.locator('[class*=panelTitle]', { hasText: new RegExp(`^${label}$`) }).first()
+  // At narrow widths the sidebar collapses to icons: fall back to the entry's accessible name.
+  if (await titled.isVisible().catch(() => false)) await titled.click()
+  else await page.getByRole('button', { name: label, exact: true }).first().click()
   await page.waitForTimeout(1500)
 }
