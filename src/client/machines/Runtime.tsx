@@ -1,23 +1,26 @@
 /**
- * The LayerFS runtime this page reads through (`runtime.status`): one summary
- * row (version, CLI, state) that unfolds into its facts, and Change… to pin
- * another CLI and daemon (`runtime.save`; absolute paths, discovered before
- * the pin moves).
+ * The LayerFS runtime the plugin reads through (`runtime.status`). The LayerFS
+ * page shows it whole: version, state, every fact, and Change… to pin another
+ * CLI and daemon (`runtime.save`; absolute paths, discovered before the pin
+ * moves). The LayerFS page shows it; the Machines board does not.
  */
 import { useState, type ReactNode } from 'react'
-import { Button, IconChevronDownOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Card, Fact, Facts, Field, Refusal, StateChip } from '../ui/index.tsx'
-import { useMachinesContext } from './context.tsx'
+import { useMachinesContext, type MachinesContext } from './context.tsx'
 import type { RuntimeStatus } from './model.ts'
 import css from './machines.module.css'
 
 const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
 
-export function RuntimeSection(): ReactNode {
+const sourceKey = (source: string) =>
+  source === 'settings' ? 'sourceSettings' as const : source === 'env' ? 'sourceEnv' as const : source === 'config' ? 'sourceConfig' as const : 'sourceNone' as const
+
+/** The whole runtime: its version and state, Change…, and every fact. */
+export function RuntimeCard(): ReactNode {
   const { t, useRuntime, useConnected, refusal } = useMachinesContext()
   const read = useRuntime((s) => s)
   const connected = useConnected((s) => s)
-  const [open, setOpen] = useState(false)
   const [changing, setChanging] = useState(false)
   const r = read.data
   const version = r?.version ? t('runtimeVersion', { version: r.version }) : t('runtimeTitle')
@@ -26,36 +29,36 @@ export function RuntimeSection(): ReactNode {
   return (
     <Card className={css.runtime}>
       <div className={css.runtimeRow}>
-        <button type="button" className={css.runtimeSummary} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className={css.runtimeHead}>
           <span className={css.runtimeText}>
             <span className={css.runtimeTitle}>{version}{r?.commit ? <span className={css.runtimeCommit}>{r.commit.slice(0, 8)}</span> : null}</span>
-            <span className={css.runtimeSub} title={r?.cli ?? undefined}>{r?.cli ?? (r ? t('runtimeNoCli') : t('runtimeLabel'))}</span>
           </span>
           <StateChip tone={tone} label={word} live={read.status === 'loading'} />
           {!connected && <StateChip tone="warning" label={t('eventsOffline')} />}
-          <IconChevronDownOutlineRegular size={14} className={css.runtimeChevron} aria-hidden="true" />
-        </button>
+        </span>
         <Button variant="outline" size="sm" disabled={!r} onClick={() => setChanging(true)}>{t('runtimeChange')}</Button>
       </div>
-      {open && (
-        <div className={css.runtimeBody}>
-          {read.status === 'error' && !r && <Refusal error={read.error} labels={refusal} />}
-          {r && (
-            <Facts label={t('runtimeLabel')}>
-              <Fact label={t('runtimeCli')} mono>{r.cli}</Fact>
-              <Fact label={t('runtimeDaemon')} mono>{r.daemon}</Fact>
-              <Fact label={t('runtimeBundle')} mono>{r.bundle ? `${r.bundle}${r.bundleInfo?.hash ? ` (${r.bundleInfo.hash.slice(0, 12)})` : ''}` : t('runtimeBundleDefault')}</Fact>
-              <Fact label={t('runtimeHome')} mono>{r.home}</Fact>
-              <Fact label={t('runtimeVersionLabel')} mono>{r.version}</Fact>
-              <Fact label={t('runtimeCommit')} mono>{r.commit}</Fact>
-              {r.source && <Fact label={t('runtimeSource')}>{t(r.source === 'settings' ? 'sourceSettings' : r.source === 'env' ? 'sourceEnv' : r.source === 'config' ? 'sourceConfig' : 'sourceNone')}</Fact>}
-              {r.error && <Fact label={t('runtimeError')} tone="danger">{`${r.error.code}: ${r.error.message}`}</Fact>}
-            </Facts>
-          )}
-        </div>
-      )}
+      <div className={css.runtimeBody}>
+        {read.status === 'error' && !r && <Refusal error={read.error} labels={refusal} />}
+        {r && <RuntimeFacts r={r} t={t} />}
+      </div>
       {changing && r && <RuntimeDialog current={r} onClose={() => setChanging(false)} />}
     </Card>
+  )
+}
+
+function RuntimeFacts({ r, t }: { r: RuntimeStatus, t: MachinesContext['t'] }): ReactNode {
+  return (
+    <Facts label={t('runtimeLabel')}>
+      <Fact label={t('runtimeCli')} mono title={r.cli ?? undefined}>{r.cli}</Fact>
+      <Fact label={t('runtimeDaemon')} mono title={r.daemon ?? undefined}>{r.daemon}</Fact>
+      <Fact label={t('runtimeBundle')} mono title={r.bundle ?? undefined}>{r.bundle ? `${r.bundle}${r.bundleInfo?.hash ? ` (${r.bundleInfo.hash.slice(0, 12)})` : ''}` : t('runtimeBundleDefault')}</Fact>
+      <Fact label={t('runtimeHome')} mono title={r.home}>{r.home}</Fact>
+      <Fact label={t('runtimeVersionLabel')} mono>{r.version}</Fact>
+      <Fact label={t('runtimeCommit')} mono>{r.commit}</Fact>
+      {r.source && <Fact label={t('runtimeSource')}>{t(sourceKey(r.source))}</Fact>}
+      {r.error && <Fact label={t('runtimeError')} tone="danger">{`${r.error.code}: ${r.error.message}`}</Fact>}
+    </Facts>
   )
 }
 

@@ -5,6 +5,9 @@
  */
 import { useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, Input, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { LayerfsApi } from '../api.ts'
+import { DoctorAction } from '../doctor/Doctor.tsx'
+import type { DoctorT } from '../doctor/locale.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { Card, Empty, Fact, Facts, Notice, PageHead, Section, StateChip } from '../ui/index.tsx'
@@ -20,6 +23,8 @@ export interface StorePageProps {
   name: string
   view: StorageView
   t: StorageT
+  api: LayerfsApi
+  doctorT: DoctorT
   now: number
   job: StorageJob | undefined
   jobs: readonly StorageJob[]
@@ -29,7 +34,7 @@ export interface StorePageProps {
   onOpenProject: (key: string) => void
 }
 
-export function StorePage({ name, view, t, now, job, jobs, catalog, on, onBack, onOpenProject }: StorePageProps): ReactNode {
+export function StorePage({ name, view, t, api, doctorT, now, job, jobs, catalog, on, onBack, onOpenProject }: StorePageProps): ReactNode {
   const [tab, setTab] = useState<'projects' | 'details'>('projects')
   const [search, setSearch] = useState('')
   const s = view.stores.find((x) => x.name === name)
@@ -48,6 +53,8 @@ export function StorePage({ name, view, t, now, job, jobs, catalog, on, onBack, 
         intro={<StoreSub store={s} t={t} now={now} onMachine={on.openMachine} />}
         actions={(
           <>
+            <DoctorAction api={api} t={doctorT} target="store.integrity" name={s.name} label={doctorT('checkIntegrity')} />
+            {pg ? <DoctorAction api={api} t={doctorT} target="store.connection" name={s.name} label={doctorT('testConnection')} /> : null}
             <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={13} />} disabled={!canAddProject(s)} onClick={on.addProject}>{t('addProject')}</Button>
             <StoreMenu store={s} on={on} t={t} />
           </>

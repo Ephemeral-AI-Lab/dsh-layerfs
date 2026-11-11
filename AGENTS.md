@@ -21,10 +21,14 @@ cordis plugin bundle. Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
   - `layerfs/cli.ts` pinned-CLI SDK (`ctx.layerfs.lfs.<family>.<call>(...)`), port of Connect `host/cli`
   - `routes/` Connect's host HTTP API served as op `http` `{method,path,body}` -> `{status,body}`
   - `sessions/` session binding, scratch folders, checkpoints, LayerFS session store
+  - `presets/` Presets: `manager.ts` (`/api/demo-presets…` on the `http` op, admission,
+    durable jobs in `<root>/presets/`), `driver.ts`, and LayerFS Connect's runner/recipe
+    kept as JavaScript (`runner.js`, `build.js`, `environment-reset.js`, `recipe/` copied
+    from Connect `tools/demo/`, typed through `js.ts`) so they stay diffable against Connect
 - `src/client/` browser half (React 18, CSS Modules, bundled to `lib/client.js` in
   DSH's `__ModuleLoader__` factory format)
   - `api.ts` `LayerfsApi` (`call(method,path,body)`, `op(name,args)`, `onEvent`)
-  - `machines/`, `storage/`, `session/` areas, each `register<Area>(ctx, api)`
+  - `machines/`, `storage/`, `presets/`, `session/` areas, each `register<Area>(ctx, api)`
 - `src/shared/remote-spec.ts` Remote descriptors shared by both faces.
 
 ## Commands
@@ -53,6 +57,11 @@ cordis plugin bundle. Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
 - Session store portability: a second server sharing the LayerFS home
   (`DSH_LAYERFS_DEV_DIR=$PWD/.dev-import DSH_LAYERFS_HOME=$PWD/.dev/layerfs-home ... --port 3096`),
   then `A_DIR=$PWD/.dev B_DIR=$PWD/.dev-import node test/e2e-store-import.mjs`.
+- Presets: `test/presets.test.mjs` (admission, request-ID reconciliation, restart recovery,
+  the router's exclusive guard, script paging, live reset of a private home). A real Studio
+  Build needs Docker, Lima and `DSH_LAYERFS_BUNDLE` (a Linux bundle matching the CLI) on the
+  dev server; it creates two Lima VMs (2 CPU, 4 GB) in the dev LayerFS home, so Reset the
+  home from the Presets page afterwards.
 - `node tools/cleanup-dev.mjs` removes leftover `e2e*`/`imp*` Stores through the host API.
 - Kill only your own dev server (match its `.dev*/overlay.yml` path in the command line).
 

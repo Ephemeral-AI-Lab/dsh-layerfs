@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, SegmentedTabs, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
+import type { DoctorT } from '../doctor/locale.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Empty, LoadError, Loading, Page, PageHead, Refusal, Section, StateChip } from '../ui/index.tsx'
@@ -33,10 +34,11 @@ const MACHINES_PANEL = 'layerfs-machines'
 
 export interface StoragePageProps {
   api: LayerfsApi
+  doctorT: DoctorT
   t: StorageT
 }
 
-export function StoragePage({ api, t }: StoragePageProps): ReactNode {
+export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
   const [nav, setNav] = useState<Nav>({ kind: 'board' })
   const [tab, setTab] = useState<BoardTab>('projects')
   const [tick, setTick] = useState(0)
@@ -137,7 +139,7 @@ export function StoragePage({ api, t }: StoragePageProps): ReactNode {
     return (
       <Page label={t('title')}>
         {refusal}
-        <StorePage name={nav.name} view={view} t={t} now={now} job={cardJob(jobs, nav.name, dismissed, now)} jobs={jobs.filter((j) => j.store === nav.name)}
+        <StorePage name={nav.name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, nav.name, dismissed, now)} jobs={jobs.filter((j) => j.store === nav.name)}
           catalog={catalog} on={s ? actionsFor(s) : undefined} onBack={() => setNav({ kind: 'board' })} onOpenProject={(key) => setNav({ kind: 'project', key })} />
         {dialogs}
       </Page>
@@ -210,7 +212,7 @@ export function StoragePage({ api, t }: StoragePageProps): ReactNode {
             {tab === 'details' ? (
               <StorageDetails view={view} t={t} now={now} onOpenStore={(name) => setNav({ kind: 'store', name })} onOpenMachine={openMachine} />
             ) : tab === 'backups' ? (
-              <StorageBackups view={view} t={t} now={now} listing={listing} listingAll={listingAll} onList={listBucket} onListAll={listAll}
+              <StorageBackups view={view} t={t} api={api} doctorT={doctorT} now={now} listing={listing} listingAll={listingAll} onList={listBucket} onListAll={listAll}
                 onRestore={(bucket, file, store) => setDialog({ kind: 'restore', bucket, file, store })}
                 onBackup={(store, bucket, file) => act(() => api.call('POST', `/api/stores/${enc(store)}/backup`, { bucket, file }))}
                 onAdd={() => setDialog({ kind: 'bucket' })} onOpenStore={(name) => setNav({ kind: 'store', name })}

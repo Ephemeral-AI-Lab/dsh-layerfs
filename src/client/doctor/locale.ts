@@ -1,0 +1,95 @@
+/**
+ * Doctor copy (`layerfsDoctor` namespace): the targeted-diagnosis panel every
+ * area shares (`POST /api/doctor-jobs`). LayerFS's own words — check outcomes,
+ * messages, fixes and counts — are shown as they came.
+ */
+export const NS = 'layerfsDoctor'
+
+const en = {
+  close: 'Close',
+  diagnose: 'Diagnose',
+  diagnoseHost: 'Diagnose this host',
+  runDiagnostics: 'Run diagnostics',
+  checkIntegrity: 'Check integrity',
+  testConnection: 'Test connection',
+  panelTitle: 'Doctor · {name}',
+  thisHost: 'this host',
+  panelBody: '{target} · explicit diagnosis. Connection checks do not prove integrity. Closing this panel keeps the run active.',
+  runDiagnosis: 'Run diagnosis',
+  diagnosing: 'Diagnosis in progress…',
+  quickIntegrity: 'Quick integrity (reduced coverage; Full is the default)',
+  writeTest: 'Test upload and cleanup: creates and removes a temporary object version.',
+  stateQueued: 'Queued',
+  stateRunning: 'Running',
+  stateCompleted: 'Completed',
+  stateFailed: 'Failed',
+  stateInterrupted: 'Interrupted',
+  stateUnavailable: 'Unavailable',
+  elapsed: '{s}s elapsed',
+  verdictClean: 'Completed — no issues found within the stated scope and mode',
+  verdictWarnings: 'Completed with warnings',
+  verdictIssues: 'Issues found',
+  verdictIssuesIncomplete: 'Issues found — some checks remain unverified',
+  verdictIncomplete: 'Incomplete — no issues found in completed checks',
+  simulated: 'Simulated report — no live resource checked',
+  observedLine: '{mode} · observed {time} · {ms} ms',
+  coverageComplete: 'complete',
+  coverageIncomplete: 'incomplete',
+  coverageTruncated: 'retained rows truncated',
+  coverageLine: 'Findings: {n} · Coverage: {coverage}',
+  reportedCounts: 'Reported counts: {counts}',
+  findings: 'Findings',
+  checks: 'Checks',
+  suggestedAction: 'Suggested action (advisory): {fix}',
+  dependencies: 'Dependencies: {deps}',
+  previousReports: 'Previous dated reports ({n})',
+  previousNote: 'Past observations may be stale after configuration or lifecycle changes.',
+}
+
+export type DoctorKey = keyof typeof en
+
+const zh: typeof en = {
+  close: '关闭',
+  diagnose: '诊断',
+  diagnoseHost: '诊断此主机',
+  runDiagnostics: '运行诊断',
+  checkIntegrity: '检查完整性',
+  testConnection: '测试连接',
+  panelTitle: 'Doctor · {name}',
+  thisHost: '此主机',
+  panelBody: '{target} · 显式诊断。连接检查不能证明完整性。关闭此面板不会中断诊断。',
+  runDiagnosis: '运行诊断',
+  diagnosing: '诊断进行中…',
+  quickIntegrity: '快速完整性（覆盖范围缩减；默认为完整模式）',
+  writeTest: '测试上传与清理：创建并删除一个临时对象版本。',
+  stateQueued: '排队中',
+  stateRunning: '运行中',
+  stateCompleted: '已完成',
+  stateFailed: '失败',
+  stateInterrupted: '已中断',
+  stateUnavailable: '不可用',
+  elapsed: '已用 {s} 秒',
+  verdictClean: '已完成 — 在给定范围与模式下未发现问题',
+  verdictWarnings: '已完成，有警告',
+  verdictIssues: '发现问题',
+  verdictIssuesIncomplete: '发现问题 — 部分检查未验证',
+  verdictIncomplete: '未完成 — 已完成的检查中未发现问题',
+  simulated: '模拟报告 — 未检查真实资源',
+  observedLine: '{mode} · 观察于 {time} · {ms} 毫秒',
+  coverageComplete: '完整',
+  coverageIncomplete: '不完整',
+  coverageTruncated: '保留行已截断',
+  coverageLine: '发现：{n} · 覆盖：{coverage}',
+  reportedCounts: '报告计数：{counts}',
+  findings: '发现',
+  checks: '检查',
+  suggestedAction: '建议操作（仅供参考）：{fix}',
+  dependencies: '依赖项：{deps}',
+  previousReports: '历史报告（{n}）',
+  previousNote: '配置或生命周期变更后，过去的观察可能已过时。',
+}
+
+export const locales = { en, zh }
+
+/** DSH's translate seat for this namespace: `{name}` placeholders take string values. */
+export type DoctorT = (key: DoctorKey, params?: Record<string, string | number>) => string

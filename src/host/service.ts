@@ -95,6 +95,8 @@ export class LayerfsService extends Service {
   private pin!: { cli: string | null, daemon: string | null, bundle: string | null, source: RuntimeStatus['source'] }
   private sdk: Lfs | undefined
   private nativeRecorded: Promise<unknown> | undefined
+  /** Set while an operation holds the whole home (a preset build or reset): why new Sandboxes must wait, or null. */
+  exclusive: (() => string | null) | undefined
 
   constructor(ctx: Context, private readonly config: LayerfsConfig = {}) {
     super(ctx, 'layerfs')

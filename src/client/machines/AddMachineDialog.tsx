@@ -1,21 +1,23 @@
 /**
- * Add a machine: one row per platform this host creates (machine.platforms,
+ * Add a machine: one row per platform this host has (machine.platforms,
  * ssh and Firecracker left out by the host), with its tool's version or what
- * it misses. A ready platform opens its Create form in its row; a missing
+ * it misses. A ready `created` platform opens its Create form in its row; a
+ * built-in (native, docker) needs none — it is detected, so its row shows
+ * "Built in" with its machine's state. A missing
  * tool shows how to install it. A form shows only the options its platform
  * declares and checks itself before it is sent. The dialog stays open while
  * Create runs.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular, IconWarningOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CopyLine, Field, MenuSelect, Refusal } from '../ui/index.tsx'
+import { CopyLine, Field, MenuSelect, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import {
   blurbKey, declares, emptyVm, freeMachineName, installHelp, needWords, parseSize, vmErrors, VM_KINDS,
   type AvailableView, type FormErrors, type MachinePlatformInfo, type VmForm,
 } from './model.ts'
-import { MachineProgress, useInspect } from './parts.tsx'
+import { MachineProgress, MachineStateChip, useInspect } from './parts.tsx'
 import css from './machines.module.css'
 
 export function AddMachineDialog({ view, platforms, onClose, onMade }: { view: AvailableView, platforms: MachinePlatformInfo[], onClose: () => void, onMade: (name: string) => void }): ReactNode {
@@ -30,13 +32,13 @@ export function AddMachineDialog({ view, platforms, onClose, onMade }: { view: A
         : (
           <div className={css.platforms}>
             {platforms.map((p) => {
-              const tool = installHelp(p.missing, view.layerfs)
+              const tool = installHelp(p.missing, view.layerfs, p.platform)
               const expanded = form === p.platform
               const blurb = blurbKey(p.platform)
               return (
                 <div key={p.platform} className={css.platform} data-open={expanded || undefined}>
                   <div className={css.platformRow}>
-                    <span className={css.kindTile} aria-hidden="true"><MachineGlyph platform={p.platform} size={16} /></span>
+                    <span className={css.kindTile} aria-hidden="true"><MachineGlyph platform={p.platform} os={p.kernel === 'fuse' ? 'linux' : p.kernel == null ? 'pc' : undefined} size={16} /></span>
                     <div className={css.platformText}>
                       <span className={css.platformName}>{kind(p.platform)}</span>
                       {p.ready
@@ -44,11 +46,13 @@ export function AddMachineDialog({ view, platforms, onClose, onMade }: { view: A
                         : (
                           <span className={css.platformMissing}>
                             <IconWarningOutlineRegular size={12} aria-hidden="true" />
-                            <span>{p.missing.map((n) => tw(needWords(n))).join(' · ')}</span>
+                            <span>{p.missing.map((n) => tw(needWords(n, p.platform))).join(' · ')}</span>
                           </span>
                         )}
                     </div>
-                    {p.ready
+                    {p.how !== 'created' && p.ready
+                      ? <BuiltInMark view={view} platform={p.platform} />
+                      : p.ready
                       ? <Button size="sm" variant={expanded ? 'ghost' : 'outline'} disabled={busy} aria-expanded={expanded} onClick={() => setForm(expanded ? null : p.platform)}>{t('create')}</Button>
                       : tool
                         ? (
@@ -74,6 +78,18 @@ export function AddMachineDialog({ view, platforms, onClose, onMade }: { view: A
           </div>
         )}
     </Modal>
+  )
+}
+
+/** A built-in platform's mark: nothing to create; its machine's state stands beside the badge. */
+function BuiltInMark({ view, platform }: { view: AvailableView, platform: string }): ReactNode {
+  const { t } = useMachinesContext()
+  const m = view.machines.find((x) => x.platform === platform)
+  return (
+    <span className={css.platformMark}>
+      <StateChip tone="neutral" label={t('howBuiltIn')} />
+      {m && <MachineStateChip m={m} live={view.status[m.name]} pending={null} />}
+    </span>
   )
 }
 

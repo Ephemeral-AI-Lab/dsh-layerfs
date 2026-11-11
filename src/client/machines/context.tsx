@@ -4,6 +4,8 @@
  * controller's sources, and its callbacks), passed down once by the page.
  */
 import { createContext, useContext, useMemo } from 'react'
+import type { LayerfsApi } from '../api.ts'
+import type { DoctorT } from '../doctor/locale.ts'
 import type { RefusalLabels } from '../ui/index.tsx'
 import type { MachinesFace, ReadState } from './controller.ts'
 import type { MachinesKey } from './locale.ts'
@@ -18,6 +20,10 @@ export type Hook<T> = <S>(selector: (snapshot: T) => S) => S
 /** The props the DSH `main` slot renderer gives the Machines page. */
 export interface MachinesPageProps extends Omit<MachinesFace, 'hooks'> {
   t: Translate
+  /** The host API (targeted Doctor launches through it). */
+  api: LayerfsApi
+  /** The `layerfsDoctor` namespace's translate seat. */
+  doctorT: DoctorT
   useMachines: Hook<ReadState<MachinesView>>
   useStartups: Hook<Readonly<Record<string, MachineStartup>>>
   useRuntime: Hook<ReadState<RuntimeStatus>>

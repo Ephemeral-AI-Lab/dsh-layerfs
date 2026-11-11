@@ -130,6 +130,8 @@ interface ExecuteOptions {
   onProgress?: (progress: unknown) => void
   onFrame?: (frame: { stream?: 'stdout' | 'stderr', bytes?: unknown }) => void
   onSpawn?: (child: ChildProcess) => void
+  /** A separate admission lane (name and limit) for bulk callers, so page reads are not queued behind them. */
+  lane?: { name: string, limit: number }
 }
 
 const lanes = new Map<string, { active: number, waiting: (() => void)[] }>()
@@ -159,8 +161,8 @@ export function execute(spec: CliSpec, argv: readonly string[], options: Execute
   if (!spec.cli || !isAbsolute(spec.cli) || !existsSync(spec.cli)) {
     return Promise.reject(new CliError('CliUnavailable', 'Pin an absolute LayerFS CLI (Settings → LayerFS or DSH_LAYERFS_CLI)', null, 'unavailable'))
   }
-  const lane = argv[0] === 'workspace' && argv[1] === 'exec-cancel' ? `${spec.cli}:cancel` : `${spec.cli}:calls`
-  const launch = () => admit(lane, 4, () => new Promise<unknown>((resolve, reject) => {
+  const lane = argv[0] === 'workspace' && argv[1] === 'exec-cancel' ? `${spec.cli}:cancel` : options.lane ? `${spec.cli}:${options.lane.name}` : `${spec.cli}:calls`
+  const launch = () => admit(lane, options.lane?.limit ?? 4, () => new Promise<unknown>((resolve, reject) => {
     if (!options.discovery && !spec.home) return reject(new CliError('InvalidInput', 'LayerFS requires an explicit home'))
     if (options.read && !existsSync(join(spec.home, 'layerfs.json'))) return reject(new CliError('Unavailable', 'LayerFS home is not initialized; reads will not create it'))
     let result: unknown, refusal: any, spawnError: unknown, malformed = false, finals = 0

@@ -160,6 +160,8 @@ export class LayerfsSessions extends Service {
 
   /** Make sure the session's Sandbox runs and its Workspace is mounted on its branch; answers the mount path. */
   private async mount(binding: Binding): Promise<string> {
+    const held = this.ctx.layerfs.exclusive?.()
+    if (held) throw new CliError('ConnectBusy', held)
     await this.ctx.layerfs.ensureNative()
     const { project, sandbox, branch } = binding as Required<Binding>
     let observed: any
@@ -242,6 +244,8 @@ export class LayerfsSessions extends Service {
 
   private async bindProject(agent: any, project: string, anchor: string, source: string): Promise<void> {
     const sessionId = String(agent.id)
+    const held = this.ctx.layerfs.exclusive?.()
+    if (held) throw new CliError('ConnectBusy', held)
     const header = agent.session.header
     const existing = this.binding(sessionId)
     const scratch = this.scratchFor(anchor, sessionId)

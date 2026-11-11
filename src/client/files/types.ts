@@ -49,6 +49,9 @@ export interface CommitInfo {
   kind?: string | null
   base?: string | null
   sourceCommit?: string | null
+  sourceBranch?: string | null
+  sourceTime?: number | null
+  savedKind?: 'commit' | 'layer' | string
   changes?: { path: string, kind: string }[]
 }
 

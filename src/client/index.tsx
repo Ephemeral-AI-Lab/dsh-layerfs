@@ -1,21 +1,26 @@
 /**
  * dsh-layerfs, browser half: mounts the `layerfs` Remote namespace, opens the
- * host event stream, and contributes the Machines and Storage pages and the
+ * host event stream, and contributes the Machines, Storage and Presets pages and the
  * per-session LayerFS panel through DSH's slots.
  */
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 import { z } from 'zod'
 import { remoteSpec } from '../shared/remote-spec.ts'
 import { createApi } from './api.ts'
+import { locales as doctorLocales, NS as DOCTOR_NS } from './doctor/locale.ts'
 import { NS, locales } from './locale.ts'
 import { registerMachines } from './machines/index.tsx'
+import { createSidebarGroup } from './overview/group.ts'
+import { PANEL_ID as OVERVIEW_PANEL, registerOverview } from './overview/index.tsx'
 import { registerStorage } from './storage/index.tsx'
 import { registerSession } from './session/index.tsx'
+import { registerPresets } from './presets/index.tsx'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 
 export function apply(ctx: any): void {
   ctx.effect(() => ctx.locale.register(NS, locales), 'dsh-layerfs: locale')
+  ctx.effect(() => ctx.locale.register(DOCTOR_NS, doctorLocales), 'dsh-layerfs: doctor locale')
   const info = createTypertRemoteInfo(remoteSpec(z) as never, z)
   ctx.effect(() => {
     let dispose: undefined | (() => unknown)
@@ -34,7 +39,10 @@ export function apply(ctx: any): void {
   if (typeof window !== 'undefined' && window.localStorage?.getItem('dsh-layerfs:debug') === '1') {
     ctx.effect(() => { (window as any).__dshLayerfs = api; return () => { delete (window as any).__dshLayerfs } }, 'dsh-layerfs: debug')
   }
-  registerMachines(ctx, api)
-  registerStorage(ctx, api)
+  const group = createSidebarGroup()
+  const machines = registerMachines(ctx, api, group, [OVERVIEW_PANEL])
+  registerStorage(ctx, api, group)
+  registerOverview(ctx, api, machines, group)
+  registerPresets(ctx, api, group)
   registerSession(ctx, api)
 }

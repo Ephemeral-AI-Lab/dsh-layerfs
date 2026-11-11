@@ -6,6 +6,9 @@
  */
 import { useEffect, type ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { LayerfsApi } from '../api.ts'
+import { DoctorAction } from '../doctor/Doctor.tsx'
+import type { DoctorT } from '../doctor/locale.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { Card, Empty, LinkButton, MoreMenu, Notice, Section, StateChip } from '../ui/index.tsx'
@@ -39,6 +42,8 @@ function rowsOf(b: BucketRow, stores: readonly StoreRow[]): FileRowData[] {
 export interface BackupsProps {
   view: StorageView
   t: StorageT
+  api: LayerfsApi
+  doctorT: DoctorT
   now: number
   listing: string | null
   listingAll: boolean
@@ -51,7 +56,7 @@ export interface BackupsProps {
   onOpenStore: (name: string) => void
 }
 
-export function StorageBackups({ view, t, now, listing, listingAll, onList, onListAll, onRestore, onBackup, onAdd, onDisconnect, onOpenStore }: BackupsProps): ReactNode {
+export function StorageBackups({ view, t, api, doctorT, now, listing, listingAll, onList, onListAll, onRestore, onBackup, onAdd, onDisconnect, onOpenStore }: BackupsProps): ReactNode {
   // backup.list asks each bucket: once when the tab opens, then on List.
   useEffect(() => { if (view.buckets.length) onListAll() }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const buckets = [...view.buckets].sort((a, b) => a.name.localeCompare(b.name))
@@ -67,7 +72,7 @@ export function StorageBackups({ view, t, now, listing, listingAll, onList, onLi
       {buckets.length === 0 ? (
         <Empty title={t('noBuckets')} icon={<BucketGlyph size={20} />}>{t('noBucketsBody')}</Empty>
       ) : buckets.map((b) => (
-        <BucketSection key={b.name} bucket={b} stores={view.stores} t={t} now={now} listing={listingAll || listing === b.name}
+        <BucketSection key={b.name} bucket={b} stores={view.stores} t={t} api={api} doctorT={doctorT} now={now} listing={listingAll || listing === b.name}
           onList={() => onList(b.name)} onRestore={(file, store) => onRestore(b.name, file, store)} onBackup={(store, file) => onBackup(store, b.name, file)}
           onDisconnect={() => onDisconnect(b.name)} onOpenStore={onOpenStore} />
       ))}
@@ -75,8 +80,8 @@ export function StorageBackups({ view, t, now, listing, listingAll, onList, onLi
   )
 }
 
-function BucketSection({ bucket: b, stores, t, now, listing, onList, onRestore, onBackup, onDisconnect, onOpenStore }: {
-  bucket: BucketRow, stores: readonly StoreRow[], t: StorageT, now: number, listing: boolean
+function BucketSection({ bucket: b, stores, t, api, doctorT, now, listing, onList, onRestore, onBackup, onDisconnect, onOpenStore }: {
+  bucket: BucketRow, stores: readonly StoreRow[], t: StorageT, api: LayerfsApi, doctorT: DoctorT, now: number, listing: boolean
   onList: () => void, onRestore: (file: string, store: string | null) => void, onBackup: (store: string, file: string) => void, onDisconnect: () => void, onOpenStore: (name: string) => void
 }): ReactNode {
   const rows = rowsOf(b, stores)
@@ -92,6 +97,7 @@ function BucketSection({ bucket: b, stores, t, now, listing, onList, onRestore, 
       listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : null,
     ].filter(Boolean).join(' · ')} actions={(
       <>
+        <DoctorAction api={api} t={doctorT} target="backup.connection" name={b.name} label={doctorT('testConnection')} />
         <Button variant="outline" size="sm" disabled={listing} onClick={onList}>{listed ? t('listAgain') : t('list')}</Button>
         <MoreMenu label={b.name}>{(close) => <MenuItemButton danger onSelect={() => { close(); onDisconnect() }}>{t('disconnectBucket')}</MenuItemButton>}</MoreMenu>
       </>

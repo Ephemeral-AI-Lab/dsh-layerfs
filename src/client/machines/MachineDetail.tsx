@@ -5,6 +5,7 @@
  */
 import { useId, useState, type ReactNode } from 'react'
 import { Button, IconRightUpOutlineRegular, IconSettingsOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Empty, Meter, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
 import { attentionOf, STORAGE_PANEL } from './Board.tsx'
 import { useMachinesContext } from './context.tsx'
@@ -45,7 +46,7 @@ export function MachineDetail({ name, initialTab, go }: { name: string, initialT
 }
 
 function MachineView({ view, name, initialTab, go, back }: { view: AvailableView, name: string, initialTab: Tab, go: (view: View) => void, back: { label: string, ariaLabel: string, onClick: () => void } }): ReactNode {
-  const { t, tw, kind, useStartups, refusal, openPanel } = useMachinesContext()
+  const { t, tw, kind, api, doctorT, useStartups, refusal, openPanel } = useMachinesContext()
   const m = view.machines.find((x) => x.name === name)!
   const startup = useStartups((all) => all[m.name])
   const { run, pending: localPending, error } = useMachineRun()
@@ -75,7 +76,7 @@ function MachineView({ view, name, initialTab, go, back }: { view: AvailableView
       <PageHead
         crumbs={[back]}
         current={m.name}
-        icon={<MachineGlyph platform={m.platform} size={22} />}
+        icon={<MachineGlyph platform={m.platform} os={m.backend === 'namespaces' ? 'linux' : m.backend == null ? 'pc' : undefined} size={22} />}
         title={m.name}
         badge={<MachineStateChip m={m} live={live} pending={pending} />}
         intro={`${kind(m.platform)} · ${tw(sizeOf(m, live))}`}
@@ -134,7 +135,7 @@ function MachineView({ view, name, initialTab, go, back }: { view: AvailableView
             )
             : tab === 'stores'
               ? <Button variant="outline" size="sm" icon={<IconRightUpOutlineRegular size={13} />} onClick={() => openPanel(STORAGE_PANEL)}>{t('openStorage')}</Button>
-              : null}
+              : <DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} />}
         </div>
       </div>
 

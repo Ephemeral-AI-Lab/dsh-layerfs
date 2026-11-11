@@ -80,6 +80,15 @@ export interface Groups {
   readonly doctor: DoctorManager
   /** Runtime facts for `GET /api/status` (`ctx.layerfs.status()`). */
   readonly runtime: () => Promise<unknown>
+  /** `/api/demo-presets…` (presets/manager.ts), once attached. */
+  presets?: PresetRoutes
+}
+
+/** What the router needs from the presets manager. */
+export interface PresetRoutes {
+  route(method: string, parts: string[], body: unknown, query: URLSearchParams): Promise<unknown>
+  /** A preset build or reset holds the home: other changes are refused, reads stay open. */
+  exclusive(): boolean
 }
 
 /** Build the route groups over one host, wired as Connect's main.js wires them. */
@@ -98,6 +107,7 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
 export async function route(g: Groups, method: string, parts: string[], query: URLSearchParams, body: any): Promise<unknown> {
   const { machines, storage, projects, doctor } = g
   const [api, group, id, sub, ...rest] = parts
+  if (api === 'api' && group === 'demo-presets') return g.presets?.route(method, parts.slice(2), body, query)
   if (api !== 'api' || rest.length) return undefined
   if (group === 'doctor-jobs' && !sub) {
     if (!id && method === 'POST') return doctor.launch(body ?? {})
@@ -222,6 +232,9 @@ export async function handle(g: Groups, request: { method?: string, path?: strin
       if (typeof request.body === 'string') {
         try { body = JSON.parse(request.body) } catch { throw httpError(400, 'invalid-input', 'Invalid JSON request body.') }
       } else body = request.body
+    }
+    if (method !== 'GET' && parts[1] !== 'demo-presets' && g.presets?.exclusive()) {
+      throw httpError(409, 'ConnectBusy', 'A preset build or reset is changing this LayerFS home. Changes are available when it finishes; you can keep browsing.')
     }
     // Connect recorded the native daemon at boot; here once, before the first call that needs it
     await g.host.ensureNative()

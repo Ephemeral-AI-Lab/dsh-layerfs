@@ -4,6 +4,9 @@
  */
 import type { ReactNode } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import { NS as DOCTOR_NS, type DoctorT } from '../doctor/locale.ts'
+import { ChildGlyph } from '../overview/child.tsx'
+import type { SidebarGroup } from '../overview/group.ts'
 import { locales, NS, type StorageT } from './locale.ts'
 import { StoragePage } from './StoragePage.tsx'
 
@@ -21,29 +24,35 @@ export function StoragePanelIcon({ size = 16 }: { size?: number }): ReactNode {
   )
 }
 
-function StorageMain(props: { api: LayerfsApi, t: StorageT }): ReactNode {
-  return <StoragePage api={props.api} t={props.t} />
+function StorageSidebarIcon({ size }: { size?: number }): ReactNode {
+  return <ChildGlyph><StoragePanelIcon size={size ?? 16} /></ChildGlyph>
+}
+
+function StorageMain(props: { api: LayerfsApi, doctorT: DoctorT, t: StorageT }): ReactNode {
+  return <StoragePage api={props.api} doctorT={props.doctorT} t={props.t} />
 }
 
 /**
  * Register the Storage page and its sidebar entry.
  * @param ctx - the plugin's client context (slots, locale).
  * @param api - the host API the page reads through.
+ * @param group - the LayerFS sidebar group the entry shows under.
  */
-export function registerStorage(ctx: any, api: LayerfsApi): void {
+export function registerStorage(ctx: any, api: LayerfsApi, group: SidebarGroup): void {
   ctx.effect(() => ctx.locale.register(NS, locales), 'dsh-layerfs: storage locale')
+  const doctorT = ctx.locale.bind(DOCTOR_NS)
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
     key: PANEL_ID,
     locale: NS,
-    inject: () => ({ api }),
+    inject: () => ({ api, doctorT }),
   }, StorageMain)), 'dsh-layerfs: storage page')
-  ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+  ctx.effect(() => group.whileExpanded(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,
     order: 9,
     label: () => t('panel'),
     locale: NS,
-  }, StoragePanelIcon)), 'dsh-layerfs: storage entry')
+  }, StorageSidebarIcon))), 'dsh-layerfs: storage entry')
 }

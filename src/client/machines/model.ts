@@ -291,6 +291,8 @@ const KIND_LABEL: Record<string, MachinesKey> = {
 export const kindKey = (platform: string): MachinesKey | null => KIND_LABEL[platform] ?? null
 
 const KIND_BLURB: Record<string, MachinesKey> = {
+  native: 'blurbNative',
+  docker: 'blurbDocker',
   'apple-container': 'blurbAppleContainer',
   microsandbox: 'blurbMicrosandbox',
   lima: 'blurbLima',
@@ -399,7 +401,9 @@ export function runtimeOf(m: MachineInfo): Words {
 // ---------- Add a machine ----------
 
 /** A can_create need in words. */
-export function needWords(need: string): Words {
+export function needWords(need: string, platform?: string): Words {
+  // Docker's `host:<socket>`: the Engine does not answer there; starting it fixes it, so it is no hardware need.
+  if (platform === 'docker' && need.startsWith('host:/')) return w('needDockerSocket', { socket: need.slice(5) })
   if (need.startsWith('tool:')) return w('needTool', { tool: need.slice(5) })
   if (need.startsWith('bundle:')) return w('needBundle')
   const host: Record<string, MachinesKey> = {
@@ -418,14 +422,18 @@ export function needWords(need: string): Words {
   return w('raw', { text: need })
 }
 
-/** How to get what a platform misses: words and commands to copy; null for hardware/OS needs. */
-export function installHelp(missing: string[], layerfs: string | null): { label: MachinesKey, words: Words, commands: string[] } | null {
-  if (missing.some((n) => n.startsWith('host:'))) return null
+/** How to get what a platform misses: words and commands to copy; null for hardware/OS needs. Docker's `host:<socket>` is excepted: a stopped Engine answers that, and starting it fixes it. */
+export function installHelp(missing: string[], layerfs: string | null, platform?: string): { label: MachinesKey, words: Words, commands: string[] } | null {
+  if (missing.some((n) => n.startsWith('host:') && !(platform === 'docker' && n.startsWith('host:/')))) return null
   const tool = missing.find((n) => n.startsWith('tool:'))?.slice(5)
   if (tool === 'msb') return { label: 'howToInstall', words: w('installMsb'), commands: ['curl -fsSL https://install.microsandbox.dev | sh', 'export PATH="$HOME/.microsandbox/bin:$PATH"'] }
   if (tool === 'container') return { label: 'howToInstall', words: w('installContainer'), commands: ['https://github.com/apple/container/releases', 'container system start'] }
   if (tool === 'limactl') return { label: 'howToInstall', words: w('installLima'), commands: ['brew install lima'] }
+  if (tool === 'docker') return { label: 'howToInstall', words: w('installDockerEngine'), commands: ['brew install --cask docker', 'brew install colima docker && colima start'] }
   if (tool) return { label: 'howToInstall', words: w('installTool', { tool }), commands: [] }
+  if (platform === 'docker' && missing.some((n) => n.startsWith('host:/'))) {
+    return { label: 'howToInstall', words: w('installDockerStart'), commands: ['open -a Docker', 'colima start'] }
+  }
   if (missing.some((n) => n.startsWith('bundle:'))) {
     const version = layerfs ?? '<version>'
     return {

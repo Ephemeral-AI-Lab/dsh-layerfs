@@ -11,6 +11,7 @@ DSH plugin bundle. DSH itself is not modified.
 | --- | --- |
 | Sidebar → **Machines** | LayerFS machines (native, docker, VMs): state, Sandboxes, Stores, spec, start/stop, add machine; the pinned LayerFS runtime (CLI, daemon, home) |
 | Sidebar → **Storage** | Stores (SQLite, PostgreSQL), projects (import a folder), files, history and commit diffs, branches, Sandboxes, backups to buckets and restore, Store push/pull/move, home checks; a project's **Sessions** |
+| Sidebar → **Presets** | LayerFS Connect's Studio project library (4 machines, 4 stores, 8 projects with dense branch/merge/publish histories) built into this LayerFS home: the machine → store → project plan, each project's paged CLI script, Filesystem or Mixed (workspace exec/commit) mode, **Build projects** and **Reset**, with real stage/count progress and a job log |
 | Workspaces | Each LayerFS project is a DSH workspace (its scratch-folder workspace). A **Scratch** workspace holds sessions without a project |
 | Every project session | Its own branch `dsh.<session>`, Sandbox and Workspace mount (the working directory) and its own scratch folder that is never saved into the project |
 | Turn end | A checkpoint: the Workspace is committed to the branch when the turn changed files |
@@ -46,6 +47,15 @@ The bundle also replaces DSH's `sandbox-policy` row with a subclass that makes a
 bound session's Workspace mount its workspace-write root.
 
 ## Limits
+
+- **Presets Build and Reset empty this LayerFS home first**: every store (with its
+  projects, branches, files and the session logs mirrored into them), sandbox,
+  workspace and custom machine. The confirmation lists the detected inventory and the
+  DSH project workspaces that are dropped; it is refused while a project session has an
+  open Sandbox (close it first) or a storage job, import or doctor run is active. While
+  a build runs, other changes are refused and new project sessions wait; pages stay
+  readable. Studio needs Docker and Lima with a matching Linux bundle; Mixed mode also
+  needs the matching native daemon.
 
 - Session Workspaces run on the **native** machine (macOS loopback NFS, Linux FUSE),
   where the mount is a host path DSH's tools use directly. A project whose SQLite

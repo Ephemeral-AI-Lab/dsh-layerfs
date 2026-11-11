@@ -1,23 +1,23 @@
 /**
- * The Machines board: the page head (New machine, Refresh), the LayerFS
- * runtime this page reads through, one line of facts, and a card per machine
+ * The Machines board: the page head (New machine, Refresh), one line of
+ * facts, and a card per machine
  * (those that need you first), then the manual-power note. A card opens the
  * machine's page.
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Card, Empty, LinkButton, LoadError, Loading, Meter, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
 import { AddMachineDialog } from './AddMachineDialog.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph, MachinesGlyph } from './icons.tsx'
 import type { View } from './MachinesPage.tsx'
 import {
-  RANK, addable, clearingCall, downReason, factsOf, gib, machineOrder, machineState, runtimeOf, sandboxesOn, storesOn,
+  RANK, clearingCall, downReason, factsOf, gib, machineOrder, machineState, runtimeOf, sandboxesOn, storesOn,
   type AvailableView, type MachineInfo,
 } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useInspect, useMachineRun } from './parts.tsx'
-import { RuntimeSection } from './Runtime.tsx'
 import css from './machines.module.css'
 
 /** Stores a card names before "+N". */
@@ -27,7 +27,7 @@ const STORES_SHOWN = 3
 export const STORAGE_PANEL = 'layerfs-storage'
 
 export function Board({ go }: { go: (view: View) => void }): ReactNode {
-  const { t, useMachines, useStartups, reload, refusal } = useMachinesContext()
+  const { t, api, doctorT, useMachines, useStartups, reload, refusal } = useMachinesContext()
   const read = useMachines((s) => s)
   const startups = useStartups((s) => s)
   const [adding, setAdding] = useState(false)
@@ -47,12 +47,12 @@ export function Board({ go }: { go: (view: View) => void }): ReactNode {
         intro={t('boardIntro')}
         actions={(
           <>
+            <DoctorAction api={api} t={doctorT} target="host" label={doctorT('diagnoseHost')} />
             <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} onClick={reload}>{t('refresh')}</Button>
             {available && <Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={13} />} onClick={() => setAdding(true)}>{t('newMachine')}</Button>}
           </>
         )}
       />
-      <RuntimeSection />
       {view && read.error != null && (
         <Notice tone="warning" role="status">
           <p>{t('staleRead', { time: read.observedAt ? new Date(read.observedAt).toLocaleTimeString() : '—' })}</p>
@@ -79,7 +79,7 @@ export function Board({ go }: { go: (view: View) => void }): ReactNode {
                 ))}
               </section>
               <p className={css.footnote}>{t('powerNote')}</p>
-              {adding && <AddMachineDialog view={available} onClose={() => setAdding(false)} onMade={(name) => go({ kind: 'machine', name })} platforms={addable(available.platforms)} />}
+              {adding && <AddMachineDialog view={available} onClose={() => setAdding(false)} onMade={(name) => go({ kind: 'machine', name })} platforms={available.platforms} />}
             </>
           )}
     </Page>
@@ -145,7 +145,7 @@ function MachineCard({ m, view, onOpen }: { m: MachineInfo, view: AvailableView,
   return (
     <Card tone={attention ?? undefined} className={clsx(css.machineCard)} aria-labelledby={titleId} data-machine={m.name}>
       <header className={css.cardHead}>
-        <span className={css.kindTile} aria-hidden="true"><MachineGlyph platform={m.platform} size={18} /></span>
+        <span className={css.kindTile} aria-hidden="true"><MachineGlyph platform={m.platform} os={m.backend === 'namespaces' ? 'linux' : m.backend == null ? 'pc' : undefined} size={18} /></span>
         <div className={css.cardTitleBlock}>
           <h2 id={titleId} className={css.cardTitle}>
             <button type="button" className={css.cardOpen} onClick={onOpen} title={t('openMachine', { name: m.name })}>{m.name}</button>
