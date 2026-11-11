@@ -46,7 +46,7 @@ export function registerMachines(ctx: any, api: LayerfsApi): void {
   ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,
-    order: 10,
+    order: 8,
     label: () => t('panel'),
     locale: NS,
   }, MachinesPanelIcon)), 'dsh-layerfs: machines sidebar entry')

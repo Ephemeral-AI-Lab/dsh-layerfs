@@ -50,6 +50,13 @@ export function apply(ctx: Context): void {
     discover: () => ctx.layerfs.discovery(),
     ensureNative: () => ctx.layerfs.ensureNative(),
     emit: (type, data) => ctx.layerfs.emit(type, data),
+    closeSessionSandbox: async (name) => {
+      const sessions = ctx.get('layerfsSessions' as never) as any
+      const owner = sessions && Object.values(sessions.state.read().sessions as Record<string, any>).find((b) => b.sandbox === name && b.state === 'bound')
+      if (!owner) return false
+      await sessions.close(owner.sessionId, 'user')
+      return true
+    },
     log: (line) => logger.warn(line),
   }
   const groups = createGroups(host, () => ctx.layerfs.status())

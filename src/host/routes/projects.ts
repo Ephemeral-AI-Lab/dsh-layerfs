@@ -437,6 +437,8 @@ export class Projects {
   /** sandbox.close(name, { force }); answers its result, with the `unknown` Workspaces a forced close left. */
   async closeSandbox(name: string, { force = false } = {}) {
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'Name the Sandbox to close.')
+    // A session's Sandbox holds its mounted Workspace: save a checkpoint and close it as the session does.
+    if (await this.host.closeSessionSandbox?.(name)) return { kind: 'Closed', sandbox: name, closed: name, session: true }
     return this.lfs.sandbox.close(name, force ? { force: true } : {})
   }
 

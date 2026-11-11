@@ -27,6 +27,8 @@ export interface RouteHost {
   emit(type: string, data?: unknown): void
   /** Log a line (warnings). */
   log(line: string): void
+  /** Close a Sandbox a DSH session owns the way the session does (save first); false when no session owns it. */
+  closeSessionSandbox?(name: string): Promise<boolean>
 }
 
 /** An error the routes throw: answered as `{ code, message }` with `status` (or the code's mapped status). */
