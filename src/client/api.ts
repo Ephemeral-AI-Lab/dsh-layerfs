@@ -65,11 +65,13 @@ export function q(params: Record<string, string | number | boolean | undefined |
 type RemoteResult = { ok: true, value: any } | { ok: false, error: { code: string, message: string, details?: any } }
 
 /**
- * Build the API over the mounted `remote.layerfs` namespace.
- * @param ctx - a client context injected with `remote.layerfs`.
+ * Build the API over the `remote.layerfs` namespace. The namespace is resolved
+ * per call (it remounts when the connection resets), so the API and the pages
+ * holding it outlive remounts.
+ * @param remote - the mounted namespace, or undefined while it is (re)mounting.
  * @param nav - DSH navigation (panels, workspaces, sessions).
  */
-export function createApi(ctx: any, nav: Navigator): LayerfsApi & { dispose(): void } {
+export function createApi(remote: () => any, nav: Navigator): LayerfsApi & { dispose(): void } {
   const listeners = new Map<string, Set<(e: HostEvent) => void>>()
   let live = false
   let disposed = false
@@ -86,8 +88,17 @@ export function createApi(ctx: any, nav: Navigator): LayerfsApi & { dispose(): v
     throw new HostError(d.code ?? r.error.code, r.error.message, 500, d.detail ?? null)
   }
 
+  const namespace = async (): Promise<any> => {
+    for (let waited = 0; ; waited += 100) {
+      const ns = remote()
+      if (ns) return ns
+      if (disposed || waited > 15000) throw new HostError('no-host', 'The dsh-layerfs host is not connected', 0)
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
+
   async function op<T>(name: string, args?: unknown): Promise<T> {
-    const r: RemoteResult = await ctx.remote.layerfs.call({ op: name, args: args ?? {} })
+    const r: RemoteResult = await (await namespace()).call({ op: name, args: args ?? {} })
     if (!r.ok) fail(r)
     const value = (r as { value: any }).value
     // A host answer may ask the client to navigate (e.g. open the new session).
@@ -117,7 +128,7 @@ export function createApi(ctx: any, nav: Navigator): LayerfsApi & { dispose(): v
     let delay = 500
     while (!disposed) {
       try {
-        handle = ctx.remote.layerfs.events()
+        handle = (await namespace()).events()
         for await (const item of handle) {
           if (disposed) break
           const event = (item && typeof item === 'object' && 'value' in item && !('type' in item)) ? item.value : item

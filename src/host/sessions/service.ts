@@ -100,7 +100,8 @@ export class LayerfsSessions extends Service {
     await this.lfs.project.get(project)
     const anchor = this.anchorOf(project)
     this.writeAnchor(anchor, `# ${project}\n\nThe DeepSeek Harness workspace of LayerFS project \`${project}\`.\n\nEach session works in its own LayerFS Workspace (branch \`dsh.<session>\`), mounted as its\nworking directory and checkpointed at the end of every turn. \`sessions/<session>/\` is that\nsession's scratch folder: it is never saved into the project.\n`)
-    const workspace = await this.ctx.workspaceRegistry.create(anchor, project.split('/')[1])
+    const [store, name] = project.split('/')
+    const workspace = await this.ctx.workspaceRegistry.create(anchor, `${name} · ${store}`)
     this.state.update((s) => { s.projects[project] = { project, anchor, workspaceId: String(workspace.id), createdAt: s.projects[project]?.createdAt ?? Date.now() } })
     this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
     return { workspaceId: String(workspace.id), anchor }

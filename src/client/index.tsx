@@ -23,20 +23,18 @@ export function apply(ctx: any): void {
     void ctx.remote.$mount(info).then((d: () => unknown) => { if (gone) void d(); else dispose = d })
     return () => { gone = true; void dispose?.() }
   }, 'dsh-layerfs: remote')
-  ctx.inject(['remote.layerfs'], (ctx: any) => {
-    const workspace = () => ctx.get?.('uiWorkspace')
-    const api = createApi(ctx, {
-      openPanel: (id) => ctx.layout.selectPanel(id),
-      openWorkspace: async (id) => { await workspace()?.openWorkspace(id) },
-      openSession: (id) => { workspace()?.openSession(id) },
-    })
-    ctx.effect(() => () => api.dispose(), 'dsh-layerfs: api')
-    // Browser automation handle (tools/, test/e2e): opt-in per browser profile.
-    if (typeof window !== 'undefined' && window.localStorage?.getItem('dsh-layerfs:debug') === '1') {
-      ctx.effect(() => { (window as any).__dshLayerfs = api; return () => { delete (window as any).__dshLayerfs } }, 'dsh-layerfs: debug')
-    }
-    registerMachines(ctx, api)
-    registerStorage(ctx, api)
-    registerSession(ctx, api)
+  const workspace = () => ctx.get?.('uiWorkspace')
+  const api = createApi(() => ctx.get?.('remote.layerfs'), {
+    openPanel: (id) => ctx.layout.selectPanel(id),
+    openWorkspace: async (id) => { await workspace()?.openWorkspace(id) },
+    openSession: (id) => { workspace()?.openSession(id) },
   })
+  ctx.effect(() => () => api.dispose(), 'dsh-layerfs: api')
+  // Browser automation handle (tools/, test/): opt-in per browser profile.
+  if (typeof window !== 'undefined' && window.localStorage?.getItem('dsh-layerfs:debug') === '1') {
+    ctx.effect(() => { (window as any).__dshLayerfs = api; return () => { delete (window as any).__dshLayerfs } }, 'dsh-layerfs: debug')
+  }
+  registerMachines(ctx, api)
+  registerStorage(ctx, api)
+  registerSession(ctx, api)
 }

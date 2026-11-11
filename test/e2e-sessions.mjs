@@ -116,6 +116,19 @@ try {
   const files = await http('GET', `/api/projects/${encodeURIComponent(project)}/fs?branch=${encodeURIComponent(`dsh.session.${sid.replace(/^session-/, '').replace(/[^A-Za-z0-9]/g, '').toLowerCase()}`)}&path=${encodeURIComponent('/.dsh/session')}`)
   console.log(JSON.stringify(files).slice(0, 300))
 
+  step('UI: the session panel shows the checkpoints')
+  await page.locator('[role=treeitem][data-row-key^="session:"]', { hasText: 'Fake session' }).first().click()
+  await page.getByRole('button', { name: 'Open the LayerFS panel' }).first().click({ timeout: 15000 })
+  await page.getByText('Checkpoints', { exact: true }).first().waitFor({ timeout: 15000 })
+  await page.screenshot({ path: '/tmp/e2e-sessions-panel.png' })
+
+  if (!process.argv.includes('--keep')) {
+    step('cleanup')
+    for (const id of [child, sid]) await must('sessions.forget', { sessionId: id })
+    await http('DELETE', `/api/projects/${encodeURIComponent(project)}`)
+    await http('DELETE', `/api/stores/${encodeURIComponent(store)}?confirm=${encodeURIComponent(store)}`).catch((e) => console.log('store kept:', e.message))
+  }
+
   console.log('\nE2E PASS')
 } catch (error) {
   failed = true

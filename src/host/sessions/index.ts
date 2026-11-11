@@ -166,6 +166,12 @@ export function apply(ctx: Context): void {
         const project = args?.project ?? sessions.binding(sessionId)?.project
         if (!project) throw new CliError('NotFound', 'This session is not stored locally and no project names it')
         const out = await store.import(project, sessionId)
+        // Resuming the imported session announces it to every client (api-session/added) and binds its Workspace.
+        const controller = ctx.get('sessionController' as never) as any
+        if (controller?.resolveAgent) {
+          const resolved = await controller.resolveAgent(sessionId)
+          if (resolved && 'error' in resolved) throw resolved.error
+        }
         return { ...out, navigate: { sessionId } }
       },
       'sessions.close': async (args: any) => { await sessions.close(need(args, 'sessionId'), 'user'); return { ok: true } },
