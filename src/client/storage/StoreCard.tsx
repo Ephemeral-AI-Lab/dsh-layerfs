@@ -1,19 +1,15 @@
 /**
- * One Store on the board: its row (name opens the Store's page; kind,
- * location, size, backups, Add project and the Store menu), a job or notice
- * under it, then its projects as rows.
+ * The Store pieces the explorer and the Store page share: where a Store is,
+ * the Store menu, the words under its name and why it needs you now.
  */
 import type { ReactNode } from 'react'
-import clsx from 'clsx'
-import { Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ago, bytes, when } from '../files/format.ts'
+import { MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Card, LinkButton, MoreMenu, Notice, StateChip } from '../ui/index.tsx'
-import { JobPanel, OpPanel } from './JobProgress.tsx'
+import { LinkButton, MoreMenu } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { canAddProject, inHome, latestBackup, storeStateWords, storeTone } from './model.ts'
-import { StoreGlyph } from './parts.tsx'
-import type { DoctorFinding, ProjectSummary, StorageJob, StoreBackupLink, StoreRow } from './types.ts'
+import { canAddProject, inHome, latestBackup } from './model.ts'
+import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
 export interface StoreActions {
@@ -104,72 +100,4 @@ export function storeNotice(s: StoreRow, machineState: string | null | undefined
   if (s.kind === 'sqlite' && machineState === 'stopped') return t('machineStopped', { machine: s.machine ?? '?' })
   if (s.kind === 'postgresql' && s.postgresql?.reachable === false) return s.postgresql.error ?? t('unreachable')
   return null
-}
-
-export interface StoreCardProps {
-  store: StoreRow
-  t: StorageT
-  now: number
-  machineState: string | null | undefined
-  attention: 'warning' | 'danger' | null
-  job: StorageJob | undefined
-  findings: readonly DoctorFinding[]
-  projects: readonly string[]
-  catalog: ReadonlyMap<string, ProjectSummary>
-  searching: boolean
-  on: StoreActions
-  onOpen: () => void
-  onOpenProject: (key: string) => void
-}
-
-export function StoreCard({ store: s, t, now, machineState, attention, job, findings, projects, catalog, searching, on, onOpen, onOpenProject }: StoreCardProps): ReactNode {
-  const notice = storeNotice(s, machineState, t)
-  return (
-    <Card className={css.storeCard} tone={attention ?? undefined} aria-label={s.name} data-store={s.name}>
-      <div className={css.cardHead}>
-        <span className={css.cardIcon} aria-hidden="true"><StoreGlyph kind={s.kind} size={20} /></span>
-        <div className={css.cardMain}>
-          <div className={css.titleRow}>
-            <button type="button" className={css.cardTitle} onClick={onOpen} aria-label={t('openStore', { name: s.name })}>{s.name}</button>
-            {s.state !== 'idle' ? <StateChip tone={storeTone(s.state)} label={storeStateWords(s.state, t)} live={s.state === 'busy'} /> : null}
-          </div>
-          <StoreSub store={s} t={t} now={now} onMachine={on.openMachine} />
-        </div>
-        <div className={css.cardEnd}>
-          <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={13} />} disabled={!canAddProject(s)} onClick={on.addProject}>{t('addProject')}</Button>
-          <StoreMenu store={s} on={on} t={t} />
-        </div>
-      </div>
-      {job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
-        : s.state === 'busy' && s.op ? <OpPanel store={s} t={t} /> : null}
-      {notice ? (
-        <Notice tone="danger" className={css.cardNotice}>
-          <span>{notice}</span>
-          {s.kind === 'sqlite' && machineState === 'stopped' ? <Button variant="outline" size="sm" onClick={on.start}>{t('startMachine', { machine: s.machine ?? '' })}</Button> : null}
-        </Notice>
-      ) : null}
-      {findings.length ? (
-        <Notice tone={findings.some((f) => f.severity === 'error') ? 'danger' : 'warning'} className={css.cardNotice}>
-          <span>{findings.map((f) => f.message).join(' · ')}</span>
-        </Notice>
-      ) : null}
-      {projects.length ? (
-        <ul className={css.projectRows}>
-          {projects.map((name) => {
-            const key = `${s.name}/${name}`
-            const created = catalog.get(key)?.created ?? null
-            return (
-              <li key={key}>
-                <button type="button" className={css.projectRow} onClick={() => onOpenProject(key)} aria-label={t('openProject', { name })}>
-                  <span className={css.projectName}>{name}</span>
-                  <span className={css.projectMeta} title={when(created)}>{created ? ago(created, now, t as Translate) : ''}</span>
-                  <IconChevronRightOutlineRegular size={14} className={css.projectChevron} />
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      ) : <p className={clsx(css.cardEmpty)}>{searching ? t('noMatchingProjects') : t('noProjects')}</p>}
-    </Card>
-  )
 }

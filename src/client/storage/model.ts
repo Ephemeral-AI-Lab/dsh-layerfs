@@ -1,6 +1,6 @@
 /** Storage's pure rules: placement, attention, backup coverage and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
-import type { BackupState, BucketRow, JobKind, StorageJob, StorageView, StoreRow } from './types.ts'
+import type { BackupState, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import type { StorageT } from './locale.ts'
 
 /** A sqlite Store saved under the LayerFS home (`native`). */
@@ -88,6 +88,28 @@ export function coverageOf(view: StorageView) {
 
 /** Where a Store is, in words: the home, a machine, or PostgreSQL. */
 export const placeWords = (machine: string | null | undefined, t: StorageT): string => (machine === 'native' ? t('home') : (machine ?? '?'))
+
+/** One file a bucket holds: the file, the Store it belongs to, its last listed state. */
+export interface BucketFileRow {
+  file: string
+  store: StoreRow | null
+  storeName: string | null
+  state: BackupState | null
+  bytes: number | null
+  modified: number | null
+  reason: string | null
+  link: StoreBackupLink | null
+}
+
+/** A bucket's files: its listing when it was listed, else the Stores' links alone. */
+export function bucketFiles(b: BucketRow, stores: readonly StoreRow[]): BucketFileRow[] {
+  const byName = new Map(stores.map((s) => [s.name, s]))
+  const linkOf = (s: StoreRow | undefined, file: string) => s?.links.find((l) => l.bucket === b.name && l.file === file) ?? null
+  const rows: BucketFileRow[] = b.files
+    ? b.files.map((f) => ({ file: f.file, store: (f.store && byName.get(f.store)) || null, storeName: f.store, state: f.state, bytes: f.bytes, modified: f.modified, reason: f.reason, link: linkOf(f.store ? byName.get(f.store) : undefined, f.file) }))
+    : stores.flatMap((s) => s.links.filter((l) => l.bucket === b.name).map((l) => ({ file: l.file, store: s, storeName: s.name, state: null, bytes: l.last?.bytes ?? null, modified: null, reason: null, link: l })))
+  return rows.sort((x, y) => x.file.localeCompare(y.file) || (x.storeName ?? '').localeCompare(y.storeName ?? ''))
+}
 
 // ---------- jobs ----------
 

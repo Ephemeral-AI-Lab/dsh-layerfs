@@ -26,18 +26,14 @@ export interface ProjectPageProps {
   t: StorageT
   /** The project key, `<store>/<project>`. */
   project: string
-  onStorage: () => void
-  onStore: (name: string) => void
   /** Opens a dialog of the Storage page (delete, close a Sandbox). */
   onDialog: (dialog: StorageDialog) => void
   /** The project is gone: back to its Store. */
   onRemoved: () => void
 }
 
-export function ProjectPage({ api, t, project, onStorage, onStore, onDialog, onRemoved }: ProjectPageProps): ReactNode {
-  const at = project.indexOf('/')
-  const store = project.slice(0, at)
-  const name = project.slice(at + 1)
+export function ProjectPage({ api, t, project, onDialog, onRemoved }: ProjectPageProps): ReactNode {
+  const name = project.slice(project.indexOf('/') + 1)
   const [tab, setTab] = useState<Tab>('files')
   const [tick, setTick] = useState(0)
   const [open, setOpen] = useState<{ branch?: string, pin?: string, path?: string, n: number }>({ n: 0 })
@@ -55,7 +51,7 @@ export function ProjectPage({ api, t, project, onStorage, onStore, onDialog, onR
   })
   return (
     <div className={css.projectPage}>
-      <PageHead title={name} crumbs={[{ label: t('storage'), onClick: onStorage }, { label: store, onClick: () => onStore(store) }]} current={name}
+      <PageHead title={name}
         actions={(
           <>
             <Tooltip label={t('refreshProject')} side="bottom" portal delayMs={500}>

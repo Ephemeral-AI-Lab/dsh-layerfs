@@ -1,33 +1,32 @@
 /**
- * The Storage page: the board (Projects, Details, Backups), a Store's page or
- * a project's page, with their dialogs. Navigation is local. The view is read
- * again on the host's `storage` events, after each action and on a poll; jobs
- * move on `storage-job` events.
+ * The Storage page, shaped like an IDE: the explorer sidebar holds the
+ * Stores-as-folders / projects-as-files outline with the backup buckets, and
+ * every Store, project or bucket clicked opens as a tab in the editor. The
+ * overview tab carries the board's summary, doctor and details. The view is
+ * read again on the host's `storage` events, after each action and on a poll;
+ * jobs move on `storage-job` events.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, SegmentedTabs, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCloseOutlineRegular, IconDatabaseOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { DoctorT } from '../doctor/locale.ts'
 import { bytes } from '../files/format.ts'
-import { useQuery } from '../files/use-query.ts'
-import { Empty, LoadError, Loading, Page, PageHead, Refusal, Section, StateChip } from '../ui/index.tsx'
-import { StorageBackups } from './Backups.tsx'
+import { useQuery, type Query } from '../files/use-query.ts'
+import { Empty, LoadError, Loading, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
+import { BucketPage } from './BucketPage.tsx'
 import { StorageDetails } from './Details.tsx'
 import { StorageDialogs, type StorageDialog } from './dialogs.tsx'
 import { DoctorBadge, DoctorFindings } from './Doctor.tsx'
+import { Explorer, FileGlyph, type TabId, type TreeKey } from './Explorer.tsx'
 import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
-import type { StorageKey, StorageT } from './locale.ts'
-import { attentionOf, cardJob, groupOf, jobCounts, orderStores } from './model.ts'
-import { refusalLabels, StoreGlyph } from './parts.tsx'
+import type { StorageT } from './locale.ts'
+import { cardJob, groupOf, jobCounts, orderStores } from './model.ts'
+import { BucketGlyph, refusalLabels, StoreGlyph } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
-import { StoreCard, type StoreActions } from './StoreCard.tsx'
+import type { StoreActions } from './StoreCard.tsx'
 import { StorePage } from './StorePage.tsx'
 import type { DoctorReport, ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './Storage.module.css'
-
-/** Where the page is. */
-type Nav = { kind: 'board' } | { kind: 'store', name: string } | { kind: 'project', key: string }
-type BoardTab = 'projects' | 'details' | 'backups'
 
 const POLL_MS = 15_000
 const MACHINES_PANEL = 'layerfs-machines'
@@ -39,8 +38,6 @@ export interface StoragePageProps {
 }
 
 export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
-  const [nav, setNav] = useState<Nav>({ kind: 'board' })
-  const [tab, setTab] = useState<BoardTab>('projects')
   const [tick, setTick] = useState(0)
   const [checks, setChecks] = useState(0)
   const reload = () => setTick((n) => n + 1)
@@ -55,6 +52,11 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
   const [query, setQuery] = useState('')
   const [listing, setListing] = useState<string | null>(null)
   const [listingAll, setListingAll] = useState(false)
+
+  // The editor: the pages opened from the outline, and which is active.
+  const [tabs, setTabs] = useState<TabId[]>(['overview'])
+  const [active, setActive] = useState<TabId | null>('overview')
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(['g:home', 'g:machines', 'g:postgresql', 'g:backups']))
 
   useHostEvents(api, ['storage', 'projects', 'projects-changed', 'connection'], (e) => {
     if (e.type !== 'connection' || (e.data as { connected?: boolean } | undefined)?.connected) reload()
@@ -72,6 +74,48 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
   const [manual, setManual] = useState(false)
   useEffect(() => { if (!storage.loading) setManual(false) }, [storage.loading])
   const refresh = () => { reload(); setChecks((n) => n + 1) }
+
+  /** The outline keys an opened page reveals (its place group and its folder). */
+  const revealOf = (id: TabId): TreeKey[] => {
+    if (id === 'overview') return []
+    const body = id.slice(id.indexOf(':') + 1)
+    const storeName = id.startsWith('project:') ? body.slice(0, body.indexOf('/')) : body
+    if (id.startsWith('bucket:')) return ['g:backups', `b:${body}`]
+    const s = view?.stores.find((x) => x.name === storeName)
+    return s ? [`g:${groupOf(s)}` as TreeKey, `s:${s.name}`] : [`s:${storeName}`]
+  }
+  const open = (id: TabId) => {
+    setTabs((had) => had.includes(id) ? had : [...had, id])
+    setActive(id)
+    const reveal = revealOf(id)
+    if (reveal.length) setExpanded((had) => {
+      const next = new Set(had)
+      for (const k of reveal) next.add(k)
+      return next
+    })
+  }
+  const close = (id: TabId) => {
+    const next = tabs.filter((x) => x !== id)
+    setTabs(next)
+    if (active === id) setActive(next[Math.min(tabs.indexOf(id), next.length - 1)] ?? null)
+  }
+  /** Every page of a Store: its own tab and its projects'. */
+  const closeStore = (name: string) => {
+    const gone = (id: TabId) => id === `store:${name}` || id.startsWith(`project:${name}/`)
+    const next = tabs.filter((id) => !gone(id))
+    setTabs(next)
+    if (active && gone(active)) setActive(next[next.length - 1] ?? null)
+  }
+  const toggle = (key: TreeKey) => {
+    const willOpen = !expanded.has(key)
+    setExpanded((had) => { const next = new Set(had); if (willOpen) next.add(key); else next.delete(key); return next })
+    // Expanding a bucket folder lists it once, so its files show.
+    if (willOpen && key.startsWith('b:')) {
+      const b = view?.buckets.find((x) => x.name === key.slice(2))
+      if (b && b.files === null) listBucket(b.name)
+    }
+  }
+
   /** An action that answers at once (a job starts): its refusal shows on the page. */
   const act = (work: () => Promise<unknown>) => {
     setFailed(undefined)
@@ -94,11 +138,11 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
     restore: (bucket, file) => setDialog({ kind: 'restore', bucket, file, store: s.name }),
     remove: () => setDialog({
       kind: 'confirm', title: t('confirmTitleRemove', { name: s.name }), body: t('confirmRemoveBody', { n: s.projects.length }), action: t('removeAction'), name: s.name,
-      run: () => api.call('DELETE', `/api/stores/${enc(s.name)}?confirm=${enc(s.name)}`).then(() => setNav({ kind: 'board' })),
+      run: () => api.call('DELETE', `/api/stores/${enc(s.name)}?confirm=${enc(s.name)}`).then(() => closeStore(s.name)),
     }),
     disconnect: () => setDialog({
       kind: 'confirm', title: t('confirmTitlePg', { name: s.name }), body: t('confirmPgBody'), action: t('disconnectAction'),
-      run: () => api.call('POST', `/api/stores/${enc(s.name)}/disconnect`).then(() => setNav({ kind: 'board' })),
+      run: () => api.call('POST', `/api/stores/${enc(s.name)}/disconnect`).then(() => closeStore(s.name)),
     }),
     start: () => act(() => api.call('POST', `/api/machines/${enc(s.machine ?? '')}/start`)),
     addProject: () => setDialog({ kind: 'add-project', store: s.name }),
@@ -123,131 +167,171 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
     </div>
   ) : null
 
-  if (nav.kind === 'project') {
-    return (
-      <Page wide label={t('title')}>
-        <ProjectPage api={api} t={t} project={nav.key} onStorage={() => setNav({ kind: 'board' })}
-          onStore={(name) => setNav({ kind: 'store', name })} onDialog={setDialog}
-          onRemoved={() => { refresh(); setNav({ kind: 'store', name: nav.key.slice(0, nav.key.indexOf('/')) }) }} />
-        {dialogs}
-      </Page>
-    )
+  /** The glyph and words a tab carries. */
+  const tabOf = (id: TabId): { icon: ReactNode, label: string } => {
+    if (id === 'overview') return { icon: <IconDatabaseOutlineRegular size={14} />, label: t('overview') }
+    const body = id.slice(id.indexOf(':') + 1)
+    if (id.startsWith('store:')) {
+      const s = view?.stores.find((x) => x.name === body)
+      return { icon: s ? <StoreGlyph kind={s.kind} size={14} /> : <FileGlyph />, label: body }
+    }
+    if (id.startsWith('project:')) return { icon: <FileGlyph />, label: body.slice(body.indexOf('/') + 1) }
+    return { icon: <BucketGlyph size={14} />, label: body }
   }
 
-  if (nav.kind === 'store' && view) {
-    const s = view.stores.find((x) => x.name === nav.name)
+  const tabPage = (id: TabId): ReactNode => {
+    if (id === 'overview') {
+      return (
+        <Page label={t('title')}>
+          <Overview view={view} error={storage.error} t={t} api={api} doctorT={doctorT} now={now} doctor={doctor} doctorOpen={doctorOpen}
+            jobs={jobs} dismissed={dismissed} manual={manual} onToggleDoctor={() => setDoctorOpen((o) => !o)}
+            onRefresh={() => { setManual(true); refresh() }} onNewStore={() => setDialog({ kind: 'new-store' })}
+            onOpenStore={(name) => open(`store:${name}`)} onOpenMachine={openMachine} retry={refresh} />
+        </Page>
+      )
+    }
+    if (id.startsWith('store:')) {
+      const name = id.slice(6)
+      const s = view?.stores.find((x) => x.name === name)
+      if (!view) return <Page label={t('title')}><Loading label={t('readingStores')} /></Page>
+      return (
+        <Page label={t('title')}>
+          <StorePage name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, name, dismissed, now)} jobs={jobs.filter((j) => j.store === name)}
+            catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} />
+        </Page>
+      )
+    }
+    if (id.startsWith('project:')) {
+      const key = id.slice(8)
+      const store = key.slice(0, key.indexOf('/'))
+      return (
+        <Page wide label={t('title')}>
+          <ProjectPage api={api} t={t} project={key} onDialog={setDialog}
+            onRemoved={() => { refresh(); setTabs((had) => had.filter((x) => x !== id)); open(`store:${store}`) }} />
+        </Page>
+      )
+    }
+    const name = id.slice(7)
+    if (!view) return <Page label={t('title')}><Loading label={t('readingStores')} /></Page>
     return (
       <Page label={t('title')}>
-        {refusal}
-        <StorePage name={nav.name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, nav.name, dismissed, now)} jobs={jobs.filter((j) => j.store === nav.name)}
-          catalog={catalog} on={s ? actionsFor(s) : undefined} onBack={() => setNav({ kind: 'board' })} onOpenProject={(key) => setNav({ kind: 'project', key })} />
-        {dialogs}
+        <BucketPage name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} listing={listingAll || listing === name}
+          onList={() => listBucket(name)}
+          onRestore={(file, store) => setDialog({ kind: 'restore', bucket: name, file, store })}
+          onBackup={(store, file) => act(() => api.call('POST', `/api/stores/${enc(store)}/backup`, { bucket: name, file }))}
+          onDisconnect={() => setDialog({
+            kind: 'confirm', title: t('confirmTitleBucket', { name }), body: t('confirmBucketBody'), action: t('disconnectAction'),
+            run: () => api.call('DELETE', `/api/buckets/${enc(name)}`).then(() => close(`bucket:${name}`)),
+          })}
+          onOpenStore={(store) => open(`store:${store}`)} />
       </Page>
     )
   }
 
-  const stores = orderStores(view?.stores ?? [])
+  const explorerView: StorageView = view ?? { machines: [], stores: [], buckets: [], jobs: [], at: 0 }
+  return (
+    <div className={css.ide}>
+      <Explorer view={explorerView} t={t} now={now} jobs={jobs} dismissed={dismissed} active={active} expanded={expanded} query={query}
+        refreshing={manual || storage.loading} listing={listing} listingAll={listingAll} onQuery={setQuery} onToggle={toggle} onOpen={open}
+        onRefresh={() => { setManual(true); refresh() }} onNewStore={() => setDialog({ kind: 'new-store' })} onListAll={listAll}
+        onAddBucket={() => setDialog({ kind: 'bucket' })} />
+      <div className={css.editor}>
+        <div className={css.tabs} role="tablist" aria-label={t('openedTabs')}>
+          {tabs.map((id) => {
+            const { icon, label } = tabOf(id)
+            return (
+              <div key={id} className={css.tab} role="tab" aria-selected={active === id} data-active={active === id || undefined}
+                tabIndex={0} title={id === 'overview' ? label : id.slice(id.indexOf(':') + 1)}
+                onClick={() => setActive(id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActive(id) } }}>
+                <span className={css.tabIcon} aria-hidden="true">{icon}</span>
+                <span className={css.tabLabel}>{label}</span>
+                <button type="button" className={css.tabClose} aria-label={t('closeTab', { name: label })} tabIndex={-1}
+                  onClick={(e) => { e.stopPropagation(); close(id) }}>
+                  <IconCloseOutlineRegular size={12} />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        {refusal}
+        <div className={css.panels}>
+          {tabs.length === 0 ? (
+            <div className={css.editorEmpty}>
+              <Empty title={t('editorEmptyTitle')} icon={<StoreGlyph kind="sqlite" size={22} />}>{t('editorEmptyBody')}</Empty>
+            </div>
+          ) : tabs.map((id) => (
+            <div key={id} className={css.tabBody} role="tabpanel" hidden={id !== active}>{tabPage(id)}</div>
+          ))}
+        </div>
+      </div>
+      {dialogs}
+    </div>
+  )
+}
+
+/** The overview tab: the board's head, doctor, coverage and details. */
+function Overview({ view, error, t, api, doctorT, now, doctor, doctorOpen, jobs, dismissed, manual, onToggleDoctor, onRefresh, onNewStore, onOpenStore, onOpenMachine, retry: onRetry }: {
+  view: StorageView | undefined
+  error: unknown
+  t: StorageT
+  api: LayerfsApi
+  doctorT: DoctorT
+  now: number
+  doctor: Query<DoctorReport>
+  doctorOpen: boolean
+  jobs: readonly StorageJob[]
+  dismissed: ReadonlySet<string>
+  manual: boolean
+  onToggleDoctor: () => void
+  onRefresh: () => void
+  onNewStore: () => void
+  onOpenStore: (name: string) => void
+  onOpenMachine: (name: string) => void
+  retry: () => void
+}): ReactNode {
   const counts = jobCounts(jobs, dismissed)
+  if (!view) {
+    return error
+      ? <LoadError title={t('storageFailed')} error={error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={onRetry} />
+      : <Loading label={t('readingStores')} />
+  }
+  const stores = orderStores(view.stores)
   const sqlite = stores.filter((s) => s.kind === 'sqlite')
   const projectCount = stores.reduce((n, s) => n + s.projects.length, 0)
-  const q = query.trim().toLowerCase()
-  const shown = stores.map((s) => {
-    const storeHit = !q || `${s.name} ${s.kind} ${s.machine ?? ''} ${s.postgresql?.target ?? ''}`.toLowerCase().includes(q)
-    const projects = [...s.projects].sort().filter((p) => storeHit || p.toLowerCase().includes(q))
-    return { s, projects, searching: !storeHit, show: storeHit || projects.length > 0 }
-  }).filter((x) => x.show)
-  const groups: { id: 'home' | 'machines' | 'postgresql', title: StorageKey }[] = [
-    { id: 'home', title: 'groupHome' }, { id: 'machines', title: 'groupMachines' }, { id: 'postgresql', title: 'groupPostgresql' },
-  ]
-  const findingsFor = (name: string) => (doctor.data?.findings ?? []).filter((f) => f.entity?.kind === 'store' && f.entity.name === name)
   const summary = [
     stores.length === 1 ? t('summaryStore') : t('summaryStores', { n: stores.length }),
     projectCount === 1 ? t('summaryProject') : t('summaryProjects', { n: projectCount }),
     sqlite.length ? t('summarySqlite', { size: bytes(sqlite.reduce((n, s) => n + (s.size?.bytes ?? 0), 0)) }) : null,
   ].filter(Boolean).join(' · ')
-
   return (
-    <Page label={t('title')}>
+    <>
       <PageHead title={t('title')} intro={t('intro')}
-        badge={view ? (
+        badge={(
           <>
             {counts.running ? <StateChip tone="info" live label={t('jobsRunning', { n: counts.running })} /> : null}
             {counts.failed ? <StateChip tone="danger" label={t('jobsFailed', { n: counts.failed })} /> : null}
           </>
-        ) : undefined}
+        )}
         actions={(
           <>
             <Button variant="outline" size="sm" className={css.toolbarButton} aria-label={t('refresh')} disabled={manual}
-              icon={manual ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />} onClick={() => { setManual(true); refresh() }}>
+              icon={manual ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />} onClick={onRefresh}>
               <span className={css.toolbarLabel}>{t('refresh')}</span>
             </Button>
-            <Button variant="primary" size="sm" className={css.toolbarButton} icon={<IconPlusOutlineRegular size={13} />} onClick={() => setDialog({ kind: 'new-store' })}>
+            <Button variant="primary" size="sm" className={css.toolbarButton} icon={<IconPlusOutlineRegular size={13} />} onClick={onNewStore}>
               <span className={css.toolbarLabel}>{t('newStore')}</span>
             </Button>
           </>
         )} />
-      {!view ? (
-        storage.error ? <LoadError title={t('storageFailed')} error={storage.error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={refresh} /> : <Loading label={t('readingStores')} />
-      ) : (
-        <>
-          {refusal}
-          <div className={css.summary}>
-            <span>{summary}</span>
-            <DoctorBadge read={doctor} open={doctorOpen} onToggle={() => setDoctorOpen((o) => !o)} t={t} now={now} />
-          </div>
-          {doctorOpen ? <DoctorFindings read={doctor} t={t} now={now} /> : null}
-          <div className={css.tabBar}>
-            <SegmentedTabs size="sm" className={css.tabList} label={t('tabsLabel')} value={tab} onChange={setTab}
-              items={[
-                { value: 'projects', label: t('tabProjects'), id: 'lfs-storage-projects', panelId: 'lfs-storage-projects-panel' },
-                { value: 'details', label: t('tabDetails'), id: 'lfs-storage-details', panelId: 'lfs-storage-details-panel' },
-                { value: 'backups', label: t('tabBackups'), id: 'lfs-storage-backups', panelId: 'lfs-storage-backups-panel' },
-              ]} />
-            {tab === 'projects' && stores.length > 0 ? (
-              <Input className={css.search} icon={<IconSearchOutlineRegular size={14} />} placeholder={t('searchPlaceholder')} aria-label={t('searchPlaceholder')}
-                value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.preventDefault(); setQuery('') } }} />
-            ) : null}
-          </div>
-          <div role="tabpanel" id={`lfs-storage-${tab}-panel`} aria-labelledby={`lfs-storage-${tab}`} className={css.tabPanel}>
-            {tab === 'details' ? (
-              <StorageDetails view={view} t={t} now={now} onOpenStore={(name) => setNav({ kind: 'store', name })} onOpenMachine={openMachine} />
-            ) : tab === 'backups' ? (
-              <StorageBackups view={view} t={t} api={api} doctorT={doctorT} now={now} listing={listing} listingAll={listingAll} onList={listBucket} onListAll={listAll}
-                onRestore={(bucket, file, store) => setDialog({ kind: 'restore', bucket, file, store })}
-                onBackup={(store, bucket, file) => act(() => api.call('POST', `/api/stores/${enc(store)}/backup`, { bucket, file }))}
-                onAdd={() => setDialog({ kind: 'bucket' })} onOpenStore={(name) => setNav({ kind: 'store', name })}
-                onDisconnect={(name) => setDialog({
-                  kind: 'confirm', title: t('confirmTitleBucket', { name }), body: t('confirmBucketBody'), action: t('disconnectAction'),
-                  run: () => api.call('DELETE', `/api/buckets/${enc(name)}`),
-                })} />
-            ) : stores.length === 0 ? (
-              <Empty title={t('noStores')} icon={<StoreGlyph kind="sqlite" size={20} />}>{t('noStoresBody')}</Empty>
-            ) : shown.length === 0 ? (
-              <Empty title={t('nothingMatches')}>{t('nothingMatchesBody', { query: query.trim() })}</Empty>
-            ) : groups.map((g) => {
-              const members = shown.filter((x) => groupOf(x.s) === g.id)
-              if (!members.length) return null
-              return (
-                <Section key={g.id} title={t(g.title)} count={String(members.length)}>
-                  <div className={css.cards}>
-                    {members.map(({ s, projects, searching }) => {
-                      const machineState = view.machines.find((m) => m.name === s.machine)?.state
-                      const job = cardJob(jobs, s.name, dismissed, now)
-                      return (
-                        <StoreCard key={s.name} store={s} t={t} now={now} machineState={machineState}
-                          attention={job?.ended && job.error ? 'danger' : attentionOf(s, machineState, view.buckets)}
-                          job={job} findings={findingsFor(s.name)} projects={projects} catalog={catalog} searching={searching}
-                          on={actionsFor(s)} onOpen={() => setNav({ kind: 'store', name: s.name })} onOpenProject={(key) => setNav({ kind: 'project', key })} />
-                      )
-                    })}
-                  </div>
-                </Section>
-              )
-            })}
-          </div>
-        </>
-      )}
-      {dialogs}
-    </Page>
+      <div className={css.summary}>
+        <span>{summary}</span>
+        <DoctorBadge read={doctor} open={doctorOpen} onToggle={onToggleDoctor} t={t} now={now} />
+      </div>
+      {doctorOpen ? <DoctorFindings read={doctor} t={t} now={now} /> : null}
+      {stores.length === 0 && view.buckets.length === 0
+        ? <Empty title={t('noStores')} icon={<StoreGlyph kind="sqlite" size={20} />}>{t('noStoresBody')}</Empty>
+        : <StorageDetails view={view} t={t} now={now} onOpenStore={onOpenStore} onOpenMachine={onOpenMachine} />}
+    </>
   )
 }
