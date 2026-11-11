@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// End-to-end: a LayerFS project session in the real DSH web UI with the
+// End-to-end: LayerFS project sessions in the real DSH web UI with the
 // scripted fake model (dev/fake-llm). Needs a dev server started with
 // DSH_LAYERFS_DEV_OVERLAY=dev/fake-llm.overlay.yml.
 //   node test/e2e-sessions.mjs [--keep]
 // Checks: project workspace + session binding (branch, sandbox, mount, scratch),
 // per-turn checkpoints, restore files to a checkpoint, branch session at a
-// checkpoint (conversation fork + files fork), the LayerFS session store.
+// checkpoint (conversation fork + files fork), the LayerFS session store and
+// persistence row, Scratch sessions (Scratch workspace and DSH's default
+// workspace), and the add-workspace project picker.
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -116,18 +118,61 @@ try {
   const files = await http('GET', `/api/projects/${encodeURIComponent(project)}/fs?branch=${encodeURIComponent(`dsh.session.${sid.replace(/^session-/, '').replace(/[^A-Za-z0-9]/g, '').toLowerCase()}`)}&path=${encodeURIComponent('/.dsh/session')}`)
   console.log(JSON.stringify(files).slice(0, 300))
 
-  step('Scratch session (no project)')
+  step('Scratch session (Scratch workspace): its own Workspace in the Scratch project')
   const scratchWs = await must('sessions.prepareScratch')
   assert.ok(scratchWs.workspaceId)
   await page.waitForTimeout(1500)
   const ts = await runTurn(page, { message: 'bash: echo s > s.txt', newSession: false })
   assert.ok(ts.ok, `scratch turn: ${ts.error}`)
-  const sstate = await until('scratch bound', async () => {
+  const runtime = await must('runtime.status')
+  assert.equal(runtime.sessionPersistence, 'layerfs', 'the LayerFS session persistence row runs')
+  const sstate = await until('scratch bound + checkpoint', async () => {
     const s = await must('session.state', { sessionId: ts.sessionId })
-    return s.binding?.kind === 'scratch' ? s : null
+    return s.binding?.state === 'bound' && s.checkpoints.some((c) => c.kind === 'turn' && c.commit) ? s : null
   })
-  assert.ok(existsSync(join(sstate.binding.scratch, 's.txt')), 's.txt in the scratch folder')
-  assert.equal(sstate.checkpoints.length, 0, 'scratch sessions have no checkpoints')
+  assert.equal(sstate.scratchProject, true)
+  assert.equal(sstate.binding.project, runtime.scratchProject)
+  assert.ok(existsSync(join(sstate.binding.mount, 's.txt')), 's.txt in the Scratch Workspace')
+  assert.ok(existsSync(sstate.binding.scratch), 'scratch folder')
+
+  step('Default workspace session: also the Scratch project')
+  const defaultRow = await page.locator('button[aria-label^="New session in "]').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label').replace(/^New session in /, '')))
+  const defaultTitle = defaultRow.find((title) => /default/i.test(title))
+  assert.ok(defaultTitle, `default workspace row in ${JSON.stringify(defaultRow)}`)
+  const td = await runTurn(page, { workspace: defaultTitle, message: 'bash: echo d > d.txt' })
+  assert.ok(td.ok, `default workspace turn: ${td.error}`)
+  const dstate = await until('default session bound', async () => {
+    const s = await must('session.state', { sessionId: td.sessionId })
+    return s.binding?.state === 'bound' && s.checkpoints.some((c) => c.kind === 'turn' && c.commit) ? s : null
+  })
+  assert.equal(dstate.binding.project, runtime.scratchProject)
+  assert.ok(existsSync(join(dstate.binding.mount, 'd.txt')), 'd.txt in the Workspace, not the default folder')
+  assert.ok(!existsSync(join(dstate.binding.mount, 's.txt')), 'each Scratch session has its own branch')
+
+  step('Legacy: a session that already ran outside LayerFS is refused, not moved')
+  await must('sessions.forget', { sessionId: td.sessionId })
+  const tl = await runTurn(page, { message: 'bash: echo l > l.txt', newSession: false, expect: /before dsh-layerfs[^\n]*/ })
+  assert.ok(tl.ok, `legacy refusal shown: ${tl.error}`)
+  const lstate = await must('session.state', { sessionId: td.sessionId })
+  assert.equal(lstate.binding, null)
+  assert.equal(lstate.refusal?.code, 'LegacyFolderSession')
+
+  step('UI: Add workspace picks a LayerFS project')
+  await page.getByRole('button', { name: 'Add workspace' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'Choose a LayerFS project' })
+  await dialog.waitFor({ timeout: 15000 })
+  await dialog.getByRole('button', { name: new RegExp(`^${name}\\s*${store}`) }).click()
+  await dialog.waitFor({ state: 'detached', timeout: 20000 })
+  await page.waitForTimeout(1000)
+  const tp = await runTurn(page, { message: 'bash: echo picked > picked.txt', newSession: false })
+  assert.ok(tp.ok, `picked project turn: ${tp.error}`)
+  const pstate = await until('picked session bound', async () => {
+    const s = await must('session.state', { sessionId: tp.sessionId })
+    return s.binding?.state === 'bound' ? s : null
+  })
+  assert.equal(pstate.binding.project, project, 'the picked project')
+  assert.ok(existsSync(join(pstate.binding.mount, 'picked.txt')))
+  assert.ok(existsSync(join(pstate.binding.mount, 'README.md')), 'project files')
 
   step('UI: the session panel shows the checkpoints')
   await page.locator(`[role=treeitem][data-row-key="session:${sid}"]`).first().click()
@@ -137,7 +182,7 @@ try {
 
   if (!process.argv.includes('--keep')) {
     step('cleanup')
-    for (const id of [child, sid, ts.sessionId]) await must('sessions.forget', { sessionId: id })
+    for (const id of [child, sid, ts.sessionId, td.sessionId, tp.sessionId]) await must('sessions.forget', { sessionId: id })
     await http('DELETE', `/api/projects/${encodeURIComponent(project)}`)
     await http('DELETE', `/api/stores/${encodeURIComponent(store)}?confirm=${encodeURIComponent(store)}`).catch((e) => console.log('store kept:', e.message))
   }

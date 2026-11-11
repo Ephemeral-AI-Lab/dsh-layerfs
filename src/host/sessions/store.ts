@@ -1,7 +1,8 @@
 /**
- * The LayerFS session store (`sessionStore: layerfs`): each project session's
- * log is kept inside its LayerFS project, so conversations travel with the
- * project (backups, Store push/pull, another DSH install on the same Store).
+ * The LayerFS session store: each session's log is kept inside its LayerFS
+ * project (the Scratch project for sessions without one), so conversations
+ * travel with the project (backups, Store push/pull, another DSH install on
+ * the same Store).
  *
  *   branch  dsh.session.<session>   (forked from main; never mounted, never published)
  *   /.dsh/session/manifest.json     header, segment list, checkpoints, code branch
@@ -11,7 +12,10 @@
  * each turn the new events are appended here with one `file.apply` (one Commit).
  * A mirror failure never fails a turn: it is recorded and retried at the next
  * turn. Discovery lists a project's stored sessions; import rebuilds a session
- * that is missing locally through `ctx.sessionPersistence`.
+ * that is missing locally in DSH's local log (`localPersistence`), and sync
+ * imports every stored session of a project this DSH has a workspace for. The
+ * session persistence row (`session-persistence.ts`) imports on demand when a
+ * missing session is opened.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { realpathSync } from 'node:fs'
@@ -22,6 +26,7 @@ export const STORE_PREFIX = 'dsh.session.'
 const DIR = '/.dsh/session'
 const SEGMENT_EVENTS = 500
 const SEGMENT_BYTES = 256 * 1024
+const MISS_MS = 30_000
 
 const compact = (sessionId: string) => sessionId.replace(/^session-/, '').replace(/[^A-Za-z0-9]/g, '').toLowerCase()
 export const storeBranchOf = (sessionId: string) => `${STORE_PREFIX}${compact(sessionId)}`
@@ -43,12 +48,16 @@ export class SessionStore {
   private readonly timers = new Map<string, NodeJS.Timeout>()
   constructor(private readonly ctx: Context, private readonly sessions: LayerfsSessions) {}
 
+  /** Where each stored session found by discovery lives (session id -> project). */
+  private readonly found = new Map<string, string>()
+  private readonly syncing = new Map<string, Promise<number>>()
+  /** Session ids discovery did not find, and when: not searched again for {@link MISS_MS}. */
+  private readonly missed = new Map<string, number>()
+
   private get lfs() { return this.ctx.layerfs.lfs }
-  get enabled(): boolean { return this.ctx.layerfs.sessionStore === 'layerfs' }
 
   /** Mirror soon (debounced): after `turn/end` and on disposal. */
   schedule(sessionId: string, delay = 1200): void {
-    if (!this.enabled) return
     clearTimeout(this.timers.get(sessionId))
     this.timers.set(sessionId, setTimeout(() => {
       this.timers.delete(sessionId)
@@ -60,7 +69,6 @@ export class SessionStore {
 
   /** Append the session's new events to its project. */
   async mirror(sessionId: string): Promise<void> {
-    if (!this.enabled) return
     const binding = this.sessions.binding(sessionId)
     if (!binding || binding.kind !== 'project' || !binding.project) return
     const session = (this.ctx.get('sessions' as never) as any)?.get(sessionId)
@@ -145,8 +153,9 @@ export class SessionStore {
           events: manifest.count ?? 0,
           checkpoints: (manifest.checkpoints ?? []).filter((c: any) => c.kind !== 'base').length,
           updatedAt: manifest.updatedAt ?? null,
-          local: !!(await this.ctx.get('sessionPersistence')?.stat(manifest.sessionId).catch(() => undefined)),
+          local: !!(await localPersistence(this.ctx)?.stat(manifest.sessionId).catch(() => undefined)),
         })
+        this.found.set(manifest.sessionId, project)
       } catch { /* a branch without a readable manifest is not a session */ }
     }
     return out
@@ -175,13 +184,17 @@ export class SessionStore {
    * becomes this host's project workspace, so DSH lists it under the project.
    */
   async import(project: string, sessionId: string): Promise<{ sessionId: string, imported: boolean }> {
-    const persistence = this.ctx.get('sessionPersistence') as any
+    return await this.sessions.lane(`import:${sessionId}`, () => this.importNow(project, sessionId))
+  }
+
+  private async importNow(project: string, sessionId: string): Promise<{ sessionId: string, imported: boolean }> {
+    const persistence = localPersistence(this.ctx)
     if (!persistence) throw new CliError('Unavailable', 'DSH session persistence is not available')
     if (await persistence.stat(sessionId).catch(() => undefined)) return { sessionId, imported: false }
     const branch = storeBranchOf(sessionId)
     const manifest = await this.readManifest(project, branch)
     if (manifest.sessionId !== sessionId) throw new CliError('InvalidInput', 'The stored manifest names another session')
-    const { anchor } = await this.sessions.ensureProjectWorkspace(project)
+    const { anchor, workspaceId } = await this.sessions.ensureProjectWorkspace(project)
     const events: unknown[] = []
     for (const segment of manifest.segments ?? []) {
       const text = await this.readText(project, branch, `${DIR}/${segment.file}`)
@@ -209,6 +222,63 @@ export class SessionStore {
       }
       s.mirror[sessionId] = { project, branch, count: manifest.count ?? events.length, segments: manifest.segments ?? [], updatedAt: Date.now() }
     })
+    await this.sessions.attach(workspaceId, sessionId)
     return { sessionId, imported: true }
   }
+
+  /**
+   * Import every session stored in `project` that this DSH does not have.
+   * @returns how many sessions were imported.
+   */
+  sync(project: string): Promise<number> {
+    const running = this.syncing.get(project)
+    if (running) return running
+    const run = (async () => {
+      let imported = 0
+      for (const stored of await this.discover(project)) {
+        if (stored.local) continue
+        try { if ((await this.import(project, stored.sessionId)).imported) imported++ } catch (error: any) {
+          this.ctx.logger('layerfs').warn('session store: import %s from %s: %s', stored.sessionId, project, error?.message ?? error)
+        }
+      }
+      return imported
+    })().finally(() => this.syncing.delete(project))
+    this.syncing.set(project, run)
+    return run
+  }
+
+  /** Sync every project this DSH has a workspace for (the Scratch project included). Never throws. */
+  async syncAll(): Promise<void> {
+    for (const project of Object.keys(this.sessions.state.read().projects)) {
+      await this.sync(project).catch((error: any) => this.ctx.logger('layerfs').warn('session store: sync %s: %s', project, error?.message ?? error))
+    }
+  }
+
+  /** The project this DSH already knows stores a session (no LayerFS calls). */
+  known(sessionId: string): string | undefined {
+    return this.sessions.state.read().mirror[sessionId]?.project ?? this.found.get(sessionId)
+  }
+
+  /**
+   * The project a session missing locally is stored in: known from this DSH's
+   * state or an earlier discovery, else found by discovering every known project.
+   */
+  async locate(sessionId: string): Promise<string | undefined> {
+    const known = this.known(sessionId)
+    if (known) return known
+    if (Date.now() - (this.missed.get(sessionId) ?? 0) < MISS_MS) return undefined
+    for (const project of Object.keys(this.sessions.state.read().projects)) {
+      await this.discover(project).catch(() => [])
+      if (this.found.has(sessionId)) return this.found.get(sessionId)
+    }
+    this.missed.set(sessionId, Date.now())
+    if (this.missed.size > 1000) this.missed.delete(this.missed.keys().next().value!)
+    return undefined
+  }
+}
+
+/** DSH's local session log: the LayerFS persistence row's inner JSONL backend, else the persistence service itself. */
+export function localPersistence(ctx: Context): any {
+  const persistence = ctx.get('sessionPersistence') as any
+  return persistence?.local ?? persistence
 }

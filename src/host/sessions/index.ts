@@ -1,10 +1,14 @@
 /**
- * Sessions area: project + scratch-folder workspaces, session binding,
- * trajectory checkpoints and the LayerFS session store, wired to DSH's
- * agent lifecycle.
+ * Sessions area: every session works in a LayerFS project (or the Scratch
+ * project) + its own scratch folder. Session binding, trajectory checkpoints
+ * and the LayerFS session store, wired to DSH's agent lifecycle.
  *
- *   agent/created        bind the session (fresh, resumed, forked, subagent)
- *   agent/pre-step       retry a failed/closed binding before a step runs
+ *   agent/created        bind the session (fresh, resumed, forked, subagent). Binding
+ *                        happens here, not lazily: DSH assembles the step's system prompt
+ *                        (working directory, LayerFS section) before `agent/pre-step`
+ *   agent/pre-step       a step runs only in the session's mounted Workspace: re-bind a
+ *                        failed/closed binding, else fail the turn (legacy host-folder
+ *                        sessions, LayerFS refusals)
  *   agent/turn-stopping  checkpoint the turn (awaited before `turn/end`)
  *   session/event        `turn/end`: complete the checkpoint, schedule the store mirror
  *   agent/disposed       mirror now; close the Sandbox after `idleMinutes`
@@ -12,8 +16,8 @@
  * Operations (the `layerfs` Remote):
  *   sessions.prepare {project}          ensure the project's DSH workspace -> {workspaceId, navigate}
  *   sessions.create {project}           same, and ask the client to open a new session there
- *   sessions.prepareScratch             the Scratch workspace
- *   sessions.list {project}             local bindings + sessions stored in the project
+ *   sessions.prepareScratch             the Scratch workspace (Scratch project made on first use)
+ *   sessions.list {project}             local bindings + sessions stored in the project (imports missing ones)
  *   sessions.open {sessionId, project?} open a session, importing it from the project if missing locally
  *   sessions.close {sessionId}          save and close its Sandbox
  *   sessions.forget {sessionId}         close, delete its scratch folder (branch stays)
@@ -27,7 +31,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { LayerfsSessions } from './service.ts'
-import { SessionStore } from './store.ts'
+import { localPersistence, SessionStore } from './store.ts'
 
 export const name = 'dsh-layerfs-sessions'
 export const inject = ['layerfs', 'layerfsRemote']
@@ -43,7 +47,13 @@ export function apply(ctx: Context): void {
   ctx.inject(['layerfsSessions', 'layerfs', 'layerfsRemote'], (ctx) => {
     const sessions = ctx.layerfsSessions
     const store = new SessionStore(ctx, sessions)
-    ctx.effect(() => () => store.dispose(), 'dsh-layerfs: session store timers')
+    sessions.store = store
+    ctx.effect(() => () => { store.dispose(); if (sessions.store === store) sessions.store = undefined }, 'dsh-layerfs: session store')
+    // Sessions stored in known projects by another DSH appear here too.
+    ctx.effect(() => {
+      const timer = setTimeout(() => { void store.syncAll() }, 1500)
+      return () => clearTimeout(timer)
+    }, 'dsh-layerfs: session store sync')
     const idle = new Map<string, NodeJS.Timeout>()
     ctx.effect(() => () => { for (const t of idle.values()) clearTimeout(t); idle.clear() }, 'dsh-layerfs: idle timers')
 
@@ -54,10 +64,8 @@ export function apply(ctx: Context): void {
     })
 
     ctx.on('agent/pre-step', async (payload: any, next: () => Promise<any>) => {
-      const id = String(payload.agent.id)
-      clearTimeout(idle.get(id))
-      const b = sessions.binding(id)
-      if (b && b.kind !== 'shared' && b.state !== 'bound') await sessions.bindAgent(payload.agent, 'pre-step')
+      clearTimeout(idle.get(String(payload.agent.id)))
+      await sessions.ensureBound(payload.agent)
       return next()
     })
 
@@ -102,15 +110,15 @@ export function apply(ctx: Context): void {
           let b = sessions.binding(String(id))
           if (b?.kind === 'shared' && b.parent) b = sessions.binding(b.parent) ?? b
           if (!b) return ''
-          if (b.kind === 'scratch') {
-            return `## Scratch folder\nThis session has no LayerFS project. It works in its own scratch folder ${JSON.stringify(b.scratch)} (the working directory).`
-          }
+          const scratch = sessions.isScratch(b.project)
           if (b.state !== 'bound' || !b.mount) {
             return `## LayerFS project\nThis session belongs to LayerFS project ${JSON.stringify(b.project)}, but its Workspace is not mounted${b.error ? ` (${b.error})` : ''}.`
           }
           return [
             '## LayerFS project Workspace',
-            `- Project files: LayerFS project ${JSON.stringify(b.project)}, branch ${JSON.stringify(b.branch)}, mounted at ${JSON.stringify(b.mount)} (the working directory). Work on the project there.`,
+            scratch
+              ? `- Files: this session has no project of its own; it works in the Scratch project ${JSON.stringify(b.project)}, branch ${JSON.stringify(b.branch)}, mounted at ${JSON.stringify(b.mount)} (the working directory). It starts empty.`
+              : `- Project files: LayerFS project ${JSON.stringify(b.project)}, branch ${JSON.stringify(b.branch)}, mounted at ${JSON.stringify(b.mount)} (the working directory). Work on the project there.`,
             ctx.layerfs.checkpoints === 'turn'
               ? '- Checkpoints: at the end of every turn that changed files, the whole Workspace tree is committed to the branch as a checkpoint (including untracked files, build outputs and caches; .gitignore does not apply). The user can restore or branch from any checkpoint.'
               : '- Checkpoints are off: changes stay in the Workspace until saved.',
@@ -123,21 +131,26 @@ export function apply(ctx: Context): void {
 
     ctx.layerfsRemote.operate(ctx, {
       'sessions.prepare': async (args: any) => {
-        const out = await sessions.ensureProjectWorkspace(need(args, 'project'))
+        const project = need(args, 'project')
+        const out = await sessions.ensureProjectWorkspace(project)
+        void store.sync(project).catch(() => {})
         return { ...out }
       },
       'sessions.create': async (args: any) => {
-        const out = await sessions.ensureProjectWorkspace(need(args, 'project'))
+        const project = need(args, 'project')
+        const out = await sessions.ensureProjectWorkspace(project)
+        void store.sync(project).catch(() => {})
         return { ...out, navigate: { workspaceId: out.workspaceId } }
       },
-      'sessions.prepareScratch': async () => {
+      'sessions.prepareScratch': async (args: any) => {
         const out = await sessions.ensureScratchWorkspace()
-        return { ...out, navigate: { workspaceId: out.workspaceId } }
+        void store.sync(ctx.layerfs.scratchProject).catch(() => {})
+        return { ...out, ...(args?.navigate === false ? {} : { navigate: { workspaceId: out.workspaceId } }) }
       },
       'sessions.list': async (args: any) => {
         const project = need(args, 'project')
         const state = sessions.state.read()
-        const persistence = ctx.get('sessionPersistence') as any
+        const persistence = localPersistence(ctx)
         const rows = new Map<string, any>()
         for (const b of Object.values(state.sessions)) {
           if (b.project !== project || b.kind === 'shared') continue
@@ -148,29 +161,28 @@ export function apply(ctx: Context): void {
             updatedAt: b.updatedAt, stored: !!state.mirror[b.sessionId] && !state.mirror[b.sessionId].error,
           })
         }
-        if (store.enabled) {
-          for (const s of await store.discover(project).catch(() => [])) {
-            const row = rows.get(s.sessionId)
-            rows.set(s.sessionId, {
-              ...(row ?? { sessionId: s.sessionId, branch: s.codeBranch, state: 'stored', local: s.local, checkpoints: s.checkpoints, updatedAt: s.updatedAt }),
-              title: s.title, stored: true,
-            })
-          }
+        for (const s of await store.discover(project).catch(() => [])) {
+          const row = rows.get(s.sessionId)
+          rows.set(s.sessionId, {
+            ...(row ?? { sessionId: s.sessionId, branch: s.codeBranch, state: 'stored', local: s.local, checkpoints: s.checkpoints, updatedAt: s.updatedAt }),
+            title: s.title, stored: true,
+          })
         }
-        return { project, sessionStore: ctx.layerfs.sessionStore, sessions: [...rows.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)) }
+        return { project, sessions: [...rows.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)) }
       },
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')
-        const persistence = ctx.get('sessionPersistence') as any
-        if (await persistence?.stat(sessionId).catch(() => undefined)) return { sessionId, imported: false, navigate: { sessionId } }
-        const project = args?.project ?? sessions.binding(sessionId)?.project
-        if (!project) throw new CliError('NotFound', 'This session is not stored locally and no project names it')
-        const out = await store.import(project, sessionId)
-        // Resuming the imported session announces it to every client (api-session/added) and binds its Workspace.
+        if (await localPersistence(ctx)?.stat(sessionId).catch(() => undefined)) return { sessionId, imported: false, navigate: { sessionId } }
+        // A project hint imports from that project; otherwise DSH's resume reaches the
+        // session persistence row, which finds and imports the session itself.
+        const out = args?.project ? await store.import(String(args.project), sessionId) : { sessionId, imported: true }
+        // Resuming the session announces it to every client (api-session/added) and binds its Workspace.
         const controller = ctx.get('sessionController' as never) as any
-        if (controller?.resolveAgent) {
-          const resolved = await controller.resolveAgent(sessionId)
-          if (resolved && 'error' in resolved) throw resolved.error
+        if (!controller?.resolveAgent) throw new CliError('Unavailable', 'DSH\'s session controller is not available')
+        const resolved = await controller.resolveAgent(sessionId)
+        if (resolved && 'error' in resolved) {
+          if (resolved.error?.code === 'session/not-found') throw new CliError('NotFound', 'This session is not stored locally or in any LayerFS project this DSH knows')
+          throw resolved.error
         }
         return { ...out, navigate: { sessionId } }
       },

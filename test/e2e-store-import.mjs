@@ -3,7 +3,9 @@
 // DSH "A" (DSH_LAYERFS_DEV_DIR=A) runs a turn in a project session; DSH "B"
 // (a second dev server with its own DSH_HOME but the same LayerFS home) lists
 // the session from the project, imports it, shows its conversation and
-// continues it on the same branch.
+// continues it on the same branch. Then: a session opened in B by id alone is
+// imported by the session persistence row, and B's Scratch workspace syncs
+// A's Scratch sessions.
 //   A_DIR=<dev dir A> B_DIR=<dev dir B> node test/e2e-store-import.mjs
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
@@ -84,9 +86,45 @@ try {
   assert.equal(readFileSync(join(state.binding.mount, 'b.txt'), 'utf8').trim(), 'from-a')
   await B.page.screenshot({ path: '/tmp/e2e-import-b.png' })
 
+  step('A: a second session; B opens it by id alone (the persistence row finds and imports it)')
+  await A.op('sessions.create', { project })
+  await A.page.waitForTimeout(1500)
+  const tx = await runTurn(A.page, { message: 'bash: echo x > x.txt', newSession: false })
+  assert.ok(tx.ok, tx.error)
+  const xid = tx.sessionId
+  await new Promise((r) => setTimeout(r, 2500))
+  await A.op('session.mirror', { sessionId: xid })
+  const xopened = await B.op('sessions.open', { sessionId: xid })
+  assert.equal(xopened.imported, true)
+  await B.page.waitForTimeout(2500)
+  await B.page.getByText('done: 1 commands').first().waitFor({ timeout: 30000 })
+  const xrow = (await B.op('sessions.list', { project })).sessions.find((s) => s.sessionId === xid)
+  assert.equal(xrow?.local, true, 'imported into B by opening it')
+
+  step('A: a Scratch session; B\'s Scratch workspace syncs it')
+  const runtime = await A.op('runtime.status')
+  await A.op('sessions.prepareScratch')
+  await A.page.waitForTimeout(1500)
+  const ts = await runTurn(A.page, { message: 'bash: echo sx > sx.txt', newSession: false })
+  assert.ok(ts.ok, ts.error)
+  await new Promise((r) => setTimeout(r, 2500))
+  await A.op('session.mirror', { sessionId: ts.sessionId })
+  await B.op('sessions.prepareScratch', { navigate: false })
+  const synced = await (async () => {
+    for (let i = 0; i < 60; i++) {
+      const row = (await B.op('sessions.list', { project: runtime.scratchProject })).sessions.find((s) => s.sessionId === ts.sessionId)
+      if (row?.local) return row
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    return null
+  })()
+  assert.ok(synced, 'B imported A\'s Scratch session')
+
   step('cleanup')
-  await B.op('sessions.forget', { sessionId: sid })
-  await A.op('sessions.forget', { sessionId: sid })
+  for (const id of [sid, xid, ts.sessionId]) {
+    await B.op('sessions.forget', { sessionId: id })
+    await A.op('sessions.forget', { sessionId: id })
+  }
   await A.http('DELETE', `/api/projects/${encodeURIComponent(project)}`)
   await A.http('DELETE', `/api/stores/${encodeURIComponent(store)}?confirm=${encodeURIComponent(store)}`).catch((e) => console.log('store kept:', e.message))
   console.log('\nE2E PASS')

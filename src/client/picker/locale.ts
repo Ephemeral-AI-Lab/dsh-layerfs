@@ -1,0 +1,63 @@
+/** Copy of the add-workspace project picker (namespace `layerfsPicker`). */
+export const NS = 'layerfsPicker'
+
+const en = {
+  title: 'Choose a LayerFS project',
+  description: 'Each session works in its own LayerFS Workspace of the project, with a private scratch folder, and is checkpointed at the end of every turn.',
+  scratch: 'Scratch',
+  scratchBody: 'No project: starts empty, in the Scratch project',
+  projects: 'Projects',
+  loading: 'Loading projects…',
+  empty: 'No LayerFS projects yet. Create one below, or start in Scratch.',
+  loadFailed: 'Could not list projects: {message}',
+  retry: 'Retry',
+  onMachine: 'On {machine}: pull the Store to this host to use it',
+  newProject: 'New project',
+  newProjectTitle: 'New project',
+  store: 'Store',
+  storeChoose: 'Choose a Store',
+  newStore: 'New Store name',
+  newStoreHint: 'No Store yet: a SQLite Store on this host is created with this name.',
+  name: 'Project name',
+  nameInvalid: 'Use lowercase letters, numbers, dots, underscores and hyphens, with a letter or number at each end.',
+  source: 'Source folder (optional)',
+  sourceHint: 'An absolute path on this host, imported as the project. Leave empty for an empty project.',
+  sourceInvalid: 'Use an absolute path.',
+  create: 'Create and open',
+  creating: 'Creating…',
+  back: 'Back',
+  cancel: 'Cancel',
+  close: 'Close',
+}
+
+const zh: typeof en = {
+  title: '选择 LayerFS 项目',
+  description: '每个会话都在该项目自己的 LayerFS 工作区中工作，并有私有的草稿文件夹；每轮结束时自动保存检查点。',
+  scratch: '草稿',
+  scratchBody: '不属于任何项目：在草稿项目中从空白开始',
+  projects: '项目',
+  loading: '正在加载项目…',
+  empty: '还没有 LayerFS 项目。可在下方创建，或从草稿开始。',
+  loadFailed: '无法列出项目：{message}',
+  retry: '重试',
+  onMachine: '位于 {machine}：请先将存储拉回本机',
+  newProject: '新建项目',
+  newProjectTitle: '新建项目',
+  store: '存储',
+  storeChoose: '选择存储',
+  newStore: '新存储名称',
+  newStoreHint: '还没有存储：将以此名称在本机创建一个 SQLite 存储。',
+  name: '项目名称',
+  nameInvalid: '请使用小写字母、数字、点、下划线和连字符，且首尾为字母或数字。',
+  source: '源文件夹（可选）',
+  sourceHint: '本机上的绝对路径，将导入为项目。留空则创建空项目。',
+  sourceInvalid: '请使用绝对路径。',
+  create: '创建并打开',
+  creating: '正在创建…',
+  back: '返回',
+  cancel: '取消',
+  close: '关闭',
+}
+
+export const locales = { en, zh }
+export type PickerKey = keyof typeof en

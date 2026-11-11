@@ -2,7 +2,8 @@
  * The per-session LayerFS panel (right sidebar tab): where this session's
  * project files are (branch, Workspace mount, scratch folder), what is unsaved,
  * the trajectory checkpoints with their changes, and restore / branch actions.
- * A session outside a LayerFS workspace offers to start one.
+ * A session that cannot run (a legacy host-folder session) says why and offers
+ * to start a session in a project.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -28,7 +29,7 @@ interface Checkpoint {
 
 interface Binding {
   sessionId: string
-  kind: 'project' | 'scratch' | 'shared'
+  kind: 'project' | 'shared'
   project?: string
   branch?: string
   sandbox?: string
@@ -45,8 +46,9 @@ interface SessionView {
   binding: Binding | null
   checkpoints: Checkpoint[]
   project: string | null
+  scratchProject: boolean
+  refusal: { code: string, message: string } | null
   status: { overlay?: { entries?: number }, error?: { message: string } } | null
-  sessionStore: 'layerfs' | 'local'
   mirror: { count: number, error?: string, updatedAt: number } | null
 }
 
@@ -110,13 +112,15 @@ function Path({ path }: { path: string }): ReactNode {
   return <code className={css.path} title={path}>{path}</code>
 }
 
-function StartSession({ api, t }: { api: LayerfsApi, t: Translate }): ReactNode {
-  const [projects, setProjects] = useState<{ key: string, name?: string, store?: string }[] | null>(null)
+function StartSession({ api, t, refusal }: { api: LayerfsApi, t: Translate, refusal: SessionView['refusal'] }): ReactNode {
+  const [projects, setProjects] = useState<{ key: string, name?: string, store?: string, scratch?: boolean }[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   useEffect(() => {
     let live = true
-    api.call<any[]>('GET', '/api/projects').then((rows) => { if (live) setProjects(Array.isArray(rows) ? rows : []) }, () => { if (live) setProjects([]) })
+    Promise.all([api.call<any[]>('GET', '/api/projects'), api.op<any>('runtime.status').catch(() => null)]).then(([rows, status]) => {
+      if (live) setProjects((Array.isArray(rows) ? rows : []).map((r) => ({ ...r, scratch: r.key === status?.scratchProject })))
+    }, () => { if (live) setProjects([]) })
     return () => { live = false }
   }, [api])
   const run = async (fn: () => Promise<unknown>) => {
@@ -125,8 +129,8 @@ function StartSession({ api, t }: { api: LayerfsApi, t: Translate }): ReactNode 
   }
   return (
     <div className={css.empty}>
-      <div className={css.emptyTitle}>{t('notLayerfsTitle')}</div>
-      <p className={css.emptyBody}>{t('notLayerfsBody')}</p>
+      <div className={css.emptyTitle}>{refusal ? t('legacyTitle') : t('notLayerfsTitle')}</div>
+      <p className={css.emptyBody}>{refusal ? refusal.message : t('notLayerfsBody')}</p>
       <div className={css.sectionLabel}>{t('chooseProject')}</div>
       {projects === null ? <div className={css.muted}>{t('loading')}</div>
         : projects.length === 0 ? (
@@ -136,7 +140,7 @@ function StartSession({ api, t }: { api: LayerfsApi, t: Translate }): ReactNode 
           </div>
         ) : (
           <ul className={css.projectList}>
-            {projects.map((p) => (
+            {projects.filter((p) => !p.scratch).map((p) => (
               <li key={p.key}>
                 <button type="button" className={css.projectRow} disabled={busy} onClick={() => run(() => api.op('sessions.create', { project: p.key }))}>
                   <span className={css.projectName}>{p.name ?? p.key.split('/')[1]}</span>
@@ -180,37 +184,23 @@ export function SessionPanel({ sessionId, api, t }: SessionPanelProps): ReactNod
     )
   }
   const b = view!.binding
-  if (!b) return <div className={css.pad}><StartSession api={api} t={t} /></div>
-
-  if (b.kind === 'scratch') {
-    return (
-      <div className={css.pad}>
-        <div className={css.head}>
-          <StateDot state="idle" />
-          <span className={css.headTitle}>{t('scratchTitle')}</span>
-        </div>
-        <p className={css.emptyBody}>{t('scratchBody')}</p>
-        <Field label={t('scratch')} hint={t('scratchHint')}><Path path={b.scratch} /></Field>
-      </div>
-    )
-  }
+  if (!b) return <div className={css.pad}><StartSession api={api} t={t} refusal={view!.refusal} /></div>
 
   const dot: StateDotState = b.state === 'bound' ? 'done' : b.state === 'failed' ? 'error' : 'idle'
   const pending = Number(view!.status?.overlay?.entries ?? 0)
-  const store = view!.sessionStore === 'local'
-    ? t('storeLocal')
-    : view!.mirror?.error ? t('storeError', { message: view!.mirror.error }) : view!.mirror ? t('storeLayerfs') : t('storeLayerfsPending')
+  const store = view!.mirror?.error ? t('storeError', { message: view!.mirror.error }) : view!.mirror ? t('storeLayerfs') : t('storeLayerfsPending')
 
   return (
     <div className={css.pad}>
       <div className={css.head}>
         <StateDot state={dot} />
-        <span className={css.headTitle}>{b.project}</span>
+        <span className={css.headTitle} title={b.project}>{view!.scratchProject ? t('scratchTitle') : b.project}</span>
         <Tag tone={b.state === 'bound' ? 'success' : b.state === 'failed' ? 'danger' : 'neutral'}>
           {t(b.state === 'bound' ? 'stateBound' : b.state === 'failed' ? 'stateFailed' : 'stateClosed')}
         </Tag>
       </div>
       {b.error ? <div className={css.error}>{b.error}</div> : null}
+      {view!.scratchProject ? <div className={css.muted}>{t('scratchBody')}</div> : null}
       {b.from ? <div className={css.muted}>{b.from.turn ? t('forkedFrom', { n: b.from.turn }) : t('forkedFromStart')}</div> : null}
 
       <div className={css.card}>

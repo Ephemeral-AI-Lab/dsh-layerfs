@@ -1,6 +1,8 @@
 /**
- * dsh-layerfs, host half: LayerFS Machines, Storage, project + scratch-folder
- * workspaces, the LayerFS session store and trajectory checkpoints for DSH.
+ * dsh-layerfs, host half: LayerFS Machines, Storage and one session mode for
+ * DSH (every session works in a LayerFS project, or the Scratch project, with
+ * its own scratch folder), the LayerFS session store and trajectory checkpoints.
+ * The bundle's other rows live in session-persistence.ts and sandbox-policy.ts.
  *
  * Composition (each part registers operations on the `layerfs` Remote):
  *   remote.ts       the `layerfs` Remote namespace (call + events)

@@ -1,7 +1,8 @@
 /**
  * The sessions area's durable state: `<root>/sessions.json`.
  *
- *   projects[key]     a LayerFS project's scratch-folder workspace (anchor dir + DSH workspace id)
+ *   projects[key]     a LayerFS project's scratch-folder workspace (anchor dir + DSH workspace id);
+ *                     the Scratch project's is the Scratch workspace
  *   sessions[id]      one DSH session's binding to its Branch, Sandbox, Workspace mount and scratch folder
  *   checkpoints[id]   the session's trajectory checkpoints, oldest first
  *   mirror[id]        how much of the session log the LayerFS session store holds
@@ -19,8 +20,8 @@ export interface ProjectWorkspace {
 /** How one session is bound. */
 export interface Binding {
   readonly sessionId: string
-  /** `project`: a LayerFS Workspace + scratch folder; `scratch`: a scratch folder only; `shared`: a subagent using its parent's. */
-  readonly kind: 'project' | 'scratch' | 'shared'
+  /** `project`: its own LayerFS Workspace + scratch folder (in its project or the Scratch project); `shared`: a subagent using its parent's. */
+  readonly kind: 'project' | 'shared'
   project?: string
   branch?: string
   sandbox?: string

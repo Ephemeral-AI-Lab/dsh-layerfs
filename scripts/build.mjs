@@ -23,7 +23,7 @@ const CLIENT_EXTERNALS = [
 
 const hostOptions = {
   absWorkingDir: root,
-  entryPoints: { index: 'src/host/index.ts', 'sandbox-policy': 'src/host/sandbox-policy.ts' },
+  entryPoints: { index: 'src/host/index.ts', 'sandbox-policy': 'src/host/sandbox-policy.ts', 'session-persistence': 'src/host/session-persistence.ts' },
   outdir: 'lib',
   bundle: true,
   format: 'esm',

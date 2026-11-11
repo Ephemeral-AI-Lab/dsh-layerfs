@@ -28,8 +28,8 @@ export interface LayerfsConfig {
   bundle?: string
   /** LAYERFS_HOME; default `<root>/home`, or DSH_LAYERFS_HOME. */
   home?: string
-  /** Where project sessions are kept: `layerfs` mirrors each session into its project. */
-  sessionStore?: 'layerfs' | 'local'
+  /** The `<store>/<name>` project sessions without a project of their own work in (a SQLite Store on native, made on first use). */
+  scratchProject?: string
   /** Checkpoint each turn that changed files. */
   checkpoints?: 'turn' | 'off'
   /** Close an idle session's Sandbox after this many minutes (0 = never). */
@@ -46,7 +46,9 @@ export interface RuntimeStatus {
   readonly bundleInfo: { readonly hash: string | null, readonly source: string | null } | null
   readonly home: string
   readonly root: string
-  readonly sessionStore: 'layerfs' | 'local'
+  readonly scratchProject: string
+  /** `layerfs`: the bundle's session persistence row runs (missing sessions are imported from LayerFS); `stock`: DSH's own. */
+  readonly sessionPersistence: 'layerfs' | 'stock' | 'none'
   readonly checkpoints: 'turn' | 'off'
   readonly source: 'config' | 'settings' | 'env' | 'none'
   readonly version: string | null
@@ -87,7 +89,7 @@ export class LayerfsService extends Service {
   static inject = ['layerfsRemote']
   readonly root: string
   readonly home: string
-  readonly sessionStore: 'layerfs' | 'local'
+  readonly scratchProject: string
   readonly checkpoints: 'turn' | 'off'
   readonly idleMinutes: number
   /** `<root>/runtime.json`: the CLI/daemon chosen in the UI (wins over env). */
@@ -103,7 +105,10 @@ export class LayerfsService extends Service {
     const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
     this.root = abs(config.root) ?? join(dshHome, 'layerfs')
     this.home = abs(config.home) ?? abs(process.env.DSH_LAYERFS_HOME) ?? join(this.root, 'home')
-    this.sessionStore = config.sessionStore === 'local' ? 'local' : 'layerfs'
+    this.scratchProject = config.scratchProject ?? 'dsh-scratch/scratch'
+    if (!/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?\/[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(this.scratchProject)) {
+      throw new Error(`dsh-layerfs: scratchProject must be "<store>/<name>" in LayerFS names, not ${JSON.stringify(this.scratchProject)}`)
+    }
     this.checkpoints = config.checkpoints === 'off' ? 'off' : 'turn'
     this.idleMinutes = Number.isFinite(config.idleMinutes) ? Math.max(0, Number(config.idleMinutes)) : 30
     this.settings = new JsonFile(join(this.root, 'runtime.json'), () => ({}))
@@ -165,11 +170,17 @@ export class LayerfsService extends Service {
     })()
   }
 
+  private persistenceKind(): RuntimeStatus['sessionPersistence'] {
+    const persistence = this.ctx.get('sessionPersistence' as never) as any
+    return !persistence ? 'none' : persistence.local ? 'layerfs' : 'stock'
+  }
+
   /** Runtime facts for the UI. */
   async status(): Promise<RuntimeStatus> {
     const base = {
       cli: this.pin.cli, daemon: this.pin.daemon, bundle: this.pin.bundle, bundleInfo: this.bundleInfo(), home: this.home, root: this.root, source: this.pin.source,
-      sessionStore: this.sessionStore, checkpoints: this.checkpoints,
+      scratchProject: this.scratchProject, checkpoints: this.checkpoints,
+      sessionPersistence: this.persistenceKind(),
     }
     try {
       const d = await this.discovery()

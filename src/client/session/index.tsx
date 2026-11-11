@@ -42,7 +42,7 @@ function HeaderAction({ sessionId, api, open, t }: { sessionId: string, api: Lay
     const load = () => api.op<any>('session.state', { sessionId }).then((v) => {
       if (!live) return
       const b = v?.binding
-      setCount(b && b.kind !== 'scratch' ? (v.checkpoints ?? []).filter((c: any) => c.commit && c.kind !== 'base').length : b ? -1 : null)
+      setCount(b ? (v.checkpoints ?? []).filter((c: any) => c.commit && c.kind !== 'base').length : v?.refusal ? 0 : null)
     }, () => {})
     void load()
     const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === sessionId) void load() }

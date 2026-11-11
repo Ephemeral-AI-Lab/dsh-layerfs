@@ -1,5 +1,5 @@
 /**
- * `ctx.layerfsSessions`: LayerFS project + scratch-folder workspaces for DSH sessions.
+ * `ctx.layerfsSessions`: every DSH session works in a LayerFS project + its own scratch folder.
  *
  * A LayerFS project becomes one DSH workspace whose directory is the project's
  * scratch-folder workspace (an "anchor" under `<root>/projects/<store>/<name>`):
@@ -8,26 +8,29 @@
  *   - its own Branch `dsh.<session>` (forked from `main`, or from a checkpoint),
  *   - its own Sandbox + Workspace mount, which becomes its working directory,
  *   - its own scratch folder `<anchor>/sessions/<session>` (never committed).
- * The Scratch workspace (`<root>/scratch`) is the same without a project.
- * Subagents share their parent's mount. A fork of a session starts its files
- * from the parent's checkpoint at the fork point.
+ * A new session outside a project workspace (DSH's default workspace, the
+ * Scratch workspace `<root>/scratch`) works the same way in the Scratch
+ * project (`scratchProject`, made on first use). Subagents share their
+ * parent's mount. A fork of a session starts its files from the parent's
+ * checkpoint at the fork point. A session that already ran in a host folder
+ * before dsh-layerfs (a legacy session) is refused instead of moved.
  *
  * Checkpoints: every turn that changed files ends with `workspace.commit`
  * (`agent/turn-stopping`); restore = fork a new Branch from a checkpoint and
  * remount; "branch here" = DSH session fork + Branch fork from the checkpoint.
- * The LayerFS session store mirrors each project session's log into its
- * project (`store.ts`).
+ * The LayerFS session store keeps each session's log in its project (`store.ts`).
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CliError, pages, sandboxWorkspaces, type Lfs } from '../layerfs/cli.ts'
 import { JsonFile } from '../service.ts'
 import { initialState, type Binding, type Checkpoint, type SessionsState } from './state.ts'
+import type { SessionStore } from './store.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -43,6 +46,19 @@ const WS_NAME = 'main'
 
 const real = (path: string): string => { try { return realpathSync(path) } catch { return path } }
 const errorOf = (error: any) => ({ code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) })
+const exists = (error: any) => error?.code === 'Exists' || error?.code === 'NameTaken'
+
+/** Where a session works: a project (or the Scratch project), its parent's Workspace, or nowhere (legacy). */
+export type Place =
+  | { readonly kind: 'project', readonly project: string, readonly anchor: string }
+  | { readonly kind: 'shared', readonly parent: string, readonly anchor: string }
+  | { readonly kind: 'legacy', readonly cwd: string }
+
+/** Refusal for a session that ran in a host folder before dsh-layerfs. */
+export const legacyError = (cwd: string) => new CliError(
+  'LegacyFolderSession',
+  `This session ran in the host folder ${cwd} before dsh-layerfs. Every session now works in a LayerFS project: import the folder as a project (Storage → New project) and start a new session there.`,
+)
 
 /** The state a session panel shows. */
 export interface SessionView {
@@ -50,8 +66,11 @@ export interface SessionView {
   readonly binding: Binding | null
   readonly checkpoints: readonly Checkpoint[]
   readonly project: string | null
+  /** The session works in the Scratch project (it has no project of its own). */
+  readonly scratchProject: boolean
+  /** Why the session cannot run (a legacy host-folder session), or null. */
+  readonly refusal: { readonly code: string, readonly message: string } | null
   readonly status: unknown
-  readonly sessionStore: 'layerfs' | 'local'
   readonly mirror: unknown
 }
 
@@ -60,6 +79,9 @@ export class LayerfsSessions extends Service {
   readonly state: JsonFile<SessionsState>
   /** One operation at a time per session (bind, checkpoint, restore). */
   private readonly lanes = new Map<string, Promise<unknown>>()
+  private scratchReady: Promise<void> | undefined
+  /** The LayerFS session store, while the sessions area is up (the persistence row imports through it). */
+  store: SessionStore | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'layerfsSessions')
@@ -86,6 +108,9 @@ export class LayerfsSessions extends Service {
 
   get scratchAnchor(): string { return join(this.ctx.layerfs.root, 'scratch') }
 
+  /** Whether `project` is the Scratch project. */
+  isScratch(project: string | undefined): boolean { return project === this.ctx.layerfs.scratchProject }
+
   private writeAnchor(dir: string, text: string): void {
     mkdirSync(join(dir, 'sessions'), { recursive: true })
     const readme = join(dir, 'README.md')
@@ -97,6 +122,7 @@ export class LayerfsSessions extends Service {
    * @returns the DSH workspace id and anchor.
    */
   async ensureProjectWorkspace(project: string): Promise<{ workspaceId: string, anchor: string }> {
+    if (this.isScratch(project)) return await this.ensureScratchWorkspace()
     await this.lfs.project.get(project)
     const anchor = this.anchorOf(project)
     this.writeAnchor(anchor, `# ${project}\n\nThe DeepSeek Harness workspace of LayerFS project \`${project}\`.\n\nEach session works in its own LayerFS Workspace (branch \`dsh.<session>\`), mounted as its\nworking directory and checkpointed at the end of every turn. \`sessions/<session>/\` is that\nsession's scratch folder: it is never saved into the project.\n`)
@@ -107,28 +133,85 @@ export class LayerfsSessions extends Service {
     return { workspaceId: String(workspace.id), anchor }
   }
 
-  /** Ensure the Scratch workspace (no project). */
+  /** List a session (an imported one) under a DSH workspace. Never throws. */
+  async attach(workspaceId: string, sessionId: string): Promise<void> {
+    try {
+      await this.ctx.workspaceRegistry.get(workspaceId as never)?.attachSession(sessionId as never)
+    } catch (error: any) {
+      this.ctx.logger('layerfs').warn('session %s not listed in workspace %s: %s', sessionId, workspaceId, error?.message ?? error)
+    }
+  }
+
+  /** Ensure the Scratch workspace: sessions without a project of their own, in the Scratch project. */
   async ensureScratchWorkspace(): Promise<{ workspaceId: string, anchor: string }> {
+    await this.ensureScratchProject()
     const anchor = this.scratchAnchor
-    this.writeAnchor(anchor, '# Scratch\n\nSessions here have no LayerFS project: each works in its own scratch folder `sessions/<session>/`.\n')
+    this.writeAnchor(anchor, `# Scratch\n\nSessions here have no project of their own. Each works in its own LayerFS Workspace of the\nScratch project \`${this.ctx.layerfs.scratchProject}\` (branch \`dsh.<session>\`), checkpointed at the end of every turn;\n\`sessions/<session>/\` is that session's scratch folder.\n`)
     const workspace = await this.ctx.workspaceRegistry.create(anchor, 'Scratch')
+    const project = this.ctx.layerfs.scratchProject
+    this.state.update((s) => { s.projects[project] = { project, anchor, workspaceId: String(workspace.id), createdAt: s.projects[project]?.createdAt ?? Date.now() } })
     return { workspaceId: String(workspace.id), anchor }
   }
 
-  /** Which project (or the Scratch workspace) a session `cwd` belongs to. */
-  classify(cwd: string | undefined): { kind: 'project', project: string, anchor: string } | { kind: 'scratch', anchor: string } | undefined {
+  /** Make the Scratch project (a SQLite Store on native, initialized empty) when it does not exist. */
+  async ensureScratchProject(): Promise<string> {
+    const key = this.ctx.layerfs.scratchProject
+    this.scratchReady ??= (async () => {
+      try { await this.lfs.project.get(key); return } catch (error: any) {
+        if (error?.code !== 'NoSuchProject' && error?.code !== 'NoSuchStore') throw error
+      }
+      await this.ctx.layerfs.ensureNative()
+      await this.lfs.store.create(key.split('/')[0]).catch((error: any) => { if (!exists(error)) throw error })
+      const sources = join(this.ctx.layerfs.root, 'project-sources')
+      mkdirSync(sources, { recursive: true, mode: 0o700 })
+      const empty = mkdtempSync(join(sources, 'scratch-'))
+      try {
+        await this.lfs.project.init(key, empty).catch((error: any) => { if (!exists(error)) throw error })
+      } finally {
+        rmSync(empty, { recursive: true, force: true })
+      }
+      this.ctx.layerfs.emit('storage-changed', { store: key.split('/')[0] })
+    })()
+    try { await this.scratchReady } catch (error) { this.scratchReady = undefined; throw error }
+    return key
+  }
+
+  /** Which project workspace (or the Scratch workspace) a session `cwd` is. */
+  classify(cwd: string | undefined): { project: string, anchor: string } | undefined {
     if (!cwd) return undefined
     const at = real(cwd)
-    if (at === real(this.scratchAnchor)) return { kind: 'scratch', anchor: this.scratchAnchor }
+    if (at === real(this.scratchAnchor)) return { project: this.ctx.layerfs.scratchProject, anchor: this.scratchAnchor }
     for (const entry of Object.values(this.state.read().projects)) {
-      if (real(entry.anchor) === at) return { kind: 'project', project: entry.project, anchor: entry.anchor }
+      if (real(entry.anchor) === at) return { project: entry.project, anchor: entry.anchor }
     }
     const root = real(join(this.ctx.layerfs.root, 'projects'))
     if (at.startsWith(`${root}/`)) {
       const [store, name, extra] = at.slice(root.length + 1).split('/')
-      if (store && name && !extra) return { kind: 'project', project: `${store}/${name}`, anchor: join(this.ctx.layerfs.root, 'projects', store, name) }
+      if (store && name && !extra) return { project: `${store}/${name}`, anchor: join(this.ctx.layerfs.root, 'projects', store, name) }
     }
     return undefined
+  }
+
+  /**
+   * Where a session works. In order: its existing binding; a subagent's
+   * parent; a project workspace's anchor; the place of the session it was
+   * forked from; the Scratch project for a session that has not run yet;
+   * otherwise it is a legacy host-folder session.
+   */
+  placeOf(session: any): Place {
+    const sessionId = String(session.id)
+    const header = session.header ?? {}
+    const existing = this.binding(sessionId)
+    if (existing?.kind === 'shared' && existing.parent) return { kind: 'shared', parent: existing.parent, anchor: existing.anchor }
+    if (existing) return { kind: 'project', project: existing.project ?? this.ctx.layerfs.scratchProject, anchor: existing.anchor }
+    if (header.origin === 'subagent' && header.parentSession) return { kind: 'shared', parent: String(header.parentSession), anchor: header.cwd }
+    const where = this.classify(header.cwd)
+    if (where) return { kind: 'project', ...where }
+    const parent = header.parentSession ? this.binding(String(header.parentSession)) : undefined
+    if (parent?.project) return { kind: 'project', project: parent.project, anchor: parent.anchor }
+    const ran = (session.snapshotEvents?.(0) ?? []).some((e: any) => e.type === 'turn/start')
+    if (!ran || this.state.read().pending[sessionId]) return { kind: 'project', project: this.ctx.layerfs.scratchProject, anchor: this.scratchAnchor }
+    return { kind: 'legacy', cwd: String(header.cwd ?? '') }
   }
 
   // ------------------------------------------------------------- binding
@@ -153,7 +236,7 @@ export class LayerfsSessions extends Service {
     const info = await this.lfs.project.get(project)
     const machine = info.kind === 'postgresql' ? 'native' : (info.machine ?? 'native')
     if (machine !== 'native') {
-      throw new CliError('Unsupported', `Project ${project} lives on machine "${machine}". dsh-layerfs runs session Workspaces on the native machine; pull the Store to this host first.`)
+      throw new CliError('Unsupported', `Project ${project} lives on machine "${machine}". dsh-layerfs runs session Workspaces on the native machine; pull the Store to this host first (Storage → Store → Push).`)
     }
     return machine
   }
@@ -182,30 +265,42 @@ export class LayerfsSessions extends Service {
   }
 
   /**
-   * Bind a session when its Agent enters (fresh, resumed, forked or a subagent).
-   * Never throws: a failure is recorded on the binding and shown in the panel.
+   * Bind a session's Agent to its place and move it into its Workspace.
+   * With `strict` a failure throws (the step must not run outside the
+   * Workspace); otherwise it is recorded on the binding and shown in the panel.
    */
-  async bindAgent(agent: any, source: string): Promise<void> {
-    const session = agent.session
-    const header = session.header
+  async bindAgent(agent: any, source: string, strict = false): Promise<void> {
     const sessionId = String(agent.id)
-    const where = this.classify(header.cwd)
-    if (!where) return
+    const place = this.placeOf(agent.session)
+    if (place.kind === 'legacy') {
+      if (strict) throw legacyError(place.cwd)
+      return
+    }
     await this.lane(sessionId, async () => {
       try {
-        if (header.origin === 'subagent' && header.parentSession) return await this.bindShared(agent, String(header.parentSession), where.anchor)
-        if (where.kind === 'scratch') return await this.bindScratch(agent, where.anchor)
-        await this.bindProject(agent, where.project, where.anchor, source)
+        if (place.kind === 'shared') return await this.bindShared(agent, place.parent, place.anchor, strict)
+        await this.bindProject(agent, place.project, place.anchor, source)
       } catch (error: any) {
         const previous = this.binding(sessionId)
         this.ctx.logger('layerfs').warn('session %s: bind failed: %s', sessionId, error?.message ?? error)
-        this.save({
-          ...(previous ?? { sessionId, kind: where.kind === 'scratch' ? 'scratch' : 'project', anchor: where.anchor, scratch: join(where.anchor, 'sessions', sessionId), createdAt: Date.now(), updatedAt: Date.now() }),
-          ...(where.kind === 'project' ? { project: where.project } : {}),
-          state: 'failed', error: String(error?.message ?? error),
-        } as Binding)
+        if (place.kind === 'project') {
+          this.save({
+            ...(previous ?? { sessionId, kind: 'project', anchor: place.anchor, scratch: join(place.anchor, 'sessions', sessionId), createdAt: Date.now(), updatedAt: Date.now() }),
+            project: place.project, state: 'failed', error: String(error?.message ?? error),
+          } as Binding)
+        }
+        if (strict) throw error
       }
     })
+  }
+
+  /** Whether a session may run a step now: bound (re-binding if needed), else it throws. */
+  async ensureBound(agent: any): Promise<void> {
+    const sessionId = String(agent.id)
+    let b = this.binding(sessionId)
+    if (b?.kind === 'shared' && b.parent) b = this.binding(b.parent)
+    if (b?.state === 'bound' && (b.mount ? existsSync(b.mount) : true)) return
+    await this.bindAgent(agent, 'pre-step', true)
   }
 
   private scratchFor(anchor: string, sessionId: string): string {
@@ -223,29 +318,24 @@ export class LayerfsSessions extends Service {
     else await wd.set(agent, dir)
   }
 
-  private async bindScratch(agent: any, anchor: string): Promise<void> {
-    const sessionId = String(agent.id)
-    const scratch = this.scratchFor(anchor, sessionId)
-    const previous = this.binding(sessionId)
-    this.save({ ...(previous ?? { sessionId, kind: 'scratch', anchor, scratch, createdAt: Date.now() }), state: 'bound', error: undefined } as Binding)
-    await this.moveTo(agent, scratch)
-  }
-
-  private async bindShared(agent: any, parent: string, anchor: string): Promise<void> {
+  private async bindShared(agent: any, parent: string, anchor: string, strict: boolean): Promise<void> {
     const sessionId = String(agent.id)
     // A subagent of a subagent follows the root binding.
     let root = this.binding(parent)
     while (root?.kind === 'shared' && root.parent) root = this.binding(root.parent)
-    if (!root || root.state !== 'bound') return
-    const dir = root.mount ?? root.scratch
+    if (!root || root.state !== 'bound' || !root.mount) {
+      if (strict) throw new CliError('Unavailable', 'The parent session\'s LayerFS Workspace is not mounted')
+      return
+    }
     this.save({ sessionId, kind: 'shared', anchor, parent: root.sessionId, scratch: root.scratch, project: root.project, mount: root.mount, state: 'bound', createdAt: Date.now(), updatedAt: Date.now() })
-    await this.moveTo(agent, dir)
+    await this.moveTo(agent, root.mount)
   }
 
   private async bindProject(agent: any, project: string, anchor: string, source: string): Promise<void> {
     const sessionId = String(agent.id)
     const held = this.ctx.layerfs.exclusive?.()
     if (held) throw new CliError('ConnectBusy', held)
+    if (this.isScratch(project)) await this.ensureScratchProject()
     const header = agent.session.header
     const existing = this.binding(sessionId)
     const scratch = this.scratchFor(anchor, sessionId)
@@ -259,12 +349,12 @@ export class LayerfsSessions extends Service {
       try {
         await this.forkAt(project, branch, start.branch ?? 'main', start.commit ?? null)
       } catch (error: any) {
-        if (error?.code !== 'Exists' && error?.code !== 'NameTaken') throw error
+        if (!exists(error)) throw error
       }
       binding = {
         sessionId, kind: 'project', project, anchor, scratch, machine, branch,
         sandbox: sandboxOf(sessionId), ws: `${sandboxOf(sessionId)}:${WS_NAME}`,
-        state: 'bound', createdAt: Date.now(), updatedAt: Date.now(),
+        state: 'bound', createdAt: existing?.createdAt ?? Date.now(), updatedAt: Date.now(),
         ...(start.session ? { from: { session: start.session, commit: start.commit, turn: start.turn } } : {}),
       }
       this.state.update((s) => { delete s.pending[sessionId] })
@@ -375,7 +465,7 @@ export class LayerfsSessions extends Service {
     try {
       await this.lfs.branch.fork(project, branch, from, commit)
     } catch (error: any) {
-      if (from === 'main' || error?.code === 'Exists' || error?.code === 'NameTaken') throw error
+      if (from === 'main' || exists(error)) throw error
       await this.lfs.branch.fork(project, branch, 'main', commit)
     }
   }
@@ -479,19 +569,26 @@ export class LayerfsSessions extends Service {
   /** Everything the session panel shows. */
   async view(sessionId: string): Promise<SessionView> {
     const binding = this.binding(sessionId) ?? null
-    let status: unknown = null
-    if (binding?.kind === 'project' && binding.state === 'bound' && binding.ws) {
-      status = await this.lfs.workspace.status(binding.ws).catch((error: any) => ({ error: errorOf(error) }))
-    }
     let effective = binding
     if (binding?.kind === 'shared' && binding.parent) effective = this.binding(binding.parent) ?? binding
+    let status: unknown = null
+    if (effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {
+      status = await this.lfs.workspace.status(effective.ws).catch((error: any) => ({ error: errorOf(error) }))
+    }
+    let refusal: SessionView['refusal'] = null
+    if (!binding) {
+      const session = this.ctx.sessions.get(sessionId as never) as any
+      const place = session ? this.placeOf(session) : null
+      if (place?.kind === 'legacy') refusal = errorOf(legacyError(place.cwd))
+    }
     return {
       sessionId,
       binding: effective,
       checkpoints: effective ? this.checkpoints(effective.sessionId) : [],
       project: effective?.project ?? null,
+      scratchProject: this.isScratch(effective?.project),
+      refusal,
       status,
-      sessionStore: this.ctx.layerfs.sessionStore,
       mirror: effective ? this.state.read().mirror[effective.sessionId] ?? null : null,
     }
   }
