@@ -1,8 +1,8 @@
 /**
  * dsh-layerfs, browser half: mounts the `layerfs` Remote namespace, opens the
  * host event stream, and contributes the Machines, Storage and Presets pages,
- * the per-session LayerFS panel and the add-workspace project picker through
- * DSH's slots.
+ * the per-session LayerFS panel, the add-workspace project picker and the New
+ * Session project control through DSH's slots.
  */
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 import { z } from 'zod'
@@ -17,6 +17,7 @@ import { registerStorage } from './storage/index.tsx'
 import { registerSession } from './session/index.tsx'
 import { registerPresets } from './presets/index.tsx'
 import { registerPicker } from './picker/index.tsx'
+import { registerHero } from './hero/index.tsx'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 
@@ -48,4 +49,5 @@ export function apply(ctx: any): void {
   registerPresets(ctx, api, group)
   registerSession(ctx, api)
   registerPicker(ctx, api)
+  registerHero(ctx, api)
 }

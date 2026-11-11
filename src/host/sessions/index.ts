@@ -22,6 +22,7 @@
  *   sessions.close {sessionId}          save and close its Sandbox
  *   sessions.forget {sessionId}         close, delete its scratch folder (branch stays)
  *   session.state {sessionId}           binding, checkpoints, Workspace status, store progress
+ *   session.place {sessionId}           the project a live session works in (New Session control)
  *   checkpoints.create {sessionId, message?}
  *   checkpoints.diff {sessionId, from, to}
  *   checkpoints.restore {sessionId, commit}
@@ -189,6 +190,7 @@ export function apply(ctx: Context): void {
       'sessions.close': async (args: any) => { await sessions.close(need(args, 'sessionId'), 'user'); return { ok: true } },
       'sessions.forget': async (args: any) => { await sessions.forget(need(args, 'sessionId')); return { ok: true } },
       'session.state': (args: any) => sessions.view(need(args, 'sessionId')),
+      'session.place': (args: any) => ({ place: sessions.placeOfId(need(args, 'sessionId')) }),
       'session.mirror': async (args: any) => { await store.mirror(need(args, 'sessionId')); return { ok: true } },
       'checkpoints.create': async (args: any) => {
         const id = need(args, 'sessionId')

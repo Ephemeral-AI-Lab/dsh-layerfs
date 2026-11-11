@@ -1,0 +1,61 @@
+/** Copy of the New Session project control (namespace `layerfsHero`). */
+export const NS = 'layerfsHero'
+
+const en = {
+  chipAria: 'LayerFS project: {project}',
+  scratch: 'Scratch',
+  noProject: 'Scratch (no project)',
+  hostFolder: 'Host folder',
+  loading: 'Loading projects…',
+  loadFailed: 'Could not list projects',
+  onMachine: 'On {machine}',
+  newEmpty: 'New empty project',
+  importProject: 'Import project…',
+  newEmptyTitle: 'New empty project',
+  importTitle: 'Import project',
+  importing: 'Importing {name}…',
+  importingTitle: 'Importing {name}',
+  importFailed: 'Import failed',
+  importFailedTitle: 'Could not import {name}',
+  dismiss: 'Dismiss',
+  switchFailed: 'Could not open the project: {message}',
+  phaseScan: 'Counting files',
+  phaseCheck: 'Checking',
+  phaseSend: 'Sending files',
+  phaseInstall: 'Writing layers',
+  phaseRecord: 'Recording the project',
+  phaseDone: 'Opening',
+  cancel: 'Cancel',
+  close: 'Close',
+}
+
+const zh: typeof en = {
+  chipAria: 'LayerFS 项目：{project}',
+  scratch: '草稿',
+  noProject: '草稿（无项目）',
+  hostFolder: '主机文件夹',
+  loading: '正在加载项目…',
+  loadFailed: '无法列出项目',
+  onMachine: '位于 {machine}',
+  newEmpty: '新建空项目',
+  importProject: '导入项目…',
+  newEmptyTitle: '新建空项目',
+  importTitle: '导入项目',
+  importing: '正在导入 {name}…',
+  importingTitle: '正在导入 {name}',
+  importFailed: '导入失败',
+  importFailedTitle: '无法导入 {name}',
+  dismiss: '关闭',
+  switchFailed: '无法打开项目：{message}',
+  phaseScan: '正在统计文件',
+  phaseCheck: '正在检查',
+  phaseSend: '正在发送文件',
+  phaseInstall: '正在写入层',
+  phaseRecord: '正在记录项目',
+  phaseDone: '正在打开',
+  cancel: '取消',
+  close: '关闭',
+}
+
+export const locales = { en, zh }
+export type HeroKey = keyof typeof en

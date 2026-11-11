@@ -6,10 +6,10 @@
  * the DSH workspace and starts a session there.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Button, Input, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
-import { Field, MenuSelect } from '../ui/index.tsx'
 import type { PickerKey } from './locale.ts'
+import { listProjects, messageOf, NewProjectForm, remoteMachine, waitProject, type ProjectRow } from './NewProjectForm.tsx'
 import css from './picker.module.css'
 
 type Translate = (key: PickerKey, params?: Record<string, string | number>) => string
@@ -23,10 +23,6 @@ export interface DirectoryFlowOwnerProps {
   onError: (message: string) => void
 }
 
-interface ProjectRow { key: string, name?: string, store?: string, machine?: string | null, kind?: string | null }
-
-const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
-const messageOf = (e: unknown) => String((e as any)?.message ?? e)
 
 export function ProjectPicker(props: DirectoryFlowOwnerProps & { api: LayerfsApi, t: Translate }): ReactNode {
   const { open, busy, api, t } = props
@@ -39,9 +35,9 @@ export function ProjectPicker(props: DirectoryFlowOwnerProps & { api: LayerfsApi
 
   const load = useCallback(() => {
     setLoadError(null)
-    Promise.all([api.call<ProjectRow[]>('GET', '/api/projects'), api.op<any>('runtime.status')]).then(([list, status]) => {
-      setScratchKey(status?.scratchProject ?? null)
-      setRows(Array.isArray(list) ? list : [])
+    listProjects(api).then(({ rows: list, scratchKey: key }) => {
+      setScratchKey(key)
+      setRows(list)
     }, (e) => setLoadError(messageOf(e)))
   }, [api])
 
@@ -76,7 +72,8 @@ export function ProjectPicker(props: DirectoryFlowOwnerProps & { api: LayerfsApi
         </div>
       )}>
       {creating ? (
-        <NewProject api={api} t={t} scratchKey={scratchKey} onBack={() => setCreating(false)} onCreated={(key) => { void choose(key) }} />
+        <NewProjectForm api={api} t={t} scratchKey={scratchKey} withSource={false} optionalSource onBack={() => setCreating(false)}
+          onStarted={async (job, key) => { await waitProject(api, job); await choose(key) }} />
       ) : (
         <div className={css.body}>
           <ul className={css.list} aria-label={t('scratch')}>
@@ -100,7 +97,7 @@ export function ProjectPicker(props: DirectoryFlowOwnerProps & { api: LayerfsApi
             : projects.length === 0 ? <div className={css.muted}>{t('empty')}</div> : (
               <ul className={css.list} aria-label={t('projects')}>
                 {projects.map((p) => {
-                  const remote = p.kind !== 'postgresql' && p.machine && p.machine !== 'native' ? p.machine : null
+                  const remote = remoteMachine(p)
                   return (
                     <li key={p.key}>
                       <button type="button" className={css.row} disabled={pending || !!remote} onClick={() => { void choose(p.key) }}>
@@ -119,78 +116,5 @@ export function ProjectPicker(props: DirectoryFlowOwnerProps & { api: LayerfsApi
         </div>
       )}
     </Modal>
-  )
-}
-
-/** Create a project (and a first Store when there is none), then open it. */
-function NewProject({ api, t, scratchKey, onBack, onCreated }: { api: LayerfsApi, t: Translate, scratchKey: string | null, onBack: () => void, onCreated: (key: string) => void }): ReactNode {
-  const [stores, setStores] = useState<string[] | null>(null)
-  const [store, setStore] = useState('')
-  const [name, setName] = useState('')
-  const [source, setSource] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const scratchStore = scratchKey?.split('/')[0]
-
-  useEffect(() => {
-    api.call<any>('GET', '/api/storage').then((view) => {
-      const usable = (s: any) => s.name !== scratchStore && (s.kind === 'postgresql' || (s.machine ?? 'native') === 'native')
-      const names = (view?.stores ?? []).filter(usable).map((s: any) => String(s.name))
-      setStores(names)
-      setStore((current) => current || names[0] || '')
-    }, (e) => { setStores([]); setError(messageOf(e)) })
-  }, [api, scratchStore])
-
-  const fresh = stores !== null && stores.length === 0
-  const nameError = name.trim() && !NAME.test(name.trim()) ? t('nameInvalid') : null
-  const storeError = fresh && store.trim() && !NAME.test(store.trim()) ? t('nameInvalid') : null
-  const sourceError = source.trim() && !source.trim().startsWith('/') ? t('sourceInvalid') : null
-  const valid = !!store.trim() && NAME.test(name.trim()) && !storeError && !sourceError && !busy
-
-  const submit = async () => {
-    if (!valid) return
-    setBusy(true)
-    setError(null)
-    try {
-      if (fresh) await api.call('POST', '/api/stores', { name: store.trim() })
-      let job = await api.call<any>('POST', '/api/projects', { store: store.trim(), name: name.trim(), ...(source.trim() ? { source: source.trim() } : {}) })
-      while (!job.ended) {
-        await new Promise((r) => setTimeout(r, 500))
-        job = await api.call<any>('GET', `/api/project-inits/${encodeURIComponent(job.id)}`)
-      }
-      if (job.error) throw new Error(job.error.message ?? String(job.error.code))
-      onCreated(`${store.trim()}/${name.trim()}`)
-    } catch (e) {
-      setError(messageOf(e))
-      setBusy(false)
-    }
-  }
-
-  return (
-    <form className={css.body} onSubmit={(e) => { e.preventDefault(); void submit() }}>
-      {fresh ? (
-        <Field label={t('newStore')} hint={t('newStoreHint')} error={storeError}>
-          <Input value={store} autoComplete="off" spellCheck={false} onChange={(e) => setStore(e.target.value)} />
-        </Field>
-      ) : (
-        <Field label={t('store')}>
-          <MenuSelect value={store} label={t('store')} placeholder={t('storeChoose')} disabled={stores === null}
-            options={(stores ?? []).map((s) => ({ value: s, label: s }))} onChange={setStore} />
-        </Field>
-      )}
-      <Field label={t('name')} error={nameError}>
-        <Input value={name} autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => setName(e.target.value)} />
-      </Field>
-      <Field label={t('source')} hint={t('sourceHint')} error={sourceError}>
-        <Input value={source} autoComplete="off" spellCheck={false} className={css.mono} onChange={(e) => setSource(e.target.value)} />
-      </Field>
-      {error ? <div className={css.error} role="alert">{error}</div> : null}
-      <div className={css.footer}>
-        <Button variant="ghost" type="button" disabled={busy} onClick={onBack}>{t('back')}</Button>
-        <Button variant="primary" type="submit" disabled={!valid} aria-busy={busy} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}>
-          {busy ? t('creating') : t('create')}
-        </Button>
-      </div>
-    </form>
   )
 }

@@ -214,6 +214,19 @@ export class LayerfsSessions extends Service {
     return { kind: 'legacy', cwd: String(header.cwd ?? '') }
   }
 
+  /** Where a live session works, for the New Session project control; null when it is not live. */
+  placeOfId(sessionId: string): { project: string | null, scratch: boolean, legacy: boolean } | null {
+    const session = this.ctx.sessions.get(sessionId as never) as any
+    if (!session) return null
+    const place = this.placeOf(session)
+    if (place.kind === 'shared') {
+      const parent = this.binding(place.parent)
+      return { project: parent?.project ?? null, scratch: this.isScratch(parent?.project), legacy: false }
+    }
+    if (place.kind === 'legacy') return { project: null, scratch: false, legacy: true }
+    return { project: place.project, scratch: this.isScratch(place.project), legacy: false }
+  }
+
   // ------------------------------------------------------------- binding
 
   binding(sessionId: string): Binding | undefined { return this.state.read().sessions[sessionId] }

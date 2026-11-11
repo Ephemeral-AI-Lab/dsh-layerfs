@@ -1,0 +1,138 @@
+/* The New Session row's project control: the compact 28px chip geometry and
+   secondary ink of the row's workspace and preset controls. */
+.root {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  height: 28px;
+  padding: 0 6px 0 8px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip svg {
+  flex: none;
+}
+
+.chip[data-state='failed'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+@media (hover: hover) {
+  .chip:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.chip:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
+  outline-offset: -2px;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.option {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.optionNote {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 260px;
+  padding: 8px 10px 10px;
+}
+
+.progressTitle {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.barFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: 2px;
+  background: var(--dsw-alias-label-secondary);
+  transition: width 0.3s ease;
+}
+
+.bar[data-indeterminate] .barFill {
+  width: 30%;
+  animation: slide 1.4s ease-in-out infinite;
+}
+
+@keyframes slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar[data-indeterminate] .barFill {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+.muted {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.error {
+  max-width: 320px;
+  overflow: hidden;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selfStart {
+  align-self: flex-start;
+}
+
+.modal {
+  width: min(520px, calc(100vw - 32px));
+}

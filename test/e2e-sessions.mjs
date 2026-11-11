@@ -7,7 +7,7 @@
 // per-turn checkpoints, restore files to a checkpoint, branch session at a
 // checkpoint (conversation fork + files fork), the LayerFS session store and
 // persistence row, Scratch sessions (Scratch workspace and DSH's default
-// workspace), and the add-workspace project picker.
+// workspace), the add-workspace project picker and the New Session project control.
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -174,6 +174,33 @@ try {
   assert.ok(existsSync(join(pstate.binding.mount, 'picked.txt')))
   assert.ok(existsSync(join(pstate.binding.mount, 'README.md')), 'project files')
 
+  step('UI: the New Session project control switches projects and creates one')
+  await page.getByRole('button', { name: 'New session', exact: true }).first().click()
+  const heroChip = page.locator('[data-layerfs-hero] button').first()
+  await heroChip.waitFor({ timeout: 15000 })
+  await until('hero shows the workspace project', async () => (await heroChip.innerText()).trim() === name)
+  await heroChip.click()
+  await page.getByRole('menuitem', { name: /Scratch \(no project\)/ }).click()
+  await until('hero switched to Scratch', async () => (await page.locator('[data-layerfs-hero] button').first().innerText()).trim() === 'Scratch')
+  await page.locator('[data-layerfs-hero] button').first().click()
+  await page.getByRole('menuitem', { name: 'New empty project' }).click()
+  await page.locator('[role=menu]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+  const newDialog = page.getByRole('dialog', { name: 'New empty project' })
+  await newDialog.waitFor({ timeout: 10000 })
+  await page.waitForTimeout(1500)
+  await newDialog.getByRole('button', { name: 'Store' }).click()
+  await page.getByRole('menuitem', { name: store, exact: true }).click()
+  await newDialog.getByLabel('Project name').fill('blank')
+  await newDialog.getByRole('button', { name: 'Create and open' }).click()
+  await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button').first().innerText().catch(() => '')).trim() === 'blank', 60000)
+  const tb = await runTurn(page, { message: 'bash: echo b > b.txt', newSession: false })
+  assert.ok(tb.ok, `new project turn: ${tb.error}`)
+  const bstate = await until('new project session bound', async () => {
+    const s = await must('session.state', { sessionId: tb.sessionId })
+    return s.binding?.state === 'bound' ? s : null
+  })
+  assert.equal(bstate.binding.project, `${store}/blank`)
+
   step('UI: the session panel shows the checkpoints')
   await page.locator(`[role=treeitem][data-row-key="session:${sid}"]`).first().click()
   await page.getByRole('button', { name: 'Open the LayerFS panel' }).first().click({ timeout: 15000 })
@@ -182,7 +209,8 @@ try {
 
   if (!process.argv.includes('--keep')) {
     step('cleanup')
-    for (const id of [child, sid, ts.sessionId, td.sessionId, tp.sessionId]) await must('sessions.forget', { sessionId: id })
+    for (const id of [child, sid, ts.sessionId, td.sessionId, tp.sessionId, tb.sessionId]) await must('sessions.forget', { sessionId: id })
+    await http('DELETE', `/api/projects/${encodeURIComponent(`${store}/blank`)}`)
     await http('DELETE', `/api/projects/${encodeURIComponent(project)}`)
     await http('DELETE', `/api/stores/${encodeURIComponent(store)}?confirm=${encodeURIComponent(store)}`).catch((e) => console.log('store kept:', e.message))
   }
