@@ -1,5 +1,6 @@
 import { verifyProject } from '../presets/recipe/project-verification.js'
 import { storeBranchOf } from '../sessions/store.ts'
+import { identityBranch, uuidOfBranches } from '../sessions/catalog.ts'
 import type { SimulationJournal } from './package.ts'
 
 /** Exact local bindings identify archive branches; an unknown dsh.session.* branch remains a graph error. */
@@ -27,7 +28,10 @@ export function simulationVerificationQuery(manifest: any, journal: Pick<Simulat
       if (next !== null && (!Number.isInteger(next) || !result.items.length)) throw new Error('Invalid simulation branch pagination')
       position = next
     }
-    return items.filter(branch => !excluded.has(branch.name))
+    // The project's identity branch (`dsh.project.<uuid>`, minted when sessions
+    // claim the project) is internal, like session archives.
+    const identity = uuidOfBranches(items.map(branch => branch.name))
+    return items.filter(branch => !excluded.has(branch.name) && !(identity && branch.name === identityBranch(identity)))
   }
   return async (argv: string[]): Promise<any> => {
     const resolved = argv.map(word => word === recipeProject ? manifest.projectRef : word)

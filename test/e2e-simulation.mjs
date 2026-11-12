@@ -31,7 +31,8 @@ const launch = (options = {}) => op('simulation.launch', { project: 'design', ma
 const settled = (id) => until('settled script', async () => {
   const value = await op('simulation.script', { sessionId: id })
   return ['completed', 'stopped', 'uncertain', 'failed'].includes(value.state) ? value : null
-}, Math.max(240000, cycles * (mixed ? 300000 : 120000)))
+  // Each scripted bash call costs about a second of host tool overhead (360 calls per cycle).
+}, Math.max(900000, cycles * (mixed ? 1200000 : 600000)))
 
 async function continueNormally(id, marker) {
   const result = await runTurn(page, {

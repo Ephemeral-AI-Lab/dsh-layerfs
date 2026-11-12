@@ -32,3 +32,9 @@ test('verification cannot begin with an unconfirmed workload mutation', async ()
   await assert.rejects(verifySimulation({}, { steps: [{ key: 'unfinished' }] }, { receipts: {}, append: async () => {} }, async () => { queried = true }), /incomplete simulation step/)
   assert.equal(queried, false)
 })
+test('the project identity branch is internal to verification, other dsh.project names are not', async () => {
+  const manifest = { store: 'fresh', project: 'billing', projectRef: 'fresh/billing-unique' }
+  const id = '4ec17d97-180b-4a24-9a95-5661f186be8b'
+  const query = simulationVerificationQuery(manifest, { records: [] }, async () => ({ items: [{ name: 'main' }, { name: `dsh.project.${id}` }, { name: 'dsh.project.not-a-uuid' }], has_more: false }))
+  assert.deepEqual((await query(['branch', 'list', 'fresh/billing'])).items.map(branch => branch.name), ['main', 'dsh.project.not-a-uuid'])
+})

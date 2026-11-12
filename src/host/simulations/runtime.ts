@@ -498,10 +498,15 @@ export class SimulationRuntime {
       signal.addEventListener('abort', cancel, { once: true })
       try {
         signal.throwIfAborted()
-        // LayerFS fails a second process on one Store (`Busy`): scripted calls share
-        // the host's per-Store lane; a remote workspace exec never touches the Store.
+        // LayerFS fails a second process on one Store (`Busy`). Scripted calls take
+        // turns on their own per-Store lane and start once the host's lane is free;
+        // holding the host lane across the tool hook chain could deadlock with host
+        // work that hook awaits. A remote workspace exec never touches the Store.
         const store = argv[0] === 'workspace' && argv[1] === 'exec' ? undefined : storeOfCall(argv) ?? binding.run.manifest?.store
-        result = store && this.ctx.layerfs?.home ? await admitStore(this.ctx.layerfs.home, store, () => next()) : await next()
+        const home = this.ctx.layerfs?.home
+        result = store && home
+          ? await scriptedStoreLane(`${home}\0${store}`, async () => { await admitStore(home, store, async () => {}); return next() })
+          : await next()
         return parseSimulationBashReceipt(result, { events: step.argv.includes('--events') })
       } finally {
         signal.removeEventListener('abort', cancel)
@@ -759,4 +764,15 @@ export class SimulationRuntime {
     const sandboxes = [...new Set((plan.steps ?? []).filter(step => step.resource?.family === 'sandbox').map(step => step.resource.name))]
     return { project: manifest.projectRef, machine: manifest.machine, sandboxes, rootSessionId: binding.rootSessionId }
   }
+}
+
+/** One scripted CLI process per Store at a time, across all script sessions. */
+const scriptedLanes = new Map()
+function scriptedStoreLane(key, run) {
+  const previous = scriptedLanes.get(key) ?? Promise.resolve()
+  const current = previous.catch(() => {}).then(run)
+  const tail = current.catch(() => {})
+  scriptedLanes.set(key, tail)
+  void tail.then(() => { if (scriptedLanes.get(key) === tail) scriptedLanes.delete(key) })
+  return current
 }

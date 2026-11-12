@@ -5,7 +5,6 @@
  * {@link CliError}. The call table comes from the CLI's own `help --json`.
  * Ported from LayerFS Connect `host/cli/` (without the activity recorder).
  */
-import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -174,12 +173,7 @@ interface Timing { at?: number, ms?: number }
 interface Capture { stdout: OutputSink, stderr: OutputSink, final?: string, refusal?: unknown, exit?: number | null }
 
 const lanes = new Map<string, { active: number, waiting: (() => void)[] }>()
-/** The `admitStore` lane holder of the current async context, if any. */
-const laneHolder = new AsyncLocalStorage<{ key: string, active: boolean }>()
 async function admit<T>(key: string, limit: number, run: () => Promise<T>): Promise<T> {
-  // Host calls made inside an `admitStore` holder (its tool hook chain) already own the lane.
-  const holder = laneHolder.getStore()
-  if (holder?.active && holder.key === key) return run()
   let lane = lanes.get(key)
   if (!lane) lanes.set(key, lane = { active: 0, waiting: [] })
   if (lane.active >= limit) await new Promise<void>((resolve) => lane!.waiting.push(resolve))
@@ -191,15 +185,10 @@ async function admit<T>(key: string, limit: number, run: () => Promise<T>): Prom
   }
 }
 
-/** Run a caller-spawned CLI process (an agent's bash call) in this host's
- * one-process-per-Store lane, the same lane `execute` uses. */
+/** Wait for, then hold, this host's one-process-per-Store lane (the lane `execute`
+ * uses) around `run`; with an empty `run` it waits until the lane is free. */
 export function admitStore<T>(home: string, store: string, run: () => Promise<T>): Promise<T> {
-  const key = JSON.stringify(['store', home, store])
-  return admit(key, 1, () => {
-    // Re-entrant only while held: a timer scheduled inside sees an inactive holder.
-    const holder = { key, active: true }
-    return laneHolder.run(holder, run).finally(() => { holder.active = false })
-  })
+  return admit(JSON.stringify(['store', home, store]), 1, run)
 }
 
 /**
