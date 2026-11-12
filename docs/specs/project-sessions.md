@@ -133,16 +133,19 @@ DSH session / turn / tool call
 
 Each invocation (a receipt in the session sidecar's `invocations[]`) is
 `{id, origin, sessionId, project, turn?, toolCallId?, operation, outcome,
-versions, captureGap?}`: a unique receipt ID, origin (`tool` or `host`), session
+versions, captureGap?, at, ms, argv, tag?, code?, kind?, execId?, exit?, step?,
+imported?}`: a unique receipt ID, origin (`tool` or `host`), session
 and turn identity where available, optional DSH tool-call identity, canonical
 operation (`family.call`), target project and outcome (`success`, `refusal`,
 `unknown`). Saved-version links carry the actual version identity and an effect
 such as `created`, `unchanged`, or `referenced`. Preserve typed Commit versus
-Layer identities. Older sidecars may also hold `arguments`, `source`,
-`startedAt`, `finishedAt` and `error`; they are read as they are and no longer
-written. Timing, argv and duration live in the machine's call log line instead
-(docs/specs/layerfs-logs.md), which is per machine and resettable, so the
-receipt keeps operation, outcome and versions.
+Layer identities. The receipt also carries the call itself (start, duration,
+redacted portable argv, log tag, outcome code, result kind, exec id and exit,
+the simulation step) so it renders without this machine's call log; the exact
+fields, caps and the import merge are in docs/specs/layerfs-logs.md §4–§5a.
+Older sidecars may also hold `arguments`, `source`, `startedAt`, `finishedAt`
+and `error`, or lack the call fields; they are read as they are and those old
+fields are no longer written.
 
 **Tag.** Every CLI call made inside a project session's trace context carries
 `LAYERFS_LOGS_TAG=dsh:<sessionId>:<receiptId>`, with one new receipt ID per call

@@ -14,7 +14,7 @@ const root = mkdtempSync(join(tmpdir(), 'dsh-tracing-'))
 await build({ stdin: { contents: "export * from './src/host/layerfs/tracing.ts'; export { execute } from './src/host/layerfs/cli.ts'; export { listCalls } from './src/host/layerfs/call-log.ts'; export { parseTag, sessionTag } from './src/shared/logs.ts'", resolveDir: process.cwd(), loader: 'ts' }, outfile: join(root, 'trace.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node24' })
 const { execute, savedVersions, lineVersions, receiptFromLine, withTraceContext, traceInvocation, managedCli, traceEnvironment, toolScope, listCalls, parseTag, sessionTag } = await import(pathToFileURL(join(root, 'trace.mjs')))
 const id = '12' + 'a'.repeat(64), base = '32' + 'b'.repeat(64)
-const RECEIPT_KEYS = ['id', 'origin', 'sessionId', 'project', 'turn', 'toolCallId', 'operation', 'outcome', 'versions', 'captureGap']
+const RECEIPT_KEYS = ['id', 'origin', 'sessionId', 'project', 'turn', 'toolCallId', 'operation', 'outcome', 'versions', 'captureGap', 'at', 'ms', 'argv', 'tag', 'code', 'kind', 'execId', 'exit', 'step']
 
 test('raw pinned CLI publication and merge results preserve snake_case saved-version links', () => {
   assert.deepEqual(savedVersions('branch.publish', { kind: 'Added', published_layer: { id: base }, source: { branch: 'release', commit: id } }), [{ kind: 'Layer', id: base, effect: 'created' }])
