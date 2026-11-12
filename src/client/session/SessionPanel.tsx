@@ -1,7 +1,7 @@
 /**
  * The per-session LayerFS panel (right sidebar tab): where this session's
- * project files are (branch, Workspace mount, scratch folder), what is unsaved,
- * the trajectory checkpoints with their changes, and restore / branch actions.
+ * project files are (project execution context and scratch folder), what is unsaved,
+ * the trajectory checkpoints with their changes, and restore actions.
  * A session in a folder workspace (no LayerFS binding) says so and offers to
  * start a session in a project.
  */
@@ -39,6 +39,7 @@ interface Binding {
   mount?: string
   scratch: string
   anchor: string
+  executionState?: 'inactive' | 'activating' | 'active' | 'interrupted'
   state: 'bound' | 'closed' | 'failed'
   error?: string
   from?: { session?: string, commit?: string | null, turn?: number }
@@ -52,6 +53,8 @@ interface SessionView {
   scratchProject: boolean
   status: { overlay?: { entries?: number }, error?: { message: string } } | null
   mirror: { count: number, error?: string, updatedAt: number } | null
+  execution?: { state: 'inactive' | 'activating' | 'active' | 'interrupted', available: boolean, reason?: string, projectId?: string }
+  archive?: { localCount: number, savedCount: number, error?: string, updatedAt?: number }
 }
 
 export interface SessionPanelProps {
@@ -74,7 +77,7 @@ function kindLabel(c: Checkpoint, t: Translate): string {
   switch (c.kind) {
     case 'base': return t('kindBase')
     case 'turn': return t('kindTurn', { n: c.turn })
-    case 'manual': return t('kindManual')
+    case 'manual': return c.changed > 0 || c.error ? t('kindManual') : t('kindReference')
     case 'restore': return t('kindRestore')
     default: return t('kindIdle')
   }
@@ -185,34 +188,39 @@ export function SessionPanel({ sessionId, api, t }: SessionPanelProps): ReactNod
   const b = view!.binding
   if (!b) return <div className={css.pad}><StartSession sessionId={sessionId} api={api} t={t} /></div>
 
-  const dot: StateDotState = b.state === 'bound' ? 'done' : b.state === 'failed' ? 'error' : 'idle'
+  const execution = view!.execution
+  const state = execution?.state ?? (b.state === 'bound' ? 'active' : b.state === 'failed' ? 'interrupted' : 'inactive')
+  const available = execution?.available !== false
+  const dot: StateDotState = state === 'active' ? 'done' : state === 'activating' ? 'ongoing' : state === 'interrupted' ? 'error' : 'idle'
   const pending = Number(view!.status?.overlay?.entries ?? 0)
-  const store = view!.mirror?.error ? t('storeError', { message: view!.mirror.error }) : view!.mirror ? t('storeLayerfs') : t('storeLayerfsPending')
+  const archive = view!.archive
+  const store = archive?.error ? t('storeError', { message: archive.error })
+    : archive ? (archive.savedCount < archive.localCount ? t('storePending', { saved: archive.savedCount, total: archive.localCount }) : t('storeSavedThrough', { n: archive.savedCount }))
+    : view!.mirror?.error ? t('storeError', { message: view!.mirror.error }) : t('storeLayerfsPending')
 
   return (
     <div className={css.pad}>
       <div className={css.head}>
         <StateDot state={dot} />
         <span className={css.headTitle} title={b.project}>{view!.scratchProject ? t('scratchTitle') : b.project}</span>
-        <Tag tone={b.state === 'bound' ? 'success' : b.state === 'failed' ? 'danger' : 'neutral'}>
-          {t(b.state === 'bound' ? 'stateBound' : b.state === 'failed' ? 'stateFailed' : 'stateClosed')}
-        </Tag>
+        <Tag tone={state === 'active' ? 'success' : state === 'interrupted' ? 'danger' : 'neutral'}>{t(`execution_${state}`)}</Tag>
+        <Tag tone={available ? 'success' : 'danger'}>{t(available ? 'projectAvailable' : 'projectUnavailable')}</Tag>
       </div>
-      {b.error ? <div className={css.error}>{b.error}</div> : null}
+      {execution?.reason || b.error ? <div className={css.error}>{execution?.reason ?? b.error}</div> : null}
+      {state !== 'active' ? <div className={css.muted}>{t(available ? 'executionLazy' : 'historyRetained')}</div> : null}
       {view!.scratchProject ? <div className={css.muted}>{t('scratchBody')}</div> : null}
       {b.from ? <div className={css.muted}>{b.from.turn ? t('forkedFrom', { n: b.from.turn }) : t('forkedFromStart')}</div> : null}
 
       <div className={css.card}>
-        <Field label={t('branch')}><code className={css.path}>{b.branch}</code></Field>
         {b.mount ? <Field label={t('workingDirectory')}><Path path={b.mount} /></Field>
           : b.ws ? <Field label={t('workspace')} hint={t('workspaceRemote', { machine: b.machine ?? '?' })}><code className={css.path}>{b.ws}</code></Field> : null}
-        <Field label={t('scratch')} hint={t('scratchHint')}><Path path={b.scratch} /></Field>
+        {b.scratch ? <Field label={t('scratch')} hint={t('scratchHint')}><Path path={b.scratch} /></Field> : null}
         <div className={css.statusRow}>
           <span className={clsx(css.muted, pending > 0 && css.warn)}>{b.state === 'bound' ? (pending > 0 ? t('pending', { n: pending }) : t('pendingNone')) : ''}</span>
-          <span className={clsx(css.muted, view!.mirror?.error && css.warn)}>{store}</span>
+          <span className={clsx(css.muted, (archive?.error || (archive && archive.savedCount < archive.localCount) || view!.mirror?.error) && css.warn)}>{store}</span>
         </div>
         <div className={css.actions}>
-          <Button variant="outline" size="sm" disabled={b.state !== 'bound' || busy !== null} onClick={() => act('cp', () => api.op('checkpoints.create', { sessionId: b.sessionId, message: 'Manual checkpoint' }))}>{t('checkpointNow')}</Button>
+          <Button variant="outline" size="sm" disabled={!available || b.state !== 'bound' || busy !== null} onClick={() => act('cp', () => api.op('checkpoints.create', { sessionId: b.sessionId, message: 'Manual checkpoint' }))}>{t('checkpointNow')}</Button>
           <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => api.openPanel('layerfs-storage')}>{t('openStorage')}</Button>
           {b.state === 'bound' ? <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => act('close', () => api.op('sessions.close', { sessionId: b.sessionId }))}>{t('closeSandbox')}</Button> : null}
         </div>
@@ -235,16 +243,13 @@ export function SessionPanel({ sessionId, api, t }: SessionPanelProps): ReactNod
                   <code className={css.commit}>{short(c.commit)}</code>
                 </div>
                 {c.error ? <div className={css.error}>{t('failedSave', { message: c.error.message })}</div>
-                  : <div className={css.pointMeta}>{c.message}</div>}
+                  : <div className={css.pointMeta}>{c.changed > 0 ? t('changedFiles', { n: c.changed }) : t('unchanged')}</div>}
                 {c.commit ? (
                   <div className={css.pointActions}>
                     {c.kind !== 'base' && c.branch ? (
                       <Button variant="ghost" size="sm" onClick={() => setOpen(expanded ? null : key)}>{expanded ? t('hideChanges') : t('viewChanges')}</Button>
                     ) : null}
-                    <Button variant="ghost" size="sm" disabled={busy !== null || b.state === 'failed'} onClick={() => { setAck(false); setRestoring(c) }}>{t('restore')}</Button>
-                    {c.kind === 'turn' || c.kind === 'base' ? (
-                      <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => act(`branch:${key}`, () => api.op('checkpoints.branch', { sessionId: b.sessionId, commit: c.commit, turn: c.turn }))}>{t('branchHere')}</Button>
-                    ) : null}
+                    <Button variant="ghost" size="sm" disabled={!available || busy !== null || state === 'activating'} onClick={() => { setAck(false); setRestoring(c) }}>{t('restore')}</Button>
                   </div>
                 ) : null}
                 {expanded && c.commit && c.branch ? (

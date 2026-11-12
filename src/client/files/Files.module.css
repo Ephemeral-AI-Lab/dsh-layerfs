@@ -26,17 +26,6 @@
   background: var(--dsw-alias-bg-base);
 }
 
-@container files-frame (max-width: 600px) {
-  .frame {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(120px, 34%) minmax(0, 1fr);
-  }
-
-  .side {
-    border-right: 0;
-    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  }
-}
 
 .frame > * {
   min-height: 0;
@@ -54,6 +43,19 @@
   min-width: 0;
   border-right: 0.5px solid var(--dsw-alias-border-l2);
 }
+
+@container files-frame (max-width: 600px) {
+  .frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 34%) minmax(0, 1fr);
+  }
+
+  .side {
+    border-right: 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  }
+}
+
 
 .sideHead {
   display: flex;

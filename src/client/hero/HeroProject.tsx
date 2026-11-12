@@ -2,8 +2,8 @@
  * The New Session row's LayerFS project control (`conversation.hero.options`):
  * shows the project the new session will work in, or "No project" for a plain
  * workspace session, and switches it — another project, a new empty project,
- * or a project imported from a host folder. Switching opens a new session in
- * that project's workspace. While an import runs, the control shows its
+ * or a project imported from a host folder. Project ownership and the selected
+ * local scratch folder are independent. While an import runs, the control shows its
  * progress.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
@@ -14,6 +14,7 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { listProjects, messageOf, NewProjectForm, remoteMachine, waitProject, type ProjectInitJob, type ProjectRow } from '../picker/NewProjectForm.tsx'
 import type { PickerKey } from '../picker/locale.ts'
 import type { HeroKey } from './locale.ts'
+import { ScratchPicker } from './ScratchPicker.tsx'
 import css from './hero.module.css'
 
 type Translate<K extends string> = (key: K, params?: Record<string, string | number>) => string
@@ -34,7 +35,7 @@ export class Imports {
   set(next: ImportState | null): void { this.state = next; for (const l of this.listeners) l() }
 }
 
-interface Place { project: string | null }
+interface Place { projectId?: string, project: string | null, scratch?: string }
 
 const NONE = '@none'
 const NEW = '@new'
@@ -103,7 +104,8 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
   const switchTo = async (key: string | null) => {
     setError(null)
     try {
-      await api.op('sessions.choose', { sessionId, project: key })
+      const row = rows?.find((p) => (p.projectId ?? p.key) === key)
+      await api.op('sessions.choose', { sessionId, project: row?.key ?? key, projectId: row?.projectId })
     } catch (e) {
       setError(t('switchFailed', { message: messageOf(e) }))
     }
@@ -123,20 +125,16 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     )
   }
 
-  // A session placed in a LayerFS project no longer works in the workspace's
-  // folder: hide DSH's workspace chip on the shared hero row so the LayerFS
-  // mark reads as "the folder". Best-effort — if the hero's markup changes,
-  // the workspace chip simply stays.
-  const bound = !!place?.project
   useEffect(() => {
-    if (!bound) return
-    for (let el = root.current?.parentElement; el; el = el.parentElement) {
-      if (el.querySelector(':scope > button')) {
-        el.setAttribute('data-layerfs-bound', '')
-        return () => el.removeAttribute('data-layerfs-bound')
-      }
+    if (!place?.project) return
+    // Native folder selection navigates to another blank. In project mode our
+    // scratch selector preserves this session and changes only its local folder.
+    for (let row = root.current?.parentElement, depth = 0; row && depth < 6; row = row.parentElement, depth++) {
+      if (!row.querySelector(':scope > [data-slot="conversation.hero.workspace"]') || !row.querySelector(':scope > button[aria-haspopup="menu"]')) continue
+      row.setAttribute('data-layerfs-scratch-picker', sessionId)
+      return () => { if (row.getAttribute('data-layerfs-scratch-picker') === sessionId) row.removeAttribute('data-layerfs-scratch-picker') }
     }
-  }, [bound])
+  }, [place?.project, sessionId])
 
   if (running) {
     const name = nameOf(running.key)
@@ -169,9 +167,9 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     )
   }
 
-  const current = place?.project ?? null
+  const current = place?.projectId ?? place?.project ?? null
   const label = place === null ? '' : place.project ? nameOf(place.project) : t('noProject')
-  const projects = (rows ?? []).filter((r) => r.key !== scratchKey)
+  const projects = (rows ?? []).filter((r) => r.key !== scratchKey && (!r.catalogState || r.catalogState === 'available'))
   const items: MenuEntry[] = [
     { id: NONE, label: t('noProject'), icon: <IconFolderOpenOutlineRegular size={14} /> },
     { type: 'separator', id: 'none' },
@@ -182,7 +180,7 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
       const store = p.key.split('/')[0] ?? ''
       const note = remote ? t('onMachine', { machine: remote }) : store
       return {
-        id: p.key,
+        id: p.projectId ?? p.key,
         icon: <LayerfsGlyph size={14} />,
         label: <span className={css.option}><span>{p.name ?? nameOf(p.key)}</span><span className={css.optionNote}>{note}</span></span>,
       }
@@ -193,6 +191,7 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
   ]
   return (
     <span ref={root} className={css.root} data-layerfs-hero="">
+      {place?.project ? <ScratchPicker sessionId={sessionId} scratch={place.scratch} api={api} t={t} /> : null}
       <Menu open={open} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense
         onSelect={(id) => {
           setOpen(false)

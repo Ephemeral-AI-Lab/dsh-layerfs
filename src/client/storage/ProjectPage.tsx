@@ -153,12 +153,11 @@ function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, pro
       ) : (
         <Card className={css.tableCard}>
           <table className={css.table}>
-            <thead><tr><th>{t('colSession')}</th><th>{t('colBranch')}</th><th>{t('colState')}</th><th className={`${css.num} ${css.wide}`}>{t('colCheckpoints')}</th><th className={css.num}>{t('colUpdated')}</th><th><span className={css.srOnly}>{t('sessionsOpen')}</span></th></tr></thead>
+            <thead><tr><th>{t('colSession')}</th><th>{t('colState')}</th><th className={`${css.num} ${css.wide}`}>{t('colCheckpoints')}</th><th className={css.num}>{t('colUpdated')}</th><th><span className={css.srOnly}>{t('sessionsOpen')}</span></th></tr></thead>
             <tbody>
               {q.data.map((s) => (
                 <tr key={s.sessionId}>
                   <td><span className={css.rowTitle}>{s.title || t('sessionUntitled')}</span></td>
-                  <td className={css.mono}>{s.branch ?? '—'}</td>
                   <td className={css.muted}>{s.state ?? '—'}</td>
                   <td className={`${css.num} ${css.wide} ${css.muted}`}>{s.checkpoints ?? '—'}</td>
                   <td className={`${css.num} ${css.muted}`} title={when(s.updatedAt)}>{s.updatedAt ? ago(s.updatedAt, now, t as Translate) : '—'}</td>

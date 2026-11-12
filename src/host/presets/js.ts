@@ -5,6 +5,7 @@
  */
 import * as build from './build.js'
 import * as reset from './environment-reset.js'
+import * as stop from './machine-stop.js'
 import * as runner from './runner.js'
 import * as mixed from './recipe/mixed-recipe.js'
 import * as presetsJs from './recipe/presets.js'
@@ -17,6 +18,7 @@ const js = (m: unknown): any => m
 
 export const { buildPreset, prepareBuild, presetScript } = js(build)
 export const { EnvironmentReset, liveReceipt } = js(reset)
+export const { MachineStop } = js(stop)
 export const { TOOL } = js(runner)
 export const { MIXED_RECIPE_VERSION } = js(mixed)
 export const { CONTENT_VERSION, presetOf, presets } = js(presetsJs)

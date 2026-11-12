@@ -54,12 +54,18 @@ export function ProjectFiles(props: ProjectFilesProps): ReactNode {
   )
 }
 
+/** Browse one exact saved version without exposing internal branch controls. */
+export function SavedProjectFiles(props: Pick<ProjectFilesProps, 'api' | 'project' | 't'> & { version: string }): ReactNode {
+  const branches: BranchInfo[] = [{ name: 'main', head: props.version, parent: null, forkedFrom: null, state: 'open', commits: null }]
+  return <FilesFrame key={`${props.project}:${props.version}`} {...props} initialBranch="main" initialPin={props.version} branches={branches} more={undefined} savedOnly />
+}
+
 /** A folder's entries, its read in progress, or its refusal. */
 type Dir = FsEntry[] | 'loading' | Error
 
 const byKind = (a: FsEntry, b: FsEntry) => Number(b.kind === 'dir') - Number(a.kind === 'dir') || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 
-function FilesFrame({ api, project, t, branches, initialBranch, initialPin, initialPath, tick = 0, onBranchChange, className, more }: ProjectFilesProps & { branches: BranchInfo[], more: (() => void) | undefined }) {
+function FilesFrame({ api, project, t, branches, initialBranch, initialPin, initialPath, tick = 0, onBranchChange, className, more, savedOnly = false }: ProjectFilesProps & { branches: BranchInfo[], more: (() => void) | undefined, savedOnly?: boolean }) {
   const [ref, setRef] = useState(() => (initialBranch && branches.some((b) => b.name === initialBranch) ? initialBranch : branches.find((b) => b.name === 'main')?.name ?? branches[0]!.name))
   const [pin, setPin] = useState<string | undefined>(initialPin)
   const head = branches.find((b) => b.name === ref)?.head ?? undefined
@@ -131,11 +137,11 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
     <div className={clsx(css.frameWrap, className)}><div className={css.frame}>
       <aside className={css.side} aria-label={t('files_tree')}>
         <div className={css.sideHead}>
-          <BranchPicker branches={branches} value={ref} onChange={choose} t={t} />
+          {!savedOnly ? <BranchPicker branches={branches} value={ref} onChange={choose} t={t} /> : null}
           {more ? <button type="button" className={css.linkButton} onClick={more}>{t('files_moreBranches')}</button> : null}
           <p className={css.savedAt} title={at}>
             {t('files_saved', { id: shortId(at) })}
-            {pin && pin !== head ? <> · <button type="button" className={css.inlineLink} onClick={() => setPin(undefined)}>{t('files_latest')}</button></> : null}
+            {!savedOnly && pin && pin !== head ? <> · <button type="button" className={css.inlineLink} onClick={() => setPin(undefined)}>{t('files_latest')}</button></> : null}
           </p>
           <Input className={css.find} icon={<IconSearchOutlineRegular size={14} />} placeholder={t('files_findPlaceholder')} aria-label={t('files_findPlaceholder')}
             value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.preventDefault(); setQuery('') } }} />

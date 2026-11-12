@@ -10,7 +10,7 @@ import { Field, MoreMenu, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
-import { BUILT_IN, duration, heldWords, inUse, isImageRef, machineState, opWords, powerOf, stageWords, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, duration, forceStopOf, heldWords, inUse, isImageRef, machineState, opWords, powerOf, stageWords, type MachineInfo, type MachineLive } from './model.ts'
 import css from './machines.module.css'
 
 /** Runs a machine action, one at a time: `pending` names it; LayerFS's refusal is kept to show. */
@@ -82,8 +82,9 @@ function useElapsed(on: boolean): number {
 }
 
 /** The `…` menu: Open (on the board), power, Update settings… (built-ins) or Remove… (VMs). */
-export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineInfo, pending: string | null, run: Run, onOpen?: () => void, onDialog: (d: 'settings' | 'remove') => void }): ReactNode {
-  const { t, tw } = useMachinesContext()
+export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineInfo, pending: string | null, run: Run, onOpen?: () => void, onDialog: (d: 'settings' | 'remove' | 'force-stop') => void }): ReactNode {
+  const { t, tw, useMachines } = useMachinesContext()
+  const hasSandboxes = useMachines((snapshot) => m.sandboxes.length > 0 || !!(snapshot.data?.available && snapshot.data.sandboxes.some((sandbox) => sandbox.machine === m.name)))
   const power = powerOf(m)
   const builtIn = BUILT_IN.has(m.platform)
   const held = inUse(m)
@@ -96,6 +97,12 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
             <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
               onSelect={() => { close(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }}>
               {t(powerKey(m, power))}
+            </MenuItemButton>
+          )}
+          {forceStopOf(m, hasSandboxes) && (
+            <MenuItemButton danger icon={<PowerGlyph size={14} />} disabled={pending !== null}
+              onSelect={() => { close(); onDialog('force-stop') }}>
+              {t('forceStop')}
             </MenuItemButton>
           )}
           {builtIn
@@ -118,10 +125,29 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
 }
 
 /** The menu's dialogs: a built-in's settings, or removing a VM. */
-export function MachineDialogs({ m, dialog, onClose, pending, run, onRemoved }: { m: MachineInfo, dialog: 'settings' | 'remove' | null, onClose: () => void, pending: string | null, run: Run, onRemoved?: () => void }): ReactNode {
+export function MachineDialogs({ m, dialog, onClose, pending, run, onRemoved }: { m: MachineInfo, dialog: 'settings' | 'remove' | 'force-stop' | null, onClose: () => void, pending: string | null, run: Run, onRemoved?: () => void }): ReactNode {
   if (dialog === 'settings' && BUILT_IN.has(m.platform)) return <SettingsDialog m={m} onClose={onClose} pending={pending} run={run} />
+  if (dialog === 'force-stop') return <ForceStopDialog m={m} onClose={onClose} pending={pending} run={run} />
   if (dialog === 'remove') return <RemoveDialog m={m} onClose={onClose} pending={pending} run={run} onRemoved={onRemoved} />
   return null
+}
+
+/** Force stop is an explicit escalation; normal Stop keeps its refusal behavior. */
+function ForceStopDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose: () => void, pending: string | null, run: Run }): ReactNode {
+  const { t } = useMachinesContext()
+  return (
+    <Modal open onClose={() => { if (pending === null) onClose() }} title={t('forceStopTitle', { name: m.name })}
+      description={t(m.platform === 'native' ? 'forceStopNativeBody' : 'forceStopBody', { name: m.name })} closeLabel={t('close')} className={css.dialog}
+      footer={(
+        <>
+          <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>
+          <Button variant="primary" className={css.danger} disabled={pending !== null}
+            onClick={() => void run('stop', { kind: 'stop', name: m.name, force: true }).then(() => onClose())}>
+            {pending === 'stop' ? t('forceStopping') : t('forceStopAction')}
+          </Button>
+        </>
+      )} />
+  )
 }
 
 /** A built-in's settings (machine.update): its Sandbox image; docker also its socket and WSL distribution. */

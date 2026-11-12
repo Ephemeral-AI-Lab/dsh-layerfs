@@ -1,20 +1,16 @@
 /**
  * Presets: build LayerFS Connect's Studio project library (4 machines, 4
  * stores, 8 projects with dense histories) into the plugin's own LayerFS
- * home, or reset that home to empty. Port of Connect
+ * home, or force-close its machines. Port of Connect
  * `host/demo-presets/manager.js` for one home: there are no preset homes,
  * child hosts or environment switching, and no CLI Activity (a job keeps
  * its own log).
  *
- * Build and Reset remove every store, sandbox, workspace and custom machine
- * in the home, so they are admitted only when
- *   - the confirmed plan's signature still matches the inventory,
- *   - the request forces (open DSH project sessions are discarded with their
- *     Sandboxes) or no such session holds one, and
- *   - no storage job, project import or doctor run is in flight.
- * While a job runs, other changes through the routes are refused (reads stay
- * open) and new project sessions wait. After the stores are gone, the
- * removed projects' DSH workspaces and session records are dropped.
+ * Build clears and rebuilds this home. Reset force-stops registered machines
+ * without starting workers or removing stores, projects or saved history.
+ * Both retain request reconciliation and an exclusive job lease. Active DSH
+ * sessions may be force-closed, while storage/import/doctor jobs must finish
+ * before either operation starts. Only Build forgets removed project records.
  *
  * Routes (under `/api/demo-presets`, answered by the `http` operation):
  *   GET  /                               the library, its latest job, busy
@@ -29,11 +25,11 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { LOG_LINES, type BusySession, type DemoPreset, type DemoPresets, type DshImpact, type EnvironmentResetPlan, type PresetExecutionMode, type PresetJob } from '../../shared/presets.ts'
+import { LOG_LINES, type BusySession, type DemoPreset, type DemoPresets, type DshImpact, type EnvironmentResetPlan, type MachineStopPlan, type PresetExecutionMode, type PresetJob } from '../../shared/presets.ts'
 import { CliDriver, type PresetSpec } from './driver.ts'
 import {
-  buildPreset, CONTENT_VERSION, EnvironmentReset, liveReceipt, MIXED_RECIPE_VERSION, prepareBuild, presetOf, presets,
-  presetScript, projectDefinition, projectHistoryPlan, scriptPage, StepJournal, TOOL,
+  buildPreset, CONTENT_VERSION, EnvironmentReset, MachineStop, liveReceipt, MIXED_RECIPE_VERSION, prepareBuild, presetOf, presets,
+  presetScript, projectDefinition, projectHistoryPlan, scriptPage,
 } from './js.ts'
 
 /** What the manager needs from its host (tests pass a stand-in). */
@@ -48,6 +44,8 @@ export interface PresetHost {
   dshProjects(): { project: string, sessions: number }[]
   /** Drop a removed project's DSH workspace and session records. */
   forgetProject(project: string): Promise<void>
+  /** Mark stopped execution contexts closed without forgetting their sessions. */
+  machinesStopped?(machines: string[]): Promise<void>
   /** Publish a host event. */
   emit(type: string, data?: unknown): void
 }
@@ -110,13 +108,14 @@ export class PresetManager {
     const preset = presetOf(name)
     const manifest = read(join(this.state, 'demo-fixtures.json'))
     const job = this.latest(name)
+    const buildJob = [...this.jobs.values()].reverse().find((candidate) => candidate.preset === name && candidate.rebuild)
     const executionMode = modeOf(requestedMode ?? manifest?.executionMode)
     const stores = preset.stores.length
     const projectDefinitions = preset.stores.flatMap((store: any) => store.projects.map((project: string) => {
       const definition = projectDefinition(project), plan = projectHistoryPlan(project, { executionMode })
       return { store: store.name, name: project, title: definition.title, description: definition.description, branches: plan.branches, history: plan.history, tier: plan.tier, cycles: plan.cycles, layers: plan.layers, commands: plan.commands, workspaceRevisions: plan.workspaceRevisions, authoredRevisions: plan.authoredRevisions, sandboxLimit: plan.sandboxLimit, workspaceLimit: plan.workspaceLimit }
     }))
-    const contentReady = (manifest?.executionMode ?? 'filesystem') === executionMode && manifest?.contentVersion === CONTENT_VERSION && (executionMode !== 'mixed' || manifest?.mixedRecipeVersion === MIXED_RECIPE_VERSION) && job?.state === 'completed' && job.rebuild && !!job.presetVerified
+    const contentReady = (manifest?.executionMode ?? 'filesystem') === executionMode && manifest?.contentVersion === CONTENT_VERSION && (executionMode !== 'mixed' || manifest?.mixedRecipeVersion === MIXED_RECIPE_VERSION) && buildJob?.state === 'completed' && !!buildJob.presetVerified
     const projects = preset.stores.reduce((n: number, s: any) => n + s.projects.length, 0)
     return {
       id: name, description: preset.description, executionMode, contentVersion: CONTENT_VERSION, contentReady, projectDefinitions,
@@ -144,7 +143,7 @@ export class PresetManager {
     return { items, home: this.home, busy: this.exclusive() || !!liveReceipt(join(this.state, 'demo-fixtures.lock')) }
   }
 
-  /** The DSH side of a reset: sessions a force tears down, and project workspaces it drops. */
+  /** The DSH side of destructive Build cleanup. Stop-only Reset retains these records. */
   private impact(projectKeys: readonly string[]): DshImpact {
     const removed = new Set(projectKeys)
     return {
@@ -197,14 +196,13 @@ export class PresetManager {
     return { ...plan, environment: name, dsh: this.impact(plan.projectKeys) }
   }
 
-  async environmentPlan(name: string): Promise<EnvironmentResetPlan> {
+  async environmentPlan(name: string): Promise<MachineStopPlan> {
     if (this.list().busy) throw busy('Wait for the preset operation to finish before planning a reset.')
     const spec = this.spec()
     if (!existsSync(join(spec.home, 'layerfs.json'))) throw error(409, 'InvalidInput', 'This LayerFS home has not been initialized; there is nothing to reset.')
-    const reset = new EnvironmentReset({ spec, driver: new CliDriver(spec) })
-    await reset.driver.discover()
+    const reset = new MachineStop({ spec, driver: new CliDriver(spec) })
     const plan = await reset.plan()
-    return { ...plan, environment: name, dsh: this.impact(plan.projectKeys) }
+    return { ...plan, environment: name, dsh: { sessions: this.host.boundSessions(), workspaces: [] } }
   }
 
   /** Drop the DSH records of projects whose Store the reset removed (verified first). */
@@ -232,11 +230,11 @@ export class PresetManager {
       return duplicate
     }
     if (this.list().busy) throw busy('Another preset operation is in progress.')
-    this.idle(force)
+    this.idle(body.rebuild ? force : true)
     const spec = this.spec()
     this.switching = true
     try {
-      const job: PresetJob = { id: randomUUID(), requestId: body.requestId, fingerprint, preset: name, command: 'environment-reset', executionMode, rebuild: body.rebuild, actionId: null, state: 'queued', phase: 'Checking environment', created: Date.now(), log: [], progress: { stage: 'checking', completed: 0, total: null, label: 'Checking environment' } }
+      const job: PresetJob = { id: randomUUID(), requestId: body.requestId, fingerprint, preset: name, command: body.rebuild ? 'environment-reset' : 'machine-stop', executionMode, rebuild: body.rebuild, actionId: null, state: 'queued', phase: 'Checking environment', created: Date.now(), log: [], progress: { stage: 'checking', completed: 0, total: null, label: 'Checking environment' } }
       this.jobs.set(job.id, job); this.publish(job)
       let last = 0
       const report = (text: string) => {
@@ -247,39 +245,31 @@ export class PresetManager {
       }
       const progress = (value: any) => { job.progress = value; if (Date.now() - last >= 250 || value.completed === value.total) { last = Date.now(); this.publish(job) } }
       const driver = new CliDriver(spec, report)
-      let admitted!: (job: PresetJob) => void, rejected!: (e: unknown) => void
-      const ready = new Promise<PresetJob>((yes, no) => { admitted = yes; rejected = no })
-      const onReady = async (action: { id: string }) => { Object.assign(job, { actionId: action.id, state: 'running', started: Date.now() }); this.publish(job); admitted(job) }
-      const options = { expectedPlan: body.expectedPlan, assertIdle: async () => this.idle(force), onReady }
+      const onReady = async (action: { id: string }) => { Object.assign(job, { actionId: action.id, state: 'running', started: Date.now() }); this.publish(job) }
+      const options = { expectedPlan: body.expectedPlan, assertIdle: async () => this.idle(body.rebuild ? force : true), onReady }
       const operation: Promise<any> = body.rebuild
         ? buildPreset({ spec, preset: name, driver, sandboxes: body.sandboxes, executionMode, ...options, report, progress,
           onCleanup: async (receipt: any) => { job.cleanup = receipt; await this.forget(job, receipt); this.publish(job) },
           onBuildReady: (action: { id: string }) => { job.rebuildActionId = action.id; this.publish(job) } })
-        : new EnvironmentReset({ spec, driver, report, progress }).run(options)
+        : new MachineStop({ spec, driver, report, progress }).run({ ...options, onStopped: async (machine: string) => this.host.machinesStopped?.([machine]) })
       const task = operation.then(async (result) => {
         const receipt = body.rebuild ? result.cleanup : result
         job.cleanup = receipt
         if (body.rebuild) job.presetVerified = result.presetVerified
-        else {
-          await this.forget(job, receipt)
-          const file = join(this.state, 'demo-fixtures.json'), manifest = read(file)
-          if (manifest?.tool === TOOL && manifest.homeId === receipt.homeId && receipt.verified) {
-            const journal = new StepJournal(join(this.state, 'demo-steps.ndjson')); journal.clear(); manifest.stepJournal = journal.metadata()
-            Object.assign(manifest, { resources: { machine: {}, store: {}, sandbox: {} }, projects: {}, steps: {}, borrowed: {}, lastSetupActionId: null, sandboxes: body.sandboxes }); save(file, manifest)
-          }
-        }
-        Object.assign(job, { state: 'completed', phase: body.rebuild ? 'Environment reset verified. Studio rebuilt and verified.' : 'Environment is empty. Reset verified.', ended: Date.now() })
+
+        Object.assign(job, { state: 'completed', phase: body.rebuild ? 'Environment reset verified. Studio rebuilt and verified.' : 'Machines force-closed. Saved projects and history retained.', ended: Date.now() })
       }).catch((e: any) => {
-        const receipt = read(join(this.state, 'environment-reset.json'))
+        const receipt = read(join(this.state, body.rebuild ? 'environment-reset.json' : 'machine-stop.json'))
         Object.assign(job, { state: 'failed', cleanup: receipt?.actionId === job.actionId ? receipt : job.cleanup, error: { code: e?.code ?? 'Failed', message: String(e?.message ?? e) }, phase: String(e?.message ?? e), ended: Date.now() })
-        rejected(e)
       }).finally(() => {
         this.switching = false
         this.publish(job)
         this.tasks.delete(task)
       })
       this.tasks.add(task)
-      return await ready
+      // Admission is durable before any CLI or worker response. All subsequent
+      // validation and cleanup outcomes belong to this reconciliable job.
+      return job
     } finally { this.switching = false }
   }
 

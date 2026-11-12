@@ -33,6 +33,7 @@ if (!env.DSH_LAYERFS_CLI) {
   }
 }
 env.DSH_LAYERFS_HOME ??= join(dev, 'layerfs-home')
+env.DSH_LAYERFS_SESSION_HOME ??= join(dev, 'project-sessions')
 
 const bin = join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
 

@@ -177,10 +177,12 @@ export class Machines {
     })
   }
 
-  /** machine.stop(name): refused InUse while Sandboxes run on it (`detail.related` names them). */
-  async stop(name: string) {
+  /** Normal stop preserves InUse refusals; explicit force ends running work. */
+  async stop(name: string, { force = false } = {}) {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to stop')
-    return this.lfs.machine.stop(name)
+    const result = force ? await this.lfs.machine.stop(name, { force: true }) : await this.lfs.machine.stop(name)
+    await this.host.machinesStopped?.([name])
+    return result
   }
 
   /** The options `platform` declares for machine.create (machine.platforms), or null when unknown. */

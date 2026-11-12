@@ -54,8 +54,15 @@ export function apply(ctx: Context): void {
     discover: () => ctx.layerfs.discovery(),
     ensureNative: () => ctx.layerfs.ensureNative(),
     emit: (type, data) => ctx.layerfs.emit(type, data),
+    assertProjectIdentity: async (project, projectId) => {
+      const persistence = ctx.get('sessionPersistence' as never) as any
+      if (!persistence?.catalog) throw new Error('Project identity service is unavailable')
+      return persistence.catalog.assert(project, projectId)
+    },
     projectRemoving: async (project) => { await (ctx.get('layerfsSessions' as never) as any)?.closeProject(project) },
     projectRemoved: async (project) => { await (ctx.get('layerfsSessions' as never) as any)?.forgetProject(project) },
+    machinesStopped: async (machines) => { (ctx.get('layerfsSessions' as never) as any)?.machinesStopped(machines) },
+    sandboxClosed: async (name) => { (ctx.get('layerfsSessions' as never) as any)?.sandboxClosed(name) },
     closeSessionSandbox: async (name) => {
       const sessions = ctx.get('layerfsSessions' as never) as any
       const owner = sessions && Object.values(sessions.state.read().sessions as Record<string, any>).find((b) => b.sandbox === name && b.state === 'bound')
@@ -87,6 +94,7 @@ export function apply(ctx: Context): void {
       return Object.keys(state.projects).sort().map((project) => ({ project, sessions: all.filter((b) => b.project === project && b.kind !== 'shared').length }))
     },
     forgetProject: async (project) => { await sessions()?.forgetProject(project) },
+    machinesStopped: async (machines) => { sessions()?.machinesStopped(machines) },
     emit: (type, data) => ctx.layerfs.emit(type, data),
   }, join(ctx.layerfs.root, 'presets'), ctx.layerfs.home)
   groups.presets = presets

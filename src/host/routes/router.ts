@@ -159,7 +159,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'inspect' && method === 'GET') return machines.inspect(id)
     if (id && sub === 'images' && method === 'GET') return machines.images(id)
     if (id && sub === 'start' && method === 'POST') return machines.start(id)
-    if (id && sub === 'stop' && method === 'POST') return machines.stop(id)
+    if (id && sub === 'stop' && method === 'POST') return machines.stop(id, { force: body?.force === true })
     if (!id && !sub && method === 'POST') return machines.create(body)
     if (id && !sub && method === 'DELETE') return machines.remove(id)
     if (id && sub === 'update' && method === 'POST') return machines.update(id, body)
@@ -174,6 +174,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
       if (method === 'POST') return projects.create(body)
       return undefined
     }
+    const projectId = query.get('projectId')
+    if (projectId) await g.host.assertProjectIdentity?.(id, projectId)
     if (!sub && method === 'GET') return projects.state(id)
     if (!sub && method === 'DELETE') return projects.remove(id)
     // a new Sandbox: { name, image?, machine? (PostgreSQL projects only) }

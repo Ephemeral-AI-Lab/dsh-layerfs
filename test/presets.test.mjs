@@ -5,32 +5,37 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
+import { MachineStop } from '../src/host/presets/machine-stop.js'
+import { EnvironmentReset } from '../src/host/presets/environment-reset.js'
+import { CONTENT_VERSION } from '../src/host/presets/recipe/presets.js'
 
 const root = new URL('..', import.meta.url).pathname
 const out = mkdtempSync(join(tmpdir(), 'dsh-presets-'))
 await build({
-  absWorkingDir: root, entryPoints: { presets: 'src/host/presets/manager.ts' }, outdir: out,
+  absWorkingDir: root, entryPoints: { presets: 'src/host/presets/manager.ts', cli: 'src/host/layerfs/cli.ts', driver: 'src/host/presets/driver.ts' }, outdir: out,
   bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning', outExtension: { '.js': '.mjs' },
 })
 const { PresetManager } = await import(pathToFileURL(join(out, 'presets.mjs')).href)
+const { REQUIRED_CALLS } = await import(pathToFileURL(join(out, 'cli.mjs')).href)
 const R = await loadRoutes()
 
 function fakeHost({ cli = '/nonexistent/layerfs', home, state, sessions = [], projects = [], busy = [] } = {}) {
-  const events = [], forgotten = []
+  const events = [], forgotten = [], stopped = []
   return {
-    events, forgotten,
+    events, forgotten, stopped,
     host: {
       spec: () => ({ cli, home, bundle: null, daemon: null, state }),
       busy: () => busy,
       boundSessions: () => sessions,
       dshProjects: () => projects.filter((p) => !forgotten.includes(p.project)),
       forgetProject: async (project) => { forgotten.push(project) },
+      machinesStopped: async (machines) => { stopped.push(...machines) },
       emit: (type, data) => events.push({ type, data }),
     },
   }
@@ -59,16 +64,16 @@ test('list: the Studio library over an uninitialized home', () => {
   rmSync(d.base, { recursive: true, force: true })
 })
 
-test('admission: bound sessions and active work refuse a reset with their names', async () => {
+test('admission: stop-only reset allows sessions but retains the storage/import/doctor busy gate', async () => {
   const d = dirs()
   const sessions = [{ id: 'session-abc', project: 's/p' }]
   const m = new PresetManager(fakeHost({ ...d, sessions, busy: ['a storage job'] }).host, d.state, d.home)
   const body = { requestId: 'r1', expectedPlan: 'x', confirm: true, rebuild: false, sandboxes: false }
   await assert.rejects(m.resetEnvironment('studio', body), (e) => {
     assert.equal(e.code, 'ConnectBusy'); assert.equal(e.status, 409)
-    assert.deepEqual(e.detail.sessions, sessions)
+    assert.deepEqual(e.detail.sessions, [])
     assert.deepEqual(e.detail.work, ['a storage job'])
-    assert.match(e.message, /open Sandbox/)
+    assert.doesNotMatch(e.message, /open Sandbox/)
     return true
   })
   await assert.rejects(m.resetEnvironment('studio', { ...body, confirm: false }), (e) => e.code === 'InvalidInput')
@@ -83,13 +88,39 @@ test('admission: bound sessions and active work refuse a reset with their names'
   rmSync(d.base, { recursive: true, force: true })
 })
 
-test('admission: a forced reset is admitted with bound sessions', async () => {
+test('admission: confirmed reset is admitted with bound sessions', async () => {
   const d = dirs()
   const m = new PresetManager(fakeHost({ ...d, sessions: [{ id: 'session-abc', project: 's/p' }] }).host, d.state, d.home)
-  const body = { requestId: 'r1', expectedPlan: 'x', confirm: true, rebuild: false, sandboxes: false, force: true }
+  const body = { requestId: 'r1', expectedPlan: 'x', confirm: true, rebuild: false, sandboxes: false }
   // admitted, then fails inside the run: this home was never initialized
-  await assert.rejects(m.resetEnvironment('studio', body), (e) => e.code !== 'ConnectBusy')
+  const job = await m.resetEnvironment('studio', body)
+  assert.equal(job.state, 'queued')
+  assert.equal(m.exclusive(), true)
+  await m.settle()
+  assert.equal(job.state, 'failed')
+  assert.notEqual(job.error.code, 'ConnectBusy')
   rmSync(d.base, { recursive: true, force: true })
+})
+
+test('reset returns a durable queued job before a stalled CLI responds; duplicate requests share it', async () => {
+  const d = dirs()
+  const cli = join(d.base, 'slow-cli')
+  writeFileSync(cli, `#!${process.execPath}\nsetTimeout(() => process.exit(1), 1000)\n`)
+  chmodSync(cli, 0o700)
+  const m = new PresetManager(fakeHost({ ...d, cli }).host, d.state, d.home)
+  const body = { requestId: 'slow1', expectedPlan: 'sig', confirm: true, rebuild: false, sandboxes: false }
+  try {
+    const start = performance.now()
+    const job = await m.resetEnvironment('studio', body)
+    assert.ok(performance.now() - start < 500, 'admission must not wait for the CLI')
+    assert.equal(job.state, 'queued')
+    assert.equal(JSON.parse(readFileSync(join(d.state, 'demo-preset-jobs.json'), 'utf8'))[0].id, job.id)
+    assert.equal((await m.resetEnvironment('studio', body)).id, job.id)
+    assert.equal(m.exclusive(), true)
+    await m.settle()
+    assert.equal(job.state, 'failed')
+    assert.equal(m.exclusive(), false)
+  } finally { await m.settle(); rmSync(d.base, { recursive: true, force: true }) }
 })
 
 test('restart: running jobs become interrupted, a dead lock is cleared; request IDs reconcile', async () => {
@@ -157,48 +188,158 @@ test('router: while a preset holds the home, changes are refused and reads pass'
 
 const pin = pinned()
 
-test('live: environment plan and reset of a private home drop the removed projects\' DSH records', { skip: !pin && 'no pinned LayerFS CLI', timeout: 300_000 }, async () => {
-  // a short path: the native daemon's sockets live in the home
+test('live: Build cleanup still removes data from a private home', { skip: !pin && 'no pinned LayerFS CLI', timeout: 300_000 }, async () => {
   const base = mkdtempSync('/tmp/lfsp-')
   const home = join(base, 'h'), state = join(base, 'presets')
   const env = { ...process.env, LAYERFS_HOME: home }
   const cli = (...argv) => JSON.parse(execFileSync(pin.cli, argv, { env, encoding: 'utf8' }))
   try {
-    cli('machine', 'list')
-    cli('store', 'create', '--', 'ps')
+    cli('machine', 'list'); cli('store', 'create', '--', 'ps')
     const src = join(base, 'src'); mkdirSync(src); writeFileSync(join(src, 'a.txt'), 'a\n')
     cli('project', 'init', '--', 'ps/p1', src)
-    const f = fakeHost({ cli: pin.cli, home, state, sessions: [{ id: 'session-x', project: 'ps/p1' }], projects: [{ project: 'ps/p1', sessions: 2 }, { project: 'other/x', sessions: 1 }] })
-    const m = new PresetManager(f.host, state, home)
-    assert.equal(m.list().items[0].initialized, true)
-    const plan = await m.route('GET', ['studio', 'environment-plan'], undefined, new URLSearchParams())
+    const { CliDriver } = await import(pathToFileURL(join(out, 'driver.mjs')).href)
+    const reset = new EnvironmentReset({ spec: { cli: pin.cli, home, state }, driver: new CliDriver({ cli: pin.cli, home, state }) })
+    const plan = await reset.plan()
     assert.deepEqual(plan.remove.stores, ['ps'])
     assert.deepEqual(plan.projectKeys, ['ps/p1'])
-    assert.deepEqual(plan.dsh.workspaces, [{ project: 'ps/p1', sessions: 2 }])
-    assert.deepEqual(plan.dsh.sessions, [{ id: 'session-x', project: 'ps/p1' }])
-    // a stale signature is refused before anything is removed
-    const stale = await m.resetEnvironment('studio', { requestId: 'stale1', expectedPlan: 'nope', confirm: true, rebuild: false, sandboxes: false, force: true }).then(() => null, (e) => e)
-    assert.equal(stale?.code, 'Conflict')
-    assert.deepEqual(cli('store', 'list').items.map((s) => s.name), ['ps'])
-    // a bound session refuses an unforced reset, and force overrides it
-    await assert.rejects(m.resetEnvironment('studio', { requestId: 'blocked1', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false }), (e) => e.code === 'ConnectBusy' && e.detail.sessions.length === 1)
-    const job = await m.resetEnvironment('studio', { requestId: 'live1', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false, force: true })
-    assert.equal(job.state, 'running')
-    assert.equal(m.exclusive(), true)
-    await m.settle()
-    const done = await m.route('GET', ['jobs', job.id], undefined, new URLSearchParams())
-    assert.equal(done.state, 'completed', done.error?.message)
-    assert.equal(done.cleanup.verified, true)
-    assert.deepEqual(done.cleanup.completed, [['store', 'remove', 'ps']])
-    assert.deepEqual(done.forgotten, ['ps/p1'])
-    assert.deepEqual(f.forgotten, ['ps/p1'])
-    assert.ok(done.log.length > 0)
+    const receipt = await reset.run({ expectedPlan: plan.signature, assertIdle: async () => {} })
+    assert.equal(receipt.verified, true)
     assert.deepEqual(cli('store', 'list').items, [])
-    assert.equal(m.exclusive(), false)
-    assert.ok(f.events.some((e) => e.type === 'demo-preset' && e.data.jobId === job.id))
-    assert.equal(JSON.parse(readFileSync(join(state, 'environment-reset.json'), 'utf8')).verified, true)
   } finally {
-    try { execFileSync(pin.cli, ['machine', 'stop', 'native'], { env, stdio: 'ignore' }) } catch { /* not running */ }
+    try { execFileSync(pin.cli, ['machine', 'stop', 'native'], { env, stdio: 'ignore' }) } catch {}
     rmSync(base, { recursive: true, force: true })
   }
+})
+
+function stoppingFixture({ fail = null, forceSupport = true } = {}) {
+  const directory = join(root, '.dev-preset-stop-tests')
+  mkdirSync(directory, { recursive: true })
+  const base = mkdtempSync(join(directory, 'case-'))
+  const home = join(base, 'home'), state = join(base, 'presets')
+  mkdirSync(home); mkdirSync(state)
+  writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ id: 'stop-test-home' }))
+  const machines = [{ name: 'native', state: 'ready', id: 'native' }, { name: 'docker', state: 'running', id: 'docker' }, { name: 'vm', state: 'stopped', id: 'vm' }]
+  const inventory = join(base, 'machines.json'), commands = join(base, 'commands.jsonl'), cli = join(base, 'layerfs.mjs')
+  writeFileSync(inventory, JSON.stringify(machines))
+  writeFileSync(cli, `#!${process.execPath}
+import fs from 'node:fs'
+const args = process.argv.slice(2)
+const inventory = ${JSON.stringify(inventory)}, commands = ${JSON.stringify(commands)}, fail = ${JSON.stringify(fail)}
+if (args[0] === '--version') console.log(JSON.stringify({commit:'a'.repeat(40)}))
+else if (args[0] === 'help') console.log(JSON.stringify({calls:${JSON.stringify([...REQUIRED_CALLS.map(name => { const [family, call] = name.split('.'); return { family, call } }), { family: 'machine', call: 'stop', options: forceSupport ? [{ name: 'force', kind: 'bool' }] : [] }])}}))
+else {
+  fs.appendFileSync(commands, JSON.stringify(args)+'\\n')
+  const machines = JSON.parse(fs.readFileSync(inventory))
+  if (args.join(' ') === 'machine list') console.log(JSON.stringify({machines}))
+  else if (args[0] === 'machine' && args[1] === 'stop' && args[3] === '--force') {
+    if (args[2] === fail) { console.error(JSON.stringify({code:'Failed',message:'stop failed'})); process.exit(1) }
+    const machine = machines.find(row => row.name === args[2]); machine.state = machine.name === 'native' ? 'ready' : 'stopped'
+    fs.writeFileSync(inventory, JSON.stringify(machines)); console.log(JSON.stringify({name:machine.name,state:machine.state,forced:true,stopped_sandboxes:[],unknown:[]}))
+  } else { console.error(JSON.stringify({code:'Unexpected',message:args.join(' ')})); process.exit(1) }
+}
+`)
+  chmodSync(cli, 0o700)
+  return { base, home, state, cli, commands, inventory }
+}
+
+const recordedCommands = fixture => readFileSync(fixture.commands, 'utf8').trim().split('\n').map(JSON.parse)
+
+test('Reset only force-stops registered machines, preserves content/manifest/journal and invalidates stopped bindings', async () => {
+  const fixture = stoppingFixture()
+  try {
+    const manifest = { tool: 'kept-tool', homeId: 'stop-test-home', contentVersion: CONTENT_VERSION, executionMode: 'filesystem', projects: { 'store/project': { retained: true } }, resources: { store: { retained: true } } }
+    const manifestText = JSON.stringify(manifest), journalText = 'existing history receipt\n'
+    writeFileSync(join(fixture.state, 'demo-fixtures.json'), manifestText)
+    writeFileSync(join(fixture.state, 'demo-steps.ndjson'), journalText)
+    const buildJob = { id: 'build', requestId: 'build-request', preset: 'studio', rebuild: true, state: 'completed', presetVerified: true, created: 1, log: [] }
+    writeFileSync(join(fixture.state, 'demo-preset-jobs.json'), JSON.stringify([buildJob]))
+    const fake = fakeHost({ ...fixture, sessions: [{ id: 'session-active', project: 'store/project' }], projects: [{ project: 'store/project', sessions: 1 }] })
+    const manager = new PresetManager(fake.host, fixture.state, fixture.home)
+    const plan = await manager.environmentPlan('studio')
+    assert.equal(plan.scope, 'machines')
+    assert.deepEqual(plan.stopMachines, ['docker', 'native', 'vm'])
+    assert.deepEqual(plan.dsh.workspaces, [])
+    const job = await manager.resetEnvironment('studio', { requestId: 'stop', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false })
+    await manager.settle()
+    assert.equal(job.state, 'completed', job.error?.message)
+    assert.equal(job.command, 'machine-stop')
+    assert.equal(job.cleanup.verified, true)
+    assert.deepEqual(job.cleanup.completed, ['docker', 'native', 'vm'].map(name => ['machine', 'stop', name, '--force']))
+    assert.deepEqual(fake.stopped, ['docker', 'native', 'vm'])
+    assert.deepEqual(fake.forgotten, [])
+    assert.equal(readFileSync(join(fixture.state, 'demo-fixtures.json'), 'utf8'), manifestText)
+    assert.equal(readFileSync(join(fixture.state, 'demo-steps.ndjson'), 'utf8'), journalText)
+    assert.equal(manager.definition('studio').contentReady, true, 'stopping machines does not erase build verification')
+    assert.ok(recordedCommands(fixture).every(argv => argv[0] === 'machine' && ['list', 'stop'].includes(argv[1])), 'no worker inspection, boot, unmount or resource deletion')
+  } finally { rmSync(fixture.base, { recursive: true, force: true }) }
+})
+
+test('a partial stop failure still invalidates successful machines and attempts remaining targets', async () => {
+  const fixture = stoppingFixture({ fail: 'native' })
+  try {
+    const fake = fakeHost(fixture)
+    const manager = new PresetManager(fake.host, fixture.state, fixture.home)
+    const plan = await manager.environmentPlan('studio')
+    const job = await manager.resetEnvironment('studio', { requestId: 'partial', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false })
+    await manager.settle()
+    assert.equal(job.state, 'failed')
+    assert.deepEqual(fake.stopped, ['docker', 'vm'])
+    assert.equal(job.cleanup.verified, false)
+    assert.deepEqual(job.cleanup.completed, ['docker', 'vm'].map(name => ['machine', 'stop', name, '--force']))
+    assert.deepEqual(JSON.parse(readFileSync(fixture.inventory)).map(row => row.name).sort(), ['docker', 'native', 'vm'])
+  } finally { rmSync(fixture.base, { recursive: true, force: true }) }
+})
+
+test('a changed stop-plan signature refuses mutation before stopping any machine', async () => {
+  const fixture = stoppingFixture()
+  try {
+    const fake = fakeHost(fixture), manager = new PresetManager(fake.host, fixture.state, fixture.home)
+    const job = await manager.resetEnvironment('studio', { requestId: 'stale-stop', expectedPlan: 'stale', confirm: true, rebuild: false, sandboxes: false })
+    await manager.settle()
+    assert.equal(job.error?.code, 'Conflict')
+    assert.deepEqual(fake.stopped, [])
+    assert.ok(recordedCommands(fixture).every(argv => argv[1] === 'list'))
+  } finally { rmSync(fixture.base, { recursive: true, force: true }) }
+})
+
+
+test('Reset rejects a CLI without force-stop support before confirmation or any machine operation', async () => {
+  const fixture = stoppingFixture({ forceSupport: false })
+  try {
+    const fake = fakeHost(fixture), manager = new PresetManager(fake.host, fixture.state, fixture.home)
+    await assert.rejects(manager.environmentPlan('studio'), error => {
+      assert.equal(error.code, 'CliIncompatible')
+      assert.equal(error.status, 409)
+      assert.match(error.message, /machine.stop.*force/)
+      assert.match(error.message, /Machines.*LayerFS runtime/)
+      return true
+    })
+    assert.equal(existsSync(fixture.commands), false, 'capability discovery must not execute inventory or stop commands')
+    const job = await manager.resetEnvironment('studio', { requestId: 'unsupported-stop', expectedPlan: 'old-plan', confirm: true, rebuild: false, sandboxes: false })
+    await manager.settle()
+    assert.equal(job.state, 'failed')
+    assert.equal(job.error.code, 'CliIncompatible')
+    assert.equal(existsSync(fixture.commands), false, 'a direct request cannot bypass the capability guard')
+    assert.equal(existsSync(join(fixture.state, 'machine-stop.json')), false, 'no stop receipt is manufactured')
+    assert.equal(existsSync(join(fixture.state, 'demo-fixtures.lock')), false, 'admission is released')
+    assert.deepEqual(fake.stopped, [])
+  } finally { rmSync(fixture.base, { recursive: true, force: true }) }
+})
+
+test('live: the selected legacy CLI is rejected before Reset reaches its private home', { skip: !pin && 'no pinned LayerFS CLI' }, async t => {
+  const fixture = stoppingFixture({ forceSupport: false })
+  try {
+    const { CliDriver } = await import(pathToFileURL(join(out, 'driver.mjs')).href)
+    const spec = { ...fixture, cli: pin.cli }, driver = new CliDriver(spec)
+    const discovery = await driver.discover()
+    const force = discovery.calls.find(call => call.family === 'machine' && call.call === 'stop')?.options?.some(option => option.name === 'force' && option.kind === 'bool')
+    if (force) return t.skip('the selected CLI already advertises force-stop; supported execution is covered above')
+    const original = readFileSync(join(fixture.home, 'layerfs.json'), 'utf8')
+    const reset = new MachineStop({ spec, driver })
+    await assert.rejects(reset.plan(), error => error.code === 'CliIncompatible')
+    await assert.rejects(reset.run({ expectedPlan: 'untrusted-old-plan' }), error => error.code === 'CliIncompatible')
+    assert.equal(readFileSync(join(fixture.home, 'layerfs.json'), 'utf8'), original)
+    assert.equal(existsSync(join(fixture.state, 'machine-stop.json')), false)
+    assert.equal(existsSync(join(fixture.state, 'demo-fixtures.lock')), false)
+  } finally { rmSync(fixture.base, { recursive: true, force: true }) }
 })

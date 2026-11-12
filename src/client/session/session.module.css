@@ -274,6 +274,13 @@
   gap: 4px;
 }
 
+.headerProject {
+  max-width: min(34ch, 30vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .headerCount {
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
@@ -291,4 +298,45 @@
   align-items: center;
   flex: none;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.turnActivity {
+  margin-block: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.turnActivity summary {
+  cursor: pointer;
+}
+
+.activityList {
+  margin: 8px 0 0;
+  padding-left: 16px;
+}
+
+.activityItem {
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+}
+
+.activityItem .pointMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.savedFilesModal {
+  width: min(1000px, calc(100vw - 32px));
+}
+
+.savedFiles {
+  height: min(640px, 70vh);
+  min-height: 240px;
+}
+
+/* The public trailing-row decoration is our only row-ownership adapter. */
+:global([role='treeitem'][data-layerfs-project-owned]) {
+  display: none;
 }

@@ -10,6 +10,7 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { SidebarGroup } from '../overview/group.ts'
 import { NS as PICKER_NS, type PickerKey } from '../picker/locale.ts'
 import { locales, NS, type ProjectsT } from './locale.ts'
+import { NS as STORAGE_NS, type StorageT } from '../storage/locale.ts'
 import { ProjectsPage } from './ProjectsPage.tsx'
 
 /** The id shared by the sidebar entry and the main panel it opens. */
@@ -21,8 +22,8 @@ function ProjectsSidebarIcon({ size }: { size?: number }): ReactNode {
   return <ChildGlyph><LayerfsGlyph size={size ?? 16} /></ChildGlyph>
 }
 
-function ProjectsMain(props: { api: LayerfsApi, t: ProjectsT, tp: Translate<PickerKey> }): ReactNode {
-  return <ProjectsPage api={props.api} t={props.t} tp={props.tp} />
+function ProjectsMain(props: { api: LayerfsApi, t: ProjectsT, tp: Translate<PickerKey>, tf: StorageT }): ReactNode {
+  return <ProjectsPage api={props.api} t={props.t} tp={props.tp} tf={props.tf as import("../files/types.ts").Translate} />
 }
 
 /**
@@ -35,11 +36,12 @@ export function registerProjects(ctx: any, api: LayerfsApi, group: SidebarGroup)
   ctx.effect(() => ctx.locale.register(NS, locales), 'dsh-layerfs: projects locale')
   const t = ctx.locale.bind(NS)
   const tp = ctx.locale.bind(PICKER_NS)
+  const tf = ctx.locale.bind(STORAGE_NS)
   ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
     key: PANEL_ID,
     locale: NS,
-    inject: () => ({ api, t, tp }),
+    inject: () => ({ api, t, tp, tf }),
   }, ProjectsMain)), 'dsh-layerfs: projects page')
   ctx.effect(() => group.whileExpanded(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',

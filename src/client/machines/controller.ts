@@ -53,7 +53,7 @@ export type MachineAction =
   | { kind: 'create', input: NewMachine }
   | { kind: 'remove', name: string }
   | { kind: 'start', name: string, platform: string }
-  | { kind: 'stop', name: string }
+  | { kind: 'stop', name: string, force?: boolean }
   | { kind: 'update', name: string, changes: { image?: string, docker?: string, wsl?: string } }
 
 /** What the page receives through its slot `inject`. */
@@ -200,7 +200,7 @@ export class MachinesController {
           await this.startup({ kind: 'start', name: action.name, platform: action.platform }, () => api.call('POST', `/api/machines/${enc(action.name)}/start`))
           break
         case 'stop':
-          await api.call('POST', `/api/machines/${enc(action.name)}/stop`)
+          await api.call('POST', `/api/machines/${enc(action.name)}/stop`, action.force ? { force: true } : undefined)
           this.clearStartup(action.name)
           break
         case 'remove':

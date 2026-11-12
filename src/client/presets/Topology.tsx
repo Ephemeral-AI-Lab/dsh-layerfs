@@ -28,7 +28,7 @@ export function PresetTopology({ preset, t, onCommands }: { preset: DemoPreset, 
   const busy = job?.state === 'running' || job?.state === 'queued'
   const now = useClock(busy)
   const groups = preset.projectGroups
-  const verified = !!job && job.state === 'completed' && !!job.presetVerified && preset.contentReady
+  const verified = preset.contentReady
   const toggle = (key: string) => setCollapsed((previous) => {
     const next = new Set(previous)
     if (next.has(key)) next.delete(key); else next.add(key)

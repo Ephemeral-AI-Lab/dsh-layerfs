@@ -29,6 +29,8 @@ export interface Binding {
   mount?: string
   machine?: string
   scratch: string
+  /** Only plugin-created scratch directories may ever be removed by cleanup. */
+  scratchManaged?: boolean
   /** The anchor (session `header.cwd`). */
   readonly anchor: string
   /** The parent session a `shared` binding follows. */
@@ -37,12 +39,33 @@ export interface Binding {
   base?: string | null
   /** Where the files came from when the session was forked. */
   from?: { session?: string, commit?: string | null, turn?: number }
+  projectId?: string
+  executionState?: 'inactive' | 'activating' | 'active' | 'interrupted'
   state: 'bound' | 'closed' | 'failed'
   error?: string
   /** Branch generations made by restores. */
   restores?: number
   readonly createdAt: number
   updatedAt: number
+  /** Script execution is project-owned without an automatic code workspace. */
+  simulation?: SimulationBinding
+  /** Local-only: fork an imported simulation pin before mounting it. */
+  resumeFromArchive?: boolean
+}
+
+export interface SimulationTarget { kind: 'Commit' | 'Layer'; id: string; branch: string }
+export interface SimulationBinding {
+  runId: string
+  agentKey: string
+  scriptId: string
+  name: string
+  hash: string
+  ordinaryModel?: { provider: string; model: string; reasoningEffort?: string }
+  rootSessionId?: string
+  state: 'running' | 'completed' | 'stopped' | 'interrupted' | 'failed'
+  continuation?: SimulationTarget
+  handoffReady?: boolean
+  error?: string
 }
 
 /** One trajectory checkpoint. */
@@ -71,6 +94,8 @@ export interface Checkpoint {
 export interface Mirror {
   readonly project: string
   readonly branch: string
+  /** Last confirmed archive checksum; a changed checksum requires reconciliation. */
+  digest?: string
   /** Events stored so far. */
   count: number
   segments: { readonly file: string, readonly from: number, readonly to: number }[]
@@ -88,7 +113,7 @@ export interface SessionsState {
   mirror: Record<string, Mirror>
   /** Placed sessions (`sessions.choose`) carry only `project`; forked sessions
    * also record where their files start. */
-  pending: Record<string, { project: string, commit?: string | null, branch?: string | null, session?: string, turn?: number }>
+  pending: Record<string, { project: string, commit?: string | null, branch?: string | null, session?: string, turn?: number, simulation?: SimulationBinding }>
 }
 
 export const initialState = (): SessionsState => ({ version: 1, projects: {}, sessions: {}, checkpoints: {}, mirror: {}, pending: {} })

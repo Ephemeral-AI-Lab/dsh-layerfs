@@ -1,12 +1,5 @@
-/**
- * The sidebar's Projects page: every LayerFS project as a card holding its
- * sessions. A session opens with `sessions.open` (imported first when it is
- * only stored in the project); "New session" goes through
- * `openProjectSession`, which places the session in the selected workspace —
- * no project workspaces are made. Plain folder workspaces stay in the
- * Workspaces list — this page is the LayerFS half of the sidebar.
- */
-import { useState, type ReactNode } from 'react'
+/** Project catalog and project overview navigation; plain folders stay in DSH. */
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -17,49 +10,39 @@ import { useQuery } from '../files/use-query.ts'
 import { Card, Empty, Loading, Page, PageHead, Section } from '../ui/index.tsx'
 import css from './projects.module.css'
 import type { ProjectsT } from './locale.ts'
+import { ReadDeadlineError, readWithDeadline } from './read-deadline.ts'
+import type { Translate } from '../files/types.ts'
+import { useProjectMachines } from './hooks.ts'
+import { projectAvailability } from './availability.ts'
+import { MachineStatus } from './MachineStatus.tsx'
+import { openProjectHome, useProjectSelection } from './navigation.ts'
+import { ProjectHome } from './ProjectHome.tsx'
 
-interface SessionRow {
-  sessionId: string
-  title: string | null
-  local: boolean
-  updatedAt: number
-}
-
-interface ProjectEntry {
-  project: ProjectRow
-  sessions: SessionRow[] | null
-  sessionsError: string | null
-}
-
-type Translate<K extends string> = (key: K, params?: Record<string, string | number>) => string
+type PickerTranslate<K extends string> = (key: K, params?: Record<string, string | number>) => string
 
 const nameOf = (key: string) => key.split('/')[1] ?? key
 
-export function ProjectsPage({ api, t, tp }: { api: LayerfsApi, t: ProjectsT, tp: Translate<PickerKey> }): ReactNode {
+export function ProjectsPage({ api, t, tp, tf }: { api: LayerfsApi, t: ProjectsT, tp: PickerTranslate<PickerKey>, tf: Translate }): ReactNode {
+  const selected = useProjectSelection(api)
+  const machines = useProjectMachines(api)
   const [dialog, setDialog] = useState<'new' | 'import' | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [running, setRunning] = useState<{ key: string, error: string | null } | null>(null)
 
-  const read = useQuery(async (): Promise<{ entries: ProjectEntry[], scratchKey: string | null }> => {
-    const { rows, scratchKey } = await listProjects(api)
-    const projects = (rows ?? []).filter((r) => r.key !== scratchKey)
-    const entries = await Promise.all(projects.map(async (project) => {
-      try {
-        const list = await api.op<{ sessions: SessionRow[] }>('sessions.list', { project: project.key })
-        return { project, sessions: list.sessions ?? [], sessionsError: null }
-      } catch (error) {
-        return { project, sessions: null, sessionsError: messageOf(error) }
-      }
-    }))
-    return { entries, scratchKey }
-  }, [api])
-  useHostEvents(api, ['layerfs-session', 'layerfs-workspaces-changed', 'storage'], () => read.reload())
+  const read = useQuery(() => readWithDeadline(listProjects(api)), [api])
+  useHostEvents(api, ['layerfs-workspaces-changed', 'storage', 'machine-progress', 'connection'], () => read.reload())
+  useEffect(() => {
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, 15_000)
+    return () => clearInterval(timer)
+  }, [read.reload])
 
   const follow = async (job: ProjectInitJob, key: string) => {
     setDialog(null)
     setRunning({ key, error: null })
     try {
       await waitProject(api, job)
+      read.reload()
       setRunning(null)
       await api.openProjectSession(key)
     } catch (error) {
@@ -67,15 +50,20 @@ export function ProjectsPage({ api, t, tp }: { api: LayerfsApi, t: ProjectsT, tp
     }
   }
 
-  const openSession = (entry: ProjectEntry, session: SessionRow) => {
-    void api.op('sessions.open', { sessionId: session.sessionId, project: entry.project.key, workspaceId: api.selectedWorkspaceId() })
+  const newSession = (project: ProjectRow) => {
+    setActionError(null)
+    setBusy(project.key)
+    void api.openProjectSession(project.key, undefined, project.projectId).catch((error) => setActionError(messageOf(error))).finally(() => setBusy(null))
   }
-  const newSession = (entry: ProjectEntry) => {
-    setBusy(entry.project.key)
-    void api.openProjectSession(entry.project.key).finally(() => setBusy(null))
-  }
+  const projects = (read.data?.rows ?? []).filter((project) => project.key !== read.data?.scratchKey)
 
-  const when = (at: number) => at ? new Date(at).toLocaleString() : ''
+  if (selected) {
+    const project = projects.find((p) => (p.projectId ?? p.key) === selected)
+    if (project) return <ProjectHome key={selected} api={api} project={project} machines={machines} t={t} tf={tf} reload={read.reload} />
+    return <Page label={t('title')}><PageHead title={t('title')} crumbs={[{ label: t('title'), onClick: () => openProjectHome(api, null) }]} />
+      <div className={css.notice}>{read.loading ? t('loading') : read.error ? t('loadFailed', { message: messageOf(read.error) }) : t('projectMissing')}</div>
+      <Button variant="outline" size="sm" onClick={read.reload}>{t('retry')}</Button></Page>
+  }
 
   return (
     <Page label={t('title')}>
@@ -85,6 +73,7 @@ export function ProjectsPage({ api, t, tp }: { api: LayerfsApi, t: ProjectsT, tp
           <Button variant="outline" size="sm" icon={<IconFolderOpenOutlineRegular size={13} />} onClick={() => setDialog('import')}>{t('importProject')}</Button>
         </>
       )} />
+      {actionError ? <div className={css.notice} role="alert">{t('actionFailed', { message: actionError })}</div> : null}
       {running ? (
         <div className={css.emptySessions} role={running.error ? 'alert' : 'status'}>
           {running.error ? t('importFailed', { message: running.error }) : (
@@ -95,51 +84,33 @@ export function ProjectsPage({ api, t, tp }: { api: LayerfsApi, t: ProjectsT, tp
       {read.loading && !read.data ? <Loading label={t('loading')} />
         : read.error ? (
           <Card tone="danger">
-            <div className={css.emptySessions} role="alert">{t('loadFailed', { message: messageOf(read.error) })}</div>
+            <div className={css.emptySessions} role="alert">{t('loadFailed', { message: read.error instanceof ReadDeadlineError ? t('readTimedOut') : messageOf(read.error) })}</div>
             <div className={css.emptySessions}><Button variant="outline" size="sm" onClick={read.reload}>{t('retry')}</Button></div>
           </Card>
         )
-        : !read.data?.entries.length ? <Empty title={t('emptyTitle')} icon={<LayerfsGlyph size={28} />}>{t('emptyBody')}</Empty>
+        : !projects.length ? <Empty title={t('emptyTitle')} icon={<LayerfsGlyph size={28} />}>{t('emptyBody')}</Empty>
         : (
           <div className={css.list}>
-            {read.data.entries.map((entry) => {
-              const remote = remoteMachine(entry.project)
+            {projects.map((project) => {
+              const remote = remoteMachine(project)
+              const availability = projectAvailability(project, machines.data, machines.error)
               return (
-                <Section key={entry.project.key} headless title={entry.project.name ?? nameOf(entry.project.key)}>
+                <Section key={project.projectId ?? project.key} headless title={project.name ?? nameOf(project.key)}>
                   <Card>
                   <div className={css.head}>
                     <span className={css.headIcon}><LayerfsGlyph size={16} /></span>
-                    <div className={css.headMain}>
-                      <span className={css.headTitle}>{entry.project.name ?? nameOf(entry.project.key)}</span>
+                    <button type="button" className={css.projectLink} onClick={() => openProjectHome(api, project.projectId ?? project.key)}>
+                      <span className={css.headTitle}>{project.name ?? nameOf(project.key)}</span>
                       <span className={css.headSub}>
-                        {remote ? t('onMachine', { machine: remote }) : entry.project.store ?? entry.project.key.split('/')[0]}
+                        {remote ? t('onMachine', { machine: remote }) : project.store ?? project.key.split('/')[0]}
                       </span>
-                    </div>
+                    </button>
+                    <MachineStatus value={availability} t={t} />
                     <span className={css.headActions}>
-                      <Button variant="outline" size="sm" disabled={busy !== null} aria-busy={busy === entry.project.key}
-                        onClick={() => newSession(entry)}>{t('newSession')}</Button>
+                      <Button variant="outline" size="sm" disabled={busy !== null || !availability.canRun || machines.loading} aria-busy={busy === project.key}
+                        onClick={() => newSession(project)}>{t('newSession')}</Button>
                     </span>
                   </div>
-                  {entry.sessionsError ? <div className={css.emptySessions} role="alert">{t('sessionsError', { message: entry.sessionsError })}</div>
-                    : !entry.sessions?.length ? <div className={css.emptySessions}>{t('noSessions')}</div>
-                    : (
-                      <ul className={css.rows}>
-                        {entry.sessions.map((session) => (
-                          <li key={session.sessionId}>
-                            <button type="button" className={css.row} onClick={() => openSession(entry, session)}>
-                              <span className={css.rowMain}>
-                                <span className={css.rowTitle}>{session.title ?? t('sessionUntitled')}</span>
-                                {!session.local ? <span className={css.rowSub}>{t('storedHint')}</span> : null}
-                              </span>
-                              <span className={css.rowMeta}>
-                                {!session.local ? <span title={t('storedHint')}>{t('stored')}</span> : null}
-                                <span>{when(session.updatedAt)}</span>
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
                   </Card>
                 </Section>
               )

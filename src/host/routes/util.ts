@@ -29,10 +29,16 @@ export interface RouteHost {
   log(line: string): void
   /** Close a Sandbox a DSH session owns the way the session does (save first); false when no session owns it. */
   closeSessionSandbox?(name: string): Promise<boolean>
+  /** Guard a name-based route against a permanent project identity. */
+  assertProjectIdentity?(project: string, projectId: string): Promise<unknown>
   /** Before project.remove: close the project's session Sandboxes. */
   projectRemoving?(project: string): Promise<void>
-  /** After project.remove: drop the project's DSH workspace and session bindings. */
+  /** After project.remove: retain history and invalidate execution bindings. */
   projectRemoved?(project: string): Promise<void>
+  /** A confirmed machine stop invalidates local mounts without deleting history. */
+  machinesStopped?(machines: string[]): Promise<void>
+  /** A confirmed Sandbox close invalidates its local mounts. */
+  sandboxClosed?(name: string): Promise<void>
 }
 
 /** An error the routes throw: answered as `{ code, message }` with `status` (or the code's mapped status). */

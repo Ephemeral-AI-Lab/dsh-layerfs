@@ -8,7 +8,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, IconCodeOutlineRegular, IconPlayOutlineRegular, IconRefreshOutlineRegular, Modal, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
-import type { BusySession, DemoPreset, DemoPresets, EnvironmentResetPlan, PresetExecutionMode, PresetJob } from '../../shared/presets.ts'
+import type { BusySession, DemoPreset, DemoPresets, PresetResetPlan, PresetExecutionMode, PresetJob } from '../../shared/presets.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Card, LinkButton, LoadError, Loading, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
 import { refusalLabels } from './labels.ts'
@@ -17,8 +17,9 @@ import { PresetProgress } from './Progress.tsx'
 import { ScriptDrawer } from './ScriptDrawer.tsx'
 import { PresetTopology, type PresetResource } from './Topology.tsx'
 import css from './presets.module.css'
+import { ReadDeadlineError, readWithDeadline } from '../projects/read-deadline.ts'
 
-type Confirmation = { build: boolean, sandboxes: boolean, executionMode: PresetExecutionMode, plan: EnvironmentResetPlan }
+type Confirmation = { build: boolean, sandboxes: boolean, executionMode: PresetExecutionMode, plan: PresetResetPlan }
 const running = (job: PresetJob | null | undefined) => job?.state === 'queued' || job?.state === 'running'
 const sessionsOf = (error: unknown): BusySession[] => {
   const list = (error as { detail?: { sessions?: unknown } } | null)?.detail?.sessions
@@ -69,19 +70,19 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
   const prepare = async (build: boolean) => {
     setWaiting(true); setFailure(undefined)
     try {
-      const plan = await api.call<EnvironmentResetPlan>('GET', build
+      const plan = await readWithDeadline(api.call<PresetResetPlan>('GET', build
         ? `/api/demo-presets/${enc(preset.id)}/${sandboxes ? 'build-plan' : 'build-plan-no-sandboxes'}?executionMode=${executionMode}`
-        : `/api/demo-presets/${enc(preset.id)}/environment-plan`)
+        : `/api/demo-presets/${enc(preset.id)}/environment-plan`), 60_000)
       setConfirmation({ build, sandboxes, executionMode, plan })
       onRefresh()
-    } catch (e) { setFailure(e) } finally { setWaiting(false) }
+    } catch (e) { setFailure(e instanceof ReadDeadlineError ? new Error(t('planTimeout')) : e) } finally { setWaiting(false) }
   }
   const execute = async () => {
     if (!confirmation) return
     const requestId = crypto.randomUUID()
     setWaiting(true); setFailure(undefined)
     try {
-      await api.call<PresetJob>('POST', `/api/demo-presets/${enc(preset.id)}/environment-reset`, { requestId, expectedPlan: confirmation.plan.signature, confirm: true, rebuild: confirmation.build, sandboxes: confirmation.sandboxes, executionMode: confirmation.executionMode, force: confirmation.plan.dsh.sessions.length > 0 })
+      await api.call<PresetJob>('POST', `/api/demo-presets/${enc(preset.id)}/environment-reset`, { requestId, expectedPlan: confirmation.plan.signature, confirm: true, rebuild: confirmation.build, sandboxes: confirmation.sandboxes, executionMode: confirmation.executionMode, force: !confirmation.build || confirmation.plan.dsh.sessions.length > 0 })
       setConfirmation(undefined)
     } catch (e: any) {
       setFailure(e); setConfirmation(undefined)
@@ -111,8 +112,20 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
       <Card className={css.library} aria-label={name}>
         <div className={css.libraryHead}>
           <h2>{name}</h2>
-          <Button variant="ghost" size="sm" title={t('resetTitle')} disabled={disabled || !preset.initialized} onClick={() => { void prepare(false) }}>{t('reset')}</Button>
+          <Button variant="ghost" size="sm" title={t('resetTitle')} disabled={disabled || !preset.initialized} aria-busy={waiting && !confirmation} onClick={() => { void prepare(false) }}>{waiting && !confirmation ? t('checking') : t('reset')}</Button>
         </div>
+        {waiting && !confirmation && <p className={css.status} role="status"><StateDot state="ongoing" />{t('checking')}</p>}
+        {failure !== undefined && (
+          <div className={css.failure}>
+            <Refusal error={failure} labels={refusalLabels(t)} />
+            {blocked.length > 0 && <SessionLinks api={api} t={t} sessions={blocked} />}
+            {unknown && <Notice tone="warning">{t('outcomeUnknown')}</Notice>}
+            <div className={css.actionsStart}>
+              {unknown && <Button variant="outline" size="sm" disabled={waiting} onClick={() => { void reconcile() }}>{t('checkOperation')}</Button>}
+              <Button variant="ghost" size="sm" disabled={waiting} onClick={() => { setFailure(undefined); setUnknown(undefined) }}>{t('dismiss')}</Button>
+            </div>
+          </div>
+        )}
         <p className={css.muted}>{t('studioIntro')}</p>
         <div className={css.summary}>
           <span>{t('machines', { n: preset.machines.length })}</span>
@@ -134,18 +147,6 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
           <Button variant="primary" disabled={disabled} icon={<IconPlayOutlineRegular size={14} />} onClick={() => { void prepare(true) }}>{t('build')}</Button>
         </div>
         <p className={css.note}>{t('buildNote')}</p>
-        {waiting && !confirmation && <p className={css.status} role="status"><StateDot state="ongoing" />{t('checking')}</p>}
-        {failure !== undefined && (
-          <div className={css.failure}>
-            <Refusal error={failure} labels={refusalLabels(t)} />
-            {blocked.length > 0 && <SessionLinks api={api} t={t} sessions={blocked} />}
-            {unknown && <Notice tone="warning">{t('outcomeUnknown')}</Notice>}
-            <div className={css.actionsStart}>
-              {unknown && <Button variant="outline" size="sm" disabled={waiting} onClick={() => { void reconcile() }}>{t('checkOperation')}</Button>}
-              <Button variant="ghost" size="sm" disabled={waiting} onClick={() => { setFailure(undefined); setUnknown(undefined) }}>{t('dismiss')}</Button>
-            </div>
-          </div>
-        )}
         {job && <Operation t={t} job={job} name={name} home={preset.home} previous={job.rebuild && job.state === 'completed' && !preset.contentReady} />}
       </Card>
       <ScriptDrawer api={api} t={t} preset={preset.id} sandboxes={sandboxes} executionMode={executionMode} open={script.open} resource={script.resource} onClose={() => setScript({ open: false })} />
@@ -162,8 +163,8 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
         )}>
         {plan && (
           <div className={css.confirm}>
-            <Notice tone="danger">{t('confirmLoss')}</Notice>
-            {planSessions && <Notice tone="warning"><span>{t('confirmForce')}</span><SessionLinks api={api} t={t} sessions={plan.dsh.sessions} onOpen={() => setConfirmation(undefined)} /></Notice>}
+            <Notice tone="danger">{t(confirmation?.build ? 'confirmLoss' : 'stopLoss')}</Notice>
+            {planSessions && <Notice tone="warning"><span>{t(confirmation?.build ? 'confirmForce' : 'stopSessions')}</span><SessionLinks api={api} t={t} sessions={plan.dsh.sessions} onOpen={() => setConfirmation(undefined)} /></Notice>}
             {plan.dsh.workspaces.length > 0 && (
               <div>
                 <p>{t('confirmWorkspaces')}</p>
@@ -171,16 +172,27 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
               </div>
             )}
             <details className={css.disclosure}>
-              <summary>{t('whatReset')}</summary>
-              <p>{t('resetCounts', { stores: plan.remove.stores.length, projects: plan.projects, sandboxes: plan.remove.sandboxes.length, workspaces: plan.remove.workspaces.length, machines: plan.remove.machines.length })}</p>
-              {plan.unknownSandboxes.length > 0 && <p>{t('unknownSandboxes')}</p>}
-              {plan.disconnect.length > 0 && <p>{t('disconnectPg')}</p>}
-              <p>{t('keepBuiltins')}</p>
-              <p className={css.mono}>{plan.home}</p>
-              <ul className={css.list}>
-                {Object.entries(plan.remove).flatMap(([kind, names]) => (names as string[]).map((n) => <li key={`${kind}/${n}`} className={css.mono}>{kind}: {n}</li>))}
-                {plan.projectKeys.map((k) => <li key={`project/${k}`} className={css.mono}>projects: {k}</li>)}
-              </ul>
+              <summary>{t(plan.scope === 'machines' ? 'whatStop' : 'whatReset')}</summary>
+              {plan.scope === 'machines' ? (
+                <>
+                  <p>{t('stopCounts', { n: plan.stopMachines.length })}</p>
+                  <p>{t('stopPreserved')}</p>
+                  <p className={css.mono}>{plan.home}</p>
+                  <ul className={css.list}>{plan.stopMachines.map((machine) => <li key={machine} className={css.mono}>{machine}</li>)}</ul>
+                </>
+              ) : (
+                <>
+                  <p>{t('resetCounts', { stores: plan.remove.stores.length, projects: plan.projects, sandboxes: plan.remove.sandboxes.length, workspaces: plan.remove.workspaces.length, machines: plan.remove.machines.length })}</p>
+                  {plan.unknownSandboxes.length > 0 && <p>{t('unknownSandboxes')}</p>}
+                  {plan.disconnect.length > 0 && <p>{t('disconnectPg')}</p>}
+                  <p>{t('keepBuiltins')}</p>
+                  <p className={css.mono}>{plan.home}</p>
+                  <ul className={css.list}>
+                    {Object.entries(plan.remove).flatMap(([kind, names]) => (names as string[]).map((n) => <li key={`${kind}/${n}`} className={css.mono}>{kind}: {n}</li>))}
+                    {plan.projectKeys.map((k) => <li key={`project/${k}`} className={css.mono}>projects: {k}</li>)}
+                  </ul>
+                </>
+              )}
             </details>
           </div>
         )}
@@ -204,9 +216,10 @@ function SessionLinks({ api, t, sessions, onOpen }: { api: LayerfsApi, t: Preset
 
 function Operation({ t, job, name, home, previous }: { t: PresetsT, job: PresetJob, name: string, home: string, previous: boolean }): ReactNode {
   const cleanup = job.cleanup
+  const operationKey = job.rebuild ? 'opBuild' : job.command === 'machine-stop' ? 'opReset' : 'opLegacyReset'
   return (
-    <section className={css.operation} aria-label={t(job.rebuild ? 'opBuild' : 'opReset', { name })}>
-      <p className={css.runningTitle}>{previous ? t('opPreviousBuild') : t(job.rebuild ? 'opBuild' : 'opReset', { name })}</p>
+    <section className={css.operation} aria-label={t(operationKey, { name })}>
+      <p className={css.runningTitle}>{previous ? t('opPreviousBuild') : t(operationKey, { name })}</p>
       {!running(job) && <PresetProgress job={job} t={t} />}
       <details className={css.disclosure}>
         <summary>{t('log')}</summary>
@@ -217,11 +230,11 @@ function Operation({ t, job, name, home, previous }: { t: PresetsT, job: PresetJ
       <details className={css.disclosure}>
         <summary>{t('receipt')}</summary>
         <p className={css.mono}>{t('home')}: {home}</p>
-        {cleanup && <p>{t(cleanup.verified ? 'cleanupVerified' : 'cleanupUnverified')}</p>}
+        {cleanup && <p>{t(cleanup.scope === 'machines' ? (cleanup.verified ? 'stopVerified' : 'stopUnverified') : (cleanup.verified ? 'cleanupVerified' : 'cleanupUnverified'))}</p>}
         {cleanup?.warnings?.map((warning, i) => <p key={i}>{warning}</p>)}
         {!!cleanup?.remaining?.length && <p className={css.error}>{t('remaining', { list: cleanup.remaining.join(', ') })}</p>}
         {!!job.forgotten?.length && <p>{t('forgotten', { list: job.forgotten.join(', ') })}</p>}
-        <p className={css.muted}>{t('retained')}</p>
+        <p className={css.muted}>{t(job.command === 'machine-stop' ? 'stopPreserved' : 'retained')}</p>
       </details>
     </section>
   )

@@ -9,6 +9,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { firstPositional, traceInvocation } from './tracing.ts'
 
 /** How a call failed: `refusal` = LayerFS answered a refusal; others are transport outcomes. */
 export type Transport = 'refusal' | 'transport-unknown' | 'unavailable' | 'usage-incompatible'
@@ -57,7 +58,7 @@ export interface Discovery {
 
 /** The calls dsh-layerfs relies on; a CLI missing one is refused at discovery. */
 export const REQUIRED_CALLS = [
-  'project.init', 'project.list', 'project.get', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
+  'project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
   'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close',
   'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec',
   'machine.list', 'machine.platforms', 'store.list', 'store.create',
@@ -130,6 +131,8 @@ interface ExecuteOptions {
   onProgress?: (progress: unknown) => void
   onFrame?: (frame: { stream?: 'stdout' | 'stderr', bytes?: unknown }) => void
   onSpawn?: (child: ChildProcess) => void
+  /** Recheck cancellation after admission, immediately before starting a process. */
+  beforeSpawn?: () => void
   /** A separate admission lane (name and limit) for bulk callers, so page reads are not queued behind them. */
   lane?: { name: string, limit: number }
 }
@@ -158,6 +161,13 @@ export const children = new Set<ChildProcess>()
  * @returns the parsed final result.
  */
 export function execute(spec: CliSpec, argv: readonly string[], options: ExecuteOptions = {}): Promise<any> {
+  if (options.discovery) return executeRaw(spec, argv, options)
+  const positional = argv.indexOf('--')
+  const project = ['file', 'branch'].includes(argv[0]) && positional >= 2 ? argv[positional + 1] : undefined
+  return traceInvocation(argv.slice(0, 2).join('.').replaceAll('-', '_'), () => executeRaw(spec, argv, options), project, argv[0] === 'workspace' && argv[1] === 'commit' ? firstPositional(argv) : undefined, argv)
+}
+
+function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOptions): Promise<any> {
   if (!spec.cli || !isAbsolute(spec.cli) || !existsSync(spec.cli)) {
     return Promise.reject(new CliError('CliUnavailable', 'Pin an absolute LayerFS CLI (Settings → LayerFS or DSH_LAYERFS_CLI)', null, 'unavailable'))
   }
@@ -186,6 +196,7 @@ export function execute(spec: CliSpec, argv: readonly string[], options: Execute
         else malformed = true
       } catch { /* plain-text usage; exit 2 classifies it */ }
     })
+    try { options.beforeSpawn?.() } catch (error) { reject(error); return }
     const child = spawn(spec.cli, [...argv], {
       shell: false, stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...options.env, ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), LAYERFS_PROGRESS_JSON: '1' },

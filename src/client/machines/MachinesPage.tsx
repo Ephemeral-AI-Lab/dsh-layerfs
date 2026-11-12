@@ -5,6 +5,7 @@
  * stays in local state; there is no router. Reading the page starts nothing.
  */
 import { useEffect, useState, type ReactNode } from 'react'
+import { useMachineSelection } from '../projects/navigation.ts'
 import { Board } from './Board.tsx'
 import { MachinesProvider, useMachinesContext, type MachinesPageProps } from './context.tsx'
 import { MachineDetail } from './MachineDetail.tsx'
@@ -25,8 +26,10 @@ export function MachinesPage(props: MachinesPageProps): ReactNode {
 }
 
 function MachinesRoot(): ReactNode {
-  const { activate } = useMachinesContext()
-  const [view, setView] = useState<View>({ kind: 'board' })
+  const { activate, api } = useMachinesContext()
+  const selected = useMachineSelection(api)
+  const [view, setView] = useState<View>(selected ? { kind: 'machine', name: selected.name } : { kind: 'board' })
+  useEffect(() => { if (selected) setView({ kind: 'machine', name: selected.name }) }, [selected])
   useEffect(() => activate(), [activate])
   if (view.kind === 'machine') return <MachineDetail key={view.name} name={view.name} initialTab={view.tab} go={setView} />
   if (view.kind === 'sandbox') return <SandboxDetail key={`${view.machine}:${view.name}`} machine={view.machine} name={view.name} go={setView} />

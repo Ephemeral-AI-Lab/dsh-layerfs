@@ -1,0 +1,20 @@
+.identity {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.source {
+  max-height: 60vh;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+}
+.failure {
+  color: var(--dsw-alias-label-secondary);
+  max-width: 240px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}

@@ -20,6 +20,8 @@ declare module '@deepseek-ai/cordis' {
 export interface LayerfsConfig {
   /** Plugin root: LayerFS home, project scratch-folder workspaces, plugin state. */
   root?: string
+  /** Unpacked project-session logs and annotations; default ~/.layerfs/dsh. */
+  projectSessionHome?: string
   /** Absolute pinned `layerfs` CLI; else runtime.json, else DSH_LAYERFS_CLI. */
   cli?: string
   /** Absolute matching `layerfs-daemon` (macOS native machine). */
@@ -46,6 +48,7 @@ export interface RuntimeStatus {
   readonly bundleInfo: { readonly hash: string | null, readonly source: string | null } | null
   readonly home: string
   readonly root: string
+  readonly projectSessionHome: string
   readonly scratchProject: string
   /** `layerfs`: the bundle's session persistence row runs (missing sessions are imported from LayerFS); `stock`: DSH's own. */
   readonly sessionPersistence: 'layerfs' | 'stock' | 'none'
@@ -88,6 +91,7 @@ const abs = (v: unknown): string | undefined => typeof v === 'string' && isAbsol
 export class LayerfsService extends Service {
   static inject = ['layerfsRemote']
   readonly root: string
+  readonly projectSessionHome: string
   readonly home: string
   readonly scratchProject: string
   readonly checkpoints: 'turn' | 'off'
@@ -104,6 +108,7 @@ export class LayerfsService extends Service {
     super(ctx, 'layerfs')
     const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
     this.root = abs(config.root) ?? join(dshHome, 'layerfs')
+    this.projectSessionHome = abs(config.projectSessionHome) ?? abs(process.env.DSH_LAYERFS_SESSION_HOME) ?? join(homedir(), '.layerfs', 'dsh')
     this.home = abs(config.home) ?? abs(process.env.DSH_LAYERFS_HOME) ?? join(this.root, 'home')
     this.scratchProject = config.scratchProject ?? 'dsh-scratch/scratch'
     if (!/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?\/[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(this.scratchProject)) {
@@ -178,7 +183,7 @@ export class LayerfsService extends Service {
   /** Runtime facts for the UI. */
   async status(): Promise<RuntimeStatus> {
     const base = {
-      cli: this.pin.cli, daemon: this.pin.daemon, bundle: this.pin.bundle, bundleInfo: this.bundleInfo(), home: this.home, root: this.root, source: this.pin.source,
+      cli: this.pin.cli, daemon: this.pin.daemon, bundle: this.pin.bundle, bundleInfo: this.bundleInfo(), home: this.home, root: this.root, projectSessionHome: this.projectSessionHome, source: this.pin.source,
       scratchProject: this.scratchProject, checkpoints: this.checkpoints,
       sessionPersistence: this.persistenceKind(),
     }

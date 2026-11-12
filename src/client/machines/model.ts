@@ -382,6 +382,11 @@ export function heldWords(held: { stores: number }): Words {
 export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>
   m.platform !== 'native' && (m.state === 'running' || m.state === 'stopped') ? (m.state === 'running' ? 'stop' : 'start') : null
 
+/** Force stop remains available for registered runtimes even when the worker
+ * is stopped or unavailable; native stops its managed runtimes, not the host. */
+export const forceStopOf = (m: MachineInfo, hasSandboxes = m.sandboxes.length > 0): boolean =>
+  m.platform !== 'ssh' && m.platform !== 'firecracker' && (powerOf(m) === 'stop' || hasSandboxes)
+
 /** A machine's size in a line. */
 export function sizeOf(m: MachineInfo, live?: MachineLive): Words {
   if (m.platform === 'native') return w('sizeNative')

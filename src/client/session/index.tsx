@@ -3,12 +3,13 @@
  * (Workspace, scratch folder, checkpoints) and a conversation-header action
  * that opens it for LayerFS sessions.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { NS, locales } from './locale.ts'
 import { SessionPanel } from './SessionPanel.tsx'
+import { TurnActivity } from './TurnActivity.tsx'
 import css from './session.module.css'
 
 export const TAB_ID = 'dsh-layerfs:session'
@@ -38,12 +39,14 @@ function Body(props: { sessionId: string, api: LayerfsApi, t: Translate }): Reac
 /** Header action: shown for LayerFS sessions, with the checkpoint count. */
 function HeaderAction({ sessionId, api, open, t }: { sessionId: string, api: LayerfsApi, open: () => void, t: Translate }): ReactNode {
   const [count, setCount] = useState<number | null>(null)
+  const [project, setProject] = useState<string | null>(null)
   useEffect(() => {
     let live = true
     const load = () => api.op<any>('session.state', { sessionId }).then((v) => {
       if (!live) return
       const b = v?.binding
-      setCount(b ? (v.checkpoints ?? []).filter((c: any) => c.commit && c.kind !== 'base').length : v?.refusal ? 0 : null)
+      setProject(b?.project ?? v?.project ?? null)
+      setCount(b ? (v.checkpoints ?? []).filter((c: any) => c.commit && c.changed > 0 && c.kind !== 'base' && c.kind !== 'restore').length : v?.refusal ? 0 : null)
     }, () => {})
     void load()
     const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === sessionId) void load() }
@@ -52,9 +55,9 @@ function HeaderAction({ sessionId, api, open, t }: { sessionId: string, api: Lay
   }, [api, sessionId])
   if (count === null) return null
   return (
-    <Button variant="toolbar" size="sm" icon={<LayersIcon />} aria-label={t('headerActionAria')} onClick={open}>
+    <Button variant="toolbar" size="sm" icon={<LayersIcon />} aria-label={project ? t('projectHeaderAria', { project }) : t('headerActionAria')} onClick={open}>
       <span className={css.headerAction}>
-        {t('headerAction')}
+        <span className={css.headerProject} title={project ?? t('headerAction')}>{project ?? t('headerAction')}</span>
         {count > 0 ? <span className={css.headerCount}>{count}</span> : null}
       </span>
     </Button>
@@ -64,6 +67,17 @@ function HeaderAction({ sessionId, api, open, t }: { sessionId: string, api: Lay
 /** The Workspace list's LayerFS mark: a small layers glyph on a project session's row. */
 function RowMark({ sessionId, api, t }: { sessionId: string, api: LayerfsApi, t: Translate }): ReactNode {
   const [project, setProject] = useState<string | null>(null)
+  const mark = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (!project) return
+    // DSH offers ambient decorations but no public session-list filter. Limit
+    // this adapter to the documented session row identity and fail visible if
+    // the renderer no longer supplies it. Blank rows omit this slot entirely.
+    const row = mark.current?.closest('[role="treeitem"][data-row-key]')
+    if (!row || row.getAttribute('data-row-key') !== `session:${sessionId}`) return
+    row.setAttribute('data-layerfs-project-owned', sessionId)
+    return () => { if (row.getAttribute('data-layerfs-project-owned') === sessionId) row.removeAttribute('data-layerfs-project-owned') }
+  }, [project, sessionId])
   useEffect(() => {
     let live = true
     const read = () => api.op<{ place: { project: string | null } | null }>('session.place', { sessionId })
@@ -73,7 +87,7 @@ function RowMark({ sessionId, api, t }: { sessionId: string, api: LayerfsApi, t:
     return () => { live = false; off() }
   }, [api, sessionId])
   if (!project) return null
-  return <span className={css.rowMark} title={t('inProject', { project })}><LayerfsGlyph size={11} /></span>
+  return <span ref={mark} className={css.rowMark} title={t('inProject', { project })}><LayerfsGlyph size={11} /></span>
 }
 
 export function registerSession(ctx: any, api: LayerfsApi): void {
@@ -100,6 +114,10 @@ export function registerSession(ctx: any, api: LayerfsApi): void {
       if (existing && ctx.sidebarRight.activateTabIn) ctx.sidebarRight.activateTabIn(sessionId, existing.id)
       else ctx.sidebarRight.openTabIn(sessionId, TAB_KIND)
     }
+    ctx.effect(() => ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
+      name: 'conversation.chat.turnTail', id: 'dsh-layerfs.activity', order: 40, locale: NS,
+      inject: (sessionId: string) => ({ sessionId: String(sessionId), api, open: () => open(String(sessionId)) }),
+    }, TurnActivity)), 'dsh-layerfs: conversation checkpoint annotations')
     ctx.effect(() => ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
       name: 'conversation.session.header.actions', id: 'dsh-layerfs.session', order: 40, locale: NS,
       inject: (sessionId: string) => ({ sessionId: String(sessionId), api, open: () => open(String(sessionId)) }),

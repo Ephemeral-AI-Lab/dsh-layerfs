@@ -22,7 +22,7 @@ const en = {
   sourceHint: 'An absolute path on this host, imported as the project. Leave empty for an empty project.',
   sourceInvalid: 'Use an absolute path.',
   sourceRequired: 'Folder to import',
-  sourceRequiredHint: 'An absolute path on this host. Its files become the project\'s main branch.',
+  sourceRequiredHint: 'An absolute path on this host. Its files become the project’s initial files.',
   create: 'Create and open',
   import: 'Import and open',
   creating: 'Creating…',

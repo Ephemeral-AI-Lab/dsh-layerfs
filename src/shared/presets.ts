@@ -7,7 +7,7 @@
 
 export type PresetExecutionMode = 'filesystem' | 'mixed'
 
-/** A DSH session whose open Sandbox a forced reset tears down. */
+/** A DSH session whose execution may be interrupted by a confirmed operation. */
 export interface BusySession {
   readonly id: string
   readonly project: string | null
@@ -15,9 +15,9 @@ export interface BusySession {
 
 /** What a reset does to dsh-layerfs's own records (the DSH side of the plan). */
 export interface DshImpact {
-  /** Bound project sessions: a forced reset discards their Sandboxes and drops their records. */
+  /** Bound project sessions affected by machine shutdown or Build cleanup. */
   readonly sessions: readonly BusySession[]
-  /** Projects with a DSH workspace that the reset drops, with their session count. */
+  /** Projects dropped by destructive Build cleanup; empty for stop-only Reset. */
   readonly workspaces: readonly { readonly project: string, readonly sessions: number }[]
 }
 
@@ -47,6 +47,28 @@ export interface EnvironmentResetReceipt extends Omit<EnvironmentResetPlan, 'dsh
   readonly completed: string[][]
   readonly error?: { code: string, message: string }
 }
+
+/** Stop-only Reset: registrations, stores, projects and committed history remain. */
+export interface MachineStopPlan {
+  readonly environment: string
+  readonly home: string
+  readonly homeId: string
+  readonly scope: 'machines'
+  readonly stopMachines: string[]
+  readonly detectedMachines: { name: string, state: string, platform?: string }[]
+  readonly signature: string
+  readonly dsh: DshImpact
+}
+export interface MachineStopReceipt extends Omit<MachineStopPlan, 'environment' | 'dsh'> {
+  readonly results: { machine: string, state: string, forced: true, stoppedSandboxes: string[], unknown: string[] }[]
+  readonly verified: boolean
+  readonly remaining: string[]
+  readonly warnings: string[]
+  readonly completed: string[][]
+  readonly error?: { code: string, message: string }
+}
+export type PresetResetPlan = EnvironmentResetPlan | MachineStopPlan
+export type PresetResetReceipt = EnvironmentResetReceipt | MachineStopReceipt
 
 export interface PresetProjectTask {
   id: string
@@ -90,7 +112,7 @@ export interface PresetJob {
   requestId: string
   fingerprint: string
   preset: string
-  command: 'environment-reset'
+  command: 'environment-reset' | 'machine-stop'
   executionMode: PresetExecutionMode
   rebuild: boolean
   actionId: string | null
@@ -101,7 +123,7 @@ export interface PresetJob {
   started?: number
   ended?: number
   progress?: PresetProgress
-  cleanup?: EnvironmentResetReceipt
+  cleanup?: PresetResetReceipt
   presetVerified?: boolean
   /** Projects whose DSH workspace and session records were dropped after their Store was removed. */
   forgotten?: string[]

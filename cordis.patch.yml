@@ -1,20 +1,18 @@
 # dsh-layerfs bundle layer, applied after dsh-base and dsh-web-app.
 #
-# Two session modes: a session in a LayerFS project workspace works in that
-# project with its own Workspace mount and scratch folder; a session anywhere
-# else (a folder workspace, DSH's default workspace, the Scratch workspace)
-# runs as stock DSH.
+# Two owners: LayerFS projects own project sessions; DSH workspaces own normal
+# sessions. A project's selected local folder is scratch, on every machine.
 #
 # - `layerfs`: the plugin (host services + browser half). `root` holds the
 #   LayerFS home, the projects' scratch-folder workspaces and plugin state;
 #   `scratchProject` names the project sessions bound to the Scratch project
 #   used before folder sessions became plain.
-# - `session-persistence-jsonl` is replaced by `layerfs-session-persistence`
-#   (same root): DSH's JSONL backend keeps running inside it as the local
-#   log, and a session missing locally is imported from the LayerFS project
-#   that stores it.
+# - `session-persistence-jsonl` is replaced by an owner router over stock JSONL:
+#   normal sessions keep the original root; project logs are unpacked under
+#   ~/.layerfs/dsh (DSH_LAYERFS_SESSION_HOME/config.projectSessionHome override).
+#   Missing project sessions can be imported from the LayerFS archive.
 # - `sandbox-policy` is replaced by a subclass that makes a bound session's
-#   LayerFS Workspace mount (its working directory) its workspace-write root;
+#   selected local folder its workspace-write root and allows project execution;
 #   sessions with no binding fall back to the stock policy.
 # - `preset-layerfs` is the Agent composition every bound session selects: bash
 #   plus delegation/background tools, no host filesystem tools, so sessions on

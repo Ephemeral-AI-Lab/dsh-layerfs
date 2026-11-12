@@ -1,7 +1,7 @@
 /**
  * A machine's Sandboxes: one card each, its row (opens the Sandbox's page;
  * its menu sits above that) and its mounted Workspaces read with sandbox.get.
- * Delete is sandbox.close; after a refusal that allows it, Force delete. The
+ * Delete is sandbox.close; Force delete is a separate explicit action. The
  * New Sandbox dialog creates one on this machine from an eligible project.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -47,7 +47,7 @@ export function useSandboxRead(name: string, state: string | undefined, count: n
   return { data, error, loading, reload: () => void read() }
 }
 
-/** sandbox.close, then Force close once a close was refused with a reason that allows it. */
+/** Normal close reconciles unknown results; explicit force bypasses worker reads. */
 export function useClose(name: string): { busy: boolean, error: unknown, unknown: string[] | null, close: (force: boolean) => Promise<boolean>, forceAllowed: boolean, uncertain: boolean } {
   const { closeSandbox, readSandbox } = useMachinesContext()
   const [busy, setBusy] = useState(false)
@@ -57,7 +57,7 @@ export function useClose(name: string): { busy: boolean, error: unknown, unknown
   const close = async (force: boolean): Promise<boolean> => {
     setBusy(true)
     try {
-      if (refusal?.code === 'Unknown') { await readSandbox(name); setError(null); return false }
+      if (!force && refusal?.code === 'Unknown') { await readSandbox(name); setError(null); return false }
       setError(null)
       setUnknown(await closeSandbox(name, force))
       return true
@@ -154,11 +154,11 @@ function SandboxGroup({ b, onOpen }: { b: MachineSandbox, onOpen: () => void }):
   )
 }
 
-/** The Sandbox's menu: Open, and Delete (Force delete once a delete was refused; Read Sandbox after an unknown outcome). */
+/** Normal Delete, Read after uncertainty, and explicit Force delete. */
 export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: string, op: MachineSandbox['op'], closing: ReturnType<typeof useClose>, onOpen?: () => void, onDeleted?: () => void }): ReactNode {
   const { t } = useMachinesContext()
-  const { busy, close, forceAllowed, uncertain } = closing
-  const [confirm, setConfirm] = useState(false)
+  const { busy, close, uncertain } = closing
+  const [confirm, setConfirm] = useState<'normal' | 'force' | null>(null)
   return (
     <>
       <MoreMenu label={t('moreForSandbox', { name })} disabled={busy}>
@@ -166,20 +166,24 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
           <>
             {onOpen && <MenuItemButton icon={<IconChevronRightOutlineRegular size={14} />} onSelect={() => { dismiss(); onOpen() }}>{t('open')}</MenuItemButton>}
             <MenuItemButton danger separatorBefore={!!onOpen} icon={<IconCloseOutlineRegular size={14} />} disabled={busy || (!!op && !op.uncertain)}
-              onSelect={() => { dismiss(); if (uncertain) void close(false); else setConfirm(true) }}>
-              {forceAllowed ? t('forceDeleteSandbox') : uncertain ? t('readSandbox') : t('deleteSandbox')}
+              onSelect={() => { dismiss(); if (uncertain) void close(false); else setConfirm('normal') }}>
+              {uncertain ? t('readSandbox') : t('deleteSandbox')}
+            </MenuItemButton>
+            <MenuItemButton danger icon={<IconCloseOutlineRegular size={14} />} disabled={busy}
+              onSelect={() => { dismiss(); setConfirm('force') }}>
+              {t('forceDeleteSandbox')}
             </MenuItemButton>
           </>
         )}
       </MoreMenu>
       {confirm && (
-        <Modal open onClose={() => setConfirm(false)} title={t(forceAllowed ? 'forceDeleteTitle' : 'deleteTitle')} closeLabel={t('close')} className={css.dialog}
-          description={t(forceAllowed ? 'forceDeleteBody' : 'deleteBody', { name })}
+        <Modal open onClose={() => setConfirm(null)} title={t(confirm === 'force' ? 'forceDeleteTitle' : 'deleteTitle')} closeLabel={t('close')} className={css.dialog}
+          description={t(confirm === 'force' ? 'forceDeleteBody' : 'deleteBody', { name })}
           footer={(
             <>
-              <Button variant="outline" onClick={() => setConfirm(false)}>{t('cancel')}</Button>
-              <Button variant="primary" className={css.danger} onClick={() => { setConfirm(false); void close(forceAllowed).then((ok) => { if (ok) onDeleted?.() }) }}>
-                {t(forceAllowed ? 'forceDeleteAction' : 'deleteAction')}
+              <Button variant="outline" onClick={() => setConfirm(null)}>{t('cancel')}</Button>
+              <Button variant="primary" className={css.danger} onClick={() => { setConfirm(null); void close(confirm === 'force').then((ok) => { if (ok) onDeleted?.() }) }}>
+                {t(confirm === 'force' ? 'forceDeleteAction' : 'deleteAction')}
               </Button>
             </>
           )} />

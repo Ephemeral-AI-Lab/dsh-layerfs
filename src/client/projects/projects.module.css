@@ -137,3 +137,50 @@
 .modal :global([data-modal-body]) {
   padding-top: 0;
 }
+
+.projectLink {
+  composes: headMain;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.projectLink:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary);
+  outline-offset: 2px;
+}
+.notice {
+  padding: 16px;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.reason {
+  margin-top: 6px;
+  color: var(--dsw-alias-label-secondary);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.filePanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+  height: 65vh;
+  min-width: 0;
+}
+@media (hover: hover) {
+  .projectLink:hover { color: var(--dsw-alias-link); }
+}
+@media (max-width: 600px) {
+  .head { flex-wrap: wrap; }
+  .projectLink { flex-basis: 65%; }
+  .headActions { margin-inline-start: auto; }
+  .rowMeta { flex-wrap: wrap; justify-content: flex-end; }
+}

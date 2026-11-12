@@ -14,7 +14,7 @@ import css from './picker.module.css'
 type Translate = (key: PickerKey, params?: Record<string, string | number>) => string
 
 /** One `/api/projects` row. */
-export interface ProjectRow { key: string, name?: string, store?: string, machine?: string | null, kind?: string | null }
+export interface ProjectRow { projectId?: string, catalogState?: 'available' | 'unavailable' | 'removed' | 'identity-mismatch', catalogError?: string, identity?: { storeId: string }, key: string, name?: string, store?: string, machine?: string | null, kind?: string | null, created?: number | null, storeState?: string | null }
 
 /** One project Init job (`/api/project-inits/<id>`). */
 export interface ProjectInitJob {
@@ -33,8 +33,7 @@ export const messageOf = (e: unknown) => String((e as any)?.message ?? e)
 
 /** Projects and the Scratch project's key. */
 export async function listProjects(api: LayerfsApi): Promise<{ rows: ProjectRow[], scratchKey: string | null }> {
-  const [list, status] = await Promise.all([api.call<ProjectRow[]>('GET', '/api/projects'), api.op<any>('runtime.status')])
-  return { rows: Array.isArray(list) ? list : [], scratchKey: status?.scratchProject ?? null }
+  return api.op<{ rows: ProjectRow[], scratchKey: string | null }>('projects.catalog')
 }
 
 /** The machine a project's SQLite Store lives on when it is not this host (its Sandboxes run there), else null. */

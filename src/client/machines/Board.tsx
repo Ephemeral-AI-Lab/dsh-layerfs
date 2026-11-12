@@ -136,7 +136,7 @@ function MachineCard({ m, view, onOpen }: { m: MachineInfo, view: AvailableView,
   const { run, pending: localPending, error } = useMachineRun()
   const pending = localPending ?? (startingNow ? startup.kind : null)
   const { inspection, inspect } = useInspect(m.name)
-  const [dialog, setDialog] = useState<'settings' | 'remove' | null>(null)
+  const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
   const noAllocation = m.platform === 'native' || (m.cpus == null && m.memory == null && m.disk == null)
   const calls = state.state === 'unresolved' ? clearingCall('machine', m.name, state.op) : null
   const used = m.disk && live?.freeDisk != null ? Math.max(0, m.disk - live.freeDisk) : null

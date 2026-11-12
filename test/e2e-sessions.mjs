@@ -11,7 +11,6 @@
 // New Session project control.
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDev, runTurn } from '../tools/e2e-lib.mjs'
 import { openPanel } from '../tools/ui.mjs'
@@ -36,12 +35,16 @@ const until = async (what, fn, ms = 30000) => {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out: ${what}`); await sleep(500) }
 }
 
+const projectCommand = (command) => `bash: "$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" ${JSON.stringify(command)} --stream`
+
 const tag = Date.now().toString(36)
 const store = `e2e${tag}`, name = 'demo', project = `${store}/${name}`
 let failed = false
 try {
   step(`store + project ${project}`)
-  const src = mkdtempSync(join(tmpdir(), 'dshlfs-e2e-'))
+  const fixtureRoot = join(process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname, 'fixtures')
+  mkdirSync(fixtureRoot, { recursive: true })
+  const src = mkdtempSync(join(fixtureRoot, 'sessions-'))
   writeFileSync(join(src, 'README.md'), '# demo\n')
   mkdirSync(join(src, 'src')); writeFileSync(join(src, 'src', 'main.js'), 'console.log(1)\n')
   await http('POST', '/api/stores', { name: store })
@@ -52,7 +55,25 @@ try {
   const placed = await openProject(project)
   assert.ok(placed.sessionId && placed.workspaceId)
   await page.waitForTimeout(1500)
-  const t1 = await runTurn(page, { message: 'bash: echo one > one.txt\nbash: echo note > "$HOME/scratch-note.txt" || true', newSession: false })
+  // The project owns the session; selecting scratch must keep that same session.
+  const owningWorkspace = (await must('sessions.scratchOptions')).workspaces.find((workspace) => workspace.workspaceId === placed.workspaceId)
+  const scratch = join(fixtureRoot, `scratch-${tag}`)
+  mkdirSync(scratch, { recursive: true })
+  await page.getByRole('button', { name: /^Scratch folder:/ }).click()
+  await page.getByRole('menuitem', { name: 'Enter a folder path…' }).click()
+  await page.getByRole('textbox', { name: 'Local folder path' }).fill(scratch)
+  await page.getByRole('button', { name: 'Select folder', exact: true }).click()
+  await until('scratch selected without changing ownership', async () => {
+    const value = await must('session.place', { sessionId: placed.sessionId })
+    return value.place?.project === project && value.place?.scratch === scratch
+  })
+  assert.equal(await page.getByRole('button', { name: 'Choose workspace', exact: true }).isVisible(), false, 'project mode uses its scratch selector')
+  await must('sessions.choose', { sessionId: placed.sessionId, project: null })
+  assert.equal((await must('session.place', { sessionId: placed.sessionId })).place.project, null)
+  await must('sessions.choose', { sessionId: placed.sessionId, project })
+  assert.equal((await must('session.place', { sessionId: placed.sessionId })).place.scratch, owningWorkspace.path, 'normal mode restores the original workspace folder')
+  await must('sessions.scratch', { sessionId: placed.sessionId, cwd: scratch })
+  const t1 = await runTurn(page, { message: `${projectCommand('echo one > one.txt')}\nbash: echo note > scratch-note.txt`, newSession: false })
   assert.ok(t1.ok, `turn 1: ${t1.error}`)
   // The placed blank keeps its id when the first turn materializes it.
   const sid = placed.sessionId
@@ -66,12 +87,19 @@ try {
   assert.equal(b.project, project)
   assert.ok(existsSync(join(b.mount, 'one.txt')), 'one.txt in the mount')
   assert.ok(existsSync(join(b.mount, 'README.md')), 'project files in the mount')
+  assert.equal(b.scratch, scratch, 'chosen local folder retained at materialization')
   assert.ok(existsSync(b.scratch), 'scratch folder')
+  assert.ok(existsSync(join(b.scratch, 'scratch-note.txt')), 'local shell writes selected scratch')
+  assert.ok(!existsSync(join(b.mount, 'scratch-note.txt')), 'scratch writes stay outside project')
+  const annotations = await must('session.annotations', { sessionId: sid })
+  const execs = annotations.invocations.filter((item) => item.operation === 'workspace.exec')
+  assert.ok(execs.length > 0 && execs.every((item) => item.origin === 'tool' && item.toolCallId && item.versions.length === 0), 'exec calls retain exact tool identities with no checkpoint links')
+  assert.ok(annotations.invocations.some((item) => item.operation === 'workspace.commit' && item.origin === 'host' && item.versions.some((version) => version.effect === 'created')), 'host save owns its confirmed checkpoint')
   const cp1 = state.checkpoints.find((c) => c.kind === 'turn')
   assert.ok(cp1.commit, 'turn 1 committed')
 
   step('turn 2')
-  const t2 = await runTurn(page, { message: 'bash: echo two > two.txt', newSession: false })
+  const t2 = await runTurn(page, { message: projectCommand('echo two > two.txt'), newSession: false })
   assert.ok(t2.ok, `turn 2: ${t2.error}`)
   state = await until('2 checkpoints', async () => {
     const s = await must('session.state', { sessionId: sid })
@@ -102,7 +130,7 @@ try {
   const child = branched.sessionId
   assert.ok(child && child !== sid)
   await page.waitForTimeout(2000)
-  const t4 = await runTurn(page, { message: 'bash: ls > listing.txt', newSession: false })
+  const t4 = await runTurn(page, { message: projectCommand('ls > listing.txt'), newSession: false })
   assert.ok(t4.ok, `child turn: ${t4.error}`)
   const cstate = await until('child bound', async () => {
     const s = await must('session.state', { sessionId: child })
@@ -158,7 +186,7 @@ try {
   const card = projectsPage.getByRole('region', { name }).filter({ hasText: store }).first()
   await card.getByRole('button', { name: 'New session' }).click()
   await page.waitForTimeout(1500)
-  const tp = await runTurn(page, { message: 'bash: echo picked > picked.txt', newSession: false })
+  const tp = await runTurn(page, { message: projectCommand('echo picked > picked.txt'), newSession: false })
   assert.ok(tp.ok, `picked project turn: ${tp.error}`)
   const pstate = await until('picked session bound', async () => {
     const s = await must('session.state', { sessionId: tp.sessionId })
@@ -171,13 +199,13 @@ try {
   step('UI: the New Session project control shows no project, then switches and creates one')
   await page.locator(`[role=treeitem][data-row-key="session:${ts.sessionId}"]`).first().click()
   await page.getByRole('button', { name: 'New session', exact: true }).first().click()
-  const heroChip = page.locator('[data-layerfs-hero] button').first()
+  const heroChip = page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first()
   await heroChip.waitFor({ timeout: 15000 })
-  await until('hero shows no project', async () => (await heroChip.innerText()).trim() === 'No project')
+  await until('hero shows no project', async () => (await heroChip.innerText()).trim() === 'Workspace session')
   await heroChip.click()
   await page.getByRole('menuitem').filter({ hasText: name }).filter({ hasText: store }).first().click()
-  await until('hero switched to the project', async () => (await page.locator('[data-layerfs-hero] button').first().innerText()).trim() === name)
-  await page.locator('[data-layerfs-hero] button').first().click()
+  await until('hero switched to the project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText()).trim() === name)
+  await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().click()
   await page.getByRole('menuitem', { name: 'New empty project' }).click()
   await page.locator('[role=menu]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
   const newDialog = page.getByRole('dialog', { name: 'New empty project' })
@@ -187,8 +215,8 @@ try {
   await page.getByRole('menuitem', { name: store, exact: true }).click()
   await newDialog.getByLabel('Project name').fill('blank')
   await newDialog.getByRole('button', { name: 'Create and open' }).click()
-  await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button').first().innerText().catch(() => '')).trim() === 'blank', 60000)
-  const tb = await runTurn(page, { message: 'bash: echo b > b.txt', newSession: false })
+  await until('hero on the new project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText().catch(() => '')).trim() === 'blank', 60000)
+  const tb = await runTurn(page, { message: projectCommand('echo b > b.txt'), newSession: false })
   assert.ok(tb.ok, `new project turn: ${tb.error}`)
   const bstate = await until('new project session bound', async () => {
     const s = await must('session.state', { sessionId: tb.sessionId })
@@ -197,14 +225,19 @@ try {
   assert.equal(bstate.binding.project, `${store}/blank`)
 
   step('UI: the session panel shows the checkpoints')
-  await page.locator(`[role=treeitem][data-row-key="session:${sid}"]`).first().click()
-  await page.getByRole('button', { name: 'Open the LayerFS panel' }).first().click({ timeout: 15000 })
+  await must('sessions.open', { sessionId: sid, project })
+  await page.getByRole('button', { name: `Project ${project}: open checkpoints and scratch folder` }).first().click({ timeout: 15000 })
   await page.getByText('Checkpoints', { exact: true }).first().waitFor({ timeout: 15000 })
+  assert.equal(await page.getByText('Branch', { exact: true }).count(), 0, 'session panel hides branches')
+  assert.equal(await page.getByRole('button', { name: 'Branch here', exact: true }).count(), 0, 'no session branch management')
+  assert.ok(!(await page.locator(`[role=treeitem][data-row-key="session:${sid}"]`).isVisible()), 'project conversation is excluded from normal workspace rows')
+  await page.waitForTimeout(700)
   await page.screenshot({ path: '/tmp/e2e-sessions-panel.png' })
 
   if (!process.argv.includes('--keep')) {
     step('cleanup')
     for (const id of [child, sid, ts.sessionId, td.sessionId, tp.sessionId, tb.sessionId]) await must('sessions.forget', { sessionId: id })
+    assert.ok(existsSync(join(scratch, 'scratch-note.txt')), 'forgetting a project session preserves user-selected scratch files')
     await http('DELETE', `/api/projects/${encodeURIComponent(`${store}/blank`)}`)
     await http('DELETE', `/api/projects/${encodeURIComponent(project)}`)
     await http('DELETE', `/api/stores/${encodeURIComponent(store)}?confirm=${encodeURIComponent(store)}`).catch((e) => console.log('store kept:', e.message))

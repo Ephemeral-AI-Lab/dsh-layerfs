@@ -1,45 +1,30 @@
 /**
- * `ctx.layerfsSessions`: a session the user placed in a LayerFS project works
- * in that project + its own scratch folder; every other session is plain DSH.
+ * Project-owned sessions use a private LayerFS execution context and a selected
+ * local folder as scratch. Normal sessions retain stock DSH behavior.
  *
- * Placing is per session, never per workspace: the New Session control or a
- * Projects page records `state.pending[sessionId] = {project}` for a blank or
- * folder session in whatever workspace is selected, and `placeOf` answers
- * that project from then on. (Legacy installs may still have project
- * workspaces at the scratch-folder anchors under
- * `<root>/projects/<store>/<name>`; a session created in one binds through
- * `classify` too.) Each bound session gets
- *   - its own Branch `dsh.<session>` (forked from `main`, or from a checkpoint),
- *   - its own Sandbox + Workspace mount — on `native` a real host path that
- *     becomes the session's working directory; on another machine the mount
- *     stays inside the Sandbox and the agent works through the LayerFS CLI
- *     (`workspace.exec`, `file.*`) while its working directory is the scratch
- *     folder (the `layerfs` agent preset supplies the environment),
- *   - its own scratch folder `<anchor>/sessions/<session>` (never committed).
- * A session in any other workspace (a host folder, DSH's default workspace,
- * the Scratch workspace `<root>/scratch`) runs as stock DSH: no binding, no
- * Workspace mount, no checkpoints, nothing mirrored. Subagents of a bound
- * session share their parent's mount; subagents of a folder session are plain
- * too. A fork of a bound session starts its files from the parent's
- * checkpoint at the fork point.
+ * Explicit bindings, pending choices, and durable persistence ownership select
+ * the project; recorded legacy anchors are supported for migration only.
+ * Native and remote projects both use scratch as the local working directory.
+ * Subagents share their parent's project execution context and scratch folder.
+ * Conversation forks start project files from the matching saved checkpoint.
  *
- * Checkpoints: every turn that changed files ends with `workspace.commit`
- * (`agent/turn-stopping`); restore = fork a new Branch from a checkpoint and
- * remount; "branch here" = DSH session fork + Branch fork from the checkpoint.
- * The LayerFS session store keeps each bound session's log in its project
- * (`store.ts`).
+ * Changed turns save through workspace.commit. Saved-version annotations retain
+ * exact tool/host provenance alongside the original native DSH conversation.
+ * Branches and sandbox handles are internal implementation details.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
 import { CliError, pages, sandboxWorkspaces, type Lfs } from '../layerfs/cli.ts'
 import { JsonFile } from '../service.ts'
-import { initialState, type Binding, type Checkpoint, type SessionsState } from './state.ts'
+import { initialState, type Binding, type Checkpoint, type SessionsState, type SimulationBinding, type SimulationTarget } from './state.ts'
 import type { SessionStore } from './store.ts'
+import { withTraceContext } from '../layerfs/tracing.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -73,6 +58,8 @@ export interface SessionView {
   readonly scratchProject: boolean
   readonly status: unknown
   readonly mirror: unknown
+  readonly execution?: { state: 'inactive' | 'activating' | 'active' | 'interrupted', available: boolean, reason?: string, projectId?: string }
+  readonly archive: { localCount: number, savedCount: number, updatedAt?: number, error?: string } | null
 }
 
 export class LayerfsSessions extends Service {
@@ -91,11 +78,26 @@ export class LayerfsSessions extends Service {
 
   get lfs(): Lfs { return this.ctx.layerfs.lfs }
 
+  /** Separate installations may resume one archived conversation in the same home. */
+  private simulationSandbox(sessionId: string): string {
+    const installation = createHash('sha256').update(this.ctx.layerfs.root).digest('hex').slice(0, 10)
+    return `${sandboxOf(sessionId)}-${installation}`
+  }
+
   /** Serialize work per session. */
   lane<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
     const next = (this.lanes.get(sessionId) ?? Promise.resolve()).then(run, run)
     this.lanes.set(sessionId, next.catch(() => {}))
     return next
+  }
+
+  /** Wait until the session's queued operations (an owner choice, a bind) finish. */
+  async settled(sessionId: string): Promise<void> {
+    let current: Promise<unknown> | undefined
+    while ((current = this.lanes.get(sessionId))) {
+      await current
+      if (this.lanes.get(sessionId) === current) return
+    }
   }
 
   // ------------------------------------------------------------- workspaces
@@ -125,7 +127,7 @@ export class LayerfsSessions extends Service {
    */
   ensureAnchor(project: string): string {
     const anchor = this.anchorOf(project)
-    this.writeAnchor(anchor, `# ${project}\n\nThe DeepSeek Harness scratch area of LayerFS project \`${project}\`.\n\nEach session works in its own LayerFS Workspace (branch \`dsh.<session>\`), mounted as its\nworking directory and checkpointed at the end of every turn. \`sessions/<session>/\` is that\nsession's scratch folder: it is never saved into the project.\n`)
+    this.writeAnchor(anchor, `# ${project}\n\nThe DeepSeek Harness scratch area of LayerFS project \`${project}\`.\n\nEach session works in its own LayerFS Workspace (branch \`dsh.<session>\`), used for project execution and checkpointed at the end of changed turns. \`sessions/<session>/\` is that\nsession's scratch folder: it is never saved into the project.\n`)
     this.state.update((s) => { s.projects[project] ??= { project, anchor, createdAt: Date.now() } })
     return anchor
   }
@@ -137,12 +139,42 @@ export class LayerfsSessions extends Service {
 
   /** List a session (an imported one) under a DSH workspace. Never throws. */
   async attach(workspaceId: string | undefined, sessionId: string): Promise<void> {
+    if (this.placeOfId(sessionId)?.project) { await this.detach(sessionId); return }
     if (!workspaceId) return
     try {
       await this.ctx.workspaceRegistry.get(workspaceId as never)?.attachSession(sessionId as never)
     } catch (error: any) {
       this.ctx.logger('layerfs').warn('session %s not listed in workspace %s: %s', sessionId, workspaceId, error?.message ?? error)
     }
+  }
+
+  /** Project ownership is independent of the folder selected as local scratch. */
+  async detach(sessionId: string): Promise<void> {
+    for (const workspace of this.ctx.workspaceRegistry?.list?.() ?? []) {
+      if (workspace.sessionIds.includes(sessionId as never)) await workspace.detachSession(sessionId as never)
+    }
+  }
+
+  /** Change the local folder's scratch role without moving project ownership. */
+  async selectScratch(sessionId: string, cwd: string): Promise<void> {
+    if (!this.placeOfId(sessionId)?.project) throw new CliError('InvalidInput', 'Select a LayerFS project before choosing its scratch folder')
+    if (!isAbsolute(cwd) || !existsSync(cwd) || !statSync(cwd).isDirectory()) throw new CliError('ScratchUnavailable', 'Select an existing absolute local directory')
+    const agent = (this.ctx.get?.('agents' as never) as any)?.get?.(sessionId)
+    if (!agent) throw new CliError('Unavailable', 'Open this project session before changing its scratch folder')
+    const binding = this.binding(sessionId)
+    if (binding?.kind === 'shared') throw new CliError('InvalidInput', 'Choose the scratch folder on the parent project session')
+    if (binding?.mount && (real(cwd) === real(binding.mount) || real(cwd).startsWith(`${real(binding.mount)}/`))) {
+      throw new CliError('InvalidInput', 'Choose a local scratch folder outside the project mount')
+    }
+    await this.moveTo(agent, real(cwd))
+    if (binding) this.save({ ...binding, scratch: real(cwd), scratchManaged: false })
+    for (const child of Object.values(this.state.read().sessions)) {
+      if (child.kind !== 'shared' || child.parent !== sessionId) continue
+      const childAgent = (this.ctx.get?.('agents' as never) as any)?.get?.(child.sessionId)
+      if (childAgent) await this.moveTo(childAgent, real(cwd))
+      this.save({ ...child, scratch: real(cwd), scratchManaged: false })
+    }
+    this.ctx.layerfs.emit('layerfs-session', { sessionId })
   }
 
   /** Ensure the Scratch workspace: a plain folder workspace for sessions without a project. */
@@ -183,13 +215,10 @@ export class LayerfsSessions extends Service {
     const at = real(cwd)
     const root = real(join(this.ctx.layerfs.root, 'projects'))
     for (const entry of Object.values(this.state.read().projects)) {
+      if (!entry.workspaceId) continue
       // Only anchors under the projects root: state may hold an old entry for
       // the Scratch workspace, which is a plain folder now.
       if (real(entry.anchor) === at && at.startsWith(`${root}/`)) return { project: entry.project, anchor: entry.anchor }
-    }
-    if (at.startsWith(`${root}/`)) {
-      const [store, name, extra] = at.slice(root.length + 1).split('/')
-      if (store && name && !extra) return { project: `${store}/${name}`, anchor: join(this.ctx.layerfs.root, 'projects', store, name) }
     }
     return undefined
   }
@@ -200,12 +229,50 @@ export class LayerfsSessions extends Service {
    * `null` clears the choice; a recorded binding always outranks the pending
    * one, so a bound session cannot be re-placed this way.
    */
-  async choose(sessionId: string, project: string | null): Promise<void> {
-    if (project) { await this.lfs.project.get(project); this.ensureAnchor(project) }
+  async choose(sessionId: string, project: string | null, projectId?: string): Promise<void> {
+    // The choice runs in the session's lane, and pre-step waits for the lane
+    // before resolving the place: a first message sent while the choice is in
+    // flight runs under the chosen owner, never as the previous one.
+    await this.lane(sessionId, () => this.chooseNow(sessionId, project, projectId))
+  }
+
+  private async chooseNow(sessionId: string, project: string | null, projectId?: string): Promise<void> {
+    const live = this.ctx.sessions.get(sessionId as never) as any
+    const bound = this.binding(sessionId)
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    const previous = bound?.project ?? this.state.read().pending[sessionId]?.project ?? persistence?.ownerOf?.(sessionId)?.project ?? null
+    let started = live?.snapshotEvents(0).some((e: any) => e.type === 'turn/start') ?? false
+    if (!live && persistence?.local && await persistence.local.stat(sessionId)) {
+      const reader = await persistence.local.open(sessionId, 'read')
+      try { started = (await reader.read()).events.some((e: any) => e.type === 'turn/start') } finally { await reader.close() }
+    }
+    if (previous !== project && (bound || started)) {
+      throw new CliError('SessionStarted', 'Start a new session to change its project or switch to normal workspace mode')
+    }
+    if (!project && previous && live) {
+      const original = live.header?.cwd
+      if (!original || !isAbsolute(original) || !existsSync(original) || !statSync(original).isDirectory()) {
+        throw new CliError('WorkspaceUnavailable', 'Start a normal session in an existing local workspace')
+      }
+      const agent = (this.ctx.get?.('agents' as never) as any)?.get?.(sessionId)
+      if (agent) await this.moveTo(agent, original)
+    }
+    if (project) {
+      if (projectId) await persistence?.catalog?.assert(project, projectId)
+      await this.lfs.project.get(project); this.ensureAnchor(project)
+    }
+    await persistence?.migrateProject?.(live ?? sessionId, project)
     this.state.update((s) => {
       if (project) s.pending[sessionId] = { project }
       else delete s.pending[sessionId]
     })
+    // DSH reuses a blank session only while it remains a candidate of the
+    // selected workspace. Remove membership at pre-step, after materialization.
+    if (project && bound) await this.detach(sessionId)
+    else if (!project && live?.header?.cwd) {
+      const workspace = this.ctx.workspaceRegistry?.list?.().find((w) => real(w.path) === real(live.header.cwd))
+      if (workspace) await workspace.attachSession(sessionId as never)
+    }
     this.ctx.layerfs.emit('layerfs-session', { sessionId })
   }
 
@@ -227,6 +294,8 @@ export class LayerfsSessions extends Service {
     if (header.origin === 'subagent' && parent) return { kind: 'shared', parent: String(header.parentSession), anchor: header.cwd }
     const pending = this.state.read().pending[sessionId]
     if (pending?.project) return { kind: 'project', project: pending.project, anchor: this.anchorOf(pending.project) }
+    const owner = (this.ctx.get?.('sessionPersistence' as never) as any)?.ownerOf?.(sessionId)
+    if (owner?.project) return { kind: 'project', project: owner.project, anchor: this.anchorOf(owner.project) }
     const where = this.classify(header.cwd)
     if (where) return { kind: 'project', ...where }
     if (parent?.project) return { kind: 'project', project: parent.project, anchor: parent.anchor }
@@ -238,25 +307,70 @@ export class LayerfsSessions extends Service {
    * row mark. A live session is asked for its place; one that is only
    * persisted answers from its recorded binding or its pending choice.
    */
-  placeOfId(sessionId: string): { project: string | null } | null {
+  placeOfId(sessionId: string): { project: string | null, scratch?: string } | null {
     const persisted = this.binding(sessionId)
     const session = this.ctx.sessions.get(sessionId as never) as any
     if (!session) {
       if (persisted?.kind === 'shared') return { project: this.binding(String(persisted.parent))?.project ?? persisted.project ?? null }
-      if (persisted) return { project: persisted.project ?? null }
+      if (persisted) return { project: persisted.project ?? null, ...(persisted.project ? { scratch: persisted.scratch } : {}) }
       const pending = this.state.read().pending[sessionId]?.project
-      return pending ? { project: pending } : null
+      const owner = (this.ctx.get?.('sessionPersistence' as never) as any)?.ownerOf?.(sessionId)
+      return pending || owner?.project ? { project: pending ?? owner.project } : null
     }
     const place = this.placeOf(session)
     if (place.kind === 'shared') return { project: this.binding(place.parent)?.project ?? null }
     if (place.kind === 'folder') return { project: null }
-    return { project: place.project }
+    return { project: place.project, scratch: persisted?.scratch ?? this.ctx.workingDirectory?.get?.(session) ?? session.header?.cwd }
   }
 
   // ------------------------------------------------------------- binding
 
   binding(sessionId: string): Binding | undefined { return this.state.read().sessions[sessionId] }
   checkpoints(sessionId: string): Checkpoint[] { return this.state.read().checkpoints[sessionId] ?? [] }
+
+  simulationOf(sessionId: string): SimulationBinding | undefined {
+    return this.binding(sessionId)?.simulation ?? this.state.read().pending[sessionId]?.simulation
+  }
+
+  /** Must precede agent creation so ownership is known before its first hook. */
+  async prepareSimulation(sessionId: string, project: string, metadata: Omit<SimulationBinding, 'state'> & { state?: SimulationBinding['state'] }): Promise<void> {
+    const previous = this.placeOfId(sessionId)?.project
+    if (previous && previous !== project) throw new CliError('SessionStarted', 'A script cannot change the session project')
+    const current = this.binding(sessionId)
+    if (current?.ws || (current?.simulation && (current.simulation.runId !== metadata.runId || current.simulation.scriptId !== metadata.scriptId))) {
+      throw new CliError('SessionStarted', 'Start a fresh project session for a different script')
+    }
+    this.ensureAnchor(project)
+    const simulation: SimulationBinding = { ...metadata, state: metadata.state ?? 'running', handoffReady: false }
+    this.state.update((s) => {
+      s.pending[sessionId] = { project, simulation }
+      if (s.sessions[sessionId]) s.sessions[sessionId].simulation = simulation
+    })
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    await persistence?.migrateProject?.(sessionId, project)
+  }
+
+  /** Final metadata precedes a fresh archive; normal mounting happens lazily. */
+  async completeSimulation(sessionId: string, target: SimulationTarget | undefined, state: SimulationBinding['state'], error?: string): Promise<void> {
+    await this.lane(sessionId, async () => {
+      const simulation = this.simulationOf(sessionId)
+      if (!simulation) throw new CliError('NotFound', 'This session has no script binding')
+      if (target && (!['Commit', 'Layer'].includes(target.kind) || !/^[a-f0-9]{66}$/.test(target.id) || !target.branch)) throw new CliError('InvalidInput', 'A confirmed saved-version target is required')
+      const next = { ...simulation, state, continuation: target, handoffReady: !!target, error }
+      this.state.update((s) => {
+        if (s.sessions[sessionId]) s.sessions[sessionId].simulation = next
+        if (s.pending[sessionId]) s.pending[sessionId].simulation = next
+      })
+      await this.persistMetadata(sessionId)
+    })
+    // Caller restores the native model selection before calling this method.
+    this.store?.schedule(sessionId, 0)
+  }
+
+  isSimulationManaged(sessionId: string): boolean {
+    const simulation = this.simulationOf(sessionId)
+    return !!simulation && !simulation.handoffReady
+  }
 
   private save(binding: Binding): Binding {
     binding.updatedAt = Date.now()
@@ -265,9 +379,36 @@ export class LayerfsSessions extends Service {
     return binding
   }
 
-  private record(sessionId: string, checkpoint: Checkpoint): void {
+  private async record(sessionId: string, checkpoint: Checkpoint): Promise<void> {
     this.state.update((s) => { (s.checkpoints[sessionId] ??= []).push(checkpoint) })
+    await this.persistMetadata(sessionId)
     this.ctx.layerfs.emit('layerfs-checkpoint', { sessionId, checkpoint })
+  }
+
+  private async persistMetadata(sessionId: string): Promise<void> {
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    await persistence?.updateSidecar?.(sessionId, (sidecar: any) => {
+      const binding = this.binding(sessionId)
+      sidecar.codeBranch = binding?.kind === 'shared' && binding.parent ? this.binding(binding.parent)?.branch : binding?.branch
+      sidecar.bindingKind = binding?.kind
+      sidecar.sharedParent = binding?.kind === 'shared' ? binding.parent : undefined
+      sidecar.checkpoints = this.checkpoints(sessionId)
+      if (binding?.simulation) sidecar.simulation = binding.simulation
+    })
+  }
+
+  private hostOperation<T>(sessionId: string, project: string, turn: number | undefined, run: () => Promise<T>): Promise<T> {
+    return withTraceContext({
+      origin: 'host', sessionId, project, workspace: this.binding(sessionId)?.ws, turn, receiptRoot: this.ctx.layerfs.root,
+      record: async (invocation) => {
+        const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+        if (persistence?.recordInvocation) {
+          await persistence.recordInvocation(invocation)
+          this.ctx.layerfs.emit('layerfs-operation', { sessionId })
+        }
+      },
+      onError: (e) => this.ctx.logger('layerfs').warn('record host operation: %s', String(e)),
+    }, run)
   }
 
   /** The machine a project's Sandboxes run on. */
@@ -293,7 +434,7 @@ export class LayerfsSessions extends Service {
     try { observed = await sandboxWorkspaces(this.lfs, sandbox) } catch (error: any) {
       if (error?.code !== 'NoSuchSandbox' && error?.code !== 'NotFound') throw error
     }
-    if (!observed || observed.state === 'stopped' || observed.down_reason) {
+    if (!observed || observed.state === 'stopped' || observed.state === 'gone' || observed.down_reason) {
       if (observed) await this.lfs.sandbox.close(sandbox, { force: true }).catch(() => {})
       await this.lfs.sandbox.create(project, sandbox, binding.machine ?? 'native')
       observed = { workspaces: [] }
@@ -325,19 +466,51 @@ export class LayerfsSessions extends Service {
    */
   async bindAgent(agent: any, source: string, strict = false): Promise<void> {
     const sessionId = String(agent.id)
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    if (!this.binding(sessionId) && persistence?.ownerOf?.(sessionId)) {
+      const metadata = await persistence.readSidecar(sessionId)
+      if (metadata?.simulation) {
+        const simulation = { ...metadata.simulation }
+        // Reopening history never restarts an unfinished script.
+        if (simulation.state === 'running') { simulation.state = 'interrupted'; simulation.handoffReady = false }
+        this.state.update((s) => { s.pending[sessionId] = { project: metadata.project, simulation } })
+      }
+      if (metadata?.bindingKind === 'shared' && metadata.sharedParent) {
+        this.save({ sessionId, kind: 'shared', project: metadata.project, parent: metadata.sharedParent, anchor: this.anchorOf(metadata.project), scratch: '', state: 'closed', simulation: this.state.read().pending[sessionId]?.simulation, createdAt: Date.now(), updatedAt: Date.now() })
+      }
+    }
     const place = this.placeOf(agent.session)
     if (place.kind === 'folder') return
+    if (!strict) {
+      // Opening a log only prepares local ownership metadata. Workspace setup
+      // happens at pre-step, never in response to navigation or polling.
+      if (place.kind === 'project' && !this.binding(sessionId)) {
+        const metadata = await persistence?.readSidecar?.(sessionId).catch(() => undefined)
+        const anchor = this.ensureAnchor(place.project)
+        const selected = this.selectedScratch(agent, anchor)
+        this.save({ sessionId, kind: 'project', project: place.project, projectId: persistence?.projectIdOf?.(sessionId), anchor, ...selected,
+          branch: metadata?.codeBranch, sandbox: metadata?.codeBranch ? sandboxOf(sessionId) : undefined,
+          simulation: metadata?.simulation, state: 'closed', executionState: 'inactive', createdAt: Date.now(), updatedAt: Date.now() })
+        if (metadata?.checkpoints) this.state.update((s) => { s.checkpoints[sessionId] ??= metadata.checkpoints })
+      }
+      if (place.kind === 'project') await this.selectPreset(agent)
+      return
+    }
     await this.lane(sessionId, async () => {
       try {
+        await this.validateExecutionIdentity(sessionId)
+        const preparing = this.binding(sessionId)
+        if (preparing?.kind === 'project') this.save({ ...preparing, executionState: 'activating' })
+        if (this.isSimulationManaged(sessionId)) return await this.bindSimulation(agent, place)
         if (place.kind === 'shared') return await this.bindShared(agent, place.parent, place.anchor, strict)
-        await this.bindProject(agent, place.project, place.anchor, source)
+        await this.hostOperation(sessionId, place.project, undefined, () => this.bindProject(agent, place.project, place.anchor, source))
       } catch (error: any) {
         const previous = this.binding(sessionId)
         this.ctx.logger('layerfs').warn('session %s: bind failed: %s', sessionId, error?.message ?? error)
         if (place.kind === 'project') {
           this.save({
             ...(previous ?? { sessionId, kind: 'project', anchor: place.anchor, scratch: join(place.anchor, 'sessions', sessionId), createdAt: Date.now(), updatedAt: Date.now() }),
-            project: place.project, state: 'failed', error: String(error?.message ?? error),
+            project: place.project, executionState: 'interrupted', state: 'failed', error: String(error?.message ?? error),
           } as Binding)
         }
         if (strict) throw error
@@ -348,16 +521,90 @@ export class LayerfsSessions extends Service {
   /** Whether a session may run a step now: bound (re-binding if needed), else it throws. */
   async ensureBound(agent: any): Promise<void> {
     const sessionId = String(agent.id)
+    // An owner choice in flight decides this step's place; wait for it.
+    await this.settled(sessionId)
+    // Normal sessions are stock DSH: no LayerFS lock, identity or binding applies.
+    if (this.placeOf(agent.session ?? { id: sessionId }).kind === 'folder' && !this.simulationOf(sessionId)) return
+    const held = this.ctx.layerfs.exclusive?.()
+    if (held) throw new CliError('ConnectBusy', held)
+    await this.validateExecutionIdentity(sessionId)
+    if (this.isSimulationManaged(sessionId)) {
+      const simulation = this.simulationOf(sessionId)!
+      if (simulation.state !== 'running' || agent.model?.current?.()?.provider !== 'simulation') {
+        throw new CliError('RecoveryRequired', simulation.error ?? 'Settle script execution and select a confirmed saved file context before continuing')
+      }
+      await this.detach(sessionId)
+      return
+    }
     let b = this.binding(sessionId)
     if (b?.kind === 'shared' && b.parent) b = this.binding(b.parent)
-    if (b?.state === 'bound' && (b.mount ? existsSync(b.mount) : true)) return
+    if (b?.state === 'bound' && b.ws && (b.mount ? existsSync(b.mount) : true)) {
+      const provider = this.ctx.get?.('sessionPersistence' as never) as any
+      const usable = !provider?.assertSessionIdentity || await this.lfs.workspace.status(b.ws).then(() => true, () => false)
+      if (usable) { await this.detach(sessionId); return }
+      this.save({ ...b, state: 'failed', executionState: 'interrupted', error: 'The execution workspace was lost. Reconnecting for this new message.' })
+    }
     await this.bindAgent(agent, 'pre-step', true)
+  }
+
+  private async validateExecutionIdentity(sessionId: string): Promise<void> {
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    let binding = this.binding(sessionId)
+    while (binding?.kind === 'shared' && binding.parent) binding = this.binding(binding.parent)
+    const id = binding?.sessionId ?? sessionId
+    try {
+      const row = await persistence?.assertSessionIdentity?.(id)
+      if (row) {
+        const machine = row.kind === 'postgresql' ? 'native' : (row.machine ?? 'native')
+        const status = await this.lfs.machine.get(machine)
+        if (!['ready', 'running'].includes(status.state) || status.op) throw new CliError('Unavailable', `Machine ${machine} is not ready. Start or repair it, then send the message again.`)
+        const store = await this.lfs.store.status(row.store)
+        if (!['idle', 'in_use'].includes(store.state) || store.op || store.down_reason) throw new CliError('Unavailable', store.down_reason ?? 'The project Store is not ready. Restore access, then send the message again.')
+        if (binding?.branch) {
+          const latest = [...this.checkpoints(id)].reverse().find((checkpoint) => checkpoint.commit && !checkpoint.error)
+          if (latest?.commit) await this.lfs.file.list(row.key, latest.branch ?? binding.branch, '/', latest.commit, { page_size: 1 }).catch(() => { throw new CliError('CheckpointUnavailable', 'The latest saved file checkpoint is unavailable in this Store. History and checkpoint references are retained; recover that checkpoint before continuing.') })
+        }
+        if (binding && binding.machine && binding.machine !== machine) this.save({ ...binding, machine, state: 'closed', executionState: 'inactive', mount: undefined, ws: undefined })
+      }
+    } catch (error: any) {
+      if (binding) this.save({ ...binding, state: 'failed', executionState: 'interrupted', error: String(error?.message ?? error) })
+      throw error
+    }
+  }
+
+  private async bindSimulation(agent: any, place: Exclude<Place, { kind: 'folder' }>): Promise<void> {
+    const sessionId = String(agent.id), simulation = this.simulationOf(sessionId)!
+    const parent = simulation.rootSessionId ?? (place.kind === 'shared' ? place.parent : undefined)
+    const root = parent ? this.binding(parent) : undefined
+    const project = place.kind === 'project' ? place.project : root?.project
+    if (!project) throw new CliError('Unavailable', 'The script parent project is unavailable')
+    const anchor = this.anchorOf(project), existing = this.binding(sessionId)
+    const selected = root ? { scratch: root.scratch, scratchManaged: root.scratchManaged } : this.selectedScratch(agent, anchor, existing)
+    await (this.ctx.get?.('sessionPersistence' as never) as any)?.migrateProject?.(agent.session, project)
+    this.save({ sessionId, kind: parent ? 'shared' : 'project', ...(parent ? { parent } : {}), project,
+      anchor, ...selected, state: 'bound', simulation, createdAt: existing?.createdAt ?? Date.now(), updatedAt: Date.now() })
+    this.state.update((s) => { delete s.pending[sessionId] })
+    await this.persistMetadata(sessionId)
+    await this.selectPreset(agent)
+    await this.moveTo(agent, selected.scratch)
+    await this.detach(sessionId)
   }
 
   private scratchFor(anchor: string, sessionId: string): string {
     const dir = join(anchor, 'sessions', sessionId)
     mkdirSync(dir, { recursive: true })
     return dir
+  }
+
+  /** The selected folder is scratch on every machine; generated scratch is a fallback. */
+  private selectedScratch(agent: any, anchor: string, previous?: Binding): { scratch: string, scratchManaged: boolean } {
+    if (previous?.scratch && existsSync(previous.scratch) && statSync(previous.scratch).isDirectory()) return { scratch: previous.scratch, scratchManaged: previous.scratchManaged === true }
+    const cwd = this.ctx.workingDirectory?.get(agent.session) ?? agent.session.header?.cwd
+    if (cwd && isAbsolute(cwd) && !this.classify(cwd)) {
+      if (!existsSync(cwd) || !statSync(cwd).isDirectory()) throw new CliError('ScratchUnavailable', 'Select an existing local folder to use as scratch for this project session')
+      return { scratch: cwd, scratchManaged: false }
+    }
+    return { scratch: this.scratchFor(anchor, String(agent.id)), scratchManaged: true }
   }
 
   /** Move the session's working directory: silently before its first turn, with DSH's notice afterwards. */
@@ -374,12 +621,19 @@ export class LayerfsSessions extends Service {
     // A subagent of a subagent follows the root binding.
     let root = this.binding(parent)
     while (root?.kind === 'shared' && root.parent) root = this.binding(root.parent)
+    if (root?.simulation?.handoffReady && !root.ws) {
+      const parentAgent = (this.ctx.get?.('agents' as never) as any)?.get?.(root.sessionId)
+      if (parentAgent) { await this.bindAgent(parentAgent, 'child-handoff', strict); root = this.binding(root.sessionId) }
+    }
     if (!root || root.state !== 'bound' || !(root.mount ?? root.scratch)) {
       if (strict) throw new CliError('Unavailable', 'The parent session\'s LayerFS Workspace is not bound')
       return
     }
-    this.save({ sessionId, kind: 'shared', anchor, parent: root.sessionId, scratch: root.scratch, project: root.project, mount: root.mount, state: 'bound', createdAt: Date.now(), updatedAt: Date.now() })
-    await this.moveTo(agent, root.mount ?? root.scratch)
+    await (this.ctx.get?.('sessionPersistence' as never) as any)?.migrateProject?.(agent.session, root.project)
+    this.save({ sessionId, kind: 'shared', anchor, parent: root.sessionId, scratch: root.scratch, project: root.project, mount: root.mount, simulation: this.simulationOf(sessionId), projectId: (this.ctx.get?.('sessionPersistence' as never) as any)?.projectIdOf?.(sessionId), executionState: 'active', state: 'bound', createdAt: Date.now(), updatedAt: Date.now() })
+    await this.persistMetadata(sessionId)
+    await this.moveTo(agent, root.scratch)
+    await this.detach(sessionId)
   }
 
   private async bindProject(agent: any, project: string, anchor: string, source: string): Promise<void> {
@@ -388,14 +642,37 @@ export class LayerfsSessions extends Service {
     if (held) throw new CliError('ConnectBusy', held)
     if (this.isScratch(project)) await this.ensureScratchProject()
     const header = agent.session.header
-    const existing = this.binding(sessionId)
-    const scratch = this.scratchFor(anchor, sessionId)
+    let existing = this.binding(sessionId)
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    if (!existing && persistence?.ownerOf?.(sessionId)) {
+      const metadata = await persistence.readSidecar(sessionId)
+      if (!metadata?.codeBranch && !metadata?.simulation?.continuation && !this.state.read().pending[sessionId] && agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/end')) {
+        throw new CliError('RecoveryRequired', 'This project conversation has no saved file-context metadata; recover its LayerFS annotations before continuing')
+      }
+      if (metadata?.checkpoints) this.state.update((s) => { s.checkpoints[sessionId] = metadata.checkpoints })
+      if (metadata?.codeBranch) {
+        existing = {
+          sessionId, kind: 'project', project, anchor, scratch: '', branch: metadata.codeBranch,
+          machine: await this.machineFor(project), sandbox: metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId), ws: `${metadata.simulation ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)}:${WS_NAME}`,
+          state: 'closed', createdAt: Date.now(), updatedAt: Date.now(),
+          simulation: metadata.simulation,
+        }
+      }
+    }
+    if (!existing?.branch && persistence?.ownerOf?.(sessionId) && !this.state.read().pending[sessionId] && !this.simulationOf(sessionId)?.continuation && agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/end')) {
+      throw new CliError('RecoveryRequired', 'This conversation has no confirmed saved file context. Recover its annotations before continuing; execution cannot start from the current project files.')
+    }
+    const selected = this.selectedScratch(agent, anchor, existing)
+    const { scratch } = selected
+    await persistence?.migrateProject?.(agent.session, project)
     let binding: Binding
     if (existing?.branch && existing.sandbox) {
-      binding = { ...existing, scratch, state: existing.state }
+      const resolved = await persistence?.assertSessionIdentity?.(sessionId)
+      binding = { ...existing, ...selected, machine: resolved ? (resolved.kind === 'postgresql' ? 'native' : resolved.machine ?? 'native') : existing.machine, state: existing.state }
     } else {
       const machine = await this.machineFor(project)
-      const branch = branchOf(sessionId)
+      const sandbox = this.simulationOf(sessionId) ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)
+      const branch = existing?.resumeFromArchive ? `${branchOf(sessionId)}.resume.${randomUUID().replaceAll('-', '').slice(0, 12)}` : branchOf(sessionId)
       const start = this.forkSource(sessionId, header, project)
       try {
         await this.forkAt(project, branch, start.branch ?? 'main', start.commit ?? null)
@@ -403,8 +680,9 @@ export class LayerfsSessions extends Service {
         if (!exists(error)) throw error
       }
       binding = {
-        sessionId, kind: 'project', project, anchor, scratch, machine, branch,
-        sandbox: sandboxOf(sessionId), ws: `${sandboxOf(sessionId)}:${WS_NAME}`,
+        sessionId, kind: 'project', project, anchor, ...selected, machine, branch,
+        simulation: this.simulationOf(sessionId),
+        sandbox, ws: `${sandbox}:${WS_NAME}`,
         state: 'bound', createdAt: existing?.createdAt ?? Date.now(), updatedAt: Date.now(),
         ...(start.session ? { from: { session: start.session, commit: start.commit, turn: start.turn } } : {}),
       }
@@ -412,21 +690,29 @@ export class LayerfsSessions extends Service {
     binding.mount = await this.mount(binding)
     this.state.update((s) => { delete s.pending[sessionId] })
     binding.state = 'bound'
+    binding.executionState = 'active'
+    binding.projectId = persistence?.projectIdOf?.(sessionId)
     delete binding.error
     this.save(binding)
     if (!this.checkpoints(sessionId).length) {
-      this.record(sessionId, {
-        kind: 'base', turn: 0, seq: agent.session.seq, endSeq: agent.session.seq, commit: binding.from?.commit ?? binding.base ?? null, branch: binding.branch!,
-        changed: 0, at: Date.now(), message: binding.from ? `Forked from turn ${binding.from.turn ?? '?'}` : `Started from ${project} main`,
+      await this.record(sessionId, {
+        kind: 'base', turn: 0, seq: agent.session.seq, endSeq: agent.session.seq, commit: binding.from?.commit ?? binding.simulation?.continuation?.id ?? binding.base ?? null, branch: binding.branch!,
+        changed: 0, at: Date.now(), message: binding.from ? `Forked from turn ${binding.from.turn ?? '?'}` : `Started from ${project}`,
       })
     }
+    await this.persistMetadata(sessionId)
     await this.selectPreset(agent)
-    await this.moveTo(agent, binding.mount ?? scratch)
+    await this.moveTo(agent, scratch)
+    await this.detach(sessionId)
     void source
   }
 
   /** Where a new session's files start: a pending fork, a DSH fork's checkpoint, or `main`. */
   private forkSource(sessionId: string, header: any, project: string): { branch?: string | null, commit?: string | null, session?: string, turn?: number } {
+    const simulation = this.simulationOf(sessionId)
+    if (simulation?.handoffReady && simulation.continuation) {
+      return { branch: simulation.continuation.branch, commit: simulation.continuation.id }
+    }
     const pending = this.state.read().pending[sessionId]
     if (pending && pending.project === project) return { branch: pending.branch, commit: pending.commit, session: pending.session, turn: pending.turn }
     const parent = header.parentSession ? String(header.parentSession) : undefined
@@ -447,23 +733,30 @@ export class LayerfsSessions extends Service {
    * unchanged turns record no commit.
    */
   async checkpoint(sessionId: string, kind: Checkpoint['kind'], turn: number, message: string): Promise<Checkpoint | undefined> {
+    if (this.isSimulationManaged(sessionId)) return undefined
     const binding = this.binding(sessionId)
     if (!binding || binding.kind !== 'project' || binding.state !== 'bound' || !binding.ws) return undefined
     const session = this.ctx.sessions.get(sessionId as never) as any
     const seq = session?.seq ?? 0
     let checkpoint: Checkpoint
     try {
+      await (this.ctx.get?.('sessionPersistence' as never) as any)?.assertSessionIdentity?.(sessionId)
       const status = await this.lfs.workspace.status(binding.ws)
       const entries = Number(status?.overlay?.entries ?? 0)
       if (!entries && !status?.head_moved_since_mount && kind === 'turn') return undefined
-      const result = await this.lfs.workspace.commit(binding.ws, { message })
+      const result = await this.hostOperation(sessionId, binding.project!, turn, () => this.lfs.workspace.commit(binding.ws!, { message }))
       const commit = result?.kind === 'Committed' ? result.commit?.id ?? result.head : result?.head ?? null
       checkpoint = { kind, turn, seq, commit, branch: binding.branch!, changed: result?.kind === 'Committed' ? Math.max(entries, 1) : 0, message, at: Date.now() }
+      if (commit && binding.simulation?.handoffReady) {
+        this.state.update((s) => {
+          s.sessions[sessionId].simulation!.continuation = { kind: 'Commit', id: commit, branch: binding.branch! }
+        })
+      }
     } catch (error: any) {
       // Conflict markers or an uncertain outcome: never retry blindly; the panel shows it.
       checkpoint = { kind, turn, seq, commit: null, branch: binding.branch!, changed: 0, message, at: Date.now(), error: errorOf(error) }
     }
-    this.record(sessionId, checkpoint)
+    await this.record(sessionId, checkpoint)
     return checkpoint
   }
 
@@ -474,6 +767,7 @@ export class LayerfsSessions extends Service {
     this.state.update((s) => {
       for (const c of s.checkpoints[sessionId] ?? []) if (c.kind === 'turn' && c.turn === turn && c.endSeq === undefined) c.endSeq = seq
     })
+    void this.persistMetadata(sessionId).catch((e) => this.ctx.logger('layerfs').warn('persist checkpoint boundary: %s', String(e)))
   }
 
   /**
@@ -481,30 +775,36 @@ export class LayerfsSessions extends Service {
    * new Branch from the checkpoint and remount it in place.
    */
   async restore(sessionId: string, commit: string): Promise<Binding> {
+    if (this.isSimulationManaged(sessionId)) throw new CliError('Busy', 'Stop script execution and establish its continuation context before restoring files')
     return await this.lane(sessionId, async () => {
       const binding = this.binding(sessionId)
       if (!binding || binding.kind !== 'project' || !binding.project || !binding.sandbox) throw new CliError('InvalidInput', 'This session has no LayerFS Workspace')
+      await this.validateExecutionIdentity(sessionId)
       const target = this.checkpoints(sessionId).find((c) => c.commit === commit)
       if (!target) throw new CliError('NotFound', 'No such checkpoint in this session')
       const session = this.ctx.sessions.get(sessionId as never) as any
-      if (binding.state === 'bound') await this.checkpoint(sessionId, 'manual', this.lastTurn(sessionId), 'Saved before restore')
+      if (binding.state === 'bound') {
+        const saved = await this.checkpoint(sessionId, 'manual', this.lastTurn(sessionId), 'Saved before restore')
+        if (saved?.error) throw new CliError(saved.error.code, saved.error.message)
+      }
       const generation = (binding.restores ?? 0) + 1
       const branch = branchOf(sessionId, generation)
       await this.forkAt(binding.project, branch, target.branch ?? binding.branch ?? 'main', commit)
       await this.lfs.workspace.unmount(`${binding.sandbox}:${WS_NAME}`, { discard: true, force: true }).catch(() => {})
       const next: Binding = { ...binding, branch, restores: generation, base: undefined, state: 'bound' }
+      if (next.simulation?.handoffReady) next.simulation = { ...next.simulation, continuation: { kind: target.kind === 'base' ? next.simulation.continuation?.kind ?? 'Commit' : 'Commit', id: commit, branch } }
       next.mount = await this.mount(next)
       this.save(next)
-      this.record(sessionId, {
+      await this.record(sessionId, {
         kind: 'restore', turn: target.turn, seq: session?.seq ?? 0, endSeq: session?.seq ?? 0, commit: next.base ?? commit,
         branch, changed: 0, at: Date.now(), message: `Restored files to ${target.kind === 'base' ? 'the start' : `turn ${target.turn}`}`,
       })
       const agent = (this.ctx.get('agents' as never) as any)?.get?.(sessionId)
       if (agent) {
-        await this.moveTo(agent, next.mount ?? next.scratch)
+        await this.moveTo(agent, next.scratch)
         try {
           const { createUserMessage } = await import('@deepseek-ai/dsh-llm')
-          agent.inject(createUserMessage({ content: [{ type: 'text', text: `The project files were restored to the checkpoint of ${target.kind === 'base' ? 'the session start' : `turn ${target.turn}`} (LayerFS branch ${branch}). Changes made after it are no longer in the Workspace.` }], source: { kind: 'working-directory' } as never }))
+          agent.inject(createUserMessage({ content: [{ type: 'text', text: `The project files were restored to the checkpoint of ${target.kind === 'base' ? 'the session start' : `turn ${target.turn}`}. Changes made after it are no longer in the project Workspace.` }], source: { kind: 'working-directory' } as never }))
         } catch { /* notice is best effort */ }
       }
       return next
@@ -534,8 +834,10 @@ export class LayerfsSessions extends Service {
    * at the checkpoint's turn end, whose files start from the checkpoint.
    */
   async branchAt(sessionId: string, commit: string | null, turn: number): Promise<{ sessionId: string }> {
+    if (this.isSimulationManaged(sessionId)) throw new CliError('Busy', 'Stop script execution before forking its conversation')
     const binding = this.binding(sessionId)
     if (!binding?.project) throw new CliError('InvalidInput', 'This session has no LayerFS project')
+    await this.validateExecutionIdentity(sessionId)
     const target = this.checkpoints(sessionId).find((c) => c.turn === turn && (commit === null || c.commit === commit))
     if (!target) throw new CliError('NotFound', 'No such checkpoint in this session')
     const controller = (this.ctx as any).get?.('sessionController')
@@ -561,31 +863,58 @@ export class LayerfsSessions extends Service {
         delete s.pending[child]
         s.checkpoints[child] = [{ kind: 'base', turn: 0, seq: 0, endSeq: 0, commit: start.commit ?? next.base ?? null, branch, changed: 0, at: Date.now(), message: `Forked from turn ${target.turn}` }]
       })
+      await this.persistMetadata(child)
       const agent = (this.ctx.get('agents' as never) as any)?.get?.(child)
-      if (agent) await this.moveTo(agent, next.mount ?? next.scratch)
+      if (agent) await this.moveTo(agent, next.scratch)
     })
     return { sessionId: child }
   }
 
   // ------------------------------------------------------------- lifecycle
 
-  /** Save and close a session's Sandbox (it reopens on the next turn or resume). */
+  /** A confirmed force stop invalidates mounts, never conversation ownership.
+   * No checkpoint or worker call is possible after its machine has stopped. */
+  machinesStopped(machines: readonly string[]): void {
+    const stopped = new Set(machines)
+    const bindings = this.state.read().sessions
+    for (const binding of Object.values(bindings)) {
+      const owner = binding.kind === 'shared' && binding.parent ? bindings[binding.parent] : binding
+      if (!owner?.sandbox || !stopped.has(owner.machine ?? 'native')) continue
+      this.save({ ...binding, state: 'closed', executionState: 'interrupted', mount: undefined, ws: undefined, error: 'Execution was interrupted. Send a new message after project access is restored.' })
+    }
+  }
+
+  /** A forced Sandbox close releases only its own execution handles. */
+  sandboxClosed(sandbox: string): void {
+    const bindings = this.state.read().sessions
+    for (const binding of Object.values(bindings)) {
+      const owner = binding.kind === 'shared' && binding.parent ? bindings[binding.parent] : binding
+      if (owner?.sandbox !== sandbox) continue
+      this.save({ ...binding, state: 'closed', executionState: 'interrupted', mount: undefined, ws: undefined, error: 'Execution was interrupted. Send a new message after project access is restored.' })
+    }
+  }
+
+  /** Save and close execution resources; a new message activates them again. */
   async close(sessionId: string, reason: 'idle' | 'user' = 'user'): Promise<void> {
     await this.lane(sessionId, async () => {
       const binding = this.binding(sessionId)
       if (!binding || binding.kind !== 'project' || binding.state !== 'bound' || !binding.sandbox) return
-      await this.checkpoint(sessionId, 'idle', this.lastTurn(sessionId), reason === 'idle' ? 'Saved before the idle Sandbox closed' : 'Saved before closing')
+      const saved = await this.checkpoint(sessionId, 'idle', this.lastTurn(sessionId), reason === 'idle' ? 'Saved before the idle Sandbox closed' : 'Saved before closing')
+      if (saved?.error) throw new CliError(saved.error.code, saved.error.message)
       await this.lfs.sandbox.close(binding.sandbox, { force: true })
-      this.save({ ...binding, state: 'closed', mount: undefined })
+      this.save({ ...binding, state: 'closed', executionState: 'inactive', mount: undefined, ws: undefined })
+      this.store?.schedule(sessionId, 0)
     })
   }
 
-  /** Forget a session: close its Sandbox and delete its scratch folder; the branch stays as history. */
+  /** Forget a binding without deleting the user's selected folder or local history. */
   async forget(sessionId: string): Promise<void> {
+    if (this.isSimulationManaged(sessionId)) throw new CliError('Busy', 'Settle script execution before forgetting its binding')
     const binding = this.binding(sessionId)
     if (!binding) return
     if (binding.kind === 'project' && binding.sandbox) await this.lfs.sandbox.close(binding.sandbox, { force: true }).catch(() => {})
-    if (binding.kind !== 'shared' && binding.scratch.startsWith(binding.anchor)) rmSync(binding.scratch, { recursive: true, force: true })
+    // Scratch is a user-selected folder and may be shared with normal sessions.
+    // Even legacy generated scratch can hold evidence; release it separately.
     this.state.update((s) => { delete s.sessions[sessionId]; delete s.pending[sessionId] })
   }
 
@@ -601,40 +930,70 @@ export class LayerfsSessions extends Service {
     for (const s of listed) if (typeof s?.name === 'string' && s.name.startsWith('dsh-')) await this.lfs.sandbox.close(s.name, { force: true }).catch(() => {})
   }
 
-  /** After a project is removed: drop its bindings, its DSH workspace and its scratch-folder workspace. */
+  /** Removal invalidates execution, not conversation ownership or checkpoints. */
   async forgetProject(project: string): Promise<void> {
-    const state = this.state.read()
-    const entry = state.projects[project]
-    if (entry?.workspaceId) await this.ctx.workspaceRegistry.delete(entry.workspaceId as never).catch(() => false)
-    this.state.update((s) => {
-      for (const [id, b] of Object.entries(s.sessions)) {
-        if (b.project !== project) continue
-        delete s.sessions[id]; delete s.checkpoints[id]; delete s.mirror[id]; delete s.pending[id]
-      }
-      delete s.projects[project]
-    })
-    const anchor = entry?.anchor ?? this.anchorOf(project)
-    if (anchor.startsWith(join(this.ctx.layerfs.root, 'projects'))) rmSync(anchor, { recursive: true, force: true })
+    for (const binding of Object.values(this.state.read().sessions)) if (binding.project === project) {
+      this.save({ ...binding, state: 'failed', executionState: 'interrupted', mount: undefined, ws: undefined,
+        error: 'The project was removed. Conversation history and checkpoint references are retained.' })
+    }
     this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
   }
 
   /** Everything the session panel shows. */
   async view(sessionId: string): Promise<SessionView> {
-    const binding = this.binding(sessionId) ?? null
+    let binding = this.binding(sessionId) ?? null
     let effective = binding
     if (binding?.kind === 'shared' && binding.parent) effective = this.binding(binding.parent) ?? binding
-    let status: unknown = null
-    if (effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {
-      status = await this.lfs.workspace.status(effective.ws).catch((error: any) => ({ error: errorOf(error) }))
+    const persistence = this.ctx.get?.('sessionPersistence' as never) as any
+    let archivedCheckpoints: Checkpoint[] = []
+    if (!effective) {
+      const project = this.placeOfId(sessionId)?.project
+      if (project) {
+        const metadata = await persistence?.readSidecar?.(sessionId).catch(() => undefined)
+        archivedCheckpoints = metadata?.checkpoints ?? []
+        effective = { sessionId, kind: 'project', project, projectId: persistence?.projectIdOf?.(sessionId), branch: metadata?.codeBranch,
+          anchor: this.anchorOf(project), scratch: '', state: 'closed', executionState: 'inactive', createdAt: 0, updatedAt: 0 }
+      }
     }
+    let available = true
+    let reason: string | undefined
+    const ownerId = effective?.sessionId ?? sessionId
+    try {
+      const row = await persistence?.assertSessionIdentity?.(ownerId)
+      if (row) {
+        const machine = await this.lfs.machine.get(row.kind === 'postgresql' ? 'native' : (row.machine ?? 'native'))
+        const store = await this.lfs.store.status(row.store)
+        if (!['ready', 'running'].includes(machine.state) || machine.op || !['idle', 'in_use'].includes(store.state) || store.op || store.down_reason) {
+          throw new CliError('Unavailable', store.down_reason ?? 'The project machine or Store is unavailable. History is retained; execution will activate on your next message after access returns.')
+        }
+      }
+    } catch (error: any) { available = false; reason = String(error?.message ?? error) }
+    let status: unknown = null
+    if (available && effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {
+      status = await this.lfs.workspace.status(effective.ws).catch((error: any) => { available = false; reason = String(error?.message ?? error); return { error: errorOf(error) } })
+    }
+    if (!available && effective?.state === 'bound') {
+      effective = this.save({ ...effective, state: 'failed', executionState: 'interrupted', error: reason })
+      binding = this.binding(sessionId) ?? binding
+    }
+    const project = effective?.project ?? this.placeOfId(sessionId)?.project ?? null
+    const live = this.ctx.sessions.get(sessionId as never) as any
+    const snapshot = project ? await persistence?.local?.stat(sessionId) : undefined
+    const mirror = effective ? this.state.read().mirror[effective.sessionId] ?? null : null
     return {
       sessionId,
       binding: effective,
-      checkpoints: effective ? this.checkpoints(effective.sessionId) : [],
-      project: effective?.project ?? null,
+      checkpoints: effective ? this.checkpoints(effective.sessionId).length ? this.checkpoints(effective.sessionId) : archivedCheckpoints : [],
+      project,
+      execution: project ? { state: effective?.executionState ?? (effective?.state === 'bound' ? 'active' : effective?.state === 'failed' ? 'interrupted' : 'inactive'), available, reason, projectId: persistence?.projectIdOf?.(sessionId) } : undefined,
       scratchProject: this.isScratch(effective?.project),
       status,
-      mirror: effective ? this.state.read().mirror[effective.sessionId] ?? null : null,
+      mirror,
+      archive: project ? {
+        localCount: live ? live.snapshotEvents(0).length : snapshot?.eventCount ?? 0,
+        savedCount: mirror?.count ?? 0,
+        ...(mirror ? { updatedAt: mirror.updatedAt, ...(mirror.error ? { error: mirror.error } : {}) } : {}),
+      } : null,
     }
   }
 }

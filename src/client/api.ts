@@ -45,12 +45,17 @@ export interface LayerfsApi {
   openSession(sessionId: string): void
   /** The workspace the client would open a new session in (current, then recent). */
   selectedWorkspaceId(): string | undefined
-  /** Open a new session placed in a LayerFS project, in the selected workspace. */
-  openProjectSession(project: string, workspaceId?: string): Promise<{ sessionId: string, workspaceId: string }>
+  /** Currently displayed conversation, including project-owned sessions. */
+  selectedSessionId(): string | undefined
+  /** Public DSH directory dialog; null when cancelled. */
+  pickDirectory(): Promise<string | null>
+  /** Open a project-owned session using the selected local workspace as scratch. */
+  openProjectSession(project: string, workspaceId?: string, projectId?: string): Promise<{ sessionId: string, workspaceId: string }>
 }
 
 /** Navigation the host may ask for in an operation result (`navigate`). */
 export interface Navigator {
+  currentSessionId?(): string | undefined
   openPanel(id: string): void
   openWorkspace(workspaceId: string): Promise<void>
   openSession(sessionId: string): void
@@ -155,7 +160,7 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     const ws = workspace()
     const snap = ws?.workspaces?.list?.getSnapshot?.()
     const items = snap?.items ?? []
-    const current = ws?.selection?.getSnapshot?.()?.sessionId
+    const current = nav.currentSessionId?.()
     return items.find((item: any) => item.sessionIds?.includes?.(current))?.workspaceId ?? items[0]?.workspaceId
   }
 
@@ -165,12 +170,18 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     openWorkspace: (id) => nav.openWorkspace(id),
     openSession: (id) => nav.openSession(id),
     selectedWorkspaceId,
-    async openProjectSession(project: string, workspaceId?: string) {
+    pickDirectory: async () => {
+      const picker = workspace()
+      if (!picker?.pickDirectory) throw new HostError('no-picker', 'The local folder picker is unavailable', 0)
+      return picker.pickDirectory()
+    },
+    selectedSessionId: () => nav.currentSessionId?.(),
+    async openProjectSession(project: string, workspaceId?: string, projectId?: string) {
       const ws = workspace()
       const target = workspaceId ?? selectedWorkspaceId()
-      if (!ws?.connectWorkspace || !target) throw new HostError('no-workspace', 'No DSH workspace is available to hold the session', 0)
+      if (!ws?.connectWorkspace || !target) throw new HostError('no-workspace', 'Select a local folder to use as scratch for the project session', 0)
       const sessionId = String(await ws.connectWorkspace(target))
-      await op('sessions.choose', { sessionId, project })
+      await op('sessions.choose', { sessionId, project, projectId })
       nav.openSession(sessionId)
       return { sessionId, workspaceId: target }
     },

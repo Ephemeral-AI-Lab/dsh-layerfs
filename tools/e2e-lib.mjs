@@ -21,7 +21,7 @@ export async function openDev({ url = devUrl(), size = '1280x820', headless = tr
   return { browser, page, logs }
 }
 
-const selectedSessionId = (page) => page.locator('[role=treeitem][data-row-key^="session:"][class*=selected]').first()
+const selectedSessionId = async (page) => (await page.evaluate(() => window.__dshLayerfs?.selectedSessionId?.())) ?? page.locator('[role=treeitem][data-row-key^="session:"][class*=selected]').first()
   .getAttribute('data-row-key', { timeout: 2000 }).then((k) => k?.replace(/^session:/, '') ?? null, () => null)
 
 /** Texts of the transcript's assistant turns (best effort; text nodes of the conversation pane). */
@@ -88,7 +88,7 @@ export async function runTurn(page, opts = {}) {
     }
     const text = await transcriptText(page)
     const m = text.match(pattern) ?? []
-    if (m.length > before && !(await page.getByRole('button', { name: /^Stop/ }).count())) { found = m.slice(before); break }
+    if (m.length > before && !(await page.getByRole('button', { name: /^Stop(?:\s|$)/ }).count())) { found = m.slice(before); break }
     await page.waitForTimeout(300)
   }
   const sessionId = await selectedSessionId(page)

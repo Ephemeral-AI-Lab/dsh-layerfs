@@ -51,7 +51,7 @@ function MachineView({ view, name, initialTab, go, back }: { view: AvailableView
   const startup = useStartups((all) => all[m.name])
   const { run, pending: localPending, error } = useMachineRun()
   const pending = localPending ?? (startup?.status === 'running' ? startup.kind : null)
-  const [dialog, setDialog] = useState<'settings' | 'remove' | null>(null)
+  const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
   const [tab, setTab] = useState<Tab>(initialTab)
   const [creating, setCreating] = useState(false)
   const tabsId = useId()

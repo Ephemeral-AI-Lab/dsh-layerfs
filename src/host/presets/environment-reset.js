@@ -34,17 +34,13 @@ export class EnvironmentReset extends CliInventory {
     return id
   }
   async plan() {
-    const homeId = this.identity(), machines = sorted(await this.inventory('machine')), stores = sorted(await this.inventory('store')), sandboxes = sorted(await this.inventory('sandbox'))
+    const homeId = this.identity()
+    const [machines, stores, sandboxes] = (await Promise.all(['machine', 'store', 'sandbox'].map(family => this.inventory(family)))).map(sorted)
     for (const row of [...machines, ...stores, ...sandboxes]) if (row.op) throw fixtureBusy(`${row.name} has an active or unresolved operation. Inspect its status before resetting.`)
-    const workspaces = [], unknownSandboxes = [], workspaceGroups = []
-    for (const box of sandboxes) {
-      const detail = await this.sandboxDetails(box.name, { allowDown: true })
-      if (detail.incomplete) unknownSandboxes.push(box.name)
-      else {
-        const names = detail.workspaces.map(ws => ws.ws)
-        workspaces.push(...names); workspaceGroups.push({ sandbox: box.name, workspaces: names })
-      }
-    }
+    // This is a whole-home reset: every workspace in every listed Sandbox is
+    // included. Confirmation must not depend on reaching any worker. Inspect
+    // exact workspace targets during the job, after starting its machines.
+    const workspaces = [], unknownSandboxes = sandboxes.map(box => box.name), workspaceGroups = []
     const remove = { stores: stores.filter(s => s.kind !== 'postgresql').map(s => s.name), sandboxes: sandboxes.map(s => s.name), machines: machines.filter(m => !builtIn(m.name)).map(m => m.name), workspaces: workspaces.sort() }
     const disconnect = stores.filter(s => s.kind === 'postgresql').map(s => s.name)
     const startMachines = [...new Set([...stores, ...sandboxes].map(r => r.machine).filter(name => name && name !== 'native'))].filter(name => !['running', 'ready'].includes(machines.find(m => m.name === name)?.state)).sort()

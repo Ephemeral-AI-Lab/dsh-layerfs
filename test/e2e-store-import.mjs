@@ -20,6 +20,7 @@ const dirA = process.env.A_DIR, dirB = process.env.B_DIR
 assert.ok(dirA && dirB, 'A_DIR and B_DIR')
 const urlOf = (dir) => readFileSync(join(dir, 'url.txt'), 'utf8').trim()
 const step = (m) => console.log(`\n== ${m}`)
+const projectCommand = (command) => `bash: \"$DSH_LAYERFS_CLI\" workspace exec \"$DSH_LAYERFS_WS\" '${command.replaceAll("'", "'\\''")}' --stream`
 const browser = await chromium.launch({ executablePath: CHROME, headless: true })
 
 async function open(dir) {
@@ -59,8 +60,14 @@ try {
   for (let i = 0; i < 120 && (await A.http('GET', `/api/project-inits/${init.id}`)).step !== 'done'; i++) await new Promise((r) => setTimeout(r, 500))
   const placed1 = await A.openProject(project)
   await A.page.waitForTimeout(1500)
-  const t1 = await runTurn(A.page, { message: 'bash: echo from-a > a.txt', newSession: false })
+  const t1 = await runTurn(A.page, { message: projectCommand('echo from-a > a.txt'), newSession: false })
   assert.ok(t1.ok, t1.error)
+  const observed = await A.op('session.annotations', { sessionId: placed1.sessionId })
+  const invocations = observed.invocations ?? []
+  const exec = invocations.find((row) => row.operation === 'workspace.exec' && row.origin === 'tool')
+  assert.ok(exec?.toolCallId, 'managed CLI invocation has exact tool provenance')
+  assert.deepEqual(exec.versions, [], 'workspace.exec receives no checkpoint links')
+  assert.ok(invocations.some((row) => row.operation === 'workspace.commit' && row.origin === 'host' && row.versions.some((v) => v.effect === 'created')), 'turn save has its own host checkpoint receipt')
   // The placed blank keeps its id when the first turn materializes it; the
   // sidebar's selected-row scrape can lag behind navigation.
   const sid = placed1.sessionId
@@ -78,11 +85,14 @@ try {
   step('B: import + open')
   const opened = await B.op('sessions.open', { sessionId: sid, project })
   assert.equal(opened.imported, true)
+  const importedAnnotations = await B.op('session.annotations', { sessionId: sid })
+  assert.ok(importedAnnotations.invocations?.some((row) => row.id === exec.id), 'portable sidecar preserves invocation identities')
   await B.page.waitForTimeout(2500)
   await B.page.getByText('done: 1 commands').first().waitFor({ timeout: 20000 })
 
-  step('B: continue the session on its branch')
-  const t2 = await runTurn(B.page, { message: 'bash: cat a.txt > b.txt', newSession: false })
+  step('B: continue the project session')
+  const t2 = await runTurn(B.page, { message: [projectCommand('cat a.txt > b.txt'), projectCommand('cat b.txt')].join('\n'), expect: /done: 2 commands/, newSession: false })
+  if (!t2.ok) { await B.page.screenshot({path: join(dirB, 'e2e-import-failure.png')}); console.log(t2.transcript) }
   assert.ok(t2.ok, t2.error)
   const state = await B.op('session.state', { sessionId: sid })
   assert.equal(state.binding.state, 'bound')
@@ -93,7 +103,7 @@ try {
   step('A: a second session; B opens it by id alone (the persistence row finds and imports it)')
   const placed2 = await A.openProject(project)
   await A.page.waitForTimeout(1500)
-  const tx = await runTurn(A.page, { message: 'bash: echo x > x.txt', newSession: false })
+  const tx = await runTurn(A.page, { message: projectCommand('echo x > x.txt'), newSession: false })
   assert.ok(tx.ok, tx.error)
   const xid = placed2.sessionId
   await new Promise((r) => setTimeout(r, 2500))

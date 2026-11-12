@@ -1,20 +1,77 @@
 # dsh-layerfs — agent notes
 
-LayerFS Connect's Machines, Storage and its project session mode (a session
-placed in a LayerFS project — `sessions.choose` / `state.pending` — works in
-that project + its own scratch folder, staying in whichever workspace it was
-opened in; sessions anywhere else are plain DSH), the LayerFS session store
+LayerFS Connect's Machines, Storage and explicit project-owned sessions
+(`sessions.choose` / `state.pending`): project files live in LayerFS, and the
+selected local folder is scratch. Normal sessions belong to DSH workspaces.
+Project conversations use native unpacked DSH logs with additive annotations
+under `projectSessionHome` (default `~/.layerfs/dsh`; dev must override), the LayerFS session store
 and trajectory checkpoints, as a DeepSeek Harness (DSH) cordis plugin bundle.
-Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
+Current spec: `docs/specs/project-sessions.md`. Earlier design docs:
+`../layerfs-connect/docs/dsh-layerfs/`.
 
 ## Hard rules
 
-- Never modify `../deepseek-harness`, `../deepseek-harness-source`, `../layerfs-connect`
-  or `../layerfs` (read-only references). Never touch the user's `~/.layerfs` or
-  `../deepseek-harness/state`. All dev state lives in `.dev*/` of this repo.
-- DSH is consumed only through its public plugin seams: services, slots, Remote
-  namespaces, events, the bundle patch (`cordis.patch.yml`). No forks of DSH packages.
+- **Never change DeepSeek Harness code.** dsh-layerfs is a DSH plugin and nothing
+  else: every feature is built in this repo on DSH's public plugin seams —
+  services, slots, Remote namespaces, events, client registration, and the bundle
+  patch (`cordis.patch.yml`, which may only disable/insert/configure rows).
+  - Do not edit, fork, vendor or patch DSH source or packages: not
+    `../deepseek-harness`, `../deepseek-harness-source`, nor
+    `node_modules/@deepseek-ai/*` (no `patch-package`, postinstall rewrites or
+    copied-and-edited DSH files).
+  - Do not import DSH internals (`@deepseek-ai/<pkg>/src|lib|dist/...`) or
+    monkey-patch DSH objects/prototypes at runtime; use exported entry points only.
+  - Replacing a stock row is done by disabling it in `cordis.patch.yml` and
+    inserting our own row (subclassing or wrapping the stock export), as
+    `layerfs-session-persistence` and `layerfs-sandbox-policy` do.
+  - If a feature needs a seam DSH does not expose, stop and report it (what seam,
+    why) instead of working around it; a change to DSH is the user's call.
+- Never modify `../layerfs-connect` or `../layerfs` either (read-only references).
+  Never touch the user's `~/.layerfs`.
+- **Every result ends up on DSH's default port 3080.** That is the user's DeepSeek
+  Harness (`dsh web --port 3080`, run from `../deepseek-harness` with
+  `DSH_HOME=../deepseek-harness/state`); its `web` profile links dsh-layerfs from
+  one checkout (`link:` in `state/profiles/web/package.json`, currently
+  `../dsh-layerfs-integrate`). You may develop and verify in your own worktree and
+  on a side server, but work is not done until it is merged into the checkout 3080
+  links and checked on 3080 (see "Shared server on 3080"). Change 3080's state only
+  through the app, the host API and `dsh plugin` commands, never by hand-editing
+  or deleting files under `state/`.
 - Node 24: `export PATH="$HOME/.nvm/versions/node/v24.21.0/bin:$PATH"`.
+
+## Shared server on 3080 (multiple agents)
+
+Several agents may work on this repo at the same time; each funnels its results
+into the one 3080 server. That is expected; coordinate instead of competing for it.
+
+1. **Develop and verify on the side.** Work in your own git worktree and/or on a
+   private side server (`scripts/dev.mjs` with a `.dev*/` dir on a non-3080 port).
+   Run the build, typecheck, unit tests and whichever e2e tests cover your change
+   there (fake-llm e2e, store import and preset home resets need a private home, so
+   they always run on a side server). Kill only your own side server (match its
+   `.dev*/overlay.yml` path) and stop it when done.
+2. **Merge into the 3080 checkout.** Once verified, merge your work into the
+   checkout 3080 links (find it with
+   `grep dsh-layerfs ../deepseek-harness/state/profiles/web/package.json`). Merge,
+   never overwrite: other agents' work may already be there, uncommitted included,
+   so keep it, resolve conflicts with both sides intact, and do not reset, stash
+   or check out over it. If another agent is merging at the same moment, wait for
+   it to finish.
+3. **Check it on 3080.** Rebuild in that checkout (`node scripts/build.mjs`; client
+   changes hot-reload for everyone) and confirm your change works on 3080 together
+   with everyone else's. Host changes need a 3080 restart: first check no other
+   agent is mid-test there and tell them, then restart it exactly as it was started
+   (cwd `../deepseek-harness`, same `DSH_HOME`,
+   `node node_modules/@deepseek-ai/dsh/lib/bin.js web --host 127.0.0.1 --port 3080 --no-open`).
+   Never kill it silently and never re-link the profile to another checkout.
+
+- Find the other agents (ListAgents / linked sessions) at the start and tell them
+  what you are about to merge or restart.
+- On 3080, name everything you create with a prefix unique to you (Stores,
+  projects, sessions, machines), remove only your own when done, and leave the
+  LayerFS home alone (no preset Reset there without the user's OK).
+- The 3080 page needs its authenticated URL: pass it to `tools/shot.mjs <url>` /
+  `openDev({ url })`; do not write the token into tracked files or chat.
 
 ## Layout
 
@@ -24,11 +81,14 @@ Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
   - `layerfs/cli.ts` pinned-CLI SDK (`ctx.layerfs.lfs.<family>.<call>(...)`), port of Connect `host/cli`
   - `routes/` Connect's host HTTP API served as op `http` `{method,path,body}` -> `{status,body}`
   - `sessions/` session binding (`placeOf`: existing binding, pending placement,
-    subagent's shared mount, or a plain folder session), project anchors under
-    `<root>/projects` (scratch-folder parents, not DSH workspaces), checkpoints,
+    durable persistence owner, subagent context, or a plain folder session), legacy anchors under
+    `<root>/projects` (fallback scratch parents, not DSH workspaces), checkpoints,
     LayerFS session store (mirror, discover, import, sync)
   - `session-persistence.ts` the `layerfs-session-persistence` row (`lib/session-persistence.js`):
-    DSH's JSONL backend in an isolated `sessionPersistence` slot, plus imports on a local miss
+    owner routing over isolated stock JSONL backends, unpacked project logs,
+    additive `layerfs.json`, validated migration, and imports on a local miss
+  - `layerfs/tracing.ts` execution-scoped SDK receipts and managed CLI tracing;
+    `workspace.exec` never gets checkpoint links
   - `presets/` Presets: `manager.ts` (`/api/demo-presets…` on the `http` op, admission,
     durable jobs in `<root>/presets/`), `driver.ts`, and LayerFS Connect's runner/recipe
     kept as JavaScript (`runner.js`, `build.js`, `environment-reset.js`, `recipe/` copied
@@ -48,7 +108,8 @@ Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
 - Build: `node scripts/build.mjs` (both faces). Typecheck: `npx tsc -p tsconfig.json`.
 - Tests: `node --test test/*.test.mjs` (`routes.test.mjs` incl. a live pinned-CLI case;
   `sessions.test.mjs` placeOf, Scratch project, pre-step guarantee, persistence row).
-- Dev server: `node scripts/dev.mjs [--port N]` with `DSH_LAYERFS_DEV_DIR=<abs dir>`
+- Side server (for verification before merging into 3080, see above):
+  `node scripts/dev.mjs [--port N]` with `DSH_LAYERFS_DEV_DIR=<abs dir>`
   for a private DSH_HOME + LayerFS home (default `.dev/`, port 3091). It installs
   this checkout into the private `web` profile with `dsh plugin add link:` and writes
   the authenticated URL to `<dev dir>/url.txt`. Client rebuilds hot-reload; host
@@ -83,7 +144,8 @@ Design docs: `../layerfs-connect/docs/dsh-layerfs/`.
   dev server; it creates two Lima VMs (2 CPU, 4 GB) in the dev LayerFS home, so Reset the
   home from the Presets page afterwards.
 - `node tools/cleanup-dev.mjs` removes leftover `e2e*`/`imp*` Stores through the host API.
-- Kill only your own dev server (match its `.dev*/overlay.yml` path in the command line).
+- After side verification passes, merge into the 3080 checkout and check it on 3080
+  (see "Shared server on 3080"); that is the last step of every task.
 
 ## UI rules (match DSH)
 

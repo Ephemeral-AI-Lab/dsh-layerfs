@@ -58,7 +58,7 @@ export function PresetProgress({ job, t }: { job: PresetJob, t: PresetsT }): Rea
   const index = Math.max(0, stages.findIndex((value) => value === stage))
   const known = progress?.total != null && progress.total >= 0
   const fraction = complete ? 1 : known ? (progress!.total === 0 ? 1 : Math.min(1, progress!.completed / progress!.total!)) : 0
-  const label = complete ? t(job.rebuild ? 'buildComplete' : 'resetComplete') : readable(progress?.label ?? job.phase)
+  const label = complete ? t(job.rebuild ? 'buildComplete' : job.command === 'machine-stop' ? 'resetComplete' : 'legacyResetComplete') : readable(progress?.label ?? job.phase)
   const unit = progress?.historyTotal != null ? t('unitCommands') : stage === 'verifying' && tasks.length ? t('unitProjects') : t('unitSteps')
   const coverage = progress?.workspaceCoverage
   return (
@@ -73,14 +73,14 @@ export function PresetProgress({ job, t }: { job: PresetJob, t: PresetsT }): Rea
       {!complete && (
         <>
           <div className={css.rail} role="progressbar" aria-label={t('stagesLabel')} aria-valuemin={0} aria-valuemax={stages.length} aria-valuenow={known ? index + fraction : undefined}
-            aria-valuetext={`${t(STAGE_KEYS[stage])}${known ? `, ${progress!.completed} / ${progress!.total}` : ''}`}>
+            aria-valuetext={`${t(job.command === 'machine-stop' && stage === 'resetting' ? 'stageStopping' : STAGE_KEYS[stage])}${known ? `, ${progress!.completed} / ${progress!.total}` : ''}`}>
             {stages.map((value, step) => (
               <span key={value} className={css.segment} data-indeterminate={(step === index && running && !known) || undefined}>
                 <span style={{ width: step < index ? '100%' : step === index ? `${fraction * 100}%` : '0%' }} />
               </span>
             ))}
           </div>
-          <div className={css.stages}>{stages.map((value, step) => <span key={value} data-current={step === index || undefined}>{t(STAGE_KEYS[value])}</span>)}</div>
+          <div className={css.stages}>{stages.map((value, step) => <span key={value} data-current={step === index || undefined}>{t(job.command === 'machine-stop' && value === 'resetting' ? 'stageStopping' : STAGE_KEYS[value])}</span>)}</div>
         </>
       )}
       {!running && !complete && <p className={css.error}>{job.error?.message ?? job.phase}</p>}

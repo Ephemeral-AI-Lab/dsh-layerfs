@@ -1,7 +1,7 @@
 /**
- * dsh-layerfs, host half: LayerFS Machines, Storage and one session mode for
- * DSH (every session works in a LayerFS project, or the Scratch project, with
- * its own scratch folder), the LayerFS session store and trajectory checkpoints.
+ * dsh-layerfs, host half: Machines, Storage, project-owned conversations and
+ * stock workspace sessions. Project sessions use the selected folder as scratch,
+ * native DSH logs, additive operation receipts, and saved file checkpoints.
  * The bundle's other rows live in session-persistence.ts and sandbox-policy.ts.
  *
  * Composition (each part registers operations on the `layerfs` Remote):
@@ -16,6 +16,7 @@ import { LayerfsService, type LayerfsConfig } from './service.ts'
 import { children } from './layerfs/cli.ts'
 import * as routes from './routes/index.ts'
 import * as sessions from './sessions/index.ts'
+import * as simulations from './simulations/index.ts'
 
 export const name = 'dsh-layerfs'
 
@@ -32,5 +33,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     })
     ctx.plugin(routes)
     ctx.plugin(sessions)
+    ctx.plugin(simulations)
   })
 }

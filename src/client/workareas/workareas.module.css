@@ -1,0 +1,141 @@
+.groups {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 34px;
+  gap: 2px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-primary);
+  outline-offset: -2px;
+}
+
+.chevron {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  transform: rotate(-90deg);
+}
+
+.openChevron {
+  transform: none;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projects {
+  margin: 0 0 4px 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.sessions {
+  margin: 0 0 4px 27px;
+  padding: 0;
+  list-style: none;
+}
+
+.session {
+  composes: toggle;
+  min-height: 30px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.session[data-selected] {
+  background: var(--dsw-alias-interactive-bg-active);
+  color: var(--dsw-alias-label-primary);
+}
+
+.notice {
+  padding: 6px 8px 6px 24px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.error {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.errorDetails {
+  max-height: 90px;
+  overflow: auto;
+  margin-top: 4px;
+}
+
+.action {
+  flex: none;
+}
+
+@media (hover: hover) {
+  .toggle:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+
+}
+:global([data-layerfs-work-areas]) > :not(:global([data-layerfs-workspace-mount])) {
+  margin-inline-start: 28px;
+}
+
+:global([data-layerfs-work-areas][data-dsh-folded]) > :not(:global([data-layerfs-workspace-mount])) {
+  display: none;
+}
+
+:global([data-layerfs-legacy-workspace]) {
+  display: none !important;
+}
+
+.foldProject {
+  composes: toggle;
+  width: 26px;
+  flex: none;
+  justify-content: center;
+  padding: 5px 0;
+}
+.projectLink {
+  composes: toggle;
+  flex: 1;
+  padding-inline: 2px;
+}
+.projectLink > svg { flex: none; }
+.projectText {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+@media (pointer: coarse) {
+  .foldProject, .projectLink { min-height: 44px; }
+  .foldProject { width: 36px; }
+}

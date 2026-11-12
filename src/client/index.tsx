@@ -19,6 +19,8 @@ import { registerPresets } from './presets/index.tsx'
 import { registerProjects } from './projects/index.tsx'
 import { registerPicker } from './picker/index.tsx'
 import { registerHero } from './hero/index.tsx'
+import { registerSimulation } from './simulation/index.tsx'
+import { registerWorkAreas } from './workareas/index.tsx'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 
@@ -34,6 +36,10 @@ export function apply(ctx: any): void {
   }, 'dsh-layerfs: remote')
   const workspace = () => ctx.get?.('uiWorkspace')
   const api = createApi(() => ctx.get?.('remote.layerfs'), {
+    currentSessionId: () => {
+      const summaries = ctx.get?.('sessions')?.list?.getSnapshot?.()?.byId ?? {}
+      return (Object.values(summaries) as any[]).find((session) => (session.retainedBy?.mainView ?? 0) > 0)?.id
+    },
     openPanel: (id) => ctx.layout.selectPanel(id),
     openWorkspace: async (id) => { await workspace()?.openWorkspace(id) },
     openSession: (id) => { workspace()?.openSession(id) },
@@ -52,4 +58,6 @@ export function apply(ctx: any): void {
   registerSession(ctx, api)
   registerPicker(ctx, api)
   registerHero(ctx, api)
+  registerSimulation(ctx, api)
+  registerWorkAreas(ctx, api)
 }

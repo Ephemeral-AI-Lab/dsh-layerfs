@@ -1,7 +1,7 @@
 /**
  * One Sandbox's page (sandbox.get): its state and operation, its machine,
  * project, image and route, and its mounted Workspaces. Delete is
- * sandbox.close (Force delete after a refusal that allows it). A Sandbox
+ * sandbox.close, with an explicit Force delete action. A Sandbox
  * whose machine differs from the one it was opened from is refused here.
  */
 import type { ReactNode } from 'react'
@@ -26,16 +26,19 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
     { label: machine, onClick: () => go({ kind: 'machine', name: machine, tab: 'sandboxes' }) },
   ]
   const info = detail.data
-  const wrong = info && info.machine && info.machine !== machine
+  const targetMachine = info?.machine ?? listed?.machine
+  const wrong = !!targetMachine && targetMachine !== machine
   if (!info || wrong) {
     return (
       <Page wide label={name}>
-        <PageHead title={name} crumbs={crumbs} current={name} icon={<SandboxGlyph size={22} />} />
+        <PageHead title={name} crumbs={crumbs} current={name} icon={<SandboxGlyph size={22} />}
+          actions={!wrong ? <SandboxMenu name={name} op={listed?.op} closing={closing} onDeleted={() => go({ kind: 'machine', name: machine, tab: 'sandboxes' })} /> : undefined} />
         {wrong
           ? <Notice tone="danger"><p>{t('sandboxWrongMachine', { name, machine })}</p></Notice>
           : detail.error != null
             ? <LoadError title={t('readSandboxFailed')} error={detail.error} labels={refusal} retryLabel={t('retry')} onRetry={detail.reload} />
             : <Loading label={t('readingSandbox')} />}
+        {closing.error != null && <Refusal error={closing.error} labels={refusal} />}
       </Page>
     )
   }

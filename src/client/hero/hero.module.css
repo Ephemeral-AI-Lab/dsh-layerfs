@@ -136,3 +136,13 @@
 .modal {
   width: min(520px, calc(100vw - 32px));
 }
+
+.scratchForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+:global([data-layerfs-scratch-picker] > button:first-child) {
+  display: none;
+}
