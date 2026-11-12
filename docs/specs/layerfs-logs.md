@@ -64,6 +64,18 @@ same home appear with their own `client` and no `dsh:` tag.
   id: `parseTag` answers nothing for host tags, so they build no receipt, get
   no session label and never match a `dsh:<sessionId>:` prefix. Agent shells
   outside a session context stay untagged.
+- **Simulation tag:** a simulation's setup steps and its final verification
+  reads run outside any session context; they pass
+  `dsh-sim:<runId>:<stepKey>` (setup) and `dsh-sim:<runId>:verify` as
+  `execute`'s `tag` option (`src/host/simulations/runtime.ts`, the setup and
+  verification `execute()` calls). `execute` keeps a caller's tag only when it
+  is a valid `dsh-sim:` tag (≤128 bytes, no `:` in the run id, no control
+  characters) and only outside a trace context; anything else gets a host tag.
+  `parseTag` answers nothing for them (never a session); `isDshTag` accepts
+  them, so their outputs are kept (§6a), and `logs.list` labels such a line
+  `sim: {runId, stepKey, sessionId?}`, `sessionId` being the run's root
+  session (the binding whose `simulation.runId` matches, without
+  `rootSessionId`). Filter one run with the tag prefix `dsh-sim:<runId>:`.
 - **SDK path:** `traceInvocation` already makes the receipt id before the
   call (`tracing.ts:113`); it passes the tag to `execute`, which sets
   `LAYERFS_LOGS_TAG` in the child's environment (`executeRaw` merges
@@ -72,12 +84,47 @@ same home appear with their own `client` and no `dsh:` tag.
 - **Agent shells:** `DSH_LAYERFS_TRACE_CONTEXT` stays per shell
   (`src/host/sessions/index.ts:190`); the wrapper makes the receipt id per
   call and sets `LAYERFS_LOGS_TAG` for its child.
-- **Receipt** (session sidecar `layerfs.json`, `invocations[]`):
-  `{id, origin, sessionId, turn, toolCallId?, operation, outcome, versions}`.
-  `operation`, `outcome` and `versions` stay in the receipt because the log
-  is per machine and resettable while sessions move between machines
-  through the session store; `arguments`, `startedAt`, `finishedAt`,
-  `source`, `error` and the reason strings go (nothing reads them).
+- **Receipt** (session sidecar `layerfs.json`, `invocations[]`,
+  `Invocation` in `src/host/layerfs/tracing.ts`): self-sufficient, because
+  the log and the outputs are per machine and resettable while sessions move
+  between machines through the session store. The Logs page renders a call
+  from its receipt alone when this machine's log has no line for it (§5a).
+
+  ```ts
+  { id, origin: 'tool' | 'host', sessionId, project, turn?, toolCallId?,
+    operation, outcome: 'success' | 'refusal' | 'unknown', versions, captureGap?,
+    at,        // start, ms since the epoch (the line's `at`)
+    ms,        // duration in ms (the line's `ms`)
+    argv,      // the line's redacted words, made portable (below)
+    tag?,      // the LAYERFS_LOGS_TAG it carried, dsh:<sessionId>:<id>
+    code?,     // the line's outcome when not ok (refusal code, Failed, Unknown)
+    kind?,     // the result kind (the line's `kind`)
+    execId?,   // workspace exec: its --exec-id
+    exit?,     // workspace exec: the command's exit code (null: killed), when known
+    step?,     // { runId, stepKey }: the simulation script step of the tool call
+    imported?, // true: arrived through a store import, never in this machine's log
+  }
+  ```
+
+  Both writers fill the same fields: `traceInvocation` (SDK path; `at`/`ms`
+  are the line's own when `logged()` writes one, `exit` is the result's
+  `exit_code`) and `receiptFromLine` (agent shells; `exit` comes from the
+  call's stored output, the `exit_code` of its final `{result}` frame, when
+  the output is kept and not cut). Older receipts may lack the call fields or
+  hold `arguments`, `startedAt`, `finishedAt`, `source` and `error`; they are
+  read as they are and never written.
+- **Portable argv** (`portableArgv`): the call log words (already redacted
+  by `renderCall`: secrets as `<N bytes>`, values cut at 200 characters),
+  then values that name files on the calling machine become `<local path>`:
+  `--from`, `--source`, `--dir`, `--path`, `--file`, `--out`, `--output`,
+  `--cwd`, `--root` values, the source of `project init|import`, and any
+  absolute path under the home or temp folder, `/Users/`, `/home/`,
+  `/private/`, `/tmp/`, `/var/folders/`, `/Volumes/`, `/root/`, `~/` or a
+  `file://` URL. Project paths (`/src/a.ts`) stay.
+- **Bounds:** a receipt's argv keeps at most 32 words (then `<N more>`); past
+  1 KiB of JSON its words beyond 40 characters are cut, so one receipt stays
+  under about 2 KiB. The count is not capped: one receipt per LayerFS call
+  the session made, as before; the sidecar travels whole with the session.
 - **Shared bindings and subagents:** the tag carries the caller's own
   session id, not the parent's (receipts already use it,
   `src/host/sessions/index.ts:90`).
@@ -109,8 +156,35 @@ commit and shown only as "references checkpoint", never "saved".
 
 **From a checkpoint:** "Calls" opens the Logs page filtered by
 `tag = dsh:<sessionId>:<receipt>`; a turn's calls use the prefix
-`dsh:<sessionId>:` plus the turn's receipt ids. No lines means "not in this
-machine's log (imported or reset)", not an error.
+`dsh:<sessionId>:` plus the turn's receipt ids. An imported session shows its
+receipts (§5a); no lines means "reset on this machine", not an error.
+
+The receipt's `step` labels the line `dsh.step = {runId, stepKey}`, joining a
+scripted tool call to its script step without the simulation's private
+journal: the `tools/execute` hook (`src/host/sessions/index.ts`) asks
+`ctx.layerfsSimulations?.stepOfCall(sessionId, callId)`, which answers
+`{runId, stepKey}` for a scripted `tool` action of that session.
+
+## 5a. Receipt fallback and import
+
+- **Import merge:** a store import (`src/host/sessions/store.ts`, the
+  sidecar `updateSidecar`) keeps every other sidecar field's semantics
+  (stored values replace local ones) but merges `invocations` by id
+  (`mergeInvocations`): local receipts stay in order, an incoming receipt
+  with a known id updates it field by field, new ones are appended with
+  `imported: true`.
+- **Fallback:** `logs.list` with a session tag (`dsh:<sessionId>:` or an exact
+  `dsh:<sessionId>:<receipt>`) reads the active source first; once that has
+  no more lines for the filter, the session's `imported` receipts follow,
+  newest first, each rendered as a line (`receiptLine`: `at`, `ms`, `argv`,
+  `outcome` = `ok` or `code`, `kind`, the first version as `commit`/`layer`,
+  `tag`; `client: 'cli'`) with `source: 'receipt'`, passing the same filters
+  and labelled by the same §5 join. Receipts whose tag this machine's log
+  does hold (a session re-imported where it ran) are skipped. Paging goes on
+  with a `receipt:<offset>` cursor. Receipts without `at` give no line.
+- Only imported receipts fall back: a session that ran here and whose log was
+  Reset stays empty. Their output is never on this machine, so the detail
+  shows "No output kept" (`output` is set only when a file exists).
 
 ## 6. Host
 
@@ -119,8 +193,10 @@ machine's log (imported or reset)", not an error.
   - `logs.list {cursor?, limit?, op?, project?, client?, tag?, outcome?,
     since?, writes?}` → `{lines, next, has_more, skipped, source:
     "layerfs" | "plugin"}`; each line may carry `dsh: {sessionId, turn,
-    toolCallId?, origin, checkpoint?: {kind, turn, changed}}` from the §5
-    join (sidecars read once per session per page).
+    toolCallId?, origin, step?, checkpoint?: {kind, turn, changed}}` from the
+    §5 join (sidecars read once per session per page), `sim: {runId,
+    stepKey, sessionId?}` for a `dsh-sim:` tag (§4), and `source: 'receipt'`
+    for a line rebuilt from an imported receipt (§5a).
   - `logs.reset {}` → `{removed}`.
 - `writes` filters on the client until #659 Q1 is answered: it hides lines
   whose op is in a fixed read list (`*.list`, `*.get`, `*.status`,
@@ -224,6 +300,11 @@ clients of the home), in both stand-in and native modes.
 - `test/call-output.test.mjs`: caps and truncation, host tags, success and
   refusal outputs, `--events` capture, the wrapper's byte-identical tee,
   pruning, Reset, `logs.output` validation and `missing`, `logs.list` `output`.
+- `test/receipt-logs.test.mjs`: receipt fields from both writers (time,
+  duration, portable redacted argv, tag, code, kind, exec id and exit, step),
+  argv bounds, the import merge by id, the `logs.list` receipt fallback
+  (paging, filters, dedup, no fallback after a local Reset), `dsh-sim:` tags
+  and their labels and outputs, `stepOfCall`.
 - `test/sessions.test.mjs`: a turn-end save's checkpoint carries `receipt`;
   restore and branch checkpoints carry the fork's receipt; `UpToDate` binds
   as unchanged; archive writes are untagged.
@@ -236,8 +317,8 @@ clients of the home), in both stand-in and native modes.
 - The working tree currently moves Projects out of the LayerFS group
   (uncommitted edits to `src/client/index.tsx` and `src/client/projects/`),
   leaving Storage and Presets as its children; Logs joins them.
-- Simulation setup steps call `execute` without a trace context
-  (`src/host/simulations/runtime.ts:97`): tag them `dsh-sim:<runId>:<step>`
-  or leave them untagged.
+- Simulation setup and verification calls are tagged `dsh-sim:` (§4);
+  the runtime's `workspace exec-cancel` on abort gets no `dsh-sim:` tag
+  (a session tag inside a trace context, else a host tag).
 - Whether the page should default to this machine's DSH calls only
   (`tag` prefix `dsh:`) when the native log also holds other clients.

@@ -8,7 +8,7 @@ import { chmod, lstat, mkdir, mkdtemp, open, readdir, rm } from 'node:fs/promise
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
-import { withoutTraceContext } from '../layerfs/tracing.ts'
+import { mergeInvocations, withoutTraceContext } from '../layerfs/tracing.ts'
 import { CliError, pages } from '../layerfs/cli.ts'
 import type { LayerfsSessions } from './service.ts'
 import type { SimulationBinding } from './state.ts'
@@ -300,7 +300,8 @@ export class SessionStore {
     } finally {
       await handle.close?.()
     }
-    if (sidecar) await provider?.updateSidecar?.(sessionId, (value: any) => Object.assign(value, sidecar))
+    // Receipts merge by id (local ones are kept, incoming ones marked imported); other fields as stored.
+    if (sidecar) await provider?.updateSidecar?.(sessionId, (value: any) => { const local = value.invocations; Object.assign(value, sidecar); value.invocations = mergeInvocations(local, sidecar.invocations) })
     const scratch = `${anchor}/sessions/${sessionId}`
     mkdirSync(scratch, { recursive: true })
     const simulation: SimulationBinding | undefined = sidecar?.simulation ? { ...sidecar.simulation } : undefined

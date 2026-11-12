@@ -34,7 +34,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { notifyCallLog } from '../layerfs/call-log.ts'
-import { receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
+import { outputsDir, readOutput } from '../layerfs/call-output.ts'
+import { exitOfOutput, receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
 import { callsSince } from '../logs/source.ts'
 import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
 import { LayerfsSessions } from './service.ts'
@@ -99,7 +100,9 @@ export function apply(ctx: Context): void {
         const call = calls.find((c) => c.identity.scope && tag.receiptId.startsWith(`${c.identity.scope}.`) && line.at >= c.since - 1000)
         if (!call) continue
         known.add(tag.receiptId)
-        await record(receiptFromLine(line, call.identity, tag.receiptId))
+        // The line has no exit code; a `workspace exec` call's stored output holds it in its final frame.
+        const exit = line.argv[0] === 'workspace' && line.argv[1] === 'exec' && line.tag ? exitOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag)) : undefined
+        await record(receiptFromLine(line, call.identity, tag.receiptId, exit))
       }
     }
     const settle = async (sessionId: string): Promise<void> => {
@@ -117,8 +120,11 @@ export function apply(ctx: Context): void {
       await sessions.ensureBound(agent, { rebind: false })
       let binding = sessions.binding(id)
       if (binding?.kind === 'shared' && binding.parent) binding = sessions.binding(binding.parent)
-      const scriptedWorkspace = (ctx.get('layerfsSimulations' as never) as any)?.workspaceOfCall?.(id, String(execution.callId))
-      const identity: TraceIdentity = { origin: 'tool', sessionId: id, project: place.project, workspace: scriptedWorkspace ?? binding?.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(id, String(execution.callId)) }
+      const simulations = ctx.get('layerfsSimulations' as never) as any
+      const scriptedWorkspace = simulations?.workspaceOfCall?.(id, String(execution.callId))
+      // A scripted step's receipts name the run and step, so they join the script without its private journal.
+      const step = simulations?.stepOfCall?.(id, String(execution.callId))
+      const identity: TraceIdentity = { origin: 'tool', sessionId: id, project: place.project, workspace: scriptedWorkspace ?? binding?.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(id, String(execution.callId)), ...(step ? { step } : {}) }
       const call: ToolCall = { identity, since: Date.now() }
       const calls = turnCalls.get(id) ?? []
       calls.push(call)

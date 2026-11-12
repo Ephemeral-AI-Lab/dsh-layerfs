@@ -309,7 +309,7 @@ test('one pinned export imports native JSONL, manifest and annotations with line
     const imported = await b.p.open('portable', 'read')
     assert.deepEqual((await imported.read()).events, [event])
     assert.equal(readFileSync((await b.p.stat('portable')).location.path, 'utf8'), nativeBytes, 'native DSH bytes remain exact')
-    assert.deepEqual((await b.p.readSidecar('portable')).invocations, invocations)
+    assert.deepEqual((await b.p.readSidecar('portable')).invocations, invocations.map(row => ({ ...row, imported: true })), 'receipts arrive whole, marked imported')
     assert.equal(archiveB.state.checkpoints.portable.length, 1000)
     assert.deepEqual(readdirSync(join(b.ctx.layerfs.root, 'archive-imports')), [], 'only the owned export is cleaned, including read-only root metadata')
     await imported.close(); await handle.close()

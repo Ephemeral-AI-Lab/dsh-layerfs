@@ -94,7 +94,7 @@ export class SimulationRuntime {
     try {
       await this.ctx.layerfs.ensureNative()
       for (const step of run.plan.steps.filter(step => step.phase === 'setup')) {
-        await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { input: definition.input, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
+        await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { input: definition.input, tag: `dsh-sim:${run.manifest.runId}:${step.key}`, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
           const cancel = () => child.kill('SIGTERM')
           executionSignal.addEventListener('abort', cancel, { once: true })
           if (executionSignal.aborted) cancel()
@@ -288,7 +288,7 @@ export class SimulationRuntime {
     if (!script.agentId && binding.turn === script.turns.length - 1) {
       await run.execution.waitTasks(run.plan.tasks.map(task => task.id), signal)
       await Promise.all([...run.bindings.values()].filter(item => item.script.agentId).map(item => item.agent.whenIdle()))
-      if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { read: true })))
+      if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { read: true, tag: `dsh-sim:${run.manifest.runId}:verify` })))
       await run.verification
       signal.throwIfAborted()
     }
@@ -299,6 +299,10 @@ export class SimulationRuntime {
   workspaceOfCall(sessionId, callId) {
     const call = this.calls.get(String(callId))
     return call?.binding.sessionId === String(sessionId) && call.argv?.[0] === 'workspace' ? call.argv[2] : undefined
+  }
+  stepOfCall(sessionId, callId) {
+    const call = this.calls.get(String(callId))
+    return call?.binding.sessionId === String(sessionId) && call.action.type === 'tool' ? { runId: call.binding.run.manifest.runId, stepKey: call.action.stepKey } : undefined
   }
   async executeTool(execution, next) {
     const binding = this.bindings.get(String(execution.agent?.id))
