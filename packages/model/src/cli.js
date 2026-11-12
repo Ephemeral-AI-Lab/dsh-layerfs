@@ -176,6 +176,8 @@ export const CLI = {
   "store.stats": { at: null },
   "store.create": { at: "project", cli: (a) => line("store create", [a.name]) },
   "store.connect": { at: "project", cli: (a) => line("store connect", [a.name]) },
+"store.attach": { at: "project", cli: (a) => line("store attach", [a.name, a.machine]) },
+"store.detach": { at: "project", cli: (a) => line("store detach", [a.name, a.machine]) },
   "store.push": { at: "project", cli: (a) => line("store push", [a.name]) },
   "store.pull": { at: "project", cli: (a) => line("store pull", [a.name]) },
   "store.remove": { at: "project", cli: (a) => line("store remove", [a.name]) },
