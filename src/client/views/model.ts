@@ -5,10 +5,11 @@
  */
 import type { CallLine } from '../../shared/logs.ts'
 
-/** The bits of a DSH session summary the views read. */
+/** The bits of a DSH session summary the views read (`ctx.sessions.list`'s `byId` rows). */
 export interface SessionRow {
   sessionId?: string
-  parentSessionId?: string
+  /** The direct parent (DSH's summary field; there is no `parentSessionId`). */
+  parentId?: string
   origin?: 'subagent'
   running?: boolean
 }
@@ -19,9 +20,9 @@ export function rootOf(sessionId: string, byId: Readonly<Record<string, SessionR
   const seen = new Set<string>()
   for (;;) {
     const row = byId[id]
-    if (seen.has(id) || !row || row.origin !== 'subagent' || !row.parentSessionId || !byId[row.parentSessionId]) return id
+    if (seen.has(id) || !row || row.origin !== 'subagent' || !row.parentId || !byId[row.parentId]) return id
     seen.add(id)
-    id = row.parentSessionId
+    id = row.parentId
   }
 }
 
@@ -37,10 +38,10 @@ export interface MapAgent {
 export function agentTree(root: string, byId: Readonly<Record<string, SessionRow | undefined>>): MapAgent[] {
   const children = new Map<string, string[]>()
   for (const [id, row] of Object.entries(byId)) {
-    if (!row || row.origin !== 'subagent' || !row.parentSessionId) continue
-    const list = children.get(row.parentSessionId) ?? []
+    if (!row || row.origin !== 'subagent' || !row.parentId) continue
+    const list = children.get(row.parentId) ?? []
     list.push(id)
-    children.set(row.parentSessionId, list)
+    children.set(row.parentId, list)
   }
   const out: MapAgent[] = []
   const seen = new Set<string>()
@@ -194,8 +195,8 @@ export function replayClock(calls: readonly { at: number, ms: number }[]): (time
 
 const methodOf = (argv: readonly string[]) => `${argv[0] ?? '?'}.${String(argv[1] ?? '?').replaceAll('_', '-')}`
 
-/** Reads that only poll state; kept out of the map so the wires show work. */
-const QUIET = new Set(['project.get', 'branch.get', 'workspace.list', 'workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.status', 'machine.get', 'store.status', 'store.stats', 'store.list', 'project.list', 'branch.list'])
+/** Reads that only poll state (this plugin's own pages and checks among them); kept out of the map so the wires show work. */
+const QUIET = new Set(['project.get', 'branch.get', 'file.list', 'file.stat', 'workspace.list', 'workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.status', 'machine.get', 'store.status', 'store.stats', 'store.list', 'project.list', 'branch.list'])
 
 /**
  * The Sandbox map: agents, the branches and sandboxes they touched and their
@@ -240,12 +241,21 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
   flat.forEach(({ agent, line }, index) => {
     const method = methodOf(line.argv)
     const target = targetsOf(line.argv)
-    if (target.sandbox) { const box = sandbox(target.sandbox); if (target.machine) box.machine = target.machine }
-    if (target.ws) {
-      const ws = workspace(target.ws, method === 'workspace.mount' ? target.branch : undefined)
-      if (!target.branch && ws.branch) target.branch = ws.branch
+    // Only an answered call adds a node: a refused `sandbox create` or mount
+    // made nothing. A refused call still names (and lights) the nodes that exist.
+    if (line.outcome === 'ok') {
+      if (target.sandbox) { const box = sandbox(target.sandbox); if (target.machine) box.machine = target.machine }
+      if (target.ws) workspace(target.ws, method === 'workspace.mount' ? target.branch : undefined)
+      if (target.branch) branches.add(target.branch)
+    } else {
+      if (target.ws && !sandboxes.get(target.ws.split(':')[0])?.workspaces.some((w) => w.id === target.ws)) delete target.ws
+      if (target.sandbox && !sandboxes.has(target.sandbox)) delete target.sandbox
+      if (target.branch && !branches.has(target.branch)) delete target.branch
     }
-    if (target.branch) branches.add(target.branch)
+    if (target.ws && !target.branch) {
+      const ws = sandboxes.get(target.ws.split(':')[0])?.workspaces.find((w) => w.id === target.ws)
+      if (ws?.branch) target.branch = ws.branch
+    }
     if (method === 'sandbox.close' && line.outcome === 'ok' && target.sandbox) sandbox(target.sandbox).closed = true
     const ms = Math.max(0, line.ms)
     let start = clock(line.at) + shift

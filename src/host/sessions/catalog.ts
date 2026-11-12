@@ -54,6 +54,8 @@ export function uuidOfBranches(names: readonly string[]): string | null {
 }
 
 const keyOf = (info: any): string => info.project ?? `${info.store}/${info.name}`
+/** The pinned CLI's transient refusal of a read racing another process on the same home. */
+const transientRead = (error: any): boolean => error?.code === 'Failed' && /NotFound/.test(String(error?.message ?? ''))
 const changed = () => new CliError('ProjectIdentityChanged', 'This name now refers to another project. The original conversation remains available; recover its original project before continuing.')
 
 /** Durable inventory, independent of the current live LayerFS listing. */
@@ -81,10 +83,37 @@ export class ProjectCatalog {
     return row
   }
 
-  /** The UUID on the project's branches, or null when it has none. */
-  async uuidOf(project: string): Promise<string | null> {
-    const branches = await pages((paging) => this.lfs().branch.list(project, paging))
-    return uuidOfBranches(branches.map((b: any) => String(b?.name ?? b)))
+  private readonly reading = new Map<string, Promise<string | null>>()
+
+  /**
+   * The UUID on the project's branches, or null when it has none. Concurrent
+   * lookups of one project share one read: parallel subagents all resolve their
+   * parent's project as they start.
+   */
+  uuidOf(project: string): Promise<string | null> {
+    let read = this.reading.get(project)
+    if (!read) {
+      read = this.readUuid(project).finally(() => this.reading.delete(project))
+      this.reading.set(project, read)
+    }
+    return read
+  }
+
+  /**
+   * One fresh read, retried twice on `Failed: Os { NotFound }`: CLIs built
+   * before layerfs fix/lease-stale-race refuse a Store read that way when
+   * another process drops its Store lease meanwhile (the read is safe to repeat).
+   */
+  private async readUuid(project: string): Promise<string | null> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const branches = await pages((paging) => this.lfs().branch.list(project, paging))
+        return uuidOfBranches(branches.map((b: any) => String(b?.name ?? b)))
+      } catch (error) {
+        if (attempt >= 2 || !transientRead(error)) throw error
+        await new Promise((resolve) => setTimeout(resolve, 60 * (attempt + 1)))
+      }
+    }
   }
 
   /**
@@ -96,11 +125,11 @@ export class ProjectCatalog {
     if (found || !claim) return found
     const id = randomUUID()
     try { await this.lfs().branch.fork(project, identityBranch(id), 'main') } catch (error) {
-      const winner = await this.uuidOf(project).catch(() => null)
+      const winner = await this.readUuid(project).catch(() => null)
       if (winner) return winner
       throw error
     }
-    return (await this.uuidOf(project)) ?? id
+    return (await this.readUuid(project)) ?? id
   }
 
   private observe(info: any, id: string): CatalogProject {

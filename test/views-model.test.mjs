@@ -4,10 +4,10 @@ import { agentTree, buildSandboxMap, packetAt, replayClock, rootOf, targetsOf, C
 
 const byId = {
   root: { running: false },
-  kid: { origin: 'subagent', parentSessionId: 'root', running: true },
-  grandkid: { origin: 'subagent', parentSessionId: 'kid' },
-  fork: { parentSessionId: 'root' },
-  orphan: { origin: 'subagent', parentSessionId: 'gone' },
+  kid: { origin: 'subagent', parentId: 'root', running: true },
+  grandkid: { origin: 'subagent', parentId: 'kid' },
+  fork: { parentId: 'root' },
+  orphan: { origin: 'subagent', parentId: 'gone' },
 }
 
 test('rootOf walks subagent parents and stops at forks and orphans', () => {
@@ -16,7 +16,7 @@ test('rootOf walks subagent parents and stops at forks and orphans', () => {
   assert.equal(rootOf('fork', byId), 'fork')
   assert.equal(rootOf('orphan', byId), 'orphan')
   assert.equal(rootOf('unknown', byId), 'unknown')
-  assert.ok(['a', 'b'].includes(rootOf('a', { a: { origin: 'subagent', parentSessionId: 'b' }, b: { origin: 'subagent', parentSessionId: 'a' } })), 'a cycle ends')
+  assert.ok(['a', 'b'].includes(rootOf('a', { a: { origin: 'subagent', parentId: 'b' }, b: { origin: 'subagent', parentId: 'a' } })), 'a cycle ends')
 })
 
 test('agentTree lists the root, then each subagent after its parent', () => {
@@ -110,4 +110,26 @@ test('packetAt: a request loops forward over the chain, the result runs back onc
   assert.equal(home.hop, 0); assert.ok(Math.abs(home.at - 0.5) < 1e-9)
   assert.equal(packetAt(e, 14 + RESULT_S, 2), null)
   assert.equal(packetAt(e, 11, 0), null)
+})
+
+test('a refused call adds no node; it still names the nodes that exist', () => {
+  const agents = agentTree('root', byId)
+  const line = (at, argv, outcome = 'ok') => ({ v: 1, at, ms: 5, client: 'cli', argv, outcome })
+  const model = buildSandboxMap(agents, { project: 'st/p', branch: 'main', sandbox: 'sbx', ws: 'sbx:dsh' }, {
+    root: [
+      line(0, ['sandbox', 'create', 'st/p', 'box2', 'native'], 'Failed'),
+      line(10, ['branch', 'fork', 'st/p', 'feat', 'main']),
+      line(20, ['workspace', 'mount', 'sbx', 'feat', '--name', 'w'], 'Failed'),
+      line(30, ['workspace', 'exec', 'sbx:dsh', '<3 bytes>'], 'Failed'),
+    ],
+  })
+  assert.deepEqual(model.sandboxes.map((s) => [s.name, s.workspaces.map((w) => w.id)]), [['sbx', ['sbx:dsh']]], 'no box2, no sbx:w')
+  assert.deepEqual(model.branches, ['main', 'feat'])
+  const [create, , mount, exec] = model.events
+  assert.equal(create.sandbox, undefined, 'the refused create names no sandbox that exists')
+  assert.equal(mount.ws, undefined)
+  assert.equal(mount.sandbox, 'sbx', 'the refused mount still names the sandbox it was refused in')
+  assert.equal(mount.branch, 'feat')
+  assert.equal(exec.ws, 'sbx:dsh', 'a refused call on an existing workspace stays on it')
+  assert.equal(exec.branch, 'main')
 })

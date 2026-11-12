@@ -101,8 +101,13 @@ root ─────────┐   project            sandbox (machine, state
 
 Nodes are derived, not configured:
 
-- Agents: the root and its subagents from the DSH session list; a running
-  session shows a live dot.
+- Agents: the root and its subagents from the DSH session list (`origin:
+  'subagent'` rows and their `parentId`); a running session shows a live dot.
+  The root is "Main agent"; a subagent is named by the label it was delegated
+  under (the `subagent` projection, e.g. "Docs worker"), else its title.
+  Subagents with no LayerFS calls (theirs or their subagents') fold into one
+  "N more subagents without LayerFS calls" row. A subagent's own Sandbox tab
+  shows its root's tree, with "This chat" on it.
 - Branches: the binding's branch and any branch named by a call (`file|branch|commit <project> <branch>`,
   `workspace mount <sandbox> <branch>`, `branch fork <project> <name>`).
 - Sandboxes and workspaces: the binding's sandbox/workspace plus those named by
@@ -111,7 +116,9 @@ Nodes are derived, not configured:
   `workspace exec|commit|status|unmount <sandbox>:<ws>`).
 
 Each call from the agents' call logs becomes an event (polling reads such as
-`project.get`, `workspace.status` and the `list` calls are left out). A call
+`project.get`, `file.list`, `workspace.status` and the `list` calls are left
+out). Only an answered call adds a node: a refused `sandbox create` or mount
+made nothing, so its event names only the nodes that exist. A call
 travels a chain of wires: agent → branch → workspace, agent → branch, or, for a
 sandbox call without a branch (`sandbox create|close`), agent → project hub →
 sandbox. Agent → branch and branch → workspace wires stay drawn; the hops

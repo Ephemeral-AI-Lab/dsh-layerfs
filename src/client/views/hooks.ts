@@ -5,23 +5,23 @@ import { rootOf, type MapBinding, type SessionRow } from './model.ts'
 
 /** DSH's session list as an observable (`ctx.sessions.list`). */
 export interface SessionsSource {
-  getSnapshot: () => { byId?: Record<string, SessionRow>, projectionsBySession?: Record<string, { values?: { title?: unknown } }> } | undefined
+  getSnapshot: () => { byId?: Record<string, SessionRow>, projectionsBySession?: Record<string, { values?: { title?: unknown, subagent?: { label?: unknown } } }> } | undefined
   subscribe: (listener: () => void) => () => void
 }
 
 const EMPTY: Record<string, SessionRow> = {}
-const NONE: Record<string, { values?: { title?: unknown } }> = {}
+const NONE: Record<string, { values?: { title?: unknown, subagent?: { label?: unknown } } }> = {}
+const text = (value: unknown) => typeof value === 'string' && value.trim() ? value : undefined
 
-/** Summaries by id, and titles where DSH's projection has them. */
-export function useSessionRows(source: SessionsSource | undefined): { byId: Record<string, SessionRow>, title: (id: string) => string | undefined } {
+/** Summaries by id, and titles and subagent labels where DSH's projections have them. */
+export function useSessionRows(source: SessionsSource | undefined): { byId: Record<string, SessionRow>, title: (id: string) => string | undefined, label: (id: string) => string | undefined } {
   const subscribe = useCallback((listener: () => void) => source?.subscribe(listener) ?? (() => {}), [source])
   const byId = useSyncExternalStore(subscribe, () => source?.getSnapshot()?.byId ?? EMPTY)
   const projections = useSyncExternalStore(subscribe, () => source?.getSnapshot()?.projectionsBySession ?? NONE)
-  const title = useCallback((id: string) => {
-    const value = projections[id]?.values?.title
-    return typeof value === 'string' && value.trim() ? value : undefined
-  }, [projections])
-  return { byId, title }
+  const title = useCallback((id: string) => text(projections[id]?.values?.title), [projections])
+  /** The label a subagent was delegated under (`subagent` projection), e.g. "Docs worker". */
+  const label = useCallback((id: string) => text(projections[id]?.values?.subagent?.label), [projections])
+  return { byId, title, label }
 }
 
 /** What `session.state` answers, as far as the views read it. */
@@ -39,7 +39,7 @@ export interface SessionStateView {
  * session events.
  */
 export function useRootState(api: LayerfsApi, sessionId: string, source: SessionsSource | undefined) {
-  const { byId, title } = useSessionRows(source)
+  const { byId, title, label } = useSessionRows(source)
   const root = rootOf(sessionId, byId)
   const [view, setView] = useState<SessionStateView | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -58,7 +58,7 @@ export function useRootState(api: LayerfsApi, sessionId: string, source: Session
     const offs = [api.onEvent('layerfs-session', mine), api.onEvent('layerfs-checkpoint', mine), api.onEvent('connection', reload)]
     return () => { offs.forEach((off) => off()) }
   }, [api, root, reload])
-  return { root, byId, title, view: view?.sessionId === root ? view : null, error, reload, tick }
+  return { root, byId, title, label, view: view?.sessionId === root ? view : null, error, reload, tick }
 }
 
 /** One focus request between views: JSON `{branch?, commit?, path?}`. */
