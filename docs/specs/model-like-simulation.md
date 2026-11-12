@@ -27,14 +27,39 @@ separate transcript viewer. Normal errors and tool results remain visible. Raw
 commands and results remain intact; internal branch names are not promoted into
 navigation or controls.
 
-Every parent and child session has its own script. After completion or confirmed
-Stop, a real LLM can continue the same session from the actual history and saved
-file context. Switching drivers does not create a new session or change its owner.
+Every parent and child session has its own script. When the script ends for any
+reason, a real LLM can continue the same session from the actual history.
+Switching drivers does not create a new session or change its owner.
+
+### Terminal-state contract
+
+A script session is *active* only while this host is running, stopping or
+handing off its script. Every other state is terminal: `completed`, `stopped`,
+`interrupted` (host restart, import of a running session) and `failed` (setup,
+tool or settlement failure, or Stop with no confirmed version). In every
+terminal state:
+
+- The script never runs again for that session. The adapter refuses it and its
+  route is no longer offered in the model list.
+- The session is not locked. Restore, fork, forget and new messages work as for
+  any project session; there is no recovery or reconcile step.
+- The session, and each of its children, is switched back to its remembered real
+  model with session-local selection (DSH's global default is never changed).
+  After a restart this happens when the agent is next created from disk, using
+  the sidecar's remembered route, else the current default selection.
+- The next real-model message binds a working copy *as if fresh*: from the
+  confirmed continuation version when one exists (clean completion or clean
+  stop), otherwise from the project's current `main`, exactly like a new project
+  session. Uncertain operations are not reconciled or replayed; the journal and
+  evidence stay as they are.
+- Human messages queued during the run are delivered once the real model is
+  selected.
 
 ## 2. Workflow
 
 1. The user submits `/simulation --project <preset> --machine <machine>
-   [--mixed]`. This is a host command, not an LLM prompt. Validate arguments and
+   [--mixed]`. This is a host command, not an LLM prompt. Validate arguments,
+   check that a usable real model is selected (nothing is created otherwise) and
    prepare immutable scripts before executing mutations.
 2. Create the run's fresh Store/project using Connect's recipe, then create
    ordinary project-owned DSH sessions. Open the first conversation as soon as
@@ -55,8 +80,8 @@ file context. Switching drivers does not create a new session or change its owne
    context. Restore the remembered ordinary model route. The user may choose a
    different real model and send another message in the same session.
 
-While a script owns execution, model changes are unavailable until completion
-or confirmed Stop.
+While a script owns execution, model changes are unavailable until it reaches a
+terminal state.
 Normal messages may use DSH's existing queue, but must not be consumed as script
 instructions. Dispatch queued follow-ups only after a real model is selected and
 the continuation context is ready. Never automatically rerun the script on a
@@ -74,8 +99,19 @@ must never advance the script cursor or execute tools.
 
 The ordinary Stop button cancels the current scripted session, its queued script
 assignments and its active descendants. It stops further dispatch and settles
-in-flight operations. Independent conversations continue; dependent work ends
-with a normal explanation when its prerequisites cannot complete.
+in-flight operations. Stopping a child stops its whole root family, which ends
+as `stopped` like a stopped root.
+
+Each root conversation's last turn waits only for its own conversation's tasks
+and children, so stopping one root never fails the others. The compiled plan does
+chain conversations: each later conversation's first release forks from the main
+published by the previous conversation's last release. Earlier (upstream)
+conversations therefore continue unaffected; a later conversation whose
+prerequisites belong to a stopped conversation ends as `stopped` with an
+explanation (not as a dependency failure) and is continuable by a real model.
+The whole-project verification runs once, when every task of the run has a
+confirmed receipt; a run in which any conversation stopped before finishing is
+not verified.
 
 Stop remains available during dependency waits and between script turns, until
 the driver settles. Its cancellation must reach the driver and future dispatch,
@@ -89,8 +125,10 @@ admission cutoff lasts until that root leaves the agent registry.
 
 For `workspace.exec`, request LayerFS execution cancellation and verify the
 outcome; killing the local CLI process alone does not prove remote termination.
-Uncertain cancellation or mutation outcomes remain explicit and block conflicting
-execution until reconciled. Do not report a clean stop while work may still run.
+Uncertain cancellation or mutation outcomes are recorded in the journal and end
+the script without a continuation pin (`failed`); the session then continues
+under a real model from the project's current files. Do not report a clean stop
+while work may still run.
 
 Stop preserves logs, confirmed mutations, receipts and resources needed for
 inspection. It never rolls back completed work or deletes the user's scratch.
@@ -109,8 +147,8 @@ Handoff requires:
 `plan.json` names each root's intended continuation target as a reference to a
 saved-version receipt. Persist its project, typed Commit/Layer ID and necessary
 internal selector in the sidecar. Children inherit the root target. Do not select
-it from the last command or a mutable branch name. An interrupted run must resolve
-a confirmed target and pending changes before enabling continuation.
+it from the last command or a mutable branch name. A run that ends without a
+confirmed target continues from the project's current `main` instead.
 
 Before handoff, release or isolate resources assigned to that root conversation.
 Remaining script work cannot write its new workspace or depend on mutable state
@@ -118,10 +156,10 @@ the LLM can change. If ownership overlaps, settle the affected work first. Deriv
 the LLM workspace from the pinned version and preserve the workload's retained
 resources; model switching alone does not release resource ownership.
 
-Uncommitted changes must be saved through a separately recorded operation or
-explicitly reconciled before continuation; never silently discard them or claim
-they are part of an earlier commit. A last observed command timestamp or current
-project head is not sufficient evidence of the intended continuation context.
+Never claim uncommitted workload changes are part of an earlier commit: an open
+workload workspace prevents a stopped run from selecting an older pin, and the
+real model starts from current `main`. A last observed command timestamp is not
+evidence of a continuation pin.
 
 The LLM continues the conversation; it does not inherit or resume the private
 script queue. A child continues through DSH's native continuable-child mechanism
@@ -252,17 +290,19 @@ state and session-local model restoration, then explicitly schedule an archive
 snapshot containing those changes. Do not rely on an earlier final `turn/end`
 mirror. Archive failure retains local history and pending/error state. Import
 must resolve the immutable pin when establishing a normal workspace; mounting
-the current head of the archived branch is insufficient. Imported interrupted
-scripts remain inert pending reconciliation and explicit continuation.
+the current head of the archived branch is insufficient. An imported running
+script becomes `interrupted` and continues under a real model from the project's
+current `main`.
 
 Separate workload graph verification from explicitly identified internal session
 archive branches, then verify archive integrity independently. Conversation
 archiving must not invalidate an otherwise exact workload-history check.
 
 A host restart retains history and marks unfinished execution interrupted. It
-does not replay attempted mutations, reopen a remote model request, or silently
-select an LLM and start work. Reconcile uncertain operations before explicit
-continuation. Development uses private `.dev*/` roots only.
+does not replay attempted mutations or reopen a remote model request. The
+session's real model is selected again, queued human messages are delivered, and
+the next message continues from the project's current `main`. Development uses
+private `.dev*/` roots only.
 
 ## 7. Acceptance criteria
 
@@ -274,8 +314,8 @@ continuation. Development uses private `.dev*/` roots only.
    through the stock DSH format. No second transcript exists.
 4. Stop prevents further dispatch, cancels descendants, settles active work and
    distinguishes confirmed cancellation from uncertain outcomes.
-5. After completion and after a confirmed stop, selecting a real LLM and sending
-   input continues the same session against its confirmed file context. An
+5. After any terminal state, sending input continues the same session under its
+   real model, against its confirmed file context or else the project's main. An
    integration test demonstrates the LLM reading prior results and executing a
    subsequent real tool call without script replay or late script mutations.
 6. Normal project ownership, scratch semantics, archive/import and normal
@@ -284,8 +324,8 @@ continuation. Development uses private `.dev*/` roots only.
    archive writes and failed/uncertain operations gain no invented checkpoints.
 8. Filesystem and Mixed workloads retain exact expected code history without
    extra automatic mounts/saves; internal archive history is verified separately.
-9. Restart and missing run-package cases retain readable histories and never
-   automatically replay uncertain work. Imported logs can continue under an LLM
+9. Restart and missing run-package cases retain readable histories, restore the
+   real model and never replay uncertain work. Imported logs can continue under an LLM
    after selecting local scratch and establishing the saved project context.
 10. Stop works during dependency waits and between turns. Queued script work and
     descendants cannot resume after it; human follow-ups remain available.

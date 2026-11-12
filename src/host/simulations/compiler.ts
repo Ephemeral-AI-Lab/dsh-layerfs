@@ -171,8 +171,7 @@ export function compileSimulation({ project, machine = 'native', mixed = false, 
   return { manifest, plan, resources, sessions, expectations, files }
 }
 
-/** The managed CLI as bound project shells name it (sessions shell env). Script-owned
- * sessions are not bound for the shell env, so the runtime passes the managed path. */
+/** The managed CLI as bound project shells name it (sessions shell env). */
 export const SIMULATION_CLI = '"$DSH_LAYERFS_CLI"'
 /** Quote a shell word only when it needs quoting. */
 export const shellWord = value => {

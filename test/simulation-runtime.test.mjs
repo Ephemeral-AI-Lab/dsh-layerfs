@@ -1,15 +1,15 @@
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { apply as installNativeSubagentControl } from '@deepseek-ai/dsh-tool-subagent-control'
 const root = new URL('..', import.meta.url).pathname
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib/.test-simulation-runtime-'))
-await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/simulations/model.ts'; export * from './src/host/simulations/runtime.ts'; export { simulationArguments } from './src/host/simulations/index.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'runtime.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
-const { SimulationAdapter, SimulationRuntime, bashReceipt, simulationArguments } = await import(pathToFileURL(join(out, 'runtime.mjs')))
+await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/simulations/model.ts'; export * from './src/host/simulations/runtime.ts'; export { simulationArguments } from './src/host/simulations/index.ts'; export { SimulationExecution } from './src/host/simulations/gate.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'runtime.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
+const { SimulationAdapter, SimulationRuntime, SimulationExecution, bashReceipt, simulationArguments } = await import(pathToFileURL(join(out, 'runtime.mjs')))
 after(() => rmSync(out, { recursive: true, force: true }))
 
 test('model adapter emits native tool blocks without fake usage, auxiliary calls cannot advance actions', async () => {
@@ -299,7 +299,7 @@ test('compaction cannot conceal native tool errors or uncertain issued delegatio
   const failed = compactedSessionRuntime({ type: 'tool', stepKey: 'write' }, actualNativeActionEvents('bash', true))
   await assert.rejects(failed.runtime.next(failed.options), /failed.*native result/)
   const uncertain = compactedSessionRuntime({ type: 'delegate', taskId: 'child-task', agentId: 'worker' }, actualNativeActionEvents('subagent').slice(0, 2))
-  await assert.rejects(uncertain.runtime.next(uncertain.options), /no confirmed native result.*cannot be replayed/)
+  await assert.rejects(uncertain.runtime.next(uncertain.options), /no confirmed native result.*cannot replay/)
   assert.equal(uncertain.runtime.calls.size, 0)
 })
 
@@ -322,4 +322,155 @@ test('compaction auxiliary returns a bounded faithful checkpoint without advanci
   assert.ok(text.length <= 6000)
   assert.equal(actions, 0)
   assert.equal(chunks.some(chunk => chunk.blockType === 'tool-call' || chunk.type === 'usage'), false)
+})
+
+// ---- terminal states: final for the script, free for real models ----
+
+const realModel = { provider: 'real', model: 'model', reasoningEffort: 'high' }
+const layer = 'ab'.repeat(33)
+const modelAgent = (id, route) => {
+  const selections = []
+  let current = route
+  return { id, selections, inbox: { nextTurn: [], nextStep: [], remove() {} }, cancel() {}, whenIdle: async () => {}, send() {}, session: { snapshotEvents: () => [] }, model: { current: () => current, select: value => { selections.push(value); current = value } } }
+}
+
+test('after a restart a reopened script session switches back to its remembered real model', async () => {
+  const sidecars = { parent: { runId: 'run', state: 'interrupted', ordinaryModel: realModel }, child: { runId: 'run', state: 'interrupted' } }
+  const runtime = new SimulationRuntime({ layerfsSessions: { simulationOf: id => sidecars[id] }, agentDefaultModel: { currentSelection: () => ({ provider: 'default', model: 'fallback' }) } })
+  const parent = modelAgent('parent', { provider: 'simulation', model: 'run-c01-main' })
+  await runtime.created(parent)
+  assert.deepEqual(parent.selections, [realModel], 'session-local selection of the remembered route')
+  const child = modelAgent('child', { provider: 'simulation', model: 'run-c01-a01-worker' })
+  await runtime.created(child)
+  assert.deepEqual(child.selections, [{ provider: 'default', model: 'fallback' }], 'missing remembered route falls back to the default selection')
+  const real = modelAgent('parent', realModel)
+  await runtime.created(real)
+  assert.deepEqual(real.selections, [], 'an already real route is left alone')
+  // Pre-step backstop for an agent created before the record existed.
+  const late = modelAgent('parent', { provider: 'simulation', model: 'gone' })
+  let entered = false
+  await runtime.preStep({ agent: late, modelSelection: late.model.current(), messages: [], signal: new AbortController().signal }, async () => { entered = true; return { kind: 'enter', messages: [] } })
+  assert.equal(entered, true)
+  assert.deepEqual(late.selections, [realModel])
+})
+
+test('stop mid-command ends without a pin, restores the real model and releases parked humans', async () => {
+  const persisted = []
+  const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async (...args) => persisted.push(args) } })
+  const script = { agentKey: 'c-main', conversationId: 'c', agentId: null, turns: [{ request: 'Work' }] }
+  const records = [{ type: 'intent', stepKey: 'write', agentKey: 'c-main' }]
+  const run = { plan: { agents: [script], steps: [], continuationTargets: { c: { receipt: 'publish', branch: 'main', fallbacks: [{ receipt: 'publish', branch: 'main' }] } } }, journal: { records, receipts: { publish: { kind: 'Added', published_layer: { id: layer } } }, append: async record => records.push(record) }, bindings: new Map(), execution: { stop: async () => {} } }
+  const agent = modelAgent('parent', { provider: 'simulation', model: 'script' })
+  const sent = []
+  agent.send = (...args) => sent.push(args)
+  const human = { id: 'human', source: { kind: 'user' }, content: [{ type: 'text', text: 'Carry on' }] }
+  const binding = { run, script, sessionId: 'parent', rootSessionId: 'parent', ordinaryModel: realModel, state: 'running', controller: new AbortController(), agent, parkedHuman: new Map([['human', human]]) }
+  runtime.bindings.set('parent', binding); run.bindings.set('c-main', binding)
+  const result = await runtime.stop('parent')
+  assert.equal(result.state, 'failed', 'an unconfirmed mutation leaves no continuation pin')
+  assert.equal(persisted[0][1], undefined)
+  assert.doesNotMatch(persisted[0][3], /Reconcile/)
+  assert.deepEqual(agent.selections, [realModel], 'the real model is selected even without a pin')
+  assert.deepEqual(sent, [[human, 'next-turn', true]], 'parked human input is delivered to the real model')
+  assert.equal(runtime.isActive('parent'), false)
+  await assert.rejects(runtime.next({ sessionId: 'parent', model: 'script' }), /no longer active/)
+})
+
+function twoConversationRun(runtime) {
+  const steps = [
+    { key: 'a1', phase: 'conversation', conversationId: 'a', agentId: null, argv: ['file', 'write'], dependsOn: [] },
+    { key: 'b1', phase: 'conversation', conversationId: 'b', agentId: null, argv: ['file', 'write'], dependsOn: [] },
+    { key: 'c1', phase: 'conversation', conversationId: 'c', agentId: null, argv: ['branch', 'fork'], dependsOn: ['a1'] },
+  ]
+  const tasks = [{ id: 'ta', conversationId: 'a', stepKeys: ['a1'], dependsOn: [] }, { id: 'tb', conversationId: 'b', stepKeys: ['b1'], dependsOn: [] }, { id: 'tc', conversationId: 'c', stepKeys: ['c1'], dependsOn: ['ta'] }]
+  const agents = ['a', 'b', 'c'].map(id => ({ agentKey: `${id}-main`, scriptId: `run-${id}-main`, conversationId: id, agentId: null, turns: [{ request: 'Work' }] }))
+  const target = { receipt: 'setup.project', branch: 'main', initial: true }
+  const journal = { records: [], receipts: { 'setup.project': { layer }, b1: { kind: 'Committed' } }, append: async record => journal.records.push(record) }
+  const plan = { steps, tasks, agents, continuationTargets: Object.fromEntries(['a', 'b', 'c'].map(id => [id, { ...target, fallbacks: [target] }])) }
+  const run = { manifest: { runId: 'run' }, plan, journal, bindings: new Map(), execution: new SimulationExecution(plan, journal, { directory: '/unused' }) }
+  runtime.runs.set('run', run)
+  for (const script of agents) {
+    const id = `session-${script.conversationId}`
+    const binding = { run, script, sessionId: id, rootSessionId: id, ordinaryModel: realModel, turn: 0, state: 'running', controller: new AbortController(), agent: modelAgent(id, { provider: 'simulation', model: script.scriptId }) }
+    runtime.bindings.set(id, binding); run.bindings.set(script.agentKey, binding)
+  }
+  return run
+}
+
+test('stopping one root conversation leaves independent ones running and ends dependents as stopped', async () => {
+  const persisted = new Map()
+  const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async (id, target, state, error) => persisted.set(id, { target, state, error }) }, logger: () => ({ warn() {} }) })
+  const run = twoConversationRun(runtime)
+  await runtime.stop('session-a')
+  assert.equal(runtime.bindings.get('session-a').state, 'stopped')
+  assert.equal(runtime.bindings.get('session-b').state, 'running', 'an independent conversation is untouched')
+  // B's last turn waits only for its own conversation; no whole-run verification while A is unfinished.
+  await runtime.settleConversation(runtime.bindings.get('session-b'), new AbortController().signal)
+  assert.equal(run.verification, undefined)
+  // C waited on A's stopped work: it ends as stopped with an explanation, not as a dependency failure.
+  await assert.rejects(run.execution.waitTasks(['ta'], new AbortController().signal), /did not complete/)
+  assert.equal(run.execution.blockedByStop('c'), true)
+  assert.equal(run.execution.blockedByStop('b'), false)
+  runtime.fail(runtime.bindings.get('session-c').agent, new Error('Dependency a1 did not complete; execution cannot continue'))
+  await runtime.bindings.get('session-c').stopping
+  assert.equal(persisted.get('session-c').state, 'stopped')
+  assert.match(persisted.get('session-c').error, /Another conversation of this run was stopped/)
+  assert.deepEqual(runtime.bindings.get('session-c').agent.selections.at(-1), realModel)
+  assert.equal(runtime.bindings.get('session-b').state, 'running')
+})
+
+test('stopping a child ends its root family as stopped', async () => {
+  const persisted = new Map()
+  const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async (id, target, state) => persisted.set(id, state) } })
+  const rootScript = { agentKey: 'c-main', conversationId: 'c', agentId: null, turns: [] }, childScript = { agentKey: 'c-worker', conversationId: 'c', agentId: 'worker', turns: [] }
+  const target = { receipt: 'setup.project', branch: 'main', initial: true }
+  const run = { plan: { agents: [rootScript, childScript], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
+  const make = (script, sessionId) => ({ run, script, sessionId, rootSessionId: 'parent', ordinaryModel: realModel, state: 'running', controller: new AbortController(), agent: modelAgent(sessionId, { provider: 'simulation', model: sessionId }) })
+  const root = make(rootScript, 'parent'), child = make(childScript, 'child')
+  for (const binding of [root, child]) { runtime.bindings.set(binding.sessionId, binding); run.bindings.set(binding.script.agentKey, binding) }
+  const result = await runtime.stop('child')
+  assert.equal(result.state, 'stopped')
+  assert.deepEqual(Object.fromEntries(persisted), { child: 'stopped', parent: 'stopped' })
+  assert.deepEqual(child.agent.selections, [realModel])
+  assert.deepEqual(root.agent.selections, [realModel])
+})
+
+test('launch refuses before creating any Store, project or package when no real model is usable', async () => {
+  const dir = mkdtempSync(join(root, 'lib/.test-simulation-launch-'))
+  try {
+    let native = 0
+    for (const [requested, fallback, resolve] of [[undefined, undefined], [{ provider: 'simulation', model: 'old-script' }, { provider: 'simulation', model: 'x' }], [{ provider: 'gone', model: 'm' }, undefined, async () => { throw new Error('unknown provider') }]]) {
+      const runtime = new SimulationRuntime({ layerfs: { root: dir, cli: '/bin/false', ensureNative: async () => { native++ } }, agentDefaultModel: { currentSelection: () => fallback }, llm: resolve ? { resolveModelInfo: resolve } : undefined, logger: () => ({ warn() {} }) })
+      await assert.rejects(runtime.launch({ project: 'design', machine: 'native', ordinaryModel: requested }), /usable real model.*Nothing was created/)
+      assert.equal(runtime.runs.size, 0)
+    }
+    assert.equal(native, 0)
+    assert.equal(existsSync(join(dir, 'simulations')), false)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('the model list offers only scripts that can still run and announces changes', () => {
+  const emitted = []
+  const runtime = new SimulationRuntime({ emit: (...args) => emitted.push(args) })
+  const rootScript = { agentKey: 'c-main', scriptId: 'root', conversationId: 'c', agentId: null }
+  const bound = { agentKey: 'c-a01', scriptId: 'child-bound', conversationId: 'c', agentId: 'a01' }
+  const pending = { agentKey: 'c-a02', scriptId: 'child-pending', conversationId: 'c', agentId: 'a02' }
+  const run = { plan: { agents: [rootScript, bound, pending] }, bindings: new Map() }
+  const rootBinding = { script: rootScript, state: 'running' }
+  run.bindings.set('c-main', rootBinding).set('c-a01', { script: bound, state: 'running' })
+  runtime.runs.set('run', run)
+  const ids = () => runtime.scripts().map(script => script.scriptId).sort()
+  assert.deepEqual(ids(), ['child-bound', 'child-pending', 'root'])
+  runtime.refreshModels()
+  runtime.refreshModels()
+  assert.equal(emitted.length, 1, 'unchanged lists are not re-announced')
+  run.bindings.get('c-a01').ordinaryRestored = true
+  assert.deepEqual(ids(), ['child-pending', 'root'], 'a child that finished its turns is no longer offered')
+  rootBinding.state = 'stopped'
+  run.bindings.get('c-a01').state = 'stopped'
+  assert.deepEqual(ids(), [], 'a terminal family offers nothing, including children it never started')
+  runtime.refreshModels()
+  assert.equal(runtime.runs.size, 0, 'finished runs are dropped')
+  assert.deepEqual(emitted.at(-1), ['llm/models-updated', 'simulation'])
+  assert.equal(emitted.length, 2)
 })

@@ -14,7 +14,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { traceInvocation } from './tracing.ts'
 import { appendCall, callLine, loggable, renderCall } from './call-log.ts'
 import { outputRecord, outputsDir, outputSink, saveOutput, type OutputSink } from './call-output.ts'
-import { hostTag, OUTPUT_MAX } from '../../shared/logs.ts'
+import { hostTag, OUTPUT_MAX, parseSimTag, simTag } from '../../shared/logs.ts'
 
 /** How a call failed: `refusal` = LayerFS answered a refusal; others are transport outcomes. */
 export type Transport = 'refusal' | 'transport-unknown' | 'unavailable' | 'usage-incompatible'
@@ -156,11 +156,19 @@ interface ExecuteOptions {
   beforeSpawn?: () => void
   /** A separate admission lane (name and limit) for bulk callers, so page reads are not queued behind them. */
   lane?: { name: string, limit: number }
-  /** `LAYERFS_LOGS_TAG` for this call (set by {@link execute} from the trace context). */
+  /**
+   * `LAYERFS_LOGS_TAG` for this call. {@link execute} sets it from the trace
+   * context; outside one a caller may pass a `dsh-sim:<runId>:<stepKey>` tag
+   * (simulation setup/verification), other values are replaced by a host tag.
+   */
   tag?: string
   /** Where the call's output is collected for the output store (set by {@link logged}). */
   capture?: Capture
+  /** Filled by {@link logged} with the call log line's `at` and `ms`. */
+  timing?: Timing
 }
+
+interface Timing { at?: number, ms?: number }
 
 /** One call's output as it arrives: bounded stdout/stderr, the `--events` final frame, the exit. */
 interface Capture { stdout: OutputSink, stderr: OutputSink, final?: string, refusal?: unknown, exit?: number | null }
@@ -223,8 +231,18 @@ export const children = new Set<ChildProcess>()
 export function execute(spec: CliSpec, argv: readonly string[], options: ExecuteOptions = {}): Promise<any> {
   if (options.discovery) return executeRaw(spec, argv, options)
   const target = ['file', 'branch'].includes(argv[0]) || (argv[0] === 'workspace' && argv[1] === 'commit') ? renderCall(argv)[2] : undefined
-  return traceInvocation(argv.slice(0, 2).join('.').replaceAll('-', '_'), (tag) => logged(spec, argv, { ...options, tag }),
-    argv[0] === 'workspace' ? undefined : target, argv[0] === 'workspace' ? target : undefined)
+  // A session receipt's tag wins; else the caller's own `dsh-sim:` tag (simulation setup and verification).
+  // The receipt takes the line's own start and duration when a line is written.
+  const timing: Timing = {}
+  return traceInvocation(argv.slice(0, 2).join('.').replaceAll('-', '_'), (tag) => logged(spec, argv, { ...options, tag: tag ?? callerTag(options.tag), timing }),
+    argv[0] === 'workspace' ? undefined : target, argv[0] === 'workspace' ? target : undefined,
+    () => ({ argv, input: options.input ?? null, bools: boolOptions(spec.cli), ...timing }))
+}
+
+/** A caller-supplied tag outside a trace context: only a valid `dsh-sim:` tag, else none (a host tag is made). */
+function callerTag(tag: string | undefined): string | undefined {
+  const sim = parseSimTag(tag)
+  return sim && simTag(sim.runId, sim.stepKey) === tag ? tag : undefined
 }
 
 /**
@@ -245,9 +263,11 @@ async function logged(spec: CliSpec, argv: readonly string[], options: ExecuteOp
     if (ran) {
       // The output first, so a page reloading on the new line already sees it.
       try { saveOutput(outputsDir(spec.callLog), outputRecord({ tag, exit: capture.exit, stdout: capture.stdout, stderr: capture.stderr, final: capture.final, refusal: capture.refusal, max: OUTPUT_MAX })) } catch { /* best effort */ }
+      const ms = performance.now() - started
+      if (options.timing) Object.assign(options.timing, { at, ms: Math.max(0, Math.round(ms)) })
       if (!(spec.nativeLogs ?? await hasNativeLogs(spec.cli))) {
         appendCall(spec.callLog, callLine({
-          at, ms: performance.now() - started, argv, input: options.input ?? null, result, tag,
+          at, ms, argv, input: options.input ?? null, result, tag,
           outcome: error ? typeof error.code === 'string' && error.code.length <= 64 ? error.code : 'Failed' : 'ok',
           bools: boolOptions(spec.cli),
         }))

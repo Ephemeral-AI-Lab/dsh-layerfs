@@ -41,21 +41,22 @@ export default class LayerfsSandboxPolicy extends (SandboxPolicyService as any) 
     let b = sessions?.binding?.(String(id))
     if (b?.kind === 'shared' && b.parent) b = sessions.binding(b.parent) ?? b
     const layerfs = (this as any).ctx.get?.('layerfs')
+    const home = layerfs?.home
+    // An active script also drives its own run's Store, machine and Sandboxes;
+    // a planned Sandbox may not exist yet (its scripted `sandbox create` makes it).
+    const scope = sessions?.isSimulationManaged?.(String(id)) ? (this as any).ctx.get?.('layerfsSimulations')?.executionScope?.(String(id)) : undefined
+    const scripted = scope && home && existsSync(home)
+      ? [...sessionHomeRoots(home, { project: scope.project, machine: scope.machine }), ...(scope.sandboxes as string[]).map(component).filter((name): name is string => !!name).map(name => join(home, 'sandbox', name))]
+      : []
     let root: string | undefined, owned: string[], mount: string | undefined
     if (b?.state === 'bound') {
       root = b.scratch; mount = b.mount
-      owned = sessionHomeRoots(layerfs?.home, b)
+      owned = [...sessionHomeRoots(home, b), ...scripted]
     } else {
-      // An active script session is never bound for ordinary execution, yet its
-      // scripted commands drive its own run's Store, machine and Sandboxes.
-      const scope = sessions?.isSimulationManaged?.(String(id)) ? (this as any).ctx.get?.('layerfsSimulations')?.executionScope?.(String(id)) : undefined
       if (!scope) return base
       const scratch = b?.scratch ?? sessions?.binding?.(scope.rootSessionId)?.scratch
       root = scratch && isDir(scratch) ? scratch : base.workspaceRoot
-      const home = layerfs?.home
-      // A planned Sandbox may not exist yet: its own scripted `sandbox create` makes it.
-      const sandboxes = home && existsSync(home) ? (scope.sandboxes as string[]).map(component).filter((name): name is string => !!name).map(name => join(home, 'sandbox', name)) : []
-      owned = [...sessionHomeRoots(home, { project: scope.project, machine: scope.machine }), ...sandboxes]
+      owned = scripted
     }
     const extra = [...(base.additionalWritableRoots ?? [])]
     // Call log lines the managed CLI writes: the stand-in (`<root>/trace`) or LayerFS's own (`<home>/trace`).

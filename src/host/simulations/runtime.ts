@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { compileSimulation, renderSimulationCommand, resolveSimulationStep } from './compiler.ts'
+import { compileSimulation, renderSimulationCommand, resolveSimulationStep, SIMULATION_CLI } from './compiler.ts'
 import { claimSimulationExecution, SimulationJournal, validateSimulationPackage, writeSimulationPackage } from './package.ts'
 import { verifySimulation } from './verify.ts'
 import { SimulationExecution } from './gate.ts'
@@ -14,6 +14,9 @@ import { describeCommand, list, narrateBlocked, narrateDelegation, narrateFailur
 const textOf = message => (message.content ?? []).filter(block => block.type === 'text').map(block => block.text).join('')
 const request = text => createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
 const terminal = state => ['completed', 'stopped', 'interrupted', 'uncertain', 'failed'].includes(state)
+/** A remembered route a real model adapter can serve; script routes never qualify. */
+const realRoute = route => route && typeof route.provider === 'string' && typeof route.model === 'string' && route.provider && route.model && route.provider !== 'simulation' ? route : undefined
+const CONTINUE_FRESH = 'The script will not run again; a real model continues this session from the project\'s current files.'
 
 export { parseSimulationBashReceipt as bashReceipt } from './receipts.ts'
 import { parseSimulationBashReceipt } from './receipts.ts'
@@ -49,7 +52,62 @@ export class SimulationRuntime {
       void binding.run.execution.stop(binding.script.agentKey).catch(() => {})
     }
   }
-  scripts() { return [...this.runs.values()].flatMap(run => run.plan.agents) }
+  /** Only routes a running script can still use: live non-terminal bindings,
+   * plus child routes a running parent may still delegate to. */
+  scripts() {
+    const routes = new Map()
+    for (const run of this.runs.values()) {
+      for (const binding of run.bindings.values()) {
+        if (!terminal(binding.state) && !(binding.script.agentId && binding.ordinaryRestored)) routes.set(binding.script.scriptId, binding.script)
+      }
+      for (const script of run.plan.agents) {
+        if (!script.agentId || run.bindings.has(script.agentKey)) continue
+        const root = run.bindings.get(`${script.conversationId}-main`)
+        if (root && !terminal(root.state)) routes.set(script.scriptId, script)
+      }
+    }
+    return [...routes.values()]
+  }
+  /** Drop finished runs and tell model pickers when the offered scripts change. */
+  refreshModels() {
+    for (const [runId, run] of this.runs) {
+      const roots = run.plan.agents.filter(script => !script.agentId).map(script => run.bindings.get(script.agentKey))
+      if (roots.length && roots.every(binding => binding && terminal(binding.state))) this.runs.delete(runId)
+    }
+    const signature = this.scripts().map(script => script.scriptId).sort().join('\n')
+    if (signature === this.modelSignature) return
+    this.modelSignature = signature
+    this.ctx.emit?.('llm/models-updated', 'simulation')
+  }
+  /** Whether a script currently owns this session (running, stopping or handing off). */
+  isActive(sessionId) {
+    const binding = this.bindings.get(String(sessionId))
+    return !!binding && !terminal(binding.state)
+  }
+  ordinaryRoute(remembered) {
+    return realRoute(remembered) ?? realRoute(this.ctx.agentDefaultModel?.currentSelection?.())
+  }
+  /** Session-local only: switch a session off a finished script route. */
+  restoreOrdinary(agent, remembered, force = false) {
+    if (!agent?.model?.select) return false
+    if (!force && agent.model.current?.()?.provider !== 'simulation') return true
+    const route = this.ordinaryRoute(remembered)
+    if (!route) return false
+    agent.model.select(route)
+    return true
+  }
+  /** A launch needs a real model to hand off to; check before creating anything. */
+  async usableRealModel(requested, signal) {
+    const candidates = [realRoute(requested), realRoute(this.ctx.agentDefaultModel?.currentSelection?.())].filter(Boolean)
+    for (const route of candidates) {
+      if (!this.ctx.llm?.resolveModelInfo) return route
+      try { await this.ctx.llm.resolveModelInfo(route.provider, route.model, signal); return route } catch (error) {
+        signal?.throwIfAborted()
+        this.ctx.logger?.('layerfs').warn('simulation real model %s/%s unavailable: %s', route.provider, route.model, String(error?.message ?? error))
+      }
+    }
+    throw new Error('Select a usable real model before starting /simulation; it continues the sessions after the script. Nothing was created.')
+  }
   metadata(binding) {
     const { run, script, ordinaryModel, rootSessionId } = binding
     return { runId: run.manifest.runId, agentKey: script.agentKey, scriptId: script.scriptId, name: script.name, hash: script.hash, ordinaryModel, ...(script.agentId ? { rootSessionId } : {}), state: binding.state }
@@ -72,8 +130,15 @@ export class SimulationRuntime {
         }
         const bound = journal.records.filter(record => record.type === 'binding')
         for (const row of bound) {
+          if (this.isActive(row.sessionId)) continue
           const meta = this.ctx.layerfsSessions.simulationOf(row.sessionId)
-          if (meta && !terminal(meta.state)) await this.ctx.layerfsSessions.completeSimulation(row.sessionId, undefined, 'interrupted', 'The host restarted during script execution. Reconcile attempted operations before continuing.')
+          if (meta && !terminal(meta.state)) await this.ctx.layerfsSessions.completeSimulation(row.sessionId, undefined, 'interrupted', `The host restarted during script execution. ${CONTINUE_FRESH}`)
+          // A plugin reload keeps live agents: switch them now, agent/created will not fire again.
+          const live = this.ctx.agents?.get?.(row.sessionId)
+          if (live && meta) {
+            this.restoreOrdinary(live, meta.ordinaryModel)
+            await this.restoreDeferred(live)
+          }
         }
         // Recovered packages are deliberately never registered as executable models.
       } catch (error) { this.ctx.logger('layerfs').warn('simulation recovery %s: %s', entry.name, String(error)) }
@@ -84,18 +149,19 @@ export class SimulationRuntime {
     if (options.dispatchDelayMs !== undefined && (!Number.isInteger(options.dispatchDelayMs) || options.dispatchDelayMs < 0 || options.dispatchDelayMs > 10000)) throw new Error('Invalid fixture dispatch delay')
     if (options.cwd !== undefined && (!(await stat(options.cwd)).isDirectory() || !String(options.cwd).startsWith('/'))) throw new Error('Choose an existing absolute local scratch folder.')
     const compiled = compileSimulation({ project: options.project, machine: options.machine ?? 'native', mixed: options.mixed ?? false, ...(options.cycles === undefined ? {} : { cycles: options.cycles }) })
+    const cli = this.ctx.layerfs.cli
+    if (!cli) throw new Error('Pin a LayerFS CLI before starting project work.')
+    // Every session hands off to a real model; refuse before any Store or project exists.
+    const ordinaryModel = await this.usableRealModel(options.ordinaryModel, signal)
     const directory = await writeSimulationPackage(this.ctx.layerfs.root, compiled)
     await claimSimulationExecution(directory, 'host')
     const journal = await SimulationJournal.open(directory)
     const run = { ...compiled, directory, journal, execution: new SimulationExecution(compiled.plan, journal, { directory }), bindings: new Map(), dispatchDelayMs: options.dispatchDelayMs ?? 0 }
     this.runs.set(compiled.manifest.runId, run)
-    this.ctx.emit('llm/models-updated', 'simulation')
-    const cli = this.ctx.layerfs.cli
-    if (!cli) throw new Error('Pin a LayerFS CLI before starting project work.')
     try {
       await this.ctx.layerfs.ensureNative()
       for (const step of run.plan.steps.filter(step => step.phase === 'setup')) {
-        await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { input: definition.input, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
+        await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { input: definition.input, tag: `dsh-sim:${run.manifest.runId}:${step.key}`, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
           const cancel = () => child.kill('SIGTERM')
           executionSignal.addEventListener('abort', cancel, { once: true })
           if (executionSignal.aborted) cancel()
@@ -108,21 +174,18 @@ export class SimulationRuntime {
         const id = `session-${randomUUID()}`
         const cwd = resolve(options.cwd ?? join(this.ctx.layerfs.root, 'simulation-scratch', run.manifest.runId, script.agentKey))
         await mkdir(cwd, { recursive: true })
-        const fallback = options.ordinaryModel ?? this.ctx.agentDefaultModel?.currentSelection?.() ?? undefined
-        const binding = { run, script, sessionId: id, rootSessionId: id, ordinaryModel: fallback, turn: 0, state: 'running', controller: new AbortController(), complete: false }
+        const binding = { run, script, sessionId: id, rootSessionId: id, ordinaryModel, turn: 0, state: 'running', controller: new AbortController(), complete: false }
         this.bindings.set(id, binding); run.bindings.set(script.agentKey, binding)
         await this.ctx.layerfsSessions.prepareSimulation(id, run.manifest.projectRef, this.metadata(binding))
         await run.journal.bind(script.agentKey, id)
         await this.ctx.sessionController.create({ sessionId: id, cwd, agentPreset: 'layerfs' })
         const agent = this.ctx.agents.get(id)
         binding.agent = agent
-        binding.ordinaryModel ??= agent.model.current()
-        if (!binding.ordinaryModel || binding.ordinaryModel.provider === 'simulation') throw new Error('Select an ordinary model before starting a script.')
-        await this.ctx.layerfsSessions.prepareSimulation(id, run.manifest.projectRef, this.metadata(binding))
         agent.model.select({ provider: 'simulation', model: script.scriptId })
         this.authorize(agent, run)
         sessions.push(id)
       }
+      this.refreshModels()
       // All immutable identities and session bindings are durable before first dispatch.
       for (const id of sessions) {
         const binding = this.bindings.get(id)
@@ -133,9 +196,12 @@ export class SimulationRuntime {
       await journal.append({ type: 'setup-failed', error: String(error) })
       for (const binding of run.bindings.values()) {
         binding.state = 'failed'; binding.controller.abort(error)
-        if (binding.agent && binding.ordinaryModel) binding.agent.model.select(binding.ordinaryModel)
-        await this.ctx.layerfsSessions.completeSimulation(binding.sessionId, undefined, 'failed', String(error?.message ?? error))
+        if (binding.agent) this.restoreOrdinary(binding.agent, binding.ordinaryModel, true)
+        await this.ctx.layerfsSessions.completeSimulation(binding.sessionId, undefined, 'failed', `${String(error?.message ?? error)} ${CONTINUE_FRESH}`)
       }
+      // A failed setup is never offered as a model.
+      this.runs.delete(run.manifest.runId)
+      this.refreshModels()
       throw error
     }
   }
@@ -145,14 +211,20 @@ export class SimulationRuntime {
   }
   async created(agent) {
     const id = String(agent.id)
-    await this.restoreDeferred(agent)
     let binding = this.bindings.get(id)
     if (!binding) {
+      const saved = this.ctx.layerfsSessions?.simulationOf?.(id)
+      if (saved) {
+        // Reopened after its script ended (or after a restart): a real model owns it now.
+        this.restoreOrdinary(agent, saved.ordinaryModel)
+        await this.restoreDeferred(agent)
+        return
+      }
+      await this.restoreDeferred(agent)
       const route = agent.model.current()
       if (route?.provider !== 'simulation') return
       const run = [...this.runs.values()].find(run => run.plan.agents.some(script => script.scriptId === route.model))
       const script = run?.plan.agents.find(script => script.scriptId === route.model)
-      if (!run && this.ctx.layerfsSessions.simulationOf(id)) return
       if (!run || !script?.agentId) throw new Error('This script is not authorized to start a fresh session.')
       const root = run.bindings.get(`${script.conversationId}-main`)
       if (!root || terminal(root.state)) throw new Error('The parent script has stopped.')
@@ -164,14 +236,25 @@ export class SimulationRuntime {
       this.bindings.set(id, binding); run.bindings.set(script.agentKey, binding)
       await this.ctx.layerfsSessions.prepareSimulation(id, run.manifest.projectRef, this.metadata(binding))
       await run.journal.bind(script.agentKey, id)
-    }
+      this.refreshModels()
+    } else await this.restoreDeferred(agent)
     binding.agent = agent
     this.authorize(agent, binding.run)
-    if (terminal(binding.state) && binding.parkedHuman?.size) await this.releaseHumans(binding, false)
+    if (terminal(binding.state)) {
+      if (this.restoreOrdinary(agent, binding.ordinaryModel)) binding.ordinaryRestored = true
+      if (binding.parkedHuman?.size) await this.releaseHumans(binding, false)
+    }
   }
   async preStep(payload, next) {
     const binding = this.bindings.get(String(payload.agent.id))
-    if (!binding || terminal(binding.state)) return next()
+    if (!binding || terminal(binding.state)) {
+      // Backstop: a finished script route never stays selected for the next step.
+      if (payload.modelSelection?.provider === 'simulation') {
+        const saved = binding ?? this.ctx.layerfsSessions?.simulationOf?.(String(payload.agent.id))
+        if (saved) this.restoreOrdinary(payload.agent, saved.ordinaryModel)
+      }
+      return next()
+    }
     if (['stopping', 'handoff'].includes(binding.state)) {
       await Promise.all(payload.messages.map(message => this.parkHuman(binding, message)))
       await this.drainParking(binding)
@@ -287,9 +370,9 @@ export class SimulationRuntime {
         throw Object.assign(error, { narration: action.type === 'tool' ? narrateFailure({ argv: call?.argv ?? step?.argv, output: result ? textOf(result) : '' }) : undefined })
       }
       if (native?.state === 'completed' || result) return false
-      if (native?.state === 'issued') throw new Error('A dispatched project action has no confirmed native result. Reconcile it before continuing; it cannot be replayed.')
+      if (native?.state === 'issued') throw new Error('A dispatched project action has no confirmed native result; the script cannot replay it and stops here.')
       if (action.type === 'tool' && Object.hasOwn(run.journal?.receipts ?? {}, action.stepKey)) return false
-      if (action.type === 'tool' && run.journal?.records?.some(record => record.type === 'intent' && record.stepKey === action.stepKey)) throw new Error('A project operation was already attempted without a confirmed receipt. Reconcile it before continuing; it cannot be replayed.')
+      if (action.type === 'tool' && run.journal?.records?.some(record => record.type === 'intent' && record.stepKey === action.stepKey)) throw new Error('A project operation was already attempted without a confirmed receipt; the script cannot replay it and stops here.')
       return true
     }
     const delegation = (action, id) => {
@@ -322,10 +405,12 @@ export class SimulationRuntime {
           if (!ready(step.dependsOn ?? [])) await speak('Waiting for an earlier step to finish.')
           await run.execution.waitSteps(step.dependsOn ?? [], signal)
           const argv = resolveSimulationStep(step, run.journal.receipts, run.directory)
-          // The managed, tracing CLI by path: script-owned sessions are not bound
-          // for the shell env, so `$DSH_LAYERFS_CLI` is unset in their shells.
+          // A bound session's shell has `$DSH_LAYERFS_CLI` (the same managed, tracing
+          // wrapper as agentCli()), as real models are told; else the wrapper's path.
           const cli = (this.ctx.layerfs.agentCli?.() ?? managedCli({ root: this.ctx.layerfs.root, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }))
-          const command = renderSimulationCommand(step, argv, cli)
+          let bound = this.ctx.layerfsSessions?.binding?.(binding.sessionId)
+          if (bound?.kind === 'shared' && bound.parent) bound = this.ctx.layerfsSessions.binding(bound.parent) ?? bound
+          const command = renderSimulationCommand(step, argv, bound?.state === 'bound' ? SIMULATION_CLI : cli)
           this.calls.set(id, { binding, action, turn, argv, command })
           const text = pending.filter(Boolean).join(' ')
           return { ...(text ? { text } : {}), calls: [{ id, name: 'bash', arguments: { description: describeCommand(argv), command } }] }
@@ -348,11 +433,9 @@ export class SimulationRuntime {
       pending = []
       await waitTasks(turn.taskIds)
       if (!script.agentId && binding.turn === script.turns.length - 1) {
-        const all = (plan.tasks ?? []).map(task => task.id)
-        await waitTasks(all, tasksReady(all) ? undefined : 'Waiting for the remaining project work in the other conversations before the final check.')
-        await Promise.all([...run.bindings.values()].filter(item => item.script.agentId).map(item => item.agent.whenIdle()))
-        if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { read: true })))
-        await run.verification
+        const own = (plan.tasks ?? []).filter(task => task.conversationId === script.conversationId).map(task => task.id)
+        if (!tasksReady(own)) await speak(narrateWait(own.map(taskOf).filter(task => task && !ready(task.stepKeys)), script))
+        await this.settleConversation(binding, signal)
         signal.throwIfAborted()
       }
       binding.complete = true
@@ -363,9 +446,26 @@ export class SimulationRuntime {
       return narrateFailureAndSettle(error, error.narration)
     }
   }
+  /** A root's last turn waits for its own conversation (tasks and children) only;
+   * other conversations of the run keep going or stop independently. The
+   * whole-project verification runs once every task of the run has a confirmed
+   * receipt, i.e. only when no conversation stopped or failed before finishing. */
+  async settleConversation(binding, signal) {
+    const { run, script } = binding
+    await run.execution.waitTasks(run.plan.tasks.filter(task => task.conversationId === script.conversationId).map(task => task.id), signal)
+    await Promise.all([...run.bindings.values()].filter(item => item.script.agentId && item.script.conversationId === script.conversationId).map(item => item.agent?.whenIdle()))
+    const complete = run.plan.tasks.every(task => task.stepKeys.every(key => Object.hasOwn(run.journal.receipts, key)))
+    if (!complete) return
+    if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { read: true, tag: `dsh-sim:${run.manifest.runId}:verify` })))
+    await run.verification
+  }
   workspaceOfCall(sessionId, callId) {
     const call = this.calls.get(String(callId))
     return call?.binding.sessionId === String(sessionId) && call.argv?.[0] === 'workspace' ? call.argv[2] : undefined
+  }
+  stepOfCall(sessionId, callId) {
+    const call = this.calls.get(String(callId))
+    return call?.binding.sessionId === String(sessionId) && call.action.type === 'tool' ? { runId: call.binding.run.manifest.runId, stepKey: call.action.stepKey } : undefined
   }
   async executeTool(execution, next) {
     const binding = this.bindings.get(String(execution.agent?.id))
@@ -420,6 +520,7 @@ export class SimulationRuntime {
       if (binding.turn >= binding.script.turns.length && binding.ordinaryModel) {
         agent.model.select(binding.ordinaryModel)
         binding.ordinaryRestored = true
+        this.refreshModels()
       }
       return // Native parent assignments own child wakeup.
     }
@@ -462,7 +563,7 @@ export class SimulationRuntime {
       let resumed
       try {
         const live = this.ctx.agents?.get?.(item.sessionId)
-        if (item.script.agentId && this.ctx.agents && !live && ((!item.ordinaryRestored && target && item.ordinaryModel) || item.parkedHuman?.size)) {
+        if (item.script.agentId && this.ctx.agents && !live && ((!item.ordinaryRestored && item.ordinaryModel) || item.parkedHuman?.size)) {
           // A metadata-only writer retains the same native parent. Queued human
           // input is persisted without waking; the native continuation owner
           // activates it later, rather than this temporary writer running tools.
@@ -471,22 +572,26 @@ export class SimulationRuntime {
           resumed = await this.ctx.agents.resume({ resumeSessionId: item.sessionId, parentAgent: root.agent, agentOptions: item.ordinaryModel })
           item.agent = resumed.agent
         } else if (live) item.agent = live
-        if (target && item.ordinaryModel && !item.ordinaryRestored) {
-          item.agent.model.select(item.ordinaryModel)
-          item.ordinaryRestored = true
-        }
+        // Every terminal state hands the session to its real model, with or without a pin.
+        if (!item.ordinaryRestored && this.restoreOrdinary(item.agent, item.ordinaryModel, true)) item.ordinaryRestored = true
         await binding.run.journal.append({ type: 'handoff', agentKey: item.script.agentKey, sessionId: item.sessionId, state: resolvedState, target, error })
-        await this.ctx.layerfsSessions.completeSimulation(item.sessionId, target, resolvedState, error ?? (!target ? 'No confirmed continuation version is available. Reconcile project state before continuing.' : undefined))
+        await this.ctx.layerfsSessions.completeSimulation(item.sessionId, target, resolvedState, error ?? (!target ? `No confirmed continuation version is available. ${CONTINUE_FRESH}` : undefined))
         item.state = resolvedState
-        await this.releaseHumans(item, !!target && !item.script.agentId)
+        await this.releaseHumans(item, !item.script.agentId)
       } finally { await resumed?.dispose() }
     }
+    this.refreshModels()
   }
   async stop(sessionId) {
     const binding = this.bindings.get(sessionId)
     if (!binding || terminal(binding.state)) return { state: binding?.state ?? 'idle' }
     if (binding.stopping) return binding.stopping
     if (binding.state === 'stopping') return { state: 'stopping' }
+    // Stopping a child ends its whole root family, exactly like stopping the root.
+    const root = binding.script.agentId ? this.bindings.get(binding.rootSessionId) : undefined
+    if (root && root !== binding && !terminal(root.state)) return this.stop(root.sessionId)
+    // Decided before this conversation's own steps are marked stopped below.
+    const blocked = !binding.script.agentId && !!binding.failure && !!binding.run.execution.blockedByStop?.(binding.script.conversationId)
     binding.stopping = (async () => {
       const family = binding.script.agentId ? [binding] : [...binding.run.bindings.values()].filter(item => item.rootSessionId === sessionId)
       // Close every descendant gate synchronously before journal I/O can yield.
@@ -506,14 +611,19 @@ export class SimulationRuntime {
         binding.state = 'stopped'
         await binding.run.journal.append({ type: 'driver-stopped', agentKey: binding.script.agentKey, sessionId })
         // Child continuation waits for its root's shared saved context.
-        await this.ctx.layerfsSessions.completeSimulation(sessionId, undefined, 'stopped', 'The child stopped. Its parent must settle the shared continuation context.')
-      } else await this.finishRoot(binding, binding.failure ? 'failed' : 'stopped', binding.failure)
+        await this.ctx.layerfsSessions.completeSimulation(sessionId, undefined, 'stopped', `The child stopped. ${CONTINUE_FRESH}`)
+        await this.releaseHumans(binding, false)
+        this.refreshModels()
+      } else {
+        // Work that waited on another conversation's stopped steps ends as stopped, not failed.
+        await this.finishRoot(binding, binding.failure && !blocked ? 'failed' : 'stopped', blocked ? `Another conversation of this run was stopped before this conversation's prerequisites completed. ${CONTINUE_FRESH}` : binding.failure)
+      }
       return { state: binding.state }
     })().catch(error => this.settlementFailed(binding, error))
     return binding.stopping
   }
   async settlementFailed(binding, error) {
-    const message = `Project handoff failed: ${String(error?.message ?? error)}. Reconcile the saved file context before continuing.`
+    const message = `Project handoff failed: ${String(error?.message ?? error)}. ${CONTINUE_FRESH}`
     const family = binding.script.agentId ? [binding] : [...binding.run.bindings.values()].filter(item => item.rootSessionId === binding.rootSessionId)
     for (const item of family) {
       item.state = 'failed'
@@ -529,8 +639,13 @@ export class SimulationRuntime {
       // Dormant children keep durable native-message references until their
       // actual continuation owner reopens them; never send through a stale Agent.
       const live = this.ctx.agents?.get?.(item.sessionId)
-      if (!this.ctx.agents || live === item.agent) await this.releaseHumans(item, false).catch(warn)
+      if (!this.ctx.agents || live === item.agent) {
+        let restored = !!item.ordinaryRestored
+        if (!restored) try { restored = item.ordinaryRestored = this.restoreOrdinary(item.agent, item.ordinaryModel, true) } catch (failure) { warn(failure) }
+        await this.releaseHumans(item, restored && !item.script.agentId).catch(warn)
+      }
     }
+    this.refreshModels()
     return { state: 'failed', error: message }
   }
   turnEnded(session) {
@@ -629,14 +744,14 @@ export class SimulationRuntime {
         if (!script || !Object.hasOwn(manifest.hashes, script.path) || manifest.hashes[script.path] !== meta.hash) throw new Error('The saved script identity does not match this session.')
         source = await readFile(join(directory, script.path), 'utf8')
       } catch (error) { if (error?.code !== 'ENOENT') throw error }
-      return { script: { ...meta, source }, state, locked: !terminal(state) }
+      // Without a live binding no script can run: the session is never locked.
+      return { script: { ...meta, source }, state: terminal(state) ? state : 'interrupted', locked: false }
     }
     await validateSimulationPackage(binding.run.directory)
     return { script: { ...meta, source: await readFile(join(binding.run.directory, binding.script.path), 'utf8') }, state, locked: !terminal(state) }
   }
   /** What an active script session's shell commands may write: its run's project,
-   * machine and planned sandboxes. Script sessions are never bound for ordinary
-   * execution, so the sandbox policy asks here instead. */
+   * machine and planned sandboxes, for the sandbox policy. */
   executionScope(sessionId) {
     const binding = this.bindings.get(String(sessionId))
     if (!binding || terminal(binding.state)) return undefined

@@ -67,6 +67,9 @@ try {
   const exec = invocations.find((row) => row.operation === 'workspace.exec' && row.origin === 'tool')
   assert.ok(exec?.toolCallId, 'managed CLI invocation has exact tool provenance')
   assert.deepEqual(exec.versions, [], 'workspace.exec receives no checkpoint links')
+  assert.ok(Number.isFinite(exec.at) && Number.isFinite(exec.ms) && exec.tag === `dsh:${placed1.sessionId}:${exec.id}`, 'the receipt carries its time and tag')
+  assert.deepEqual(exec.argv?.slice(0, 2), ['workspace', 'exec'], 'the receipt carries its redacted argv')
+  assert.ok(!JSON.stringify(invocations).includes(src), 'no machine-local path in a receipt')
   assert.ok(invocations.some((row) => row.operation === 'workspace.commit' && row.origin === 'host' && row.versions.some((v) => v.effect === 'created')), 'turn save has its own host checkpoint receipt')
   // The placed blank keeps its id when the first turn materializes it; the
   // sidebar's selected-row scrape can lag behind navigation.
@@ -87,6 +90,13 @@ try {
   assert.equal(opened.imported, true)
   const importedAnnotations = await B.op('session.annotations', { sessionId: sid })
   assert.ok(importedAnnotations.invocations?.some((row) => row.id === exec.id), 'portable sidecar preserves invocation identities')
+  step('B: the Logs view shows the imported session from its receipts')
+  const receiptLog = await B.op('logs.list', { tag: `dsh:${sid}:`, limit: 1000 })
+  const execLine = receiptLog.lines.find((line) => line.tag === exec.tag)
+  console.log({ lines: receiptLog.lines.length, sources: [...new Set(receiptLog.lines.map((line) => line.source ?? 'log'))] })
+  assert.ok(receiptLog.lines.length > 0 && receiptLog.lines.every((line) => line.source === 'receipt'), 'B has no line of its own: every line comes from a receipt')
+  assert.equal(execLine?.at, exec.at); assert.deepEqual(execLine.argv, exec.argv)
+  assert.equal(execLine.dsh?.toolCallId, exec.toolCallId, 'receipt lines are labelled with their tool call')
   await B.page.waitForTimeout(2500)
   await B.page.getByText('done: 1 commands').first().waitFor({ timeout: 20000 })
 

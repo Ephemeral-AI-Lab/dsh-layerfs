@@ -8,7 +8,7 @@ import { openDev, runTurn } from '../tools/e2e-lib.mjs'
 
 const { browser, page, logs } = await openDev()
 const op = (name, args = {}) => page.evaluate(([name, args]) => window.__dshLayerfs.op(name, args), [name, args])
-const until = async (description, read, timeout = 240000) => {
+const until = async (description, read, timeout = 240000, interval = 250) => {
   const deadline = Date.now() + timeout
   for (;;) {
     let value
@@ -21,7 +21,7 @@ const until = async (description, read, timeout = 240000) => {
     }
     if (value) return value
     if (Date.now() >= deadline) throw new Error(`Timed out: ${description}`)
-    await page.waitForTimeout(250)
+    await page.waitForTimeout(interval)
   }
 }
 const model = () => page.locator('button[aria-label^="Select model, current"]').first()
@@ -93,8 +93,32 @@ try {
   await continueNormally(active.sessionId, `after-stop-${Date.now()}`)
   await page.waitForTimeout(1000)
   assert.equal((await op('simulation.script', { sessionId: active.sessionId })).state, 'stopped', 'normal input never restarts the script')
+  console.log('Native Stop during a wait, then same-session tool continuation.')
+
+  // Stop while a project command is in flight. The script ends for good
+  // (stopped, or failed without a pin) and the session is not locked: its real
+  // model is selected again and continues from the project's current files.
+  active = await launch({ cycles: 1 })
+  const journalPath = join((await op('runtime.status')).root, 'simulations', active.runId, 'journal.jsonl')
+  const journalRows = async () => (await readFile(journalPath, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => { try { return JSON.parse(line) } catch { return null } }).filter(Boolean)
+  const inflight = await until('an in-flight project command', async () => {
+    const rows = await journalRows()
+    const done = new Set(rows.filter(row => row.type === 'result').map(row => row.stepKey))
+    return rows.find(row => row.type === 'intent' && row.origin === 'tool' && !done.has(row.stepKey)) ?? null
+  }, 120000, 20)
+  await op('simulation.stop', { sessionId: active.sessionId })
+  const ended = await settled(active.sessionId)
+  assert.ok(['stopped', 'failed'].includes(ended.state), JSON.stringify({ state: ended.state, error: ended.script?.error }))
+  assert.doesNotMatch(ended.script?.error ?? '', /Reconcile/)
+  const outcome = (await journalRows()).find(row => row.type === 'result' && row.stepKey === inflight.stepKey)
+  console.log(`Stopped during ${inflight.stepKey} (${outcome ? (outcome.ok ? 'it completed' : 'cancelled/uncertain') : 'no result'}); script state ${ended.state}.`)
+  assert.equal((await op('simulation.status', { sessionId: active.sessionId })).locked, false, 'a terminal script never locks its session')
+  await until('real model restored', async () => ((await model().getAttribute('aria-label')) ?? '').includes('Fake scripted'), 30000)
+  await continueNormally(active.sessionId, `after-mid-stop-${Date.now()}`)
+  await page.waitForTimeout(1000)
+  assert.equal((await op('simulation.script', { sessionId: active.sessionId })).state, ended.state, 'the script never runs again')
   assert.deepEqual(logs.filter(line => line.startsWith('[pageerror]')), [])
-  console.log('Simulation browser proof passed: native Stop during a wait and same-session tool continuation.')
+  console.log('Simulation browser proof passed: native Stop during a wait and mid-command, each followed by same-session real-model tools.')
 } catch (error) {
   preserveActive = /Timed out: settled script/.test(String(error))
   await page.screenshot({ path: join(process.env.DSH_LAYERFS_DEV_DIR ?? '.dev', 'simulation-failure.png'), fullPage: true }).catch(() => {})

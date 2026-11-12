@@ -101,6 +101,7 @@ export class SimulationExecution {
     this.limit = concurrency; this.running = new Map(); this.controllers = new Map(); this.waiters = new Set()
     this.lifecycle = new WorkspaceLifecycleGate(); this.capacity = new WorkspaceLifecycleGate(); this.agents = new WorkspaceLifecycleGate()
     this.used = new Set(journal.records.filter(record => record.type === 'intent').map(record => record.stepKey))
+    this.stopped = new Set()
     this.failed = new Set(journal.records.filter(record => record.type === 'intent' && !Object.hasOwn(journal.receipts, record.stepKey)).map(record => record.stepKey))
   }
   controller(agentKey) {
@@ -203,10 +204,25 @@ export class SimulationExecution {
     for (const key of keys) this.controller(key).abort(new Error('Simulation stopped'))
     for (const step of this.steps.values()) {
       const owner = step.conversationId ? `${step.conversationId}-${step.agentId ?? 'main'}` : 'host'
-      if (keys.includes(owner) && !Object.hasOwn(this.journal.receipts, step.key)) this.failed.add(step.key)
+      if (keys.includes(owner) && !Object.hasOwn(this.journal.receipts, step.key)) { this.failed.add(step.key); this.stopped.add(step.key) }
     }
     this.notify()
     return this.pending(keys)
+  }
+  /** Whether a conversation can no longer finish only because steps of a stopped
+   * conversation it depends on will never complete (and none of its own failed). */
+  blockedByStop(conversationId) {
+    if (!this.stopped.size) return false
+    const own = [...this.steps.values()].filter(step => step.conversationId === conversationId)
+    if (own.some(step => this.failed.has(step.key) && !this.stopped.has(step.key))) return false
+    const seen = new Set()
+    const reaches = key => {
+      if (this.stopped.has(key)) return true
+      if (seen.has(key)) return false
+      seen.add(key)
+      return (this.steps.get(key)?.dependsOn ?? []).some(reaches)
+    }
+    return own.some(step => !Object.hasOwn(this.journal.receipts, step.key) && !this.stopped.has(step.key) && (step.dependsOn ?? []).some(reaches))
   }
   async pending(agentKeys) {
     await Promise.allSettled([...this.running.values()].filter(entry => !agentKeys || agentKeys.includes(entry.agentKey)).map(entry => entry.promise))

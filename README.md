@@ -111,11 +111,14 @@ uses its own script as its model, with real DSH tool calls and the same native
 session logs and LayerFS annotations as other project sessions. The conversation
 header offers **View script**; there is no separate progress dashboard.
 
-The normal **Stop** button cancels script dispatch and its active descendants.
-After confirmed completion or a clean stop, the ordinary model is restored and
-follow-up messages continue the same session from a pinned saved file context.
-Uncertain mutations or uncommitted workspace changes block handoff until they
-can be reconciled. Reopening history never automatically replays a script.
+The normal **Stop** button cancels script dispatch and its active descendants
+(stopping a child stops its root family); other conversations keep going. Once a
+script ends for any reason (completed, stopped, interrupted by a restart or
+import, or failed) it never runs again, the session is not locked, and its real
+model is selected again. Follow-up messages continue the same session from the
+pinned saved version of a clean completion or stop, otherwise from the project's
+current main, like a new session. `/simulation` refuses to start, creating
+nothing, unless a usable real model is selected.
 
 Script activation and restoration are session-local and leave the global model
 default alone. DSH currently exposes no public admission hook to disable all
