@@ -1,15 +1,82 @@
 import { LlmAdapter, ToolCallId, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 
-export type ScriptReply = { text: string } | { id: string; name: string; arguments: Record<string, unknown> }
+export interface ScriptToolCall { id: string; name: string; arguments: Record<string, unknown> }
+/** One assistant message: optional text (block 0), then zero or more tool calls. */
+export interface ScriptMessage { text?: string; calls?: ScriptToolCall[] }
+export type ScriptReply = ScriptMessage | ScriptToolCall
+/** Streams text into the current reply while the script is still deciding, for
+ * example before a long dependency wait. Resolves once the text has been sent. */
+export interface ScriptStream { say(text: string): Promise<void> }
 export interface SimulationModelSource {
   scripts(): any[]
-  next(options: GenerateOptions): Promise<ScriptReply>
+  next(options: GenerateOptions, stream?: ScriptStream): Promise<ScriptReply>
   compactionContext?(options: GenerateOptions): string
 }
 
+/** Delivery pacing only: it never changes what a reply contains. */
+export interface SimulationPacing {
+  /** Delay between text deltas (ms range). */
+  word: [number, number]
+  /** Delay before each tool call is emitted (ms range). */
+  decision: [number, number]
+  /** Delay between tool-call argument deltas (ms range). */
+  argument: [number, number]
+}
+export const DEFAULT_PACING: SimulationPacing = { word: [20, 40], decision: [300, 800], argument: [30, 70] }
+
+/** `DSH_LAYERFS_SIMULATION_PACING=0` (or off/false) disables pacing; it is on by default. */
+export function pacingFromEnvironment(value = process.env.DSH_LAYERFS_SIMULATION_PACING): SimulationPacing | null {
+  return value !== undefined && /^(0|off|false|no)$/i.test(value.trim()) ? null : DEFAULT_PACING
+}
+
+const between = ([low, high]: [number, number]) => low + Math.random() * Math.max(0, high - low)
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason); return }
+    const abort = () => { clearTimeout(timer); reject(signal!.reason) }
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve() }, ms)
+    signal?.addEventListener('abort', abort, { once: true })
+  })
+}
+
+/** Word-sized deltas of two to four words; whitespace is preserved exactly. */
+export function textDeltas(text: string, random: () => number = Math.random): string[] {
+  const tokens = text.match(/\s*\S+\s*/g) ?? (text ? [text] : [])
+  const deltas: string[] = []
+  for (let index = 0; index < tokens.length;) {
+    const size = 2 + Math.floor(random() * 3)
+    deltas.push(tokens.slice(index, index + size).join(''))
+    index += size
+  }
+  // A leading whitespace-only text (no words) still reaches the block.
+  if (!deltas.length && text) deltas.push(text)
+  return deltas
+}
+
+/** Two or three argument deltas: through the description value first (when it
+ * leads), then the rest in one or two pieces. Concatenation is exact. */
+export function argumentDeltas(json: string): string[] {
+  const lead = json.match(/^\{"description":"(?:[^"\\]|\\.)*",?/)
+  const head = lead ? lead[0] : json.slice(0, Math.ceil(json.length / 3))
+  const rest = json.slice(head.length)
+  if (!rest) return [head]
+  if (rest.length < 24) return [head, rest]
+  const middle = Math.ceil(rest.length / 2)
+  return [head, rest.slice(0, middle), rest.slice(middle)]
+}
+
+const normalize = (reply: ScriptReply): ScriptMessage => 'id' in reply && 'name' in reply
+  ? { calls: [reply as ScriptToolCall] }
+  : reply as ScriptMessage
+
 /** A model adapter only: tools and transcript persistence remain DSH-owned. */
 export class SimulationAdapter extends LlmAdapter {
-  constructor(readonly source: SimulationModelSource) { super() }
+  readonly pacing: SimulationPacing | null
+  constructor(readonly source: SimulationModelSource, options: { pacing?: SimulationPacing | boolean | null } = {}) {
+    super()
+    this.pacing = options.pacing === undefined ? pacingFromEnvironment() : options.pacing === true ? DEFAULT_PACING : options.pacing || null
+  }
   providerInfo(provider: string) { return { id: provider, name: 'LayerFS scripts' } }
   async listModels(provider: string) {
     return this.source.scripts().map(script => ({ provider, id: script.scriptId, name: script.name, description: 'Project action script', inputModalities: ['text' as const] }))
@@ -20,26 +87,83 @@ export class SimulationAdapter extends LlmAdapter {
     return { provider, id: model, name: script.name, description: 'Project action script', context: { contextWindow: 1_000_000 }, inputModalities: ['text' as const] }
   }
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    options.signal?.throwIfAborted()
+    const signal = options.signal
+    signal?.throwIfAborted()
     // Titles and other auxiliary requests cannot consume script actions.
-    const reply = options.purpose === 'compaction'
-      ? { text: simulationCompactionSummary(options, this.source.compactionContext?.(options)) }
-      : options.purpose !== undefined
-        ? { text: this.source.scripts().find(script => script.scriptId === options.model)?.name ?? 'Project work' }
-        : await this.source.next(options)
-    options.signal?.throwIfAborted()
-    if ('text' in reply) {
+    if (options.purpose !== undefined) {
+      const text = options.purpose === 'compaction'
+        ? simulationCompactionSummary(options, this.source.compactionContext?.(options))
+        : this.source.scripts().find(script => script.scriptId === options.model)?.name ?? 'Project work'
       yield { type: 'block-start', index: 0, blockType: 'text' }
-      yield { type: 'text-delta', index: 0, text: reply.text }
-      yield { type: 'block-end', index: 0, block: { type: 'text', text: reply.text } }
+      yield { type: 'text-delta', index: 0, text }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text } }
       yield { type: 'finish', reason: { kind: 'stop' } }
-    } else {
-      const id = ToolCallId(reply.id), args = JSON.stringify(reply.arguments)
-      yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-      yield { type: 'tool-call-delta', index: 0, id, name: reply.name, argumentsDelta: args }
-      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: reply.name, arguments: args } }
-      yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      return
     }
+    const pacing = this.pacing
+    let text = ''
+    let open = false
+    const self = this
+    async function* streamText(segment: string): AsyncGenerator<StreamChunk> {
+      if (!segment) return
+      if (!open) { open = true; yield { type: 'block-start', index: 0, blockType: 'text' } }
+      const piece = text && !/\s$/.test(text) ? `\n\n${segment}` : segment
+      const deltas = pacing ? textDeltas(piece) : [piece]
+      for (const [index, delta] of deltas.entries()) {
+        if (pacing && index) await pause(between(pacing.word), signal)
+        yield { type: 'text-delta', index: 0, text: delta }
+      }
+      text += piece
+    }
+    // Text spoken while the script waits is streamed before its reply settles.
+    const spoken: { text: string; done: () => void }[] = []
+    let wake: (() => void) | undefined
+    let outcome: { reply: ScriptMessage } | { error: unknown } | undefined
+    let closed = false
+    const say = (value: string) => closed ? Promise.resolve() : new Promise<void>(resolve => { spoken.push({ text: value, done: resolve }); wake?.() })
+    void Promise.resolve().then(() => self.source.next(options, { say })).then(
+      reply => { outcome = { reply: normalize(reply) }; wake?.() },
+      error => { outcome = { error }; wake?.() },
+    )
+    try {
+      for (;;) {
+        while (spoken.length) {
+          const item = spoken.shift()!
+          yield* streamText(item.text)
+          item.done()
+        }
+        if (outcome) break
+        await new Promise<void>(resolve => { wake = resolve; if (spoken.length || outcome) resolve() })
+        wake = undefined
+      }
+    } finally {
+      // Never leave the script waiting on text that was not delivered.
+      closed = true
+      for (const item of spoken.splice(0)) item.done()
+    }
+    if ('error' in outcome) throw outcome.error
+    signal?.throwIfAborted()
+    const reply = outcome.reply
+    if (reply.text) yield* streamText(reply.text)
+    if (open) yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    const calls = reply.calls ?? []
+    for (const [offset, call] of calls.entries()) {
+      const index = (open ? 1 : 0) + offset
+      if (pacing) await pause(between(pacing.decision), signal)
+      const id = ToolCallId(call.id), args = JSON.stringify(call.arguments)
+      yield { type: 'block-start', index, blockType: 'tool-call' }
+      for (const [part, delta] of (pacing ? argumentDeltas(args) : [args]).entries()) {
+        if (pacing && part) await pause(between(pacing.argument), signal)
+        yield { type: 'tool-call-delta', index, id, ...(part ? {} : { name: call.name }), argumentsDelta: delta }
+      }
+      yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.name, arguments: args } }
+    }
+    if (!open && !calls.length) {
+      // An empty reply still closes as a (blank) text answer.
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: '' } }
+    }
+    yield { type: 'finish', reason: { kind: calls.length ? 'tool-calls' : 'stop' } }
     // No invented model token accounting.
   }
 }

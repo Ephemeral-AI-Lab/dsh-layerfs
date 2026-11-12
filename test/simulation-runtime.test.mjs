@@ -14,7 +14,7 @@ after(() => rmSync(out, { recursive: true, force: true }))
 
 test('model adapter emits native tool blocks without fake usage, auxiliary calls cannot advance actions', async () => {
   let advanced = 0
-  const adapter = new SimulationAdapter({ scripts: () => [{ scriptId: 'billing', name: 'Billing release' }], next: async () => { advanced++; return { id: 'call-1', name: 'bash', arguments: { command: 'true' } } } })
+  const adapter = new SimulationAdapter({ scripts: () => [{ scriptId: 'billing', name: 'Billing release' }], next: async () => { advanced++; return { id: 'call-1', name: 'bash', arguments: { command: 'true' } } } }, { pacing: false })
   const auxiliary = await Array.fromAsync(adapter.stream({ provider: 'simulation', model: 'billing', messages: [], purpose: 'title' }))
   assert.equal(advanced, 0)
   assert.equal(auxiliary.find(chunk => chunk.type === 'text-delta').text, 'Billing release')
@@ -47,13 +47,13 @@ test('each child gets its own route and repeated assignments reuse its native id
   const binding = { script, run, sessionId: 'parent', state: 'running', turn: 0, controller: new AbortController() }
   runtime.bindings.set('parent', binding)
   const options = { sessionId: 'parent', model: 'main-script', messages: [] }
-  const first = await runtime.next(options)
+  const first = (await runtime.next(options)).calls[0]
   assert.equal(first.name, 'subagent')
   assert.equal(first.arguments.provider, 'simulation')
   assert.equal(first.arguments.model, 'worker-script')
   assert.equal(first.arguments.prompt, 'Review release')
   run.bindings.set('c-worker', { sessionId: 'native-child-id' })
-  const reused = await runtime.next(options)
+  const reused = (await runtime.next(options)).calls[0]
   assert.equal(reused.name, 'send_message')
   assert.deepEqual(reused.arguments, { agent_id: 'native-child-id', message: 'Review release' })
   const definitions = new Map(), delivered = []
@@ -306,7 +306,7 @@ test('compaction cannot conceal native tool errors or uncertain issued delegatio
 test('compaction auxiliary returns a bounded faithful checkpoint without advancing any actions', async () => {
   let actions = 0
   const pin = '32' + 'a'.repeat(64)
-  const adapter = new SimulationAdapter({ scripts: () => [{ scriptId: 'active-script', name: 'Billing release' }], next: async () => { actions++; throw new Error('must not execute') }, compactionContext: () => `Project: store/billing\nLatest confirmed saved-version references: Layer ${pin}` })
+  const adapter = new SimulationAdapter({ scripts: () => [{ scriptId: 'active-script', name: 'Billing release' }], next: async () => { actions++; throw new Error('must not execute') }, compactionContext: () => `Project: store/billing\nLatest confirmed saved-version references: Layer ${pin}` }, { pacing: false })
   const chunks = await Array.fromAsync(adapter.stream({ provider: 'simulation', model: 'active-script', purpose: 'compaction', maxTokens: 2000, messages: [
     { role: 'system', content: [{ type: 'text', text: 'Preserve the selected scratch folder and existing project ownership.' }] },
     { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'Update billing rules and preserve boundary cases.' }] },

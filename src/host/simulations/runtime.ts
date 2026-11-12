@@ -7,8 +7,9 @@ import { compileSimulation, renderSimulationCommand, resolveSimulationStep } fro
 import { claimSimulationExecution, SimulationJournal, validateSimulationPackage, writeSimulationPackage } from './package.ts'
 import { verifySimulation } from './verify.ts'
 import { SimulationExecution } from './gate.ts'
-import { execute } from '../layerfs/cli.ts'
+import { admitStore, execute, storeOfCall } from '../layerfs/cli.ts'
 import { managedCli, savedVersions } from '../layerfs/tracing.ts'
+import { describeCommand, list, narrateBlocked, narrateDelegation, narrateFailure, narrateTask, narrateWait, reportTask, summarizeTurn, taskPhrase } from './narration.ts'
 
 const textOf = message => (message.content ?? []).filter(block => block.type === 'text').map(block => block.text).join('')
 const request = text => createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
@@ -228,9 +229,11 @@ export class SimulationRuntime {
       children.length ? `Native child sessions: ${children.join('; ')}` : '',
     ].filter(Boolean).join('\n')
   }
-  async next(options) {
+  async next(options, stream) {
     const binding = this.bindings.get(String(options.sessionId))
     if (!binding || binding.script.scriptId !== options.model || terminal(binding.state)) throw new Error('This script is no longer active. Select an ordinary model to continue.')
+    // A failure already narrated in this session settles through the ordinary failure path.
+    if (binding.narratedFailure) throw new Error(binding.narratedFailure)
     const signal = options.signal ? AbortSignal.any([options.signal, binding.controller.signal]) : binding.controller.signal
     signal.throwIfAborted()
     const { run, script } = binding
@@ -248,53 +251,117 @@ export class SimulationRuntime {
     const nativeActions = this.nativeActions(binding)
     const results = new Map(options.messages.filter(message => message.role === 'tool').map(message => [String(message.toolCallId ?? message.source?.callId), message]))
     const seenChildren = new Set()
-    for (let index = 0; index < turn.actions.length; index++) {
-      const action = turn.actions[index]
-      const id = `sim-${script.scriptId}-${turn.id}-${index}`
-      if (action.type === 'delegate') {
-        if (seenChildren.has(action.agentId)) continue
-        seenChildren.add(action.agentId)
+    // Prose for actions not yet issued: assignment intent and task reports are
+    // said once, in the message that issues the next call (derived, not stored).
+    let pending = []
+    const say = async text => { if (text) await stream?.say?.(text) }
+    const speak = async (...extra) => { const text = [...pending, ...extra].filter(Boolean).join(' '); pending = []; await say(text) }
+    const plan = run.plan ?? {}
+    const taskOf = id => plan.tasks?.find(task => task.id === id)
+    const ready = keys => keys.every(key => Object.hasOwn(run.journal?.receipts ?? {}, key))
+    const tasksReady = ids => ready(ids.flatMap(id => taskOf(id)?.stepKeys ?? []))
+    // Waiting for dependencies is never silent: say what is awaited first.
+    const waitTasks = async (ids, line) => {
+      if (!tasksReady(ids)) await speak(line ?? narrateWait(ids.map(taskOf).filter(task => task && !ready(task.stepKeys)), script))
+      try { await run.execution.waitTasks(ids, signal) } catch (error) {
+        if (signal.aborted || !/did not complete/.test(String(error?.message ?? error))) throw error
+        const blocked = ids.map(taskOf).filter(task => task && !ready(task.stepKeys))
+        throw Object.assign(error, { narration: narrateBlocked(blocked, script) })
       }
+    }
+    // The reply carries the explanation; the run settles through fail() once idle.
+    const narrateFailureAndSettle = (error, narration) => {
+      const agent = binding.agent
+      if (!agent || typeof agent.whenIdle !== 'function') throw error
+      binding.narratedFailure = String(error?.message ?? error)
+      void Promise.resolve(agent.whenIdle()).then(() => this.fail(agent, error), () => this.fail(agent, error))
+      return { text: narration }
+    }
+    const issuable = (index, id, action) => {
       const result = results.get(id)
       const native = nativeActions.get(id)
-      if (result?.isError || native?.state === 'failed') throw new Error('A project tool call failed. Inspect its native result before continuing.')
-      if (native?.state === 'completed' || result) continue
+      if (result?.isError || native?.state === 'failed') {
+        const error = new Error('A project tool call failed. Inspect its native result before continuing.')
+        const call = this.calls.get(id)
+        const step = action.type === 'tool' ? plan.steps?.find(step => step.key === action.stepKey) : undefined
+        throw Object.assign(error, { narration: action.type === 'tool' ? narrateFailure({ argv: call?.argv ?? step?.argv, output: result ? textOf(result) : '' }) : undefined })
+      }
+      if (native?.state === 'completed' || result) return false
       if (native?.state === 'issued') throw new Error('A dispatched project action has no confirmed native result. Reconcile it before continuing; it cannot be replayed.')
-      if (action.type === 'tool' && Object.hasOwn(run.journal?.receipts ?? {}, action.stepKey)) continue
+      if (action.type === 'tool' && Object.hasOwn(run.journal?.receipts ?? {}, action.stepKey)) return false
       if (action.type === 'tool' && run.journal?.records?.some(record => record.type === 'intent' && record.stepKey === action.stepKey)) throw new Error('A project operation was already attempted without a confirmed receipt. Reconcile it before continuing; it cannot be replayed.')
-      if (action.type === 'wait') { await run.execution.waitTasks(action.tasks, signal); continue }
-      if (action.type === 'tool') {
-        const step = run.plan.steps.find(step => step.key === action.stepKey)
-        await run.execution.waitSteps(step.dependsOn ?? [], signal)
-        const argv = resolveSimulationStep(step, run.journal.receipts, run.directory)
-        const cli = (this.ctx.layerfs.agentCli?.() ?? managedCli({ root: this.ctx.layerfs.root, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }))
-        const command = renderSimulationCommand(step, argv, cli)
-        this.calls.set(id, { binding, action, turn, argv, command })
-        return { id, name: 'bash', arguments: { command, description: run.plan.tasks.find(task => task.id === action.taskId)?.title ?? 'Update project files' } }
-      }
-      if (action.type === 'delegate') {
-        const child = run.plan.agents.find(agent => agent.conversationId === script.conversationId && agent.agentId === action.agentId)
-        const childTurn = child.turns.find(item => item.taskIds.some(taskId => turn.taskIds.includes(taskId)))
-        if (!childTurn) throw new Error('Missing child assignment script')
-        const existing = run.bindings.get(child.agentKey)
-        const args = existing
-          ? { agent_id: existing.sessionId, message: childTurn.request }
-          : { name: child.agentId, description: child.name, prompt: childTurn.request, provider: 'simulation', model: child.scriptId }
-        this.calls.set(id, { binding, action, turn })
-        return { id, name: existing ? 'send_message' : 'subagent', arguments: args }
-      }
+      return true
     }
-    await run.execution.waitTasks(turn.taskIds, signal)
-    if (!script.agentId && binding.turn === script.turns.length - 1) {
-      await run.execution.waitTasks(run.plan.tasks.map(task => task.id), signal)
-      await Promise.all([...run.bindings.values()].filter(item => item.script.agentId).map(item => item.agent.whenIdle()))
-      if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { read: true })))
-      await run.verification
-      signal.throwIfAborted()
+    const delegation = (action, id) => {
+      const child = plan.agents.find(agent => agent.conversationId === script.conversationId && agent.agentId === action.agentId)
+      const childTurn = child.turns.find(item => item.taskIds.some(taskId => turn.taskIds.includes(taskId)))
+      if (!childTurn) throw new Error('Missing child assignment script')
+      const existing = run.bindings.get(child.agentKey)
+      const title = childTurn.taskIds.map(taskOf).find(Boolean)?.title ?? child.name
+      const args = existing
+        ? { agent_id: existing.sessionId, message: childTurn.request }
+        : { description: title, name: child.agentId, prompt: childTurn.request, provider: 'simulation', model: child.scriptId }
+      this.calls.set(id, { binding, action, turn })
+      const tasks = childTurn.taskIds.map(taskOf).filter(Boolean)
+      return { call: { id, name: existing ? 'send_message' : 'subagent', arguments: args }, assignment: { agentId: child.agentId, phrase: tasks.length ? list(tasks.map(taskPhrase)) : 'the next assignment' } }
     }
-    binding.complete = true
-    const final = !script.agentId && binding.turn === script.turns.length - 1 ? this.target(binding) : undefined
-    return { text: `The requested project changes are saved.${final ? ` Saved version: ${final.id}.` : ''}` }
+    try {
+      for (let index = 0; index < turn.actions.length; index++) {
+        const action = turn.actions[index]
+        const id = `sim-${script.scriptId}-${turn.id}-${index}`
+        if (action.type === 'delegate') {
+          if (seenChildren.has(action.agentId)) continue
+          seenChildren.add(action.agentId)
+        }
+        if (action.type === 'assignment') { const task = taskOf(action.taskId); if (task) pending.push(narrateTask(task, plan)); continue }
+        if (action.type === 'report') { const task = taskOf(action.taskId); if (task) pending.push(reportTask(task, plan, run.journal?.receipts ?? {})); continue }
+        if (action.type === 'wait') { await waitTasks(action.tasks); continue }
+        if (!issuable(index, id, action)) { pending = []; continue }
+        if (action.type === 'tool') {
+          const step = plan.steps.find(step => step.key === action.stepKey)
+          if (!ready(step.dependsOn ?? [])) await speak('Waiting for an earlier step to finish.')
+          await run.execution.waitSteps(step.dependsOn ?? [], signal)
+          const argv = resolveSimulationStep(step, run.journal.receipts, run.directory)
+          // The managed, tracing CLI by path: script-owned sessions are not bound
+          // for the shell env, so `$DSH_LAYERFS_CLI` is unset in their shells.
+          const cli = (this.ctx.layerfs.agentCli?.() ?? managedCli({ root: this.ctx.layerfs.root, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }))
+          const command = renderSimulationCommand(step, argv, cli)
+          this.calls.set(id, { binding, action, turn, argv, command })
+          const text = pending.filter(Boolean).join(' ')
+          return { ...(text ? { text } : {}), calls: [{ id, name: 'bash', arguments: { description: describeCommand(argv), command } }] }
+        }
+        if (action.type === 'delegate') {
+          // Independent delegations leave together in one message, as DSH asks of models.
+          const group = [delegation(action, id)]
+          for (let next = index + 1; turn.actions[next]?.type === 'delegate'; next++) {
+            const other = turn.actions[next], otherId = `sim-${script.scriptId}-${turn.id}-${next}`
+            if (seenChildren.has(other.agentId)) continue
+            if (!issuable(next, otherId, other)) break
+            seenChildren.add(other.agentId)
+            group.push(delegation(other, otherId))
+          }
+          const text = [...pending, narrateDelegation(group.map(item => item.assignment))].filter(Boolean).join(' ')
+          return { text, calls: group.map(item => item.call) }
+        }
+      }
+      // The closing reply summarizes the whole request; earlier reports are superseded.
+      pending = []
+      await waitTasks(turn.taskIds)
+      if (!script.agentId && binding.turn === script.turns.length - 1) {
+        const all = (plan.tasks ?? []).map(task => task.id)
+        await waitTasks(all, tasksReady(all) ? undefined : 'Waiting for the remaining project work in the other conversations before the final check.')
+        await Promise.all([...run.bindings.values()].filter(item => item.script.agentId).map(item => item.agent.whenIdle()))
+        if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog }, argv, { read: true })))
+        await run.verification
+        signal.throwIfAborted()
+      }
+      binding.complete = true
+      const final = !script.agentId && binding.turn === script.turns.length - 1 ? this.target(binding) : undefined
+      return { text: summarizeTurn({ script, turn, plan, receipts: run.journal?.receipts ?? {}, target: final }) }
+    } catch (error) {
+      if (!error?.narration || signal.aborted) throw error
+      return narrateFailureAndSettle(error, error.narration)
+    }
   }
   workspaceOfCall(sessionId, callId) {
     const call = this.calls.get(String(callId))
@@ -331,7 +398,10 @@ export class SimulationRuntime {
       signal.addEventListener('abort', cancel, { once: true })
       try {
         signal.throwIfAborted()
-        result = await next()
+        // LayerFS fails a second process on one Store (`Busy`): scripted calls share
+        // the host's per-Store lane; a remote workspace exec never touches the Store.
+        const store = argv[0] === 'workspace' && argv[1] === 'exec' ? undefined : storeOfCall(argv) ?? binding.run.manifest?.store
+        result = store && this.ctx.layerfs?.home ? await admitStore(this.ctx.layerfs.home, store, () => next()) : await next()
         return parseSimulationBashReceipt(result, { events: step.argv.includes('--events') })
       } finally {
         signal.removeEventListener('abort', cancel)
@@ -563,5 +633,15 @@ export class SimulationRuntime {
     }
     await validateSimulationPackage(binding.run.directory)
     return { script: { ...meta, source: await readFile(join(binding.run.directory, binding.script.path), 'utf8') }, state, locked: !terminal(state) }
+  }
+  /** What an active script session's shell commands may write: its run's project,
+   * machine and planned sandboxes. Script sessions are never bound for ordinary
+   * execution, so the sandbox policy asks here instead. */
+  executionScope(sessionId) {
+    const binding = this.bindings.get(String(sessionId))
+    if (!binding || terminal(binding.state)) return undefined
+    const { manifest, plan } = binding.run
+    const sandboxes = [...new Set((plan.steps ?? []).filter(step => step.resource?.family === 'sandbox').map(step => step.resource.name))]
+    return { project: manifest.projectRef, machine: manifest.machine, sandboxes, rootSessionId: binding.rootSessionId }
   }
 }

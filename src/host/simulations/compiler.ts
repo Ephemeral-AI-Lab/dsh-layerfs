@@ -123,7 +123,23 @@ export function compileSimulation({ project, machine = 'native', mixed = false, 
           : agentId
             ? `For release ${cycle}, complete your assigned ${[...new Set(cycleTasks.map(task => ({ a: topics[0], b: topics[1], maintenance: topics[2] }[task.lane])))].join(' and ')} changes. Work through all revisions and follow-up assignments for this request, then return the confirmed saved file versions and a concise summary.`
             : `Prepare release ${cycle} of ${history.definition.title}. Delegate the ${topics[0]} and ${topics[1]} feature updates and ${topics[2]} maintenance, collect their confirmed results, integrate the feature branches, and publish the release with maintenance preserved. Work in ${projectRef} and summarize the real publications when this release is complete.`
-        const actions = cycleTasks.flatMap(task => task.agentId && !agentId
+        // A parent delegates each worker task as soon as the own work it depends on
+        // is done, so independent delegations leave together in one message.
+        const ordered = [], waiting = cycleTasks.filter(task => task.agentId && !agentId), placed = new Set()
+        const ready = task => task.dependsOn.every(dep => placed.has(dep) || !cycleTasks.some(item => item.id === dep))
+        const release = () => {
+          for (let task = waiting.find(ready); task; task = waiting.find(ready)) {
+            ordered.push(task); placed.add(task.id); waiting.splice(waiting.indexOf(task), 1)
+          }
+        }
+        release()
+        for (const task of cycleTasks) {
+          if (task.agentId && !agentId) continue
+          ordered.push(task); placed.add(task.id)
+          release()
+        }
+        ordered.push(...waiting)
+        const actions = ordered.flatMap(task => task.agentId && !agentId
           ? [{ type: 'delegate', taskId: task.id, agentId: task.agentId, reuse: true, dependsOn: task.dependsOn }]
           : [{ type: 'assignment', taskId: task.id, text: task.prompt }, { type: 'wait', tasks: task.dependsOn }, ...task.stepKeys.map(stepKey => ({ type: 'tool', tool: 'bash', taskId: task.id, stepKey, argv: byKey.get(stepKey).argv })), { type: 'report', taskId: task.id, from: 'confirmed-receipts' }])
         const turn = { conversationId: conversation.id, agentId, id: `turn-${String(index + 1).padStart(2, '0')}`, request, taskIds: cycleTasks.map(task => task.id), actions }
@@ -155,11 +171,36 @@ export function compileSimulation({ project, machine = 'native', mixed = false, 
   return { manifest, plan, resources, sessions, expectations, files }
 }
 
-/** Each agent bash call contains the real CLI operation, never a whole-task launcher. */
-export function renderSimulationCommand(step, argv = step.argv, cli = 'layerfs') {
+/** The managed CLI as bound project shells name it (sessions shell env). Script-owned
+ * sessions are not bound for the shell env, so the runtime passes the managed path. */
+export const SIMULATION_CLI = '"$DSH_LAYERFS_CLI"'
+/** Quote a shell word only when it needs quoting. */
+export const shellWord = value => {
+  const word = String(value)
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) ? word : quote(word)
+}
+/** A quoted here-document delimiter that no content line equals. */
+const delimiter = input => {
+  const lines = new Set(input.split('\n'))
+  let name = 'EOF'
+  for (let index = 2; lines.has(name); index++) name = `EOF${index}`
+  return name
+}
+
+/** Each agent bash call contains the real CLI operation, never a whole-task launcher.
+ * It reads as typed: minimal quoting and file content as a quoted here-document
+ * when that is byte-exact. */
+export function renderSimulationCommand(step, argv = step.argv, cli = SIMULATION_CLI) {
   if (argv.some(word => /^<(?:source|ws:|commit:)/.test(String(word)))) throw new Error(`Resolve confirmed references before rendering ${step.key}`)
-  const command = `${quote(cli)} ${argv.map(quote).join(' ')}`
-  return step.input === undefined ? command : `printf '%s' ${quote(step.input)} | ${command}`
+  const command = `${cli === SIMULATION_CLI ? cli : shellWord(cli)} ${argv.map(shellWord).join(' ')}`
+  if (step.input === undefined) return command
+  const input = String(step.input)
+  // A here-document always ends its body with a newline; use it only when exact.
+  if (input.endsWith('\n') && !input.includes('\r')) {
+    const end = delimiter(input)
+    return `${command} <<'${end}'\n${input}${end}`
+  }
+  return `printf '%s' ${quote(input)} | ${command}`
 }
 
 export function resolveSimulationStep(step, receipts, runDirectory) {

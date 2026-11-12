@@ -40,15 +40,28 @@ export default class LayerfsSandboxPolicy extends (SandboxPolicyService as any) 
     const sessions = (this as any).ctx.get?.('layerfsSessions')
     let b = sessions?.binding?.(String(id))
     if (b?.kind === 'shared' && b.parent) b = sessions.binding(b.parent) ?? b
-    if (!b || b.state !== 'bound') return base
-    const root = b.scratch
-    const extra = [...(base.additionalWritableRoots ?? [])]
     const layerfs = (this as any).ctx.get?.('layerfs')
+    let root: string | undefined, owned: string[], mount: string | undefined
+    if (b?.state === 'bound') {
+      root = b.scratch; mount = b.mount
+      owned = sessionHomeRoots(layerfs?.home, b)
+    } else {
+      // An active script session is never bound for ordinary execution, yet its
+      // scripted commands drive its own run's Store, machine and Sandboxes.
+      const scope = sessions?.isSimulationManaged?.(String(id)) ? (this as any).ctx.get?.('layerfsSimulations')?.executionScope?.(String(id)) : undefined
+      if (!scope) return base
+      const scratch = b?.scratch ?? sessions?.binding?.(scope.rootSessionId)?.scratch
+      root = scratch && isDir(scratch) ? scratch : base.workspaceRoot
+      const home = layerfs?.home
+      // A planned Sandbox may not exist yet: its own scripted `sandbox create` makes it.
+      const sandboxes = home && existsSync(home) ? (scope.sandboxes as string[]).map(component).filter((name): name is string => !!name).map(name => join(home, 'sandbox', name)) : []
+      owned = [...sessionHomeRoots(home, { project: scope.project, machine: scope.machine }), ...sandboxes]
+    }
+    const extra = [...(base.additionalWritableRoots ?? [])]
     // Call log lines the managed CLI writes: the stand-in (`<root>/trace`) or LayerFS's own (`<home>/trace`).
     const trace = layerfs?.root ? join(layerfs.root, 'trace') : undefined
     const homeTrace = layerfs?.home && isDir(join(layerfs.home, 'trace')) ? join(layerfs.home, 'trace') : undefined
-    const owned = sessionHomeRoots(layerfs?.home, b)
-    for (const dir of [b.mount, trace, homeTrace, ...owned]) if (dir && dir !== root && !extra.includes(dir)) extra.push(dir)
+    for (const dir of [mount, trace, homeTrace, ...owned]) if (dir && dir !== root && !extra.includes(dir)) extra.push(dir)
     return { ...base, workspaceRoot: root, additionalWritableRoots: extra }
   }
 }
