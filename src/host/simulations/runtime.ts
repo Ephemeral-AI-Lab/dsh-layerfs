@@ -412,6 +412,7 @@ export class SimulationRuntime {
           if (bound?.kind === 'shared' && bound.parent) bound = this.ctx.layerfsSessions.binding(bound.parent) ?? bound
           const command = renderSimulationCommand(step, argv, bound?.state === 'bound' ? SIMULATION_CLI : cli)
           this.calls.set(id, { binding, action, turn, argv, command })
+          this.ensureStoreLane()
           const text = pending.filter(Boolean).join(' ')
           return { ...(text ? { text } : {}), calls: [{ id, name: 'bash', arguments: { description: describeCommand(argv), command } }] }
         }
@@ -498,15 +499,7 @@ export class SimulationRuntime {
       signal.addEventListener('abort', cancel, { once: true })
       try {
         signal.throwIfAborted()
-        // LayerFS fails a second process on one Store (`Busy`). Scripted calls take
-        // turns on their own per-Store lane and start once the host's lane is free;
-        // holding the host lane across the tool hook chain could deadlock with host
-        // work that hook awaits. A remote workspace exec never touches the Store.
-        const store = argv[0] === 'workspace' && argv[1] === 'exec' ? undefined : storeOfCall(argv) ?? binding.run.manifest?.store
-        const home = this.ctx.layerfs?.home
-        result = store && home
-          ? await scriptedStoreLane(`${home}\0${store}`, async () => { await admitStore(home, store, async () => {}); return next() })
-          : await next()
+        result = await next()
         return parseSimulationBashReceipt(result, { events: step.argv.includes('--events') })
       } finally {
         signal.removeEventListener('abort', cancel)
@@ -764,15 +757,22 @@ export class SimulationRuntime {
     const sandboxes = [...new Set((plan.steps ?? []).filter(step => step.resource?.family === 'sandbox').map(step => step.resource.name))]
     return { project: manifest.projectRef, machine: manifest.machine, sandboxes, rootSessionId: binding.rootSessionId }
   }
-}
-
-/** One scripted CLI process per Store at a time, across all script sessions. */
-const scriptedLanes = new Map()
-function scriptedStoreLane(key, run) {
-  const previous = scriptedLanes.get(key) ?? Promise.resolve()
-  const current = previous.catch(() => {}).then(run)
-  const tail = current.catch(() => {})
-  scriptedLanes.set(key, tail)
-  void tail.then(() => { if (scriptedLanes.get(key) === tail) scriptedLanes.delete(key) })
-  return current
+  /** LayerFS fails a second process on one Store (`Busy`, "Store busy before
+   * effect"), so a scripted CLI call holds the host's per-Store lane while its
+   * bash runs. The lane is taken by a tools/execute hook registered once, when
+   * the first scripted command is issued: after every hook installed at startup,
+   * so it wraps only the shell itself. Holding it around the outer hooks would
+   * invert their lock order (host work they await takes the same lane). */
+  ensureStoreLane() {
+    if (this.storeLane || typeof this.ctx.on !== 'function') return
+    this.storeLane = true
+    this.ctx.on('tools/execute', (execution, next) => {
+      const call = this.calls.get(String(execution.callId))
+      if (!call || call.action.type !== 'tool' || call.binding.sessionId !== String(execution.agent?.id) || !call.argv) return next()
+      // A remote workspace exec never opens the Store.
+      const store = call.argv[0] === 'workspace' && call.argv[1] === 'exec' ? undefined : storeOfCall(call.argv) ?? call.binding.run.manifest?.store
+      const home = this.ctx.layerfs?.home
+      return store && home ? admitStore(home, store, () => next()) : next()
+    })
+  }
 }
