@@ -2,7 +2,7 @@
 // Keyless live browser proof. Use a private dev server with dev/fake-llm.overlay.yml.
 // Exercises normal model labels, script inspection, Stop and same-session tools.
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { openDev, runTurn } from '../tools/e2e-lib.mjs'
 
@@ -23,6 +23,30 @@ const until = async (description, read, timeout = 240000, interval = 250) => {
     if (Date.now() >= deadline) throw new Error(`Timed out: ${description}`)
     await page.waitForTimeout(interval)
   }
+}
+// Turns of a session that closed without a single step (an empty "Completed" turn).
+const sessionHome = process.env.DSH_LAYERFS_SESSION_HOME ?? join(process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname, 'project-sessions')
+const findLog = async (directory, sessionId) => {
+  for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory()) continue
+    const path = join(directory, entry.name)
+    if (entry.name === sessionId) return join(path, 'session.v4.jsonl')
+    const found = await findLog(path, sessionId)
+    if (found) return found
+  }
+}
+const emptyTurns = async (sessionId) => {
+  const file = await findLog(sessionHome, sessionId)
+  assert.ok(file, `native log of ${sessionId}`)
+  const rows = (await readFile(file, 'utf8')).trim().split('\n').map(line => { try { return JSON.parse(line) } catch { return {} } })
+  const empty = []
+  let open
+  for (const row of rows) {
+    if (row.type === 'turn/start') open = { turn: row.data.turn, steps: 0 }
+    else if (row.type === 'step/start' && open) open.steps++
+    else if (row.type === 'turn/end' && open) { if (!open.steps && row.data.reason?.kind !== 'aborted') empty.push({ turn: open.turn, reason: row.data.reason }); open = undefined }
+  }
+  return empty
 }
 const model = () => page.locator('button[aria-label^="Select model, current"]').first()
 const mixed = process.env.DSH_SIMULATION_MIXED === '1'
@@ -94,6 +118,7 @@ try {
   await continueNormally(active.sessionId, `after-stop-${Date.now()}`)
   await page.waitForTimeout(1000)
   assert.equal((await op('simulation.script', { sessionId: active.sessionId })).state, 'stopped', 'normal input never restarts the script')
+  assert.deepEqual(await emptyTurns(active.sessionId), [], 'Stop during a wait leaves no empty turn behind')
   console.log('Native Stop during a wait, then same-session tool continuation.')
 
   // Stop while a project command is in flight. The script ends for good
@@ -118,6 +143,7 @@ try {
   await continueNormally(active.sessionId, `after-mid-stop-${Date.now()}`)
   await page.waitForTimeout(1000)
   assert.equal((await op('simulation.script', { sessionId: active.sessionId })).state, ended.state, 'the script never runs again')
+  assert.deepEqual(await emptyTurns(active.sessionId), [], 'Stop leaves no empty turn behind (child settlement notices never wake the root)')
   assert.deepEqual(logs.filter(line => line.startsWith('[pageerror]')), [])
   console.log('Simulation browser proof passed: native Stop during a wait and mid-command, each followed by same-session real-model tools.')
 } catch (error) {

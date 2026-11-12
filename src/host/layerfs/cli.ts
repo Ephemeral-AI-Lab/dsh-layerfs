@@ -5,6 +5,7 @@
  * {@link CliError}. The call table comes from the CLI's own `help --json`.
  * Ported from LayerFS Connect `host/cli/` (without the activity recorder).
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -173,12 +174,34 @@ interface Timing { at?: number, ms?: number }
 interface Capture { stdout: OutputSink, stderr: OutputSink, final?: string, refusal?: unknown, exit?: number | null }
 
 const lanes = new Map<string, { active: number, waiting: (() => void)[] }>()
-async function admit<T>(key: string, limit: number, run: () => Promise<T>): Promise<T> {
+/** Exclusive lanes held by the current async chain; a hold ends when its `run` settles. */
+const holding = new AsyncLocalStorage<readonly { key: string, live: boolean }[]>()
+async function admit<T>(key: string, limit: number, run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  // Re-entrant: work awaited inside an exclusive hold (a hook nested in a held tool call)
+  // runs in that hold instead of queueing behind itself.
+  const outer = holding.getStore()?.filter(hold => hold.live) ?? []
+  if (limit === 1 && outer.some(hold => hold.key === key)) return run()
+  signal?.throwIfAborted()
   let lane = lanes.get(key)
   if (!lane) lanes.set(key, lane = { active: 0, waiting: [] })
-  if (lane.active >= limit) await new Promise<void>((resolve) => lane!.waiting.push(resolve))
-  else lane.active++
-  try { return await run() } finally {
+  if (lane.active >= limit) {
+    const current = lane
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => {
+        const index = current.waiting.indexOf(wake)
+        // Already handed the lane: proceed, `run` sees the abort itself.
+        if (index < 0) return
+        current.waiting.splice(index, 1)
+        reject(signal!.reason)
+      }
+      const wake = () => { signal?.removeEventListener('abort', abort); resolve() }
+      current.waiting.push(wake)
+      signal?.addEventListener('abort', abort, { once: true })
+    })
+  } else lane.active++
+  const hold = { key, live: true }
+  try { return await (limit === 1 ? holding.run([...outer, hold], run) : run()) } finally {
+    hold.live = false
     const next = lane.waiting.shift()
     if (next) next()
     else if (--lane.active === 0) lanes.delete(key)
@@ -186,9 +209,10 @@ async function admit<T>(key: string, limit: number, run: () => Promise<T>): Prom
 }
 
 /** Wait for, then hold, this host's one-process-per-Store lane (the lane `execute`
- * uses) around `run`; with an empty `run` it waits until the lane is free. */
-export function admitStore<T>(home: string, store: string, run: () => Promise<T>): Promise<T> {
-  return admit(JSON.stringify(['store', home, store]), 1, run)
+ * uses) around `run`. Re-entrant within `run`'s own async chain; waiting ends with
+ * `signal`'s reason when it aborts first. */
+export function admitStore<T>(home: string, store: string, run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  return admit(JSON.stringify(['store', home, store]), 1, run, signal)
 }
 
 /**

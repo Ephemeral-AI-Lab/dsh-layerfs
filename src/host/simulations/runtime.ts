@@ -72,12 +72,22 @@ export class SimulationRuntime {
   refreshModels() {
     for (const [runId, run] of this.runs) {
       const roots = run.plan.agents.filter(script => !script.agentId).map(script => run.bindings.get(script.agentKey))
-      if (roots.length && roots.every(binding => binding && terminal(binding.state))) this.runs.delete(runId)
+      if (roots.length && roots.every(binding => binding && terminal(binding.state))) this.forget(run, runId)
     }
     const signature = this.scripts().map(script => script.scriptId).sort().join('\n')
     if (signature === this.modelSignature) return
     this.modelSignature = signature
     this.ctx.emit?.('llm/models-updated', 'simulation')
+  }
+  /** Release a finished run's in-memory state. A dormant child keeps its binding
+   * while it still holds parked input for its continuation owner (created()). */
+  forget(run, runId = run.manifest.runId) {
+    this.runs.delete(runId)
+    for (const [id, call] of this.calls) if (call.binding.run === run) this.calls.delete(id)
+    for (const binding of run.bindings.values()) {
+      if (binding.parkedHuman?.size || binding.parking?.size || binding.parkedNotices?.size) continue
+      if (this.bindings.get(binding.sessionId) === binding) this.bindings.delete(binding.sessionId)
+    }
   }
   /** Whether a script currently owns this session (running, stopping or handing off). */
   isActive(sessionId) {
@@ -200,7 +210,7 @@ export class SimulationRuntime {
         await this.ctx.layerfsSessions.completeSimulation(binding.sessionId, undefined, 'failed', `${String(error?.message ?? error)} ${CONTINUE_FRESH}`)
       }
       // A failed setup is never offered as a model.
-      this.runs.delete(run.manifest.runId)
+      this.forget(run)
       this.refreshModels()
       throw error
     }
@@ -256,6 +266,7 @@ export class SimulationRuntime {
       return next()
     }
     if (['stopping', 'handoff'].includes(binding.state)) {
+      for (const message of payload.messages) this.parkNotice(binding, message)
       await Promise.all(payload.messages.map(message => this.parkHuman(binding, message)))
       await this.drainParking(binding)
       return { kind: 'reject' }
@@ -313,6 +324,12 @@ export class SimulationRuntime {
     ].filter(Boolean).join('\n')
   }
   async next(options, stream) {
+    try { return await this.scriptReply(options, stream) } catch (error) {
+      await this.holdForChildren(this.bindings.get(String(options.sessionId)))
+      throw error
+    }
+  }
+  async scriptReply(options, stream) {
     const binding = this.bindings.get(String(options.sessionId))
     if (!binding || binding.script.scriptId !== options.model || terminal(binding.state)) throw new Error('This script is no longer active. Select an ordinary model to continue.')
     // A failure already narrated in this session settles through the ordinary failure path.
@@ -471,6 +488,11 @@ export class SimulationRuntime {
   async executeTool(execution, next) {
     const binding = this.bindings.get(String(execution.agent?.id))
     if (!binding || terminal(binding.state)) return next()
+    try { return await this.scriptTool(binding, execution, next) } finally {
+      if (execution.signal?.aborted) await this.holdForChildren(binding)
+    }
+  }
+  async scriptTool(binding, execution, next) {
     binding.controller.signal.throwIfAborted()
     const call = this.calls.get(String(execution.callId))
     if (!call || call.binding !== binding) throw new Error('Tool call is not part of this session script.')
@@ -594,6 +616,9 @@ export class SimulationRuntime {
       const family = binding.script.agentId ? [binding] : [...binding.run.bindings.values()].filter(item => item.rootSessionId === sessionId)
       // Close every descendant gate synchronously before journal I/O can yield.
       for (const item of family) { item.state = 'stopping'; item.controller.abort(new Error('Project work stopped')) }
+      // Settlement notices already queued (a child that finished earlier) are held
+      // too, before the cancelled driver looks for pending input to open a turn.
+      for (const item of family) for (const queued of [...(item.agent?.inbox?.nextTurn ?? []), ...(item.agent?.inbox?.nextStep ?? [])]) this.parkNotice(item, queued, true)
       for (const item of family) {
         // Preserve human followups; script requests can be identified by exact immutable content.
         for (const queued of [...item.agent.inbox.nextTurn, ...item.agent.inbox.nextStep]) if (item.scriptRequests?.has(String(queued.id))) item.agent.inbox.remove(queued.id)
@@ -695,10 +720,57 @@ export class SimulationRuntime {
   }
   inserted(agent, message) {
     const binding = this.bindings.get(String(agent.id))
+    if (binding && this.parkNotice(binding, message, true)) return
     if (binding && !terminal(binding.state)) void this.parkHuman(binding, message).catch(error => this.fail(agent, error))
+  }
+  /** While a script stops, DSH's notice that one of its children settled is held
+   * for the real model instead of reaching the stopping script. Taken out of the
+   * inbox synchronously, so a root kept busy by holdForChildren never wakes into
+   * an empty turn for it. Released without waking (releaseHumans). */
+  parkNotice(binding, message, fromInbox = false) {
+    if (!['stopping', 'handoff'].includes(binding.state) || message?.source?.kind !== 'subagent-settled') return false
+    binding.parkedNotices ??= new Map()
+    binding.parkedNotices.set(String(message.id), message)
+    if (message.source.senderSessionId !== undefined) (binding.settledChildren ??= new Set()).add(String(message.source.senderSessionId))
+    if (fromInbox) binding.agent?.inbox?.remove?.(message.id)
+    return true
+  }
+  /** A stopping root's driver stays busy until its live children settle (bounded),
+   * so DSH delivers their settlement notices as steering that parkNotice takes,
+   * rather than as a follow-up that wakes the idle root into an empty turn. */
+  async holdForChildren(binding, limitMs = 15000) {
+    if (!binding || binding.script.agentId) return
+    // The turn's abort listener starts stop(); let it run first.
+    await new Promise(resolve => setImmediate(resolve))
+    if (!['stopping', 'handoff'].includes(binding.state) || !this.ctx.agents?.get) return
+    const live = id => !!this.ctx.agents.get(id)
+    const children = [...binding.run.bindings.values()].filter(item => item !== binding && item.rootSessionId === binding.rootSessionId && live(item.sessionId))
+    const gone = new Map()
+    const deadline = Date.now() + limitMs
+    while (Date.now() < deadline) {
+      const now = Date.now()
+      // DSH sends the notice just after the child leaves the registry; allow it a moment.
+      const open = children.filter(item => {
+        if (binding.settledChildren?.has(item.sessionId)) return false
+        if (live(item.sessionId)) return true
+        if (!gone.has(item.sessionId)) gone.set(item.sessionId, now)
+        return now - gone.get(item.sessionId) < 250
+      })
+      if (!open.length) return
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
   }
   async releaseHumans(binding, wake) {
     await this.drainParking(binding)
+    // Settlement notices are context for the real model's next turn, never a wake.
+    for (const [id, message] of binding.parkedNotices ?? []) {
+      const pending = [...(binding.agent.inbox.nextTurn ?? []), ...(binding.agent.inbox.nextStep ?? [])]
+      if (!pending.some(queued => String(queued.id) === id)) {
+        if (typeof binding.agent.inject === 'function') binding.agent.inject(message)
+        else binding.agent.send(message, 'next-step', false)
+      }
+      binding.parkedNotices.delete(id)
+    }
     for (const [id, message] of binding.parkedHuman ?? []) {
       const pending = [...(binding.agent.inbox.nextTurn ?? []), ...(binding.agent.inbox.nextStep ?? [])]
       if (!pending.some(queued => String(queued.id) === id)) binding.agent.send(message, 'next-turn', wake)
@@ -758,21 +830,23 @@ export class SimulationRuntime {
     return { project: manifest.projectRef, machine: manifest.machine, sandboxes, rootSessionId: binding.rootSessionId }
   }
   /** LayerFS fails a second process on one Store (`Busy`, "Store busy before
-   * effect"), so a scripted CLI call holds the host's per-Store lane while its
-   * bash runs. The lane is taken by a tools/execute hook registered once, when
-   * the first scripted command is issued: after every hook installed at startup,
-   * so it wraps only the shell itself. Holding it around the outer hooks would
-   * invert their lock order (host work they await takes the same lane). */
+   * effect"), so a scripted CLI call that opens the Store holds the host's
+   * per-Store lane while its bash runs: the same calls the host's own `execute`
+   * serializes (`storeOfCall`), never sandbox or workspace calls, which go
+   * through the daemon and may run long. The lane is taken by a tools/execute
+   * hook registered once, when the first scripted command is issued, so it
+   * normally wraps only the shell itself; the lane is re-entrant, so host work
+   * a later-registered hook awaits inside it cannot deadlock on it either.
+   * Waiting for the lane ends when the tool call is aborted. */
   ensureStoreLane() {
     if (this.storeLane || typeof this.ctx.on !== 'function') return
     this.storeLane = true
     this.ctx.on('tools/execute', (execution, next) => {
       const call = this.calls.get(String(execution.callId))
       if (!call || call.action.type !== 'tool' || call.binding.sessionId !== String(execution.agent?.id) || !call.argv) return next()
-      // A remote workspace exec never opens the Store.
-      const store = call.argv[0] === 'workspace' && call.argv[1] === 'exec' ? undefined : storeOfCall(call.argv) ?? call.binding.run.manifest?.store
+      const store = storeOfCall(call.argv)
       const home = this.ctx.layerfs?.home
-      return store && home ? admitStore(home, store, () => next()) : next()
+      return store && home ? admitStore(home, store, () => next(), execution.signal) : next()
     })
   }
 }

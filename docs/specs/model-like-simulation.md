@@ -123,6 +123,22 @@ Use a script-scoped admission gate that can release cleanly for LLM continuation
 do not use teardown-only `drainDescendants` on a continuing root, because its
 admission cutoff lasts until that root leaves the agent registry.
 
+DSH tells a parent when a child settles (`subagent-settled` notice): as a follow-up
+that wakes an idle parent, or as steering while the parent is busy. A wake of an
+idle agent always opens a turn, so a stopping root whose children settled after
+it went idle would show an empty turn. A stopping root's cancelled step therefore
+stays busy until its live children settle (at most 15 s). Their notices arrive as
+steering, are taken out of the inbox at once and are held, so no turn opens. After
+the handoff they are injected for the real model's next turn without waking it.
+
+Scripted commands that open the Store (`file`, `branch`, `commit`, `project`, `store
+stats`, the host's `storeOfCall` rule) hold the host's per-Store lane while their
+bash runs. Sandbox and workspace commands go through the daemon and never take the
+lane. The lane is re-entrant within one async chain, and waiting for it ends when
+the tool call is aborted. A finished run's in-memory calls and bindings are released.
+A dormant child still holding parked human input keeps its binding until its
+continuation owner reopens it.
+
 For `workspace.exec`, request LayerFS execution cancellation and verify the
 outcome; killing the local CLI process alone does not prove remote termination.
 Uncertain cancellation or mutation outcomes are recorded in the journal and end

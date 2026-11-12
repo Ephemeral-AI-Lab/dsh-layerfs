@@ -8,8 +8,8 @@ import { apply as installNativeSubagentControl } from '@deepseek-ai/dsh-tool-sub
 const root = new URL('..', import.meta.url).pathname
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib/.test-simulation-runtime-'))
-await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/simulations/model.ts'; export * from './src/host/simulations/runtime.ts'; export { simulationArguments } from './src/host/simulations/index.ts'; export { SimulationExecution } from './src/host/simulations/gate.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'runtime.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
-const { SimulationAdapter, SimulationRuntime, SimulationExecution, bashReceipt, simulationArguments } = await import(pathToFileURL(join(out, 'runtime.mjs')))
+await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/simulations/model.ts'; export * from './src/host/simulations/runtime.ts'; export { simulationArguments } from './src/host/simulations/index.ts'; export { SimulationExecution } from './src/host/simulations/gate.ts'; export { admitStore } from './src/host/layerfs/cli.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'runtime.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
+const { SimulationAdapter, SimulationRuntime, SimulationExecution, bashReceipt, simulationArguments, admitStore } = await import(pathToFileURL(join(out, 'runtime.mjs')))
 after(() => rmSync(out, { recursive: true, force: true }))
 
 test('model adapter emits native tool blocks without fake usage, auxiliary calls cannot advance actions', async () => {
@@ -473,4 +473,139 @@ test('the model list offers only scripts that can still run and announces change
   assert.equal(runtime.runs.size, 0, 'finished runs are dropped')
   assert.deepEqual(emitted.at(-1), ['llm/models-updated', 'simulation'])
   assert.equal(emitted.length, 2)
+})
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const inboxAgent = (id) => {
+  const agent = modelAgent(id, { provider: 'simulation', model: id })
+  agent.injected = []
+  agent.inbox = { nextTurn: [], nextStep: [], remove(messageId) { for (const list of [this.nextTurn, this.nextStep]) { const at = list.findIndex(item => item.id === messageId); if (at >= 0) list.splice(at, 1) } } }
+  agent.inject = message => agent.injected.push(message)
+  return agent
+}
+const settled = (child) => ({ id: `settled-${child}`, source: { kind: 'subagent-settled', form: 'notice', senderSessionId: child }, content: [{ type: 'text', text: `Background subagent ${child} was stopped before it finished.` }] })
+
+test('a stopping root stays busy until its children settle; their notices wait for the real model without a wake', async () => {
+  const live = new Set(['child'])
+  const runtime = new SimulationRuntime({ agents: { get: id => live.has(id) ? {} : undefined } })
+  const rootScript = { agentKey: 'c-main', conversationId: 'c', agentId: null }, childScript = { agentKey: 'c-worker', conversationId: 'c', agentId: 'worker' }
+  const run = { bindings: new Map() }
+  const root = { run, script: rootScript, sessionId: 'parent', rootSessionId: 'parent', state: 'running', agent: inboxAgent('parent') }
+  const child = { run, script: childScript, sessionId: 'child', rootSessionId: 'parent', state: 'running', agent: inboxAgent('child') }
+  run.bindings.set('c-main', root).set('c-worker', child)
+  runtime.bindings.set('parent', root).set('child', child)
+  // A running script receives notices as ordinary input.
+  const early = settled('other')
+  assert.equal(runtime.parkNotice(root, early, true), false)
+  root.state = 'stopping'
+  let held = true
+  const hold = runtime.holdForChildren(root).then(() => { held = false })
+  await sleep(80)
+  assert.equal(held, true, 'the stopping root waits for its live child')
+  const notice = settled('child')
+  root.agent.inbox.nextStep.push(notice)
+  runtime.inserted(root.agent, notice)
+  assert.deepEqual(root.agent.inbox.nextStep, [], 'taken out of the inbox at once, so no wake finds pending input')
+  await hold
+  assert.equal(held, false)
+  // Claimed into a step while stopping, a notice is kept too (the step is rejected).
+  const claimed = settled('late')
+  const decision = await runtime.preStep({ agent: root.agent, messages: [claimed], signal: new AbortController().signal, modelSelection: { provider: 'simulation', model: 'x' } }, async () => assert.fail('a stopping script never enters a step'))
+  assert.deepEqual(decision, { kind: 'reject' })
+  root.state = 'stopped'
+  await runtime.releaseHumans(root, true)
+  assert.deepEqual(root.agent.injected.map(message => message.id), ['settled-child', 'settled-late'], 'context for the next real turn, never a wake')
+  assert.equal(root.parkedNotices.size, 0)
+})
+
+test('the root hold is bounded: a child that left without a notice releases it shortly after', async () => {
+  const live = new Set(['child'])
+  const runtime = new SimulationRuntime({ agents: { get: id => live.has(id) ? {} : undefined } })
+  const run = { bindings: new Map() }
+  const root = { run, script: { agentKey: 'c-main', agentId: null }, sessionId: 'parent', rootSessionId: 'parent', state: 'stopping' }
+  run.bindings.set('c-main', root).set('c-worker', { run, script: { agentKey: 'c-worker', agentId: 'worker' }, sessionId: 'child', rootSessionId: 'parent', state: 'stopping' })
+  const started = Date.now()
+  setTimeout(() => live.delete('child'), 50)
+  await runtime.holdForChildren(root)
+  assert.ok(Date.now() - started < 1000)
+  // Children are never held, nor is a root that is not stopping.
+  await runtime.holdForChildren({ ...root, state: 'running' })
+  const capped = Date.now()
+  live.add('child')
+  await runtime.holdForChildren(root, 100)
+  assert.ok(Date.now() - capped < 500, 'never longer than its limit')
+})
+
+test('a finished run releases its calls and bindings, except a dormant child still holding parked input', async () => {
+  const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async () => {} } })
+  const rootScript = { agentKey: 'c-main', scriptId: 'root', conversationId: 'c', agentId: null, turns: [] }, childScript = { agentKey: 'c-worker', scriptId: 'worker', conversationId: 'c', agentId: 'worker', turns: [] }
+  const target = { receipt: 'setup.project', branch: 'main', initial: true }
+  const run = { manifest: { runId: 'run' }, plan: { agents: [rootScript, childScript], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
+  const make = (script, sessionId) => ({ run, script, sessionId, rootSessionId: 'parent', ordinaryModel: realModel, state: 'running', controller: new AbortController(), agent: modelAgent(sessionId, { provider: 'simulation', model: sessionId }) })
+  const root = make(rootScript, 'parent'), child = make(childScript, 'child')
+  for (const binding of [root, child]) { runtime.bindings.set(binding.sessionId, binding); run.bindings.set(binding.script.agentKey, binding) }
+  runtime.runs.set('run', run)
+  runtime.calls.set('call-1', { binding: root, action: { type: 'tool', stepKey: 'x' } })
+  await runtime.stop('parent')
+  assert.equal(runtime.runs.size, 0)
+  assert.equal(runtime.calls.size, 0)
+  assert.equal(runtime.bindings.size, 0)
+  assert.equal(runtime.isActive('parent'), false)
+  // A dormant child whose parked human input awaits its continuation owner is kept.
+  const second = new SimulationRuntime({ layerfsSessions: { completeSimulation: async () => {} } })
+  const kept = { ...child, state: 'failed', parkedHuman: new Map([['h', {}]]) }
+  const done = { ...root, state: 'stopped' }
+  const run2 = { ...run, bindings: new Map([['c-main', done], ['c-worker', kept]]) }
+  done.run = kept.run = run2
+  second.runs.set('run', run2); second.bindings.set('parent', done).set('child', kept)
+  second.refreshModels()
+  assert.equal(second.runs.size, 0)
+  assert.deepEqual([...second.bindings.keys()], ['child'])
+})
+
+test('a scripted command takes the Store lane only when it opens the Store; waiting ends on abort', async () => {
+  const hooks = []
+  const runtime = new SimulationRuntime({ on: (name, hook) => hooks.push([name, hook]), layerfs: { home: '/lane-home' } })
+  runtime.ensureStoreLane()
+  const [[name, hook]] = hooks
+  assert.equal(name, 'tools/execute')
+  const binding = { sessionId: 's', run: { manifest: { store: 'st' } } }
+  runtime.calls.set('sandbox', { binding, action: { type: 'tool' }, argv: ['sandbox', 'create', 'st/p', 'sb-1', 'native'] })
+  runtime.calls.set('write', { binding, action: { type: 'tool' }, argv: ['file', 'write', 'st/p', 'main', '/a.md', '--message', 'm'] })
+  let release
+  const holder = admitStore('/lane-home', 'st', () => new Promise(resolve => { release = resolve }))
+  await sleep(10)
+  // A sandbox command goes through the daemon: it never waits for the Store lane.
+  assert.equal(await hook({ callId: 'sandbox', agent: { id: 's' }, signal: new AbortController().signal }, async () => 'ran'), 'ran')
+  const controller = new AbortController()
+  let ran = false
+  const waiting = hook({ callId: 'write', agent: { id: 's' }, signal: controller.signal }, async () => { ran = true })
+  await sleep(10)
+  controller.abort(new Error('stopped'))
+  await assert.rejects(waiting, /stopped/)
+  assert.equal(ran, false)
+  release()
+  await holder
+  // The lane is free again, and re-entrant inside its own hold.
+  assert.equal(await admitStore('/lane-home', 'st', () => admitStore('/lane-home', 'st', async () => 'nested')), 'nested')
+})
+
+test('Stop takes a settlement notice already queued for the next turn, then hands it to the real model without a wake', async () => {
+  const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async () => {} } })
+  const script = { agentKey: 'c-main', scriptId: 'root', conversationId: 'c', agentId: null, turns: [] }
+  const target = { receipt: 'setup.project', branch: 'main', initial: true }
+  const run = { manifest: { runId: 'run' }, plan: { agents: [script], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
+  const agent = inboxAgent('parent')
+  const sent = []
+  agent.send = (...args) => sent.push(args)
+  const notice = settled('finished-child')
+  agent.inbox.nextTurn.push(notice)
+  let pendingWhenStopping
+  agent.cancel = () => { pendingWhenStopping = agent.inbox.nextTurn.length + agent.inbox.nextStep.length }
+  const binding = { run, script, sessionId: 'parent', rootSessionId: 'parent', ordinaryModel: realModel, state: 'running', controller: new AbortController(), agent }
+  runtime.bindings.set('parent', binding); run.bindings.set('c-main', binding)
+  await runtime.stop('parent')
+  assert.equal(pendingWhenStopping, 0, 'nothing is left for the cancelled driver to open a turn with')
+  assert.deepEqual(agent.injected, [notice])
+  assert.deepEqual(sent, [], 'no wake')
 })
