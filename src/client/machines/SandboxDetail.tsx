@@ -10,7 +10,7 @@ import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Card, Fact, Facts, LinkButton, LoadError, Loading, Notice, Page, PageHead, Refusal, Section, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
-import type { View } from './MachinesPage.tsx'
+import type { View } from './context.tsx'
 import { SANDBOX_CAPACITY, clearingCall, opWords, shortImage, stateLook, workspaceChanges, workspaceName } from './model.ts'
 import { SandboxMenu, useClose, useSandboxRead } from './Sandboxes.tsx'
 import css from './machines.module.css'
@@ -23,7 +23,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   const closing = useClose(name)
   const crumbs = [
     { label: t('panel'), ariaLabel: t('backToMachines'), onClick: () => go({ kind: 'board' }) },
-    { label: machine, onClick: () => go({ kind: 'machine', name: machine, tab: 'sandboxes' }) },
+    { label: machine, onClick: () => go({ kind: 'machine', name: machine }) },
   ]
   const info = detail.data
   const targetMachine = info?.machine ?? listed?.machine
@@ -32,7 +32,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
     return (
       <Page wide label={name}>
         <PageHead title={name} crumbs={crumbs} current={name} icon={<SandboxGlyph size={22} />}
-          actions={!wrong ? <SandboxMenu name={name} op={listed?.op} closing={closing} onDeleted={() => go({ kind: 'machine', name: machine, tab: 'sandboxes' })} /> : undefined} />
+          actions={!wrong ? <SandboxMenu name={name} op={listed?.op} closing={closing} onDeleted={() => go({ kind: 'machine', name: machine })} /> : undefined} />
         {wrong
           ? <Notice tone="danger"><p>{t('sandboxWrongMachine', { name, machine })}</p></Notice>
           : detail.error != null
@@ -59,7 +59,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
           <>
             <DoctorAction api={api} t={doctorT} target="sandbox" name={name} label={doctorT('diagnose')} />
             <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} onClick={detail.reload}>{t('refresh')}</Button>
-            <SandboxMenu name={name} op={info.op ?? null} closing={closing} onDeleted={() => go({ kind: 'machine', name: machine, tab: 'sandboxes' })} />
+            <SandboxMenu name={name} op={info.op ?? null} closing={closing} onDeleted={() => go({ kind: 'machine', name: machine })} />
           </>
         )}
       />

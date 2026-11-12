@@ -62,6 +62,8 @@ export interface MachineInfo {
   memory: number | null
   disk: number | null
   stores: string[]
+  /** The PostgreSQL Stores attached to it (store.attach); absent from a CLI before attachments. */
+  postgresql?: string[]
   sandboxes: string[]
   image?: string
   docker?: string
@@ -82,6 +84,8 @@ export interface MachineStore {
 
 /** A PostgreSQL Store: on no machine; Sandboxes on a machine that supports it reach its database. */
 export interface MachinePgStore {
+  /** The machines it is attached to, each checked or not; null from a CLI before attachments. */
+  machines?: { machine: string, checked: boolean }[] | null
   state?: string
   op?: SdkOperation | null
   name: string
@@ -578,4 +582,19 @@ export function workspaceChanges(ws: WorkspaceInfo): Words & { tone?: 'warning' 
   if (ws.dirty == null) return w('notReported')
   if (ws.dirty.entries > 0) return { ...w('wsUncommitted', { n: ws.dirty.entries }), tone: 'warning' }
   return w('wsClean')
+}
+
+/**
+ * A Sandbox's name as rows show it: the seven hex characters after `dsh-` for
+ * the ids DSH generates (`dsh-986b86494b6e444ca800` → `986b864`), else the
+ * name as it is. The full name stays in the row's title.
+ */
+export function shortSandbox(name: string): string {
+  return /^dsh-[0-9a-f]{12,}$/.test(name) ? name.slice(4, 11) : name
+}
+
+/** The PostgreSQL Stores a machine's Sandboxes use: those attached to it, else (an older CLI) every one it can reach. */
+export function pgUsable(m: MachineInfo, postgresql: MachinePgStore[]): MachinePgStore[] {
+  if (m.postgresql) return postgresql.filter((s) => m.postgresql!.includes(s.name))
+  return m.supports?.postgresql_sandbox ? postgresql : []
 }

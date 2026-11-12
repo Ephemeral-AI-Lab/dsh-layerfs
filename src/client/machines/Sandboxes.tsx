@@ -1,13 +1,12 @@
 /**
- * A machine's Sandboxes: one card each, its row (opens the Sandbox's page;
- * its menu sits above that) and its mounted Workspaces read with sandbox.get.
- * Delete is sandbox.close; Force delete is a separate explicit action. The
- * New Sandbox dialog creates one on this machine from an eligible project.
+ * What a Sandbox's tab and the machine pages share: reading a Sandbox
+ * (sandbox.get), its menu (Delete is sandbox.close; Force delete is a separate
+ * explicit action), and the New Sandbox dialog that creates one on a machine
+ * from an eligible project.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRightUpOutlineRegular, Input, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Card, Field, MenuSelect, MoreMenu, Notice, Refusal, StateChip, type Choice } from '../ui/index.tsx'
-import { STORAGE_PANEL } from './Board.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
 import {
@@ -17,15 +16,6 @@ import {
 import css from './machines.module.css'
 
 const POLL_MS = 15_000
-
-export function SandboxList({ sandboxes, onOpen }: { sandboxes: MachineSandbox[], onOpen: (name: string) => void }): ReactNode {
-  const { t } = useMachinesContext()
-  return (
-    <div role="list" aria-label={t('sandboxes')} className={css.groups}>
-      {sandboxes.map((b) => <SandboxGroup key={b.name} b={b} onOpen={() => onOpen(b.name)} />)}
-    </div>
-  )
-}
 
 /** sandbox.get at mount, after its state or count changes, and every 15 s while it runs and the window is visible. */
 export function useSandboxRead(name: string, state: string | undefined, count: number | null | undefined): { data: SandboxInfo | null, error: unknown, loading: boolean, reload: () => void } {
@@ -70,88 +60,6 @@ export function useClose(name: string): { busy: boolean, error: unknown, unknown
   }
   const forceAllowed = refusal?.code === 'MountsActive' || (refusal?.code === 'Busy' && !!refusal.detail?.execs?.length)
   return { busy, error, unknown, close, forceAllowed, uncertain: refusal?.code === 'Unknown' }
-}
-
-function SandboxGroup({ b, onOpen }: { b: MachineSandbox, onOpen: () => void }): ReactNode {
-  const { t, stateWord, refusal } = useMachinesContext()
-  const closing = useClose(b.name)
-  const detail = useSandboxRead(b.name, b.state, b.workspaces)
-  const ref = b.project ? projectRef(b.project) : null
-  const imageRef = b.image || detail.data?.image
-  const backend = b.backend || detail.data?.backend
-  const image = imageRef ? shortImage(imageRef) : backend === 'native' ? t('imageNone') : t('notReported')
-  const route = b.route || detail.data?.route
-  const kernel = route === 'fuse' ? 'FUSE' : route === 'nfs' ? 'NFS' : route || '—'
-  const look = stateLook('sandbox', b.state)
-  const operation = opWords(b.op)
-  const calls = b.state === 'unresolved' ? clearingCall('sandbox', b.name, b.op) : null
-  const errorMessage = detail.error ? (detail.error instanceof Error ? detail.error.message : String((detail.error as { message?: unknown }).message ?? detail.error)) : null
-  const unavailable = errorMessage || detail.data?.refusal?.message || detail.data?.downReason || (detail.data?.unread ? t('wsUnread') : null)
-  const workspaces = detail.data && !unavailable ? detail.data.workspaces : null
-  const count = workspaces?.length ?? b.workspaces
-  return (
-    <Card role="listitem" aria-label={b.name} className={css.group} data-sandbox={b.name}>
-      <header className={css.groupHead}>
-        <span className={css.groupIcon} aria-hidden="true"><SandboxGlyph size={16} /></span>
-        <div className={css.groupTitleBlock}>
-          <h3 className={css.groupTitle}>
-            <button type="button" className={css.cardOpen} onClick={onOpen} aria-label={t('openSandbox', { name: b.name })}>{b.name}</button>
-          </h3>
-          <span className={css.groupSub} title={b.project ?? undefined}>{ref ? `${ref.store ?? ''}${ref.store ? '/' : ''}${ref.name}` : t('noProject')}</span>
-        </div>
-        <span className={css.groupMeta}>
-          <span title={imageRef ?? undefined}><span className={css.metaLabel}>{t('image')}</span> <span className={css.mono}>{image}</span></span>
-          <span><span className={css.metaLabel}>{t('kernel')}</span> {kernel}</span>
-          <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={operation} />
-        </span>
-        <div className={css.above}>
-          <SandboxMenu name={b.name} op={b.op ?? null} closing={closing} onOpen={onOpen} />
-        </div>
-        <IconChevronRightOutlineRegular size={14} className={css.groupArrow} aria-hidden="true" />
-      </header>
-      <div className={css.groupBody} aria-label={t('workspacesIn', { name: b.name })}>
-        {workspaces && workspaces.length > 0
-          ? (
-            <table className={css.rows}>
-              <thead>
-                <tr>
-                  <th>{t('workspace')} <span className={css.mono}>{workspaces.length} / {SANDBOX_CAPACITY}</span></th>
-                  <th>{t('branch')}</th>
-                  <th className={css.colWide}>{t('changes')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workspaces.map((ws) => {
-                  const c = workspaceChanges(ws)
-                  return (
-                    <tr key={ws.ws}>
-                      <td title={ws.path || ws.ws}>{workspaceName(ws)}</td>
-                      <td title={ws.branch || undefined} className={css.muted}>{ws.branch || t('notReported')}</td>
-                      <td className={css.colWide} data-tone={c.tone}>{t(c.key, c.values)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )
-          : (
-            <p className={css.groupEmpty} title={unavailable ?? undefined}>
-              {workspaces ? t('wsNone')
-                : unavailable ? (count != null ? t('wsUnavailableCount', { n: String(count), reason: unavailable }) : t('wsUnavailable', { reason: unavailable }))
-                  : detail.loading ? t('wsReading')
-                    : count === 0 ? t('wsNone') : t('wsNotReported')}
-            </p>
-          )}
-        {(calls || closing.error !== null || !!closing.unknown?.length) && (
-          <Notice tone="danger">
-            {calls && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
-            {closing.error !== null && <Refusal error={closing.error} labels={refusal} compact />}
-            {!!closing.unknown?.length && <p>{t('forceClosedUnknown', { list: closing.unknown.join(', ') })}</p>}
-          </Notice>
-        )}
-      </div>
-    </Card>
-  )
 }
 
 /** Normal Delete, Read after uncertainty, and explicit Force delete. */
@@ -242,7 +150,7 @@ function SandboxImageFields({ machine, disabled, onChange }: { machine: string, 
 
 /** New Sandbox on this machine: SQLite projects whose Store is here, or PostgreSQL projects when the machine supports them. */
 export function NewSandboxDialog({ machine, taken, onClose }: { machine: MachineInfo, taken: string[], onClose: () => void }): ReactNode {
-  const { t, projects: readProjects, createSandbox, readSandbox, refusal, openPanel } = useMachinesContext()
+  const { t, projects: readProjects, createSandbox, readSandbox, refusal, openStorageTab } = useMachinesContext()
   const [projects, setProjects] = useState<{ data: ProjectSummary[] | null, error: unknown, loading: boolean }>({ data: null, error: null, loading: true })
   const loadProjects = useCallback(() => {
     setProjects({ data: null, error: null, loading: true })
@@ -297,7 +205,7 @@ export function NewSandboxDialog({ machine, taken, onClose }: { machine: Machine
               ? (
                 <>
                   <p role="status" className={css.muted}>{t('projectsNone', { machine: machine.name })}</p>
-                  <div><Button type="button" size="sm" variant="outline" icon={<IconRightUpOutlineRegular size={13} />} onClick={() => { onClose(); openPanel(STORAGE_PANEL) }}>{t('openStorage')}</Button></div>
+                  <div><Button type="button" size="sm" variant="outline" icon={<IconRightUpOutlineRegular size={13} />} onClick={() => { onClose(); openStorageTab('overview') }}>{t('openStorage')}</Button></div>
                 </>
               )
               : (

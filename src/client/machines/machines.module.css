@@ -1,5 +1,6 @@
-/* Machines page: the board's machine cards, a machine's page (resources,
-   tabs, Sandbox and Store cards, spec), the dialogs and startup progress.
+/* Machines pages: machine blocks (a machine over its Stores and Sandboxes)
+   on the Machines tab and a machine's tab, the Sandbox tab's tables, the
+   spec, the dialogs and startup progress.
    Page chrome, cards, facts and chips come from ../ui/ui.module.css.
 
    Hover affordances sit under @media (hover: hover). */
@@ -19,13 +20,6 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-.footnote {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
 .emptyLine {
   margin: 0;
   padding: 20px 0;
@@ -34,83 +28,7 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* Controls inside a card whose title stretches over the whole card. */
-.above {
-  position: relative;
-  z-index: 2;
-}
-
-/* ---------- facts line ---------- */
-
-.facts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  row-gap: 4px;
-  margin: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.factPart {
-  display: inline-flex;
-  align-items: center;
-  white-space: nowrap;
-}
-
-.factPart[data-tone='strong'] {
-  color: var(--dsw-alias-label-primary);
-}
-
-.factPart[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
-  font-weight: 500;
-}
-
-.factDot {
-  padding: 0 8px;
-  color: var(--dsw-alias-label-caption);
-}
-
-/* ---------- board grid and machine cards ---------- */
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
-  gap: 16px;
-  align-items: stretch;
-}
-
-.machineCard {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 16px 16px 0;
-}
-
-.machineCard:active {
-  background: var(--dsw-alias-interactive-bg-active);
-}
-
-@media (hover: hover) {
-  .machineCard:hover {
-    background: color-mix(in srgb, var(--dsw-alias-settings-card-fill), var(--dsw-alias-interactive-bg-hover));
-  }
-}
-
-.machineCard:has(.above:active) {
-  background: var(--dsw-alias-settings-card-fill);
-}
-
-.cardHead {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
+/* ---------- machine glyph tile ---------- */
 
 .kindTile {
   display: inline-flex;
@@ -125,207 +43,9 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.cardTitleBlock {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.cardTitle {
-  margin: 0;
-  overflow: hidden;
-  font-size: 15px;
-  line-height: 22px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cardOpen {
-  max-width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-.cardOpen::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  border-radius: var(--dsw-radius-xl);
-}
-
-.cardOpen:focus-visible {
-  outline: none;
-}
-
-.cardOpen:focus-visible::after {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 2px;
-}
-
-.cardSub {
-  margin: 0;
-  overflow: hidden;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.shared {
-  display: flex;
-  align-items: center;
-  min-height: 38px;
-  margin: 16px 0 0;
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.capacity,
-.inventory {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 0;
-}
-
-.capacity {
-  margin-top: 16px;
-}
-
-.capacity > div,
-.inventory > div {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.capacity dt,
-.inventory dt {
-  font-size: 11.5px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.capacity dd {
-  margin: 2px 0 0;
-  overflow: hidden;
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.inventory {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-}
-
-.inventory dd {
-  margin: 0;
-  font-size: 18px;
-  line-height: 24px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-.storesLine {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-  margin-top: 12px;
-  font-size: 12.5px;
-  line-height: 18px;
-}
-
-.storesLabel {
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.storesList {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 10px;
-  min-width: 0;
-}
-
-.cardNotice {
-  margin-top: 12px;
-  padding: 8px 12px;
-  font-size: 12.5px;
-  line-height: 18px;
-}
-
-.clamp {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.disk {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 6px 12px;
-  margin-top: auto;
-  padding-top: 14px;
-  font-size: 12.5px;
-  line-height: 18px;
-}
-
-.diskLabel {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.diskValue {
-  overflow: hidden;
-  color: var(--dsw-alias-label-secondary);
-  text-align: end;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
 .diskMeter {
   grid-column: 1 / -1;
   width: 100%;
-}
-
-.dockerNote {
-  margin: 10px 0 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.cardFoot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 52px;
-  margin: 14px -16px 0;
-  padding: 0 16px;
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-  font-size: 12.5px;
 }
 
 /* ---------- runtime section ---------- */
@@ -386,187 +106,7 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* ---------- machine page ---------- */
-
-.resources {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 28px;
-  margin: -8px 0 0;
-}
-
-.resources > div {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.resources dt {
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.resources dd {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 18px;
-  font-weight: 500;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.tabBar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.tabs {
-  width: min(420px, 100%);
-}
-
-.tabLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.tabCount {
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.tabAction {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.panel {
-  min-width: 0;
-}
-
-/* ---------- Sandbox and Store cards ---------- */
-
-.groups {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-
-.group {
-  position: relative;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.groupHead {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  min-height: 56px;
-  padding: 8px 12px 8px 16px;
-}
-
-@media (hover: hover) {
-  .groupHead:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
-}
-
-.groupIcon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 32px;
-  height: 32px;
-  border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: var(--dsw-radius-md);
-  color: var(--dsw-alias-label-secondary);
-}
-
-.groupTitleBlock {
-  display: flex;
-  flex: 1 1 160px;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.groupTitle {
-  margin: 0;
-  overflow: hidden;
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.groupHead .cardOpen::after {
-  border-radius: 0;
-  bottom: auto;
-  height: 56px;
-}
-
-.groupSub {
-  overflow: hidden;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.groupMeta {
-  display: flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 16px;
-  min-width: 0;
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-  white-space: nowrap;
-}
-
-.metaLabel {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.groupArrow {
-  flex: none;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.groupBody {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 0 16px 12px;
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-}
-
-.groupEmpty {
-  margin: 0;
-  padding-top: 12px;
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-  overflow-wrap: anywhere;
-}
+/* ---------- Sandbox tab tables ---------- */
 
 .rows {
   width: 100%;
@@ -608,10 +148,6 @@
 }
 
 @media (max-width: 1000px) {
-  .groupMeta > span:not(:last-child) {
-    display: none;
-  }
-
   .colWide {
     display: none;
   }
@@ -954,4 +490,391 @@
 
 .progressSteps li > :nth-child(2) {
   flex: 1;
+}
+
+/* ---------- machine blocks: a machine over its Stores and Sandboxes ---------- */
+
+.blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.block {
+  overflow: hidden;
+}
+
+.blockHead {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, auto) minmax(0, 1.2fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.blockIdentity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.blockGlyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.blockNames {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.blockName {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.blockName:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 2px;
+  border-radius: var(--dsw-radius-xs);
+}
+
+@media (hover: hover) {
+  .blockName:hover {
+    text-decoration: underline;
+  }
+}
+
+.blockSub {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blockActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.blockReason {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -4px 16px 12px 42px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.blockReasonText {
+  flex: 1;
+  min-width: 0;
+}
+
+.blockProgress {
+  padding: 0 16px 12px;
+}
+
+.diskLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diskLine .diskMeter {
+  flex: none;
+  width: 80px;
+}
+
+/* The two columns: Stores (narrower) and Sandboxes. */
+.inventory {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.inventoryColumn {
+  min-width: 0;
+  padding: 10px 16px 12px;
+}
+
+.inventoryColumn + .inventoryColumn {
+  border-left: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.inventoryEmpty {
+  margin: 0;
+  padding: 4px 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.columnHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-bottom: 2px;
+}
+
+.columnTitle {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.columnCount {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.columnSpacer {
+  flex: 1;
+}
+
+.columnLink,
+.lineMore {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dsw-alias-link);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .columnLink:hover,
+  .lineMore:hover {
+    text-decoration: underline;
+  }
+}
+
+.lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lines > li + li {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.lineMore {
+  min-height: 30px;
+}
+
+/* One row: icon, name, meta, then size or slots and state. The whole row opens its tab. */
+.line {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% + 16px);
+  min-height: 32px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  text-align: start;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.storeLine {
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+}
+
+.sandboxLine {
+  grid-template-columns: 14px 72px minmax(0, 1fr) auto auto;
+}
+
+.line[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.line:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: -1px;
+}
+
+.line:active {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+@media (hover: hover) {
+  .line:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.lineIcon {
+  display: inline-flex;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.lineName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lineMeta {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.lineSize,
+.lineSlots {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: end;
+  white-space: nowrap;
+}
+
+.tag {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 5px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-xs);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+}
+
+.lineGroup + .lineGroup,
+.lines + .lineGroup {
+  margin-top: 6px;
+}
+
+.lineGroupHead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 0 4px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.lineGroupName {
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* A machine tab's line of facts. */
+.factRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0;
+  padding: 12px 0;
+  border-block: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.factRow > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.factRow dt {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.factRow dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.details {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.detailsSummary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.detailsSummary > .muted {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.detailsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+
+.detailsActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 960px) {
+  .blockHead {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .inventory {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inventoryColumn + .inventoryColumn {
+    border-left: 0;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
 }

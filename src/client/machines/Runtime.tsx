@@ -14,7 +14,7 @@ import css from './machines.module.css'
 const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
 
 const sourceKey = (source: string) =>
-  source === 'settings' ? 'sourceSettings' as const : source === 'env' ? 'sourceEnv' as const : source === 'config' ? 'sourceConfig' as const
+  source === 'settings' ? 'sourceSettings' as const : source === 'env' ? 'sourceEnv' as const : source === 'config' ? 'sourceConfig' as const : source === 'home' ? 'sourceHome' as const
     : source === 'inherited' ? 'sourceInherited' as const : source === 'default' ? 'sourceDefault' as const : 'sourceNone' as const
 
 /** The whole runtime: its version and state, Change…, and every fact. */
