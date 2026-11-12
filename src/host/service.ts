@@ -4,7 +4,7 @@
  * and the plugin's own durable state file.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { CliError, client, discover, plain, type Discovery, type Lfs } from './layerfs/cli.ts'
@@ -28,6 +28,13 @@ export interface LayerfsConfig {
   daemon?: string
   /** Absolute Linux bundle folder (holds bundle.json) the docker/VM machines start workers from. */
   bundle?: string
+  /**
+   * Absolute XDG cache home LayerFS reads prepared machine OS images from
+   * (`<cacheHome>/layerfs/machine-images`, built by LayerFS `tools/machine_image.py`);
+   * passed to every CLI as XDG_CACHE_HOME. Else runtime.json, else
+   * DSH_LAYERFS_CACHE_HOME, else the host's own XDG_CACHE_HOME (else `~/.cache`).
+   */
+  cacheHome?: string
   /** LAYERFS_HOME; default `<root>/home`, or DSH_LAYERFS_HOME. */
   home?: string
   /** The `<store>/<name>` project sessions without a project of their own work in (a SQLite Store on native, made on first use). */
@@ -46,6 +53,12 @@ export interface RuntimeStatus {
   readonly bundle: string | null
   /** The bundle's sealed hash and source commit (bundle.json), when readable. */
   readonly bundleInfo: { readonly hash: string | null, readonly source: string | null } | null
+  /** The XDG cache home the CLI reads prepared machine images from (effective, pinned or inherited). */
+  readonly cacheHome: string
+  /** Where cacheHome came from; `inherited`: the host's XDG_CACHE_HOME, `default`: `~/.cache`. */
+  readonly cacheHomeSource: 'config' | 'settings' | 'env' | 'inherited' | 'default'
+  /** Prepared VM OS images installed there (`layerfs/machine-images/<provider>/<platform>/<image>/current.json`). */
+  readonly preparedImages: number
   readonly home: string
   readonly root: string
   readonly projectSessionHome: string
@@ -97,8 +110,8 @@ export class LayerfsService extends Service {
   readonly checkpoints: 'turn' | 'off'
   readonly idleMinutes: number
   /** `<root>/runtime.json`: the CLI/daemon chosen in the UI (wins over env). */
-  readonly settings: JsonFile<{ cli?: string, daemon?: string, bundle?: string }>
-  private pin!: { cli: string | null, daemon: string | null, bundle: string | null, source: RuntimeStatus['source'] }
+  readonly settings: JsonFile<{ cli?: string, daemon?: string, bundle?: string, cacheHome?: string }>
+  private pin!: { cli: string | null, daemon: string | null, bundle: string | null, cacheHome: string | null, cacheHomeSource: RuntimeStatus['cacheHomeSource'], source: RuntimeStatus['source'] }
   private sdk: Lfs | undefined
   private nativeRecorded: Promise<unknown> | undefined
   /** Set while an operation holds the whole home (a preset build or reset): why new Sandboxes must wait, or null. */
@@ -127,7 +140,11 @@ export class LayerfsService extends Service {
     const source = c ? 'config' : s ? 'settings' : e ? 'env' : 'none'
     const daemon = (c ? abs(this.config.daemon) : s ? abs(saved.daemon) : abs(process.env.DSH_LAYERFS_DAEMON)) ?? null
     const bundle = (c ? abs(this.config.bundle) : s ? abs(saved.bundle) : undefined) ?? abs(process.env.DSH_LAYERFS_BUNDLE) ?? abs(process.env.LAYERFS_BUNDLE) ?? null
-    this.pin = { cli, daemon, bundle, source }
+    // prepared machine images: independent of which CLI is pinned
+    const cc = abs(this.config.cacheHome), cs = abs(saved.cacheHome), ce = abs(process.env.DSH_LAYERFS_CACHE_HOME)
+    const cacheHome = cc ?? cs ?? ce ?? null
+    const cacheHomeSource = cc ? 'config' : cs ? 'settings' : ce ? 'env' : abs(process.env.XDG_CACHE_HOME) ? 'inherited' : 'default'
+    this.pin = { cli, daemon, bundle, cacheHome, cacheHomeSource, source }
     this.sdk = undefined
     this.nativeRecorded = undefined
   }
@@ -135,7 +152,7 @@ export class LayerfsService extends Service {
   /** The SDK over the pinned CLI. Throws `CliUnavailable` when nothing is pinned. */
   get lfs(): Lfs {
     if (!this.pin.cli) throw new CliError('CliUnavailable', 'No LayerFS CLI is pinned. Set it in Machines → LayerFS runtime, or DSH_LAYERFS_CLI.', null, 'unavailable')
-    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle })
+    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome })
   }
 
   /** The pinned CLI path, if any. */
@@ -144,6 +161,25 @@ export class LayerfsService extends Service {
   get daemon(): string | null { return this.pin.daemon }
   /** The pinned Linux bundle folder, if any. */
   get bundle(): string | null { return this.pin.bundle }
+  /** The pinned XDG cache home for prepared machine images, if any (else the CLI inherits the host's). */
+  get cacheHome(): string | null { return this.pin.cacheHome }
+
+  /** The cache home the CLI actually reads: the pin, else the host's XDG_CACHE_HOME, else `~/.cache`. */
+  private effectiveCacheHome(): string {
+    return this.pin.cacheHome ?? abs(process.env.XDG_CACHE_HOME) ?? join(homedir(), '.cache')
+  }
+
+  /** How many prepared VM OS images the effective cache home holds. */
+  private preparedImages(): number {
+    const root = join(this.effectiveCacheHome(), 'layerfs', 'machine-images')
+    const dirs = (p: string) => { try { return readdirSync(p).filter((n) => statSync(join(p, n)).isDirectory()) } catch { return [] } }
+    let n = 0
+    for (const provider of dirs(root)) {
+      if (provider === 'objects' || provider === 'builds') continue
+      for (const platform of dirs(join(root, provider))) for (const image of dirs(join(root, provider, platform))) if (existsSync(join(root, provider, platform, image, 'current.json'))) n++
+    }
+    return n
+  }
 
   private bundleInfo(): RuntimeStatus['bundleInfo'] {
     if (!this.pin.bundle) return null
@@ -183,7 +219,8 @@ export class LayerfsService extends Service {
   /** Runtime facts for the UI. */
   async status(): Promise<RuntimeStatus> {
     const base = {
-      cli: this.pin.cli, daemon: this.pin.daemon, bundle: this.pin.bundle, bundleInfo: this.bundleInfo(), home: this.home, root: this.root, projectSessionHome: this.projectSessionHome, source: this.pin.source,
+      cli: this.pin.cli, daemon: this.pin.daemon, bundle: this.pin.bundle, bundleInfo: this.bundleInfo(),
+      cacheHome: this.effectiveCacheHome(), cacheHomeSource: this.pin.cacheHomeSource, preparedImages: this.preparedImages(), home: this.home, root: this.root, projectSessionHome: this.projectSessionHome, source: this.pin.source,
       scratchProject: this.scratchProject, checkpoints: this.checkpoints,
       sessionPersistence: this.persistenceKind(),
     }
@@ -198,15 +235,19 @@ export class LayerfsService extends Service {
   /**
    * Save a new CLI/daemon pin (or clear it with nulls) and switch to it.
    * The new CLI is discovered first; an incompatible one is refused unchanged.
+   * `cacheHome` (the prepared machine image cache) is saved as given; left out,
+   * the saved one is kept, except when the pin is cleared.
    */
-  async savePin(next: { cli: string | null, daemon: string | null, bundle?: string | null }): Promise<RuntimeStatus> {
+  async savePin(next: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null }): Promise<RuntimeStatus> {
+    if (next.cacheHome && (!abs(next.cacheHome) || !existsSync(next.cacheHome) || !statSync(next.cacheHome).isDirectory())) throw new CliError('InvalidInput', 'The machine image cache must be an absolute path to an existing folder')
+    const cacheHome = next.cacheHome !== undefined ? next.cacheHome : next.cli === null ? null : this.settings.read().cacheHome ?? null
     if (next.cli !== null) {
       if (!abs(next.cli) || !existsSync(next.cli)) throw new CliError('InvalidInput', 'The CLI must be an absolute path to an existing file')
       if (next.daemon !== null && (!abs(next.daemon) || !existsSync(next.daemon))) throw new CliError('InvalidInput', 'The daemon must be an absolute path to an existing file')
       if (next.bundle && (!abs(next.bundle) || !existsSync(join(next.bundle, 'bundle.json')))) throw new CliError('InvalidInput', 'The Linux bundle must be an absolute folder holding bundle.json')
       await discover({ cli: next.cli }, true)
     }
-    this.settings.write(next.cli === null ? {} : { cli: next.cli, ...(next.daemon ? { daemon: next.daemon } : {}), ...(next.bundle ? { bundle: next.bundle } : {}) })
+    this.settings.write({ ...(next.cli === null ? {} : { cli: next.cli, ...(next.daemon ? { daemon: next.daemon } : {}), ...(next.bundle ? { bundle: next.bundle } : {}) }), ...(cacheHome ? { cacheHome } : {}) })
     this.resolvePin()
     this.emit('runtime-changed')
     return await this.status()

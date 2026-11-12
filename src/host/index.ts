@@ -29,7 +29,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.inject(['layerfsRemote', 'layerfs'], (ctx) => {
     ctx.layerfsRemote.operate(ctx, {
       'runtime.status': () => ctx.layerfs.status(),
-      'runtime.save': (args: { cli: string | null, daemon: string | null, bundle?: string | null }) => ctx.layerfs.savePin({ cli: args?.cli ?? null, daemon: args?.daemon ?? null, bundle: args?.bundle ?? null }),
+      'runtime.save': (args: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null }) => ctx.layerfs.savePin({ cli: args?.cli ?? null, daemon: args?.daemon ?? null, bundle: args?.bundle ?? null, ...(args && 'cacheHome' in args ? { cacheHome: args.cacheHome ?? null } : {}) }),
     })
     ctx.plugin(routes)
     ctx.plugin(sessions)

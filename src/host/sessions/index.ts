@@ -52,7 +52,7 @@ const need = (args: any, key: string): string => {
 function agentCli(ctx: Context): string | null {
   const cli = ctx.layerfs.cli
   if (!cli) return null
-  return managedCli({ root: ctx.layerfs.root, cli, home: ctx.layerfs.home, bundle: ctx.layerfs.bundle })
+  return managedCli({ root: ctx.layerfs.root, cli, home: ctx.layerfs.home, bundle: ctx.layerfs.bundle, cacheHome: ctx.layerfs.cacheHome })
 }
 
 const turnOf = (session: any): number | undefined => {

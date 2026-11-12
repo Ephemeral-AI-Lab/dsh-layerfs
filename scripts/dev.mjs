@@ -6,7 +6,8 @@
 //   node scripts/dev.mjs [--port 3091] [--fresh] [-- extra dsh args]
 //
 // Env: DSH_LAYERFS_CLI / DSH_LAYERFS_DAEMON pin LayerFS (else desktop/.env.local
-// of ../layerfs-connect is read for LAYERFS_CONNECT_CLI/_DAEMON).
+// of ../layerfs-connect is read for LAYERFS_CONNECT_CLI/_DAEMON). DSH_LAYERFS_CACHE_HOME
+// names the prepared machine image cache (else that file's XDG_CACHE_HOME).
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -23,14 +24,18 @@ if (args.includes('--fresh')) rmSync(dev, { recursive: true, force: true })
 mkdirSync(join(dev, 'state'), { recursive: true })
 
 const env = { ...process.env, DSH_HOME: join(dev, 'state') }
+const local = join(root, '..', 'layerfs-connect', 'desktop', '.env.local')
+const pins = existsSync(local) ? readFileSync(local, 'utf8').split('\n') : []
 if (!env.DSH_LAYERFS_CLI) {
-  const local = join(root, '..', 'layerfs-connect', 'desktop', '.env.local')
-  if (existsSync(local)) {
-    for (const line of readFileSync(local, 'utf8').split('\n')) {
-      const m = /^LAYERFS_CONNECT_(CLI|DAEMON)=(.+)$/.exec(line.trim())
-      if (m) env[`DSH_LAYERFS_${m[1]}`] ??= m[2]
-    }
+  for (const line of pins) {
+    const m = /^LAYERFS_CONNECT_(CLI|DAEMON)=(.+)$/.exec(line.trim())
+    if (m) env[`DSH_LAYERFS_${m[1]}`] ??= m[2]
   }
+}
+// Connect's preview reads prepared Lima/Apple machine images from this cache
+for (const line of pins) {
+  const m = /^XDG_CACHE_HOME=(.+)$/.exec(line.trim())
+  if (m) env.DSH_LAYERFS_CACHE_HOME ??= m[1]
 }
 env.DSH_LAYERFS_HOME ??= join(dev, 'layerfs-home')
 env.DSH_LAYERFS_SESSION_HOME ??= join(dev, 'project-sessions')

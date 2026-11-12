@@ -44,6 +44,7 @@ or later on Machines → LayerFS runtime → Change. The LayerFS home defaults t
 | `root` | `$DSH_HOME/layerfs` | Plugin runtime settings, legacy anchors, execution bindings and receipt spool |
 | `projectSessionHome` | `~/.layerfs/dsh` | Unpacked project conversation storage; `DSH_LAYERFS_SESSION_HOME` overrides the default |
 | `cli`, `daemon`, `home` | unset | Explicit pins (otherwise saved setting, then env) |
+| `cacheHome` | unset | The XDG cache home holding prepared VM OS images (`<cacheHome>/layerfs/machine-images`, built by LayerFS `tools/machine_image.py`), passed to every CLI as `XDG_CACHE_HOME`. Otherwise the saved setting (Machines → LayerFS runtime), then `DSH_LAYERFS_CACHE_HOME`, then the host's own `XDG_CACHE_HOME`. Without a prepared image, a new Lima machine boots the stock Ubuntu image (about 30 s instead of about 9 s) |
 | `scratchProject` | `dsh-scratch/scratch` | Legacy Scratch-project identity; normal sessions do not bind to it |
 | `checkpoints` | `turn` | `off` disables per-turn commits |
 | `idleMinutes` | `30` | Close an idle session's Sandbox (it reopens on the next turn) |

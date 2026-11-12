@@ -195,6 +195,10 @@ export interface RuntimeStatus {
   daemon: string | null
   bundle?: string | null
   bundleInfo?: { hash: string | null, source: string | null } | null
+  /** The cache home prepared machine images are read from, where it came from, and how many it holds. */
+  cacheHome?: string
+  cacheHomeSource?: 'config' | 'settings' | 'env' | 'inherited' | 'default'
+  preparedImages?: number
   home: string
   root?: string
   source?: string

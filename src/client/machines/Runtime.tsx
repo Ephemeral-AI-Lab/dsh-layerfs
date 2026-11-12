@@ -14,7 +14,8 @@ import css from './machines.module.css'
 const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
 
 const sourceKey = (source: string) =>
-  source === 'settings' ? 'sourceSettings' as const : source === 'env' ? 'sourceEnv' as const : source === 'config' ? 'sourceConfig' as const : 'sourceNone' as const
+  source === 'settings' ? 'sourceSettings' as const : source === 'env' ? 'sourceEnv' as const : source === 'config' ? 'sourceConfig' as const
+    : source === 'inherited' ? 'sourceInherited' as const : source === 'default' ? 'sourceDefault' as const : 'sourceNone' as const
 
 /** The whole runtime: its version and state, Change…, and every fact. */
 export function RuntimeCard(): ReactNode {
@@ -53,6 +54,7 @@ function RuntimeFacts({ r, t }: { r: RuntimeStatus, t: MachinesContext['t'] }): 
       <Fact label={t('runtimeCli')} mono title={r.cli ?? undefined}>{r.cli}</Fact>
       <Fact label={t('runtimeDaemon')} mono title={r.daemon ?? undefined}>{r.daemon}</Fact>
       <Fact label={t('runtimeBundle')} mono title={r.bundle ?? undefined}>{r.bundle ? `${r.bundle}${r.bundleInfo?.hash ? ` (${r.bundleInfo.hash.slice(0, 12)})` : ''}` : t('runtimeBundleDefault')}</Fact>
+      {r.cacheHome && <Fact label={t('runtimeImages')} mono title={r.cacheHomeSource ? `${r.cacheHome} — ${t(sourceKey(r.cacheHomeSource))}` : r.cacheHome}>{t('runtimeImagesValue', { path: r.cacheHome, count: String(r.preparedImages ?? 0) })}</Fact>}
       <Fact label={t('runtimeHome')} mono title={r.home}>{r.home}</Fact>
       <Fact label={t('runtimeVersionLabel')} mono>{r.version}</Fact>
       <Fact label={t('runtimeCommit')} mono>{r.commit}</Fact>
@@ -68,13 +70,17 @@ function RuntimeDialog({ current, onClose }: { current: RuntimeStatus, onClose: 
   const [cli, setCli] = useState(current.cli ?? '')
   const [daemon, setDaemon] = useState(current.daemon ?? '')
   const [bundle, setBundle] = useState(current.bundle ?? '')
+  // only a cache chosen on this page is editable here; an inherited one shows as the placeholder
+  const [cacheHome, setCacheHome] = useState(current.cacheHomeSource === 'settings' ? current.cacheHome ?? '' : '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const cliBad = cli.trim() !== '' && !isAbsolute(cli.trim())
   const daemonBad = daemon.trim() !== '' && !isAbsolute(daemon.trim())
   const bundleBad = bundle.trim() !== '' && !isAbsolute(bundle.trim())
-  const pin = () => ({ cli: cli.trim(), daemon: daemon.trim() || null, bundle: bundle.trim() || null })
-  const save = async (pin: { cli: string | null, daemon: string | null, bundle?: string | null }) => {
+  const cacheBad = cacheHome.trim() !== '' && !isAbsolute(cacheHome.trim())
+  const bad = cliBad || daemonBad || bundleBad || cacheBad
+  const pin = () => ({ cli: cli.trim(), daemon: daemon.trim() || null, bundle: bundle.trim() || null, cacheHome: cacheHome.trim() || null })
+  const save = async (pin: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null }) => {
     setBusy(true)
     setError(null)
     try { await saveRuntime(pin); onClose() } catch (e) { setError(e) } finally { setBusy(false) }
@@ -86,10 +92,10 @@ function RuntimeDialog({ current, onClose }: { current: RuntimeStatus, onClose: 
           <Button variant="ghost" disabled={busy || current.source !== 'settings'} onClick={() => void save({ cli: null, daemon: null })} title={t('runtimeResetTitle')}>{t('runtimeReset')}</Button>
           <span className={css.footerSpacer} />
           <Button variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" disabled={busy || !cli.trim() || cliBad || daemonBad || bundleBad} onClick={() => void save(pin())}>{busy ? t('saving') : t('save')}</Button>
+          <Button variant="primary" disabled={busy || !cli.trim() || bad} onClick={() => void save(pin())}>{busy ? t('saving') : t('save')}</Button>
         </>
       )}>
-      <form className={css.form} onSubmit={(e) => { e.preventDefault(); if (cli.trim() && !cliBad && !daemonBad && !bundleBad) void save(pin()) }}>
+      <form className={css.form} onSubmit={(e) => { e.preventDefault(); if (cli.trim() && !bad) void save(pin()) }}>
         <Field label={t('runtimeCli')} error={cliBad ? t('errAbsolute') : null}>
           <Input value={cli} onChange={(e) => setCli(e.target.value)} placeholder="/path/to/layerfs" spellCheck={false} disabled={busy} autoFocus />
         </Field>
@@ -98,6 +104,9 @@ function RuntimeDialog({ current, onClose }: { current: RuntimeStatus, onClose: 
         </Field>
         <Field label={t('runtimeBundle')} error={bundleBad ? t('errAbsolute') : null} hint={t('runtimeBundleHint')}>
           <Input value={bundle} onChange={(e) => setBundle(e.target.value)} placeholder="/path/to/bundle/2.0.0/linux-aarch64" spellCheck={false} disabled={busy} />
+        </Field>
+        <Field label={t('runtimeImages')} error={cacheBad ? t('errAbsolute') : null} hint={t('runtimeImagesHint')}>
+          <Input value={cacheHome} onChange={(e) => setCacheHome(e.target.value)} placeholder={current.cacheHomeSource !== 'settings' && current.cacheHome ? current.cacheHome : '/path/to/cache'} spellCheck={false} disabled={busy} />
         </Field>
         {error != null && <Refusal error={error} labels={refusal} className={css.errorText} />}
       </form>

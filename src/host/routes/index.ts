@@ -76,8 +76,8 @@ export function apply(ctx: Context): void {
   const sessions = () => ctx.get('layerfsSessions' as never) as any
   const presets = new PresetManager({
     spec: () => {
-      const { cli, home, bundle } = ctx.layerfs.lfs.spec
-      return { cli, home, bundle, daemon: ctx.layerfs.daemon, state: join(ctx.layerfs.root, 'presets') }
+      const { cli, home, bundle, cacheHome } = ctx.layerfs.lfs.spec
+      return { cli, home, bundle, cacheHome, daemon: ctx.layerfs.daemon, state: join(ctx.layerfs.root, 'presets') }
     },
     busy: () => [
       ...(groups.storage.busy() ? ['a storage job'] : []),

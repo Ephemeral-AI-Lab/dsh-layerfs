@@ -94,7 +94,7 @@ export class SimulationRuntime {
     try {
       await this.ctx.layerfs.ensureNative()
       for (const step of run.plan.steps.filter(step => step.phase === 'setup')) {
-        await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle }, argv, { input: definition.input, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
+        await run.execution.execute(step.key, { origin: 'host', runId: run.manifest.runId }, (argv, definition, executionSignal) => execute({ cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome }, argv, { input: definition.input, beforeSpawn: () => executionSignal.throwIfAborted(), onSpawn: child => {
           const cancel = () => child.kill('SIGTERM')
           executionSignal.addEventListener('abort', cancel, { once: true })
           if (executionSignal.aborted) cancel()
@@ -267,7 +267,7 @@ export class SimulationRuntime {
         const step = run.plan.steps.find(step => step.key === action.stepKey)
         await run.execution.waitSteps(step.dependsOn ?? [], signal)
         const argv = resolveSimulationStep(step, run.journal.receipts, run.directory)
-        const cli = managedCli({ root: this.ctx.layerfs.root, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle })
+        const cli = managedCli({ root: this.ctx.layerfs.root, cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome })
         const command = renderSimulationCommand(step, argv, cli)
         this.calls.set(id, { binding, action, turn, argv, command })
         return { id, name: 'bash', arguments: { command, description: run.plan.tasks.find(task => task.id === action.taskId)?.title ?? 'Update project files' } }
@@ -288,7 +288,7 @@ export class SimulationRuntime {
     if (!script.agentId && binding.turn === script.turns.length - 1) {
       await run.execution.waitTasks(run.plan.tasks.map(task => task.id), signal)
       await Promise.all([...run.bindings.values()].filter(item => item.script.agentId).map(item => item.agent.whenIdle()))
-      if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle }, argv, { read: true })))
+      if (!run.verification) run.verification = verifySimulation(run.manifest, run.plan, run.journal, argv => run.execution.globalBudget.run(() => execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome }, argv, { read: true })))
       await run.verification
       signal.throwIfAborted()
     }
@@ -318,7 +318,7 @@ export class SimulationRuntime {
         const position = argv.indexOf('--exec-id')
         cancellation = (async () => {
           if (position < 0 || !argv[position + 1]) throw new Error('Remote execution cancellation has no confirmed execution identity.')
-          const receipt = await execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle }, ['workspace', 'exec-cancel', argv[2], argv[position + 1]], { timeout: 30000 })
+          const receipt = await execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome }, ['workspace', 'exec-cancel', argv[2], argv[position + 1]], { timeout: 30000 })
           if (!['cancelled', 'ended'].includes(receipt?.outcome) || receipt.outcome === 'cancelled' && !['SIGTERM', 'SIGKILL'].includes(receipt.signal)) throw new Error(`Execution cancellation was not confirmed: ${receipt?.outcome ?? 'missing outcome'}`)
           await binding.run.journal.append({ type: 'execution.cancelled', stepKey: step.key, agentKey: binding.script.agentKey, origin: 'host', receipt })
         })().catch(async error => {

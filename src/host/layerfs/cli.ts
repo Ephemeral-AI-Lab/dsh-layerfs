@@ -38,6 +38,12 @@ export interface CliSpec {
   readonly scope?: { readonly project: string, readonly folder: string, readonly branch?: string }
   /** The Linux bundle folder VM/container machines start workers from (LAYERFS_BUNDLE). */
   readonly bundle?: string | null
+  /**
+   * The XDG cache home LayerFS reads prepared machine OS images from
+   * (`<cacheHome>/layerfs/machine-images`), passed as XDG_CACHE_HOME. Unset:
+   * the CLI inherits the host's XDG_CACHE_HOME (else `~/.cache`).
+   */
+  readonly cacheHome?: string | null
 }
 
 /** One `help --json` call table row. */
@@ -199,7 +205,7 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     try { options.beforeSpawn?.() } catch (error) { reject(error); return }
     const child = spawn(spec.cli, [...argv], {
       shell: false, stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...options.env, ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), LAYERFS_PROGRESS_JSON: '1' },
+      env: { ...process.env, ...options.env, ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), ...(spec.cacheHome ? { XDG_CACHE_HOME: spec.cacheHome } : {}), LAYERFS_PROGRESS_JSON: '1' },
     })
     children.add(child)
     child.once('error', (error) => { spawnError = error })
