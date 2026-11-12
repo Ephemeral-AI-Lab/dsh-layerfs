@@ -307,7 +307,7 @@ export class SessionStore {
     if (simulation?.state === 'running') {
       simulation.state = 'interrupted'
       simulation.handoffReady = false
-      simulation.error = 'The imported script was interrupted. Reconcile its operations before continuing.'
+      simulation.error = 'The imported script was interrupted. The script will not run again; a real model continues this session from the project\'s current files.'
     }
     if (simulation) await provider?.updateSidecar?.(sessionId, (value: any) => { value.simulation = simulation })
     // The session keeps its code branch and checkpoints; a new Sandbox mounts that branch on first use.

@@ -14,18 +14,19 @@ test.after(() => rmSync(out, { recursive: true, force: true }))
 
 function fixture() {
   const dir = mkdtempSync(join(root, '.dev-test-simulation-sessions-'))
-  const state = initialState(), sidecars = new Map(), calls = [], agents = new Map()
+  const state = initialState(), sidecars = new Map(), calls = [], agents = new Map(), active = new Set()
+  const simulations = { isActive: (id) => active.has(id) }
   const persistence = { migrateProject: async () => {}, updateSidecar: async (id, fn) => { const v = sidecars.get(id) ?? { sessionId: id }; fn(v); sidecars.set(id, v) } }
   const lfs = {
     project: { get: async () => ({ machine: 'native' }) },
     branch: { fork: async (...args) => { calls.push(['fork', ...args]); return {} } },
-    sandbox: { get: async () => { const e = new Error('absent'); e.code = 'NoSuchSandbox'; throw e }, create: async (...args) => { calls.push(['sandbox', ...args]); return {} } },
+    sandbox: { get: async () => { const e = new Error('absent'); e.code = 'NoSuchSandbox'; throw e }, create: async (...args) => { calls.push(['sandbox', ...args]); return {} }, close: async () => {} },
     workspace: { mount: async (...args) => { calls.push(['mount', ...args]); return { path: dir, ws: 'sandbox:main', base_layer: 'a'.repeat(66) } }, status: async () => { throw new Error('automatic status must not run') } },
   }
   const ctx = { layerfs: { root: dir, lfs, emit() {}, ensureNative: async () => {} },
     sessions: { get: (id) => agents.get(id)?.session }, workspaceRegistry: { list: () => [] },
     workingDirectory: { get: () => dir, set: async () => {} }, logger: () => ({ warn() {} }),
-    get: (key) => key === 'sessionPersistence' ? persistence : key === 'agents' ? { get: (id) => agents.get(id) } : undefined }
+    get: (key) => key === 'sessionPersistence' ? persistence : key === 'agents' ? { get: (id) => agents.get(id) } : key === 'layerfsSimulations' ? simulations : undefined }
   const service = Object.create(LayerfsSessions.prototype)
   Object.defineProperties(service, { ctx: { value: ctx }, state: { value: { read: () => state, update: (fn) => fn(state) } }, lanes: { value: new Map() } })
   const makeAgent = (id, parent) => {
@@ -35,13 +36,14 @@ function fixture() {
     agents.set(id, agent)
     return agent
   }
-  return { service, state, sidecars, calls, makeAgent, close: () => rmSync(dir, { recursive: true, force: true }) }
+  return { service, state, sidecars, calls, makeAgent, active, close: () => rmSync(dir, { recursive: true, force: true }) }
 }
 const meta = (key) => ({ runId: 'run-one', agentKey: key, scriptId: `script-${key}`, name: key, hash: 'a'.repeat(64), ordinaryModel: { provider: 'real', model: 'normal' } })
 
 test('script parent and child are project-owned without automatic branches, mounts or saves', async () => {
   const f = fixture()
   try {
+    f.active.add('parent'); f.active.add('child')
     await f.service.prepareSimulation('parent', 'store/project', meta('parent'))
     const parent = f.makeAgent('parent')
     await f.service.bindAgent(parent, 'create', true)
@@ -61,13 +63,15 @@ test('script parent and child are project-owned without automatic branches, moun
 test('handoff mounts a new ordinary context from the immutable receipt rather than current main', async () => {
   const f = fixture()
   try {
+    f.active.add('parent')
     await f.service.prepareSimulation('parent', 'store/project', meta('parent'))
     const parent = f.makeAgent('parent')
     await f.service.bindAgent(parent, 'create', true)
     parent.model.select({ provider: 'real', model: 'normal' })
-    await assert.rejects(f.service.ensureBound(parent), /Settle script execution/)
+    await assert.rejects(f.service.ensureBound(parent), /Stop the active project script/)
     const target = { kind: 'Layer', id: 'b'.repeat(66), branch: 'main' }
     await f.service.completeSimulation('parent', target, 'completed')
+    f.active.delete('parent')
     assert.deepEqual(f.calls, [], 'completion does not alter the graph before verifier')
     await f.service.ensureBound(parent)
     const fork = f.calls.find((call) => call[0] === 'fork')
@@ -78,17 +82,45 @@ test('handoff mounts a new ordinary context from the immutable receipt rather th
   } finally { f.close() }
 })
 
-test('interrupted script without a confirmed continuation stays inert under a real model', async () => {
+test('a stopped or interrupted script without a pin continues from the project main like a fresh session', async () => {
   const f = fixture()
   try {
+    f.active.add('parent')
     await f.service.prepareSimulation('parent', 'store/project', meta('parent'))
     const parent = f.makeAgent('parent')
     await f.service.bindAgent(parent, 'create', true)
-    await f.service.completeSimulation('parent', undefined, 'interrupted', 'Cancellation unconfirmed')
-    parent.model.select({ provider: 'real', model: 'normal' })
-    await assert.rejects(f.service.ensureBound(parent), /Cancellation unconfirmed/)
-    assert.deepEqual(f.calls, [])
+    assert.equal(f.service.isSimulationManaged('parent'), true)
     await assert.rejects(f.service.forget('parent'), /Settle script execution/)
+    // Stop mid-command: no confirmed continuation version.
+    await f.service.completeSimulation('parent', undefined, 'failed', 'Stopped mid-command')
+    f.active.delete('parent')
+    assert.equal(f.service.isSimulationManaged('parent'), false, 'a terminal script never locks its session')
+    parent.model.select({ provider: 'real', model: 'normal' })
+    await f.service.ensureBound(parent)
+    const fork = f.calls.find((call) => call[0] === 'fork')
+    assert.equal(fork.length, 4, 'forked from the branch head, without a pinned commit')
+    assert.equal(fork[3], 'main')
+    assert.equal(f.calls.filter((call) => call[0] === 'mount').length, 1)
+    assert.equal(f.service.binding('parent').state, 'bound')
+    await f.service.forget('parent')
+  } finally { f.close() }
+})
+
+test('after a host restart a running script record is not a lock and continues from main', async () => {
+  const f = fixture()
+  try {
+    f.active.add('parent')
+    await f.service.prepareSimulation('parent', 'store/project', meta('parent'))
+    const parent = f.makeAgent('parent')
+    await f.service.bindAgent(parent, 'create', true)
+    // The new host has no live script binding; the persisted record still says running.
+    f.active.clear()
+    assert.equal(f.service.simulationOf('parent').state, 'running')
+    assert.equal(f.service.isSimulationManaged('parent'), false)
+    parent.model.select({ provider: 'real', model: 'normal' })
+    await f.service.ensureBound(parent)
+    assert.equal(f.calls.find((call) => call[0] === 'fork')[3], 'main')
+    assert.equal(f.service.binding('parent').state, 'bound')
   } finally { f.close() }
 })
 
@@ -96,11 +128,13 @@ test('two installations continue one archived conversation without sharing a mut
   const a = fixture(), b = fixture()
   try {
     for (const f of [a, b]) {
+      f.active.add('parent')
       await f.service.prepareSimulation('parent', 'store/project', meta('parent'))
       const agent = f.makeAgent('parent')
       await f.service.bindAgent(agent, 'create', true)
       agent.model.select({ provider: 'real', model: 'normal' })
       await f.service.completeSimulation('parent', { kind: 'Layer', id: 'c'.repeat(66), branch: 'main' }, 'completed')
+      f.active.delete('parent')
       if (f === b) f.state.sessions.parent.resumeFromArchive = true
       await f.service.ensureBound(agent)
     }

@@ -383,9 +383,15 @@ export class LayerfsSessions extends Service {
     this.store?.schedule(sessionId, 0)
   }
 
+  /**
+   * Whether a script owns this session right now (running, stopping or handing
+   * off in this host). Any terminal state, a restart or an import leaves the
+   * session free for a real model; the script never runs again.
+   */
   isSimulationManaged(sessionId: string): boolean {
     const simulation = this.simulationOf(sessionId)
-    return !!simulation && !simulation.handoffReady
+    if (!simulation || simulation.state !== 'running') return false
+    return (this.ctx.get?.('layerfsSimulations' as never) as any)?.isActive?.(sessionId) === true
   }
 
   private save(binding: Binding): Binding {
@@ -528,7 +534,7 @@ export class LayerfsSessions extends Service {
       if (metadata?.simulation) {
         const simulation = { ...metadata.simulation }
         // Reopening history never restarts an unfinished script.
-        if (simulation.state === 'running') { simulation.state = 'interrupted'; simulation.handoffReady = false }
+        if (simulation.state === 'running') { simulation.state = 'interrupted'; simulation.handoffReady = false; simulation.continuation = undefined }
         this.state.update((s) => { s.pending[sessionId] = { project: metadata.project, simulation } })
       }
       if (metadata?.bindingKind === 'shared' && metadata.sharedParent) {
@@ -589,10 +595,10 @@ export class LayerfsSessions extends Service {
     if (held) throw new CliError('ConnectBusy', held)
     await this.validateExecutionIdentity(sessionId)
     if (this.isSimulationManaged(sessionId)) {
-      const simulation = this.simulationOf(sessionId)!
-      if (simulation.state !== 'running' || agent.model?.current?.()?.provider !== 'simulation') {
-        throw new CliError('RecoveryRequired', simulation.error ?? 'Settle script execution and select a confirmed saved file context before continuing')
-      }
+      if (agent.model?.current?.()?.provider !== 'simulation') throw new CliError('Busy', 'Stop the active project script before changing its model')
+      // Creation only records a closed binding; the script's first step binds
+      // project ownership and scratch (no automatic branch or mount).
+      if (this.binding(sessionId)?.state !== 'bound') return await this.bindAgent(agent, 'pre-step', true)
       await this.detach(sessionId)
       return
     }
@@ -688,7 +694,8 @@ export class LayerfsSessions extends Service {
     // A subagent of a subagent follows the root binding.
     let root = this.binding(parent)
     while (root?.kind === 'shared' && root.parent) root = this.binding(root.parent)
-    if (root?.simulation?.handoffReady && !root.ws) {
+    // A finished script root gets its ordinary context first; children share it.
+    if (root?.simulation && !this.isSimulationManaged(root.sessionId) && !root.ws) {
       const parentAgent = (this.ctx.get?.('agents' as never) as any)?.get?.(root.sessionId)
       if (parentAgent) { await this.bindAgent(parentAgent, 'child-handoff', strict); root = this.binding(root.sessionId) }
     }
@@ -713,7 +720,7 @@ export class LayerfsSessions extends Service {
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
     if (!existing && persistence?.ownerOf?.(sessionId)) {
       const metadata = await persistence.readSidecar(sessionId)
-      if (!metadata?.codeBranch && !metadata?.simulation?.continuation && !this.state.read().pending[sessionId] && agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/end')) {
+      if (!metadata?.codeBranch && !metadata?.simulation && !this.state.read().pending[sessionId] && agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/end')) {
         throw new CliError('RecoveryRequired', 'This project conversation has no saved file-context metadata; recover its LayerFS annotations before continuing')
       }
       if (metadata?.checkpoints) this.state.update((s) => { s.checkpoints[sessionId] = metadata.checkpoints })
@@ -726,7 +733,8 @@ export class LayerfsSessions extends Service {
         }
       }
     }
-    if (!existing?.branch && persistence?.ownerOf?.(sessionId) && !this.state.read().pending[sessionId] && !this.simulationOf(sessionId)?.continuation && agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/end')) {
+    // A finished script session without a pin starts "as if fresh" from the project's current files.
+    if (!existing?.branch && persistence?.ownerOf?.(sessionId) && !this.state.read().pending[sessionId] && !this.simulationOf(sessionId) && agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/end')) {
       throw new CliError('RecoveryRequired', 'This conversation has no confirmed saved file context. Recover its annotations before continuing; execution cannot start from the current project files.')
     }
     const selected = this.selectedScratch(agent, anchor, existing)
@@ -783,6 +791,8 @@ export class LayerfsSessions extends Service {
     if (simulation?.handoffReady && simulation.continuation) {
       return { branch: simulation.continuation.branch, commit: simulation.continuation.id }
     }
+    // Stopped, interrupted or failed without a confirmed pin: start like a brand-new session.
+    if (simulation) return {}
     const pending = this.state.read().pending[sessionId]
     if (pending && pending.project === project) return { branch: pending.branch, commit: pending.commit, session: pending.session, turn: pending.turn }
     const parent = header.parentSession ? String(header.parentSession) : undefined
