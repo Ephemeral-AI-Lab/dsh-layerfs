@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentTree, buildSandboxMap, replayClock, rootOf, targetsOf, MIN_CALL_S } from '../src/client/views/model.ts'
+import { agentTree, buildSandboxMap, packetAt, replayClock, rootOf, targetsOf, CALL_GAP_S, FLASH_S, LAP_S, MAX_CALL_S, MIN_CALL_S, RESULT_S } from '../src/client/views/model.ts'
 
 const byId = {
   root: { running: false },
@@ -72,4 +72,42 @@ test('buildSandboxMap places calls on nodes and the replay clock', () => {
   assert.equal(late.outcome, 'Refused')
   assert.equal(late.start, 3, 'the long idle gap became one second')
   assert.ok(model.duration > late.end)
+})
+
+test('replay pacing: one agent\'s back-to-back calls get their own windows, long calls are capped', () => {
+  const agents = agentTree('root', byId)
+  const line = (at, argv, ms = 5) => ({ v: 1, at, ms, client: 'cli', argv, outcome: 'ok' })
+  const model = buildSandboxMap(agents, null, {
+    root: [
+      line(0, ['branch', 'fork', 'st/p', 'b1']),
+      line(10, ['sandbox', 'create', 'st/p', 'sbx', 'native']),
+      line(20, ['workspace', 'mount', 'sbx', 'b1', '--name', 'w']),
+      line(30, ['workspace', 'exec', 'sbx:w', '<9 bytes>'], 600_000),
+      line(600_100, ['project', 'get', 'st/p']),
+    ],
+    kid: [line(15, ['file', 'read', 'st/p', 'b1', '/a'])],
+  })
+  const [fork, create, kid, mount, exec] = model.events
+  assert.equal(model.events.length, 5, 'project.get is a quiet read')
+  assert.equal(fork.start, 0)
+  assert.ok(Math.abs(create.start - (fork.end + CALL_GAP_S)) < 1e-9, 'the next call waits for the previous one of the same agent')
+  assert.equal(kid.agent, 'kid')
+  assert.ok(kid.start >= create.start, 'order across agents is kept')
+  assert.ok(Math.abs(mount.start - (create.end + CALL_GAP_S)) < 1e-9)
+  assert.ok(Math.abs(exec.end - exec.start - MAX_CALL_S) < 1e-9, 'a ten-minute exec holds the replay for MAX_CALL_S')
+  assert.ok(Math.abs(model.duration - (exec.end + FLASH_S)) < 1e-9)
+})
+
+test('packetAt: a request loops forward over the chain, the result runs back once', () => {
+  const e = { start: 10, end: 14 }
+  assert.equal(packetAt(e, 9, 2), null)
+  assert.deepEqual(packetAt(e, 10, 2), { hop: 0, at: 0, kind: 'request' })
+  const mid = packetAt(e, 10 + LAP_S * 0.75, 2)
+  assert.equal(mid.hop, 1); assert.ok(Math.abs(mid.at - 0.5) < 1e-9); assert.equal(mid.kind, 'request')
+  const back = packetAt(e, 14 + RESULT_S * 0.25, 2)
+  assert.equal(back.kind, 'result'); assert.equal(back.hop, 1); assert.ok(Math.abs(back.at - 0.5) < 1e-9)
+  const home = packetAt(e, 14 + RESULT_S * 0.75, 2)
+  assert.equal(home.hop, 0); assert.ok(Math.abs(home.at - 0.5) < 1e-9)
+  assert.equal(packetAt(e, 14 + RESULT_S, 2), null)
+  assert.equal(packetAt(e, 11, 0), null)
 })

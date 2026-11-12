@@ -143,6 +143,11 @@ export interface MapEvent {
   ws?: string
   sandbox?: string
   turn?: number
+  /** The call as CLI words (redacted), for the inspector. */
+  argv: string[]
+  /** The call's `dsh:` tag, when `logs.output` may hold what it printed. */
+  tag?: string
+  output?: boolean
 }
 
 export interface SandboxMapModel {
@@ -156,8 +161,12 @@ export interface SandboxMapModel {
 
 /** Idle gaps longer than this (ms) are shortened to it on the replay clock. */
 export const MAX_GAP_MS = 1000
-/** Shortest replay window of a call, seconds. */
-export const MIN_CALL_S = 0.6
+/** Shortest replay window of a call, seconds: one request lap plus its result. */
+export const MIN_CALL_S = 1.4
+/** Longest replay window of a call, seconds: a ten-minute build does not hold the replay. */
+export const MAX_CALL_S = 6
+/** Pause between one agent's back-to-back calls on the replay clock, seconds. */
+export const CALL_GAP_S = 0.25
 
 /**
  * Replay clock: real time minus the part of each idle gap beyond MAX_GAP_MS.
@@ -186,7 +195,7 @@ export function replayClock(calls: readonly { at: number, ms: number }[]): (time
 const methodOf = (argv: readonly string[]) => `${argv[0] ?? '?'}.${String(argv[1] ?? '?').replaceAll('_', '-')}`
 
 /** Reads that only poll state; kept out of the map so the wires show work. */
-const QUIET = new Set(['workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.status', 'machine.get', 'store.status', 'store.stats', 'store.list', 'project.list', 'branch.list'])
+const QUIET = new Set(['project.get', 'branch.get', 'workspace.list', 'workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.status', 'machine.get', 'store.status', 'store.stats', 'store.list', 'project.list', 'branch.list'])
 
 /**
  * The Sandbox map: agents, the branches and sandboxes they touched and their
@@ -222,6 +231,12 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
   const clock = replayClock(flat.map(({ line }) => line))
   const events: MapEvent[] = []
   let duration = 0
+  // Replay pacing: every call keeps its place in real order but gets a window
+  // long enough to watch (MIN_CALL_S..MAX_CALL_S). One agent's calls that did
+  // not overlap in reality do not overlap on the replay either; the push this
+  // costs delays everything after it, so order across agents is kept.
+  let shift = 0
+  const lastOf = new Map<string, { realEnd: number, end: number }>()
   flat.forEach(({ agent, line }, index) => {
     const method = methodOf(line.argv)
     const target = targetsOf(line.argv)
@@ -232,18 +247,53 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
     }
     if (target.branch) branches.add(target.branch)
     if (method === 'sandbox.close' && line.outcome === 'ok' && target.sandbox) sandbox(target.sandbox).closed = true
-    const start = clock(line.at)
-    const end = Math.max(start + MIN_CALL_S, clock(line.at + Math.max(0, line.ms)))
+    const ms = Math.max(0, line.ms)
+    let start = clock(line.at) + shift
+    const prev = lastOf.get(agent)
+    if (prev && prev.realEnd <= line.at && start < prev.end + CALL_GAP_S) {
+      shift += prev.end + CALL_GAP_S - start
+      start = prev.end + CALL_GAP_S
+    }
+    const end = start + Math.min(MAX_CALL_S, Math.max(MIN_CALL_S, clock(line.at + ms) - clock(line.at)))
+    lastOf.set(agent, { realEnd: line.at + ms, end })
     duration = Math.max(duration, end)
     events.push({
-      id: `${agent}:${line.at}:${index}`, agent, method, outcome: line.outcome, at: line.at, ms: line.ms, start, end,
+      id: `${agent}:${line.at}:${index}`, agent, method, outcome: line.outcome, at: line.at, ms: line.ms, start, end, argv: [...line.argv],
       ...(target.branch ? { branch: target.branch } : {}), ...(target.ws ? { ws: target.ws } : {}),
       ...(target.sandbox ? { sandbox: target.sandbox } : {}), ...(typeof line.dsh?.turn === 'number' ? { turn: line.dsh.turn } : {}),
+      ...(line.tag ? { tag: line.tag } : {}), ...((line as { output?: boolean }).output ? { output: true } : {}),
     })
   })
   // The binding's workspace may have been mounted before the calls shown.
   for (const box of sandboxes.values()) for (const ws of box.workspaces) if (!ws.branch && ws.id === binding?.ws && binding.branch) ws.branch = binding.branch
-  return { agents, branches: [...branches], sandboxes: [...sandboxes.values()], events, duration: events.length ? duration + 0.5 : 0 }
+  return { agents, branches: [...branches], sandboxes: [...sandboxes.values()], events, duration: events.length ? duration + FLASH_S : 0 }
+}
+
+/** How long a result travels back along the wires after a call ends, seconds. */
+export const RESULT_S = 0.9
+/** How long a wire stays green (or red) after its call; also the replay's tail, so it ends at rest. */
+export const FLASH_S = 1.5
+/** One lap of a request packet along its wires, seconds. */
+export const LAP_S = 1.2
+
+/**
+ * Where a packet is at replay time `t` on a call's chain of wires, or null.
+ * A request loops forward over the chain while the call runs; when it ends a
+ * result runs the chain backwards once.
+ * @returns the hop index (0-based, forward order), the fraction along that hop, and which kind of packet.
+ */
+export function packetAt(e: Pick<MapEvent, 'start' | 'end'>, t: number, hops: number): { hop: number, at: number, kind: 'request' | 'result' } | null {
+  if (hops <= 0 || t < e.start) return null
+  if (t < e.end) {
+    const lap = ((t - e.start) / LAP_S) % 1
+    const along = lap * hops
+    const hop = Math.min(hops - 1, Math.floor(along))
+    return { hop, at: along - hop, kind: 'request' }
+  }
+  if (t >= e.end + RESULT_S) return null
+  const back = ((t - e.end) / RESULT_S) * hops
+  const fromEnd = Math.min(hops - 1, Math.floor(back))
+  return { hop: hops - 1 - fromEnd, at: 1 - (back - fromEnd), kind: 'result' }
 }
 
 /** The state of a map node at replay time `t`. */

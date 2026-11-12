@@ -110,18 +110,30 @@ Nodes are derived, not configured:
   `workspace mount … --name <ws>` → `<sandbox>:<ws>`,
   `workspace exec|commit|status|unmount <sandbox>:<ws>`).
 
-Each call from the agents' call logs becomes an event. Wires run agent → branch
-→ workspace (or agent → sandbox for sandbox calls). While a call is in its
-window the wire lights in its lane colour and a packet travels along it; when
-it ends the wire flashes green, or red for a refusal. Hovering a node dims
-unrelated nodes and filters the event list below the map.
+Each call from the agents' call logs becomes an event (polling reads such as
+`project.get`, `workspace.status` and the `list` calls are left out). A call
+travels a chain of wires: agent → branch → workspace, agent → branch, or, for a
+sandbox call without a branch (`sandbox create|close`), agent → project hub →
+sandbox. Agent → branch and branch → workspace wires stay drawn; the hops
+through the hub exist only around their call. While a call runs its wires light
+in its lane colour, a dashed flow runs along them and a request packet loops
+over the chain; when it ends a result packet runs back (green, red for a
+refusal) and the wires stay green or red for 1.5 s. Packets are placed from the
+replay clock, so pausing freezes them and scrubbing moves them. Hovering a node
+or a call dims what it does not touch; selecting a call opens its command,
+timing, outcome and, when this plugin kept it, what it printed (`logs.output`).
 
 Time: calls are written to the log when they finish, so the map replays rather
-than streams. Replay time compresses idle gaps to one second and gives every
-call at least 0.6 s. Controls are play/pause, a scrubber and Live. Live keeps
-the playhead at the end and plays each call as it is appended. The view opens
-at Live while any agent is running, otherwise at the end, paused.
-`prefers-reduced-motion` turns packets and pulses off.
+than streams. The replay clock keeps real order but paces calls so each can be
+watched: idle gaps shrink to one second, every call lasts 1.4–6 s on the
+replay, and one agent's back-to-back calls get their own windows 0.25 s apart
+(the push delays everything after it, so order across agents is kept). The
+replay ends 1.5 s after the last call so it comes to rest. Controls are
+Play/Pause (Play again at the end), Replay from the start, Live, and a scrubber
+in the strip under the map. Live keeps the playhead at the end and plays each
+call as it is appended. The view opens at Live while any agent is running,
+otherwise at the end, paused. `prefers-reduced-motion` turns packets, flows and
+pulses off.
 
 The exec command is redacted in the call log (`<N bytes>`), so the map names
 the call and its workspace, not the command line.
