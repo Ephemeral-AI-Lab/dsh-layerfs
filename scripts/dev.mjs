@@ -7,7 +7,8 @@
 //
 // Env: DSH_LAYERFS_CLI / DSH_LAYERFS_DAEMON pin LayerFS (else desktop/.env.local
 // of ../layerfs-connect is read for LAYERFS_CONNECT_CLI/_DAEMON). DSH_LAYERFS_CACHE_HOME
-// names the prepared machine image cache (else that file's XDG_CACHE_HOME).
+// names the prepared machine image cache; unset, the CLI uses the per-user cache
+// (~/.cache), which also holds the default Linux bundle.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -31,11 +32,6 @@ if (!env.DSH_LAYERFS_CLI) {
     const m = /^LAYERFS_CONNECT_(CLI|DAEMON)=(.+)$/.exec(line.trim())
     if (m) env[`DSH_LAYERFS_${m[1]}`] ??= m[2]
   }
-}
-// Connect's preview reads prepared Lima/Apple machine images from this cache
-for (const line of pins) {
-  const m = /^XDG_CACHE_HOME=(.+)$/.exec(line.trim())
-  if (m) env.DSH_LAYERFS_CACHE_HOME ??= m[1]
 }
 env.DSH_LAYERFS_HOME ??= join(dev, 'layerfs-home')
 env.DSH_LAYERFS_SESSION_HOME ??= join(dev, 'project-sessions')
