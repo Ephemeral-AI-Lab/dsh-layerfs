@@ -185,6 +185,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (method !== 'GET') return undefined
     const branch = query.get('branch') ?? 'main'
     if (sub === 'history') return projects.history(id, query)
+    // this project's own storage from its saves' counters (see project-storage.ts): ?refresh=1
+    if (sub === 'storage') return projects.projectStorage(id, query)
     if (sub === 'storage-history') return projects.storageHistory(id, query)
     if (sub === 'storage-report') return projects.storageReport(id, query)
     if (sub === 'branches') return projects.branches(id, query)

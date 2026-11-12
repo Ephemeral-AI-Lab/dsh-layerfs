@@ -4,7 +4,7 @@
 //   node --test test/routes.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
@@ -38,10 +38,10 @@ function fakeLfs(impl) {
 
 const discovery = async () => ({ identity: { version: '2.0.0-test', commit: 'a'.repeat(40), dirty: false, features: [] }, calls: [], commands: [], switches: [] })
 
-function fakeGroups(impl) {
+function fakeGroups(impl, discover = discovery, secrets = undefined) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-routes-root-'))
   const { lfs, calls } = fakeLfs(impl)
-  const t = testHost({ lfs, root, home: join(root, 'home'), discovery })
+  const t = testHost({ lfs, root, home: join(root, 'home'), discovery: discover, ...(secrets ? { secrets: secrets(root) } : {}) })
   const groups = R.createGroups(t.host, async () => ({ ok: true, version: '2.0.0-test' }))
   return { groups, calls, events: t.events, root, http: (method, path, body) => R.handle(groups, { method, path, body }) }
 }
@@ -136,6 +136,196 @@ test('stores: create emits storage, answers the view; bigints are tagged i64-v1'
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('postgresql: an entered password goes to an owner-only file; attach and detach; refusals kept, never echoed', async () => {
+  const record = { name: 'pg', kind: 'postgresql', url: 'postgresql://lfs@db.lan:5432/team', password: 'env:PGPW', projects: ['app'], state: 'idle', machines: { native: { checked: { at: 1, server_version: '17.1', latency_ms: 2 } } } }
+  const seen = []
+  const withAttach = async () => ({ ...(await discovery()), calls: [{ family: 'store', call: 'attach', options: [] }] })
+  const { http, root } = fakeGroups({
+    ...base,
+    store: {
+      ...base.store,
+      list: async () => ({ items: [record] }),
+      status: async () => ({ state: 'idle', server: { reachable: true, server_version: '17.1', latency_ms: 2 } }),
+      connect: async (name, url, options) => { seen.push(['connect', options.password]); if (url.includes('bad')) throw new Refusal('Denied', 'password authentication failed') },
+      attach: async (name, machine, options) => {
+        seen.push(['attach', machine, options])
+        if (machine === 'dev') throw new Refusal('Unavailable', 'machine dev cannot reach PostgreSQL Store pg\'s server at db.lan: refused')
+        record.machines[machine] = { ...(options.url ? { url: options.url } : {}), ...(options.password ? { password: options.password } : {}), checked: { at: 2, server_version: '17.1', latency_ms: 4 } }
+        return record
+      },
+      detach: async (name, machine) => { seen.push(['detach', machine]); delete record.machines[machine]; return record },
+      disconnect: async () => ({ disconnected: 'pg' }),
+    },
+  }, withAttach)
+  const secrets = join(root, 'secrets')
+  const files = () => (existsSync(secrets) ? readdirSync(secrets).sort() : [])
+  try {
+    // connect with an entered password: a 0600 file, passed as file:, removed on refusal
+    const bad = await http('POST', '/api/stores/postgresql', { name: 'pg2', url: 'postgresql://lfs@bad/x', passwordValue: 's3cret' })
+    assert.equal(bad.status, 403)
+    assert.ok(seen[0][1].startsWith(`file:${secrets}/pg-pg2--`))
+    assert.deepEqual(files(), [])
+    const ok = await http('POST', '/api/stores/postgresql', { name: 'pg2', url: 'postgresql://lfs@db/x', passwordValue: 's3cret' })
+    assert.equal(ok.status, 200)
+    assert.equal(files().length, 1)
+    assert.equal(statSync(join(secrets, files()[0])).mode & 0o777, 0o600)
+    assert.equal(readFileSync(join(secrets, files()[0]), 'utf8'), 's3cret')
+    assert.ok(!JSON.stringify(ok.body).includes('s3cret'))
+    // the view: attachments and the feature
+    assert.equal(ok.body.features.attach, true)
+    assert.deepEqual(ok.body.stores[0].attachments, [{ machine: 'native', own: false, url: null, target: 'lfs@db.lan:5432/team', password: null, saved: false, checked: { at: 1, version: '17.1', latencyMs: 2 }, lastError: null }])
+    // attach with the Store's connection
+    const docker = await http('POST', '/api/stores/pg/attach', { machine: 'docker' })
+    assert.equal(docker.status, 200)
+    assert.deepEqual(seen.at(-1), ['attach', 'docker', {}])
+    assert.deepEqual(docker.body.stores[0].attachments.map((a) => a.machine), ['native', 'docker'])
+    // an own connection with an entered password: its own file, the record shows it as saved
+    const vm = await http('POST', '/api/stores/pg/attach', { machine: 'vm1', url: 'postgresql://vm@10.0.0.5/team', passwordValue: 'vmpw' })
+    assert.equal(vm.status, 200)
+    const vmFile = files().find((f) => f.startsWith('pg-pg--vm1--'))
+    assert.ok(vmFile)
+    const row = vm.body.stores[0].attachments.find((a) => a.machine === 'vm1')
+    assert.deepEqual([row.own, row.target, row.saved, row.password], [true, 'vm@10.0.0.5/team', true, `file:${join(secrets, vmFile)}`])
+    // a second attach of the same machine replaces its file
+    await http('POST', '/api/stores/pg/attach', { machine: 'vm1', url: 'postgresql://vm@10.0.0.5/team', passwordValue: 'vmpw2' })
+    assert.equal(files().filter((f) => f.startsWith('pg-pg--vm1--')).length, 1)
+    assert.notEqual(files().find((f) => f.startsWith('pg-pg--vm1--')), vmFile)
+    // a refusal: LayerFS's code, kept for the view, its file removed
+    const refused = await http('POST', '/api/stores/pg/attach', { machine: 'dev', passwordValue: 'devpw' })
+    assert.equal(refused.status, 502)
+    assert.equal(refused.body.code ?? refused.body.error?.code, 'Unavailable')
+    assert.ok(!files().some((f) => f.startsWith('pg-pg--dev--')))
+    const view = await http('GET', '/api/storage')
+    assert.ok(!JSON.stringify(view.body).includes('devpw'))
+    assert.deepEqual(view.body.stores[0].attachRefusals.map((e) => [e.machine, e.code]), [['dev', 'Unavailable']])
+    // a password in the URL, a bad reference: refused before LayerFS
+    assert.equal((await http('POST', '/api/stores/pg/attach', { machine: 'x1', url: 'postgresql://a:b@h/d' })).status, 400)
+    assert.equal((await http('POST', '/api/stores/pg/attach', { machine: 'x1', password: 'plain' })).status, 400)
+    // detach removes that machine's files
+    const detached = await http('POST', '/api/stores/pg/detach', { machine: 'vm1' })
+    assert.equal(detached.status, 200)
+    assert.ok(!files().some((f) => f.startsWith('pg-pg--vm1--')))
+    assert.deepEqual(seen.at(-1), ['detach', 'vm1'])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+/** A fake LayerFS `backup` family that keeps its bucket records in `<home>/backup/<name>/record.json`, as 2.0 does. */
+function fakeBackup(home, seen = []) {
+  const dir = (name) => join(home, 'backup', name)
+  return {
+    connect: async (name, url, options) => {
+      seen.push(['connect', name, url, options.key])
+      const u = url.startsWith('r2://') ? null : new URL(url)
+      const [bucket, ...prefix] = (u ? u.pathname.slice(1) : url.slice('r2://'.length).split('/').slice(1).join('/')).split('/')
+      const record = u
+        ? { v: 1, name, provider: 'minio', endpoint: u.origin, bucket, prefix: prefix.join('/'), region: options.region ?? 'us-east-1', key: options.key }
+        : { v: 1, name, provider: 'r2', account: url.slice('r2://'.length).split('/')[0], bucket, prefix: prefix.join('/'), region: 'auto', key: options.key }
+      mkdirSync(dir(name), { recursive: true })
+      writeFileSync(join(dir(name), 'record.json'), JSON.stringify(record))
+      return { url, region: record.region }
+    },
+    list: async () => ({ items: [] }),
+    disconnect: async (name) => { rmSync(dir(name), { recursive: true, force: true }); return { unlinked: [] } },
+  }
+}
+
+test('buckets: entered keys go to a configured secrets folder; replace and disconnect use the recorded file', async () => {
+  const seen = []
+  let home
+  const { http, root } = fakeGroups({ ...base, backup: new Proxy({}, { get: (_t, call) => fakeBackup(home, seen)[call] }) }, discovery, (root) => (home = join(root, 'home'), join(root, 'keys')))
+  const keys = join(root, 'keys')
+  try {
+    const ok = await http('POST', '/api/buckets', { name: 'r2b', provider: 'r2', account: 'a'.repeat(32), bucket: 'bk', accessKey: 'AK', secretKey: 'SK' })
+    assert.equal(ok.status, 200)
+    const file = join(keys, 'bucket-r2b.key')
+    assert.deepEqual(seen[0], ['connect', 'r2b', `r2://${'a'.repeat(32)}/bk`, `file:${file}`])
+    assert.equal(statSync(keys).mode & 0o777, 0o700)
+    assert.equal(statSync(file).mode & 0o777, 0o600)
+    assert.equal(readFileSync(file, 'utf8'), 'access_key=AK\nsecret_key=SK\n')
+    assert.ok(!existsSync(join(root, 'secrets')))
+    // the view reads the bucket from LayerFS's record; the keys never reach it, and no buckets.json is kept
+    const b = ok.body.buckets.find((x) => x.name === 'r2b')
+    assert.deepEqual([b.provider, b.keys, b.key, b.url, b.region], ['r2', 'saved', null, `r2://${'a'.repeat(32)}/bk`, 'auto'])
+    assert.ok(!JSON.stringify(ok.body).includes('SK'))
+    assert.ok(!existsSync(join(root, 'buckets.json')))
+    const replaced = await http('POST', '/api/buckets/r2b/keys', { accessKey: 'AK2', secretKey: 'SK2' })
+    assert.equal(replaced.status, 200)
+    assert.equal(readFileSync(file, 'utf8'), 'access_key=AK2\nsecret_key=SK2\n')
+    const gone = await http('DELETE', '/api/buckets/r2b')
+    assert.equal(gone.status, 200)
+    assert.ok(!existsSync(file))
+    assert.deepEqual((await http('GET', '/api/storage')).body.buckets, [])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('buckets: by default entered keys go to <home>/secret; a home made for them is owner-only', async () => {
+  let home
+  const { http, root } = fakeGroups({ ...base, backup: new Proxy({}, { get: (_t, call) => fakeBackup(home)[call] }) }, discovery, (root) => (home = join(root, 'home'), join(root, 'home', 'secret')))
+  try {
+    const ok = await http('POST', '/api/buckets', { name: 'b', provider: 'minio', endpoint: 'http://minio:9000', bucket: 'bk', accessKey: 'AK', secretKey: 'SK' })
+    assert.equal(ok.status, 200)
+    assert.equal(statSync(join(root, 'home')).mode & 0o777, 0o700)
+    assert.equal(statSync(join(root, 'home', 'secret', 'bucket-b.key')).mode & 0o777, 0o600)
+    const b = ok.body.buckets.find((x) => x.name === 'b')
+    assert.deepEqual([b.provider, b.keys, b.url], ['minio', 'saved', 'http://minio:9000/bk'])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('storage state lives in the LayerFS home: buckets another client connected show up; jobs are kept in client-neutral <home>/job and <home>/stat', async () => {
+  const { http, root } = fakeGroups(base)
+  const home = join(root, 'home')
+  try {
+    // connected by Connect or the bare CLI: only LayerFS's record exists
+    mkdirSync(join(home, 'backup', 'shared'), { recursive: true })
+    writeFileSync(join(home, 'backup', 'shared', 'record.json'), JSON.stringify({ v: 1, name: 'shared', provider: 'minio', endpoint: 'http://127.0.0.1:9000', bucket: 'lfs', prefix: 'p', region: 'us-east-1', key: 'env:LAYERFS_SHARED' }))
+    const v = await http('GET', '/api/storage')
+    assert.equal(v.status, 200)
+    assert.deepEqual(v.body.buckets.map((b) => [b.name, b.provider, b.keys, b.key, b.url]), [['shared', 'minio', 'reference', 'env:LAYERFS_SHARED', 'http://127.0.0.1:9000/lfs/p']])
+    assert.equal(statSync(join(home, 'job')).mode & 0o777, 0o700)
+    assert.equal(statSync(join(home, 'stat')).mode & 0o777, 0o700)
+    assert.ok(!existsSync(join(home, 'dsh-layerfs')))
+    assert.ok(!existsSync(join(root, 'buckets.json')) && !existsSync(join(root, 'storage-jobs.json')) && !existsSync(join(root, 'doctor-jobs.json')))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('storage state: an earlier <home>/dsh-layerfs is moved into job/ and stat/ when the routes start; what is there wins, the old folder goes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-routes-root-'))
+  const home = join(root, 'home'), legacy = join(home, 'dsh-layerfs')
+  try {
+    mkdirSync(join(legacy, 'project-storage'), { recursive: true })
+    writeFileSync(join(legacy, 'doctor-jobs.json'), '[]')
+    writeFileSync(join(legacy, 'project-storage', 'a.json'), '{}')
+    mkdirSync(join(home, 'job'), { recursive: true })
+    writeFileSync(join(home, 'job', 'storage-jobs.json'), '[]')
+    writeFileSync(join(legacy, 'storage-jobs.json'), '[{"old":1}]')
+    const { lfs } = fakeLfs(base)
+    R.createGroups(testHost({ lfs, root, home, discovery }).host, async () => ({ ok: true }))
+    assert.equal(readFileSync(join(home, 'job', 'doctor-jobs.json'), 'utf8'), '[]')
+    assert.equal(readFileSync(join(home, 'stat', 'project-storage', 'a.json'), 'utf8'), '{}')
+    assert.equal(readFileSync(join(home, 'job', 'storage-jobs.json'), 'utf8'), '[]')
+    for (const d of ['job', 'stat', 'stat/project-storage', 'stat/storage-observations']) assert.equal(statSync(join(home, d)).mode & 0o777, 0o700, d)
+    assert.ok(!existsSync(legacy))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('recordUrl: MinIO and R2 records', () => {
+  assert.equal(R.recordUrl({ provider: 'minio', endpoint: 'http://h:9000/', bucket: 'b', prefix: 'x/y' }), 'http://h:9000/b/x/y')
+  assert.equal(R.recordUrl({ provider: 'r2', account: 'f'.repeat(32), bucket: 'b', prefix: '', jurisdiction: 'eu' }), `r2://${'f'.repeat(32)}/b?jurisdiction=eu`)
+  assert.equal(R.recordUrl({ provider: 'r2', endpoint: `https://${'f'.repeat(32)}.eu.r2.cloudflarestorage.com`, bucket: 'b', prefix: 'p' }), `r2://${'f'.repeat(32)}/b/p`)
+  assert.equal(R.recordUrl({ url: 'r2://x/y' }), 'r2://x/y')
+})
+
+test('postgresql: without store.attach in the pinned CLI attach is refused and the view says so', async () => {
+  const { http, root } = fakeGroups({ ...base, store: { ...base.store, list: async () => ({ items: [{ name: 'pg', kind: 'postgresql', url: 'postgresql://l@h/d', state: 'idle' }] }) } })
+  try {
+    const v = await http('GET', '/api/storage')
+    assert.equal(v.body.features.attach, false)
+    assert.equal(v.body.stores[0].attachments, null)
+    const r = await http('POST', '/api/stores/pg/attach', { machine: 'docker' })
+    assert.equal(r.status, 400)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('storage jobs: push runs as a job with storage-job events; one job per Store', async () => {
   let finish
   const { http, events, root } = fakeGroups({
@@ -158,7 +348,7 @@ test('storage jobs: push runs as a job with storage-job events; one job per Stor
     assert.ok(jobEvents.length >= 2)
     assert.equal(jobEvents.at(-1).data.type, 'storage-job')
     assert.ok(jobEvents.at(-1).data.job.ended)
-    assert.ok(existsSync(join(root, 'storage-jobs.json')))
+    assert.ok(existsSync(join(root, 'home', 'job', 'storage-jobs.json')))
     const view = await http('GET', '/api/storage')
     assert.equal(view.body.jobs[0].id, j.body.id)
   } finally { rmSync(root, { recursive: true, force: true }) }
@@ -283,6 +473,133 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
     assert.equal(gone.status, 404, JSON.stringify(gone.body))
   } finally {
     await http('POST', `/api/projects/${key}/close-sandboxes`, { force: true }).catch(() => {})
+    await groups.projects.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('project storage: a ledger of each save\'s counters, read from listing pages once, then only new saves', async () => {
+  const id = (c, n) => `12${String(n).padStart(2, '0')}${c.repeat(62)}`
+  const layer = (n) => `32${String(n).padStart(2, '0')}${'f'.repeat(62)}`
+  const commit = (branch, n, extra = {}) => ({ id: id(branch[0], n), ref: { id: id(branch[0], n), kind: 'Commit', branch }, time: 1000 + n, via: 'fs', logical: 100, ...extra })
+  const counters = (c) => ({ message: `save ${c.id.slice(2, 4)}`, new_canonical: 20, new_stored: 10, new_metadata: 4 })
+  const history = {
+    a: [commit('a', 3), commit('a', 2, { via: 'merge' }), commit('a', 1)],
+    // b's oldest save lists without counters (an older listing): it is read whole
+    b: [commit('b', 2), commit('b', 1, { bare: true })],
+    // c is long enough to page: 25 is refused, then 10 is refused on its second page
+    c: Array.from({ length: 12 }, (_, i) => commit('c', 12 - i)),
+    main: [{ id: layer(2), ref: { id: layer(2), kind: 'Layer', branch: 'main' }, logical: 40 }, { id: layer(1), ref: { id: layer(1), kind: 'Layer', branch: 'main' }, logical: 30 }],
+  }
+  const read = [], served = []
+  let openB = () => {}
+  let gate = new Promise((resolve) => { openB = resolve })
+  const impl = {
+    ...base,
+    project: { get: async (key) => ({ project: key, name: 'p', store: 's1', machine: 'native', created: 7 }), stats: async () => ({ logical: 100, files: 3, directories: 1, complete: true }) },
+    store: { ...base.store, stats: async () => ({ name: 's1', history_logical: 1000, canonical: 400, stored: 100, metadata: 50, file: 4096 }), get: async () => ({ name: 's1', projects: ['p', 'q'] }) },
+    branch: {
+      list: async () => ({ items: [{ name: 'main', base: history.main[0].id }, ...['a', 'b', 'c'].map((name) => ({ name, head: history[name][0].id }))], next_page_pos: null }),
+      commits: async (_project, branch, options) => {
+        if (branch === 'b') await gate
+        if (branch === 'c' && (options.page_size === 25 || (options.page_size === 10 && options.page > 1))) throw Object.assign(new Error('saved history page exceeds reply budget'), { code: 'Capacity' })
+        const all = history[branch], from = all.findIndex((c) => c.id === options.at_commit)
+        const rows = all.slice(from < 0 ? 0 : from), start = (options.page - 1) * options.page_size
+        const items = rows.slice(start, start + options.page_size).map(({ bare, ...c }) => options.include_storage && !bare ? { ...c, ...counters(c) } : c)
+        if (options.include_storage) served.push(...items.map((c) => c.id))
+        return { items, has_more: start + options.page_size < rows.length }
+      },
+      get_commit: async (_project, branch, commitId) => {
+        read.push(commitId)
+        const { bare, ...c } = history[branch].find((x) => x.id === commitId)
+        return { ...c, ...counters(c) }
+      },
+    },
+  }
+  const { http, groups, root } = fakeGroups(impl)
+  const path = `/api/projects/${encodeURIComponent('s1/p')}/storage`
+  try {
+    const first = await http('GET', path)
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.equal(first.body.totals, null, 'nothing counted yet')
+    assert.ok(first.body.building, 'the first read runs in the background')
+    // while b's listing waits, the view already holds a's saves, marked partial
+    let midway = first
+    for (let i = 0; i < 100 && !(midway.body.totals?.saves >= 3); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      midway = await http('GET', path)
+    }
+    assert.equal(midway.body.totals?.saves, 3, JSON.stringify(midway.body))
+    assert.equal(midway.body.partial, true)
+    assert.ok(midway.body.building)
+    assert.equal(midway.body.totals.stored, 30)
+    openB()
+    await groups.projects.storageLedgers.settle('s1/p', 7)
+    const done = await http('GET', path)
+    assert.equal(done.body.building, null)
+    assert.equal(done.body.partial, false)
+    assert.deepEqual(done.body.totals, { saves: 17, merges: 1, branches: 3, publications: 2, commitLogical: 1700, publicationLogical: 70, canonical: 340, stored: 170, metadata: 68 })
+    assert.equal(done.body.recent.length, 17)
+    assert.equal(done.body.growth.at(-1), 170)
+    assert.deepEqual({ name: done.body.store.name, projects: done.body.store.projects, stored: done.body.store.stored, file: done.body.store.file }, { name: 's1', projects: 2, stored: 100, file: 4096 })
+    assert.deepEqual(done.body.main, { logical: 100, files: 3, directories: 1, complete: true })
+    assert.deepEqual(read, [history.b[1].id], 'only the save listed without counters is read whole')
+    const cServed = served.filter((x) => x.startsWith('12') && x.endsWith('c'.repeat(62)))
+    assert.deepEqual(cServed.slice().sort(), history.c.map((c) => c.id).sort(), 'smaller pages resume where the refused one began')
+    assert.equal(new Set(cServed).size, cServed.length, 'no save of c listed twice')
+    // a new save on b: a recount lists only it
+    history.b.unshift(commit('b', 3))
+    read.length = 0
+    served.length = 0
+    await http('GET', `${path}?refresh=1`)
+    await groups.projects.storageLedgers.settle('s1/p', 7)
+    const again = await http('GET', path)
+    assert.deepEqual(read, [])
+    assert.deepEqual(served, history.b.map((c) => c.id), 'one listing page of b, nothing of a or c')
+    assert.equal(again.body.totals.saves, 18)
+    assert.equal(again.body.totals.stored, 180)
+  } finally {
+    openB()
+    await groups.projects.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('project storage: a CLI older than include_storage falls back to reading each save', async () => {
+  const id = (n) => `12${String(n).padStart(2, '0')}${'a'.repeat(62)}`
+  const history = [3, 2, 1].map((n) => ({ id: id(n), ref: { id: id(n), kind: 'Commit', branch: 'a' }, time: 1000 + n, via: 'fs', logical: 100 }))
+  const read = [], asked = []
+  const impl = {
+    ...base,
+    project: { get: async (key) => ({ project: key, name: 'p', store: 's1', machine: 'native', created: 7 }), stats: async () => null },
+    store: { ...base.store, stats: async () => ({ name: 's1', stored: 100 }), get: async () => ({ name: 's1', projects: ['p'] }) },
+    branch: {
+      list: async () => ({ items: [{ name: 'a', head: history[0].id }], next_page_pos: null }),
+      commits: async (_project, _branch, options) => {
+        asked.push(options)
+        // the SDK refuses an option the CLI's help does not list
+        if ('include_storage' in options) throw Object.assign(new Error('branch.commits: unknown option include_storage'), { code: 'InvalidInput' })
+        const start = (options.page - 1) * options.page_size
+        return { items: history.slice(start, start + options.page_size), has_more: start + options.page_size < history.length }
+      },
+      get_commit: async (_project, _branch, commitId) => {
+        read.push(commitId)
+        return { ...history.find((c) => c.id === commitId), new_canonical: 20, new_stored: 10, new_metadata: 4 }
+      },
+    },
+  }
+  const { http, groups, root } = fakeGroups(impl)
+  const path = `/api/projects/${encodeURIComponent('s1/p')}/storage`
+  try {
+    await http('GET', path)
+    await groups.projects.storageLedgers.settle('s1/p', 7)
+    const done = await http('GET', path)
+    assert.equal(done.body.error, null, JSON.stringify(done.body.error))
+    assert.equal(done.body.totals.saves, 3)
+    assert.equal(done.body.totals.stored, 30)
+    assert.deepEqual(read.slice().sort(), history.map((c) => c.id).sort())
+    assert.equal(asked.filter((o) => 'include_storage' in o).length, 1, 'asked once, then remembered')
+  } finally {
     await groups.projects.close()
     rmSync(root, { recursive: true, force: true })
   }

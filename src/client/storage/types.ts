@@ -3,7 +3,6 @@
  * host answers the same shapes).
  */
 import type { BranchInfo, CommitInfo } from '../files/types.ts'
-import type { WireInteger } from './exact-count.ts'
 
 export interface SdkOperation { id: string, name: string, phase: string, started: number | null, uncertain: boolean }
 export interface SdkRefusal { code: string, message: string, detail?: any }
@@ -35,6 +34,26 @@ export interface StoreRow {
   links: StoreBackupLink[]
   job: string | null
   postgresql?: PgServer | null
+  /** A PostgreSQL Store's machines (store.attach); null from a CLI before attachments. */
+  attachments?: PgAttachment[] | null
+  /** Refused attaches from this host to machines it is not attached to. */
+  attachRefusals?: (SdkRefusal & { machine: string, at: number })[]
+}
+
+/** A machine a PostgreSQL Store is attached to: its connection and its last check. */
+export interface PgAttachment {
+  machine: string
+  /** The machine dials its own URL or password, not the Store's. */
+  own: boolean
+  /** Its own URL (no password), or null (the Store's). */
+  url: string | null
+  target: string | null
+  /** The machine's own password reference, or null (the Store's). */
+  password: string | null
+  /** The reference names a file the host wrote from a typed password. */
+  saved: boolean
+  checked: { at: number | null, version: string | null, latencyMs: number | null } | null
+  lastError: (SdkRefusal & { at: number }) | null
 }
 
 export interface BackupFile { file: string, store: string | null, state: BackupState, bytes: number | null, modified: number | null, reason: string | null }
@@ -82,6 +101,8 @@ export interface StorageView {
   stores: StoreRow[]
   buckets: BucketRow[]
   jobs: StorageJob[]
+  /** The pinned CLI's optional calls. */
+  features?: { attach: boolean }
   at: number
 }
 
@@ -166,57 +187,35 @@ export interface SessionRow {
   updatedAt: number | null
 }
 
-// ---------- saved-revision storage reads ----------
+// ---------- a project's own storage ----------
 
-/** A saved Commit or Layer the storage reads pin. */
-export interface SavedStorageRef { id: string, kind: 'Commit' | 'Layer' | string, branch: string | null, root?: string }
-
-/** GET /api/projects/<key>/storage-history: one page of saved revisions, newest first. */
-export interface StorageHistoryPage { items: CommitInfo[], head: SavedStorageRef | null, next: string | null }
-
-/** GET /api/projects/<key>/stats?branch=&pin=: saved-tree entry counts at one revision. */
-export interface ProjectTreeStats {
-  projectKey: string
-  at: { id: string, kind: string }
-  files: unknown
-  directories: unknown
-  symlinks: unknown
-  others: unknown
-  logical: unknown
-  complete: boolean
-  reason?: string
-}
-
-/** GET /api/projects/<key>/storage-report: the bounded canonical-reuse analysis. */
-export interface StorageReport {
-  scope: 'project' | 'store'
-  project?: string
-  name?: string
-  definition_version: number
-  population_id: string
-  population: 'explicit_saved_snapshots' | string
-  snapshots: { project: string, branch: string, at: SavedStorageRef }[]
-  complete: boolean
-  reason?: string
-  examined_objects: WireInteger | null
-  canonical_bytes_read: WireInteger | null
-  referenced_canonical_bytes: WireInteger | null
-  unique_canonical_bytes: WireInteger | null
-  payload_encoding?: {
-    definition_version: number
-    population: string
-    available: boolean
-    reason?: string
-    referenced_canonical_bytes: WireInteger | null
-    unique_canonical_bytes: WireInteger | null
-    encoded_record_bytes: WireInteger | null
-    dependency_closure_included: boolean
-    shared_framing_included: boolean
-    external_direct_base_count: WireInteger | null
-  }
-  projects: { project: string, referenced_canonical_bytes: WireInteger | null, exclusive_within_population_canonical_bytes: WireInteger | null, shared_within_population_canonical_bytes: WireInteger | null }[]
-  physical_bytes: WireInteger | null
-  reclaimable_bytes: WireInteger | null
-  physical_reason: string
-  selection: { scope: 'project_saved_revisions' | string, limit: number, selected: number, hasEarlier: boolean, head: SavedStorageRef | null }
+/** GET /api/projects/<key>/storage: this project's saves summed from their Commit counters. */
+export interface ProjectStorageView {
+  project: string
+  /** Null while no save is counted yet; partial (see `partial`) during a first read. */
+  totals: {
+    saves: number
+    merges: number
+    branches: number
+    publications: number
+    commitLogical: number
+    publicationLogical: number
+    canonical: number
+    stored: number
+    /** Part of `stored`, not extra bytes. */
+    metadata: number
+  } | null
+  /** Cumulative packed bytes at even steps through the saves, oldest first. */
+  growth: number[]
+  /** The newest saves, oldest first. */
+  recent: { id: string, time: number | null, via: string | null, logical: number, stored: number, branch: string, message: string }[]
+  updatedAt: number | null
+  /** True until a first read of the history finishes: the totals so far. */
+  partial: boolean
+  /** The refresh running now. */
+  building: { branches: number, branchesTotal: number, saves: number } | null
+  /** Why the last refresh failed. */
+  error: { code: string, message: string, detail: unknown } | null
+  store: { name: string, projects: number | null, historyLogical?: number | null, canonical?: number | null, stored?: number | null, metadata?: number | null, file?: number | null, refusal?: unknown }
+  main: { logical: number | null, files: number | null, directories: number | null, complete: boolean } | null
 }

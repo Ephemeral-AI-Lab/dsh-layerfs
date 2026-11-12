@@ -25,6 +25,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
+import { ProjectStorageLedgers } from './project-storage.ts'
 import { PAGE, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 
 /** Calls in flight at once for one answer (stats, diffs). */
@@ -170,12 +171,14 @@ export class Projects {
   readonly creations = new Map<string, Promise<unknown>>()
   readonly emptySources: string
   readonly storageObservations: StorageObservations
+  readonly storageLedgers: ProjectStorageLedgers
   /** Store name -> { state, op }: set by the host (Storage.projectJoin). */
   storeJoin: (() => Promise<Map<string, { state: string, op: unknown }>>) | null = null
 
   constructor(private readonly host: RouteHost) {
     this.emptySources = join(host.root, 'project-sources')
     this.storageObservations = new StorageObservations(host.root, host.home)
+    this.storageLedgers = new ProjectStorageLedgers(host.stats, host.home, () => host.lfs(), (line) => host.log(line))
   }
 
   get lfs() { return this.host.lfs() }
@@ -507,6 +510,30 @@ export class Projects {
     return { ...report, selection: { scope: 'store_main_heads', limit: 20, selected: snapshots.length, availableProjects: available.length, excludedProjects: available.length - selected.length, projects: snapshots.map((snapshot) => snapshot.project) } }
   }
 
+  // ---------- a project's own storage ----------
+
+  /**
+   * ProjectStorage: this project's saves summed from their Commit counters
+   * (the ledger, refreshed in the background), its Store's totals for the
+   * share, and main's latest tree. `?refresh=1` starts a refresh now.
+   */
+  async projectStorage(key: string, q: URLSearchParams) {
+    const record = await this.record(key)
+    const project = keyOf(record), created = typeof record.created === 'number' ? record.created : null
+    const [view, store, storeRecord, main] = await Promise.all([
+      this.storageLedgers.view(project, created, { refresh: q.get('refresh') === '1' }),
+      this.lfs.store.stats(record.store).catch((error: any) => ({ refusal: refusalOf(error) })),
+      this.lfs.store.get(record.store).catch(() => null),
+      this.lfs.project.stats(project).catch(() => null),
+    ])
+    const projects = Array.isArray(storeRecord?.projects) ? new Set(storeRecord.projects).size : null
+    return {
+      ...view,
+      store: { name: record.store, projects, ...('refusal' in store ? { refusal: store.refusal } : { historyLogical: store.history_logical ?? null, canonical: store.canonical ?? null, stored: store.stored ?? null, metadata: store.metadata ?? null, file: store.file ?? null }) },
+      main: main ? { logical: main.logical ?? null, files: main.files ?? null, directories: main.directories ?? null, complete: main.complete !== false } : null,
+    }
+  }
+
   // ---------- saved reads ----------
 
   async storageReport(key: string, q: URLSearchParams) {
@@ -710,6 +737,6 @@ export class Projects {
 
   /** Lets active Inits finish. */
   async close() {
-    await Promise.all(this.creations.values())
+    await Promise.all([...this.creations.values(), this.storageLedgers.close()])
   }
 }

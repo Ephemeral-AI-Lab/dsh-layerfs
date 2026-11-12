@@ -1,86 +1,16 @@
 /**
- * The storage measurements' pictures (LayerFS Connect's
- * `components/storage/{RealStorageVisuals,StagedStorageFlow}`): byte values
- * that count up, a staged flow whose bands arrive in turn, the canonical
- * reuse ring, and the measured line. Motion settles under
- * prefers-reduced-motion.
+ * The storage flow (LayerFS Connect's `components/storage/StagedStorageFlow`):
+ * stages on one byte scale whose pillars, bands and counting values arrive in
+ * turn, with a Replay. Motion settles under prefers-reduced-motion.
  */
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react'
 import { CountUp, useReducedMotion } from './motion.tsx'
-import { exactBytes, exactCount, type WireInteger } from './exact-count.ts'
-import { canonicalReuse, coordinate, encodingRatio, integer, maximum } from './measures.ts'
+import { exactBytes, type WireInteger } from './exact-count.ts'
+import { coordinate, encodingRatio, integer, maximum } from './measures.ts'
 import type { StorageT } from './locale.ts'
 import css from './StorageVisuals.module.css'
 
 const delay = (ms: number): CSSProperties => ({ '--storage-delay': `${ms}ms` }) as CSSProperties
-
-/** Safe values animate; large integers retain their exact wire representation. */
-export function MeasuredValue({ value, bytes = false }: { value: unknown, bytes?: boolean }): ReactNode {
-  const format = bytes ? exactBytes : exactCount
-  return typeof value === 'number' && integer(value) !== null
-    ? <CountUp value={value} format={(shown) => format(Math.round(shown))} ms={650} />
-    : <span className={css.nums}>{format(value)}</span>
-}
-
-/** A measured line of values, oldest left; selectable points inspect a revision. */
-export function MeasurementLine({ values, label, points, times, selectedIndex, onSelect, t }: {
-  values: unknown[]
-  label: string
-  points?: string[]
-  times?: number[]
-  selectedIndex?: number
-  onSelect?: (index: number) => void
-  t: StorageT
-}): ReactNode {
-  if (!values.some((value) => integer(value) !== null)) return <p className={css.note}>{t('measurementsUnavailable')}</p>
-  const max = maximum(values)
-  const start = times?.[0] ?? 0
-  const duration = times ? times.at(-1)! - start : 0
-  const coords = values.map((v, i) => ({
-    x: values.length < 2 ? 300 : 8 + (duration > 0 ? (times![i] - start) / duration : i / (values.length - 1)) * 584,
-    y: coordinate(v, max),
-  }))
-  const paths: string[] = []
-  let current = ''
-  coords.forEach((p) => {
-    if (p.y === null) { if (current) paths.push(current); current = '' }
-    else current += `${current ? ' L' : 'M'}${p.x},${142 - p.y * 126}`
-  })
-  if (current) paths.push(current)
-  return (
-    <div className={css.lineChart}>
-      <div className={css.chartScale}>
-        <span>{exactBytes(max <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(max) : { $layerfs: 'i64-v1', decimal: max.toString() })}</span>
-        <span>0 B</span>
-      </div>
-      <svg viewBox="0 0 600 156" preserveAspectRatio="none" role={onSelect ? 'group' : 'img'} aria-label={label}>
-        {[16, 79, 142].map((y) => <line key={y} x1="8" x2="592" y1={y} y2={y} stroke="var(--dsw-alias-border-l2)" strokeDasharray="3 5" />)}
-        {paths.map((d, i) => {
-          const matches = [...d.matchAll(/[ML]([\d.]+),([\d.]+)/g)]
-          return matches.length > 1 ? <path key={`area:${i}`} d={`${d} L${matches.at(-1)![1]},142 L${matches[0][1]},142 Z`} fill="var(--storage-canonical)" fillOpacity=".08" /> : null
-        })}
-        {selectedIndex !== undefined && coords[selectedIndex]?.y !== null && coords[selectedIndex] && (
-          <line x1={coords[selectedIndex].x} x2={coords[selectedIndex].x} y1="8" y2="148" stroke="var(--storage-canonical)" strokeOpacity=".45" strokeDasharray="3 4" />
-        )}
-        {paths.map((d, i) => (
-          <path className={css.historyLine} key={i} d={d} fill="none" stroke="var(--storage-canonical)" strokeWidth="2.5" vectorEffect="non-scaling-stroke" />
-        ))}
-        {coords.map((p, i) => p.y === null ? null : (
-          <circle key={i} cx={p.x} cy={142 - p.y * 126} r={selectedIndex === i ? 5 : 3.5}
-            className={onSelect ? css.revisionPoint : undefined}
-            tabIndex={onSelect ? 0 : undefined} role={onSelect ? 'button' : undefined}
-            aria-label={onSelect ? t('inspectRevision', { id: points?.[i] ?? String(i + 1), bytes: exactBytes(values[i]) }) : undefined}
-            aria-pressed={onSelect ? selectedIndex === i : undefined}
-            onClick={onSelect ? () => onSelect(i) : undefined}
-            onKeyDown={onSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(i) } } : undefined}
-            stroke="var(--storage-canonical)" strokeWidth={onSelect ? 14 : 0} strokeOpacity="0" fill="var(--storage-canonical)">
-            <title>{points?.[i] ?? `${i + 1}`}: {exactBytes(values[i])}</title>
-          </circle>
-        ))}
-      </svg>
-    </div>
-  )
-}
 
 // ---------- staged flow ----------
 
@@ -164,26 +94,6 @@ export function StagedStorageFlow({ stages, steps, label, t }: { stages: Storage
       </div>
       <div className={css.flowReplay}>
         <button type="button" onClick={() => setReplay((value) => value + 1)} aria-label={t('replayAria', { label: label.toLowerCase() })}>{t('replay')}</button>
-      </div>
-    </div>
-  )
-}
-
-/** The canonical-reuse ring: how much of the referenced bytes the unique set did not need. */
-export function ReuseRing({ referenced, unique, t }: { referenced: unknown, unique: unknown, t: StorageT }): ReactNode {
-  const fraction = canonicalReuse(referenced, unique)
-  const percent = fraction === null ? null : Math.round(fraction * 1000) / 10
-  return (
-    <div className={css.reuseRing} role="img"
-      aria-label={percent === null ? t('reuseUnavailable') : t('reuseAria', { percent })}>
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        <circle cx="50" cy="50" r="42" fill="none" stroke="var(--dsw-alias-border-l2)" strokeWidth="7" />
-        <circle className={css.reuseArc} cx="50" cy="50" r="42" fill="none" stroke="var(--storage-stored)" strokeWidth="7"
-          pathLength="1" strokeDasharray="1" strokeDashoffset={1 - (fraction ?? 0)} strokeLinecap="round" />
-      </svg>
-      <div>
-        <strong>{percent === null ? '—' : <CountUp value={percent} format={(value) => `${Math.round(value * 10) / 10}%`} ms={950} />}</strong>
-        <span>{t('canonicalReuse')}</span>
       </div>
     </div>
   )
