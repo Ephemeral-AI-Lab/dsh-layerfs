@@ -227,6 +227,28 @@
 .dotLive { background: var(--dsw-alias-state-success-primary); animation: breathe 1.8s ease-in-out infinite; }
 .page:not([data-playing]) .dotLive, .page:not([data-playing]) .active::after { animation-play-state: paused; }
 
+/* Subagents with no LayerFS calls, folded */
+.fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+@media (hover: hover) { .fold:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); } }
+.fold:focus-visible { outline: 2px solid var(--dsw-alias-link); outline-offset: -2px; }
+.foldIcon { transition: transform 150ms; }
+.foldOpen { transform: rotate(90deg); }
+
 /* LayerFS hub */
 
 .hub {

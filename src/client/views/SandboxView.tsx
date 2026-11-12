@@ -148,17 +148,18 @@ export function SandboxView(props: ViewProps): ReactNode {
   const state = useRootState(api, sessionId, sessions)
   return (
     <Gate state={state} t={t}>
-      {(view, project) => <SandboxMap {...props} project={project} binding={view.binding} root={state.root} byId={state.byId} title={state.title} />}
+      {(view, project) => <SandboxMap {...props} project={project} binding={view.binding} root={state.root} byId={state.byId} title={state.title} label={state.label} />}
     </Gate>
   )
 }
 
-function SandboxMap({ api, t, sessionId, project, binding, root, byId, title }: ViewProps & {
+function SandboxMap({ api, t, sessionId, project, binding, root, byId, title, label }: ViewProps & {
   project: string
   binding: NonNullable<SessionStateView['binding']>
   root: string
   byId: ReturnType<typeof useRootState>['byId']
   title: (id: string) => string | undefined
+  label: (id: string) => string | undefined
 }): ReactNode {
   const agents = useMemo(() => agentTree(root, byId), [root, byId])
   const { calls, loaded } = useAgentCalls(api, agents)
@@ -167,13 +168,14 @@ function SandboxMap({ api, t, sessionId, project, binding, root, byId, title }: 
   const clock = useClock(model.duration, anyRunning)
   const now = clock.t
   const [onlyChat, setOnlyChat] = useState(false)
+  const [showQuiet, setShowQuiet] = useState(false)
   const [hover, setHover] = useState<Focus>(null)
   const [selected, setSelected] = useState<Focus>(null)
   const focus = hover ?? selected
   const motion = !reducedMotion()
 
   const name = useCallback((agent: MapAgent) => agent.depth === 0 ? t('mainAgent')
-    : title(agent.id) ?? t('subagent', { n: agents.indexOf(agent) }), [title, t, agents])
+    : label(agent.id) ?? title(agent.id) ?? t('subagent', { n: agents.indexOf(agent) }), [label, title, t, agents])
   const shownAgents = onlyChat ? agents.filter((a) => a.id === sessionId || a.parent === sessionId) : agents
   const shownKey = shownAgents.map((a) => a.id).join('|')
   const events = useMemo(() => {
@@ -315,7 +317,17 @@ function SandboxMap({ api, t, sessionId, project, binding, root, byId, title }: 
   const empty = loaded && model.events.length === 0
   const disabled = model.duration === 0
   const playState = clock.live && clock.playing ? t('live') : clock.playing ? t('playing') : t('paused')
-  const rootAgent = shownAgents[0]
+  // The card is the conversation's: its title stays the root's when filtered to one subagent.
+  const rootAgent = shownAgents.length ? agents[0] : undefined
+  // Subagents with no LayerFS calls (theirs or their subagents') fold into one row.
+  const quiet = useMemo(() => {
+    const busy = new Set(model.events.map((e) => e.agent))
+    const parentOf = new Map(agents.map((a) => [a.id, a.parent]))
+    for (const id of [...busy]) for (let up = parentOf.get(id); up && !busy.has(up); up = parentOf.get(up)) busy.add(up)
+    return new Set(agents.filter((a) => a.depth > 0 && !a.running && !busy.has(a.id)).map((a) => a.id))
+  }, [agents, model.events])
+  const quietShown = shownAgents.filter((a) => quiet.has(a.id)).length
+  const listedAgents = showQuiet ? shownAgents : shownAgents.filter((a) => !quiet.has(a.id))
   const following = focusName(focus)
 
   return (
@@ -361,7 +373,7 @@ function SandboxMap({ api, t, sessionId, project, binding, root, byId, title }: 
                 <span className={css.groupTitle} title={title(rootAgent.id)}>{title(rootAgent.id) ?? t('lead')}</span>
                 {rootAgent.id === sessionId ? <span className={css.tag}>{t('thisChat')}</span> : null}
               </div>
-              {shownAgents.map((agent) => {
+              {listedAgents.map((agent) => {
                 const s = agentStatus(agent)
                 const f = { kind: 'agent', id: agent.id } as const
                 return (
@@ -382,6 +394,12 @@ function SandboxMap({ api, t, sessionId, project, binding, root, byId, title }: 
                   </button>
                 )
               })}
+              {quietShown > 0 ? (
+                <button type="button" className={css.fold} aria-expanded={showQuiet} onClick={() => setShowQuiet((v) => !v)}>
+                  <IconChevronRightOutlineRegular size={12} className={clsx(css.foldIcon, showQuiet && css.foldOpen)} />
+                  {showQuiet ? t('quietHide', { n: quietShown }) : t('quietShow', { n: quietShown })}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </section>

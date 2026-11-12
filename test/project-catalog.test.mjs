@@ -175,3 +175,26 @@ test('a damaged durable catalog is reported instead of silently replaced', async
     assert.throws(() => f.catalog.retained(), SyntaxError)
   } finally { f.close() }
 })
+
+test('parallel identity lookups of one project share one read, and a dropped-lease refusal is retried', async () => {
+  const f = fixture()
+  try {
+    const lfs = f.catalog['lfs']()
+    const list = lfs.branch.list
+    let reads = 0, refuse = 1
+    lfs.branch.list = async (key, paging) => {
+      reads++
+      await new Promise((r) => setTimeout(r, 20))
+      if (refuse-- > 0) throw Object.assign(new Error('Os { code: 2, kind: NotFound, message: "No such file or directory" }'), { code: 'Failed' })
+      return list(key, paging)
+    }
+    f.state.projects.get('store/app').branches.push(identityBranch(A))
+    const ids = await Promise.all([1, 2, 3].map(() => f.catalog.uuidOf('store/app')))
+    assert.deepEqual(ids, [A, A, A])
+    assert.equal(reads, 2, 'three callers, one read plus its one retry')
+    refuse = 5
+    await assert.rejects(f.catalog.uuidOf('store/app'), /NotFound/, 'gives up after two retries')
+    lfs.branch.list = async () => { throw Object.assign(new Error('nope'), { code: 'Unavailable' }) }
+    await assert.rejects(f.catalog.uuidOf('store/app'), /nope/, 'other refusals are not retried')
+  } finally { f.close() }
+})

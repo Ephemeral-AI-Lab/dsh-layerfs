@@ -39,6 +39,7 @@ The adapter reads the latest human user message (`role: user`, `source.kind: use
 | `bash: <command>` | one `bash` tool call `{description, command}` |
 | `bash!: <command>` | `bash` call that also asks for the widest advertised `sandbox_permissions` escalation (triggers an approval prompt) |
 | `write: <path> <text>` | one `write` tool call `{file_path, content}` (`\n` in text becomes a newline) |
+| `subagent: <label> \| <prompt>` | one `subagent` call `{description: label, prompt}`; `\n` in the prompt becomes a newline and `\\n` becomes `\n`, so a child prompt can hold its own `bash:` and `subagent:` lines (end it with `\n`: DSH appends a note to the prompt) |
 
 All matching lines in one message become parallel tool calls in one assistant
 step (finish `tool-calls`). Once tool results follow that user message, the next
@@ -56,6 +57,9 @@ stops. Auxiliary calls (`options.purpose` set, e.g. session titles) get
 | `model` | `scripted` | advertised model id (any id is served) |
 | `autoApprove` | `false` | prepend an `approval/request` listener answering `allowed-once` |
 | `chunkDelayMs` | `0` | delay between streamed chunks |
+
+`DSH_FAKE_LLM_TRACE=1` in the server's environment prints one `[fake-llm]` line
+per scripted step to stderr: the tools offered, the calls made and the prompt.
 
 The overlay sets `autoApprove` true unless `DSH_FAKE_LLM_AUTO_APPROVE=0` is in the
 dev server's environment. Under the default `workspace-write` + `ask` policy plain

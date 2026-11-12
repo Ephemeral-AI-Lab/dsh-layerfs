@@ -29,7 +29,10 @@ function lastHumanIndex(messages) {
   return -1
 }
 
-/** Parse `bash: <cmd>` and `write: <path> <text>` lines into tool calls. */
+/** One escape level: `\n` becomes a newline and `\\n` becomes `\n` (for a nested `subagent:` prompt). */
+const unescape = (text) => text.replace(/\\(\\?)n/g, (_, extra) => extra ? '\\n' : '\n')
+
+/** Parse `bash: <cmd>`, `write: <path> <text>` and `subagent: <label> | <prompt>` lines into tool calls. */
 function scriptedCalls(text, tools) {
   const toolNames = new Set(tools.map((t) => t.name))
   // `bash!:` asks for the widest advertised sandbox escalation (exercises approval prompts).
@@ -44,6 +47,8 @@ function scriptedCalls(text, tools) {
       calls.push({ name: 'bash', args })
     } else if ((m = /^write:\s*(\S+)\s?(.*)$/.exec(line)) && toolNames.has('write')) {
       calls.push({ name: 'write', args: { file_path: m[1], content: m[2].replace(/\\n/g, '\n') } })
+    } else if ((m = /^subagent:\s*([^|]+?)\s*\|\s*(.+)$/.exec(line)) && toolNames.has('subagent')) {
+      calls.push({ name: 'subagent', args: { description: m[1], prompt: unescape(m[2]) } })
     }
   }
   return calls
@@ -101,6 +106,7 @@ class FakeScriptedAdapter extends LlmAdapter {
       return
     }
     const calls = scriptedCalls(prompt, options.tools ?? [])
+    if (process.env.DSH_FAKE_LLM_TRACE) console.error('[fake-llm]', JSON.stringify({ tools: (options.tools ?? []).map((t) => t.name), calls: calls.map((c) => c.name), prompt: prompt.slice(0, 120) }))
     if (calls.length === 0) {
       yield * this.text(0, `echo: ${prompt}`)
       yield * finish('stop')
