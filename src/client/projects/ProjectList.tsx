@@ -4,22 +4,21 @@
  * <store>`, readiness, Start or New session) whose conversations fold out
  * under it, grouped into Ready and Unavailable.
  */
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { listProjects, type ProjectRow } from '../picker/NewProjectForm.tsx'
 import { useQuery } from '../files/use-query.ts'
 import { useHostEvents } from '../storage/hooks.ts'
-import { Card, Page, PageHead, StateChip } from '../ui/index.tsx'
+import { Card, Page, PageHead } from '../ui/index.tsx'
 import { projectAvailability, type ProjectAvailability } from './availability.ts'
 import { useProjectMachines, useProjectSessions } from './hooks.ts'
 import type { ListT } from './list-locale.ts'
 import css from './list.module.css'
-import { MachineStatus } from './MachineStatus.tsx'
 import { openMachineHome, openProjectHome } from './navigation.ts'
-import { ReadDeadlineError, readWithDeadline } from './read-deadline.ts'
-import { sidebarStatus, splitByReadiness } from './readiness.ts'
+import { ReadDeadlineError, readWithDeadline, steadyRead } from './read-deadline.ts'
+import { sidebarStatus, splitByReadiness, type SidebarStatus } from './readiness.ts'
 import { visibleProjectSessions } from './session-visibility.ts'
 
 interface SessionSummary { title?: string, blank?: boolean }
@@ -40,6 +39,14 @@ const enc = encodeURIComponent
 
 function Chevron({ open }: { open: boolean }): ReactNode {
   return <IconChevronDownOutlineRegular size={12} className={clsx(css.chevron, open && css.openChevron)} />
+}
+
+/** Green ready, yellow on its way or stopped, red unavailable; the words are the tooltip and the accessible name. */
+const SIGNAL = { success: 'done', warning: 'warning', neutral: 'warning', danger: 'error' } as const
+function Signal({ status, label, reason }: { status: SidebarStatus, label: string, reason?: string | null | undefined }): ReactNode {
+  return <span className={css.signal} role="img" aria-label={label} title={reason ? `${label} · ${reason}` : label} data-tone={status.tone}>
+    <StateDot state={SIGNAL[status.tone]} />
+  </span>
 }
 
 const errorMessage = (error: unknown, t: ListT) => error instanceof ReadDeadlineError ? t('timedOut') : String((error as Error).message ?? error)
@@ -74,8 +81,8 @@ function Project({ project, api, titles, t, availability, onStarted }: { project
     <div className={css.line}>
       <button className={css.foldProject} type="button" aria-expanded={open} aria-label={t('expandProject', { project: label })} onClick={() => setOpen(!open)}><Chevron open={open} /></button>
       <button className={clsx(css.projectLink, !availability.canRun && css.inactive)} type="button" title={label} onClick={() => openProjectHome(api, project.projectId ?? project.key)}>
-        <IconFolderOpenOutlineRegular size={16} /><span className={css.projectText}><span className={css.label}>{label}</span>
-          {availability.canRun ? <MachineStatus value={availability} t={t} /> : <StateChip tone={status.tone} label={t(status.key)} live={status.live} title={availability.reason ?? project.catalogError ?? undefined} />}</span>
+        <IconFolderOpenOutlineRegular size={16} /><span className={css.projectText}><span className={css.label}>{label}</span></span>
+        <Signal status={status} label={t(status.key)} reason={availability.reason ?? project.catalogError} />
       </button>
       {availability.canStart
         ? <Button className={css.action} variant="ghost" size="sm" disabled={busy} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={() => void start()}>{t('start')}</Button>
@@ -115,7 +122,8 @@ export function ProjectTree({ api, t, sessionSource, compact }: { api: LayerfsAp
   const source = sessionSource ?? NO_SOURCE
   const summaries = useSyncExternalStore(source.subscribe.bind(source), source.getSnapshot.bind(source))
   const machines = useProjectMachines(api)
-  const read = useQuery(() => readWithDeadline(listProjects(api)), [api])
+  const lastProjects = useRef<{ value: Awaited<ReturnType<typeof listProjects>>, failures: number } | null>(null)
+  const read = useQuery(() => steadyRead(lastProjects, () => readWithDeadline(listProjects(api))), [api])
   useHostEvents(api, ['storage', 'layerfs-availability', 'layerfs-workspaces-changed', 'machine-progress', 'connection'], read.reload)
   useEffect(() => {
     const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, 15_000)
@@ -123,11 +131,11 @@ export function ProjectTree({ api, t, sessionSource, compact }: { api: LayerfsAp
   }, [read.reload])
 
   const projects = read.data?.rows.filter((p) => p.key !== read.data?.scratchKey) ?? []
-  // Bucket by the observed availability itself (not the reload-masked one) so rows do not jump during refreshes.
+  // A refresh keeps the last answer on screen: rows never read as unavailable while one runs.
   const rated = projects.map((project) => ({ project, availability: projectAvailability(project, machines.data, machines.error) }))
   const { ready, inactive } = splitByReadiness(rated, !!machines.data || !!machines.error)
   const row = ({ project, availability }: typeof rated[number]) => <Project key={project.projectId ?? project.key} project={project} api={api} titles={summaries.byId} t={t}
-    availability={{ ...availability, canRun: !machines.loading && availability.canRun }} onStarted={() => { machines.reload(); read.reload() }} />
+    availability={availability} onStarted={() => { machines.reload(); read.reload() }} />
   const prefix = compact ? 'dsh-layerfs:sidebar-projects' : 'dsh-layerfs:projects'
   return <div className={clsx(css.tree, compact && css.compact)}>
     {read.error ? <div className={css.notice} role="alert">{t('failed', { message: errorMessage(read.error, t) })}<Button variant="ghost" size="sm" onClick={read.reload}>{t('retry')}</Button></div>

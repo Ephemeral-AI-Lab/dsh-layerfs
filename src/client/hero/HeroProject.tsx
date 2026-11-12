@@ -130,16 +130,24 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     )
   }
 
+  const project = !!place?.project
   useEffect(() => {
-    if (!place?.project) return
-    // Native folder selection navigates to another blank. In project mode our
-    // scratch selector preserves this session and changes only its local folder.
+    // One order in both modes: the preset on the left, then the folder and the
+    // project on the right (hero.module.css). Native folder selection navigates
+    // to another blank, so in project mode our scratch selector stands in for it:
+    // it preserves this session and changes only its local folder.
     for (let row = root.current?.parentElement, depth = 0; row && depth < 6; row = row.parentElement, depth++) {
       if (!row.querySelector(':scope > [data-slot="conversation.hero.workspace"]') || !row.querySelector(':scope > button[aria-haspopup="menu"]')) continue
-      row.setAttribute('data-layerfs-scratch-picker', sessionId)
-      return () => { if (row.getAttribute('data-layerfs-scratch-picker') === sessionId) row.removeAttribute('data-layerfs-scratch-picker') }
+      const options = [...row.children].find((child) => child.contains(root.current))
+      row.setAttribute('data-layerfs-hero-row', sessionId)
+      options?.setAttribute('data-layerfs-hero-options', '')
+      if (project) row.setAttribute('data-layerfs-scratch-picker', sessionId)
+      return () => {
+        if (row.getAttribute('data-layerfs-hero-row') === sessionId) { row.removeAttribute('data-layerfs-hero-row'); options?.removeAttribute('data-layerfs-hero-options') }
+        if (row.getAttribute('data-layerfs-scratch-picker') === sessionId) row.removeAttribute('data-layerfs-scratch-picker')
+      }
     }
-  }, [place?.project, sessionId])
+  }, [project, sessionId])
 
   if (running) {
     const name = nameOf(running.key)

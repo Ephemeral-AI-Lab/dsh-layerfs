@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { runtimePin } from '../scripts/runtime-pin.mjs'
 
 const root = new URL('..', import.meta.url).pathname
 
@@ -52,15 +53,8 @@ export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), job
   }
 }
 
-/** The pinned CLI/daemon (DSH_LAYERFS_* or Connect's desktop/.env.local), or null. */
+/** The pinned CLI/daemon (DSH_LAYERFS_*, else the newest runtime in ~/.layerfs), or null. */
 export function pinned() {
-  const env = { cli: process.env.DSH_LAYERFS_CLI, daemon: process.env.DSH_LAYERFS_DAEMON }
-  const local = join(root, '..', 'layerfs-connect', 'desktop', '.env.local')
-  if (!env.cli && existsSync(local)) {
-    for (const line of readFileSync(local, 'utf8').split('\n')) {
-      const m = /^LAYERFS_CONNECT_(CLI|DAEMON)=(.+)$/.exec(line.trim())
-      if (m) env[m[1].toLowerCase()] ??= m[2]
-    }
-  }
-  return env.cli && existsSync(env.cli) ? env : null
+  const pin = runtimePin()
+  return pin && existsSync(pin.cli) ? pin : null
 }

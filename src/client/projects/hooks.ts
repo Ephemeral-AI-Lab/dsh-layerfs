@@ -1,12 +1,13 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { LayerfsApi } from '../api.ts'
 import { useQuery } from '../files/use-query.ts'
 import type { MachinesView } from '../machines/model.ts'
 import { useHostEvents } from '../storage/hooks.ts'
-import { readWithDeadline } from './read-deadline.ts'
+import { readWithDeadline, steadyRead } from './read-deadline.ts'
 
 export function useProjectMachines(api: LayerfsApi) {
-  const read = useQuery(() => readWithDeadline(api.call<MachinesView>('GET', '/api/machines')), [api])
+  const last = useRef<{ value: MachinesView, failures: number } | null>(null)
+  const read = useQuery(() => steadyRead(last, () => readWithDeadline(api.call<MachinesView>('GET', '/api/machines'))), [api])
   useHostEvents(api, ['machine-progress', 'layerfs-availability', 'storage', 'runtime-changed', 'connection'], read.reload)
   useEffect(() => {
     const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, 15_000)

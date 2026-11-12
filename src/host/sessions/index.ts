@@ -163,6 +163,14 @@ export function apply(ctx: Context): void {
       return undefined
     })
 
+    // No project, no `layerfs` preset: a pick from the New Session row's preset
+    // chip is moved back off it (DSH offers no per-session roster filter).
+    ctx.on('agent-preset/selected' as any, (sessionId: any, preset: string) => {
+      if (preset !== 'layerfs') return
+      const agent = (ctx.get('agents' as never) as any)?.get?.(sessionId)
+      if (agent) queueMicrotask(() => { void sessions.enforceFolderPreset(agent).catch(() => {}) })
+    })
+
     ctx.on('agent/pre-step', async (payload: any, next: () => Promise<any>) => {
       clearTimeout(idle.get(String(payload.agent.id)))
       await sessions.ensureBound(payload.agent)

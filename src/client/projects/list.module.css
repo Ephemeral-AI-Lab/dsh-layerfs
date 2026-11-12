@@ -140,6 +140,16 @@
   padding-inline: 2px;
 }
 .projectLink > svg { flex: none; }
+/* The row's readiness: a colored dot at the end of the label, words on hover. */
+.signal {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-inline-end: 2px;
+}
 .projectText {
   display: flex;
   flex: 1;

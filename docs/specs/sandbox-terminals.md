@@ -48,7 +48,7 @@ sbpage-box ● Running            On native · project sbpage-v/demo        Diag
   - ↑/↓ steps through that Workspace's history.
   - Ctrl+C cancels the running command; when idle with no selection it echoes `^C` and clears the line.
   - Ctrl+L clears the view only; the log is kept.
-  - Esc leaves maximize or closes a dialog.
+  - Esc leaves maximize or closes the commit dialog.
   - Alt+1–4 focuses a pane, Alt+PageUp/PageDown changes the page, and Alt+Enter maximizes.
   - Clicking a pane focuses its prompt unless you're selecting text.
 - **Tiling.**
@@ -61,12 +61,7 @@ sbpage-box ● Running            On native · project sbpage-v/demo        Diag
 - **New workspace.**
   - A form in the next free tile (or a dialog when the page is full) with two fields: Branch, either an existing side branch of the bound project from `branch.list` (main hidden, already-mounted branches allowed) or "New branch from main…" with a name; and an optional Workspace name.
   - Mount calls `POST /api/sandboxes/<name>/workspaces {branch, fork?, name?}`, then opens the new pane, jumps to its page and focuses its prompt.
-- **Close (×) = unmount, guided by LayerFS's refusal.**
-  1. `DELETE /api/workspaces/<ws>`.
-  2. `Dirty`: a dialog offers "Commit, then unmount" (optional message), "Discard and unmount" (`?discard=1`) and Cancel. A refused commit keeps the dialog open with the refusal, and nothing is unmounted.
-  3. `Busy` with running commands: a dialog offers "Cancel commands and unmount" (`force`) and Cancel.
-
-  No overlay count is read or shown; the refusal carries what's needed.
+- **Close (×) unmounts at once, with no confirmation.** It calls `DELETE /api/workspaces/<ws>?discard=1&force=1`: uncommitted changes are dropped and running commands are cancelled. To keep changes, commit first from ⋯ → Commit…. Any other refusal shows in the pane.
 - **Sandbox down.**
   - When the Sandbox isn't running or its daemon is not reached, panes show their logs read-only with a notice in the prompt row, and Enter, New and × are disabled.
   - A Workspace unmounted elsewhere leaves on the next read.
@@ -99,8 +94,8 @@ sbpage-box ● Running            On native · project sbpage-v/demo        Diag
 **Client.**
 - `SandboxDetail.tsx` shrinks to: head, status line, notice, `SandboxTerminals`, Record details.
 - New files:
-  - `SandboxTerminals.tsx`: grid, pager, New tile and form, and the close and commit dialogs.
-  - `TerminalPane.tsx`: head, transcript, prompt.
+  - `SandboxTerminals.tsx`: grid, pager, New tile and form.
+  - `TerminalPane.tsx`: head, transcript, prompt, and the commit dialog.
   - `terminal.ts`: pure helpers plus a small store, so drafts, history and transcripts survive paging and maximize.
 - `terminal.ts` holds `orderWorkspaces`, `pageLayout`, `pageOf`, `historyStep` and `transcript`.
 - Deleted: `SandboxWorkspace.tsx`, `mountRows`, and the overlay/layer CSS and copy.
@@ -125,7 +120,7 @@ sbpage-box ● Running            On native · project sbpage-v/demo        Diag
   1. Mount a new forked branch.
   2. Run `echo hi; echo err >&2; exit 3`.
   3. A second start during `sleep 5` gets 409, then cancel.
-  4. Run `touch f`, then × leads to `Dirty`, then commit and unmount.
+  4. Run `touch f`, then × unmounts it at once (discard), with no dialog.
   5. Mount five Workspaces and check paging, Enter, ↑, Ctrl+C and Ctrl+L in a browser.
 
 ## Open questions

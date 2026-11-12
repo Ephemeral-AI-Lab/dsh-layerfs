@@ -3,8 +3,9 @@
  * ⋯ and ×), the transcript of the commands this host ran there, and a prompt
  * line. Enter sends exactly the typed line to `workspace.exec` through
  * POST /api/workspaces/<ws>/commands; output appears when the command ends.
- * Closing unmounts, and LayerFS's own refusal (Dirty, Busy) decides what the
- * close dialog offers (docs/specs/sandbox-terminals.md).
+ * × closes at once, with no confirmation: it unmounts with discard and force,
+ * so uncommitted changes are dropped and running commands are cancelled
+ * (docs/specs/sandbox-terminals.md).
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -68,8 +69,6 @@ function useTick(on: boolean): number {
   return on ? now : Date.now()
 }
 
-type Dialog = { kind: 'commit' } | { kind: 'close', why: 'dirty' | 'busy' } | null
-
 export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, onMaximize, onChanged, onAnnounce }: TerminalPaneProps): ReactNode {
   const { t, api, refusal } = useMachinesContext()
   const log = useWorkspaceLog(ws.ws)
@@ -77,7 +76,7 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
   const [starting, setStarting] = useState(false)
   const [notice, setNotice] = useState<{ text: string, tone?: 'error' } | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [dialog, setDialog] = useState<Dialog>(null)
+  const [committing, setCommitting] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
@@ -152,9 +151,9 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) { e.preventDefault(); void run(); return }
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.altKey) {
       e.preventDefault()
-      const draft = pane.cursor < 0 ? pane.draft : (paneStore.get(ws.ws) as { saved?: string }).saved ?? ''
-      const step = historyStep(history, pane.cursor, e.key === 'ArrowUp' ? -1 : 1, draft)
-      paneStore.patch(ws.ws, { cursor: step.cursor, draft: step.text, ...(pane.cursor < 0 ? { saved: pane.draft } as object : {}) })
+      const saved = pane.cursor < 0 ? pane.draft : pane.saved
+      const step = historyStep(history, pane.cursor, e.key === 'ArrowUp' ? -1 : 1, saved)
+      paneStore.patch(ws.ws, { cursor: step.cursor, draft: step.text, saved })
       return
     }
     if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) {
@@ -167,23 +166,14 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
     if (e.key === 'Escape' && maximized) { e.preventDefault(); onMaximize() }
   }
 
-  /** × : unmount, and let LayerFS's refusal choose what the dialog offers. */
-  const close = async (how: { discard?: boolean, force?: boolean } = {}) => {
+  /** × : unmount now, dropping uncommitted changes and cancelling commands (no confirmation). */
+  const close = async () => {
     setError(null)
-    const q = new URLSearchParams()
-    if (how.discard) q.set('discard', '1')
-    if (how.force) q.set('force', '1')
     try {
-      await api.call('DELETE', `/api/workspaces/${enc(ws.ws)}${q.size ? `?${q}` : ''}`)
-      setDialog(null)
+      await api.call('DELETE', `/api/workspaces/${enc(ws.ws)}?discard=1&force=1`)
       paneStore.forget(ws.ws)
       onChanged()
-    } catch (e) {
-      const code = (e as { code?: string })?.code
-      if (!how.discard && !how.force && code === 'Dirty') setDialog({ kind: 'close', why: 'dirty' })
-      else if (!how.force && (code === 'Busy' || code === 'CommandRunning')) setDialog({ kind: 'close', why: 'busy' })
-      else { setError(e); if (dialog) setDialog(dialog) }
-    }
+    } catch (e) { setError(e) }
   }
 
   const focusPrompt = () => {
@@ -207,7 +197,7 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
         <MoreMenu label={t('termMore', { name })} className={css.iconButton}>
           {(dismiss) => (
             <>
-              <MenuItemButton disabled={!canRun} onSelect={() => { dismiss(); setError(null); setDialog({ kind: 'commit' }) }}>{t('termCommit')}</MenuItemButton>
+              <MenuItemButton disabled={!canRun} onSelect={() => { dismiss(); setError(null); setCommitting(true) }}>{t('termCommit')}</MenuItemButton>
               <MenuItemButton icon={<IconCopyOutlineRegular size={14} />} onSelect={() => { dismiss(); void navigator.clipboard?.writeText(ws.path) }}>{t('termCopyPath')}</MenuItemButton>
             </>
           )}
@@ -230,67 +220,48 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
         ? (
           <label className={css.promptRow}>
             <span className={css.prompt}>{prompt} <span className={css.dollar}>$</span></span>
-            <input ref={input} className={css.input} value={pane.draft} spellCheck={false} autoComplete="off" autoCapitalize="off"
+            <input ref={input} data-term-input className={css.input} value={pane.draft} spellCheck={false} autoComplete="off" autoCapitalize="off"
               aria-label={t('termInputLabel', { name })} onKeyDown={onKey}
               onChange={(e) => paneStore.patch(ws.ws, { draft: e.target.value, cursor: -1 })} />
           </label>
         )
         : <div className={clsx(css.promptRow, css.offline)}>{t('termOffline')}</div>}
 
-      {dialog?.kind === 'commit' && (
-        <CommitDialog ws={ws} name={name} onClose={() => setDialog(null)}
-          onDone={(text) => { setDialog(null); setNotice({ text }); onChanged() }} />
-      )}
-      {dialog?.kind === 'close' && (
-        <Modal open onClose={() => setDialog(null)} title={t('termCloseTitle', { name })} closeLabel={t('close')} className={css.dialog}
-          description={dialog.why === 'dirty' ? t('termCloseDirty', { name }) : t('termCloseBusy', { name })}
-          footer={(
-            <>
-              <Button variant="outline" onClick={() => setDialog(null)}>{t('cancel')}</Button>
-              {dialog.why === 'dirty'
-                ? (
-                  <>
-                    <Button variant="outline" className={css.dangerText} onClick={() => void close({ discard: true })}>{t('termDiscardUnmount')}</Button>
-                    <Button variant="primary" onClick={() => setDialog({ kind: 'commit' })}>{t('termCommitUnmount')}</Button>
-                  </>
-                )
-                : <Button variant="primary" className={css.dangerFill} onClick={() => void close({ force: true })}>{t('termForceUnmount')}</Button>}
-            </>
-          )}>
-          {error != null && <Refusal error={error} labels={refusal} compact />}
-        </Modal>
+      {committing && (
+        <CommitDialog ws={ws} name={name} onClose={() => setCommitting(false)}
+          onDone={(text) => { setCommitting(false); setNotice({ text }); onChanged() }} />
       )}
     </section>
   )
 
-  function CommitDialog({ ws: target, name: label2, onClose, onDone }: { ws: WorkspaceInfo, name: string, onClose: () => void, onDone: (text: string) => void }): ReactNode {
-    const [message, setMessage] = useState('')
-    const [saving, setSaving] = useState(false)
-    const [failed, setFailed] = useState<unknown>(null)
-    const unmountAfter = dialog?.kind === 'commit' && closingAfterCommit.current
-    const submit = async () => {
-      setSaving(true); setFailed(null)
-      try {
-        const result = await api.call<any>('POST', `/api/workspaces/${enc(target.ws)}/commit`, message.trim() ? { message: message.trim() } : {})
-        const text = result?.kind === 'UpToDate' ? t('termUpToDate') : t('termCommitted', { commit: shortId(typeof result?.commit === 'string' ? result.commit : result?.commit?.id ?? result?.head ?? null) })
-        if (unmountAfter) { closingAfterCommit.current = false; await close(); return }
-        onDone(text)
-      } catch (e) { setFailed(e) } finally { setSaving(false) }
-    }
-    return (
-      <Modal open onClose={onClose} title={t('termCommitTitle', { name: label2 })} closeLabel={t('close')} className={css.dialog}
-        footer={(
-          <>
-            <Button variant="outline" onClick={onClose}>{t('cancel')}</Button>
-            <Button variant="primary" disabled={saving} onClick={() => void submit()}>{unmountAfter ? t('termCommitUnmount') : t('termCommit').replace('…', '')}</Button>
-          </>
-        )}>
-        <Input value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('termCommitMessage')} aria-label={t('termCommitMessage')}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit() } }} autoFocus />
-        {failed != null && <Refusal error={failed} labels={refusal} compact />}
-      </Modal>
-    )
+}
+
+/** Commit the Workspace (workspace.commit). */
+function CommitDialog({ ws, name, onClose, onDone }: { ws: WorkspaceInfo, name: string, onClose: () => void, onDone: (text: string) => void }): ReactNode {
+  const { t, api, refusal } = useMachinesContext()
+  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [failed, setFailed] = useState<unknown>(null)
+  const submit = async () => {
+    setSaving(true); setFailed(null)
+    try {
+      const result = await api.call<any>('POST', `/api/workspaces/${enc(ws.ws)}/commit`, message.trim() ? { message: message.trim() } : {})
+      onDone(result?.kind === 'UpToDate' ? t('termUpToDate') : t('termCommitted', { commit: shortId(typeof result?.commit === 'string' ? result.commit : result?.commit?.id ?? result?.head ?? null) }))
+    } catch (e) { setFailed(e) } finally { setSaving(false) }
   }
+  return (
+    <Modal open onClose={onClose} title={t('termCommitTitle', { name })} closeLabel={t('close')} className={css.dialog}
+      footer={(
+        <>
+          <Button variant="outline" onClick={onClose}>{t('cancel')}</Button>
+          <Button variant="primary" disabled={saving} onClick={() => void submit()}>{t('termCommitAction')}</Button>
+        </>
+      )}>
+      <Input value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('termCommitMessage')} aria-label={t('termCommitMessage')}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit() } }} autoFocus />
+      {failed != null && <Refusal error={failed} labels={refusal} compact />}
+    </Modal>
+  )
 }
 
 function TranscriptRow({ row, prompt }: { row: Row, prompt: string }): ReactNode {

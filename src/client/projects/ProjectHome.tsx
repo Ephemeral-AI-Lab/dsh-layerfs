@@ -54,7 +54,7 @@ export function ProjectHome({ api, project, machines, t, tf, reload, crumbs }: {
       actions={<>
         <Button variant="outline" size="sm" onClick={refresh}>{t('refresh')}</Button>
         {availability.canStart ? <Button variant="outline" size="sm" disabled={busy} onClick={() => void start()}>{t('startMachine')}</Button> : null}
-        <Button variant="primary" size="sm" disabled={busy || !availability.canRun || machines.loading} onClick={() => void act(() => api.openProjectSession(project.key, undefined, project.projectId))}>{t('newSession')}</Button>
+        <Button variant="primary" size="sm" disabled={busy || !availability.canRun || (machines.loading && !machines.data)} onClick={() => void act(() => api.openProjectSession(project.key, undefined, project.projectId))}>{t('newSession')}</Button>
       </>} />
     {hint ? <Card tone={availability.state === 'unavailable' ? 'danger' : undefined}>
       <div className={css.notice} role="status">

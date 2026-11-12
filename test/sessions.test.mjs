@@ -115,6 +115,56 @@ test('choose: a session placed in a project binds there; cleared placement is a 
   rmSync(root, { recursive: true, force: true })
 })
 
+test('choose: a blank session takes the layerfs preset with its project and the default without it', async () => {
+  const lfs = { project: { get: async (key) => ({ key }) } }
+  const { s } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
+  const root = s.ctx.layerfs.root
+  const blank = session('np', { cwd: root })
+  s.ctx.sessions.get = () => blank
+  const selected = []
+  let preset = 'compiler'
+  const presets = { defaultId: 'compiler', presetForSession: () => preset, select: async (_a, id) => { selected.push(id); preset = id; return id } }
+  const agent = { id: 'np', session: blank }
+  s.ctx.get = (name) => (name === 'agentPresets' ? presets : name === 'agents' ? { get: () => agent } : undefined)
+  s.moveTo = async () => {}
+  await s.choose('np', 'st/app')
+  await s.choose('np', 'st/other')
+  assert.deepEqual(selected, ['layerfs', 'layerfs'], 'the hero chip shows the layerfs preset as soon as a project is chosen')
+  await s.choose('np', null)
+  assert.deepEqual(selected, ['layerfs', 'layerfs', 'compiler'], 'leaving the project restores the default preset')
+  // A preset the person picked themselves is left alone when the project is cleared.
+  await s.choose('np', 'st/app')
+  preset = 'ptc'
+  await s.choose('np', null)
+  assert.deepEqual(selected, ['layerfs', 'layerfs', 'compiler', 'layerfs'])
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('the layerfs preset is refused without a project: a blank folder session moves off it', async () => {
+  const { s, state } = sessions()
+  const selected = []
+  let preset = 'layerfs'
+  const presets = {
+    defaultId: 'layerfs', presetForSession: () => preset,
+    list: async () => [{ id: 'layerfs' }, { id: 'broken', broken: 'x' }, { id: 'standard' }],
+    select: async (_a, id) => { selected.push(id); preset = id; return id },
+  }
+  s.ctx.get = (name) => (name === 'agentPresets' ? presets : undefined)
+  const blank = { id: 'f', session: session('f', { cwd: '/Users/me/repo' }) }
+  await s.bindAgent(blank, 'create')
+  assert.deepEqual(selected, ['standard'], 'a layerfs default falls back to the first other working preset')
+  preset = 'layerfs'
+  presets.defaultId = 'compiler'
+  await s.enforceFolderPreset(blank)
+  assert.deepEqual(selected, ['standard', 'compiler'], 'a layerfs pick falls back to the default')
+  // A project session keeps it, and so does a started folder session.
+  preset = 'layerfs'
+  state().pending.f = { project: 'st/app' }
+  await s.enforceFolderPreset(blank)
+  await s.enforceFolderPreset({ id: 'r', session: session('r', { cwd: '/Users/me/repo' }, ran) })
+  assert.deepEqual(selected, ['standard', 'compiler'])
+})
+
 test('ensureBound lets a folder session run untouched (stock DSH)', async () => {
   const { s, state } = sessions()
   const agent = { id: 'leg', session: session('leg', { cwd: '/Users/me/repo' }, ran) }

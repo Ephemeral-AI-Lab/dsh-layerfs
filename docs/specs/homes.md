@@ -97,7 +97,7 @@ and the Linux bundle the docker and VM machines start workers from.
   image locks that keep homes sharing one Docker Engine from importing at the
   same time), so it is not data about one home. A pin should name a stable
   cache (the default `~/.cache`), never a build worktree. `scripts/dev.mjs`
-  leaves it unset (Connect's `desktop/.env.local` cache is not forwarded):
+  leaves it unset (it reads nothing from LayerFS Connect):
   a cache without the default bundle makes unpinned Docker and VM machines
   refuse to start.
 - **The native machine** records the daemon path the pin names. With installed

@@ -146,3 +146,20 @@
 :global([data-layerfs-scratch-picker] > button:first-child) {
   display: none;
 }
+
+/* The row keeps one order whether or not a project is chosen: the preset on
+   the left; the folder (DSH's workspace chip, or our scratch picker in project
+   mode) and the project control together on the right. */
+:global([data-layerfs-hero-row] > button:first-child) {
+  order: 1;
+  margin-left: auto;
+}
+
+:global([data-layerfs-hero-row] > [data-layerfs-hero-options]) {
+  order: 2;
+  margin-left: 0;
+}
+
+:global([data-layerfs-hero-row][data-layerfs-scratch-picker] > [data-layerfs-hero-options]) {
+  margin-left: auto;
+}

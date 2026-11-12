@@ -128,8 +128,9 @@ export function duration(ms: number | null): string {
 
 // ---------- pane state that outlives a pane ----------
 
-export interface PaneState { draft: string, cursor: number, clearedAt: number }
-const EMPTY: PaneState = { draft: '', cursor: -1, clearedAt: 0 }
+/** `saved` is the line being typed while ↑/↓ shows history, restored on the way back down. */
+export interface PaneState { draft: string, cursor: number, clearedAt: number, saved: string }
+const EMPTY: PaneState = { draft: '', cursor: -1, clearedAt: 0, saved: '' }
 const panes = new Map<string, PaneState>()
 const listeners = new Set<() => void>()
 

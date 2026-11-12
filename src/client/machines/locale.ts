@@ -498,14 +498,9 @@ const en = {
   termAnnounce: '{name}: {command} finished, exit {code}',
   termCommitTitle: 'Commit {name}',
   termCommitMessage: 'Commit message',
+  termCommitAction: 'Commit',
   termCommitted: 'Committed {commit}',
   termUpToDate: 'Nothing to commit',
-  termCloseTitle: 'Close {name}?',
-  termCloseDirty: '{name} has changes that were never committed.',
-  termCommitUnmount: 'Commit, then unmount',
-  termDiscardUnmount: 'Discard and unmount',
-  termCloseBusy: 'A command is still running in {name}.',
-  termForceUnmount: 'Cancel commands and unmount',
 }
 
 export type MachinesKey = keyof typeof en
@@ -986,14 +981,9 @@ const zh: typeof en = {
   termAnnounce: '{name}：{command} 已结束，退出码 {code}',
   termCommitTitle: '提交 {name}',
   termCommitMessage: '提交说明',
+  termCommitAction: '提交',
   termCommitted: '已提交 {commit}',
   termUpToDate: '没有可提交的更改',
-  termCloseTitle: '关闭 {name}？',
-  termCloseDirty: '{name} 有从未提交的更改。',
-  termCommitUnmount: '先提交，再卸载',
-  termDiscardUnmount: '丢弃并卸载',
-  termCloseBusy: '{name} 中仍有命令在运行。',
-  termForceUnmount: '取消命令并卸载',
 }
 
 export const locales = { en, zh }

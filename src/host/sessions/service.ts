@@ -66,6 +66,9 @@ export interface SessionView {
   readonly archive: { localCount: number, savedCount: number, updatedAt?: number, error?: string } | null
 }
 
+/** Whether a session has not started its first turn (its preset can still change). */
+const isFresh = (agent: any): boolean => !agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/start')
+
 export class LayerfsSessions extends Service {
   static inject = ['layerfs', 'layerfsRemote', 'workspaceRegistry', 'workingDirectory', 'sessions']
   readonly state: JsonFile<SessionsState>
@@ -275,6 +278,10 @@ export class LayerfsSessions extends Service {
       if (project) s.pending[sessionId] = { project }
       else delete s.pending[sessionId]
     })
+    // The New Session row's preset chip follows the choice before the first
+    // turn: a project session runs the `layerfs` preset, a plain one the default.
+    const agent = live ? (this.ctx.get?.('agents' as never) as any)?.get?.(sessionId) : undefined
+    if (agent && previous !== project) await this.selectPreset(agent, !project)
     // DSH reuses a blank session only while it remains a candidate of the
     // selected workspace. Remove membership at pre-step, after materialization.
     if (project && bound) await this.detach(sessionId)
@@ -471,14 +478,40 @@ export class LayerfsSessions extends Service {
     return native ? mounted.path : undefined
   }
 
-  /** Recompose a project session's Agent under the `layerfs` preset while the session is still blank. */
-  private async selectPreset(agent: any): Promise<void> {
+  /**
+   * Recompose a project session's Agent under the `layerfs` preset while the
+   * session is still blank. `leaving` instead moves a blank session that
+   * leaves its project off `layerfs` (see {@link enforceFolderPreset}).
+   */
+  private async selectPreset(agent: any, leaving = false): Promise<void> {
+    if (leaving) return this.enforceFolderPreset(agent)
     const presets = (this.ctx.get?.('agentPresets' as never) as any)
-    if (!presets?.select) return
-    const fresh = !agent.session.snapshotEvents(0).some((e: any) => e.type === 'turn/start')
-    if (!fresh) return
+    if (!presets?.select || !isFresh(agent)) return
     try { await presets.select(agent, 'layerfs') } catch (error: any) {
       this.ctx.logger('layerfs').warn('session %s: layerfs preset not applied: %s', String(agent.id), error?.message ?? error)
+    }
+  }
+
+  /**
+   * The `layerfs` preset belongs to project sessions only. A blank session with
+   * no project that ends up on it (picked in the New Session row, the configured
+   * default, or left from a cleared project) moves to the default preset, or to
+   * the first other working preset when `layerfs` is the default. A started
+   * session keeps the composition its history was produced under.
+   */
+  async enforceFolderPreset(agent: any): Promise<void> {
+    const presets = (this.ctx.get?.('agentPresets' as never) as any)
+    if (!presets?.select || !agent?.session || !isFresh(agent)) return
+    if (this.placeOf(agent.session).kind !== 'folder') return
+    if (presets.presetForSession?.(agent.session) !== 'layerfs') return
+    let wanted: string | undefined = presets.defaultId
+    if (!wanted || wanted === 'layerfs') {
+      const roster: any[] = await presets.list?.().catch(() => []) ?? []
+      wanted = roster.find((p) => p.id !== 'layerfs' && !p.broken)?.id
+    }
+    if (!wanted) return
+    try { await presets.select(agent, wanted) } catch (error: any) {
+      this.ctx.logger('layerfs').warn('session %s: %s preset not applied: %s', String(agent.id), wanted, error?.message ?? error)
     }
   }
 
@@ -503,7 +536,7 @@ export class LayerfsSessions extends Service {
       }
     }
     const place = this.placeOf(agent.session)
-    if (place.kind === 'folder') return
+    if (place.kind === 'folder') return void await this.enforceFolderPreset(agent)
     if (!strict) {
       // Opening a log only prepares local ownership metadata. Workspace setup
       // happens at pre-step, never in response to navigation or polling.

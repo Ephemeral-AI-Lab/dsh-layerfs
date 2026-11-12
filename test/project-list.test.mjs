@@ -28,3 +28,17 @@ test('sidebar readiness: only runnable projects are Ready; the rest carry one sh
   assert.deepEqual(split.inactive.map((r) => r.id), ['b'])
   assert.deepEqual(splitByReadiness(rows.map((r) => ({ ...r, availability: avail('checking') })), false), { ready: rows.map((r) => ({ ...r, availability: avail('checking') })), inactive: [] }, 'nothing moves before machines are read')
 })
+
+test('a periodic read rides out one failed refresh and reports the second', async () => {
+  const { steadyRead } = await import('../src/client/projects/read-deadline.ts')
+  const last = { current: null }
+  const ok = (v) => () => Promise.resolve(v)
+  const fail = () => Promise.reject(new Error('slow'))
+  await assert.rejects(steadyRead(last, fail), /slow/, 'nothing to hold before the first answer')
+  assert.equal(await steadyRead(last, ok('a')), 'a')
+  assert.equal(await steadyRead(last, fail), 'a', 'one failed refresh keeps the last answer')
+  await assert.rejects(steadyRead(last, fail), /slow/, 'two in a row are reported')
+  await assert.rejects(steadyRead(last, fail), /slow/)
+  assert.equal(await steadyRead(last, ok('b')), 'b')
+  assert.equal(await steadyRead(last, fail), 'b', 'a good answer resets the count')
+})

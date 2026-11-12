@@ -132,10 +132,10 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   for a private DSH_HOME + LayerFS home (default `.dev/`, port 3091). It installs
   this checkout into the private `web` profile with `dsh plugin add link:` and writes
   the authenticated URL to `<dev dir>/url.txt`. Client rebuilds hot-reload; host
-  changes need a server restart. Pinned CLI/daemon come from `DSH_LAYERFS_CLI`/
-  `DSH_LAYERFS_DAEMON`, else `../layerfs-connect/desktop/.env.local` (use that
-  fallback only if it names a build of the current `layerfs_v2_0_0` tip; otherwise
-  set the env vars to your own build).
+  changes need a server restart. Pinned CLI/daemon/bundle come from `DSH_LAYERFS_CLI`/
+  `DSH_LAYERFS_DAEMON`/`DSH_LAYERFS_BUNDLE`, else the newest runtime installed in
+  `~/.layerfs/runtime` (the build the app pins; read only, `scripts/runtime-pin.mjs`).
+  Set the env vars to test your own build.
 - LayerFS build (latest `layerfs_v2_0_0`): fetch the branch, check out
   `origin/layerfs_v2_0_0` in a LayerFS worktree registered with `tools/worktree.py`
   (`docs/general/parallel-worktrees.md` in that repo), then build the host pair with
