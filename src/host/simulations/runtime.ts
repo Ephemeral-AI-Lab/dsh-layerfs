@@ -38,6 +38,8 @@ export function foldNativeActions(events, actions = new Map()) {
   return actions
 }
 
+const HOLD_LIMIT_MS = 35000
+
 export class SimulationRuntime {
   runs = new Map()
   bindings = new Map()
@@ -252,7 +254,7 @@ export class SimulationRuntime {
     this.authorize(agent, binding.run)
     if (terminal(binding.state)) {
       if (this.restoreOrdinary(agent, binding.ordinaryModel)) binding.ordinaryRestored = true
-      if (binding.parkedHuman?.size) await this.releaseHumans(binding, false)
+      if (binding.parkedHuman?.size || binding.parkedNotices?.size) await this.releaseHumans(binding, false)
     }
   }
   async preStep(payload, next) {
@@ -324,12 +326,6 @@ export class SimulationRuntime {
     ].filter(Boolean).join('\n')
   }
   async next(options, stream) {
-    try { return await this.scriptReply(options, stream) } catch (error) {
-      await this.holdForChildren(this.bindings.get(String(options.sessionId)))
-      throw error
-    }
-  }
-  async scriptReply(options, stream) {
     const binding = this.bindings.get(String(options.sessionId))
     if (!binding || binding.script.scriptId !== options.model || terminal(binding.state)) throw new Error('This script is no longer active. Select an ordinary model to continue.')
     // A failure already narrated in this session settles through the ordinary failure path.
@@ -604,7 +600,7 @@ export class SimulationRuntime {
   }
   async stop(sessionId) {
     const binding = this.bindings.get(sessionId)
-    if (!binding || terminal(binding.state)) return { state: binding?.state ?? 'idle' }
+    if (!binding || terminal(binding.state)) return { state: binding?.state ?? this.ctx.layerfsSessions?.simulationOf?.(sessionId)?.state ?? 'idle' }
     if (binding.stopping) return binding.stopping
     if (binding.state === 'stopping') return { state: 'stopping' }
     // Stopping a child ends its whole root family, exactly like stopping the root.
@@ -619,6 +615,7 @@ export class SimulationRuntime {
       // Settlement notices already queued (a child that finished earlier) are held
       // too, before the cancelled driver looks for pending input to open a turn.
       for (const item of family) for (const queued of [...(item.agent?.inbox?.nextTurn ?? []), ...(item.agent?.inbox?.nextStep ?? [])]) this.parkNotice(item, queued, true)
+      if (!binding.script.agentId) this.holdIdleRoot(binding)
       for (const item of family) {
         // Preserve human followups; script requests can be identified by exact immutable content.
         for (const queued of [...item.agent.inbox.nextTurn, ...item.agent.inbox.nextStep]) if (item.scriptRequests?.has(String(queued.id))) item.agent.inbox.remove(queued.id)
@@ -735,14 +732,33 @@ export class SimulationRuntime {
     if (fromInbox) binding.agent?.inbox?.remove?.(message.id)
     return true
   }
+  /** Called by the adapter after an aborted script step (model.ts). */
+  holdStopping(sessionId) { return this.holdForChildren(this.bindings.get(String(sessionId))) }
   /** A stopping root's driver stays busy until its live children settle (bounded),
    * so DSH delivers their settlement notices as steering that parkNotice takes,
-   * rather than as a follow-up that wakes the idle root into an empty turn. */
-  async holdForChildren(binding, limitMs = 15000) {
+   * rather than as a follow-up that wakes the idle root into an empty turn.
+   * Called after an aborted step: the adapter's stream and executeTool. */
+  async holdForChildren(binding, limitMs = HOLD_LIMIT_MS) {
     if (!binding || binding.script.agentId) return
     // The turn's abort listener starts stop(); let it run first.
     await new Promise(resolve => setImmediate(resolve))
-    if (!['stopping', 'handoff'].includes(binding.state) || !this.ctx.agents?.get) return
+    if (!['stopping', 'handoff'].includes(binding.state)) return
+    await this.childrenSettled(binding, limitMs)
+  }
+  /** An idle root (e.g. one that already narrated a failure) is held the same way
+   * through a DSH maintenance task: wakes sent meanwhile are latched and dropped
+   * when it ends, as parkNotice has emptied the inbox. Started before Stop
+   * cancels the children; a busy root is held by holdForChildren instead. */
+  holdIdleRoot(binding) {
+    const agent = binding.agent
+    if (binding.script.agentId || agent?.status !== 'idle' || typeof agent.runMaintenance !== 'function') return
+    try { void agent.runMaintenance(() => this.childrenSettled(binding)).catch(() => {}) } catch {}
+  }
+  /** Resolves when the root's children that are live now have settled (their
+   * notice seen, or gone from the registry a moment), or after `limitMs`. Longer
+   * than a child's 30 s remote execution cancellation. */
+  async childrenSettled(binding, limitMs = HOLD_LIMIT_MS) {
+    if (!this.ctx.agents?.get) return
     const live = id => !!this.ctx.agents.get(id)
     const children = [...binding.run.bindings.values()].filter(item => item !== binding && item.rootSessionId === binding.rootSessionId && live(item.sessionId))
     const gone = new Map()

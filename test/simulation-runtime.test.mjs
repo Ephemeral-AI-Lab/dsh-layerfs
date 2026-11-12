@@ -609,3 +609,39 @@ test('Stop takes a settlement notice already queued for the next turn, then hand
   assert.deepEqual(agent.injected, [notice])
   assert.deepEqual(sent, [], 'no wake')
 })
+
+test('an aborted script step holds a stopping session through the adapter, also during pacing', async () => {
+  const held = []
+  const controller = new AbortController()
+  const adapter = new SimulationAdapter({ scripts: () => [{ scriptId: 's', name: 'S' }], next: async () => ({ text: 'Forking now', calls: [{ id: 'c1', name: 'bash', arguments: { command: 'true' } }] }), holdStopping: async id => { held.push(id) } }, { pacing: { word: [50, 50], decision: [200, 200], argument: [10, 10] } })
+  const reading = Array.fromAsync(adapter.stream({ provider: 'simulation', model: 's', sessionId: 'root', messages: [], signal: controller.signal }))
+  setTimeout(() => controller.abort(new Error('Stop')), 120)
+  await assert.rejects(reading)
+  assert.deepEqual(held, ['root'], 'the pause before a tool call is an abort point too')
+  // An uninterrupted step never holds.
+  await Array.fromAsync(adapter.stream({ provider: 'simulation', model: 's', sessionId: 'root', messages: [] }))
+  assert.deepEqual(held, ['root'])
+})
+
+test('Stop holds an idle root in a DSH maintenance task until its children settle; a pruned session reports its saved state', async () => {
+  const live = new Set(['child'])
+  const runtime = new SimulationRuntime({ agents: { get: id => live.has(id) ? {} : undefined }, layerfsSessions: { simulationOf: id => id === 'old' ? { state: 'completed' } : undefined } })
+  const run = { bindings: new Map() }
+  let maintenance
+  const agent = { status: 'idle', runMaintenance: task => (maintenance = task(new AbortController().signal)) }
+  const root = { run, script: { agentKey: 'c-main', agentId: null }, sessionId: 'parent', rootSessionId: 'parent', state: 'stopping', agent }
+  run.bindings.set('c-main', root).set('c-worker', { run, script: { agentKey: 'c-worker', agentId: 'worker' }, sessionId: 'child', rootSessionId: 'parent', state: 'stopping' })
+  runtime.holdIdleRoot(root)
+  let done = false
+  maintenance.then(() => { done = true })
+  await sleep(60)
+  assert.equal(done, false)
+  runtime.parkNotice(root, settled('child'))
+  await maintenance
+  // A busy root is not put in maintenance (the adapter and tool hooks hold it).
+  let called = false
+  runtime.holdIdleRoot({ ...root, agent: { status: 'running', runMaintenance: () => { called = true } } })
+  assert.equal(called, false)
+  assert.deepEqual(await runtime.stop('old'), { state: 'completed' })
+  assert.deepEqual(await runtime.stop('never'), { state: 'idle' })
+})

@@ -126,10 +126,14 @@ admission cutoff lasts until that root leaves the agent registry.
 DSH tells a parent when a child settles (`subagent-settled` notice): as a follow-up
 that wakes an idle parent, or as steering while the parent is busy. A wake of an
 idle agent always opens a turn, so a stopping root whose children settled after
-it went idle would show an empty turn. A stopping root's cancelled step therefore
-stays busy until its live children settle (at most 15 s). Their notices arrive as
-steering, are taken out of the inbox at once and are held, so no turn opens. After
-the handoff they are injected for the real model's next turn without waking it.
+it went idle would show an empty turn. So a stopping root stays busy until its
+live children settle (at most 35 s, longer than a remote execution's cancellation).
+A cancelled model step (any wait or pacing pause) or tool call holds it. A root
+that was already idle, for example after explaining a failure, is held through a
+DSH maintenance task started before Stop cancels the children. Notices are taken
+out of the inbox at once and held: those already queued when Stop begins, and
+those that arrive later. So no turn opens. After the handoff they are injected for
+the real model's next turn without waking it.
 
 Scripted commands that open the Store (`file`, `branch`, `commit`, `project`, `store
 stats`, the host's `storeOfCall` rule) hold the host's per-Store lane while their

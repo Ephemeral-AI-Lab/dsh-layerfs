@@ -174,7 +174,9 @@ interface Timing { at?: number, ms?: number }
 interface Capture { stdout: OutputSink, stderr: OutputSink, final?: string, refusal?: unknown, exit?: number | null }
 
 const lanes = new Map<string, { active: number, waiting: (() => void)[] }>()
-/** Exclusive lanes held by the current async chain; a hold ends when its `run` settles. */
+/** Exclusive lanes held by the current async chain; a hold ends when its `run` settles.
+ * Work started inside `run` without being awaited inherits the hold while it lasts,
+ * so it must not run a CLI call on the same Store concurrently with the holder. */
 const holding = new AsyncLocalStorage<readonly { key: string, live: boolean }[]>()
 async function admit<T>(key: string, limit: number, run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   // Re-entrant: work awaited inside an exclusive hold (a hook nested in a held tool call)

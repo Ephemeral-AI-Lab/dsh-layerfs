@@ -11,6 +11,8 @@ export interface SimulationModelSource {
   scripts(): any[]
   next(options: GenerateOptions, stream?: ScriptStream): Promise<ScriptReply>
   compactionContext?(options: GenerateOptions): string
+  /** After an aborted script step: resolves once a stopping session may go idle. */
+  holdStopping?(sessionId: string): Promise<void>
 }
 
 /** Delivery pacing only: it never changes what a reply contains. */
@@ -100,70 +102,76 @@ export class SimulationAdapter extends LlmAdapter {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
-    const pacing = this.pacing
-    let text = ''
-    let open = false
-    const self = this
-    async function* streamText(segment: string): AsyncGenerator<StreamChunk> {
-      if (!segment) return
-      if (!open) { open = true; yield { type: 'block-start', index: 0, blockType: 'text' } }
-      const piece = text && !/\s$/.test(text) ? `\n\n${segment}` : segment
-      const deltas = pacing ? textDeltas(piece) : [piece]
-      for (const [index, delta] of deltas.entries()) {
-        if (pacing && index) await pause(between(pacing.word), signal)
-        yield { type: 'text-delta', index: 0, text: delta }
-      }
-      text += piece
-    }
-    // Text spoken while the script waits is streamed before its reply settles.
-    const spoken: { text: string; done: () => void }[] = []
-    let wake: (() => void) | undefined
-    let outcome: { reply: ScriptMessage } | { error: unknown } | undefined
-    let closed = false
-    const say = (value: string) => closed ? Promise.resolve() : new Promise<void>(resolve => { spoken.push({ text: value, done: resolve }); wake?.() })
-    void Promise.resolve().then(() => self.source.next(options, { say })).then(
-      reply => { outcome = { reply: normalize(reply) }; wake?.() },
-      error => { outcome = { error }; wake?.() },
-    )
+    // Any abort point of a script step (waits, pacing pauses) may be a Stop: a
+    // stopping root stays busy until its children settle (runtime holdForChildren).
     try {
-      for (;;) {
-        while (spoken.length) {
-          const item = spoken.shift()!
-          yield* streamText(item.text)
-          item.done()
+      const pacing = this.pacing
+      let text = ''
+      let open = false
+      const self = this
+      async function* streamText(segment: string): AsyncGenerator<StreamChunk> {
+        if (!segment) return
+        if (!open) { open = true; yield { type: 'block-start', index: 0, blockType: 'text' } }
+        const piece = text && !/\s$/.test(text) ? `\n\n${segment}` : segment
+        const deltas = pacing ? textDeltas(piece) : [piece]
+        for (const [index, delta] of deltas.entries()) {
+          if (pacing && index) await pause(between(pacing.word), signal)
+          yield { type: 'text-delta', index: 0, text: delta }
         }
-        if (outcome) break
-        await new Promise<void>(resolve => { wake = resolve; if (spoken.length || outcome) resolve() })
-        wake = undefined
+        text += piece
       }
+      // Text spoken while the script waits is streamed before its reply settles.
+      const spoken: { text: string; done: () => void }[] = []
+      let wake: (() => void) | undefined
+      let outcome: { reply: ScriptMessage } | { error: unknown } | undefined
+      let closed = false
+      const say = (value: string) => closed ? Promise.resolve() : new Promise<void>(resolve => { spoken.push({ text: value, done: resolve }); wake?.() })
+      void Promise.resolve().then(() => self.source.next(options, { say })).then(
+        reply => { outcome = { reply: normalize(reply) }; wake?.() },
+        error => { outcome = { error }; wake?.() },
+      )
+      try {
+        for (;;) {
+          while (spoken.length) {
+            const item = spoken.shift()!
+            yield* streamText(item.text)
+            item.done()
+          }
+          if (outcome) break
+          await new Promise<void>(resolve => { wake = resolve; if (spoken.length || outcome) resolve() })
+          wake = undefined
+        }
+      } finally {
+        // Never leave the script waiting on text that was not delivered.
+        closed = true
+        for (const item of spoken.splice(0)) item.done()
+      }
+      if ('error' in outcome) throw outcome.error
+      signal?.throwIfAborted()
+      const reply = outcome.reply
+      if (reply.text) yield* streamText(reply.text)
+      if (open) yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+      const calls = reply.calls ?? []
+      for (const [offset, call] of calls.entries()) {
+        const index = (open ? 1 : 0) + offset
+        if (pacing) await pause(between(pacing.decision), signal)
+        const id = ToolCallId(call.id), args = JSON.stringify(call.arguments)
+        yield { type: 'block-start', index, blockType: 'tool-call' }
+        for (const [part, delta] of (pacing ? argumentDeltas(args) : [args]).entries()) {
+          if (pacing && part) await pause(between(pacing.argument), signal)
+          yield { type: 'tool-call-delta', index, id, ...(part ? {} : { name: call.name }), argumentsDelta: delta }
+        }
+        yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.name, arguments: args } }
+      }
+      if (!open && !calls.length) {
+        // An empty reply still closes as a (blank) text answer.
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: '' } }
+      }
+      yield { type: 'finish', reason: { kind: calls.length ? 'tool-calls' : 'stop' } }
     } finally {
-      // Never leave the script waiting on text that was not delivered.
-      closed = true
-      for (const item of spoken.splice(0)) item.done()
+      if (signal?.aborted && options.sessionId !== undefined) await this.source.holdStopping?.(String(options.sessionId))
     }
-    if ('error' in outcome) throw outcome.error
-    signal?.throwIfAborted()
-    const reply = outcome.reply
-    if (reply.text) yield* streamText(reply.text)
-    if (open) yield { type: 'block-end', index: 0, block: { type: 'text', text } }
-    const calls = reply.calls ?? []
-    for (const [offset, call] of calls.entries()) {
-      const index = (open ? 1 : 0) + offset
-      if (pacing) await pause(between(pacing.decision), signal)
-      const id = ToolCallId(call.id), args = JSON.stringify(call.arguments)
-      yield { type: 'block-start', index, blockType: 'tool-call' }
-      for (const [part, delta] of (pacing ? argumentDeltas(args) : [args]).entries()) {
-        if (pacing && part) await pause(between(pacing.argument), signal)
-        yield { type: 'tool-call-delta', index, id, ...(part ? {} : { name: call.name }), argumentsDelta: delta }
-      }
-      yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.name, arguments: args } }
-    }
-    if (!open && !calls.length) {
-      // An empty reply still closes as a (blank) text answer.
-      yield { type: 'block-start', index: 0, blockType: 'text' }
-      yield { type: 'block-end', index: 0, block: { type: 'text', text: '' } }
-    }
-    yield { type: 'finish', reason: { kind: calls.length ? 'tool-calls' : 'stop' } }
     // No invented model token accounting.
   }
 }
