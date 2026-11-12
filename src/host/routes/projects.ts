@@ -26,6 +26,7 @@ import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
+import { pgMachineOf } from '../sessions/availability.ts'
 import { PAGE, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 
 /** Calls in flight at once for one answer (stats, diffs). */
@@ -113,6 +114,8 @@ export function sandboxInfo(s: any, workspaces: any[] | null = null) {
     machine: s.machine ?? null,
     runtime: s.runtime ?? null,
     runtimeId: s.id ?? null, created: s.created ?? null, downReason: s.down_reason ?? null,
+    // the daemon's control admission and retained failures (sandbox.get, best effort), and a capacity refusal's counts
+    daemonCapacity: s.daemon_capacity ?? null, down: s.down ?? null,
     ...(s.platform ? { platform: s.platform } : {}),
     workspaces: (workspaces ?? [])
       .filter((w) => w.mounted !== false && (w.directory || w.path))
@@ -177,27 +180,14 @@ export class Projects {
 
   constructor(private readonly host: RouteHost) {
     this.emptySources = join(host.root, 'project-sources')
-    this.storageObservations = new StorageObservations(host.root, host.home)
+    // statistics journals and ledgers describe this home's Stores: they live in it
+    this.storageObservations = new StorageObservations(host.stats, host.home)
     this.storageLedgers = new ProjectStorageLedgers(host.stats, host.home, () => host.lfs(), (line) => host.log(line))
   }
 
   get lfs() { return this.host.lfs() }
 
   private log(line: string): void { this.host.log(line) }
-
-  /** Whether the pinned CLI has `family.call`. */
-  private async hasCall(family: string, call: string): Promise<boolean> {
-    return (await this.host.discover()).calls.some((c) => c.family === family && c.call === call)
-  }
-
-  /** Whether the pinned CLI's `family.call` takes `option`. */
-  private async supportsOption(family: string, call: string, option: string): Promise<boolean> {
-    return (await this.host.discover()).calls.find((c) => c.family === family && c.call === call)?.options.some((o) => o.name === option) === true
-  }
-
-  private async reportOptions(family: string) {
-    return { max_objects: 10000, max_canonical_bytes: 67108864, ...(await this.supportsOption(family, 'storage_report', 'include_encoding') ? { include_encoding: true } : {}) }
-  }
 
   private async saved(project: string, branch: string, pin: string | null | undefined): Promise<string> {
     if (pin) {
@@ -396,14 +386,23 @@ export class Projects {
   /**
    * A new Sandbox of the project: `{ name, machine?, image? }`. A sqlite
    * project's Sandboxes run on its Store's machine (another is Unsupported);
-   * a PostgreSQL project's on any machine whose `supports.postgresql_sandbox`
-   * is true, `machine` naming it (native when none is named).
+   * a PostgreSQL project's on a machine its Store is attached to
+   * (`store.attach`), `machine` naming it (the default of `pgMachineOf`
+   * when none is named); an unattached machine is refused here, in
+   * LayerFS's words, before any LayerFS call.
    */
   async createSandbox(key: string, body: any = {}) {
     const record = await this.record(key)
     const { name, image } = body ?? {}
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'A Sandbox needs a name.')
-    const machine = record.kind === 'postgresql' ? (body.machine ?? 'native') : record.machine
+    let machine = record.machine
+    if (record.kind === 'postgresql') {
+      const store = String(record.store ?? keyOf(record).split('/')[0])
+      const attached = pgMachineOf(await this.lfs.store.get(store), body.machine)
+      if (!attached) throw refuse(400, 'Unsupported', `Attach ${store} to a machine to run its projects.`)
+      if (body.machine && body.machine !== attached) throw refuse(400, 'Unsupported', `PostgreSQL Store ${store} is not attached to machine ${body.machine}; \`layerfs store attach ${store} ${body.machine}\``)
+      machine = attached
+    }
     await this.host.ensureNative()
     return this.lfs.sandbox.create(keyOf(record), name, machine, image ? { image } : {})
   }
@@ -431,21 +430,28 @@ export class Projects {
     return this.lfs.workspace.mount(sandbox, branch, name ? { name } : {})
   }
 
-  /** workspace.unmount(ws, { discard }): refused while it has changes unless discarded. */
-  async unmount(ws: string, { discard = false } = {}) {
+  /** workspace.unmount(ws, { discard, force }): refused while it has changes unless discarded, and while busy unless forced. */
+  async unmount(ws: string, { discard = false, force = false } = {}) {
     if (typeof ws !== 'string' || !ws.includes(':')) throw refuse(400, 'InvalidInput', 'A Workspace is named <sandbox>:<name or path>.')
-    return this.lfs.workspace.unmount(ws, discard ? { discard: true } : {})
+    return this.lfs.workspace.unmount(ws, { ...(discard ? { discard: true } : {}), ...(force ? { force: true } : {}) })
   }
 
   /** sandbox.close(name, { force }); answers its result, with the `unknown` Workspaces a forced close left. */
   async closeSandbox(name: string, { force = false } = {}) {
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'Name the Sandbox to close.')
     // A session's Sandbox holds its mounted Workspace: save a checkpoint and close it as the session does.
-    if (!force && await this.host.closeSessionSandbox?.(name)) return { kind: 'Closed', sandbox: name, closed: name, session: true }
+    if (!force && await this.host.closeSessionSandbox?.(name)) {
+      this.sandboxClosedHook?.(name)
+      return { kind: 'Closed', sandbox: name, closed: name, session: true }
+    }
     const result = await this.lfs.sandbox.close(name, force ? { force: true } : {})
     await this.host.sandboxClosed?.(name)
+    this.sandboxClosedHook?.(name)
     return result
   }
+
+  /** Called after each successful close (the router drops the Sandbox's command logs). */
+  sandboxClosedHook?: (name: string) => void
 
   /** Closes every Sandbox of the project (`force` passes on); answers each close. */
   async closeSandboxes(key: string, { force = false } = {}) {
@@ -490,26 +496,6 @@ export class Projects {
 
   async storeObservations(name: string) { return this.storageObservations.read(name) }
 
-  async storeStorageReport(name: string, q: URLSearchParams) {
-    const record = await this.lfs.store.get(name)
-    const available = [...new Set<string>(record.projects ?? [])].sort()
-    const requested = q.getAll('project')
-    if (requested.length > 20 || new Set(requested).size !== requested.length) throw fail('Select 1..20 distinct project names.')
-    for (const project of requested) if (!available.includes(project)) throw fail(`Project ${JSON.stringify(project)} does not belong to this Store.`)
-    const selected = requested.length ? [...requested].sort() : available.slice(0, 20)
-    if (!selected.length) throw refuse(409, 'Unavailable', 'This Store has no saved projects to analyze.')
-    // Capture one immutable main head per selected project. No history scan or Workspace read.
-    const snapshots = []
-    for (const project of selected) {
-      const key = `${name}/${project}`, head = pinOf(await this.lfs.branch.get(key, 'main'))
-      if (typeof head !== 'string' || !/^[0-9a-f]{66}$/.test(head)) throw refuse(409, 'Unavailable', `Project ${JSON.stringify(project)} has no saved main snapshot.`)
-      snapshots.push({ project: key, branch: 'main', commit: head })
-    }
-    if (!await this.hasCall('store', 'storage_report')) throw refuse(501, 'Unsupported', 'This LayerFS CLI does not support bounded Store storage analysis. Select an updated pinned CLI.')
-    const report = await this.lfs.store.storage_report(name, snapshots, await this.reportOptions('store'))
-    return { ...report, selection: { scope: 'store_main_heads', limit: 20, selected: snapshots.length, availableProjects: available.length, excludedProjects: available.length - selected.length, projects: snapshots.map((snapshot) => snapshot.project) } }
-  }
-
   // ---------- a project's own storage ----------
 
   /**
@@ -532,36 +518,6 @@ export class Projects {
       store: { name: record.store, projects, ...('refusal' in store ? { refusal: store.refusal } : { historyLogical: store.history_logical ?? null, canonical: store.canonical ?? null, stored: store.stored ?? null, metadata: store.metadata ?? null, file: store.file ?? null }) },
       main: main ? { logical: main.logical ?? null, files: main.files ?? null, directories: main.directories ?? null, complete: main.complete !== false } : null,
     }
-  }
-
-  // ---------- saved reads ----------
-
-  async storageReport(key: string, q: URLSearchParams) {
-    const { key: project } = projectRef(key)
-    const branch = q.get('branch') ?? 'main', size = integer(q, 'size', 20, 20)
-    const query = new URLSearchParams({ branch, size: String(size) })
-    if (q.has('at')) query.set('at', q.get('at')!)
-    const page = await this.storageHistory(project, query, false)
-    const snapshots = page.items.map((item: any) => ({ branch, commit: item.id }))
-    if (!snapshots.length) throw refuse(409, 'Unavailable', 'There are no saved revisions to analyze.')
-    if (!await this.hasCall('project', 'storage_report')) throw refuse(501, 'Unsupported', 'This LayerFS CLI does not support bounded storage analysis. Select an updated pinned CLI to analyze saved revisions.')
-    const report = await this.lfs.project.storage_report(project, snapshots, await this.reportOptions('project'))
-    return { ...report, selection: { scope: 'project_saved_revisions', limit: size, selected: snapshots.length, hasEarlier: page.next !== null, head: page.head } }
-  }
-
-  async storageHistory(key: string, q: URLSearchParams, includeStorage = true) {
-    const project = projectRef(key).key, branch = q.get('branch') ?? 'main'
-    validate(branch, '/')
-    const at = q.get('at')
-    if (at && !/^[0-9a-f]{66}$/.test(at)) throw fail('A saved pin must be a full 66-hex id.')
-    const size = integer(q, 'size', 20, 20)
-    const fork = branch === 'main' ? null : (await this.lfs.branch.get(project, branch)).forked_from
-    const page = await this.lfs.branch.commits(project, branch, { page: 1, page_size: size, ...(includeStorage ? { include_storage: true } : {}), ...(at ? { at_commit: at } : {}) })
-    const all: any[] = page.items ?? [], boundary = fork ? all.findIndex((c) => c.id === fork) : -1
-    const items = boundary < 0 ? all : all.slice(0, boundary)
-    const parent = items.at(-1)?.parent
-    const head = typeof page.at_commit === 'object' && page.at_commit !== null ? page.at_commit : savedRef(page.at_commit ?? at ?? items[0]?.id, branch)
-    return { items: items.map((c) => commitInfo(c, branch)), head, next: page.has_more && boundary < 0 && parent !== fork ? parent ?? null : null }
   }
 
   async history(key: string, q: URLSearchParams) {

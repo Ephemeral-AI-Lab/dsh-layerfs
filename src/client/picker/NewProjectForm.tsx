@@ -14,7 +14,7 @@ import css from './picker.module.css'
 type Translate = (key: PickerKey, params?: Record<string, string | number>) => string
 
 /** One `/api/projects` row. */
-export interface ProjectRow { projectId?: string, catalogState?: 'available' | 'unavailable' | 'removed' | 'identity-mismatch', catalogError?: string, identity?: { storeId: string }, key: string, name?: string, store?: string, machine?: string | null, kind?: string | null, created?: number | null, storeState?: string | null }
+export interface ProjectRow { projectId?: string, catalogState?: 'available' | 'unavailable' | 'removed' | 'identity-mismatch', catalogError?: string, identity?: { id: string }, key: string, name?: string, store?: string, machine?: string | null, kind?: string | null, created?: number | null, storeState?: string | null }
 
 /** One project Init job (`/api/project-inits/<id>`). */
 export interface ProjectInitJob {

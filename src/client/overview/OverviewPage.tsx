@@ -1,8 +1,9 @@
 /**
- * The LayerFS page: the pinned runtime (with Change…), what `layerfs doctor`
- * finds in the home, and one card each for Machines and Storage that opens
- * that page. It reads the runtime and machines through the Machines
- * controller and Storage through `GET /api/storage`; reading starts nothing.
+ * The LayerFS page: what `layerfs doctor` finds in the home, and one card
+ * each for Machines and Storage that opens that page. The pinned runtime is
+ * configuration and lives on the Settings page (../settings). It reads the
+ * machines through the Machines controller and Storage through
+ * `GET /api/storage`; reading starts nothing.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -13,9 +14,7 @@ import { bytes } from '../files/format.ts'
 import { useQuery, type Query } from '../files/use-query.ts'
 import { MachinesProvider, useMachinesContext, type MachinesPageProps, type Translate } from '../machines/context.tsx'
 import { MachinesGlyph } from '../machines/icons.tsx'
-import { PANEL_ID as MACHINES_PANEL } from '../machines/index.tsx'
 import { factsOf } from '../machines/model.ts'
-import { RuntimeCard } from '../machines/Runtime.tsx'
 import { DoctorBadge, DoctorFindings } from '../storage/Doctor.tsx'
 import { useHostEvents, useNow, useStorageJobs } from '../storage/hooks.ts'
 import { PANEL_ID as STORAGE_PANEL, StoragePanelIcon } from '../storage/index.tsx'
@@ -23,6 +22,7 @@ import type { StorageT } from '../storage/locale.ts'
 import { jobCounts } from '../storage/model.ts'
 import type { DoctorReport, StorageView } from '../storage/types.ts'
 import { Card, Page, PageHead, Section, StateChip } from '../ui/index.tsx'
+import { openMachineHome } from '../projects/navigation.ts'
 import { LayerfsGlyph } from './glyph.tsx'
 import type { OverviewT } from './locale.ts'
 import css from './overview.module.css'
@@ -50,7 +50,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
 }
 
 function Overview({ t, ts, api, doctorT }: { t: OverviewT, ts: StorageT, api: LayerfsApi, doctorT: DoctorT }): ReactNode {
-  const { activate, reload: reloadMachines, reloadRuntime, openPanel } = useMachinesContext()
+  const { activate, reload: reloadMachines, openPanel } = useMachinesContext()
   useEffect(() => activate(), [activate])
   const [tick, setTick] = useState(0)
   const [checks, setChecks] = useState(0)
@@ -65,14 +65,11 @@ function Overview({ t, ts, api, doctorT }: { t: OverviewT, ts: StorageT, api: La
     const id = setInterval(() => { if (document.visibilityState === 'visible') setTick((n) => n + 1) }, POLL_MS)
     return () => clearInterval(id)
   }, [])
-  const refresh = () => { reloadMachines(); reloadRuntime(); setTick((n) => n + 1); setChecks((n) => n + 1) }
+  const refresh = () => { reloadMachines(); setTick((n) => n + 1); setChecks((n) => n + 1) }
   return (
     <Page label={t('panel')}>
-      <PageHead title={t('panel')} intro={t('intro')} icon={<LayerfsGlyph size={22} />}
+      <PageHead title={t('panel')} icon={<LayerfsGlyph size={22} />}
         actions={<Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} onClick={refresh}>{t('refresh')}</Button>} />
-      <Section title={t('runtime')}>
-        <RuntimeCard />
-      </Section>
       <Section title={t('health')}
         actions={(
           <>
@@ -87,7 +84,7 @@ function Overview({ t, ts, api, doctorT }: { t: OverviewT, ts: StorageT, api: La
       </Section>
       <Section title={t('resources')}>
         <div className={css.grid}>
-          <MachinesCard t={t} onOpen={() => openPanel(MACHINES_PANEL)} />
+          <MachinesCard t={t} onOpen={() => openMachineHome(api, null)} />
           <StorageCard t={t} ts={ts} api={api} read={storage} onOpen={() => openPanel(STORAGE_PANEL)} />
         </div>
       </Section>

@@ -23,6 +23,31 @@ export function validateReport(report: any, request: any) {
   return report
 }
 
+/**
+ * A report's verdict in numbers, for lists that carry no report (the
+ * Overview's Health grid): errors and warnings from findings or failed checks,
+ * whichever names more, checks left unverified or skipped, and the first
+ * findings in LayerFS's words.
+ */
+export function summarize(report: any) {
+  const findings: any[] = Array.isArray(report?.findings) ? report.findings : []
+  const checks: any[] = Array.isArray(report?.checks) ? report.checks : []
+  const failed = (severity: string) => checks.filter((c) => c?.outcome === 'fail' && (c.severity ?? 'error') === severity).length
+  const found = (severity: string) => findings.filter((f) => f?.severity === severity).length
+  return {
+    ok: report?.ok === true,
+    complete: report?.complete === true,
+    mode: typeof report?.mode === 'string' ? report.mode : null,
+    errors: Math.max(found('error'), failed('error')),
+    warnings: Math.max(found('warning'), failed('warning')),
+    unverified: checks.filter((c) => !['pass', 'fail', 'skipped'].includes(c?.outcome)).length,
+    skipped: checks.filter((c) => c?.outcome === 'skipped').length,
+    findings: (findings.length ? findings : checks.filter((c) => c?.outcome === 'fail'))
+      .slice(0, 8)
+      .map((f) => ({ severity: f.severity === 'warning' ? 'warning' : 'error', message: String(f.message ?? ''), fix: typeof f.fix === 'string' ? f.fix : null })),
+  }
+}
+
 type Run = (spec: CliSpec, argv: string[], options: { read: boolean, onSpawn: (child: { pid?: number }) => void }) => Promise<any>
 
 export class DoctorManager {
@@ -31,7 +56,7 @@ export class DoctorManager {
   private active = 0
 
   constructor(private readonly host: RouteHost, private readonly run: Run = execute as never, private readonly maxActive = 2, private readonly maxReports = 40, private readonly maxBytes = 8 * 1024 * 1024) {
-    this.file = join(host.root, 'doctor-jobs.json')
+    this.file = join(host.jobs, 'doctor-jobs.json')
     if (existsSync(this.file)) for (const job of JSON.parse(readFileSync(this.file, 'utf8'))) {
       if (['queued', 'running'].includes(job.state)) Object.assign(job, { state: 'interrupted', error: 'Interrupted — final result unavailable after host restart.', ended: Date.now() })
       this.jobs.set(job.id, job)
@@ -42,7 +67,7 @@ export class DoctorManager {
   persist(): void {
     const completed = () => [...this.jobs.values()].filter((j) => !['queued', 'running'].includes(j.state))
     while ((this.jobs.size > this.maxReports || Buffer.byteLength(stringify([...this.jobs.values()])) > this.maxBytes) && completed().length > 1) this.jobs.delete(completed()[0].id)
-    mkdirSync(this.host.root, { recursive: true })
+    mkdirSync(this.host.jobs, { recursive: true, mode: 0o700 })
     const temporary = `${this.file}.tmp`
     writeFileSync(temporary, stringify([...this.jobs.values()]), { mode: 0o600 })
     renameSync(temporary, this.file)
@@ -56,7 +81,7 @@ export class DoctorManager {
   /** Whether a diagnosis is queued or running. */
   busy(): boolean { return [...this.jobs.values()].some((j) => ['queued', 'running'].includes(j.state)) }
 
-  list() { return [...this.jobs.values()].map(({ report, ...job }) => ({ ...job, hasReport: !!report })).reverse() }
+  list() { return [...this.jobs.values()].map(({ report, ...job }) => ({ ...job, hasReport: !!report, ...(report ? { summary: summarize(report) } : {}) })).reverse() }
 
   get(id: string) { const job = this.jobs.get(id); if (!job) throw refuse(404, 'failed', 'Doctor report unavailable or expired.'); return job }
 

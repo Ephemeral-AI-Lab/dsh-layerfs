@@ -1,0 +1,480 @@
+/* The Overview tab: this LayerFS home at a glance. DSH alias tokens only. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.muted {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.mono,
+.code {
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--dsw-alias-link);
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .link:hover {
+    text-decoration: underline;
+  }
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* ---------- head ---------- */
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  padding-bottom: 16px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.headMain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0 4px 0 0;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+}
+
+.headActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.headSub {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.headSub:empty {
+  display: none;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 11px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.pill[data-tone='danger'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+@media (hover: hover) {
+  .pill:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.reveal {
+  margin-top: -24px;
+}
+
+.ring {
+  flex: none;
+}
+
+.ringTrack {
+  fill: none;
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 3;
+}
+
+.ringFill {
+  fill: none;
+  stroke: var(--dsw-alias-state-business-primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.ringLabel {
+  font-size: 11px;
+  font-weight: 500;
+  fill: var(--dsw-alias-label-primary);
+}
+
+/* ---------- sections ---------- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px 10px;
+  min-height: 22px;
+}
+
+.sectionText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sectionCount {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.sectionNote {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sectionLinks {
+  display: inline-flex;
+  gap: 12px;
+  margin-left: auto;
+  padding-bottom: 1px;
+  font-size: 12.5px;
+}
+
+.sectionActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.eyebrowName {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.list > * + * {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.listLabel {
+  margin: 0;
+  padding: 8px 16px 4px;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.footnote {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.bar {
+  position: relative;
+  display: block;
+  flex: none;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary);
+  transition: width 300ms ease;
+}
+
+/* ---------- needs you ---------- */
+
+.need {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px 10px 16px;
+}
+
+.needDot {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--dsw-alias-label-tertiary);
+  box-sizing: border-box;
+}
+
+.needDot[data-tone='danger'] {
+  border-color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.needDot[data-tone='warning'] {
+  border-color: var(--dsw-alias-state-warn-primary);
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.needBody {
+  min-width: 0;
+}
+
+.needTitle {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.needDetail {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.needActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---------- activity ---------- */
+
+.job {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 16px;
+}
+
+.jobLine,
+.jobSub {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jobSub {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.job .bar {
+  width: 100%;
+}
+
+.recent {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 16px;
+}
+
+.recent + .recent {
+  border-top: 0;
+}
+
+.recentWhen {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+.runningPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+/* ---------- backups ---------- */
+
+.coverage {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+}
+
+.coverage p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.coverage .coverageTitle {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.bucket {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+}
+
+.bucketIcon {
+  display: inline-flex;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.bucket > .muted {
+  font-size: 12px;
+}
+
+.bucketEnd {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* ---------- summary, project grid legend ---------- */
+
+.summary {
+  margin: -12px 0 0;
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.gridLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.gridLegend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legendLives,
+.legendAttached,
+.legendVerb {
+  width: 14px;
+  height: 9px;
+  border: 0.5px solid var(--dsw-alias-state-business-primary);
+  border-radius: 3px;
+}
+
+.legendAttached {
+  border-style: dashed;
+}
+
+.legendVerb {
+  border-style: dashed;
+  border-color: var(--dsw-alias-border-l3);
+}

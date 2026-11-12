@@ -68,8 +68,23 @@ export interface HistoryPage { items: CommitInfo[], next: string | null, head: s
 /** GET /api/projects/<key>/history?branch=&commit=: one Commit and the paths it changed. */
 export interface CommitDetail { item: CommitInfo, changes: { path: string, kind: string }[] | null, nextChanges: string | null }
 
-/** One row of `file.diff` (GET /api/projects/<key>/file-query?kind=compare). */
-export interface DiffRow { op: ' ' | '+' | '-', text: string, left_line?: number, right_line?: number }
+/** A saved Commit or Layer as the file queries name it; `branch` is where it was saved (unknown stays null). */
+export interface SavedRef { id: string, kind?: 'Commit' | 'Layer' | string, branch?: string | null }
+/** The saved version that last wrote a line (`file.blame`, `file.diff` with attribution). */
+export interface LineOwner { ref: SavedRef, message?: string | null }
+/** How much of a query LayerFS could answer exactly. */
+export interface QueryCoverage { status?: 'complete' | 'partial' | 'unavailable' | string, comparison?: string, reasons?: string[] }
+
+/** One row of `file.diff` (GET /api/projects/<key>/file-query?kind=compare|attribution). */
+export interface DiffRow {
+  op: ' ' | '+' | '-'
+  text: string
+  left_line?: number
+  right_line?: number
+  before_owner?: LineOwner | null
+  after_owner?: LineOwner | null
+  owner_changed?: boolean | null
+}
 /** The `file.diff` answer the views read. */
 export interface FileDiffResult {
   rows?: DiffRow[]
@@ -77,6 +92,59 @@ export interface FileDiffResult {
   change_kind?: string
   omission_reason?: string | null
   content_coverage?: { status?: string, reasons?: string[] }
+  attribution_coverage?: QueryCoverage
+  changes?: { content?: boolean, metadata?: boolean, identity?: boolean, attribution?: boolean | null }
   before?: { size?: number } | null
   after?: { size?: number } | null
+}
+
+/** `file.blame` (file-query kind=blame): one window of lines from `from_line`. */
+export interface BlameResult {
+  at?: SavedRef
+  lines: { n: number, text: string, owner: LineOwner | null, clipped?: boolean, line_truncated?: boolean }[]
+  coverage?: QueryCoverage
+  comparison_coarse?: boolean
+  next_line?: number | null
+}
+
+/** One saved change to a path (`file.revision`). */
+export interface FileRevision {
+  ref: SavedRef
+  /** The version it changed from; null for the version that added the path. */
+  compared_to: SavedRef | null
+  kind: 'Added' | 'Modified' | 'Removed' | string
+  message?: string | null
+  recorded_at?: number | null
+  before?: { size?: number } | null
+  after?: { size?: number } | null
+  changes?: { content?: boolean, metadata?: boolean, identity?: boolean, attribution?: boolean | null }
+}
+/** `file.revision` (file-query kind=revisions): one page, newest first. */
+export interface RevisionPage {
+  items: FileRevision[]
+  has_more?: boolean
+  continuation?: string | null
+  end_of_query?: boolean
+  scan?: { complete?: boolean, candidates_examined?: number, reasons?: string[] }
+}
+
+/** One path that differs between two saved versions (`branch.diff`). */
+export interface BranchDiffItem {
+  path: string
+  kind: 'Added' | 'Modified' | 'Removed' | string
+  type: 'file' | 'dir' | 'symlink' | string
+  content?: boolean
+  metadata?: boolean
+  /** Some unchanged text has a different owner. */
+  attribution?: boolean | null
+  changed_owner_lines?: number | null
+}
+/** `branch.diff` (file-query kind=branch-diff): one page of changed paths. */
+export interface BranchDiffPage {
+  from?: SavedRef
+  to?: SavedRef
+  items: BranchDiffItem[]
+  has_more?: boolean
+  continuation?: string | null
+  coverage?: { complete?: boolean, reason?: string | null }
 }

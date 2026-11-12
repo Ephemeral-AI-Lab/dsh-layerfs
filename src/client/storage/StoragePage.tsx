@@ -1,28 +1,41 @@
 /**
  * The Storage page, shaped like an IDE: the explorer sidebar holds the
- * Stores-as-folders / projects-as-files outline with the backup buckets, and
- * every Store, project or bucket clicked opens as a tab in the editor. The
- * overview tab carries the board's summary, doctor and details. The view is
- * read again on the host's `storage` events, after each action and on a poll;
- * jobs move on `storage-job` events.
+ * machines (by type, each with its Stores and Sandboxes), the PostgreSQL
+ * Stores and the backup buckets, and every machine, Sandbox, Store, project or
+ * bucket clicked opens as a tab in the editor; the Machines head opens the
+ * machines board. The overview tab carries the Stores' summary, doctor and
+ * details. The view is read again on the host's `storage` events, after each
+ * action and on a poll; jobs move on `storage-job` events. Machines and
+ * Sandboxes come from the Machines controller, polled while the page shows.
+ * A link from another page (`openStorage`) opens its tab here.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, IconCloseOutlineRegular, IconDatabaseOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCloseOutlineRegular, IconGaugeOutlineRegular, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { DoctorT } from '../doctor/locale.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery, type Query } from '../files/use-query.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
-import { Empty, LoadError, Loading, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
-import { BucketPage } from './BucketPage.tsx'
-import { StorageDetails } from './Details.tsx'
+import { EmptyState } from '../files/States.tsx'
+import { AddMachineDialog } from '../machines/AddMachineDialog.tsx'
+import { Board } from '../machines/Board.tsx'
+import { MachinesProvider, useMachinesContext, type MachinesPageProps, type Translate as MachinesT } from '../machines/context.tsx'
+import { MachineGlyph, MachinesGlyph, SandboxGlyph } from '../machines/icons.tsx'
+import { MachineDetail } from '../machines/MachineDetail.tsx'
+import { BUILT_IN } from '../machines/model.ts'
+import { SandboxDetail } from '../machines/SandboxDetail.tsx'
+import { NewSandboxDialog } from '../machines/Sandboxes.tsx'
+import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
+import { Card, Empty, LoadError, Loading, Page, Refusal, StateChip } from '../ui/index.tsx'
+import { BackupFilePage, BucketMark, BucketPage } from './BucketPage.tsx'
 import { StorageDialogs, type StorageDialog } from './dialogs.tsx'
-import { DoctorBadge, DoctorFindings } from './Doctor.tsx'
-import { Explorer, FileGlyph, type TabId, type TreeKey } from './Explorer.tsx'
+import { HomeOverview } from './HomeOverview.tsx'
+import { Explorer, FileGlyph, isTabId, type StoreVerbs, type TabId, type TreeKey } from './Explorer.tsx'
 import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { cardJob, groupOf, jobCounts, orderStores } from './model.ts'
-import { BucketGlyph, refusalLabels, StoreGlyph } from './parts.tsx'
+import { HomeGlyph, refusalLabels, StoreGlyph } from './parts.tsx'
+import { PaneBar } from './PaneBar.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
 import type { StoreActions } from './StoreCard.tsx'
 import { StorePage } from './StorePage.tsx'
@@ -30,15 +43,33 @@ import type { DoctorReport, ProjectSummary, StorageJob, StorageView, StoreRow } 
 import css from './Storage.module.css'
 
 const POLL_MS = 15_000
-const MACHINES_PANEL = 'layerfs-machines'
 
-export interface StoragePageProps {
-  api: LayerfsApi
-  doctorT: DoctorT
+/** The props the DSH `main` slot renderer gives the Storage page: Storage's `t`, and the Machines controller's face with its `t`. */
+export interface StorageMainProps extends Omit<MachinesPageProps, 't'> {
   t: StorageT
+  /** The Machines namespace's `t`, for machine and Sandbox pages. */
+  tm: MachinesT
 }
 
-export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
+export function StoragePage(props: StorageMainProps): ReactNode {
+  const { t, tm, api, doctorT, ...rest } = props
+  // Machine pages open their links as tabs here; the ref reaches the editor's latest `open`.
+  const openRef = useRef<(id: TabId) => void>(() => {})
+  const machines = useMemo<MachinesPageProps>(() => ({
+    ...rest, api, doctorT, t: tm, openTab: (id: string) => { if (isTabId(id)) openRef.current(id) },
+  }), [props])
+  return (
+    <MachinesProvider props={machines}>
+      <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} />
+    </MachinesProvider>
+  )
+}
+
+function StorageIde({ api, doctorT, t, openRef }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void } }): ReactNode {
+  const mc = useMachinesContext()
+  useEffect(() => mc.activate(), [mc.activate])
+  const fleetRead = mc.useMachines((s) => s)
+  const fleet = fleetRead.data?.available ? fleetRead.data : null
   const [tick, setTick] = useState(0)
   const [checks, setChecks] = useState(0)
   const reload = () => setTick((n) => n + 1)
@@ -57,7 +88,9 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
   // The editor: the pages opened from the outline, and which is active.
   const [tabs, setTabs] = useState<TabId[]>(['overview'])
   const [active, setActive] = useState<TabId | null>('overview')
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(['g:home', 'g:machines', 'g:postgresql', 'g:backups']))
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(['g:machines', 'm:native', 'y:native', 'x:native', 'g:postgresql', 'g:backups']))
+  const [newMachine, setNewMachine] = useState(false)
+  const [newSandbox, setNewSandbox] = useState<string | null>(null)
 
   useHostEvents(api, ['storage', 'projects', 'projects-changed', 'connection'], (e) => {
     if (e.type !== 'connection' || (e.data as { connected?: boolean } | undefined)?.connected) reload()
@@ -71,33 +104,55 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
   useEffect(() => { if (endedCount) reload() }, [endedCount])
 
   const view = storage.data
-  // Machine groups open by default, but a machine you folded stays folded.
+  /** A machine's platform, from the controller or Storage's places. */
+  const platformOf = (name: string): string => fleet?.machines.find((m) => m.name === name)?.platform ?? view?.machines.find((m) => m.name === name)?.platform ?? (name === 'native' ? 'native' : '')
+  /** The type folder a machine sits under, if any (created machines; the home and Docker stand alone). */
+  const typeKeyOf = (name: string): TreeKey[] => {
+    const platform = platformOf(name)
+    return platform && !BUILT_IN.has(platform) ? [`t:${platform}`] : []
+  }
+  // Machines, their types and their Stores and Sandboxes open by default, but a folder you folded stays folded.
   const seenPlaces = useRef(new Set<string>())
+  const placeNames = [...new Set([...(fleet?.machines ?? []), ...(view?.machines ?? [])].map((m) => m.name))].sort().join('\n')
   useEffect(() => {
-    const fresh = (view?.machines ?? []).filter((m) => m.name !== 'native' && m.supports?.sqlite !== false && !seenPlaces.current.has(m.name))
+    const fresh = placeNames.split('\n').filter((name) => name && name !== 'native' && !seenPlaces.current.has(name))
     if (!fresh.length) return
-    for (const m of fresh) seenPlaces.current.add(m.name)
+    for (const name of fresh) seenPlaces.current.add(name)
     setExpanded((had) => {
       const next = new Set(had)
-      for (const m of fresh) next.add(`m:${m.name}`)
+      for (const name of fresh) for (const k of [...typeKeyOf(name), `m:${name}`, `y:${name}`, `x:${name}`]) next.add(k)
       return next
     })
-  }, [view?.machines])
+  }, [placeNames])
   const catalog = useMemo(() => new Map((catalogRead.data ?? []).map((p) => [p.key, p])), [catalogRead.data])
   const [manual, setManual] = useState(false)
   useEffect(() => { if (!storage.loading) setManual(false) }, [storage.loading])
   const refresh = () => { reload(); setChecks((n) => n + 1) }
 
-  /** The outline keys an opened page reveals (its place group, machine and folder). */
+  /** The outline keys an opened page reveals (its group, machine type, machine and folders). */
   const revealOf = (id: TabId): TreeKey[] => {
     if (id === 'overview') return []
+    if (id === 'machines') return ['g:machines']
     const body = id.slice(id.indexOf(':') + 1)
+    const machineKeys = (name: string): TreeKey[] => ['g:machines', ...typeKeyOf(name), `m:${name}`]
+    if (id.startsWith('machine:')) return machineKeys(body)
+    if (id.startsWith('sandbox:')) {
+      const machine = body.slice(0, body.indexOf('/'))
+      return [...machineKeys(machine), `x:${machine}`]
+    }
     const storeName = id.startsWith('project:') ? body.slice(0, body.indexOf('/')) : body
-    if (id.startsWith('bucket:')) return ['g:backups', `b:${body}`]
+    if (id.startsWith('bucket:') || id.startsWith('backup:')) {
+      const bucket = id.startsWith('backup:') ? body.slice(0, body.indexOf('/')) : body
+      const provider = view?.buckets.find((x) => x.name === bucket)?.provider
+      return ['g:backups', `p:${provider === 'r2' || provider === 'minio' ? provider : 'other'}`, `b:${bucket}`]
+    }
     const s = view?.stores.find((x) => x.name === storeName)
     if (!s) return [`s:${storeName}`]
+    // A SQLite Store sits in its machine's Stores folder (the home is `native`); a PostgreSQL Store in its group.
     const g = groupOf(s)
-    return [`g:${g}` as TreeKey, ...(g === 'machines' && s.machine ? [`m:${s.machine}` as TreeKey] : []), `s:${s.name}`]
+    if (g === 'postgresql') return ['g:postgresql', `s:${s.name}`]
+    const machine = g === 'home' ? 'native' : s.machine ?? ''
+    return [...machineKeys(machine), `y:${machine}`, `s:${s.name}`]
   }
   const open = (id: TabId) => {
     setTabs((had) => had.includes(id) ? had : [...had, id])
@@ -109,6 +164,14 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
       return next
     })
   }
+  openRef.current = open
+  // A link from another page asked for a tab: open it once.
+  const request = useStorageRequest(api)
+  useEffect(() => {
+    if (request === null) return
+    if (isTabId(request)) open(request)
+    takeStorageRequest(api)
+  }, [request])
   const close = (id: TabId) => {
     const next = tabs.filter((x) => x !== id)
     setTabs(next)
@@ -145,7 +208,14 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
     if (j.kind === 'backup') return api.call('POST', `/api/stores/${enc(j.store)}/backup`, { bucket: j.target, ...(j.file ? { file: j.file } : {}) })
     return api.call('POST', `/api/buckets/${enc(j.target)}/restore`, { store: j.store, ...(j.file ? { file: j.file } : {}) })
   }
-  const openMachine = (_name: string) => api.openPanel(MACHINES_PANEL)
+  const openMachine = (name: string) => open(`machine:${name}`)
+  const storeNamed = (name: string) => view?.stores.find((x) => x.name === name)
+  const verbs: StoreVerbs = {
+    push: (name) => { const s = storeNamed(name); if (s) setDialog({ kind: 'push', store: s }) },
+    pull: (name) => act(() => api.call('POST', `/api/stores/${enc(name)}/pull`)),
+    attach: (name, machine) => setDialog({ kind: 'attach', store: name, ...(machine ? { machine } : {}) }),
+    detach: (name, machine) => { const s = storeNamed(name); if (s) actionsFor(s).detach(machine) },
+  }
   const actionsFor = (s: StoreRow): StoreActions => ({
     push: () => setDialog({ kind: 'push', store: s }),
     pull: () => act(() => api.call('POST', `/api/stores/${enc(s.name)}/pull`)),
@@ -163,6 +233,13 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
     }),
     start: () => act(() => api.call('POST', `/api/machines/${enc(s.machine ?? '')}/start`)),
     addProject: () => setDialog({ kind: 'add-project', store: s.name }),
+    attach: (machine, edit) => setDialog({ kind: 'attach', store: s.name, ...(machine ? { machine } : {}), ...(edit ? { edit } : {}) }),
+    recheck: (a) => act(() => api.call('POST', `/api/stores/${enc(s.name)}/attach`, { machine: a.machine, ...(a.url ? { url: a.url } : {}), ...(a.password ? { password: a.password } : {}) })),
+    detach: (machine) => setDialog({
+      kind: 'confirm', title: t('detachTitle', { store: s.name, machine: machine === 'native' ? t('layerfsHome') : machine }),
+      body: t('detachBody', { machine: machine === 'native' ? t('layerfsHome') : machine }), action: t('detach'),
+      run: () => api.call('POST', `/api/stores/${enc(s.name)}/detach`, { machine }),
+    }),
     retry: (j) => { dismiss(j.id); act(() => retry(j)) },
     dismiss: (j) => dismiss(j.id),
     openMachine,
@@ -176,7 +253,18 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
     api.call('POST', '/api/storage/check', {}).catch(setFailed).finally(() => { setListingAll(false); reload() })
   }
 
-  const dialogs = <StorageDialogs api={api} t={t} dialog={dialog} view={view} onClose={() => setDialog(null)} done={refresh} />
+  const sandboxMachine = newSandbox !== null ? fleet?.machines.find((m) => m.name === newSandbox) : undefined
+  const dialogs = (
+    <>
+      <StorageDialogs api={api} t={t} dialog={dialog} view={view} onClose={() => setDialog(null)} done={refresh} onOpenStore={(name) => open(`store:${name}`)} />
+      {newMachine && fleet ? (
+        <AddMachineDialog view={fleet} platforms={fleet.platforms} onClose={() => setNewMachine(false)} onMade={(name) => { setNewMachine(false); open(`machine:${name}`) }} />
+      ) : null}
+      {sandboxMachine && fleet ? (
+        <NewSandboxDialog machine={sandboxMachine} taken={fleet.sandboxes.map((b) => b.name)} onClose={() => setNewSandbox(null)} />
+      ) : null}
+    </>
+  )
   const refusal = failed !== undefined ? (
     <div className={css.refusalBar}>
       <Refusal error={failed} labels={refusalLabels(t)} />
@@ -186,24 +274,41 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
 
   /** The glyph and words a tab carries. */
   const tabOf = (id: TabId): { icon: ReactNode, label: string } => {
-    if (id === 'overview') return { icon: <IconDatabaseOutlineRegular size={14} />, label: t('overview') }
+    if (id === 'overview') return { icon: <IconGaugeOutlineRegular size={14} />, label: t('overview') }
+    if (id === 'machines') return { icon: <MachinesGlyph size={14} />, label: t('machinesTab') }
     const body = id.slice(id.indexOf(':') + 1)
+    if (id.startsWith('machine:')) {
+      return body === 'native'
+        ? { icon: <HomeGlyph size={14} />, label: t('groupHome') }
+        : { icon: <MachineGlyph platform={platformOf(body)} size={14} mono />, label: body }
+    }
+    if (id.startsWith('sandbox:')) return { icon: <SandboxGlyph size={14} />, label: body.slice(body.indexOf('/') + 1) }
     if (id.startsWith('store:')) {
       const s = view?.stores.find((x) => x.name === body)
       return { icon: s ? <StoreGlyph kind={s.kind} size={14} /> : <FileGlyph />, label: body }
     }
     if (id.startsWith('project:')) return { icon: <LayerfsGlyph size={14} />, label: body.slice(body.indexOf('/') + 1) }
-    return { icon: <BucketGlyph size={14} />, label: body }
+    if (id.startsWith('backup:')) return { icon: <FileGlyph />, label: body.slice(body.indexOf('/') + 1) }
+    return { icon: <BucketMark provider={view?.buckets.find((x) => x.name === body)?.provider} size={14} />, label: body }
   }
 
   const tabPage = (id: TabId): ReactNode => {
+    if (id === 'machines') return <Board go={mc.go} />
+    if (id.startsWith('machine:')) return <MachineDetail key={id} name={id.slice(8)} go={mc.go} />
+    if (id.startsWith('sandbox:')) {
+      const body = id.slice(8)
+      return <SandboxDetail key={id} machine={body.slice(0, body.indexOf('/'))} name={body.slice(body.indexOf('/') + 1)} go={mc.go} />
+    }
     if (id === 'overview') {
       return (
-        <Page label={t('title')}>
-          <Overview view={view} error={storage.error} t={t} api={api} doctorT={doctorT} now={now} doctor={doctor} doctorOpen={doctorOpen}
-            jobs={jobs} dismissed={dismissed} manual={manual} onToggleDoctor={() => setDoctorOpen((o) => !o)}
-            onRefresh={() => { setManual(true); refresh() }} onNewStore={() => setDialog({ kind: 'new-store' })}
-            onOpenStore={(name) => open(`store:${name}`)} onOpenMachine={openMachine} retry={refresh} />
+        <Page wide label={t('title')}>
+          <HomeOverview view={view} error={storage.error} t={t} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed}
+            onOpen={open} onRefresh={refresh} onCheckAgain={() => setChecks((n) => n + 1)}
+            onNewStore={() => setDialog({ kind: 'new-store' })} onNewMachine={() => setNewMachine(true)}
+            onRetry={(j) => { dismiss(j.id); act(() => retry(j)) }} onDismiss={(j) => dismiss(j.id)}
+            onBackup={(name) => { const s = storeNamed(name); if (s) setDialog({ kind: 'backup', store: s }) }}
+            onRecheck={(name, a) => { const s = storeNamed(name); if (s) actionsFor(s).recheck(a) }}
+            actionsFor={actionsFor} onAddBucket={() => setDialog({ kind: 'bucket' })} onListBucket={listBucket} onRestore={(bucket, file) => setDialog({ kind: 'restore', bucket, file, store: null })} refreshKey={checks} />
         </Page>
       )
     }
@@ -212,7 +317,7 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
       const s = view?.stores.find((x) => x.name === name)
       if (!view) return <Page label={t('title')}><Loading label={t('readingStores')} /></Page>
       return (
-        <Page label={t('title')}>
+        <Page wide label={t('title')}>
           <StorePage name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, name, dismissed, now)} jobs={jobs.filter((j) => j.store === name)}
             catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} />
         </Page>
@@ -228,6 +333,22 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
         </Page>
       )
     }
+    if (id.startsWith('backup:')) {
+      const body = id.slice(7)
+      const bucket = body.slice(0, body.indexOf('/'))
+      const file = body.slice(body.indexOf('/') + 1)
+      if (!view) return <Page label={t('title')}><Loading label={t('readingStores')} /></Page>
+      return (
+        <Page label={t('title')}>
+          <BackupFilePage bucket={bucket} file={file} view={view} t={t} now={now} listing={listingAll || listing === bucket}
+            onList={() => listBucket(bucket)}
+            onRestore={(f, store) => setDialog({ kind: 'restore', bucket, file: f, store })}
+            onBackup={(store, f) => act(() => api.call('POST', `/api/stores/${enc(store)}/backup`, { bucket, file: f }))}
+            onOpenStore={(store) => open(`store:${store}`)} onOpenProject={(key) => open(`project:${key}`)}
+            onOpenBucket={() => open(`bucket:${bucket}`)} />
+        </Page>
+      )
+    }
     const name = id.slice(7)
     if (!view) return <Page label={t('title')}><Loading label={t('readingStores')} /></Page>
     return (
@@ -240,7 +361,7 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
             kind: 'confirm', title: t('confirmTitleBucket', { name }), body: t('confirmBucketBody'), action: t('disconnectAction'),
             run: () => api.call('DELETE', `/api/buckets/${enc(name)}`).then(() => close(`bucket:${name}`)),
           })}
-          onOpenStore={(store) => open(`store:${store}`)} />
+          onOpenStore={(store) => open(`store:${store}`)} onOpenFile={(file) => open(`backup:${name}/${file}`)} />
       </Page>
     )
   }
@@ -251,7 +372,9 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
       <Explorer view={explorerView} t={t} now={now} jobs={jobs} dismissed={dismissed} active={active} expanded={expanded} query={query}
         refreshing={manual || storage.loading} listing={listing} listingAll={listingAll} onQuery={setQuery} onToggle={toggle} onOpen={open} onPlace={place}
         onRefresh={() => { setManual(true); refresh() }} onNewStore={() => setDialog({ kind: 'new-store' })} onListAll={listAll}
-        onAddBucket={() => setDialog({ kind: 'bucket' })} />
+        onAddBucket={() => setDialog({ kind: 'bucket' })} onConnectDatabase={() => setDialog({ kind: 'new-store', postgresql: true })}
+        onAttach={(store, machine) => setDialog({ kind: 'attach', store, machine })}
+        verbs={verbs} onNewMachine={() => setNewMachine(true)} onNewSandbox={setNewSandbox} />
       <div className={css.editor}>
         <div className={css.tabs} role="tablist" aria-label={t('openedTabs')}>
           {tabs.map((id) => {
@@ -284,71 +407,5 @@ export function StoragePage({ api, doctorT, t }: StoragePageProps): ReactNode {
       </div>
       {dialogs}
     </div>
-  )
-}
-
-/** The overview tab: the board's head, doctor, coverage and details. */
-function Overview({ view, error, t, api, doctorT, now, doctor, doctorOpen, jobs, dismissed, manual, onToggleDoctor, onRefresh, onNewStore, onOpenStore, onOpenMachine, retry: onRetry }: {
-  view: StorageView | undefined
-  error: unknown
-  t: StorageT
-  api: LayerfsApi
-  doctorT: DoctorT
-  now: number
-  doctor: Query<DoctorReport>
-  doctorOpen: boolean
-  jobs: readonly StorageJob[]
-  dismissed: ReadonlySet<string>
-  manual: boolean
-  onToggleDoctor: () => void
-  onRefresh: () => void
-  onNewStore: () => void
-  onOpenStore: (name: string) => void
-  onOpenMachine: (name: string) => void
-  retry: () => void
-}): ReactNode {
-  const counts = jobCounts(jobs, dismissed)
-  if (!view) {
-    return error
-      ? <LoadError title={t('storageFailed')} error={error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={onRetry} />
-      : <Loading label={t('readingStores')} />
-  }
-  const stores = orderStores(view.stores)
-  const sqlite = stores.filter((s) => s.kind === 'sqlite')
-  const projectCount = stores.reduce((n, s) => n + s.projects.length, 0)
-  const summary = [
-    stores.length === 1 ? t('summaryStore') : t('summaryStores', { n: stores.length }),
-    projectCount === 1 ? t('summaryProject') : t('summaryProjects', { n: projectCount }),
-    sqlite.length ? t('summarySqlite', { size: bytes(sqlite.reduce((n, s) => n + (s.size?.bytes ?? 0), 0)) }) : null,
-  ].filter(Boolean).join(' · ')
-  return (
-    <>
-      <PageHead title={t('title')} intro={t('intro')}
-        badge={(
-          <>
-            {counts.running ? <StateChip tone="info" live label={t('jobsRunning', { n: counts.running })} /> : null}
-            {counts.failed ? <StateChip tone="danger" label={t('jobsFailed', { n: counts.failed })} /> : null}
-          </>
-        )}
-        actions={(
-          <>
-            <Button variant="outline" size="sm" className={css.toolbarButton} aria-label={t('refresh')} disabled={manual}
-              icon={manual ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />} onClick={onRefresh}>
-              <span className={css.toolbarLabel}>{t('refresh')}</span>
-            </Button>
-            <Button variant="primary" size="sm" className={css.toolbarButton} icon={<IconPlusOutlineRegular size={13} />} onClick={onNewStore}>
-              <span className={css.toolbarLabel}>{t('newStore')}</span>
-            </Button>
-          </>
-        )} />
-      <div className={css.summary}>
-        <span>{summary}</span>
-        <DoctorBadge read={doctor} open={doctorOpen} onToggle={onToggleDoctor} t={t} now={now} />
-      </div>
-      {doctorOpen ? <DoctorFindings read={doctor} t={t} now={now} /> : null}
-      {stores.length === 0 && view.buckets.length === 0
-        ? <Empty title={t('noStores')} icon={<StoreGlyph kind="sqlite" size={20} />}>{t('noStoresBody')}</Empty>
-        : <StorageDetails view={view} t={t} now={now} onOpenStore={onOpenStore} onOpenMachine={onOpenMachine} />}
-    </>
   )
 }

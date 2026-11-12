@@ -2,6 +2,11 @@
  * One bucket's page: the Store files it holds, the Store linked to each, their
  * state, size and when written, and the move each needs (Back up now, Restore…).
  * Before a bucket is listed its rows come from the Stores' links alone.
+ *
+ * One backup file's page (`BackupFilePage`): where the object is, the Stores
+ * of this home linked to it, and what is inside. A file holds one whole SQLite
+ * Store; LayerFS reads its projects only by restoring it, so "inside" is the
+ * linked Store's projects when the copy is still that Store's, else a Restore.
  */
 import { useEffect, type ReactNode } from 'react'
 import { Button, IconRefreshOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -10,11 +15,13 @@ import { DoctorAction } from '../doctor/Doctor.tsx'
 import type { DoctorT } from '../doctor/locale.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Card, Empty, LinkButton, MoreMenu, Notice, PageHead, StateChip } from '../ui/index.tsx'
+import { Card, Empty, LinkButton, MoreMenu, Notice, StateChip } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
+import { PaneBar } from './PaneBar.tsx'
 import { backupChip, bucketFiles, placeWords } from './model.ts'
+import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { BucketGlyph } from './parts.tsx'
-import type { StorageView } from './types.ts'
+import type { BucketRow, StorageView } from './types.ts'
 import css from './Storage.module.css'
 
 export interface BucketPageProps {
@@ -30,14 +37,25 @@ export interface BucketPageProps {
   onBackup: (store: string, file: string) => void
   onDisconnect: () => void
   onOpenStore: (name: string) => void
+  onOpenFile: (file: string) => void
 }
 
-export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, onRestore, onBackup, onDisconnect, onOpenStore }: BucketPageProps): ReactNode {
+/** A provider's words: Cloudflare R2, MinIO, else the record's own name. */
+export function providerWords(provider: string | null | undefined, t: StorageT): string {
+  return provider === 'r2' ? t('r2') : provider === 'minio' ? t('minio') : provider ?? t('providerOther')
+}
+
+/** The bucket's mark: its provider's brand, else the plain bucket. */
+export function BucketMark({ provider, size = 14 }: { provider: string | null | undefined, size?: number }): ReactNode {
+  return provider === 'r2' || provider === 'minio' ? <BucketProviderGlyph provider={provider} size={size} /> : <BucketGlyph size={size} />
+}
+
+export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, onRestore, onBackup, onDisconnect, onOpenStore, onOpenFile }: BucketPageProps): ReactNode {
   const b = view.buckets.find((x) => x.name === name)
   // backup.list asks the bucket: once when the page opens, then on List.
   const unlisted = b !== undefined && b.files === null && !listing
   useEffect(() => { if (unlisted) onList() }, [unlisted]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (!b) return <><PageHead title={name} /><Empty title={t('bucketMissing', { name })}>{t('bucketMissingBody')}</Empty></>
+  if (!b) return <><PaneBar title={name} /><Empty title={t('bucketMissing', { name })}>{t('bucketMissingBody')}</Empty></>
   const rows = bucketFiles(b, view.stores)
   const listed = b.files !== null
   const total = (b.files ?? []).reduce((n, f) => n + (f.bytes ?? 0), 0)
@@ -45,14 +63,7 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
   const tt = t as Translate
   return (
     <>
-      <PageHead title={b.name} icon={<BucketGlyph size={22} />}
-        intro={[
-          b.provider === 'r2' ? t('r2') : b.provider === 'minio' ? t('minio') : b.provider,
-          b.url ?? t('bucketOutside'),
-          listed ? (b.files!.length === 1 ? t('bucketFile', { size: bytes(total) }) : t('bucketFiles', { n: b.files!.length, size: bytes(total) })) : t('bucketNotListed'),
-          linked === 1 ? t('bucketLinkedOne') : t('bucketLinked', { n: linked }),
-          listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : null,
-        ].filter(Boolean).join(' · ')}
+      <PaneBar title={b.name}
         actions={(
           <>
             <DoctorAction api={api} t={doctorT} target="backup.connection" name={b.name} label={doctorT('testConnection')} />
@@ -60,10 +71,18 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
               icon={listing ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{listed ? t('listAgain') : t('list')}</Button>
             <MoreMenu label={b.name}>{(close) => <MenuItemButton danger onSelect={() => { close(); onDisconnect() }}>{t('disconnectBucket')}</MenuItemButton>}</MoreMenu>
           </>
-        )} />
+        )}>
+        {[
+          providerWords(b.provider, t),
+          b.url ?? t('bucketOutside'),
+          listed ? (b.files!.length === 1 ? t('bucketFile', { size: bytes(total) }) : t('bucketFiles', { n: b.files!.length, size: bytes(total) })) : t('bucketNotListed'),
+          linked === 1 ? t('bucketLinkedOne') : t('bucketLinked', { n: linked }),
+          listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : null,
+        ].filter(Boolean).join(' · ')}
+      </PaneBar>
       {b.error ? <Notice tone="danger"><strong>{t('bucketListFailed')}</strong><span>{b.error.code}: {b.error.message}</span></Notice> : null}
       {rows.length === 0 ? (
-        <Empty title={listed ? t('bucketEmptyListedTitle') : t('bucketEmptyUnlistedTitle')} icon={<BucketGlyph size={20} />}>
+        <Empty title={listed ? t('bucketEmptyListedTitle') : t('bucketEmptyUnlistedTitle')} icon={<BucketMark provider={b.provider} size={20} />}>
           {listed ? t('bucketEmptyListed') : listing ? t('bucketListing') : t('bucketEmptyUnlisted')}
         </Empty>
       ) : (
@@ -81,7 +100,7 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
                 const restore = r.state !== null && r.state !== 'missing'
                 return (
                   <tr key={`${r.file}:${r.storeName ?? ''}`}>
-                    <td className={css.mono}>{r.file}<span className={css.muted}>/store.sqlite</span></td>
+                    <td className={css.mono}><LinkButton onClick={() => onOpenFile(r.file)}>{r.file}</LinkButton><span className={css.muted}>/store.sqlite</span></td>
                     <td>{r.storeName ? <span className={css.linkList}><LinkButton onClick={() => onOpenStore(r.storeName!)}>{r.storeName}</LinkButton>{s ? <span className={css.muted}>{s.kind === 'postgresql' ? t('postgresql') : placeWords(s.machine, t)}</span> : null}</span> : <span className={css.muted}>{t('notLinked')}</span>}</td>
                     <td title={r.reason ?? undefined}><StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} /></td>
                     <td className={`${css.num} ${css.wide} ${css.muted}`}>{bytes(r.bytes)}</td>
@@ -89,6 +108,129 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
                     <td className={css.actionsCell}>
                       {backUp ? <Button variant="outline" size="sm" onClick={() => onBackup(r.storeName!, r.file)}>{t('backupNow')}</Button> : null}
                       {restore ? <Button variant="outline" size="sm" onClick={() => onRestore(r.file, r.storeName)}>{t('restore')}</Button> : null}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </>
+  )
+}
+
+/** The object a file names: `<prefix>/<file>/store.sqlite`, the prefix read from the bucket's URL. */
+export function objectOf(b: BucketRow, file: string): string {
+  const path = (b.url ?? '').replace(/^[a-z0-9]+:\/\/[^/]+\/?/i, '').replace(/\?.*$/, '')
+  const prefix = path.split('/').slice(1).filter(Boolean).join('/')
+  return `${prefix ? `${prefix}/` : ''}${file}/store.sqlite`
+}
+
+export interface BackupFilePageProps {
+  bucket: string
+  file: string
+  view: StorageView
+  t: StorageT
+  now: number
+  listing: boolean
+  onList: () => void
+  onRestore: (file: string, store: string | null) => void
+  onBackup: (store: string, file: string) => void
+  onOpenStore: (name: string) => void
+  onOpenProject: (key: string) => void
+  onOpenBucket: () => void
+}
+
+export function BackupFilePage({ bucket, file, view, t, now, listing, onList, onRestore, onBackup, onOpenStore, onOpenProject, onOpenBucket }: BackupFilePageProps): ReactNode {
+  const b = view.buckets.find((x) => x.name === bucket)
+  const unlisted = b !== undefined && b.files === null && !listing
+  useEffect(() => { if (unlisted) onList() }, [unlisted]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!b) return <><PaneBar title={file} /><Empty title={t('bucketMissing', { name: bucket })}>{t('bucketMissingBody')}</Empty></>
+  const tt = t as Translate
+  // one row per Store of this home linked to the file (LayerFS lists a file once per linked Store)
+  const rows = bucketFiles(b, view.stores).filter((r) => r.file === file)
+  if (rows.length === 0) {
+    return (
+      <>
+        <PaneBar title={file} actions={<Button variant="outline" size="sm" onClick={onOpenBucket}>{t('openBucket')}</Button>} />
+        <Empty title={t('backupFileMissing', { file, bucket })} icon={<BucketMark provider={b.provider} size={20} />}>{listing ? t('bucketListing') : t('backupFileMissingBody')}</Empty>
+      </>
+    )
+  }
+  const linked = rows.filter((r) => r.store)
+  const size = rows.find((r) => r.bytes !== null)?.bytes ?? null
+  const modified = rows.find((r) => r.modified !== null)?.modified ?? null
+  // what is inside: the linked Store's projects while the copy is still that Store's
+  const own = linked.find((r) => r.state === 'current') ?? linked.find((r) => r.state === 'store_changed') ?? null
+  const rewritten = linked.find((r) => r.state === 'bucket_changed' || r.state === 'both_changed') ?? null
+  const projects = own?.store?.projects ?? []
+  return (
+    <>
+      <PaneBar title={file}
+        actions={(
+          <>
+            <Button variant="outline" size="sm" disabled={listing} onClick={onList}
+              icon={listing ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{b.files !== null ? t('listAgain') : t('list')}</Button>
+            <Button variant="outline" size="sm" onClick={() => onRestore(file, null)}>{t('restoreAsNewStore')}</Button>
+          </>
+        )}>
+        {[
+          providerWords(b.provider, t),
+          b.name,
+          size !== null ? bytes(size) : null,
+          modified ? ago(modified, now, tt) : null,
+          listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : t('bucketNotListed'),
+        ].filter(Boolean).join(' · ')}
+      </PaneBar>
+      {b.error ? <Notice tone="danger"><strong>{t('bucketListFailed')}</strong><span>{b.error.code}: {b.error.message}</span></Notice> : null}
+      <Card className={css.backupFacts}>
+        <dl className={css.backupFactList}>
+          <dt>{t('backupObject')}</dt>
+          <dd className={css.mono}>{objectOf(b, file)}</dd>
+          <dt>{t('backupInside')}</dt>
+          <dd>
+            {own ? (
+              <>
+                <p>{own.state === 'current'
+                  ? (projects.length === 1 ? t('backupInsideCurrentOne', { store: own.storeName! }) : t('backupInsideCurrent', { store: own.storeName!, n: projects.length }))
+                  : t('backupInsideChanged', { store: own.storeName!, n: projects.length })}</p>
+                {projects.length === 0 ? <p className={css.muted}>{t('backupNoProjects')}</p> : (
+                  <ul className={css.backupProjects}>
+                    {projects.map((p) => (
+                      <li key={p}><LinkButton onClick={() => onOpenProject(`${own.storeName}/${p}`)}>{p}</LinkButton></li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : rewritten ? <p>{t('backupInsideBucketChanged', { store: rewritten.storeName! })}</p> : <p>{t('backupInsideUnread')}</p>}
+          </dd>
+        </dl>
+      </Card>
+      <h3 className={css.backupHeading}>{t('backupLinkedStores')}</h3>
+      {linked.length === 0 ? <p className={`${css.muted} ${css.backupNote}`}>{t('backupNoLinked')}</p> : (
+        <Card className={css.tableCard}>
+          <table className={css.table}>
+            <thead>
+              <tr><th>{t('colLinked')}</th><th>{t('colState')}</th><th className={css.wide}>{t('colWritten')}</th><th><span className={css.srOnly}>{t('storeActions', { name: file })}</span></th></tr>
+            </thead>
+            <tbody>
+              {linked.map((r) => {
+                const chip = backupChip(r.state, t)
+                const s = r.store!
+                const last = r.link?.last
+                const canBackUp = s.kind === 'sqlite' && s.state !== 'busy' && s.state !== 'down'
+                const backUp = (r.state === 'store_changed' || r.state === 'missing' || (r.state === null && !!r.link)) && canBackUp
+                return (
+                  <tr key={s.name}>
+                    <td><span className={css.linkList}><LinkButton onClick={() => onOpenStore(s.name)}>{s.name}</LinkButton><span className={css.muted}>{placeWords(s.machine, t)}</span></span></td>
+                    <td title={r.reason ?? undefined}><StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} /></td>
+                    <td className={`${css.wide} ${css.muted}`} title={when(last?.at ?? null)}>
+                      {last?.at ? (last.op === 'restore' ? t('backupLastRestore', { ago: ago(last.at, now, tt) }) : t('backupLastCreate', { ago: ago(last.at, now, tt) })) : t('backupLastNone')}
+                    </td>
+                    <td className={css.actionsCell}>
+                      {backUp ? <Button variant="outline" size="sm" onClick={() => onBackup(s.name, file)}>{t('backupNow')}</Button> : null}
+                      {r.state !== null && r.state !== 'missing' ? <Button variant="outline" size="sm" onClick={() => onRestore(file, s.name)}>{t('restore')}</Button> : null}
                     </td>
                   </tr>
                 )

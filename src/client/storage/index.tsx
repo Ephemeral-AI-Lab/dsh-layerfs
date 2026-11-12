@@ -1,15 +1,18 @@
 /**
  * Storage area of dsh-layerfs: the sidebar's Storage entry and the page it
- * opens in the main column (Stores, their projects, backups and moves).
+ * opens in the main column. One explorer holds the machines (by type, each
+ * with its Stores and Sandboxes), the PostgreSQL Stores and the backups; a
+ * machine, Sandbox, Store, project or bucket opens as an editor tab.
  */
 import type { ReactNode } from 'react'
 import type { LayerfsApi } from '../api.ts'
-import { NS as DOCTOR_NS, type DoctorT } from '../doctor/locale.ts'
+import { NS as DOCTOR_NS } from '../doctor/locale.ts'
 import { ChildGlyph } from '../overview/child.tsx'
 import type { SidebarGroup } from '../overview/group.ts'
+import type { MachinesShare } from '../machines/index.tsx'
 import { createSidebarRail } from '../overview/rail.tsx'
-import { locales, NS, type StorageT } from './locale.ts'
-import { StoragePage } from './StoragePage.tsx'
+import { locales, NS } from './locale.ts'
+import { StoragePage, type StorageMainProps } from './StoragePage.tsx'
 
 /** The id shared by the sidebar entry and the main panel it opens. */
 export const PANEL_ID = 'layerfs-storage'
@@ -29,8 +32,8 @@ function StorageSidebarIcon({ size }: { size?: number }): ReactNode {
   return <ChildGlyph><StoragePanelIcon size={size ?? 16} /></ChildGlyph>
 }
 
-function StorageMain(props: { api: LayerfsApi, doctorT: DoctorT, t: StorageT }): ReactNode {
-  return <StoragePage api={props.api} doctorT={props.doctorT} t={props.t} />
+function StorageMain(props: StorageMainProps): ReactNode {
+  return <StoragePage {...props} />
 }
 
 /**
@@ -38,8 +41,9 @@ function StorageMain(props: { api: LayerfsApi, doctorT: DoctorT, t: StorageT }):
  * @param ctx - the plugin's client context (slots, locale).
  * @param api - the host API the page reads through.
  * @param group - the LayerFS sidebar group the entry shows under.
+ * @param machines - the Machines controller's face and `t` (the explorer's machines and Sandboxes).
  */
-export function registerStorage(ctx: any, api: LayerfsApi, group: SidebarGroup): void {
+export function registerStorage(ctx: any, api: LayerfsApi, group: SidebarGroup, machines: MachinesShare): void {
   ctx.effect(() => ctx.locale.register(NS, locales), 'dsh-layerfs: storage locale')
   const doctorT = ctx.locale.bind(DOCTOR_NS)
   const t = ctx.locale.bind(NS)
@@ -47,7 +51,7 @@ export function registerStorage(ctx: any, api: LayerfsApi, group: SidebarGroup):
     name: 'main',
     key: PANEL_ID,
     locale: NS,
-    inject: () => ({ api, doctorT }),
+    inject: () => ({ ...machines.face, tm: machines.t, api, doctorT }),
   }, StorageMain)), 'dsh-layerfs: storage page')
   // Opening Storage folds the sidebar to its icon rail so the page keeps the
   // column: unfold the group so the row's icon shows in the rail, and collapse

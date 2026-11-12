@@ -167,7 +167,7 @@ specification. The diagram is logical: the stock backend retains its native cwd
 partitioning and filenames beneath the project root.
 
 ```text
-<project-session-home>/                 # Default ~/.layerfs/dsh
+<project-session-home>/                 # Default <DSH_HOME>/layerfs/project-sessions
   owners.json
   projects/<project-key>/sessions/
     <native DSH session layout>/

@@ -34,6 +34,7 @@ export function ProjectSessions({ api, project, projectId, t }: { api: LayerfsAp
               {!session.local ? <span className={css.rowSub}>{t('storedHint')}</span> : null}
             </span>
             <span className={css.rowMeta}>
+              {session.executionState === 'interrupted' ? <span className={css.rowInterrupted} title={session.error ?? t('interruptedHint')}>{t('interrupted')}</span> : null}
               {!session.local ? <span title={t('storedHint')}>{t('stored')}</span> : null}
               <span>{when(session.updatedAt)}</span>
             </span>

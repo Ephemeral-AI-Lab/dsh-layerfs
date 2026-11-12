@@ -12,7 +12,7 @@ import {
 import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
 import { BranchPicker } from './BranchPicker.tsx'
-import { FileViewer } from './FileViewer.tsx'
+import { FileViewer, type FileMode } from './FileViewer.tsx'
 import { bytes, shortId } from './format.ts'
 import { EmptyState, ErrorState, Loading } from './States.tsx'
 import type { BranchInfo, FsEntry, Translate } from './types.ts'
@@ -76,6 +76,8 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
   const [tabs, setTabs] = useState<string[]>(initialPath ? [initialPath] : [])
   const [active, setActive] = useState<string | undefined>(initialPath)
   const [query, setQuery] = useState('')
+  // Code, Blame or History stays chosen across files.
+  const [mode, setMode] = useState<FileMode>('code')
   const generation = useRef(0)
   const openRef = useRef(open)
   openRef.current = open
@@ -186,7 +188,7 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
         </div>
         <div className={css.viewer}>
           {active
-            ? <FileViewer key={`${ref}:${active}:${at}`} api={api} project={project} branch={ref} path={active} pin={at} t={t} />
+            ? <FileViewer key={`${ref}:${active}:${at}`} api={api} project={project} branch={ref} path={active} pin={at} t={t} mode={mode} onModeChange={setMode} />
             : <EmptyState title={t('files_openFromTree')} icon={<FileTypeIcon kind="other" size={20} />}>{t('files_openFromTreeBody')}</EmptyState>}
         </div>
       </section>

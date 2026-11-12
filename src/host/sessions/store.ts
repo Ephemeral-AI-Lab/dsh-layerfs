@@ -57,6 +57,13 @@ export class SessionStore {
 
   dispose(): void { for (const t of this.timers.values()) clearTimeout(t); this.timers.clear() }
 
+  /** Drop a deleted session's pending mirror and discovery memo. */
+  forget(sessionId: string): void {
+    clearTimeout(this.timers.get(sessionId))
+    this.timers.delete(sessionId)
+    this.found.delete(sessionId)
+  }
+
   /** Append the session's new events to its project. */
   async mirror(sessionId: string): Promise<void> {
     const binding = this.sessions.binding(sessionId)
@@ -331,8 +338,10 @@ export class SessionStore {
     if (running) return running
     const run = (async () => {
       let imported = 0
+      const persistence = this.ctx.get('sessionPersistence') as any
       for (const stored of await this.discover(project)) {
-        if (stored.local) continue
+        // A conversation deleted here (Presets Reset) comes back only by an explicit import.
+        if (stored.local || persistence?.isDeleted?.(stored.sessionId)) continue
         try { if ((await this.import(project, stored.sessionId)).imported) imported++ } catch (error: any) {
           this.ctx.logger('layerfs').warn('session store: import %s from %s: %s', stored.sessionId, project, error?.message ?? error)
         }

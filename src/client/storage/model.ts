@@ -1,6 +1,6 @@
 /** Storage's pure rules: placement, attention, backup coverage and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
-import type { BackupState, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
+import type { BackupState, BucketRow, JobKind, PgAttachment, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import type { StorageT } from './locale.ts'
 
 /** A sqlite Store saved under the LayerFS home (`native`). */
@@ -35,19 +35,47 @@ export function machinePlaces(view: StorageView): StorageView['machines'] {
 export const canMove = (s: StoreRow): boolean =>
   s.kind === 'sqlite' && !s.job && (inHome(s) ? s.state === 'idle' : s.state !== 'busy')
 
-const listedOf = (s: StoreRow, bucket: string, file: string, buckets: readonly BucketRow[]) =>
+/** A link's file as its bucket's last listing has it. */
+export const listedOf = (s: StoreRow, bucket: string, file: string, buckets: readonly BucketRow[]) =>
   buckets.find((b) => b.name === bucket)?.files?.find((f) => f.file === file && f.store === s.name)
 
 /** A link's last listed state, when its bucket was listed. */
 export const linkState = (s: StoreRow, bucket: string, file: string, buckets: readonly BucketRow[]): BackupState | undefined => listedOf(s, bucket, file, buckets)?.state
 
-/** How much a Store needs you. */
-export function attentionOf(s: StoreRow, machineState: string | null | undefined, buckets: readonly BucketRow[]): 'warning' | 'danger' | null {
-  if (s.state === 'down' || s.state === 'unresolved' || s.postgresql?.reachable === false) return 'danger'
-  const states = s.links.map((l) => linkState(s, l.bucket, l.file, buckets))
-  if (states.some((x) => x === 'both_changed' || x === 'missing')) return 'danger'
-  if (states.some((x) => x === 'store_changed' || x === 'bucket_changed') || machineState === 'stopped') return 'warning'
+/** A tree row's status dot and the words that explain it. */
+export interface RowSignal { state: 'error' | 'warning' | 'ongoing', reason: string }
+
+const SIGNAL_RANK: Record<RowSignal['state'], number> = { ongoing: 1, warning: 2, error: 3 }
+
+/** The most urgent of some rows' signals: what a collapsed parent shows. */
+export function worstSignal(signals: readonly (RowSignal | null | undefined)[]): RowSignal | null {
+  return signals.reduce<RowSignal | null>((w, s) => (s && (!w || SIGNAL_RANK[s.state] > SIGNAL_RANK[w.state]) ? s : w), null)
+}
+
+/** How much a Store needs you, and why: its running or failed job first, then its own state, its backups, its machine. */
+export function storeSignal(s: StoreRow, job: StorageJob | undefined, machineState: string | null | undefined, buckets: readonly BucketRow[], t: StorageT): RowSignal | null {
+  if (job && !job.ended) return { state: 'ongoing', reason: doingWords(job, t) }
+  if (job?.error) return { state: 'error', reason: endedWords(job, t) }
+  if (s.state === 'down') return { state: 'error', reason: s.down ? `${t('stateDown')}: ${s.down}` : t('stateDown') }
+  if (s.state === 'unresolved') return { state: 'error', reason: t('unresolved') }
+  if (s.postgresql?.reachable === false) return { state: 'error', reason: s.postgresql.error ?? t('unreachable') }
+  const links = s.links.map((l) => ({ l, state: linkState(s, l.bucket, l.file, buckets) }))
+  const linkReason = (x: typeof links[number]) => `${x.l.bucket}/${x.l.file}: ${backupChip(x.state, t).label}`
+  const broken = links.find((x) => x.state === 'both_changed' || x.state === 'missing')
+  if (broken) return { state: 'error', reason: linkReason(broken) }
+  const drifted = links.find((x) => x.state === 'store_changed' || x.state === 'bucket_changed')
+  if (drifted) return { state: 'warning', reason: linkReason(drifted) }
+  if (machineState === 'stopped' && s.machine) return { state: 'warning', reason: t('machineStopped', { machine: s.machine }) }
   return null
+}
+
+/** A bucket's signal: the most urgent state among its listed files. */
+export function bucketSignal(rows: readonly BucketFileRow[], t: StorageT): RowSignal | null {
+  return worstSignal(rows.map((r) => {
+    const chip = backupChip(r.state, t)
+    const state = chip.tone === 'danger' ? 'error' : chip.tone === 'warning' ? 'warning' : null
+    return state ? { state, reason: `${r.file}: ${chip.label}` } : null
+  }))
 }
 
 /** A Store's SDK state as a chip tone. */
@@ -230,4 +258,53 @@ export function jobCounts(jobs: readonly StorageJob[], dismissed: ReadonlySet<st
   for (const j of jobs) if (!latest.has(j.store) || j.started > latest.get(j.store)!.started) latest.set(j.store, j)
   const last = [...latest.values()]
   return { running: last.filter((j) => !j.ended).length, failed: last.filter((j) => j.ended && j.error && !dismissed.has(j.id)).length }
+}
+
+// ---------- PostgreSQL machines (store.attach) ----------
+
+
+/**
+ * A PostgreSQL Store's machines. Without store.attach in the pinned CLI (or
+ * from a record before attachments) its Sandboxes run on the LayerFS Home,
+ * shown as one unchecked attachment.
+ */
+export function attachmentsOf(s: StoreRow): PgAttachment[] {
+  if (s.kind !== 'postgresql') return []
+  if (s.attachments) return s.attachments
+  return [{ machine: 'native', own: false, url: null, target: s.postgresql?.target ?? null, password: null, saved: false, checked: null, lastError: null }]
+}
+
+/** The PostgreSQL Stores attached to `machine`, with their attachment. */
+export function pgStoresOn(view: StorageView, machine: string): { store: StoreRow, attachment: PgAttachment }[] {
+  return view.stores.filter((s) => s.kind === 'postgresql').flatMap((store) => {
+    const attachment = attachmentsOf(store).find((a) => a.machine === machine)
+    return attachment ? [{ store, attachment }] : []
+  }).sort((a, b) => a.store.name.localeCompare(b.store.name))
+}
+
+/** An attachment's dot: its last refusal, else not checked yet. */
+export function attachmentSignal(a: PgAttachment, t: StorageT): RowSignal | null {
+  if (a.lastError) return { state: 'error', reason: `${t('checkFailed')}: ${a.lastError.message}` }
+  if (!a.checked) return { state: 'warning', reason: t('notChecked') }
+  return null
+}
+
+/** What a machine of `platform` dials for a server on this host's localhost (LayerFS's reach rewrite). */
+export function loopbackAlias(platform: string): string | null {
+  switch (platform) {
+    case 'docker': return 'host.docker.internal'
+    case 'lima': return '192.168.5.2'
+    case 'apple-container': return '192.168.64.1'
+    default: return null
+  }
+}
+
+/** Why `machine` cannot take PostgreSQL Store `s` now, or null when it can. */
+export function attachRefusal(view: StorageView, s: StoreRow, machine: string, t: StorageT): string | null {
+  const m = view.machines.find((x) => x.name === machine)
+  if (!m) return null
+  if (attachmentsOf(s).some((a) => a.machine === machine)) return t('alreadyAttached')
+  if (m.supports && !m.supports.postgresql_sandbox) return m.supports.reason ?? t('postgresql')
+  if (m.state === 'stopped') return t('machineStoppedAttach')
+  return null
 }

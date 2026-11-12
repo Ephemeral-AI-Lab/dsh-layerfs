@@ -43,6 +43,8 @@ export interface Binding {
   executionState?: 'inactive' | 'activating' | 'active' | 'interrupted'
   state: 'bound' | 'closed' | 'failed'
   error?: string
+  /** Why execution was interrupted. Only `availability` clears its error once the Store answers again. */
+  interruption?: { kind: 'availability' | 'sandbox' | 'removed' | 'blocked', at: number }
   /** Branch generations made by restores. */
   restores?: number
   readonly createdAt: number
@@ -88,6 +90,12 @@ export interface Checkpoint {
   readonly at: number
   /** A save that did not complete (`Conflict`, `Unknown`...). */
   readonly error?: { readonly code: string, readonly message: string }
+  /**
+   * Receipt id of the call that saved (`workspace commit`) or referenced
+   * (`branch fork`) this checkpoint; its call log line carries the tag
+   * `dsh:<sessionId>:<receipt>` (docs/specs/layerfs-logs.md §5).
+   */
+  readonly receipt?: string
 }
 
 /** The LayerFS session store's progress for one session. */

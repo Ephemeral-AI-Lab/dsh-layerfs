@@ -1,6 +1,7 @@
 /** Small pieces Storage's views share: refusal words, the Store glyph, and a form in a DSH modal. */
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, Input, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StoreKindGlyph } from '../machines/icons.tsx'
 import { Field, Refusal, type RefusalLabels } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import css from './Storage.module.css'
@@ -16,20 +17,27 @@ export function refusalLabels(t: StorageT): RefusalLabels {
   }
 }
 
-/** A Store's glyph: a database for SQLite, stacked servers for PostgreSQL. */
-export function StoreGlyph({ kind, size = 18 }: { kind: 'sqlite' | 'postgresql' | string, size?: number }): ReactNode {
-  return kind === 'postgresql' ? (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true">
-      <rect x="2.5" y="2.5" width="11" height="4.5" rx="1.25" />
-      <rect x="2.5" y="9" width="11" height="4.5" rx="1.25" />
-      <circle cx="5" cy="4.75" r="0.6" fill="currentColor" stroke="none" />
-      <circle cx="5" cy="11.25" r="0.6" fill="currentColor" stroke="none" />
+/** A Store's glyph: its kind's mark, the SQLite feather or the PostgreSQL elephant (`mono` draws it in the text color). */
+export function StoreGlyph({ kind, size = 18, mono }: { kind: 'sqlite' | 'postgresql' | string, size?: number, mono?: boolean }): ReactNode {
+  return <StoreKindGlyph kind={kind} size={size} mono={mono} />
+}
+
+/** A Store's backup mark in the explorer: a small cloud. */
+export function CloudGlyph({ size = 12 }: { size?: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4.6 12.5h7a2.9 2.9 0 0 0 .4-5.77A4 4 0 0 0 4.3 7.6a2.45 2.45 0 0 0 .3 4.9z" />
     </svg>
-  ) : (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true">
-      <ellipse cx="8" cy="3.75" rx="5" ry="1.75" />
-      <path d="M3 3.75v8.5c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75v-8.5" />
-      <path d="M3 8c0 .97 2.24 1.75 5 1.75S13 8.97 13 8" />
+  )
+}
+
+/** The LayerFS Home's glyph in the explorer: a house. */
+export function HomeGlyph({ size = 15 }: { size?: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.5 7.25 8 2.75l5.5 4.5" />
+      <path d="M4 6.1v7.15h8V6.1" />
+      <path d="M6.75 13.25v-3.5h2.5v3.5" />
     </svg>
   )
 }
@@ -57,13 +65,15 @@ export interface FormModalProps {
   submit: () => Promise<unknown>
   /** Why the action is not ready yet. */
   hint?: string | undefined
+  /** What the footer says while the action runs. */
+  busyHint?: string | undefined
   t: StorageT
   danger?: boolean
   children: ReactNode
 }
 
 /** A form in a DSH modal: its fields, one submit whose refusal shows under them. */
-export function FormModal({ open, onClose, title, description, action, valid, submit, hint, t, danger, children }: FormModalProps): ReactNode {
+export function FormModal({ open, onClose, title, description, action, valid, submit, hint, busyHint, t, danger, children }: FormModalProps): ReactNode {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(undefined)
   const go = async () => {
@@ -83,7 +93,7 @@ export function FormModal({ open, onClose, title, description, action, valid, su
     <Modal open={open} onClose={() => { if (!busy) onClose() }} title={title} description={description} closeLabel={t('close')} className={css.modal}
       footer={(
         <div className={css.modalFooter}>
-          {hint ? <span className={css.modalHint}>{hint}</span> : <span />}
+          {busy && busyHint ? <span className={css.modalHint} role="status">{busyHint}</span> : hint ? <span className={css.modalHint}>{hint}</span> : <span />}
           <div className={css.modalActions}>
             <Button variant="outline" onClick={onClose} disabled={busy}>{t('cancel')}</Button>
             <Button variant="primary" className={danger ? css.dangerPrimary : undefined} disabled={!valid || busy} aria-busy={busy}
@@ -140,5 +150,36 @@ export function TileChoice<V extends string>({ label, value, onChange, options }
         </button>
       ))}
     </div>
+  )
+}
+
+/** Push: an arrow up out of a tray (a Store leaves for a machine). */
+export function PushGlyph({ size = 13 }: { size?: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 10.5V2.5M5 5.5l3-3 3 3" />
+      <path d="M2.75 10v2.25c0 .7.55 1.25 1.25 1.25h8c.7 0 1.25-.55 1.25-1.25V10" />
+    </svg>
+  )
+}
+
+/** Pull: an arrow down into a tray (a Store comes home). */
+export function PullGlyph({ size = 13 }: { size?: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 2.5v8M5 7.5l3 3 3-3" />
+      <path d="M2.75 10v2.25c0 .7.55 1.25 1.25 1.25h8c.7 0 1.25-.55 1.25-1.25V10" />
+    </svg>
+  )
+}
+
+/** Detach: a broken link. */
+export function UnlinkGlyph({ size = 13 }: { size?: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" aria-hidden="true">
+      <path d="M6.5 4.5 7.75 3.25a2.47 2.47 0 0 1 3.5 3.5L10 8" />
+      <path d="M9.5 11.5 8.25 12.75a2.47 2.47 0 0 1-3.5-3.5L6 8" />
+      <path d="M2.5 2.5l1.5 1.5M12 12l1.5 1.5" />
+    </svg>
   )
 }

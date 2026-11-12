@@ -1,8 +1,8 @@
 /**
- * The LayerFS runtime the plugin reads through (`runtime.status`). The LayerFS
- * page shows it whole: version, state, every fact, and Change… to pin another
- * CLI and daemon (`runtime.save`; absolute paths, discovered before the pin
- * moves). The LayerFS page shows it; the Machines board does not.
+ * The LayerFS runtime the plugin reads through (`runtime.status`). The
+ * Settings page shows it whole: version, state, every fact, and Change… to pin
+ * another CLI and daemon (`runtime.save`; absolute paths, discovered before the
+ * pin moves). Storage's home overview reveals the same card.
  */
 import { useState, type ReactNode } from 'react'
 import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'

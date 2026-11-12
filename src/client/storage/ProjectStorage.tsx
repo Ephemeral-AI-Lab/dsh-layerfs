@@ -214,7 +214,7 @@ function Recent({ t, recent }: { t: StorageT, recent: ProjectStorageView['recent
               </button>
             ))}
           </div>
-          <div className={css.tip} aria-live="polite">{shown ? describe(shown) : t('psRecentHint')}</div>
+          <div className={css.tip} aria-live="polite">{shown ? describe(shown) : null}</div>
         </>
       ) : <p className={css.note}>{t('psNoSaves')}</p>}
     </section>

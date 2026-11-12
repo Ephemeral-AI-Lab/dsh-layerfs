@@ -9,6 +9,8 @@
  *                        (folder sessions retain stock DSH behavior)
  *   agent/pre-step       a bound session's step runs only in its mounted Workspace:
  *                        re-bind a failed/closed binding, else fail the turn
+ *   tools/execute        the Workspace must still be bound; never re-binds mid-turn
+ *   (timer)              Store health poll: deactivate conversations whose Store is gone
  *   agent/turn-stopping  checkpoint the turn (awaited before `turn/end`)
  *   session/event        `turn/end`: complete the checkpoint, schedule the store mirror
  *   agent/disposed       mirror now; close the Sandbox after `idleMinutes`
@@ -22,6 +24,7 @@
  *   sessions.close {sessionId}          save and close its Sandbox
  *   sessions.forget {sessionId}         close and forget the binding; preserve scratch and history
  *   session.state {sessionId}           binding, checkpoints, Workspace status, store progress
+ *   sessions.availability               poll Store health now (deactivating as needed); last health per Store
  *   session.place {sessionId}           the project a live session works in (New Session control)
  *   checkpoints.create {sessionId, message?}
  *   checkpoints.diff {sessionId, from, to}
@@ -30,7 +33,10 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { CliError, pages } from '../layerfs/cli.ts'
-import { drainInvocations, managedCli, traceEnvironment, withTraceContext, type Invocation } from '../layerfs/tracing.ts'
+import { notifyCallLog } from '../layerfs/call-log.ts'
+import { receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
+import { callsSince } from '../logs/source.ts'
+import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
 
@@ -50,10 +56,11 @@ const need = (args: any, key: string): string => {
  * from the host process's own env. Rewritten when the pin changes.
  */
 function agentCli(ctx: Context): string | null {
-  const cli = ctx.layerfs.cli
-  if (!cli) return null
-  return managedCli({ root: ctx.layerfs.root, cli, home: ctx.layerfs.home, bundle: ctx.layerfs.bundle, cacheHome: ctx.layerfs.cacheHome })
+  return ctx.layerfs.agentCli()
 }
+
+/** How often Store health is polled while a project conversation is active. */
+const AVAILABILITY_POLL_MS = 10_000
 
 const turnOf = (session: any): number | undefined => {
   const events = session?.snapshotEvents(0) ?? []
@@ -71,22 +78,57 @@ export function apply(ctx: Context): void {
       await persistence.recordInvocation(invocation)
       ctx.layerfs.emit('layerfs-operation', { sessionId: invocation.sessionId })
     }
-    const drain = (id?: string) => drainInvocations(ctx.layerfs.root, record, id)
+    /**
+     * Receipts of calls the host did not see itself (agent shells' managed CLI):
+     * the call log lines tagged `dsh:<sessionId>:<scope>.…` since each tool call
+     * started, from whichever source is active, deduped by receipt id.
+     */
+    type ToolCall = { identity: TraceIdentity, since: number }
+    const turnCalls = new Map<string, ToolCall[]>()
+    const collect = async (sessionId: string, calls: readonly ToolCall[]): Promise<void> => {
+      if (!calls.length) return
+      const since = Math.min(...calls.map((c) => c.since)) - 1000
+      const lines = await callsSince(ctx.layerfs, `${TAG_PREFIX}${sessionId}:`, since)
+      if (!lines.length) return
+      const persistence = ctx.get('sessionPersistence' as never) as any
+      const sidecar = await Promise.resolve(persistence?.readSidecar?.(sessionId)).catch(() => undefined)
+      const known = new Set<string>((sidecar?.invocations ?? []).map((i: any) => i?.id))
+      for (const line of [...lines].reverse()) {
+        const tag = parseTag(line.tag)
+        if (!tag || tag.sessionId !== sessionId || known.has(tag.receiptId)) continue
+        const call = calls.find((c) => c.identity.scope && tag.receiptId.startsWith(`${c.identity.scope}.`) && line.at >= c.since - 1000)
+        if (!call) continue
+        known.add(tag.receiptId)
+        await record(receiptFromLine(line, call.identity, tag.receiptId))
+      }
+    }
+    const settle = async (sessionId: string): Promise<void> => {
+      const calls = turnCalls.get(sessionId) ?? []
+      turnCalls.delete(sessionId)
+      await collect(sessionId, calls).catch((e) => ctx.logger('layerfs').warn('collect invocations: %s', String(e)))
+    }
     ctx.on('tools/execute' as any, async (execution: any, next: () => Promise<any>) => {
       const agent = execution.agent
       if (!agent) return next()
       const id = String(agent.id)
       const place = sessions.placeOfId(id)
       if (!place?.project) return next()
-      await sessions.ensureBound(agent)
+      // A tool call never re-activates: access returning mid-turn waits for a new message.
+      await sessions.ensureBound(agent, { rebind: false })
       let binding = sessions.binding(id)
       if (binding?.kind === 'shared' && binding.parent) binding = sessions.binding(binding.parent)
       const scriptedWorkspace = (ctx.get('layerfsSimulations' as never) as any)?.workspaceOfCall?.(id, String(execution.callId))
-      const identity = { origin: 'tool' as const, sessionId: id, project: place.project, workspace: scriptedWorkspace ?? binding?.ws, turn: turnOf(agent.session), toolCallId: execution.callId }
+      const identity: TraceIdentity = { origin: 'tool', sessionId: id, project: place.project, workspace: scriptedWorkspace ?? binding?.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(id, String(execution.callId)) }
+      const call: ToolCall = { identity, since: Date.now() }
+      const calls = turnCalls.get(id) ?? []
+      calls.push(call)
+      turnCalls.set(id, calls)
       try {
-        return await withTraceContext({ ...identity, receiptRoot: ctx.layerfs.root, record, onError: (e) => ctx.logger('layerfs').warn('record invocation: %s', String(e)) }, next)
+        return await withTraceContext({ ...identity, record, onError: (e) => ctx.logger('layerfs').warn('record invocation: %s', String(e)) }, next)
       } finally {
-        await drain(id).catch((e) => ctx.logger('layerfs').warn('drain invocations: %s', String(e)))
+        await collect(id, [call]).catch((e) => ctx.logger('layerfs').warn('collect invocations: %s', String(e)))
+        // Agent shells' wrappers append stand-in lines in their own processes.
+        if (!(await ctx.layerfs.nativeLogs().catch(() => true))) notifyCallLog(ctx.layerfs.callLog)
       }
     })
     const store = new SessionStore(ctx, sessions)
@@ -99,11 +141,19 @@ export function apply(ctx: Context): void {
           const persistence = ctx.get('sessionPersistence' as never) as any
           const ids = new Set([...Object.keys(sessions.state.read().sessions), ...(persistence?.ownedSessionIds?.() ?? [])])
           for (const id of ids) await sessions.detach(id)
-          await drain()
         }).catch((e) => ctx.logger('layerfs').warn('session recovery: %s', String(e)))
       }, 1500)
       return () => clearTimeout(timer)
     }, 'dsh-layerfs: session store sync')
+    // LayerFS has no change events: poll Store health while any project
+    // conversation is active (or waits to clear an availability error), and
+    // deactivate those whose Store became unavailable. Read-only; starts nothing.
+    ctx.effect(() => {
+      const timer = setInterval(() => {
+        if (sessions.watchesAvailability()) void sessions.refreshAvailability().catch((e) => ctx.logger('layerfs').warn('availability: %s', String(e?.message ?? e)))
+      }, AVAILABILITY_POLL_MS)
+      return () => clearInterval(timer)
+    }, 'dsh-layerfs: store availability')
     const idle = new Map<string, NodeJS.Timeout>()
     ctx.effect(() => () => { for (const t of idle.values()) clearTimeout(t); idle.clear() }, 'dsh-layerfs: idle timers')
 
@@ -120,7 +170,8 @@ export function apply(ctx: Context): void {
     })
 
     ctx.on('agent/turn-stopping', async ({ agent, turn }: any) => {
-      await drain(String(agent.id))
+      // Calls still running when their tool call returned (background shells).
+      await settle(String(agent.id))
       if (ctx.layerfs.checkpoints === 'off') return
       const id = String(agent.id)
       const b = sessions.binding(id)
@@ -137,6 +188,7 @@ export function apply(ctx: Context): void {
 
     ctx.on('agent/disposed', ({ agent }: any) => {
       const id = String(agent.id)
+      void settle(id)
       store.schedule(id, 0)
       const minutes = ctx.layerfs.idleMinutes
       const b = sessions.binding(id)
@@ -171,7 +223,7 @@ export function apply(ctx: Context): void {
           if (!cli) return {}
           return {
             DSH_LAYERFS_CLI: cli,
-            DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: String(agent.id), project: b.project!, workspace: (scope.get('layerfsSimulations' as never) as any)?.workspaceOfCall?.(String(agent.id), String(execution.callId)) ?? b.ws, turn: turnOf(agent.session), toolCallId: execution.callId }),
+            DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: String(agent.id), project: b.project!, workspace: (scope.get('layerfsSimulations' as never) as any)?.workspaceOfCall?.(String(agent.id), String(execution.callId)) ?? b.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(String(agent.id), String(execution.callId)) }),
             ...(b.project ? { DSH_LAYERFS_PROJECT: b.project } : {}),
             ...(b.branch ? { DSH_LAYERFS_BRANCH: b.branch } : {}),
             ...(b.ws ? { DSH_LAYERFS_WS: b.ws } : {}),
@@ -251,6 +303,7 @@ export function apply(ctx: Context): void {
           const snap = await persistence?.stat(b.sessionId).catch(() => undefined)
           rows.set(b.sessionId, {
             sessionId: b.sessionId, title: snap ? await localTitle(b.sessionId) : null, branch: b.branch ?? null, state: b.state, local: !!snap,
+            executionState: b.executionState ?? (b.state === 'bound' ? 'active' : 'inactive'), error: b.error ?? null,
             checkpoints: (state.checkpoints[b.sessionId] ?? []).filter((c) => c.commit && c.changed > 0).length,
             updatedAt: b.updatedAt, stored: !!state.mirror[b.sessionId] && !state.mirror[b.sessionId].error,
           })
@@ -304,6 +357,8 @@ export function apply(ctx: Context): void {
         }
         // A project hint imports from that project; otherwise DSH's resume reaches the
         // session persistence row, which finds and imports the session itself.
+        // Opening a session explicitly lifts a Presets Reset deletion record.
+        ;(ctx.get('sessionPersistence' as never) as any)?.undelete?.(sessionId)
         const out = args?.project ? await store.import(String(args.project), sessionId, workspaceId) : { sessionId, imported: true }
         // Resuming the session announces it to every client (api-session/added) and binds its Workspace.
         const controller = ctx.get('sessionController' as never) as any
@@ -319,9 +374,9 @@ export function apply(ctx: Context): void {
       'sessions.close': async (args: any) => { await sessions.close(need(args, 'sessionId'), 'user'); return { ok: true } },
       'sessions.forget': async (args: any) => { await sessions.forget(need(args, 'sessionId')); return { ok: true } },
       'session.state': (args: any) => sessions.view(need(args, 'sessionId')),
+      'sessions.availability': async () => { await sessions.refreshAvailability(); return { stores: sessions.availability() } },
       'session.annotations': async (args: any) => {
         const id = need(args, 'sessionId')
-        await drain(id)
         const persistence = ctx.get('sessionPersistence' as never) as any
         return await persistence?.readSidecar?.(id) ?? { invocations: [] }
       },

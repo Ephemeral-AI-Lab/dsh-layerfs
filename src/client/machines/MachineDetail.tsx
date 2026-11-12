@@ -113,7 +113,6 @@ function MachineView({ view, m, go }: { view: AvailableView, m: MachineInfo, go:
       <details className={css.details}>
         <summary className={css.detailsSummary}>
           <span>{t('details')}</span>
-          <span className={css.muted}>{t('detailsHint')}</span>
         </summary>
         <div className={css.detailsBody}>
           <div className={css.detailsActions}><DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} /></div>

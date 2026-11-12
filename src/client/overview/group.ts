@@ -1,6 +1,6 @@
 /**
  * The sidebar's LayerFS group. DSH's `sidebar.panellist` is a flat list, so
- * the rows under LayerFS (Machines, Storage, Presets) are registered only
+ * the rows under LayerFS (Resources, Health, Logs, Settings) are registered only
  * while the group is unfolded. Clicking the LayerFS row folds or unfolds it;
  * the fold is remembered in this browser.
  */

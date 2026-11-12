@@ -4,10 +4,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import * as jsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { SessionPersistence, SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import { randomUUID } from 'node:crypto'
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, sep } from 'node:path'
 import { homedir } from 'node:os'
-import { ProjectCatalog, identityHash, type ProjectIdentity, type CatalogProject } from './sessions/catalog.ts'
+import { ProjectCatalog, type ProjectIdentity, type CatalogProject } from './sessions/catalog.ts'
 import { CliError } from './layerfs/cli.ts'
 
 export const name = 'dsh-layerfs-session-persistence'
@@ -16,6 +16,8 @@ export const Config = jsonl.Config
 
 type Owner = { project: string, key: string, identity?: ProjectIdentity }
 type Routes = { version: 1, sessions: Record<string, Owner> }
+/** Conversations deleted on purpose: never imported back implicitly. */
+type Deleted = { version: 1, sessions: Record<string, { project: string, at: number }> }
 export interface SessionSidecar {
   version: 1
   sessionId: string
@@ -37,12 +39,14 @@ function signatureOf(path: string): string {
   try { const s = statSync(path); return `${s.ino}:${s.size}:${s.mtimeMs}` } catch { return 'missing' }
 }
 
+/** A storage key: the project UUID, or the 64-hex key of an owner recorded before project UUIDs. */
+const OWNER_KEY = /^(?:[a-f0-9]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
 /** A damaged routing index must not silently turn project sessions normal. */
 function readRoutes(path: string): Routes {
   const routes = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : { version: 1, sessions: {} }
   if (routes?.version !== 1 || !routes.sessions || typeof routes.sessions !== 'object' || Array.isArray(routes.sessions)) throw new Error('Invalid LayerFS session ownership index')
   for (const owner of Object.values(routes.sessions) as any[]) {
-    if (!owner || !/^[a-f0-9]{64}$/.test(owner.key) || typeof owner.project !== 'string' || !/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/.test(owner.project)) throw new Error('Invalid LayerFS session owner identity')
+    if (!owner || !OWNER_KEY.test(owner.key) || typeof owner.project !== 'string' || !/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/.test(owner.project)) throw new Error('Invalid LayerFS session owner identity')
   }
   return routes
 }
@@ -86,6 +90,20 @@ class RoutedHandle {
   [Symbol.asyncDispose]() { return this.close() }
 }
 
+/** What a loaded session writes to after its log was deleted: nothing. DSH
+ * keeps the (archived, stopped) session in memory until it unloads it. */
+function deletedHandle(previous: any): any {
+  const header = previous.header
+  const access = previous.access
+  return {
+    id: previous.id, header, access, inheritedEventCount: previous.inheritedEventCount,
+    read: async () => ({ events: [] }),
+    append: async () => {},
+    flush: async () => {},
+    close: async () => {},
+  }
+}
+
 export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private readonly backends = new Map<string, Promise<any>>()
   private catalogInstance?: { root: string, catalog: ProjectCatalog }
@@ -113,10 +131,10 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private get service(): any { return (this as any).ctx.get('layerfs') }
   private get sessions(): any { return (this as any).ctx.get('layerfsSessions') }
   private get store(): any { return this.sessions?.store }
-  get projectHome(): string { return this.service?.projectSessionHome ?? process.env.DSH_LAYERFS_SESSION_HOME ?? join(homedir(), '.layerfs', 'dsh') }
+  get projectHome(): string { return this.service?.projectSessionHome ?? process.env.DSH_LAYERFS_SESSION_HOME ?? join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'layerfs', 'project-sessions') }
   /**
-   * `owners.json` is shared by every DSH using this project-session home (the
-   * default `~/.layerfs/dsh` is per user, not per DSH home). Reads reload it when
+   * `owners.json` is shared by every DSH using this project-session home (it can
+   * be configured to one per user, not per DSH home). Reads reload it when
    * another process replaced it; writes change one entry under a lock against
    * the file's current contents, so concurrent writers never drop each other's routes.
    */
@@ -149,6 +167,8 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const owner = this.owners.sessions[id]
     return owner ? { project: owner.project } : undefined
   }
+  /** The Store ID recorded with a conversation's owner, when its identity is known. */
+  storeIdOf(id: string): string | undefined { return this.owners.sessions[id]?.identity?.storeId }
   ownedSessionIds(project?: string, projectId?: string): string[] {
     if (!this.stock || !this.service) return []
     return Object.entries(this.owners.sessions).filter(([, owner]) => (!project || owner.project === project) && (!projectId || (owner.identity?.id ?? owner.key) === projectId)).map(([id]) => id)
@@ -161,40 +181,24 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
     const owner = this.owners.sessions[id]
     return owner?.identity?.id ?? owner?.key
   }
-  private legacyKey(project: string, identity: ProjectIdentity): string {
-    return identityHash([this.service.home, project, identity.storeId, identity.storeGeneration])
-  }
   /** Reading local logs requires no Store. Execution and archive writes must
-   * freshly match their permanent owner, including on an already mounted session. */
+   * freshly find the owner's project UUID at its address, including on an
+   * already mounted session; a missing or different UUID blocks them. */
   async assertSessionIdentity(id: string): Promise<CatalogProject | undefined> {
     const owner = this.owners.sessions[id]
     if (!owner) return undefined
-    const row = await this.catalog.resolve(owner.project)
-    if (owner.identity ? owner.identity.id !== row.projectId : owner.key !== this.legacyKey(owner.project, row.identity!)) {
-      throw new CliError('ProjectIdentityChanged', 'The Store or project identity changed. Conversation history was retained and execution is blocked.')
-    }
-    if (!owner.identity) {
-      const sidecar = await this.readSidecar(id)
-      const saved = [...(sidecar?.checkpoints ?? [])].reverse().find((checkpoint: any) => checkpoint.commit && !checkpoint.error)
-      if (!sidecar?.codeBranch || !saved?.commit) throw new CliError('BindingRequired', 'This legacy conversation has no verifiable project incarnation. Local history is retained; recover its ownership metadata before continuing.')
-      // The old disk key identifies a Store, but cannot distinguish deletion
-      // and recreation of a project inside that same Store. Prove its original
-      // session context still exists before upgrading ownership metadata.
-      await this.service.lfs.branch.get(owner.project, sidecar.codeBranch)
-      await this.service.lfs.file.list(owner.project, saved.branch ?? sidecar.codeBranch, '/', saved.commit, { page_size: 1 })
-      this.setOwner(id, { ...owner, identity: row.identity })
-    }
+    const expected = owner.identity?.id ?? owner.key
+    const row = await this.catalog.resolve(owner.project, { claim: false }).catch((error: any) => {
+      if (error?.code === 'ProjectIdentityChanged') throw new CliError('ProjectIdentityChanged', 'The project identity changed. Conversation history was retained and execution is blocked.')
+      throw error
+    })
+    if (row.projectId !== expected) throw new CliError('ProjectIdentityChanged', 'The project identity changed. Conversation history was retained and execution is blocked.')
     return row
   }
   async catalogProjects(): Promise<CatalogProject[]> {
     const rows = await this.catalog.list()
-    // Keep histories from installations that predate the durable catalog. A
-    // legacy disk key is never treated as proof of a currently live identity.
-    for (const [sessionId, owner] of Object.entries(this.owners.sessions)) {
-      if (!owner.identity) {
-        const live = rows.find((row) => row.key === owner.project && row.identity && this.legacyKey(owner.project, row.identity) === owner.key)
-        if (live) await this.assertSessionIdentity(sessionId).catch(() => undefined)
-      }
+    // Owners whose project is not listed live keep a row, so their histories stay reachable.
+    for (const owner of Object.values(this.owners.sessions)) {
       const id = owner.identity?.id ?? owner.key
       if (rows.some((row) => row.projectId === id)) continue
       const [store, name] = owner.project.split('/')
@@ -247,6 +251,62 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
       wrapped.close = () => { if (this.handles.get(String(handle.id)) === wrapped) this.handles.delete(String(handle.id)); return close() }
     }
     return wrapped
+  }
+
+  private readDeleted(): Deleted {
+    const path = join(this.projectHome, 'deleted.json')
+    try {
+      const value = JSON.parse(readFileSync(path, 'utf8'))
+      if (value?.version === 1 && value.sessions && typeof value.sessions === 'object' && !Array.isArray(value.sessions)) return value
+    } catch {}
+    return { version: 1, sessions: {} }
+  }
+  /** Whether this conversation was deleted here (a Presets Reset). Only an explicit import brings it back. */
+  isDeleted(id: string): boolean { return !!this.readDeleted().sessions[id] }
+  /** An explicit import of a deleted conversation lifts its deletion record. */
+  undelete(id: string): void {
+    if (!this.isDeleted(id)) return
+    const path = join(this.projectHome, 'deleted.json')
+    withFileLock(`${path}.lock`, () => { const value = this.readDeleted(); delete value.sessions[id]; atomicJson(path, value) })
+  }
+  /**
+   * Delete owner-routed project conversations: the unpacked log folder (with
+   * its `layerfs.json` sidecar) and the owner route, plus a deletion record so
+   * store sync and open-by-id never import them back implicitly. A loaded
+   * session's writer is retired first; later writes go nowhere. Logs outside
+   * this project-session home (stock or legacy) are never touched.
+   * @returns the ids whose route or log was removed.
+   */
+  async deleteSessions(ids: readonly string[]): Promise<string[]> {
+    if (!this.stock || !this.service) return []
+    const removed: string[] = []
+    const records: Deleted['sessions'] = {}
+    for (const id of ids) {
+      const owner = this.owners.sessions[id]
+      if (!owner) continue
+      records[id] = { project: owner.project, at: Date.now() }
+      const writer = this.handles.get(id)
+      if (writer) {
+        this.handles.delete(id)
+        const previous = writer.current
+        writer.current = deletedHandle(previous)
+        await previous.close().catch(() => {})
+      }
+      const backend = await this.backend(owner)
+      await backend.flush().catch(() => {})
+      const snapshot = await backend.stat(id).catch(() => undefined)
+      const root = join(this.projectHome, 'projects', owner.key, 'sessions')
+      const dir = snapshot?.location?.path ? dirname(snapshot.location.path) : undefined
+      const inside = dir ? relative(root, dir) : ''
+      if (dir && inside && !inside.startsWith('..') && !inside.startsWith(sep)) rmSync(dir, { recursive: true, force: true })
+      this.setOwner(id, undefined)
+      removed.push(id)
+    }
+    if (Object.keys(records).length) {
+      const path = join(this.projectHome, 'deleted.json')
+      withFileLock(`${path}.lock`, () => { const value = this.readDeleted(); Object.assign(value.sessions, records); atomicJson(path, value) })
+    }
+    return removed
   }
 
   /** Move a session only when its owner changes before work starts, or as an
@@ -355,7 +415,7 @@ export class LayerfsSessionPersistence extends (SessionPersistence as any) {
   private async statLocal(id: string, options?: any) { return (await this.target(id)).stat(id, options) }
   private async openLocal(id: string, access: any, options?: any) { return this.wrap(await (await this.target(id)).open(id, access, options)) }
   private async restore(id: string): Promise<boolean> {
-    if (!this.store) return false
+    if (!this.store || (this.stock && this.service && this.isDeleted(id))) return false
     try {
       const project = await this.store.locate(id)
       return !!project && (await this.store.import(project, id)).imported

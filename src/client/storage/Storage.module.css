@@ -33,39 +33,7 @@
   align-self: flex-start;
 }
 
-/* ---------- head toolbar, summary and tabs ---------- */
-
-.toolbarButton {
-  height: 32px;
-  padding: 0 12px;
-  border-radius: var(--dsw-radius-md);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-@media (max-width: 720px) {
-  .toolbarLabel {
-    display: none;
-  }
-
-  .toolbarButton {
-    width: 32px;
-    padding: 0;
-  }
-}
-
-.summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px 16px;
-  margin-top: -8px;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-}
+/* ---------- doctor badge and the project view switch ---------- */
 
 .doctor {
   display: inline-flex;
@@ -109,22 +77,9 @@
   transform: rotate(90deg);
 }
 
-.tabBar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
 .tabList {
   width: fit-content;
   min-width: 240px;
-}
-
-.tabBarActions {
-  display: flex;
-  gap: 8px;
 }
 
 .search {
@@ -554,7 +509,7 @@
 }
 
 .fillPanel {
-  height: max(360px, calc(100vh - 200px));
+  height: max(360px, calc(100vh - 156px));
 }
 
 /* ---------- dialogs ---------- */
@@ -735,8 +690,13 @@
   background: var(--dsw-alias-interactive-bg-active);
 }
 
+.choiceRow:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
 @media (hover: hover) {
-  .choiceRow:hover:not([data-checked]) {
+  .choiceRow:hover:not([data-checked]):not(:disabled) {
     background: var(--dsw-alias-interactive-bg-hover);
   }
 }
@@ -958,12 +918,54 @@ span.treeChevron {
 }
 
 .treeMeta {
+  display: inline-flex;
   flex: none;
+  align-items: center;
+  gap: 5px;
   padding-right: 6px;
   font-size: 11.5px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
+}
+
+.treeCover {
+  display: inline-flex;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.attachChecking {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+
+.treeSignal {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding-right: 6px;
+}
+
+/* a meta beside the dot sits closer to it */
+/* a text meta (a server, a size) gives way well before the name does */
+.treeHit:has(+ .treeMetaText) {
+  flex: 1 1 auto;
+}
+
+.treeMetaText {
+  display: block;
+  flex: 0 6 auto;
+  min-width: 2.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeMeta + .treeSignal {
+  margin-left: -2px;
 }
 
 .treeActions {
@@ -973,6 +975,134 @@ span.treeChevron {
   gap: 2px;
   padding-right: 4px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* a row's verbs show while it is hovered or focused, or while one of its menus is open (always on touch screens) */
+@media (hover: hover) {
+  .treeVerbs {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .treeRow:hover .treeVerbs,
+  .treeRow:focus-within .treeVerbs,
+  .treeVerbs:has([aria-expanded='true']) {
+    opacity: 1;
+  }
+}
+
+/* a project's bound Sandbox, or a Sandbox's project: a small chip that follows the binding */
+.bindChip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  max-width: 96px;
+  height: 18px;
+  margin-right: 4px;
+  padding: 0 5px;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.bindChip svg {
+  flex: none;
+}
+
+@media (hover: hover) {
+  .bindChip:hover {
+    border-color: var(--dsw-alias-border-l3);
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.bindMore {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* running transfers under the tree */
+.transfers {
+  flex: none;
+  padding: 6px 10px 10px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.transfersTitle {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  line-height: 18px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.transfersList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.transfer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.transferLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.transferShare {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.transferBar {
+  position: relative;
+  display: block;
+  height: 3px;
+  margin: 3px 0 0 18px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.transferFill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary);
+  transition: width 300ms ease;
 }
 
 .treeGroupRow .treeHit {
@@ -1151,4 +1281,337 @@ span.treeChevron {
     border-right: 0;
     border-bottom: 0.5px solid var(--dsw-alias-border-l2);
   }
+}
+
+/* ---------- pane bar: the top of an editor tab ---------- */
+
+.paneBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 32px;
+  padding-top: var(--lfs-page-top-inset);
+}
+
+.paneBarMeta {
+  display: flex;
+  flex: 1 1 240px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.paneBarMeta > .cardSub {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.paneBarActions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.paneIconButton {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* ---------- Store page (laid out like a machine's tab) ---------- */
+
+/* The facts under the head: label above value, between hairlines. */
+.factStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 40px;
+  margin: 0;
+  padding: 12px 0;
+  border-block: 0.5px solid var(--dsw-alias-border-l2);
+  font-variant-numeric: tabular-nums;
+}
+
+.factStrip > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.factStrip dt {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.factStrip dd {
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Projects beside backups and earlier operations. */
+.storeBoard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.storeAside {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.storePane {
+  min-width: 0;
+  padding: 10px 16px 12px;
+}
+
+.storeAside > .storePane + .storePane {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.paneHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-bottom: 4px;
+}
+
+.paneTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.paneCount {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.paneSpacer {
+  flex: 1;
+}
+
+.paneSearch {
+  width: 180px;
+  max-width: 100%;
+}
+
+.paneLines {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.paneLines > li + li {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.paneLine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  min-height: 36px;
+  margin: 0 -8px;
+  width: calc(100% + 16px);
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .paneLine:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+
+  .paneLine:hover .paneLineChevron {
+    color: var(--dsw-alias-label-secondary);
+  }
+}
+
+.paneLine:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: -1px;
+}
+
+.paneLineIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.paneLineName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paneLineMeta {
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.paneLineChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.backupLine {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.backupLine > .rowMain .paneLineName {
+  flex: none;
+}
+
+.paneJobs .row {
+  padding: 8px 0;
+}
+
+.paneEmpty {
+  margin: 0;
+  padding: 4px 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Details: the facts the strip leaves out, then removal. */
+.storeDetails {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.storeDetailsSummary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.storeDetailsSummary > .muted {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.storeDetailsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+
+.dangerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 4px;
+}
+
+@media (max-width: 860px) {
+  .storeBoard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .storeAside {
+    border-left: 0;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
+}
+
+/* One backup file (BucketPage.tsx, BackupFilePage) */
+.backupFacts {
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+
+.backupFactList {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px 20px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.backupFactList dt {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.backupFactList dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.backupFactList dd p {
+  margin: 0 0 6px;
+}
+
+.backupProjects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backupHeading {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.backupNote {
+  margin: 0;
+  font-size: 13px;
 }

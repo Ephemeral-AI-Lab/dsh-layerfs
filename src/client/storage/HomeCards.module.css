@@ -1,0 +1,780 @@
+/* The Overview's card sections: Stores with projects, machines with Stores, buckets. DSH alias tokens only. */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.card,
+.emptyCard {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+@media (hover: hover) {
+  .card:hover {
+    border-color: var(--dsw-alias-border-l3);
+    box-shadow: var(--dsw-elevation-panel);
+  }
+}
+
+/* A Store card's soft wash of its kind's color at the top. */
+.card[data-kind='sqlite'] {
+  background-image: linear-gradient(color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, transparent), transparent 72px);
+}
+
+.card[data-kind='postgresql'] {
+  background-image: linear-gradient(color-mix(in srgb, var(--dsw-alias-state-success-primary) 6%, transparent), transparent 72px);
+}
+
+.icon[data-kind='sqlite'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 14%, transparent);
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.icon[data-kind='postgresql'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.card[data-stopped] {
+  background: var(--dsw-alias-bg-layer-1, var(--dsw-alias-settings-card-fill));
+}
+
+.card[data-stopped] .icon {
+  opacity: 0.55;
+}
+
+.emptyCard {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.emptyTitle {
+  font-weight: 500;
+}
+
+/* ---------- head ---------- */
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 14px 12px 16px;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.titles {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nameLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.name {
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.cardHead .name {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+@media (hover: hover) {
+  .name:hover {
+    color: var(--dsw-alias-link);
+  }
+}
+
+.name:focus-visible,
+.chip:focus-visible,
+.inlineLink:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.sub {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.headActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+/* ---------- body ---------- */
+
+.projects,
+.list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px 10px;
+}
+
+.list + .list {
+  padding-top: 2px;
+}
+
+.label {
+  padding: 4px 8px 2px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.project,
+.storeLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: var(--dsw-radius-md, 8px);
+  font-size: 13px;
+}
+
+@media (hover: hover) {
+  .project:hover,
+  .storeLine:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.projectIcon,
+.smallIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.storeLine > .muted {
+  flex: none;
+  font-size: 12px;
+}
+
+.end {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.none {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.inlineLink {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--dsw-alias-link);
+  cursor: pointer;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.list > .chips {
+  margin: 0;
+  padding: 2px 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .chip:hover {
+    border-color: var(--dsw-alias-border-l4);
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.tag {
+  flex: none;
+  margin-left: auto;
+  padding: 0 7px;
+  border: 0.5px dashed var(--dsw-alias-state-business-primary);
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.tag[data-tone='danger'] {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* ---------- foot ---------- */
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 16px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.storeLine > .status {
+  margin-left: auto;
+}
+
+.cardFoot > .status {
+  flex: 1;
+  overflow: hidden;
+}
+
+.status[data-tone='success'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.status[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.status[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.muted {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+}
+
+.danger {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.num {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.job {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 0;
+}
+
+.jobLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.bar {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.card > .bar {
+  margin: -4px 16px 10px 58px;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--dsw-alias-state-business-primary);
+  transition: width 300ms ease;
+}
+
+/* ---------- project cards ---------- */
+
+/* The LayerFS mark as the hero draws it: accent on a light accent tint. */
+.icon[data-kind='project'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 12%, var(--dsw-alias-settings-card-fill));
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 14px;
+  flex: 1;
+  margin: 0;
+  padding: 2px 16px 14px;
+}
+
+.facts dt {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.facts dd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+}
+
+.chipRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px !important;
+}
+
+.storeChip,
+.machineChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 6px;
+  background: var(--dsw-alias-settings-card-fill);
+  font: inherit;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.storeChip[data-kind='sqlite'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 8%, var(--dsw-alias-settings-card-fill));
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.storeChip[data-kind='postgresql'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 8%, var(--dsw-alias-settings-card-fill));
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.machineChip[data-tone='danger'] {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+@media (hover: hover) {
+  .storeChip:hover,
+  .machineChip:hover {
+    border-color: var(--dsw-alias-border-l4, var(--dsw-alias-border-l3));
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.storeChip:focus-visible,
+.machineChip:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+/* ---------- health, clickable cards, truncation ---------- */
+
+/* A project card opens its project anywhere outside its buttons. */
+.card[data-clickable] {
+  cursor: pointer;
+}
+
+.card[data-tone='danger'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent);
+}
+
+.sub[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.sub[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+/* Names inside chips cut off with an ellipsis (a flex box will not do it on bare text). */
+.chipText {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.statusText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A machine starting, and why a machine needs you. */
+.progress {
+  padding: 0 16px 10px 62px;
+}
+
+.reason {
+  margin: -4px 16px 10px 62px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- a Store's backups ---------- */
+
+.backups {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 8px 10px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.backups > .job {
+  padding: 2px 8px 6px;
+}
+
+.backupsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0 0 0;
+}
+
+.backupsHead > .inlineLink {
+  margin: 0 8px 0 0;
+  font-size: 12px;
+}
+
+.inlineLink:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+.backupRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 2px 4px 2px 8px;
+  border-radius: var(--dsw-radius-md, 8px);
+}
+
+@media (hover: hover) {
+  .backupRow:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.backupRow > .status {
+  flex: 1;
+}
+
+.backupWhere {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.backupMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.backupMeta > .status {
+  font-size: 11.5px;
+}
+
+.trouble {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 8px 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.trouble[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.trouble[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+/* ---------- refinements: projects ---------- */
+
+.card[data-kind='project'] {
+  background:
+    radial-gradient(90% 60% at 0% 0%, color-mix(in srgb, var(--dsw-alias-state-business-primary) 6%, transparent), transparent 70%),
+    var(--dsw-alias-settings-card-fill);
+}
+
+.card[data-kind='project'] .cardHead .name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.moreChip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- refinements: Stores ---------- */
+
+/* Attach, as a dashed chip after the machines a PostgreSQL Store runs on. */
+.addChip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .addChip:hover {
+    border-style: solid;
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.kindTag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-size: 10.5px;
+  line-height: 17px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.placeRow,
+.diskRow {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 16px 10px;
+  padding: 8px 10px;
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-size: 12px;
+}
+
+.diskRow .bar {
+  grid-column: 1 / -1;
+}
+
+.diskRow .end[data-tone='warning'],
+.diskRow .bar[data-tone='warning'] > span {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.diskRow .bar[data-tone='warning'] > span {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.diskRow .end {
+  margin-left: 0;
+  justify-self: end;
+}
+
+.placeLabel {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.moreLink {
+  align-self: flex-start;
+  margin: 2px 8px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--dsw-alias-link);
+  cursor: pointer;
+}
+
+/* ---------- refinements: backups ---------- */
+
+.protection {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+  overflow: hidden;
+}
+
+.protectRow {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 14px 6px 16px;
+  font-size: 13px;
+}
+
+.protectRow + .protectRow {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.protectName {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.protectName .muted {
+  font-size: 11.5px;
+}
+
+.protectWhere {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .protectRow {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .protectWhere {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+}
+
+.card[data-kind='bucket'] {
+  background:
+    radial-gradient(90% 60% at 100% 0%, color-mix(in srgb, var(--dsw-alias-state-business-primary) 4%, transparent), transparent 70%),
+    var(--dsw-alias-settings-card-fill);
+}
+
+.fileName {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.jobRow {
+  padding: 4px 8px 6px;
+}

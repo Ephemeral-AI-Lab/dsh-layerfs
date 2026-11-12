@@ -21,6 +21,7 @@ import { DEFAULT_HISTORY_LIMITS, runHistoryDAG } from './recipe/history-schedule
 import { StepJournal } from './recipe/step-journal.js'
 import { projectHistorySteps, projectHistoryPlan, assertProjectStep, resolveHistoryStep, machineCreateArgs } from './recipe/recipe.js'
 import { CliInventory } from './inventory.js'
+import { PresetPostgres, isPostgresql, storeMachines, usesMachine } from './postgresql.js'
 
 /** The manifest's owner tag. */
 export const TOOL = 'dsh-layerfs-presets'
@@ -29,9 +30,17 @@ const missing = error => ['NotFound', 'NoSuchProject', 'NoSuchStore', 'NoSuchBra
 const rows = (value, field = 'items') => Array.isArray(value) ? value : value?.[field] ?? []
 const fail = message => { throw new Error(message) }
 const uncertain = error => error.code === 'Unknown' || error.transport === 'transport-unknown' || error.detail?.attempted === true
+// LayerFS refused admission because another writer held the Store's history
+// ("caller may retry later"): nothing changed, so the same step may run again.
+// The CLI reports it with code Unknown, so it is matched by its refusal text.
+export const historyBusy = error => error?.transport !== 'transport-unknown' && (error?.code === 'Busy' || /\bHistory\(Busy\)/.test(error?.message ?? ''))
+export const BUSY_ATTEMPTS = 7
+// One history writer per Store: concurrent writers in one Store intermittently fail on
+// LayerFS 2.0 (History(Busy), or a refused fork on a worker). Stores still run in parallel.
+export const PRESET_HISTORY_LIMITS = Object.freeze({ ...DEFAULT_HISTORY_LIMITS, perStore: 1 })
 
 export class DemoRunner extends CliInventory {
-  constructor({ state, home, adoptHome = false, preset = 'studio', driver, sandboxes, report = console.log, progress = () => {}, historyDensity = 'dense', historyCycles, executionMode = 'filesystem', historySchedule = 'parallel', historyConcurrency = DEFAULT_HISTORY_LIMITS.concurrency, historyStoreConcurrency = DEFAULT_HISTORY_LIMITS.perStore, historyProjectConcurrency = DEFAULT_HISTORY_LIMITS.perProject }) {
+  constructor({ state, home, adoptHome = false, preset = 'studio', driver, sandboxes, report = console.log, progress = () => {}, historyDensity = 'dense', historyCycles, executionMode = 'filesystem', historySchedule = 'parallel', historyConcurrency = PRESET_HISTORY_LIMITS.concurrency, historyStoreConcurrency = PRESET_HISTORY_LIMITS.perStore, historyProjectConcurrency = PRESET_HISTORY_LIMITS.perProject, postgres }) {
     super(driver)
     this.state = resolve(state)
     this.home = home ? resolve(home) : join(this.state, 'home-2')
@@ -40,6 +49,7 @@ export class DemoRunner extends CliInventory {
     this.journalFile = join(this.state, 'demo-steps.ndjson')
     this.lock = join(this.state, 'demo-fixtures.lock')
     this.presetName = preset; this.preset = presetOf(preset); this.driver = driver
+    this.postgres = postgres ?? new PresetPostgres({ state: this.state })
     if (!['filesystem', 'mixed'].includes(executionMode)) throw new Error(`Unknown execution mode ${executionMode}`)
     this.executionMode = executionMode
     this.mixedPools = new Map()
@@ -140,9 +150,18 @@ export class DemoRunner extends CliInventory {
     if (previous && ['running', 'uncertain'].includes(previous.status)) fail(`Step ${key} has no certain final result. Run status and inspect LayerFS; reset/teardown perform cleanup rather than replaying this step.`)
     this.recordStep(key, { status: 'running', argv, ...(options?.dependencies ? { dependencies: options.dependencies } : {}), at: Date.now(), actionId: this.action?.id })
     try {
-      const result = await this.driver.invoke(argv, { ...options, onInvocation: identity => {
-        this.recordStep(key, { ...this.manifest.steps[key], invocationId: identity.id, actionId: identity.actionId })
-      } })
+      let result
+      for (let attempt = 1; ; attempt++) {
+        try {
+          result = await this.driver.invoke(argv, { ...options, onInvocation: identity => {
+            this.recordStep(key, { ...this.manifest.steps[key], invocationId: identity.id, actionId: identity.actionId })
+          } })
+          break
+        } catch (error) {
+          if (!historyBusy(error) || attempt >= BUSY_ATTEMPTS) throw error
+          await this.backoff(attempt)
+        }
+      }
       this.recordStep(key, { ...this.manifest.steps[key], status: 'done', ended: Date.now(), result })
       return result
     } catch (error) {
@@ -150,11 +169,13 @@ export class DemoRunner extends CliInventory {
       throw error
     }
   }
+  /** Wait before retrying a History(Busy) refusal: 0.2 s doubling, with jitter. */
+  backoff(attempt) { return new Promise(resolve => setTimeout(resolve, 200 * 2 ** (attempt - 1) + Math.random() * 200)) }
   assertSetupSettled() {
     const pending = Object.entries(this.manifest.steps).find(([, s]) => ['running', 'uncertain'].includes(s.status))
     if (pending) fail(`Setup cannot replay ${pending[0]} after an interrupted/uncertain outcome. Run status, inspect the named resource, then use reset or teardown for owned cleanup.`)
   }
-  async ensureResource(family, name, argv) {
+  async ensureResource(family, name, argv, { before } = {}) {
     const current = await this.maybe([family, 'get', name])
     const owned = this.manifest.resources[family][name]
     if (current) {
@@ -165,6 +186,7 @@ export class DemoRunner extends CliInventory {
     }
     if (owned?.owned) fail(`Owned ${family} ${name} is missing. Run reset to rebuild the fixture.`)
     this.manifest.resources[family][name] = { owned: false, status: 'creating' }; this.save()
+    await before?.()
     try { await this.once(`${family}.create:${name}`, argv) } catch (error) {
       if (family === 'machine' && error.detail?.vm_exists === true && !uncertain(error)) {
         this.manifest.resources[family][name] = { owned: true, created: null, status: 'failed' }; this.save()
@@ -182,13 +204,25 @@ export class DemoRunner extends CliInventory {
     this.load(); this.save()
   }
   async preflight() {
+    if (this.preset.stores.some(isPostgresql)) {
+      // `machine platforms` lists PostgreSQL support even in a build without the engine; the CLI's own features say.
+      const features = (await this.driver.discover?.())?.identity?.features
+      if (Array.isArray(features) && !features.includes('postgresql')) fail(`This preset has PostgreSQL Stores, and the pinned LayerFS CLI was built without PostgreSQL (features: ${features.join(', ') || 'none'}). Pin a runtime built with the postgresql feature (CLI and Linux bundle) in Machines → LayerFS runtime, then build again.`)
+    }
     const supported = rows(await this.query(['machine', 'platforms']), 'platforms')
     for (const machine of this.preset.machines) {
       const name = typeof machine === 'string' ? machine : machine.name
-      if (!this.preset.stores.some(store => store.machine === name)) continue
+      if (!this.preset.stores.some(store => usesMachine(store, name))) continue
       const platform = typeof machine === 'string' ? machine : machine.platform
       const row = supported.find(row => row.platform === platform)
-      if (!row?.ready || !row.sqlite) fail(`${platform} is not ready for this preset: ${(row?.missing ?? ['unsupported on this host']).join(', ')}. Fix the prerequisite or select a smaller preset; nothing will be fabricated.`)
+      const needsSqlite = this.preset.stores.some(store => !isPostgresql(store) && store.machine === name)
+      const needsPostgresql = this.preset.stores.some(store => isPostgresql(store) && usesMachine(store, name))
+      if (row?.ready && needsPostgresql && row.postgresql?.sandbox !== true) fail(`${platform} cannot run PostgreSQL Store work on this host: ${row.postgresql?.reason ?? 'unsupported'}. Nothing will be fabricated.`)
+      if (!row?.ready || (needsSqlite && !row.sqlite)) fail(`${platform} is not ready for this preset: ${(row?.missing ?? ['unsupported on this host']).join(', ')}. Fix the prerequisite or select a smaller preset; nothing will be fabricated.`)
+    }
+    if (this.preset.stores.some(isPostgresql)) {
+      const problem = await this.postgres.available()
+      if (problem) fail(`This preset's PostgreSQL Stores live on a PostgreSQL server it runs in Docker, and Docker is not available: ${problem}`)
     }
     if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === 'native') && !this.driver.spec.daemon) fail('Native sandboxes need a matching layerfs-daemon. Pin it in Machines → LayerFS runtime (or DSH_LAYERFS_DAEMON), or use Filesystem mode.')
   }
@@ -198,6 +232,34 @@ export class DemoRunner extends CliInventory {
     if (['running', 'ready'].includes(current.state)) return
     if (name === 'docker' && !this.manifest.borrowed.docker) { this.manifest.borrowed.docker = { initially: current.state, started: true }; this.save() }
     await this.once(`machine.start:${name}:${this.commandId}`, ['machine', 'start', name])
+  }
+  /** A SQLite Store created at home, or a PostgreSQL Store connected to a fresh database on the preset's server. */
+  async ensureStore(store) {
+    if (!isPostgresql(store)) return this.ensureResource('store', store.name, ['store', 'create', store.name])
+    if (!this.manifest.resources.store[store.name]?.owned) {
+      const { port } = await this.postgres.ensure()
+      const argv = ['store', 'connect', store.name, this.postgres.url(port, store.database), '--password', this.postgres.passwordRef()]
+      return this.ensureResource('store', store.name, argv, { before: () => this.postgres.freshDatabase(store.database) })
+    }
+    return this.ensureResource('store', store.name, null)
+  }
+  /** A SQLite Store pushed to its machine; a PostgreSQL Store attached to each of its machines. */
+  async placeStore(store, reportProgress = () => {}) {
+    const placed = await this.query(['store', 'get', store.name])
+    if (placed.op || placed.state === 'unresolved') fail(`Store ${store.name} has an operation that needs inspection.`)
+    if (isPostgresql(store)) {
+      for (const machine of storeMachines(store)) {
+        if (placed.machines?.[machine]?.checked) continue
+        reportProgress(`Attaching ${store.name} to ${machine}`)
+        await this.once(`store.attach:${store.name}:${machine}`, ['store', 'attach', store.name, machine])
+      }
+      return
+    }
+    if (placed.machine !== store.machine) {
+      if (placed.machine !== 'native') fail(`Store ${store.name} moved outside the fixture plan. Inspect it or reset.`)
+      reportProgress(`Moving ${store.name} to ${store.machine}`)
+      await this.once(`store.push:${store.name}`, ['store', 'push', store.name, store.machine, '--progress'])
+    }
   }
   source(store, name) {
     const root = join(this.state, 'demo-sources'), storeRoot = join(root, store), folder = join(storeRoot, name)
@@ -276,22 +338,15 @@ export class DemoRunner extends CliInventory {
     await runBounded(this.preset.stores, 2, async (store, { shouldStop }) => {
       const stopIfFailed = () => { if (shouldStop()) throw Object.assign(new Error('Preparation stopped because another store failed.'), { code: 'PresetStopped' }) }
       reportProgress(`Preparing store ${store.name} for ${store.machine}`)
-      await this.ensureResource('store', store.name, ['store', 'create', store.name])
+      await this.ensureStore(store)
       for (const name of store.projects) {
         stopIfFailed()
         reportProgress(`Importing project ${store.name}/${name}`)
         await this.ensureProject(store.name, name)
       }
       stopIfFailed()
-      const placed = await this.query(['store', 'get', store.name])
-      stopIfFailed()
-      if (placed.op || placed.state === 'unresolved') fail(`Store ${store.name} has an operation that needs inspection.`)
-      if (placed.machine !== store.machine) {
-        if (placed.machine !== 'native') fail(`Store ${store.name} moved outside the fixture plan. Inspect it or reset.`)
-        reportProgress(`Moving ${store.name} to ${store.machine}`)
-        await this.once(`store.push:${store.name}`, ['store', 'push', store.name, store.machine, '--progress'])
-      }
-      advance(`Store ${store.name} is placed on ${store.machine}`)
+      await this.placeStore(store, reportProgress)
+      advance(isPostgresql(store) ? `Store ${store.name} is attached to ${storeMachines(store).join(', ')}` : `Store ${store.name} is placed on ${store.machine}`)
     })
     const tasks = this.preset.stores.flatMap(store => store.projects.map(name => {
       const plan = projectHistoryPlan(name, this.historyOptions)
@@ -398,7 +453,7 @@ export class DemoRunner extends CliInventory {
       const name = typeof machine === 'string' ? machine : machine.name
       if (typeof machine !== 'string') await this.ensureResource('machine', name, machineCreateArgs(machine))
       // Empty preset lists built-ins but does not start Docker.
-      if (this.preset.stores.some(store => store.machine === name)) await this.startMachine(name)
+      if (this.preset.stores.some(store => usesMachine(store, name))) await this.startMachine(name)
       advance(`Machine ${name} ready`)
     }
     if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === 'native')) {
@@ -410,17 +465,12 @@ export class DemoRunner extends CliInventory {
       return
     }
     await runBounded(this.preset.stores, 2, async store => {
-      await this.ensureResource('store', store.name, ['store', 'create', store.name])
+      await this.ensureStore(store)
       for (const project of store.projects) {
         this.progress({ stage: 'building', completed, total, label: `Building project ${store.name}/${project}` })
         await this.seedProject(store.name, project); advance(`Project ${store.name}/${project} ready`)
       }
-      const placed = await this.query(['store', 'get', store.name])
-      if (placed.op || placed.state === 'unresolved') fail(`Store ${store.name} has an operation that needs inspection.`)
-      if (placed.machine !== store.machine) {
-        if (placed.machine !== 'native') fail(`Store ${store.name} moved outside the fixture plan. Inspect it or reset.`)
-        await this.once(`store.push:${store.name}`, ['store', 'push', store.name, store.machine, '--progress'])
-      }
+      await this.placeStore(store)
       if (!this.sandboxes) { advance(`Store ${store.name} ready`); return }
       const sandbox = `demo-${store.projects[0]}`, project = `${store.name}/${store.projects[0]}`
       await this.ensureResource('sandbox', sandbox, ['sandbox', 'create', project, sandbox, store.machine])
@@ -447,7 +497,8 @@ export class DemoRunner extends CliInventory {
         return this.query(argv)
       }
       const current = await query(['store', 'get', store.name])
-      if (current.machine !== store.machine || current.op) fail(`Store ${store.name} does not match its intended placement or has an operation in flight.`)
+      const placedRight = isPostgresql(store) ? current.kind === 'postgresql' && storeMachines(store).every(machine => current.machines?.[machine]?.checked) : current.machine === store.machine
+      if (!placedRight || current.op) fail(`Store ${store.name} does not match its intended placement or has an operation in flight.`)
       for (const name of store.projects) {
         const key = `${store.name}/${name}`
         await query(['project', 'get', key])
@@ -455,7 +506,7 @@ export class DemoRunner extends CliInventory {
         const verified = await verifyProject(query, store.name, name, receipt, this.historyOptions)
         if (this.executionMode === 'mixed') {
           const box = await query(['sandbox', 'get', mixedSandboxName(name), '--page-size', '16', '--page-pos', '0'])
-          if (box.project !== key || box.machine !== store.machine || box.state !== 'running' || box.op || box.down_reason || !Array.isArray(box.workspaces) || box.workspaces.length || box.next_page_pos != null) fail(`Mixed sandbox for ${key} is unreachable, misplaced or still mounted.`)
+          if (box.project !== key || !storeMachines(store).includes(box.machine) || box.state !== 'running' || box.op || box.down_reason || !Array.isArray(box.workspaces) || box.workspaces.length || box.next_page_pos != null) fail(`Mixed sandbox for ${key} is unreachable, misplaced or still mounted.`)
           const plan = projectHistoryPlan(name, this.historyOptions)
           const completed = projectHistorySteps(store.name, name, this.historyOptions).filter(step => step.workspaceRevision && this.manifest.steps[`${step.key}:${key}`]?.result?.kind === 'Committed').length
           if (completed !== plan.workspaceRevisions || completed / plan.authoredRevisions < 0.3) fail(`Mixed workspace coverage is incomplete for ${key}.`)

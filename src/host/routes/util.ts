@@ -13,8 +13,18 @@ export interface RouteHost {
   lfs(): Lfs
   /** LAYERFS_HOME. */
   readonly home: string
-  /** The plugin root: Connect's `<state>` files (buckets.json, storage-jobs.json, …) go here. */
+  /** The plugin root (`$DSH_HOME/layerfs`): this DSH install's own state. */
   readonly root: string
+  /**
+   * Storage state in the LayerFS home, in folders named for no client so any
+   * client of the home can use them: `jobs` (`<home>/job`: storage-jobs.json,
+   * doctor-jobs.json) and `stats` (`<home>/stat`: storage-observations/,
+   * project-storage/). Buckets are LayerFS's own records (`<home>/backup/`).
+   */
+  readonly jobs: string
+  readonly stats: string
+  /** The folder entered bucket keys and PostgreSQL passwords are saved in (owner-only files; default `<home>/secret`). */
+  readonly secrets: string
   /** The pinned CLI, if any. */
   cli(): string | null
   /** The pinned daemon, if any. */

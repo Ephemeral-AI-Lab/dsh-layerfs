@@ -7,9 +7,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Button, IconBranchOutlineRegular, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, StateDot, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconBranchOutlineRegular, IconChevronDownOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, StateDot, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
+import { BranchCompare, type CompareEnd } from './BranchCompare.tsx'
 import { CommitDiff } from './CommitDiff.tsx'
 import { shortId, when } from './format.ts'
 import { branchLanes, graphNodes, layoutNodes } from './graph-model.ts'
@@ -73,6 +74,9 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   const finderAnchor = useRef<HTMLSpanElement>(null)
   const [mapReset, setMapReset] = useState(0)
   const [diffOpen, setDiffOpen] = useState(false)
+  // A comparison: open in its dialog, or waiting for its second side to be picked in the graph.
+  const [compare, setCompare] = useState<{ from: CompareEnd, to: CompareEnd } | null>(null)
+  const [picking, setPicking] = useState<CompareEnd | null>(null)
   const writeView = (patch: Partial<View>) => setView((v) => ({ ...v, ...patch }))
 
   useEffect(() => () => {
@@ -145,6 +149,18 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
 
   function select(id: string, branch: string) {
     writeView({ selected: id, branch })
+    if (!picking) return
+    const point = layout.points.get(id)
+    const commit = point?.commits.find((c) => c.id === id) ?? point?.commits.at(-1)
+    const to: CompareEnd = commit ? { branch: commit.branch, pin: commit.id } : { branch }
+    if (to.pin && to.pin === picking.pin) return
+    setCompare({ from: picking, to })
+    setPicking(null)
+  }
+  const compareEnds = branches.map((b) => ({ name: b.name, head: b.head ?? b.base }))
+  const openCompare = () => {
+    const other = branches.find((b) => b.name !== 'main')?.name ?? 'main'
+    setCompare({ from: { branch: 'main' }, to: selectedCommit ? { branch: selectedCommit.branch, pin: selectedCommit.id } : { branch: other } })
   }
   function toggleFamily(name: string) {
     const families = new Set(view.families)
@@ -211,7 +227,12 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
                 {detail.data.nextChanges != null ? <div className={css.detailActions}><Button variant="outline" size="sm" disabled={detail.loading} onClick={detail.more}>{t('files_moreChanges')}</Button></div> : null}
               </>
             ) : null}
-          {selectedCommit && selected.kind !== 'group' ? <div className={css.detailActions}><Button variant="outline" size="sm" onClick={() => setDiffOpen(true)}>{t('files_viewDiff')}</Button></div> : null}
+          {selectedCommit && selected.kind !== 'group' ? (
+            <div className={css.detailActions}>
+              <Button variant="outline" size="sm" onClick={() => setDiffOpen(true)}>{t('files_viewDiff')}</Button>
+              <Button variant="outline" size="sm" onClick={() => setPicking({ branch: selectedCommit.branch, pin: selectedCommit.id })}>{t('files_comparePick')}</Button>
+            </div>
+          ) : null}
         </>
       ) : null}
       {view.branch ? (
@@ -236,6 +257,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
           <span className={css.count}>{t('files_checkpointsLoaded', { count: loaded })}</span>
         </div>
         <div className={css.actions}>
+          <Button variant="outline" size="sm" disabled={!branches.length} icon={<IconCompareSplitOutlineRegular size={13} />} onClick={openCompare}>{t('files_compare')}</Button>
           <span ref={finderAnchor}>
             <Button variant="outline" size="sm" aria-expanded={finderOpen} onClick={() => setFinderOpen((v) => !v)}>
               {t('files_branches')} <span>{branches.length}{branchNext !== null ? '+' : ''}</span> <IconChevronDownOutlineRegular size={12} />
@@ -253,6 +275,12 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
             setBranchNext(r.next)
           }).catch(setError).finally(() => setBusy(null))
         }} onClose={() => setFinderOpen(false)} />
+      ) : null}
+      {picking ? (
+        <div role="status" className={css.picking}>
+          <span>{t('files_comparePicking', { id: shortId(picking.pin) })}</span>
+          <Button variant="outline" size="sm" onClick={() => setPicking(null)}>{t('files_cancel')}</Button>
+        </div>
       ) : null}
       {error ? <div role="alert" className={css.alert}>{error instanceof Error ? error.message : String(error)} <button type="button" onClick={() => setRevision((n) => n + 1)}>{t('files_retry')}</button></div> : null}
       <div className={css.stage}>
@@ -278,6 +306,11 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
         <span className={css.legendHint}>{t('files_legendHint')}</span>
       </div>
       <div className={css.foot}><span>{t('files_historyFoot')}</span></div>
+      {compare ? (
+        <Modal open onClose={() => setCompare(null)} title={t('files_compareTitle')} closeLabel={t('files_closeLabel')} className={css.compareModal} contentClassName={css.compareModalBody}>
+          <BranchCompare api={api} project={project} t={t} branches={compareEnds} from={compare.from} to={compare.to} onOpenFile={onOpenFile} />
+        </Modal>
+      ) : null}
       {diffOpen && selectedCommit ? (
         <Modal open onClose={() => setDiffOpen(false)} title={t('files_diffTitle', { id: shortId(selectedCommit.id) })} closeLabel={t('files_closeLabel')} className={css.diffModal} contentClassName={css.diffModalBody}>
           <CommitDiff api={api} project={project} branch={selectedCommit.branch} commit={selectedCommit.id} from={detailFrom} t={t}

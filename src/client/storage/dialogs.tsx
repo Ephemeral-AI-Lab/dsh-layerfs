@@ -1,6 +1,8 @@
 /**
- * Storage's dialogs: one small form per action. A secret is never typed for
- * a PostgreSQL Store: it takes a reference (env:LAYERFS_… or file:/path).
+ * Storage's dialogs: one small form per action. A PostgreSQL password or a
+ * bucket's keys are either a reference (env:… or file:/path) or typed here;
+ * a typed secret goes to the host, which keeps it in an owner-only file and
+ * gives LayerFS that file's reference.
  */
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -10,17 +12,23 @@ import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { inHome } from './model.ts'
-import { BucketGlyph, FormModal, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
-import type { BackupState, MachinesView, ProjectInitJob, StorageView, StoreRow } from './types.ts'
+import { attachRefusal, inHome, loopbackAlias } from './model.ts'
+import { BucketProviderGlyph } from '../machines/icons.tsx'
+import { FormModal, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
+import type { BackupState, MachinesView, PgAttachment, ProjectInitJob, StorageView, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
 const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 const REFERENCE = /^(env:LAYERFS_[A-Z0-9_]+|file:\/.+)$/
+/** A PostgreSQL password reference: any env: name (the server's environment) or a file. */
+const PG_REFERENCE = /^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/
+/** A PostgreSQL URL that holds a password (user:password@, or a password parameter). */
+const PG_URL_PASSWORD = /^postgres(?:ql)?:\/\/[^/@?]*:[^/@?]*@|[?&][^=&]*password=/i
 
 /** Which dialog is open, and on what. */
 export type StorageDialog =
-  | { kind: 'new-store' }
+  | { kind: 'new-store', postgresql?: boolean }
+  | { kind: 'attach', store: string, machine?: string, edit?: PgAttachment }
   | { kind: 'add-project', store: string }
   | { kind: 'push', store: StoreRow }
   | { kind: 'move', store: StoreRow }
@@ -37,14 +45,17 @@ interface DialogsProps {
   onClose: () => void
   /** The view changed: read it again. */
   done: () => void
+  /** Opens a Store's page (after a PostgreSQL connect). */
+  onOpenStore?: (name: string) => void
 }
 
 /** The open dialog, if any. */
-export function StorageDialogs({ api, t, dialog, view, onClose, done }: DialogsProps): ReactNode {
+export function StorageDialogs({ api, t, dialog, view, onClose, done, onOpenStore }: DialogsProps): ReactNode {
   if (!dialog) return null
   const after = <T,>(p: Promise<T>) => p.then((v) => { done(); return v })
   switch (dialog.kind) {
-    case 'new-store': return <NewStoreDialog api={api} t={t} view={view} onClose={onClose} done={done} />
+    case 'new-store': return <NewStoreDialog api={api} t={t} view={view} postgresql={dialog.postgresql === true} onClose={onClose} done={done} onOpenStore={onOpenStore} />
+    case 'attach': return <AttachDialog api={api} t={t} view={view} store={dialog.store} machine={dialog.machine} edit={dialog.edit} onClose={onClose} done={done} />
     case 'add-project': return <NewProjectDialog api={api} t={t} store={dialog.store} onClose={onClose} done={done} />
     case 'push':
     case 'move': return <PlaceDialog api={api} t={t} kind={dialog.kind} store={dialog.store} onClose={onClose} done={done} />
@@ -59,11 +70,13 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done }: DialogsP
 
 type NewPane = 'empty' | 'restore' | 'postgresql'
 
-function NewStoreDialog({ api, t, view, onClose, done }: { api: LayerfsApi, t: StorageT, view: StorageView | undefined, onClose: () => void, done: () => void }): ReactNode {
-  const [pane, setPane] = useState<NewPane>('empty')
+function NewStoreDialog({ api, t, view, postgresql, onClose, done, onOpenStore }: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined, postgresql: boolean, onClose: () => void, done: () => void, onOpenStore?: ((name: string) => void) | undefined
+}): ReactNode {
+  const [pane, setPane] = useState<NewPane>(postgresql ? 'postgresql' : 'empty')
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
-  const [password, setPassword] = useState('')
+  const pw = usePgPassword()
   const [sync, setSync] = useState<string>('')
   const buckets = view?.buckets ?? []
   const [bucket, setBucket] = useState(buckets[0]?.name ?? '')
@@ -90,17 +103,21 @@ function NewStoreDialog({ api, t, view, onClose, done }: { api: LayerfsApi, t: S
     pane === 'restore' && !bucket && t('bucket'),
     pane === 'restore' && !file && t('storeFile'),
     pane === 'postgresql' && !url.trim() && t('pgUrl'),
-    pane === 'postgresql' && !password.trim() && t('password'),
+    pane === 'postgresql' && pw.missing && t('password'),
   ].filter(Boolean) as string[]
-  const passwordError = password && !REFERENCE.test(password.trim()) ? t('passwordInvalid') : null
+  const urlError = pane === 'postgresql' && PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
+  const passwordError = pane === 'postgresql' ? pw.error(t) : null
   const form = {
     empty: { action: t('createStore'), description: t('newStoreEmptyBody'), submit: () => api.call('POST', '/api/stores', { name: name.trim() }) },
     restore: { action: t('restoreStore'), description: t('newStoreRestoreBody'), submit: () => api.call('POST', `/api/buckets/${enc(bucket)}/restore`, { store: name.trim(), file }) },
-    postgresql: { action: t('connect'), description: t('newStorePgBody'), submit: () => api.call('POST', '/api/stores/postgresql', { name: name.trim(), url: url.trim(), password: password.trim(), ...(sync ? { synchronousCommit: sync } : {}) }) },
+    postgresql: {
+      action: t('connect'), description: t('newStorePgBody'),
+      submit: () => api.call('POST', '/api/stores/postgresql', { name: name.trim(), url: url.trim(), ...pw.body(), ...(sync ? { synchronousCommit: sync } : {}) }).then(() => onOpenStore?.(name.trim())),
+    },
   }[pane]
   return (
-    <FormModal open onClose={onClose} t={t} title={t('newStore')} description={form.description} action={form.action}
-      valid={!missing.length && nameOk && !passwordError} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
+    <FormModal open onClose={onClose} t={t} title={postgresql ? t('connectDatabase') : t('newStore')} description={form.description} action={form.action}
+      valid={!missing.length && nameOk && !passwordError && !urlError} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
       submit={() => form.submit().then(done)}>
       <TileChoice label={t('kindOfStore')} value={family} onChange={(v) => setPane(v === 'sqlite' ? 'empty' : 'postgresql')}
         options={[{ value: 'sqlite', label: t('sqlite'), icon: <StoreGlyph kind="sqlite" /> }, { value: 'postgresql', label: t('postgresql'), icon: <StoreGlyph kind="postgresql" /> }]} />
@@ -137,14 +154,131 @@ function NewStoreDialog({ api, t, view, onClose, done }: { api: LayerfsApi, t: S
         placeholder={pane === 'postgresql' ? 'team' : 'work'} hint={t('storeNameHint')} error={taken ? t('nameTaken') : null} />
       {pane === 'postgresql' ? (
         <>
-          <TextField label={t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db" hint={t('pgUrlHint')} />
-          <TextField label={t('password')} value={password} onChange={setPassword} mono placeholder="env:LAYERFS_PG_PASSWORD" hint={t('passwordHint')} error={passwordError} />
+          <TextField label={t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db" hint={t('pgUrlHint')} error={urlError} />
+          <PgPasswordFields id="lfs-pg-connect" pw={pw} t={t} />
           <Field label={t('syncCommit')}>
             <MenuSelect value={sync} label={t('syncCommit')} placeholder={t('syncCommitDefault')}
               options={[{ value: '', label: t('syncCommitDefault') }, ...['off', 'local', 'remote_write', 'on', 'remote_apply'].map((v) => ({ value: v, label: v }))]} onChange={setSync} />
           </Field>
         </>
       ) : null}
+    </FormModal>
+  )
+}
+
+// ---------- PostgreSQL password and Attach ----------
+
+/** A PostgreSQL password: typed (the host keeps it in an owner-only file) or a reference. */
+function usePgPassword(initial: 'entered' | 'reference' = 'entered', reference = '') {
+  const [how, setHow] = useState<'entered' | 'reference'>(initial)
+  const [value, setValue] = useState('')
+  const [ref, setRef] = useState(reference)
+  return {
+    how, setHow, value, setValue, ref, setRef,
+    /** Nothing given yet. */
+    missing: how === 'entered' ? !value : !ref.trim(),
+    error: (t: StorageT) => (how === 'reference' && ref.trim() && !PG_REFERENCE.test(ref.trim()) ? t('passwordInvalid') : null),
+    /** The route's body fields. */
+    body: (): { passwordValue: string } | { password: string } => (how === 'entered' ? { passwordValue: value } : { password: ref.trim() }),
+  }
+}
+
+function PgPasswordFields({ id, pw, t }: { id: string, pw: ReturnType<typeof usePgPassword>, t: StorageT }): ReactNode {
+  return (
+    <>
+      <Field label={t('pgPasswordHow')}>
+        <SegmentedControl<'entered' | 'reference'> id={id} className={css.selfStart} value={pw.how} onChange={pw.setHow} label={t('pgPasswordHow')}
+          options={[{ value: 'entered', label: t('pgPasswordEntered') }, { value: 'reference', label: t('pgPasswordReference') }]} />
+      </Field>
+      {pw.how === 'entered' ? (
+        <>
+          <TextField label={t('pgPasswordValue')} value={pw.value} onChange={pw.setValue} mono type="password" />
+          <p className={css.formNote}>{t('pgPasswordNote')}</p>
+        </>
+      ) : (
+        <TextField label={t('pgPasswordReferenceLabel')} value={pw.ref} onChange={pw.setRef} mono placeholder="env:LAYERFS_PG_PASSWORD" hint={t('pgEnvHint')} error={pw.error(t)} />
+      )}
+    </>
+  )
+}
+
+/** Is the URL's host this host's loopback? */
+const loopback = (target: string | null | undefined) => /@?(localhost|127\.[0-9.]+|\[::1\])(:|\/|$)/.test(target ?? '')
+
+/**
+ * Attach a PostgreSQL Store to a machine (store.attach): with the Store's
+ * connection, or one of the machine's own. LayerFS checks it from the
+ * machine before it records anything; a refusal stays under the form.
+ */
+function AttachDialog({ api, t, view, store, machine: fixed, edit, onClose, done }: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined, store: string, machine?: string | undefined, edit?: PgAttachment | undefined
+  onClose: () => void, done: () => void
+}): ReactNode {
+  const s = view?.stores.find((x) => x.name === store)
+  const [machine, setMachine] = useState(fixed ?? edit?.machine ?? '')
+  const [mode, setMode] = useState<'host' | 'own'>(edit?.own ? 'own' : 'host')
+  const [url, setUrl] = useState(edit?.url ?? '')
+  // a reference given before is shown again; a typed one stays in its file unless a new one is typed
+  const givenRef = edit?.password && !edit.saved ? edit.password : ''
+  const pw = usePgPassword(givenRef ? 'reference' : 'entered', givenRef)
+  if (!s || !view) return null
+  // a machine fixed by the caller (a drop, Edit or Re-check) is not chosen again
+  const machines = [...view.machines].sort((a, b) => (a.name === 'native' ? -1 : b.name === 'native' ? 1 : a.name.localeCompare(b.name)))
+  const chosen = view.machines.find((m) => m.name === machine)
+  const alias = chosen ? loopbackAlias(chosen.platform) : null
+  const urlError = mode === 'own' && PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
+  // an own connection keeps the password it has (Edit) unless another is given
+  const keeps = mode === 'own' && !!edit?.password && pw.missing
+  const missing = [
+    !machine && t('machine'),
+    // an own connection names its URL, its password, or both
+    mode === 'own' && !url.trim() && pw.missing && !keeps && t('pgUrl'),
+  ].filter(Boolean) as string[]
+  const placeName = (m: string) => (m === 'native' ? t('layerfsHome') : m)
+  const body = () => ({
+    machine,
+    ...(mode === 'own' ? { ...(url.trim() ? { url: url.trim() } : {}), ...(keeps ? { password: edit!.password! } : pw.missing ? {} : pw.body()) } : {}),
+  })
+  return (
+    <FormModal open onClose={onClose} t={t} title={t('attachTitle', { store })} description={t('attachBody')} action={t('attachAndCheck')}
+      valid={!missing.length && !urlError && !(mode === 'own' && pw.error(t))}
+      hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
+      busyHint={machine ? t('checkingFrom', { machine: placeName(machine) }) : undefined}
+      submit={() => api.call('POST', `/api/stores/${enc(store)}/attach`, body()).then(done)}>
+      {fixed || edit ? (
+        <Field label={t('machine')}><span className={css.mono}>{placeName(machine)}</span></Field>
+      ) : (
+        <Field label={t('machine')}>
+          <div className={css.choiceList} role="radiogroup" aria-label={t('machine')}>
+            {machines.map((m) => {
+              const why = attachRefusal(view, s, m.name, t)
+              return (
+                <button key={m.name} type="button" role="radio" aria-checked={machine === m.name} disabled={!!why} className={css.choiceRow}
+                  data-checked={machine === m.name || undefined} onClick={() => setMachine(m.name)}>
+                  <span className={css.radio} aria-hidden="true" />
+                  <span className={css.choiceMain}>{placeName(m.name)}</span>
+                  <span className={css.choiceMeta}>{why ?? m.platform}</span>
+                </button>
+              )
+            })}
+          </div>
+        </Field>
+      )}
+      <Field label={t('connection')}>
+        <SegmentedControl<'host' | 'own'> id="lfs-pg-attach-mode" className={css.selfStart} value={mode} onChange={setMode} label={t('connection')}
+          options={[{ value: 'host', label: t('sameAsHost') }, { value: 'own', label: t('ownConnection') }]} />
+      </Field>
+      {mode === 'host' ? (
+        <p className={css.formNote}>
+          {alias && loopback(s.postgresql?.target) ? t('sameAsHostNote', { alias }) : t('sameAsHostNoteRemote')}
+          {s.postgresql?.target ? <> <span className={css.mono}>{s.postgresql.target}</span></> : null}
+        </p>
+      ) : (
+        <>
+          <TextField label={t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db" hint={t('pgUrlHint')} error={urlError} autoFocus />
+          <PgPasswordFields id="lfs-pg-attach-password" pw={pw} t={t} />
+        </>
+      )}
     </FormModal>
   )
 }
@@ -321,7 +455,7 @@ function BucketDialog({ api, t, onClose, done }: { api: LayerfsApi, t: StorageT,
       valid={!missing.length && !accountError && !keyError} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
       submit={() => api.call('POST', '/api/buckets', body()).then(done)}>
       <TileChoice label={t('provider')} value={provider} onChange={setProvider}
-        options={[{ value: 'minio', label: t('minio'), icon: <BucketGlyph /> }, { value: 'r2', label: t('r2'), icon: <BucketGlyph /> }]} />
+        options={[{ value: 'minio', label: t('minio'), icon: <BucketProviderGlyph provider="minio" size={18} /> }, { value: 'r2', label: t('r2'), icon: <BucketProviderGlyph provider="r2" size={18} /> }]} />
       <div className={css.fieldRow}>
         <TextField label={t('name')} value={v.name ?? ''} onChange={set('name')} mono autoFocus placeholder="backups" />
         <TextField label={t('bucketName')} value={v.bucket ?? ''} onChange={set('bucket')} mono placeholder="layerfs-backups" />

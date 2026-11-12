@@ -65,9 +65,23 @@ export interface DoctorJob {
   simulated?: boolean | undefined
   report?: TargetedReport | undefined
   hasReport?: boolean | undefined
+  /** `GET /api/doctor-jobs` only: the report's verdict in numbers. */
+  summary?: DoctorSummary | undefined
 }
 
-const busyState = (state: DoctorJobState | undefined) => state === 'queued' || state === 'running'
+/** A report's verdict in numbers, as the host's job list carries it. */
+export interface DoctorSummary {
+  ok: boolean
+  complete: boolean
+  mode: string | null
+  errors: number
+  warnings: number
+  unverified: number
+  skipped: number
+  findings: { severity: 'error' | 'warning', message: string, fix: string | null }[]
+}
+
+export const busyState = (state: DoctorJobState | undefined) => state === 'queued' || state === 'running'
 
 const stateKey = { queued: 'stateQueued', running: 'stateRunning', completed: 'stateCompleted', failed: 'stateFailed', interrupted: 'stateInterrupted', unavailable: 'stateUnavailable' } as const
 
@@ -82,8 +96,9 @@ export function DoctorAction({ api, t, target, name, label }: { api: LayerfsApi,
   )
 }
 
-function DoctorPanel({ api, t, target, name, onClose }: { api: LayerfsApi, t: DoctorT, target: DoctorTarget, name?: string | undefined, onClose: () => void }): ReactNode {
-  const [job, setJob] = useState<DoctorJob | null>(null)
+/** The panel for one target and resource; `initial` opens on an earlier job (its report is read in full). */
+export function DoctorPanel({ api, t, target, name, initial, onClose }: { api: LayerfsApi, t: DoctorT, target: DoctorTarget, name?: string | undefined, initial?: DoctorJob | undefined, onClose: () => void }): ReactNode {
+  const [job, setJob] = useState<DoctorJob | null>(initial ?? null)
   const [history, setHistory] = useState<DoctorJob[]>([])
   const [quick, setQuick] = useState(false)
   const [writeTest, setWriteTest] = useState(false)
@@ -95,6 +110,7 @@ function DoctorPanel({ api, t, target, name, onClose }: { api: LayerfsApi, t: Do
 
   useEffect(() => {
     void api.call<DoctorJob[]>('GET', '/api/doctor-jobs').then(setHistory, setError)
+    if (initial && !initial.report && initial.hasReport) void api.call<DoctorJob>('GET', `/api/doctor-jobs/${enc(initial.id)}`).then(setJob, setError)
   }, [api])
 
   // A diagnosis reports once at the end: poll while it is queued or running,
@@ -138,7 +154,6 @@ function DoctorPanel({ api, t, target, name, onClose }: { api: LayerfsApi, t: Do
         {recent.length > 0 ? (
           <details className={css.history}>
             <summary>{t('previousReports', { n: recent.length })}</summary>
-            <p className={css.meta}>{t('previousNote')}</p>
             <ul className={css.historyList}>
               {recent.map((j) => (
                 <li key={j.id}>

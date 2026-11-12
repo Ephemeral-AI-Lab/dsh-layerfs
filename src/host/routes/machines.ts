@@ -43,6 +43,8 @@ export function machineOf(m: any) {
     memory: num(m.memory),
     disk: num(m.disk),
     stores: list(m.stores).map(String),
+    // the PostgreSQL Stores attached to it (store.attach); absent from a CLI before attachments
+    ...(Array.isArray(m.postgresql) ? { postgresql: m.postgresql.map(String) } : {}),
     sandboxes: list(m.sandboxes).map(String),
     ...(text(m.image) ? { image: m.image } : {}),
     ...(text(m.docker) ? { docker: m.docker } : {}),
@@ -79,7 +81,7 @@ export function storeOf(s: any) {
 /** One store.list() item, when it is a PostgreSQL Store (on no machine: Sandboxes reach its database). */
 export function pgStoreOf(s: any) {
   if (s.kind !== 'postgresql') return null
-  return { name: String(s.name), projects: count(s.projects), names: Array.isArray(s.projects) ? s.projects.map(String) : [], state: text(s.state) ?? 'unknown', op: opOf(s.op) }
+  return { name: String(s.name), projects: count(s.projects), names: Array.isArray(s.projects) ? s.projects.map(String) : [], state: text(s.state) ?? 'unknown', op: opOf(s.op), machines: s.machines && typeof s.machines === 'object' ? Object.entries(s.machines).map(([machine, a]: [string, any]) => ({ machine, checked: !!a?.checked })) : null }
 }
 
 /** One sandbox.list() item. */

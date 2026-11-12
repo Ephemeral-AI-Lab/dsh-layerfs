@@ -1,4 +1,6 @@
-.groups {
+/* The Projects page's project tree: compact rows in one settings card. */
+.card {
+  padding: 6px;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
@@ -53,7 +55,7 @@
 }
 
 .projects {
-  margin: 0 0 4px 12px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -75,8 +77,16 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.interrupted {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
 .notice {
-  padding: 6px 8px 6px 24px;
+  padding: 6px 8px 6px 34px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
@@ -103,16 +113,18 @@
   }
 
 }
-:global([data-layerfs-work-areas]) > :not(:global([data-layerfs-workspace-mount])) {
-  margin-inline-start: 28px;
+.bucket {
+  composes: toggle;
+  min-height: 28px;
+  gap: 6px;
+  padding: 6px 8px 2px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
-:global([data-layerfs-work-areas][data-dsh-folded]) > :not(:global([data-layerfs-workspace-mount])) {
-  display: none;
-}
-
-:global([data-layerfs-legacy-workspace]) {
-  display: none !important;
+.inactive .label {
+  color: var(--dsw-alias-label-secondary);
 }
 
 .foldProject {
@@ -138,4 +150,20 @@
 @media (pointer: coarse) {
   .foldProject, .projectLink { min-height: 44px; }
   .foldProject { width: 36px; }
+}
+
+/* Sidebar variant: rows start at the sidebar's row inset, notices align under labels. */
+.compact .projects {
+  margin: 0;
+}
+
+.compact .notice {
+  padding-left: 8px;
+}
+
+
+.tree {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
 }

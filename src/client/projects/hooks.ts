@@ -7,7 +7,7 @@ import { readWithDeadline } from './read-deadline.ts'
 
 export function useProjectMachines(api: LayerfsApi) {
   const read = useQuery(() => readWithDeadline(api.call<MachinesView>('GET', '/api/machines')), [api])
-  useHostEvents(api, ['machine-progress', 'machines', 'storage', 'runtime-changed', 'connection'], read.reload)
+  useHostEvents(api, ['machine-progress', 'layerfs-availability', 'storage', 'runtime-changed', 'connection'], read.reload)
   useEffect(() => {
     const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, 15_000)
     return () => clearInterval(timer)
@@ -15,7 +15,12 @@ export function useProjectMachines(api: LayerfsApi) {
   return read
 }
 
-export interface ProjectSession { sessionId: string, title: string | null, local: boolean, updatedAt: number }
+export interface ProjectSession {
+  sessionId: string, title: string | null, local: boolean, updatedAt: number
+  /** Local bindings only: `interrupted` when its Store became unavailable or its context was lost. */
+  executionState?: 'inactive' | 'activating' | 'active' | 'interrupted'
+  error?: string | null
+}
 interface SessionList { sessions: ProjectSession[], discoveryError?: { code: string, message: string } | null }
 
 /** Local logs remain visible while the portable archive loads or fails. */
@@ -26,7 +31,7 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
   const local = useQuery(() => load(true), [api, project, projectId, enabled])
   const archive = useQuery(() => load(false), [api, project, projectId, enabled])
   const reload = () => { local.reload(); archive.reload() }
-  useHostEvents(api, ['layerfs-session', 'layerfs-workspaces-changed', 'storage', 'machine-progress', 'connection'], () => { if (enabled) reload() })
+  useHostEvents(api, ['layerfs-session', 'layerfs-availability', 'layerfs-workspaces-changed', 'storage', 'machine-progress', 'connection'], () => { if (enabled) reload() })
   useEffect(() => {
     if (!enabled) return
     const timer = setInterval(() => { if (document.visibilityState === 'visible') reload() }, 15_000)

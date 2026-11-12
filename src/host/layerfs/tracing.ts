@@ -1,15 +1,27 @@
-/** Additive invocation receipts. Original DSH events and CLI streams are never rewritten. */
+/**
+ * Additive invocation receipts. Original DSH events and CLI streams are never
+ * rewritten. Every CLI call made inside a project session's trace context gets
+ * one receipt id and carries it to LayerFS as `LAYERFS_LOGS_TAG=dsh:<sessionId>:<receiptId>`
+ * (docs/specs/layerfs-logs.md §4); the call log line with that tag is the
+ * record a receipt is built from when the host did not see the result itself.
+ */
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { randomUUID } from 'node:crypto'
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
+import { OUTPUT_MAX, operationOf, type CallLine } from '../../shared/logs.ts'
+import { appendCallLine, makeReceipt, renderCall, ROTATE_BYTES, savedFields } from './call-log.ts'
+import { DEFAULT_BOUNDS, outputName, outputRecord, outputsDir, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
 
 export interface VersionLink { kind: 'Commit' | 'Layer'; id: string; effect: 'created' | 'unchanged' | 'referenced' }
-export interface TargetArguments { paths?: string[]; workspace?: string; mode?: string; force?: boolean; truncated?: true }
+/**
+ * One receipt in a session sidecar (`layerfs.json`, `invocations[]`). Older
+ * sidecars may also hold `arguments`, `source`, `startedAt`, `finishedAt` and
+ * `error`; they are read as they are and never written any more.
+ */
 export interface Invocation {
   id: string; origin: 'tool' | 'host'; sessionId: string; project: string; turn?: number; toolCallId?: string
-  operation: string; arguments?: TargetArguments; source: 'sdk' | 'cli'; startedAt: number; finishedAt: number
-  outcome: 'success' | 'refusal' | 'unknown'; versions: VersionLink[]; error?: string; captureGap?: string
+  operation: string; outcome: 'success' | 'refusal' | 'unknown'; versions: VersionLink[]; captureGap?: string
 }
 export interface TraceIdentity {
   origin: 'tool' | 'host'; sessionId: string; project: string; turn?: number; toolCallId?: string
@@ -17,10 +29,10 @@ export interface TraceIdentity {
   workspace?: string
   /** Internal history writes are never project-file checkpoints. */
   internal?: boolean
+  /** Prefix of this tool call's receipt ids (`<scope>.<random>`), see {@link toolScope}. */
+  scope?: string
 }
 export interface TraceContext extends TraceIdentity {
-  /** Private local spool for retrying annotation writes, never part of portable identity. */
-  receiptRoot?: string
   record: (invocation: Invocation) => Promise<void>
   onError?: (error: unknown) => void
 }
@@ -32,59 +44,14 @@ export const withoutTraceContext = <T>(run: () => T): T => context.exit(run)
 /** Exact allowlist; matching a family prefix would mislabel exec/read/lifecycle calls. */
 export const CHECKPOINT_OPERATIONS = ['file.write', 'file.edit', 'file.apply', 'file.rm', 'file.mkdir', 'file.mv', 'file.cp', 'workspace.commit', 'branch.fork', 'branch.merge', 'branch.publish'] as const
 
-/** Resolve only known project-bearing CLI grammar. Unknown flags never guess a target. */
-export function firstPositional(argv: readonly string[]): string | undefined {
-  // These eligible commands have only value options; accept the common JSON/progress switches.
-  const values = ['--message', '--mode', '--units', '--scope', '--scope-project', '--scope-branch']
-  for (let at = 2; at < argv.length; at++) {
-    const word = argv[at]
-    if (word === '--') return argv[at + 1]
-    if (!word.startsWith('-')) return word
-    if (word === '--json' || word === '--progress' || /^--force(?:=(?:true|false))?$/.test(word)) continue
-    const [flag] = word.split('=')
-    if (!values.includes(flag)) return undefined
-    if (!word.includes('=')) { if (!argv[at + 1]) return undefined; at++ }
-  }
-  return undefined
+/** The receipt-id prefix of one tool call: stable for (session, call), so the shell and the host agree. */
+export function toolScope(sessionId: string, callId: string): string {
+  return createHash('sha256').update(`${sessionId}\0${callId}`).digest('hex').slice(0, 8)
 }
 
-export function invocationProject(argv: readonly string[]): string | undefined {
-  return ['file', 'branch'].includes(argv[0]) ? firstPositional(argv) : undefined
-}
-
-/** Minimal non-content targets, not a duplicate of tool input or stdin payloads. */
-export function operationArguments(argv: readonly string[]): TargetArguments {
-  const result: TargetArguments = {}, positionals: string[] = []
-  const valueFlags = ['--message', '--mode', '--units', '--scope', '--scope-project', '--scope-branch']
-  for (let at = 2; at < argv.length; at++) {
-    const word = argv[at]
-    if (word === '--') { positionals.push(...argv.slice(at + 1)); break }
-    if (!word.startsWith('-')) { positionals.push(word); continue }
-    if (word === '--json' || word === '--progress' || word === '--stream' || word === '--events') continue
-    if (/^--force(?:=(?:true|false))?$/.test(word)) { result.force = word !== '--force=false'; continue }
-    const equal = word.indexOf('='), flag = equal < 0 ? word : word.slice(0, equal)
-    if (!valueFlags.includes(flag)) return {}
-    const value = equal < 0 ? argv[++at] : word.slice(equal + 1)
-    if (flag === '--mode' && /^\d{1,10}$/.test(value ?? '')) result.mode = value
-  }
-  const bounded = (value: string): string => {
-    if (Buffer.byteLength(JSON.stringify(value), 'utf8') <= 2048) return value
-    result.truncated = true
-    // At most 512 UTF-16 units, keeping the encoded receipt below 8 KiB.
-    return value.slice(0, 512) + '[truncated]'
-  }
-  const counts: Record<string, number> = { write: 1, edit: 1, rm: 1, mkdir: 1, mv: 2, cp: 2, read: 1, stat: 1 }
-  if (argv[0] === 'file' && counts[argv[1]]) {
-    const paths = positionals.slice(2, 2 + counts[argv[1]])
-    if (paths.length) result.paths = paths.map(bounded)
-  }
-  if (argv[0] === 'workspace' && ['commit', 'exec', 'status', 'unmount'].includes(argv[1]) && positionals[0]) result.workspace = bounded(positionals[0])
-  return result
-}
-
-/** Decode verified CLI receipt shapes only. A bare successful exit or current head is insufficient. */
+/** Decode verified CLI result shapes only. A bare successful exit or current head is insufficient. */
 export function savedVersions(operation: string, result: any): VersionLink[] {
-  const allowed = ['file.write', 'file.edit', 'file.apply', 'file.rm', 'file.mkdir', 'file.mv', 'file.cp', 'workspace.commit', 'branch.fork', 'branch.merge', 'branch.publish']
+  const allowed: readonly string[] = CHECKPOINT_OPERATIONS
   if (!allowed.includes(operation) || !result || typeof result !== 'object') return []
   const link = (kind: 'Commit' | 'Layer', id: unknown, effect: VersionLink['effect']): VersionLink[] =>
     typeof id === 'string' && /^[a-f0-9]{66}$/.test(id) ? [{ kind, id, effect }] : []
@@ -106,54 +73,103 @@ export function savedVersions(operation: string, result: any): VersionLink[] {
   return []
 }
 
-/** Capture an SDK invocation once, preserving result/throw behavior and async caller identity. */
-export async function traceInvocation<T>(operation: string, run: () => Promise<T>, targetProject?: string, targetWorkspace?: string, argv?: readonly string[]): Promise<T> {
-  const trace = context.getStore()
-  if (!trace) return run()
-  const startedAt = Date.now(), id = randomUUID()
-  let result: T | undefined, error: any
-  try { result = await run(); return result } catch (e) { error = e; throw e } finally {
-    const { record, onError, internal, workspace, receiptRoot, ...identity } = trace
-    const targetKnown = operation !== 'workspace.commit' || !!workspace && targetWorkspace === workspace
-    const receipt: Invocation = {
-      ...identity, ...(targetProject ? { project: targetProject } : {}), ...(!targetKnown ? { project: '', captureGap: 'target-workspace-unconfirmed' } : {}), id, operation, ...(argv ? { arguments: operationArguments(argv) } : {}), source: 'sdk', startedAt, finishedAt: Date.now(),
-      outcome: error ? error.transport === 'refusal' ? 'refusal' : 'unknown' : 'success',
-      versions: error || internal || !targetKnown ? [] : savedVersions(operation, result),
-      ...(error ? { error: String(error.code ?? error.message ?? error) } : {}),
-    }
-    try { await record(receipt) } catch (error) {
-      // The mutation has already run. Retain its exact receipt rather than
-      // retrying the operation or losing attribution when sidecar persistence fails.
-      let reportedError: unknown = error
-      if (receiptRoot) {
-        try { spoolInvocation(receiptRoot, receipt) } catch (spoolError) {
-          reportedError = new AggregateError([error, spoolError], 'The invocation could not be saved to its sidecar or recovery spool')
-        }
-      }
-      onError?.(reportedError)
-    }
+/**
+ * Versions a call log line names. A line has no `fast_forward`, so `Merged`
+ * counts as referenced; `Committed`/`Added` created; `UpToDate`/`NoChanges`
+ * unchanged; `Forked` referenced.
+ */
+export function lineVersions(line: Pick<CallLine, 'argv' | 'kind' | 'commit' | 'layer'>): VersionLink[] {
+  const allowed: readonly string[] = CHECKPOINT_OPERATIONS
+  if (!allowed.includes(operationOf(line.argv))) return []
+  const effects: Record<string, VersionLink['effect']> = { Committed: 'created', Added: 'created', UpToDate: 'unchanged', NoChanges: 'unchanged', Forked: 'referenced', Merged: 'referenced' }
+  const effect = line.kind ? effects[line.kind] : undefined
+  const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{66}$/.test(value)
+  if (!effect) return []
+  if (hex(line.commit)) return [{ kind: 'Commit', id: line.commit, effect }]
+  if (hex(line.layer)) return [{ kind: 'Layer', id: line.layer, effect }]
+  return []
+}
+
+const portable = (identity: TraceIdentity, id: string, project: string): Pick<Invocation, 'id' | 'origin' | 'sessionId' | 'project' | 'turn' | 'toolCallId'> => ({
+  id, origin: identity.origin === 'tool' ? 'tool' : 'host', sessionId: identity.sessionId, project,
+  ...(Number.isInteger(identity.turn) ? { turn: identity.turn } : {}),
+  ...(typeof identity.toolCallId === 'string' ? { toolCallId: identity.toolCallId } : {}),
+})
+
+/**
+ * A receipt from a call log line made inside `identity`'s trace context.
+ * `workspace commit` links versions only when its Workspace is the bound one.
+ */
+export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: string): Invocation {
+  const operation = operationOf(line.argv)
+  const targetKnown = operation !== 'workspace.commit' || (!!identity.workspace && line.argv[2] === identity.workspace)
+  const project = !targetKnown ? '' : ['file', 'branch'].includes(line.argv[0]) && line.argv[2] ? line.argv[2] : identity.project
+  const outcome = line.outcome === 'ok' ? 'success' : line.outcome === 'Unknown' ? 'unknown' : 'refusal'
+  const allowed: readonly string[] = CHECKPOINT_OPERATIONS
+  const captureGap = !targetKnown ? 'target-workspace-unconfirmed'
+    : outcome === 'success' && allowed.includes(operation) && !line.kind ? 'structured-result-unavailable' : undefined
+  return {
+    ...portable(identity, id, project), operation, outcome,
+    versions: outcome === 'success' && targetKnown && !identity.internal ? lineVersions(line) : [],
+    ...(captureGap ? { captureGap } : {}),
   }
 }
 
-/** Atomically retain a completed invocation for the ordinary durable drain. */
-function spoolInvocation(root: string, receipt: Invocation): void {
-  const directory = join(root, 'invocation-receipts')
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
-  const file = join(directory, `${receipt.id}.json`)
-  writeFileSync(`${file}.tmp`, JSON.stringify(receipt), { mode: 0o600 })
-  renameSync(`${file}.tmp`, file)
+/**
+ * Capture an SDK invocation once, preserving result/throw behavior and async
+ * caller identity. `run` gets the call's log tag (none outside a trace context).
+ */
+export async function traceInvocation<T>(operation: string, run: (tag?: string) => Promise<T>, targetProject?: string, targetWorkspace?: string): Promise<T> {
+  const trace = context.getStore()
+  if (!trace) return run(undefined)
+  const { id, tag } = makeReceipt(trace.sessionId, trace.scope, randomUUID().replaceAll('-', ''))
+  let result: T | undefined, error: any
+  try { result = await run(tag); return result } catch (e) { error = e; throw e } finally {
+    const targetKnown = operation !== 'workspace.commit' || !!trace.workspace && targetWorkspace === trace.workspace
+    const receipt: Invocation = {
+      ...portable(trace, id, !targetKnown ? '' : targetProject ?? trace.project), operation,
+      outcome: error ? error.transport === 'refusal' ? 'refusal' : 'unknown' : 'success',
+      versions: error || trace.internal || !targetKnown ? [] : savedVersions(operation, result),
+      ...(!targetKnown ? { captureGap: 'target-workspace-unconfirmed' } : {}),
+    }
+    // The mutation has already run; never retry it. A tool call's receipt is
+    // rebuilt from its tagged call log line when this write fails.
+    try { await trace.record(receipt) } catch (recordError) { trace.onError?.(recordError) }
+  }
 }
 
 /** Only serializable provenance crosses into a shell. No shared current-tool variable. */
 export function traceEnvironment(identity: TraceIdentity): string { return JSON.stringify(identity) }
 
+/** Calls whose content travels on stdin (`content`/`json` arguments), for the stand-in's `<N bytes>`. */
+export const CONTENT_CALLS = ['file.write', 'file.apply', 'project.storage_report', 'store.storage_report']
+
+export interface ManagedCliOptions {
+  root: string; cli: string; home: string; bundle?: string | null; cacheHome?: string | null
+  /** The stand-in call log; without it (or with `native`) the wrapper writes no line. */
+  callLog?: string | null
+  /** The pinned CLI writes its own call log (#659): only set the tag. */
+  native?: boolean
+  /** Bool option names from the call table (rendering only). */
+  bools?: readonly string[]
+  /** `family.call` names whose content travels on stdin. */
+  content?: readonly string[]
+  /** Stand-in rotation threshold (tests). */
+  rotateBytes?: number
+  /** Output store bounds (tests). */
+  outputBounds?: OutputBounds
+}
+
 /**
- * Generate the managed CLI. It forwards stdin/stdout/stderr and signals while
- * collecting only a bounded JSON receipt, atomically written to a private spool.
- * Bypassing this entry point is outside capture coverage.
+ * Generate the managed CLI. It forwards stdin/stdout/stderr, exit status and
+ * signals; sets `LAYERFS_LOGS_TAG` from the shell's `DSH_LAYERFS_TRACE_CONTEXT`
+ * with a new receipt id per invocation (removing an inherited tag otherwise);
+ * for a tagged call, tees the child's stdout/stderr into bounded buffers (still
+ * passing every byte through, with backpressure) and writes the call's output
+ * to `trace/outputs/` on close, in both modes; and, in stand-in mode, appends
+ * the call log line itself. Bypassing this entry point is outside capture coverage.
  */
-export function managedCli(options: { root: string; cli: string; home: string; bundle?: string | null; cacheHome?: string | null }): string {
-  const directory = join(options.root, 'invocation-receipts')
+export function managedCli(options: ManagedCliOptions): string {
   const file = join(options.root, 'agent-bin', 'layerfs')
   const implementation = `${file}.mjs`
   const pinned = canonicalPath(options.cli)
@@ -167,16 +183,96 @@ export function managedCli(options: { root: string; cli: string; home: string; b
     })()
     if (samePath || sameInode) throw new Error('Managed CLI self-reference: select the installed LayerFS binary instead of the managed CLI entry point')
   }
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  const standIn = !!options.callLog && !options.native
+  const outputs = options.callLog ? outputsDir(options.callLog) : null
   mkdirSync(join(options.root, 'agent-bin'), { recursive: true })
-  const body = `#!${process.execPath}\nimport {spawn} from 'node:child_process';\nimport {writeFileSync,renameSync} from 'node:fs';\nimport {randomUUID} from 'node:crypto';\nconst savedVersions = ${savedVersions.toString()};\nconst operationArguments = ${operationArguments.toString()};\nconst firstPositional = ${firstPositional.toString()};\nconst invocationProject = ${invocationProject.toString()};\nconst config=${JSON.stringify({ ...options, directory })};\nlet identity; try { identity=JSON.parse(process.env.DSH_LAYERFS_TRACE_CONTEXT || 'null') } catch {}\nconst argv=process.argv.slice(2), operation=argv.slice(0,2).join('.').replaceAll('-','_'), id=randomUUID(), startedAt=Date.now();\nconst project=invocationProject(argv), projectScoped=['file','branch'].includes(argv[0]), workspaceCommit=operation==='workspace.commit', workspaceKnown=!workspaceCommit||!!identity?.workspace&&firstPositional(argv)===identity.workspace, targetKnown=workspaceKnown&&(!projectScoped||!!project);\nlet stdout='', overflow=false, spawnError=false;\nconst child=spawn(config.cli,argv,{stdio:['inherit','pipe','pipe'],env:{...process.env,LAYERFS_HOME:config.home,...(config.bundle?{LAYERFS_BUNDLE:config.bundle}:{}),...(config.cacheHome?{XDG_CACHE_HOME:config.cacheHome}:{})}});\nchild.stdout.on('data',chunk=>{if(!process.stdout.write(chunk))child.stdout.pause();if(stdout.length+chunk.length<4194304)stdout+=chunk.toString();else overflow=true});\nprocess.stdout.on('drain',()=>child.stdout.resume());\nchild.stderr.on('data',chunk=>{if(!process.stderr.write(chunk))child.stderr.pause()});\nprocess.stderr.on('drain',()=>child.stderr.resume());\nfor(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>child.kill(signal));\nchild.on('error',()=>{spawnError=true});\nchild.on('close',(code,signal)=>{\n if(identity && typeof identity.sessionId==='string' && typeof identity.project==='string'){\n  let result,valid=false;\n  if(!overflow)try{const frames=stdout.trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line));\n   if(argv.includes('--events')){const finals=frames.filter(frame=>Object.hasOwn(frame,'result'));if(finals.length===1){result=finals[0].result;valid=true}}\n   else if(frames.length===1){result=frames[0];valid=true}\n  }catch{}\n  const completed=code===0&&!signal&&!spawnError;\n  const eligible=['file.write','file.edit','file.apply','file.rm','file.mkdir','file.mv','file.cp','workspace.commit','branch.fork','branch.merge','branch.publish'].includes(operation);\n  const success=completed&&(valid||!eligible);\n  const receipt={id,origin:identity.origin==='tool'?'tool':'host',sessionId:identity.sessionId,project:!workspaceKnown?'':projectScoped?(project||''):identity.project,...(!targetKnown?{captureGap:workspaceKnown?'target-project-unconfirmed':'target-workspace-unconfirmed'}:completed&&!valid&&eligible?{captureGap:'structured-result-unavailable'}:{}),...(Number.isInteger(identity.turn)?{turn:identity.turn}:{}),...(typeof identity.toolCallId==='string'?{toolCallId:identity.toolCallId}:{}),source:'cli',operation,arguments:operationArguments(argv),startedAt,finishedAt:Date.now(),outcome:success?'success':code===125?'refusal':'unknown',versions:success&&targetKnown&&!identity.internal?savedVersions(operation,result):[]};\n  try{const path=config.directory+'/'+id+'.json';writeFileSync(path+'.tmp',JSON.stringify(receipt),{mode:0o600});renameSync(path+'.tmp',path)}catch{process.stderr.write('LayerFS invocation receipt could not be recorded\\n')}\n }\n if(signal){process.removeAllListeners(signal);process.kill(process.pid,signal)}else process.exitCode=code??1;\n});\n`
+  if (options.callLog) mkdirSync(dirname(options.callLog), { recursive: true, mode: 0o700 })
+  const config = {
+    cli: options.cli, home: options.home, bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null,
+    callLog: standIn ? options.callLog : null, bools: options.bools ?? [], content: options.content ?? CONTENT_CALLS, rotate: options.rotateBytes ?? ROTATE_BYTES,
+    outputs, max: OUTPUT_MAX, bounds: options.outputBounds ?? DEFAULT_BOUNDS,
+  }
+  const prelude = [
+    `#!${process.execPath}`,
+    `import {spawn} from 'node:child_process';`,
+    `import * as fs from 'node:fs';`,
+    `import {randomUUID,createHash} from 'node:crypto';`,
+    `const makeReceipt = ${makeReceipt.toString()};`,
+    `const config=${JSON.stringify(config)};`,
+    `let identity; try { identity=JSON.parse(process.env.DSH_LAYERFS_TRACE_CONTEXT || 'null') } catch {}`,
+    `const argv=process.argv.slice(2);`,
+    `const receipt=identity&&typeof identity.sessionId==='string'&&identity.sessionId?makeReceipt(identity.sessionId,typeof identity.scope==='string'&&/^[a-f0-9]{1,16}$/.test(identity.scope)?identity.scope:undefined,randomUUID().replaceAll('-','')):undefined;`,
+    `const env={...process.env,LAYERFS_HOME:config.home,...(config.bundle?{LAYERFS_BUNDLE:config.bundle}:{}),...(config.cacheHome?{XDG_CACHE_HOME:config.cacheHome}:{})};`,
+    `delete env.LAYERFS_LOGS_TAG; if(receipt&&receipt.tag)env.LAYERFS_LOGS_TAG=receipt.tag;`,
+    `const finish=(code,signal)=>{if(signal){process.removeAllListeners(signal);process.kill(process.pid,signal)}else process.exitCode=code??1};`,
+    `const logged=argv.length>=2&&/^[a-z][a-z_]*$/.test(argv[0])&&/^[a-z][a-z_-]*$/.test(argv[1])&&argv[0]!=='help'&&argv[0]!=='logs';`,
+    `const capture=!!(config.outputs&&logged&&receipt&&receipt.tag);`,
+  ]
+  const passthrough = [
+    `const child=spawn(config.cli,argv,{stdio:'inherit',env});`,
+    `for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>child.kill(signal));`,
+    `child.on('error',()=>{process.stderr.write('The LayerFS CLI could not be started\\n');process.exitCode=127});`,
+    `child.on('close',finish);`,
+  ]
+  // Piped: a stand-in line or a tagged call's output needs the child's streams.
+  const piping = [
+    `const renderCall = ${renderCall.toString()};`,
+    `const savedFields = ${savedFields.toString()};`,
+    `const appendCallLine = ${appendCallLine.toString()};`,
+    `const outputSink = ${outputSink.toString()};`,
+    `const outputRecord = ${outputRecord.toString()};`,
+    `const outputName = ${outputName.toString()};`,
+    `const writeOutput = ${writeOutput.toString()};`,
+    `const operation=(argv[0]??'')+'.'+(argv[1]??'').replaceAll('-','_');`,
+    `const piped=logged&&config.content.includes(operation)&&!argv.some(word=>word==='--from'||word.startsWith('--from='));`,
+    `const at=Date.now(),started=performance.now();`,
+    `let stdout='',stderr='',overflow=false,spawnError=false,inputBytes=0;`,
+    `const sinks=capture?{stdout:outputSink(config.max,'head'),stderr:outputSink(config.max,'tail')}:undefined;`,
+    `const child=spawn(config.cli,argv,{stdio:[piped?'pipe':'inherit','pipe','pipe'],env});`,
+    `if(piped){child.stdin.on('error',()=>{});process.stdin.on('data',chunk=>{inputBytes+=chunk.length;if(!child.stdin.write(chunk))process.stdin.pause()});child.stdin.on('drain',()=>process.stdin.resume());process.stdin.on('end',()=>child.stdin.end());process.stdin.on('error',()=>child.stdin.end())}`,
+    `child.stdout.on('data',chunk=>{if(!process.stdout.write(chunk))child.stdout.pause();if(sinks)sinks.stdout.push(chunk);if(!config.callLog)return;if(stdout.length+chunk.length<4194304)stdout+=chunk.toString();else overflow=true});`,
+    `process.stdout.on('drain',()=>child.stdout.resume());`,
+    `child.stderr.on('data',chunk=>{if(!process.stderr.write(chunk))child.stderr.pause();if(sinks)sinks.stderr.push(chunk);if(stderr.length<65536)stderr+=chunk.toString()});`,
+    `process.stderr.on('drain',()=>child.stderr.resume());`,
+    `for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>child.kill(signal));`,
+    `child.on('error',()=>{spawnError=true;process.stderr.write('The LayerFS CLI could not be started\\n');process.exitCode=127});`,
+    `child.on('close',(code,signal)=>{`,
+    ` if(piped)process.stdin.destroy();`,
+    ` if(spawnError){process.exitCode=127;return}`,
+    ` if(logged&&code!==2&&(capture||config.callLog)){`,
+    `  let result,valid=false,refusal;`,
+    `  if(config.callLog&&!overflow)try{const frames=stdout.trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line));`,
+    `   if(argv.includes('--events')){const finals=frames.filter(frame=>frame&&(Object.hasOwn(frame,'result')||Object.hasOwn(frame,'refusal')));if(finals.length===1){result=finals[0].result;refusal=finals[0].refusal;valid=!refusal}}`,
+    `   else if(frames.length===1){result=frames[0];valid=true}`,
+    `  }catch{}`,
+    `  if(!refusal)for(const line of stderr.trim().split('\\n').reverse()){try{const frame=JSON.parse(line);if(frame&&typeof frame.code==='string'){refusal=frame;break}}catch{}}`,
+    // The output first, so a page reloading on the new line already sees it.
+    `  if(capture)writeOutput(fs,config.outputs,outputName(createHash,receipt.tag),outputRecord({tag:receipt.tag,exit:signal?null:code,stdout:sinks.stdout,stderr:sinks.stderr,refusal,max:config.max}),config.bounds);`,
+    `  if(config.callLog){`,
+    `   const outcome=signal||(code!==0&&code!==125)?'Unknown':code===125?(refusal&&typeof refusal.code==='string'&&refusal.code.length<=64?refusal.code:'Failed'):'ok';`,
+    `   const words=renderCall(argv,piped?inputBytes:null,config.bools);`,
+    `   appendCallLine(fs,config.callLog,{v:1,at,ms:Math.max(0,Math.round(performance.now()-started)),client:'cli',argv:words,outcome,...(outcome==='ok'&&valid?savedFields(words,result):{}),...(receipt&&receipt.tag?{tag:receipt.tag}:{})},config.rotate);`,
+    `  }`,
+    ` }`,
+    ` finish(code,signal);`,
+    `});`,
+  ]
+  // Native mode spawns and pipes too (never exec) whenever the call is tagged, to capture it.
+  const body = [...prelude, `if(config.callLog||capture){`, ...piping, `}else{`, ...passthrough, `}`, ''].join('\n')
   // A .mjs implementation preserves the invoked command's stdin (no heredoc).
   const script = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(implementation)} "$@"\n`
-  if (!existsSync(implementation) || readFileSync(implementation, 'utf8') !== body) writeFileSync(implementation, body, { mode: 0o700 })
-  if (!existsSync(file) || readFileSync(file, 'utf8') !== script) writeFileSync(file, script, { mode: 0o700 })
+  const write = (path: string, text: string) => {
+    if (existsSync(path) && readFileSync(path, 'utf8') === text) return
+    const tmp = `${path}.${process.pid}.tmp`
+    writeFileSync(tmp, text, { mode: 0o700 })
+    renameSync(tmp, path)
+  }
+  write(implementation, body)
+  write(file, script)
   chmodSync(file, 0o700)
   return file
 }
+
 /** Resolve existing aliases and missing output leaves without hiding broken symlinks. */
 function canonicalPath(value: string, depth = 0): string {
   if (depth > 40) throw new Error('The managed CLI path contains a symlink cycle')
@@ -192,24 +288,3 @@ function canonicalPath(value: string, depth = 0): string {
 }
 
 function shellQuote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'` }
-
-/** Remove a spooled receipt only after durable sidecar recording succeeds. */
-const draining = new Map<string, Promise<void>>()
-export async function drainInvocations(root: string, record: (invocation: Invocation) => Promise<void>, sessionId?: string): Promise<void> {
-  const previous = draining.get(root) ?? Promise.resolve()
-  const pending = previous.catch(() => {}).then(() => drainReceipts(root, record, sessionId))
-  draining.set(root, pending)
-  try { await pending } finally { if (draining.get(root) === pending) draining.delete(root) }
-}
-async function drainReceipts(root: string, record: (invocation: Invocation) => Promise<void>, sessionId?: string): Promise<void> {
-  const directory = join(root, 'invocation-receipts')
-  if (!existsSync(directory)) return
-  for (const name of readdirSync(directory)) {
-    if (!/^[a-f0-9-]+\.json$/.test(name)) continue
-    const path = join(directory, name)
-    const receipt = JSON.parse(readFileSync(path, 'utf8')) as Invocation
-    if (sessionId && receipt.sessionId !== sessionId) continue
-    await record(receipt)
-    unlinkSync(path)
-  }
-}

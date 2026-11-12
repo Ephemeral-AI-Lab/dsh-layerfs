@@ -18,7 +18,7 @@ const out = mkdtempSync(join(root, 'lib', '.test-sessions-'))
 await build({
   absWorkingDir: root,
   stdin: {
-    contents: "export * from './src/host/sessions/service.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\n",
+    contents: "export * from './src/host/sessions/service.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\n",
     resolveDir: root,
     loader: 'ts',
   },
@@ -50,6 +50,8 @@ function sessions({ state = S.initialState(), lfs = {}, layerfsRoot = '/lfs-root
   Object.defineProperty(s, 'ctx', { value: ctx })
   Object.defineProperty(s, 'state', { value: { read: () => value, update(fn) { const d = structuredClone(value); value = fn(d) ?? d; return value } } })
   Object.defineProperty(s, 'lanes', { value: new Map() })
+  Object.defineProperty(s, 'storeHealth', { value: new Map() })
+  Object.defineProperty(s, 'serverChecked', { value: new Map() })
   return { s, events, state: () => value }
 }
 
@@ -524,4 +526,251 @@ test('a missing saved checkpoint blocks activation without falling back to proje
   await assert.rejects(f.s.ensureBound({ id: 'history', session: session('history', { cwd: '/scratch' }, ran) }), { code: 'CheckpointUnavailable' })
   assert.deepEqual(calls, [])
   assert.equal(f.state().checkpoints.history[0].commit, 'missing-checkpoint')
+})
+
+test('classifyStore: only down, unresolved, unreachable PostgreSQL and unlisted Stores are unavailable', () => {
+  assert.equal(S.classifyStore({ name: 's', state: 'idle' }).state, 'available')
+  assert.equal(S.classifyStore({ name: 's', state: 'in_use' }).state, 'available')
+  assert.equal(S.classifyStore({ name: 's', state: 'busy', op: { name: 'store.push' } }).state, 'transient')
+  assert.equal(S.classifyStore({ name: 's', state: 'idle', op: { name: 'store.pull' } }).state, 'transient')
+  const down = S.classifyStore({ name: 's', state: 'down' }, { state: 'down', down_reason: 'machine vm: the worker is of another build' })
+  assert.deepEqual(down, { state: 'unavailable', reason: 'machine vm: the worker is of another build' })
+  assert.equal(S.classifyStore({ name: 's', state: 'unresolved' }).state, 'unavailable')
+  assert.equal(S.classifyStore(undefined).state, 'removed')
+  assert.equal(S.classifyStore({ name: 'pg', kind: 'postgresql', state: 'idle' }, { state: 'idle', server: { reachable: false, error: 'connection refused' } }).state, 'unavailable')
+  assert.equal(S.classifyStore({ name: 'pg', kind: 'postgresql', state: 'idle' }, { state: 'idle', server: { reachable: true } }).state, 'available')
+  assert.equal(S.classifyStore({ name: 's', state: 'mystery' }).state, 'unknown')
+})
+
+/** Store health poll fixture: an active owner + its subagent on `st`, another active session on `ok`. */
+function polled(stores, statuses = {}) {
+  const state = S.initialState()
+  state.sessions.owner = { sessionId: 'owner', kind: 'project', project: 'st/app', machine: 'vm', sandbox: 'box', branch: 'dsh.owner', ws: 'box:main', mount: '/m', scratch: '/scratch', anchor: '/anchor', state: 'bound', executionState: 'active' }
+  state.sessions.child = { sessionId: 'child', kind: 'shared', project: 'st/app', parent: 'owner', mount: '/m', scratch: '/scratch', anchor: '/anchor', state: 'bound', executionState: 'active' }
+  state.sessions.calm = { sessionId: 'calm', kind: 'project', project: 'ok/app', machine: 'native', sandbox: 'calm-box', ws: 'calm-box:main', scratch: '/s2', anchor: '/a2', state: 'bound', executionState: 'active' }
+  state.checkpoints.owner = [{ commit: 'saved', branch: 'dsh.owner' }]
+  const calls = []
+  const f = sessions({ state, lfs: {
+    store: {
+      list: async () => { calls.push('list'); if (stores instanceof Error) throw stores; return { items: stores() } },
+      status: async (name) => { calls.push(`status:${name}`); return statuses[name]?.() ?? { state: 'idle' } },
+    },
+    workspace: { mount: async () => { calls.push('mount') } }, sandbox: { create: async () => { calls.push('create') }, close: async () => { calls.push('close') } },
+  } })
+  return { ...f, calls }
+}
+
+test('the availability poll deactivates active conversations whose Store went down, keeping history and the retained branch', async () => {
+  let down = true
+  const f = polled(() => [{ name: 'st', kind: 'sqlite', state: down ? 'down' : 'idle' }, { name: 'ok', kind: 'sqlite', state: 'idle' }],
+    { st: () => ({ state: 'down', down_reason: 'machine vm: the worker is of another build' }) })
+  assert.equal(f.s.watchesAvailability(), true)
+  await f.s.refreshAvailability()
+  await f.s.settled('owner')
+  for (const id of ['owner', 'child']) {
+    const b = f.state().sessions[id]
+    assert.equal(b.state, 'closed')
+    assert.equal(b.executionState, 'interrupted')
+    assert.equal(b.mount, undefined)
+    assert.equal(b.ws, undefined)
+    assert.equal(b.interruption.kind, 'availability')
+    assert.match(b.error, /another build/)
+  }
+  assert.equal(f.state().sessions.owner.sandbox, 'box', 'the Sandbox name is kept so the next message re-mounts it')
+  assert.equal(f.state().sessions.owner.branch, 'dsh.owner')
+  assert.deepEqual(f.state().checkpoints.owner, [{ commit: 'saved', branch: 'dsh.owner' }])
+  assert.equal(f.state().sessions.calm.state, 'bound', 'other Stores are untouched')
+  assert.ok(f.events.some((e) => e.type === 'layerfs-availability' && e.data.stores.st.state === 'unavailable'))
+  assert.ok(!f.calls.includes('mount') && !f.calls.includes('create') && !f.calls.includes('close'), 'polling never starts, mounts or closes anything')
+  // Access returns: the error clears, execution stays interrupted until a new message.
+  down = false
+  await f.s.refreshAvailability()
+  const after = f.state().sessions.owner
+  assert.equal(after.error, undefined)
+  assert.equal(after.executionState, 'interrupted')
+  assert.equal(after.state, 'closed')
+  assert.ok(!f.calls.includes('mount'))
+  assert.equal(f.s.availability().st.state, 'available')
+})
+
+test('the availability poll never deactivates on a busy Store, an unknown state or a failed list', async () => {
+  const busy = polled(() => [{ name: 'st', state: 'busy', op: { name: 'store.push' } }, { name: 'ok', state: 'mystery' }])
+  await busy.s.refreshAvailability()
+  assert.equal(busy.state().sessions.owner.state, 'bound')
+  assert.equal(busy.state().sessions.calm.state, 'bound')
+  const offline = polled(Object.assign(new Error('cli gone'), { code: 'Unavailable' }))
+  await offline.s.refreshAvailability()
+  assert.equal(offline.state().sessions.owner.state, 'bound')
+})
+
+test('a removed Store and an unreachable PostgreSQL server deactivate their conversations', async () => {
+  const removed = polled(() => [{ name: 'ok', state: 'idle' }])
+  await removed.s.refreshAvailability()
+  await removed.s.settled('owner')
+  assert.equal(removed.state().sessions.owner.executionState, 'interrupted')
+  assert.match(removed.state().sessions.owner.error, /no longer listed/)
+  const pg = polled(() => [{ name: 'st', kind: 'postgresql', state: 'idle' }, { name: 'ok', state: 'idle' }],
+    { st: () => ({ state: 'idle', server: { reachable: false, error: 'connection refused' } }) })
+  await pg.s.refreshAvailability()
+  await pg.s.settled('owner')
+  assert.equal(pg.state().sessions.owner.executionState, 'interrupted')
+  assert.match(pg.state().sessions.owner.error, /PostgreSQL server of Store st did not answer: connection refused/)
+  assert.ok(pg.calls.includes('status:st'))
+})
+
+test('a tool call never re-activates an interrupted context mid-turn; only a new message does', async () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'st/p', machine: 'vm', sandbox: 'box', branch: 'b', scratch: '/scratch', anchor: '/anchor', state: 'closed', executionState: 'interrupted', error: 'Store down', interruption: { kind: 'availability', at: 1 } }
+  const calls = []
+  const f = sessions({ state, lfs: { sandbox: { create: async () => { calls.push('create') } }, workspace: { mount: async () => { calls.push('mount') } } } })
+  f.s.ctx.get = () => undefined
+  await assert.rejects(f.s.ensureBound({ id: 'live', session: session('live', { cwd: '/scratch' }, ran) }, { rebind: false }), (error) => error.code === 'Unavailable' && /Store down/.test(error.message))
+  assert.deepEqual(calls, [])
+})
+
+test('pgMachineOf: the preferred attached machine, else native, else the first checked, else none', () => {
+  const store = (machines) => ({ name: 'pg', kind: 'postgresql', machines })
+  // a CLI before attachments: no machines field
+  assert.equal(S.pgMachineOf({ name: 'pg', kind: 'postgresql' }), 'native')
+  assert.equal(S.pgMachineOf({ name: 'pg', kind: 'postgresql' }, 'docker'), 'docker')
+  assert.equal(S.pgMachineOf(store({ native: {}, docker: { checked: {} } }), 'docker'), 'docker')
+  assert.equal(S.pgMachineOf(store({ native: {}, docker: { checked: {} } }), 'lima1'), 'native')
+  assert.equal(S.pgMachineOf(store({ vm1: {}, docker: { checked: {} } })), 'docker')
+  assert.equal(S.pgMachineOf(store({ vm1: {} })), 'vm1')
+  assert.equal(S.pgMachineOf(store({})), null)
+})
+
+test('Presets Reset deletes this home\'s project sessions only; loaded ones are archived with activity stopped first', async () => {
+  const state = S.initialState()
+  state.sessions.bound = { sessionId: 'bound', kind: 'project', project: 'demo/app', sandbox: 'dsh-bound', anchor: '/a', scratch: '/s', state: 'bound' }
+  state.sessions.child = { sessionId: 'child', kind: 'shared', project: 'demo/app', parent: 'bound', anchor: '/a', scratch: '/s', state: 'bound' }
+  state.sessions.folder = { sessionId: 'folder', kind: 'project', project: 'other/app', anchor: '/a', scratch: '/s', state: 'closed' }
+  state.pending.draft = { project: 'demo/app' }
+  state.checkpoints.bound = [{ commit: 'c1' }]
+  state.mirror.bound = { count: 3, project: 'demo/app', branch: 'dsh.session.bound' }
+  state.projects['demo/app'] = { project: 'demo/app', anchor: '/a', createdAt: 1 }
+  const closed = [], archived = [], deleted = [], forgotten = []
+  const f = sessions({ state, lfs: { sandbox: { close: async (name, options) => { closed.push([name, options]) } } } })
+  // Owner routes: one in this home's Store, one in a same-named Store of another home (other Store ID).
+  const owners = { bound: { project: 'demo/app', storeId: 'here' }, archivedOnly: { project: 'demo/old', storeId: 'here' }, foreign: { project: 'demo/app', storeId: 'elsewhere' } }
+  const persistence = {
+    ownedSessionIds: () => Object.keys(owners),
+    ownerOf: (id) => owners[id] && { project: owners[id].project },
+    storeIdOf: (id) => owners[id]?.storeId,
+    deleteSessions: async (ids) => { deleted.push(...ids); return ids },
+  }
+  Object.assign(f.s.ctx, {
+    get: (name) => (name === 'sessionPersistence' ? persistence : undefined),
+    sessions: { get: (id) => (id === 'bound' ? { id } : undefined) },
+    workspaceRegistry: { archiveSession: async (id, options) => { archived.push([id, options]) } },
+  })
+  Object.defineProperty(f.s, 'store', { value: { forget: (id) => forgotten.push(id) } })
+  const stores = [{ name: 'demo', id: 'here' }]
+  const listed = f.s.projectConversations(stores).map((c) => c.id)
+  assert.deepEqual(listed.sort(), ['archivedOnly', 'bound', 'child', 'draft'])
+  assert.deepEqual(f.s.projectConversations([{ name: 'demo' }]).map((c) => c.id).sort(), ['archivedOnly', 'bound', 'child', 'draft', 'foreign'], 'without a Store ID the name decides')
+  const ids = await f.s.deleteProjectConversations(stores)
+  assert.deepEqual(ids.sort(), ['archivedOnly', 'bound', 'child', 'draft'])
+  assert.deepEqual(archived, [['bound', { stopActivity: true }]], 'only the loaded session is archived, with its activity stopped')
+  assert.deepEqual(closed, [['dsh-bound', { force: true }]])
+  assert.deepEqual(deleted.sort(), ids.sort())
+  assert.deepEqual(forgotten.sort(), ids.sort())
+  assert.deepEqual(Object.keys(f.state().sessions), ['folder'], 'another Store\'s binding stays')
+  assert.deepEqual(f.state().pending, {})
+  assert.deepEqual(f.state().checkpoints, {})
+  assert.deepEqual(f.state().mirror, {})
+  assert.deepEqual(Object.keys(f.state().projects), ['demo/app'], 'project workspaces are not this step\'s to drop')
+  assert.ok(f.events.some((e) => e.type === 'layerfs-workspaces-changed' && e.data.project === 'demo/app'))
+})
+
+// ---------------------------------------------------------------- checkpoint receipts
+
+const hex = (c) => c.repeat(66)
+/** A fake lfs whose calls go through the real trace path (receipt id + log tag). */
+function traced(operation, answer, tags, target) {
+  return (...args) => S.tracing.traceInvocation(operation, async (tag) => { tags.push(tag); return answer(...args) }, undefined, target?.(...args))
+}
+function receiptFixture(lfs, state) {
+  const recorded = []
+  const f = sessions({ state, lfs })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? { recordInvocation: async (row) => { recorded.push(row) }, updateSidecar: async () => {} } : undefined
+  return { ...f, recorded }
+}
+const boundState = (extra = {}) => {
+  const state = S.initialState()
+  state.sessions.a = { sessionId: 'a', kind: 'project', project: 'st/app', state: 'bound', ws: 'sb:main', sandbox: 'sb', branch: 'internal', ...extra }
+  return state
+}
+
+test('a turn-end save carries its receipt; UpToDate binds as unchanged; a refused save keeps the refusal receipt', async () => {
+  const tags = []
+  let answer = { kind: 'Committed', commit: { id: hex('a') } }
+  const { s, recorded } = receiptFixture({ workspace: {
+    status: async () => ({ overlay: { entries: 2 } }),
+    commit: traced('workspace.commit', () => { if (answer instanceof Error) throw answer; return answer }, tags, (ws) => ws),
+  } }, boundState())
+  const saved = await s.checkpoint('a', 'turn', 1, 'dsh turn 1')
+  assert.equal(saved.commit, hex('a')); assert.equal(saved.changed, 2)
+  assert.equal(saved.receipt, recorded[0].id)
+  assert.equal(tags[0], `dsh:a:${saved.receipt}`, 'tagged with the owning session id')
+  assert.deepEqual(recorded[0].versions, [{ kind: 'Commit', id: hex('a'), effect: 'created' }])
+  answer = { kind: 'UpToDate', head: hex('a') }
+  const same = await s.checkpoint('a', 'manual', 1, 'Checkpoint')
+  assert.equal(same.changed, 0); assert.equal(same.commit, hex('a')); assert.equal(same.receipt, recorded[1].id)
+  assert.notEqual(same.receipt, saved.receipt)
+  answer = Object.assign(new Refusal('Conflict', 'markers'), { transport: 'refusal' })
+  const failed = await s.checkpoint('a', 'manual', 1, 'Checkpoint')
+  assert.equal(failed.commit, null); assert.equal(failed.error.code, 'Conflict'); assert.equal(failed.receipt, recorded[2].id)
+  assert.equal(recorded[2].outcome, 'refusal')
+  assert.deepEqual(s.checkpoints('a').map((c) => c.receipt), recorded.map((r) => r.id))
+})
+
+test('a restore checkpoint carries the successful fork receipt', async () => {
+  const tags = []
+  const state = boundState()
+  state.checkpoints.a = [{ kind: 'turn', turn: 1, seq: 3, endSeq: 4, commit: hex('c'), branch: 'gone-branch', changed: 1, message: 't1', at: 1 }]
+  const { s, recorded } = receiptFixture({
+    workspace: {
+      status: async () => ({ overlay: { entries: 0 } }),
+      commit: traced('workspace.commit', () => ({ kind: 'UpToDate', head: hex('c') }), tags, (ws) => ws),
+      unmount: async () => ({}), mount: async () => ({ ws: 'sb:main', path: '/mnt' }),
+    },
+    branch: { fork: traced('branch.fork', (project, branch, from) => { if (from !== 'main') throw new Refusal('NotFound'); return { kind: 'Forked', head: hex('c') } }, tags) },
+    sandbox: { get: async () => ({ state: 'running', workspaces: [] }) },
+  }, state)
+  await s.restore('a', hex('c'))
+  const restore = s.checkpoints('a').at(-1)
+  assert.equal(restore.kind, 'restore')
+  const forks = recorded.filter((r) => r.operation === 'branch.fork')
+  assert.equal(forks.length, 2); assert.equal(forks[1].outcome, 'success')
+  assert.equal(restore.receipt, forks[1].id)
+  assert.deepEqual(forks[1].versions, [{ kind: 'Commit', id: hex('c'), effect: 'referenced' }])
+  assert.ok(tags.includes(`dsh:a:${restore.receipt}`))
+})
+
+test('a branched child base checkpoint carries the fork receipt, tagged with the child session', async () => {
+  const tags = []
+  const state = boundState()
+  state.checkpoints.a = [{ kind: 'turn', turn: 1, seq: 3, endSeq: 4, commit: hex('d'), branch: 'internal', changed: 1, message: 't1', at: 1 }]
+  state.sessions.child = { sessionId: 'child', kind: 'project', project: 'st/app', state: 'bound', ws: 'sbc:main', sandbox: 'sbc', branch: 'first' }
+  const { s, recorded } = receiptFixture({
+    workspace: { unmount: async () => ({}), mount: async () => ({ ws: 'sbc:main', path: '/mnt' }) },
+    branch: { fork: traced('branch.fork', () => ({ kind: 'Forked', head: hex('d') }), tags) },
+    sandbox: { get: async () => ({ state: 'running', workspaces: [] }) },
+  }, state)
+  const persistence = s.ctx.get('sessionPersistence')
+  s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : name === 'sessionController' ? { fork: async () => ({ sessionId: 'child' }) } : undefined
+  await s.branchAt('a', hex('d'), 1)
+  const [baseCheckpoint] = s.checkpoints('child')
+  assert.equal(baseCheckpoint.kind, 'base')
+  assert.equal(recorded.length, 1); assert.equal(recorded[0].sessionId, 'child')
+  assert.equal(baseCheckpoint.receipt, recorded[0].id)
+  assert.equal(tags[0], `dsh:child:${baseCheckpoint.receipt}`)
+})
+
+test('archive writes stay untagged and record no receipt', async () => {
+  const recorded = [], tags = []
+  await S.tracing.withTraceContext({ origin: 'host', sessionId: 'a', project: 'st/app', record: async (row) => { recorded.push(row) } }, () =>
+    S.tracing.withoutTraceContext(() => S.tracing.traceInvocation('file.apply', async (tag) => { tags.push(tag); return { kind: 'Committed', head: hex('e') } })))
+  assert.deepEqual(tags, [undefined]); assert.deepEqual(recorded, [])
 })

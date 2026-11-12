@@ -8,7 +8,7 @@ import clsx from 'clsx'
 import { Button, DiffBlock, FileTypeIcon, Tag, type DiffHunk, type TagTone } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
-import { codeLabels } from './FileViewer.tsx'
+import { codeLabels } from './labels.ts'
 import { bytes, shortId } from './format.ts'
 import { EmptyState, ErrorState, Loading } from './States.tsx'
 import type { DiffRow, FileDiffResult, Translate } from './types.ts'
@@ -109,10 +109,33 @@ export function CommitDiff({ api, project, branch, commit, from, t, onOpenFile, 
   )
 }
 
-function PathDiff({ api, project, branch, path, left, right, kind, t, onOpenFile }: { api: LayerfsApi, project: string, branch: string, path: string, left: string, right: string, kind: string, t: Translate, onOpenFile: CommitDiffProps['onOpenFile'] }): ReactNode {
-  const diff = useQuery<FileDiffResult>(() => filesApi.fileDiff(api, project, branch, path, left, right), [api, project, branch, path, left, right])
+export interface PathDiffProps {
+  api: LayerfsApi
+  project: string
+  /** The Branch `right` is saved on. */
+  branch: string
+  path: string
+  /** The saved id to compare from. */
+  left: string
+  /** The saved id to compare to. */
+  right: string
+  /** The Branch `left` is saved on (default `branch`). */
+  leftBranch?: string | undefined
+  /** The change kind, when the caller knows it (Added, Removed, Modified). */
+  kind: string
+  t: Translate
+  onOpenFile?: ((path: string, pin: string) => void) | undefined
+  /** Also list the unchanged lines whose owner changed. */
+  attribution?: boolean | undefined
+  /** Replaces the default path header. */
+  header?: ReactNode
+}
+
+/** One path's change between two saved versions, possibly on different Branches. */
+export function PathDiff({ api, project, branch, path, left, right, leftBranch, kind, t, onOpenFile, attribution = false, header }: PathDiffProps): ReactNode {
+  const diff = useQuery<FileDiffResult>(() => filesApi.fileDiff(api, project, branch, path, left, right, leftBranch, attribution), [api, project, branch, path, left, right, leftBranch, attribution])
   const removed = /del|remov/i.test(kind)
-  const head = (
+  const head = header ?? (
     <div className={css.diffHead}>
       <span className={css.diffPath} title={path}>{path}</span>
       {onOpenFile && !removed ? <Button variant="outline" size="sm" onClick={() => onOpenFile(path, right)}>{t('files_openAtCommit')}</Button> : null}
@@ -126,14 +149,41 @@ function PathDiff({ api, project, branch, path, left, right, kind, t, onOpenFile
   if (!rows.length && (r.before?.size != null || r.after?.size != null) && r.content_coverage?.status !== 'complete') {
     return <>{head}<EmptyState title={t('files_diffBinary', { before: bytes(r.before?.size ?? 0), after: bytes(r.after?.size ?? 0) })} /></>
   }
-  if (!rows.some((row) => row.op !== ' ')) return <>{head}<EmptyState title={t('files_diffNoContent')}>{t('files_diffNoContentBody')}</EmptyState></>
+  const owners = attribution ? <OwnerChanges rows={rows} result={r} t={t} /> : null
+  if (!rows.some((row) => row.op !== ' ')) {
+    return <>{head}{owners}{owners ? null : <EmptyState title={r.changes?.metadata && !r.changes.content ? t('files_metadataOnly') : t('files_diffNoContent')}>{t('files_diffNoContentBody')}</EmptyState>}</>
+  }
   const added = !r.before || /add|creat|new/i.test(kind)
   const hunks = hunksOf(path, rows, added)
   return (
     <>
       {head}
+      {owners}
       <DiffBlock className={css.diffBlock} diffs={hunks} labels={codeLabels(t)} maxLines={Math.max(rows.length + 1, 16)} />
       {r.has_more ? <p className={css.fileNote}>{t('files_diffMore')}</p> : null}
     </>
+  )
+}
+
+/** The unchanged lines whose owner changed: text alone cannot show them. */
+function OwnerChanges({ rows, result, t }: { rows: readonly DiffRow[], result: FileDiffResult, t: Translate }): ReactNode {
+  const changed = rows.filter((row) => row.op === ' ' && row.owner_changed)
+  const partial = result.attribution_coverage?.status && result.attribution_coverage.status !== 'complete'
+  return (
+    <div className={css.owners}>
+      <p className={css.ownersHead}>{changed.length ? t('files_ownerChanged', { count: changed.length }) : t('files_ownerChangedNone')}</p>
+      {changed.length ? (
+        <ul className={css.ownerRows}>
+          {changed.slice(0, 200).map((row) => (
+            <li key={`${row.left_line}:${row.right_line}`} className={css.ownerRow}>
+              <span className={css.ownerLine}>{row.right_line}</span>
+              <code className={css.ownerIds} title={`${row.before_owner?.message ?? ''} → ${row.after_owner?.message ?? ''}`}>{shortId(row.before_owner?.ref.id)} → {shortId(row.after_owner?.ref.id)}</code>
+              <code className={css.ownerText}>{row.text.replace(/\r?\n$/, '') || ' '}</code>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {partial ? <p className={css.fileNote}>{t('files_compareOwnersUnknown')}</p> : null}
+    </div>
   )
 }

@@ -3,12 +3,21 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path'
 import { CliError, pages, type Lfs } from '../layerfs/cli.ts'
 
+/**
+ * A project's permanent identity: a UUID this plugin mints and keeps inside the
+ * project itself, as the branch `dsh.project.<uuid>` (docs/specs/project-sessions.md,
+ * "Project identity"). LayerFS has no project id, and its `store stats` reports no
+ * Store identity, so the branch is the identity: it travels with the project's
+ * history (Store move, push/pull, backup and restore), while a project recreated
+ * under the same name has none or another one.
+ */
 export interface ProjectIdentity {
+  /** The UUID. */
   id: string
-  storeId: string
-  storeGeneration: string
   name: string
   created: number
+  /** Store identity, kept only on rows recorded by older builds. */
+  storeId?: string
 }
 export interface CatalogProject {
   projectId: string
@@ -27,16 +36,25 @@ export interface CatalogProject {
 
 export const identityHash = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 
-/** SDK project names have no UUID. The creation stamp identifies an incarnation
- * within the opaque Store identity/generation. Machine and home are excluded. */
-export function projectIdentity(info: any, stats: any): ProjectIdentity {
-  if (!stats?.store_id || stats.store_generation == null || !Number.isFinite(info?.created)) {
-    throw new CliError('IdentityUnavailable', 'Store identity and project creation metadata are required before attaching conversation history')
-  }
-  const name = info.name ?? String(info.project).split('/')[1]
-  const storeGeneration = String(stats.store_generation)
-  return { id: identityHash([stats.store_id, storeGeneration, name, info.created]), storeId: stats.store_id, storeGeneration, name, created: info.created }
+export const PROJECT_BRANCH_PREFIX = 'dsh.project.'
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+/** Rows of a project nobody has claimed yet carry this id until a conversation attaches. */
+export const UNCLAIMED = 'unclaimed:'
+
+export const identityBranch = (id: string): string => `${PROJECT_BRANCH_PREFIX}${id}`
+
+/**
+ * The UUID among a project's branch names. Two installations claiming at once
+ * can leave two identity branches; the smallest UUID wins everywhere, so they agree.
+ */
+export function uuidOfBranches(names: readonly string[]): string | null {
+  const ids = names.filter((name) => name.startsWith(PROJECT_BRANCH_PREFIX))
+    .map((name) => name.slice(PROJECT_BRANCH_PREFIX.length)).filter((id) => UUID.test(id)).sort()
+  return ids[0] ?? null
 }
+
+const keyOf = (info: any): string => info.project ?? `${info.store}/${info.name}`
+const changed = () => new CliError('ProjectIdentityChanged', 'This name now refers to another project. The original conversation remains available; recover its original project before continuing.')
 
 /** Durable inventory, independent of the current live LayerFS listing. */
 export class ProjectCatalog {
@@ -62,21 +80,68 @@ export class ProjectCatalog {
     this.write(all)
     return row
   }
-  observe(info: any, stats: any): CatalogProject {
-    const identity = projectIdentity(info, stats)
-    const key = info.project ?? `${info.store}/${info.name}`
-    return this.remember({ projectId: identity.id, identity, key, name: identity.name, store: info.store ?? key.split('/')[0],
-      kind: info.kind ?? null, machine: info.machine ?? null, created: identity.created, lastSeen: Date.now() })
+
+  /** The UUID on the project's branches, or null when it has none. */
+  async uuidOf(project: string): Promise<string | null> {
+    const branches = await pages((paging) => this.lfs().branch.list(project, paging))
+    return uuidOfBranches(branches.map((b: any) => String(b?.name ?? b)))
   }
-  async resolve(project: string): Promise<CatalogProject> {
-    const [info, stats] = await Promise.all([this.lfs().project.get(project), this.lfs().store.stats(project.split('/')[0])])
-    return this.observe(info, stats)
+
+  /**
+   * The project's UUID, minting it (forking `dsh.project.<uuid>` from main) when
+   * `claim` and the project has none. A lost race reads back the winner.
+   */
+  async identify(project: string, claim: boolean): Promise<string | null> {
+    const found = await this.uuidOf(project)
+    if (found || !claim) return found
+    const id = randomUUID()
+    try { await this.lfs().branch.fork(project, identityBranch(id), 'main') } catch (error) {
+      const winner = await this.uuidOf(project).catch(() => null)
+      if (winner) return winner
+      throw error
+    }
+    return (await this.uuidOf(project)) ?? id
   }
+
+  private observe(info: any, id: string): CatalogProject {
+    const key = keyOf(info)
+    const name = info.name ?? key.split('/')[1]
+    return this.remember({ projectId: id, identity: { id, name, created: info.created }, key, name, store: info.store ?? key.split('/')[0],
+      kind: info.kind ?? null, machine: info.machine ?? null, created: info.created ?? null, lastSeen: Date.now() })
+  }
+
+  /**
+   * The live project at `project` with its UUID. `claim` (default) mints one for
+   * a project nobody has claimed; without it an unclaimed project is refused.
+   */
+  async resolve(project: string, { claim = true }: { claim?: boolean } = {}): Promise<CatalogProject> {
+    const info = await this.lfs().project.get(project)
+    const id = await this.identify(project, claim)
+    if (!id) throw changed()
+    return this.observe(info, id)
+  }
+
+  /**
+   * The project at `project` must still be `expected`. An `unclaimed:` id from a
+   * listing is honoured by claiming the project, unless someone claimed it since.
+   */
   async assert(project: string, expected: string): Promise<CatalogProject> {
-    const live = await this.resolve(project)
-    if (live.projectId !== expected) throw new CliError('ProjectIdentityChanged', 'This name now refers to another Store or project. The original conversation remains available; recover its original project before continuing.')
+    if (expected.startsWith(UNCLAIMED)) {
+      const live = await this.resolve(project)
+      if (expected !== `${UNCLAIMED}${project}` && expected !== live.projectId) throw changed()
+      return live
+    }
+    const live = await this.resolve(project, { claim: false }).catch((error: any) => { throw error?.code === 'ProjectIdentityChanged' ? changed() : error })
+    if (live.projectId !== expected) throw changed()
     return live
   }
+
+  /**
+   * Every live project with its UUID, plus remembered projects that are gone,
+   * moved or replaced. Listing never claims: a project nobody has attached a
+   * conversation to is listed as `unclaimed:<store>/<project>`. A remembered
+   * `(address, created)` pair reuses its UUID without reading branches again.
+   */
   async list(): Promise<CatalogProject[]> {
     const retained = this.retained()
     let live: any[]
@@ -85,42 +150,42 @@ export class ProjectCatalog {
       if (!retained.length) throw error
       return retained.map((row) => ({ ...row, catalogState: 'unavailable', catalogError: String(error?.message ?? error), storeState: null }))
     }
-    const stats = new Map<string, Promise<any>>()
     const statuses = new Map<string, Promise<any>>()
     const rows: CatalogProject[] = []
-    const matched = new Set<string>()
+    const seen = new Map<string, string>()
     for (const info of live) {
-      const key = info.project ?? `${info.store}/${info.name}`
+      const key = keyOf(info)
       const store = info.store ?? key.split('/')[0]
-      if (!stats.has(store)) stats.set(store, this.lfs().store.stats(store).then((value) => ({ value }), (error) => ({ error })))
       if (!statuses.has(store)) statuses.set(store, this.lfs().store.status(store).catch(() => null))
-      const [observation, status] = await Promise.all([stats.get(store)!, statuses.get(store)!])
-      if (observation.error) {
-        const known = retained.filter((row) => row.key === key && row.created === info.created)
-        for (const row of known) {
-          matched.add(row.projectId)
-          rows.push({ ...row, machine: info.machine ?? row.machine, storeState: status?.state ?? null, catalogState: 'unavailable', catalogError: String(observation.error?.message ?? observation.error) })
-        }
-        // An unverified address is visible but cannot acquire conversation ownership.
-        if (!known.length) rows.push({ projectId: `unverified:${key}`, key, name: info.name, store, kind: info.kind, machine: info.machine, created: info.created,
-          lastSeen: Date.now(), storeState: status?.state ?? null, catalogState: 'unavailable', catalogError: String(observation.error?.message ?? observation.error) })
+      const known = retained.find((row) => row.key === key && row.created === info.created && !row.projectId.startsWith(UNCLAIMED))
+      let id: string | null = known?.projectId ?? null
+      let failure: any
+      if (!id) id = await this.uuidOf(key).catch((error) => { failure = error; return null })
+      const storeState = (await statuses.get(store))?.state ?? null
+      const base = { key, name: info.name ?? key.split('/')[1], store, kind: info.kind ?? null, machine: info.machine ?? null, created: info.created ?? null, lastSeen: Date.now(), storeState }
+      if (!id) {
+        rows.push({ ...base, projectId: `${UNCLAIMED}${key}`, catalogState: failure ? 'unavailable' : 'available', ...(failure ? { catalogError: String(failure?.message ?? failure) } : {}) })
         continue
       }
-      const row = this.observe(info, observation.value)
-      matched.add(row.projectId)
-      rows.push({ ...row, catalogState: 'available', storeState: status?.state ?? null })
+      const row = known && known.projectId === id ? { ...known, ...base } : this.observe(info, id)
+      // A restored copy beside its original carries the same UUID: only the first address owns it.
+      if (seen.has(id)) {
+        rows.push({ ...row, ...base, catalogState: 'identity-mismatch', catalogError: `This project carries the same identity as ${seen.get(id)} (a restored copy?). Conversations stay with ${seen.get(id)}.` })
+        continue
+      }
+      seen.set(id, key)
+      rows.push({ ...row, ...base, catalogState: 'available' })
     }
-    for (const row of retained) if (!matched.has(row.projectId)) {
-      const replacement = live.some((info) => (info.project ?? `${info.store}/${info.name}`) === row.key)
-      if (replacement) {
-        rows.push({ ...row, storeState: null, catalogState: 'identity-mismatch', catalogError: 'This name now refers to a different Store or project.' })
+    for (const row of retained) {
+      if (row.projectId.startsWith(UNCLAIMED) || seen.has(row.projectId)) continue
+      const replaced = live.some((info) => keyOf(info) === row.key)
+      if (replaced) {
+        rows.push({ ...row, storeState: null, catalogState: 'identity-mismatch', catalogError: 'This name now refers to a different project.' })
         continue
       }
-      // A successful list is not proof of deletion: verify the specific record.
       try {
-        const verified = await this.resolve(row.key)
-        if (verified.projectId !== row.projectId) rows.push({ ...row, storeState: null, catalogState: 'identity-mismatch', catalogError: 'This name now refers to a different Store or project.' })
-        else rows.push({ ...verified, catalogState: 'available', storeState: (await this.lfs().store.status(row.store).catch(() => null))?.state ?? null })
+        await this.lfs().project.get(row.key)
+        rows.push({ ...row, storeState: null, catalogState: 'identity-mismatch', catalogError: 'This name now refers to a different project.' })
       } catch (error: any) {
         const removed = ['NoSuchStore', 'NoSuchProject', 'NotFound'].includes(error?.code)
         rows.push({ ...row, storeState: null, catalogState: removed ? 'removed' : 'unavailable', catalogError: String(error?.message ?? error) })

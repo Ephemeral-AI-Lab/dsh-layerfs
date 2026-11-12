@@ -56,11 +56,12 @@ path from another machine.
 
 ## 3. Storage locations
 
-The project-session home moves out of DSH's home to `~/.layerfs/dsh` by default.
-Normal sessions remain in `<DSH_HOME>/sessions`.
+The project-session home defaults to `<DSH_HOME>/layerfs/project-sessions`
+(it was `~/.layerfs/dsh`, which is now inside the LayerFS home; see
+`homes.md`). Normal sessions remain in `<DSH_HOME>/sessions`.
 
 ```text
-~/.layerfs/dsh/
+<DSH_HOME>/layerfs/project-sessions/
  └─ projects/<project-id>/
      └─ sessions/<session-id>/
          ├─ <standard DSH session files>
@@ -70,9 +71,9 @@ Normal sessions remain in `<DSH_HOME>/sessions`.
  └─ <standard normal-session files>
 ```
 
-`<project-id>` must identify the project within its LayerFS installation/Store
-identity, without collisions or unsafe path interpolation. Store display names
-alone must not accidentally attach a session to a different project.
+`<project-id>` is the project's UUID (§11, "Project identity"), so a directory
+name never comes from a display name and a recreated project with the same name
+never shares a directory with the old one.
 
 The standard DSH files are the local durable conversation log. `layerfs.json` is
 an additive sidecar for project identity, operation receipts, checkpoint links,
@@ -83,8 +84,8 @@ The stock backend retains its native cwd partition beneath each project's
 `sessions/` root. The on-disk directory is therefore that backend's native
 layout, rather than a new session-file naming scheme. `owners.json` in the
 project-session home routes session IDs to project identities independently of
-DSH's workspace metadata. Project directory keys include Store identity and
-generation; display-name reuse must not attach old history to another Store.
+DSH's workspace metadata. Owners recorded before project UUIDs keep their
+64-hex directory key; they stay readable and are never adopted (§11).
 
 Do not store session internals in the selected scratch folder. Do not maintain a
 second authoritative project-session log in `<DSH_HOME>/sessions`; indexes there,
@@ -130,11 +131,32 @@ DSH session / turn / tool call
      └─ zero or more confirmed saved-version links
 ```
 
-Each invocation has a unique invocation ID, origin (`tool` or `host`), session
+Each invocation (a receipt in the session sidecar's `invocations[]`) is
+`{id, origin, sessionId, project, turn?, toolCallId?, operation, outcome,
+versions, captureGap?}`: a unique receipt ID, origin (`tool` or `host`), session
 and turn identity where available, optional DSH tool-call identity, canonical
-operation, target project, timing, and outcome. Saved-version links carry the
-actual version identity and an effect such as `created`, `unchanged`, or
-`referenced`. Preserve typed Commit versus Layer identities.
+operation (`family.call`), target project and outcome (`success`, `refusal`,
+`unknown`). Saved-version links carry the actual version identity and an effect
+such as `created`, `unchanged`, or `referenced`. Preserve typed Commit versus
+Layer identities. Older sidecars may also hold `arguments`, `source`,
+`startedAt`, `finishedAt` and `error`; they are read as they are and no longer
+written. Timing, argv and duration live in the machine's call log line instead
+(docs/specs/layerfs-logs.md), which is per machine and resettable, so the
+receipt keeps operation, outcome and versions.
+
+**Tag.** Every CLI call made inside a project session's trace context carries
+`LAYERFS_LOGS_TAG=dsh:<sessionId>:<receiptId>`, with one new receipt ID per call
+and the caller's own session ID (a subagent's, not its parent's). Calls outside
+a trace context run with any inherited `LAYERFS_LOGS_TAG` removed. Store archive
+writes stay untagged and record no receipt.
+
+**Checkpoint receipt.** A checkpoint carries `receipt`, the receipt ID of the
+call that saved or referenced it: the host `workspace.commit` of a `turn`,
+`manual` or `idle` checkpoint (also for an `UpToDate` save, shown as unchanged,
+and for a failed save, whose line keeps the refusal code), and the successful
+`branch.fork` of a `restore` checkpoint, of a branched child's `base` and of a
+session's first binding. A commit ID alone cannot bind: the same commit is named
+by the source turn, a later restore, a branch's base and every `UpToDate` save.
 
 One tool call may invoke multiple LayerFS operations. Repeated invocations of
 the same command are separate invocations. A tool call may have no checkpoint.
@@ -188,18 +210,29 @@ receipt rules. A failed save is visible as a failure, not as a saved checkpoint.
 
 ## 6. Capture in SDK and CLI modes
 
-SDK calls must carry the DSH correlation context to the common invocation
-boundary and record structured arguments, outcome, and returned version receipts.
-This repository's SDK currently invokes the pinned CLI; instrument that common
-executor, while preserving the SDK-facing operation identity.
+SDK calls carry the DSH correlation context to the common invocation boundary
+(`execute()` in `src/host/layerfs/cli.ts`, under `traceInvocation`): the receipt
+ID is made before the call, the child gets the tag, and the receipt is recorded
+from the returned result, preserving the SDK-facing operation identity.
 
-CLI calls must receive the correlation context from the DSH tool execution
-through the managed CLI entry point. Record each actual invocation and structured
-result through a separate recording channel. Preserve normal stdout, stderr,
-exit status, streaming behavior, and cancellation.
+CLI calls receive the correlation context from the DSH tool execution through
+the managed CLI entry point (`agent-bin/layerfs`): `DSH_LAYERFS_TRACE_CONTEXT`
+stays per shell and names the tool call's receipt-ID prefix (`scope`); the
+wrapper makes a receipt ID per invocation and sets the tag for its child. The
+recording channel is the call log: LayerFS's own (#659) when the pinned CLI has
+the `logs` family, else the plugin's stand-in, whose line the wrapper appends
+itself. After each tool call (and again when the turn stops, for calls still
+running when their tool call returned) the host builds that call's receipts from
+lines tagged `dsh:<sessionId>:<scope>.…` since the call started, deduped by
+receipt ID. A line yields versions from its `kind` and `commit`/`layer`
+(`Committed`/`Added` created; `UpToDate`/`NoChanges` unchanged; `Forked` and
+`Merged` referenced, since a line has no `fast_forward`); a `workspace commit`
+whose Workspace is not the bound one gets no versions and
+`captureGap: target-workspace-unconfirmed`. There is no receipt spool. Preserve
+normal stdout, stderr, exit status, streaming behavior, and cancellation.
 
 Both paths emit the same annotation model. If a wrapper and the SDK observe the
-same invocation, correlate them by invocation ID and store one operation.
+same invocation, correlate them by receipt ID and store one operation.
 Context must be scoped per execution, including concurrent calls and subagents;
 do not use a process-global 'current tool call'. Background work retains its
 originating context or is marked unassociated when provenance is unavailable.
@@ -222,15 +255,27 @@ DSH workspace. Keep project identity visible in a project conversation, with the
 selected local folder separately labeled as scratch. Selecting a scratch folder
 must not move the session into that workspace's normal-session list.
 
-The sidebar's Work areas section has two expandable groups: `LayerFS Projects`
-and `DSH Projects`. LayerFS folders are labeled `<project name> · <store name>`;
-their names never come from the selected scratch workspace. Normal workspace
-navigation, menus, and folder selection remain native DSH controls.
+The sidebar's Workspaces section has two views, switched by a LayerFS button in
+its header and remembered per browser. The DSH view is DSH's own workspace
+browser, unchanged apart from that button (hidden while DSH's search is open).
+The LayerFS view keeps the same header (DSH's "Workspaces" label, the switch,
+and a folder button that opens the Projects page) and lists projects labeled
+`<project name> · <store name>` (never named after the selected scratch
+workspace), grouped into Ready and Unavailable, each with its status, Start or
+New session, and its conversations folding out under it. A project's row opens
+its page, whose crumb leads back to the Projects page.
+
+This is plugin-only. The LayerFS view is a `sidebar.workspaces` registration at
+a lower priority than the stock browser, which the slot runtime renders instead
+while it is registered. DSH has no header seam, so in the DSH view the switch
+button is placed beside the stock header's actions row, which is found by its
+CSS-module class (`WorkspacesView.tsx`).
 
 Legacy LayerFS workspace registrations can be retired through an explicit
 operation. Retirement removes only the generated registrations, preserving
 directories, conversation logs, and project bindings. Ordinary conversations
-from the old root group remain accessible as ungrouped DSH sessions.
+from the old root group remain accessible as ungrouped DSH sessions. Until a
+legacy registration is retired it shows in DSH's Workspaces section.
 
 Reuse the DSH conversation renderer and add labels/details to existing tool calls:
 
@@ -272,7 +317,7 @@ ownership must not be inferred from a folder path.
 
 1. Normal sessions retain stock DSH storage and execution behavior.
 2. Project sessions are owned and listed by project, with local logs under the
-   configured project-session home, defaulting to `~/.layerfs/dsh`.
+   configured project-session home, defaulting to `<DSH_HOME>/layerfs/project-sessions`.
 3. An existing DSH workspace can serve as scratch for a project session without
    changing ownership or affecting normal sessions using the same folder.
 4. Project logs open using the standard DSH format without LayerFS annotations;
@@ -323,16 +368,36 @@ ownership must not be inferred from a folder path.
 Conversation ownership is independent of availability and execution resources:
 
 ```text
-conversation -> permanent project identity -> Store identity/generation
-                                         -> current Store address and machine
+conversation -> project UUID (branch dsh.project.<uuid> inside the project)
+             -> current address <store>/<project> and machine (locators only)
 ```
 
-The SDK exposes an opaque Store ID/generation and project creation metadata,
-not a project UUID. The integration derives an incarnation ID from Store ID,
-generation, project name and creation stamp. Machine and app-home paths are
-excluded. The address `<store>/<project>` is a locator, not proof of ownership.
-Moving a Store between machines keeps ownership when those immutable facts
-match; replacement Stores and recreated projects get separate catalog entries.
+### Project identity
+
+LayerFS has no project ID, and the pinned CLI's `store stats` reports no Store
+identity. So the plugin mints one: a random UUID kept inside the project as an
+empty branch `dsh.project.<uuid>`, forked from `main`.
+
+- Claiming. The first time a conversation attaches to a project that has no
+  identity branch, the plugin forks one. Branch creation is atomic; if two
+  installations claim at once, both branches exist and everyone takes the
+  smallest UUID, so they agree. Listing projects never claims: an unclaimed
+  project is listed as `unclaimed:<store>/<project>` and claimed when chosen.
+- Checking. Every execution, restore and archive write reads the project's
+  branches at the owner's address and requires the owner's UUID; a missing or
+  different one fails with `ProjectIdentityChanged`. History stays readable.
+- What it survives. The branch is part of the project's history, so it moves
+  with the project: a Store moved to another machine, push/pull, backup and
+  restore. A project deleted and recreated under the same name has no identity
+  branch (or a new one) and is a different project; the old conversations
+  stay with the old UUID, shown as `identity-mismatch`.
+- Copies. A restored copy next to its original carries the same UUID. The
+  catalog lists the first address as the owner and the copy as
+  `identity-mismatch`; conversations stay with the original. On another
+  installation, where only the copy exists, it is the same project and imports
+  its conversations.
+- Hidden. File and history views hide `dsh.project.*` (and `dsh.session.*`)
+  branches. Machine and app-home paths are not part of identity.
 
 A durable catalog under the project-session home combines live discovery with
 previously observed projects and locally owned conversations. A failed read is
@@ -340,6 +405,18 @@ unavailable, not proof of deletion. Confirmed missing records and identity
 mismatches retain their catalog entries, native conversation logs, checkpoint
 references, pending selections and archive progress. Removal never deletes
 conversation history implicitly.
+
+Presets Reset and Build are the one deletion path. After their machines are
+stopped (Reset) or their Stores removed (Build), they delete every project
+conversation of that LayerFS home: native logs and sidecars, owner routes,
+bindings, checkpoint references, pending choices and archive progress. A
+conversation belongs to the home when its Store is one of the home's Stores (by
+Store ID when an older owner recorded one and the CLI reports it, else by name); conversations of other homes
+sharing the project-session home stay. A loaded conversation is archived with
+its activity stopped through DSH's workspace registry first. Copies archived
+inside a kept Store are not deleted (the CLI cannot delete branches); a deletion
+record keeps store sync and open-by-id from importing them back, and only an
+explicit open lifts it. The confirmation states how many conversations go.
 
 Availability refreshes automatically through read-only event/polling paths.
 Opening history only prepares local metadata. A new message activates the
@@ -358,8 +435,8 @@ Portable manifests and sidecars carry the permanent project identity. A backup
 restored with another identity does not automatically adopt its original
 conversation IDs. Local reads remain possible even when identity validation
 fails; execution, restore, archive writes and scoped project reads are blocked.
-Legacy local routing upgrades only after its original session context and saved
-checkpoint can be verified. Archives without permanent ownership metadata
+Owners recorded before project UUIDs (a 64-hex key, no UUID) are retained and
+blocked with `ProjectIdentityChanged`; they are never adopted automatically. Archives without permanent ownership metadata
 require explicit ownership recovery before import; they are not automatically
 bound by display name.
 

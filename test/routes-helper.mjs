@@ -14,7 +14,7 @@ export async function loadRoutes() {
   await build({
     absWorkingDir: root,
     stdin: {
-      contents: "export * from './src/host/routes/router.ts'\nexport * as cli from './src/host/layerfs/cli.ts'\nexport { wire } from './src/host/routes/util.ts'\n",
+      contents: "export * from './src/host/routes/router.ts'\nexport * as cli from './src/host/layerfs/cli.ts'\nexport { wire } from './src/host/routes/util.ts'\nexport { recordUrl } from './src/host/routes/storage.ts'\n",
       resolveDir: root,
       loader: 'ts',
     },
@@ -29,7 +29,7 @@ export async function loadRoutes() {
 }
 
 /** A RouteHost for tests. */
-export function testHost({ lfs, root, home, discovery, cli = null, daemon = null, ensureNative = async () => {} }) {
+export function testHost({ lfs, root, home, secrets = join(root, 'secrets'), jobs = join(home, 'job'), stats = join(home, 'stat'), discovery, cli = null, daemon = null, ensureNative = async () => {} }) {
   const events = []
   const logs = []
   return {
@@ -39,6 +39,9 @@ export function testHost({ lfs, root, home, discovery, cli = null, daemon = null
       lfs: () => lfs,
       home,
       root,
+      secrets,
+      jobs,
+      stats,
       cli: () => cli,
       daemon: () => daemon,
       discover: discovery,

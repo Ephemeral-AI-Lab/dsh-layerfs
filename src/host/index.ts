@@ -9,6 +9,7 @@
  *   service.ts      ctx.layerfs: pinned CLI/daemon, LAYERFS_HOME, state, events
  *   routes/         Connect's host HTTP API as the `http` operation (Machines, Storage, projects)
  *   sessions/       session binding, scratch folders, checkpoints, session store
+ *   logs/           the LayerFS call log (native or the stand-in) labelled with sessions
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { LayerfsRemote } from './remote.ts'
@@ -17,6 +18,7 @@ import { children } from './layerfs/cli.ts'
 import * as routes from './routes/index.ts'
 import * as sessions from './sessions/index.ts'
 import * as simulations from './simulations/index.ts'
+import * as logs from './logs/index.ts'
 
 export const name = 'dsh-layerfs'
 
@@ -34,5 +36,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     ctx.plugin(routes)
     ctx.plugin(sessions)
     ctx.plugin(simulations)
+    ctx.plugin(logs)
   })
 }

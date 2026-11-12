@@ -6,14 +6,14 @@
  */
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
-import { DemoRunner, TOOL } from './runner.js'
+import { DemoRunner, PRESET_HISTORY_LIMITS, TOOL } from './runner.js'
 import { StepJournal } from './recipe/step-journal.js'
-import { DEFAULT_HISTORY_LIMITS } from './recipe/history-scheduler.js'
 import { CONTENT_VERSION, presetOf } from './recipe/presets.js'
 import { MIXED_RECIPE_VERSION } from './recipe/mixed-recipe.js'
 import { projectHistorySteps, projectHistoryPlan, machineCreateArgs } from './recipe/recipe.js'
 import { projectVerificationSteps } from './recipe/project-verification.js'
 import { EnvironmentReset } from './environment-reset.js'
+import { POSTGRES_IMAGE, PresetPostgres, isPostgresql, storeMachines, usesMachine } from './postgresql.js'
 
 const runnerFor = (spec, options) => new DemoRunner({ state: spec.state, home: spec.home, adoptHome: true, ...options })
 
@@ -78,7 +78,7 @@ export async function buildPreset({ spec, preset, driver, sandboxes = true, exec
 /** The executable command plan, without touching or initializing resource state. */
 export function presetScript({ preset, spec, sandboxes = true, resetPlan, resetNote, historyDensity = 'dense', executionMode = 'filesystem' }) {
   if (presetOf(preset).sandboxes === false) sandboxes = false
-  const configuration = { ...presetOf(preset), preset, historyDensity, executionMode, mixedSandboxCapacity: executionMode === 'mixed' ? { perProject: 3, workspacesPerSandbox: 16 } : null, historySchedule: 'parallel', historyLimits: { ...DEFAULT_HISTORY_LIMITS }, sandboxes, state: spec.state, home: spec.home, cli: spec.cli ?? null, daemon: spec.daemon ?? null }
+  const configuration = { ...presetOf(preset), preset, historyDensity, executionMode, mixedSandboxCapacity: executionMode === 'mixed' ? { perProject: 3, workspacesPerSandbox: 16 } : null, historySchedule: 'parallel', historyLimits: { ...PRESET_HISTORY_LIMITS }, sandboxes, state: spec.state, home: spec.home, cli: spec.cli ?? null, daemon: spec.daemon ?? null }
   const commands = presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNote })
   return { preset, command: null, configuration, commands, dynamicReset: !resetPlan || resetPlan.unknownSandboxes.length > 0, files: [] }
 }
@@ -106,14 +106,23 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
   for (const machine of configuration.machines) {
     const name = typeof machine === 'string' ? machine : machine.name
     if (typeof machine !== 'string') add('build', machineCreateArgs(machine))
-    if (configuration.stores.some(store => store.machine === name)) add('build', ['machine', 'start', name], { note: 'Only if the machine is not already running or ready.' })
+    if (configuration.stores.some(store => usesMachine(store, name))) add('build', ['machine', 'start', name], { note: 'Only if the machine is not already running or ready.' })
   }
   if (sandboxes && spec.daemon && configuration.stores.some(store => store.machine === 'native')) add('build', ['machine', 'update', 'native', '--daemon', spec.daemon], { note: 'Only if the native daemon path differs.' })
+  // A PostgreSQL Store: a fresh database on the preset's own server, then connect; placement is attach.
+  const postgres = new PresetPostgres({ state: spec.state })
+  const port = postgres.recorded()?.port ?? '<port>'
+  const createStore = (store, note) => isPostgresql(store)
+    ? add('build', ['store', 'connect', store.name, `postgresql://postgres@127.0.0.1:${port}/${store.database}`, '--password', postgres.passwordRef()], { note: `The preset runs its own PostgreSQL server (Docker container ${postgres.container}, ${POSTGRES_IMAGE}, on 127.0.0.1) and creates an empty database ${store.database} first; the password stays in the presets state folder. ${note}` })
+    : add('build', ['store', 'create', store.name], { note })
+  const placeStore = store => isPostgresql(store)
+    ? storeMachines(store).forEach(machine => add('build', ['store', 'attach', store.name, machine], { note: `LayerFS checks the connection from ${machine} before recording it.` }))
+    : store.machine !== 'native' && add('build', ['store', 'push', store.name, store.machine, '--progress'])
   if (configuration.preset === 'studio') {
     for (const store of configuration.stores) {
-      add('build', ['store', 'create', store.name], { note: 'Preparation only: project imports are serial within this store; independent stores can prepare concurrently.' })
+      createStore(store, 'Preparation only: project imports are serial within this store; independent stores can prepare concurrently.')
       for (const name of store.projects) add('build', ['project', 'init', `${store.name}/${name}`, join(spec.state, 'demo-sources', store.name, name), '--progress'], { note: 'The preset prepares source files here. All imports and store placements finish before concurrent histories start.' })
-      if (store.machine !== 'native') add('build', ['store', 'push', store.name, store.machine, '--progress'])
+      placeStore(store)
     }
     for (const store of configuration.stores) for (const name of store.projects) {
       for (const [index, step] of projectHistorySteps(store.name, name, { density: configuration.historyDensity, executionMode: configuration.executionMode }).entries()) {
@@ -123,12 +132,12 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
     }
   } else {
   for (const store of configuration.stores) {
-    add('build', ['store', 'create', store.name], { note: 'Independent store pipelines may run concurrently (up to two); project writes within this store remain ordered.' })
+    createStore(store, 'Independent store pipelines may run concurrently (up to two); project writes within this store remain ordered.')
     for (const name of store.projects) {
       add('build', ['project', 'init', `${store.name}/${name}`, join(spec.state, 'demo-sources', store.name, name), '--progress'], { note: 'The preset prepares sample source files at this path before initialization.' })
       for (const { argv, input } of projectHistorySteps(store.name, name, { density: configuration.historyDensity, executionMode: configuration.executionMode })) add('build', argv, input === undefined ? {} : { input })
     }
-    if (store.machine !== 'native') add('build', ['store', 'push', store.name, store.machine, '--progress'])
+    placeStore(store)
     if (sandboxes) {
       const name = `demo-${store.projects[0]}`
       add('build', ['sandbox', 'create', `${store.name}/${store.projects[0]}`, name, store.machine])

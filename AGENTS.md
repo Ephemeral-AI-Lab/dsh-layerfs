@@ -4,9 +4,11 @@ LayerFS Connect's Machines, Storage and explicit project-owned sessions
 (`sessions.choose` / `state.pending`): project files live in LayerFS, and the
 selected local folder is scratch. Normal sessions belong to DSH workspaces.
 Project conversations use native unpacked DSH logs with additive annotations
-under `projectSessionHome` (default `~/.layerfs/dsh`; dev must override), the LayerFS session store
+under `projectSessionHome` (default `$DSH_HOME/layerfs/project-sessions`; dev must override), the LayerFS session store
 and trajectory checkpoints, as a DeepSeek Harness (DSH) cordis plugin bundle.
-Current spec: `docs/specs/project-sessions.md`. Earlier design docs:
+Current specs: `docs/specs/project-sessions.md`, and `docs/specs/homes.md` for
+the two homes (`LAYERFS_HOME`, default `~/.layerfs`, holds LayerFS's records,
+runtime and secrets; `$DSH_HOME/layerfs` holds this plugin's state). Earlier design docs:
 `../layerfs-connect/docs/dsh-layerfs/`.
 
 ## Hard rules
@@ -27,7 +29,15 @@ Current spec: `docs/specs/project-sessions.md`. Earlier design docs:
   - If a feature needs a seam DSH does not expose, stop and report it (what seam,
     why) instead of working around it; a change to DSH is the user's call.
 - Never modify `../layerfs-connect` or `../layerfs` either (read-only references).
-  Never touch the user's `~/.layerfs`.
+  Never edit the user's LayerFS home (`~/.layerfs`) by hand, and never point a dev
+  server or test at it: they always use a private home (`DSH_LAYERFS_HOME`). Only
+  the app (3080) and the CLI change it.
+- **The LayerFS build tracks the latest `layerfs_v2_0_0`.** The pinned CLI, daemon
+  and Linux bundle are built from the tip of
+  [`layerfs_v2_0_0`](https://github.com/Ephemeral-AI-Lab/layerfs/tree/layerfs_v2_0_0)
+  (`git -C ../layerfs fetch origin layerfs_v2_0_0`, then build `origin/layerfs_v2_0_0`
+  in a registered LayerFS worktree, see "LayerFS build" under Commands), not from
+  `main` or an older commit. Building there is allowed; editing its sources is not.
 - **Every result ends up on DSH's default port 3080.** That is the user's DeepSeek
   Harness (`dsh web --port 3080`, run from `../deepseek-harness` with
   `DSH_HOME=../deepseek-harness/state`); its `web` profile links dsh-layerfs from
@@ -87,8 +97,14 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   - `session-persistence.ts` the `layerfs-session-persistence` row (`lib/session-persistence.js`):
     owner routing over isolated stock JSONL backends, unpacked project logs,
     additive `layerfs.json`, validated migration, and imports on a local miss
-  - `layerfs/tracing.ts` execution-scoped SDK receipts and managed CLI tracing;
+  - `layerfs/tracing.ts` execution-scoped receipts: one receipt id and log tag
+    (`LAYERFS_LOGS_TAG=dsh:<sessionId>:<receiptId>`) per call, SDK receipts, the managed
+    `agent-bin/layerfs` wrapper, receipts rebuilt from tagged call log lines (no spool);
     `workspace.exec` never gets checkpoint links
+  - `layerfs/call-log.ts` the call log stand-in `<root>/trace/calls.jsonl` (LayerFS #659
+    lines: render, redact, append, rotate, list, reset) while the pinned CLI has no `logs` family
+  - `logs/` `logs.list` / `logs.reset` ops on the native log or the stand-in (`source.ts`),
+    lines labelled with session, turn and checkpoint (`Checkpoint.receipt`), `logs` event
   - `presets/` Presets: `manager.ts` (`/api/demo-presets…` on the `http` op, admission,
     durable jobs in `<root>/presets/`), `driver.ts`, and LayerFS Connect's runner/recipe
     kept as JavaScript (`runner.js`, `build.js`, `environment-reset.js`, `recipe/` copied
@@ -97,10 +113,13 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
 - `src/client/` browser half (React 18, CSS Modules, bundled to `lib/client.js` in
   DSH's `__ModuleLoader__` factory format)
   - `api.ts` `LayerfsApi` (`call(method,path,body)`, `op(name,args)`, `onEvent`)
-  - `machines/`, `storage/`, `presets/`, `session/`, `picker/`, `hero/` areas, each
+  - `machines/`, `storage/`, `presets/`, `logs/`, `session/`, `picker/`, `hero/`, `views/` areas, each
     `register<Area>(ctx, api)`; `picker/` owns the shared `NewProjectForm` + locale,
     `hero/` puts the project choice on the New Session row (`conversation.hero.options`
-    + the `session.place` op). Add-workspace flows are stock DSH folder picking.
+    + the `session.place` op), `views/` adds the Files/History/Sandbox conversation
+    tabs for project sessions (`conversation.view`, docs/specs/conversation-views.md),
+    `session/` only marks project rows (there is no LayerFS side panel).
+    Add-workspace flows are stock DSH folder picking.
 - `src/shared/remote-spec.ts` Remote descriptors shared by both faces.
 
 ## Commands
@@ -114,7 +133,18 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   this checkout into the private `web` profile with `dsh plugin add link:` and writes
   the authenticated URL to `<dev dir>/url.txt`. Client rebuilds hot-reload; host
   changes need a server restart. Pinned CLI/daemon come from `DSH_LAYERFS_CLI`/
-  `DSH_LAYERFS_DAEMON`, else `../layerfs-connect/desktop/.env.local`.
+  `DSH_LAYERFS_DAEMON`, else `../layerfs-connect/desktop/.env.local` (use that
+  fallback only if it names a build of the current `layerfs_v2_0_0` tip; otherwise
+  set the env vars to your own build).
+- LayerFS build (latest `layerfs_v2_0_0`): fetch the branch, check out
+  `origin/layerfs_v2_0_0` in a LayerFS worktree registered with `tools/worktree.py`
+  (`docs/general/parallel-worktrees.md` in that repo), then build the host pair with
+  `python3 tools/worktree.py build --resources <R> --platform macos` (it prints the
+  sealed bundle holding `layerfs` and `layerfs-daemon`; point `DSH_LAYERFS_CLI`/
+  `DSH_LAYERFS_DAEMON` there) and the Linux bundle with `python3 tools/linux_bundle.py
+  daemon|worker|helper|seal --resources <R>` (point `DSH_LAYERFS_BUNDLE` at
+  `<cache>/layerfs/bundle/<version>/linux-<arch>/`). Record the commit you built, and
+  rebuild when the branch moves.
 - A git worktree of this repo needs its own `node_modules` (`cp -cR ../dsh-layerfs/node_modules .`
   clones it on APFS). A symlink makes DSH resolve `dsh-layerfs/client` by package
   self-reference from the main checkout, so the browser runs the other checkout's client.
@@ -140,9 +170,9 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   import, open by id alone through the persistence row, folder sessions never stored).
 - Presets: `test/presets.test.mjs` (admission, request-ID reconciliation, restart recovery,
   the router's exclusive guard, script paging, live reset of a private home). A real Studio
-  Build needs Docker, Lima and `DSH_LAYERFS_BUNDLE` (a Linux bundle matching the CLI) on the
+  Build needs Docker, Lima and `DSH_LAYERFS_BUNDLE` (a Linux bundle built from the same `layerfs_v2_0_0` commit as the CLI) on the
   dev server; it creates two Lima VMs (2 CPU, 4 GB) in the dev LayerFS home, so Reset the
-  home from the Presets page afterwards.
+  home from Settings → Presets afterwards.
 - `node tools/cleanup-dev.mjs` removes leftover `e2e*`/`imp*` Stores through the host API.
 - After side verification passes, merge into the 3080 checkout and check it on 3080
   (see "Shared server on 3080"); that is the last step of every task.

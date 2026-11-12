@@ -3,7 +3,7 @@ export const NS = 'layerfsHero'
 
 const en = {
   chipAria: 'LayerFS project: {project}',
-  noProject: 'Workspace session',
+  noProject: 'No project',
   scratchChoose: 'Choose scratch folder',
   scratchBrowse: 'Browse local folders…',
   scratchEnterPath: 'Enter a folder path…',
@@ -38,7 +38,7 @@ const en = {
 
 const zh: typeof en = {
   chipAria: 'LayerFS 项目：{project}',
-  noProject: '工作区会话',
+  noProject: '无项目',
   scratchChoose: '选择草稿目录',
   scratchBrowse: '浏览本地文件夹…',
   scratchEnterPath: '输入文件夹路径…',

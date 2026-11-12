@@ -93,6 +93,11 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     listProjects(api).then(({ rows: list, scratchKey: key }) => { setRows(list); setScratchKey(key) }, () => setLoadError(true))
   }
   useEffect(loadProjects, [api])
+  // Store health and project changes reach an open picker too (it never polls).
+  useEffect(() => {
+    const offs = ['layerfs-availability', 'layerfs-workspaces-changed', 'storage'].map((type) => api.onEvent(type, () => loadProjects()))
+    return () => offs.forEach((off) => off())
+  }, [api])
 
   useEffect(() => {
     if (!running || running.error) return

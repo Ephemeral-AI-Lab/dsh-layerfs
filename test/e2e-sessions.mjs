@@ -7,13 +7,15 @@
 // sandbox, mount, scratch), per-turn checkpoints, restore files to a checkpoint,
 // branch session at a checkpoint (conversation fork + files fork), the LayerFS
 // session store and persistence row, plain folder sessions (Scratch workspace
-// and DSH's default workspace run as stock DSH), the Projects page and the
-// New Session project control.
+// and DSH's default workspace run as stock DSH), the Workspaces header switch to
+// LayerFS projects (project page, new session), the New Session project control,
+// the conversation's Files/History/Sandbox tabs (no LayerFS side panel) and the
+// Logs page (checkpoint receipts, the call detail with its stored output, Reset).
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDev, runTurn } from '../tools/e2e-lib.mjs'
-import { openPanel } from '../tools/ui.mjs'
+import { dismiss, openPanel } from '../tools/ui.mjs'
 
 const step = (m) => console.log(`\n== ${m}`)
 const { browser, page, logs } = await openDev()
@@ -179,12 +181,24 @@ try {
   const lstate = await must('session.state', { sessionId: td.sessionId })
   assert.equal(lstate.binding, null)
 
-  step('UI: the Projects page lists the project and opens a session in it')
-  await openPanel(page, 'Projects')
-  const projectsPage = page.getByRole('region', { name: 'LayerFS Projects' })
-  await projectsPage.getByText(name, { exact: true }).first().waitFor({ timeout: 15000 })
-  const card = projectsPage.getByRole('region', { name }).filter({ hasText: store }).first()
-  await card.getByRole('button', { name: 'New session' }).click()
+  step('UI: the Workspaces header switch shows LayerFS projects in place of the stock list; a project row opens its page and a session')
+  await dismiss(page)
+  assert.equal(await page.locator('[data-layerfs-workspace-mount], [data-layerfs-work-areas], [data-layerfs-projects-section]').count(), 0, 'no injected sections')
+  await page.evaluate(() => localStorage.removeItem('dsh-layerfs:workspaces-view'))
+  const headerSwitch = page.locator('[data-slot="sidebar.workspaces"] [data-layerfs-view-switch]')
+  await headerSwitch.waitFor({ timeout: 15000 })
+  await headerSwitch.click()
+  const view = page.locator('[data-layerfs-workspaces-view]')
+  await view.waitFor({ timeout: 15000 })
+  assert.equal(await page.locator('[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"]').count(), 0, 'the LayerFS view replaces the stock list')
+  const rowLabel = `${name} · ${store}`
+  const projectRow = view.locator('[data-layerfs-project]').filter({ has: page.locator(`button[title="${rowLabel}"]`) }).first()
+  await projectRow.waitFor({ timeout: 15000 })
+  await projectRow.locator(`button[title="${rowLabel}"]`).click()
+  await page.getByRole('heading', { name, exact: true }).first().waitFor({ timeout: 15000 })
+  await page.getByRole('button', { name: 'Back to Projects', exact: true }).click()
+  await page.locator('div[role=region][aria-label="LayerFS Projects"]').first().waitFor()
+  await projectRow.getByRole('button', { name: `New session in ${rowLabel}` }).click()
   await page.waitForTimeout(1500)
   const tp = await runTurn(page, { message: projectCommand('echo picked > picked.txt'), newSession: false })
   assert.ok(tp.ok, `picked project turn: ${tp.error}`)
@@ -195,13 +209,16 @@ try {
   assert.equal(pstate.binding.project, project, 'the picked project')
   assert.ok(existsSync(join(pstate.binding.mount, 'picked.txt')))
   assert.ok(existsSync(join(pstate.binding.mount, 'README.md')), 'project files')
+  await view.locator('[data-layerfs-view-switch]').click()
+  await page.locator('[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"]').first().waitFor({ timeout: 15000 })
+  assert.equal(await view.count(), 0, 'switching back restores the stock browser')
 
   step('UI: the New Session project control shows no project, then switches and creates one')
   await page.locator(`[role=treeitem][data-row-key="session:${ts.sessionId}"]`).first().click()
   await page.getByRole('button', { name: 'New session', exact: true }).first().click()
   const heroChip = page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first()
   await heroChip.waitFor({ timeout: 15000 })
-  await until('hero shows no project', async () => (await heroChip.innerText()).trim() === 'Workspace session')
+  await until('hero shows no project', async () => (await heroChip.innerText()).trim() === 'No project')
   await heroChip.click()
   await page.getByRole('menuitem').filter({ hasText: name }).filter({ hasText: store }).first().click()
   await until('hero switched to the project', async () => (await page.locator('[data-layerfs-hero] button[aria-label^="LayerFS project:"]').first().innerText()).trim() === name)
@@ -224,15 +241,60 @@ try {
   })
   assert.equal(bstate.binding.project, `${store}/blank`)
 
-  step('UI: the session panel shows the checkpoints')
+  step('UI: a project session has Files, History and Sandbox tabs; no LayerFS side panel')
   await must('sessions.open', { sessionId: sid, project })
-  await page.getByRole('button', { name: `Project ${project}: open checkpoints and scratch folder` }).first().click({ timeout: 15000 })
-  await page.getByText('Checkpoints', { exact: true }).first().waitFor({ timeout: 15000 })
-  assert.equal(await page.getByText('Branch', { exact: true }).count(), 0, 'session panel hides branches')
-  assert.equal(await page.getByRole('button', { name: 'Branch here', exact: true }).count(), 0, 'no session branch management')
+  for (const name of ['Files', 'History', 'Sandbox']) await page.getByRole('tab', { name, exact: true }).first().waitFor({ timeout: 15000 })
+  await page.getByRole('tab', { name: 'Sandbox', exact: true }).first().click()
+  await page.getByText('Agents', { exact: true }).first().waitFor({ timeout: 15000 })
+  assert.equal(await page.locator('[data-composer-seat] [contenteditable="true"]:visible').count(), 0, 'LayerFS tabs hide the composer')
+  assert.equal(await page.getByRole('button', { name: new RegExp(`^Project ${project.replace('/', '\\/')}`) }).count(), 0, 'no LayerFS header button')
   assert.ok(!(await page.locator(`[role=treeitem][data-row-key="session:${sid}"]`).isVisible()), 'project conversation is excluded from normal workspace rows')
   await page.waitForTimeout(700)
-  await page.screenshot({ path: '/tmp/e2e-sessions-panel.png' })
+  await page.screenshot({ path: '/tmp/e2e-sessions-sandbox.png' })
+  await page.getByRole('tab', { name: 'Chat', exact: true }).first().click()
+
+  step('Logs: the call log binds checkpoints to their calls; Reset with confirm')
+  state = await must('session.state', { sessionId: sid })
+  const bound = state.checkpoints.filter((c) => c.kind === 'turn' && c.commit && c.receipt)
+  assert.ok(bound.length >= 2, 'turn checkpoints carry the receipt of the save that made them')
+  const own = await must('logs.list', { tag: `dsh:${sid}:`, writes: true, limit: 1000 })
+  console.log({ source: own.source, lines: own.lines.length })
+  const commitLine = own.lines.find((line) => line.argv[0] === 'workspace' && line.argv[1] === 'commit' && line.tag === `dsh:${sid}:${bound[0].receipt}`)
+  assert.ok(commitLine, 'the turn save has a workspace commit line tagged with its receipt')
+  assert.equal(commitLine.dsh?.sessionId, sid)
+  assert.equal(commitLine.dsh?.match, 'tag')
+  assert.equal(commitLine.dsh?.turn, bound[0].turn, 'the line is labelled with its turn')
+  assert.equal(commitLine.dsh?.checkpoint?.kind, 'turn')
+  await openPanel(page, 'Logs')
+  await page.getByRole('region', { name: 'Logs' }).waitFor({ timeout: 15000 })
+  const logRows = page.getByRole('region', { name: 'Logs' }).locator('tbody tr')
+  const commitRow = logRows.filter({ hasText: 'layerfs workspace commit' }).filter({ hasText: `turn ${bound[0].turn}` }).first()
+  await commitRow.waitFor({ timeout: 15000 })
+  await page.screenshot({ path: '/tmp/e2e-sessions-logs.png' })
+
+  step('Logs: a row opens the call detail with its command, session and output')
+  assert.equal(commitLine.output, true, 'the host keeps the output of a plugin call')
+  // Click the time cell: the command cell's popover may sit over the row below.
+  await commitRow.locator('td').first().click()
+  const detail = page.getByRole('dialog', { name: 'Call workspace commit' })
+  await detail.waitFor({ timeout: 10000 })
+  assert.match(await detail.getByTestId('logs-detail-command').innerText(), /^layerfs workspace commit /, 'the detail shows the full command')
+  await detail.getByText(`turn ${bound[0].turn}`).first().waitFor({ timeout: 10000 })
+  await detail.getByRole('button', { name: 'Open session', exact: true }).waitFor({ timeout: 10000 })
+  await detail.getByRole('button', { name: 'Calls of this checkpoint', exact: true }).waitFor({ timeout: 10000 })
+  const stdout = detail.getByTestId('logs-detail-output').locator('pre[data-stream=stdout]')
+  await stdout.waitFor({ timeout: 15000 })
+  assert.match(await stdout.innerText(), /Committed/, 'the output section shows the stored stdout')
+  await page.screenshot({ path: '/tmp/e2e-sessions-logs-detail.png' })
+  await detail.getByRole('button', { name: 'Close', exact: true }).click()
+  await detail.waitFor({ state: 'detached', timeout: 10000 })
+  await page.getByRole('button', { name: 'Reset…', exact: true }).click()
+  const resetDialog = page.getByRole('dialog')
+  await resetDialog.getByText('Reset the call log?').waitFor({ timeout: 10000 })
+  await resetDialog.getByRole('button', { name: 'Reset', exact: true }).click()
+  await page.getByText(/ calls removed\.$/).first().waitFor({ timeout: 15000 })
+  const afterReset = await must('logs.list', { tag: `dsh:${sid}:`, limit: 1000 })
+  assert.equal(afterReset.lines.length, 0, "Reset removed the session's calls")
 
   if (!process.argv.includes('--keep')) {
     step('cleanup')

@@ -7,7 +7,9 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { CliError, client, discover, plain, type Discovery, type Lfs } from './layerfs/cli.ts'
+import { boolOptions, CliError, client, discover, hasNativeLogs, knownNativeLogs, plain, type Discovery, type Lfs } from './layerfs/cli.ts'
+import { managedCli } from './layerfs/tracing.ts'
+import { installRuntime, installedRuntimes } from './layerfs/runtime-home.ts'
 import type { LayerfsRemote } from './remote.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -18,11 +20,11 @@ declare module '@deepseek-ai/cordis' {
 
 /** Plugin configuration (bundle patch row `layerfs`). */
 export interface LayerfsConfig {
-  /** Plugin root: LayerFS home, project scratch-folder workspaces, plugin state. */
+  /** Plugin root: this DSH install's dsh-layerfs state (docs/specs/homes.md); default `$DSH_HOME/layerfs`. */
   root?: string
-  /** Unpacked project-session logs and annotations; default ~/.layerfs/dsh. */
+  /** Unpacked project-session logs and annotations; default `<root>/project-sessions`, or DSH_LAYERFS_SESSION_HOME. */
   projectSessionHome?: string
-  /** Absolute pinned `layerfs` CLI; else runtime.json, else DSH_LAYERFS_CLI. */
+  /** Absolute pinned `layerfs` CLI; else runtime.json, else DSH_LAYERFS_CLI, else the newest runtime installed in the home. */
   cli?: string
   /** Absolute matching `layerfs-daemon` (macOS native machine). */
   daemon?: string
@@ -35,8 +37,14 @@ export interface LayerfsConfig {
    * DSH_LAYERFS_CACHE_HOME, else the host's own XDG_CACHE_HOME (else `~/.cache`).
    */
   cacheHome?: string
-  /** LAYERFS_HOME; default `<root>/home`, or DSH_LAYERFS_HOME. */
+  /** LAYERFS_HOME, LayerFS's own and independent of DSH; else DSH_LAYERFS_HOME, else LAYERFS_HOME, else `~/.layerfs`. */
   home?: string
+  /**
+   * Where keys and passwords entered in the panel are saved (owner-only files,
+   * passed to LayerFS as `file:` references); default `<home>/secret`, or
+   * DSH_LAYERFS_SECRETS.
+   */
+  secrets?: string
   /** The `<store>/<name>` project sessions without a project of their own work in (a SQLite Store on native, made on first use). */
   scratchProject?: string
   /** Checkpoint each turn that changed files. */
@@ -66,7 +74,8 @@ export interface RuntimeStatus {
   /** `layerfs`: the bundle's session persistence row runs (missing sessions are imported from LayerFS); `stock`: DSH's own. */
   readonly sessionPersistence: 'layerfs' | 'stock' | 'none'
   readonly checkpoints: 'turn' | 'off'
-  readonly source: 'config' | 'settings' | 'env' | 'none'
+  /** Where the pin came from; `home`: the newest runtime installed in the LayerFS home. */
+  readonly source: 'config' | 'settings' | 'env' | 'home' | 'none'
   readonly version: string | null
   readonly commit: string | null
   readonly features: readonly string[]
@@ -100,12 +109,21 @@ export class JsonFile<T> {
 
 const abs = (v: unknown): string | undefined => typeof v === 'string' && isAbsolute(v) ? v : undefined
 
+
 /** The LayerFS runtime service. */
 export class LayerfsService extends Service {
   static inject = ['layerfsRemote']
   readonly root: string
+  /** The stand-in call log, `<root>/trace/calls.jsonl` (docs/specs/layerfs-logs.md §3). */
+  readonly callLog: string
   readonly projectSessionHome: string
   readonly home: string
+  /** The folder entered keys and passwords are saved in (see LayerfsConfig.secrets). */
+  readonly secrets: string
+  /** Storage job tables in the LayerFS home, named for no client: `<home>/job` (storage-jobs.json, doctor-jobs.json). */
+  readonly jobDir: string
+  /** Storage statistics in the LayerFS home: `<home>/stat` (storage-observations/, project-storage/). */
+  readonly statDir: string
   readonly scratchProject: string
   readonly checkpoints: 'turn' | 'off'
   readonly idleMinutes: number
@@ -121,8 +139,12 @@ export class LayerfsService extends Service {
     super(ctx, 'layerfs')
     const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
     this.root = abs(config.root) ?? join(dshHome, 'layerfs')
-    this.projectSessionHome = abs(config.projectSessionHome) ?? abs(process.env.DSH_LAYERFS_SESSION_HOME) ?? join(homedir(), '.layerfs', 'dsh')
-    this.home = abs(config.home) ?? abs(process.env.DSH_LAYERFS_HOME) ?? join(this.root, 'home')
+    this.callLog = join(this.root, 'trace', 'calls.jsonl')
+    this.projectSessionHome = abs(config.projectSessionHome) ?? abs(process.env.DSH_LAYERFS_SESSION_HOME) ?? join(this.root, 'project-sessions')
+    this.home = abs(config.home) ?? abs(process.env.DSH_LAYERFS_HOME) ?? abs(process.env.LAYERFS_HOME) ?? join(homedir(), '.layerfs')
+    this.secrets = abs(config.secrets) ?? abs(process.env.DSH_LAYERFS_SECRETS) ?? join(this.home, 'secret')
+    this.jobDir = join(this.home, 'job')
+    this.statDir = join(this.home, 'stat')
     this.scratchProject = config.scratchProject ?? 'dsh-scratch/scratch'
     if (!/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?\/[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(this.scratchProject)) {
       throw new Error(`dsh-layerfs: scratchProject must be "<store>/<name>" in LayerFS names, not ${JSON.stringify(this.scratchProject)}`)
@@ -136,10 +158,12 @@ export class LayerfsService extends Service {
   private resolvePin(): void {
     const saved = this.settings.read()
     const c = abs(this.config.cli), s = abs(saved.cli), e = abs(process.env.DSH_LAYERFS_CLI)
-    const cli = c ?? s ?? e ?? null
-    const source = c ? 'config' : s ? 'settings' : e ? 'env' : 'none'
-    const daemon = (c ? abs(this.config.daemon) : s ? abs(saved.daemon) : abs(process.env.DSH_LAYERFS_DAEMON)) ?? null
-    const bundle = (c ? abs(this.config.bundle) : s ? abs(saved.bundle) : undefined) ?? abs(process.env.DSH_LAYERFS_BUNDLE) ?? abs(process.env.LAYERFS_BUNDLE) ?? null
+    // nothing pinned: the newest runtime installed in the LayerFS home
+    const h = c || s || e ? undefined : installedRuntimes(this.home)[0]
+    const cli = c ?? s ?? e ?? h?.cli ?? null
+    const source = c ? 'config' : s ? 'settings' : e ? 'env' : h ? 'home' : 'none'
+    const daemon = (c ? abs(this.config.daemon) : s ? abs(saved.daemon) : e ? abs(process.env.DSH_LAYERFS_DAEMON) : h?.daemon) ?? null
+    const bundle = (c ? abs(this.config.bundle) : s ? abs(saved.bundle) : h ? h.bundle ?? undefined : undefined) ?? abs(process.env.DSH_LAYERFS_BUNDLE) ?? abs(process.env.LAYERFS_BUNDLE) ?? null
     // prepared machine images: independent of which CLI is pinned
     const cc = abs(this.config.cacheHome), cs = abs(saved.cacheHome), ce = abs(process.env.DSH_LAYERFS_CACHE_HOME)
     const cacheHome = cc ?? cs ?? ce ?? null
@@ -152,8 +176,23 @@ export class LayerfsService extends Service {
   /** The SDK over the pinned CLI. Throws `CliUnavailable` when nothing is pinned. */
   get lfs(): Lfs {
     if (!this.pin.cli) throw new CliError('CliUnavailable', 'No LayerFS CLI is pinned. Set it in Machines → LayerFS runtime, or DSH_LAYERFS_CLI.', null, 'unavailable')
-    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome })
+    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog })
   }
+
+  /**
+   * `<root>/agent-bin/layerfs`, the managed CLI agent shells run (rewritten when
+   * the pin or the call log source changes), or null when nothing is pinned.
+   */
+  agentCli(): string | null {
+    const cli = this.pin.cli
+    if (!cli) return null
+    const native = knownNativeLogs(cli)
+    if (native === undefined) void hasNativeLogs(cli)
+    return managedCli({ root: this.root, cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+  }
+
+  /** Whether the pinned CLI keeps LayerFS's own call log (else the plugin's stand-in). */
+  async nativeLogs(): Promise<boolean> { return !!this.pin.cli && await hasNativeLogs(this.pin.cli) }
 
   /** The pinned CLI path, if any. */
   get cli(): string | null { return this.pin.cli }
@@ -196,14 +235,15 @@ export class LayerfsService extends Service {
 
   /**
    * Before calls that need the native machine (macOS): record the pinned daemon
-   * on `native` when none, or a missing one, is recorded. Never throws.
+   * on `native` when none, or a missing one, is recorded; after a runtime
+   * change (`moved`), whenever another one is recorded. Never throws.
    */
-  ensureNative(): Promise<unknown> {
+  ensureNative(moved = false): Promise<unknown> {
     return this.nativeRecorded ??= (async () => {
       if (process.platform !== 'darwin' || !this.pin.cli || !this.pin.daemon) return
       try {
         const recorded = existsSync(join(this.home, 'layerfs.json')) ? (await this.lfs.machine.get('native')).daemon ?? null : null
-        if (recorded && existsSync(recorded)) return
+        if (recorded && existsSync(recorded) && (!moved || recorded === this.pin.daemon)) return
         await this.lfs.machine.update('native', { daemon: this.pin.daemon })
       } catch (error) {
         this.ctx.logger('layerfs').warn('native daemon not recorded: %s', (error as Error)?.message ?? error)
@@ -235,20 +275,30 @@ export class LayerfsService extends Service {
   /**
    * Save a new CLI/daemon pin (or clear it with nulls) and switch to it.
    * The new CLI is discovered first; an incompatible one is refused unchanged.
+   * The CLI, daemon and bundle are installed into the LayerFS home
+   * (`<home>/runtime/<version>-<sha>`) and the pin names those copies.
    * `cacheHome` (the prepared machine image cache) is saved as given; left out,
    * the saved one is kept, except when the pin is cleared.
    */
   async savePin(next: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null }): Promise<RuntimeStatus> {
     if (next.cacheHome && (!abs(next.cacheHome) || !existsSync(next.cacheHome) || !statSync(next.cacheHome).isDirectory())) throw new CliError('InvalidInput', 'The machine image cache must be an absolute path to an existing folder')
     const cacheHome = next.cacheHome !== undefined ? next.cacheHome : next.cli === null ? null : this.settings.read().cacheHome ?? null
+    let pin: { cli: string | null, daemon: string | null, bundle?: string | null } = next
     if (next.cli !== null) {
       if (!abs(next.cli) || !existsSync(next.cli)) throw new CliError('InvalidInput', 'The CLI must be an absolute path to an existing file')
       if (next.daemon !== null && (!abs(next.daemon) || !existsSync(next.daemon))) throw new CliError('InvalidInput', 'The daemon must be an absolute path to an existing file')
       if (next.bundle && (!abs(next.bundle) || !existsSync(join(next.bundle, 'bundle.json')))) throw new CliError('InvalidInput', 'The Linux bundle must be an absolute folder holding bundle.json')
-      await discover({ cli: next.cli }, true)
+      const found = await discover({ cli: next.cli }, true)
+      try {
+        pin = installRuntime(this.home, found.identity.version, { cli: next.cli, daemon: next.daemon, bundle: next.bundle ?? null })
+      } catch (error: any) {
+        throw new CliError(error?.code === 'InvalidInput' ? 'InvalidInput' : 'Failed', `Could not install the runtime into the LayerFS home: ${error?.message ?? error}`)
+      }
     }
-    this.settings.write({ ...(next.cli === null ? {} : { cli: next.cli, ...(next.daemon ? { daemon: next.daemon } : {}), ...(next.bundle ? { bundle: next.bundle } : {}) }), ...(cacheHome ? { cacheHome } : {}) })
+    this.settings.write({ ...(pin.cli === null ? {} : { cli: pin.cli, ...(pin.daemon ? { daemon: pin.daemon } : {}), ...(pin.bundle ? { bundle: pin.bundle } : {}) }), ...(cacheHome ? { cacheHome } : {}) })
     this.resolvePin()
+    // the native machine follows the new daemon (the installed copy in the home)
+    if (pin.daemon) await this.ensureNative(true)
     this.emit('runtime-changed')
     return await this.status()
   }

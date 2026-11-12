@@ -6,10 +6,14 @@
  * Ported from LayerFS Connect `host/cli/` (without the activity recorder).
  */
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
-import { firstPositional, traceInvocation } from './tracing.ts'
+import { traceInvocation } from './tracing.ts'
+import { appendCall, callLine, loggable, renderCall } from './call-log.ts'
+import { outputRecord, outputsDir, outputSink, saveOutput, type OutputSink } from './call-output.ts'
+import { hostTag, OUTPUT_MAX } from '../../shared/logs.ts'
 
 /** How a call failed: `refusal` = LayerFS answered a refusal; others are transport outcomes. */
 export type Transport = 'refusal' | 'transport-unknown' | 'unavailable' | 'usage-incompatible'
@@ -44,6 +48,16 @@ export interface CliSpec {
    * the CLI inherits the host's XDG_CACHE_HOME (else `~/.cache`).
    */
   readonly cacheHome?: string | null
+  /**
+   * The plugin's stand-in call log (`$DSH_HOME/layerfs/trace/calls.jsonl`).
+   * Set: every non-discovery call appends one line there unless the pinned
+   * CLI writes LayerFS's own call log (docs/specs/layerfs-logs.md §3), carries
+   * a `dsh:` tag (a session receipt, else a host tag), and has its output kept
+   * in `trace/outputs/` next to it in both modes.
+   */
+  readonly callLog?: string | null
+  /** Whether the CLI has the native `logs` family; undefined: detect from its call table. */
+  readonly nativeLogs?: boolean
 }
 
 /** One `help --json` call table row. */
@@ -141,7 +155,14 @@ interface ExecuteOptions {
   beforeSpawn?: () => void
   /** A separate admission lane (name and limit) for bulk callers, so page reads are not queued behind them. */
   lane?: { name: string, limit: number }
+  /** `LAYERFS_LOGS_TAG` for this call (set by {@link execute} from the trace context). */
+  tag?: string
+  /** Where the call's output is collected for the output store (set by {@link logged}). */
+  capture?: Capture
 }
+
+/** One call's output as it arrives: bounded stdout/stderr, the `--events` final frame, the exit. */
+interface Capture { stdout: OutputSink, stderr: OutputSink, final?: string, refusal?: unknown, exit?: number | null }
 
 const lanes = new Map<string, { active: number, waiting: (() => void)[] }>()
 async function admit<T>(key: string, limit: number, run: () => Promise<T>): Promise<T> {
@@ -156,6 +177,22 @@ async function admit<T>(key: string, limit: number, run: () => Promise<T>): Prom
   }
 }
 
+/**
+ * The Store a call opens, or undefined. Calls on a project (`<store>/<project>`)
+ * and `store stats` open the Store in their own process and take its lease
+ * (`store/<name>/open/<pid>`); `store status`/`list` only read leases.
+ * Accepts both argv shapes: SDK words (`family call [--flags] -- positionals`)
+ * and the preset driver's (`family call positionals [--flags]`).
+ */
+export function storeOfCall(argv: readonly string[]): string | undefined {
+  const [family, call] = argv
+  if (!(['file', 'branch', 'commit', 'project'].includes(family!) || (family === 'store' && call === 'stats'))) return undefined
+  const dash = argv.indexOf('--')
+  const first = dash >= 0 ? argv[dash + 1] : argv[2]
+  if (!first || first.startsWith('--')) return undefined
+  return first.split('/')[0] || undefined
+}
+
 /** Live CLI children, for shutdown. */
 export const children = new Set<ChildProcess>()
 
@@ -168,9 +205,38 @@ export const children = new Set<ChildProcess>()
  */
 export function execute(spec: CliSpec, argv: readonly string[], options: ExecuteOptions = {}): Promise<any> {
   if (options.discovery) return executeRaw(spec, argv, options)
-  const positional = argv.indexOf('--')
-  const project = ['file', 'branch'].includes(argv[0]) && positional >= 2 ? argv[positional + 1] : undefined
-  return traceInvocation(argv.slice(0, 2).join('.').replaceAll('-', '_'), () => executeRaw(spec, argv, options), project, argv[0] === 'workspace' && argv[1] === 'commit' ? firstPositional(argv) : undefined, argv)
+  const target = ['file', 'branch'].includes(argv[0]) || (argv[0] === 'workspace' && argv[1] === 'commit') ? renderCall(argv)[2] : undefined
+  return traceInvocation(argv.slice(0, 2).join('.').replaceAll('-', '_'), (tag) => logged(spec, argv, { ...options, tag }),
+    argv[0] === 'workspace' ? undefined : target, argv[0] === 'workspace' ? target : undefined)
+}
+
+/**
+ * Run a call with a `dsh:` tag (the session receipt's, else a host tag); keep
+ * its output in `trace/outputs/` and, in stand-in mode, append its call log
+ * line, both before answering. Neither ever changes the call's outcome.
+ */
+async function logged(spec: CliSpec, argv: readonly string[], options: ExecuteOptions): Promise<any> {
+  if (!spec.callLog || !loggable(argv)) return executeRaw(spec, argv, options)
+  const tag = options.tag ?? hostTag(randomUUID().replaceAll('-', ''))
+  const capture: Capture = { stdout: outputSink(OUTPUT_MAX, 'head'), stderr: outputSink(OUTPUT_MAX, 'tail') }
+  const at = Date.now(), started = performance.now()
+  let result: unknown, error: any, spawned = false
+  const onSpawn = (child: ChildProcess) => { spawned = true; options.onSpawn?.(child) }
+  try { result = await executeRaw(spec, argv, { ...options, tag, capture, onSpawn }); return result } catch (e) { error = e; throw e } finally {
+    // A call refused before the CLI started, or whose syntax it rejected, writes no line (#659 §10).
+    const ran = spawned && (!error || !['unavailable', 'usage-incompatible'].includes(error?.transport))
+    if (ran) {
+      // The output first, so a page reloading on the new line already sees it.
+      try { saveOutput(outputsDir(spec.callLog), outputRecord({ tag, exit: capture.exit, stdout: capture.stdout, stderr: capture.stderr, final: capture.final, refusal: capture.refusal, max: OUTPUT_MAX })) } catch { /* best effort */ }
+      if (!(spec.nativeLogs ?? await hasNativeLogs(spec.cli))) {
+        appendCall(spec.callLog, callLine({
+          at, ms: performance.now() - started, argv, input: options.input ?? null, result, tag,
+          outcome: error ? typeof error.code === 'string' && error.code.length <= 64 ? error.code : 'Failed' : 'ok',
+          bools: boolOptions(spec.cli),
+        }))
+      }
+    }
+  }
 }
 
 function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOptions): Promise<any> {
@@ -183,14 +249,16 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     if (options.read && !existsSync(join(spec.home, 'layerfs.json'))) return reject(new CliError('Unavailable', 'LayerFS home is not initialized; reads will not create it'))
     let result: unknown, refusal: any, spawnError: unknown, malformed = false, finals = 0
     const events = options.events || argv.includes('--events')
+    const capture = options.capture
     const stdout = lines((line) => {
       try {
         const frame = parse(line)
         if (!events) { if (++finals !== 1) throw new Error('Extra result'); result = frame; return }
         if (finals) throw new Error('Frame after final')
-        if ('result' in frame || 'refusal' in frame) { finals++; result = frame.result; refusal = frame.refusal }
+        if ('result' in frame || 'refusal' in frame) { finals++; result = frame.result; refusal = frame.refusal; if (capture) capture.final = line }
         else if ('progress' in frame) options.onProgress?.(frame.progress)
         else if (!['stdout', 'stderr'].includes(frame.stream) || !('bytes' in frame)) throw new Error('Unknown event')
+        else capture?.[frame.stream as 'stdout' | 'stderr'].push(bytes(frame.bytes))
         options.onFrame?.(frame)
       } catch { malformed = true }
     })
@@ -205,31 +273,81 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     try { options.beforeSpawn?.() } catch (error) { reject(error); return }
     const child = spawn(spec.cli, [...argv], {
       shell: false, stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...options.env, ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), ...(spec.cacheHome ? { XDG_CACHE_HOME: spec.cacheHome } : {}), LAYERFS_PROGRESS_JSON: '1' },
+      env: { ...tagged(options), ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), ...(spec.cacheHome ? { XDG_CACHE_HOME: spec.cacheHome } : {}), LAYERFS_PROGRESS_JSON: '1' },
     })
     children.add(child)
     child.once('error', (error) => { spawnError = error })
     child.stdin?.on('error', () => {})
-    child.stdout?.on('data', (data: Buffer) => stdout.write(data))
-    child.stderr?.on('data', (data: Buffer) => stderr.write(data))
+    // `--events` stdout is frames: the capture keeps their decoded exec bytes and the final frame instead.
+    child.stdout?.on('data', (data: Buffer) => { if (capture && !events) capture.stdout.push(data); stdout.write(data) })
+    child.stderr?.on('data', (data: Buffer) => { capture?.stderr.push(data); stderr.write(data) })
     let deadline: NodeJS.Timeout | undefined
     if (options.timeout) deadline = setTimeout(() => child.kill('SIGTERM'), options.timeout)
     child.once('close', (code, signal) => {
       clearTimeout(deadline)
       children.delete(child)
       stdout.end(); stderr.end()
+      if (capture) { capture.exit = code; capture.refusal = refusal }
       try { resolve(outcome({ code, signal, result, refusal, error: spawnError, malformed: malformed || (events && finals !== 1) })) } catch (error) { reject(error) }
     })
     try { options.onSpawn?.(child) } catch { malformed = true; child.kill('SIGTERM') }
     child.stdin?.end(options.input)
   }))
-  // Saved reads of one Store are serialized: the CLI can race opening/closing one Store from separate processes.
-  return options.storeRead ? admit(JSON.stringify(['store-read', spec.home, options.storeRead]), 1, launch) : launch()
+  // One CLI process per Store at a time, reads and writes alike, for every caller in this host
+  // (presets, routes, sessions). Two processes on one Store fail in LayerFS: a lease claim deletes a
+  // neighbour's lease file that its exiting owner already removed (`Os NotFound`), and on macOS a
+  // second SQLite opener meets `Busy` with no writer lane or busy handler (some after an effect).
+  const store = options.storeRead ?? storeOfCall(argv)
+  return store ? admit(JSON.stringify(['store', spec.home, store]), 1, launch) : launch()
+}
+
+/** The child's environment: inherited, without an inherited log tag, plus the call's own tag. */
+function tagged(options: ExecuteOptions): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.LAYERFS_LOGS_TAG
+  Object.assign(env, options.env)
+  if (options.tag) env.LAYERFS_LOGS_TAG = options.tag
+  return env
 }
 
 // ---------------------------------------------------------------- discovery
 
 const known = new Map<string, Promise<Discovery>>()
+const settled = new Map<string, Discovery>()
+const nativeLogs = new Map<string, Promise<boolean>>()
+const nativeKnown = new Map<string, boolean>()
+
+/** Whether a call table has LayerFS's own call log (#659: the `logs` family). */
+export const tableHasLogs = (calls: readonly CallEntry[]): boolean =>
+  calls.some((c) => c.family === 'logs' && c.call === 'list') && calls.some((c) => c.family === 'logs' && c.call === 'reset')
+
+/**
+ * Whether the pinned CLI writes LayerFS's own call log: the `logs` family in
+ * its discovered call table (no extra process; cached with the discovery,
+ * refreshed when the pin changes). A failed discovery answers false and is
+ * retried after a minute.
+ */
+export function hasNativeLogs(cli: string): Promise<boolean> {
+  let pending = nativeLogs.get(cli)
+  if (!pending) {
+    pending = discover({ cli }).then((d) => tableHasLogs(d.calls), () => {
+      setTimeout(() => { if (nativeLogs.get(cli) === pending) nativeLogs.delete(cli) }, 60_000).unref()
+      return false
+    })
+    nativeLogs.set(cli, pending)
+    void pending.then((value) => { if (nativeLogs.get(cli) === pending) nativeKnown.set(cli, value) })
+  }
+  return pending
+}
+
+/** {@link hasNativeLogs} without waiting: undefined until it is known. */
+export function knownNativeLogs(cli: string): boolean | undefined { return nativeKnown.get(cli) }
+
+/** Bool option names of an already discovered call table (rendering only). */
+export function boolOptions(cli: string): string[] | undefined {
+  const d = settled.get(cli)
+  return d ? [...new Set(d.calls.flatMap((c) => c.options.filter((o) => o.kind === 'bool').map((o) => o.name)))] : undefined
+}
 
 /**
  * Discover the CLI's identity and call table once per binary path.
@@ -237,7 +355,7 @@ const known = new Map<string, Promise<Discovery>>()
  * @param fresh - forget a cached discovery (after a pin change).
  */
 export function discover(spec: Pick<CliSpec, 'cli'>, fresh = false): Promise<Discovery> {
-  if (fresh) known.delete(spec.cli)
+  if (fresh) { known.delete(spec.cli); settled.delete(spec.cli); nativeLogs.delete(spec.cli); nativeKnown.delete(spec.cli) }
   if (!known.has(spec.cli)) {
     const pending = (async () => {
       const s = { cli: spec.cli, home: '' }
@@ -251,7 +369,7 @@ export function discover(spec: Pick<CliSpec, 'cli'>, fresh = false): Promise<Dis
       }
       return { identity, calls: help.calls, commands: help.commands ?? [], switches: help.switches ?? [] } as Discovery
     })()
-    pending.catch(() => known.delete(spec.cli))
+    pending.then((d) => { if (known.get(spec.cli) === pending) settled.set(spec.cli, d) }, () => known.delete(spec.cli))
     known.set(spec.cli, pending)
   }
   return known.get(spec.cli)!

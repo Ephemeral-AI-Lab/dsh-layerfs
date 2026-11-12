@@ -1,7 +1,7 @@
 /**
  * dsh-layerfs, browser half: mounts the `layerfs` Remote namespace, opens the
- * host event stream, and contributes the Overview, Projects, Machines, Storage
- * and Presets pages, the per-session LayerFS panel and the New Session project
+ * host event stream, and contributes the Overview, Projects, Resources (with its
+ * machines), Logs and Settings (with Presets) pages, the per-session LayerFS panel and the New Session project
  * control through DSH's slots.
  */
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
@@ -13,14 +13,17 @@ import { NS, locales } from './locale.ts'
 import { registerMachines } from './machines/index.tsx'
 import { createSidebarGroup } from './overview/group.ts'
 import { PANEL_ID as OVERVIEW_PANEL, registerOverview } from './overview/index.tsx'
-import { registerStorage } from './storage/index.tsx'
+import { PANEL_ID as HEALTH_PANEL, registerHealth } from './health/index.tsx'
+import { PANEL_ID as STORAGE_PANEL, registerStorage } from './storage/index.tsx'
 import { registerSession } from './session/index.tsx'
 import { registerPresets } from './presets/index.tsx'
+import { registerLogs } from './logs/index.tsx'
+import { PANEL_ID as SETTINGS_PANEL, registerSettings } from './settings/index.tsx'
 import { registerProjects } from './projects/index.tsx'
 import { registerPicker } from './picker/index.tsx'
 import { registerHero } from './hero/index.tsx'
 import { registerSimulation } from './simulation/index.tsx'
-import { registerWorkAreas } from './workareas/index.tsx'
+import { registerViews } from './views/index.tsx'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 
@@ -50,14 +53,17 @@ export function apply(ctx: any): void {
     ctx.effect(() => { (window as any).__dshLayerfs = api; return () => { delete (window as any).__dshLayerfs } }, 'dsh-layerfs: debug')
   }
   const group = createSidebarGroup()
-  const machines = registerMachines(ctx, api, group, [OVERVIEW_PANEL])
-  registerStorage(ctx, api, group)
+  const machines = registerMachines(ctx, api, [OVERVIEW_PANEL, STORAGE_PANEL, HEALTH_PANEL, SETTINGS_PANEL])
+  registerStorage(ctx, api, group, machines)
+  registerHealth(ctx, api, group, machines)
   registerOverview(ctx, api, machines, group)
-  registerPresets(ctx, api, group)
-  registerProjects(ctx, api, group)
+  registerPresets(ctx)
+  registerLogs(ctx, api, group)
+  registerSettings(ctx, api, group, machines)
+  registerProjects(ctx, api)
   registerSession(ctx, api)
   registerPicker(ctx, api)
   registerHero(ctx, api)
   registerSimulation(ctx, api)
-  registerWorkAreas(ctx, api)
+  registerViews(ctx, api)
 }

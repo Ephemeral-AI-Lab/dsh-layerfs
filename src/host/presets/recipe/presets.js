@@ -1,18 +1,21 @@
 import { projectDefinition } from './projects.js'
-export const CONTENT_VERSION = 3
+export const CONTENT_VERSION = 4
 // Real-resource fixture descriptions. Nothing here fabricates LayerFS records.
+// Half the Stores are SQLite (created, then pushed to `machine`); the other half
+// are PostgreSQL databases on the preset's own server (postgresql.js), connected
+// and attached to `machine` and every machine in `attach`.
 const stores = [
   { name: 'demo-studio', machine: 'native', projects: ['website', 'design'] },
-  { name: 'demo-services', machine: 'docker', projects: ['gateway', 'billing'] },
+  { name: 'demo-services', kind: 'postgresql', database: 'demo_services', machine: 'docker', attach: ['native'], projects: ['gateway', 'billing'] },
   { name: 'demo-build-cache', machine: 'demo-build', projects: ['compiler', 'sdk'] },
-  { name: 'demo-experiments', machine: 'demo-research', projects: ['embeddings', 'evaluation'] },
+  { name: 'demo-experiments', kind: 'postgresql', database: 'demo_experiments', machine: 'demo-research', projects: ['embeddings', 'evaluation'] },
 ]
 const vms = [
   { name: 'demo-build', platform: 'lima', cpus: 2, memory: '4G', disk: '20G' },
   { name: 'demo-research', platform: 'lima', cpus: 2, memory: '4G', disk: '20G' },
 ]
 export const presets = {
-  studio: { description: 'Four machines, four stores and eight unequal project workloads with dense real commit, branch and publication histories. No sandboxes or workspaces.', machines: ['native', 'docker', ...vms], stores, sandboxes: false },
+  studio: { description: 'Four machines; two SQLite Stores and two PostgreSQL Stores (a Docker PostgreSQL server the preset runs, attached to their machines) with eight unequal project workloads and dense real commit, branch and publication histories. No sandboxes or workspaces.', machines: ['native', 'docker', ...vms], stores, sandboxes: false },
 }
 // Kept addressable for existing private homes and cleanup; not offered as presets.
 const legacyPresets = {

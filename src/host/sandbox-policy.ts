@@ -1,8 +1,8 @@
 /**
  * DSH's sandbox policy with LayerFS session roots. Replaces the `sandbox-policy`
  * row (bundle patch): for a session bound by dsh-layerfs, the workspace-write
- * root is the selected local scratch folder; the project mount, the managed
- * invocation receipt directory, and the parts of the private LayerFS home that
+ * root is the selected local scratch folder; the project mount, the call log
+ * directories the managed CLI appends to, and the parts of the private LayerFS home that
  * belong to this session's execution (its project's Store, its Sandbox, its
  * machine) also stay writable. Other Stores, Sandboxes and machines in the same
  * home stay read-only: a session drives them only through the host. Every other
@@ -44,9 +44,11 @@ export default class LayerfsSandboxPolicy extends (SandboxPolicyService as any) 
     const root = b.scratch
     const extra = [...(base.additionalWritableRoots ?? [])]
     const layerfs = (this as any).ctx.get?.('layerfs')
-    const receipts = layerfs?.root ? join(layerfs.root, 'invocation-receipts') : undefined
+    // Call log lines the managed CLI writes: the stand-in (`<root>/trace`) or LayerFS's own (`<home>/trace`).
+    const trace = layerfs?.root ? join(layerfs.root, 'trace') : undefined
+    const homeTrace = layerfs?.home && isDir(join(layerfs.home, 'trace')) ? join(layerfs.home, 'trace') : undefined
     const owned = sessionHomeRoots(layerfs?.home, b)
-    for (const dir of [b.mount, receipts, ...owned]) if (dir && dir !== root && !extra.includes(dir)) extra.push(dir)
+    for (const dir of [b.mount, trace, homeTrace, ...owned]) if (dir && dir !== root && !extra.includes(dir)) extra.push(dir)
     return { ...base, workspaceRoot: root, additionalWritableRoots: extra }
   }
 }

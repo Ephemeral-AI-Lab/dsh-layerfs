@@ -11,14 +11,14 @@ sessions belong to DSH workspaces and retain stock behavior. One DSH plugin bund
 | Where | What |
 | --- | --- |
 | Sidebar → **Machines** | LayerFS machines (native, docker, VMs): state, Sandboxes, Stores, spec, start/stop, add machine; the pinned LayerFS runtime (CLI, daemon, home) |
-| Sidebar → **Storage** | Stores (SQLite, PostgreSQL), projects (import a folder), files, history and commit diffs, branches, Sandboxes, backups to buckets and restore, Store push/pull/move, home checks; a project's **Sessions** |
-| Sidebar → **Presets** | LayerFS Connect's Studio project library (4 machines, 4 stores, 8 projects with dense branch/merge/publish histories) built into this LayerFS home: the machine → store → project plan, each project's paged CLI script, Filesystem or Mixed (workspace exec/commit) mode, **Build projects** and **Reset**, with real stage/count progress and a job log |
+| Sidebar → **Resources** | Stores (SQLite, PostgreSQL), projects (import a folder), files, history and commit diffs, branches, Sandboxes, backups to buckets and restore, Store push/pull/move, home checks; a project's **Sessions** |
+| Sidebar → **Settings** → Presets | LayerFS Connect's Studio project library (4 machines, 4 stores, 8 projects with dense branch/merge/publish histories) built into this LayerFS home: the machine → store → project plan, each project's paged CLI script, Filesystem or Mixed (workspace exec/commit) mode, **Build projects** and **Reset**, with real stage/count progress and a job log |
 | Sidebar → **Projects** | Every LayerFS project as a card holding its sessions; **New session** per project, **New empty project** / **Import project…** in the header, sessions stored in a project open by id |
 | New Session row | Choose **No project** for a normal workspace session or select a LayerFS project. The local folder chooser remains visible; in project mode that folder is scratch. Choose another project, create an empty project, or import one from a host folder before the first turn |
 | Project sessions | Owned and listed by the LayerFS project, with a private execution context. The selected local folder is scratch, even if it is also a DSH workspace. Local shell commands run in scratch; project commands use the managed LayerFS CLI. Scratch is never checkpointed or deleted on session close/forget |
 | Turn end | A checkpoint: the Workspace is committed to the branch when the turn changed files |
-| Conversation header / right sidebar → **LayerFS** | Project identity, execution context, selected scratch folder, unsaved changes, checkpoint diffs, **Restore files**, and **Checkpoint now**. Branches stay internal |
-| Session store | Project conversations use unpacked native DSH JSONL under `~/.layerfs/dsh`, with additive `layerfs.json` annotations. Logs and annotations are archived inside the project for portability; normal logs remain under `$DSH_HOME/sessions`. The panel distinguishes local events from archived events |
+| Conversation tabs → **Files**, **History**, **Sandbox** | Project sessions only: the project's files on the session branch (with the unsaved count), its history graph, and a map of agents → branches → sandbox workspaces that replays their LayerFS calls. These tabs have no composer. Normal workspace sessions keep only Chat and Trajectory ([spec](docs/specs/conversation-views.md)) |
+| Session store | Project conversations use unpacked native DSH JSONL under `$DSH_HOME/layerfs/project-sessions`, with additive `layerfs.json` annotations. Logs and annotations are archived inside the project for portability; normal logs remain under `$DSH_HOME/sessions`. |
 | Conversation activity | SDK and managed CLI invocation receipts link exact tool-call IDs to confirmed saved versions. `workspace.exec` has no checkpoint links; automatic saves appear separately. Saved-version labels open immutable project files |
 
 DSH's own **Fork** of a project session also starts its files from the checkpoint
@@ -34,17 +34,25 @@ dsh plugin --profile web add link:/path/to/dsh-layerfs
 ```
 
 Pin LayerFS 2.0 (CLI and matching daemon) with `DSH_LAYERFS_CLI` / `DSH_LAYERFS_DAEMON`,
-or later on Machines → LayerFS runtime → Change. The LayerFS home defaults to
-`$DSH_HOME/layerfs/home` (`DSH_LAYERFS_HOME` overrides it).
+or later on Machines → LayerFS runtime → Change, which installs the CLI, daemon and
+bundle into the LayerFS home (`runtime/<version>-<sha>/`) and pins those copies.
+The LayerFS home is LayerFS's own, apart from DSH: `~/.layerfs` by default
+(`DSH_LAYERFS_HOME`, then `LAYERFS_HOME`, override it). It holds LayerFS's records,
+its runtime, the secrets entered in the panel (`secret/`) and storage
+jobs, statistics and Presets state (`job/`, `stat/`, `preset/`, named for no client); the bucket list
+is read from LayerFS's records in the home. This plugin's per-install state
+(runtime pin, session bindings, scratch) stays in `$DSH_HOME/layerfs`. See [docs/specs/homes.md](docs/specs/homes.md).
 
 ### Configuration (`layerfs` row in `cordis.patch.yml`)
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `root` | `$DSH_HOME/layerfs` | Plugin runtime settings, legacy anchors, execution bindings and receipt spool |
-| `projectSessionHome` | `~/.layerfs/dsh` | Unpacked project conversation storage; `DSH_LAYERFS_SESSION_HOME` overrides the default |
-| `cli`, `daemon`, `home` | unset | Explicit pins (otherwise saved setting, then env) |
+| `projectSessionHome` | `$DSH_HOME/layerfs/project-sessions` | Unpacked project conversation storage; `DSH_LAYERFS_SESSION_HOME` overrides the default |
+| `cli`, `daemon`, `bundle` | unset | Explicit pins (otherwise saved setting, then env, then the newest runtime installed in the LayerFS home) |
 | `cacheHome` | unset | The XDG cache home holding prepared VM OS images (`<cacheHome>/layerfs/machine-images`, built by LayerFS `tools/machine_image.py`), passed to every CLI as `XDG_CACHE_HOME`. Otherwise the saved setting (Machines → LayerFS runtime), then `DSH_LAYERFS_CACHE_HOME`, then the host's own `XDG_CACHE_HOME`. Without a prepared image, a new Lima machine boots the stock Ubuntu image (about 30 s instead of about 9 s) |
+| `home` | `~/.layerfs` | The LayerFS home (`DSH_LAYERFS_HOME`, then `LAYERFS_HOME`, override the default) |
+| `secrets` | `<home>/secret` | Where bucket keys and PostgreSQL passwords entered in the panel are saved (owner-only files LayerFS reads through `file:` references); `DSH_LAYERFS_SECRETS` overrides the default. A bucket keeps the key file it was connected with; only new saves use a changed folder |
 | `scratchProject` | `dsh-scratch/scratch` | Legacy Scratch-project identity; normal sessions do not bind to it |
 | `checkpoints` | `turn` | `off` disables per-turn commits |
 | `idleMinutes` | `30` | Close an idle session's Sandbox (it reopens on the next turn) |

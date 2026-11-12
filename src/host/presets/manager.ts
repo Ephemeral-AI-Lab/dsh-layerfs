@@ -8,9 +8,11 @@
  *
  * Build clears and rebuilds this home. Reset force-stops registered machines
  * without starting workers or removing stores, projects or saved history.
- * Both retain request reconciliation and an exclusive job lease. Active DSH
- * sessions may be force-closed, while storage/import/doctor jobs must finish
- * before either operation starts. Only Build forgets removed project records.
+ * Both delete this home's LayerFS project sessions (conversations, bindings,
+ * checkpoints) once their machines are stopped or Stores removed. Both retain
+ * request reconciliation and an exclusive job lease. Active DSH sessions may
+ * be force-closed, while storage/import/doctor jobs must finish before either
+ * operation starts. Only Build forgets removed project workspaces.
  *
  * Routes (under `/api/demo-presets`, answered by the `http` operation):
  *   GET  /                               the library, its latest job, busy
@@ -27,6 +29,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { join } from 'node:path'
 import { LOG_LINES, type BusySession, type DemoPreset, type DemoPresets, type DshImpact, type EnvironmentResetPlan, type MachineStopPlan, type PresetExecutionMode, type PresetJob } from '../../shared/presets.ts'
 import { CliDriver, type PresetSpec } from './driver.ts'
+import type { HomeStore } from '../sessions/service.ts'
 import {
   buildPreset, CONTENT_VERSION, EnvironmentReset, MachineStop, liveReceipt, MIXED_RECIPE_VERSION, prepareBuild, presetOf, presets,
   presetScript, projectDefinition, projectHistoryPlan, scriptPage,
@@ -44,6 +47,12 @@ export interface PresetHost {
   dshProjects(): { project: string, sessions: number }[]
   /** Drop a removed project's DSH workspace and session records. */
   forgetProject(project: string): Promise<void>
+  /** This LayerFS home's Stores (with Store IDs when known), plus `also` by name. */
+  homeStores(also: readonly string[]): Promise<HomeStore[]>
+  /** The project sessions of these Stores. */
+  projectConversations(stores: readonly HomeStore[]): BusySession[]
+  /** Delete the project sessions of these Stores; returns their ids. */
+  deleteProjectConversations(stores: readonly HomeStore[]): Promise<string[]>
   /** Mark stopped execution contexts closed without forgetting their sessions. */
   machinesStopped?(machines: string[]): Promise<void>
   /** Publish a host event. */
@@ -120,13 +129,13 @@ export class PresetManager {
     return {
       id: name, description: preset.description, executionMode, contentVersion: CONTENT_VERSION, contentReady, projectDefinitions,
       machineDefinitions: preset.machines.map((m: any) => typeof m === 'string' ? { name: m, platform: m } : m),
-      projectGroups: preset.stores.map((s: any) => ({ store: s.name, machine: s.machine, projects: s.projects })),
+      projectGroups: preset.stores.map((s: any) => ({ store: s.name, kind: s.kind === 'postgresql' ? 'postgresql' : 'sqlite', machine: s.machine, attach: s.attach ?? [], projects: s.projects })),
       machines: preset.machines.map((m: any) => typeof m === 'string' ? m : m.name),
       stores, projects,
       sandboxes: executionMode === 'mixed' ? projects : preset.sandboxes === false ? 0 : stores,
       workspaces: executionMode === 'mixed' ? 0 : preset.sandboxes === false ? 0 : stores * 2,
       requirements: [
-        ...(preset.stores.some((s: any) => s.machine === 'docker') ? ['docker'] : []),
+        ...(preset.stores.some((s: any) => s.machine === 'docker' || s.kind === 'postgresql' || s.attach?.includes('docker')) ? ['docker'] : []),
         ...(preset.machines.some((m: any) => typeof m !== 'string') ? ['lima'] : []),
         ...((executionMode === 'mixed' || (stores && preset.sandboxes !== false)) ? ['daemon'] : []),
       ],
@@ -134,6 +143,7 @@ export class PresetManager {
       initialized: existsSync(join(this.home, 'layerfs.json')),
       built: !!manifest?.homeId,
       settings: manifest ? { sandboxes: manifest.sandboxes, executionMode: manifest.executionMode ?? 'filesystem' } : null,
+      lastBuild: buildJob && buildJob.state === 'completed' && buildJob.ended ? { ended: buildJob.ended, executionMode: buildJob.executionMode, verified: !!buildJob.presetVerified } : null,
       job,
     }
   }
@@ -143,13 +153,26 @@ export class PresetManager {
     return { items, home: this.home, busy: this.exclusive() || !!liveReceipt(join(this.state, 'demo-fixtures.lock')) }
   }
 
-  /** The DSH side of destructive Build cleanup. Stop-only Reset retains these records. */
-  private impact(projectKeys: readonly string[]): DshImpact {
+  /** The preset's own Store names: always this home's, even when a listing fails. */
+  private storeNames(name: string): string[] { return presetOf(name).stores.map((s: any) => String(s.name)) }
+
+  /** The DSH side of a reset: bound sessions, dropped workspaces (Build only) and the project sessions deleted. */
+  private async impact(name: string, projectKeys: readonly string[]): Promise<DshImpact> {
     const removed = new Set(projectKeys)
+    const stores = await this.host.homeStores(this.storeNames(name))
     return {
       sessions: this.host.boundSessions(),
       workspaces: this.host.dshProjects().filter((p) => removed.has(p.project)),
+      conversations: this.host.projectConversations(stores),
     }
+  }
+
+  /** Delete this home's project sessions; Stores a Build removed match by name. */
+  private async deleteConversations(job: PresetJob, before: Promise<HomeStore[]>, removedStores: readonly string[] = []): Promise<void> {
+    const known = await before
+    const stores = [...known, ...removedStores.filter((n) => !known.some((s) => s.name === n)).map((n) => ({ name: n }))]
+    job.deletedSessions = await this.host.deleteProjectConversations(stores)
+    this.publish(job)
   }
 
   /** Refuse while other work holds the home. A forced reset skips the session check. */
@@ -193,7 +216,7 @@ export class PresetManager {
     if (this.list().busy) throw busy('Wait for the preset operation to finish before building.')
     const spec = this.spec()
     const plan = await prepareBuild({ spec, preset: name, sandboxes, executionMode, driver: new CliDriver(spec) })
-    return { ...plan, environment: name, dsh: this.impact(plan.projectKeys) }
+    return { ...plan, environment: name, dsh: await this.impact(name, plan.projectKeys) }
   }
 
   async environmentPlan(name: string): Promise<MachineStopPlan> {
@@ -202,7 +225,7 @@ export class PresetManager {
     if (!existsSync(join(spec.home, 'layerfs.json'))) throw error(409, 'InvalidInput', 'This LayerFS home has not been initialized; there is nothing to reset.')
     const reset = new MachineStop({ spec, driver: new CliDriver(spec) })
     const plan = await reset.plan()
-    return { ...plan, environment: name, dsh: { sessions: this.host.boundSessions(), workspaces: [] } }
+    return { ...plan, environment: name, dsh: await this.impact(name, []) }
   }
 
   /** Drop the DSH records of projects whose Store the reset removed (verified first). */
@@ -244,20 +267,28 @@ export class PresetManager {
         if (Date.now() - last >= 250) { last = Date.now(); this.publish(job) }
       }
       const progress = (value: any) => { job.progress = value; if (Date.now() - last >= 250 || value.completed === value.total) { last = Date.now(); this.publish(job) } }
+      // Store identities before anything is removed (a Build's cleanup replaces Stores).
+      const before = this.host.homeStores(this.storeNames(name)).catch(() => this.storeNames(name).map((n) => ({ name: n })))
       const driver = new CliDriver(spec, report)
       const onReady = async (action: { id: string }) => { Object.assign(job, { actionId: action.id, state: 'running', started: Date.now() }); this.publish(job) }
       const options = { expectedPlan: body.expectedPlan, assertIdle: async () => this.idle(body.rebuild ? force : true), onReady }
       const operation: Promise<any> = body.rebuild
         ? buildPreset({ spec, preset: name, driver, sandboxes: body.sandboxes, executionMode, ...options, report, progress,
-          onCleanup: async (receipt: any) => { job.cleanup = receipt; await this.forget(job, receipt); this.publish(job) },
+          onCleanup: async (receipt: any) => {
+            job.cleanup = receipt
+            if (receipt?.verified) await this.deleteConversations(job, before, receipt.remove?.stores ?? [])
+            await this.forget(job, receipt)
+            this.publish(job)
+          },
           onBuildReady: (action: { id: string }) => { job.rebuildActionId = action.id; this.publish(job) } })
         : new MachineStop({ spec, driver, report, progress }).run({ ...options, onStopped: async (machine: string) => this.host.machinesStopped?.([machine]) })
       const task = operation.then(async (result) => {
         const receipt = body.rebuild ? result.cleanup : result
         job.cleanup = receipt
         if (body.rebuild) job.presetVerified = result.presetVerified
+        else await this.deleteConversations(job, before)
 
-        Object.assign(job, { state: 'completed', phase: body.rebuild ? 'Environment reset verified. Studio rebuilt and verified.' : 'Machines force-closed. Saved projects and history retained.', ended: Date.now() })
+        Object.assign(job, { state: 'completed', phase: body.rebuild ? 'Environment reset verified. Studio rebuilt and verified.' : `Machines force-closed; ${job.deletedSessions?.length ?? 0} project sessions deleted. Saved projects retained.`, ended: Date.now() })
       }).catch((e: any) => {
         const receipt = read(join(this.state, body.rebuild ? 'environment-reset.json' : 'machine-stop.json'))
         Object.assign(job, { state: 'failed', cleanup: receipt?.actionId === job.actionId ? receipt : job.cleanup, error: { code: e?.code ?? 'Failed', message: String(e?.message ?? e) }, phase: String(e?.message ?? e), ended: Date.now() })

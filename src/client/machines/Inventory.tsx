@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import { StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
-import { SandboxGlyph, StoreGlyph } from './icons.tsx'
+import { SandboxGlyph, StoreKindGlyph } from './icons.tsx'
 import {
   SANDBOX_CAPACITY, bytes, machineState, opWords, pgUsable, projectRef, sandboxesOn, shortSandbox, stateLook, storesOn,
   type AvailableView, type MachineInfo, type MachineSandbox,
@@ -106,7 +106,7 @@ function StoreRows({ rows, more, onMore }: { rows: StoreLine[], more: number, on
         return (
           <li key={`${s.family}:${s.name}`}>
             <button type="button" className={clsx(css.line, css.storeLine)} onClick={() => openStorageTab(`store:${s.name}`)} title={t('openStore', { name: s.name })}>
-              <span className={css.lineIcon} aria-hidden="true"><StoreGlyph size={14} /></span>
+              <span className={css.lineIcon} aria-hidden="true"><StoreKindGlyph kind={s.family} size={14} mono /></span>
               <span className={css.lineName}>{s.name}</span>
               <span className={css.lineMeta}>{projects && <span className={css.tag} title={projects}>{projects}</span>}</span>
               {busy

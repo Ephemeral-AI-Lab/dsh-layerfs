@@ -4,6 +4,7 @@
  * detail?, conversion? }`. No HTTP server, token or CORS: the `http`
  * operation hands `{ method, path, body }` here and answers `{ status, body }`.
  */
+import { SandboxCommands, sandboxOfWs } from './commands.ts'
 import { DoctorManager } from './doctor.ts'
 import { Machines } from './machines.ts'
 import { Projects } from './projects.ts'
@@ -31,6 +32,8 @@ export const STATUS: Record<string, number> = {
   NotFound: 404,
   // the SDK's: an operation holds the entity (detail names it, its phase and op)
   Busy: 409,
+  // the host's own: one Sandbox-page command per Workspace (commands.ts)
+  CommandRunning: 409,
   // the SDK's: an operation's outcome was lost; the message names the clearing call
   Unresolved: 409,
   // the host's own guards (one job per Store on this host)
@@ -78,6 +81,8 @@ export interface Groups {
   readonly storage: Storage
   readonly projects: Projects
   readonly doctor: DoctorManager
+  /** Commands a Sandbox page runs in its Workspaces, and their log (commands.ts). */
+  readonly commands: SandboxCommands
   /** Runtime facts for `GET /api/status` (`ctx.layerfs.status()`). */
   readonly runtime: () => Promise<unknown>
   /** `/api/demo-presets…` (presets/manager.ts), once attached. */
@@ -100,7 +105,10 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   // Compute's "Move to…" starts a job in Storage's table, so its progress shows there
   const machines = new Machines(host, (store, machine) => storage.place(store, machine))
   const doctor = new DoctorManager(host)
-  return { host, machines, storage, projects, doctor, runtime }
+  const commands = new SandboxCommands(host)
+  // a closed Sandbox's command logs go with it (its Workspace paths restart with a new daemon)
+  projects.sandboxClosedHook = (name) => commands.closed(name)
+  return { host, machines, storage, projects, doctor, commands, runtime }
 }
 
 /** method + path segments -> the answer, or undefined when no route matches. */
@@ -124,9 +132,12 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id === 'postgresql' && !sub && method === 'POST') return storage.connectPostgresql(body ?? {})
     if (id && sub === 'stats' && method === 'GET') return projects.storeStats(id)
     if (id && sub === 'observations' && method === 'GET') return projects.storeObservations(id)
-    if (id && sub === 'storage-report' && method === 'GET') return projects.storeStorageReport(id, query)
     if (id && !sub && method === 'DELETE') return storage.removeStore(id, { confirm: query.get('confirm') })
     if (id && sub === 'disconnect' && method === 'POST') return storage.disconnectStore(id)
+    // a PostgreSQL Store on a machine: { machine, url?, password? | passwordValue? }, checked from the machine
+    if (id && sub === 'attach' && method === 'POST') return storage.attachStore(id, body ?? {})
+    // { machine }
+    if (id && sub === 'detach' && method === 'POST') return storage.detachStore(id, body ?? {})
     // a sqlite Store on native to a machine: { machine }
     if (id && sub === 'push' && method === 'POST') return storage.push(id, body?.machine)
     // a sqlite Store on a machine back to native
@@ -187,8 +198,6 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (sub === 'history') return projects.history(id, query)
     // this project's own storage from its saves' counters (see project-storage.ts): ?refresh=1
     if (sub === 'storage') return projects.projectStorage(id, query)
-    if (sub === 'storage-history') return projects.storageHistory(id, query)
-    if (sub === 'storage-report') return projects.storageReport(id, query)
     if (sub === 'branches') return projects.branches(id, query)
     if (sub === 'file-query') return projects.fileQuery(id, query)
     if (sub === 'stats') return projects.projectStats(id, query)
@@ -201,15 +210,37 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (sub === 'file') return projects.file(id, branch, query.get('path'), query.get('pin'), query.get('line') ?? 1)
     return undefined
   }
-  // sandbox.close(name, { force }): ?force=1
+  // sandbox.close(name, { force }): ?force=1; drops the Sandbox's command logs once closed
   if (group === 'sandboxes' && id && !sub && method === 'DELETE') return projects.closeSandbox(id, { force: query.get('force') === '1' })
   // one Sandbox with its Workspaces (sandbox.get)
   if (group === 'sandboxes' && id && !sub && method === 'GET') return projects.sandbox(id)
+  // the commands this host ran in the Sandbox's Workspaces, newest first, at most 50 (commands.ts)
+  if (group === 'sandboxes' && id && sub === 'commands' && method === 'GET') return g.commands.list(id)
+  // one Workspace's commands, newest first
+  if (group === 'workspaces' && id && sub === 'commands' && method === 'GET') return g.commands.listWorkspace(id)
+  // workspace.exec in the background: { command } -> the running entry; 409 CommandRunning while one runs there
+  if (group === 'workspaces' && id && sub === 'commands' && method === 'POST') return g.commands.start(id, body ?? {})
+  // workspace.exec_cancel of a command started here: { id }
+  if (group === 'workspaces' && id && sub === 'cancel' && method === 'POST') return g.commands.cancel(id, body ?? {})
+  // workspace.commit: captures the overlay as a new Commit on the Workspace's Branch: { message? }
+  if (group === 'workspaces' && id && sub === 'commit' && method === 'POST') {
+    sandboxOfWs(id)
+    const message = typeof body?.message === 'string' && body.message.trim() ? body.message.trim().slice(0, 4096) : undefined
+    return projects.lfs.workspace.commit(id, message ? { message } : {})
+  }
   // a Workspace in it: { branch, fork?, name? } (only side Branches are mounted, D14)
   if (group === 'sandboxes' && id && sub === 'workspaces' && method === 'POST') return projects.mount(id, body ?? {})
   if (group === 'workspaces' && id && sub === 'status' && method === 'GET') return projects.lfs.workspace.status(id)
-  // workspace.unmount: ?discard=1
-  if (group === 'workspaces' && id && !sub && method === 'DELETE') return projects.unmount(id, { discard: query.get('discard') === '1' })
+  // workspace.unmount: ?discard=1&force=1; without force, 409 CommandRunning while this host runs a command there.
+  // LayerFS's refusals (Dirty, Busy with detail.execs, Unknown) pass through; once unmounted, its command log goes.
+  if (group === 'workspaces' && id && !sub && method === 'DELETE') {
+    const force = query.get('force') === '1'
+    sandboxOfWs(id)
+    if (!force) g.commands.assertIdle(id, 'Cancel it first, or force the unmount.')
+    const result = await projects.unmount(id, { discard: query.get('discard') === '1', force })
+    g.commands.unmounted(id)
+    return result
+  }
   if (group === 'project-inits' && !id && method === 'GET') return projects.initJobs()
   if (group === 'project-inits' && id && !sub && method === 'GET') return projects.init(id)
   return undefined

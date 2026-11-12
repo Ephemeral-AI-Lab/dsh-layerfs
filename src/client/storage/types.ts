@@ -56,7 +56,13 @@ export interface PgAttachment {
   lastError: (SdkRefusal & { at: number }) | null
 }
 
-export interface BackupFile { file: string, store: string | null, state: BackupState, bytes: number | null, modified: number | null, reason: string | null }
+export interface BackupFile {
+  file: string, store: string | null, state: BackupState, bytes: number | null, modified: number | null, reason: string | null
+  /** The state was settled by this host (its Store is on another machine, which LayerFS does not read). */
+  checked?: 'host'
+  /** Unknown because its Store is on another machine and no backup from this host marked it. */
+  untracked?: boolean
+}
 
 export interface BucketRow {
   name: string

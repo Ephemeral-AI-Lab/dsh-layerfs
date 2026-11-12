@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -18,24 +18,33 @@ import { CONTENT_VERSION } from '../src/host/presets/recipe/presets.js'
 const root = new URL('..', import.meta.url).pathname
 const out = mkdtempSync(join(tmpdir(), 'dsh-presets-'))
 await build({
-  absWorkingDir: root, entryPoints: { presets: 'src/host/presets/manager.ts', cli: 'src/host/layerfs/cli.ts', driver: 'src/host/presets/driver.ts' }, outdir: out,
+  absWorkingDir: root, entryPoints: { presets: 'src/host/presets/manager.ts', cli: 'src/host/layerfs/cli.ts', driver: 'src/host/presets/driver.ts', stateDir: 'src/host/presets/state-dir.ts' }, outdir: out,
   bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning', outExtension: { '.js': '.mjs' },
 })
 const { PresetManager } = await import(pathToFileURL(join(out, 'presets.mjs')).href)
 const { REQUIRED_CALLS } = await import(pathToFileURL(join(out, 'cli.mjs')).href)
+const { presetStateFor, legacyPresetState } = await import(pathToFileURL(join(out, 'stateDir.mjs')).href)
 const R = await loadRoutes()
 
-function fakeHost({ cli = '/nonexistent/layerfs', home, state, sessions = [], projects = [], busy = [] } = {}) {
-  const events = [], forgotten = [], stopped = []
+function fakeHost({ cli = '/nonexistent/layerfs', home, state, sessions = [], projects = [], busy = [], conversations = [] } = {}) {
+  const events = [], forgotten = [], stopped = [], deleted = [], order = []
+  const of = (stores) => conversations.filter((c) => stores.some((s) => s.name === c.project.split('/')[0]))
   return {
-    events, forgotten, stopped,
+    events, forgotten, stopped, deleted, order,
     host: {
       spec: () => ({ cli, home, bundle: null, daemon: null, state }),
       busy: () => busy,
       boundSessions: () => sessions,
       dshProjects: () => projects.filter((p) => !forgotten.includes(p.project)),
       forgetProject: async (project) => { forgotten.push(project) },
-      machinesStopped: async (machines) => { stopped.push(...machines) },
+      machinesStopped: async (machines) => { stopped.push(...machines); order.push(...machines.map((m) => `stop:${m}`)) },
+      homeStores: async (also) => [...new Set(['store', ...also])].map((name) => ({ name })),
+      projectConversations: (stores) => of(stores),
+      deleteProjectConversations: async (stores) => {
+        const ids = of(stores).map((c) => c.id).filter((id) => !deleted.includes(id))
+        deleted.push(...ids); order.push(...ids.map((id) => `delete:${id}`))
+        return ids
+      },
       emit: (type, data) => events.push({ type, data }),
     },
   }
@@ -58,6 +67,7 @@ test('list: the Studio library over an uninitialized home', () => {
   assert.equal(studio.initialized, false)
   assert.equal(studio.built, false)
   assert.equal(studio.contentReady, false)
+  assert.equal(studio.lastBuild, null)
   assert.ok(studio.projectDefinitions.every((p) => p.history.commits > 0 && p.branches.length > 0))
   assert.deepEqual(studio.requirements, ['docker', 'lima'])
   assert.equal(m.definition('studio', 'mixed').requirements.includes('daemon'), true)
@@ -251,14 +261,16 @@ test('Reset only force-stops registered machines, preserves content/manifest/jou
     const manifestText = JSON.stringify(manifest), journalText = 'existing history receipt\n'
     writeFileSync(join(fixture.state, 'demo-fixtures.json'), manifestText)
     writeFileSync(join(fixture.state, 'demo-steps.ndjson'), journalText)
-    const buildJob = { id: 'build', requestId: 'build-request', preset: 'studio', rebuild: true, state: 'completed', presetVerified: true, created: 1, log: [] }
+    const buildJob = { id: 'build', requestId: 'build-request', preset: 'studio', rebuild: true, state: 'completed', presetVerified: true, executionMode: 'filesystem', created: 1, ended: 2, log: [] }
     writeFileSync(join(fixture.state, 'demo-preset-jobs.json'), JSON.stringify([buildJob]))
-    const fake = fakeHost({ ...fixture, sessions: [{ id: 'session-active', project: 'store/project' }], projects: [{ project: 'store/project', sessions: 1 }] })
+    const conversations = [{ id: 'session-active', project: 'store/project' }, { id: 'session-old', project: 'store/project' }, { id: 'session-elsewhere', project: 'other-home-store/p' }]
+    const fake = fakeHost({ ...fixture, sessions: [{ id: 'session-active', project: 'store/project' }], projects: [{ project: 'store/project', sessions: 1 }], conversations })
     const manager = new PresetManager(fake.host, fixture.state, fixture.home)
     const plan = await manager.environmentPlan('studio')
     assert.equal(plan.scope, 'machines')
     assert.deepEqual(plan.stopMachines, ['docker', 'native', 'vm'])
     assert.deepEqual(plan.dsh.workspaces, [])
+    assert.deepEqual(plan.dsh.conversations.map((c) => c.id), ['session-active', 'session-old'], 'the plan names this home\'s project sessions only')
     const job = await manager.resetEnvironment('studio', { requestId: 'stop', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false })
     await manager.settle()
     assert.equal(job.state, 'completed', job.error?.message)
@@ -267,9 +279,12 @@ test('Reset only force-stops registered machines, preserves content/manifest/jou
     assert.deepEqual(job.cleanup.completed, ['docker', 'native', 'vm'].map(name => ['machine', 'stop', name, '--force']))
     assert.deepEqual(fake.stopped, ['docker', 'native', 'vm'])
     assert.deepEqual(fake.forgotten, [])
+    assert.deepEqual(job.deletedSessions, ['session-active', 'session-old'])
+    assert.deepEqual(fake.order, ['stop:docker', 'stop:native', 'stop:vm', 'delete:session-active', 'delete:session-old'], 'sessions are deleted after every machine stopped')
     assert.equal(readFileSync(join(fixture.state, 'demo-fixtures.json'), 'utf8'), manifestText)
     assert.equal(readFileSync(join(fixture.state, 'demo-steps.ndjson'), 'utf8'), journalText)
     assert.equal(manager.definition('studio').contentReady, true, 'stopping machines does not erase build verification')
+    assert.deepEqual(manager.definition('studio').lastBuild, { ended: 2, executionMode: 'filesystem', verified: true }, 'the status line keeps the last Build, not the later stop')
     assert.ok(recordedCommands(fixture).every(argv => argv[0] === 'machine' && ['list', 'stop'].includes(argv[1])), 'no worker inspection, boot, unmount or resource deletion')
   } finally { rmSync(fixture.base, { recursive: true, force: true }) }
 })
@@ -277,13 +292,14 @@ test('Reset only force-stops registered machines, preserves content/manifest/jou
 test('a partial stop failure still invalidates successful machines and attempts remaining targets', async () => {
   const fixture = stoppingFixture({ fail: 'native' })
   try {
-    const fake = fakeHost(fixture)
+    const fake = fakeHost({ ...fixture, conversations: [{ id: 's1', project: 'store/project' }] })
     const manager = new PresetManager(fake.host, fixture.state, fixture.home)
     const plan = await manager.environmentPlan('studio')
     const job = await manager.resetEnvironment('studio', { requestId: 'partial', expectedPlan: plan.signature, confirm: true, rebuild: false, sandboxes: false })
     await manager.settle()
     assert.equal(job.state, 'failed')
     assert.deepEqual(fake.stopped, ['docker', 'vm'])
+    assert.deepEqual(fake.deleted, [], 'a failed stop deletes no session')
     assert.equal(job.cleanup.verified, false)
     assert.deepEqual(job.cleanup.completed, ['docker', 'vm'].map(name => ['machine', 'stop', name, '--force']))
     assert.deepEqual(JSON.parse(readFileSync(fixture.inventory)).map(row => row.name).sort(), ['docker', 'native', 'vm'])
@@ -342,4 +358,32 @@ test('live: the selected legacy CLI is rejected before Reset reaches its private
     assert.equal(existsSync(join(fixture.state, 'machine-stop.json')), false)
     assert.equal(existsSync(join(fixture.state, 'demo-fixtures.lock')), false)
   } finally { rmSync(fixture.base, { recursive: true, force: true }) }
+})
+
+test('presets state: each home keeps it in <home>/preset; an earlier <root>/presets/homes/<digest> moves in with its recorded paths rewritten', () => {
+  const base = mkdtempSync(join(tmpdir(), 'dsh-preset-state-'))
+  try {
+    const pluginRoot = join(base, 'root'), oldHome = join(base, 'old-home'), newHome = join(base, 'new-home')
+    for (const [dir, id] of [[oldHome, 'a'.repeat(32)], [newHome, 'b'.repeat(32)]]) { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'layerfs.json'), JSON.stringify({ id })) }
+    // a fresh home: its own folder inside it, named for no client
+    assert.equal(presetStateFor(pluginRoot, newHome), join(newHome, 'preset'))
+    // an earlier build's per-home folder moves into the home
+    const legacy = legacyPresetState(pluginRoot, oldHome)
+    mkdirSync(join(legacy, 'demo-sources', 'st', 'p'), { recursive: true })
+    const real = realpathSync(legacy)
+    writeFileSync(join(legacy, 'demo-fixtures.json'), JSON.stringify({ homeId: 'a'.repeat(32), state: real }))
+    writeFileSync(join(legacy, 'demo-steps.ndjson'), JSON.stringify({ argv: ['init', `${real}/demo-sources/st/p`] }) + '\n')
+    const target = presetStateFor(pluginRoot, oldHome)
+    assert.equal(target, join(oldHome, 'preset'))
+    assert.ok(!existsSync(legacy))
+    assert.equal(statSync(target).mode & 0o777, 0o700)
+    const to = realpathSync(target)
+    assert.equal(JSON.parse(readFileSync(join(target, 'demo-fixtures.json'), 'utf8')).state, to)
+    assert.equal(JSON.parse(readFileSync(join(target, 'demo-steps.ndjson'), 'utf8')).argv[1], `${to}/demo-sources/st/p`)
+    assert.ok(existsSync(join(target, 'demo-sources', 'st', 'p')))
+    // stable afterwards; the flat <root>/presets files are never consulted
+    mkdirSync(join(pluginRoot, 'presets'), { recursive: true })
+    writeFileSync(join(pluginRoot, 'presets', 'demo-fixtures.json'), JSON.stringify({ homeId: 'a'.repeat(32) }))
+    assert.equal(presetStateFor(pluginRoot, oldHome), target)
+  } finally { rmSync(base, { recursive: true, force: true }) }
 })

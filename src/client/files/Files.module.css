@@ -455,3 +455,332 @@
   font-weight: 500;
   cursor: pointer;
 }
+
+/* ---------- file views: Code, Blame, History ---------- */
+
+.fileView {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.modeBar {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+}
+
+.modeBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.blame {
+  display: flex;
+  flex-direction: column;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-lg);
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.blameGroup {
+  display: grid;
+  grid-template-columns: minmax(150px, 30%) minmax(0, 1fr);
+}
+
+.blameGroup + .blameGroup {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.blameOwnerCell {
+  min-width: 0;
+  border-left: 3px solid var(--dsw-alias-border-l3);
+  border-right: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 0;
+}
+
+.blameGroup[data-newest] .blameOwnerCell {
+  border-left-color: var(--dsw-alias-state-business-primary);
+}
+
+.blameOwner {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.blameOwner:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .blameOwner:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.blameMessage,
+.revisionTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.blameMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.blameMeta code {
+  font-family: var(--ds-font-family-code);
+}
+
+.blameUnknown {
+  display: block;
+  padding: 3px 8px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.blameLines {
+  min-width: 0;
+  padding: 2px 0;
+  overflow-x: auto;
+}
+
+.blameLine {
+  display: flex;
+  gap: 10px;
+  padding: 0 10px 0 0;
+  line-height: 20px;
+  white-space: pre;
+}
+
+.blameNumber {
+  flex: none;
+  width: 36px;
+  text-align: right;
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-tertiary);
+  user-select: none;
+}
+
+.blameText {
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-primary);
+}
+
+.historyFrame {
+  display: grid;
+  grid-template-columns: minmax(180px, 32%) minmax(0, 1fr);
+  min-height: 0;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-lg);
+  overflow: hidden;
+}
+
+@container files-main (max-width: 560px) {
+  .historyFrame,
+  .blameGroup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .revisionList {
+    border-right: 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  }
+
+  .blameOwnerCell {
+    border-right: 0;
+  }
+}
+
+.revisionList {
+  min-width: 0;
+  padding: 6px;
+  border-right: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.revisionRow {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--dsw-radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.revisionRow[data-active] {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.revisionRow:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .revisionRow:hover:not([data-active]) {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.revisionTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.revisionTop .revisionTitle {
+  flex: 1;
+}
+
+.revisionToggle {
+  margin: 8px 8px 2px;
+  font-size: 12px;
+}
+
+.revisionDiff {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+/* ---------- lines whose owner changed ---------- */
+
+.owners {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ownersHead {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ownerRows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-lg);
+  overflow: hidden;
+}
+
+.ownerRow {
+  display: grid;
+  grid-template-columns: 36px auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 2px 10px 2px 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.ownerRow + .ownerRow {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.ownerLine {
+  text-align: right;
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ownerIds {
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ownerText {
+  overflow: hidden;
+  font-family: var(--ds-font-family-code);
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+/* ---------- comparing two saved versions ---------- */
+
+.compare {
+  container: files-main / inline-size;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.compareBar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 0 0 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.compareEnd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.compareEndLabel {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.compareAt {
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.compareArrow {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.compareSwap {
+  margin-left: auto;
+}
+
+.compare .diffFrame {
+  min-height: 0;
+  overflow: hidden;
+}

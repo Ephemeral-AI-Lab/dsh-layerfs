@@ -16,9 +16,11 @@
  *   storage-observations.ts Store statistics journals
  *   ../presets/manager.ts   /api/demo-presets… (Presets: build the Studio library, reset the home)
  *
- * Host state (Connect's `<state>` files) lives in `ctx.layerfs.root`:
- * buckets.json, secrets/, storage-jobs.json, doctor-jobs.json,
- * storage-observations/, project-sources/.
+ * Storage state lives in the LayerFS home, in client-neutral folders
+ * (docs/specs/homes.md §5): buckets are LayerFS's records (`<home>/backup/`),
+ * storage-jobs.json and doctor-jobs.json are in `<home>/job`, and
+ * storage-observations/ and project-storage/ in `<home>/stat`. Entered keys and passwords go to `ctx.layerfs.secrets`
+ * (default `<home>/secret`). `ctx.layerfs.root` keeps project-sources/.
  *
  * Events, published with `ctx.layerfs.emit(type, data)`; `data` is Connect's
  * whole HostEvent object (its `type` included), so a client handler written
@@ -35,8 +37,8 @@
  * CORS and `/api/events` stream (the `layerfs/events` Remote replaces it).
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { join } from 'node:path'
 import { PresetManager } from '../presets/manager.ts'
+import { presetStateFor } from '../presets/state-dir.ts'
 import { createGroups, handle } from './router.ts'
 import type { RouteHost } from './util.ts'
 
@@ -49,6 +51,9 @@ export function apply(ctx: Context): void {
     lfs: () => ctx.layerfs.lfs,
     home: ctx.layerfs.home,
     root: ctx.layerfs.root,
+    secrets: ctx.layerfs.secrets,
+    jobs: ctx.layerfs.jobDir,
+    stats: ctx.layerfs.statDir,
     cli: () => ctx.layerfs.cli,
     daemon: () => ctx.layerfs.daemon,
     discover: () => ctx.layerfs.discovery(),
@@ -74,15 +79,18 @@ export function apply(ctx: Context): void {
   }
   const groups = createGroups(host, () => ctx.layerfs.status())
   const sessions = () => ctx.get('layerfsSessions' as never) as any
+  // each LayerFS home has its own presets state: a manifest names the home it built in
+  const presetState = presetStateFor(ctx.layerfs.root, ctx.layerfs.home)
   const presets = new PresetManager({
     spec: () => {
-      const { cli, home, bundle, cacheHome } = ctx.layerfs.lfs.spec
-      return { cli, home, bundle, cacheHome, daemon: ctx.layerfs.daemon, state: join(ctx.layerfs.root, 'presets') }
+      const { cli, home, bundle, cacheHome, callLog } = ctx.layerfs.lfs.spec
+      return { cli, home, bundle, cacheHome, callLog, daemon: ctx.layerfs.daemon, state: presetState }
     },
     busy: () => [
       ...(groups.storage.busy() ? ['a storage job'] : []),
       ...(groups.projects.busy() ? ['a project import'] : []),
       ...(groups.doctor.busy() ? ['a doctor run'] : []),
+      ...(groups.commands.busy() ? ['a Sandbox command'] : []),
     ],
     boundSessions: () => Object.values((sessions()?.state.read().sessions ?? {}) as Record<string, any>)
       .filter((b) => b.kind === 'project' && b.state === 'bound' && b.sandbox)
@@ -94,9 +102,12 @@ export function apply(ctx: Context): void {
       return Object.keys(state.projects).sort().map((project) => ({ project, sessions: all.filter((b) => b.project === project && b.kind !== 'shared').length }))
     },
     forgetProject: async (project) => { await sessions()?.forgetProject(project) },
+    homeStores: async (also) => sessions()?.homeStores(also) ?? also.map((name) => ({ name })),
+    projectConversations: (stores) => sessions()?.projectConversations(stores) ?? [],
+    deleteProjectConversations: async (stores) => (await sessions()?.deleteProjectConversations(stores)) ?? [],
     machinesStopped: async (machines) => { sessions()?.machinesStopped(machines) },
     emit: (type, data) => ctx.layerfs.emit(type, data),
-  }, join(ctx.layerfs.root, 'presets'), ctx.layerfs.home)
+  }, presetState, ctx.layerfs.home)
   groups.presets = presets
   ctx.layerfs.exclusive = () => presets.exclusive() ? 'A preset build or reset is changing this LayerFS home; the session gets its Sandbox when it finishes. Send the message again then.' : null
   ctx.effect(() => () => {

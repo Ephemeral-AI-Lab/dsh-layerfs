@@ -19,6 +19,8 @@ export interface DshImpact {
   readonly sessions: readonly BusySession[]
   /** Projects dropped by destructive Build cleanup; empty for stop-only Reset. */
   readonly workspaces: readonly { readonly project: string, readonly sessions: number }[]
+  /** This home's LayerFS project sessions, deleted by Reset and by Build. */
+  readonly conversations: readonly BusySession[]
 }
 
 export interface EnvironmentResetPlan {
@@ -127,6 +129,8 @@ export interface PresetJob {
   presetVerified?: boolean
   /** Projects whose DSH workspace and session records were dropped after their Store was removed. */
   forgotten?: string[]
+  /** LayerFS project sessions deleted by this operation. */
+  deletedSessions?: string[]
   error?: { code: string, message: string }
   /** The last lines the runner reported (newest last, at most LOG_LINES). */
   log: PresetLogLine[]
@@ -157,7 +161,8 @@ export interface DemoPreset {
   contentReady: boolean
   projectDefinitions: PresetProjectDefinition[]
   machineDefinitions: { name: string, platform: string, cpus?: number, memory?: string, disk?: string }[]
-  projectGroups: { store: string, machine: string, projects: string[] }[]
+  /** `machine` holds a SQLite Store, or is the first machine a PostgreSQL Store is attached to (`attach` lists the others). */
+  projectGroups: { store: string, kind?: 'sqlite' | 'postgresql', machine: string, attach?: string[], projects: string[] }[]
   machines: string[]
   stores: number
   projects: number
@@ -171,6 +176,8 @@ export interface DemoPreset {
   /** A preset build prepared this home's manifest. */
   built: boolean
   settings: { sandboxes: boolean, executionMode: PresetExecutionMode } | null
+  /** The latest finished Build: when, in which mode, and whether the library verified. */
+  lastBuild: { ended: number, executionMode: PresetExecutionMode, verified: boolean } | null
   job: PresetJob | null
 }
 

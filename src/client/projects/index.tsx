@@ -1,53 +1,54 @@
 /**
- * Projects area of dsh-layerfs: the sidebar's Projects entry and the page it
- * opens in the main column — every LayerFS project with its sessions. It is
- * the sidebar's LayerFS half, next to the Workspaces list's plain folders.
+ * Projects area of dsh-layerfs: the LayerFS view of the sidebar's Workspaces
+ * section behind a header switch (`WorkspacesView.tsx`), the Projects page its
+ * folder button opens (`layerfs-projects`), and one project's page
+ * (`layerfs-project`, opened from a project row or `openProjectHome`).
  */
 import type { ReactNode } from 'react'
 import type { LayerfsApi } from '../api.ts'
-import { ChildGlyph } from '../overview/child.tsx'
-import { LayerfsGlyph } from '../overview/glyph.tsx'
-import type { SidebarGroup } from '../overview/group.ts'
-import { NS as PICKER_NS, type PickerKey } from '../picker/locale.ts'
 import { locales, NS, type ProjectsT } from './locale.ts'
+import { locales as listLocales, NS as LIST_NS, type ListT } from './list-locale.ts'
 import { NS as STORAGE_NS, type StorageT } from '../storage/locale.ts'
-import { ProjectsPage } from './ProjectsPage.tsx'
+import { ProjectList, type SessionSource } from './ProjectList.tsx'
+import { ProjectPanel } from './ProjectsPage.tsx'
+import { LIST_PANEL_ID, PROJECT_PANEL_ID } from './navigation.ts'
+import { registerWorkspacesView } from './WorkspacesView.tsx'
 
-/** The id shared by the sidebar entry and the main panel it opens. */
-export const PANEL_ID = 'layerfs-projects'
+/** The Projects page's panel id. */
+export const PANEL_ID = LIST_PANEL_ID
 
-type Translate<K extends string> = (key: K, params?: Record<string, string | number>) => string
-
-function ProjectsSidebarIcon({ size }: { size?: number }): ReactNode {
-  return <ChildGlyph><LayerfsGlyph size={size ?? 16} /></ChildGlyph>
+function ProjectListMain(props: { api: LayerfsApi, t: ListT, sessionSource?: SessionSource }): ReactNode {
+  return <ProjectList api={props.api} t={props.t} sessionSource={props.sessionSource} />
 }
 
-function ProjectsMain(props: { api: LayerfsApi, t: ProjectsT, tp: Translate<PickerKey>, tf: StorageT }): ReactNode {
-  return <ProjectsPage api={props.api} t={props.t} tp={props.tp} tf={props.tf as import("../files/types.ts").Translate} />
+function ProjectMain(props: { api: LayerfsApi, t: ProjectsT, tf: StorageT, listT: ListT }): ReactNode {
+  return <ProjectPanel api={props.api} t={props.t} tf={props.tf as import('../files/types.ts').Translate} listT={props.listT} />
 }
 
 /**
- * Register the Projects page and its sidebar entry.
+ * Register the Workspaces view switch, the Projects page and the project page.
  * @param ctx - the plugin's client context (slots, locale).
- * @param api - the host API the page reads through.
- * @param group - the LayerFS sidebar group the entry shows under.
+ * @param api - the host API the pages read through.
  */
-export function registerProjects(ctx: any, api: LayerfsApi, group: SidebarGroup): void {
+export function registerProjects(ctx: any, api: LayerfsApi): void {
   ctx.effect(() => ctx.locale.register(NS, locales), 'dsh-layerfs: projects locale')
+  ctx.effect(() => ctx.locale.register(LIST_NS, listLocales), 'dsh-layerfs: project list locale')
   const t = ctx.locale.bind(NS)
-  const tp = ctx.locale.bind(PICKER_NS)
   const tf = ctx.locale.bind(STORAGE_NS)
+  const listT = ctx.locale.bind(LIST_NS)
+  ctx.inject(['sessions'], (scope: any) => {
+    scope.effect(() => scope.slots.inject('main', () => scope.slots.register({
+      name: 'main',
+      key: LIST_PANEL_ID,
+      locale: LIST_NS,
+      inject: () => ({ api, t: listT, sessionSource: scope.get('sessions').list }),
+    }, ProjectListMain)), 'dsh-layerfs: project list page')
+    registerWorkspacesView(scope, api)
+  })
   ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({
     name: 'main',
-    key: PANEL_ID,
+    key: PROJECT_PANEL_ID,
     locale: NS,
-    inject: () => ({ api, t, tp, tf }),
-  }, ProjectsMain)), 'dsh-layerfs: projects page')
-  ctx.effect(() => group.whileExpanded(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-    name: 'sidebar.panellist',
-    id: PANEL_ID,
-    order: 7.6,
-    label: () => t('panel'),
-    locale: NS,
-  }, ProjectsSidebarIcon))), 'dsh-layerfs: projects entry')
+    inject: () => ({ api, t, tf, listT }),
+  }, ProjectMain)), 'dsh-layerfs: project page')
 }

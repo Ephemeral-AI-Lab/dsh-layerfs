@@ -12,9 +12,10 @@ import { ago, bytes, when } from '../files/format.ts'
 import { EmptyState } from '../files/States.tsx'
 import type { Translate } from '../files/types.ts'
 import { errorCode, useQuery } from '../files/use-query.ts'
-import { Card, Fact, Facts, LoadError, Loading, MoreMenu, PageHead, Refusal, Section, StateChip, type Tone } from '../ui/index.tsx'
+import { Card, Fact, Facts, LoadError, Loading, MoreMenu, Refusal, Section, StateChip, type Tone } from '../ui/index.tsx'
 import type { StorageDialog } from './dialogs.tsx'
 import type { StorageT } from './locale.ts'
+import { PaneBar } from './PaneBar.tsx'
 import { refusalLabels } from './parts.tsx'
 import type { ProjectState, SandboxInfo, SessionRow } from './types.ts'
 import css from './Storage.module.css'
@@ -54,19 +55,18 @@ export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore 
   })
   return (
     <div className={css.projectPage}>
-      <PageHead title={name}
+      <PaneBar title={name}
         actions={(
           <>
             <Tooltip label={t('refreshProject')} side="bottom" portal delayMs={500}>
-              <Button variant="outline" size="sm" aria-label={t('refreshProject')} icon={<IconRefreshOutlineRegular size={13} />} onClick={() => setTick((n) => n + 1)}>{t('refresh')}</Button>
+              <Button variant="ghost" size="sm" className={css.paneIconButton} aria-label={t('refreshProject')} icon={<IconRefreshOutlineRegular size={14} />} onClick={() => setTick((n) => n + 1)} />
             </Tooltip>
             <MoreMenu label={t('storeActions', { name })}>{(close) => <MenuItemButton danger onSelect={() => { close(); remove() }}>{t('removeProject')}</MenuItemButton>}</MoreMenu>
           </>
-        )} />
-      <div className={css.tabBar}>
+        )}>
         <SegmentedTabs size="sm" className={css.tabList} label={t('projectTabs')} value={tab} onChange={setTab}
           items={tabs.map((x) => ({ value: x.value, label: x.label, id: `lfs-project-${x.value}`, panelId: `lfs-project-${x.value}-panel` })) as [never, ...never[]]} />
-      </div>
+      </PaneBar>
       <div role="tabpanel" id={`lfs-project-${tab}-panel`} aria-labelledby={`lfs-project-${tab}`} className={clsx(css.tabPanel, (tab === 'files' || tab === 'history') && css.fillPanel)}>
         {tab === 'files' ? (
           <ProjectFiles key={`${open.n}`} api={api} project={project} t={tt} tick={tick} initialBranch={open.branch} initialPin={open.pin} initialPath={open.path} />
@@ -176,39 +176,5 @@ function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, pro
 }
 
 function Stats({ api, t, project, tick, onOpenStore }: { api: LayerfsApi, t: StorageT, project: string, tick: number, onOpenStore: (store: string) => void }): ReactNode {
-  const q = useQuery(() => api.call<ProjectState>('GET', `/api/projects/${enc(project)}`), [api, project, tick])
-  if (q.error && !q.data) return <LoadError title={t('projectFailed')} error={q.error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={q.reload} />
-  if (!q.data) return <Loading label={t('loading')} />
-  const s = q.data
-  return (
-    <>
-      {s.project.refusal ? <Refusal error={s.project.refusal} labels={refusalLabels(t)} /> : null}
-      <Section title={t('statsProject')}>
-        <Card>
-          <Facts>
-            <Fact label={t('statsBranches')}>{String(s.branches.length)}</Fact>
-            <Fact label={t('statsLayers')}>{String(s.layers.length)}</Fact>
-            <Fact label={t('statsCommits')}>{s.commits != null ? String(s.commits) : null}</Fact>
-            <Fact label={t('statsSandboxes')}>{String(s.sandboxes.length)}</Fact>
-            <Fact label={t('factCreated')}>{when(s.project.created)}</Fact>
-            <Fact label={t('statsStoreFile')} title={s.store.path ?? undefined}>{s.store.bytes != null ? bytes(s.store.bytes) : null}</Fact>
-          </Facts>
-        </Card>
-      </Section>
-      <Section title={t('statsStorage')}>
-        {s.storage ? (
-          <Card>
-            <Facts>
-              <Fact label={t('statsLogical')}>{bytes(s.storage.logical)}</Fact>
-              <Fact label={t('statsCanonical')}>{bytes(s.storage.canonical)}</Fact>
-              <Fact label={t('statsStored')}>{bytes(s.storage.stored)}</Fact>
-              <Fact label={t('statsMetadata')}>{bytes(s.storage.metadata)}</Fact>
-            </Facts>
-            {s.storage.partial ? <p className={css.cardNote}>{t('statsPartial')}</p> : null}
-          </Card>
-        ) : <Card><p className={css.cardNote}>{t('statsNoStorage')}</p></Card>}
-        <ProjectStorage api={api} t={t} state={s} onOpenStore={onOpenStore} />
-      </Section>
-    </>
-  )
+  return <ProjectStorage key={project} api={api} t={t} project={project} tick={tick} onOpenStore={onOpenStore} />
 }

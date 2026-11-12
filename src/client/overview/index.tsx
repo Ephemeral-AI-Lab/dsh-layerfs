@@ -1,7 +1,7 @@
 /**
  * LayerFS area of dsh-layerfs: the sidebar's LayerFS row and the page it
- * opens (the runtime, doctor, and a card each for Machines and Storage). The
- * page reuses the Machines controller's face for the runtime and machines.
+ * opens (doctor, and a card each for Machines and Storage; the runtime is on
+ * Settings). The page reuses the Machines controller's face for the machines.
  * Clicking the row folds or unfolds the rows under it; its Open page control
  * (and Enter on the row) opens the page.
  */

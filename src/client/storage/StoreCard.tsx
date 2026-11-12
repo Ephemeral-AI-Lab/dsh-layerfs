@@ -8,8 +8,8 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { LinkButton, MoreMenu } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { canAddProject, inHome, latestBackup } from './model.ts'
-import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
+import { inHome, latestBackup } from './model.ts'
+import type { PgAttachment, StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
 export interface StoreActions {
@@ -26,6 +26,12 @@ export interface StoreActions {
   retry: (job: StorageJob) => void
   dismiss: (job: StorageJob) => void
   openMachine: (name: string) => void
+  /** PostgreSQL: the Attach dialog, for a machine (or a choice), or to edit an attachment. */
+  attach: (machine?: string, edit?: PgAttachment) => void
+  /** PostgreSQL: attach again with the same settings, so LayerFS checks it again. */
+  recheck: (attachment: PgAttachment) => void
+  /** PostgreSQL: confirm, then store.detach. */
+  detach: (machine: string) => void
 }
 
 /** Where a Store is: the home, a machine (opens it on Machines), or its PostgreSQL server. */
@@ -44,8 +50,7 @@ export function StoreMenu({ store: s, on, t }: { store: StoreRow, on: StoreActio
         const run = (fn: () => void) => () => { close(); fn() }
         return pg ? (
           <>
-            <MenuItemButton disabled={!canAddProject(s)} onSelect={run(on.addProject)}>{t('addProject')}</MenuItemButton>
-            <MenuItemButton danger separatorBefore onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
+            <MenuItemButton danger onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
           </>
         ) : (
           <>
@@ -63,7 +68,6 @@ export function StoreMenu({ store: s, on, t }: { store: StoreRow, on: StoreActio
                 {`${t('backupNow')} · ${l.bucket}/${l.file}`}
               </MenuItemButton>
             ))}
-            <MenuItemButton disabled={!canAddProject(s)} onSelect={run(on.addProject)}>{t('addProject')}</MenuItemButton>
             <MenuItemButton danger separatorBefore onSelect={run(on.remove)}>{t('remove')}</MenuItemButton>
           </>
         )

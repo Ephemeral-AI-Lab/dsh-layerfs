@@ -14,13 +14,20 @@ await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host
 const persistence = await import(pathToFileURL(join(out, 'persistence.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
-async function fixture() {
+/** `branches`: share another fixture's project, as a second DSH reaching the same LayerFS project. */
+async function fixture(branches = ['main']) {
   const dir = mkdtempSync(join(root, '.dev-test-persistence-'))
   const ctx = new Context()
-  ctx.provide('layerfs', { root: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs: { project: { list: async () => ({ items: [{ project: 'store/project', store: 'store', name: 'project', kind: 'sqlite', machine: 'native', created: 100 }] }), get: async (key) => ({ project: key, store: key.split('/')[0], name: key.split('/')[1], kind: 'sqlite', machine: 'native', created: 100 }) }, store: { status: async () => ({ state: 'idle' }), stats: async () => ({ store_id: 'stable-store-id', store_generation: 1 }) } } })
+  // One project whose branches hold its UUID (`dsh.project.<uuid>`) once claimed.
+  const info = (key) => ({ project: key, store: key.split('/')[0], name: key.split('/')[1], kind: 'sqlite', machine: 'native', created: 100 })
+  ctx.provide('layerfs', { root: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs: {
+    project: { list: async () => ({ items: [info('store/project')] }), get: async (key) => info(key) },
+    branch: { list: async () => ({ items: branches.map((name) => ({ name })) }), fork: async (_, name) => { if (!branches.includes(name)) branches.push(name); return {} } },
+    store: { status: async () => ({ state: 'idle' }) },
+  } })
   const fork = ctx.plugin(persistence, { root: join(dir, 'normal') })
   await fork.await()
-  return { dir, ctx, p: ctx.get('sessionPersistence'), close: async () => { await fork.dispose(); rmSync(dir, { recursive: true, force: true }) } }
+  return { dir, ctx, branches, p: ctx.get('sessionPersistence'), close: async () => { await fork.dispose(); rmSync(dir, { recursive: true, force: true }) } }
 }
 const header = (id) => ({ version: 4, id, createdAt: 123, cwd: '/original/local/folder', isSeeded: false })
 
@@ -35,7 +42,7 @@ test('project ownership routes unpacked native logs, normal sessions stay stock,
     await f.p.migrateProject('project', 'store/project')
     assert.match((await f.p.stat('normal')).location.path, /\/normal\//)
     const location = (await f.p.stat('project')).location.path
-    assert.match(location, /\/project-home\/projects\/[a-f0-9]{64}\/sessions\//)
+    assert.match(location, /\/project-home\/projects\/[0-9a-f-]{36}\/sessions\//)
     assert.match(location, /\.jsonl$/)
     const physical = readFileSync(location, 'utf8').trim().split('\n').map(JSON.parse)
     assert.equal(physical[0].id, 'project')
@@ -51,7 +58,7 @@ test('project ownership routes unpacked native logs, normal sessions stay stock,
     assert.equal((await f.p.readSidecar('project')).invocations[0].outcome, 'success')
     // A fresh facade and fresh backends must resolve the persisted owner locally.
     const fresh = new persistence.LayerfsSessionPersistence(f.ctx.isolate('sessionPersistence'), stock)
-    fresh.service.lfs.store.stats = async () => { throw new Error('offline') }
+    fresh.service.lfs.project.get = async () => { throw new Error('offline') }
     assert.equal((await fresh.stat('project')).header.id, 'project')
     assert.deepEqual(fresh.ownerOf('project'), { project: 'store/project' })
     assert.deepEqual(fresh.ownedSessionIds('store/project'), ['project'])
@@ -99,7 +106,6 @@ function archiveFixture(f, files) {
     ensureAnchor: () => join(f.dir, 'safe-local-anchor'), recordedWorkspace: () => undefined, attach: async () => {},
   }
   f.ctx.layerfs.emit = () => {}
-  f.ctx.layerfs.lfs.branch = { fork: async () => ({}) }
   f.ctx.layerfs.lfs.file = {
     apply: async (_, branch, changes) => { for (const change of changes) if (change.op === 'write') files.set(change.path, change.content) },
     read: async (_, branch, path) => ({ text: files.get(path) }),
@@ -117,7 +123,7 @@ function archiveFixture(f, files) {
 }
 
 test('portable archive preserves native JSONL and sidecar, imports safely and refuses changed history', async () => {
-  const a = await fixture(), b = await fixture()
+  const a = await fixture(), b = await fixture(a.branches)
   const files = new Map()
   try {
     const handle = await a.p.create(header('portable'))
@@ -167,7 +173,7 @@ test('migration preserves native event identities and the exact fork-inherited c
 
 
 test('shared-session archive retains parent provenance without recursive parent imports', async () => {
-  const a = await fixture(), b = await fixture()
+  const a = await fixture(), b = await fixture(a.branches)
   const files = new Map()
   try {
     const handle = await a.p.create(header('portable'))
@@ -187,7 +193,7 @@ test('shared-session archive retains parent provenance without recursive parent 
 })
 
 test('simulation archive/import preserves the exact handoff pin and never replays its private script', async () => {
-  const a = await fixture(), b = await fixture()
+  const a = await fixture(), b = await fixture(a.branches)
   const files = new Map()
   try {
     const handle = await a.p.create(header('portable'))
@@ -223,7 +229,7 @@ test('simulation archive/import preserves the exact handoff pin and never replay
 })
 
 test('imported unfinished simulation remains inert and requires reconciliation', async () => {
-  const a = await fixture(), b = await fixture()
+  const a = await fixture(), b = await fixture(a.branches)
   const files = new Map()
   try {
     const handle = await a.p.create(header('portable'))
@@ -246,7 +252,7 @@ test('imported unfinished simulation remains inert and requires reconciliation',
 })
 
 test('simulation import never mounts an archived mutable code branch in place of its saved pin', async () => {
-  const a = await fixture(), b = await fixture()
+  const a = await fixture(), b = await fixture(a.branches)
   const files = new Map()
   try {
     const handle = await a.p.create(header('portable'))
@@ -270,7 +276,7 @@ test('simulation import never mounts an archived mutable code branch in place of
 })
 
 test('one pinned export imports native JSONL, manifest and annotations with lines far beyond file.read windows', async () => {
-  const a = await fixture(), b = await fixture(), files = new Map()
+  const a = await fixture(), b = await fixture(a.branches), files = new Map()
   try {
     const event = { seq: 0, time: 123, type: 'plugin:layerfs/large-tool-result', ignorable: true, data: { toolCallId: 'actual-native-tool-call', payload: 'λ🧪\n'.repeat(30000) } }
     const handle = await a.p.create(header('portable'))
@@ -381,7 +387,7 @@ test('clipped or unproven manifest windows fall back to one exact export', async
   } finally { await b.close() }
 })
 
-test('permanent conversation owner blocks replaced Stores while retaining local logs and metadata', async () => {
+test('permanent conversation owner blocks a recreated project while retaining local logs and metadata', async () => {
   const f = await fixture()
   try {
     const log = await f.p.create(header('retained'))
@@ -390,7 +396,10 @@ test('permanent conversation owner blocks replaced Stores while retaining local 
     await f.p.migrateProject('retained', 'store/project')
     await f.p.updateSidecar('retained', (value) => { value.checkpoints = [{ commit: 'original-checkpoint' }] })
     const id = f.p.projectIdOf('retained')
-    f.ctx.layerfs.lfs.store.stats = async () => ({ store_id: 'replacement-store', store_generation: 2 })
+    // Deleted and recreated under the same name: a new project without the UUID branch.
+    f.branches.splice(0, f.branches.length, 'main')
+    f.ctx.layerfs.lfs.project.get = async () => ({ project: 'store/project', store: 'store', name: 'project', kind: 'sqlite', machine: 'native', created: 200 })
+    f.ctx.layerfs.lfs.project.list = async () => ({ items: [await f.ctx.layerfs.lfs.project.get()] })
     await assert.rejects(f.p.assertSessionIdentity('retained'), { code: 'ProjectIdentityChanged' })
     await assert.rejects(f.p.migrateProject('retained', 'store/project'), { code: 'ProjectIdentityChanged' })
     assert.equal(f.p.projectIdOf('retained'), id)
@@ -402,7 +411,7 @@ test('permanent conversation owner blocks replaced Stores while retaining local 
   } finally { await f.close() }
 })
 
-test('Store location changes do not change conversation identity or its local storage route', async () => {
+test('machine changes do not change conversation identity or its local storage route', async () => {
   const f = await fixture()
   try {
     const log = await f.p.create(header('moved')); await log.flush()
@@ -417,7 +426,7 @@ test('Store location changes do not change conversation identity or its local st
   } finally { await f.close() }
 })
 
-test('restored Store copies cannot automatically import or reassign the original conversation', async () => {
+test('a project carrying another UUID cannot import or reassign the conversation', async () => {
   const a = await fixture(), b = await fixture(), files = new Map()
   try {
     const log = await a.p.create(header('portable')); await log.flush()
@@ -425,7 +434,7 @@ test('restored Store copies cannot automatically import or reassign the original
     const original = archiveFixture(a, files)
     await original.store.mirror('portable')
     const restored = archiveFixture(b, files)
-    b.ctx.layerfs.lfs.store.stats = async () => ({ store_id: 'restored-copy', store_generation: 2 })
+    // b's project at the same address claims its own UUID; the archive names a's.
     await assert.rejects(restored.store.import('store/project', 'portable'), { code: 'BindingRequired' })
     assert.equal(b.p.ownerOf('portable'), undefined)
     assert.equal(await b.p.local.stat('portable'), undefined)
@@ -454,29 +463,26 @@ test('an archive changed by restore or another writer cannot overwrite locally p
 })
 
 
-test('legacy Store-only routing cannot silently adopt a recreated project with the same name', async () => {
+test('an owner recorded before project UUIDs keeps its history and is never adopted', async () => {
   const f = await fixture()
   try {
     const log = await f.p.create(header('legacy-owner')); await log.flush()
     await f.p.migrateProject('legacy-owner', 'store/project')
-    await f.p.updateSidecar('legacy-owner', (value) => { value.codeBranch = 'original-context'; value.checkpoints = [{ commit: 'original-checkpoint', branch: 'original-context' }] })
-    const originalPath = (await f.p.stat('legacy-owner')).location.path
     await log.close()
     const ownersPath = join(f.dir, 'project-home', 'owners.json')
     const owners = JSON.parse(readFileSync(ownersPath, 'utf8'))
     const previousKey = owners.sessions['legacy-owner'].key
-    const legacyKey = createHash('sha256').update(JSON.stringify([f.ctx.layerfs.home, 'store/project', 'stable-store-id', '1'])).digest('hex')
+    const legacyKey = createHash('sha256').update(JSON.stringify([f.ctx.layerfs.home, 'store/project', 'store-id', '1'])).digest('hex')
     delete owners.sessions['legacy-owner'].identity
     owners.sessions['legacy-owner'].key = legacyKey
     const { renameSync } = await import('node:fs')
     renameSync(join(f.dir, 'project-home', 'projects', previousKey), join(f.dir, 'project-home', 'projects', legacyKey))
     writeFileSync(ownersPath, JSON.stringify(owners))
     const fresh = new persistence.LayerfsSessionPersistence(f.ctx.isolate('sessionPersistence'), f.p.stock)
-    f.ctx.layerfs.lfs.project.get = async () => ({ project: 'store/project', store: 'store', name: 'project', kind: 'sqlite', created: 200 })
-    f.ctx.layerfs.lfs.branch = { get: async () => { throw Object.assign(new Error('The original context is missing'), { code: 'NoSuchBranch' }) } }
-    await assert.rejects(fresh.assertSessionIdentity('legacy-owner'), { code: 'NoSuchBranch' })
+    await assert.rejects(fresh.assertSessionIdentity('legacy-owner'), { code: 'ProjectIdentityChanged' })
     assert.equal(fresh.projectIdOf('legacy-owner'), legacyKey)
     assert.ok(await fresh.local.stat('legacy-owner'))
+    assert.ok((await fresh.catalogProjects()).some((row) => row.projectId === legacyKey))
   } finally { await f.close() }
 })
 
@@ -512,5 +518,41 @@ test('events appended while the owner is being chosen move with the session', as
     const reader = await f.p.open('racing', 'read')
     try { assert.deepEqual((await reader.read()).events.map((e) => e.type), ['plugin:layerfs/test', 'turn/start']) } finally { await reader.close() }
     await live.close()
+  } finally { await f.close() }
+})
+
+test('Presets Reset deletion: log folder, owner route and sidecar go; a deletion record blocks implicit import', async () => {
+  const f = await fixture()
+  try {
+    const kept = await f.p.create(header('kept'))
+    await kept.flush(); await kept.close()
+    for (const id of ['gone', 'loaded']) {
+      const handle = await f.p.create(header(id))
+      await handle.flush()
+      await f.p.migrateProject(id, 'store/project')
+      if (id === 'gone') await handle.close()
+      else f.loaded = handle
+    }
+    await f.p.recordInvocation({ id: 'op', sessionId: 'gone', operation: 'file.write' })
+    const goneDir = dirname((await f.p.stat('gone')).location.path)
+    assert.ok(readdirSync(goneDir).includes('layerfs.json'))
+    // Implicit import (open by id) would find these in the Store.
+    const imports = []
+    f.ctx.provide('layerfsSessions', { state: { read: () => ({ sessions: {}, pending: {} }) }, store: { locate: async () => 'store/project', import: async (project, id) => { imports.push(id); return { imported: false } } } })
+    assert.deepEqual((await f.p.deleteSessions(['gone', 'loaded', 'never-owned'])).sort(), ['gone', 'loaded'])
+    assert.throws(() => readdirSync(goneDir), /ENOENT/, 'the unpacked log folder and its sidecar are removed')
+    assert.equal(f.p.ownerOf('gone'), undefined)
+    assert.deepEqual(f.p.ownedSessionIds(), [])
+    assert.deepEqual((await f.p.list()).map((s) => s.header.id), ['kept'], 'only the normal session is listed')
+    assert.equal(await f.p.stat('gone'), undefined)
+    assert.deepEqual(imports, [], 'a deleted session is not imported back implicitly')
+    // The loaded session's writer was retired: later writes go nowhere.
+    await f.loaded.append([{ type: 'message', data: {} }])
+    await f.loaded.flush(); await f.loaded.close()
+    assert.equal(await f.p.stat('loaded'), undefined)
+    assert.ok(f.p.isDeleted('gone'))
+    f.p.undelete('gone')
+    assert.equal(f.p.isDeleted('gone'), false, 'an explicit open lifts the record')
+    assert.equal((await f.p.stat('kept')).header.id, 'kept')
   } finally { await f.close() }
 })

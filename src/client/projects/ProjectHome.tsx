@@ -5,18 +5,18 @@ import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory } from '../files/ProjectHistory.tsx'
 import type { Translate } from '../files/types.ts'
 import { messageOf, type ProjectRow } from '../picker/NewProjectForm.tsx'
-import { Card, Fact, Facts, Page, PageHead, Section } from '../ui/index.tsx'
+import { Card, Fact, Facts, Page, PageHead, Section, type CrumbStep } from '../ui/index.tsx'
 import type { Query } from '../files/use-query.ts'
 import type { MachinesView } from '../machines/model.ts'
 import { projectAvailability } from './availability.ts'
 import { MachineStatus } from './MachineStatus.tsx'
-import { openMachineHome, openProjectHome } from './navigation.ts'
+import { openMachineHome } from './navigation.ts'
 import type { ProjectsT } from './locale.ts'
 import { ProjectSessions } from './ProjectSessions.tsx'
 import css from './projects.module.css'
 
-export function ProjectHome({ api, project, machines, t, tf, reload }: {
-  api: LayerfsApi, project: ProjectRow, machines: Query<MachinesView>, t: ProjectsT, tf: Translate, reload: () => void,
+export function ProjectHome({ api, project, machines, t, tf, reload, crumbs }: {
+  api: LayerfsApi, project: ProjectRow, machines: Query<MachinesView>, t: ProjectsT, tf: Translate, reload: () => void, crumbs?: readonly CrumbStep[],
 }): ReactNode {
   const filesApi = useMemo<LayerfsApi>(() => ({ ...api, call: (method, path, body) => {
     const scope = `/api/projects/${enc(project.key)}`
@@ -49,8 +49,7 @@ export function ProjectHome({ api, project, machines, t, tf, reload }: {
       : availability.storageBlocked ? t('storageBlocked', { state: project.storeState ?? t('unknown') }) : null
   const tabs = ['overview', 'files', 'history'] as const
   return <Page label={name} wide={tab !== 'overview'}>
-    <PageHead title={name} intro={project.store ?? project.key.split('/')[0]}
-      crumbs={[{ label: t('title'), onClick: () => openProjectHome(api, null) }]} current={name}
+    <PageHead title={name} crumbs={crumbs} current={name} intro={project.store ?? project.key.split('/')[0]}
       badge={<MachineStatus value={availability} t={t} />}
       actions={<>
         <Button variant="outline" size="sm" onClick={refresh}>{t('refresh')}</Button>
@@ -75,8 +74,7 @@ export function ProjectHome({ api, project, machines, t, tf, reload }: {
       {tab === 'overview' ? <div className={css.list}>
         <Section title={t('basicInfo')}><Card><Facts>
           <Fact label={t('projectKey')} mono>{project.key}</Fact>
-          {project.projectId ? <Fact label={t('identity')} mono title={project.projectId}>{project.projectId}</Fact> : null}
-          {project.identity?.storeId ? <Fact label={t('storeIdentity')} mono title={project.identity.storeId}>{project.identity.storeId}</Fact> : null}
+          {project.projectId && !project.projectId.startsWith('unclaimed:') ? <Fact label={t('identity')} mono title={project.projectId}>{project.projectId}</Fact> : null}
           <Fact label={t('store')}>{project.store ?? project.key.split('/')[0]}</Fact>
           <Fact label={t('machine')}>{availability.machine ? <Button variant="ghost" size="sm" onClick={() => openMachineHome(api, availability.machine)}>{availability.machine}</Button> : null}</Fact>
           <Fact label={t('storageType')}>{project.kind}</Fact>

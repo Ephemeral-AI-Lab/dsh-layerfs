@@ -152,6 +152,48 @@ export interface WorkspaceInfo {
   headMovedSinceMount?: boolean | null
   dirty?: { inodes: number, entries: number } | null
   pendingMerge?: boolean | null
+  root?: string | null
+  revision?: unknown
+}
+
+/** sandbox.get `daemon_capacity`: the daemon's control admission and the connection failures it kept (best effort). */
+export interface DaemonCapacity {
+  admission?: { pool_vacant?: number, pool_running?: number, reserved_vacant?: number, reserved_running?: number } | null
+  retained?: {
+    limit?: number, ttl_ms?: number, count?: number, dropped?: number
+    failures?: readonly { slot?: string | number, class?: string, cause?: string, age_ms?: number, expires_in_ms?: number, request?: string }[]
+  } | null
+}
+
+/** GET /api/workspaces/<ws>/status (workspace.status). */
+export interface WorkspaceStatus {
+  base: string | null
+  base_layer?: string | null
+  branch?: string | null
+  branch_head: string | null
+  head_moved_since_mount: boolean | null
+  activity?: string | null
+  overlay: { inodes: number, entries: number, pending_merge: boolean } | null
+}
+
+/** One command a Sandbox page ran (host routes/commands.ts). */
+export interface SandboxCommand {
+  id: string
+  ws: string
+  sandbox: string
+  command: string
+  state: 'running' | 'exited' | 'cancelled' | 'failed' | 'unknown'
+  startedAt: number
+  finishedAt: number | null
+  exitCode: number | null
+  stdout: string
+  stderr: string
+  stdoutBytes: number
+  stderrBytes: number
+  /** The stream's kept bytes are not text (its text is then empty). */
+  stdoutBinary?: boolean
+  stderrBinary?: boolean
+  error: { code: string, message: string } | null
 }
 
 /** GET /api/sandboxes/<name> (sandbox.get). */
@@ -171,6 +213,9 @@ export interface SandboxInfo {
   runtimeId?: string | null
   created?: number | null
   downReason?: string | null
+  daemonCapacity?: DaemonCapacity | null
+  /** A capacity refusal's counts when the daemon was not reached for want of a control slot. */
+  down?: { code?: string, resource?: string, pool_vacant?: number, reserved_vacant?: number, retained?: number } | null
   workspaces: WorkspaceInfo[]
   unread?: boolean
 }
@@ -580,7 +625,8 @@ export const workspaceName = (ws: WorkspaceInfo): string => ws.name || ws.path.s
 export function workspaceChanges(ws: WorkspaceInfo): Words & { tone?: 'warning' } {
   if (ws.pendingMerge) return { ...w('wsMergePending'), tone: 'warning' }
   if (ws.dirty == null) return w('notReported')
-  if (ws.dirty.entries > 0) return { ...w('wsUncommitted', { n: ws.dirty.entries }), tone: 'warning' }
+  // an edited file changes an inode and no directory entry: either count means changes
+  if (overlayDirty(ws.dirty)) return { ...w('wsUncommitted', { n: overlayCount(ws.dirty) }), tone: 'warning' }
   return w('wsClean')
 }
 
@@ -598,3 +644,31 @@ export function pgUsable(m: MachineInfo, postgresql: MachinePgStore[]): MachineP
   if (m.postgresql) return postgresql.filter((s) => m.postgresql!.includes(s.name))
   return m.supports?.postgresql_sandbox ? postgresql : []
 }
+
+// ---------- the Sandbox page ----------
+
+/** How the Sandbox's daemon answered this read. */
+export function daemonLook(info: SandboxInfo): { key: MachinesKey, tone: 'success' | 'danger' | 'neutral' } {
+  if (info.downReason) return { key: 'sbDaemonDown', tone: 'danger' }
+  if (info.state !== 'running') return { key: 'sbDaemonStopped', tone: 'neutral' }
+  if (info.unread || info.refusal) return { key: 'sbDaemonUnknown', tone: 'neutral' }
+  return { key: 'sbDaemonReachable', tone: 'success' }
+}
+
+/** Free control slots of all the daemon admits (pool and reserved), when it reported them. */
+export function daemonSlots(info: SandboxInfo): { free: number, total: number } | null {
+  const a = info.daemonCapacity?.admission
+  if (!a) return null
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  const free = n(a.pool_vacant) + n(a.reserved_vacant)
+  return { free, total: free + n(a.pool_running) + n(a.reserved_running) }
+}
+
+/** Overlay counts: changed inodes (an edit changes one) and changed directory entries (a create, rename or delete). */
+export interface OverlayCounts { inodes: number, entries: number }
+
+/** Whether an overlay holds anything uncaptured: either count, since an in-place edit changes an inode and no entry. */
+export const overlayDirty = (d: OverlayCounts | null | undefined): boolean => !!d && (d.inodes > 0 || d.entries > 0)
+
+/** One number for an overlay's changes, for badges: the larger count (a new file is one of each). */
+export const overlayCount = (d: OverlayCounts | null | undefined): number => (d ? Math.max(d.inodes, d.entries) : 0)
