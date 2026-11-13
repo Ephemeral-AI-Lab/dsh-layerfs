@@ -9,7 +9,7 @@ import { DoctorManager } from './doctor.ts'
 import { Machines } from './machines.ts'
 import { Projects } from './projects.ts'
 import { Storage } from './storage.ts'
-import { wire, type RouteHost } from './util.ts'
+import { invalidateSandbox, wire, type RouteHost } from './util.ts'
 
 /** LayerFS refusal codes and the HTTP status each answers. Anything else is 500. */
 export const STATUS: Record<string, number> = {
@@ -50,6 +50,16 @@ export const STATUS: Record<string, number> = {
   Denied: 403,
   Unavailable: 502,
   Unsupported: 501,
+  // a Workspace or Sandbox that is not (or no longer) what the caller named
+  NotMounted: 409,
+  StaleSandbox: 409,
+  Cancelled: 409,
+  NoStore: 404,
+  NoSuchBucket: 404,
+  // a call (or the host's wait for a Sandbox read) that did not answer in time
+  Timeout: 504,
+  // the host's own: a project name now names another project (sessions/catalog.ts)
+  ProjectIdentityChanged: 409,
 }
 
 /** An error the routes throw: answered as { code, message } with `status`. */
@@ -115,6 +125,8 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
 export async function route(g: Groups, method: string, parts: string[], query: URLSearchParams, body: any): Promise<unknown> {
   const { machines, storage, projects, doctor } = g
   const [api, group, id, sub, ...rest] = parts
+  // any write may change the machines view: a GET after it must not join a read started before
+  if (method !== 'GET') machines.changed()
   if (api === 'api' && group === 'demo-presets') return g.presets?.route(method, parts.slice(2), body, query)
   if (api !== 'api' || rest.length) return undefined
   if (group === 'doctor-jobs' && !sub) {
@@ -224,9 +236,10 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'workspaces' && id && sub === 'cancel' && method === 'POST') return g.commands.cancel(id, body ?? {})
   // workspace.commit: captures the overlay as a new Commit on the Workspace's Branch: { message? }
   if (group === 'workspaces' && id && sub === 'commit' && method === 'POST') {
-    sandboxOfWs(id)
+    const sandbox = sandboxOfWs(id)
     const message = typeof body?.message === 'string' && body.message.trim() ? body.message.trim().slice(0, 4096) : undefined
-    return projects.lfs.workspace.commit(id, message ? { message } : {})
+    const lfs = projects.lfs
+    try { return await lfs.workspace.commit(id, message ? { message } : {}) } finally { invalidateSandbox(lfs, sandbox) }
   }
   // a Workspace in it: { branch, fork?, name? } (only side Branches are mounted, D14)
   if (group === 'sandboxes' && id && sub === 'workspaces' && method === 'POST') return projects.mount(id, body ?? {})
@@ -253,19 +266,19 @@ export async function handle(g: Groups, request: { method?: string, path?: strin
   try {
     url = new URL(String(request?.path ?? '/'), 'http://127.0.0.1')
   } catch {
-    return { status: 400, body: { code: 'invalid-input', message: 'bad request URL' } }
+    return { status: 400, body: { code: 'InvalidInput', message: 'bad request URL' } }
   }
   let parts: string[]
   try {
     parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent)
   } catch {
-    return { status: 400, body: { code: 'invalid-input', message: 'bad path encoding' } }
+    return { status: 400, body: { code: 'InvalidInput', message: 'bad path encoding' } }
   }
   try {
     let body: unknown = {}
     if (method === 'POST' && request.body !== undefined && request.body !== null) {
       if (typeof request.body === 'string') {
-        try { body = JSON.parse(request.body) } catch { throw httpError(400, 'invalid-input', 'Invalid JSON request body.') }
+        try { body = JSON.parse(request.body) } catch { throw httpError(400, 'InvalidInput', 'Invalid JSON request body.') }
       } else body = request.body
     }
     if (method !== 'GET' && parts[1] !== 'demo-presets' && g.presets?.exclusive()) {
@@ -274,7 +287,7 @@ export async function handle(g: Groups, request: { method?: string, path?: strin
     // Connect recorded the native daemon at boot; here once, before the first call that needs it
     await g.host.ensureNative()
     const answer = await route(g, method, parts, url.searchParams, body)
-    if (answer === undefined) return { status: 404, body: { code: 'not-found', message: `no route ${method} ${url.pathname}` } }
+    if (answer === undefined) return { status: 404, body: { code: 'NotFound', message: `no route ${method} ${url.pathname}` } }
     return { status: 200, body: wire(answer) ?? null }
   } catch (error: any) {
     const answer = errorAnswer(error)

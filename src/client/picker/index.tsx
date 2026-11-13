@@ -1,7 +1,7 @@
 /**
  * Picker area of dsh-layerfs: the locale namespace shared by the project
- * creation form (`NewProjectForm`), used by the New Session project control
- * and the Projects page. Add-workspace flows are stock DSH again: the
+ * creation helpers (`NewProjectForm`), used by the New Session project control
+ * and the project dialog. Add-workspace flows are stock DSH again: the
  * `directory-picker` row fills ui-workspace's directory-flow holes and picks
  * a host folder.
  */

@@ -33,13 +33,16 @@
  *   checkpoints.restore {sessionId, commit}
  *   checkpoints.branch {sessionId, commit, turn}
  */
+import { projectContext } from './prompt.ts'
 import type { Context } from '@deepseek-ai/cordis'
+import { pathToFileURL } from 'node:url'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { notifyCallLog } from '../layerfs/call-log.ts'
 import { outputsDir, readOutput } from '../layerfs/call-output.ts'
 import { exitOfOutput, fastForwardOfOutput, receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
 import { callsSince } from '../logs/source.ts'
 import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
+import { UNCLAIMED } from './catalog.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
 import { buildTrajectory, trajectoryDetail, type TrajectoryInput } from './trace.ts'
@@ -228,9 +231,10 @@ export function apply(ctx: Context): void {
         variables: {
           DSH_LAYERFS_CLI: { description: 'The pinned LayerFS CLI for this session\'s project (already bound to this app\'s LayerFS home)' },
           DSH_LAYERFS_PROJECT: { description: 'The LayerFS project this session works in' },
-          DSH_LAYERFS_BRANCH: { description: 'Internal saved-file selector for the session; preserve unchanged' },
+          DSH_LAYERFS_BRANCH: { description: 'The session Branch (`dsh.<id>[.rN]`): this conversation\'s saved history; it changes after a restore' },
           DSH_LAYERFS_WS: { description: 'The session\'s mounted LayerFS Workspace handle (`<sandbox>:<name>`)' },
           DSH_LAYERFS_TRACE_CONTEXT: { description: 'Invocation provenance for managed LayerFS commands; preserve unchanged' },
+          DSH_LAYERFS_SDK: { description: 'File URL of the LayerFS Node SDK (`@layerfs/node`) bound to this app\'s LayerFS home: `const { default: layerfs } = await import(process.env.DSH_LAYERFS_SDK)`' },
         },
         resolve: (execution: any) => {
           const agent = execution?.agent
@@ -240,8 +244,10 @@ export function apply(ctx: Context): void {
           if (!b || b.state !== 'bound') return {}
           const cli = agentCli(ctx)
           if (!cli) return {}
+          const sdk = ctx.layerfs.agentSdk()
           return {
             DSH_LAYERFS_CLI: cli,
+            ...(sdk ? { DSH_LAYERFS_SDK: pathToFileURL(sdk).href } : {}),
             DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: String(agent.id), project: b.project!, workspace: (scope.get('layerfsSimulations' as never) as any)?.workspaceOfCall?.(String(agent.id), String(execution.callId)) ?? b.ws, turn: turnOf(agent.session), toolCallId: execution.callId, scope: toolScope(String(agent.id), String(execution.callId)) }),
             ...(b.project ? { DSH_LAYERFS_PROJECT: b.project } : {}),
             ...(b.branch ? { DSH_LAYERFS_BRANCH: b.branch } : {}),
@@ -269,20 +275,7 @@ export function apply(ctx: Context): void {
             return `## LayerFS project\nProject files belong to ${JSON.stringify(b.project)}. The active model supplies explicit LayerFS commands and manages their saved contexts. Local commands run in scratch ${JSON.stringify(b.scratch)}; scratch is never checkpointed. Preserve actual tool results and report only confirmed changes.`
           }
 
-          return [
-            '## LayerFS project Workspace',
-            [
-                `- Project files: LayerFS project ${JSON.stringify(b.project)}. Its Workspace is mounted in a Sandbox on machine ${JSON.stringify(b.machine ?? '?')}. Drive it through the LayerFS CLI \`$DSH_LAYERFS_CLI\`.`,
-                '- Commands: `"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" \'<command>\' --stream` runs bash inside the project Workspace root with live output (quote the command once). Read, search, edit and test mounted files this way. Direct file mutation commands bypass the mounted Workspace.',
-                '- Saved files: `"$DSH_LAYERFS_CLI" file read "$DSH_LAYERFS_PROJECT" "$DSH_LAYERFS_BRANCH" <path>` reads saved content. Use the session checkpoint controls to inspect saved history.',
-                '- Never call `machine.*`, `store.*` or `backup.*`: machines, Stores and backups are the user\'s setup, not part of the task.',
-              ].join('\n'),
-            ctx.layerfs.checkpoints === 'turn'
-              ? '- Checkpoints: at the end of every turn that changed files, the whole project Workspace tree is saved as a checkpoint (including untracked files, build outputs and caches; .gitignore does not apply). The user can restore saved checkpoints.'
-              : '- Checkpoints are off: changes stay in the Workspace until saved.',
-            `- Scratch folder: ${JSON.stringify(b.scratch)} (the local working directory) is the user-selected local folder. It may also be used by other sessions. Local shell commands run here; this folder is never checkpointed into the project. Put temporary outputs here; never clear the folder.`,
-            '- Do not unmount the project Workspace, close its Sandbox, or alter internal session-history storage.',
-          ].join('\n')
+          return projectContext(b, { checkpoints: ctx.layerfs.checkpoints === 'turn', subagent: String(id) !== b.sessionId })
         },
       })
     })
@@ -317,6 +310,50 @@ export function apply(ctx: Context): void {
         const provider = ctx.get('sessionPersistence' as never) as any
         return { rows: await provider.catalogProjects(), scratchKey: ctx.layerfs.scratchProject }
       },
+      // Projects with sessions on this DSH, newest activity first (docs/specs/layerfs-workspaces.md §4).
+      // Local records only: no LayerFS call, so listing never resolves or claims a project.
+      'projects.recent': async () => {
+        const provider = ctx.get('sessionPersistence' as never) as any
+        const persistence = localPersistence(ctx)
+        const state = sessions.state.read()
+        const scratch = ctx.layerfs.scratchProject
+        const rows = new Map<string, { project: string, projectId?: string, lastActivity: number, newestSession: number, sessionIds: string[] }>()
+        const add = (id: string, project: string | undefined, at: number, created = at) => {
+          if (!project || project === scratch) return
+          const projectId = provider?.projectIdOf?.(id) as string | undefined
+          const key = projectId ?? project
+          const row = rows.get(key) ?? { project, ...(projectId ? { projectId } : {}), lastActivity: 0, newestSession: 0, sessionIds: [] }
+          if (!row.sessionIds.includes(id)) row.sessionIds.push(id)
+          row.lastActivity = Math.max(row.lastActivity, at || 0)
+          row.newestSession = Math.max(row.newestSession, created || 0)
+          rows.set(key, row)
+        }
+        const seen = new Set<string>()
+        for (const b of Object.values(state.sessions)) {
+          if (b.kind === 'shared' || !b.project) continue
+          seen.add(b.sessionId)
+          add(b.sessionId, b.project, b.updatedAt ?? b.createdAt, b.createdAt)
+        }
+        const local = async (id: string) => {
+          const snap = await persistence?.stat(id).catch(() => undefined)
+          return snap && snap.header?.origin !== 'subagent' ? snap : undefined
+        }
+        for (const [id, pending] of Object.entries(state.pending)) {
+          if (seen.has(id)) continue
+          seen.add(id)
+          const snap = await local(id)
+          if (snap) add(id, pending.project, snap.header.createdAt)
+        }
+        for (const id of provider?.ownedSessionIds?.() ?? []) {
+          if (seen.has(id)) continue
+          const snap = await local(id)
+          if (!snap) continue
+          const sidecar = await provider.readSidecar?.(id).catch(() => undefined)
+          if (sidecar?.bindingKind === 'shared') continue
+          add(id, provider.ownerOf?.(id)?.project, snap.header.createdAt)
+        }
+        return { projects: [...rows.values()].sort((a, b) => b.lastActivity - a.lastActivity) }
+      },
       'sessions.choose': async (args: any) => {
         const sessionId = need(args, 'sessionId')
         const project = typeof args?.project === 'string' && args.project ? args.project : null
@@ -333,7 +370,18 @@ export function apply(ctx: Context): void {
         const project = need(args, 'project')
         const projectId = typeof args?.projectId === 'string' ? args.projectId : undefined
         const provider = ctx.get('sessionPersistence' as never) as any
-        const belongs = (id: string) => !projectId || provider?.projectIdOf?.(id) === projectId
+        // The live identity at this address, read only (listing never claims): an
+        // `unclaimed:` id from a listing may have been claimed since, and the
+        // sessions placed then carry the new UUID. Local-only reads skip the CLI.
+        let liveId = projectId
+        let identityError: unknown
+        if (projectId && !args?.localOnly) {
+          liveId = await provider.catalog.assert(project, projectId, { claim: false })
+            .then((row: any) => row.projectId as string, (error: unknown) => { identityError = error; return projectId })
+        }
+        const unclaimed = !!liveId?.startsWith(UNCLAIMED)
+        // Still unclaimed: only sessions with no owner identity can be its own.
+        const belongs = (id: string) => !liveId || (unclaimed ? !provider?.projectIdOf?.(id) : provider?.projectIdOf?.(id) === liveId)
         const state = sessions.state.read()
         const persistence = localPersistence(ctx)
         const rows = new Map<string, any>()
@@ -357,8 +405,8 @@ export function apply(ctx: Context): void {
           const snap = await persistence?.stat(id)
           if (snap) rows.set(id, { sessionId: id, title: await localTitle(id), state: 'pending', local: true, checkpoints: 0, updatedAt: snap.header.createdAt, stored: false })
         }
-        for (const id of provider?.ownedSessionIds?.(project, projectId) ?? []) {
-          if (rows.has(id)) continue
+        for (const id of provider?.ownedSessionIds?.(project, unclaimed ? undefined : liveId) ?? []) {
+          if (rows.has(id) || !belongs(id)) continue
           const snap = await persistence?.stat(id)
           if (!snap || snap.header.origin === 'subagent') continue
           const sidecar = await provider.readSidecar(id)
@@ -371,7 +419,7 @@ export function apply(ctx: Context): void {
         }
         let discoveryError: { code: string, message: string } | null = null
         const discover = async () => {
-          if (projectId) await provider.catalog.assert(project, projectId)
+          if (identityError) throw identityError
           return store.discover(project)
         }
         const discovered = args?.localOnly ? [] : await discover().catch((error: any) => {
@@ -380,7 +428,7 @@ export function apply(ctx: Context): void {
         })
         for (const s of discovered) {
           if (s.shared) continue
-          if (projectId && s.projectId && s.projectId !== projectId) {
+          if (liveId && s.projectId && s.projectId !== liveId) {
             discoveryError = { code: 'BindingRequired', message: 'This restored copy contains conversations owned by another project identity. The original histories remain separate.' }
             continue
           }

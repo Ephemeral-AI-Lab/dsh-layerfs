@@ -1,19 +1,4 @@
-/* The Projects page's project tree: compact rows in one settings card. */
-.card {
-  padding: 6px;
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.line {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  min-height: 34px;
-  gap: 2px;
-}
-
+/* The sidebar's LayerFS project list (docs/specs/layerfs-workspaces.md §4). */
 .toggle {
   display: flex;
   align-items: center;
@@ -32,8 +17,24 @@
 }
 
 .toggle:focus-visible {
-  outline: 2px solid var(--dsw-alias-label-primary);
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
   outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .toggle:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+
+
+.line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 34px;
+  gap: 2px;
 }
 
 .chevron {
@@ -107,32 +108,8 @@
   flex: none;
 }
 
-@media (hover: hover) {
-  .toggle:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
-
-}
-.bucket {
-  composes: toggle;
-  min-height: 28px;
-  gap: 6px;
-  padding: 6px 8px 2px 8px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
 .inactive .label {
   color: var(--dsw-alias-label-secondary);
-}
-
-.foldProject {
-  composes: toggle;
-  width: 26px;
-  flex: none;
-  justify-content: center;
-  padding: 5px 0;
 }
 .projectLink {
   composes: toggle;
@@ -140,16 +117,6 @@
   padding-inline: 2px;
 }
 .projectLink > svg { flex: none; }
-/* The row's readiness: a colored dot at the end of the label, words on hover. */
-.signal {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  margin-inline-end: 2px;
-}
 .projectText {
   display: flex;
   flex: 1;
@@ -158,8 +125,7 @@
   gap: 1px;
 }
 @media (pointer: coarse) {
-  .foldProject, .projectLink { min-height: 44px; }
-  .foldProject { width: 36px; }
+   .projectLink { min-height: 44px; }
 }
 
 /* Sidebar variant: rows start at the sidebar's row inset, notices align under labels. */
@@ -171,9 +137,66 @@
   padding-left: 8px;
 }
 
-
 .tree {
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
   line-height: 20px;
+}
+
+/* Sidebar rows: the whole row folds; ⚙ and + show on hover or focus. */
+.sidebarLine {
+  gap: 0;
+}
+
+.sidebarProject {
+  gap: 6px;
+  padding-inline: 8px 2px;
+}
+
+.store {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.rowActions {
+  display: inline-flex;
+  flex: none;
+  opacity: 0;
+}
+
+.rowActions:focus-within,
+.projectItem:focus-within .rowActions {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .projectItem:hover .rowActions {
+    opacity: 1;
+  }
+}
+
+@media (hover: none) {
+  .rowActions {
+    opacity: 1;
+  }
+}
+
+/* Why a project can't run, in words (no status lights). */
+.why {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.empty {
+  padding-bottom: 4px;
+}
+
+.emptyActions {
+  display: flex;
+  gap: 6px;
+  padding: 2px 8px 4px;
 }

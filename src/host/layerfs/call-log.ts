@@ -25,8 +25,11 @@ export const ROTATE_BYTES = 16 * 1024 * 1024
  */
 export function renderCall(argv: readonly string[], inputBytes?: number | null, bools?: readonly string[]): string[] {
   const SWITCHES = ['--json', '--progress', '--events', '--text', '-h', '--help']
-  const BOOLS = ['allow-missing', 'discard', 'force', 'include-attribution', 'include-encoding', 'include-storage', 'paths-only', 'stream', ...(bools ?? []).map((name) => name.replaceAll('_', '-'))]
-  const SECRET = ['message', 'old', 'new', 'password', 'url', 'command']
+  const BOOLS = ['allow-missing', 'discard', 'force', 'include-attribution', 'include-encoding', 'include-storage', 'paths-only', 'stream', 'quick', 'write-test', ...(bools ?? []).map((name) => name.replaceAll('_', '-'))]
+  const SECRET = ['message', 'old', 'new', 'password', 'url', 'command', 'key']
+  // With the call table's Bool names known, every other option takes the next word, even one
+  // starting with `--` (an `--old` text); without it only the redacted names always do.
+  const table = !!bools && bools.length > 0
   const size = (value: string) => `<${Buffer.byteLength(value, 'utf8')} bytes>`
   const cut = (value: string) => { const chars = Array.from(value); return chars.length > 200 ? `${chars.slice(0, 200).join('')}…` : value }
   const family = String(argv[0] ?? ''), call = String(argv[1] ?? '').replaceAll('_', '-')
@@ -46,7 +49,7 @@ export function renderCall(argv: readonly string[], inputBytes?: number | null, 
     } else { options.push(cut(word)); continue }
     name = name.replaceAll('_', '-')
     if (value === undefined) {
-      if (BOOLS.includes(name) || at + 1 >= argv.length || String(argv[at + 1]).startsWith('--')) { options.push(`--${name}`); continue }
+      if (BOOLS.includes(name) || at + 1 >= argv.length || (String(argv[at + 1]).startsWith('--') && !table && !SECRET.includes(name))) { options.push(`--${name}`); continue }
       value = String(argv[++at])
     }
     if ((explicit || BOOLS.includes(name)) && (value === 'true' || value === 'false')) { if (value === 'true') options.push(`--${name}`); continue }

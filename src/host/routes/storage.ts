@@ -210,6 +210,9 @@ export class Storage {
   /** `<store>/<machine>` -> the last refused store.attach from this host, until one passes */
   readonly attachErrors = new Map<string, AttachError>()
   lastView: any = null
+  /** The StorageView read in flight, shared by concurrent callers; a write (`changed`) bumps `generation` so later callers read anew. */
+  private viewing: { promise: ReturnType<Storage['readView']>, generation: number } | null = null
+  private generation = 0
   /** What this host knew of a Store on another machine when it backed it up (see backup-heads.ts). */
   readonly marks: BackupMarks
   readonly reconciled: Promise<void>
@@ -266,6 +269,7 @@ export class Storage {
 
   changed(): void {
     this.lastView = null
+    this.generation++
     this.event({ type: 'storage' })
   }
 
@@ -294,8 +298,16 @@ export class Storage {
     return this.bucketRecords().map((b) => b.name)
   }
 
-  /** StorageView. */
-  async view() {
+  /** StorageView: concurrent reads (the project list's join, the Storage page) share one. */
+  view(): ReturnType<Storage['readView']> {
+    if (this.viewing && this.viewing.generation === this.generation) return this.viewing.promise
+    const generation = this.generation
+    const promise = this.readView(generation).finally(() => { if (this.viewing?.promise === promise) this.viewing = null })
+    this.viewing = { promise, generation }
+    return promise
+  }
+
+  private async readView(generation: number) {
     const [listed, machines] = await Promise.all([this.lfs.store.list(), this.lfs.machine.list()])
     const items: any[] = listed.items ?? []
     const statuses = await Promise.all(items.map((s) => this.lfs.store.status(s.name).catch((error: any) => (this.log(`[storage] store.status ${s.name}: ${error?.message ?? error}`), null))))
@@ -317,7 +329,8 @@ export class Storage {
       jobs,
       at: Date.now(),
     }
-    this.lastView = view
+    // a write while this read ran: answer it, but do not keep it for the join
+    if (generation === this.generation) this.lastView = view
     return view
   }
 

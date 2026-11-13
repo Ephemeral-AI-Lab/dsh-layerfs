@@ -74,7 +74,7 @@ test('dispatch: machines view, platforms filter, unknown route 404', async () =>
     assert.deepEqual(p.body.platforms[0].options.map((o) => o.name), ['cpus'])
     const nf = await http('GET', '/api/demos')
     assert.equal(nf.status, 404)
-    assert.equal(nf.body.code, 'not-found')
+    assert.equal(nf.body.code, 'NotFound')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

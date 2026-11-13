@@ -8,6 +8,9 @@
  *                            or with its simulation run (`sim`); for a session
  *                            tag, imported receipts follow this machine's lines
  *                            (`source: 'receipt'`)
+ *   logs.project {project, sandboxes?, limit?}
+ *                            one project's calls, newest first and labelled: the
+ *                            lines naming it and those on its Sandboxes (`projectCalls`)
  *   logs.reset {}            clear the history (the active source's) and the stored outputs
  *   logs.output {tag}        what one call made through DSH printed (`CallOutput`),
  *                            or `{missing: true}` when none is kept
@@ -17,11 +20,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { mkdirSync, watch } from 'node:fs'
 import { dirname } from 'node:path'
-import { HOST_SESSION, isDshTag, LOGS_EVENT, parseSimTag, parseTag, sessionTag, TAG_PREFIX, type CallLabel, type CallLine, type LabeledLine, type LogsListArgs, type LogsListAnswer, type LogsOutputAnswer } from '../../shared/logs.ts'
+import { HOST_SESSION, isDshTag, LOGS_EVENT, parseSimTag, parseTag, sessionTag, TAG_PREFIX, type CallLabel, type CallLine, type LabeledLine, type LogsListArgs, type LogsListAnswer, type LogsOutputAnswer, type LogsProjectAnswer } from '../../shared/logs.ts'
 import { matches, onCallLogAppend } from '../layerfs/call-log.ts'
 import { hasOutput, outputsDir, readOutput, validOutputTag } from '../layerfs/call-output.ts'
 import type { Checkpoint } from '../sessions/state.ts'
-import { callsSince, listArgs, readCalls, resetCalls, type CallPage } from './source.ts'
+import { callsSince, listArgs, projectCalls, readCalls, resetCalls, type CallPage } from './source.ts'
 
 export const name = 'dsh-layerfs-logs'
 export const inject = ['layerfs', 'layerfsRemote']
@@ -226,6 +229,14 @@ export function apply(ctx: Context): void {
       const lines = await label(ctx, page.lines, outputsDir(ctx.layerfs.callLog))
       const from = lines.length - receipts
       return { ...page, lines: lines.map((line, index) => index >= from ? { ...line, source: 'receipt' as const } : line) }
+    },
+    'logs.project': async (args: any): Promise<LogsProjectAnswer> => {
+      const project = typeof args?.project === 'string' ? args.project : ''
+      if (!/^[^/\s]+\/[^/\s]+$/.test(project)) throw Object.assign(new Error('logs.project needs a project, <store>/<project>'), { code: 'InvalidInput' })
+      const known = Array.isArray(args?.sandboxes) ? args.sandboxes.filter((s: unknown): s is string => typeof s === 'string' && !!s) : []
+      const limit = Number.isFinite(args?.limit) ? Math.max(1, Math.min(2000, Math.floor(args.limit))) : 500
+      const page = await projectCalls(ctx.layerfs, project, known, limit)
+      return { ...page, lines: await label(ctx, page.lines, outputsDir(ctx.layerfs.callLog)) }
     },
     'logs.output': async (args: any): Promise<LogsOutputAnswer> => {
       const tag = args?.tag

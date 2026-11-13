@@ -656,3 +656,13 @@
   color: var(--dsw-alias-label-secondary);
   white-space: pre;
 }
+
+/* Named for assistive technology only. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -170,6 +170,45 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.listHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 8px;
+}
+
+.listAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--dsw-alias-link);
+  cursor: pointer;
+}
+
+.listAction:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .listAction:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+}
+
+.listAction:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-link));
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
 .project,
 .storeLine {
   display: flex;
@@ -231,6 +270,23 @@
   flex-wrap: wrap;
   gap: 4px;
   margin-left: auto;
+}
+
+/* In a project row the name keeps a few characters; the chips give way first. */
+.project > .name {
+  flex: 0 1 auto;
+  min-width: 6ch;
+}
+
+.project > .chips {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.project > .chips > .chip {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .list > .chips {

@@ -12,17 +12,21 @@ import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory } from '../files/ProjectHistory.tsx'
 import { parseFocus, useRootState, type SessionsSource, type SessionStateView, type ViewFocus } from './hooks.ts'
 import type { Translate } from './locale.ts'
+import type { StorageT } from '../storage/locale.ts'
 import css from './views.module.css'
 
 export const FILES_VIEW = 'layerfs-files'
 export const HISTORY_VIEW = 'layerfs-history'
 export const SANDBOX_VIEW = 'layerfs-sandbox'
+export const STATS_VIEW = 'layerfs-stats'
 
 /** What each view's registration injects. */
 export interface ViewInjected {
   sessionId: string
   api: LayerfsApi
   t: Translate
+  /** The Storage page's copy, for the views that mount its panels (Stats). */
+  storageT: StorageT
   sessions: SessionsSource | undefined
   /** Hides the chat composer until the returned release runs. */
   hideComposer: () => () => void
@@ -74,7 +78,7 @@ function useFocus(id: string, { viewRequest, completeViewRequest }: ViewOwner): 
   return focus
 }
 
-function SessionLine({ view, t }: { view: SessionStateView, t: Translate }): ReactNode {
+function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId: string, t: Translate }): ReactNode {
   const branch = view.binding?.branch
   // An in-place edit shows as inodes without entries, so count either (Machines' rule).
   const overlay = view.status?.overlay
@@ -82,10 +86,18 @@ function SessionLine({ view, t }: { view: SessionStateView, t: Translate }): Rea
   const active = view.binding?.state === 'bound'
   return (
     <div className={css.sessionLine}>
-      {branch ? <span className={css.branchChip}><StateDot state={active ? 'done' : 'idle'} size={8} />{t('liveBranch', { branch })}</span> : null}
+      {branch ? <span className={css.branchChip} title={branch}><StateDot state={active ? 'done' : 'idle'} size={8} />{branchWords(branch, sessionId, t)}</span> : null}
       {active ? <span className={clsx(css.muted, pending > 0 && css.warn)}>{pending > 0 ? t('unsaved', { n: pending }) : t('unsavedNone')}</span> : null}
     </div>
   )
+}
+
+/** The session's own branch in words (`dsh.<this session>[.rN]`); any other branch by name. */
+function branchWords(branch: string, sessionId: string, t: Translate): string {
+  const m = /^dsh\.([0-9a-f]+)(?:\.r(\d+))?$/.exec(branch)
+  // The host names it `dsh.<id without its session- prefix and dashes>` (sessions/service.ts branchOf).
+  if (!m || sessionId.replace(/^session-/, '').replace(/-/g, '') !== m[1]) return t('liveBranch', { branch })
+  return m[2] ? t('liveBranchRestore', { n: m[2] }) : t('liveBranchOwn')
 }
 
 export function FilesView(props: ViewProps): ReactNode {
@@ -97,7 +109,7 @@ export function FilesView(props: ViewProps): ReactNode {
     <Gate state={state} t={t}>
       {(view, project) => (
         <div className={css.frame}>
-          <SessionLine view={view} t={t} />
+          <SessionLine view={view} sessionId={sessionId} t={t} />
           <div className={css.fill}>
             <ProjectFiles key={`${project}:${n}`} api={api} project={project} t={t} tick={state.tick}
               initialBranch={focus?.branch ?? view.binding.branch} initialPin={focus?.commit} initialPath={focus?.path} />
@@ -118,7 +130,7 @@ export function HistoryView(props: ViewProps): ReactNode {
     <Gate state={state} t={t}>
       {(view, project) => (
         <div className={css.frame}>
-          <SessionLine view={view} t={t} />
+          <SessionLine view={view} sessionId={sessionId} t={t} />
           <div className={css.fill}>
             <ProjectHistory key={`${project}:${n}`} api={api} project={project} t={t} tick={state.tick}
               initialBranch={focus?.branch ?? view.binding.branch} initialCommit={focus?.commit}

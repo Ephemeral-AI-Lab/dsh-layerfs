@@ -10,7 +10,7 @@ import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
 import { PathDiff } from './CommitDiff.tsx'
 import { ago, shortId, toMs, when } from './format.ts'
-import { revisionTitle } from './labels.ts'
+import { branchLabel, revisionTitle } from './labels.ts'
 import { EmptyState, ErrorState, Loading } from './States.tsx'
 import type { FileRevision, RevisionPage, Translate } from './types.ts'
 import { useQuery } from './use-query.ts'
@@ -71,7 +71,7 @@ export function FileHistory({ api, project, branch, path, pin, t, focus }: FileH
       <Menu open={menuOpen} onClose={() => setMenuOpen(false)} items={menu} selectedId={against} selection="check" portal align="end"
         onSelect={(id) => { setMenuOpen(false); setAgainst(id) }}
         anchor={(
-          <Button variant="outline" size="sm" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
+          <Button variant="outline" size="sm" className={css.compareWith} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
             {t('files_compareWith')}: {chosen ? shortId(chosen.ref.id) : t('files_comparePrevious')} <IconChevronDownOutlineRegular size={12} />
           </Button>
         )} />
@@ -93,7 +93,7 @@ export function FileHistory({ api, project, branch, path, pin, t, focus }: FileH
                   <span className={css.revisionTop}><span className={css.revisionTitle}>{revisionTitle(v, t)}</span>{tag}</span>
                   <span className={css.blameMeta}>
                     <code>{shortId(v.ref.id)}</code>
-                    {other ? <span>{other}</span> : null}
+                    {other ? <span title={other}>{branchLabel(other, t)}</span> : null}
                     {at != null ? <span>{ago(at, now, t)}</span> : null}
                   </span>
                 </button>

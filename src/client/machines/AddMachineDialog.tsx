@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular, IconWarningOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CopyLine, Field, MenuSelect, Refusal, StateChip } from '../ui/index.tsx'
+import { CopyLine, Field, MenuSelect, Refusal } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import {
@@ -87,7 +87,7 @@ function BuiltInMark({ view, platform }: { view: AvailableView, platform: string
   const m = view.machines.find((x) => x.platform === platform)
   return (
     <span className={css.platformMark}>
-      <StateChip tone="neutral" label={t('howBuiltIn')} />
+      <span className={css.tag}>{t('howBuiltIn')}</span>
       {m && <MachineStateChip m={m} live={view.status[m.name]} pending={null} />}
     </span>
   )

@@ -5,7 +5,7 @@
  * Details.
  */
 import { useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Card, Empty, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
 import { DiskLine, attentionOf } from './Board.tsx'
@@ -13,13 +13,14 @@ import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import type { View } from './context.tsx'
 import { Inventory, useMachineTitle } from './Inventory.tsx'
-import { clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, sizeOf, storesOn, type AvailableView, type MachineInfo } from './model.ts'
+import { clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, storesOn, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { SpecTab } from './Spec.tsx'
 import css from './machines.module.css'
 
-export function MachineDetail({ name, go }: { name: string, go: (view: View) => void }): ReactNode {
+/** `onAddStore`: the page's Add Store for this machine (Storage's dialog); without it the Stores column has no action. */
+export function MachineDetail({ name, go, onAddStore }: { name: string, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined }): ReactNode {
   const { t, useMachines, refusal } = useMachinesContext()
   const title = useMachineTitle()
   const read = useMachines((s) => s)
@@ -42,7 +43,7 @@ export function MachineDetail({ name, go }: { name: string, go: (view: View) => 
       </Page>
     )
   }
-  return <MachineView key={m.name} view={view} m={m} go={go} />
+  return <MachineView key={m.name} view={view} m={m} go={go} onAddStore={onAddStore} />
 }
 
 /** CPU and memory in words: shared for the native machine, Docker's own for docker, else the allocation. */
@@ -53,7 +54,7 @@ function resourcesOf(m: MachineInfo, t: ReturnType<typeof useMachinesContext>['t
   return `${cpu} · ${m.memory != null ? gib(m.memory) : t('notReported')}`
 }
 
-function MachineView({ view, m, go }: { view: AvailableView, m: MachineInfo, go: (view: View) => void }): ReactNode {
+function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: MachineInfo, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined }): ReactNode {
   const { t, tw, kind, api, doctorT, useStartups, refusal } = useMachinesContext()
   const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
@@ -74,7 +75,7 @@ function MachineView({ view, m, go }: { view: AvailableView, m: MachineInfo, go:
         icon={<MachineGlyph platform={m.platform} os={m.backend === 'namespaces' ? 'linux' : m.backend == null ? 'pc' : undefined} size={22} />}
         title={name}
         badge={<MachineStateChip m={m} live={live} pending={pending} />}
-        intro={`${kind(m.platform)} · ${tw(sizeOf(m, live))}`}
+        intro={`${kind(m.platform)} · ${tw(runtimeOf(m))}`}
         actions={(
           <>
             <PowerButton m={m} pending={pending} run={run} />
@@ -86,8 +87,7 @@ function MachineView({ view, m, go }: { view: AvailableView, m: MachineInfo, go:
       <dl className={css.factRow} aria-label={t('resources')}>
         <div><dt>{t('freeDisk')}</dt><dd><DiskLine m={m} view={view} /></dd></div>
         <div><dt>{t('cpuMemory')}</dt><dd>{resourcesOf(m, t)}</dd></div>
-        <div><dt>{t('runAs')}</dt><dd>{tw(runtimeOf(m))}</dd></div>
-        {live?.toolVersion && <div><dt>{t('layerfs')}</dt><dd className={css.mono}>{live.toolVersion}</dd></div>}
+        {live?.toolVersion && <div><dt>{t('toolVersionOf', { kind: kind(m.platform) })}</dt><dd className={css.mono}>{live.toolVersion}</dd></div>}
       </dl>
 
       <MachineProgress name={m.name} />
@@ -102,8 +102,13 @@ function MachineView({ view, m, go }: { view: AvailableView, m: MachineInfo, go:
 
       <Card className={css.block}>
         <Inventory m={m} view={view}
+          storeAction={onAddStore ? (
+            <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={() => onAddStore(m.name)}>
+              {t('addStore')}
+            </Button>
+          ) : undefined}
           sandboxAction={(
-            <Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canSandbox}
+            <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canSandbox}
               title={canSandbox ? undefined : t('startBeforeSandbox')} onClick={() => setCreating(true)}>
               {t('newSandbox')}
             </Button>
@@ -112,6 +117,7 @@ function MachineView({ view, m, go }: { view: AvailableView, m: MachineInfo, go:
 
       <details className={css.details}>
         <summary className={css.detailsSummary}>
+          <IconChevronRightOutlineRegular size={12} className={css.detailsChevron} />
           <span>{t('details')}</span>
         </summary>
         <div className={css.detailsBody}>

@@ -8,7 +8,7 @@
  * answer is reconciled by request ID, never resubmitted.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, Checkbox, IconCodeOutlineRegular, IconPlayOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, IconCodeOutlineRegular, IconPlayOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { BusySession, DemoPreset, DemoPresets, PresetResetPlan, PresetExecutionMode, PresetJob } from '../../shared/presets.ts'
 import { useQuery } from '../files/use-query.ts'
@@ -53,7 +53,11 @@ export function PresetsSection({ api, t }: { api: LayerfsApi, t: PresetsT }): Re
   }, [api])
   return (
     <Section title={t('title')}
-      actions={<Button variant="ghost" size="sm" icon={<IconRefreshOutlineRegular size={14} />} disabled={live.loading} onClick={reload}>{t('refresh')}</Button>}>
+      actions={(
+        <Tooltip label={t('refresh')} side="top" portal delayMs={400}>
+          <Button variant="ghost" size="sm" className={css.iconButton} aria-label={t('refresh')} icon={<IconRefreshOutlineRegular size={14} />} disabled={live.loading} onClick={reload} />
+        </Tooltip>
+      )}>
       {live.error !== undefined && !live.data && <LoadError title={t('loadFailed')} error={live.error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={reload} />}
       {!live.data && live.loading && <Loading label={t('loading')} />}
       {live.data && live.data.items[0] && <Library api={api} t={t} data={live.data} preset={live.data.items.find((p) => p.id === 'studio') ?? live.data.items[0]} onRefresh={reload} />}
@@ -256,14 +260,21 @@ function PlanImpact({ t, plan, build }: { t: PresetsT, plan: PresetResetPlan, bu
             <p>{t('keepBuiltins')}</p>
             <p className={css.mono}>{plan.home}</p>
             <ul className={css.list}>
-              {Object.entries(plan.remove).flatMap(([kind, names]) => (names as string[]).map((n) => <li key={`${kind}/${n}`} className={css.mono}>{kind}: {n}</li>))}
-              {plan.projectKeys.map((k) => <li key={`project/${k}`} className={css.mono}>projects: {k}</li>)}
+              {Object.entries(plan.remove).flatMap(([kind, names]) => (names as string[]).map((n) => <li key={`${kind}/${n}`} className={css.mono}>{removeRow(t, kind, n)}</li>))}
+              {plan.projectKeys.map((k) => <li key={`project/${k}`} className={css.mono}>{t('removeProject', { name: k })}</li>)}
             </ul>
           </>
         )}
       </details>
     </div>
   )
+}
+
+const removeKey = { stores: 'removeStore', sandboxes: 'removeSandbox', machines: 'removeMachine', workspaces: 'removeWorkspace' } as const
+
+/** One resource a Reset removes, in words (`Store: studio`). */
+function removeRow(t: PresetsT, kind: string, name: string): string {
+  return Object.hasOwn(removeKey, kind) ? t(removeKey[kind as keyof typeof removeKey], { name }) : t('removeOther', { kind, name })
 }
 
 function SessionLinks({ api, t, sessions }: { api: LayerfsApi, t: PresetsT, sessions: readonly BusySession[] }): ReactNode {

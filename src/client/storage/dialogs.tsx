@@ -6,13 +6,13 @@
  */
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { attachRefusal, inHome, loopbackAlias } from './model.ts'
+import { attachRefusal, attachmentsOf, canMove, inHome, loopbackAlias } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { FormModal, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
 import type { BackupState, MachinesView, PgAttachment, ProjectInitJob, StorageView, StoreRow } from './types.ts'
@@ -31,11 +31,15 @@ export type StorageDialog =
   | { kind: 'attach', store: string, machine?: string, edit?: PgAttachment }
   | { kind: 'add-project', store: string }
   | { kind: 'push', store: StoreRow }
+  | { kind: 'to-machine', machine: string }
   | { kind: 'move', store: StoreRow }
   | { kind: 'backup', store: StoreRow }
   | { kind: 'restore', bucket: string, file: string, store?: string | null }
   | { kind: 'bucket' }
-  | { kind: 'confirm', title: string, body: string, action: string, name?: string, run: () => Promise<unknown> }
+  | { kind: 'confirm', title: string, body: string, action: string, name?: string, force?: ConfirmForce, run: (force: boolean) => Promise<unknown> }
+
+/** An optional Force checkbox on a confirm: checked, the action runs with force and reads `action`. */
+export interface ConfirmForce { label: string, action: string }
 
 interface DialogsProps {
   api: LayerfsApi
@@ -47,10 +51,12 @@ interface DialogsProps {
   done: () => void
   /** Opens a Store's page (after a PostgreSQL connect). */
   onOpenStore?: (name: string) => void
+  /** Swaps this dialog for another (Add Store's attach and New Store). */
+  onDialog?: (dialog: StorageDialog) => void
 }
 
 /** The open dialog, if any. */
-export function StorageDialogs({ api, t, dialog, view, onClose, done, onOpenStore }: DialogsProps): ReactNode {
+export function StorageDialogs({ api, t, dialog, view, onClose, done, onOpenStore, onDialog }: DialogsProps): ReactNode {
   if (!dialog) return null
   const after = <T,>(p: Promise<T>) => p.then((v) => { done(); return v })
   switch (dialog.kind) {
@@ -59,10 +65,11 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done, onOpenStor
     case 'add-project': return <NewProjectDialog api={api} t={t} store={dialog.store} onClose={onClose} done={done} />
     case 'push':
     case 'move': return <PlaceDialog api={api} t={t} kind={dialog.kind} store={dialog.store} onClose={onClose} done={done} />
+    case 'to-machine': return <ToMachineDialog api={api} t={t} view={view} machine={dialog.machine} onClose={onClose} done={done} onDialog={onDialog} />
     case 'backup': return <BackupDialog api={api} t={t} store={dialog.store} view={view} onClose={onClose} done={done} />
     case 'restore': return <RestoreDialog api={api} t={t} dialog={dialog} view={view} onClose={onClose} done={done} />
     case 'bucket': return <BucketDialog api={api} t={t} onClose={onClose} done={done} />
-    case 'confirm': return <ConfirmDialog t={t} title={dialog.title} body={dialog.body} action={dialog.action} name={dialog.name} onClose={onClose} run={() => after(dialog.run())} />
+    case 'confirm': return <ConfirmDialog t={t} title={dialog.title} body={dialog.body} action={dialog.action} name={dialog.name} force={dialog.force} onClose={onClose} run={(force) => after(dialog.run(force))} />
   }
 }
 
@@ -366,6 +373,77 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
   )
 }
 
+// ---------- Add a Store to a machine ----------
+
+/**
+ * A machine's Add Store, by kind. SQLite: a Store lives on one machine, so
+ * adding one here moves it from where it is (the host's place: push, pull or
+ * move, as a drop on the machine does); the home also offers a new one.
+ * PostgreSQL: the Store stays on its server and is attached here, on to
+ * Attach with the machine fixed; every machine also offers a new database.
+ */
+function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined, machine: string
+  onClose: () => void, done: () => void, onDialog?: ((dialog: StorageDialog) => void) | undefined
+}): ReactNode {
+  const m = view?.machines.find((x) => x.name === machine)
+  const noSqlite = m?.supports && m.supports.sqlite === false ? m.supports.reason || t('noStoresHere') : null
+  const noPg = m?.supports && !m.supports.postgresql_sandbox ? m.supports.reason || t('postgresql') : null
+  const [family, setFamily] = useState<'sqlite' | 'postgresql'>(noSqlite && !noPg ? 'postgresql' : 'sqlite')
+  const [chosen, setChosen] = useState('')
+  // A PostgreSQL Store chosen goes on to Attach, the machine fixed.
+  const [attaching, setAttaching] = useState<string | null>(null)
+  if (!view) return null
+  if (attaching) return <AttachDialog api={api} t={t} view={view} store={attaching} machine={machine} onClose={onClose} done={done} />
+  const placeName = (name: string | null) => (name === 'native' ? t('layerfsHome') : name ?? '')
+  const attachable = view.features?.attach === true
+  const rows = view.stores
+    .filter((s) => s.kind === family && (family === 'sqlite' ? s.machine !== machine : attachable && !attachmentsOf(s).some((a) => a.machine === machine)))
+    .map((s) => ({ s, why: family === 'postgresql' ? attachRefusal(view, s, machine, t) : noSqlite ?? (canMove(s) ? null : t('storeBusyNow')) }))
+    .sort((a, b) => Number(!!a.why) - Number(!!b.why) || a.s.name.localeCompare(b.s.name))
+  const pick = rows.find((r) => r.s.name === chosen && !r.why)
+  const sqlite = family === 'sqlite'
+  const swap = (next: StorageDialog) => { onClose(); onDialog?.(next) }
+  return (
+    <FormModal open onClose={onClose} t={t} title={t('addStoreTitle', { machine: placeName(machine) })}
+      description={sqlite ? t('addSqliteBody') : t('addPgBody')}
+      action={sqlite ? t('moveHere') : t('attachHere')} valid={!!pick} keepOpen={!sqlite}
+      busyHint={sqlite && pick ? t('movingFrom', { store: pick.s.name, from: placeName(pick.s.machine) }) : undefined}
+      submit={async () => {
+        if (!pick) return
+        if (!sqlite) { setAttaching(pick.s.name); return }
+        await api.call('POST', `/api/machines/${enc(machine)}/stores`, { store: pick.s.name })
+        done()
+      }}>
+      <TileChoice label={t('kindOfStore')} value={family} onChange={(v) => { setFamily(v); setChosen('') }}
+        options={[
+          { value: 'sqlite', label: t('sqlite'), body: t('addSqliteTile'), icon: <StoreGlyph kind="sqlite" />, disabled: noSqlite },
+          { value: 'postgresql', label: t('postgresql'), body: t('addPgTile'), icon: <StoreGlyph kind="postgresql" />, disabled: noPg },
+        ]} />
+      <div className={css.choiceList} role="radiogroup" aria-label={sqlite ? t('sqlite') : t('postgresql')}>
+        {rows.length ? rows.map(({ s, why }) => (
+          <button key={s.name} type="button" role="radio" aria-checked={chosen === s.name} disabled={!!why} className={css.choiceRow}
+            data-checked={chosen === s.name || undefined} onClick={() => setChosen(s.name)} title={why ?? undefined}>
+            <span className={css.radio} aria-hidden="true" />
+            <span className={css.choiceMain}>{s.name}</span>
+            <span className={css.choiceMeta}>
+              {why ?? (sqlite ? t('fromPlace', { place: placeName(s.machine) }) : s.postgresql?.target ?? '')}
+            </span>
+          </button>
+        )) : <p className={css.choiceEmpty}>{sqlite ? t('addSqliteNone', { machine: placeName(machine) }) : t('addPgNone', { machine: placeName(machine) })}</p>}
+      </div>
+      {sqlite && pick && m?.state && m.state !== 'running' ? <p className={css.formNote}>{t('notRunning', { machine: placeName(machine), state: m.state })}</p> : null}
+      {onDialog && (!sqlite || machine === 'native') ? (
+        <p className={css.formNote}>
+          <button type="button" className={css.textLink} onClick={() => swap(sqlite ? { kind: 'new-store' } : { kind: 'new-store', postgresql: true })}>
+            {sqlite ? t('newStore') : t('connectDatabase')}
+          </button>
+        </p>
+      ) : null}
+    </FormModal>
+  )
+}
+
 // ---------- Back up ----------
 
 function BackupDialog({ api, t, store: s, view, onClose, done }: { api: LayerfsApi, t: StorageT, store: StoreRow, view: StorageView | undefined, onClose: () => void, done: () => void }): ReactNode {
@@ -497,11 +575,17 @@ function BucketDialog({ api, t, onClose, done }: { api: LayerfsApi, t: StorageT,
 // ---------- Confirm ----------
 
 /** A destructive confirmation; with `name`, the name is typed to confirm. */
-function ConfirmDialog({ t, title, body, action, name, onClose, run }: { t: StorageT, title: string, body: string, action: string, name?: string | undefined, onClose: () => void, run: () => Promise<unknown> }): ReactNode {
+function ConfirmDialog({ t, title, body, action, name, force, onClose, run }: {
+  t: StorageT, title: string, body: string, action: string, name?: string | undefined, force?: ConfirmForce | undefined, onClose: () => void, run: (force: boolean) => Promise<unknown>
+}): ReactNode {
   const [typed, setTyped] = useState('')
+  const [forced, setForced] = useState(false)
+  const on = !!force && forced
   return (
-    <FormModal open onClose={onClose} t={t} title={title} description={body} action={action} danger valid={!name || typed === name} submit={run}>
-      {name ? <TextField label={t('typeToConfirm', { name })} value={typed} onChange={setTyped} mono autoFocus placeholder={name} /> : <span className={clsx(css.hidden)} />}
+    <FormModal open onClose={onClose} t={t} title={title} description={body} action={on ? force.action : action} danger valid={!name || typed === name} submit={() => run(on)}>
+      {name ? <TextField label={t('typeToConfirm', { name })} value={typed} onChange={setTyped} mono autoFocus placeholder={name} /> : null}
+      {force ? <Checkbox checked={forced} onChange={setForced} label={force.label} /> : null}
+      {!name && !force ? <span className={clsx(css.hidden)} /> : null}
     </FormModal>
   )
 }

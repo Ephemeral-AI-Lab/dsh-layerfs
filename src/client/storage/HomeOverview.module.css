@@ -5,6 +5,7 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+  padding-top: var(--lfs-page-top-inset);
   font-size: 13px;
   line-height: 18px;
   color: var(--dsw-alias-label-primary);
@@ -295,6 +296,26 @@
 
 /* ---------- needs you ---------- */
 
+.needs {
+  display: flex;
+  flex-direction: column;
+  border-radius: inherit;
+}
+
+.needs > * + * {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.needs:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-link));
+  outline-offset: 2px;
+}
+
+.needMark {
+  justify-self: center;
+  margin-top: 5px;
+}
+
 .need {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
@@ -340,6 +361,8 @@
 
 .needActions {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 4px;
 }

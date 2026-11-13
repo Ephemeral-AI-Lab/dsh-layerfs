@@ -56,11 +56,20 @@ export function uuidOfBranches(names: readonly string[]): string | null {
 const keyOf = (info: any): string => info.project ?? `${info.store}/${info.name}`
 /** The pinned CLI's transient refusal of a read racing another process on the same home. */
 const transientRead = (error: any): boolean => error?.code === 'Failed' && /NotFound/.test(String(error?.message ?? ''))
+/**
+ * How long a remembered project LayerFS answered as removed (NoSuchStore,
+ * NoSuchProject) is listed as removed without asking again: listings run on a
+ * timer, and each would otherwise spend a failed project.get per removed project.
+ * A project that returns shows in the live listing, which this never skips.
+ */
+const GONE_MS = 10 * 60_000
 const changed = () => new CliError('ProjectIdentityChanged', 'This name now refers to another project. The original conversation remains available; recover its original project before continuing.')
 
 /** Durable inventory, independent of the current live LayerFS listing. */
 export class ProjectCatalog {
   private readonly path: string
+  /** address -> when and how LayerFS last answered it as removed (GONE_MS) */
+  private readonly gone = new Map<string, { at: number, message: string }>()
   constructor(private readonly lfs: () => Lfs, root: string) { this.path = join(root, 'project-catalog.json') }
   private read(): Record<string, CatalogProject> {
     if (!existsSync(this.path)) return {}
@@ -152,13 +161,19 @@ export class ProjectCatalog {
 
   /**
    * The project at `project` must still be `expected`. An `unclaimed:` id from a
-   * listing is honoured by claiming the project, unless someone claimed it since.
+   * listing names its address: reads (`claim` false, the default) accept the live
+   * project there as it is, unclaimed or claimed since, and never mint an identity;
+   * placing a conversation (`claim`) claims it, unless someone claimed it since.
    */
-  async assert(project: string, expected: string): Promise<CatalogProject> {
+  async assert(project: string, expected: string, { claim = false }: { claim?: boolean } = {}): Promise<CatalogProject> {
     if (expected.startsWith(UNCLAIMED)) {
-      const live = await this.resolve(project)
-      if (expected !== `${UNCLAIMED}${project}` && expected !== live.projectId) throw changed()
-      return live
+      if (expected !== `${UNCLAIMED}${project}`) throw changed()
+      if (claim) return this.resolve(project)
+      const info = await this.lfs().project.get(project)
+      const id = await this.uuidOf(project)
+      if (id) return this.observe(info, id)
+      return { projectId: expected, key: project, name: info.name ?? project.split('/')[1], store: info.store ?? project.split('/')[0],
+        kind: info.kind ?? null, machine: info.machine ?? null, created: info.created ?? null, lastSeen: Date.now() }
     }
     const live = await this.resolve(project, { claim: false }).catch((error: any) => { throw error?.code === 'ProjectIdentityChanged' ? changed() : error })
     if (live.projectId !== expected) throw changed()
@@ -212,11 +227,19 @@ export class ProjectCatalog {
         rows.push({ ...row, storeState: null, catalogState: 'identity-mismatch', catalogError: 'This name now refers to a different project.' })
         continue
       }
+      const known = this.gone.get(row.key)
+      if (known && Date.now() - known.at < GONE_MS) {
+        rows.push({ ...row, storeState: null, catalogState: 'removed', catalogError: known.message })
+        continue
+      }
       try {
         await this.lfs().project.get(row.key)
+        this.gone.delete(row.key)
         rows.push({ ...row, storeState: null, catalogState: 'identity-mismatch', catalogError: 'This name now refers to a different project.' })
       } catch (error: any) {
         const removed = ['NoSuchStore', 'NoSuchProject', 'NotFound'].includes(error?.code)
+        if (removed) this.gone.set(row.key, { at: Date.now(), message: String(error?.message ?? error) })
+        else this.gone.delete(row.key)
         rows.push({ ...row, storeState: null, catalogState: removed ? 'removed' : 'unavailable', catalogError: String(error?.message ?? error) })
       }
     }

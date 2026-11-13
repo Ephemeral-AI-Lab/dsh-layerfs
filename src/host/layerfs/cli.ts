@@ -233,8 +233,55 @@ export function storeOfCall(argv: readonly string[]): string | undefined {
   return first.split('/')[0] || undefined
 }
 
-/** Live CLI children, for shutdown. */
+/** Live CLI children, for shutdown. Each runs in its own process group, and its
+ * `kill` signals the whole group (a CLI's helpers included). */
 export const children = new Set<ChildProcess>()
+
+/** After SIGTERM, how long a timed-out call's process group has before SIGKILL. */
+export const KILL_GRACE_MS = 2000
+/** After the CLI exits, how long its stdout/stderr may stay open (held by a helper it left behind). */
+export const EXIT_GRACE_MS = 2000
+/** The default budget of an SDK read call; `timeout_ms` overrides it (0: none). */
+export const READ_TIMEOUT_MS = 120_000
+
+/**
+ * The admission lane a call takes when its caller names none. Short calls share
+ * `calls`; calls that run as long as their work (VM create/start, Store
+ * push/pull, backups, project init/export, Doctor, connection checks) take
+ * `jobs`; Workspace commands (terminals) take `exec`; `exec-cancel` its own. So
+ * a page's short reads are never queued behind long work, and terminals
+ * never starve jobs or the other way round.
+ */
+export function laneOf(argv: readonly string[]): { name: string, limit: number } {
+  const family = argv[0] ?? '', call = String(argv[1] ?? '').replaceAll('-', '_')
+  if (family === 'workspace' && call === 'exec_cancel') return { name: 'cancel', limit: 4 }
+  if (family === 'workspace' && call === 'exec') return { name: 'exec', limit: 8 }
+  if (family === 'doctor' || LONG_CALLS.has(`${family}.${call}`)) return { name: 'jobs', limit: 4 }
+  return { name: 'calls', limit: 4 }
+}
+const LONG_CALLS = new Set([
+  'project.init', 'project.export',
+  'machine.create', 'machine.start', 'machine.stop', 'machine.update', 'machine.remove',
+  'store.push', 'store.pull', 'store.connect', 'store.attach',
+  'backup.connect', 'backup.create', 'backup.restore',
+  'sandbox.create',
+])
+
+/** Signal a CLI's whole process group (it was spawned detached), else the process itself. */
+function signalGroup(child: ChildProcess, kill: (signal: NodeJS.Signals) => boolean, signal: NodeJS.Signals): boolean {
+  if (child.pid) {
+    try { process.kill(-child.pid, signal); return true } catch { /* no such group: the process alone */ }
+  }
+  try { return kill(signal) } catch { return false }
+}
+
+let exitHook = false
+/** On host exit, end what is still running (detached children do not get the terminal's signals). */
+function killOnExit(): void {
+  if (exitHook) return
+  exitHook = true
+  process.on('exit', () => { for (const child of children) { try { child.kill('SIGTERM') } catch { /* gone */ } } })
+}
 
 /**
  * Run one CLI command once.
@@ -295,8 +342,9 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
   if (!spec.cli || !isAbsolute(spec.cli) || !existsSync(spec.cli)) {
     return Promise.reject(new CliError('CliUnavailable', 'Pin an absolute LayerFS CLI (Settings → LayerFS or DSH_LAYERFS_CLI)', null, 'unavailable'))
   }
-  const lane = argv[0] === 'workspace' && argv[1] === 'exec-cancel' ? `${spec.cli}:cancel` : options.lane ? `${spec.cli}:${options.lane.name}` : `${spec.cli}:calls`
-  const launch = () => admit(lane, options.lane?.limit ?? 4, () => new Promise<unknown>((resolve, reject) => {
+  const own = laneOf(argv)
+  const chosen = own.name === 'cancel' ? own : options.lane ?? own
+  const launch = () => admit(`${spec.cli}:${chosen.name}`, chosen.limit, () => new Promise<unknown>((resolve, reject) => {
     if (!options.discovery && !spec.home) return reject(new CliError('InvalidInput', 'LayerFS requires an explicit home'))
     if (options.read && !existsSync(join(spec.home, 'layerfs.json'))) return reject(new CliError('Unavailable', 'LayerFS home is not initialized; reads will not create it'))
     let result: unknown, refusal: any, spawnError: unknown, malformed = false, finals = 0
@@ -323,25 +371,55 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
       } catch { /* plain-text usage; exit 2 classifies it */ }
     })
     try { options.beforeSpawn?.() } catch (error) { reject(error); return }
+    // Its own process group, so a timeout or shutdown ends the CLI's helpers with it;
+    // `child.kill` signals that group for every holder (shutdown, simulation cancel).
     const child = spawn(spec.cli, [...argv], {
-      shell: false, stdio: ['pipe', 'pipe', 'pipe'],
+      shell: false, stdio: ['pipe', 'pipe', 'pipe'], detached: true,
       env: { ...tagged(options), ...(spec.home ? { LAYERFS_HOME: spec.home } : {}), ...(spec.bundle ? { LAYERFS_BUNDLE: spec.bundle } : {}), ...(spec.cacheHome ? { XDG_CACHE_HOME: spec.cacheHome } : {}), LAYERFS_PROGRESS_JSON: '1' },
     })
+    const kill = child.kill.bind(child)
+    child.kill = ((signal: NodeJS.Signals | number = 'SIGTERM') => signalGroup(child, kill, signal as NodeJS.Signals)) as typeof child.kill
     children.add(child)
+    killOnExit()
     child.once('error', (error) => { spawnError = error })
     child.stdin?.on('error', () => {})
     // `--events` stdout is frames: the capture keeps their decoded exec bytes and the final frame instead.
     child.stdout?.on('data', (data: Buffer) => { if (capture && !events) capture.stdout.push(data); stdout.write(data) })
     child.stderr?.on('data', (data: Buffer) => { capture?.stderr.push(data); stderr.write(data) })
-    let deadline: NodeJS.Timeout | undefined
-    if (options.timeout) deadline = setTimeout(() => child.kill('SIGTERM'), options.timeout)
-    child.once('close', (code, signal) => {
-      clearTimeout(deadline)
-      children.delete(child)
+    let deadline: NodeJS.Timeout | undefined, exitGrace: NodeJS.Timeout | undefined, giveUp: NodeJS.Timeout | undefined
+    let timedOut = false, exited = false, done = false
+    const unclose = () => { child.stdout?.destroy(); child.stderr?.destroy() }
+    const settle = (code: number | null, signal: NodeJS.Signals | null) => {
+      if (done) return
+      done = true
+      clearTimeout(deadline); clearTimeout(exitGrace); clearTimeout(giveUp)
+      // A process that outlived even SIGKILL stays listed until it exits, for shutdown.
+      if (exited || !timedOut) children.delete(child)
       stdout.end(); stderr.end()
       if (capture) { capture.exit = code; capture.refusal = refusal }
+      if (timedOut) {
+        reject(new CliError('Unknown', 'LayerFS did not answer in time and was stopped; inspect state before another action', { signal, timeout: options.timeout }, 'transport-unknown'))
+        return
+      }
       try { resolve(outcome({ code, signal, result, refusal, error: spawnError, malformed: malformed || (events && finals !== 1) })) } catch (error) { reject(error) }
+    }
+    if (options.timeout) {
+      deadline = setTimeout(() => {
+        timedOut = true
+        child.kill('SIGTERM')
+        // Escalate even after the CLI itself is gone: a helper of its group may ignore SIGTERM.
+        setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS).unref()
+        giveUp = setTimeout(() => { unclose(); settle(null, null) }, 2 * KILL_GRACE_MS)
+      }, options.timeout)
+    }
+    child.once('exit', (code, signal) => {
+      exited = true
+      clearTimeout(deadline)
+      if (done) { children.delete(child); return }
+      // Normally 'close' follows at once; a helper holding stdout/stderr must not keep the call open.
+      exitGrace = setTimeout(() => { unclose(); settle(code, signal) }, EXIT_GRACE_MS)
     })
+    child.once('close', (code, signal) => settle(code, signal))
     try { options.onSpawn?.(child) } catch { malformed = true; child.kill('SIGTERM') }
     child.stdin?.end(options.input)
   }))
@@ -395,6 +473,9 @@ export function hasNativeLogs(cli: string): Promise<boolean> {
 /** {@link hasNativeLogs} without waiting: undefined until it is known. */
 export function knownNativeLogs(cli: string): boolean | undefined { return nativeKnown.get(cli) }
 
+/** The identity (`--version --json`) of an already discovered CLI, without waiting. */
+export function knownIdentity(cli: string): Discovery['identity'] | undefined { return settled.get(cli)?.identity }
+
 /** Bool option names of an already discovered call table (rendering only). */
 export function boolOptions(cli: string): string[] | undefined {
   const d = settled.get(cli)
@@ -433,6 +514,28 @@ const READS = new Set(['list', 'get', 'status', 'platforms', 'images', 'stats', 
 const invalid = (message: string) => new CliError('InvalidInput', message)
 const isPlain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v)
 
+/** Retries of a read LayerFS refused because another process held its Store (see {@link storeRace}). */
+export const RACE_RETRIES = 2
+
+/**
+ * LayerFS's refusal when two processes open one Store at once: a lease claim
+ * meets a neighbour's lease file its exiting owner already removed
+ * (`Failed`, `Os { code: 2, kind: NotFound, … }`). This host serializes its own
+ * calls per Store, but agents' CLIs and other processes do not.
+ */
+export const storeRace = (error: unknown): boolean => error instanceof CliError && error.transport === 'refusal'
+  && error.code === 'Failed' && /\bNotFound\b/.test(error.message)
+
+/** Run a read again (at most {@link RACE_RETRIES} times, jittered) while it meets a {@link storeRace}. Never for writes. */
+async function retryRace<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await read() } catch (error) {
+      if (attempt >= RACE_RETRIES || !storeRace(error)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1) + Math.random() * 100))
+    }
+  }
+}
+
 /** `lfs.family.call(...)`; every call answers a Promise. */
 export type Lfs = { readonly spec: CliSpec } & Record<string, Record<string, (...args: any[]) => Promise<any>>>
 
@@ -465,28 +568,33 @@ export function client(spec: CliSpec): Lfs {
               options = { ...options, image_archive: archive, image: digest }
             }
             if (!isPlain(options) || args.length > entry.args.length) throw invalid('Invalid LayerFS arguments')
-            const local = new Set(['on_spawn'])
+            // SDK-only options, never CLI flags: the spawn callback and the call's time budget.
+            const local = new Set(['on_spawn', 'timeout_ms'])
             for (const name of Object.keys(options)) {
               if (!local.has(name) && !entry.options.some((o) => o.name === name)) throw invalid(`${family}.${call}: unknown option ${name}`)
             }
             for (const [name, value] of Object.entries(options)) {
               const option = entry.options.find((o) => o.name === name)
-              if (option?.kind === 'bool' && value !== undefined && typeof value !== 'boolean') throw invalid(`${name} must be true or false`)
-              if ((option?.kind === 'function' || local.has(name)) && value !== undefined && typeof value !== 'function') throw invalid(`${name} must be a function`)
+              if (option?.kind === 'bool' && value != null && typeof value !== 'boolean') throw invalid(`${name} must be true or false`)
+              if (name === 'timeout_ms') { if (value != null && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) throw invalid('timeout_ms must be a nonnegative integer'); continue }
+              if ((option?.kind === 'function' || local.has(name)) && value != null && typeof value !== 'function') throw invalid(`${name} must be a function`)
               if (typeof value === 'number' && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) throw invalid(`${name} must preserve exact numeric values`)
             }
             const words = [family, call.replaceAll('_', '-')]
             const positionals: string[] = []
             let input: string | undefined
+            let omitted: string | undefined
             for (let i = 0; i < entry.args.length; i++) {
               const arg = entry.args[i], value = args[i]
-              if (value === undefined || value === null) { if (!arg.optional) throw invalid(`${arg.name} is required`); continue }
+              if (value === undefined || value === null) { if (!arg.optional) throw invalid(`${arg.name} is required`); if (arg.kind !== 'content' && arg.kind !== 'json') omitted ??= arg.name; continue }
               if (arg.kind === 'content' || arg.kind === 'json') input = arg.kind === 'json' ? JSON.stringify(value) : String(value)
+              // Positionals have no names: a later one after an omitted one would take its place.
+              else if (omitted) throw invalid(`${arg.name} cannot be given without ${omitted}`)
               else positionals.push(String(value))
             }
             const events = family === 'workspace' && call === 'exec'
             for (const [name, value] of Object.entries(options)) {
-              if (value === undefined || typeof value === 'function' || (name === 'stream' && events)) continue
+              if (value === undefined || value === null || local.has(name) || typeof value === 'function' || (name === 'stream' && events)) continue
               if ((name === 'password' || name === 'key') && (typeof value !== 'string' || !/^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/.test(value))) {
                 throw invalid(`${name} requires an env: or file: reference`)
               }
@@ -499,10 +607,12 @@ export function client(spec: CliSpec): Lfs {
             if (spec.scope) words.push('--scope', spec.scope.folder, '--scope-project', spec.scope.project, ...(spec.scope.branch ? ['--scope-branch', spec.scope.branch] : []))
             words.push('--', ...positionals)
             const read = READS.has(call)
-            const storeRead = read && args[0] && (entry.args[0]?.kind === 'project' || family === 'store') ? String(args[0]).split('/')[0] : undefined
+            // Reads get a generous default budget; writes and long work (exec, jobs) none unless asked.
             const opts: any = options
+            const timeout: number | undefined = opts.timeout_ms ?? (read ? READ_TIMEOUT_MS : undefined)
+            const storeRead = read && args[0] && (entry.args[0]?.kind === 'project' || family === 'store') ? String(args[0]).split('/')[0] : undefined
             const invoke = () => execute(spec, words, {
-              input, read, storeRead, events,
+              input, read, storeRead, events, timeout: timeout || undefined,
               onProgress: opts.on_progress,
               onSpawn: (child) => opts.on_spawn?.(child.pid),
               onFrame: (frame) => { if (frame.stream) opts[frame.stream]?.(bytes(frame.bytes)) },
@@ -510,7 +620,7 @@ export function client(spec: CliSpec): Lfs {
             if (!read) return invoke()
             const key = JSON.stringify([words, input ?? null])
             if (!flying.has(key)) {
-              const pending = invoke()
+              const pending = retryRace(invoke)
               flying.set(key, pending)
               pending.finally(() => flying.delete(key)).catch(() => {})
             }

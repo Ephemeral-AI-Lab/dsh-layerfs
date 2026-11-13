@@ -16,7 +16,7 @@ test.after(() => rmSync(out, { recursive: true, force: true }))
 
 function fixture(lfs) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-force-stop-'))
-  const { host } = testHost({ lfs, root: dir, home: join(dir, 'home'), discovery: async () => ({ identity: {} }) })
+  const { host } = testHost({ lfs, root: dir, home: join(dir, 'home'), discovery: async () => ({ identity: {}, calls: [{ family: 'machine', call: 'stop', args: [], options: [{ name: 'force', kind: 'bool' }] }] }) })
   const groups = R.createGroups(host, async () => ({}))
   return { host, groups, close: () => rmSync(dir, { recursive: true, force: true }) }
 }
@@ -37,6 +37,19 @@ test('machine Stop keeps normal SDK call; Force stop forwards force and invalida
     const refused = await R.handle(f.groups, { method: 'POST', path: '/api/machines/machine-a/stop', body: { force: true } })
     assert.equal(refused.status, 409)
     assert.deepEqual(calls, [], 'a refusal must not report a confirmed lifecycle change')
+  } finally { f.close() }
+})
+
+test('Force stop is refused, not sent, when the pinned CLI has no machine.stop force option', async () => {
+  const calls = []
+  const f = fixture({ machine: { stop: async (...args) => { calls.push(['stop', ...args]); return { kind: 'Stopped' } } } })
+  f.host.discover = async () => ({ identity: {}, calls: [{ family: 'machine', call: 'stop', args: [], options: [] }] })
+  try {
+    const refused = await R.handle(f.groups, { method: 'POST', path: '/api/machines/machine-a/stop', body: { force: true } })
+    assert.equal(refused.status, 501)
+    assert.equal(refused.body.code, 'Unsupported')
+    assert.deepEqual(calls, [])
+    assert.equal((await R.handle(f.groups, { method: 'POST', path: '/api/machines/machine-a/stop' })).status, 200, 'a normal stop still works')
   } finally { f.close() }
 })
 
@@ -84,4 +97,6 @@ test('Force stop remains accessible for native and stopped machines with registe
   assert.equal(forceStopOf(machine('lima', 'running')), true)
   assert.equal(forceStopOf(machine('lima', 'stopped')), false)
   assert.equal(forceStopOf(machine('ssh', 'running', ['unsupported'])), false)
+  assert.equal(forceStopOf(machine('lima', 'running'), true, { forceStop: false, images: false, imageArchive: false }), false, 'a CLI without force hides it')
+  assert.equal(forceStopOf(machine('lima', 'running'), true, { forceStop: true, images: false, imageArchive: false }), true)
 })

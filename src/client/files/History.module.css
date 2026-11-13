@@ -91,13 +91,19 @@
   min-height: 0;
 }
 
+/* A free canvas: the camera pans and zooms over a dot grid that moves with it. */
 .graph {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
+  touch-action: none;
   cursor: grab;
+  background-image: radial-gradient(circle, var(--dsw-alias-border-l2) 1px, transparent 1.25px);
+  background-size: var(--grid-size, 24px) var(--grid-size, 24px);
+  background-position: var(--grid-x, 0) var(--grid-y, 0);
 }
 
 .graph:active {
@@ -110,9 +116,11 @@
 }
 
 .canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   max-width: none;
-  overflow: visible;
+  overflow: hidden;
   user-select: none;
   touch-action: none;
 }
@@ -125,7 +133,8 @@
 .mainLine {
   fill: none;
   stroke: var(--dsw-alias-label-secondary);
-  stroke-width: 2.4;
+  /* main is the trunk: a little thicker than any branch */
+  stroke-width: 4;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
@@ -220,10 +229,30 @@
   stroke-width: 1.5;
 }
 
-.layerMark {
-  fill: var(--bough);
+/* A Layer: a band across the trunk in the colour of the branch that published it. */
+.layerBand {
+  fill: var(--band);
   stroke: var(--dsw-alias-bg-base);
+  stroke-width: 1;
+}
+
+.layerGuide {
+  stroke: var(--dsw-alias-label-tertiary);
+  stroke-width: 0.5;
+  stroke-opacity: 0.35;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Where a branch begins, after its sprout. */
+.knot {
+  fill: var(--dsw-alias-bg-base);
+  stroke: var(--bough);
   stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.mergeHeart {
+  fill: var(--heart);
 }
 
 .mergeRing {
@@ -666,8 +695,8 @@
 
 .pathButton {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 5px 2px;
   border: 0;
@@ -679,13 +708,15 @@
   cursor: pointer;
 }
 
-.pathButton > span {
-  color: var(--dsw-alias-label-tertiary);
-}
-
 .pathButton code {
+  flex: 1;
+  min-width: 0;
   font-family: var(--ds-font-family-code);
   overflow-wrap: anywhere;
+}
+
+.pathKind {
+  flex: none;
 }
 
 @media (hover: hover) {
@@ -730,8 +761,11 @@
   gap: 6px;
 }
 
+/* Legend glyphs mirror the graph's marks in one neutral ink: lanes take per-branch hues. */
 .legend svg {
-  fill: var(--dsw-alias-state-business-primary);
+  fill: var(--dsw-alias-bg-base);
+  stroke: var(--dsw-alias-label-tertiary);
+  stroke-width: 1.8;
 }
 
 .legendTrunk {
@@ -741,41 +775,42 @@
   height: 2px;
   border-radius: 3px;
   corner-shape: round;
-  background: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-label-tertiary);
 }
 
 .legendTrunk::after {
   content: '';
   position: absolute;
-  top: -2px;
-  left: 8px;
-  width: 5px;
-  height: 5px;
+  top: -3px;
+  left: 7px;
+  width: 7px;
+  height: 7px;
+  box-sizing: border-box;
   border: 1px solid var(--dsw-alias-bg-base);
-  border-radius: 1px;
-  background: var(--dsw-alias-state-warn-primary);
+  border-radius: 1.5px;
+  background: var(--dsw-alias-label-tertiary);
 }
 
 .legendBough {
   width: 20px;
   height: 10px;
-  border: 2px solid var(--dsw-alias-state-done-primary);
+  border: 1.5px solid var(--dsw-alias-label-tertiary);
   border-top: 0;
   border-right: 0;
   border-radius: 0 0 0 8px;
 }
 
 .legendMerge {
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--dsw-alias-state-success-primary);
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--dsw-alias-label-tertiary);
   border-radius: 50%;
   corner-shape: round;
 }
 
 .legendPublish {
   width: 20px;
-  border-top: 2px dashed var(--dsw-alias-state-business-primary);
+  border-top: 1.5px dashed var(--dsw-alias-label-tertiary);
 }
 
 .legendHint {

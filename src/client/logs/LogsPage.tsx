@@ -195,7 +195,26 @@ export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
     const row = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling
     if (row instanceof HTMLElement) { e.preventDefault(); row.focus() }
   }
-  const filtered = filters.project.trim() !== '' || filters.op !== 'all' || filters.client !== 'all' || filters.outcome !== 'all' || !filters.writes
+  /** Filters other than Writes only (and the tag, which has its own empty state). */
+  const filtered = filters.project.trim() !== '' || filters.op !== 'all' || filters.client !== 'all' || filters.outcome !== 'all'
+  /**
+   * Whether the whole log is empty: known from an unfiltered read, else asked
+   * with a one-line probe when a filtered read shows nothing. `undefined` while unknown.
+   */
+  const [logEmpty, setLogEmpty] = useState<boolean>()
+  useEffect(() => {
+    if (!data) return
+    const args = argsOf(filters)
+    const unfiltered = Object.keys(args).every((k) => k === 'limit') && filters.outcome === 'all'
+    if (data.lines.length > 0) { setLogEmpty(false); return }
+    if (data.hasMore) return
+    if (unfiltered) { setLogEmpty(true); return }
+    let live = true
+    api.op<LogsListAnswer>('logs.list', { limit: 1 })
+      .then((answer) => { if (live) setLogEmpty(answer.lines.length === 0 && !answer.has_more) })
+      .catch(() => { if (live) setLogEmpty(undefined) })
+    return () => { live = false }
+  }, [api, data, filters])
 
   const reset = async () => {
     setResetting(true); setResetError(undefined)
@@ -218,7 +237,7 @@ export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
         actions={(
           <>
             <Button variant="ghost" size="sm" icon={<IconRefreshOutlineRegular size={14} />} disabled={loading} onClick={() => { void load('replace') }}>{t('refresh')}</Button>
-            <Button variant="outline" size="sm" disabled={resetting || !data} onClick={() => { setResetError(undefined); setConfirming(true) }}>{t('reset')}</Button>
+            <Button variant="outline" size="sm" disabled={resetting || !data || logEmpty === true} onClick={() => { setResetError(undefined); setConfirming(true) }}>{t('reset')}</Button>
           </>
         )} />
       {removed !== undefined && <p className={css.note} role="status">{t('resetDone', { n: removed })}</p>}
@@ -241,7 +260,11 @@ export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
       {data && (shown.length === 0 && !data.hasMore ? (
         filters.tag ? <Empty title={t('emptyTag')}>{t('emptyTagBody')}</Empty>
           : filtered ? <Empty title={t('emptyFiltered')}>{t('emptyFilteredBody')}</Empty>
-            : <Empty title={t('empty')}>{t('emptyBody')}</Empty>
+            : filters.writes && logEmpty !== true ? (
+              <Empty title={t('emptyWrites')}>
+                {t('emptyWritesBody')} <LinkButton onClick={() => set({ writes: false })}>{t('showReads')}</LinkButton>
+              </Empty>
+            ) : <Empty title={t('empty')}>{t('emptyBody')}</Empty>
       ) : (
         <Card className={css.tableCard}>
           <table className={css.table} aria-busy={loading || more} aria-label={t('tableLabel')}>
@@ -356,11 +379,11 @@ function Row({ api, t, line, now, rowKey, detailOpen, onOpen, onKeyDown }: {
           <span className={css.time}>{when(line.at, now, t)}</span>
         </Tooltip>
       </td>
-      <td className={css.muted}>{line.client}</td>
+      <td className={clsx(css.muted, css.wClient)}>{line.client}</td>
       <td className={css.commandCell}><CommandCell parts={parts} focusOpen={focused} popoverId={popoverId} disabled={detailOpen} /></td>
-      <td>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
+      <td title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
       <td className={clsx(css.num, css.duration)}>{duration(line.ms, t)}</td>
-      <td className={css.saved}>
+      <td className={clsx(css.saved, css.wSaved)}>
         {version ? <>{line.kind && <span className={css.kind}>{line.kind}</span>}<code className={css.hex}>{shortHex(version)}</code></> : <span className={css.muted}>—</span>}
       </td>
       <td>{line.dsh ? <SessionLabel api={api} t={t} label={line.dsh} /> : <span className={css.muted}>—</span>}</td>

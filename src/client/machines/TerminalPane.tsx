@@ -209,6 +209,7 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
       </header>
 
       <div ref={scroller} className={css.scroll} onScroll={onScroll} role="log" aria-live="off" tabIndex={0}>
+        {log.items != null && rows.length === 0 && !notice && <div className={clsx(css.line, css.meta, css.emptyHint)}>{t('termEmptyHint')}</div>}
         {rows.map((row) => <TranscriptRow key={row.id} row={row} prompt={prompt} />)}
         {notice && <div className={clsx(css.line, notice.tone === 'error' ? css.err : css.meta)}>{notice.text}</div>}
         {log.error != null && !log.items && <Refusal error={log.error} labels={refusal} compact />}
@@ -250,15 +251,15 @@ function CommitDialog({ ws, name, onClose, onDone }: { ws: WorkspaceInfo, name: 
     } catch (e) { setFailed(e) } finally { setSaving(false) }
   }
   return (
-    <Modal open onClose={onClose} title={t('termCommitTitle', { name })} closeLabel={t('close')} className={css.dialog}
+    <Modal open onClose={() => { if (!saving) onClose() }} title={t('termCommitTitle', { name })} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
-          <Button variant="outline" onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" disabled={saving} onClick={() => void submit()}>{t('termCommitAction')}</Button>
+          <Button variant="outline" disabled={saving} onClick={onClose}>{t('cancel')}</Button>
+          <Button variant="primary" disabled={saving} onClick={() => void submit()}>{saving ? t('termCommitting') : t('termCommitAction')}</Button>
         </>
       )}>
       <Input value={message} onChange={(e) => setMessage(e.target.value)} placeholder={t('termCommitMessage')} aria-label={t('termCommitMessage')}
-        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void submit() } }} autoFocus />
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); if (!saving) void submit() } }} autoFocus />
       {failed != null && <Refusal error={failed} labels={refusal} compact />}
     </Modal>
   )

@@ -13,21 +13,29 @@ runtime and secrets; `$DSH_HOME/layerfs` holds this plugin's state). Earlier des
 
 ## Hard rules
 
-- **Never change DeepSeek Harness code.** dsh-layerfs is a DSH plugin and nothing
-  else: every feature is built in this repo on DSH's public plugin seams —
-  services, slots, Remote namespaces, events, client registration, and the bundle
-  patch (`cordis.patch.yml`, which may only disable/insert/configure rows).
-  - Do not edit, fork, vendor or patch DSH source or packages: not
-    `../deepseek-harness`, `../deepseek-harness-source`, nor
-    `node_modules/@deepseek-ai/*` (no `patch-package`, postinstall rewrites or
-    copied-and-edited DSH files).
+- **Never modify DeepSeek Harness. Everything is a cordis plugin.** dsh-layerfs
+  is a DSH cordis plugin bundle and nothing else: every feature, host or client,
+  is a cordis plugin in this repo, loaded through the bundle and built only on
+  DSH's public plugin seams — services, slots, Remote namespaces, events, client
+  registration, and the bundle patch (`cordis.patch.yml`, which may only
+  disable/insert/configure rows). No exceptions: not for a one-line fix, a
+  temporary hack, a local-only experiment or "just to unblock a test".
+  - Do not edit, fork, vendor or patch DSH source or packages anywhere: not
+    `../deepseek-harness` (its code or its installed profiles'
+    `node_modules`), `../deepseek-harness-source`, nor
+    `node_modules/@deepseek-ai/*` here (no `patch-package`, postinstall
+    rewrites, copied-and-edited DSH files, or local DSH builds swapped in).
   - Do not import DSH internals (`@deepseek-ai/<pkg>/src|lib|dist/...`) or
     monkey-patch DSH objects/prototypes at runtime; use exported entry points only.
   - Replacing a stock row is done by disabling it in `cordis.patch.yml` and
     inserting our own row (subclassing or wrapping the stock export), as
     `layerfs-session-persistence` and `layerfs-sandbox-policy` do.
+  - New behaviour is a new cordis plugin (a host row inserted by
+    `cordis.patch.yml`, a client plugin registered from `src/client/`), never a
+    change outside this repo.
   - If a feature needs a seam DSH does not expose, stop and report it (what seam,
-    why) instead of working around it; a change to DSH is the user's call.
+    why) instead of working around it; a change to DSH is the user's call, and
+    until they make it the feature waits.
 - Never modify `../layerfs-connect` or `../layerfs` either (read-only references).
   Never edit the user's LayerFS home (`~/.layerfs`) by hand, and never point a dev
   server or test at it: they always use a private home (`DSH_LAYERFS_HOME`). Only

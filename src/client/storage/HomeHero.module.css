@@ -78,6 +78,31 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.titleLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .titleLink:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+}
+
+.titleLink:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-link));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .sub {
   margin: 0;
   font-size: 12.5px;

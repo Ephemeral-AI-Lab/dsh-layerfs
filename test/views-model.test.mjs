@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentTree, buildSandboxMap, packetAt, replayClock, rootOf, targetsOf, CALL_GAP_S, FLASH_S, LAP_S, MAX_CALL_S, MIN_CALL_S, RESULT_S } from '../src/client/views/model.ts'
+import { agentTree, buildSandboxMap, execWords, innerCommand, mountedAt, phaseOf, replayClock, sanitizeCommand, rootOf, targetsOf, CALL_GAP_S, FLASH_S, MAX_CALL_S, MIN_CALL_S, RESULT_S, TAIL_S, requestS } from '../src/client/views/model.ts'
 
 const byId = {
   root: { running: false },
@@ -95,21 +95,25 @@ test('replay pacing: one agent\'s back-to-back calls get their own windows, long
   assert.ok(kid.start >= create.start, 'order across agents is kept')
   assert.ok(Math.abs(mount.start - (create.end + CALL_GAP_S)) < 1e-9)
   assert.ok(Math.abs(exec.end - exec.start - MAX_CALL_S) < 1e-9, 'a ten-minute exec holds the replay for MAX_CALL_S')
-  assert.ok(Math.abs(model.duration - (exec.end + FLASH_S)) < 1e-9)
+  assert.ok(Math.abs(model.duration - (exec.end + TAIL_S)) < 1e-9)
 })
 
-test('packetAt: a request loops forward over the chain, the result runs back once', () => {
+test('phaseOf: a request travels out once, holds, its result comes back once and fades', () => {
   const e = { start: 10, end: 14 }
-  assert.equal(packetAt(e, 9, 2), null)
-  assert.deepEqual(packetAt(e, 10, 2), { hop: 0, at: 0, kind: 'request' })
-  const mid = packetAt(e, 10 + LAP_S * 0.75, 2)
-  assert.equal(mid.hop, 1); assert.ok(Math.abs(mid.at - 0.5) < 1e-9); assert.equal(mid.kind, 'request')
-  const back = packetAt(e, 14 + RESULT_S * 0.25, 2)
-  assert.equal(back.kind, 'result'); assert.equal(back.hop, 1); assert.ok(Math.abs(back.at - 0.5) < 1e-9)
-  const home = packetAt(e, 14 + RESULT_S * 0.75, 2)
-  assert.equal(home.hop, 0); assert.ok(Math.abs(home.at - 0.5) < 1e-9)
-  assert.equal(packetAt(e, 14 + RESULT_S, 2), null)
-  assert.equal(packetAt(e, 11, 0), null)
+  const req = requestS(e)
+  assert.equal(phaseOf(e, 9), null)
+  assert.deepEqual(phaseOf(e, 10), { kind: 'request', u: 0 })
+  const mid = phaseOf(e, 10 + req / 2)
+  assert.equal(mid.kind, 'request'); assert.ok(Math.abs(mid.u - 0.5) < 1e-9)
+  assert.equal(phaseOf(e, 10 + req + 1).kind, 'held', 'no looping while the call runs')
+  const back = phaseOf(e, 14 + RESULT_S / 2)
+  assert.equal(back.kind, 'result'); assert.ok(Math.abs(back.u - 0.5) < 1e-9)
+  const fade = phaseOf(e, 14 + RESULT_S + FLASH_S / 2)
+  assert.equal(fade.kind, 'flash'); assert.ok(Math.abs(fade.f - 0.5) < 1e-9)
+  assert.equal(phaseOf(e, 14 + TAIL_S), null)
+  // Reduced motion: no travel, a steady result colour for the tail.
+  assert.equal(phaseOf(e, 10, true).kind, 'held')
+  assert.deepEqual(phaseOf(e, 15, true), { kind: 'flash', u: 0, f: 1 })
 })
 
 test('a refused call adds no node; it still names the nodes that exist', () => {
@@ -132,4 +136,60 @@ test('a refused call adds no node; it still names the nodes that exist', () => {
   assert.equal(mount.branch, 'feat')
   assert.equal(exec.ws, 'sbx:dsh', 'a refused call on an existing workspace stays on it')
   assert.equal(exec.branch, 'main')
+})
+
+test('a project map: open Sandboxes seed the map, closed ones retire, a re-created one reopens', () => {
+  const line = (at, argv, outcome = 'ok') => ({ v: 1, at, ms: 5, client: 'cli', argv, outcome })
+  const agents = [{ id: 'host', depth: 0, running: false }]
+  const live = { at: 3500, sandboxes: [{ name: 'box', machine: 'm1', workspaces: [{ id: 'box:main', branch: 'main' }] }] }
+  const model = buildSandboxMap(agents, null, { host: [
+    line(1000, ['sandbox', 'create', 's/p', 'old', 'm2']),
+    line(2000, ['sandbox', 'close', 'old']),
+    line(3000, ['sandbox', 'create', 's/p', 'old', 'm2']),
+    line(4000, ['sandbox', 'create', 's/p', 'gone', 'm2']),
+  ] }, live)
+  const byName = Object.fromEntries(model.sandboxes.map((b) => [b.name, b]))
+  assert.deepEqual(byName.box, { name: 'box', machine: 'm1', workspaces: [{ id: 'box:main', name: 'main', branch: 'main' }], closed: false })
+  assert.equal(byName.old.closed, true, 'not open now: closed, although re-created in the calls')
+  assert.equal(byName.gone.closed, false, 'a call newer than the list: still open')
+  assert.equal(buildSandboxMap(agents, null, { host: [line(4000, ['sandbox', 'create', 's/p', 'gone', 'm2'])] }, { ...live, at: 5000 }).sandboxes.find((b) => b.name === 'gone').closed, true)
+  const reopened = buildSandboxMap(agents, null, { host: [line(1000, ['sandbox', 'close', 'x']), line(2000, ['sandbox', 'create', 's/p', 'x', 'm'])] })
+  assert.equal(reopened.sandboxes[0].closed, false, 'a create after a close reopens')
+})
+
+test('mountedAt: a workspace shows from its mount until an unmount after it ends', () => {
+  const line = (at, argv, outcome = 'ok') => ({ v: 1, at, ms: 5, client: 'cli', argv, outcome })
+  const agents = [{ id: 'a', depth: 0, running: false }]
+  const model = buildSandboxMap(agents, null, { a: [
+    line(1000, ['workspace', 'mount', 'box', 'main', '--name', 'w']),
+    line(1100, ['workspace', 'unmount', 'box:w']),
+    line(1200, ['workspace', 'unmount', 'box:w'], 'Busy'),
+    line(1300, ['workspace', 'mount', 'box', 'main', '--name', 'w']),
+  ] })
+  const [mount1, unmount, busy, mount2] = model.events
+  assert.equal(busy.outcome, 'Busy')
+  assert.equal(mountedAt(model.events, 'box:w', mount1.start - 0.01), false, 'before its first mount')
+  assert.equal(mountedAt(model.events, 'box:w', mount1.start), true)
+  assert.equal(mountedAt(model.events, 'box:w', unmount.end - 0.01), true, 'until the unmount ends')
+  assert.equal(mountedAt(model.events, 'box:w', unmount.end), false)
+  assert.equal(mountedAt(model.events, 'box:w', mount2.start), true, 'mounted again')
+  assert.equal(mountedAt(model.events, 'other:w', 0), true, 'no mount in the calls: always shown')
+})
+
+test('innerCommand: a plain workspace exec shows the command it ran; anything else stays as typed', () => {
+  assert.equal(innerCommand(`"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'ls' --stream`), 'ls')
+  assert.equal(innerCommand(`"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'mkdir -p notes && echo "a b" > notes/x.md' --stream`), 'mkdir -p notes && echo "a b" > notes/x.md')
+  assert.equal(innerCommand(`layerfs workspace exec sbx:main -- 'it'\\''s'`), "it's")
+  assert.equal(innerCommand('npm test && npm run build'), 'npm test && npm run build')
+  assert.equal(innerCommand(`"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'a' && echo done`), `"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'a' && echo done`)
+})
+
+test('sanitizeCommand and execWords: terminal lines without the plugin plumbing', () => {
+  assert.equal(sanitizeCommand(`"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'npm test' --stream`, 'main'), 'npm test')
+  assert.equal(sanitizeCommand(`cd x && "$DSH_LAYERFS_CLI" workspace commit "$DSH_LAYERFS_WS" --stream`, 'main'), 'cd x && layerfs workspace commit main')
+  assert.equal(sanitizeCommand(`"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'ls'\n"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'pwd'`, 'w'), 'ls\npwd')
+  assert.equal(sanitizeCommand(`test -n "$DSH_LAYERFS_WS" && "$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'ls' --stream`, 'main'), 'ls')
+  assert.equal(sanitizeCommand(`test -n "$DSH_LAYERFS_WS" && "$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'mkdir -p a && echo "x && y" > a/b' --stream`, 'main'), 'mkdir -p a && echo "x && y" > a/b')
+  assert.equal(execWords(['workspace', 'exec', 'sbx:main', '<65 bytes>', '--stream']), null)
+  assert.equal(execWords(['workspace', 'exec', 'sbx:main', '--', 'npm', 'test']), 'npm test')
 })

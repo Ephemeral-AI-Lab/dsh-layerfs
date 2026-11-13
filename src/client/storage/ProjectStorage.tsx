@@ -16,6 +16,7 @@ import { LinkButton, LoadError, Loading, Refusal } from '../ui/index.tsx'
 import { exactBytes, exactCount } from './exact-count.ts'
 import type { StorageT } from './locale.ts'
 import { refusalLabels } from './parts.tsx'
+import { ratioText } from './measures.ts'
 import { StagedStorageFlow, ratioStep, type StorageStage } from './StorageVisuals.tsx'
 import type { ProjectStorageView } from './types.ts'
 import css from './StorageVisuals.module.css'
@@ -31,11 +32,13 @@ export interface ProjectStorageProps {
   tick: number
   /** Opens the owning Store's page. */
   onOpenStore: (store: string) => void
+  /** The headline (packed bytes, saves, ratio); off in the conversation's Stats tab. */
+  hero?: boolean
 }
 
-const ratio = (a: number, b: number): string | null => a > 0 && b > 0 ? (a / b).toFixed(a / b >= 10 ? 0 : 1) : null
+const ratio = (a: number, b: number): string | null => a > 0 && b > 0 ? ratioText(a / b) : null
 
-export function ProjectStorage({ api, t, project, tick, onOpenStore }: ProjectStorageProps): ReactNode {
+export function ProjectStorage({ api, t, project, tick, onOpenStore, hero = true }: ProjectStorageProps): ReactNode {
   const force = useRef(false)
   const q = useQuery(() => {
     const refresh = force.current
@@ -76,10 +79,12 @@ export function ProjectStorage({ api, t, project, tick, onOpenStore }: ProjectSt
         </>
       ) : s ? (
         <>
-          <div className={css.hero}>
-            <strong>{exactBytes(s.stored)}</strong>
-            <span>{t(view.partial ? 'psHeroSoFar' : 'psHero', { saves: exactCount(s.saves), ratio: ratio(s.commitLogical, s.stored) ?? '—' })}</span>
-          </div>
+          {hero ? (
+            <div className={css.hero}>
+              <strong>{exactBytes(s.stored)}</strong>
+              <span>{t(view.partial ? 'psHeroSoFar' : 'psHero', { saves: exactCount(s.saves), ratio: ratio(s.commitLogical, s.stored) ?? '—' })}</span>
+            </div>
+          ) : null}
           <Flow t={t} totals={s} />
           <Share t={t} view={view} stored={s.stored} onOpenStore={onOpenStore} />
           <div className={css.facts}>
@@ -129,7 +134,7 @@ function Flow({ t, totals }: { t: StorageT, totals: NonNullable<ProjectStorageVi
     <section className={css.panel} aria-label={t('psFlowTitle')}>
       <div className={css.panelHead}><h3>{t('psFlowTitle')}</h3></div>
       <StagedStorageFlow t={t} stages={stages} label={t('psFlowTitle')}
-        steps={[ratioStep(t, totals.commitLogical, totals.canonical, t('dedupeLabel')), ratioStep(t, totals.canonical, totals.stored, t('compressionLabel'))]} />
+        steps={[ratioStep(t, totals.commitLogical, totals.canonical, t('dedupeLabel'), t('dedupeNone')), ratioStep(t, totals.canonical, totals.stored, t('compressionLabel'))]} />
     </section>
   )
 }

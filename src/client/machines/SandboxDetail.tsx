@@ -7,11 +7,12 @@
  * whose machine differs from the one it was opened from is refused here.
  */
 import type { ReactNode } from 'react'
-import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronRightOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Card, Fact, Facts, LoadError, Loading, Notice, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
+import { useMachineTitle } from './Inventory.tsx'
 import type { View } from './context.tsx'
 import { clearingCall, daemonLook, daemonSlots, opWords, stateLook, type SandboxInfo } from './model.ts'
 import { SandboxMenu, useClose, useSandboxRead } from './Sandboxes.tsx'
@@ -25,9 +26,11 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   const parent = useMachines((s) => (s.data?.available ? s.data.machines.find((m) => m.name === machine) : undefined))
   const detail = useSandboxRead(name, listed?.state, listed?.workspaces)
   const closing = useClose(name)
+  const title = useMachineTitle()
+  const machineTitle = title({ name: machine, platform: parent?.platform ?? (machine === 'native' ? 'native' : '') })
   const crumbs = [
     { label: t('panel'), ariaLabel: t('backToMachines'), onClick: () => go({ kind: 'board' }) },
-    { label: machine, onClick: () => go({ kind: 'machine', name: machine }) },
+    { label: machineTitle, onClick: () => go({ kind: 'machine', name: machine }) },
   ]
   const info = detail.data
   const targetMachine = info?.machine ?? listed?.machine
@@ -50,7 +53,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   const op = opWords(info.op)
   const calls = info.state === 'unresolved' ? clearingCall('sandbox', name, info.op) : null
   const intro = [
-    t('sbOnMachine', { machine, kind: parent ? kind(parent.platform) : info.platform ?? '—' }),
+    t('sbOnMachine', { machine: machineTitle, kind: parent ? kind(parent.platform) : info.platform ?? '—' }),
     info.project ? t('sandboxProject', { project: info.project }) : t('noProject'),
   ].join(' · ')
   return (
@@ -88,7 +91,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
       <SandboxTerminals info={info} onChanged={detail.reload} />
 
       <details className={css.details}>
-        <summary className={css.detailsSummary}><span>{t('sbDetails')}</span></summary>
+        <summary className={css.detailsSummary}><IconChevronRightOutlineRegular size={12} className={css.detailsChevron} /><span>{t('sbDetails')}</span></summary>
         <div className={css.detailsBody}>
           <Card>
             <Facts>

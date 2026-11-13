@@ -15,13 +15,16 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json",
     "./sandbox-policy": "./lib/sandbox-policy.js",
-    "./session-persistence": "./lib/session-persistence.js"
+    "./session-persistence": "./lib/session-persistence.js",
+    "./skills": "./lib/skills.js"
   },
   "files": [
     "lib/index.js",
     "lib/client.js",
     "lib/sandbox-policy.js",
     "lib/session-persistence.js",
+    "lib/skills.js",
+    "skills",
     "cordis.patch.yml",
     "README.md"
   ],

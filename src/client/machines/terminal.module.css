@@ -232,7 +232,13 @@
 }
 
 .scroll:focus-visible {
-  outline: none;
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: -2px;
+}
+
+/* An empty transcript says what it is for. */
+.emptyHint {
+  white-space: normal;
 }
 
 .scroll ::selection,

@@ -70,9 +70,49 @@ export function projectRef(key: unknown): { store: string, name: string, key: st
 /** The key of a project record (project.list/get: `project`, else `store/name`). */
 export const keyOf = (p: any): string => p.project ?? `${p.store}/${p.name}`
 
+/**
+ * Optional LayerFS features the pinned CLI may lack (an older or newer call
+ * table): each is read from discovery, so the routes refuse or answer without
+ * the feature instead of sending a call or option the CLI does not have.
+ */
+export interface CliFeatures {
+  /** machine.stop takes `force`. */
+  readonly forceStop: boolean
+  /** machine.images exists (a machine's Sandbox image inventory). */
+  readonly images: boolean
+  /** sandbox.create takes `image_archive` (a caller-local image archive). */
+  readonly imageArchive: boolean
+}
+
+/** The features a discovered call table has. */
+export function featuresOf(calls: Discovery['calls'] | undefined): CliFeatures {
+  const table: Discovery['calls'] = Array.isArray(calls) ? calls : []
+  const call = (family: string, name: string) => table.find((c) => c.family === family && c.call === name)
+  const option = (family: string, name: string, opt: string) => !!call(family, name)?.options?.some((o: { name: string }) => o.name === opt)
+  return { forceStop: option('machine', 'stop', 'force'), images: !!call('machine', 'images'), imageArchive: option('sandbox', 'create', 'image_archive') }
+}
+
+/** The pinned CLI's features; none when discovery fails (its calls fail too). */
+export async function cliFeatures(host: Pick<RouteHost, 'discover'>): Promise<CliFeatures> {
+  try { return featuresOf((await host.discover()).calls) } catch { return featuresOf([]) }
+}
+
 /** How long a Sandbox's `Busy` refusal answers its reads before it is asked again. */
 export const BUSY_MS = 30_000
-const reads = new WeakMap<object, { flying: Map<string, Promise<any> & { started?: number }>, busy: Map<string, { at: number, error: unknown }> }>()
+type Read = Promise<any> & { started?: number }
+const reads = new WeakMap<object, { flying: Map<string, Read>, busy: Map<string, { at: number, error: unknown }> }>()
+
+/**
+ * Forget what {@link sandboxObservation} holds for `sandbox` (a cached `Busy`
+ * refusal, a read in flight): a write on the Sandbox (mount, unmount, commit,
+ * close) changed it, so the next read asks LayerFS again.
+ */
+export function invalidateSandbox(lfs: object, sandbox: string): void {
+  const state = reads.get(lfs)
+  if (!state) return
+  state.busy.delete(sandbox)
+  state.flying.delete(sandbox)
+}
 
 /**
  * A Sandbox's Workspaces: every page of sandbox.get (its pages hold
@@ -89,6 +129,8 @@ export function sandboxObservation(lfs: Lfs, sandbox: string, { wait = null as n
   if (refused && Date.now() - refused.at < BUSY_MS) return Promise.reject(refused.error)
   let read = flying.get(sandbox)
   if (!read) {
+    // only the read still current settles the cache: one an invalidation dropped leaves it alone
+    const current = () => flying.get(sandbox) === read
     read = (async () => {
       const all: unknown[] = []
       let observation: any
@@ -100,12 +142,12 @@ export function sandboxObservation(lfs: Lfs, sandbox: string, { wait = null as n
       }
       return { ...observation, workspaces: all }
     })().then(
-      (all) => { busy.delete(sandbox); return all },
+      (all) => { if (current()) busy.delete(sandbox); return all },
       (error) => {
-        if (error?.code === 'Busy') busy.set(sandbox, { at: Date.now(), error })
+        if (error?.code === 'Busy' && current()) busy.set(sandbox, { at: Date.now(), error })
         throw error
       },
-    ).finally(() => flying.delete(sandbox)) as Promise<any> & { started?: number }
+    ).finally(() => { if (current()) flying.delete(sandbox) }) as Read
     read.started = Date.now()
     flying.set(sandbox, read)
   }

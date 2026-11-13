@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconBranchOutlineRegular, IconChevronDownOutlineRegular, Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shortId } from './format.ts'
+import { branchLabel } from './labels.ts'
 import type { Translate } from './types.ts'
 import css from './Files.module.css'
 
@@ -20,7 +21,7 @@ export function BranchPicker({ branches, value, onChange, t, className }: Branch
   const others = branches.filter((b) => b.name !== 'main')
   const row = (b: { name: string, head: string | null }): MenuEntry => ({
     id: b.name,
-    label: <span className={css.branchItem}><span className={css.branchItemName}>{b.name}</span><span className={css.branchItemHead}>{shortId(b.head)}</span></span>,
+    label: <span className={css.branchItem} title={b.name}><span className={css.branchItemName}>{branchLabel(b.name, t)}</span><span className={css.branchItemHead}>{shortId(b.head)}</span></span>,
   })
   const items: MenuEntry[] = [
     ...(main ? [{ type: 'label' as const, id: 'published', text: t('files_published') }, row(main)] : []),
@@ -39,7 +40,7 @@ export function BranchPicker({ branches, value, onChange, t, className }: Branch
       anchor={(
         <Button variant="outline" size="sm" className={clsx(css.branchButton)} aria-label={t('files_branch')} aria-haspopup="menu" aria-expanded={open}
           icon={<IconBranchOutlineRegular size={14} />} onClick={() => setOpen((v) => !v)}>
-          <span className={css.branchButtonName}>{value}</span>
+          <span className={css.branchButtonName} title={value}>{branchLabel(value, t)}</span>
           <IconChevronDownOutlineRegular size={12} className={css.branchChevron} />
         </Button>
       )}

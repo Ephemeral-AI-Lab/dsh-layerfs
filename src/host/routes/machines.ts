@@ -15,7 +15,7 @@
  * and sandbox.list(), and machine.status() of the machines that run or hold an
  * operation (free disk, `op`): one read for the page, and none of it starts a machine.
  */
-import { pages, refuse, type RouteHost } from './util.ts'
+import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
 /** Platforms LayerFS has that are turned off here: not offered, not created or connected. */
@@ -104,6 +104,9 @@ type PlatformsView = { host: string, platforms: ReturnType<typeof platformOf>[] 
 /** The machines view and its calls. */
 export class Machines {
   private lastView: any = null
+  /** The MachinesView read in flight, shared by concurrent GETs; `changed()` (any write) makes later GETs read anew. */
+  private viewing: { promise: ReturnType<Machines['readView']>, generation: number } | null = null
+  private generation = 0
   private platformAnswer: { at: number, value: PlatformsView } | null = null
   private platformRead: Promise<PlatformsView> | null = null
 
@@ -115,12 +118,26 @@ export class Machines {
 
   get lfs() { return this.host.lfs() }
 
-  private async version(): Promise<string | null> {
-    try { return (await this.host.discover()).identity.version } catch { return null }
+  /** The pinned CLI's version and the optional features its call table has. */
+  private async identity(): Promise<{ version: string | null, features: CliFeatures }> {
+    try {
+      const d = await this.host.discover()
+      return { version: d.identity?.version ?? null, features: featuresOf(d.calls) }
+    } catch { return { version: null, features: featuresOf([]) } }
   }
 
-  /** MachinesView. */
-  async view() {
+  /** A write somewhere (the router calls this on every non-GET): the next view() reads anew. */
+  changed(): void { this.generation++ }
+
+  /** MachinesView: concurrent GETs (the sidebar, the machines store, a dialog) share one read. */
+  view(): ReturnType<Machines['readView']> {
+    if (this.viewing && this.viewing.generation === this.generation) return this.viewing.promise
+    const promise = this.readView().finally(() => { if (this.viewing?.promise === promise) this.viewing = null })
+    this.viewing = { promise, generation: this.generation }
+    return promise
+  }
+
+  private async readView() {
     const lfs = this.lfs
     const listed = await lfs.machine.list()
     const machines = list(listed.machines).map(machineOf)
@@ -136,7 +153,9 @@ export class Machines {
     ])
     const stores = listedStores.map(storeOf).filter(Boolean)
     const postgresql = listedStores.map(pgStoreOf).filter(Boolean)
-    const answer: any = { available: true, readErrors, layerfs: await this.version(), machines, platforms, stores, postgresql, sandboxes, status: Object.fromEntries(statuses.map((s: any) => [s.name, s])) }
+    const { version, features } = await this.identity()
+    // features: what the pinned CLI can do (force stop, image inventory, image archives); the page offers only those
+    const answer: any = { available: true, readErrors, layerfs: version, features, machines, platforms, stores, postgresql, sandboxes, status: Object.fromEntries(statuses.map((s: any) => [s.name, s])) }
     for (const [part, fields] of Object.entries({ stores: ['stores', 'postgresql'], sandboxes: ['sandboxes'], platforms: ['platforms'] })) {
       if (readErrors[part] && this.lastView) for (const field of fields) answer[field] = this.lastView[field]
     }
@@ -161,8 +180,14 @@ export class Machines {
 
   async inspect(name: string) { return { ...(await this.lfs.machine.get(name)), ...(await this.lfs.machine.status(name)), observedAt: Date.now() } }
 
-  /** The selected machine's Sandbox archive inventory; never starts or pulls. */
-  async images(name: string) { return this.lfs.machine.images(name) }
+  /**
+   * The selected machine's Sandbox archive inventory; never starts or pulls.
+   * A CLI without machine.images answers `mode: 'unsupported'` with no images.
+   */
+  async images(name: string) {
+    if (!(await cliFeatures(this.host)).images) return { machine: name, mode: 'unsupported', default_digest: null, images: [] }
+    return this.lfs.machine.images(name)
+  }
 
   /** machine.start(name): a stopped machine and its worker, waited for; native and a running one answer at once. */
   async start(name: string) {
@@ -182,6 +207,7 @@ export class Machines {
   /** Normal stop preserves InUse refusals; explicit force ends running work. */
   async stop(name: string, { force = false } = {}) {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to stop')
+    if (force && !(await cliFeatures(this.host)).forceStop) throw refuse(501, 'Unsupported', 'The pinned LayerFS CLI has no forced stop (machine.stop takes no force option). Stop the machine normally, or pin a CLI that has it.')
     const result = force ? await this.lfs.machine.stop(name, { force: true }) : await this.lfs.machine.stop(name)
     await this.host.machinesStopped?.([name])
     return result

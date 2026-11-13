@@ -39,7 +39,6 @@
   background:
     radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--tone) 13%, transparent), transparent 55%),
     var(--dsw-alias-settings-card-fill);
-  box-shadow: var(--dsw-elevation-soft);
   isolation: isolate;
 }
 
@@ -419,6 +418,37 @@
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
   overflow-wrap: anywhere;
+}
+
+.code {
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+  padding: 0 4px;
+  border-radius: var(--dsw-radius-sm, 4px);
+  background: var(--dsw-alias-fill-l1, transparent);
+}
+
+.also {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.also summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.also summary:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-link);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.also ul {
+  margin: 4px 0 0;
+  padding-inline-start: 16px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* ---------- every resource ---------- */

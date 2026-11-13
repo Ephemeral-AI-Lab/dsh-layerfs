@@ -6,7 +6,7 @@
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react'
 import { CountUp, useReducedMotion } from './motion.tsx'
 import { exactBytes, type WireInteger } from './exact-count.ts'
-import { coordinate, encodingRatio, integer, maximum } from './measures.ts'
+import { coordinate, encodingRatio, integer, maximum, ratioText } from './measures.ts'
 import type { StorageT } from './locale.ts'
 import css from './StorageVisuals.module.css'
 
@@ -99,8 +99,14 @@ export function StagedStorageFlow({ stages, steps, label, t }: { stages: Storage
   )
 }
 
-/** "3.4× deduplication", or the step marked unavailable. */
-export function ratioStep(t: StorageT, left: unknown, right: unknown, label: string): string {
-  const ratio = encodingRatio(left, right)
-  return ratio ? t('stepRatio', { ratio, label }) : t('stepUnavailable', { label })
+/**
+ * "3.4× deduplication", or the step marked unavailable. With `flat`, a ratio
+ * under 1.05 (nothing gained, or a hair lost) shows those words instead.
+ */
+export function ratioStep(t: StorageT, left: unknown, right: unknown, label: string, flat?: string): string {
+  const exact = encodingRatio(left, right)
+  if (!exact) return t('stepUnavailable', { label })
+  const n = Number(exact)
+  if (flat !== undefined && n < 1.05) return flat
+  return t('stepRatio', { ratio: ratioText(n), label })
 }

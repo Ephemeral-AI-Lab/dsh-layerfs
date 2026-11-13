@@ -9,7 +9,7 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
 import { ago, shortId, toMs, when } from './format.ts'
-import { approximateNote, ownerTitle, revisionTitle } from './labels.ts'
+import { approximateNote, branchLabel, ownerTitle, revisionTitle } from './labels.ts'
 import { EmptyState, ErrorState, Loading } from './States.tsx'
 import type { BlameResult, LineOwner, Translate } from './types.ts'
 import { errorCode, useQuery } from './use-query.ts'
@@ -88,7 +88,7 @@ export function FileBlame({ api, project, branch, path, pin, t, onInspect }: Fil
                     <span className={css.blameMeta}>
                       <code>{shortId(owner.ref.id)}</code>
                       {at != null ? <span>{ago(at, now, t)}</span> : null}
-                      {other ? <span>{t('files_blameFrom', { branch: other })}</span> : null}
+                      {other ? <span title={other}>{t('files_blameFrom', { branch: branchLabel(other, t) })}</span> : null}
                     </span>
                   </button>
                 ) : <span className={css.blameUnknown}>{t('files_blameUnknown')}</span>}

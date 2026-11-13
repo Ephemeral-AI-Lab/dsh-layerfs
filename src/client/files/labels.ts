@@ -42,3 +42,18 @@ export function approximateNote(coverage: { status?: string, reasons?: string[] 
   const reasons = coverage?.reasons?.filter(Boolean) ?? []
   return reasons.length ? t('files_approximate', { reasons: reasons.join(', ') }) : t('files_approximateNoReason')
 }
+
+/** A session code branch, `dsh.<compact session id>[.r<restore>]` (host `branchOf`). */
+const SESSION_BRANCH = /^dsh\.([a-z0-9]{7,})(?:\.r(\d+))?$/
+
+/**
+ * A Branch's display name: a session code branch reads as its session's short
+ * id plus the restore it was made by; any other name, `main` included, is shown
+ * as is. Display only: the raw name stays the key and belongs in a `title`.
+ */
+export function branchLabel(name: string, t: Translate): string {
+  const m = SESSION_BRANCH.exec(name)
+  if (!m || m[1] === 'project' || m[1] === 'session') return name
+  const session = t('files_sessionBranch', { id: m[1].slice(0, 7) })
+  return m[2] ? t('files_sessionRestore', { label: session, n: m[2] }) : session
+}

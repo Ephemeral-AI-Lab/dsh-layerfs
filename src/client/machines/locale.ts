@@ -216,6 +216,9 @@ const en = {
   runtimeBundleHint: 'Folder with bundle.json that docker and VM machines start their workers from; it must be sealed for this CLI.',
   runtimeDaemon: 'Daemon',
   runtimeHome: 'LayerFS home',
+  runtimeSdk: 'Node SDK',
+  runtimeSdkMissing: 'Not installed for this commit: agents use the CLI',
+  runtimeSdkMissingHint: 'Looked for in {path}. Install one built from this commit with node scripts/install-sdk.mjs <sealed build>.',
   runtimeImages: 'Machine image cache',
   runtimeImagesValue: '{path} ({count} prepared)',
   runtimeImagesHint: 'Optional: XDG_CACHE_HOME holding layerfs/machine-images, for fast-starting machines. Empty: the host’s cache.',
@@ -301,6 +304,7 @@ const en = {
   machineViews: '{name} views',
   spec: 'Spec',
   newSandbox: 'New Sandbox',
+  addStore: 'Add Store',
   startBeforeSandbox: 'Start the machine before creating a Sandbox',
   openStorage: 'Open Storage',
   noSandboxes: 'No Sandboxes yet. Create one from a project on this machine or a supported PostgreSQL Store.',
@@ -501,6 +505,13 @@ const en = {
   termCommitAction: 'Commit',
   termCommitted: 'Committed {commit}',
   termUpToDate: 'Nothing to commit',
+  toolVersionOf: '{kind} version',
+  deleting: 'Deleting…',
+  sandboxesAfterWorker: 'Start the worker to see {name}’s Sandboxes',
+  noStoresHere: 'No Stores',
+  noSandboxesHere: 'No Sandboxes',
+  termEmptyHint: 'Run a command; its output appears here',
+  termCommitting: 'Committing…',
 }
 
 export type MachinesKey = keyof typeof en
@@ -706,6 +717,9 @@ const zh: typeof en = {
   runtimeBundleHint: '包含 bundle.json 的文件夹，docker 和虚拟机从中启动 worker；它必须为此 CLI 构建。',
   runtimeDaemon: '守护进程',
   runtimeHome: 'LayerFS 主目录',
+  runtimeSdk: 'Node SDK',
+  runtimeSdkMissing: '未安装此提交的 SDK：智能体使用 CLI',
+  runtimeSdkMissingHint: '查找位置：{path}。用 node scripts/install-sdk.mjs <sealed build> 安装由此提交构建的 SDK。',
   runtimeImages: '机器镜像缓存',
   runtimeImagesValue: '{path}（{count} 个预制镜像）',
   runtimeImagesHint: '可选：包含 layerfs/machine-images 的 XDG_CACHE_HOME，用于快速启动机器。留空：使用主机缓存。',
@@ -789,6 +803,7 @@ const zh: typeof en = {
   machineViews: '{name} 视图',
   spec: '规格',
   newSandbox: '新建 Sandbox',
+  addStore: '添加 Store',
   startBeforeSandbox: '创建 Sandbox 前请先启动机器',
   openStorage: '打开存储',
   noSandboxes: '还没有 Sandbox。可从此机器上的项目或受支持的 PostgreSQL Store 创建。',
@@ -984,6 +999,13 @@ const zh: typeof en = {
   termCommitAction: '提交',
   termCommitted: '已提交 {commit}',
   termUpToDate: '没有可提交的更改',
+  toolVersionOf: '{kind} 版本',
+  deleting: '正在删除…',
+  sandboxesAfterWorker: '启动 worker 后可查看 {name} 的 Sandbox',
+  noStoresHere: '没有 Store',
+  noSandboxesHere: '没有 Sandbox',
+  termEmptyHint: '运行一条命令，其输出会显示在这里',
+  termCommitting: '正在提交…',
 }
 
 export const locales = { en, zh }

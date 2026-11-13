@@ -1,19 +1,21 @@
 /**
  * Conversation views of dsh-layerfs (docs/specs/conversation-views.md): Files,
- * History and Sandbox tabs beside DSH's Chat, and the LayerFS trajectory in
+ * History, Sandbox and Stats tabs beside DSH's Chat, and the LayerFS trajectory in
  * place of DSH's Trajectory (docs/specs/layerfs-trajectory.md), registered on
  * the public `conversation.view` slot.
  */
 import { useEffect, type ComponentType } from 'react'
 import type { LayerfsApi } from '../api.ts'
-import { FILES_VIEW, FilesView, HISTORY_VIEW, HistoryView, SANDBOX_VIEW, type ViewInjected, type ViewProps } from './FileViews.tsx'
+import { NS as STORAGE_NS, type StorageT } from '../storage/locale.ts'
+import { FILES_VIEW, FilesView, HISTORY_VIEW, HistoryView, SANDBOX_VIEW, STATS_VIEW, type ViewInjected, type ViewProps } from './FileViews.tsx'
 import type { SessionsSource } from './hooks.ts'
 import { NS, locales, type Translate } from './locale.ts'
 import { SandboxView } from './SandboxView.tsx'
+import { StatsView } from './StatsView.tsx'
 import { stockTrajectory } from './stock-trajectory.ts'
 import { TRAJECTORY_VIEW, TrajectoryView } from './TrajectoryView.tsx'
 
-export { FILES_VIEW, HISTORY_VIEW, SANDBOX_VIEW, TRAJECTORY_VIEW }
+export { FILES_VIEW, HISTORY_VIEW, SANDBOX_VIEW, STATS_VIEW, TRAJECTORY_VIEW }
 
 function HiddenComposer(): null { return null }
 
@@ -30,6 +32,8 @@ export function sessionsSource(ctx: any): SessionsSource | undefined {
 export function registerViews(ctx: any, api: LayerfsApi): void {
   ctx.effect(() => ctx.locale.register(NS, locales), 'dsh-layerfs: conversation views locale')
   const t: Translate = ctx.locale.bind(NS)
+  // Stats mounts the Storage page's project panel, with that page's copy.
+  const storageT: StorageT = ctx.locale.bind(STORAGE_NS)
   // While a LayerFS view is open the composer steps aside: a lowest-priority
   // `conversation.composer` election that renders nothing (DSH keeps the stock
   // composer mounted, so a draft survives). Approvals, questions and the
@@ -61,7 +65,7 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     return hider
   }
   const inject = (sessionId: string): ViewInjected => ({
-    sessionId: String(sessionId), api, t, sessions: sessionsSource(ctx),
+    sessionId: String(sessionId), api, t, storageT, sessions: sessionsSource(ctx),
     hideComposer: hiderOf(String(sessionId)),
   })
   const views: { id: string, order: number, priority?: number, label: string, component: ComponentType<ViewProps> }[] = [
@@ -71,6 +75,8 @@ export function registerViews(ctx: any, api: LayerfsApi): void {
     { id: FILES_VIEW, order: 20, label: 'tabFiles', component: FilesView },
     { id: HISTORY_VIEW, order: 30, label: 'tabHistory', component: HistoryView },
     { id: SANDBOX_VIEW, order: 50, label: 'tabSandbox', component: SandboxView },
+    // After Sandbox, clear of DSH's experimental Stats (id `stats`, order 40).
+    { id: STATS_VIEW, order: 60, label: 'tabStats', component: StatsView },
   ]
   // DSH's tab row is global, not per session, so the tabs are registered only
   // while a conversation on screen is a LayerFS project session (one with a

@@ -1,0 +1,43 @@
+/* A workspace's terminal transcript, unfolded under its row on the Sandbox
+ * map: the code-block tint the Sandbox page's terminals use, monospace,
+ * wrapped (the column is narrow), newest at the bottom. */
+
+.terminal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  width: calc(100% - 12px);
+  max-height: 300px;
+  margin: -2px 6px 8px;
+  padding: 10px 10px 8px;
+  overflow-y: auto;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 9px;
+  background: var(--dsw-alias-markdown-code-block);
+  font-size: 11px;
+  overscroll-behavior: contain;
+}
+
+.entry { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.dim { flex-shrink: 0; color: var(--dsw-alias-label-tertiary); }
+.bad { display: inline-flex; align-items: center; gap: 3px; color: var(--dsw-alias-state-error-primary); }
+
+.command, .output {
+  margin: 0;
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.command { color: var(--dsw-alias-label-primary); }
+.prompt { margin-right: 6px; color: var(--lane, var(--dsw-alias-label-tertiary)); font-weight: 600; user-select: none; }
+.output { max-height: 180px; overflow-y: auto; color: var(--dsw-alias-label-secondary); }
+.outputBad { color: var(--dsw-alias-state-error-primary); }
+
+.waiting { display: flex; align-items: center; gap: 4px; color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono, ui-monospace, monospace); }
+.cursor { width: 6px; height: 11px; background: var(--lane, var(--dsw-alias-label-secondary)); opacity: 0.7; }
+
+
+.quiet { margin: 0; color: var(--dsw-alias-label-tertiary); }

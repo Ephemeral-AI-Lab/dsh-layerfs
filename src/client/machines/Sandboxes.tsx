@@ -77,7 +77,7 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
               onSelect={() => { dismiss(); if (uncertain) void close(false); else setConfirm('normal') }}>
               {uncertain ? t('readSandbox') : t('deleteSandbox')}
             </MenuItemButton>
-            <MenuItemButton danger icon={<IconCloseOutlineRegular size={14} />} disabled={busy}
+            <MenuItemButton danger separatorBefore icon={<IconCloseOutlineRegular size={14} />} disabled={busy}
               onSelect={() => { dismiss(); setConfirm('force') }}>
               {t('forceDeleteSandbox')}
             </MenuItemButton>
@@ -85,13 +85,14 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
         )}
       </MoreMenu>
       {confirm && (
-        <Modal open onClose={() => setConfirm(null)} title={t(confirm === 'force' ? 'forceDeleteTitle' : 'deleteTitle')} closeLabel={t('close')} className={css.dialog}
+        <Modal open onClose={() => { if (!busy) setConfirm(null) }} title={t(confirm === 'force' ? 'forceDeleteTitle' : 'deleteTitle')} closeLabel={t('close')} className={css.dialog}
           description={t(confirm === 'force' ? 'forceDeleteBody' : 'deleteBody', { name })}
           footer={(
             <>
-              <Button variant="outline" onClick={() => setConfirm(null)}>{t('cancel')}</Button>
-              <Button variant="primary" className={css.danger} onClick={() => { setConfirm(null); void close(confirm === 'force').then((ok) => { if (ok) onDeleted?.() }) }}>
-                {t(confirm === 'force' ? 'forceDeleteAction' : 'deleteAction')}
+              <Button variant="outline" disabled={busy} onClick={() => setConfirm(null)}>{t('cancel')}</Button>
+              <Button variant="primary" className={css.danger} disabled={busy}
+                onClick={() => void close(confirm === 'force').then((ok) => { setConfirm(null); if (ok) onDeleted?.() })}>
+                {busy ? t('deleting') : t(confirm === 'force' ? 'forceDeleteAction' : 'deleteAction')}
               </Button>
             </>
           )} />
@@ -104,15 +105,20 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
 type SandboxImage = string | { archive: string, digest?: string } | undefined
 
 function SandboxImageFields({ machine, disabled, onChange }: { machine: string, disabled: boolean, onChange: (image: SandboxImage, valid: boolean) => void }): ReactNode {
-  const { t, machineImages } = useMachinesContext()
+  const { t, machineImages, useMachines } = useMachinesContext()
+  // what the pinned CLI has: an image inventory (machine.images) and caller-local archives (sandbox.create image_archive)
+  const features = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.features : undefined))
+  const archives = features?.imageArchive !== false
   const [inventory, setInventory] = useState<{ data: MachineImages | null, error: unknown, loading: boolean }>({ data: null, error: null, loading: true })
   const [choice, setChoice] = useState('')
   const [archive, setArchive] = useState('')
   const [digest, setDigest] = useState('')
+  const inventoried = features?.images !== false
   const load = useCallback(() => {
+    if (!inventoried) { setInventory({ data: { machine, mode: 'unsupported', default_digest: null, images: [] }, error: null, loading: false }); return }
     setInventory((v) => ({ ...v, loading: true, error: null }))
     machineImages(machine).then((data) => setInventory({ data, error: null, loading: false }), (error) => setInventory({ data: null, error, loading: false }))
-  }, [machine, machineImages])
+  }, [machine, machineImages, inventoried])
   useEffect(() => { load() }, [load])
   const abs = (p: string) => /^(?:\/|[A-Za-z]:[\\/])/.test(p.trim()) && !p.includes('\0')
   const choose = (next: string, path = archive, pin = digest) => {
@@ -121,16 +127,19 @@ function SandboxImageFields({ machine, disabled, onChange }: { machine: string, 
       next !== 'archive' || (abs(path) && (!pin.trim() || /^sha256:[a-f0-9]{64}$/.test(pin.trim()))))
   }
   if (inventory.data?.mode === 'host') return null
+  // no inventory from this CLI: only the default image, and an archive when the CLI takes one
+  const listed = inventory.data?.mode !== 'unsupported'
+  if (!listed && !archives) return null
   const options: Choice<string>[] = [
     { value: 'default', label: t('imageDefault') },
     ...(inventory.data?.images ?? []).map((image) => ({ value: image.digest, label: `${image.title || image.tags.join(', ') || image.digest}${image.digest === inventory.data?.default_digest ? ` (${t('defaultWord')})` : ''}` })),
-    { value: 'archive', label: t('imageProvideArchive') },
+    ...(archives ? [{ value: 'archive', label: t('imageProvideArchive') }] : []),
   ]
   const errText = inventory.error ? (inventory.error as { message?: string }).message ?? String(inventory.error) : null
   return (
     <div className={css.form}>
       <Field label={t('sandboxImage')}
-        hint={inventory.loading ? t('imagesLoading', { machine }) : errText ? t('imagesFailed', { message: errText }) : inventory.data?.images.length === 0 ? t('imagesNone') : undefined}>
+        hint={inventory.loading ? t('imagesLoading', { machine }) : errText ? t('imagesFailed', { message: errText }) : listed && inventory.data?.images.length === 0 ? t('imagesNone') : undefined}>
         <MenuSelect label={t('sandboxImage')} value={choice || 'default'} options={options} disabled={disabled} onChange={(v) => choose(v === 'default' ? '' : v)} />
       </Field>
       {errText && <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={load}>{t('imagesRetry')}</Button>}

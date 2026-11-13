@@ -7,8 +7,21 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { boolOptions, CliError, client, discover, hasNativeLogs, knownNativeLogs, plain, type Discovery, type Lfs } from './layerfs/cli.ts'
+import { boolOptions, CliError, client, discover, hasNativeLogs, knownIdentity, knownNativeLogs, plain, type Discovery, type Lfs } from './layerfs/cli.ts'
 import { managedCli } from './layerfs/tracing.ts'
+import { findSdk, managedSdk } from './layerfs/agent-sdk.ts'
+import { fileURLToPath } from 'node:url'
+
+/** This package's root: the nearest folder above this module with dsh-layerfs's package.json. */
+function packageRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url))
+  for (;;) {
+    try { if (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).name === 'dsh-layerfs') return dir } catch { /* keep looking */ }
+    const up = dirname(dir)
+    if (up === dir) return process.cwd()
+    dir = up
+  }
+}
 import { installRuntime, installedRuntimes } from './layerfs/runtime-home.ts'
 import type { LayerfsRemote } from './remote.ts'
 
@@ -79,6 +92,9 @@ export interface RuntimeStatus {
   readonly version: string | null
   readonly commit: string | null
   readonly features: readonly string[]
+  /** The Node SDK agents import as `$DSH_LAYERFS_SDK`: the install built from the CLI's commit, or null with where it is looked for. */
+  readonly sdk: { readonly dir: string, readonly commit: string } | null
+  readonly sdkDir: string | null
   readonly error: { readonly code: string, readonly message: string } | null
 }
 
@@ -171,6 +187,8 @@ export class LayerfsService extends Service {
     this.pin = { cli, daemon, bundle, cacheHome, cacheHomeSource, source }
     this.sdk = undefined
     this.nativeRecorded = undefined
+    // Discover the CLI (identity, call log kind) now, so the first agent shell already gets $DSH_LAYERFS_SDK.
+    if (cli) void hasNativeLogs(cli)
   }
 
   /** The SDK over the pinned CLI. Throws `CliUnavailable` when nothing is pinned. */
@@ -189,6 +207,30 @@ export class LayerfsService extends Service {
     const native = knownNativeLogs(cli)
     if (native === undefined) void hasNativeLogs(cli)
     return managedCli({ root: this.root, cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+  }
+
+  /**
+   * `<root>/agent-bin/sdk.mjs`, the LayerFS Node SDK agent shells import as
+   * `$DSH_LAYERFS_SDK`, or null when no SDK built from the pinned CLI's commit is
+   * installed (`DSH_LAYERFS_SDK_DIR`, else `.layerfs-sdk/<commit>/` in this
+   * package; `scripts/install-sdk.mjs`) or the CLI is not discovered yet.
+   */
+  agentSdk(): string | null {
+    const cli = this.pin.cli
+    if (!cli) return null
+    const commit = knownIdentity(cli)?.commit
+    if (!commit) { void discover({ cli }).catch(() => {}); return null }
+    const sdk = findSdk(this.sdkDir(), commit)
+    if (!sdk) return null
+    // As agentCli: until the call log kind is known, the stand-in log (the SDK falls back on its own).
+    const native = knownNativeLogs(cli)
+    if (native === undefined) void hasNativeLogs(cli)
+    return managedSdk({ root: this.root, sdk, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, native: native ?? false, bools: boolOptions(cli) })
+  }
+
+  /** Where Node SDK installs are looked for (`<dir>/<commit>/`, or `<dir>` itself): `DSH_LAYERFS_SDK_DIR`, else `.layerfs-sdk/` in this package. */
+  private sdkDir(): string {
+    return process.env.DSH_LAYERFS_SDK_DIR || join(packageRoot(), '.layerfs-sdk')
   }
 
   /** Whether the pinned CLI keeps LayerFS's own call log (else the plugin's stand-in). */
@@ -239,16 +281,23 @@ export class LayerfsService extends Service {
    * change (`moved`), whenever another one is recorded. Never throws.
    */
   ensureNative(moved = false): Promise<unknown> {
-    return this.nativeRecorded ??= (async () => {
+    if (this.nativeRecorded) return this.nativeRecorded
+    let failed = false
+    const attempt: Promise<unknown> = (async () => {
       if (process.platform !== 'darwin' || !this.pin.cli || !this.pin.daemon) return
       try {
         const recorded = existsSync(join(this.home, 'layerfs.json')) ? (await this.lfs.machine.get('native')).daemon ?? null : null
         if (recorded && existsSync(recorded) && (!moved || recorded === this.pin.daemon)) return
         await this.lfs.machine.update('native', { daemon: this.pin.daemon })
       } catch (error) {
+        failed = true
         this.ctx.logger('layerfs').warn('native daemon not recorded: %s', (error as Error)?.message ?? error)
       }
     })()
+    this.nativeRecorded = attempt
+    // Not recorded: the next caller tries again (unless the pin changed meanwhile).
+    void attempt.then(() => { if (failed && this.nativeRecorded === attempt) this.nativeRecorded = undefined })
+    return attempt
   }
 
   private persistenceKind(): RuntimeStatus['sessionPersistence'] {
@@ -266,9 +315,10 @@ export class LayerfsService extends Service {
     }
     try {
       const d = await this.discovery()
-      return { ...base, ok: true, version: d.identity.version, commit: d.identity.commit, features: d.identity.features, error: null }
+      const sdkDir = this.sdkDir(), sdk = findSdk(sdkDir, d.identity.commit)
+      return { ...base, ok: true, version: d.identity.version, commit: d.identity.commit, features: d.identity.features, sdk: sdk && { dir: sdk.dir, commit: sdk.commit }, sdkDir, error: null }
     } catch (error: any) {
-      return { ...base, ok: false, version: null, commit: null, features: [], error: { code: error?.code ?? 'Failed', message: String(error?.message ?? error) } }
+      return { ...base, ok: false, version: null, commit: null, features: [], sdk: null, sdkDir: null, error: { code: error?.code ?? 'Failed', message: String(error?.message ?? error) } }
     }
   }
 

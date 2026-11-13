@@ -8,7 +8,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Checkbox, IconChevronRightOutlineRegular, IconInspectOutlineRegular, Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
-import type { DoctorT } from './locale.ts'
+import { Fact, Facts } from '../ui/index.tsx'
+import type { DoctorKey, DoctorT } from './locale.ts'
 import css from './Doctor.module.css'
 
 export type DoctorTarget = 'host' | 'machine' | 'sandbox' | 'store.integrity' | 'store.connection' | 'backup.connection'
@@ -85,6 +86,31 @@ export const busyState = (state: DoctorJobState | undefined) => state === 'queue
 
 const stateKey = { queued: 'stateQueued', running: 'stateRunning', completed: 'stateCompleted', failed: 'stateFailed', interrupted: 'stateInterrupted', unavailable: 'stateUnavailable' } as const
 
+const targetKey: Record<DoctorTarget, DoctorKey> = {
+  host: 'targetHost', machine: 'targetMachine', sandbox: 'targetSandbox',
+  'store.connection': 'targetStoreConnection', 'store.integrity': 'targetStoreIntegrity', 'backup.connection': 'targetBackupConnection',
+}
+const outcomeKey: Record<string, DoctorKey> = { pass: 'outcomePass', fail: 'outcomeFail', skipped: 'outcomeSkipped', unknown: 'outcomeUnknown', unverified: 'outcomeUnverified' }
+const severityKey: Record<string, DoctorKey> = { error: 'severityError', warning: 'severityWarning', info: 'severityInfo' }
+const modeKey: Record<string, DoctorKey> = { full: 'modeFull', quick: 'modeQuick', write_test: 'modeWriteTest', 'write-test': 'modeWriteTest' }
+
+/** A target in words; an unknown one as it came. */
+const targetWords = (target: string, t: DoctorT) => target in targetKey ? t(targetKey[target as DoctorTarget]) : target
+/** LayerFS's outcome, severity and mode words in the locale; anything new as it came. */
+const word = (table: Record<string, DoctorKey>, value: string, t: DoctorT) => Object.hasOwn(table, value) ? t(table[value]!) : value
+/** A finding's entity as `kind · name`, else as it came. */
+function entityWords(entity: unknown): string {
+  if (entity && typeof entity === 'object') {
+    const e = entity as { kind?: unknown, name?: unknown }
+    if (typeof e.kind === 'string' && e.name != null) return `${e.kind} · ${String(e.name)}`
+    return JSON.stringify(entity)
+  }
+  return String(entity)
+}
+/** A reported count's key in words (`objects_checked` -> `Objects checked`). */
+const countLabel = (key: string) => { const s = key.replace(/[_.]+/g, ' ').trim(); return s.charAt(0).toUpperCase() + s.slice(1) }
+const countValue = (value: unknown) => typeof value === 'number' ? value.toLocaleString() : value !== null && typeof value === 'object' ? JSON.stringify(value) : String(value)
+
 /** A Diagnose button that opens the panel for one target and resource. */
 export function DoctorAction({ api, t, target, name, label }: { api: LayerfsApi, t: DoctorT, target: DoctorTarget, name?: string | undefined, label: string }): ReactNode {
   const [open, setOpen] = useState(false)
@@ -140,7 +166,7 @@ export function DoctorPanel({ api, t, target, name, initial, onClose }: { api: L
 
   const recent = history.filter((j) => j.request.target === target && j.request.name === name && j.id !== job?.id)
   return (
-    <Modal open onClose={onClose} title={t('panelTitle', { name: name ?? t('thisHost') })} description={t('panelBody', { target })} closeLabel={t('close')} className={css.modal}
+    <Modal open onClose={onClose} title={t('panelTitle', { name: name ?? t('thisHost') })} description={targetWords(target, t)} closeLabel={t('close')} className={css.modal}
       footer={(
         <Button variant="primary" disabled={busy} aria-busy={busy} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined} onClick={() => { void launch() }}>
           {busy ? t('diagnosing') : t('runDiagnosis')}
@@ -158,7 +184,7 @@ export function DoctorPanel({ api, t, target, name, initial, onClose }: { api: L
               {recent.map((j) => (
                 <li key={j.id}>
                   <button type="button" className={css.historyItem} onClick={() => void api.call<DoctorJob>('GET', `/api/doctor-jobs/${enc(j.id)}`).then(setJob, setError)}>
-                    {new Date(j.created).toLocaleString()} · {j.request.quick ? 'quick' : j.request.write_test ? 'write-test' : j.request.target} · {t(stateKey[j.state])}
+                    {new Date(j.created).toLocaleString()} · {j.request.quick ? t('modeQuick') : j.request.write_test ? t('modeWriteTest') : targetWords(j.request.target, t)} · {t(stateKey[j.state])}
                   </button>
                 </li>
               ))}
@@ -195,21 +221,28 @@ export function DoctorReport({ report, t }: { report: TargetedReport, t: DoctorT
       ? t('verdictIncomplete')
       : report.findings.length ? t('verdictWarnings') : t('verdictClean')
   const coverage = report.complete ? t('coverageComplete') : t('coverageIncomplete')
+  const counts = Object.entries(report.counts ?? {})
   const checks = report.checks.map((check, index) => ({ check, index }))
     .sort((a, b) => Number(['pass', 'skipped'].includes(a.check.outcome)) - Number(['pass', 'skipped'].includes(b.check.outcome)))
   return (
     <>
       <p className={css.verdict} role="status">{verdict}</p>
-      <p className={css.meta}>{t('observedLine', { mode: report.mode, time: new Date(report.observed_at_ms).toLocaleString(), ms: report.duration_ms })}</p>
+      <p className={css.meta}>{t('observedLine', { mode: word(modeKey, report.mode, t), time: new Date(report.observed_at_ms).toLocaleString(), ms: report.duration_ms })}</p>
       <p className={css.meta}>{t('coverageLine', { n: report.findings.length, coverage })}{report.truncated ? ` · ${t('coverageTruncated')}` : ''}</p>
-      <p className={css.meta}>{t('reportedCounts', { counts: JSON.stringify(report.counts) })}</p>
+      {counts.length > 0 ? (
+        <div className={css.section}>
+          <Facts label={t('countsTitle')}>
+            {counts.map(([key, value]) => <Fact key={key} label={countLabel(key)}>{countValue(value)}</Fact>)}
+          </Facts>
+        </div>
+      ) : null}
       {report.findings.length > 0 ? (
         <div className={css.section} aria-label={t('findings')}>
           {report.findings.map((f, i) => (
             <div key={i} className={css.row}>
               <span className={css.rowTop}>
-                <Tag tone={f.severity === 'error' ? 'danger' : 'warning'}>{f.severity}</Tag>
-                {f.entity != null ? <span className={css.rowEntity}>{typeof f.entity === 'object' ? JSON.stringify(f.entity) : String(f.entity)}</span> : null}
+                <Tag tone={f.severity === 'error' ? 'danger' : 'warning'}>{word(severityKey, f.severity, t)}</Tag>
+                {f.entity != null ? <span className={css.rowEntity}>{entityWords(f.entity)}</span> : null}
               </span>
               <span>{f.message ?? ''}</span>
               {f.fix ? <span className={css.code}>{t('suggestedAction', { fix: f.fix })}</span> : null}
@@ -223,7 +256,7 @@ export function DoctorReport({ report, t }: { report: TargetedReport, t: DoctorT
             <details key={`${check.id}:${index}`} className={`${css.row} ${css.check}`}>
               <summary>
                 <IconChevronRightOutlineRegular size={12} className={css.checkChevron} aria-hidden="true" />
-                <Tag tone={check.outcome === 'fail' ? 'danger' : check.outcome === 'pass' ? 'success' : check.outcome === 'skipped' ? 'quiet' : 'warning'}>{check.outcome}{check.severity ? ` / ${check.severity}` : ''}</Tag>
+                <Tag tone={check.outcome === 'fail' ? 'danger' : check.outcome === 'pass' ? 'success' : check.outcome === 'skipped' ? 'quiet' : 'warning'}>{word(outcomeKey, check.outcome, t)}{check.severity ? ` · ${word(severityKey, check.severity, t)}` : ''}</Tag>
                 <span>{check.message}</span>
               </summary>
               <div className={css.checkBody}>

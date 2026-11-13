@@ -7,11 +7,14 @@
  * progress.
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
-import { listProjects, messageOf, NewProjectForm, remoteMachine, waitProject, type ProjectInitJob, type ProjectRow } from '../picker/NewProjectForm.tsx'
+import { listProjects, messageOf, type ProjectInitJob, type ProjectRow } from '../picker/NewProjectForm.tsx'
+import { ProjectDialogMount, projectDialog } from '../projects/dialog.ts'
+import { runsOn } from '../projects/setup/model.ts'
+import type { StorageView } from '../storage/types.ts'
 import type { PickerKey } from '../picker/locale.ts'
 import type { HeroKey } from './locale.ts'
 import { ScratchPicker } from './ScratchPicker.tsx'
@@ -67,16 +70,17 @@ export interface HeroProjectProps {
   imports: Imports
 }
 
-export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps): ReactNode {
+export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): ReactNode {
   const root = useRef<HTMLSpanElement>(null)
   const anchor = useRef<HTMLButtonElement>(null)
   const [place, setPlace] = useState<Place | null>(null)
   const [rows, setRows] = useState<ProjectRow[] | null>(null)
   const [scratchKey, setScratchKey] = useState<string | null>(null)
+  const [storage, setStorage] = useState<StorageView | null>(null)
   const [loadError, setLoadError] = useState(false)
   const [open, setOpen] = useState(false)
-  const [dialog, setDialog] = useState<'empty' | 'import' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [switching, setSwitching] = useState(false)
   const running = useSyncExternalStore(imports.subscribe, imports.get)
   const [, tick] = useState(0)
 
@@ -91,6 +95,8 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
   const loadProjects = () => {
     setLoadError(false)
     listProjects(api).then(({ rows: list, scratchKey: key }) => { setRows(list); setScratchKey(key) }, () => setLoadError(true))
+    // Where each project runs (its SQLite Store's machine, or its PostgreSQL Store's attached machines).
+    api.call<StorageView>('GET', '/api/storage').then(setStorage, () => {})
   }
   useEffect(loadProjects, [api])
   // Store health and project changes reach an open picker too (it never polls).
@@ -108,34 +114,24 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
   /** Place this session in a LayerFS project (or back in a plain folder). */
   const switchTo = async (key: string | null) => {
     setError(null)
+    setSwitching(true)
     try {
       const row = rows?.find((p) => (p.projectId ?? p.key) === key)
       await api.op('sessions.choose', { sessionId, project: row?.key ?? key, projectId: row?.projectId })
     } catch (e) {
       setError(t('switchFailed', { message: messageOf(e) }))
+    } finally {
+      setSwitching(false)
     }
-  }
-
-  /** Follow an Init job in the control, then open the new project. */
-  const follow = (job: ProjectInitJob, key: string) => {
-    setDialog(null)
-    imports.set({ key, job, error: null })
-    void waitProject(api, job, (next) => imports.set({ key, job: next, error: null })).then(
-      async () => {
-        imports.set(null)
-        loadProjects()
-        await switchTo(key)
-      },
-      (e) => imports.set({ key, job, error: messageOf(e) }),
-    )
   }
 
   const project = !!place?.project
   useEffect(() => {
-    // One order in both modes: the preset on the left, then the folder and the
-    // project on the right (hero.module.css). Native folder selection navigates
-    // to another blank, so in project mode our scratch selector stands in for it:
-    // it preserves this session and changes only its local folder.
+    // DSH's order in both modes, the project control right after the preset:
+    // folder · preset · project (hero.module.css). Native folder selection
+    // navigates to another blank, so in project mode our scratch selector takes
+    // the folder chip's place: it preserves this session and changes only its
+    // local folder.
     for (let row = root.current?.parentElement, depth = 0; row && depth < 6; row = row.parentElement, depth++) {
       if (!row.querySelector(':scope > [data-slot="conversation.hero.workspace"]') || !row.querySelector(':scope > button[aria-haspopup="menu"]')) continue
       const options = [...row.children].find((child) => child.contains(root.current))
@@ -189,13 +185,22 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
     ...(rows === null && !loadError ? [{ type: 'label' as const, id: 'loading', text: t('loading') }] : []),
     ...(loadError ? [{ type: 'label' as const, id: 'failed', text: t('loadFailed') }] : []),
     ...projects.map((p) => {
-      const remote = remoteMachine(p)
       const store = p.key.split('/')[0] ?? ''
-      const note = remote ? t('onMachine', { machine: remote }) : store
+      const name = p.name ?? nameOf(p.key)
+      // The note says where it runs (docs/specs/layerfs-workspaces.md §5); the Store is in the tooltip.
+      const note = runsOn(storage?.stores.find((s) => s.name === store)).join(', ') || (p.machine ?? '')
+      const configure = t('configure', { project: name })
       return {
         id: p.projectId ?? p.key,
         icon: <LayerfsGlyph size={14} />,
-        label: <span className={css.option}><span>{p.name ?? nameOf(p.key)}</span><span className={css.optionNote}>{note}</span></span>,
+        label: <span className={css.option} title={`${name} · ${store}${note ? ` · ${note}` : ''}`}>
+          <span className={css.optionName}>{name}</span><span className={css.optionNote}>{note}</span>
+          <span role="button" className={css.optionGear} aria-label={configure} title={configure} data-layerfs-configure=""
+            onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); projectDialog.open({ mode: 'configure', project: { key: p.key, projectId: p.projectId, name, store } }) }}>
+            <IconSettingsOutlineRegular size={13} />
+          </span>
+        </span>,
       }
     }),
     { type: 'separator', id: 'actions' },
@@ -204,29 +209,25 @@ export function HeroProject({ sessionId, api, t, tp, imports }: HeroProjectProps
   ]
   return (
     <span ref={root} className={css.root} data-layerfs-hero="">
-      {place?.project ? <ScratchPicker sessionId={sessionId} scratch={place.scratch} api={api} t={t} /> : null}
-      <Menu open={open} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense
+      {place?.project ? <span className={css.scratchSlot} data-layerfs-scratch=""><ScratchPicker sessionId={sessionId} scratch={place.scratch} api={api} t={t} /></span> : null}
+      <Menu open={open && !switching} onClose={() => setOpen(false)} portal align="start" items={items} selectedId={current ?? NONE} dense
         onSelect={(id) => {
           setOpen(false)
-          if (id === NEW) setDialog('empty')
-          else if (id === IMPORT) setDialog('import')
+          if (id === NEW) projectDialog.open({ mode: 'new' })
+          else if (id === IMPORT) projectDialog.open({ mode: 'import' })
           else if (id !== (current ?? NONE)) void switchTo(id === NONE ? null : id)
         }}
         anchor={(
           <button ref={anchor} type="button" className={css.chip} aria-label={t('chipAria', { project: label })} aria-haspopup="menu" aria-expanded={open}
+            disabled={switching} aria-busy={switching || undefined}
             onClick={() => { if (!open) loadProjects(); setOpen((v) => !v) }}>
             <LayerfsGlyph size={14} />
             <span className={css.label}>{label}</span>
             <IconChevronDownOutlineRegular size={12} aria-hidden="true" />
           </button>
         )} />
-      {error ? <span className={css.error} role="alert" title={error}>{error}</span> : null}
-      <Modal open={dialog !== null} onClose={() => setDialog(null)} title={dialog === 'import' ? t('importTitle') : t('newEmptyTitle')} closeLabel={t('close')} className={css.modal}>
-        {dialog !== null ? (
-          <NewProjectForm api={api} t={tp} scratchKey={scratchKey} withSource={dialog === 'import'} backLabel={t('cancel')}
-            onBack={() => setDialog(null)} onStarted={follow} />
-        ) : null}
-      </Modal>
+      {error ? <span className={css.error} role="alert">{error}</span> : null}
+      <ProjectDialogMount />
     </span>
   )
 }

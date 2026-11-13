@@ -1,5 +1,5 @@
 /* The New Session row's project control: the compact 28px chip geometry and
-   secondary ink of the row's workspace and preset controls. */
+   primary ink of the row's workspace and preset controls. */
 .root {
   display: inline-flex;
   flex: none;
@@ -19,7 +19,7 @@
   border: none;
   border-radius: var(--dsw-radius-sm);
   background: transparent;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-primary);
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -36,8 +36,17 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
+.chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.chip[aria-busy='true'] {
+  cursor: progress;
+}
+
 @media (hover: hover) {
-  .chip:hover {
+  .chip:not(:disabled):hover {
     background: var(--dsw-alias-interactive-bg-hover);
   }
 }
@@ -53,14 +62,29 @@
 }
 
 .option {
-  display: inline-flex;
+  display: flex;
   align-items: baseline;
   gap: 8px;
+  min-width: 0;
 }
 
+.optionName {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The note takes what the name leaves and ends in an ellipsis, never a hard cut. */
 .optionNote {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .progress {
@@ -121,12 +145,11 @@
 
 .error {
   max-width: 320px;
-  overflow: hidden;
   color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .selfStart {
@@ -143,23 +166,80 @@
   gap: 12px;
 }
 
+.mono {
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
 :global([data-layerfs-scratch-picker] > button:first-child) {
   display: none;
 }
 
-/* The row keeps one order whether or not a project is chosen: the preset on
-   the left; the folder (DSH's workspace chip, or our scratch picker in project
-   mode) and the project control together on the right. */
-:global([data-layerfs-hero-row] > button:first-child) {
-  order: 1;
-  margin-left: auto;
+/* DSH's row order with the project control added after the last item:
+   folder · preset · project, in both modes. Our options container and root
+   lay their children straight into DSH's row; in project mode the scratch
+   picker (replacing DSH's folder chip) moves to the folder's first place. */
+:global([data-layerfs-hero-row] > [data-layerfs-hero-options]),
+:global([data-layerfs-hero-row] [data-layerfs-hero]) {
+  display: contents;
 }
 
-:global([data-layerfs-hero-row] > [data-layerfs-hero-options]) {
-  order: 2;
-  margin-left: 0;
+:global([data-layerfs-hero-row] [data-layerfs-scratch]) {
+  order: -1;
 }
 
-:global([data-layerfs-hero-row][data-layerfs-scratch-picker] > [data-layerfs-hero-options]) {
+.scratchSlot {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-width: 0;
+}
+
+/* In project mode the scratch picker stands where DSH's folder chip stands,
+   so it wears that chip's ink, glyph size and spacing. */
+.folderChip {
+  gap: 4px;
+  max-width: min(100%, 360px);
+  padding: 0 8px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.folderChip[aria-expanded='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.folderChevron {
+  color: var(--dsw-alias-label-caption);
+}
+
+/* A project row's ⚙: opens its Setup card (docs/specs/layerfs-workspaces.md §5); shown on hover. */
+.optionGear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
   margin-left: auto;
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  [role="menuitem"]:hover .optionGear,
+  [role="menuitemradio"]:hover .optionGear {
+    opacity: 1;
+  }
+
+  .optionGear:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+@media (hover: none) {
+  .optionGear {
+    opacity: 1;
+  }
 }

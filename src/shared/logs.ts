@@ -93,6 +93,16 @@ export interface LogsListAnswer {
   source: 'layerfs' | 'plugin'
 }
 
+/** `logs.project {project, sandboxes?, limit?}`: one project's calls, newest first. */
+export interface LogsProjectAnswer {
+  lines: LabeledLine[]
+  source: 'layerfs' | 'plugin'
+  /** Lines read to find them. */
+  scanned: number
+  /** True when older lines were left unread. */
+  has_more: boolean
+}
+
 export interface LogsResetAnswer { removed: number }
 
 /** Host event after new lines may exist (coalesced). */
@@ -179,9 +189,11 @@ export function operationOf(argv: readonly string[]): string {
 }
 
 /** Read-only calls hidden by `writes` until LayerFS #659 Q1 adds a read/write bit. */
-const READ_CALLS = new Set(['list', 'get', 'status', 'read', 'stat', 'diff', 'blame', 'search', 'glob', 'grep', 'log', 'platforms', 'show', 'tree', 'history', 'stats', 'info', 'check', 'capabilities'])
+const READ_CALLS = new Set(['list', 'get', 'status', 'read', 'stat', 'diff', 'commits', 'blame', 'revision', 'images', 'search', 'glob', 'grep', 'log', 'platforms', 'show', 'tree', 'history', 'stats', 'info', 'check', 'capabilities'])
+/** Families that only read and have no call word (`layerfs doctor`, `layerfs help`). */
+const READ_FAMILIES = new Set(['logs', 'doctor', 'help'])
 export function isWrite(argv: readonly string[]): boolean {
-  if (argv[0] === 'logs') return false
+  if (READ_FAMILIES.has(argv[0] ?? '') || argv[0]?.startsWith('-')) return false
   const call = (argv[1] ?? '').replaceAll('-', '_')
   return !READ_CALLS.has(call) && !call.startsWith('get_') && !call.startsWith('list_')
 }

@@ -124,7 +124,8 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
       reply = await op('http', { method, path, ...(body === undefined ? {} : { body }) })
     } catch (error) {
       if (error instanceof HostError) throw error
-      throw new HostError('no-host', error instanceof Error ? error.message : String(error), 0)
+      // The request was sent and its reply lost: a write may or may not have happened.
+      throw new HostError('no-host', error instanceof Error ? error.message : String(error), 0, null, false, 'transport-unknown')
     }
     const value = reply?.body ?? {}
     if (!reply || reply.status < 200 || reply.status >= 300) {
@@ -178,7 +179,9 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     selectedSessionId: () => nav.currentSessionId?.(),
     async openProjectSession(project: string, workspaceId?: string, projectId?: string) {
       const ws = workspace()
+      // No folder selected (often so in the sidebar's LayerFS view): the managed Scratch workspace.
       const target = workspaceId ?? selectedWorkspaceId()
+        ?? (ws?.connectWorkspace ? (await op<{ workspaceId: string }>('sessions.prepareScratch', { navigate: false })).workspaceId : undefined)
       if (!ws?.connectWorkspace || !target) throw new HostError('no-workspace', 'Select a local folder to use as scratch for the project session', 0)
       const sessionId = String(await ws.connectWorkspace(target))
       await op('sessions.choose', { sessionId, project, projectId })

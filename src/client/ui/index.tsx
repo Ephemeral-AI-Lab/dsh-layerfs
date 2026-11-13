@@ -34,8 +34,10 @@ export interface CrumbStep {
 }
 
 /** The head every page shares: optional crumbs, the icon and title block, and actions at the end. */
-export function PageHead({ title, intro, actions, crumbs, current, icon, badge }: {
+export function PageHead({ title, intro, actions, crumbs, current, icon, badge, hideTitle }: {
   title: string
+  /** The title is for assistive technology only (the tab or panel around the page already shows it). */
+  hideTitle?: boolean
   intro?: ReactNode
   actions?: ReactNode
   /** Steps back, outermost first; `current` names the page itself after them. */
@@ -47,13 +49,14 @@ export function PageHead({ title, intro, actions, crumbs, current, icon, badge }
 }): ReactNode {
   return (
     <header className={css.head} data-window-drag>
-      {crumbs && crumbs.length > 0 && <Crumbs steps={crumbs} current={current} />}
+      {/* The last crumb names the page; the title right below already does when they match. */}
+      {crumbs && crumbs.length > 0 && <Crumbs steps={crumbs} current={current === title ? undefined : current} />}
       <div className={css.headRow}>
         <div className={css.heading}>
           {icon && <span className={css.headIcon} aria-hidden="true">{icon}</span>}
           <div className={css.headingText}>
             <div className={css.titleRow}>
-              <h1 className={css.title} title={title}>{title}</h1>
+              <h1 className={hideTitle ? css.srOnly : css.title} title={title}>{title}</h1>
               {badge}
             </div>
             {intro && <p className={css.intro}>{intro}</p>}

@@ -14,6 +14,11 @@ export function coordinate(value: unknown, max: bigint): number | null {
   return v === null ? null : max === 0n ? 0 : Number((v * 1000000n) / max) / 1000000
 }
 
+/** A ratio as pages show it: one decimal under 10 (`3.4`), whole from 10 (`12`). */
+export function ratioText(n: number): string {
+  return n.toFixed(n >= 10 ? 0 : 1)
+}
+
 export function encodingRatio(canonical: unknown, stored: unknown): string | null {
   const c = integer(canonical), s = integer(stored)
   if (c === null || s === null || c === 0n || s === 0n) return null

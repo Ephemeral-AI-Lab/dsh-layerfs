@@ -5,8 +5,9 @@
  * a build runs or after it failed: a verified library needs no per-row
  * "Ready". The list is the plan, not a live inventory.
  */
-import { useState, type ReactNode } from 'react'
-import { Button, IconCloseOutlineRegular, IconFolderOpenOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useId, useState, type ReactNode } from 'react'
+import clsx from 'clsx'
+import { Button, IconCloseOutlineRegular, IconCodeOutlineRegular, IconFolderOpenOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DemoPreset } from '../../shared/presets.ts'
 import { MachinesGlyph } from '../machines/icons.tsx'
 import type { PresetsKey, PresetsT } from './locale.ts'
@@ -23,6 +24,9 @@ export interface PresetResource {
 
 export function PresetTopology({ preset, t, onCommands }: { preset: DemoPreset, t: PresetsT, onCommands: (resource: PresetResource) => void }): ReactNode {
   const [selected, setSelected] = useState<string>()
+  const baseId = useId()
+  /** The id of a project's details region, which its row button controls. */
+  const detailsId = (name: string) => `${baseId}-details-${name.replace(/[^\w-]/g, '_')}`
   const job = preset.job
   const build = !!job?.rebuild
   const busy = job?.state === 'running' || job?.state === 'queued'
@@ -55,7 +59,7 @@ export function PresetTopology({ preset, t, onCommands }: { preset: DemoPreset, 
     const definition = definitionOf(resource.name)
     const task = taskOf(resource.name)
     return (
-      <section className={css.details} aria-label={t('details')}>
+      <section id={detailsId(resource.name)} className={css.details} aria-label={t('details')}>
         <div className={css.detailsHead}>
           <h4>{definition?.title ?? resource.name}</h4>
           <Button variant="ghost" size="sm" className={css.iconButton} aria-label={t('closeDetails')} icon={<IconCloseOutlineRegular size={14} />} onClick={() => setSelected(undefined)} />
@@ -85,7 +89,7 @@ export function PresetTopology({ preset, t, onCommands }: { preset: DemoPreset, 
     return (
       <>
         <div className={css.row}>
-          <button type="button" className={css.select} aria-pressed={isSelected} aria-expanded={isSelected} onClick={() => setSelected(isSelected ? undefined : resource.name)}>
+          <button type="button" className={css.select} aria-expanded={isSelected} aria-controls={detailsId(resource.name)} onClick={() => setSelected(isSelected ? undefined : resource.name)}>
             <span className={css.rowIcon} aria-hidden="true"><IconFolderOpenOutlineRegular size={15} /></span>
             <span className={css.rowText}>
               <span className={css.rowName}>{label}{definition && <span className={css.rowSub}>{definition.title}</span>}</span>
@@ -97,7 +101,10 @@ export function PresetTopology({ preset, t, onCommands }: { preset: DemoPreset, 
             </span>
             {status && <span className={css.status} data-tone={status.tone} title={status.title}>{t(status.key)}</span>}
           </button>
-          <Button variant="ghost" size="sm" className={css.rowAction} aria-label={t('viewScriptFor', { name: label })} onClick={() => onCommands(resource)}>{t('script')}</Button>
+          <Tooltip label={t('viewScriptFor', { name: label })} side="top" portal delayMs={400}>
+            <Button variant="ghost" size="sm" className={clsx(css.rowAction, css.iconButton)} aria-label={t('viewScriptFor', { name: label })}
+              icon={<IconCodeOutlineRegular size={14} />} onClick={() => onCommands(resource)} />
+          </Tooltip>
         </div>
         {isSelected && details(resource)}
       </>

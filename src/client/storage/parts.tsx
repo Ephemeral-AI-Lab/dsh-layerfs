@@ -69,11 +69,13 @@ export interface FormModalProps {
   busyHint?: string | undefined
   t: StorageT
   danger?: boolean
+  /** The action leads on to another step (it does not close the form). */
+  keepOpen?: boolean | undefined
   children: ReactNode
 }
 
 /** A form in a DSH modal: its fields, one submit whose refusal shows under them. */
-export function FormModal({ open, onClose, title, description, action, valid, submit, hint, busyHint, t, danger, children }: FormModalProps): ReactNode {
+export function FormModal({ open, onClose, title, description, action, valid, submit, hint, busyHint, t, danger, keepOpen, children }: FormModalProps): ReactNode {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(undefined)
   const go = async () => {
@@ -82,7 +84,7 @@ export function FormModal({ open, onClose, title, description, action, valid, su
     setError(undefined)
     try {
       await submit()
-      onClose()
+      if (!keepOpen) onClose()
     } catch (e) {
       setError(e)
     } finally {
@@ -180,6 +182,16 @@ export function UnlinkGlyph({ size = 13 }: { size?: number }): ReactNode {
       <path d="M6.5 4.5 7.75 3.25a2.47 2.47 0 0 1 3.5 3.5L10 8" />
       <path d="M9.5 11.5 8.25 12.75a2.47 2.47 0 0 1-3.5-3.5L6 8" />
       <path d="M2.5 2.5l1.5 1.5M12 12l1.5 1.5" />
+    </svg>
+  )
+}
+
+/** A backup file's glyph: a document with a folded corner. */
+export function FileGlyph({ size = 14 }: { size?: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1" aria-hidden="true">
+      <path d="M4 1.75h4.75L13.25 6.25v8h-9.25z" />
+      <path d="M8.75 1.75V6.25h4.5" />
     </svg>
   )
 }

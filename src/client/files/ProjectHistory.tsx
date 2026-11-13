@@ -7,20 +7,23 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Button, IconBranchOutlineRegular, IconChevronDownOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, StateDot, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconBranchOutlineRegular, IconChevronDownOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, StateDot, Tag, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
 import { BranchCompare, type CompareEnd } from './BranchCompare.tsx'
-import { CommitDiff } from './CommitDiff.tsx'
+import { changeKind, CommitDiff } from './CommitDiff.tsx'
 import { shortId, when } from './format.ts'
 import { branchLanes, graphNodes, layoutNodes } from './graph-model.ts'
 import { HistoryGraph } from './HistoryGraph.tsx'
+import { branchLabel } from './labels.ts'
 import { EmptyState, Loading } from './States.tsx'
 import type { CommitInfo, HistoryBranch, HistoryPage, Translate } from './types.ts'
 import css from './History.module.css'
 
 const noSources = new Map<string, string>()
 /** Pages read past the first to reach a deep-linked Commit. */
+/** Branches read up front: enough that a simulation's whole tree has times to lay out (reads stay four at a time). */
+const INITIAL_BRANCHES = 32
 const DEEP_LINK_PAGES = 20
 
 /** One view's scroll, selection and fold state, kept across remounts per project. */
@@ -100,14 +103,14 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       }
       setBranches(result.branches)
       setBranchNext(result.next)
-      const names = [...result.branches.filter((b) => b.name === 'main'), ...result.branches.filter((b) => b.name !== 'main')].slice(0, 8)
-      // A deep link's branch is always read, even past the first eight.
+      const names = [...result.branches.filter((b) => b.name === 'main'), ...result.branches.filter((b) => b.name !== 'main')].slice(0, INITIAL_BRANCHES)
+      // A deep link's branch is always read, even past the first INITIAL_BRANCHES.
       const focused = initialBranch ? result.branches.find((b) => b.name === initialBranch) : undefined
       if (focused && !names.includes(focused)) names.push(focused)
       const loaded: Record<string, HistoryPage | undefined> = {}
       // Bound concurrent Store reads, irrespective of the number of forks.
       for (let i = 0; i < names.length; i += 4) {
-        const results = await Promise.allSettled(names.slice(i, i + 4).map(async (b) => [b.name, await filesApi.commits(api, project, b.name)] as const))
+        const results = await Promise.allSettled(names.slice(i, i + 4).map(async (b) => [b.name, await filesApi.branchHead(api, project, b)] as const))
         for (const r of results) {
           if (r.status === 'fulfilled') loaded[r.value[0]] = r.value[1]
           else if (live) setError(r.reason)
@@ -116,7 +119,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       // A deep-linked Commit older than the first page: read on until it is loaded (bounded).
       let page = initialCommit && focused ? loaded[focused.name] : undefined
       for (let i = 0; page && i < DEEP_LINK_PAGES && !page.items.some((c) => c.id === initialCommit) && page.next; i++) {
-        const next: HistoryPage = await filesApi.commits(api, project, focused!.name, page.next ?? undefined)
+        const next: HistoryPage = await filesApi.commits(api, project, focused!.name, page.next ?? undefined, focused!.forkedFrom)
         if (!live) return
         page = { ...next, items: [...new Map([...page.items, ...next.items].map((c) => [c.id, c])).values()] }
         loaded[focused!.name] = page
@@ -132,7 +135,10 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     setError(undefined)
     try {
       const previous = pages[name]
-      const next = await filesApi.commits(api, project, name, more ? previous?.next ?? undefined : undefined)
+      const branch = branches.find((b) => b.name === name)
+      const next = more || !branch
+        ? await filesApi.commits(api, project, name, more ? previous?.next ?? undefined : undefined, branch?.forkedFrom)
+        : await filesApi.branchHead(api, project, branch)
       setPages((p) => ({ ...p, [name]: { ...next, items: more ? [...new Map([...(previous?.items ?? []), ...next.items].map((c) => [c.id, c])).values()] : next.items } }))
     } catch (e) { setError(e) } finally { setBusy(null) }
   }
@@ -188,7 +194,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     if (!pages[name]) void loadBranch(name)
   }
 
-  const eyebrow = selected?.kind === 'group' ? t('files_checkpointGroup')
+  const eyebrow = selected?.kind === 'group' ? t(selected.branch === 'main' ? 'files_layerGroup' : 'files_checkpointGroup')
     : selected?.kind === 'layer' ? t('files_layerOnMain')
     : selected?.kind === 'fork' ? t('files_branchHead')
     : selected?.second ? t('files_merge')
@@ -200,7 +206,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       <h3>{selected.kind === 'group' ? selected.label : detail.data?.item.message || selected.label}</h3>
       <dl>
         <dt>{t('files_branch')}</dt>
-        <dd>{selected.branch}</dd>
+        <dd title={selected.branch}>{branchLabel(selected.branch, t)}</dd>
         {selected.kind === 'fork'
           ? <><dt>{t('files_forkedFrom')}</dt><dd><code title={branches.find((b) => b.name === selected.branch)?.forkedFrom ?? ''}>{shortId(branches.find((b) => b.name === selected.branch)?.forkedFrom)}</code></dd></>
           : <><dt>{selected.kind === 'group' ? t('files_checkpoints') : t('files_id')}</dt><dd>{selected.kind === 'group' ? selected.commits.length : <code title={selected.id}>{shortId(selected.id)}</code>}</dd></>}
@@ -208,12 +214,12 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       </dl>
       {selected.kind === 'group' ? (
         <>
-          <div className={css.detailActions}><Button variant="outline" size="sm" onClick={() => writeView({ expanded: new Set([...view.expanded, selected.id]), selected: selected.commits[0].id })}>{t('files_expandCheckpoints', { count: selected.commits.length })}</Button></div>
+          <div className={css.detailActions}><Button variant="outline" size="sm" onClick={() => writeView({ expanded: new Set([...view.expanded, selected.id]), selected: selected.commits[0].id })}>{t(selected.branch === 'main' ? 'files_expandLayers' : 'files_expandCheckpoints', { count: selected.commits.length })}</Button></div>
           <p>{t('files_expandCheckpointsBody')}</p>
         </>
       ) : null}
       {selected.parent && !layout.points.has(selected.parent) ? <p>{t('files_parentMissing', { id: shortId(selected.parent) })}</p> : null}
-      {selectedCommit?.sourceBranch ? <p>{t('files_sourceBranch')}: {selectedCommit.sourceBranch}</p> : null}
+      {selectedCommit?.sourceBranch ? <p title={selectedCommit.sourceBranch}>{t('files_sourceBranch')}: {branchLabel(selectedCommit.sourceBranch, t)}</p> : null}
       {selectedCommit?.sourceCommit ? <p>{t('files_sourceCommit')}: <code>{shortId(selectedCommit.sourceCommit)}</code></p> : null}
       {selectedCommit?.base ? <p>{t('files_baseLayer')}: <code>{shortId(selectedCommit.base)}</code></p> : null}
       {selected?.second ? <p>{t('files_mergeParent', { id: shortId(selected.second) })}</p> : null}
@@ -228,13 +234,17 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
                   : detail.data.changes.length === 0 ? <p>{selected.kind === 'layer' && !selectedCommit?.parent && !selectedCommit?.base ? t('files_initialImport') : t('files_noChanges')}</p>
                   : (
                     <ul className={css.paths}>
-                      {detail.data.changes.map((c, i) => (
-                        <li key={`${c.path}:${i}`}>
-                          {onOpenFile && selectedCommit
-                            ? <button type="button" className={css.pathButton} onClick={() => onOpenFile(selectedCommit.branch, c.path, selectedCommit.id)}><span>{c.kind}</span><code>{c.path}</code></button>
-                            : <span className={css.pathButton}><span>{c.kind}</span><code>{c.path}</code></span>}
-                        </li>
-                      ))}
+                      {detail.data.changes.map((c, i) => {
+                        const k = changeKind(c.kind, t)
+                        const row = <><code>{c.path}</code><Tag tone={k.tone} className={css.pathKind}>{k.label}</Tag></>
+                        return (
+                          <li key={`${c.path}:${i}`}>
+                            {onOpenFile && selectedCommit
+                              ? <button type="button" className={css.pathButton} title={c.path} onClick={() => onOpenFile(selectedCommit.branch, c.path, selectedCommit.id)}>{row}</button>
+                              : <span className={css.pathButton} title={c.path}>{row}</span>}
+                          </li>
+                        )
+                      })}
                     </ul>
                   )}
                 {detail.data.nextChanges != null ? <div className={css.detailActions}><Button variant="outline" size="sm" disabled={detail.loading} onClick={detail.more}>{t('files_moreChanges')}</Button></div> : null}
@@ -265,9 +275,8 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       <div className={css.toolbar}>
         <div className={css.title}>
           <IconBranchOutlineRegular size={15} />
-          <strong>{t('files_history')}</strong>
           <span className={css.mainSummary}>main <span>@ {shortId(branches.find((b) => b.name === 'main')?.head)}</span></span>
-          <span className={css.count}>{t('files_checkpointsLoaded', { count: loaded })}</span>
+          <span className={css.count}>{loaded === 1 ? t('files_checkpointsLoadedOne') : t('files_checkpointsLoaded', { count: loaded })}</span>
         </div>
         <div className={css.actions}>
           <Button variant="outline" size="sm" disabled={!branches.length} icon={<IconCompareSplitOutlineRegular size={13} />} onClick={openCompare}>{t('files_compare')}</Button>
@@ -276,7 +285,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
               {t('files_branches')} <span>{branches.length}{branchNext !== null ? '+' : ''}</span> <IconChevronDownOutlineRegular size={12} />
             </Button>
           </span>
-          <Button variant="outline" size="sm" onClick={() => { writeView({ selected: null, branch: '' }); setMapReset((n) => n + 1) }}>{t('files_now')}</Button>
+          <Button variant="outline" size="sm" onClick={() => { writeView({ selected: null, branch: '' }); setMapReset((n) => n + 1) }}>{t('files_resetView')}</Button>
           <Button variant="outline" size="sm" aria-label={t('files_refresh')} disabled={!!busy} icon={busy ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />} onClick={() => setRevision((n) => n + 1)} />
         </div>
       </div>
@@ -312,7 +321,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       </div>
       <div className={css.legend} aria-label={t('files_historyLegend')}>
         <span><i className={css.legendTrunk} />{t('files_layerOnMain')}</span>
-        <span><svg width="19" height="14" viewBox="-1 -8 20 16" aria-hidden="true"><circle cx="8" cy="0" r="3" /></svg>{t('files_checkpoint')}</span>
+        <span><svg width="19" height="14" viewBox="-1 -8 20 16" aria-hidden="true"><circle cx="8" cy="0" r="3.5" /></svg>{t('files_checkpoint')}</span>
         <span><i className={css.legendBough} />{t('files_branch')}</span>
         <span><i className={css.legendMerge} />{t('files_merge')}</span>
         <span><i className={css.legendPublish} />{t('files_legendPublish')}</span>
@@ -370,7 +379,8 @@ function BranchFinder({ anchorRef, t, branches, parents, families, filtered, onQ
   const panel = useRef<HTMLDivElement>(null)
   const position = useAnchoredPosition({ open: true, anchorRef, panelRef: panel, side: 'bottom', align: 'end', gap: 4, margin: 8 })
   useDismissOnOutsidePointer(anchorRef, true, () => onClose(), panel)
-  const rows = branches.filter((b) => b.name.toLowerCase().includes(filtered.toLowerCase()))
+  const q = filtered.toLowerCase()
+  const rows = branches.filter((b) => b.name.toLowerCase().includes(q) || branchLabel(b.name, t).toLowerCase().includes(q))
   return createPortal(
     <div ref={panel} className={css.finder} role="dialog" aria-label={t('files_findBranch')} style={position ?? { visibility: 'hidden' }} onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
       <label className={css.search}>
@@ -384,11 +394,11 @@ function BranchFinder({ anchorRef, t, branches, parents, families, filtered, onQ
           return (
             <div className={css.branchRow} key={b.name}>
               <button type="button" onClick={() => onBranch(b.name)} title={b.name}>
-                <IconBranchOutlineRegular size={13} /><span>{b.name}</span>{busy === b.name ? <StateDot state="ongoing" size={12} /> : null}
+                <IconBranchOutlineRegular size={13} /><span>{branchLabel(b.name, t)}</span>{busy === b.name ? <StateDot state="ongoing" size={12} /> : null}
               </button>
               {children > 0 && b.name !== 'main' ? (
                 <button type="button" className={css.family} aria-expanded={!families.has(b.name)}
-                  aria-label={families.has(b.name) ? t('files_expandFamily', { name: b.name }) : t('files_collapseFamily', { name: b.name })}
+                  aria-label={families.has(b.name) ? t('files_expandFamily', { name: branchLabel(b.name, t) }) : t('files_collapseFamily', { name: branchLabel(b.name, t) })}
                   onClick={() => onToggleFamily(b.name)}>
                   <IconChevronRightOutlineRegular size={12} />{children}
                 </button>

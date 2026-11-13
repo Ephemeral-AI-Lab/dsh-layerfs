@@ -4,7 +4,14 @@
  * use their own admission lane, so Machines/Storage page reads are not
  * queued behind a build's history commands.
  */
-import { discover, execute, type CliSpec } from '../layerfs/cli.ts'
+import { discover, execute, laneOf, type CliSpec } from '../layerfs/cli.ts'
+
+/** A preset call's budget: reads and short writes 2 minutes; long work (a Lima VM create or
+ * start, Store push, project init, …) 30 minutes, so a slow healthy step is not killed. */
+export const PRESET_TIMEOUT_MS = 120_000
+export const PRESET_LONG_TIMEOUT_MS = 30 * 60_000
+export const presetTimeout = (argv: readonly string[], read: boolean): number =>
+  !read && laneOf(argv).name !== 'calls' ? PRESET_LONG_TIMEOUT_MS : PRESET_TIMEOUT_MS
 
 /** What the runner, build and environment reset read from their driver. */
 export interface PresetSpec extends CliSpec {
@@ -26,7 +33,7 @@ export class CliDriver {
     const call = `${argv[0]}.${argv[1]}`
     const storeRead = read && ['file', 'branch', 'commit', 'project'].includes(argv[0]!) ? argv[2]?.split('/')[0] : undefined
     return execute(this.spec, argv, {
-      input, read, storeRead, timeout: 120_000,
+      input, read, storeRead, timeout: presetTimeout(argv, read),
       lane: { name: 'presets', limit: Math.max(4, this.concurrency ?? 4) },
       onProgress: (progress: any) => { if (progress?.phase) this.report(`  ${call}: ${progress.phase}`) },
     })

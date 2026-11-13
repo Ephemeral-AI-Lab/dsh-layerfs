@@ -78,3 +78,12 @@
 :global([class*="_sectionHeader"]:has([class*="_searchExpanded"])) > .host {
   display: none;
 }
+
+.error {
+  flex: none;
+  padding: 4px 8px 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}

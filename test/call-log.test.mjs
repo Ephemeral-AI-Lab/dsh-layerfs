@@ -33,6 +33,12 @@ test('redaction: free text and credentials as byte counts, other values cut to 2
   assert.deepEqual(L.renderCall(['file', 'edit', '--old', 'aé', '--new=b', '--', 'p', 'b', '/x']), ['file', 'edit', 'p', 'b', '/x', '--old', '<3 bytes>', '--new', '<1 bytes>'])
   assert.deepEqual(L.renderCall(['store', 'connect', '--password', 'env:PW', '--', 'pg', 'postgres://u:secret@h/db']), ['store', 'connect', 'pg', '<24 bytes>', '--password', '<6 bytes>'])
   assert.deepEqual(L.renderCall(['backup', 'connect', 'b', 's3://k@bucket', '--url', 'x']), ['backup', 'connect', 'b', '<13 bytes>', '--url', '<1 bytes>'])
+  assert.deepEqual(L.renderCall(['backup', 'connect', '--key', 'env:R2_KEY', '--', 'b', 's3://bucket']), ['backup', 'connect', 'b', '<11 bytes>', '--key', '<10 bytes>'])
+  // a text value starting with `--` is still a value: redacted names always, any option with the table's Bools known
+  assert.deepEqual(L.renderCall(['file', 'edit', '--old', '--secret-flag', '--new', '--x', '--message', '--m', '--', 'p', 'b', '/x']),
+    ['file', 'edit', 'p', 'b', '/x', '--old', '<13 bytes>', '--new', '<3 bytes>', '--message', '<3 bytes>'])
+  assert.deepEqual(L.renderCall(['branch', 'diff', '--path-prefix', '--odd', '--paths-only', '--', 'p', 'a', 'b'], null, ['paths_only']),
+    ['branch', 'diff', 'p', 'a', 'b', '--path-prefix', '--odd', '--paths-only'])
   const long = '😀'.repeat(250)
   const [, , , , path] = L.renderCall(['file', 'rm', 'p', 'b', long])
   assert.equal(Array.from(path).length, 201); assert.ok(path.endsWith('…'))

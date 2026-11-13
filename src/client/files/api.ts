@@ -23,8 +23,18 @@ export const filesApi = {
   historyBranches: (api: LayerfsApi, project: string, pos = 0) =>
     api.call<{ branches: HistoryBranch[], next: number | null }>('GET', `${projectPath(project)}/history${q({ pos })}`)
       .then((page) => ({ ...page, branches: page.branches.filter((b) => !isInternalBranch(b.name)) })),
-  commits: (api: LayerfsApi, project: string, branch: string, at?: string) =>
-    api.call<HistoryPage>('GET', `${projectPath(project)}/history${q({ branch, at })}`),
+  /**
+   * One page of `branch`'s Commits from `at` (a page's `next`, or the Branch's head from
+   * the Branch list: a page read at a named Commit is immutable and the host keeps it).
+   * `fork` is the Branch's fork point from the same list, which saves the host a branch.get.
+   */
+  commits: (api: LayerfsApi, project: string, branch: string, at?: string, fork?: string | null) =>
+    api.call<HistoryPage>('GET', `${projectPath(project)}/history${q({ branch, at, fork: fork ?? undefined })}`),
+  /** A Branch's first page; none is read for a side Branch with nothing saved since its fork. */
+  branchHead: (api: LayerfsApi, project: string, branch: HistoryBranch): Promise<HistoryPage> =>
+    branch.name !== 'main' && branch.head && branch.head === branch.forkedFrom
+      ? Promise.resolve({ items: [], next: null, head: branch.head })
+      : filesApi.commits(api, project, branch.name, branch.head ?? undefined, branch.forkedFrom),
   commit: (api: LayerfsApi, project: string, branch: string, commit: string, from?: string, cursor?: string) =>
     api.call<CommitDetail>('GET', `${projectPath(project)}/history${q({ branch, commit, from, cursor })}`),
   /**

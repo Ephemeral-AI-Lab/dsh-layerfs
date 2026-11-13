@@ -61,6 +61,15 @@
               maxBytes: 65536
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
+          # Skills: the `dsh-layerfs` skill (how to use LayerFS as the session's
+          # filesystem through the CLI and the Node SDK), local and user skills, and
+          # the `skill` catalog and loader. Mounted here, so only project sessions see it.
+          - id: layerfs-skills
+            name: dsh-layerfs/skills
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
             disabled: !!js process.platform === 'win32'

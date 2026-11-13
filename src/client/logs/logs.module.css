@@ -73,6 +73,8 @@
 
 .tableCard {
   overflow: hidden;
+  /* The table drops low-value columns when its own width runs short (below). */
+  container-type: inline-size;
 }
 
 .table {
@@ -97,10 +99,20 @@
 /* Fixed content widths (plus 24px padding); the command takes the rest. */
 .wTime { width: 84px; }
 .wClient { width: 48px; }
-.wOutcome { width: 116px; }
+.wOutcome { width: 88px; }
 .wMs { width: 64px; }
 .wSaved { width: 132px; }
 .wSession { width: 160px; }
+
+/* A narrow table keeps the command readable: Client and Saved go first.
+   Fixed columns plus their padding take ~750px, so below ~1000px the
+   command would be squeezed to a few characters. */
+@container (max-width: 1000px) {
+  .wClient,
+  .wSaved {
+    display: none;
+  }
+}
 
 /* 12px + 20px line + 12px: a comfortable 44px row. */
 .table td {

@@ -50,6 +50,15 @@ After this change:
 
 ## 2. Sidebar
 
+> **Superseded (2026-11-13):** the Storage page no longer has a resources
+> sidebar. Pages open under a navigation bar (`storage/Nav.tsx`): Back and
+> Forward, a breadcrumb from Resources down with a switcher of sibling pages,
+> Jump to (⌘K / Ctrl+K) over every machine, Store, project, Sandbox and
+> bucket, the running transfers, Refresh and Add (New project, New Store,
+> Connect a database, New machine, Add bucket). Attaching a PostgreSQL Store
+> to a machine goes through its Store page's Attach (§4, §5) instead of a
+> drag. The rest of this section records the tree as it was.
+
 ```
 Overview
 MACHINES

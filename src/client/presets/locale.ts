@@ -161,7 +161,7 @@ const en = {
   statusBuiltUndated: 'Built and verified · {mode}',
   statusStale: 'The saved library is out of date or was not verified. Rebuild to replace it.',
   statusNotBuilt: 'Not built yet. Build creates {projects} projects in this LayerFS home.',
-  openStorage: 'Open Resources',
+  openStorage: 'Open Center',
   projectLine: '{commits} commits · {branches} side branches',
   storeLabel: 'store {store}',
   pgStoreLabel: 'PostgreSQL store {store}',
@@ -179,6 +179,13 @@ const en = {
   continue: 'Continue',
   confirmStop: 'Stop machines and delete project sessions?',
   confirmStopBody: 'Stop the machines and delete this home’s LayerFS project sessions. Stores, projects and their saved history stay.',
+  // Reset plan: what it removes
+  removeStore: 'Store: {name}',
+  removeSandbox: 'Sandbox: {name}',
+  removeMachine: 'Machine: {name}',
+  removeWorkspace: 'Workspace: {name}',
+  removeProject: 'Project: {name}',
+  removeOther: '{kind}: {name}',
 }
 
 const zh: typeof en = {
@@ -335,7 +342,7 @@ const zh: typeof en = {
   statusBuiltUndated: '已构建并验证 · {mode}',
   statusStale: '已保存的项目库已过期或未经验证。重新构建以替换它。',
   statusNotBuilt: '尚未构建。构建会在此 LayerFS 主目录中创建 {projects} 个项目。',
-  openStorage: '打开资源',
+  openStorage: '打开中心',
   projectLine: '{commits} 个提交 · {branches} 个侧分支',
   storeLabel: 'Store {store}',
   pgStoreLabel: 'PostgreSQL Store {store}',
@@ -353,6 +360,13 @@ const zh: typeof en = {
   continue: '继续',
   confirmStop: '停止机器并删除项目会话？',
   confirmStopBody: '停止机器，并删除此主目录的 LayerFS 项目会话。Store、项目及其已保存的历史会保留。',
+  // Reset plan
+  removeStore: 'Store：{name}',
+  removeSandbox: 'Sandbox：{name}',
+  removeMachine: '机器：{name}',
+  removeWorkspace: '工作区：{name}',
+  removeProject: '项目：{name}',
+  removeOther: '{kind}：{name}',
 }
 
 export const locales = { en, zh }

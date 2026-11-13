@@ -138,7 +138,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, jobs, catalog
                 <h2 className={css.paneTitle}>{t('backupsSection')}</h2>
                 <span className={css.paneCount}>{s.links.length}</span>
                 <span className={css.paneSpacer} />
-                <Button variant="outline" size="sm" disabled={blocked} onClick={on.backup}>{t('backupTo')}</Button>
+                <Button variant="outline" size="sm" disabled={blocked} onClick={on.backup}>{view.buckets.length ? t('backupTo') : t('addBucketEllipsis')}</Button>
               </header>
               {s.links.length ? (
                 <ul className={css.paneLines}>
@@ -178,6 +178,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, jobs, catalog
 
       <details className={css.storeDetails}>
         <summary className={css.storeDetailsSummary}>
+          <IconChevronRightOutlineRegular size={12} className={css.storeDetailsChevron} />
           <span>{t('storeFacts')}</span>
         </summary>
         <div className={css.storeDetailsBody}>

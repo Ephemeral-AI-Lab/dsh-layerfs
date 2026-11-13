@@ -116,5 +116,44 @@
 }
 
 .mono {
-  font-family: var(--dsw-font-family-mono, ui-monospace, monospace);
+  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.sourceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sourceRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Location: one Store as text, or the note that a first Store will be made. */
+.locationText {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.locationText[data-layerfs-location="new"] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.locationHint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
 }

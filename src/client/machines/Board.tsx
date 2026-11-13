@@ -40,6 +40,7 @@ export function Board({ go }: { go: (view: View) => void }): ReactNode {
     <Page wide label={t('panel')}>
       <PageHead
         title={t('panel')}
+        hideTitle
         actions={(
           <>
             <DoctorAction api={api} t={doctorT} target="host" label={doctorT('diagnoseHost')} />

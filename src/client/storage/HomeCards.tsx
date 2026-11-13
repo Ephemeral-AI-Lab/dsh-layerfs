@@ -18,16 +18,17 @@
  * Every name opens its editor tab; every button goes through the Storage
  * page's own dialogs and actions.
  */
-import type { ReactNode } from 'react'
-import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useState, type ReactNode } from 'react'
+import { Button, IconPlusOutlineRegular, IconTrashOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
-import { downReason, gib, machineState, sandboxesOn, sizeOf, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
-import { MachineProgress, PowerButton, useMachineRun } from '../machines/parts.tsx'
+import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
+import { MachineDialogs, MachineMenu, MachineProgress, PowerButton, useMachineRun } from '../machines/parts.tsx'
+import { MoreMenu } from '../ui/index.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
-import type { TabId } from './Explorer.tsx'
+import type { TabId } from './tabs.ts'
 import type { StorageT } from './locale.ts'
 import { attachmentsOf, backupChip, bucketFiles, canAddProject, doingWords, latestBackup, linkState, listedOf, shareOf, type RowSignal } from './model.ts'
 import { BucketGlyph, HomeGlyph, StoreGlyph } from './parts.tsx'
@@ -142,7 +143,7 @@ function SandboxChip({ b, t, place, onOpen }: { b: MachineSandbox, t: StorageT, 
     <button type="button" className={css.chip} onClick={(e) => { e.stopPropagation(); onOpen(`sandbox:${b.machine ?? ''}/${b.name}`) }}
       title={[b.project, t('ovSandboxOn', { sandbox: b.name, machine: place(b.machine) })].filter(Boolean).join(' · ')}>
       <StateDot state={b.state === 'running' ? 'done' : 'idle'} size={6} />
-      <SandboxGlyph size={11} /><span className={css.chipText}>{b.name}</span>
+      <SandboxGlyph size={11} /><span className={css.chipText}>{shortSandbox(b.name)}</span>
     </button>
   )
 }
@@ -158,9 +159,11 @@ function sandboxesOfProject(sandboxes: readonly MachineSandbox[], stores: readon
 
 // ---------- projects: one card per project ----------
 
-export function ProjectCards({ stores, view, fleet, machines, t, jobs, place, onOpen }: {
+export function ProjectCards({ stores, view, fleet, machines, t, jobs, place, onOpen, onRemove }: {
   stores: readonly StoreRow[], view: StorageView, fleet: AvailableView | null, machines: readonly MachineInfo[], t: StorageT
   jobs: readonly StorageJob[], place: Place, onOpen: (id: TabId) => void
+  /** Delete a project (the page's confirm dialog). */
+  onRemove: (store: string, project: string) => void
 }): ReactNode {
   const sandboxes = fleet?.sandboxes ?? []
   const rank = (x: RowSignal | null) => (x?.state === 'error' ? 0 : x?.state === 'warning' ? 1 : 2)
@@ -186,8 +189,16 @@ export function ProjectCards({ stores, view, fleet, machines, t, jobs, place, on
                   ? <span className={css.sub} data-tone={tone}>{trouble.reason}</span>
                   : boxes.length ? <span className={css.sub}>{boxes.length === 1 ? t('ovOneSandbox') : t('ovSandboxCount', { n: boxes.length })}</span> : null}
               </span>
-              <span className={css.headActions}>
-                <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); open() }}>{t('ovOpen')}</Button>
+              {/* The card opens the project on click: nothing in its actions (the menu's portal included) reaches it. */}
+              <span className={css.headActions} onClick={(e) => e.stopPropagation()}>
+                <Button variant="outline" size="sm" onClick={open}>{t('ovOpen')}</Button>
+                <MoreMenu label={t('projectActions', { name: p })}>
+                  {(close) => (
+                    <MenuItemButton danger icon={<IconTrashOutlineRegular size={14} />} onSelect={() => { close(); onRemove(s.name, p) }}>
+                      {t('removeProject')}
+                    </MenuItemButton>
+                  )}
+                </MoreMenu>
               </span>
             </header>
             <dl className={css.facts}>
@@ -272,15 +283,26 @@ export function StoreCards({ stores, view, fleet, machines, t, now, jobs, place,
                   {t('ovNoProjectsYet')}
                   {canAddProject(s) ? <button type="button" className={css.inlineLink} onClick={on.addProject}>{t('ovAddProject')}</button> : null}
                 </p>
-              ) : shown.map((p) => (
-                <div key={p} className={css.project}>
-                  <span className={css.projectIcon}><LayerfsGlyph size={13} /></span>
-                  <Name onClick={() => onOpen(`project:${s.name}/${p}`)}>{p}</Name>
-                  <span className={css.chips}>
-                    {sandboxesOfProject(sandboxes, stores, s.name, p).map((b) => <SandboxChip key={b.name} b={b} t={t} place={place} onOpen={onOpen} />)}
-                  </span>
-                </div>
-              ))}
+              ) : shown.map((p) => {
+                const boxes = sandboxesOfProject(sandboxes, stores, s.name, p)
+                return (
+                  <div key={p} className={css.project}>
+                    <span className={css.projectIcon}><LayerfsGlyph size={13} /></span>
+                    <Name onClick={() => onOpen(`project:${s.name}/${p}`)} title={p}>{p}</Name>
+                    <span className={css.chips}>
+                      {boxes.length === 1 ? <SandboxChip b={boxes[0]!} t={t} place={place} onOpen={onOpen} /> : null}
+                      {/* Several Sandboxes: one count chip, so the project's name keeps its room; the project page lists them. */}
+                      {boxes.length > 1 ? (
+                        <button type="button" className={css.chip} onClick={(e) => { e.stopPropagation(); onOpen(`project:${s.name}/${p}`) }}
+                          title={boxes.map((b) => t('ovSandboxOn', { sandbox: b.name, machine: place(b.machine) })).join('\n')}>
+                          <StateDot state={boxes.some((b) => b.state === 'running') ? 'done' : 'idle'} size={6} />
+                          <SandboxGlyph size={11} /><span className={css.chipText}>{t('ovSandboxCount', { n: boxes.length })}</span>
+                        </button>
+                      ) : null}
+                    </span>
+                  </div>
+                )
+              })}
               {s.projects.length > shown.length ? (
                 <button type="button" className={css.moreLink} onClick={() => onOpen(`store:${s.name}`)}>
                   {t('ovMoreProjects', { n: s.projects.length - shown.length })}
@@ -344,7 +366,7 @@ function StoreBackups({ s, view, t, now, job, blocked, trouble, on, onOpen, onAd
         <div className={css.backupRow}>
           <span className={css.muted}>{t('ovNeverBackedUp')}</span>
           {noBucket
-            ? <Button variant="ghost" size="sm" onClick={onAddBucket}>{t('ovAddBucketFirst')}</Button>
+            ? <Button variant="outline" size="sm" onClick={onAddBucket}>{t('ovAddBucketFirst')}</Button>
             : <Button variant="ghost" size="sm" disabled={blocked} onClick={on.backup}>{t('ovBackUp')}</Button>}
         </div>
       ) : null}
@@ -374,25 +396,28 @@ function StoreBackups({ s, view, t, now, job, blocked, trouble, on, onOpen, onAd
 
 // ---------- machines: one card per machine, with its Stores ----------
 
-export function MachineCards({ machines, fleet, stores, t, jobs, place, pgSize, onOpen, onNewStore }: {
+export function MachineCards({ machines, fleet, stores, t, jobs, place, pgSize, onOpen, onAddStore, onNewSandbox }: {
   machines: readonly MachineInfo[], fleet: AvailableView | null, stores: readonly StoreRow[], t: StorageT
-  jobs: readonly StorageJob[], place: Place, pgSize: (name: string) => number | null, onOpen: (id: TabId) => void, onNewStore: () => void
+  jobs: readonly StorageJob[], place: Place, pgSize: (name: string) => number | null, onOpen: (id: TabId) => void
+  onAddStore: (machine: string) => void, onNewSandbox: (machine: string) => void
 }): ReactNode {
   return (
     <div className={css.cards}>
-      {machines.map((m) => <MachineCard key={m.name} m={m} fleet={fleet} stores={stores} t={t} jobs={jobs} place={place} pgSize={pgSize} onOpen={onOpen} onNewStore={onNewStore} />)}
+      {machines.map((m) => <MachineCard key={m.name} m={m} fleet={fleet} stores={stores} t={t} jobs={jobs} place={place} pgSize={pgSize} onOpen={onOpen} onAddStore={onAddStore} onNewSandbox={onNewSandbox} />)}
     </div>
   )
 }
 
-/** One machine: its state (and why, when it needs you), Start or Stop with its progress, its disk, Stores and Sandboxes, and what is arriving. */
-function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onNewStore }: {
+/** One machine: its state (and why, when it needs you), Start or Stop with its progress, its disk, Stores and Sandboxes (each with its Add), and what is arriving. */
+function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddStore, onNewSandbox }: {
   m: MachineInfo, fleet: AvailableView | null, stores: readonly StoreRow[], t: StorageT, jobs: readonly StorageJob[]
-  place: Place, pgSize: (name: string) => number | null, onOpen: (id: TabId) => void, onNewStore: () => void
+  place: Place, pgSize: (name: string) => number | null, onOpen: (id: TabId) => void
+  onAddStore: (machine: string) => void, onNewSandbox: (machine: string) => void
 }): ReactNode {
   const mc = useMachinesContext()
   const startup = mc.useStartups((all) => all[m.name])
   const { run, pending: localPending } = useMachineRun()
+  const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
   const starting = startup?.status === 'running'
   const pending = localPending ?? (starting ? startup.kind : null)
   const live = fleet?.status[m.name]
@@ -420,8 +445,12 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onNewSt
           </span>
           <span className={css.sub}>{sub}</span>
         </span>
-        {m.platform !== 'native' ? <span className={css.headActions}><PowerButton m={m} pending={pending} run={run} /></span> : null}
+        <span className={css.headActions}>
+          {m.platform !== 'native' ? <PowerButton m={m} pending={pending} run={run} /> : null}
+          <MachineMenu m={m} pending={pending} run={run} onOpen={() => onOpen(`machine:${m.name}`)} onDialog={setDialog} />
+        </span>
       </header>
+      <MachineDialogs m={m} dialog={dialog} onClose={() => setDialog(null)} pending={pending} run={run} />
       {starting ? <div className={css.progress}><MachineProgress name={m.name} compact /></div> : null}
       {reason ? <p className={css.reason}>{reason}</p> : null}
 
@@ -434,13 +463,8 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onNewSt
       </div>
 
       <div className={css.list}>
-        <span className={css.label}>{t('ovTileStores')}</span>
-        {own.length === 0 && attached.length === 0 ? (
-          <p className={css.none}>
-            {t('ovNothingHere')}
-            <button type="button" className={css.inlineLink} onClick={onNewStore}>{t('newStore')}</button>
-          </p>
-        ) : null}
+        <ListHead label={t('ovTileStores')} action={t('addStore')} onAction={() => onAddStore(m.name)} />
+        {own.length === 0 && attached.length === 0 ? <p className={css.none}>{t('ovNothingHere')}</p> : null}
         {own.map((s) => (
           <div key={s.name} className={css.storeLine}>
             <span className={css.smallIcon}><StoreGlyph kind="sqlite" size={13} /></span>
@@ -465,17 +489,30 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onNewSt
         })}
       </div>
 
-      {boxes.length ? (
-        <div className={css.list}>
-          <span className={css.label}>{t('ovTileSandboxes')}</span>
-          <span className={css.chips}>{boxes.map((b) => <SandboxChip key={b.name} b={{ ...b, machine: b.machine ?? m.name }} t={t} place={place} onOpen={onOpen} />)}</span>
-        </div>
-      ) : null}
+      <div className={css.list}>
+        <ListHead label={t('ovTileSandboxes')} action={t('newSandbox')} onAction={() => onNewSandbox(m.name)}
+          disabled={look.key !== 'running' || pending !== null ? t('startBeforeSandbox') : null} />
+        {boxes.length
+          ? <span className={css.chips}>{boxes.map((b) => <SandboxChip key={b.name} b={{ ...b, machine: b.machine ?? m.name }} t={t} place={place} onOpen={onOpen} />)}</span>
+          : <p className={css.none}>{t('ovNothingHere')}</p>}
+      </div>
 
       {arriving ? <footer className={css.cardFoot}><JobLine job={arriving} t={t} label={`${arriving.store} · ${doingWords(arriving, t)}`} /></footer>
         : runningBoxes ? <footer className={css.cardFoot}><span className={css.status} data-tone="success"><StateDot state="done" size={7} />{runningBoxes === 1 ? t('ovOneSandboxRunning') : t('ovSandboxesRunning', { n: runningBoxes })}</span></footer>
           : null}
     </article>
+  )
+}
+
+/** A card list's label with its add verb at the end; `disabled` says why the verb waits. */
+function ListHead({ label, action, onAction, disabled }: { label: string, action: string, onAction: () => void, disabled?: string | null | undefined }): ReactNode {
+  return (
+    <div className={css.listHead}>
+      <span className={css.label}>{label}</span>
+      <button type="button" className={css.listAction} disabled={!!disabled} title={disabled ?? undefined} onClick={onAction}>
+        <IconPlusOutlineRegular size={11} />{action}
+      </button>
+    </div>
   )
 }
 
@@ -517,7 +554,7 @@ export function ProtectionList({ stores, view, t, now, jobs, onOpen, actionsFor,
             </span>
             <span className={css.headActions}>
               {view.buckets.length === 0
-                ? <Button variant="ghost" size="sm" onClick={onAddBucket}>{t('ovAddBucketFirst')}</Button>
+                ? <Button variant="outline" size="sm" onClick={onAddBucket}>{t('ovAddBucketFirst')}</Button>
                 : s.links.length === 0
                   ? <Button variant="ghost" size="sm" disabled={blocked} onClick={on.backup}>{t('ovBackUp')}</Button>
                   : (

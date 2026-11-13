@@ -116,10 +116,22 @@ export interface MachineLive {
   down: string | null
 }
 
+/** What the pinned LayerFS CLI can do beyond the calls every CLI has (host `featuresOf`). */
+export interface CliFeatures {
+  /** machine.stop takes force. */
+  forceStop: boolean
+  /** machine.images: a machine's Sandbox image inventory. */
+  images: boolean
+  /** sandbox.create takes a caller-local image archive. */
+  imageArchive: boolean
+}
+
 export interface AvailableView {
   available: true
   readErrors?: Record<string, { error: { code: string, message: string }, at: number }>
   layerfs: string | null
+  /** Absent from an older host: everything is offered and LayerFS refuses what it lacks. */
+  features?: CliFeatures
   machines: MachineInfo[]
   platforms: MachinePlatformInfo[]
   stores: MachineStore[]
@@ -223,7 +235,8 @@ export interface SandboxInfo {
 /** GET /api/machines/<name>/images. */
 export interface MachineImages {
   machine: string
-  mode: 'host' | 'archive'
+  /** `unsupported`: the pinned CLI has no machine.images (no inventory to show). */
+  mode: 'host' | 'archive' | 'unsupported'
   archive?: string
   default_digest: string | null
   images: { digest: string, title?: string, tags: string[] }[]
@@ -254,6 +267,9 @@ export interface RuntimeStatus {
   version: string | null
   commit: string | null
   features?: readonly string[]
+  /** The Node SDK agents get as `$DSH_LAYERFS_SDK` (built from `commit`), or null; `sdkDir` is where it is looked for. */
+  sdk?: { dir: string, commit: string } | null
+  sdkDir?: string | null
   error: { code: string, message: string } | null
 }
 
@@ -437,8 +453,8 @@ export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>
 
 /** Force stop remains available for registered runtimes even when the worker
  * is stopped or unavailable; native stops its managed runtimes, not the host. */
-export const forceStopOf = (m: MachineInfo, hasSandboxes = m.sandboxes.length > 0): boolean =>
-  m.platform !== 'ssh' && m.platform !== 'firecracker' && (powerOf(m) === 'stop' || hasSandboxes)
+export const forceStopOf = (m: MachineInfo, hasSandboxes = m.sandboxes.length > 0, features?: CliFeatures): boolean =>
+  features?.forceStop !== false && m.platform !== 'ssh' && m.platform !== 'firecracker' && (powerOf(m) === 'stop' || hasSandboxes)
 
 /** A machine's size in a line. */
 export function sizeOf(m: MachineInfo, live?: MachineLive): Words {

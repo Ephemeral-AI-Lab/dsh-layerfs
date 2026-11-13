@@ -20,7 +20,7 @@
  * Opening the page reads results and launches nothing.
  */
 import { useMemo, useState, type ReactNode } from 'react'
-import { Button, IconInspectOutlineRegular, IconShieldOutlineRegular, IconWarningOutlineRegular, IconWarningTriangleOutlineRegular, StateDot, Tag, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconRefreshOutlineRegular, IconShieldOutlineRegular, IconWarningOutlineRegular, IconWarningTriangleOutlineRegular, StateDot, Tag, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { busyState, DoctorPanel, type DoctorJob, type DoctorRequest, type DoctorTarget } from './Doctor.tsx'
 import type { DoctorT } from './locale.ts'
@@ -46,12 +46,14 @@ interface Cell { state: StateDotState, words: string, job: DoctorJob | null, at?
 /** One check a resource shows: a doctor diagnosis, or a fact the host already holds. */
 type Item =
   | { key: string, label: string, probe: Probe, /** Shown here, counted on its own row. */ mirror?: boolean }
-  | { key: string, label: string, live: Cell, /** For findings: what failed and how to fix it. */ problem?: { message: string, fix: string | null } }
+  | { key: string, label: string, live: Cell, /** For findings: what failed and how to fix it. */ problem?: { message: string, fix: string | null }, /** The home sweep's verdict on this row (its findings are listed from the sweep itself). */ sweep?: true }
 
 interface Row {
   key: string
   group: Group
   label: string
+  /** The resource's own name, as LayerFS's findings name it ('' for the host). */
+  name: string
   sub: string
   /** The entity kind LayerFS's findings name. */
   kind: string
@@ -133,18 +135,18 @@ function useMachineRows(): { machines: MachineRow[], sandboxes: { name: string, 
 function rowsOf(t: DoctorT, home: string, machines: ReturnType<typeof useMachineRows>, storage: StorageView | undefined): Row[] {
   const place = (m: string | null | undefined) => (m === 'native' ? home : m ?? '—')
   const rows: Row[] = [{
-    key: 'host', group: 'host', label: t('healthHomeRow'), sub: t('healthSubHost'), kind: 'host',
+    key: 'host', group: 'host', label: t('healthHomeRow'), name: '', sub: t('healthSubHost'), kind: 'host',
     items: [{ key: 'host', label: t('healthItemHost'), probe: { target: 'host' } }], checks: [{ target: 'host' }],
   }]
   for (const m of [...machines.machines].sort((a, b) => Number(b.name === 'native') - Number(a.name === 'native'))) {
     rows.push({
-      key: `m:${m.name}`, group: 'machines', label: place(m.name), sub: t('healthSubMachine', { platform: m.platform }), kind: 'machine',
+      key: `m:${m.name}`, group: 'machines', label: place(m.name), name: m.name, sub: t('healthSubMachine', { platform: m.platform }), kind: 'machine',
       items: [{ key: `m:${m.name}`, label: t('healthItemMachine'), probe: { target: 'machine', name: m.name } }], checks: [{ target: 'machine', name: m.name }],
     })
   }
   for (const b of machines.sandboxes) {
     rows.push({
-      key: `x:${b.name}`, group: 'sandboxes', label: b.name, sub: t('healthSubSandbox', { machine: place(b.machine) }), kind: 'sandbox',
+      key: `x:${b.name}`, group: 'sandboxes', label: b.name, name: b.name, sub: t('healthSubSandbox', { machine: place(b.machine) }), kind: 'sandbox',
       items: [{ key: `x:${b.name}`, label: t('healthItemSandbox'), probe: { target: 'sandbox', name: b.name } }], checks: [{ target: 'sandbox', name: b.name }],
     })
   }
@@ -159,7 +161,7 @@ function rowsOf(t: DoctorT, home: string, machines: ReturnType<typeof useMachine
       ...[...new Set(s.links.map((l) => l.bucket))].map((bucket) => ({ key: `${s.name}:backup:${bucket}`, label: t('healthItemBackup', { bucket }), probe: { target: 'backup.connection' as const, name: bucket }, mirror: true })),
     ]
     rows.push({
-      key: `s:${s.name}`, group: 'stores', label: s.name, kind: 'store',
+      key: `s:${s.name}`, group: 'stores', label: s.name, name: s.name, kind: 'store',
       sub: pg ? t('healthSubPg') : t('healthSubSqlite', { machine: place(s.machine) }),
       items,
       checks: [...pg ? [{ target: 'store.connection' as const, name: s.name }] : [], { target: 'store.integrity', name: s.name, quick: true }],
@@ -167,7 +169,7 @@ function rowsOf(t: DoctorT, home: string, machines: ReturnType<typeof useMachine
   }
   for (const b of storage?.buckets ?? []) {
     rows.push({
-      key: `b:${b.name}`, group: 'buckets', label: b.name, sub: b.provider ? t('healthSubBucketOf', { provider: b.provider }) : t('healthSubBucket'), kind: 'backup',
+      key: `b:${b.name}`, group: 'buckets', label: b.name, name: b.name, sub: b.provider ? t('healthSubBucketOf', { provider: b.provider }) : t('healthSubBucket'), kind: 'backup',
       items: [{ key: `b:${b.name}`, label: t('healthItemConnection'), probe: { target: 'backup.connection', name: b.name } }], checks: [{ target: 'backup.connection', name: b.name }],
     })
   }
@@ -196,7 +198,10 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
   const jobs = useQuery(() => api.call<DoctorJob[]>('GET', '/api/doctor-jobs'), [api, tick])
   useHostEvents(api, ['doctor'], () => setTick((n) => n + 1))
   const machines = useMachineRows()
-  const rows = useMemo(() => rowsOf(t, ts('groupHome'), machines, storage), [t, ts, machines, storage])
+  const base = useMemo(() => rowsOf(t, ts('groupHome'), machines, storage), [t, ts, machines, storage])
+  // The home sweep's findings land on the rows they name, so the ring, the
+  // group cards and each row agree with the verdict above them.
+  const rows = useMemo(() => withSweep(base, sweep.data, t), [base, sweep.data, t])
   const latest = useMemo(() => latestJobs(jobs.data), [jobs.data])
   const [panel, setPanel] = useState<{ probe: Probe, job: DoctorJob | null } | null>(null)
   const [launching, setLaunching] = useState(false)
@@ -227,7 +232,7 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
   const reports = counted.filter((c) => 'probe' in c.item)
   const running = counted.filter((c) => c.cell.state === 'ongoing').length
   const done = reports.filter((r) => r.cell.job?.summary)
-  const liveProblems = counted.filter((c) => !('probe' in c.item) && c.cell.state === 'error')
+  const liveProblems = counted.filter((c) => !('probe' in c.item) && !c.item.sweep && c.cell.state === 'error')
   const sweepFindings = sweep.data?.findings ?? []
   const errors = sweepFindings.filter((f) => f.severity === 'error').length + done.reduce((n, r) => n + r.cell.job!.summary!.errors, 0) + liveProblems.length
   const warnings = sweepFindings.filter((f) => f.severity === 'warning').length + done.reduce((n, r) => n + r.cell.job!.summary!.warnings, 0)
@@ -260,7 +265,7 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
     : never ? t('healthNeverNote')
       : errors || warnings ? headline
         : unfinished || incomplete || sweepFailed ? t('healthCleanPartial')
-          : ring.idle ? t('healthHeroSoFarLine', { n: ring.idle }) : t('healthHeroHealthyLine')
+          : ring.idle ? (ring.idle === 1 ? t('healthHeroSoFarLineOne') : t('healthHeroSoFarLine', { n: ring.idle })) : t('healthHeroHealthyLine')
 
   const groups: { group: Group, label: string, icon: ReactNode }[] = [
     { group: 'host', label: t('healthGroupHost'), icon: <IconShieldOutlineRegular size={18} /> },
@@ -276,6 +281,7 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
     ...done.flatMap((r) => r.cell.job!.summary!.findings.map((f) => ({ ...f, entity: `${r.row.kind} · ${r.row.label}`, source: 'probe' in r.item && r.item.probe.target.includes('.') ? r.item.probe.target : null }))),
     ...liveProblems.map((c) => ({ severity: 'error' as const, entity: `${c.row.kind} · ${c.row.label}`, message: 'problem' in c.item && c.item.problem ? c.item.problem.message : c.cell.words, fix: 'problem' in c.item && c.item.problem ? c.item.problem.fix : null, source: c.item.label })),
   ].sort((a, b) => Number(a.severity !== 'error') - Number(b.severity !== 'error'))
+  const grouped = groupFindings(findings)
 
   const all = rows.flatMap((r) => r.checks)
   const legend: { state: StateDotState, n: number, label: string }[] = [
@@ -293,12 +299,12 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
         <Ring parts={ring} total={total} label={t('healthRingLabel')} />
         <div className={css.heroText}>
           <span className={css.eyebrow}><IconShieldOutlineRegular size={13} />{t('healthEyebrow')}</span>
-          <h1 className={css.heroTitle} role="status">{heroTitle}</h1>
+          <h1 className={css.heroTitle} aria-live="polite">{heroTitle}</h1>
           <p className={css.heroLine}>{heroLine}</p>
           {details.length ? <p className={css.heroDetails}>{details.join(' · ')}</p> : null}
           <div className={css.heroActions}>
-            <Button variant="primary" icon={<IconInspectOutlineRegular size={14} />} disabled={launching} aria-busy={launching}
-              onClick={() => { onSweep(); void launch(all) }}>{t('healthCheckAll')}</Button>
+            <Button variant="primary" icon={launching ? <StateDot state="ongoing" size={12} /> : <IconRefreshOutlineRegular size={14} />} disabled={launching} aria-busy={launching}
+              onClick={() => { onSweep(); void launch(all) }}>{launching ? t('healthStarting') : t('healthCheckAll')}</Button>
             {last ? <span className={css.heroMeta}>{t('healthLastChecked', { ago: ago(last, now, ts as Translate) })}</span> : null}
           </div>
           <ul className={css.legend} aria-label={t('healthRingLabel')}>
@@ -348,7 +354,7 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
             <span className={css.blockCount}>{findings.length}</span>
           </div>
           <ul className={css.findings}>
-            {findings.map((f, i) => (
+            {grouped.map(({ first: f, also }, i) => (
               <li key={i} className={css.finding} data-severity={f.severity}>
                 <span className={css.findingIcon} aria-hidden="true">
                   {f.severity === 'error' ? <IconWarningOutlineRegular size={16} /> : <IconWarningTriangleOutlineRegular size={16} />}
@@ -359,10 +365,16 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
                     {f.entity ? <span className={css.entity}>{f.entity}</span> : null}
                     {f.source ? <span className={css.source}>{f.source}</span> : null}
                   </span>
-                  <span className={css.message}>{f.message}</span>
+                  <span className={css.message}><Inline text={f.message} /></span>
                   {f.fix ? (/^layerfs\s/.test(f.fix)
                     ? <CopyLine text={f.fix} copyLabel={t('healthCopy')} copiedLabel={t('healthCopied')} />
-                    : <span className={css.fix}>{f.fix}</span>) : null}
+                    : <span className={css.fix}><Inline text={f.fix} /></span>) : null}
+                  {also.length ? (
+                    <details className={css.also}>
+                      <summary>{t('healthAlsoAffects', { n: also.length })}</summary>
+                      <ul>{also.map((e) => <li key={e}>{e}</li>)}</ul>
+                    </details>
+                  ) : null}
                 </div>
               </li>
             ))}
@@ -466,4 +478,45 @@ function Ring({ parts, total, label }: { parts: Record<StateDotState, number>, t
       </span>
     </div>
   )
+}
+
+/** Adds the home sweep's verdict to each row a finding names: one pill, its worst severity. */
+function withSweep(rows: Row[], sweep: DoctorReport | undefined, t: DoctorT): Row[] {
+  if (!sweep?.findings.length) return rows
+  return rows.map((row) => {
+    const mine = sweep.findings.filter((f) => f.entity && f.entity.kind === row.kind && f.entity.name === row.name)
+    if (!mine.length) return row
+    const errors = mine.filter((f) => f.severity === 'error').length
+    const warnings = mine.length - errors
+    const live: Cell = errors
+      ? { state: 'error', words: errors === 1 ? t('healthCellIssue') : t('healthCellIssues', { n: errors }), job: null, at: sweep.at }
+      : { state: 'warning', words: warnings === 1 ? t('healthCellWarning') : t('healthCellWarnings', { n: warnings }), job: null, at: sweep.at }
+    return { ...row, items: [...row.items, { key: `${row.key}:sweep`, label: t('healthItemSweep'), live, sweep: true }] }
+  })
+}
+
+interface Finding { severity: 'error' | 'warning', entity: string | null, message: string, fix: string | null, source: string | null }
+
+/**
+ * Findings that say the same thing about different resources become one
+ * card: the message with the resource's name and numbers taken out is the
+ * key; the first is shown and the rest are listed under it.
+ */
+function groupFindings(findings: readonly Finding[]): { first: Finding, also: string[] }[] {
+  const out = new Map<string, { first: Finding, also: string[] }>()
+  for (const f of findings) {
+    const name = f.entity?.split(' · ').slice(1).join(' · ') ?? ''
+    const shape = (text: string | null) => (text ?? '').split(name || '\u0000').join('{}').replace(/\d+(\.\d+)?/g, '#')
+    const key = `${f.severity}|${f.source ?? ''}|${f.entity?.split(' · ')[0] ?? ''}|${shape(f.message)}|${shape(f.fix)}`
+    const group = out.get(key)
+    if (group && f.entity) group.also.push(f.entity)
+    else if (!group) out.set(key, { first: f, also: [] })
+  }
+  return [...out.values()]
+}
+
+/** LayerFS's text with its `backticked` spans set as code. */
+function Inline({ text }: { text: string }): ReactNode {
+  const parts = text.split(/`([^`]+)`/)
+  return parts.map((part, i) => (i % 2 ? <code key={i} className={css.code}>{part}</code> : part))
 }

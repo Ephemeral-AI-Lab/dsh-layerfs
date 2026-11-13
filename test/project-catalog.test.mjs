@@ -92,10 +92,28 @@ test('without claim an unclaimed project is refused, never minted', async () => 
 test('an unclaimed id from a listing claims on attach; a claimed id must match', async () => {
   const f = fixture()
   try {
-    const row = await f.catalog.assert('store/app', 'unclaimed:store/app')
+    const row = await f.catalog.assert('store/app', 'unclaimed:store/app', { claim: true })
     assert.match(row.projectId, /^[0-9a-f-]{36}$/)
     assert.equal((await f.catalog.assert('store/app', row.projectId)).projectId, row.projectId)
     await assert.rejects(f.catalog.assert('store/app', B), { code: 'ProjectIdentityChanged' })
+  } finally { f.close() }
+})
+
+test('reads with an unclaimed id never claim; they accept the address as it is', async () => {
+  const f = fixture()
+  try {
+    const read = await f.catalog.assert('store/app', 'unclaimed:store/app')
+    assert.equal(read.projectId, 'unclaimed:store/app')
+    assert.equal(read.key, 'store/app')
+    assert.equal(f.state.forks, 0, 'a read forks no identity branch')
+    assert.deepEqual(f.state.projects.get('store/app').branches, ['main'])
+    assert.equal(f.catalog.retained().length, 0, 'an unclaimed read is not remembered')
+    await assert.rejects(f.catalog.assert('store/app', 'unclaimed:store/other'), { code: 'ProjectIdentityChanged' })
+    await assert.rejects(f.catalog.assert('store/gone', 'unclaimed:store/gone'), { code: 'NoSuchProject' })
+    // Claimed since the listing (a conversation was placed): reads answer the new UUID.
+    f.state.projects.get('store/app').branches.push(identityBranch(A))
+    assert.equal((await f.catalog.assert('store/app', 'unclaimed:store/app')).projectId, A)
+    assert.equal(f.state.forks, 0)
   } finally { f.close() }
 })
 
@@ -110,6 +128,24 @@ test('unavailable and deleted projects remain in the durable catalog across rest
     const removed = (await f.catalog.list())[0]
     assert.equal(removed.catalogState, 'removed')
     assert.equal(removed.projectId, original.projectId)
+  } finally { f.close() }
+})
+
+test('a removed project is asked about once per GONE_MS, not on every listing', async (t) => {
+  const f = fixture()
+  try {
+    await f.catalog.resolve('store/app')
+    f.state.projects.clear()
+    let gets = 0
+    const lfs = f.catalog['lfs']()
+    const get = lfs.project.get
+    lfs.project.get = async (key) => { gets++; return get(key) }
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+    for (let i = 0; i < 3; i++) assert.equal((await f.catalog.list())[0].catalogState, 'removed')
+    assert.equal(gets, 1, 'one project.get for three listings')
+    t.mock.timers.tick(10 * 60_000)
+    assert.equal((await f.catalog.list())[0].catalogState, 'removed')
+    assert.equal(gets, 2, 'asked again after GONE_MS')
   } finally { f.close() }
 })
 

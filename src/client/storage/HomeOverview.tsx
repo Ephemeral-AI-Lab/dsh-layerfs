@@ -16,7 +16,7 @@
  * the tab opens and again on Refresh, since `GET /api/storage` sizes only
  * SQLite files.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
@@ -28,13 +28,14 @@ import { RuntimeCard } from '../machines/Runtime.tsx'
 import { EmptyState } from '../files/States.tsx'
 import { Card, LoadError, Loading } from '../ui/index.tsx'
 import { DoctorBadge, DoctorFindings } from './Doctor.tsx'
-import type { TabId } from './Explorer.tsx'
+import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import { BucketCards, MachineCards, ProjectCards, ProtectionList, StoreCards } from './HomeCards.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
+import { projectDialog } from '../projects/dialog.ts'
 import { HomeHero, panelId } from './HomeHero.tsx'
 import type { StoreActions } from './StoreCard.tsx'
 import type { StorageT } from './locale.ts'
-import { attachmentsOf, bucketFiles, coverageOf, doingWords, endedWords, linkState, orderStores, shareOf } from './model.ts'
+import { attachmentsOf, bucketFiles, doingWords, endedWords, orderStores, shareOf } from './model.ts'
 import { BucketGlyph, refusalLabels, StoreGlyph } from './parts.tsx'
 import type { DoctorReport, PgAttachment, StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './HomeOverview.module.css'
@@ -52,6 +53,12 @@ export interface HomeOverviewProps {
   onCheckAgain: () => void
   onNewStore: () => void
   onNewMachine: () => void
+  /** A machine's Add Store dialog. */
+  onAddStore: (machine: string) => void
+  /** New Sandbox on a machine. */
+  onNewSandbox: (machine: string) => void
+  /** Delete a project, through the page's confirm dialog. */
+  onRemoveProject: (store: string, project: string) => void
   onRetry: (job: StorageJob) => void
   onDismiss: (job: StorageJob) => void
   onBackup: (store: string) => void
@@ -65,6 +72,13 @@ export interface HomeOverviewProps {
   onRestore: (bucket: string, file: string) => void
   /** Bumps on Refresh and Check again: PostgreSQL sizes are read again. */
   refreshKey: number
+  /** The section showing (the page owns it, so the breadcrumb can open one). */
+  tab: OverviewTab
+  onTab: (tab: OverviewTab) => void
+  /** Lists every bucket's files. */
+  onListAll: () => void
+  /** Every bucket is being listed. */
+  listingAll: boolean
 }
 
 /** A PostgreSQL Store's size as LayerFS measures it, or why it could not. */
@@ -101,14 +115,6 @@ interface Need {
   extra?: ReactNode
 }
 
-/** The Overview's tabs, one per hero stat tile. */
-type OverviewTab = 'projects' | 'stores' | 'machines' | 'backups'
-const TAB_KEY = 'dsh-layerfs:overview-tab'
-const isTab = (v: unknown): v is OverviewTab => v === 'projects' || v === 'stores' || v === 'machines' || v === 'backups'
-/** The tab this viewer had open last (a per-browser convenience; storage may be blocked). */
-function readTab(): OverviewTab {
-  try { const v = localStorage.getItem(TAB_KEY); return isTab(v) ? v : 'projects' } catch { return 'projects' }
-}
 
 export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const { view, error, t, now, doctor, onRefresh } = props
@@ -119,14 +125,11 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const fleet: AvailableView | null = fleetRead.data?.available ? fleetRead.data : null
   const [doctorOpen, setDoctorOpen] = useState(false)
   const [runtimeOpen, setRuntimeOpen] = useState(false)
-  const [tab, setTabState] = useState<OverviewTab>(readTab)
-  const setTab = (key: string) => {
-    if (!isTab(key)) return
-    setTabState(key)
-    try { localStorage.setItem(TAB_KEY, key) } catch { /* the tab still switches */ }
-  }
+  const tab = props.tab
+  const setTab = (key: string) => { if (isOverviewTab(key)) props.onTab(key) }
   const pgNames = (view?.stores ?? []).filter((s) => s.kind === 'postgresql').map((s) => s.name).sort()
   const pgSizes = usePgSizes(mc.api, pgNames, props.refreshKey)
+  const needsRef = useRef<HTMLDivElement>(null)
 
   if (!view) {
     return (
@@ -146,11 +149,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const pgBytesOf = (name: string): number | null => { const z = pgSizes.get(name); return z && 'bytes' in z ? z.bytes : null }
   const machines = fleet ? machineOrder(fleet.machines) : []
   const running = machines.filter((m) => machineState(m, fleet?.status[m.name]).key === 'running')
-  const cover = coverageOf(view)
-  const changed = cover.backed.filter((s) => s.links.some((l) => { const st = linkState(s, l.bucket, l.file, view.buckets); return st !== undefined && st !== null && st !== 'current' })).length
-  const current = cover.backed.filter((s) => s.links.some((l) => linkState(s, l.bucket, l.file, view.buckets) === 'current')).length
   const runningJobs = props.jobs.filter((j) => !j.ended)
-  const recentJobs = props.jobs.filter((j) => !!j.ended).sort((a, b) => (b.ended ?? 0) - (a.ended ?? 0)).slice(0, 5)
 
   // ---------- what needs you, most pressing first ----------
   const needs: Need[] = []
@@ -210,12 +209,20 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       })
     }
   }
-  for (const [i, f] of (doctor.data?.findings ?? []).entries()) {
+  // The doctor's findings are one need: they are listed in full by the
+  // doctor card (the hero's Doctor pill), so the list only says how many.
+  const findings = doctor.data?.findings ?? []
+  if (findings.length) {
+    const errors = findings.filter((f) => f.severity === 'error').length
+    const warnings = findings.length - errors
+    const kinds = [...new Set(findings.map((f) => f.entity?.kind).filter((k): k is string => !!k))]
     needs.push({
-      key: `doctor:${i}`, tone: f.severity === 'error' ? 'danger' : 'warning', rank: f.severity === 'error' ? 2 : 4,
-      title: f.message,
-      detail: f.fix ? <code className={css.code}>{f.fix}</code> : undefined,
-      action: f.fix ? { label: t('ovCopyFix'), run: () => navigator.clipboard?.writeText(f.fix!) } : undefined,
+      key: 'doctor', tone: errors ? 'danger' : 'warning', rank: errors ? 2 : 4,
+      title: errors
+        ? (errors === 1 ? t('ovDoctorNeedError') : t('ovDoctorNeedErrors', { n: errors }))
+        : (warnings === 1 ? t('ovDoctorNeedWarning') : t('ovDoctorNeedWarnings', { n: warnings })),
+      detail: kinds.length ? t('ovDoctorNeedAbout', { kinds: kinds.join(', ') }) : undefined,
+      action: { label: doctorOpen ? t('ovDoctorHide') : t('ovDoctorShow'), run: () => setDoctorOpen((o) => !o) },
     })
   }
   // A Store never backed up is not a problem: its card says so quietly.
@@ -237,6 +244,14 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const machineTone = machines.some((m) => machineState(m, fleet?.status[m.name]).key === 'needs') ? 'danger'
     : machines.some((m) => machineState(m, fleet?.status[m.name]).key === 'stopped' && m.stores.length > 0) ? 'warning' : undefined
   const refreshAll = () => { onRefresh(); props.onCheckAgain() }
+  const newProject = () => projectDialog.open({ mode: 'new' })
+  /** The headline's count jumps to the list it counts. */
+  const toNeeds = () => {
+    const el = needsRef.current
+    if (!el) return
+    el.scrollIntoView({ block: 'nearest' })
+    el.focus({ preventScroll: true })
+  }
 
   return (
     <div className={css.page}>
@@ -254,6 +269,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           </>
         )}
         headline={headline}
+        onHeadline={needs.length ? toNeeds : undefined}
         tone={headTone}
         sub={[
           t('ovSumProjects', {
@@ -264,7 +280,6 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         ].filter(Boolean).join(' · ')}
         actions={(
           <>
-            <Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={13} />} onClick={props.onNewStore}>{t('newStore')}</Button>
             <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} disabled={doctor.loading} onClick={refreshAll}
               title={t('ovRefreshTitle')}>{t('refresh')}</Button>
           </>
@@ -273,6 +288,13 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           <>
             {runtimeOpen ? <RuntimeCard /> : null}
             {doctorOpen ? <DoctorFindings read={doctor} t={t} now={now} /> : null}
+            {needs.length ? (
+              <Card>
+                <div ref={needsRef} id="ov-needs" className={css.needs} role="region" aria-label={t('ovNeedsYou')} tabIndex={-1}>
+                  {needs.map((n) => <NeedRow key={n.key} need={n} />)}
+                </div>
+              </Card>
+            ) : null}
           </>
         )}
         tabs={[
@@ -286,13 +308,19 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       {/* ---------- 1. projects, each with its Store and machines ---------- */}
       {tab === 'projects' ? (
         <section id={panelId('projects')} role="tabpanel" className={css.section} aria-label={t('ovProjects')}>
-          <SectionHead title={t('ovProjects')} count={projectCount} />
+          {projectCount > 0 ? (
+            <SectionHead
+              actions={<Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={newProject}>{t('newProject')}</Button>} />
+          ) : null}
           {projectCount === 0 ? (
             <Card>
-              <EmptyState title={t('ovNoProjects')} icon={<LayerfsGlyph size={20} />}>{t('ovNoProjectsBody')}</EmptyState>
+              <EmptyState title={t('ovNoProjects')} icon={<LayerfsGlyph size={20} />}
+                action={<Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={13} />} onClick={newProject}>{t('newProject')}</Button>}>
+                {t('ovNoProjectsBody')}
+              </EmptyState>
             </Card>
           ) : (
-            <ProjectCards stores={stores} view={view} fleet={fleet} machines={machines} t={t} jobs={runningJobs} place={place} onOpen={props.onOpen} />
+            <ProjectCards stores={stores} view={view} fleet={fleet} machines={machines} t={t} jobs={runningJobs} place={place} onOpen={props.onOpen} onRemove={props.onRemoveProject} />
           )}
         </section>
       ) : null}
@@ -300,7 +328,10 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       {/* ---------- 2. Stores, each with its projects ---------- */}
       {tab === 'stores' ? (
         <section id={panelId('stores')} role="tabpanel" className={css.section} aria-label={t('ovStores')}>
-          <SectionHead title={t('ovStores')} count={stores.length} />
+          {stores.length > 0 ? (
+            <SectionHead
+              actions={<Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={props.onNewStore}>{t('newStore')}</Button>} />
+          ) : null}
           {stores.length === 0 ? (
             <Card>
               <EmptyState title={t('noStores')} icon={<StoreGlyph kind="sqlite" size={20} />}
@@ -318,7 +349,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       {/* ---------- 3. machines, with their Stores ---------- */}
       {tab === 'machines' ? (
         <section id={panelId('machines')} role="tabpanel" className={css.section} aria-label={t('ovMachines')}>
-          <SectionHead title={t('ovMachines')} count={machines.length}
+          <SectionHead
             actions={(
               <>
                 <Button variant="outline" size="sm" onClick={() => props.onOpen('machines')}>{t('ovOpenBoard')}</Button>
@@ -326,7 +357,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
               </>
             )} />
           {fleet
-            ? <MachineCards machines={machines} fleet={fleet} stores={stores} t={t} jobs={runningJobs} place={place} pgSize={pgBytesOf} onOpen={props.onOpen} onNewStore={props.onNewStore} />
+            ? <MachineCards machines={machines} fleet={fleet} stores={stores} t={t} jobs={runningJobs} place={place} pgSize={pgBytesOf} onOpen={props.onOpen} onAddStore={props.onAddStore} onNewSandbox={props.onNewSandbox} />
             : <Loading label={t('readingMachines')} />}
         </section>
       ) : null}
@@ -334,8 +365,13 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       {/* ---------- 4. backups ---------- */}
       {tab === 'backups' ? (
         <section id={panelId('backups')} role="tabpanel" className={css.section} aria-label={t('ovBackups')}>
-          <SectionHead title={t('ovBackups')} count={view.buckets.length}
-            actions={<Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>} />
+          <SectionHead
+            actions={(
+              <>
+                {view.buckets.length > 0 ? <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}>{t('ovListBuckets')}</Button> : null}
+                <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>
+              </>
+            )} />
           <ProtectionList stores={stores} view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} actionsFor={props.actionsFor} onAddBucket={props.onAddBucket} />
           <BucketCards view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onRestore={props.onRestore} />
         </section>
@@ -344,14 +380,30 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   )
 }
 
-/** A tab's head: title and count, one sentence under it, its actions as small buttons at the end. */
-function SectionHead({ title, count, actions }: { title: string, count: number, actions?: ReactNode }): ReactNode {
+/** One thing that needs you: its tone, what and why, and the verb that fixes it. Only a danger row is announced. */
+function NeedRow({ need: n }: { need: Need }): ReactNode {
+  return (
+    <div className={css.need} role={n.tone === 'danger' ? 'alert' : undefined}>
+      <StateDot state={n.tone === 'danger' ? 'error' : n.tone === 'warning' ? 'warning' : 'idle'} size={8} className={css.needMark} />
+      <div className={css.needBody}>
+        <p className={css.needTitle}>{n.title}</p>
+        {n.detail ? <p className={css.needDetail}>{n.detail}</p> : null}
+      </div>
+      {n.action || n.extra ? (
+        <span className={css.needActions}>
+          {n.action ? <Button variant="outline" size="sm" onClick={() => { void n.action!.run() }}>{n.action.label}</Button> : null}
+          {n.extra}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+/** A tab's actions as small buttons at the end (the tab itself names the section and its count). */
+function SectionHead({ actions }: { actions: ReactNode }): ReactNode {
   return (
     <div className={css.sectionHead}>
-      <div className={css.sectionText}>
-        <h2 className={css.sectionTitle}>{title}<span className={css.sectionCount}>{count}</span></h2>
-      </div>
-      {actions ? <span className={css.sectionActions}>{actions}</span> : null}
+      <span className={css.sectionActions}>{actions}</span>
     </div>
   )
 }

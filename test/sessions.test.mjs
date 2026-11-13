@@ -824,3 +824,82 @@ test('archive writes stay untagged and record no receipt', async () => {
     S.tracing.withoutTraceContext(() => S.tracing.traceInvocation('file.apply', async (tag) => { tags.push(tag); return { kind: 'Committed', head: hex('e') } })))
   assert.deepEqual(tags, [undefined]); assert.deepEqual(recorded, [])
 })
+
+// ---------------------------------------------------------------- review fixes
+
+test('choosing a project with an unclaimed listing id claims it (the one claiming path)', async () => {
+  const asserted = []
+  const lfs = { project: { get: async (key) => ({ key }) } }
+  const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
+  s.ctx.get = (name) => name === 'sessionPersistence' ? { catalog: { assert: async (...args) => { asserted.push(args) } } } : undefined
+  await s.choose('n', 'st/app', 'unclaimed:st/app')
+  assert.deepEqual(asserted, [['st/app', 'unclaimed:st/app', { claim: true }]])
+  assert.deepEqual(state().pending.n, { project: 'st/app' })
+  rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
+})
+
+test('a turn that only edits existing files (dirty inodes, no new entries) is checkpointed', async () => {
+  let overlay = { inodes: 1, entries: 0, pending_merge: false }
+  let commits = 0
+  const { s } = receiptFixture({ workspace: {
+    status: async () => ({ overlay, head_moved_since_mount: false }),
+    commit: async () => { commits++; return { kind: 'Committed', commit: { id: hex('f') } } },
+  } }, boundState())
+  const saved = await s.checkpoint('a', 'turn', 1, 'dsh turn 1')
+  assert.equal(commits, 1)
+  assert.equal(saved.commit, hex('f')); assert.equal(saved.changed, 1)
+  overlay = { inodes: 3, entries: 2, pending_merge: false }
+  assert.equal((await s.checkpoint('a', 'turn', 2, 'dsh turn 2')).changed, 3, 'changed counts the larger of inodes and entries')
+  overlay = { inodes: 0, entries: 0, pending_merge: true }
+  assert.ok(await s.checkpoint('a', 'turn', 3, 'dsh turn 3'), 'a pending merge is saved')
+  overlay = { inodes: 0, entries: 0, pending_merge: false }
+  assert.equal(await s.checkpoint('a', 'turn', 4, 'dsh turn 4'), undefined, 'an unchanged turn records nothing')
+  assert.equal(commits, 3)
+})
+
+test('a restore whose mount fails keeps the forked branch, unbound, and a retry forks the next generation', async () => {
+  const state = boundState()
+  state.checkpoints.a = [{ kind: 'turn', turn: 1, seq: 3, endSeq: 4, commit: hex('c'), branch: 'internal', changed: 1, message: 't1', at: 1 }]
+  const forks = []
+  let failMount = 1
+  const { s } = receiptFixture({
+    workspace: {
+      status: async () => ({ overlay: { inodes: 0, entries: 0 } }),
+      commit: async () => ({ kind: 'UpToDate', head: hex('c') }),
+      unmount: async () => ({}),
+      mount: async (sandbox, branch) => { if (failMount-- > 0) throw new Refusal('Unavailable', 'worker gone'); return { ws: `${sandbox}:main`, path: '/mnt', base: hex('c') } },
+    },
+    branch: { fork: async (project, branch) => { if (forks.includes(branch)) throw new Refusal('Exists'); forks.push(branch); return { kind: 'Forked' } } },
+    sandbox: { get: async () => ({ state: 'running', workspaces: [] }) },
+  }, state)
+  await assert.rejects(s.restore('a', hex('c')), (e) => e.code === 'Unavailable')
+  const failed = s.binding('a')
+  assert.equal(failed.branch, S.branchOf('a', 1), 'the forked branch is recorded at once')
+  assert.equal(failed.restores, 1)
+  assert.equal(failed.state, 'failed'); assert.equal(failed.ws, undefined); assert.equal(failed.mount, undefined)
+  assert.match(failed.error, /worker gone/)
+  assert.equal(s.checkpoints('a').at(-1).kind, 'restore')
+  // Retried: no `Exists`, the next generation is forked and mounted.
+  const next = await s.restore('a', hex('c'))
+  assert.deepEqual(forks, [S.branchOf('a', 1), S.branchOf('a', 2)])
+  assert.equal(next.branch, S.branchOf('a', 2)); assert.equal(next.state, 'bound'); assert.equal(next.ws, 'sb:main')
+  assert.equal(s.binding('a').state, 'bound')
+})
+
+test('a branched child whose mount fails keeps its forked branch for the next message', async () => {
+  const state = boundState()
+  state.checkpoints.a = [{ kind: 'turn', turn: 1, seq: 3, endSeq: 4, commit: hex('d'), branch: 'internal', changed: 1, message: 't1', at: 1 }]
+  state.sessions.child = { sessionId: 'child', kind: 'project', project: 'st/app', state: 'bound', ws: 'sbc:main', sandbox: 'sbc', branch: 'first' }
+  const { s } = receiptFixture({
+    workspace: { unmount: async () => ({}), mount: async () => { throw new Refusal('Unavailable', 'worker gone') } },
+    branch: { fork: async () => ({ kind: 'Forked' }) },
+    sandbox: { get: async () => ({ state: 'running', workspaces: [] }) },
+  }, state)
+  const persistence = s.ctx.get('sessionPersistence')
+  s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : name === 'sessionController' ? { fork: async () => ({ sessionId: 'child' }) } : undefined
+  await assert.rejects(s.branchAt('a', hex('d'), 1), (e) => e.code === 'Unavailable')
+  const child = s.binding('child')
+  assert.equal(child.branch, S.branchOf('child', 1))
+  assert.equal(child.state, 'failed'); assert.equal(child.ws, undefined)
+  assert.deepEqual(child.from, { session: 'a', commit: hex('d'), turn: 1 })
+})

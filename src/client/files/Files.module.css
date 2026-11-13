@@ -435,6 +435,11 @@
   min-width: 0;
 }
 
+.compareWith {
+  flex: none;
+  white-space: nowrap;
+}
+
 .diffPath {
   min-width: 0;
   overflow: hidden;
@@ -498,7 +503,7 @@
 
 .blameOwnerCell {
   min-width: 0;
-  border-left: 3px solid var(--dsw-alias-border-l3);
+  border-left: 2px solid var(--dsw-alias-border-l3);
   border-right: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 0;
 }
@@ -555,6 +560,15 @@
 
 .blameMeta code {
   font-family: var(--ds-font-family-code);
+}
+
+/* Long branch names stay on their line instead of pushing into the next column. */
+.blameMeta > * {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .blameUnknown {
@@ -628,6 +642,7 @@
   flex-direction: column;
   gap: 1px;
   width: 100%;
+  min-width: 0;
   padding: 5px 8px;
   border: 0;
   border-radius: var(--dsw-radius-sm);

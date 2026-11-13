@@ -54,9 +54,11 @@ function RuntimeFacts({ r, t }: { r: RuntimeStatus, t: MachinesContext['t'] }): 
       <Fact label={t('runtimeCli')} mono title={r.cli ?? undefined}>{r.cli}</Fact>
       <Fact label={t('runtimeDaemon')} mono title={r.daemon ?? undefined}>{r.daemon}</Fact>
       <Fact label={t('runtimeBundle')} mono title={r.bundle ?? undefined}>{r.bundle ? `${r.bundle}${r.bundleInfo?.hash ? ` (${r.bundleInfo.hash.slice(0, 12)})` : ''}` : t('runtimeBundleDefault')}</Fact>
+      {r.ok && <Fact label={t('runtimeSdk')} mono={!!r.sdk} title={r.sdk?.dir ?? (r.sdkDir ? t('runtimeSdkMissingHint', { path: r.sdkDir }) : undefined)}>{r.sdk ? `${r.sdk.dir} (${r.sdk.commit.slice(0, 10)})` : t('runtimeSdkMissing')}</Fact>}
       {r.cacheHome && <Fact label={t('runtimeImages')} mono title={r.cacheHomeSource ? `${r.cacheHome} — ${t(sourceKey(r.cacheHomeSource))}` : r.cacheHome}>{t('runtimeImagesValue', { path: r.cacheHome, count: String(r.preparedImages ?? 0) })}</Fact>}
       <Fact label={t('runtimeHome')} mono title={r.home}>{r.home}</Fact>
-      <Fact label={t('runtimeVersionLabel')} mono>{r.version}</Fact>
+      {/* The card's head already names the version; the row only shows when the head cannot. */}
+      {!r.version && <Fact label={t('runtimeVersionLabel')} mono>{r.version}</Fact>}
       <Fact label={t('runtimeCommit')} mono>{r.commit}</Fact>
       {r.source && <Fact label={t('runtimeSource')}>{t(sourceKey(r.source))}</Fact>}
       {r.error && <Fact label={t('runtimeError')} tone="danger">{`${r.error.code}: ${r.error.message}`}</Fact>}

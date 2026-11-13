@@ -15,13 +15,13 @@ import { kindKey, type MachineStartup, type MachinesView, type RuntimeStatus, ty
 /** DSH's translate seat for this namespace: `{name}` placeholders take string values. */
 export type Translate = (key: MachinesKey, params?: Record<string, string>) => string
 
-/** Where a machine page sends you: the board, one machine, or one Sandbox (each a Storage editor tab). */
+/** Where a machine page sends you: the board, one machine, or one Sandbox (each a Storage page). */
 export type View =
   | { kind: 'board' }
   | { kind: 'machine', name: string }
   | { kind: 'sandbox', machine: string, name: string }
 
-/** The Storage editor tab a view opens. */
+/** The Storage page a view opens. */
 export function tabOfView(view: View): string {
   return view.kind === 'board' ? 'machines' : view.kind === 'machine' ? `machine:${view.name}` : `sandbox:${view.machine}/${view.name}`
 }
@@ -40,14 +40,14 @@ export interface MachinesPageProps extends Omit<MachinesFace, 'hooks'> {
   useStartups: Hook<Readonly<Record<string, MachineStartup>>>
   useRuntime: Hook<ReadState<RuntimeStatus>>
   useConnected: Hook<boolean>
-  /** Open a Storage editor tab in place (set by the Storage page); elsewhere a link opens the Storage page. */
+  /** Open a Storage page in place (set by the Storage page); elsewhere a link opens the Storage page. */
   openTab?: ((id: string) => void) | undefined
 }
 
 export interface MachinesContext extends MachinesPageProps {
-  /** Open a Storage editor tab: `store:<name>`, `machine:<name>`, `machines`, … */
+  /** Open a Storage page: `store:<name>`, `machine:<name>`, `machines`, … */
   openStorageTab: (id: string) => void
-  /** Go to a machine view (a Storage editor tab). */
+  /** Go to a machine view (a Storage page). */
   go: (view: View) => void
   /** Words (a key and its values) in this locale. */
   tw: (words: Words) => string

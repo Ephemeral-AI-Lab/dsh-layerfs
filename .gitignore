@@ -3,3 +3,4 @@ lib/
 .dev*/
 *.log
 .dev*.log
+.layerfs-sdk/

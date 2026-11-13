@@ -1,11 +1,11 @@
-# Conversation views: Files, History, Sandbox
+# Conversation views: Files, History, Sandbox, Stats
 
 Status: implemented with DSH's public `conversation.view` slot; no DSH change.
 
-A project session's conversation gets three LayerFS tabs beside DSH's own:
+A project session's conversation gets four LayerFS tabs beside DSH's own:
 
 ```text
-Chat · Trajectory · Files · History · Sandbox
+Chat · Trajectory · Files · History · Sandbox · Stats
  DSH     DSH        dsh-layerfs
 ```
 
@@ -19,13 +19,16 @@ call log stays a sidebar page (`docs/specs/layerfs-logs.md`) and gets no tab.
 `client-ui-conversation`. Each entry registers `{ id, order, label }`; the
 header renders the entries as one tab row (with a More menu when space runs
 out) and the body renders only the selected entry, inside the resident
-scrollport above the composer. DSH's Stats view uses the same slot.
+scrollport above the composer. DSH's experimental Stats view uses the same
+slot (id `stats`, order 40); the LayerFS Stats tab has its own id, so both can
+show.
 
 | Tab | id | order |
 | --- | --- | --- |
 | Files | `layerfs-files` | 20 |
 | History | `layerfs-history` | 30 |
 | Sandbox | `layerfs-sandbox` | 50 |
+| Stats | `layerfs-stats` | 60 |
 
 Each entry receives the owner props `openView(view, focus)`, `viewRequest` and
 `completeViewRequest`. A view opens another with a JSON focus string
@@ -42,7 +45,7 @@ and releases the entry.
 Constraints of the seam (reported, not worked around):
 
 - The tab list is global, not per session, and DSH's session list does not
-  notify on selection. So the plugin registers the three entries only while a
+  notify on selection. So the plugin registers its entries only while a
   conversation on screen is a project session: an invisible
   `conversation.session.header.actions` entry reports each mounted header, and
   `session.place` says whether it has a project (subagents included). Normal
@@ -59,7 +62,7 @@ Constraints of the seam (reported, not worked around):
 A subagent shares its root's project context (`binding.kind === 'shared'`).
 Views resolve the root through DSH's session list (`useSessions`:
 `byId[id].parentSessionId` while `origin === 'subagent'`) and read
-`session.state` for that root. All three views show the root's project; the
+`session.state` for that root. All four views show the root's project; the
 Sandbox map also lists every subagent under the root.
 
 Data comes from existing host operations only, so the views need no host
@@ -90,14 +93,21 @@ Session checkpoints are out of scope for now. They are still made and stored
 
 ## 5. Sandbox
 
-A map of where the session's work runs, after Connect's `SandboxMap`:
+A map of where the session's work runs. The LayerFS mark sits in a round hub
+at the centre; branches are pills on an arc around it (an ellipse when there
+are many); agents wire into the hub from the left; sandboxes with their
+workspaces sit on the right:
 
 ```text
-Agents            LayerFS            Sandboxes
-root ─────────┐   project            sandbox (machine, state)
-  subagent ───┼─> branch ──────────>   workspace (branch, status)
-  subagent ───┘   branch
+Agents (whales)        LayerFS                  Sandboxes
+root ──────────┐          ┌── branch ─────────>  sandbox (machine, state)
+  subagent ────┼──> (LayerFS) ── branch ──────>    workspace (branch, status)
+  subagent ────┘          └── branch
 ```
+
+Each agent is drawn as a whale in its own hue (six token-mixed hues, repeated);
+its calls travel in that hue. The whale's spout shows, and it bobs, only while
+the agent has a call running.
 
 Nodes are derived, not configured:
 
@@ -119,33 +129,67 @@ Each call from the agents' call logs becomes an event (polling reads such as
 `project.get`, `file.list`, `workspace.status` and the `list` calls are left
 out). Only an answered call adds a node: a refused `sandbox create` or mount
 made nothing, so its event names only the nodes that exist. A call
-travels a chain of wires: agent → branch → workspace, agent → branch, or, for a
-sandbox call without a branch (`sandbox create|close`), agent → project hub →
-sandbox. Agent → branch and branch → workspace wires stay drawn; the hops
-through the hub exist only around their call. While a call runs its wires light
-in its lane colour, a dashed flow runs along them and a request packet loops
-over the chain; when it ends a result packet runs back (green, red for a
-refusal) and the wires stay green or red for 1.5 s. Packets are placed from the
-replay clock, so pausing freezes them and scrubbing moves them. Hovering a node
-or a call dims what it does not touch; selecting a call opens its command,
-timing, outcome and, when this plugin kept it, what it printed (`logs.output`).
+travels one continuous path: agent → into the hub → out along its branch's
+spoke (→ the workspace, for a workspace call), or, for a sandbox call without a
+branch (`sandbox create|close`), agent → hub → out between the pills → the
+sandbox. Agent → hub, hub → branch and branch → workspace wires stay drawn
+(dashed before the branch is forked or the workspace mounted); branches mounted
+in a workspace take arc slots in workspace order so those wires do not cross.
+Every call travels once: its request packet (the agent's hue, with a short
+tail) eases out to the target, which ripples on arrival and stays lit while the
+call runs; when it ends the result travels back once (green, red for a
+refusal), ripples at the whale, and the path fades over 1.5 s. Nothing moves
+when no call runs. Every position of a packet, ripple, spout or fade is a pure
+function of the replay clock, so pausing freezes it and scrubbing moves it
+(`phaseOf` in `model.ts`). Sandboxes and branches not created yet at the
+playhead show as dashed ghosts, so the layout does not jump during a replay.
+Hovering a node or a call dims what it does not touch; selecting a call opens
+its command, timing, outcome and, when this plugin kept it, what it printed
+(`logs.output`).
 
 Time: calls are written to the log when they finish, so the map replays rather
 than streams. The replay clock keeps real order but paces calls so each can be
 watched: idle gaps shrink to one second, every call lasts 1.4–6 s on the
 replay, and one agent's back-to-back calls get their own windows 0.25 s apart
 (the push delays everything after it, so order across agents is kept). The
-replay ends 1.5 s after the last call so it comes to rest. Controls are
+replay ends 2.4 s after the last call (result travel plus fade) so it comes to rest. Controls are
 Play/Pause (Play again at the end), Replay from the start, Live, and a scrubber
-in the strip under the map. Live keeps the playhead at the end and plays each
+under the map with one thin row of call bars per agent. Live keeps the playhead at the end and plays each
 call as it is appended. The view opens at Live while any agent is running,
-otherwise at the end, paused. `prefers-reduced-motion` turns packets, flows and
-pulses off.
+otherwise at the end, paused. `prefers-reduced-motion` turns packets, ripples, the
+whales' bob and fades off: a running call shows its lit path, then its result colour.
 
-The exec command is redacted in the call log (`<N bytes>`), so the map names
-the call and its workspace, not the command line.
+Each sandbox card shows its machine's mark (native macOS/Linux, Docker, Lima,
+Apple Container, microsandbox, from `GET /api/machines`), its name and status;
+the machine and workspace count are in its tooltip. A workspace is one line
+(name, and what it is doing now); clicking it unfolds its terminal under it and
+widens the column. The Activity list under the map folds, and its state is
+remembered per browser.
 
-## 6. No side panel
+The exec command is redacted in the call log (`<N bytes>`), so the map itself
+names the call and its workspace, not the command line. The workspace terminal
+recovers it: a call's tag (`dsh:<sessionId>:<receiptId>`) joins it to the
+agent's tool call in `session.trajectory`, whose arguments hold the command and
+whose result holds the output (`session.trajectory.record`); calls one tool call
+made share one entry. The command is shown as the agent meant it: the plugin's
+`test -n "$DSH_LAYERFS_WS" &&` guard is dropped and each
+`"$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" '<cmd>' --stream` part
+becomes `<cmd>`. A call with no tool call shows its logged words (or "command
+not kept" when redacted) and what `logs.output` kept. Only `workspace.exec`
+calls appear, up to the replay clock, newest twelve, following the newest.
+
+## 6. Stats
+
+The project's storage, read from `GET /api/projects/<key>/storage`: the same
+`ProjectStorage` panel as the Stats tab of the project's page in Storage (one
+component, the Storage page's copy), not a second page. It shows the packed
+bytes, the flow from saved snapshots to packed bytes, the project's share of
+its Store, main's latest tree, saves and publications, packed bytes over
+history and what each recent save added. It is project-wide (every branch),
+re-reads on the root's checkpoints, and "View Store usage" opens the Store's
+tab in Storage.
+
+## 7. No side panel
 
 There is no LayerFS tab in DSH's right sidebar, no LayerFS button in the
 session header and no checkpoint notes under Chat's turns (LayerFS Connect had
@@ -153,11 +197,12 @@ none either). A project session is marked by its row glyph in the Workspace
 list and by these tabs. A project is chosen for a new session on the New
 Session row.
 
-## 7. Verification
+## 8. Verification
 
 - Unit: `test/views-model.test.mjs` covers argv → nodes, root resolution and
   replay timing.
-- Browser: on a side server, a project session shows the three tabs; Files
+- Browser: on a side server, a project session shows the four tabs; Files
   opens on the session branch; History shows the project graph on the session
   branch; Sandbox draws the map with wires and replays
-  calls; a folder session shows the empty state.
+  calls; Stats shows the project's storage dashboard; a folder session shows
+  the empty state.

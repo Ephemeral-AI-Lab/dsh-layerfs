@@ -10,7 +10,8 @@
  *                 Store; the host keeps its own table of the Inits it started
  *   state         branch.list metadata, sandbox.list and store.status: the
  *                 Store's facts, no Sandbox asked
- *   sandboxes     sandbox.list with each Sandbox's Workspaces (sandbox.get)
+ *   sandboxes     sandbox.list; Workspaces are not read (`unread`), the client asks
+ *                 GET /api/sandboxes/:name (sandbox.get) for each it shows
  *   createSandbox sandbox.create(key, name, machine, { image })
  *   closeSandbox  sandbox.close(name, { force })
  *   commits       commit.list, newest first, each Commit's changed paths from
@@ -27,7 +28,7 @@ import { isAbsolute, join } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { pgMachineOf } from '../sessions/availability.ts'
-import { PAGE, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
+import { PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 
 /** Calls in flight at once for one answer (stats, diffs). */
 const WIDTH = 4
@@ -39,6 +40,8 @@ const LIMIT = 200
 const KEEP_INITS = 50
 /** Saved-query replies have a byte budget as well as an item limit. */
 export const HISTORY_PAGE_SIZE = 20
+/** History pages kept per host (Projects.historyPages). */
+const HISTORY_PAGES_KEPT = 512
 
 /** Tagged ids: a Layer's first byte is 0x32. */
 const isLayer = (id: unknown) => typeof id === 'string' && id.startsWith('32')
@@ -169,6 +172,12 @@ export interface ProjectInitJob {
 export class Projects {
   /** Commit id -> its changed paths, or null when LayerFS cannot compare it. */
   readonly changes = new Map<string, any[] | null>()
+  /**
+   * History pages read at a named Commit (`at`/`head`), newest last: a Branch's
+   * Commits before a given Commit never change, so reopening History rereads
+   * only the Branches that moved.
+   */
+  readonly historyPages = new Map<string, unknown>()
   /** Init job id -> ProjectInitJob: the Inits this host started (2.0 keeps no job registry). */
   readonly inits = new Map<string, ProjectInitJob>()
   readonly creations = new Map<string, Promise<unknown>>()
@@ -403,6 +412,10 @@ export class Projects {
       if (body.machine && body.machine !== attached) throw refuse(400, 'Unsupported', `PostgreSQL Store ${store} is not attached to machine ${body.machine}; \`layerfs store attach ${store} ${body.machine}\``)
       machine = attached
     }
+    // a caller-local archive is sandbox.create's image_archive option, which not every CLI has
+    if (image && typeof image === 'object' && !(await cliFeatures(this.host)).imageArchive) {
+      throw refuse(501, 'Unsupported', 'The pinned LayerFS CLI cannot create a Sandbox from an image archive (sandbox.create has no image_archive option). Choose the default image or an image the machine has.')
+    }
     await this.host.ensureNative()
     return this.lfs.sandbox.create(keyOf(record), name, machine, image ? { image } : {})
   }
@@ -423,31 +436,38 @@ export class Projects {
     if (typeof sandbox !== 'string' || !sandbox) throw refuse(400, 'InvalidInput', 'Name the Sandbox.')
     checkBranch(branch)
     if (branch === 'main') throw refuse(400, 'InvalidInput', 'Only side Branches are mounted: fork a Branch from main and mount that.')
+    const lfs = this.lfs
     if (fork) {
-      const { project } = await this.lfs.sandbox.get(sandbox, { page_size: 1, page_pos: 0 })
-      await this.lfs.branch.fork(project, branch, 'main')
+      const { project } = await lfs.sandbox.get(sandbox, { page_size: 1, page_pos: 0 })
+      await lfs.branch.fork(project, branch, 'main')
     }
-    return this.lfs.workspace.mount(sandbox, branch, name ? { name } : {})
+    try { return await lfs.workspace.mount(sandbox, branch, name ? { name } : {}) } finally { invalidateSandbox(lfs, sandbox) }
   }
 
   /** workspace.unmount(ws, { discard, force }): refused while it has changes unless discarded, and while busy unless forced. */
   async unmount(ws: string, { discard = false, force = false } = {}) {
     if (typeof ws !== 'string' || !ws.includes(':')) throw refuse(400, 'InvalidInput', 'A Workspace is named <sandbox>:<name or path>.')
-    return this.lfs.workspace.unmount(ws, { ...(discard ? { discard: true } : {}), ...(force ? { force: true } : {}) })
+    const lfs = this.lfs
+    try { return await lfs.workspace.unmount(ws, { ...(discard ? { discard: true } : {}), ...(force ? { force: true } : {}) }) } finally { invalidateSandbox(lfs, ws.slice(0, ws.indexOf(':'))) }
   }
 
   /** sandbox.close(name, { force }); answers its result, with the `unknown` Workspaces a forced close left. */
   async closeSandbox(name: string, { force = false } = {}) {
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'Name the Sandbox to close.')
     // A session's Sandbox holds its mounted Workspace: save a checkpoint and close it as the session does.
-    if (!force && await this.host.closeSessionSandbox?.(name)) {
+    if (!force && await this.host.closeSessionSandbox?.(name).finally(() => this.forget(name))) {
       this.sandboxClosedHook?.(name)
       return { kind: 'Closed', sandbox: name, closed: name, session: true }
     }
-    const result = await this.lfs.sandbox.close(name, force ? { force: true } : {})
+    const result = await this.lfs.sandbox.close(name, force ? { force: true } : {}).finally(() => this.forget(name))
     await this.host.sandboxClosed?.(name)
     this.sandboxClosedHook?.(name)
     return result
+  }
+
+  /** A write on `sandbox` (its outcome known or not): its next read asks LayerFS again. */
+  private forget(sandbox: string) {
+    try { invalidateSandbox(this.lfs, sandbox) } catch { /* no CLI pinned: nothing is cached for it */ }
   }
 
   /** Called after each successful close (the router drops the Sandbox's command logs). */
@@ -526,10 +546,8 @@ export class Projects {
     if (!branch) {
       const pos = Number(q.get('pos') ?? 0)
       if (!Number.isSafeInteger(pos) || pos < 0) throw fail('pos must be a nonnegative integer')
-      const page = await this.lfs.branch.list(project, { page_size: 100, page_pos: pos })
-      const items = [...page.items]
-      if (pos === 0 && !items.some((b: any) => b.name === 'main')) items.unshift(await this.lfs.branch.get(project, 'main'))
-      return { branches: items.map((b: any) => ({ name: b.name, head: pinOf(b), base: b.base, forkedFrom: b.forked_from ?? null })), next: page.next_page_pos ?? null }
+      const page = await this.branchPage(project, pos)
+      return { branches: page.items.map((b: any) => ({ name: b.name, head: pinOf(b), base: b.base, forkedFrom: b.forked_from ?? null })), next: page.next }
     }
     const commit = q.get('commit')
     if (commit) {
@@ -541,13 +559,22 @@ export class Projects {
     }
     // Resume from the immutable last parent, rather than re-reading a moving head.
     const at = q.get('at') ?? q.get('head')
-    const fork = branch === 'main' ? null : (await this.lfs.branch.get(project, branch)).forked_from
+    // the caller's fork point from the Branch list (`fork`) saves a branch.get per Branch
+    const fork = branch === 'main' ? null : q.get('fork') || (await this.lfs.branch.get(project, branch)).forked_from
+    const cacheKey = at ? JSON.stringify([project, branch, at, fork]) : null
+    const cached = cacheKey ? this.historyPages.get(cacheKey) : undefined
+    if (cached) { this.historyPages.delete(cacheKey!); this.historyPages.set(cacheKey!, cached); return cached }
     const page = await this.lfs.branch.commits(project, branch, { page: 1, page_size: HISTORY_PAGE_SIZE, ...(at ? { at_commit: at } : {}) })
     const all: any[] = page.items ?? []
     const boundary = fork ? all.findIndex((c) => c.id === fork) : -1
     const items = boundary < 0 ? all : all.slice(0, boundary)
     const parent = items.at(-1)?.parent
-    return { items: items.map((c) => commitInfo(c, branch)), head: page.at_commit?.id ?? (typeof page.at_commit === 'string' ? page.at_commit : null) ?? at ?? items[0]?.id ?? null, next: page.has_more && boundary < 0 && parent !== fork ? parent ?? null : null }
+    const answer = { items: items.map((c) => commitInfo(c, branch)), head: page.at_commit?.id ?? (typeof page.at_commit === 'string' ? page.at_commit : null) ?? at ?? items[0]?.id ?? null, next: page.has_more && boundary < 0 && parent !== fork ? parent ?? null : null }
+    if (cacheKey) {
+      this.historyPages.set(cacheKey, answer)
+      if (this.historyPages.size > HISTORY_PAGES_KEPT) this.historyPages.delete(this.historyPages.keys().next().value!)
+    }
+    return answer
   }
 
   /** One bounded immutable directory page; metadata is read only for opened files. */
@@ -599,8 +626,23 @@ export class Projects {
     if (q.get('branch')) return this.lfs.branch.get(project, q.get('branch'))
     const pos = Number(q.get('pos') ?? 0)
     if (!Number.isSafeInteger(pos) || pos < 0) throw fail('pos must be a nonnegative integer')
-    const page = await this.lfs.branch.list(project, { page_size: 100, page_pos: pos })
-    return { items: page.items.map((b: any) => ({ name: b.name, head: pinOf(b), parent: null, forkedFrom: b.forked_from ?? null, state: 'open', commits: null })), next: page.next_page_pos ?? null }
+    const page = await this.branchPage(project, pos)
+    return { items: page.items.map((b: any) => ({ name: b.name, head: pinOf(b), parent: null, forkedFrom: b.forked_from ?? null, state: 'open', commits: null })), next: page.next }
+  }
+
+  /**
+   * One page of a project's Branches (branch.list, 100 at a time), main first:
+   * main is read on its own for page 0 and left out of every listed page, since
+   * name order puts it on any page (`dsh.*` sorts before it). Page 0 is never
+   * empty, so a client that hides internal Branches still has one to show.
+   */
+  private async branchPage(project: string, pos: number): Promise<{ items: any[], next: number | null }> {
+    const [page, main] = await Promise.all([
+      this.lfs.branch.list(project, { page_size: 100, page_pos: pos }),
+      pos === 0 ? this.lfs.branch.get(project, 'main') : null,
+    ])
+    const items = (page.items ?? []).filter((b: any) => b.name !== 'main')
+    return { items: main ? [main, ...items] : items, next: page.next_page_pos ?? null }
   }
 
   async projectStats(key: string, q: URLSearchParams) {
@@ -668,17 +710,18 @@ export class Projects {
   }
 
   /**
-   * One Commit's changed paths: commit.diff from its parent. A Branch's first
-   * Commit has no parent Commit and 2.0 cannot diff a Layer with a Commit
-   * (§9 Q3), so its changes are left out. A failed diff is logged.
+   * One Commit's changed paths: commit.diff from its parent, or for a
+   * Branch's first Commit from its base Layer (`commit diff <layer> <commit>`,
+   * as history() reads it). A failed diff is logged.
    */
   async changesOf(project: string, c: any) {
     if (this.changes.has(c.id)) return this.changes.get(c.id)
-    if (!c.parent) return null
+    const from = c.parent ?? c.base
+    if (!from) return null
     try {
       const items: any[] = []
       for (let cursor: string | null = null; ;) {
-        const page: any = await this.lfs.commit.diff(project, c.parent, c.id, { paths_only: true, page_size: PAGE, ...(cursor ? { cursor } : {}) })
+        const page: any = await this.lfs.commit.diff(project, from, c.id, { paths_only: true, page_size: PAGE, ...(cursor ? { cursor } : {}) })
         items.push(...page.items.map(({ path, kind }: any) => ({ path, kind: String(kind).toLowerCase() })))
         if (page.next_cursor) cursor = page.next_cursor
         else break

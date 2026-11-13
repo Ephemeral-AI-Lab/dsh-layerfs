@@ -13,20 +13,25 @@ import { PowerGlyph } from './icons.tsx'
 import { BUILT_IN, duration, forceStopOf, heldWords, inUse, isImageRef, machineState, opWords, powerOf, stageWords, type MachineInfo, type MachineLive } from './model.ts'
 import css from './machines.module.css'
 
-/** Runs a machine action, one at a time: `pending` names it; LayerFS's refusal is kept to show. */
-export type Run = (key: string, action: MachineAction) => Promise<boolean>
+/**
+ * Runs a machine action, one at a time: `pending` names it; LayerFS's refusal
+ * is kept to show where the hook lives, or, with `{ rethrow: true }`, thrown to
+ * the caller (a dialog) to show where it was asked.
+ */
+export type Run = (key: string, action: MachineAction, options?: { rethrow?: boolean }) => Promise<boolean>
 
 export function useMachineRun(): { run: Run, pending: string | null, error: unknown } {
   const { act } = useMachinesContext()
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState<string | null>(null)
-  const run: Run = async (key, action) => {
+  const run: Run = async (key, action, options) => {
     setPending(key)
     setError(null)
     try {
       await act(action)
       return true
     } catch (e) {
+      if (options?.rethrow) throw e
       setError(e)
       return false
     } finally {
@@ -85,6 +90,8 @@ function useElapsed(on: boolean): number {
 export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineInfo, pending: string | null, run: Run, onOpen?: () => void, onDialog: (d: 'settings' | 'remove' | 'force-stop') => void }): ReactNode {
   const { t, tw, useMachines } = useMachinesContext()
   const hasSandboxes = useMachines((snapshot) => m.sandboxes.length > 0 || !!(snapshot.data?.available && snapshot.data.sandboxes.some((sandbox) => sandbox.machine === m.name)))
+  // only a CLI whose machine.stop takes force offers Force stop
+  const features = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.features : undefined))
   const power = powerOf(m)
   const builtIn = BUILT_IN.has(m.platform)
   const held = inUse(m)
@@ -99,7 +106,7 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
               {t(powerKey(m, power))}
             </MenuItemButton>
           )}
-          {forceStopOf(m, hasSandboxes) && (
+          {forceStopOf(m, hasSandboxes, features) && (
             <MenuItemButton danger icon={<PowerGlyph size={14} />} disabled={pending !== null}
               onSelect={() => { close(); onDialog('force-stop') }}>
               {t('forceStop')}
@@ -163,15 +170,15 @@ function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose:
     if (imageBad || pending !== null) return
     setError(null)
     try {
-      const ok = await run('update', { kind: 'update', name: m.name, changes: { image: image || undefined, ...(docker ? { docker: socket || undefined, wsl: wsl || undefined } : {}) } })
+      const ok = await run('update', { kind: 'update', name: m.name, changes: { image: image || undefined, ...(docker ? { docker: socket || undefined, wsl: wsl || undefined } : {}) } }, { rethrow: true })
       if (ok) onClose()
     } catch (e) { setError(e) }
   }
   return (
-    <Modal open onClose={onClose} title={t('settingsTitle')} description={m.name} closeLabel={t('close')} className={css.dialog}
+    <Modal open onClose={() => { if (pending === null) onClose() }} title={t('settingsTitle')} description={m.name} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
-          <Button variant="outline" onClick={onClose}>{t('cancel')}</Button>
+          <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>
           <Button variant="primary" disabled={pending !== null || imageBad} onClick={() => void save()}>{pending === 'update' ? t('saving') : t('save')}</Button>
         </>
       )}>
@@ -195,20 +202,29 @@ function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose:
   )
 }
 
-/** Remove a VM and its disk; LayerFS's refusal shows where it was asked. */
+/** Remove a VM and its disk; LayerFS's refusal shows in the dialog, where it was asked. */
 function RemoveDialog({ m, onClose, pending, run, onRemoved }: { m: MachineInfo, onClose: () => void, pending: string | null, run: Run, onRemoved?: () => void }): ReactNode {
-  const { t } = useMachinesContext()
+  const { t, refusal } = useMachinesContext()
+  const [error, setError] = useState<unknown>(null)
+  const remove = async () => {
+    if (pending !== null) return
+    setError(null)
+    try {
+      if (await run('remove', { kind: 'remove', name: m.name }, { rethrow: true })) { onClose(); onRemoved?.() }
+    } catch (e) { setError(e) }
+  }
   return (
-    <Modal open onClose={onClose} title={t('removeTitle', { name: m.name })} description={t('removeBody')} closeLabel={t('close')} className={css.dialog}
+    <Modal open onClose={() => { if (pending === null) onClose() }} title={t('removeTitle', { name: m.name })} description={t('removeBody')} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
-          <Button variant="outline" onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" className={css.danger} disabled={pending !== null}
-            onClick={() => void run('remove', { kind: 'remove', name: m.name }).then((ok) => { onClose(); if (ok) onRemoved?.() })}>
+          <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>
+          <Button variant="primary" className={css.danger} disabled={pending !== null} onClick={() => void remove()}>
             {pending === 'remove' ? t('removing') : t('remove')}
           </Button>
         </>
-      )} />
+      )}>
+      {error != null && <Refusal error={error} labels={refusal} className={css.errorText} />}
+    </Modal>
   )
 }
 

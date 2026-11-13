@@ -22,10 +22,12 @@ export interface HeroTab {
 /** The id of a tab's panel, for `aria-controls`. */
 export const panelId = (key: string) => `ov-panel-${key}`
 
-export function HomeHero({ eyebrow, headline, tone, sub, actions, tabs, active, onSelect, tabsLabel, banner }: {
+export function HomeHero({ eyebrow, headline, onHeadline, tone, sub, actions, tabs, active, onSelect, tabsLabel, banner }: {
   eyebrow: ReactNode
   /** What needs you, or that all is well. */
   headline: string
+  /** When set, the headline is a button (it jumps to what it counts). */
+  onHeadline?: (() => void) | undefined
   tone: 'success' | 'warning' | 'danger'
   /** One line of counts under the headline. */
   sub: string
@@ -55,7 +57,7 @@ export function HomeHero({ eyebrow, headline, tone, sub, actions, tabs, active, 
           <div className={css.eyebrow}>{eyebrow}</div>
           <h1 className={css.title}>
             <StateDot state={tone === 'success' ? 'done' : tone === 'danger' ? 'error' : 'warning'} size={9} />
-            {headline}
+            {onHeadline ? <button type="button" className={css.titleLink} onClick={onHeadline}>{headline}</button> : headline}
           </h1>
           <p className={css.sub}>{sub}</p>
         </div>

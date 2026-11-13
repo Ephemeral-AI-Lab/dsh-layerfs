@@ -88,16 +88,20 @@ export class LayerfsRemote extends TypertRemoteService {
     const queue: LayerfsEvent[] = []
     let wake: (() => void) | undefined
     const listener = (event: LayerfsEvent) => { queue.push(event); wake?.() }
+    // One abort listener for the stream's life, not one per wait.
+    const aborted = () => wake?.()
     this.listeners.add(listener)
+    signal.addEventListener('abort', aborted, { once: true })
     try {
       yield { type: 'ready' }
       while (!signal.aborted) {
-        if (!queue.length) await new Promise<void>((resolve) => { wake = resolve; signal.addEventListener('abort', () => resolve(), { once: true }) })
+        if (!queue.length) await new Promise<void>((resolve) => { wake = resolve })
         wake = undefined
         while (queue.length) yield queue.shift()!
       }
     } finally {
       this.listeners.delete(listener)
+      signal.removeEventListener('abort', aborted)
     }
   }
 }

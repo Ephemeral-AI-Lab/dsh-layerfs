@@ -23,12 +23,20 @@ const en = {
   sourceInvalid: 'Use an absolute path.',
   sourceRequired: 'Folder to import',
   sourceRequiredHint: 'An absolute path on this host. Its files become the project’s initial files.',
+  browse: 'Browse…',
+  storesFailed: 'Could not list Stores: {message}',
   create: 'Create and open',
   import: 'Import and open',
   creating: 'Creating…',
   back: 'Back',
   cancel: 'Cancel',
   close: 'Close',
+  location: 'Location',
+  home: 'LayerFS Home',
+  locationNew: 'Creates the SQLite Store {store} in the LayerFS Home.',
+  runsOn: 'Sessions run on {machine}.',
+  savedAs: 'Saved as {slug}',
+  folder: 'Folder',
 }
 
 const zh: typeof en = {
@@ -52,13 +60,21 @@ const zh: typeof en = {
   sourceHint: '本机上的绝对路径，将导入为项目。留空则创建空项目。',
   sourceInvalid: '请使用绝对路径。',
   sourceRequired: '要导入的文件夹',
-  sourceRequiredHint: '本机上的绝对路径，其中的文件将成为项目的 main 分支。',
+  sourceRequiredHint: '本机上的绝对路径，其中的文件将成为项目的初始文件。',
+  browse: '浏览…',
+  storesFailed: '无法列出存储：{message}',
   create: '创建并打开',
   import: '导入并打开',
   creating: '正在创建…',
   back: '返回',
   cancel: '取消',
   close: '关闭',
+  location: '位置',
+  home: 'LayerFS Home',
+  locationNew: '将在 LayerFS Home 中创建 SQLite 存储 {store}。',
+  runsOn: '会话运行在 {machine}。',
+  savedAs: '保存为 {slug}',
+  folder: '文件夹',
 }
 
 export const locales = { en, zh }

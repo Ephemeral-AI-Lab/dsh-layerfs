@@ -270,7 +270,8 @@ export class LayerfsSessions extends Service {
       if (agent) await this.moveTo(agent, original)
     }
     if (project) {
-      if (projectId) await persistence?.catalog?.assert(project, projectId)
+      // Choosing places the session: the one place an unclaimed project is claimed.
+      if (projectId) await persistence?.catalog?.assert(project, projectId, { claim: true })
       await this.lfs.project.get(project); this.ensureAnchor(project)
     }
     await persistence?.migrateProject?.(live ?? sessionId, project)
@@ -823,12 +824,17 @@ export class LayerfsSessions extends Service {
     try {
       await (this.ctx.get?.('sessionPersistence' as never) as any)?.assertSessionIdentity?.(sessionId)
       const status = await this.lfs.workspace.status(binding.ws)
-      const entries = Number(status?.overlay?.entries ?? 0)
-      if (!entries && !status?.head_moved_since_mount && kind === 'turn') return undefined
+      // In-place edits count as dirty inodes with no new directory entries.
+      const entries = Math.max(Number(status?.overlay?.inodes ?? 0) || 0, Number(status?.overlay?.entries ?? 0) || 0)
+      if (!entries && !status?.overlay?.pending_merge && !status?.head_moved_since_mount && kind === 'turn') return undefined
       // Tagged with this session's own id: the session that owns the checkpoint.
       const result = await this.hostOperation(sessionId, binding.project!, turn, () => this.lfs.workspace.commit(binding.ws!, { message }), (invocation) => { receipt = invocation.id })
       const commit = result?.kind === 'Committed' ? result.commit?.id ?? result.head : result?.head ?? null
-      checkpoint = { kind, turn, seq, commit, branch: binding.branch!, changed: result?.kind === 'Committed' ? Math.max(entries, 1) : 0, message, at: Date.now(), ...(receipt ? { receipt } : {}) }
+      // Agents change files with `file` calls and their own Workspaces' Commits, so the
+      // session Branch often moved while this Workspace changed nothing: count what moved.
+      const changed = result?.kind === 'Committed' ? Math.max(entries, 1)
+        : status?.head_moved_since_mount && commit ? await this.pathsChanged(binding.project!, status.base ?? status.base_layer, commit) : 0
+      checkpoint = { kind, turn, seq, commit, branch: binding.branch!, changed, message, at: Date.now(), ...(receipt ? { receipt } : {}) }
       if (commit && binding.simulation?.handoffReady) {
         this.state.update((s) => {
           s.sessions[sessionId].simulation!.continuation = { kind: 'Commit', id: commit, branch: binding.branch! }
@@ -840,6 +846,16 @@ export class LayerfsSessions extends Service {
     }
     await this.record(sessionId, checkpoint)
     return checkpoint
+  }
+
+  /** Files that differ between two saved versions (one page, so at most 1000); 1 when unknown. */
+  private async pathsChanged(project: string, from: string | null | undefined, to: string): Promise<number> {
+    if (!from || from === to) return from ? 0 : 1
+    try {
+      const page: any = await this.lfs.commit.diff(project, from, to, { paths_only: true, page_size: 1000 })
+      const files = (page?.items ?? []).filter((item: any) => item?.type !== 'dir').length
+      return Math.max(files, page?.items?.length ? 1 : 0)
+    } catch { return 1 }
   }
 
   /** `turn/end` seen: complete the turn's checkpoint with its boundary seq. */
@@ -872,16 +888,21 @@ export class LayerfsSessions extends Service {
       const generation = (binding.restores ?? 0) + 1
       const branch = branchOf(sessionId, generation)
       const receipt = await this.tracedFork(sessionId, binding.project, this.lastTurn(sessionId), branch, target.branch ?? binding.branch ?? 'main', commit)
-      await this.lfs.workspace.unmount(`${binding.sandbox}:${WS_NAME}`, { discard: true, force: true }).catch(() => {})
-      const next: Binding = { ...binding, branch, restores: generation, base: undefined, state: 'bound', executionState: 'active', error: undefined, interruption: undefined }
-      if (next.simulation?.handoffReady) next.simulation = { ...next.simulation, continuation: { kind: target.kind === 'base' ? next.simulation.continuation?.kind ?? 'Commit' : 'Commit', id: commit, branch } }
-      next.mount = await this.mount(next)
-      this.save(next)
+      // The fork is durable: the binding names the restored branch from here, so a
+      // failed mount leaves a retry forking the next generation (never `Exists`),
+      // and it claims no Workspace until the mount succeeds.
+      const forked: Binding = { ...binding, branch, restores: generation, base: undefined, mount: undefined, ws: undefined, state: 'closed', executionState: 'activating', error: undefined, interruption: undefined }
+      if (forked.simulation?.handoffReady) forked.simulation = { ...forked.simulation, continuation: { kind: target.kind === 'base' ? forked.simulation.continuation?.kind ?? 'Commit' : 'Commit', id: commit, branch } }
+      this.save(forked)
       await this.record(sessionId, {
-        kind: 'restore', turn: target.turn, seq: session?.seq ?? 0, endSeq: session?.seq ?? 0, commit: next.base ?? commit,
+        kind: 'restore', turn: target.turn, seq: session?.seq ?? 0, endSeq: session?.seq ?? 0, commit,
         branch, changed: 0, at: Date.now(), message: `Restored files to ${target.kind === 'base' ? 'the start' : `turn ${target.turn}`}`,
         ...(receipt ? { receipt } : {}),
       })
+      await this.lfs.workspace.unmount(`${binding.sandbox}:${WS_NAME}`, { discard: true, force: true }).catch(() => {})
+      const next: Binding = { ...forked, ws: binding.ws ?? `${binding.sandbox}:${WS_NAME}`, state: 'bound', executionState: 'active' }
+      next.mount = await this.mountOrFail(forked, next)
+      this.save(next)
       const agent = (this.ctx.get('agents' as never) as any)?.get?.(sessionId)
       if (agent) {
         await this.moveTo(agent, next.scratch)
@@ -892,6 +913,17 @@ export class LayerfsSessions extends Service {
       }
       return next
     })
+  }
+
+  /**
+   * Mount `next` (a freshly forked branch). A failed mount keeps `forked` (its
+   * new branch, no Workspace) as `failed`, so the next message re-mounts that branch.
+   */
+  private async mountOrFail(forked: Binding, next: Binding): Promise<string | undefined> {
+    try { return await this.mount(next) } catch (error: any) {
+      this.save({ ...forked, state: 'failed', executionState: 'interrupted', error: `Mounting the project files failed: ${errorOf(error).message}. A new message mounts them again.` })
+      throw error
+    }
   }
 
   /** {@link forkAt} as a host operation of `sessionId`: answers the successful fork's receipt id. */
@@ -947,9 +979,14 @@ export class LayerfsSessions extends Service {
       if (bound.from?.session === sessionId && bound.from.turn === target.turn) return
       const branch = branchOf(child, (bound.restores ?? 0) + 1)
       const receipt = await this.tracedFork(child, start.project, 0, branch, start.branch ?? 'main', start.commit)
+      // As in restore: the forked branch is recorded before the mount, so a failed
+      // mount re-mounts it on the next message (which also records the base checkpoint).
+      const forked: Binding = { ...bound, branch, restores: (bound.restores ?? 0) + 1, base: undefined, from: { session: sessionId, commit: start.commit, turn: target.turn }, mount: undefined, ws: undefined, state: 'closed', executionState: 'activating', error: undefined, interruption: undefined }
+      this.save(forked)
+      await this.persistMetadata(child)
       await this.lfs.workspace.unmount(`${bound.sandbox}:${WS_NAME}`, { discard: true, force: true }).catch(() => {})
-      const next: Binding = { ...bound, branch, restores: (bound.restores ?? 0) + 1, base: undefined, from: { session: sessionId, commit: start.commit, turn: target.turn }, state: 'bound', executionState: 'active', error: undefined, interruption: undefined }
-      next.mount = await this.mount(next)
+      const next: Binding = { ...forked, ws: bound.ws ?? `${bound.sandbox}:${WS_NAME}`, state: 'bound', executionState: 'active' }
+      next.mount = await this.mountOrFail(forked, next)
       this.save(next)
       this.state.update((s) => {
         delete s.pending[child]

@@ -288,11 +288,11 @@ The sidebar's Workspaces section has two views, switched by a LayerFS button in
 its header and remembered per browser. The DSH view is DSH's own workspace
 browser, unchanged apart from that button (hidden while DSH's search is open).
 The LayerFS view keeps the same header (DSH's "Workspaces" label, the switch,
-and a folder button that opens the Projects page) and lists projects labeled
-`<project name> · <store name>` (never named after the selected scratch
-workspace), grouped into Ready and Unavailable, each with its status, Start or
-New session, and its conversations folding out under it. A project's row opens
-its page, whose crumb leads back to the Projects page.
+and a `+` menu) and lists the projects that have sessions on this DSH by name
+(never named after the selected scratch workspace), each with Start or New
+session, ⚙ for the project dialog, and its conversations folding out under it.
+Creating, importing, configuring and picking projects happen in one modal; there
+is no Projects page (docs/specs/layerfs-workspaces.md).
 
 This is plugin-only. The LayerFS view is a `sidebar.workspaces` registration at
 a lower priority than the stock browser, which the slot runtime renders instead

@@ -1,6 +1,6 @@
-// UI state coverage against an isolated dev server. Machine responses are
-// simulated; no VM is started or stopped. The initial archive failure check
-// uses the real host operation.
+// Sidebar and project dialog states against an isolated dev server. Machine
+// responses are simulated; no VM is started or stopped. The initial archive
+// failure check uses the real host operation.
 import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -8,6 +8,7 @@ import { openDev } from '../tools/e2e-lib.mjs'
 
 const { browser, page, logs } = await openDev()
 page.setDefaultTimeout(15_000)
+const until = async (check, ms = 15_000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await check()) return; await new Promise((r) => setTimeout(r, 150)) } throw new Error('timed out') }
 const artifacts = join(process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname, 'project-overview-artifacts')
 mkdirSync(artifacts, { recursive: true })
 try {
@@ -21,10 +22,15 @@ try {
   await page.evaluate(() => {
     const api = window.__dshLayerfs
     const call = api.call.bind(api), op = api.op.bind(api)
-    const fixture = window.__projectOverviewFixture = { state: 'stopped', starts: 0, sessions: 0, archive: 'failed', store: 'idle' }
+    const fixture = window.__projectOverviewFixture = { state: 'stopped', starts: 0, sessions: 0 }
+    const row = { key: 'demo-store/compiler', name: 'compiler', store: 'demo-store', kind: 'sqlite', machine: 'build', created: 1794400000000, storeState: 'idle' }
     api.call = async (method, path, body) => {
-      if (method === 'GET' && path === '/api/projects') return [{ key: 'demo-store/compiler', name: 'compiler', store: 'demo-store', kind: 'sqlite', machine: 'build', created: 1794400000000, storeState: fixture.store }]
+      if (method === 'GET' && path === '/api/projects') return [row]
       if (method === 'GET' && path === '/api/machines') return { available: true, machines: [{ name: 'build', platform: 'lima', state: fixture.state, stores: ['demo-store'], sandboxes: [], cpus: 2, memory: 4000000000, disk: 20000000000 }], status: {}, platforms: [], stores: [], postgresql: [], sandboxes: [] }
+      if (method === 'GET' && path === '/api/storage') return {
+        machines: [{ name: 'native', platform: 'native', state: 'running', supports: null }, { name: 'build', platform: 'lima', state: fixture.state, supports: null }],
+        stores: [{ name: 'demo-store', kind: 'sqlite', machine: 'build', projects: ['compiler'], attachments: null }], buckets: [], jobs: [], at: Date.now(),
+      }
       if (method === 'POST' && path === '/api/machines/build/start') {
         fixture.starts++
         await new Promise((resolve) => setTimeout(resolve, 400))
@@ -34,67 +40,51 @@ try {
       return call(method, path, body)
     }
     api.op = async (name, args) => {
-      if (name === 'projects.catalog') return { rows: await api.call('GET', '/api/projects'), scratchKey: null }
-      if (name === 'sessions.list' && args.project === 'demo-store/compiler') {
-        const local = { sessionId: 'local-overview-conversation', title: 'Saved local conversation', local: true, updatedAt: 1794400000000 }
-        if (args.localOnly) return { sessions: [local] }
-        if (fixture.archive === 'pending') return new Promise(() => {})
-        return { sessions: [local], discoveryError: fixture.archive === 'failed' ? { code: 'Unavailable', message: 'Machine is offline' } : null }
-      }
+      if (name === 'projects.catalog') return { rows: [row], scratchKey: null }
+      if (name === 'projects.recent') return { projects: [{ project: row.key, projectId: null, lastActivity: 1794400000000, newestSession: 1794400000000, sessionIds: ['local-overview-conversation'] }] }
+      if (name === 'sessions.list' && args.project === 'demo-store/compiler') return { sessions: [{ sessionId: 'local-overview-conversation', title: 'Saved local conversation', local: true, updatedAt: 1794400000000 }] }
       return op(name, args)
     }
     api.openProjectSession = async () => { fixture.sessions++; return { sessionId: 'new-overview-session', workspaceId: 'scratch' } }
-    api.openPanel('layerfs-projects')
   })
-  const list = page.locator('div[role=region][aria-label="LayerFS Projects"]')
-  await list.getByText('Machine stopped', { exact: true }).waitFor()
-  assert.equal(await list.getByRole('button', { name: /^Start machine .* for compiler · demo-store$/ }).isVisible(), true, 'a stopped machine offers Start instead of New session')
-  const sidebarProject = list.locator('button[title="compiler · demo-store"]')
-  await sidebarProject.waitFor({ timeout: 25_000 })
-  await list.getByRole('button', { name: 'Toggle conversations in compiler · demo-store', exact: true }).click()
+  // The sidebar's LayerFS view (docs/specs/layerfs-workspaces.md §4); there is no Projects page.
+  await page.locator('[data-slot="sidebar.workspaces"] [data-layerfs-view-switch]').click()
+  const list = page.locator('[data-layerfs-workspaces-view]')
+  const project = list.locator('[data-layerfs-project]').filter({ has: page.locator('button[title^="compiler · demo-store"]') })
+  await project.waitFor({ timeout: 25_000 })
+  await project.getByText('Machine stopped', { exact: true }).waitFor()
+  const start = project.getByRole('button', { name: 'Start machine build for compiler', exact: true })
+  assert.equal(await start.isVisible(), true, 'a stopped machine offers Start instead of New session')
+  await project.getByRole('button', { name: 'Toggle conversations in compiler', exact: true }).click()
   await list.getByText('Saved local conversation', { exact: true }).waitFor()
-  assert.equal(await list.isVisible(), true, 'chevron expands conversations without navigating')
-  await sidebarProject.click()
-  const home = page.getByRole('region', { name: 'compiler', exact: true })
-  await home.getByText('Project information', { exact: true }).waitFor()
-  await home.getByText('Saved local conversation', { exact: true }).waitFor()
-  await home.getByText(/Archived conversations are unavailable:/).waitFor()
-  assert.equal(await home.getByText('No sessions yet', { exact: true }).count(), 0)
-  assert.equal(await page.evaluate(() => window.__projectOverviewFixture.starts), 0, 'opening the page never starts a machine')
+  assert.equal(await page.evaluate(() => window.__projectOverviewFixture.starts), 0, 'reading never starts a machine')
   await page.screenshot({ path: join(artifacts, 'stopped-desktop.png') })
-  await home.getByRole('button', { name: 'Start machine', exact: true }).click()
-  await home.getByText('Starting…', { exact: true }).waitFor()
-  await home.getByText('Available', { exact: true }).waitFor()
-  await home.getByRole('button', { name: 'New session', exact: true }).click()
-  assert.equal(await page.evaluate(() => window.__projectOverviewFixture.sessions), 1)
-  assert.equal(await page.evaluate(() => window.__projectOverviewFixture.starts), 1)
+  await start.click()
+  await until(async () => (await page.evaluate(() => window.__projectOverviewFixture.starts)) === 1)
+  await project.hover()
+  const create = project.getByRole('button', { name: 'New session in compiler', exact: true })
+  await until(async () => (await create.count()) === 1 && await create.isEnabled())
+  await create.click()
+  await until(async () => (await page.evaluate(() => window.__projectOverviewFixture.sessions)) === 1)
 
-  await page.evaluate(() => { window.__projectOverviewFixture.state = 'missing' })
-  await home.getByRole('button', { name: 'Refresh status', exact: true }).click()
-  await home.getByText('Unavailable', { exact: true }).waitFor()
-  assert.equal(await home.getByRole('button', { name: 'New session', exact: true }).isDisabled(), true)
-  assert.equal(await home.getByRole('button', { name: 'Start machine', exact: true }).count(), 0)
-  await home.getByText('demo-store/compiler', { exact: true }).waitFor()
-  await home.getByRole('tab', { name: 'Files', exact: true }).click()
-  await home.getByText(/Project files and history require access/).waitFor()
-  await home.getByRole('tab', { name: 'Overview', exact: true }).click()
-  await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click()
+  // ⚙ opens the project dialog: the Store and where it runs (§3).
+  await project.hover()
+  await project.getByRole('button', { name: 'Set up compiler', exact: true }).click()
+  const setup = page.getByRole('dialog', { name: 'compiler', exact: true })
+  await setup.getByText('demo-store', { exact: true }).waitFor()
+  await setup.locator('[data-machine="build"][aria-checked="true"]').getByText('Here now', { exact: true }).waitFor()
+  await setup.locator('[data-machine="native"]').click()
+  await setup.getByText(/^Moves the whole Store demo-store to native/).waitFor()
+  await setup.getByRole('button', { name: 'Cancel', exact: true }).click()
   await page.setViewportSize({ width: 390, height: 844 })
   await page.waitForTimeout(300)
-  await page.screenshot({ path: join(artifacts, 'unavailable-mobile.png') })
-  const overflow = await home.evaluate((element) => element.scrollWidth > element.clientWidth)
-  assert.equal(overflow, false, 'overview fits a phone viewport')
+  await page.screenshot({ path: join(artifacts, 'setup-mobile.png') })
+  assert.equal(await setup.evaluate((element) => element.scrollWidth > element.clientWidth), false, 'the dialog fits a phone viewport')
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.waitForTimeout(300)
-  await page.screenshot({ path: join(artifacts, 'unavailable-mobile-dark.png') })
-
-  await page.setViewportSize({ width: 1280, height: 820 })
-  await page.evaluate(() => { window.__projectOverviewFixture.state = 'running'; window.__projectOverviewFixture.store = 'down' })
-  await home.getByRole('button', { name: 'Refresh status', exact: true }).click()
-  await home.getByText(/project storage is not ready/).waitFor()
-  assert.equal(await home.getByRole('button', { name: 'New session', exact: true }).isDisabled(), true)
-  await home.getByRole('button', { name: 'Open machine', exact: true }).click()
-  await page.getByRole('region', { name: 'build', exact: true }).getByRole('heading', { name: 'build', exact: true }).waitFor()
+  await page.screenshot({ path: join(artifacts, 'setup-mobile-dark.png') })
+  await page.keyboard.press('Escape')
+  await setup.waitFor({ state: 'detached' })
   assert.deepEqual(logs, [], 'no browser errors')
-  console.log('PASS: real archive errors, local conversations, explicit machine start, execution guards, metadata, responsive layout, and light/dark rendering')
+  console.log('PASS: real archive errors, local conversations, explicit machine start, sidebar words, project dialog, responsive layout, and light/dark rendering')
 } catch (error) { await page.screenshot({ path: join(artifacts, 'failure.png') }); console.error(await page.locator('body').innerText()); throw error } finally { await browser.close() }

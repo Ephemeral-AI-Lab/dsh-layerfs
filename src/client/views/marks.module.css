@@ -1,0 +1,26 @@
+/* The agent whale: tinted by `--lane`; fixed white and ink from DSH's static
+ * palette (an illustration reads the same in both themes). */
+
+.whale {
+  --whale-white: var(--dsw-static-neutral-00, #fff);
+  --whale-ink: var(--dsw-static-neutral-900, #0f0f0f);
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.body { fill: color-mix(in srgb, var(--lane, var(--dsw-alias-state-business-primary)) 70%, var(--whale-white)); }
+.fin { fill: color-mix(in srgb, var(--lane, var(--dsw-alias-state-business-primary)) 92%, var(--whale-white)); }
+.belly { fill: var(--whale-white); opacity: 0.62; }
+.eye { fill: color-mix(in srgb, var(--whale-ink) 88%, var(--dsw-alias-state-business-primary)); }
+.shine { fill: var(--whale-white); }
+.blush { fill: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--whale-white)); opacity: 0.8; }
+.mouth { stroke: color-mix(in srgb, var(--whale-ink) 88%, var(--dsw-alias-state-business-primary)); }
+
+.spout {
+  fill: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--whale-white));
+  stroke: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, var(--whale-white));
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: 20px 9px;
+}

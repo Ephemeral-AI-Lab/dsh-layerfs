@@ -1,0 +1,190 @@
+{
+  "S": {
+    "sha": "bb3876c",
+    "at": "2026-11-13T05:56:26.057Z",
+    "fixture": {
+      "stores": [
+        "perfsgl44b"
+      ],
+      "projects": [
+        "perfsgl44b/website",
+        "perfsgl44b/billing"
+      ],
+      "commits": 48,
+      "cliCommit": "ba87a425ec3b57bb50459dc279d00987bfd430a1"
+    },
+    "pages": {
+      "layerfs": {
+        "spawns": 12,
+        "byCall": {
+          "doctor": 1,
+          "machine.list": 2,
+          "machine.platforms": 1,
+          "machine.status": 2,
+          "sandbox.list": 2,
+          "store.list": 3,
+          "store.status": 1
+        }
+      },
+      "resources.projects": {
+        "spawns": 13,
+        "byCall": {
+          "doctor": 1,
+          "machine.list": 2,
+          "machine.platforms": 1,
+          "machine.status": 2,
+          "project.list": 1,
+          "sandbox.list": 2,
+          "store.list": 3,
+          "store.status": 1
+        }
+      },
+      "resources.stores": {
+        "spawns": 0,
+        "byCall": {}
+      },
+      "resources.machines": {
+        "spawns": 0,
+        "byCall": {}
+      },
+      "resources.backups": {
+        "spawns": 0,
+        "byCall": {}
+      },
+      "store": {
+        "spawns": 0,
+        "byCall": {}
+      },
+      "machine.native": {
+        "spawns": 0,
+        "byCall": {}
+      },
+      "sandbox": {
+        "spawns": 1,
+        "byCall": {
+          "sandbox.get": 1
+        }
+      },
+      "project.files": {
+        "spawns": 5,
+        "byCall": {
+          "branch.get": 1,
+          "branch.list": 1,
+          "file.list": 1,
+          "file.read": 1,
+          "file.stat": 1
+        }
+      },
+      "project.history": {
+        "spawns": 23,
+        "byCall": {
+          "branch.commits": 11,
+          "branch.get": 11,
+          "branch.list": 1
+        }
+      },
+      "project.sessions": {
+        "spawns": 2,
+        "byCall": {
+          "branch.list": 1,
+          "file.read": 1
+        }
+      },
+      "project.stats": {
+        "spawns": 5,
+        "byCall": {
+          "branch.list": 1,
+          "project.get": 1,
+          "project.stats": 1,
+          "store.get": 1,
+          "store.stats": 1
+        }
+      },
+      "health": {
+        "spawns": 12,
+        "byCall": {
+          "doctor": 1,
+          "machine.list": 2,
+          "machine.platforms": 1,
+          "machine.status": 2,
+          "sandbox.list": 2,
+          "store.list": 3,
+          "store.status": 1
+        }
+      },
+      "logs": {
+        "spawns": 0,
+        "byCall": {}
+      },
+      "settings": {
+        "spawns": 9,
+        "byCall": {
+          "machine.list": 2,
+          "machine.platforms": 1,
+          "machine.status": 2,
+          "sandbox.list": 2,
+          "store.list": 2
+        }
+      },
+      "session.chat": {
+        "spawns": 0,
+        "byCall": {}
+      },
+      "session.trajectory": {
+        "spawns": 0,
+        "byCall": {}
+      },
+      "session.files": {
+        "spawns": 10,
+        "byCall": {
+          "branch.get": 1,
+          "branch.list": 2,
+          "file.list": 1,
+          "file.read": 1,
+          "file.stat": 1,
+          "machine.get": 1,
+          "project.get": 1,
+          "store.status": 1,
+          "workspace.status": 1
+        }
+      },
+      "session.history": {
+        "spawns": 28,
+        "byCall": {
+          "branch.commits": 11,
+          "branch.get": 11,
+          "branch.list": 2,
+          "machine.get": 1,
+          "project.get": 1,
+          "store.status": 1,
+          "workspace.status": 1
+        }
+      },
+      "session.sandbox": {
+        "spawns": 10,
+        "byCall": {
+          "branch.list": 1,
+          "machine.get": 1,
+          "machine.list": 1,
+          "machine.platforms": 1,
+          "machine.status": 1,
+          "project.get": 1,
+          "sandbox.list": 1,
+          "store.list": 1,
+          "store.status": 1,
+          "workspace.status": 1
+        }
+      },
+      "project.sandboxes": {
+        "spawns": 8,
+        "byCall": {
+          "machine.list": 1,
+          "machine.status": 1,
+          "sandbox.get": 2,
+          "sandbox.list": 3,
+          "store.list": 1
+        }
+      }
+    }
+  }
+}

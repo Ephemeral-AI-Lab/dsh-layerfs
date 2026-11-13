@@ -12,7 +12,7 @@
   white-space: pre;
 }
 .failure {
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-state-error-primary);
   max-width: 240px;
   font-size: 12px;
   line-height: 1.5;

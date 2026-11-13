@@ -32,6 +32,8 @@ export interface MapAgent {
   parent?: string
   depth: number
   running: boolean
+  /** A depth-0 agent listed in this head's group instead of heading its own. */
+  joins?: string
 }
 
 /** `root` and every subagent below it, in tree order. */
@@ -128,6 +130,12 @@ export interface MapBinding {
 }
 
 export interface MapWorkspace { id: string, name: string, branch?: string }
+/** The Sandboxes open at `at` (a project's `/api/projects/<key>/sandboxes`, read then), as the map reads them. */
+export interface LiveSandboxes {
+  /** When the list was read, ms since the epoch. */
+  at: number
+  sandboxes: readonly { name: string, machine?: string | null, workspaces: readonly { id: string, branch?: string }[] }[]
+}
 export interface MapSandbox { name: string, machine?: string, workspaces: MapWorkspace[], closed: boolean }
 
 /** One call placed on the replay clock (seconds). */
@@ -204,8 +212,11 @@ const QUIET = new Set(['project.get', 'branch.get', 'file.list', 'file.stat', 'w
  * @param agents - `agentTree` of the root.
  * @param binding - the root's binding (its branch and workspace are always shown).
  * @param calls - each agent's call log lines.
+ * @param live - the Sandboxes open now, when known (a project's page): they
+ *   and their workspaces are always shown, and a Sandbox the calls name that
+ *   is not among them is closed, unless a call on it is newer than the list.
  */
-export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, calls: Readonly<Record<string, readonly (CallLine & { dsh?: { turn?: number } })[]>>): SandboxMapModel {
+export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, calls: Readonly<Record<string, readonly (CallLine & { dsh?: { turn?: number } })[]>>, live?: LiveSandboxes): SandboxMapModel {
   const branches = new Set<string>()
   const sandboxes = new Map<string, MapSandbox>()
   const sandbox = (name: string) => {
@@ -224,6 +235,11 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
   if (binding?.branch) branches.add(binding.branch)
   if (binding?.sandbox) { const box = sandbox(binding.sandbox); if (binding.machine) box.machine = binding.machine }
   if (binding?.ws) workspace(binding.ws, binding.branch)
+  for (const open of live?.sandboxes ?? []) {
+    const box = sandbox(open.name)
+    if (open.machine) box.machine = open.machine
+    for (const ws of open.workspaces) workspace(ws.id, ws.branch)
+  }
 
   const flat = agents.flatMap((agent) => (calls[agent.id] ?? [])
     .filter((line) => !QUIET.has(methodOf(line.argv)))
@@ -256,7 +272,7 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
       const ws = sandboxes.get(target.ws.split(':')[0])?.workspaces.find((w) => w.id === target.ws)
       if (ws?.branch) target.branch = ws.branch
     }
-    if (method === 'sandbox.close' && line.outcome === 'ok' && target.sandbox) sandbox(target.sandbox).closed = true
+    if (line.outcome === 'ok' && target.sandbox && (method === 'sandbox.close' || method === 'sandbox.create')) sandbox(target.sandbox).closed = method === 'sandbox.close'
     const ms = Math.max(0, line.ms)
     let start = clock(line.at) + shift
     const prev = lastOf.get(agent)
@@ -276,34 +292,67 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
   })
   // The binding's workspace may have been mounted before the calls shown.
   for (const box of sandboxes.values()) for (const ws of box.workspaces) if (!ws.branch && ws.id === binding?.ws && binding.branch) ws.branch = binding.branch
-  return { agents, branches: [...branches], sandboxes: [...sandboxes.values()], events, duration: events.length ? duration + FLASH_S : 0 }
+  if (live) {
+    const open = new Set(live.sandboxes.map((b) => b.name))
+    const newest = new Map<string, number>()
+    for (const e of events) if (e.sandbox) newest.set(e.sandbox, Math.max(newest.get(e.sandbox) ?? 0, e.at))
+    for (const box of sandboxes.values()) if (!open.has(box.name) && (newest.get(box.name) ?? 0) < live.at) box.closed = true
+  }
+  return { agents, branches: [...branches], sandboxes: [...sandboxes.values()], events, duration: events.length ? duration + TAIL_S : 0 }
 }
 
 /** How long a result travels back along the wires after a call ends, seconds. */
 export const RESULT_S = 0.9
-/** How long a wire stays green (or red) after its call; also the replay's tail, so it ends at rest. */
+/** How long a chain keeps its result colour (fading) once the result is home, seconds. */
 export const FLASH_S = 1.5
-/** One lap of a request packet along its wires, seconds. */
-export const LAP_S = 1.2
+/** The replay's tail after the last call, so it ends at rest. */
+export const TAIL_S = RESULT_S + FLASH_S
+/** How long an arrival ripple lasts, seconds. */
+export const RIPPLE_S = 0.8
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+/** Cubic ease in and out on [0, 1]. */
+export const easeInOut = (k: number) => k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2
+/** Cubic ease out on [0, 1]. */
+export const easeOut = (k: number) => 1 - (1 - k) ** 3
+
+/** How long a request takes to reach its target: long enough to read, never more than half the call. */
+export function requestS(e: Pick<MapEvent, 'start' | 'end'>, reduced = false): number {
+  return reduced ? 0 : clamp((e.end - e.start) * 0.4, 0.55, 1.05)
+}
+
+/** Where a call is at replay time `t`. */
+export type Phase =
+  /** Travelling out: `u` 0→1 along the call's chain. */
+  | { kind: 'request', u: number }
+  /** Arrived; the call runs. `since` is the time since arrival. */
+  | { kind: 'held', u: 1, since: number }
+  /** The result travels back: `u` 1→0. */
+  | { kind: 'result', u: number }
+  /** The result is home; its colour fades (`f` 1→0). */
+  | { kind: 'flash', u: 0, f: number }
 
 /**
- * Where a packet is at replay time `t` on a call's chain of wires, or null.
- * A request loops forward over the chain while the call runs; when it ends a
- * result runs the chain backwards once.
- * @returns the hop index (0-based, forward order), the fraction along that hop, and which kind of packet.
+ * The phase of a call at replay time `t`, or null before it starts and after
+ * its flash. Each call travels once: a request goes out, holds while the call
+ * runs, its result comes back, and the chain fades. With reduced motion there
+ * is no travel and no fade: the chain shows its result colour for the tail.
  */
-export function packetAt(e: Pick<MapEvent, 'start' | 'end'>, t: number, hops: number): { hop: number, at: number, kind: 'request' | 'result' } | null {
-  if (hops <= 0 || t < e.start) return null
-  if (t < e.end) {
-    const lap = ((t - e.start) / LAP_S) % 1
-    const along = lap * hops
-    const hop = Math.min(hops - 1, Math.floor(along))
-    return { hop, at: along - hop, kind: 'request' }
-  }
-  if (t >= e.end + RESULT_S) return null
-  const back = ((t - e.end) / RESULT_S) * hops
-  const fromEnd = Math.min(hops - 1, Math.floor(back))
-  return { hop: hops - 1 - fromEnd, at: 1 - (back - fromEnd), kind: 'result' }
+export function phaseOf(e: Pick<MapEvent, 'start' | 'end'>, t: number, reduced = false): Phase | null {
+  if (t < e.start) return null
+  const arrive = e.start + requestS(e, reduced)
+  if (t < arrive) return { kind: 'request', u: easeInOut((t - e.start) / (arrive - e.start)) }
+  if (t < e.end) return { kind: 'held', u: 1, since: t - arrive }
+  if (reduced) return t < e.end + TAIL_S ? { kind: 'flash', u: 0, f: 1 } : null
+  if (t < e.end + RESULT_S) return { kind: 'result', u: 1 - easeInOut((t - e.end) / RESULT_S) }
+  if (t < e.end + TAIL_S) return { kind: 'flash', u: 0, f: 1 - (t - e.end - RESULT_S) / FLASH_S }
+  return null
+}
+
+/** A ripple started at `at`: its progress in [0, 1), or null outside it. */
+export function rippleAt(t: number, at: number): number | null {
+  const k = (t - at) / RIPPLE_S
+  return k >= 0 && k < 1 ? k : null
 }
 
 /** The state of a map node at replay time `t`. */
@@ -318,8 +367,77 @@ export function justEnded(events: readonly MapEvent[], t: number, match: (e: Map
   return found
 }
 
+/**
+ * Whether workspace `ws` is on the map at replay time `t`: from the start of
+ * its latest mount at or before `t` (always, when no mount is in the calls)
+ * until an unmount after that mount ends.
+ */
+export function mountedAt(events: readonly MapEvent[], ws: string, t: number): boolean {
+  let mount: MapEvent | undefined, unmount: MapEvent | undefined, firstMount: MapEvent | undefined
+  for (const e of events) {
+    if (e.ws !== ws || e.outcome !== 'ok') continue
+    if (e.method === 'workspace.mount') { firstMount ??= e; if (e.start <= t) mount = e }
+    else if (e.method === 'workspace.unmount' && e.end <= t) unmount = e
+  }
+  if (firstMount && !mount) return false
+  return !unmount || (!!mount && mount.start > unmount.start)
+}
+
 /** m:ss of replay seconds. */
 export function stamp(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/**
+ * What ran in the workspace, when the tool call is one plain `layerfs
+ * workspace exec <ws> '<command>'`: the inner command (the CLI and workspace
+ * words are the same on every line). Anything else stays as typed.
+ */
+export function innerCommand(command: string): string {
+  const m = /^\s*(?:"\$\{?DSH_LAYERFS_CLI\}?"|\$\{?DSH_LAYERFS_CLI\}?|layerfs)\s+workspace\s+exec\s+(?:"[^"]*"|'[^']*'|\S+)\s+(?:--\s+)?('(?:[^']|'\\'')*'|"(?:[^"\\]|\\.)*")(?:\s+--stream)?\s*$/.exec(command)
+  if (!m) return command
+  const q = m[1]
+  return q.startsWith("'") ? q.slice(1, -1).replaceAll("'\\''", "'") : q.slice(1, -1).replace(/\\(.)/g, '$1')
+}
+
+const CLI_VAR = /"\$\{?DSH_LAYERFS_CLI\}?"|\$\{?DSH_LAYERFS_CLI\}?/g
+const WS_VAR = /"\$\{?DSH_LAYERFS_WS\}?"|\$\{?DSH_LAYERFS_WS\}?/g
+
+/**
+ * A command as a terminal should show it: each plain `workspace exec`
+ * reduced to what it ran ({@link innerCommand}), the plugin's variables
+ * replaced (`$DSH_LAYERFS_CLI` → `layerfs`, `$DSH_LAYERFS_WS` → the
+ * workspace's name) and `--stream` dropped.
+ */
+export function sanitizeCommand(command: string, wsName: string): string {
+  return command.split('\n').map((line) => topLevelAnd(line)
+    // The plugin's own guard that the workspace is set says nothing about what ran.
+    .filter((part) => !/^test\s+-n\s+("\$\{?DSH_LAYERFS_WS\}?"|\$\{?DSH_LAYERFS_WS\}?)$/.test(part))
+    .map((part) => {
+      const inner = innerCommand(part)
+      return inner !== part ? inner : part.replace(CLI_VAR, 'layerfs').replace(WS_VAR, wsName).replace(/\s+--stream(?=\s|$)/g, '')
+    })
+    .join(' && ')).join('\n').trim()
+}
+
+/** A shell line split at `&&` outside quotes, each part trimmed. */
+function topLevelAnd(line: string): string[] {
+  const parts: string[] = []
+  let quote: string | null = null, start = 0
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote) { if (c === quote) quote = null; else if (c === '\\' && quote === '"') i++; continue }
+    if (c === "'" || c === '"') quote = c
+    else if (c === '\\') i++
+    else if (c === '&' && line[i + 1] === '&') { parts.push(line.slice(start, i).trim()); start = i + 2; i++ }
+  }
+  parts.push(line.slice(start).trim())
+  return parts.filter(Boolean)
+}
+
+/** The command words of a logged `workspace exec`, or null when the log redacted them. */
+export function execWords(argv: readonly string[]): string | null {
+  const words = argv.slice(3).filter((w) => w !== '--' && w !== '--stream')
+  return words.length && !words.some((w) => w.startsWith('<')) ? words.join(' ') : null
 }

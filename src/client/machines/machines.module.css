@@ -106,6 +106,13 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
+/* Runtime values are mostly long paths: start-aligned they wrap as a readable
+   block instead of a ragged right edge split mid-name. */
+.runtimeBody dd {
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Sandbox tab tables ---------- */
 
 .rows {
@@ -845,6 +852,44 @@
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
   cursor: pointer;
+}
+
+.detailsSummary {
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border-radius: var(--dsw-radius-xs);
+  list-style: none;
+}
+
+.detailsSummary::-webkit-details-marker {
+  display: none;
+}
+
+.detailsChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 120ms ease;
+}
+
+.details[open] > .detailsSummary .detailsChevron {
+  transform: rotate(90deg);
+}
+
+.detailsSummary:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .detailsSummary:hover .detailsChevron {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+/* Inside a fact row a fact reads at the row's weight, even a muted one (native's shared disk). */
+.factRow dd .muted {
+  color: inherit;
 }
 
 .detailsSummary > .muted {

@@ -62,7 +62,8 @@ export function apply(ctx: Context): void {
     assertProjectIdentity: async (project, projectId) => {
       const persistence = ctx.get('sessionPersistence' as never) as any
       if (!persistence?.catalog) throw new Error('Project identity service is unavailable')
-      return persistence.catalog.assert(project, projectId)
+      // A read or project action checks the identity; it never claims an unclaimed project.
+      return persistence.catalog.assert(project, projectId, { claim: false })
     },
     projectRemoving: async (project) => { await (ctx.get('layerfsSessions' as never) as any)?.closeProject(project) },
     projectRemoved: async (project) => { await (ctx.get('layerfsSessions' as never) as any)?.forgetProject(project) },

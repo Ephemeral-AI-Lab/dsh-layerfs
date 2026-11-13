@@ -86,7 +86,7 @@ export function BranchCompare({ api, project, t, branches, from: initialFrom, to
         <div className={css.changeList}>
           <div className={css.changeHead}>
             <span>{t('files_changes')}</span>
-            <span className={css.changeCount}>{t('files_compareSummary', { count: `${all.length}${last.continuation ? '+' : ''}` })}</span>
+            <span className={css.changeCount}>{all.length === 1 && !last.continuation ? t('files_compareSummaryOne') : t('files_compareSummary', { count: `${all.length}${last.continuation ? '+' : ''}` })}</span>
           </div>
           {files.length === 0
             ? <p className={css.treeNote}>{owners ? t('files_compareOwnersNone') : t('files_compareSame')}</p>
