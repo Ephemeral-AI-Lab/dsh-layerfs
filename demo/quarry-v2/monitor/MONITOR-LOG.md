@@ -280,3 +280,36 @@ Watch list: W1 0 of 11 writes; W7 run 4.7 GB, guest 85 GB; V5 none; V8 fixed nam
 | Backend | B8 B10 | — | — | — |
 | Run | **R2 integrated** (`int-r2.6`, corpus 1,682 / 2,615); **R3 fanned out** to 8 workers | one facade pragma test (T1) | — | R2 publish after the tools lane |
 | UI | — | — | — | — |
+
+## Check #20 · 12:35Z · verdict: OK
+
+Watch list: W1 0 of 61 writes; W7 run 4.7 GB, guest 93 GB; V5 none; V8 fixed names only.
+
+| Group | Pass | Warn | Fail | Notes |
+| --- | --- | --- | --- | --- |
+| Harness | H2 H3 H5 | — | — | 8 worker turns live |
+| Backend | B8 B10 | — | — | commit p90 504 ms (native) |
+| Run | R3 running; acceptance failures assigned (A04/A05/A07/A08/A10/A11) | R2 publish pending T1 | — | — |
+| UI | — | — | — | — |
+
+## Check #21 · 12:47Z · verdict: OK
+
+Watch list: W1 0 of 96 writes; W7 run 5.2 GB, guest 92 GB; V5 none; V8 fixed names only.
+
+| Group | Pass | Warn | Fail | Notes |
+| --- | --- | --- | --- | --- |
+| Harness | H2 H3 H5 | — | — | 9 live turns |
+| Backend | B8 B10 | — | — | commit p90 728 ms (native) |
+| Run | R3 running; R2 publish candidate in progress | — | — | 87 commits / 12 min |
+| UI | — | — | — | — |
+
+## Check #22 · 12:59Z · verdict: OK
+
+Watch list: W1 0 of 57 writes; W7 run 4.9 GB, guest 113 GB; V5 none; V8 fixed names only.
+
+| Group | Pass | Warn | Fail | Notes |
+| --- | --- | --- | --- | --- |
+| Harness | H2 H3 H5 | — | — | 8 live turns |
+| Backend | B8 B10 | — | — | — |
+| Run | F1 R3 done; A02 PASS; R2 publish with the first R3 tools merge | — | — | — |
+| UI | — | — | — | — |
