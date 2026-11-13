@@ -107,7 +107,8 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
     additive `layerfs.json`, validated migration, and imports on a local miss
   - `layerfs/tracing.ts` execution-scoped receipts: one receipt id and log tag
     (`LAYERFS_LOGS_TAG=dsh:<sessionId>:<receiptId>`) per call, SDK receipts, the managed
-    `agent-bin/layerfs` wrapper, receipts rebuilt from tagged call log lines (no spool);
+    `agent-bin/layerfs` wrapper (node with the stand-in; a bash script with LayerFS's native
+    log, outputs teed to `trace/outputs/raw/`), receipts rebuilt from tagged call log lines (no spool);
     `workspace.exec` never gets checkpoint links
   - `layerfs/call-log.ts` the call log stand-in `<root>/trace/calls.jsonl` (LayerFS #659
     lines: render, redact, append, rotate, list, reset) while the pinned CLI has no `logs` family
@@ -185,7 +186,7 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
   the router's exclusive guard, script paging, live reset of a private home). A real Studio
   Build needs Docker, Lima and `DSH_LAYERFS_BUNDLE` (a Linux bundle built from the same `layerfs_v2_0_0` commit as the CLI) on the
   dev server; it creates two Lima VMs (2 CPU, 4 GB) in the dev LayerFS home, so Reset the
-  home from Settings → Presets afterwards.
+  home from Center → Settings (the bar's gear) → Presets afterwards.
 - `node tools/cleanup-dev.mjs` removes leftover `e2e*`/`imp*` Stores through the host API.
 - After side verification passes, merge into the 3080 checkout and check it on 3080
   (see "Shared server on 3080"); that is the last step of every task.
@@ -197,3 +198,28 @@ Follow DSH's `docs/web-styling.md` (in `../deepseek-harness-source`): CSS Module
 0.5px hairline neutral borders, elevated surfaces use `--dsw-elevation-*` shadows,
 hover styles under `@media (hover: hover)`, reuse `@deepseek-ai/dsh-client-ui-primitives`
 (runtime-shared module) before writing a control, all copy in locale dictionaries.
+
+## Data loading rules (UI)
+
+Host reads are CLI processes queued one per Store behind agent work, and during a team
+run events arrive many times a second. Every view follows these:
+
+- **Never drop a read for a refresh.** An event or tick queues one more read after the
+  running one; only a change of what is shown (project, Branch, pinned version, filters)
+  replaces it. Use `useQuery(load, deps, { refresh: [tick] })` (`src/client/files/use-query.ts`),
+  never a `live = false` cleanup keyed on a tick.
+- **Keep what is on screen.** A refresh rereads in the background; a spinner shows only
+  when there is nothing to draw yet. Pass `cache: '<key>'` so a remount (a tab switch)
+  draws the last answer at once, then reads again.
+- **Load progressively, most useful first.** Draw as soon as one piece can be shown: History
+  draws lanes from the Branch list, then main's and the session Branch's Commits, then
+  the rest in batches as they land; Files draws the session Branch's folder tree at its
+  tip without waiting for the Branch list.
+- **Debounce and filter events.** Act only on events for the view's own session or
+  project, coalesced (≥ 500 ms; heavy reads such as log scans 3 s, and only while the
+  page is visible). Don't refetch a whole payload per `logs` or `layerfs-operation` event.
+- **Reread only what moved.** A Branch whose head is unchanged keeps its pages; a page read
+  at a named Commit never changes.
+- **Host side:** polling reads go through the SDK client's kept answers (`KEPT_READS` in
+  `src/host/layerfs/cli.ts`), and no request handler re-reads or re-parses a whole file
+  per call (see the call log's incremental parse in `src/host/layerfs/call-log.ts`).

@@ -74,6 +74,22 @@ export function q(params: Record<string, string | number | boolean | undefined |
 type RemoteResult = { ok: true, value: any } | { ok: false, error: { code: string, message: string, details?: any } }
 
 /**
+ * How long a GET waits for its answer before it fails (and its page can offer
+ * Retry). Longer than the host's own read budget (2 minutes) plus a queue, so it
+ * only fires when an answer is lost, never on a slow but live read.
+ */
+export const GET_TIMEOUT_MS = 180_000
+/** How long a GET whose connection dropped waits for the host to come back before it is sent again. */
+export const RECONNECT_WAIT_MS = 30_000
+
+/** A call whose answer cannot arrive: its connection dropped, or it outlived its budget. */
+class LostCall extends Error {
+  constructor(readonly why: 'dropped' | 'timeout') {
+    super(why === 'dropped' ? 'The connection to the dsh-layerfs host dropped before it answered' : 'The dsh-layerfs host did not answer in time')
+  }
+}
+
+/**
  * Build the API over the `remote.layerfs` namespace. The namespace is resolved
  * per call (it remounts when the connection resets), so the API and the pages
  * holding it outlive remounts.
@@ -83,6 +99,8 @@ type RemoteResult = { ok: true, value: any } | { ok: false, error: { code: strin
  */
 export function createApi(remote: () => any, nav: Navigator, workspace: () => any): LayerfsApi & { dispose(): void } {
   const listeners = new Map<string, Set<(e: HostEvent) => void>>()
+  /** Calls waiting on an answer: each fails when the event stream drops (its connection is gone). */
+  const inFlight = new Set<(e: LostCall) => void>()
   let live = false
   let disposed = false
   let handle: any
@@ -91,6 +109,11 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     for (const key of [event.type, '*']) for (const l of listeners.get(key) ?? []) {
       try { l(event) } catch (error) { console.error('[dsh-layerfs] event listener failed', error) }
     }
+  }
+  const subscribe = (type: string, listener: (event: HostEvent) => void): (() => void) => {
+    if (!listeners.has(type)) listeners.set(type, new Set())
+    listeners.get(type)!.add(listener)
+    return () => { listeners.get(type)?.delete(listener) }
   }
 
   const fail = (r: Extract<RemoteResult, { ok: false }>): never => {
@@ -107,8 +130,34 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     }
   }
 
-  async function op<T>(name: string, args?: unknown): Promise<T> {
-    const r: RemoteResult = await (await namespace()).call({ op: name, args: args ?? {} })
+  /** One remote call that fails with {@link LostCall} when the connection drops under it or `timeout` passes. */
+  async function send(name: string, args: unknown, timeout?: number): Promise<RemoteResult> {
+    const ns = await namespace()
+    let drop: ((e: LostCall) => void) | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const lost = new Promise<never>((_resolve, reject) => {
+      drop = reject
+      inFlight.add(reject)
+      if (timeout) timer = setTimeout(() => reject(new LostCall('timeout')), timeout)
+    })
+    try {
+      return await Promise.race([ns.call({ op: name, args: args ?? {} }) as Promise<RemoteResult>, lost])
+    } finally {
+      inFlight.delete(drop!)
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  /** Resolves once the event stream is connected again, or after `ms`. */
+  const reconnected = (ms: number) => new Promise<void>((resolve) => {
+    if (live || disposed) return resolve()
+    const done = () => { clearTimeout(timer); off(); resolve() }
+    const timer = setTimeout(done, ms)
+    const off = subscribe('connection', (e) => { if (e.data?.connected) done() })
+  })
+
+  async function op<T>(name: string, args?: unknown, timeout?: number): Promise<T> {
+    const r: RemoteResult = await send(name, args, timeout)
     if (!r.ok) fail(r)
     const value = (r as { value: any }).value
     // A host answer may ask the client to navigate (e.g. open the new session).
@@ -120,10 +169,21 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
 
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     let reply: { status: number, body: any }
+    const get = method.toUpperCase() === 'GET'
+    const args = { method, path, ...(body === undefined ? {} : { body }) }
     try {
-      reply = await op('http', { method, path, ...(body === undefined ? {} : { body }) })
+      try {
+        reply = await op('http', args, get ? GET_TIMEOUT_MS : undefined)
+      } catch (error) {
+        // A read whose connection dropped (the host restarted) is sent once more when it is back.
+        // A write never is: it may already have happened.
+        if (!(get && error instanceof LostCall && error.why === 'dropped')) throw error
+        await reconnected(RECONNECT_WAIT_MS)
+        reply = await op('http', args, GET_TIMEOUT_MS)
+      }
     } catch (error) {
       if (error instanceof HostError) throw error
+      if (error instanceof LostCall && error.why === 'timeout') throw new HostError('timeout', error.message, 0, null, false, 'transport-unknown')
       // The request was sent and its reply lost: a write may or may not have happened.
       throw new HostError('no-host', error instanceof Error ? error.message : String(error), 0, null, false, 'transport-unknown')
     }
@@ -148,6 +208,8 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
         }
       } catch { /* reconnect below */ }
       if (live) { live = false; dispatch({ type: 'connection', data: { connected: false } }) }
+      // Answers to calls sent on the dropped connection cannot arrive: fail them now rather than leave pages waiting.
+      for (const fail of [...inFlight]) fail(new LostCall('dropped'))
       if (disposed) break
       await new Promise((r) => setTimeout(r, delay))
       delay = Math.min(delay * 2, 8000)
@@ -166,7 +228,12 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
   }
 
   return {
-    call, op,
+    call,
+    // A named operation's lost answer reads like any lost send: no host, outcome unknown.
+    op: <T>(name: string, args?: unknown) => op<T>(name, args).catch((error: unknown) => {
+      if (error instanceof LostCall) throw new HostError('no-host', error.message, 0, null, false, 'transport-unknown')
+      throw error
+    }),
     openPanel: (id) => nav.openPanel(id),
     openWorkspace: (id) => nav.openWorkspace(id),
     openSession: (id) => nav.openSession(id),
@@ -189,11 +256,7 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
       return { sessionId, workspaceId: target }
     },
     connected: () => live,
-    onEvent(type, listener) {
-      if (!listeners.has(type)) listeners.set(type, new Set())
-      listeners.get(type)!.add(listener)
-      return () => { listeners.get(type)?.delete(listener) }
-    },
+    onEvent: subscribe,
     dispose() {
       disposed = true
       try { handle?.dispose?.() } catch { /* already closed */ }

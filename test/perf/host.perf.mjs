@@ -128,7 +128,8 @@ async function measureTier(tier) {
   const home = fixture.home
   const countFile = join(out, `spawns-${tier}.log`)
   process.env.LFS_COUNT_FILE = countFile
-  const lfs = R.cli.client({ cli: shim, home })
+  // Kept reads off: each repetition must spawn what a cold page would.
+  const lfs = R.cli.client({ cli: shim, home, keepReads: false })
   let recorded
   const ensureNative = () => recorded ??= (process.platform === 'darwin' && fixture.daemon ? lfs.machine.update('native', { daemon: fixture.daemon }) : Promise.resolve())
   const scratch = mkdtempSync(join(out, `run-${tier}-`))
@@ -140,7 +141,10 @@ async function measureTier(tier) {
   const historyBranches = [listed.find((b) => b.name === 'main'), ...listed.filter((b) => b.name !== 'main')].filter(Boolean)
     .slice(0, INITIAL_BRANCHES).filter((b) => b.name === 'main' || (b.saved_head?.id ?? b.head) !== b.forked_from).length
   const dims = { stores: fixture.stores.length, projects: fixture.projects.length, branches, historyBranches, ledgerPages: 0 }
-  const groupsFor = (stats) => R.createGroups(testHost({ lfs, root: scratch, home, cli: shim, daemon: fixture.daemon, stats, discovery: () => R.cli.discover({ cli: shim }), ensureNative }).host, async () => ({ ok: true }))
+  // A new CLI client per route group, as a freshly started host has: the client keeps polling
+  // reads briefly (cli.ts KEPT_READS) and shares reads in flight, so a reused one would answer
+  // later repetitions from the first and the variance check would measure the cache instead.
+  const groupsFor = (stats) => R.createGroups(testHost({ lfs: R.cli.client({ cli: shim, home }), root: scratch, home, cli: shim, daemon: fixture.daemon, stats, discovery: () => R.cli.discover({ cli: shim }), ensureNative }).host, async () => ({ ok: true }))
   // Warm discovery and the native record outside any window (the host does both once),
   // and build the measured project's storage ledger in the shared folder (storage.steady).
   { const g = groupsFor(sharedStats); await R.handle(g, { method: 'GET', path: '/api/machines' }); await storageVisit(async (path) => (await R.handle(g, { method: 'GET', path })).body, fx, g) }

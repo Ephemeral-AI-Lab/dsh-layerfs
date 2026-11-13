@@ -7,15 +7,18 @@
  * lives on the pages (Store menus push, pull and move; machine cards power and
  * add Sandboxes) and in the bar (running transfers, Refresh, Add).
  * The view is read again on the host's `storage` events, after each action
- * and on a poll; jobs move on `storage-job` events. Machines and
+ * and on a poll; jobs move on `storage-job` events. Health, Logs and Settings
+ * are Center pages too, opened from the bar's buttons (and Jump to). Machines and
  * Sandboxes come from the Machines controller, polled while the page shows.
  * A link from another page (`openStorage`) opens its page here.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconSettingsOutlineRegular, IconShieldOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { DoctorT } from '../doctor/locale.ts'
 import { useQuery } from '../files/use-query.ts'
+import { HealthView } from '../health/index.tsx'
+import { LogsPage, LogsPanelIcon, type LogsT } from '../logs/index.tsx'
 import { AddMachineDialog } from '../machines/AddMachineDialog.tsx'
 import { Board } from '../machines/Board.tsx'
 import { MachinesProvider, useMachinesContext, type MachinesPageProps, type Translate as MachinesT } from '../machines/context.tsx'
@@ -23,8 +26,11 @@ import { MachineDetail } from '../machines/MachineDetail.tsx'
 import { shortSandbox } from '../machines/model.ts'
 import { SandboxDetail } from '../machines/SandboxDetail.tsx'
 import { NewSandboxDialog } from '../machines/Sandboxes.tsx'
+import type { PresetsT } from '../presets/index.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
+import { SettingsView } from '../settings/index.tsx'
+import type { SettingsT } from '../settings/locale.ts'
 import { Loading, Page, Refusal } from '../ui/index.tsx'
 import { BackupFilePage, BucketPage, providerWords } from './BucketPage.tsx'
 import { StorageDialogs, type StorageDialog } from './dialogs.tsx'
@@ -32,7 +38,7 @@ import { HomeOverview } from './HomeOverview.tsx'
 import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { attachmentsOf, bucketFiles, cardJob, inHome, orderStores } from './model.ts'
-import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type Sibling } from './Nav.tsx'
+import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
 import type { ProjectMapShare } from './ProjectSandboxes.tsx'
@@ -51,10 +57,19 @@ export interface StorageMainProps extends Omit<MachinesPageProps, 't'> {
   tm: MachinesT
   /** What a project's Sandboxes map needs of the conversation views. */
   map: ProjectMapShare
+  /** The copy of the Logs and Settings pages (Settings holds Presets). */
+  more: MoreT
+}
+
+/** The `t`s of the pages Center hosts from other areas. */
+export interface MoreT {
+  logs: LogsT
+  settings: SettingsT
+  presets: PresetsT
 }
 
 export function StoragePage(props: StorageMainProps): ReactNode {
-  const { t, tm, api, doctorT, map, ...rest } = props
+  const { t, tm, api, doctorT, map, more, ...rest } = props
   // Machine pages open their links here; the ref reaches the page's latest `open`.
   const openRef = useRef<(id: TabId) => void>(() => {})
   const machines = useMemo<MachinesPageProps>(() => ({
@@ -62,12 +77,12 @@ export function StoragePage(props: StorageMainProps): ReactNode {
   }), [props])
   return (
     <MachinesProvider props={machines}>
-      <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} map={map} />
+      <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} map={map} more={more} />
     </MachinesProvider>
   )
 }
 
-function StorageIde({ api, doctorT, t, openRef, map }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, map: ProjectMapShare }): ReactNode {
+function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {
   const mc = useMachinesContext()
   useEffect(() => mc.activate(), [mc.activate])
   const fleetRead = mc.useMachines((s) => s)
@@ -75,8 +90,8 @@ function StorageIde({ api, doctorT, t, openRef, map }: { api: LayerfsApi, doctor
   const [tick, setTick] = useState(0)
   const [checks, setChecks] = useState(0)
   const reload = () => setTick((n) => n + 1)
-  const storage = useQuery(() => api.call<StorageView>('GET', '/api/storage'), [api, tick])
-  const catalogRead = useQuery(() => api.call<ProjectSummary[]>('GET', '/api/projects'), [api, tick])
+  const storage = useQuery(() => api.call<StorageView>('GET', '/api/storage'), [api], { refresh: [tick], cache: 'GET /api/storage' })
+  const catalogRead = useQuery(() => api.call<ProjectSummary[]>('GET', '/api/projects'), [api], { refresh: [tick], cache: 'GET /api/projects' })
   const doctor = useQuery(() => api.call<DoctorReport>('GET', '/api/doctor'), [api, checks])
   const { jobs, dismissed, dismiss, take } = useStorageJobs(api, storage.data?.jobs)
   const now = useNow(10_000)
@@ -202,8 +217,17 @@ function StorageIde({ api, doctorT, t, openRef, map }: { api: LayerfsApi, doctor
   const machineSiblings: Sibling[] = places.map((p) => ({ id: `machine:${p.name}`, label: machineWord(p.name), meta: mc.kind(p.platform) }))
   const storeSiblings: Sibling[] = stores.map((s) => ({ id: `store:${s.name}`, label: s.name, meta: `${kindWord(s)} · ${storeWhere(s)}`, group: s.kind }))
   const bucketSiblings: Sibling[] = (view?.buckets ?? []).map((b) => ({ id: `bucket:${b.name}`, label: b.name, meta: providerWords(b.provider, t) }))
+  // Health, Logs and Settings: Center pages with a button each in the bar.
+  const findings = doctor.data?.findings?.length ?? 0
+  const pages: NavPage[] = [
+    { id: 'health', label: t('navHealth'), icon: <IconShieldOutlineRegular size={15} />, ...(findings ? { count: findings, title: t('navHealthFindings', { n: findings }) } : {}) },
+    { id: 'logs', label: t('navLogs'), icon: <LogsPanelIcon size={15} /> },
+    { id: 'settings', label: t('navSettings'), icon: <IconSettingsOutlineRegular size={15} /> },
+  ]
   const crumbsOf = (id: TabId): Crumb[] => {
     if (id === 'overview') return [{ key: 'root', label: t('title') }]
+    const extra = pages.find((p) => p.id === id)
+    if (extra) return [root, { key: id, label: extra.label }]
     if (id === 'machines') return [root, sectionCrumb('machines', t('ovMachines')), { key: 'board', label: t('machinesBoard') }]
     const body = id.slice(id.indexOf(':') + 1)
     const machineCrumb = (name: string, here: boolean): Crumb => ({
@@ -244,6 +268,7 @@ function StorageIde({ api, doctorT, t, openRef, map }: { api: LayerfsApi, doctor
       where: [machineWord(b.machine ?? ''), b.project ? t('jumpBound', { project: b.project }) : null].filter(Boolean).join(' · '),
     })),
     ...(view?.buckets ?? []).map((b) => ({ id: `bucket:${b.name}` as TabId, group: t('jumpBuckets'), label: b.name, where: providerWords(b.provider, t) })),
+    ...pages.map((p) => ({ id: p.id, group: t('jumpPages'), label: p.label, where: t('title') })),
   ]
 
   const canCreate = !!fleet && fleet.platforms.some((x) => x.how === 'created')
@@ -275,6 +300,9 @@ function StorageIde({ api, doctorT, t, openRef, map }: { api: LayerfsApi, doctor
   ) : null
 
   const pageOf = (id: TabId): ReactNode => {
+    if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} />
+    if (id === 'logs') return <LogsPage api={api} t={more.logs} />
+    if (id === 'settings') return <SettingsView t={more.settings} tp={more.presets} api={api} />
     if (id === 'machines') return <Board go={mc.go} />
     if (id.startsWith('machine:')) return <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })} />
     if (id.startsWith('sandbox:')) {
@@ -357,7 +385,7 @@ function StorageIde({ api, doctorT, t, openRef, map }: { api: LayerfsApi, doctor
   return (
     <div className={css.shell}>
       <NavBar t={t} history={history} crumbs={crumbsOf(active)} jump={jump} jobs={jobs} refreshing={manual || storage.loading}
-        onRefresh={() => { setManual(true); refresh() }} add={add} onOpen={open} />
+        onRefresh={() => { setManual(true); refresh() }} add={add} onOpen={open} pages={pages} />
       {refusal}
       <div className={css.panels}>
         <div key={active} className={css.tabBody} data-storage-page={active}>{pageOf(active)}</div>

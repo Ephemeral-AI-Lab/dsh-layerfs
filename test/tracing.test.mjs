@@ -5,14 +5,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdtempSync, linkSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, linkSync, mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 const root = mkdtempSync(join(tmpdir(), 'dsh-tracing-'))
-await build({ stdin: { contents: "export * from './src/host/layerfs/tracing.ts'; export { execute } from './src/host/layerfs/cli.ts'; export { listCalls } from './src/host/layerfs/call-log.ts'; export { parseTag, sessionTag } from './src/shared/logs.ts'", resolveDir: process.cwd(), loader: 'ts' }, outfile: join(root, 'trace.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node24' })
-const { execute, savedVersions, lineVersions, fastForwardOfOutput, exitOfOutput, receiptFromLine, withTraceContext, traceInvocation, managedCli, traceEnvironment, toolScope, listCalls, parseTag, sessionTag } = await import(pathToFileURL(join(root, 'trace.mjs')))
+await build({ stdin: { contents: "export * from './src/host/layerfs/tracing.ts'; export { execute } from './src/host/layerfs/cli.ts'; export { listCalls } from './src/host/layerfs/call-log.ts'; export { readOutput, hasOutput, compactRaw } from './src/host/layerfs/call-output.ts'; export { parseTag, sessionTag } from './src/shared/logs.ts'", resolveDir: process.cwd(), loader: 'ts' }, outfile: join(root, 'trace.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node24' })
+const { readOutput, hasOutput, compactRaw, execute, savedVersions, lineVersions, fastForwardOfOutput, exitOfOutput, receiptFromLine, withTraceContext, traceInvocation, managedCli, traceEnvironment, toolScope, listCalls, parseTag, sessionTag } = await import(pathToFileURL(join(root, 'trace.mjs')))
 const id = '12' + 'a'.repeat(64), base = '32' + 'b'.repeat(64)
 const RECEIPT_KEYS = ['id', 'origin', 'sessionId', 'project', 'turn', 'toolCallId', 'operation', 'outcome', 'versions', 'captureGap', 'at', 'ms', 'argv', 'tag', 'code', 'kind', 'execId', 'exit', 'step']
 
@@ -133,15 +133,69 @@ test('managed CLI preserves stdin, exact streams and exit status; one tagged lin
   assert.equal(JSON.parse(plain.stdout).tag, undefined)
   assert.equal(listCalls(callLog, {}).lines[0].tag, undefined)
 })
-test('managed CLI with the native call log only sets the tag and writes no stand-in line', async () => {
+test('managed CLI: a streamed exec exiting non-zero is the command\'s result, not Unknown (F13)', async () => {
+  const dir = mkdtempSync(join(root, 'exit-')), callLog = join(dir, 'trace', 'calls.jsonl')
+  const cli = join(dir, 'fake-exit.mjs')
+  writeFileSync(cli, `#!${process.execPath}\nconst code=Number(process.argv.at(-1).match(/exit (\\d+)/)?.[1]??0);if(code===125)process.stderr.write(JSON.stringify({code:'Busy',message:'no'})+'\\n');else process.stdout.write('raw output\\n');process.exitCode=code`, { mode: 0o700 })
+  const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog })
+  const identity = { origin: 'tool', sessionId: 's', project: 'p', turn: 1, toolCallId: 'bash-x', scope: toolScope('s', 'bash-x') }
+  const env = { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment(identity) }
+  for (const c of [1, 2, 0]) assert.equal((await run(command, ['workspace', 'exec', 'ws', '--stream', `exit ${c}`], env)).code, c)
+  assert.equal((await run(command, ['workspace', 'exec', 'ws', '--stream', 'exit 125'], env)).code, 125)
+  assert.equal((await run(command, ['workspace', 'exec', 'ws', 'exit 1'], env)).code, 1, 'unstreamed: exit 1 is the CLI itself')
+  const lines = listCalls(callLog, {}).lines.reverse()
+  assert.deepEqual(lines.map(line => line.outcome), ['ok', 'ok', 'ok', 'Busy', 'Unknown'])
+  assert.deepEqual(lines.map(line => line.kind), ['exit:1', 'exit:2', 'exit:0', undefined, undefined], 'the exit code stays on the line')
+  assert.deepEqual(receiptsOf(callLog, identity).map(row => row.outcome).reverse(), ['success', 'success', 'success', 'refusal', 'unknown'])
+  const receipts = receiptsOf(callLog, identity).reverse()
+  assert.deepEqual(receipts.map(row => row.kind ?? row.code), ['exit:1', 'exit:2', 'exit:0', 'Busy', 'Unknown'], '125 keeps the stderr refusal code')
+})
+test('managed CLI with the native call log is a bash script: tag, stdin, streams, exit and raw outputs, no stand-in line', async () => {
   const dir = mkdtempSync(join(root, 'native-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nconsole.log(JSON.stringify({kind:'Committed',head:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null}));process.exitCode=process.argv.includes('fail')?125:0`, { mode: 0o700 })
+  // Echo stdin and the tag; `fail` refuses (125 + a refusal frame on stderr), `exit3` exits 3 (a streamed command's code).
+  writeFileSync(cli, `#!${process.execPath}\nlet input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({kind:'Committed',head:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null,input,home:process.env.LAYERFS_HOME}));process.stderr.write('note\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({code:'Busy',message:'busy'})+'\\n');process.exitCode=125}else if(process.argv.includes('exit3'))process.exitCode=3})`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog, native: true })
-  const result = await run(command, ['file', 'write', 'p', 'b', '/x'], { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: 'n', project: 'p', scope: 'abcd1234' }) })
-  assert.equal(result.code, 0); assert.match(JSON.parse(result.stdout).tag, /^dsh:n:abcd1234\./)
-  assert.equal((await run(command, ['file', 'write', 'p', 'b', '/x', 'fail'], {})).code, 125)
+  assert.match(readFileSync(command, 'utf8'), /^#!\/bin\/bash\n/, 'no node per call')
+  assert.doesNotMatch(readFileSync(command, 'utf8'), />\(|<\(|\/dev\/fd/, "no process substitution: DSH's command sandbox denies /dev/fd")
+  const env = { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: 'session-1f2e', project: 'p', scope: 'abcd1234' }), LAYERFS_LOGS_TAG: 'inherited' }
+  const ok = await run(command, ['file', 'write', 'p', 'b', '/x'], env, 'hello\n')
+  assert.equal(ok.code, 0); assert.equal(ok.stderr, 'note\n')
+  const answer = JSON.parse(ok.stdout)
+  assert.match(answer.tag, /^dsh:session-1f2e:abcd1234\.[0-9a-f]{32}$/); assert.equal(answer.input, 'hello\n'); assert.equal(answer.home, join(dir, 'home'))
+  await new Promise(resolve => setTimeout(resolve, 100)) // the tee processes finish after the CLI
+  const outputs = join(dir, 'trace', 'outputs')
+  const raw = readOutput(outputs, answer.tag)
+  assert.equal(raw.exit, 0); assert.equal(raw.stdout, ok.stdout); assert.equal(raw.stderr, 'note\n')
+  assert.equal(hasOutput(outputs, answer.tag), true)
+  const refused = await run(command, ['file', 'write', 'p', 'b', '/x', 'fail'], env)
+  assert.equal(refused.code, 125)
+  const three = await run(command, ['workspace', 'exec', 'sb:w', 'false', '--stream', 'exit3'], env)
+  assert.equal(three.code, 3)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  const refusedTag = JSON.parse(refused.stdout).tag
+  assert.equal(readOutput(outputs, refusedTag).refusal.code, 'Busy')
+  assert.equal(readOutput(outputs, JSON.parse(three.stdout).tag).exit, 3)
+  // Finished calls become records; the raw files go.
+  assert.equal(compactRaw(outputs, undefined, Date.now() + 60_000), 3)
+  assert.equal(readOutput(outputs, answer.tag).exit, 0)
+  assert.deepEqual(readdirSync(join(outputs, 'raw')), [])
+  // No trace context, help and logs: the CLI directly, untagged, nothing kept.
+  const bare = await run(command, ['file', 'write', 'p', 'b', '/x'], { DSH_LAYERFS_TRACE_CONTEXT: '', LAYERFS_LOGS_TAG: 'inherited' })
+  assert.equal(JSON.parse(bare.stdout).tag, null)
   assert.equal(existsSync(callLog), false)
+})
+test('the native bash wrapper forwards a signal and re-raises it', async () => {
+  const dir = mkdtempSync(join(root, 'native-sig-')), callLog = join(dir, 'trace', 'calls.jsonl')
+  const cli = join(dir, 'fake-wait.mjs')
+  writeFileSync(cli, `#!${process.execPath}\nprocess.stdout.write('ready\\n');process.on('SIGTERM',()=>process.kill(process.pid,'SIGKILL'));setInterval(()=>{},1000);`, { mode: 0o700 })
+  const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog, native: true })
+  const child = spawn(command, ['workspace', 'commit', 'ws'], { env: { ...process.env, DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: 'sig', project: 'p', scope: 'ab' }) }, stdio: 'pipe' })
+  await new Promise((resolve, reject) => { child.once('error', reject); child.stdout.once('data', resolve) })
+  const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })))
+  child.kill('SIGTERM')
+  const result = await closed
+  assert.ok(result.signal === 'SIGKILL' || result.code === 137, `killed child's signal re-raised: ${JSON.stringify(result)}`)
 })
 test('receipts from lines never link an uncertain Workspace target or a malformed result', async () => {
   const dir = mkdtempSync(join(root, 'target-')), callLog = join(dir, 'calls.jsonl')

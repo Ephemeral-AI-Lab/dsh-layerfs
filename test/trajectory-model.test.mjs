@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   checkpointVersion, durationParts, filterTurns, flattenRows, focusTarget, laneItems, opCommand, opWrites, place,
-  prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, timeSpan,
+  prettyArgs, recentTurns, recordMatches, selectionTurn, shownHostOp, thinLane, timeSpan,
 } from '../src/client/views/trajectory-model.ts'
 
 const T0 = 1_700_000_000_000
@@ -172,4 +172,18 @@ test('durationParts and prettyArgs', () => {
   assert.equal(prettyArgs('{"command":"ls"}'), '{\n  "command": "ls"\n}')
   assert.equal(prettyArgs('not json'), 'not json')
   assert.equal(prettyArgs(undefined), '')
+})
+
+test('thinLane: a crowded lane keeps one mark per bin, preferring the selected item, then refused, running, created', () => {
+  const span = { start: 0, end: 1000 }
+  const items = Array.from({ length: 1000 }, (_, i) => ({ start: i, select: `r:${i}`, ...(i === 7 ? { tone: 'created' } : i === 8 ? { tone: 'refused' } : {}) }))
+  const marks = thinLane(items, span, 'r:42', 100)
+  assert.equal(marks.length, 100, 'one mark per bin')
+  assert.equal(marks.reduce((n, m) => n + 1 + m.more, 0), 1000, 'every item is counted once')
+  assert.equal(marks[0].select, 'r:8', 'refused beats created and plain items in its bin')
+  assert.equal(marks[4].select, 'r:42', 'the selected item always shows')
+  assert.ok(marks.every((m, i) => i === 0 || m.start > marks[i - 1].start), 'marks stay in time order')
+  const few = thinLane(items.slice(0, 50), span, null, 100)
+  assert.equal(few.length, 50, 'a lane within the cap is drawn as is')
+  assert.ok(few.every((m) => m.more === 0))
 })

@@ -186,3 +186,82 @@ test('client api: a Remote call lost after it was sent is tagged transport-unkno
     await assert.rejects(api.call('POST', '/api/machines/a/stop'), (e) => e.code === 'no-host' && e.status === 0 && e.transport === 'transport-unknown')
   } finally { api.dispose() }
 })
+
+/** The client API over a fake Remote whose event stream the test drops and reopens, and whose calls it answers by hand. */
+async function droppableApi(t) {
+  const { build } = await import('esbuild')
+  const { pathToFileURL } = await import('node:url')
+  const root = new URL('..', import.meta.url).pathname
+  const out = mkdtempSync(join(tmpdir(), 'dsh-api-'))
+  t.after(() => rmSync(out, { recursive: true, force: true }))
+  await build({ absWorkingDir: root, stdin: { contents: "export { createApi, HostError, GET_TIMEOUT_MS } from './src/client/api.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'api.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })
+  const mod = await import(pathToFileURL(join(out, 'api.mjs')).href)
+  // Each events() call is one connection: it says `ready`, then ends when the test drops it.
+  let end = () => {}
+  const stream = () => {
+    const queue = [{ type: 'ready' }]
+    let wake = null
+    end = () => { queue.push(null); wake?.() }
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          while (!queue.length) await new Promise((r) => { wake = r })
+          const item = queue.shift()
+          return item === null ? { done: true, value: undefined } : { done: false, value: item }
+        },
+      }),
+      dispose() {},
+    }
+  }
+  const sent = []
+  const remote = { call: (req) => new Promise((resolve) => sent.push({ req, answer: (body) => resolve({ ok: true, value: { status: 200, body } }) })), events: stream }
+  const api = mod.createApi(() => remote, { openPanel() {}, openWorkspace: async () => {}, openSession() {} }, () => undefined)
+  t.after(() => api.dispose())
+  const connected = () => new Promise((resolve) => { if (api.connected()) resolve(); else { const off = api.onEvent('connection', (e) => { if (e.data?.connected) { off(); resolve() } }) } })
+  await connected()
+  return { api, mod, sent, drop: () => end(), connected, tick: () => new Promise((r) => setTimeout(r, 0)) }
+}
+
+test('client api: a GET whose connection drops is sent again once the host is back, and answers', async (t) => {
+  const { api, sent, drop } = await droppableApi(t)
+  const reply = api.call('GET', '/api/storage')
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(sent.length, 1)
+  drop()
+  // The stream reconnects after its back-off (500 ms); the read goes out again then.
+  for (let i = 0; i < 300 && sent.length < 2; i++) await new Promise((r) => setTimeout(r, 10))
+  assert.equal(sent.length, 2, 'the read was re-sent on the new connection')
+  assert.equal(api.connected(), true)
+  assert.deepEqual(sent[1].req, sent[0].req)
+  sent[1].answer({ stores: [] })
+  assert.deepEqual(await reply, { stores: [] })
+})
+
+test('client api: a write whose connection drops fails as transport-unknown and is never re-sent', async (t) => {
+  const { api, sent, drop, connected } = await droppableApi(t)
+  const reply = api.call('POST', '/api/machines/a/stop')
+  await new Promise((r) => setTimeout(r, 10))
+  drop()
+  await assert.rejects(reply, (e) => e.code === 'no-host' && e.status === 0 && e.transport === 'transport-unknown')
+  await connected()
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(sent.length, 1)
+})
+
+test('client api: a named operation whose connection drops fails instead of waiting forever', async (t) => {
+  const { api, drop } = await droppableApi(t)
+  const reply = api.op('session.state', { sessionId: 's' })
+  await new Promise((r) => setTimeout(r, 10))
+  drop()
+  await assert.rejects(reply, (e) => e.code === 'no-host' && e.transport === 'transport-unknown')
+})
+
+test('client api: a GET that never answers fails after its budget', async (t) => {
+  const { api, mod, sent } = await droppableApi(t)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const reply = api.call('GET', '/api/storage')
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
+  assert.equal(sent.length, 1)
+  t.mock.timers.tick(mod.GET_TIMEOUT_MS + 1)
+  await assert.rejects(reply, (e) => e.code === 'timeout' && e.transport === 'transport-unknown')
+})

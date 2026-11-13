@@ -27,6 +27,9 @@ import type { SessionStore } from './store.ts'
 import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
 import { classifyStore, pgMachineOf, storeOf, type StoreHealth } from './availability.ts'
 
+/** How long a passed identity and readiness check stands for pre-step checks. */
+const IDENTITY_FRESH_MS = 15_000
+
 /** A Store of this LayerFS home; `id` when the CLI reports Store identity. */
 export interface HomeStore { name: string, id?: string }
 
@@ -594,7 +597,7 @@ export class LayerfsSessions extends Service {
     if (this.placeOf(agent.session ?? { id: sessionId }).kind === 'folder' && !this.simulationOf(sessionId)) return
     const held = this.ctx.layerfs.exclusive?.()
     if (held) throw new CliError('ConnectBusy', held)
-    await this.validateExecutionIdentity(sessionId)
+    await this.validateExecutionIdentity(sessionId, { recent: true })
     if (this.isSimulationManaged(sessionId)) {
       if (agent.model?.current?.()?.provider !== 'simulation') throw new CliError('Busy', 'Stop the active project script before changing its model')
       // Creation only records a closed binding; the script's first step binds
@@ -618,11 +621,24 @@ export class LayerfsSessions extends Service {
     await this.bindAgent(agent, 'pre-step', true)
   }
 
-  private async validateExecutionIdentity(sessionId: string): Promise<void> {
+  /** When each bound session's identity and readiness last passed (pre-step checks reuse it briefly). */
+  private identityChecked?: Map<string, number>
+
+  /**
+   * The session's Store, project and latest checkpoint are still its own, and its machine
+   * and Store are ready. `recent`: a bound session that passed within `IDENTITY_FRESH_MS`
+   * passes again without reads (every agent step of a team run calls this; each check is
+   * five Store and machine reads queued behind that Store's other work).
+   */
+  private async validateExecutionIdentity(sessionId: string, options: { recent?: boolean } = {}): Promise<void> {
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
     let binding = this.binding(sessionId)
     while (binding?.kind === 'shared' && binding.parent) binding = this.binding(binding.parent)
     const id = binding?.sessionId ?? sessionId
+    const checked = this.identityChecked ??= new Map()
+    const passed = checked.get(id)
+    if (options.recent && passed && binding?.state === 'bound' && Date.now() - passed < IDENTITY_FRESH_MS) return
+    checked.delete(id)
     try {
       const row = await persistence?.assertSessionIdentity?.(id)
       if (row) {
@@ -635,6 +651,7 @@ export class LayerfsSessions extends Service {
         }
         if (binding && binding.machine && binding.machine !== machine) this.save({ ...binding, machine, state: 'closed', executionState: 'inactive', mount: undefined, ws: undefined })
       }
+      checked.set(id, Date.now())
     } catch (error: any) {
       const message = String(error?.message ?? error)
       const kind = error?.code === 'Unavailable' ? 'availability' : 'blocked'

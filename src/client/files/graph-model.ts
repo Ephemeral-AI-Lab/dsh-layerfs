@@ -33,7 +33,9 @@ const isLayerId = (id: string): boolean => id.startsWith('32')
  * addressable. `sources` maps a Commit to its producer's key (e.g. a session
  * id); runs break when the producer changes.
  */
-export function graphNodes(branches: HistoryBranch[], pages: Record<string, HistoryPage | undefined>, sources: ReadonlyMap<string, string>, expanded: ReadonlySet<string>, selected: string | null, t: Translate): GraphNode[] {
+export function graphNodes(branches: HistoryBranch[], pages: Record<string, HistoryPage | undefined>, sources: ReadonlyMap<string, string>, expandedIds: ReadonlySet<string>, selected: string | null, t: Translate, all = false): GraphNode[] {
+  // Show all: every run and every quiet stretch of main is drawn one by one.
+  const expanded = all ? { has: () => true } : expandedIds
   const pins = new Set<string>()
   for (const b of branches) for (const id of [b.head, b.forkedFrom]) if (id) pins.add(id)
   for (const page of Object.values(pages)) for (const c of page?.items ?? []) if (c.merged) {
@@ -113,6 +115,49 @@ export function graphNodes(branches: HistoryBranch[], pages: Record<string, Hist
   return nodes
 }
 
+/**
+ * A Branch's new first page joined to what was loaded at its old head: the new Commits above
+ * the old head, then the old pages (or the new page's own tail when it reads deeper). Undefined
+ * when the new page does not reach the old head (the caller reads on, or keeps the new page).
+ */
+export function extendPage(fresh: HistoryPage, old: HistoryPage): HistoryPage | undefined {
+  const oldHead = old.items[0]?.id ?? old.head
+  if (!oldHead || fresh.head === old.head) return old.items.length >= fresh.items.length ? old : fresh
+  const at = fresh.items.findIndex((c) => c.id === oldHead)
+  if (at < 0) return undefined
+  const deeper = old.items.length >= fresh.items.length - at
+  return { items: [...fresh.items.slice(0, at), ...(deeper ? old.items : fresh.items.slice(at))], next: deeper ? old.next : fresh.next, head: fresh.head }
+}
+
+/**
+ * A side Branch's Commit count without a read, when the loaded page tells it: unchanged head,
+ * nothing since the fork, a complete page, or a new page that reaches the last counted head.
+ * Null when only the host can count it.
+ */
+export function movedCount(known: { head: string | null, count: number } | undefined, page: HistoryPage | undefined, branch: HistoryBranch): number | null {
+  if (known && known.head === (branch.head ?? null)) return known.count
+  if (branch.head && branch.head === branch.forkedFrom) return 0
+  if (!page || page.head !== branch.head) return null
+  if (page.next === null) return page.items.length
+  if (!known?.head) return null
+  const at = page.items.findIndex((c) => c.id === known.head)
+  return at < 0 ? null : known.count + at
+}
+
+/**
+ * The Commit total of `branches` once each has a count at its current head, else null. A
+ * Branch without a head yet (a new session Branch) is not counted until its count arrives.
+ */
+export function countedTotal(branches: HistoryBranch[], counts: Readonly<Record<string, { head: string | null, count: number } | undefined>>): number | null {
+  let total = 0
+  for (const b of branches) {
+    const known = counts[b.name]
+    if (!known || known.head !== (b.head ?? null)) return null
+    total += known.count
+  }
+  return branches.length ? total : null
+}
+
 function node(c: CommitInfo, t: Translate): GraphNode {
   return { id: c.id, branch: c.branch, label: c.kind === 'merge' || c.merged ? t('files_merge') : c.message || t('files_checkpoint'), commits: [c], parent: c.parent, second: c.merged ?? null, kind: 'checkpoint', at: c.at }
 }
@@ -184,9 +229,11 @@ export function branchLanes(branches: HistoryBranch[], pages: Record<string, His
 
 /** One step per commit in order; the least room a fork's sprout gets; the distance between lanes. */
 export const STEP = 14
+/** A collapsed run's width: room for its three dots, growing a step per doubling of its count up to six steps, so a long run never stretches its lane. */
+const runWidth = (count: number): number => STEP * Math.min(6, Math.max(2, Math.ceil(Math.log2(count))))
 const SPROUT = 40
-/** A sprout leaves its parent at most this far (plus a step) before the branch's first commit; before that it runs along the parent. */
-const BEND_ROOM = 96
+/** A sprout leaves its parent at most this far (plus a step) before the branch's first commit; before that it runs along the parent. Short, so in a packed run of branches a sprout leaves after its neighbours' lines end. */
+const BEND_ROOM = 56
 export const GAP = 34
 /** Clear space kept between two branches that share a lane. */
 const PAD = 16
@@ -202,18 +249,20 @@ export interface Fork { base: number, leave: number, bend: number, knot: number 
 
 /**
  * The tree layout. x counts commits, not the wall clock: a commit sits one
- * step past its own parent, so a branch is as long as its own commits (a
- * collapsed run keeps their length) and branches running at the same time
+ * step past its own parent, so a branch is as long as its own nodes (a
+ * collapsed run takes a short width that grows with the log of its count) and branches running at the same time
  * share columns; a branch starts past every commit saved before its first
  * one, so branches that ran one after another sit end to end and a quiet
  * stretch takes no room. Main rides the vertical center. A branch sprouts
  * from its fork point and bends out about 45° into its own lane, then runs to
  * a knot just before its first commit; a branch that starts long after its
  * fork point runs along its parent first and leaves it shortly before its
- * work, so it holds a lane only while it is going. It takes the free lane nearest its parent, on its
- * parent's side, and the lane frees once it and its name tag are behind. A
- * subtree packs into a band beyond its parent, taking lanes in the order its
- * branches leave; a sprout crosses another branch only when no lane avoids
+ * work, so it holds a lane only while it is going. Branches take lanes in
+ * the order they leave: each the free lane nearest its parent on its parent's
+ * side of main, inward or outward, and a lane frees once a branch and its name
+ * tag are behind, so the tree stays balanced around main and a chain of
+ * branches zigzags between two lanes instead of climbing. Main's children go to
+ * the lighter side. A sprout crosses another branch only when no lane avoids
  * it. `sides` only breaks ties for main's children (a remembered side).
  */
 export function layoutNodes(nodes: GraphNode[], sides: ReadonlyMap<string, number>, labelWidth: (branch: string) => number = (name) => name.length * 6.3 + 80) {
@@ -250,12 +299,12 @@ export function layoutNodes(nodes: GraphNode[], sides: ReadonlyMap<string, numbe
     // A branch begins past everything saved before its first commit.
     if (opens && ts.length) start = Math.max(start, before(rank.get(ts[0])!) + STEP)
     if (n.branch === 'main') start = Math.max(start, trunkEnd + STEP)
-    // A collapsed run takes a step per commit, its mark in the middle.
-    const steps = Math.max(1, n.commits.length)
-    const end = start + (steps - 1) * STEP
+    // A collapsed run takes a short width, its mark in the middle; its commits' times spread across it.
+    const width = n.kind === 'group' ? runWidth(n.commits.length) : 0
+    const end = start + width
     xs.set(n.id, n.kind === 'group' ? (start + end) / 2 : start)
     ends.set(n.id, end)
-    ts.forEach((at, i) => record(rank.get(at)!, start + Math.min(i, steps - 1) * STEP))
+    ts.forEach((at, i) => record(rank.get(at)!, start + (ts.length > 1 ? (i / (ts.length - 1)) * width : 0)))
     if (n.branch === 'main') trunkEnd = end
   }
   const xOf = (n: GraphNode) => xs.get(n.id)!
@@ -266,7 +315,6 @@ export function layoutNodes(nodes: GraphNode[], sides: ReadonlyMap<string, numbe
     if (list) list.push(n)
     else members.set(n.branch, [n])
   }
-  const children = new Map<string, Span[]>()
   const spans = new Map<string, Span>()
   for (const [name, ns] of members) {
     const first = ns.reduce((m, n) => (xOf(n) < xOf(m) ? n : m))
@@ -278,68 +326,73 @@ export function layoutNodes(nodes: GraphNode[], sides: ReadonlyMap<string, numbe
     const line = Math.max(ends.get(head.id)!, xOf(head))
     const span = { name, parent: from?.branch ?? 'main', start, leave: Math.max(start, firstX - STEP - BEND_ROOM), first: firstX, line, end: line + labelWidth(name) }
     spans.set(name, span)
-    const siblings = children.get(span.parent)
-    if (siblings) siblings.push(span)
-    else children.set(span.parent, [span])
   }
   /** A group's run begins at its first step, not at its mark. */
   function n0(n: GraphNode) { return n.kind === 'group' ? xOf(n) - (ends.get(n.id)! - xOf(n)) : xOf(n) }
-  /** Branches take lanes in the order they leave their parents, so a lane frees behind a finished branch. */
   const earlier = (p: Span, q: Span) => p.leave - q.leave || p.first - q.first || p.name.localeCompare(q.name)
 
-  const free = (occ: Map<number, Cell[]>, lane: number, a: number, b: number) => !occ.get(lane)?.some((c) => c.a < b + PAD && a < c.b + PAD)
+  const occ = new Map<number, Cell[]>()
+  const free = (lane: number, a: number, b: number) => !occ.get(lane)?.some((c) => c.a < b + PAD && a < c.b + PAD)
   /** A sprout may pass behind a name tag, never through a line. */
-  const unlined = (occ: Map<number, Cell[]>, lane: number, a: number, b: number) => !occ.get(lane)?.some((c) => c.a < b + PAD && a < c.l + PAD)
-  const add = (occ: Map<number, Cell[]>, cell: Cell) => {
+  const unlined = (lane: number, a: number, b: number) => !occ.get(lane)?.some((c) => c.a < b + PAD && a < c.l + PAD)
+  const add = (cell: Cell) => {
     const list = occ.get(cell.lane)
     if (list) list.push(cell)
     else occ.set(cell.lane, [cell])
   }
-  const fits = (occ: Map<number, Cell[]>, shape: Cell[], sign: number, o: number) => shape.every((c) => free(occ, sign * (o + c.lane), c.a, c.b))
-  const sprout = (span: Span, o: number) => span.leave + bendOf(o * GAP, span.first - span.leave)
-  const clear = (occ: Map<number, Cell[]>, span: Span, sign: number, o: number) => {
-    for (let k = 1; k < o; k++) if (!unlined(occ, sign * k, span.leave, sprout(span, o))) return false
-    return true
-  }
-  /** The nearest offset whose sprout crosses no line, else the nearest that fits at all (`clean` says which). */
-  const reach = (occ: Map<number, Cell[]>, shape: Cell[], span: Span, sign: number) => {
-    const outer = Math.max(0, ...[...occ.keys()].map((l) => l * sign))
-    for (let o = 1; o <= outer + 1; o++) if (fits(occ, shape, sign, o) && clear(occ, span, sign, o)) return { o, clean: true }
-    let o = 1
-    while (!fits(occ, shape, sign, o)) o++
-    return { o, clean: false }
-  }
-  const offset = (occ: Map<number, Cell[]>, shape: Cell[], span: Span, sign: number) => reach(occ, shape, span, sign).o
-  const place = (occ: Map<number, Cell[]>, shape: Cell[], span: Span, sign: number, o: number) => {
-    // the stretch it runs along its parent first, then the lanes its bend crosses
-    if (span.leave > span.start) add(occ, { lane: 0, a: span.start, b: span.leave, l: span.leave })
-    for (let k = 1; k < o; k++) add(occ, { lane: sign * k, a: span.leave, b: sprout(span, o), l: sprout(span, o) })
-    for (const c of shape) add(occ, { ...c, lane: sign * (o + c.lane) })
-  }
-  /** A branch and its descendants, with the branch on lane 0 and descendants on positive lanes. */
-  const shapeOf = (span: Span): Cell[] => {
-    const occ = new Map<number, Cell[]>()
-    add(occ, { lane: 0, a: span.leave, b: span.end, l: span.line, branch: span.name })
-    for (const kid of [...(children.get(span.name) ?? [])].sort(earlier)) {
-      const shape = shapeOf(kid)
-      place(occ, shape, kid, 1, offset(occ, shape, kid, 1))
-    }
-    return [...occ.values()].flat()
-  }
-  const trunk = new Map<number, Cell[]>()
-  const load = new Map<number, number>([[1, 0], [-1, 0]])
-  for (const kid of [...(children.get('main') ?? [])].sort(earlier)) {
-    const shape = shapeOf(kid)
-    // The side where its sprout crosses nothing, then the nearer, then a remembered side, then the lighter.
-    const up = reach(trunk, shape, kid, -1)
-    const down = reach(trunk, shape, kid, 1)
-    const remembered = Math.sign(sides.get(kid.name) ?? 0)
-    const sign = up.clean !== down.clean ? (up.clean ? -1 : 1) : up.o !== down.o ? (up.o < down.o ? -1 : 1) : remembered || (load.get(-1)! <= load.get(1)! ? -1 : 1)
-    place(trunk, shape, kid, sign, sign < 0 ? up.o : down.o)
-    load.set(sign, load.get(sign)! + shape.length)
-  }
   const lanes = new Map<string, number>([['main', 0]])
-  for (const list of trunk.values()) for (const c of list) if (c.branch) lanes.set(c.branch, c.lane)
+  const load = new Map<number, number>([[1, 0], [-1, 0]])
+  /** Whether `span` fits on `lane` from a parent on `from`, and whether its sprout crosses no line on the way. */
+  const test = (span: Span, from: number, lane: number) => {
+    // Its own lane is taken from where its bend arrives there.
+    const to = span.leave + bendOf((lane - from) * GAP, span.first - span.leave)
+    if (!free(lane, to, span.end)) return null
+    const step = Math.sign(lane - from)
+    let clean = true
+    for (let k = from + step; k !== lane; k += step) if (k !== 0 && !unlined(k, span.leave, to)) clean = false
+    return { lane, clean, to }
+  }
+  /**
+   * The free lane nearest the parent on one side of main (inward or outward, so a
+   * finished parent's neighbour is reused and a chain of branches zigzags instead of
+   * climbing): the nearest whose sprout crosses no line, else the nearest that fits.
+   */
+  const pick = (span: Span, from: number, sign: number) => {
+    const outer = Math.max(Math.abs(from), ...[...occ.keys()].map((l) => l * sign)) + 1
+    const order = Array.from({ length: outer }, (_, i) => sign * (i + 1)).filter((l) => l !== from).sort((a, b) => Math.abs(a - from) - Math.abs(b - from) || Math.abs(a) - Math.abs(b))
+    let fallback: ReturnType<typeof test> = null
+    for (const lane of order) {
+      const fit = test(span, from, lane)
+      if (fit?.clean) return fit
+      fallback ??= fit
+    }
+    return fallback ?? test(span, from, sign * (outer + 1))!
+  }
+  // Branches take lanes in the order they leave their parents (a parent always first), so a lane frees behind a finished branch.
+  const pending = [...spans.values()].sort(earlier)
+  while (pending.length) {
+    const i = Math.max(0, pending.findIndex((sp) => lanes.has(sp.parent) || !spans.has(sp.parent)))
+    const span = pending.splice(i, 1)[0]
+    const from = lanes.get(span.parent) ?? 0
+    let fit
+    if (from) fit = pick(span, from, Math.sign(from))
+    else {
+      // Main's children: the side whose sprout crosses nothing, then the nearer, then a remembered side, then the lighter.
+      const up = pick(span, 0, -1)
+      const down = pick(span, 0, 1)
+      const remembered = Math.sign(sides.get(span.name) ?? 0)
+      const lighter = load.get(-1)! <= load.get(1)! ? up : down
+      fit = up.clean !== down.clean ? (up.clean ? up : down) : Math.abs(up.lane) !== Math.abs(down.lane) ? (Math.abs(up.lane) < Math.abs(down.lane) ? up : down) : load.get(-1) !== load.get(1) ? lighter : remembered ? (remembered < 0 ? up : down) : lighter
+    }
+    const sign = Math.sign(fit.lane)
+    load.set(sign, load.get(sign)! + 1)
+    lanes.set(span.name, fit.lane)
+    // the stretch it runs along its parent first, the lanes its bend crosses, then its own line and name tag
+    if (span.leave > span.start) add({ lane: from, a: span.start, b: span.leave, l: span.leave })
+    const step = Math.sign(fit.lane - from)
+    for (let k = from + step; k !== fit.lane; k += step) if (k) add({ lane: k, a: span.leave, b: fit.to, l: fit.to })
+    add({ lane: fit.lane, a: fit.to, b: span.end, l: span.line, branch: span.name })
+  }
   // Each sprout bends across the lanes it actually crosses, and knots just before the branch's first commit.
   const forks = new Map<string, Fork>()
   for (const [name, span] of spans) {

@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import { dirname, join } from 'node:path'
-import { isDshTag, TAG_MAX, type CallOutput, type LogsOutputAnswer } from '../../shared/logs.ts'
+import { isDshTag, OUTPUT_MAX, TAG_MAX, type CallOutput, type LogsOutputAnswer } from '../../shared/logs.ts'
 
 /** Store bounds: at most this many files and bytes, oldest pruned first. */
 export const OUTPUT_FILES = 2000
@@ -153,18 +153,113 @@ export function saveOutput(dir: string, record: CallOutput, bounds: OutputBounds
   return validOutputTag(record.tag) && writeOutput(fs, dir, outputName(createHash, record.tag), record, bounds)
 }
 
-/** Whether a tag has a stored output. */
+/** Whether a tag has a stored output (a record, or a native-mode call's raw files). */
 export function hasOutput(dir: string, tag: string | undefined): boolean {
-  return validOutputTag(tag) && fs.existsSync(join(dir, outputName(createHash, tag)))
+  return validOutputTag(tag) && (fs.existsSync(join(dir, outputName(createHash, tag))) || fs.existsSync(`${rawBase(dir, tag)}.out`))
 }
 
-/** `logs.output {tag}`: the stored record, or `{ missing: true }`. */
+/** `logs.output {tag}`: the stored record, else the raw files of a native-mode shell call, else `{ missing: true }`. */
 export function readOutput(dir: string, tag: string): LogsOutputAnswer {
   try {
     const record = JSON.parse(fs.readFileSync(join(dir, outputName(createHash, tag)), 'utf8'))
     if (record && typeof record === 'object' && record.tag === tag && record.bytes && typeof record.bytes === 'object') return record as CallOutput
   } catch { /* missing, pruned or torn */ }
-  return { missing: true }
+  return readRaw(dir, tag) ?? { missing: true }
+}
+
+// ------------------------------------------------- raw outputs (native mode)
+
+/**
+ * With LayerFS's own call log the agent's `layerfs` is a bash script, not node
+ * (`managedCli`): it tees the CLI's stdout and stderr to `<dir>/raw/<tag>.out`
+ * and `.err` and writes the exit code to `.exit` when the call ends, the tag
+ * with every character outside `[A-Za-z0-9._-]` as `_`. `readOutput` reads
+ * those files until `compactRaw` turns a finished call into its record.
+ */
+export const RAW_DIR = 'raw'
+/** Raw files of finished calls older than this are compacted into records. */
+export const RAW_SETTLE_MS = 5000
+/** Raw bytes kept at most (in-flight calls included), oldest calls removed first. */
+export const RAW_BYTES = 256 * 1024 * 1024
+
+/** The raw files' common path of a tag (no extension). */
+export const rawBase = (dir: string, tag: string): string => join(dir, RAW_DIR, tag.replace(/[^A-Za-z0-9._-]/g, '_'))
+
+function readPart(path: string, max: number, keep: 'head' | 'tail'): { bytes: Buffer, total: number } | undefined {
+  let fd: number | undefined
+  try {
+    fd = fs.openSync(path, 'r')
+    const total = fs.fstatSync(fd).size, length = Math.min(total, max), buffer = Buffer.alloc(length)
+    fs.readSync(fd, buffer, 0, length, keep === 'head' ? 0 : total - length)
+    return { bytes: buffer, total }
+  } catch { return undefined } finally { if (fd !== undefined) try { fs.closeSync(fd) } catch { /* closed */ } }
+}
+
+/** The record of a raw call: running (no `exit`) until its `.exit` file exists. `undefined` when there are no raw files. */
+export function readRaw(dir: string, tag: string, max = OUTPUT_MAX): CallOutput | undefined {
+  if (!validOutputTag(tag)) return undefined
+  const base = rawBase(dir, tag)
+  const out = readPart(`${base}.out`, max, 'head'), err = readPart(`${base}.err`, max, 'tail')
+  if (!out && !err) return undefined
+  let exit: number | undefined
+  try { const text = fs.readFileSync(`${base}.exit`, 'utf8').trim(); if (/^\d{1,3}$/.test(text)) exit = Number(text) } catch { /* still running */ }
+  const sink = (part: { bytes: Buffer, total: number } | undefined) => ({ push() {}, total: () => part?.total ?? 0, bytes: () => part?.bytes ?? Buffer.alloc(0) })
+  let refusal: any
+  if (exit === 125 && err) for (const line of err.bytes.toString('utf8').trim().split('\n').reverse()) {
+    try { const frame = JSON.parse(line); if (frame && typeof frame.code === 'string') { refusal = frame; break } } catch { /* not a frame */ }
+  }
+  return outputRecord({ tag, exit, stdout: sink(out), stderr: sink(err), refusal, max })
+}
+
+/**
+ * Keep the raw folder small: turn each finished call (its `.exit` older than
+ * `RAW_SETTLE_MS`) into its record, remove raw files of calls whose record
+ * exists, and past `RAW_BYTES` remove the oldest calls' files. Never throws.
+ */
+export function compactRaw(dir: string, bounds: OutputBounds = DEFAULT_BOUNDS, now = Date.now()): number {
+  const folder = join(dir, RAW_DIR)
+  let entries: string[]
+  try { entries = fs.readdirSync(folder) } catch { return 0 }
+  const calls = new Map<string, { files: { path: string, size: number, at: number }[], exitAt?: number }>()
+  for (const entry of entries) {
+    // The wrapper's named pipes (`.po`, `.pe`) outlive it only if it was killed: remove them after an hour.
+    if (/\.(po|pe)$/.test(entry)) { try { const path = join(folder, entry); if (now - fs.statSync(path).mtimeMs > 3_600_000) fs.unlinkSync(path) } catch { /* raced */ } continue }
+    const match = /^(.+)\.(out|err|exit)$/.exec(entry)
+    if (!match) continue
+    try {
+      const path = join(folder, entry), stat = fs.statSync(path)
+      const call = calls.get(match[1]) ?? { files: [] }
+      call.files.push({ path, size: stat.size, at: stat.mtimeMs })
+      if (match[2] === 'exit') call.exitAt = stat.mtimeMs
+      calls.set(match[1], call)
+    } catch { /* raced */ }
+  }
+  let compacted = 0
+  const remove = (call: { files: { path: string }[] }) => { for (const file of call.files) try { fs.unlinkSync(file.path) } catch { /* raced */ } }
+  for (const [safe, call] of [...calls]) {
+    if (call.exitAt === undefined || now - call.exitAt < RAW_SETTLE_MS) continue
+    // The raw name keeps a valid tag's characters (`dsh:` → `dsh_`); the record needs the tag itself.
+    const tag = rawTag(safe)
+    const record = tag ? readRaw(dir, tag) : undefined
+    if (record && tag) { if (saveOutput(dir, record, bounds)) compacted++ }
+    remove(call); calls.delete(safe)
+  }
+  const live = [...calls.values()].map((call) => ({ call, at: Math.min(...call.files.map((f) => f.at)), size: call.files.reduce((s, f) => s + f.size, 0) })).sort((a, b) => a.at - b.at)
+  let bytes = live.reduce((s, c) => s + c.size, 0)
+  for (const entry of live) { if (bytes <= RAW_BYTES) break; remove(entry.call); bytes -= entry.size }
+  return compacted
+}
+
+/**
+ * The tag of a raw file name: the wrapper writes `dsh:<sessionId>:<id>` with
+ * each `:` as `_`; session ids (`session-<uuid>`, subagent UUIDs) and receipt
+ * ids (`<scope>.<hex>`) hold no `_`, so the two `_` are the colons.
+ */
+function rawTag(safe: string): string | undefined {
+  const match = /^dsh_([A-Za-z0-9.-]+)_([A-Za-z0-9.-]+)$/.exec(safe)
+  if (!match) return undefined
+  const tag = `dsh:${match[1]}:${match[2]}`
+  return validOutputTag(tag) ? tag : undefined
 }
 
 /** Remove every stored output (Reset). */

@@ -82,6 +82,15 @@ restart. Modes:
 | `garbage` | non-JSON stdout | malformed |
 | `hang` | never exits | must time out (see finding T1) |
 
+### 3.2a Dead-worker shim — `test/fixtures/cli-worker-down.mjs` (built)
+
+A pass-through wrapper for UI checks of a machine whose worker does not answer:
+`machine status|list|get` report `$LFS_DOWN_MACHINE` as stopped with LayerFS's
+down reason, `doctor` adds LayerFS's warning for it (with its `machine
+start|stop` fixes) and an error about `$LFS_DOWN_SANDBOX`; `LFS_DOWN_AS_VM=<store>`
+also shows it as a Lima VM holding that Store, to see the guided Remove (do not
+run it there). Point `DSH_LAYERFS_CLI` at it with `LFS_REAL_CLI` set to the pinned CLI.
+
 ### 3.3 Data tiers — `tools/perf-fixture.mjs`
 
 Built with plain CLI calls on a native SQLite Store (no Docker or Lima), cached

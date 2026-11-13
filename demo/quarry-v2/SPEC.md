@@ -1,6 +1,6 @@
-# Strata: a SQLite-compatible SQL engine in Rust, built by 13 agents on LayerFS v2
+# Strata: a SQLite-compatible SQL engine in Rust, built by 9 agents on LayerFS v2
 
-Strata is the Quarry v2 run. One dsh main agent and **twelve worker subagents** build
+Strata is the Quarry v2 run. One dsh main agent and **eight worker subagents** build
 a SQL engine in Rust that speaks SQLite's dialect, reads and writes **SQLite's own
 database file format** (rollback journal and WAL), and returns the rows SQLite returns.
 Everything happens in one LayerFS v2 project session through the `dsh-layerfs` skill:
@@ -8,11 +8,12 @@ Branches, Workspaces, Commits, merges and publishes.
 
 The run has two purposes:
 
-1. **Verify the multi-agent harness at higher concurrency than v1:** 12 concurrent
-   workers (v1: 7) sharing one session Sandbox, about 2× v1's Commits, the same
-   "until terminal pass" discipline.
+1. **Verify the multi-agent harness under concurrency:** eight workers in one session
+   Sandbox, **two workers sharing one lane Branch at a time** (both commit to it) and
+   **four lane Branches at once**, many small Commits, the same "until terminal pass"
+   discipline as v1.
 2. **Build something bigger than v1's Quarry**, checked against SQLite three ways: a
-   sqllogictest corpus whose expected results come from `sqlite3`, differential
+   sqllogictest corpus whose expected results come from SQLite, differential
    query generation, and file-level interoperability (sqlite3 opens what Strata
    writes, and the other way round).
 
@@ -27,27 +28,24 @@ v1 for comparison (2026-10-20, LayerFS v1): 1 main + 7 workers, 3 lanes, 3 round
 
 ## 1. Run setup (operator, before the handoff)
 
-The agents never set anything up. These must hold when the handoff is pasted; the main
-agent checks them in its preflight (HANDOFF.md) and stops if one fails.
+The agents never set anything up. These hold when the handoff is pasted; the main agent
+checks them in its preflight (HANDOFF.md) and stops if one fails.
 
-| # | What | How (dsh-layerfs app on 3080, UI clicks) | Check |
+| # | What | State (checked by the operator 2026-11-13) | Agent's check |
 | --- | --- | --- | --- |
-| 1 | Docker resources | Docker Desktop: **12 CPUs, 24 GiB memory** (now 8 CPUs, 8 GiB; host has 14 cores, 36 GB). At least **120 GB free** inside the Docker VM | `nproc`, `free -g`, `df -h /` in `$WS` |
-| 2 | Sandbox image with Rust | Build a Rust image on top of the **v2 bundle's Sandbox image** (v1 recipe: LayerFS node24 runtime + Rust 1.85.1 + clippy + rustfmt; add the `sqlite3` CLI). Set it as the docker machine's Sandbox image: Machines → docker → Settings → Sandbox image (a `sha256:` digest or an absolute archive path; refused `InUse` while Sandboxes run on docker) | `rustc -V`, `cargo -V`, `sqlite3 --version`, `python3 -c 'import sqlite3;print(sqlite3.sqlite_version)'` in `$WS` |
-| 3 | Store | Storage → New Store: kind **SQLite**, name `quarry-v2`, put on machine **docker** (push/move to docker if created in the home) | `layerfs project get "$P"` shows `kind: sqlite, machine: docker` |
-| 4 | Project | New project `strata` in Store `quarry-v2`, empty | `$DSH_LAYERFS_PROJECT` = `quarry-v2/strata` |
-| 5 | Subagent capacity | Settings → Subagents: **max active subagents = 13** (DSH default is 8), max depth stays **1** | the main agent can start 12 workers without `ACTIVATION_LIMIT_REACHED` |
-| 6 | Session | New Session in project `quarry-v2/strata`, model **DeepSeek-V4.1-Flash** (`deepseek-flash`), reasoning effort **Max**, LayerFS preset. Local (scratch) folder holds this file at `./quarry-v2/SPEC.md` | `$DSH_LAYERFS_WS` non-empty |
-| 7 | Keep it live | Keep the session page open for the whole run; never restart `dsh web` while any turn is live (v1 incident) | — |
+| 1 | Docker | 8 CPUs, 8 GiB memory, ≈ 116 GB free on the worker's data disk. Not resized: the run is sized to fit (§6, §10) | `nproc`, `free -g`, `df -h /` in a Workspace |
+| 2 | Toolchain | The docker Sandbox's root is the LayerFS bundle's Sandbox image (Debian 12, Rust 1.85.1 with clippy and rustfmt, gcc, Python 3 with SQLite 3.40.1, `flock`, `timeout`, curl). **Its environment is not applied**: every exec needs `export RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH` (in `scripts/env.sh`). There is **no `sqlite3` CLI**: the skeleton builds 3.40.1 from source into `.tools/bin/sqlite3` (§6). Network reaches crates.io and sqlite.org. Not root (uid 501) | `rustc -V`, `cargo -V`, `python3 -c 'import sqlite3;print(sqlite3.sqlite_version)'` |
+| 3 | Store | `qv2-store`, kind SQLite, on machine **docker** (writers queue; see §4) | `layerfs project get "$P"` shows `kind: sqlite`, `machine: docker` |
+| 4 | Project | `qv2-strata` in Store `qv2-store`, empty | `$DSH_LAYERFS_PROJECT` = `qv2-store/qv2-strata` |
+| 5 | Subagents | DSH `maxActiveSubagents` is **8** (default; root not counted), `maxDepth` 1 | 8 workers start without `ACTIVATION_LIMIT_REACHED` |
+| 6 | Session | New Session in project `qv2-store/qv2-strata`, model **DeepSeek-V4.1-Flash** (`deepseek-flash`), reasoning effort **Max**, preset LayerFS. Scratch folder holds this file at `./quarry-v2/SPEC.md` | `$DSH_LAYERFS_WS` non-empty |
+| 7 | Keep it live | The session page stays open for the whole run; `dsh web` is not restarted while a turn is live | — |
 
-The Store, project and names above are the defaults the handoff uses. If the operator
-picks other names, replace `quarry-v2/strata` in HANDOFF.md before pasting.
-
-**Why the image matters.** dsh creates the session Sandbox with
-`sandbox.create(project, sandbox, machine)` and no image, so on `docker` it runs the
-docker machine's image, else the bundle's default Sandbox image, which has no Rust
-(`src/host/sessions/service.ts`, LayerFS v2 skill `methods/sandbox.md`). Agents cannot
-create Sandboxes, so a missing toolchain cannot be fixed from inside the run.
+Why the image matters: on `docker` a Sandbox runs as namespaces in the docker machine's
+worker container, rooted in the bundle's `sandbox-image.tar` whatever image the machine
+records (LayerFS `docs/versioned/2.0.0/machines-and-stores.md`, D-8). So nothing the
+operator could set changes the toolchain, and agents cannot create Sandboxes: what is
+missing (the `sqlite3` CLI) is installed into the project, like any other dependency.
 
 ---
 
@@ -62,18 +60,18 @@ One Cargo workspace at the project root, `resolver = "3"`, edition 2024.
 | `strata-types` | main | Shared types and contracts: `Value` (NULL/INTEGER/REAL/TEXT/BLOB), affinity, collation ids, `Error` with SQLite result codes (primary + extended) and SQLite's message text, the AST, the logical `Plan` IR, the bytecode `Program`/`Opcode` IR, the traits `Vfs`/`File`, `Pager`, `Wal`, `BTree`/`Cursor`, `Catalog`, `FunctionRegistry`; in-memory test doubles `MemPager` and `MemBTree` so lanes can test before the store lane lands |
 | `strata-parser` | front F1 | Lexer and recursive-descent parser for SQLite's grammar; SQL text printer (for `sqlite_schema` text and `ALTER` rewrites) |
 | `strata-sema` | front F2 | Schema catalog loaded from `sqlite_schema`, name resolution, affinity and collation resolution, views, triggers' `NEW`/`OLD`, constraint and foreign-key metadata |
-| `strata-planner` | front F3 | Query planner: access paths, index selection, join order with `sqlite_stat1`, subquery flattening, `EXPLAIN QUERY PLAN`, `ANALYZE` statistics |
+| `strata-planner` | front F2 | Query planner: access paths, index selection, join order with `sqlite_stat1`, subquery flattening, `EXPLAIN QUERY PLAN`, `ANALYZE` statistics |
 | `strata-codegen` | vm V1 | Plan → bytecode for every statement: DML with constraints, upsert, `RETURNING`, triggers, foreign keys, DDL, `ALTER TABLE`, `VACUUM`, `EXPLAIN` |
 | `strata-vm` | vm V2 | Register-based bytecode VM (VDBE-like): cursors, comparisons with affinity, sorter with external merge, ephemeral tables, coroutines, aggregate and window opcodes |
-| `strata-func` | vm V3 | Value conversions exactly as SQLite, collations, all scalar, aggregate, window, date/time and JSON functions listed in §2.3 |
+| `strata-func` | vm V2 | Value conversions exactly as SQLite, collations, all scalar, aggregate, window, date/time and JSON functions listed in §2.3 |
 | `strata-btree` | store S1 | Record format (serial types, varints), table and index b-trees, overflow pages, freelist, balance, `integrity_check` |
 | `strata-pager` | store S2 | Database header, page cache, VFS (unix files, fsync), rollback journal, POSIX locking compatible with sqlite3 |
-| `strata-wal` | store S3 | SQLite's WAL file format, in-process wal-index, snapshots, checkpoints, WAL recovery |
+| `strata-wal` | store S2 | SQLite's WAL file format, in-process wal-index, snapshots, checkpoints, WAL recovery |
 | `strata` | tools T1 | The library facade: `Connection::open` (file or `:memory:`), `prepare`/`bind`/`step`/`column`/`reset`/`finalize`, PRAGMA dispatch, schema load, busy timeout, statement cache |
 | `strata-cli` | tools T1 | The `strata` binary: a shell compatible with the `sqlite3` shell for the dot-commands in §2.3 |
 | `strata-slt` | main, T2 | sqllogictest runner (embedded engine) |
-| `strata-gen` | tools T2 | Seeded random query generator over a fixed schema and seeded data generators (TPC-H-like `--scale`) |
-| `strata-accept` | main, T3 | Acceptance harness: `strata-accept run Annn` prints `Annn PASS` or `Annn FAIL <why>` |
+| `strata-gen` | tools T1 | Seeded random query generator over a fixed schema and seeded data generators (TPC-H-like `--scale`) |
+| `strata-accept` | main, T2 | Acceptance harness: `strata-accept run Annn` prints `Annn PASS` or `Annn FAIL <why>` |
 
 Lanes meet only through `strata-types`. A lane that needs another lane's crate uses its
 trait, never its internals; until the real one lands it uses `MemPager`/`MemBTree` or a
@@ -140,58 +138,55 @@ text, at least: `near "X": syntax error`, `incomplete input`, `no such table: T`
 
 ---
 
+
+---
+
 ## 3. Team
 
-| Agent | Lane | Owns |
-| --- | --- | --- |
-| **Main** | all | Skeleton, `strata-types` and its IRs, the dependency list, `scripts/` (env, oracle, cargo slot), the slt format and runner, the baseline corpus, the acceptance harness frame and `docs/acceptance.md`, briefs, contract Commits, merges and conflicts, integration, publishing, the ledger, the report |
-| **F1** | front | `strata-parser` |
-| **F2** | front | `strata-sema` |
-| **F3** | front | `strata-planner` |
-| **V1** | vm | `strata-codegen` |
-| **V2** | vm | `strata-vm` |
-| **V3** | vm | `strata-func` |
-| **S1** | store | `strata-btree` |
-| **S2** | store | `strata-pager` |
-| **S3** | store | `strata-wal` |
-| **T1** | tools | `strata`, `strata-cli` |
-| **T2** | tools | the slt corpus beyond the baseline (always from the oracle), `strata-gen`, function/affinity grids and data fixtures |
-| **T3** | tools | the acceptance checks' code in `strata-accept`, the kill -9 torture driver, interop fixtures |
+| Agent | Workspace | Lane | Owns |
+| --- | --- | --- | --- |
+| **Main** | `int`, `verify` | all | Skeleton, `strata-types` and its IRs, the dependency list and `Cargo.lock`, `scripts/` (env, oracle, cargo slot, sqlite3 build), the slt format and runner, the baseline corpus, the acceptance harness frame and `docs/acceptance.md`, briefs, contract Commits, merges and conflicts, integration, publishing, the ledger, the report |
+| **F1** | `w-f1` | front | `strata-parser` |
+| **F2** | `w-f2` | front | `strata-sema`, `strata-planner` |
+| **V1** | `w-v1` | vm | `strata-codegen` |
+| **V2** | `w-v2` | vm | `strata-vm`, `strata-func` |
+| **S1** | `w-s1` | store | `strata-btree` |
+| **S2** | `w-s2` | store | `strata-pager`, `strata-wal` |
+| **T1** | `w-t1` | tools | `strata`, `strata-cli`, `strata-gen` |
+| **T2** | `w-t2` | tools | the slt corpus beyond the baseline (always from the oracle), function/affinity grids and data fixtures, the acceptance checks' code in `strata-accept`, the kill -9 torture driver, interop fixtures |
 
 Workers are subagents started by the main agent with `subagent`; they cannot start
-subagents themselves (DSH max depth 1). The main agent never writes lane features,
-except to fix integration bugs.
+subagents themselves (DSH max depth 1). DSH allows 8 live subagents per root, so all
+eight run at once and a replacement can only start after a worker ends. The main agent
+never writes lane features, except to fix integration bugs.
 
 ### 3.1 Milestones
 
-Each cell is the finished behavior for that round, with tests.
+Each cell is the finished behavior for that round, with tests. A worker with two crates
+does both columns' work for its crates (the second crate's cell after the semicolon).
 
 | Worker | Round 1 (M1) | Round 2 (M2) | Round 3 (M3) |
 | --- | --- | --- | --- |
 | F1 | Full lexer (all literal forms, `X''` blobs, quoted identifiers `""`/`[]`/backticks, comments); DDL, DML, `SELECT` core with every expression form; positions on errors | CTEs, compound selects, window syntax, upsert, `RETURNING`, triggers, `ALTER`, `PRAGMA`, `VACUUM INTO`, `EXPLAIN [QUERY PLAN]` | SQLite's exact syntax-error messages; SQL printer for `sqlite_schema` text and rename rewrites; no-panic fuzzing (proptest), depth limits |
-| F2 | Catalog from `sqlite_schema`; name resolution with aliases and qualified names; affinity from declared type; collation resolution; `no such table/column` messages | Correlated subqueries, CTE scoping, views, triggers `NEW`/`OLD`, constraint and FK metadata, `STRICT` | Window binding; dependency analysis for `ALTER TABLE RENAME TABLE/COLUMN` and `DROP COLUMN`; parameter numbering as SQLite |
-| F3 | Plans: full scan, rowid lookup/range, filter, nested-loop join (all join kinds), aggregate, sort, limit; constant folding | Index selection (equality/range prefixes, covering, `IN`, `OR` terms), join ordering with a cost model fed by `sqlite_stat1`, subquery flattening, `IN`/`EXISTS` decorrelation, partial-index use | `EXPLAIN QUERY PLAN` in SQLite's wording; `ANALYZE` writes `sqlite_stat1`; ORDER BY satisfied by an index; plans that make A12/A13 fast |
+| F2 | sema: catalog from `sqlite_schema`; name resolution with aliases and qualified names; affinity from declared type; collation resolution; `no such table/column` messages; planner: full scan, rowid lookup/range, filter, nested-loop join (all join kinds), aggregate, sort, limit; constant folding | sema: correlated subqueries, CTE scoping, views, triggers `NEW`/`OLD`, constraint and FK metadata, `STRICT`; planner: index selection (equality/range prefixes, covering, `IN`, `OR` terms), join ordering with a cost model fed by `sqlite_stat1`, subquery flattening, `IN`/`EXISTS` decorrelation, partial-index use | sema: window binding; dependency analysis for `ALTER TABLE RENAME TABLE/COLUMN` and `DROP COLUMN`; parameter numbering as SQLite; planner: `EXPLAIN QUERY PLAN` in SQLite's wording; `ANALYZE` writes `sqlite_stat1`; ORDER BY satisfied by an index; plans that make A12/A13 fast |
 | V1 | Codegen for `SELECT`/`INSERT`/`UPDATE`/`DELETE`, `CREATE TABLE`/`INDEX` (root pages, `sqlite_schema` rows), `NOT NULL`/`UNIQUE`/`PRIMARY KEY` | Conflict algorithms and upsert, `RETURNING`, `CHECK`, foreign keys (immediate, deferred, actions), triggers, `AUTOINCREMENT` | `ALTER TABLE` (all forms), `VACUUM`/`VACUUM INTO`, window codegen, `EXPLAIN` listing |
-| V2 | VM with registers and cursors over the `BTree` trait (and `MemBTree`), comparisons with affinity, in-memory sorter, aggregates | External merge sorter with temp files bounded by `cache_size`, ephemeral tables (DISTINCT, compound, `IN`), coroutines for subqueries/CTEs, window opcodes | Interrupt, reset/finalize cleanup, memory bounds (A14), the performance A12–A14 need |
-| V3 | Text↔number conversion exactly as SQLite (incl. `' 12 '`, `'1e3'`, hex literals), cross-class comparison, `BINARY`/`NOCASE`/`RTRIM`, string and math functions, `printf`/`format` | All aggregates with `FILTER`/`DISTINCT`, `group_concat`, date/time functions with modifiers | JSON functions and operators, window built-ins, `quote`/`hex`/`typeof`/`zeroblob`/`likelihood` |
+| V2 | vm: registers and cursors over the `BTree` trait (and `MemBTree`), comparisons with affinity, in-memory sorter, aggregates; func: text↔number conversion exactly as SQLite (incl. `' 12 '`, `'1e3'`, hex literals), cross-class comparison, `BINARY`/`NOCASE`/`RTRIM`, string and math functions, `printf`/`format` | vm: external merge sorter with temp files bounded by `cache_size`, ephemeral tables (DISTINCT, compound, `IN`), coroutines for subqueries/CTEs, window opcodes; func: all aggregates with `FILTER`/`DISTINCT`, `group_concat`, date/time functions with modifiers | vm: interrupt, reset/finalize cleanup, memory bounds (A14), the performance A12–A14 need; func: JSON functions and operators, window built-ins, `quote`/`hex`/`typeof`/`zeroblob`/`likelihood` |
 | S1 | Record format and varints; table b-tree read/write with splits; cursors (seek, next, prev); overflow pages | Index b-trees, delete with rebalance, freelist, every page size, `integrity_check` | Bulk-load path for `VACUUM` and big inserts; cell defragmentation; speed for A12/A14 |
-| S2 | Database header; page cache bounded in pages; unix VFS with fsync; rollback journal with hot-journal rollback | sqlite3-compatible POSIX locking, read/write transactions, change counter and schema cookie, `busy_timeout` | kill -9 torture in rollback mode (A06), temp files for sorter/ephemeral tables, journal_mode switching |
-| S3 | WAL format: append commit frames, read path via an in-memory frame index, checksums and salts | Snapshot readers (several connections), checkpoint modes, recovery on open, auto-checkpoint | kill -9 torture in WAL mode (A06), sqlite3 recovers Strata's WAL, Strata recovers sqlite3's WAL (A05) |
-| T1 | `strata` facade: open/prepare/bind/step/column/finalize, schema load; `strata` shell list mode | Dot-commands, `.import`, `.dump`, PRAGMA handlers, statement cache | Byte-equal shell output vs sqlite3 (A16), busy timeout and error reporting as sqlite3 prints it |
-| T2 | Corpus to ≥ 1,500 records; `strata-gen` query generator (joins, filters, aggregates, subqueries) | Corpus ≥ 2,500; TPC-H-like data generator; function and affinity argument grids (A09, A10) | Corpus ≥ 3,000 with every area ≥ 80 records; generator covers windows, CTEs, compound selects, upsert |
-| T3 | A01–A04 and their fixtures | A05, A07–A11 | A06 torture driver, A12–A16; every check documented in `docs/acceptance.md` |
+| S2 | pager: database header; page cache bounded in pages; unix VFS with fsync; rollback journal with hot-journal rollback; wal: WAL format, append commit frames, read path via an in-memory frame index, checksums and salts | pager: sqlite3-compatible POSIX locking, read/write transactions, change counter and schema cookie, `busy_timeout`; wal: snapshot readers (several connections), checkpoint modes, recovery on open, auto-checkpoint | kill -9 torture in rollback and WAL mode (A06), temp files for sorter/ephemeral tables, journal_mode switching; sqlite3 recovers Strata's WAL, Strata recovers sqlite3's WAL (A05) |
+| T1 | `strata` facade: open/prepare/bind/step/column/finalize, schema load; `strata` shell list mode; `strata-gen` query generator (joins, filters, aggregates, subqueries) | Dot-commands, `.import`, `.dump`, PRAGMA handlers, statement cache; TPC-H-like data generator | Byte-equal shell output vs sqlite3 (A16), busy timeout and error reporting as sqlite3 prints it; generator covers windows, CTEs, compound selects, upsert |
+| T2 | Corpus to ≥ 1,500 records; A01–A04 and their fixtures | Corpus ≥ 2,500; function and affinity argument grids; A05, A07–A11 | Corpus ≥ 3,000 with every area ≥ 80 records; A06 torture driver, A12–A16; every check documented in `docs/acceptance.md` |
 
 ### 3.2 Rounds and target concurrency
 
 | Round | Workers live | Timebox | Exit gate (on the integration Branch, then on `main`) |
 | --- | --- | --- | --- |
-| R0 skeleton | main (+1 corpus helper subagent optional) | 45 min | Builds; gates green; slt runner runs the baseline corpus (expected to fail); published |
-| R1 | **12** | 75 min | Gates green; corpus pass count recorded; A03 on simple tables |
-| R2 | **12** | 90 min | Gates green; corpus ≥ 70 % passing; A01 subset, A02, A04, A05, A07–A11 attempted, results recorded |
-| R3 | **12** | 90 min | Gates green; corpus ≥ 95 %; every check A01–A16 runs |
-| R4+ hardening | ≤ 12, briefed per failing check | 60 min each | Repeat until the terminal pass (§9) |
+| R0 skeleton | main (+1 corpus helper subagent optional) | 60 min | Builds; gates green; `.tools/bin/sqlite3` built; slt runner runs the baseline corpus (expected to fail); published |
+| R1 | **8** | 90 min | Gates green; corpus pass count recorded; A03 on simple tables |
+| R2 | **8** | 120 min | Gates green; corpus ≥ 70 % passing; A01 subset, A02, A04, A05, A07–A11 attempted, results recorded |
+| R3 | **8** | 120 min | Gates green; corpus ≥ 95 %; every check A01–A16 runs |
+| R4+ hardening | ≤ 8, briefed per failing check | 60–90 min each | Repeat until the terminal pass (§9) |
 
-Expected wall time 5–8 h. A worker that finishes before half its timebox gets a
+Expected wall time 7–10 h. A worker that finishes before half its timebox gets a
 follow-up task in its lane from the main agent. No round's integration may publish a
 regression: the corpus pass count and passing checks never go down from one `main`
 Layer to the next.
@@ -200,38 +195,31 @@ Layer to the next.
 
 ## 4. Concurrency ceiling and Workspace plan
 
-**Ceilings found (verified in code and docs):**
-
 | Limit | Value | Source |
 | --- | --- | --- |
-| Workspaces per Sandbox | **16**, the session Workspace `$WS` (`$SB:main`) included | skill `methods/sandbox.md`, `methods/workspace.md` (`Capacity`) |
-| Sandboxes the session may use | **1** (`$SB`); agents cannot create or close Sandboxes | skill `methods/sandbox.md`; sandbox policy |
-| Concurrent DSH subagents | `maxActiveSubagents`, **default 8**, one pool per root agent (all descendants share it); `maxDepth` default 1 | `@deepseek-ai/dsh-subagent` (`ActivationPool.reserve`, `ACTIVATION_LIMIT_REACHED`); Settings → Subagents |
+| Workspaces per Sandbox | **16**, dsh's own (`$SB:main`) included | skill `references/rules/team.md` (`Capacity`) |
+| Sandboxes the session may use | **up to 4** on docker: `$SB` plus 3 the main agent creates (`qv2-lane-front`, `qv2-lane-vm`, `qv2-lane-store`) and closes at the end; never `$SB` | skill `references/methods/sandbox.md` (operator correction 07:41Z) |
+| Concurrent DSH subagents | `maxActiveSubagents` = **8** (root not counted), max depth 1 | `@deepseek-ai/dsh-subagent` (`ACTIVATION_LIMIT_REACHED`) |
+| Store writers | one at a time, **queued** on a docker Store; 2 of 140 simultaneous writes were refused `Failed` `Os { code: 2, kind: NotFound }` before effect | `issues/01-macos-store-concurrent-writers.md` (rerun on docker) |
+| Machine | 8 CPUs, 8 GiB, `/tmp` a 3.9 GB tmpfs shared by all Workspaces | operator probe, `issues/02-docker-sandbox-image-env.md` |
 
-So one session can run at most **15 extra Workspaces**, and DSH must be raised from 8
-to run more than 8 workers. The plan uses **12 workers** and keeps headroom:
+**Workspaces are short-lived.** Every agent mounts a Workspace at the start of a bash
+call and commits and unmounts it at the end of that call (skill: "one Workspace per bash
+call"). A worker always uses the same name, `w-<id>`, so at most one Workspace per worker
+exists at a time, and none between its bash calls. The committed `target/` and
+`.cargo-home/` make the next mount warm.
 
 | Slot | Workspace (`$SB:<name>`) | Who | Mounted |
 | --- | --- | --- | --- |
-| 1 | `main` (= `$WS`) | dsh | always; agents never write project files there |
-| 2–13 | `f1 f2 f3 v1 v2 v3 s1 s2 s3 t1 t2 t3` | one per worker | for the worker's round, on its lane Branch |
-| 14 | `int` | main | during an integration build sequence |
-| 15 | `verify` | main | for a fresh-fork check, then unmounted |
-| 16 | spare | main | rescue of a stalled worker's Workspace, or a replacement worker's mount |
+| 1 | `main` (= `$WS`) | dsh | always; agents never touch it |
+| 2–9 | `w-f1 w-f2 w-v1 w-v2 w-s1 w-s2 w-t1 w-t2` | one per worker | only during that worker's bash call, on its lane Branch |
+| 10 | `int` | main | only during one integration bash call |
+| 11 | `verify` | main | only during one fresh-fork check bash call |
+| 12–16 | spare | main | a leftover's rescue; long background builds (`--exec-id`) |
 
-`maxActiveSubagents = 13` gives 12 workers plus one replacement while a stalled worker
-is being interrupted.
-
-**Trade-off: one session vs several.** v1 had one Sandbox per lane (4 daemons). Here
-all 15 Workspaces share one Sandbox daemon, which may serialize Commits under load
-(open question 8). The alternative is 2–4 project sessions in the same project, each
-with its own Sandbox (15 Workspaces each) and its own subagent pool. That raises the
-ceiling to ~26–52 workers and spreads daemon load, but sessions cannot message each
-other (coordination only through Branches and a shared scratch file), the operator
-must start and brief each session, each session checkpoints its own `dsh.…` Branch,
-and it no longer tests "one main agent orchestrating subagents". **This run uses one
-session.** Use several sessions only as a follow-up if the single daemon is shown to
-be the bottleneck.
+Peak ≤ 11 of 16. An exec that has to outlive one bash call (over 570 s) runs in a
+`run_in_background` bash call with an `--exec-id` and keeps its Workspace until it is
+collected (skill `team.md` "Waiting").
 
 ---
 
@@ -241,31 +229,36 @@ be the bottleneck.
   `branch publish`, and only for: the skeleton, an integration Branch whose full
   check passed, and the report. The handoff is the user's standing request to publish
   these, and nothing else.
-- **`$B` (`dsh.<id>`) and `$WS`** belong to dsh. The main agent uses `$WS` only for
-  read-only probes (`nproc`, `df -h /`, `rustc -V`), so its turns change no files and
-  dsh's turn-end checkpoint stays empty and conflict-free. Nobody ever commits or
-  unmounts `$WS`, writes to `$B`, or names a Branch `dsh.…`. Workers don't touch
-  `$WS` at all.
-- **Skeleton:** Branch `skel` forked from `main`, built in the main agent's `int`
-  Workspace, published.
-- **Lane Branches, one per lane per round,** forked from the new `main`:
-  `front-rN`, `vm-rN`, `store-rN`, `tools-rN`. A lane's three workers work on the same
-  Branch at once, each in **its own named Workspace** in `$SB`
-  (`layerfs workspace mount "$SB" front-r1 --name f1` → `ws = $SB:f1`). A worker keeps
-  that one Workspace for its whole round (a fresh mount rebuilds dependencies), commits
-  there after every step, and unmounts it in a `finally`/`trap` before reporting.
-- **Commit merges:** a worker's Commit after a lane-mate's merges with the newer head
-  first; a `Conflict` leaves markers in that worker's Workspace, which it resolves
-  there. Generated paths merge by `/.lww`.
+- **`$B` (`dsh.<id>`) and `$WS`** belong to dsh. Nobody execs in, commits or unmounts
+  `$WS`, writes to `$B`, or names a Branch `dsh.…`. The main agent's own turns change
+  no files on `$B`, so dsh's turn-end checkpoint stays empty and conflict-free.
+- **Skeleton:** Branch `skel` forked from `main`, built by the main agent in Workspace
+  `int` (one bash call per step), published.
+- **Lane Branches, one per lane per round,** forked from the newest `main`:
+  `front-r<N>`, `vm-r<N>`, `store-r<N>`, `tools-r<N>`. **Both workers of a lane work on
+  the same lane Branch at the same time**, each in its own Workspace name (`w-f1` and
+  `w-f2` both mount `front-r1`), and all four lane Branches move at once.
+- **Edits** are `file edit` / `file write` / `file apply` on the lane Branch (each a
+  Commit at once). Bash is for commands, and for batch edits or edits that need logic
+  (a codemod, a formatter, a generator, `cargo fmt`).
+- **Commands:** one Workspace per bash call: `workspace mount "$SB" <lane>-r<N> --name
+  w-<id>` → exec(s) → `workspace commit` → `workspace unmount`, with the unmount in a
+  `trap … EXIT`. Commands use paths relative to the Workspace root, never the mount path.
+- **Commit merges:** a Workspace Commit merges with what moved on the lane Branch since
+  the mount (the lane-mate's `file` writes and Commits) first. A `Conflict` leaves
+  markers in that Workspace, which its worker resolves before its next exec. Generated
+  paths (`target/`, `.cargo-home/`, `.tools/`) merge by `/.lww`. Each worker builds into
+  its own `target/w-<id>/`, so lane-mates never overwrite each other's build state.
 - **Contract Commits:** when lanes need a new shared type or opcode mid-round, the main
   agent writes the **identical** change on all four lane Branches with `file apply`
-  (identical changes merge cleanly later). Workers pick it up with their next Commit
-  (an `UpToDate` Commit also brings it in).
-- **Integration (per round):** `branch merge` always makes a new Branch:
-  `int-rN-a` = `front-rN` + `vm-rN`; `int-rN-b` = `int-rN-a` + `store-rN`;
-  `int-rN-c` = `int-rN-b` + `tools-rN`. Fixes go into Workspace `int` on `int-rN-c`.
-  Publish `int-rN-c`; then check a fresh fork `verify-rN` of `main` in Workspace
-  `verify`.
+  (identical changes merge cleanly later). Workers see it in their next mount.
+- **Integration (per round, a chain):** `branch merge` always makes a new Branch:
+  `int-r<N>.1` = `main`'s head merged with the first lane that reported (or two lanes),
+  `int-r<N>.2` = `int-r<N>.1` + the next lane, and so on, one merge at a time. After
+  each merge, one bash call in Workspace `int` on the result: `cargo metadata --locked
+  --offline` then `cargo check --workspace`. Fixes go onto the newest `int-r<N>.<k>`
+  (with `file` calls, or in `int`). Publish the last one after the round check; then
+  check a fresh fork `verify-r<N>` of `main` in Workspace `verify`.
 - **Branches can't be deleted.** Name them for their work; add `-2`, `-3` on
   `NameTaken`.
 
@@ -273,45 +266,61 @@ be the bottleneck.
 
 ## 6. Build settings
 
-Fixed in the skeleton as `scripts/env.sh`; every exec that runs Cargo starts with
-`. scripts/env.sh <ws-name>`:
+Fixed in the skeleton. Every exec that runs Cargo or the oracle starts with
+`. scripts/env.sh <ws-name> && `:
 
 ```sh
-export CARGO_HOME="$PWD/.cargo-home" CARGO_TARGET_DIR="$PWD/target" \
+# scripts/env.sh <ws-name>: the Sandbox's PATH misses Rust; Cargo state stays in the Workspace
+export RUSTUP_HOME=/usr/local/rustup PATH="$PWD/.tools/bin:/usr/local/cargo/bin:$PATH"
+export CARGO_HOME="$PWD/.cargo-home" CARGO_TARGET_DIR="$PWD/target/${1:?ws name}" \
        CARGO_NET_RETRY=0 CARGO_INCREMENTAL=0 \
-       CARGO_BUILD_JOBS="${JOBS:-2}" RUST_TEST_THREADS="${TEST_THREADS:-2}" \
-       TMPDIR="/tmp/strata-${1:-x}"
-mkdir -p "$TMPDIR"
+       CARGO_BUILD_JOBS="${JOBS:-2}" RUST_TEST_THREADS="${TEST_THREADS:-2}"
+export TMPDIR="$HOME/tmp/$1"      # on the machine's disk; /tmp is a small shared tmpfs
+mkdir -p "$TMPDIR" "/tmp/$1"
 HOST=$(rustc -vV | sed -n 's/^host: //p')
-export RUSTFLAGS="--remap-path-prefix=$PWD=/w -C link-arg=-fuse-ld=lld -C link-arg=-B$(rustc --print sysroot)/lib/rustlib/$HOST/bin/gcc-ld"
+export RUSTFLAGS="-C link-arg=-fuse-ld=lld -C link-arg=-B$(rustc --print sysroot)/lib/rustlib/$HOST/bin/gcc-ld"
 unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
 ```
 
-- `target/` and `.cargo-home/` live **inside the Workspace** and are committed with
-  the source (skill `rules/cargo.md`). `.gitignore` is exactly `target/`,
-  `.cargo-home/` and `._*`; `/.lww` is exactly `%include .gitignore`. Never
+- **`sqlite3` CLI:** `scripts/sqlite3-build.sh` (skeleton) downloads
+  `https://www.sqlite.org/2022/sqlite-autoconf-3400100.tar.gz` into `$TMPDIR`, builds
+  `gcc -O2 -DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_MATH_FUNCTIONS shell.c sqlite3.c -lm`
+  into `.tools/bin/sqlite3` (about 25 s), and checks that `sqlite3 --version` starts with
+  the version Python's `sqlite3` module reports (3.40.1). `.tools/` is committed like
+  `target/`, so nobody builds it again.
+- `target/`, `.cargo-home/` and `.tools/` live **inside the Workspace** and are committed
+  with the source (skill `rules/cargo.md`). `.gitignore` is exactly `target/`,
+  `.cargo-home/`, `.tools/` and `._*`; `/.lww` is exactly `%include .gitignore`. Never
   `Cargo.lock`, manifests or sources in `/.lww`.
-- `--remap-path-prefix` makes artifacts independent of the Workspace path, so
-  parallel Branches produce identical dependency artifacts (v1 probe: without it a
-  third of a full copy is new again).
-- Profiles: `[profile.dev] debug = "line-tables-only"`,
-  `[profile.dev.package."*"] debug = false`, `[profile.test]` inherits dev,
-  `[profile.release] debug = false`. (v1 used `debug = "full"` and reached 8.7–11 GB of
-  `target/` per Branch head; with 12 Workspaces that would not fit Docker's disk.)
+- **Per-Workspace target:** `CARGO_TARGET_DIR=target/<ws>`. The skeleton and every
+  integration build `target/int` (debug and test builds of everything). After forking a
+  round's lane Branches the main agent copies it for each worker with
+  `file cp "$P" <lane>-r<N> /target/int /target/w-<id>` (server side, no data moves), so
+  workers compile only their own crates. Every `/target/<ws>` stays: nothing installed or
+  built in the Store is ever removed (no `file rm` of `target/`, `.cargo-home/` or
+  `.tools/`), and integration Branches are published with them. `RUSTFLAGS` never
+  contains the mount path (`$PWD`): every mount has a new path, and a flag that changes
+  rebuilds everything (skill `rules/cargo.md`, "Build reuse across mounts").
+- Profiles: `[profile.dev] debug = 0`, `[profile.dev.package."*"] debug = false`,
+  `[profile.test]` inherits dev, `[profile.release] debug = false`. Each crate keeps its
+  integration tests in one binary (`tests/it/main.rs`, one module per area). Every byte
+  a build writes goes through the Workspace and its Commit, so smaller artifacts mean
+  faster rounds.
 - After the skeleton's `cargo fetch`, every Cargo command is `--locked --offline`.
-- **Jobs.** Workers `JOBS=2`, `TEST_THREADS=2`; the main agent `JOBS=4` while
-  integrating. Exit 137 / signal 9 (memory): rerun with `JOBS=1`.
-- **Build slots.** `scripts/cargo-slot.sh` wraps Cargo with an `flock` semaphore of
-  `SLOTS = nproc / 2` lock files in `/tmp/strata-slots/`; it waits up to 60 s for a
-  slot, then runs with `JOBS=1`. It only works if `/tmp` is shared by the Sandbox's
-  Workspaces (open question 6); if not, it degrades to a no-op.
-- **Time.** Every command under 2 minutes: `timeout 110 …`. Build tests first
-  (`cargo test --no-run -p <crate>`), run them in a second exec. A build that times
-  out is rerun in the same Workspace (Cargo resumes). Logs go to `$TMPDIR`, read with
-  `tail` in a second exec.
-- **Temp data.** Tests and checks write only under `$TMPDIR`, cap their files at 2 GB,
-  and every exec that runs tests ends with `rm -rf "$TMPDIR"/*`. (v1: a spill bug grew
-  a file to 80 GB, and killed runs left a 55 GB `/tmp` directory.)
+- **Jobs:** workers `JOBS=2`, `TEST_THREADS=2`; the main agent `JOBS=4` when no worker
+  builds, else 2. Exit 137 / signal 9 (memory): wait, rerun with `JOBS=1`.
+- **Build slots:** `scripts/cargo-slot.sh` wraps Cargo with an `flock` semaphore in
+  `/tmp/strata-slots/` (shared by every Workspace of one Sandbox: verified; each Sandbox has
+  its own `/tmp`): **1** slot in each lane Sandbox, **2** in `$SB`, so at most 5 builds:
+  it tries each slot, waits up to 300 s in total, then runs anyway with `JOBS=1`.
+- **Time:** a bash call may take up to 600 s (its `timeout` in ms). Inner commands use
+  `timeout 540`, so the Commit and unmount still run in the same call. Build tests first
+  (`cargo test --no-run -p <crate>`), run them in the next bash call. A build that times
+  out is rerun (Cargo resumes from the committed `target/`). Logs go to `/tmp/<ws>/`,
+  read with `tail` in the same bash call.
+- **Temp data:** tests and checks write only under `$TMPDIR` (= `$HOME/tmp/<ws>`), cap
+  their files at 2 GB, and every exec that runs tests ends with
+  `rm -rf "$TMPDIR"/* /tmp/<ws>/*`. Never large files in `/tmp`.
 - **Dependencies** (root `[workspace.dependencies]`, crates use `workspace = true`):
   `thiserror` 2, `anyhow`, `clap` 4 (derive), `libc` (fcntl locks, `getrusage`),
   `rand` 0.8, `tempfile`, `proptest` (dev), `serde`/`serde_json` (tooling and fixtures
@@ -331,10 +340,10 @@ v1: 913 Commits (440 Workspace Commits, 207 `fs.apply`, 161 `fs.write`, 29 merge
 
 | Measure | Target | How it is reached |
 | --- | --- | --- |
-| Commits on all non-`dsh.` Branches (excluding `UpToDate`) | **≥ 2,000** (stretch 3,000) | 12 workers × 3–4 rounds, small steps |
-| Workspace Commits by workers | **≥ 35 per worker per round** (≥ 1,260 over R1–R3) | Commit after **every** step that changes files: each edit batch, each build, each test run, failing ones too. Edits are committed before the build that tests them, so an edit and its build are two Commits |
-| Heartbeat | ≥ 1 Commit per 10 minutes of active work per worker | Never sit on uncommitted changes longer |
-| Merges | ≥ 12 merge Branches (3 per round + fixes) | §5 integration |
+| Commits on all non-`dsh.` Branches (excluding `UpToDate`) | **≥ 1,300** (stretch 2,000) | 8 workers × 3–4 rounds, small steps |
+| Commits by workers | **≥ 35 per worker per round** (≥ 840 over R1–R3) | Every `file` edit/write/apply is one Commit; every bash call that ran a command ends with a Workspace Commit (failing steps too) |
+| Heartbeat | ≥ 1 Commit per 10 minutes of active work per worker | Never sit on uncommitted work |
+| Merges | ≥ 12 merge Branches (≈ 3–4 per round + fixes) | §5 integration |
 | Publishes | ≥ 6 Layers on `main` | skeleton, R1–R3, hardening, report |
 
 Rules: one step per Commit, message `[<id> r<N>] <step> (<result>)`, e.g.
@@ -342,11 +351,10 @@ Rules: one step per Commit, message `[<id> r<N>] <step> (<result>)`, e.g.
 changes, no timestamp-only files, no splitting a file write into byte-sized Commits.
 A Commit refused or `UpToDate` doesn't count.
 
-**Measured by:** `commit list` on every non-`dsh.` Branch (paged, `page_size` 1000)
-counted by message prefix per worker; the call log's `workspace.commit` results by kind
-(`Committed` vs `UpToDate`); merges from `branch list` (`forked_from` / merge
-Commits); Layers from `branch commits "$P" main`. The main agent records counts per
-round in the ledger; the report has the per-worker table and Commits per hour.
+**Measured by:** `commit list` on every non-`dsh.` Branch (paged) counted by message
+prefix per worker; the call log's `workspace.commit` results by kind (`Committed` vs
+`UpToDate`) and `file` writes; merges from `branch list`; Layers from
+`branch commits "$P" main`. The main agent records counts per round in the ledger.
 
 ---
 
@@ -355,8 +363,9 @@ round in the ledger; the report has the per-worker table and Commits per hour.
 ### 8.1 Oracle and corpus
 
 - `scripts/oracle.py` (main, skeleton): runs a script on Python's `sqlite3` module
-  (autocommit, `isolation_level=None`) and the `sqlite3` CLI from the image (same
-  library version, ≥ 3.40, recorded in every generated file's header). It turns
+  (autocommit, `isolation_level=None`) and the `sqlite3` CLI at `.tools/bin/sqlite3` (built in the skeleton from
+  SQLite 3.40.1's amalgamation, the same library version as Python's module, recorded
+  in every generated file's header). It turns
   sources `tests/slt-src/*.sqlin` into `tests/slt/*.slt`. `oracle.py --check`
   regenerates everything and must be byte-identical to what is committed.
 - Format: standard sqllogictest (`statement ok`, `statement error <SQLite message>`,
@@ -409,7 +418,10 @@ needs the main agent's review against this table.
 - Quality gates: `cargo fmt --all --check`,
   `cargo clippy --workspace --all-targets --locked --offline -- -D warnings`,
   `cargo test --workspace --locked --offline` (per crate when the workspace doesn't fit
-  in 110 s). At most 5 `#[ignore]` per crate, each with a reason.
+  in one bash call). At most 5 `#[ignore]` per crate, each with a reason.
+
+---
+
 
 ---
 
@@ -418,8 +430,8 @@ needs the main agent's review against this table.
 The run is done only when **all** of these hold. Anything less is not done.
 
 1. **Fresh fork of the final `main`.** Fork `final-verify-<n>` from `main`'s latest
-   Layer and mount it as a **new** Workspace (`verify`, never a reused one). With §6's
-   settings, each command separately, each under 110 s:
+   Layer and mount it as Workspace `verify` (new, never left over). With §6's settings
+   (`. scripts/env.sh verify`), each command separately, each under 540 s:
    - `cargo fmt --all --check` → exit 0;
    - `cargo clippy --workspace --all-targets --locked --offline -- -D warnings` → exit 0
      (per crate allowed; every one exit 0);
@@ -431,16 +443,17 @@ The run is done only when **all** of these hold. Anything less is not done.
    - `cargo build --release -p strata-cli -p strata-accept`, then
      `strata-accept run A01` … `A16` → sixteen `PASS` lines, each run < 100 s;
    - `find . -name '._*' -not -path './target/*' -not -path './.cargo-home/*'` → empty.
-   The verification Commits are made in `verify`, which is then unmounted.
+   These may span several bash calls (mount → commands → commit → unmount each time, on
+   the same `final-verify-<n>` Branch); the verification Commits are on that Branch.
 2. **Every milestone of §3.1** is built with tests (the report's table names the tests
    per cell).
 3. **`/docs/BUILD-REPORT.md` is on `main`**: either in the verified Layer, or in one
    later report-only publish whose `branch diff` against the verified Commit touches
    only `/docs/BUILD-REPORT.md`.
 4. **Clean finish:** every worker has finished (no live subagent), and
-   `layerfs sandbox get "$SB"` lists **only** the session Workspace `main`: `f1`…`t3`,
-   `int`, `verify` and any rescue Workspace are unmounted. `$WS` has no pending merge
-   and no markers. The session Sandbox is not closed (agents can't, and must not).
+   `layerfs sandbox get "$SB"` lists **only** dsh's Workspace `main`. `$WS` has no
+   pending merge and no markers. The session Sandbox is not closed (agents can't, and
+   must not).
 5. The ledger `./quarry-v2/PROGRESS.md` ends with the terminal-pass entry.
 
 A pass on an integration or worker Branch doesn't count until it is published and
@@ -461,17 +474,16 @@ may drop or relax a check.
 
 | Resource | Budget | Basis / floor |
 | --- | --- | --- |
-| Docker CPUs | 12 (recommended; now 8) | 12 workers × `JOBS=2` = 24 rustc at peak, throttled by build slots |
-| Docker memory | 24 GiB (recommended; now 8 GiB) | ≈ 0.5–1 GB per rustc/link with line-tables debuginfo; with 8 GiB use `JOBS=1` and expect exit 137 |
-| Docker disk | ≥ 120 GB free at start; **floor 30 GB** | `target/` ≤ 4 GB × 12 worker Workspaces (48 GB) + `int`/`verify` with release (12 GB) + Store (≤ 30 GB; v1 8.9 GB) + temp (10 GB). Below 30 GB the main agent stops starting builds and tells the user |
-| Workspaces | 16 of 16 planned (15 used + 1 spare) | §4 |
-| Subagents | 12 live (+1 replacement), `maxActiveSubagents` 13 | §4 |
-| Wall time | 5–8 h | v1 4 h 16 min for a smaller engine |
-| Tokens | ≈ 1.2–2 B total, > 98 % cache reads; ≈ 8–12 M output | v1: 578 M total, 3.9 M output for 8 agents |
-| Host | operator rules (`tools/cleanup.py check`, ≥ 100 GB host free) | `~/.claude/CLAUDE.md` |
+| Docker CPUs | 8 | ≤ 3 Cargo builds × `JOBS=2` through the slots, plus tests and the oracle |
+| Docker memory | 8 GiB (≈ 5 GiB available) | ≈ 0.5–1 GB per rustc/link with line-tables debuginfo; exit 137 → `JOBS=1` |
+| Docker disk | ≈ 116 GB free at start; **floor 30 GB** | `target/<ws>` ≤ 3 GB × (8 workers + `int` + `verify`) per Branch in use + Store + temp. Below 30 GB the main agent stops starting builds and tells the user |
+| `/tmp` | 3.9 GB tmpfs, shared | logs and exit codes only |
+| Workspaces | ≤ 11 of 16 at once | §4 |
+| Subagents | 8 live | §4 |
+| Wall time | 7–10 h | v1 4 h 16 min for a smaller engine |
 
-The main agent records `df -h /`, `free -g` and `du -sh target .cargo-home` (per
-mounted Workspace it owns, and as reported by workers) at every integration.
+The main agent records `df -h /`, `free -g` and `du -sh target/* .cargo-home` (in `int`)
+at every integration.
 
 ---
 
@@ -504,41 +516,30 @@ LayerFS surprises (refusals, slow steps, anything a future team should know).
 
 ---
 
-## Open questions (unverified)
 
-1. **Which image the session Sandbox gets on `docker`.** The v2 skill reference says a
-   docker Sandbox uses the docker machine's image (`machine update docker --image`),
-   else the bundle's; the v2 architecture doc says the machine record's image applies
-   "not on docker", and that `image` must be a digest the bundle's Sandbox image archive
-   holds. Whether a Rust image must be derived from the bundle's Sandbox image, and
-   whether the UI field wants a digest or an archive path, is untested. The preflight
-   (`rustc -V`, `sqlite3 --version` in `$WS`) is the check.
-2. **Docker resources.** Now 8 CPUs, 8 GiB, a 248 GiB disk image with ~115 GiB used
-   (68 GB of volumes reclaimable). Raising to 12 CPUs / 24 GiB and freeing ≥ 120 GB is
-   the user's call.
-3. **Subagent capacity setting.** `maxActiveSubagents` is a `volatile` host setting
-   (Settings → Subagents); expected to apply without a restart, not tested. Whether a
-   finished but continuable child still holds a slot is not verified.
-4. **Reasoning effort of workers.** A child inherits the parent's effort when its route
-   doesn't change; the handoff also passes `reasoning_effort: "max"`. Confirm in the
-   first worker's session view.
-5. **crates.io reachability** from a docker Sandbox in v2 (v1 probe passed on v1).
-6. **Shared `/tmp`.** Whether Workspaces of one Sandbox share `/tmp` (build-slot
-   semaphore, rescue tarballs) is not verified; the preflight tests it.
-7. **Disk per Workspace.** Whether a Workspace keeps its built files on Docker's disk
-   after they are committed (v1: "each mounted Workspace holds its own copy") is
-   unverified for v2; the budget assumes it does.
-8. **One daemon, 15 Workspaces.** Commit/exec latency with 12 concurrent writers in one
-   Sandbox daemon is unmeasured (v1 spread 7 workers over 3 daemons).
-9. **Idle close.** dsh closes a project session's Sandbox `idleMinutes` (30) after the
-   session's agent is disposed (`agent/disposed`). Whether live subagents keep the
-   parent from being disposed, e.g. if the browser tab closes, is unverified; keep the
-   session open.
-10. **Commit counting.** `commit list` walks first parents; whether every lane-mate's
-    merged Workspace Commit appears on the lane Branch's first-parent line is
-    unverified. Cross-check with the call log.
-11. **Per-Commit storage numbers.** v2's `commit list` documents no `newCanonical` /
-    `newStored`, and agents have no Store-stats call, so storage evidence beyond
-    `du` and `project stats` comes from the operator's app views.
-12. **Feasibility.** The scope is about 2× v1's on a model that needed 4 h for v1.
-    The timeboxes are estimates; the terminal pass does not shrink if they slip.
+## Open questions
+
+Settled by the operator's preflight (2026-11-13):
+
+1. **Image on `docker`:** the Sandbox root is the bundle's `sandbox-image.tar` whatever
+   the machine records; it has Rust 1.85.1 but its environment is not applied (§1, §6,
+   `issues/02`). No custom image.
+2. **Docker resources:** not resized (8 CPUs, 8 GiB); the run is sized to fit.
+3. **Subagent capacity:** 8 (default); hence 8 workers.
+4. **crates.io and sqlite.org** are reachable from a docker Sandbox.
+5. **Shared `/tmp`:** yes, across Workspaces of one Sandbox; it is a 3.9 GB tmpfs.
+6. **Store concurrency:** writers queue on docker; residual `Failed NotFound` ≈ 1.4 %
+   before effect (`issues/01`).
+
+Still open:
+
+7. **Reasoning effort of workers.** A child inherits the parent's route; the handoff
+   passes `reasoning_effort: "max"`. Confirm in the first worker's session view.
+8. **Disk per Workspace:** whether a short-lived mount of a Branch with a large
+   committed `target/` costs time or disk per mount is unmeasured; watch mount and commit
+   latency.
+9. **Idle close.** dsh closes the session Sandbox 30 min after the session's agent is
+   disposed. Keep the session open.
+10. **Commit counting.** `commit list` walks first parents; cross-check with the call log.
+11. **Feasibility.** The scope is large for the model and the machine; the terminal pass
+    does not shrink if timeboxes slip.

@@ -34,7 +34,7 @@ export function projectContext(b: PromptBinding, options: PromptOptions): string
     `| Project | ${q(b.project)} | \`$DSH_LAYERFS_PROJECT\` |`,
     `| Machine | ${q(b.machine, 'unknown')} | |`,
     `| Session Branch (the project as this conversation has it) | ${q(b.branch)} | \`$DSH_LAYERFS_BRANCH\` |`,
-    `| Session Sandbox (where you mount Workspaces to run commands; at most 16) | ${q(sandbox, 'not running')} | \`\${DSH_LAYERFS_WS%%:*}\` |`,
+    `| Session Sandbox (where you mount Workspaces to run commands; 16 per Sandbox) | ${q(sandbox, 'not running')} | \`\${DSH_LAYERFS_WS%%:*}\` |`,
     `| dsh's Workspace (records checkpoints; leave it alone) | ${q(b.ws, 'not mounted yet')} | \`$DSH_LAYERFS_WS\` |`,
     `| Local working directory (scratch, never saved) | ${q(b.scratch)} | \`pwd\` |`,
     '| LayerFS command / Node SDK | | `$DSH_LAYERFS_CLI` / `$DSH_LAYERFS_SDK` |',
@@ -50,9 +50,9 @@ export function projectContext(b: PromptBinding, options: PromptOptions): string
       : '- **Checkpoints are off:** your `file` changes and Workspace Commits are still saved on the session Branch; no restore points are recorded.',
     options.subagent
       ? '- **You are a subagent:** you share this project, Branch and Sandbox with the agent that started you. Work only on the files and Branch you were given, mount Workspaces under the names you were given, and report what you changed and committed.'
-      : '- **Subagents** you start share this project, Branch and Sandbox, and its 16 Workspace slots. Give each one its own files, Branch and Workspace names as the skill describes.',
-    '- **Local working directory:** the user\'s folder, possibly shared with other sessions. Use it for temporary files only and never clear it; nothing in it reaches the project.',
-    '- **Leave alone:** never exec in, commit or unmount dsh\'s Workspace, and never create or close Sandboxes: dsh manages them. Unmount every Workspace you mounted before your turn ends. Work only in this project; machines, Stores, backups and other projects are the user\'s. The LayerFS paths the file policy lists as writable are for the LayerFS command itself: never read, write or `cd` into them directly.',
+      : '- **Subagents** you start share this project, Branch and Sandbox, and its 16 Workspace slots. Give each one its own files, Branch and Workspace names as the skill describes; for more room, create Sandboxes of your own.',
+    '- **Local working directory:** the user\'s folder, possibly shared with other sessions. Use it for notes and temporary files only and never clear it; nothing in it reaches the project. Never draft project files there to upload later, and never build or test the project on the local machine: write files on the Branch with `file` calls and build in a Workspace.',
+    '- **Leave alone:** never exec in, commit or unmount dsh\'s Workspace, and never close the session Sandbox: dsh manages both. Sandboxes you create for more room (see the skill) are yours to close. Unmount every Workspace you mounted before your turn ends. Work only in this project; machines, Stores, backups and other projects are the user\'s. The LayerFS paths the file policy lists as writable are for the LayerFS command itself: never read, write or `cd` into them directly.',
   ]
   return lines.join('\n')
 }

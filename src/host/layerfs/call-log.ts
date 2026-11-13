@@ -215,17 +215,43 @@ export function matches(line: CallLine, args: LogsListArgs): boolean {
   return true
 }
 
-/** Lines of one file from the newest, below byte offset `end`. */
-function* backwards(buffer: Buffer, end: number): Generator<{ start: number, text: string }> {
-  let stop = Math.min(end, buffer.length)
-  while (stop > 0) {
-    const lineEnd = buffer[stop - 1] === 0x0a ? stop - 1 : stop
-    let start = lineEnd
-    while (start > 0 && buffer[start - 1] !== 0x0a) start--
-    const text = buffer.toString('utf8', start, lineEnd)
-    if (text.trim()) yield { start, text }
-    stop = start
+/** One file's lines, parsed once: a read parses only the bytes appended since the last. */
+interface ParsedFile { ino: number, head: string, entries: { start: number, line: CallLine | undefined }[], parsedTo: number }
+const parsedFiles = new Map<string, ParsedFile>()
+
+/**
+ * The parsed lines of `file` (identity `id`), plus an unterminated last line (a write in
+ * progress) that is parsed afresh each time. Rotation, reset or a rewrite (another
+ * inode, first bytes or a shorter file) parses it over.
+ */
+function parsedOf(file: string, id: { ino: number, size: number, head: string }): { entries: ParsedFile['entries'], tail?: { start: number, line: CallLine | undefined } } | undefined {
+  if (!id.ino) { parsedFiles.delete(file); return undefined }
+  let p = parsedFiles.get(file)
+  if (!p || p.ino !== id.ino || p.head !== id.head || id.size < p.parsedTo) p = { ino: id.ino, head: id.head, entries: [], parsedTo: 0 }
+  parsedFiles.set(file, p)
+  if (id.size <= p.parsedTo) return { entries: p.entries }
+  const buffer = Buffer.alloc(id.size - p.parsedTo)
+  try {
+    const fd = fs.openSync(file, 'r')
+    try { fs.readSync(fd, buffer, 0, buffer.length, p.parsedTo) } finally { fs.closeSync(fd) }
+  } catch { return { entries: p.entries } }
+  let at = 0
+  for (let nl = buffer.indexOf(0x0a, at); nl >= 0; nl = buffer.indexOf(0x0a, at)) {
+    const text = buffer.toString('utf8', at, nl)
+    if (text.trim()) p.entries.push({ start: p.parsedTo + at, line: parseLine(text) })
+    at = nl + 1
   }
+  const base = p.parsedTo
+  p.parsedTo += at
+  const rest = at < buffer.length ? buffer.toString('utf8', at) : ''
+  return rest.trim() ? { entries: p.entries, tail: { start: base + at, line: parseLine(rest) } } : { entries: p.entries }
+}
+
+/** Index of the last entry starting below `end`, or -1. */
+function lastBelow(entries: readonly { start: number }[], end: number): number {
+  let lo = 0, hi = entries.length
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (entries[mid].start < end) lo = mid + 1; else hi = mid }
+  return lo - 1
 }
 
 /** `logs.list` over the stand-in (newest first across both files). */
@@ -243,10 +269,12 @@ export function listCalls(path: string, args: LogsListArgs = {}): { lines: CallL
   const lines: CallLine[] = []
   let skipped = 0, pending = 0, next: Cursor | undefined, more = false
   scan: for (let f = from?.f ?? 0; f < 2; f++) {
-    let buffer: Buffer
-    try { buffer = fs.readFileSync(files[f]) } catch { continue }
-    for (const { start, text } of backwards(buffer, f === from?.f ? from.o : Infinity)) {
-      const line = parseLine(text)
+    const parsed = parsedOf(files[f], ids[f])
+    if (!parsed) continue
+    const end = f === from?.f ? from.o : Infinity
+    const { entries, tail } = parsed
+    for (let i = lastBelow(entries, end) + (tail && tail.start < end ? 1 : 0); i >= 0; i--) {
+      const { start, line } = i === entries.length ? tail! : entries[i]
       if (!line) { pending++; continue }
       if (!matches(line, args)) continue
       if (lines.length === limit) { more = true; break scan }

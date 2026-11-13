@@ -1,8 +1,9 @@
 /**
  * dsh-layerfs, browser half: mounts the `layerfs` Remote namespace, opens the
- * host event stream, and contributes the Overview, Projects, Resources (with its
- * machines), Logs and Settings (with Presets) pages, the per-session LayerFS panel and the New Session project
- * control through DSH's slots.
+ * host event stream, and contributes the sidebar's one LayerFS row and the
+ * Center page it opens (machines, Stores, projects, backups, and the Health,
+ * Logs and Settings pages under Center's bar), the Projects views, the
+ * conversation views and the New Session project control through DSH's slots.
  */
 import { createTypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol/remote-info'
 import { z } from 'zod'
@@ -11,14 +12,11 @@ import { createApi } from './api.ts'
 import { locales as doctorLocales, NS as DOCTOR_NS } from './doctor/locale.ts'
 import { NS, locales } from './locale.ts'
 import { registerMachines } from './machines/index.tsx'
-import { createSidebarGroup } from './overview/group.ts'
-import { PANEL_ID as OVERVIEW_PANEL, registerOverview } from './overview/index.tsx'
-import { PANEL_ID as HEALTH_PANEL, registerHealth } from './health/index.tsx'
 import { PANEL_ID as STORAGE_PANEL, registerStorage } from './storage/index.tsx'
 import { registerSession } from './session/index.tsx'
 import { registerPresets } from './presets/index.tsx'
 import { registerLogs } from './logs/index.tsx'
-import { PANEL_ID as SETTINGS_PANEL, registerSettings } from './settings/index.tsx'
+import { registerSettings } from './settings/index.tsx'
 import { registerProjects } from './projects/index.tsx'
 import { registerPicker } from './picker/index.tsx'
 import { registerHero } from './hero/index.tsx'
@@ -52,14 +50,11 @@ export function apply(ctx: any): void {
   if (typeof window !== 'undefined' && window.localStorage?.getItem('dsh-layerfs:debug') === '1') {
     ctx.effect(() => { (window as any).__dshLayerfs = api; return () => { delete (window as any).__dshLayerfs } }, 'dsh-layerfs: debug')
   }
-  const group = createSidebarGroup()
-  const machines = registerMachines(ctx, api, [OVERVIEW_PANEL, STORAGE_PANEL, HEALTH_PANEL, SETTINGS_PANEL])
-  registerStorage(ctx, api, group, machines)
-  registerHealth(ctx, api, group, machines)
-  registerOverview(ctx, api, machines, group)
+  const machines = registerMachines(ctx, api, [STORAGE_PANEL])
+  registerStorage(ctx, api, machines)
   registerPresets(ctx)
-  registerLogs(ctx, api, group)
-  registerSettings(ctx, api, group, machines)
+  registerLogs(ctx)
+  registerSettings(ctx)
   registerProjects(ctx, api)
   registerSession(ctx, api)
   registerPicker(ctx, api)

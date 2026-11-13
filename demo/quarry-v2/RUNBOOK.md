@@ -174,8 +174,9 @@ the id>` (`sandboxOf` in `src/host/sessions/service.ts`) and the Workspace
 **Workspace capacity, plan for it in the handoff:** a Sandbox holds at most **16 Workspaces**
 ("A Sandbox holds at most 16 Workspaces."). The session Workspace already takes one slot in
 the session Sandbox. With 12–15 subagents each mounting a Workspace there, the session
-Sandbox reaches the cap. Have the main agent create lane Sandboxes (for example 3–4,
-≤ 12 Workspaces each) on `docker` and keep the session Sandbox for itself.
+Sandbox reaches the cap. Agents can't create Sandboxes (the sandbox policy lets a session
+write only its own Sandbox's records), so the handoff caps concurrent mounts at 13 workers plus
+the main agent's `int` and one spare (skill: `references/rules/team.md`).
 
 ---
 
@@ -195,109 +196,11 @@ Each check runs in this order. Write its snapshot (§5.3) before doing any fixin
 Budget: about 6 minutes of active work, so a check never runs into the next one. When a
 check overruns, the snapshot says so and the next one starts on time anyway.
 
-### 2.2 The watch list
+### 2.2 The watch list and the checklist
 
-Location: the `## Watch list` table at the top of `demo/quarry-v2/monitor/MONITOR-LOG.md`.
-One row per known bug:
-
-| id | source | what to look for (probe) | check ids | state | clean streak | last seen |
-| --- | --- | --- | --- | --- | --- | --- |
-
-- **Seed (check #0):** every open and fixed entry in `demo/quarry-v2/FIX-LOG.md`, plus the
-  v1 incidents V1–V8 below.
-- **Growth:** a bug found at any check (a failed check item, a FIX-LOG entry, or a user
-  report) gets a row **in the same check**, with its probe written as a concrete command or
-  click path. The id is the FIX-LOG id (`F<nn>`). It is re-checked at **every** later check.
-- **States:** `open` → `fixed` (a fix shipped; the FIX-LOG has "Shipped") → `retired`.
-  Each clean check while the state is `fixed` adds 1 to the streak. The row retires after
-  **3 clean checks in a row after the fix**. A hit at any point sets the state back to
-  `open` and the streak to 0. A hit on a retired row re-opens it with a new FIX-LOG entry
-  that names the old one.
-- An `open` row is still probed every check, to record whether the bug is still happening
-  and how often (count since the last check).
-- Retired rows stay in the table, struck out, for the report.
-
-**v1 incidents mapped to v2 (seed rows):**
-
-| id | v1 incident | v2 probe | pass |
-| --- | --- | --- | --- |
-| V1 | Polling storm: 2,956 `NotMounted` answers to `sandbox.status`, 2,128 from one loop | Script §4.3: `workspace.status` (and any `*.status` / `*.list` / `*.get`) count per (session, target) in the window; count of `NotMounted` | no (session, op, target) over 60 calls / 10 min; `NotMounted` < 20 / 10 min |
-| V2 | The shared service Sandbox was closed mid-run | `grep -c '"sandbox","close"' calls.jsonl` since the last check, then read each line's target; `GET /api/sandboxes/<session sandbox>` | no `sandbox close` naming the session Sandbox or a live lane Sandbox; session Sandbox state ready/running |
-| V3 | dsh web restarts ended every running turn | `cat ../deepseek-harness/web.pid` and `ps -o lstart= -p <pid>` against the value in the log header; sessions with an `interrupted` execution (`session.state` → `execution.state`) | same pid and start time as at run start; no `interrupted` |
-| V4 | "invalid record" `Failed` on `branch.merge` and `sandbox.commit` | Script: outcome `Failed` on `branch.merge` / `workspace.commit`; for each, `logs.output {tag}` stderr contains `invalid record` | 0 |
-| V5 | `fs.read` returned a 49,135-byte prefix of a 51,161-byte file with no warning | For the 3 largest files read since the last check (from the call log `file read` lines), compare `file stat` size with the `file read` output length (`logs.output`) | lengths equal, or the answer says it is truncated |
-| V6 | A merge left `Cargo.lock` cut off mid-checksum | After each merge on `main` or an integration Branch: Files tab → `Cargo.lock` on that Branch; or `GET /api/projects/<key>/file?branch=<b>&path=/Cargo.lock` | file ends with a complete `[[package]]` block; agents' `cargo` does not report a lockfile parse error |
-| V7 | macOS AppleDouble `._*` files in trees written through `fs.*` | `GET /api/projects/<key>/file-query?branch=main&…` **[unverified: query parameter for a glob]**, or Files tab search `._`; or the agents' `file glob '**/._*'` in the log | none |
-| V8 | Workspaces left mounted by scripts that were cut off | `GET /api/sandboxes/<name>` for each Sandbox: Workspaces whose `activity` is idle for over 30 min with `dirty: false`, counted against the agents' ledger | no orphan count growing from one check to the next |
-
-### 2.3 Checklist
-
-Notation: `op <name> <json>` means a host operation called as in §3.1. `GET /api/...` means
-`op http {"method":"GET","path":"/api/..."}`. `SID` is the root session id, `SB` its Sandbox,
-`KEY` = `qv2-store%2Fqv2-quarry`.
-
-#### Harness (dsh-layerfs injection)
-
-| id | Check | Command / click path | Pass |
-| --- | --- | --- | --- |
-| H1 | Preset and system prompt | Root and each new child log header (`session.v4.jsonl` line 1): `agentPreset`; the `system/message` record | `agentPreset: "layerfs"` for root and every child; the system prompt begins "You are a coding agent powered by the … model" (persona prefix) and includes AGENTS.md text (agent-instructions) and the skill catalog with `dsh-layerfs` |
-| H2 | Tools offered | `request/header` → `data.header.tools[].name` | `bash`, the job tools, `subagent`, `subagent_fork`, `skill` are present; no host file tools (read/write/edit) |
-| H3 | Model route | `request/header` → `data.header.config` for root and every child that started since the last check | `provider: deepseek-account`, `model: deepseek-flash`, effort `max` (see §1.8 step 5) |
-| H4 | Environment variables | Pick one recent bash tool call of a child that ran `env \| grep ^DSH_LAYERFS` (or ask nothing; read it from a tool result that printed it) **[unverified that agents print it; otherwise read `session.state` binding]** | `DSH_LAYERFS_CLI`, `DSH_LAYERFS_PROJECT=qv2-store/qv2-quarry`, `DSH_LAYERFS_BRANCH=dsh.<id>…`, `DSH_LAYERFS_WS=<SB>:…`, `DSH_LAYERFS_TRACE_CONTEXT`, `DSH_LAYERFS_SDK` are set; children share the root's project (binding `kind: "shared"`) |
-| H5 | Skill loads | session logs: `tool/call` with tool `skill` and argument `dsh-layerfs`, per session | every worker loaded `dsh-layerfs` before its first LayerFS write; record count, flag workers that never loaded it |
-| H6 | Checkpoints | `op session.state {"sessionId":SID}` → `checkpoints` | one checkpoint per finished root turn (`checkpoints: turn`); the newest checkpoint's turn = the last `turn/end`; `status.overlay.entries` ("unsaved") does not grow without a checkpoint for over 2 turns |
-| H7 | Persistence | `ls -l <project-sessions>/projects/<projectId>/sessions/*/<SID or child>/` (`session.v4.jsonl`, `layerfs.json`); `session.state` → `archive` | logs grow; `layerfs.json` `invocations` grows; `archive.error` absent; `archive.savedCount` keeps up with `localCount` (lag ≤ 1 save) |
-| H8 | Tracing | Script §4.3: share of agent calls with a `dsh:<sessionId>:<receiptId>` tag; `op session.annotations {"sessionId":SID}` receipt count against tagged lines; `logs.output` for 3 random recent tags | ≥ 99% of LayerFS calls from agent sessions are tagged with a real session id (not `dsh:-:`); receipts match lines; outputs exist (`output: true`). `workspace.exec` lines have no checkpoint link (by design) |
-| H9 | Host binding health | `op session.state {"sessionId":SID}` → `binding.state`, `execution` | `binding.state: "bound"`, `execution.state: "active"`, `available: true` |
-| H10 | Idle-close hazard | The root Agent must stay loaded: the 3080 plugin config has `idleMinutes: 30`, so after `agent/disposed` the session Sandbox closes 30 min later (`src/host/sessions/index.ts`) | the root session is open in a tab; no `sessions.close … idle` warning in `web.log` |
-
-#### Backend
-
-| id | Check | Command / click path | Pass |
-| --- | --- | --- | --- |
-| B1 | Session Sandbox | `GET /api/sandboxes/SB` | `state` ready/running; `down: null`; `daemonCapacity` shows free slots; Workspace count ≤ 14 (16 is the cap; alarm at 15); per Workspace: `activity`, `dirty`, `pendingMerge`, `headMovedSinceMount` |
-| B2 | All project Sandboxes | `GET /api/projects/KEY/sandboxes`, then `GET /api/sandboxes/<name>` per lane Sandbox | each lane Sandbox ≤ 14 Workspaces; no `down`; Workspaces with `pendingMerge: true` for over 2 checks are flagged (merge stuck); `dirty: true` with idle activity for over 30 min is flagged |
-| B3 | Machine | `GET /api/machines` (and `GET /api/machines/docker/inspect`) | docker `running`; no startup in progress; no `unresolved` |
-| B4 | Store size and state | `GET /api/storage` (Store row: size, state, place) and `GET /api/stores/qv2-store/stats` | state Idle / In use (never Unresolved / Down); record file size and WAL size; growth per 10 min is in the snapshot |
-| B5 | Project head | `GET /api/projects/KEY` (state), `GET /api/projects/KEY/branches`, `GET /api/projects/KEY/commits?branch=main&limit=5` | Branch count and newest Commits recorded; `main` advances only by publishes |
-| B6 | Call log health | `ls -l trace/calls*.jsonl`; script `skipped` count | file grows; `skipped` (unparsable lines) = 0; rotation happened at most once per check |
-| B7 | Output records | `ls trace/outputs \| wc -l` and `du -sh trace/outputs` | grows with calls; no single output file over 16 MiB **[unverified cap]** |
-| B8 | Home doctor (cheap) | `GET /api/doctor` (home checks, changes nothing) | no new `error` findings. Do **not** run "Check integrity" (full) on `qv2-store` during the run: it reads the whole Store |
-| B9 | Host disk | `cd ../layerfs && python3 tools/cleanup.py check` | ≥ 100 GB free (below: CLAUDE.md cleanup, never touching the run's Store, worker volume or warm targets) |
-| B10 | Docker | `docker stats --no-stream`; `docker system df`; `docker exec <worker> df -h /layerfs/data` | worker CPU and memory are not pinned at the limit for 2 checks in a row; guest free ≥ 20 GiB (below 10 GiB: urgent, tell the main agent per FIX-POLICY §6) |
-| B11 | 3080 process | `ps -o pid,lstart,rss,%cpu -p $(cat ../deepseek-harness/web.pid)`; `tail -n 200 ../deepseek-harness/web.log \| grep -iE 'error\|warn\|unhandled'` | same pid as at start; RSS not growing over 300 MB per check; no new unhandled errors |
-
-#### Run (agent progress)
-
-| id | Check | Command / click path | Pass |
-| --- | --- | --- | --- |
-| R1 | Live agents | Sidebar: root conversation and its subagent rows; logs: session dirs whose header has `parentSession = SID`, and their newest `turn/start` without a `turn/end` | number of live workers recorded; it stays at 12–15 while a round runs |
-| R2 | Stalls | Script §4.4: per live session, minutes since the last log record and since the last `step/end` | none over 10 min without a running `workspace.exec` (§4.2) |
-| R3 | Lanes and Branches | Sandbox tab map (§U4), `GET /api/projects/KEY/branches` | each lane has its Branch; new Commits on each lane Branch since the last check (or the lane is waiting on a merge) |
-| R4 | Commits and merges | Script: `workspace.commit`, `file.*` writes, `branch.merge`, `branch.publish` counts and outcomes since the last check | commits keep happening; `Conflict` ≤ 3 per 10 min; every publish has a following green verification in the agent's ledger |
-| R5 | Tests | The main agent's progress ledger (the file named in HANDOFF, read with `GET /api/projects/KEY/file?branch=<b>&path=<ledger>`) and the newest `cargo test` exit codes in the Workspace terminal (U5) | pass counts do not go down from one check to the next; failing counts are explained in the ledger |
-| R6 | Refusals by agent | Script: refusals per session and code | no single session with more than 20 refusals / 10 min of one code (that is a loop) |
-| R7 | Token burn | root `assistant/message` `usage` sums since the last check **[unverified field path]** | recorded; cache-hit share ≥ 90% (v1 99.5%) |
-
-#### UI
-
-| id | Check | Click path | Pass |
-| --- | --- | --- | --- |
-| U1 | Conversation | Open the root session; scroll to the newest message | renders under 2 s; newest tool call matches the log; no error toast |
-| U2 | Subagent rows | Sidebar: expand the root's subagents; open 2 of them | rows match R1's count; each opens under 2 s; the read-only composer shows for a subagent |
-| U3 | Files / History | Root session → **Files**, then **History** tab | first content under 3 s; Files header "Session branch …" and "{n} unsaved in the workspace" or "Workspace saved"; History shows the newest Commits from B5 |
-| U4 | Sandbox | Root session → **Sandbox** tab | map shows "Main agent" plus subagents ("Subagent n" or their labels), the session Sandbox and lane Sandboxes with Workspaces; "{n} more subagents without LayerFS calls" is small; live dots on running agents; facts line "{agents} agents · {branches} branches · {sandboxes} sandboxes" matches B1/B2 |
-| U5 | Trajectory | Root session → **Trajectory** tab (LayerFS mode: lanes Input, Model, Tools, LayerFS) | loads under 5 s (alarm > 15 s); newest turn shows; "Versions created: {n} · by tool calls: {m}" increases; it refreshes every 3 s while the session runs without freezing the page |
-| U6 | Machines | **Resources** → Machines → docker → its Sandboxes list → open the session Sandbox | "{n} Workspaces" equals B1; the terminal grid pages; no "The Sandbox can't be reached" |
-| U7 | Store page | **Resources** → `qv2-store` (Store page) and the project page tabs **Files / History / Sandboxes / Sessions** | size equals B4; Sandboxes tab lists the same Sandboxes; Sessions lists the root session "Active". Leave the project **Stats** tab closed afterwards (it polls every 1.5 s) and never press **Recount** during the run |
-| U8 | Logs page | **Logs**; filter **Project (store/project)** = `qv2-store/qv2-quarry`; then **Outcome** = Refused | loads under 3 s; newest line is under 30 s old (event lag, §4.5); refused lines match the script |
-| U9 | Health | **Health** | no new problem cards since the last check ("Your home is healthy" or the same known findings) |
-| U10 | LayerFS page | **LayerFS** | Machines / Sandboxes / Workspaces / Stores counts agree with B1–B4; runtime **Ready** |
-| U11 | Model picker | Composer model trigger (do not change it) | still shows DeepSeek-V4.1-Flash · Max |
-
-Leave the UI on the root conversation's **Chat** tab at the end of each check. The pages with
-fast polling (project Stats at 1.5 s, an open terminal at 1.5 s, machines at 5 s) should not
-stay open between checks.
+Both live in [CHECKLIST.md](CHECKLIST.md): the watch list (W1–W4 found while preparing,
+V1–V8 from v1) and the Harness, Backend, Run and UI items with their probes and pass
+criteria.
 
 ---
 
@@ -620,8 +523,8 @@ The FIX-LOG also gets FIX-POLICY §6's one-line check entry.
    ("DeepSeek-V4.1-Flash" in the stock catalog), and whether subagents inherit `max` effort.
 2. **[unverified]** Which Sandbox image the docker machine gives new Sandboxes, and which
    machine-page fact names the worker container.
-3. Node SDK calls (`$DSH_LAYERFS_SDK`) are not in the stand-in call log (the pinned CLI has
-   no `logs` family). If agents use the SDK, latency and storm detection miss them.
+3. Node SDK calls (`$DSH_LAYERFS_SDK`) are in the stand-in call log: the generated module
+   writes the same lines with `client: "node"` (checked by `test/e2e-skill.mjs`).
 4. The stand-in line has no byte sizes, so commit slowness needs `logs.output` to judge it.
 5. `idleMinutes: 30` closes the session Sandbox 30 min after the root Agent is disposed.
    When DSH disposes an Agent during a long run is not established.

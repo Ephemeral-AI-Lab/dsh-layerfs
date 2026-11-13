@@ -6,7 +6,10 @@ Part of the `dsh-layerfs` skill. Command examples start with the skill's line
 ## Keep all mutable Cargo state inside the Workspace
 
 The Rust toolchain comes from the Sandbox (its image, or the host for a `native`
-Sandbox): check with `command -v cargo rustc`. Everything Cargo writes belongs inside
+Sandbox): check with `command -v cargo rustc`. On a `docker` Sandbox the image's
+environment is not applied, so `cargo` is not on `PATH` and rustup has no home: add
+`export RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH` to every exec
+(before setting `CARGO_HOME` inside the Workspace; the rustup proxies still work). Everything Cargo writes belongs inside
 the Workspace: the Commit saves it with the project, and the next mount of the Branch
 starts with the registry, the sources and `target/` already there, so nothing is
 fetched or compiled again. Set the variables in every exec: exports don't survive
@@ -17,9 +20,9 @@ ws=$SB:fetch
 layerfs workspace mount "$SB" "$B" --name fetch >/dev/null || exit 1
 trap 'layerfs workspace unmount "$ws" >/dev/null' EXIT
 layerfs workspace exec "$ws" 'timeout 540 bash -c "set -eu
+export RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:\$PATH
 export CARGO_HOME=\$PWD/.cargo-home CARGO_TARGET_DIR=\$PWD/target CARGO_NET_RETRY=0 CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0
-export RUSTFLAGS=\"--remap-path-prefix=\$PWD=/w\"
-unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
+unset RUSTFLAGS RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
 cargo fetch --locked"' --stream; code=$?        # in a bash call with a 600 s timeout
 layerfs workspace commit "$ws" -m "cargo fetch (exit $code)" >/dev/null
 ```
@@ -30,13 +33,35 @@ registry sources.
 
 ## Build reuse across mounts
 
-Every mount has its own path, so Cargo sees a new source location each time unless the
-paths are remapped. Set the same `RUSTFLAGS` (with `--remap-path-prefix=$PWD=/w`),
-profile, features and job count in **every** exec, in every Workspace. Then a fresh
-mount of a Branch with `target/` committed reuses it: an unchanged `cargo build`
-prints no `Compiling` for dependencies. Check that once per task; if it recompiles,
-compare the flags first. `debug = "full"` makes `target/` several times larger:
-prefer `[profile.dev] debug = "line-tables-only"` unless the task needs full debuginfo.
+Every mount has its own path (`…/workspaces/<n>`, new each time). Cargo copes with
+that: it records the Workspace's own files relative to it, so a fresh mount of a Branch
+with `target/` committed reuses it, and an unchanged `cargo build` prints no
+`Compiling` at all. What breaks reuse is **a flag that contains the mount path**:
+`RUSTFLAGS` (and `CARGO_ENCODED_RUSTFLAGS`, `[build] rustflags`) is part of every
+fingerprint, so `--remap-path-prefix=$PWD=…`, `-L $PWD/…` or any other `$PWD` there
+changes on every mount and rebuilds everything, every time (`CARGO_LOG=cargo::core::compiler::fingerprint=info`
+shows `dirty: RustflagsChanged`). A full rebuild also makes the Commit slow: thousands
+of rewritten `target/` files to process, even when their bytes are unchanged.
+
+So keep `RUSTFLAGS` free of mount paths (absolute paths that are the same in every mount,
+like the toolchain's sysroot, are fine) and set the same flags, profile, features and job
+count in **every** exec, in every Workspace. Check once per task that a fresh mount's
+unchanged `cargo build` prints no `Compiling`; if it recompiles, compare the flags first.
+
+## Keep build output small
+
+Every byte a build writes goes through the Workspace, and the Commit reads it again
+and stores what is new. A build that writes hundreds of MB of fresh artifacts makes
+every Commit and every later mount heavier, and many small writes cost more than a few
+large ones. So:
+
+- Debug info is most of a test binary. Use `[profile.dev] debug = 0` (the test profile
+  inherits it) and `[profile.dev.package."*"] debug = false` unless the task needs a
+  debugger; panics still name the failing test and function. Never `debug = "full"`.
+- Each file in a crate's `tests/` is its own binary that links the whole crate and its
+  dependencies again. Keep a crate's integration tests in one binary: `tests/it/main.rs`
+  with `mod parser; mod planner;` (one module per former file).
+- Build only what you run: `-p <package>`, `--test <name>`, `--lib`.
 
 ## Split and label the work
 

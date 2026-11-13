@@ -334,7 +334,7 @@ Replace the exec block and "Build reuse" with:
 ```bash
 layerfs workspace exec "$ws" 'timeout 540 bash -c "set -eu
 export CARGO_HOME=\$PWD/.cargo-home CARGO_TARGET_DIR=\$PWD/target CARGO_NET_RETRY=0 CARGO_BUILD_JOBS=2 CARGO_INCREMENTAL=0
-export RUSTFLAGS=\"--remap-path-prefix=\$PWD=/w\"
+unset RUSTFLAGS   # never $PWD in RUSTFLAGS: see the note below
 unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
 cargo fetch --locked"' --stream          # in a bash call with a 600 s timeout
 ```
@@ -407,3 +407,13 @@ disk: 41G free
   compares `$DSH_LAYERFS_BRANCH` (read fresh in every bash call) with the Branch its Workspace
   was mounted on (`workspace status` → `branch`). If they differ, commit, unmount, and report it
   instead of mounting again by itself."
+
+## Correction (2026-11-13, Workspace Commit profiling)
+
+The `--remap-path-prefix=$PWD=/w` advice above was wrong for v2. Every mount has a new
+path, so the flag's value changes on every mount; `RUSTFLAGS` is part of Cargo's
+fingerprint, so each fresh mount rebuilt everything (`dirty: RustflagsChanged`) and the
+Commit then processed thousands of rewritten `target/` files. Measured on a docker
+Sandbox: with the flag, an unchanged build after a fresh mount compiled all 6 crates
+(10 s, 171 dirty inodes); without it, 0 crates (0.2 s, 6 dirty inodes). The skill's
+`rules/cargo.md` now says to keep mount paths out of `RUSTFLAGS`.

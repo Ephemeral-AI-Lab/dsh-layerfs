@@ -185,6 +185,31 @@ button.crumb[aria-expanded='true'],
   margin-left: auto;
 }
 
+/* Health, Logs and Settings: one group of icon buttons beside Jump to. */
+.pages {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pageOn {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+/* Health with findings: the icon and the count, so the button widens. */
+.pageCounted {
+  width: auto;
+  gap: 4px;
+  padding: 0 7px;
+}
+
+.pageCount {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .jumpField {
   display: inline-flex;
   align-items: center;

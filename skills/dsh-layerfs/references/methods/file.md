@@ -64,6 +64,8 @@ In the SDK an optional positional you skip is left out (`file.read(P, B, path, {
 | `IsDirectory`, `NotDirectory` | A folder where a file is needed, or the other way round | `file stat` it |
 | `Binary` | A read of a file that is not UTF-8 text | Look at it or copy it with a command (`xxd`, `cp`) |
 | `InvalidInput` | A bad argument: page bounds, line numbers, a relative path, a short Commit id | Read `message` |
+| `Busy`; `Failed` with `busy before effect` or `Storage(Busy)` | Another writer held the Store; nothing was written | Wait 2–8 s (jittered) and run it again, at most 5 times |
+| `Unknown` with `Busy` in `message` | The Store was busy mid-write; it may have landed | `file read` it (or `commit list`); write again only if it is not there |
 | `Failed` | The call failed before committing | Stop and report `message` |
 
 Write refusals carry `detail.index`: 0 for single writes, the failing change for

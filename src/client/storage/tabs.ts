@@ -4,11 +4,11 @@
  * (`project:<store>/<name>`), a bucket and a backup file (`backup:<bucket>/<file>`).
  * Links from other pages (`openStorage`) name one of these.
  */
-export type TabId = 'overview' | 'machines' | `machine:${string}` | `sandbox:${string}` | `store:${string}` | `project:${string}` | `bucket:${string}` | `backup:${string}`
+export type TabId = 'overview' | 'machines' | 'health' | 'logs' | 'settings' | `machine:${string}` | `sandbox:${string}` | `store:${string}` | `project:${string}` | `bucket:${string}` | `backup:${string}`
 
 /** Whether `id` names a page the Storage page can show. */
 export function isTabId(id: string): id is TabId {
-  return id === 'overview' || id === 'machines' || /^(machine|sandbox|store|project|bucket|backup):./.test(id)
+  return id === 'overview' || id === 'machines' || id === 'health' || id === 'logs' || id === 'settings' || /^(machine|sandbox|store|project|bucket|backup):./.test(id)
 }
 
 /** The Overview's sections, one per hero stat tile. */

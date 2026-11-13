@@ -1,7 +1,9 @@
 # LayerFS Logs page and checkpoint binding
 
-> **Status:** Implemented with the plugin stand-in (native LayerFS lines are
-> used when the pinned CLI has the `logs` family). Depends on LayerFS
+> **Status:** Implemented in both modes: native LayerFS lines when the pinned
+> CLI has the `logs` family (`layerfs_v2_0_0` from `4c08032`, PR #665), else
+> the plugin stand-in. In native mode the agent's `layerfs` is a bash script
+> (§6a), not node. Depends on LayerFS
 > [#659](https://github.com/Ephemeral-AI-Lab/layerfs/issues/659) (spec in
 > [layerfs#660](https://github.com/Ephemeral-AI-Lab/layerfs/pull/660),
 > `core/docs/issues/659/README.md`) for the native call log; until a pinned
@@ -47,6 +49,10 @@ same home appear with their own `client` and no `dsh:` tag.
   (`cli.ts:310-314`), so the line takes argv and adds `<N bytes>` for it.
   The `managedCli` wrapper (`src/host/layerfs/tracing.ts:155-172`) appends
   the same line for agent shells.
+- Native writing: LayerFS writes one line per call itself, timed inside the
+  call (`ms` excludes process start), with the tag from `LAYERFS_LOGS_TAG`
+  or the SDK's `log_tag` option. The managed `agent-bin/layerfs` only sets
+  the tag and keeps the output (§6a); it writes no line.
 - Detection: the `logs` family in the pinned CLI's table
   (`layerfs --version --json` capabilities or `help logs`), checked when the
   CLI pin changes.
@@ -205,9 +211,11 @@ journal: the `tools/execute` hook (`src/host/sessions/index.ts`) asks
 - `writes` filters on the client until #659 Q1 is answered: it hides lines
   whose op is in a fixed read list (`*.list`, `*.get`, `*.status`,
   `file.read`, `file.stat`, `commit.diff`, …).
-- **Event:** after each stand-in append, `ctx.layerfs.emit('logs', {at})`,
-  coalesced to one per second. With the native log the page reloads on its
-  own actions and on focus, since LayerFS writes from other processes.
+- **Event:** `ctx.layerfs.emit('logs', {at})`, coalesced to one per second:
+  after each stand-in append, and in both modes when a call made through DSH
+  ends, seen as its output landing in `trace/outputs/` (an SDK record) or
+  `trace/outputs/raw/` (an agent shell's `.exit`). Calls from outside DSH
+  show on the page's own reloads and on focus.
 
 ## 6a. Outputs
 
@@ -230,11 +238,23 @@ clients of the home), in both stand-in and native modes.
   (`workspace exec`) stdout is the decoded bytes of the exec `stdout` frames
   followed by the final result/refusal frame as its last line (kept whole when
   it fits), and stderr gets the exec `stderr` frames plus the CLI's own stderr.
-- **Agent shells:** the managed wrapper tees its child's stdout/stderr into
-  bounded buffers while passing every byte through unchanged (backpressure and
-  signal forwarding kept) and writes the file for its tag on close. A tagged
-  call spawns and pipes in native mode too (no exec). Raw stdout, also for
-  `--events` calls. The sandbox policy already lets shells write `<root>/trace`.
+- **Agent shells, stand-in mode:** the managed wrapper (node) tees its
+  child's stdout/stderr into bounded buffers while passing every byte through
+  unchanged (backpressure and signal forwarding kept) and writes the file for
+  its tag on close. Raw stdout, also for `--events` calls.
+- **Agent shells, native mode:** the managed wrapper is a bash script
+  (`nativeWrapper` in `src/host/layerfs/tracing.ts`), since starting node for
+  each call cost about 45 ms (bash adds about 9 ms over the bare CLI). It
+  builds the tag from `DSH_LAYERFS_TRACE_CONTEXT` as `makeReceipt` does,
+  runs the CLI with stdin, exit code and INT/TERM/HUP passed through, tees
+  stdout and stderr unchanged to `trace/outputs/raw/<tag>.out` and `.err`
+  (`:` and other characters outside `[A-Za-z0-9._-]` as `_`) and writes the
+  exit code to `.exit` when the call ends. `logs.output` reads those files
+  until the host compacts a finished call (its `.exit` older than 5 s) into
+  its bounded record (`compactRaw`, at most every 10 s, and at start); raw
+  files past 256 MiB are removed oldest first. Untagged shells, usage words
+  and `logs` calls run the CLI directly.
+- The sandbox policy already lets shells write `<root>/trace`.
 - **Ops:** `logs.output {tag}` → `CallOutput | {missing: true}` (`missing`
   when never kept, pruned or reset); the tag must be a `dsh:` tag of at most
   128 bytes without control characters, else `InvalidInput`. `logs.list` sets
@@ -246,13 +266,11 @@ clients of the home), in both stand-in and native modes.
 
 ## 7. Client
 
-- **Sidebar:** `registerLogs(ctx, api, group)` copies the Presets
-  registration (`src/client/presets/index.tsx:42-57`): a child row of the
-  LayerFS group (`createSidebarGroup().whileExpanded`,
-  `src/client/overview/group.ts:61-70`), `order: 9.75` after Presets (9.5),
-  `PANEL_ID = 'layerfs-logs'`, a 16px inline SVG wrapped in `ChildGlyph`
-  (`src/client/overview/child.tsx:9`). Called after `registerPresets` in
-  `src/client/index.tsx`.
+- **Where it lives:** a Center page (`TabId` `logs`, `src/client/storage/tabs.ts`),
+  opened from the Logs button in Center's bar (`NavBar` `pages`,
+  `src/client/storage/Nav.tsx`) or Jump to; there is no sidebar row or panel
+  of its own. `registerLogs(ctx)` only registers the copy; `openLogs(api, request)`
+  opens Center on `logs` (`openStorage`).
 - **Page** (`LogsPage.tsx`), built like `PresetsPage.tsx`: `Page` /
   `PageHead` / `LoadError` / `Loading` / `Empty` from `src/client/ui`.
   - Filters: project search (`Input` with `IconSearchOutlineRegular`), op

@@ -283,10 +283,16 @@ const openPanelId = (id) => page.evaluate((i) => window.__dshLayerfs.openPanel(i
 const bar = () => page.locator('header[aria-label="Center navigation"]')
 async function resources() {
   await escapeAll()
-  if (!(await bar().isVisible().catch(() => false))) await panel('Center')
+  if (!(await bar().isVisible().catch(() => false))) await panel('LayerFS')
   await bar().waitFor()
 }
 const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** A page with its own button in Center's bar: Health (its label may carry the findings count), Logs, Settings. */
+async function centerPage(name) {
+  await resources()
+  await bar().getByRole('button', { name: new RegExp(`^${name}\\b`) }).first().click()
+  await sleep(400)
+}
 /** The Overview: the breadcrumb's Center crumb (absent when the Overview already shows). */
 async function home() {
   await resources()
@@ -336,6 +342,10 @@ const stores = Object.keys(before.stores)
 const projects = Object.keys(before.projects)
 const sandboxes = Object.entries(before.sandboxes).filter(([, s]) => s.state === 'running').map(([name, s]) => ({ name, short: /^dsh-[0-9a-f]{12,}$/.test(name) ? name.slice(4, 11) : name, ...s }))
 const sessionProject = projects.find((p) => p.endsWith('/demo')) ?? projects[0]
+if (!sessionProject) {
+  console.error(`crawl: ${devDir} has no project. Seed it first: DSH_LAYERFS_DEV_DIR=${devDir} node test/e2e-sessions.mjs --keep`)
+  process.exit(2)
+}
 
 // ---------------------------------------------------------------- views
 // Each view: { panel, name, go }. `go` navigates and may open/dismiss a dialog; the
@@ -440,10 +450,9 @@ for (const project of projects) {
   view('project', `project ${project} actions menu`, async () => { await open(null); await openAndDismiss(btn(page, `${name} actions`), 'menu') })
 }
 
-view('overview', 'LayerFS page', async () => { await escapeAll(); await openPanelId('layerfs'); await page.getByRole('heading', { name: 'LayerFS', level: 1 }).waitFor() })
-view('health', 'Health', async () => { await panel('Health'); await page.getByRole('region', { name: 'Health' }).first().waitFor() })
+view('health', 'Health', async () => { await centerPage('Health'); await page.getByRole('region', { name: 'Health' }).first().waitFor() })
 view('logs', 'Logs', async () => {
-  await panel('Logs'); await page.getByRole('heading', { name: 'Logs', level: 1 }).waitFor()
+  await centerPage('Logs'); await page.getByRole('heading', { name: 'Logs', level: 1 }).waitFor()
   // Content check: with "Writes only" the table lists no read call (tools/lfs-check.mjs isWriteCall).
   const writes = page.getByRole('checkbox', { name: 'Writes only' })
   if (!(await writes.isChecked())) await writes.click()
@@ -456,17 +465,17 @@ view('logs', 'Logs', async () => {
   }
 })
 view('logs', 'Logs reads', async () => {
-  await panel('Logs')
+  await centerPage('Logs')
   const reads = page.getByRole('button', { name: 'Show reads', exact: true })
   if (await reads.count()) await reads.click()
   else { const w = page.getByRole('checkbox', { name: 'Writes only' }); if (await w.isChecked()) await w.click() }
 })
-view('logs', 'Logs Refused', async () => { await panel('Logs'); await page.getByRole('tablist', { name: 'Outcome' }).getByRole('tab', { name: 'Refused' }).click() })
-view('logs', 'Logs operation menu', async () => { await panel('Logs'); await page.getByRole('tablist', { name: 'Outcome' }).getByRole('tab', { name: 'All' }).click(); await openAndDismiss(btn(page, 'Operation'), 'menu') })
-view('settings', 'Settings', async () => { await panel('Settings'); await page.getByRole('heading', { name: 'LayerFS settings' }).waitFor() })
-view('settings', 'Settings runtime dialog', async () => { await panel('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Runtime' }), 'Change…')) })
-view('settings', 'Settings presets script', async () => { await panel('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Presets' }), 'View script')) })
-view('settings', 'Settings presets menu', async () => { await panel('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Presets' }), 'More actions'), 'menu') })
+view('logs', 'Logs Refused', async () => { await centerPage('Logs'); await page.getByRole('tablist', { name: 'Outcome' }).getByRole('tab', { name: 'Refused' }).click() })
+view('logs', 'Logs operation menu', async () => { await centerPage('Logs'); await page.getByRole('tablist', { name: 'Outcome' }).getByRole('tab', { name: 'All' }).click(); await openAndDismiss(btn(page, 'Operation'), 'menu') })
+view('settings', 'Settings', async () => { await centerPage('Settings'); await page.getByRole('heading', { name: 'LayerFS settings' }).waitFor() })
+view('settings', 'Settings runtime dialog', async () => { await centerPage('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Runtime' }), 'Change…')) })
+view('settings', 'Settings presets script', async () => { await centerPage('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Presets' }), 'View script')) })
+view('settings', 'Settings presets menu', async () => { await centerPage('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Presets' }), 'More actions'), 'menu') })
 
 // The sidebar's LayerFS projects view and a project's Set up dialog (v3: no Projects page).
 /** The full sidebar (Resources folds it to its rail on purpose: src/client/storage/index.tsx). */

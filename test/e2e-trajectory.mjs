@@ -96,6 +96,24 @@ try {
   assert.equal(typeof detail.result, 'string')
   console.log({ branch, version: version.id.slice(0, 10) })
 
+  step('a finished subagent\'s trajectory has its conversation log (read from disk once DSH unloads it)')
+  const childCall = `"$DSH_LAYERFS_CLI" file write "$DSH_LAYERFS_PROJECT" "$DSH_LAYERFS_BRANCH" /child.txt --message "child write" <<< child`
+  const parentTurn = await runTurn(page, { message: `subagent: traj-child | bash: ${childCall}\\n`, newSession: false })
+  assert.ok(parentTurn.ok, `parent turn: ${parentTurn.error}`)
+  const child = await until('the child\'s tagged call', async () => {
+    const lines = (await must('logs.list', { project, limit: 200 })).lines ?? []
+    const line = lines.find((l) => l.argv?.[0] === 'file' && l.argv?.[1] === 'write' && l.dsh?.sessionId && l.dsh.sessionId !== sid)
+    return line?.dsh.sessionId
+  })
+  const childAnswer = await until('the child\'s trajectory with its log', async () => {
+    const a = await must('session.trajectory', { sessionId: child })
+    return a.logLoaded && a.turns.some((x) => tools(x).some((c) => c.ops.some((o) => o.operation === 'file.write'))) ? a : null
+  }, 60000)
+  assert.ok(childAnswer.turns.some((x) => x.records.some((r) => r.kind === 'user')), 'the child\'s prompt is a record')
+  const childRecord = tools(childAnswer.turns.find((x) => tools(x).length))[0]
+  const childDetail = await must('session.trajectory.record', { sessionId: child, seq: childRecord.seq })
+  assert.ok(childDetail, 'the child\'s call reads in full')
+
   step('UI: the project session\'s Trajectory tab is the LayerFS trajectory')
   await must('sessions.open', { sessionId: sid, project })
   const tab = page.getByRole('tab', { name: 'Trajectory', exact: true }).first()

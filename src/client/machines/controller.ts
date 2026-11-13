@@ -75,6 +75,8 @@ export interface MachinesFace {
   readSandbox: (name: string) => Promise<SandboxInfo>
   createSandbox: (project: string, input: { name: string, machine: string, image?: string | { archive: string, digest?: string } }) => Promise<unknown>
   closeSandbox: (name: string, force: boolean) => Promise<string[]>
+  /** Deletes a Store and every project in it (the guided machine Remove). */
+  removeStore: (name: string) => Promise<void>
   saveRuntime: (pin: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null }) => Promise<RuntimeStatus>
   clearStartup: (name: string) => void
   /** Open another dsh-layerfs page (Storage) by its panel id. */
@@ -131,6 +133,9 @@ export class MachinesController {
           const done = await api.call<{ unknown?: string[] }>('DELETE', `/api/sandboxes/${enc(name)}${q({ force: force ? '1' : undefined })}`)
           return done?.unknown ?? []
         } finally { this.reload() }
+      },
+      removeStore: async (name) => {
+        try { await api.call('DELETE', `/api/stores/${enc(name)}${q({ confirm: name })}`) } finally { this.reload() }
       },
       saveRuntime: async (pin) => {
         const status = await api.op<RuntimeStatus>('runtime.save', pin)

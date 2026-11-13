@@ -383,6 +383,8 @@ export type MachineKey = 'running' | 'stopped' | 'busy' | 'needs' | 'unknown'
 /** A machine's state as the SDK gives it, with the op machine.status shows. */
 export function machineState(m: MachineInfo, live?: MachineLive): StateLook & { key: MachineKey, state: string, op: SdkOperation | null } {
   const state = m.state || 'unknown'
+  // stopped or running in LayerFS's records, yet its status says it cannot be reached: it needs you
+  if (workerDown(m, live)) return { tone: 'danger', label: 'stateWorkerDown', attention: true, key: 'needs', state, op: live?.op ?? m.op ?? null }
   const look = stateLook('machine', state)
   const key: MachineKey = look.attention ? 'needs' : state === 'running' || state === 'ready' ? 'running' : state === 'stopped' ? 'stopped' : state === 'creating' || state === 'removing' ? 'busy' : 'unknown'
   return { ...look, key, state, op: live?.op ?? m.op ?? null }
@@ -446,6 +448,16 @@ export function inUse(m: MachineInfo): { stores: number, sandboxes: number } | n
 export function heldWords(held: { stores: number }): Words {
   return held.stores > 0 ? w(held.stores === 1 ? 'heldOneStore' : 'heldStores', { n: held.stores }) : w('heldSandboxes')
 }
+
+/**
+ * A VM or worker LayerFS cannot reach although its records say stopped or
+ * running: `machine.status` gives a reason (e.g. "the machine runs but its worker
+ * does not answer", or the status read itself failed). A clean stop has none.
+ * Start brings the worker back; Stop shuts it down and records it stopped,
+ * which also ends the waits on it.
+ */
+export const workerDown = (m: MachineInfo, live?: MachineLive): boolean =>
+  m.platform !== 'native' && (m.state === 'stopped' || m.state === 'running') && !!live?.down
 
 /** Start or Stop, when the machine is non-native and running or stopped. */
 export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>

@@ -139,7 +139,7 @@ function fakeLayerfs() {
       })
     },
   })
-  return { lfs, state, count: (call) => state.calls.filter((c) => c.call === call).length }
+  return { lfs, state, impl, count: (call) => state.calls.filter((c) => c.call === call).length }
 }
 
 const discoveryOf = (calls = []) => async () => ({ identity: { version: '2.0.0-test', commit: 'a'.repeat(40), dirty: false, features: [] }, calls, commands: [], switches: [] })
@@ -247,6 +247,50 @@ test('history pages read at a head skip branch.get and are kept', async (t) => {
   await f.http('GET', `/api/projects/${P}/history?branch=feat&fork=${L}`)
   await f.http('GET', `/api/projects/${P}/history?branch=feat&fork=${L}`)
   assert.equal(f.count('branch.commits'), 3)
+})
+
+// History's whole count: wide pages back to the fork, kept per head; a moved head reads only back
+// to the last counted head; main has Layers (no count); concurrent asks share one count.
+test('history counts a Branch once and then only what is new', async (t) => {
+  const f = setup(t)
+  const ids = Array.from({ length: 130 }, (_, i) => `12${String(i + 1).padStart(4, '0')}`)
+  const chain = new Map(ids.map((id, i) => [id, { id, branch: 'feat', parent: i ? ids[i - 1] : L, base: L, message: null, time: i }]))
+  const pages = []
+  f.impl.branch.commits = async (_p, _b, opts) => {
+    pages.push(opts)
+    // like LayerFS: a page over the reply budget (here 20 Commits) is refused, not cut short
+    if (opts.page_size > 20) throw new Error('saved history page exceeds reply budget; reduce page_size')
+    const rows = []
+    for (let c = chain.get(opts.at_commit); c && rows.length < opts.page_size; c = chain.get(c.parent)) rows.push(c)
+    return { items: rows, has_more: !!chain.get(rows.at(-1)?.parent) }
+  }
+  const count = (head) => f.http('GET', `/api/projects/${P}/history?branch=feat&at=${head}&fork=${L}&count=1`)
+  const [a, b] = await Promise.all([count(ids[119]), count(ids[119])])
+  assert.equal(a.status, 200)
+  assert.deepEqual(a.body, { head: ids[119], count: 120 })
+  assert.deepEqual(b.body, a.body)
+  const read = () => pages.filter((o) => o.page_size <= 20)
+  assert.equal(read().length, 8, 'one count of 120 in pages of 16 (32 refused, halved), shared by both asks')
+  assert.ok(read().every((o) => o.page_size === 16))
+  assert.deepEqual((await count(ids[119])).body.count, 120)
+  assert.equal(read().length, 8, 'kept at that head')
+  assert.deepEqual((await count(ids[129])).body, { head: ids[129], count: 130 })
+  assert.equal(read().length, 9, 'ten new Commits: one page, stopping at the counted head')
+  assert.deepEqual((await f.http('GET', `/api/projects/${P}/history?branch=main&at=${L}&count=1`)).body.count, null)
+  assert.deepEqual((await f.http('GET', `/api/projects/${P}/history?branch=feat&at=${L}&fork=${L}&count=1`)).body.count, 0)
+  assert.equal(read().length, 9)
+})
+
+// Load all reads wide pages, kept apart from the narrow first pages.
+test('history wide pages ask for a wide page and are kept by width', async (t) => {
+  const f = setup(t)
+  const seen = []
+  const commits = f.impl.branch.commits
+  f.impl.branch.commits = async (...args) => { seen.push(args[2].page_size); return commits(...args) }
+  await f.http('GET', `/api/projects/${P}/history?branch=feat&at=${C2}&fork=${L}`)
+  await f.http('GET', `/api/projects/${P}/history?branch=feat&at=${C2}&fork=${L}&wide=1`)
+  await f.http('GET', `/api/projects/${P}/history?branch=feat&at=${C2}&fork=${L}&wide=1`)
+  assert.deepEqual(seen, [20, 32])
 })
 
 // §4.1 Hits: a Commit's changed paths are kept (a Commit never changes): repeated branch-commits make no new commit.diff.

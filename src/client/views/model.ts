@@ -136,7 +136,21 @@ export interface LiveSandboxes {
   at: number
   sandboxes: readonly { name: string, machine?: string | null, workspaces: readonly { id: string, branch?: string }[] }[]
 }
-export interface MapSandbox { name: string, machine?: string, workspaces: MapWorkspace[], closed: boolean }
+export interface MapSandbox {
+  name: string
+  machine?: string
+  workspaces: MapWorkspace[]
+  closed: boolean
+  /** Slots held by Workspaces the map leaves out (dsh's own session Workspace), for the n/16 count. */
+  reserved?: number
+}
+
+/**
+ * dsh's own Workspace of a project session (`dsh-<id>:main`, mounted on the
+ * session Branch when the session binds): it records checkpoints and answers
+ * status checks, and nobody runs commands in it, so the map leaves it out.
+ */
+export const isSessionWorkspace = (id: string | undefined): boolean => !!id && /^dsh-[0-9a-z]{1,20}:main$/.test(id)
 
 /** One call placed on the replay clock (seconds). */
 export interface MapEvent {
@@ -166,6 +180,63 @@ export interface SandboxMapModel {
   events: MapEvent[]
   /** Replay length in seconds. */
   duration: number
+}
+
+/** Live shows only the Branches active this recently (wall time, ms). */
+export const LIVE_BRANCH_WINDOW_MS = 5 * 60_000
+
+/**
+ * The Branches the map shows at a moment: those with a call that ended in the
+ * `windowMs` before `nowMs`, those a Workspace is still mounted on (its last
+ * call was not an unmount; a long build logs its exec only when it ends), and
+ * those named in `keep` (the session Branch). Only calls started by replay time
+ * `untilS` count, so a replay shows what was active around the playhead.
+ * @param nowMs - wall-clock time, ms since the epoch (Live: now; replay: `wallAt`).
+ */
+export function recentBranches(model: SandboxMapModel, nowMs: number, keep: Iterable<string> = [], windowMs = LIVE_BRANCH_WINDOW_MS, untilS = Infinity): Set<string> {
+  const shown = new Set(keep)
+  const lastOnWs = new Map<string, MapEvent>()
+  for (const e of model.events) {
+    if (e.start > untilS) continue
+    if (e.branch && e.at + e.ms >= nowMs - windowMs) shown.add(e.branch)
+    if (e.ws) lastOnWs.set(e.ws, e)
+  }
+  for (const e of lastOnWs.values()) if (e.branch && e.method !== 'workspace.unmount') shown.add(e.branch)
+  return shown
+}
+
+/**
+ * The map with only the Branches in `shown`. Calls on the others stay on the
+ * clock but lose their Branch, as a refused call on an unknown Branch does.
+ */
+export function onlyBranches(model: SandboxMapModel, shown: ReadonlySet<string>): SandboxMapModel {
+  if (model.branches.every((b) => shown.has(b))) return model
+  return {
+    ...model,
+    branches: model.branches.filter((b) => shown.has(b)),
+    events: model.events.map((e) => { if (!e.branch || shown.has(e.branch)) return e; const { branch: _hidden, ...rest } = e; return rest }),
+  }
+}
+
+/** `onlyBranches` of `recentBranches`: the map as Live (or a replay at `untilS`) shows it. */
+export function recentBranchModel(model: SandboxMapModel, nowMs: number, keep: Iterable<string> = [], windowMs = LIVE_BRANCH_WINDOW_MS, untilS = Infinity): SandboxMapModel {
+  return onlyBranches(model, recentBranches(model, nowMs, keep, windowMs, untilS))
+}
+
+/**
+ * The wall-clock time (ms since the epoch) at replay time `t`: how far the
+ * calls started by `t` had run. Idle gaps are shortened on the replay clock, so
+ * a playhead in a gap reads as the end of the call before it.
+ * -Infinity before the first call.
+ */
+export function wallAt(model: Pick<SandboxMapModel, 'events'>, t: number): number {
+  let wall = -Infinity
+  for (const e of model.events) {
+    if (e.start > t) continue
+    const span = e.end - e.start
+    wall = Math.max(wall, e.at + (span > 0 ? Math.min(1, (t - e.start) / span) : 1) * e.ms)
+  }
+  return wall
 }
 
 /** Idle gaps longer than this (ms) are shortened to it on the replay clock. */
@@ -206,6 +277,31 @@ const methodOf = (argv: readonly string[]) => `${argv[0] ?? '?'}.${String(argv[1
 /** Reads that only poll state (this plugin's own pages and checks among them); kept out of the map so the wires show work. */
 const QUIET = new Set(['project.get', 'branch.get', 'file.list', 'file.stat', 'workspace.list', 'workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.status', 'machine.get', 'store.status', 'store.stats', 'store.list', 'project.list', 'branch.list'])
 
+/** True for a call the map leaves out (a state poll), so the page need not keep it. */
+export const isQuietCall = (line: Pick<CallLine, 'argv'>): boolean => QUIET.has(methodOf(line.argv))
+
+const callKey = (line: CallLine) => `${line.tag ?? ''}|${line.at}|${line.argv.join('\u0000')}`
+
+/**
+ * An agent's kept lines with a newer page merged in: no duplicates (a refresh
+ * re-reads a window that overlaps what is kept), newest first, at most `keep`;
+ * `kept` itself when the page adds nothing.
+ */
+export function mergeCalls<L extends CallLine>(kept: readonly L[], fresh: readonly L[], keep: number): L[] {
+  const known = new Set(kept.map(callKey))
+  // Nothing new: the same array, so the page knows nothing changed and draws nothing again.
+  if (fresh.every((line) => known.has(callKey(line)))) return kept as L[]
+  const seen = new Set<string>(), out: L[] = []
+  for (const line of [...fresh, ...kept]) {
+    const key = callKey(line)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(line)
+  }
+  out.sort((a, b) => b.at - a.at)
+  return out.length > keep ? out.slice(0, keep) : out
+}
+
 /**
  * The Sandbox map: agents, the branches and sandboxes they touched and their
  * calls on the replay clock.
@@ -229,20 +325,23 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
     const box = sandbox(colon > 0 ? id.slice(0, colon) : id)
     let ws = box.workspaces.find((w) => w.id === id)
     if (!ws) { ws = { id, name: colon > 0 ? id.slice(colon + 1) : id }; box.workspaces.push(ws) }
-    if (branch && !ws.branch) ws.branch = branch
+    // A Workspace name is reused across mounts (one per bash call), each on its own Branch: keep the latest.
+    if (branch) ws.branch = branch
     return ws
   }
+  const reserved = new Set<string>()
+  const reserve = (id: string) => { if (!reserved.has(id)) { reserved.add(id); const box = sandbox(id.split(':')[0]); box.reserved = (box.reserved ?? 0) + 1 } }
   if (binding?.branch) branches.add(binding.branch)
   if (binding?.sandbox) { const box = sandbox(binding.sandbox); if (binding.machine) box.machine = binding.machine }
-  if (binding?.ws) workspace(binding.ws, binding.branch)
+  if (binding?.ws) { if (isSessionWorkspace(binding.ws)) reserve(binding.ws); else workspace(binding.ws, binding.branch) }
   for (const open of live?.sandboxes ?? []) {
     const box = sandbox(open.name)
     if (open.machine) box.machine = open.machine
-    for (const ws of open.workspaces) workspace(ws.id, ws.branch)
+    for (const ws of open.workspaces) { if (isSessionWorkspace(ws.id)) reserve(ws.id); else workspace(ws.id, ws.branch) }
   }
 
   const flat = agents.flatMap((agent) => (calls[agent.id] ?? [])
-    .filter((line) => !QUIET.has(methodOf(line.argv)))
+    .filter((line) => !isQuietCall(line))
     .map((line) => ({ agent: agent.id, line })))
   flat.sort((a, b) => a.line.at - b.line.at)
   const clock = replayClock(flat.map(({ line }) => line))
@@ -257,6 +356,11 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
   flat.forEach(({ agent, line }, index) => {
     const method = methodOf(line.argv)
     const target = targetsOf(line.argv)
+    // dsh's own Workspace stays off the map: its calls (checkpoint Commits) land on its Sandbox and the session Branch.
+    if (isSessionWorkspace(target.ws)) {
+      if (!target.branch && binding && binding.ws === target.ws && binding.branch) target.branch = binding.branch
+      delete target.ws
+    }
     // Only an answered call adds a node: a refused `sandbox create` or mount
     // made nothing. A refused call still names (and lights) the nodes that exist.
     if (line.outcome === 'ok') {
@@ -381,6 +485,99 @@ export function mountedAt(events: readonly MapEvent[], ws: string, t: number): b
   }
   if (firstMount && !mount) return false
   return !unmount || (!!mount && mount.start > unmount.start)
+}
+
+/** Calls that save a Branch (counted on its pill). */
+export const SAVE_METHODS: ReadonlySet<string> = new Set(['workspace.commit', 'commit.create', 'branch.merge'])
+
+/** Calls sorted by `end`, for "the last one that ended by t" in log time. */
+interface ByEnd { items: MapEvent[] }
+
+/**
+ * Lookups over a map's calls, built once per set of calls so a frame of the
+ * replay costs the calls near the playhead plus a binary search per node, not
+ * a pass over every call per node. `events` must be sorted by `start` (as
+ * `buildSandboxMap` returns them).
+ */
+export interface EventIndex {
+  events: readonly MapEvent[]
+  /** Longest replay window of one call, seconds. */
+  maxSpan: number
+  byAgent: ReadonlyMap<string, MapEvent[]>
+  byBranch: ReadonlyMap<string, MapEvent[]>
+  byWs: ReadonlyMap<string, MapEvent[]>
+  bySandbox: ReadonlyMap<string, MapEvent[]>
+  /** Ended calls per agent / Workspace / Branch (Branch calls with no Workspace), by end. */
+  endedByAgent: ReadonlyMap<string, ByEnd>
+  endedByWs: ReadonlyMap<string, ByEnd>
+  endedOnBranch: ReadonlyMap<string, ByEnd>
+  /** Answered saves per Branch, by end. */
+  savesByBranch: ReadonlyMap<string, ByEnd>
+  /** Answered mounts and unmounts per Workspace, for `mountedAt`. */
+  mountsByWs: ReadonlyMap<string, MapEvent[]>
+  /** Each Workspace's agents with the start of their first call there. */
+  usersByWs: ReadonlyMap<string, { agent: string, first: number }[]>
+  createBySandbox: ReadonlyMap<string, MapEvent>
+  closeBySandbox: ReadonlyMap<string, MapEvent>
+}
+
+export function indexEvents(events: readonly MapEvent[]): EventIndex {
+  const push = <V>(m: Map<string, V[]>, k: string | undefined, v: V) => { if (k === undefined) return; const a = m.get(k); if (a) a.push(v); else m.set(k, [v]) }
+  const byAgent = new Map<string, MapEvent[]>(), byBranch = new Map<string, MapEvent[]>(), byWs = new Map<string, MapEvent[]>(), bySandbox = new Map<string, MapEvent[]>()
+  const onBranch = new Map<string, MapEvent[]>(), saves = new Map<string, MapEvent[]>(), mounts = new Map<string, MapEvent[]>()
+  const users = new Map<string, Map<string, number>>()
+  const createBySandbox = new Map<string, MapEvent>(), closeBySandbox = new Map<string, MapEvent>()
+  let maxSpan = 0
+  for (const e of events) {
+    maxSpan = Math.max(maxSpan, e.end - e.start)
+    push(byAgent, e.agent, e); push(byBranch, e.branch, e); push(byWs, e.ws, e); push(bySandbox, e.sandbox, e)
+    if (e.branch && !e.ws) push(onBranch, e.branch, e)
+    if (e.outcome === 'ok' && e.branch && SAVE_METHODS.has(e.method)) push(saves, e.branch, e)
+    if (e.outcome === 'ok' && e.ws && (e.method === 'workspace.mount' || e.method === 'workspace.unmount')) push(mounts, e.ws, e)
+    if (e.ws) { let u = users.get(e.ws); if (!u) users.set(e.ws, u = new Map()); if (!u.has(e.agent)) u.set(e.agent, e.start) }
+    if (e.sandbox && e.method === 'sandbox.create' && !createBySandbox.has(e.sandbox)) createBySandbox.set(e.sandbox, e)
+    if (e.sandbox && e.method === 'sandbox.close' && e.outcome === 'ok' && !closeBySandbox.has(e.sandbox)) closeBySandbox.set(e.sandbox, e)
+  }
+  const ended = (m: Map<string, MapEvent[]>) => new Map([...m].map(([k, a]) => [k, { items: [...a].sort((x, y) => x.end - y.end) }]))
+  return {
+    events, maxSpan, byAgent, byBranch, byWs, bySandbox,
+    endedByAgent: ended(byAgent), endedByWs: ended(byWs), endedOnBranch: ended(onBranch), savesByBranch: ended(saves),
+    mountsByWs: mounts,
+    usersByWs: new Map([...users].map(([ws, u]) => [ws, [...u].map(([agent, first]) => ({ agent, first }))])),
+    createBySandbox, closeBySandbox,
+  }
+}
+
+/** How many of `list` (sorted by start) have started by `t`. */
+export function startedBy(list: readonly MapEvent[], t: number): number {
+  let lo = 0, hi = list.length
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid].start <= t) lo = mid + 1; else hi = mid }
+  return lo
+}
+
+/** How many of `list` (sorted by end) have ended by `t`. */
+function endedCount(items: readonly MapEvent[], t: number): number {
+  let lo = 0, hi = items.length
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (items[mid].end <= t) lo = mid + 1; else hi = mid }
+  return lo
+}
+
+/** The call in `byEnd` that ended last by `t`. */
+export function lastEnded(byEnd: ByEnd | undefined, t: number): MapEvent | undefined {
+  if (!byEnd) return undefined
+  const n = endedCount(byEnd.items, t)
+  return n ? byEnd.items[n - 1] : undefined
+}
+
+/** How many calls in `byEnd` ended by `t`. */
+export function countEnded(byEnd: ByEnd | undefined, t: number): number {
+  return byEnd ? endedCount(byEnd.items, t) : 0
+}
+
+/** The calls that can still show at `t`: started by `t`, within `span` seconds before it. */
+export function windowAt(index: EventIndex, t: number, span: number): readonly MapEvent[] {
+  const { events } = index
+  return events.slice(startedBy(events, t - span), startedBy(events, t))
 }
 
 /** m:ss of replay seconds. */

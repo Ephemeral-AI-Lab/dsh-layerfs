@@ -4,13 +4,13 @@
  * VMs, refused while it holds Stores or Sandboxes), the settings and remove
  * dialogs, and the startup progress of a create or start.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Field, MoreMenu, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
-import { BUILT_IN, duration, forceStopOf, heldWords, inUse, isImageRef, machineState, opWords, powerOf, stageWords, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, duration, forceStopOf, isImageRef, machineState, opWords, powerOf, stageWords, workerDown, type MachineInfo, type MachineLive } from './model.ts'
 import css from './machines.module.css'
 
 /**
@@ -60,10 +60,20 @@ function powerKey(m: MachineInfo, power: 'start' | 'stop') {
 
 /** Start or Stop, when the machine is non-native and running or stopped. */
 export function PowerButton({ m, pending, run, size = 'sm' }: { m: MachineInfo, pending: string | null, run: Run, size?: 'sm' | 'md' }): ReactNode {
-  const { t } = useMachinesContext()
+  const { t, useMachines } = useMachinesContext()
+  const live = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.status[m.name] : undefined))
   const power = powerOf(m)
   const elapsed = useElapsed(pending === 'stop')
   if (!power) return null
+  // a worker that does not answer: Start brings it back (Stop is in the menu)
+  if (workerDown(m, live)) {
+    return (
+      <Button size={size} variant="primary" disabled={pending !== null} icon={<PowerGlyph size={14} />} title={t('restartWorkerTitle', { name: m.name })}
+        onClick={(e) => { e.stopPropagation(); void run('start', { kind: 'start', name: m.name, platform: m.platform }) }}>
+        {pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t('restartWorker')}
+      </Button>
+    )
+  }
   return (
     <Button size={size} variant={power === 'stop' ? 'outline' : 'primary'} disabled={pending !== null} icon={<PowerGlyph size={14} />}
       title={t(power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}
@@ -88,19 +98,31 @@ function useElapsed(on: boolean): number {
 
 /** The `…` menu: Open (on the board), power, Update settings… (built-ins) or Remove… (VMs). */
 export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineInfo, pending: string | null, run: Run, onOpen?: () => void, onDialog: (d: 'settings' | 'remove' | 'force-stop') => void }): ReactNode {
-  const { t, tw, useMachines } = useMachinesContext()
+  const { t, useMachines } = useMachinesContext()
   const hasSandboxes = useMachines((snapshot) => m.sandboxes.length > 0 || !!(snapshot.data?.available && snapshot.data.sandboxes.some((sandbox) => sandbox.machine === m.name)))
   // only a CLI whose machine.stop takes force offers Force stop
   const features = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.features : undefined))
+  const live = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.status[m.name] : undefined))
   const power = powerOf(m)
   const builtIn = BUILT_IN.has(m.platform)
-  const held = inUse(m)
+  const down = workerDown(m, live)
   return (
     <MoreMenu label={t('moreFor', { name: m.name })}>
       {(close) => (
         <>
           {onOpen && <MenuItemButton icon={<IconChevronRightOutlineRegular size={14} />} onSelect={() => { close(); onOpen() }}>{t('open')}</MenuItemButton>}
-          {power && (
+          {down ? (
+            <>
+              <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
+                onSelect={() => { close(); void run('start', { kind: 'start', name: m.name, platform: m.platform }) }}>
+                {t('restartWorker')}
+              </MenuItemButton>
+              <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
+                onSelect={() => { close(); void run('stop', { kind: 'stop', name: m.name }) }}>
+                {t(m.platform === 'docker' ? 'stopWorker' : 'stopUnreachable')}
+              </MenuItemButton>
+            </>
+          ) : power && (
             <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
               onSelect={() => { close(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }}>
               {t(powerKey(m, power))}
@@ -120,8 +142,9 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
               </>
             )
             : (
-              <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} disabled={!!held || pending !== null}
-                disabledReason={held ? tw(heldWords(held)) : undefined} onSelect={() => { close(); onDialog('remove') }}>
+              // a machine that still holds Stores or Sandboxes gets the guided Remove (RemoveDialog)
+              <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} disabled={pending !== null}
+                onSelect={() => { close(); onDialog('remove') }}>
                 {t('remove')}
               </MenuItemButton>
             )}
@@ -204,26 +227,70 @@ function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose:
 
 /** Remove a VM and its disk; LayerFS's refusal shows in the dialog, where it was asked. */
 function RemoveDialog({ m, onClose, pending, run, onRemoved }: { m: MachineInfo, onClose: () => void, pending: string | null, run: Run, onRemoved?: () => void }): ReactNode {
-  const { t, refusal } = useMachinesContext()
-  const [error, setError] = useState<unknown>(null)
+  const { t, refusal, useMachines, closeSandbox, removeStore } = useMachinesContext()
+  const data = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data : null))
+  // What the machine still holds: LayerFS refuses to remove it until they are gone.
+  const held = useMemo(() => ({
+    stores: (data?.stores ?? []).filter((s) => s.machine === m.name || m.stores.includes(s.name)),
+    sandboxes: (data?.sandboxes ?? []).filter((s) => s.machine === m.name),
+  }), [data, m.name, m.stores])
+  const occupied = held.stores.length > 0 || held.sandboxes.length > 0
+  const [typed, setTyped] = useState('')
+  const [step, setStep] = useState<string | null>(null)
+  const [error, setError] = useState<{ step: string | null, error: unknown } | null>(null)
+  const busy = pending !== null || step !== null
   const remove = async () => {
-    if (pending !== null) return
+    if (busy) return
     setError(null)
+    let at: string | null = null
     try {
+      // in order: the Sandboxes (forced: a dead daemon cannot close cleanly), the Stores, then the machine
+      for (const box of held.sandboxes) { at = t('removeStepSandbox', { name: box.name }); setStep(at); await closeSandbox(box.name, true) }
+      for (const store of held.stores) { at = t('removeStepStore', { name: store.name }); setStep(at); await removeStore(store.name) }
+      at = null; setStep(null)
       if (await run('remove', { kind: 'remove', name: m.name }, { rethrow: true })) { onClose(); onRemoved?.() }
-    } catch (e) { setError(e) }
+    } catch (e) { setError({ step: at, error: e }) } finally { setStep(null) }
   }
+  const confirmed = !occupied || typed === m.name
   return (
-    <Modal open onClose={() => { if (pending === null) onClose() }} title={t('removeTitle', { name: m.name })} description={t('removeBody')} closeLabel={t('close')} className={css.dialog}
+    <Modal open onClose={() => { if (!busy) onClose() }} title={t('removeTitle', { name: m.name })} description={occupied ? t('removeHeldBody', { name: m.name }) : t('removeBody')} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
-          <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" className={css.danger} disabled={pending !== null} onClick={() => void remove()}>
-            {pending === 'remove' ? t('removing') : t('remove')}
+          <Button variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
+          <Button variant="primary" className={css.danger} disabled={busy || !confirmed} onClick={() => void remove()}>
+            {step ?? (pending === 'remove' ? t('removing') : occupied ? t('removeEverything') : t('remove'))}
           </Button>
         </>
       )}>
-      {error != null && <Refusal error={error} labels={refusal} className={css.errorText} />}
+      {occupied ? (
+        <div className={css.removeHeld}>
+          {held.sandboxes.length ? (
+            <section>
+              <h3 className={css.removeHeldTitle}>{t('removeHeldSandboxes', { n: String(held.sandboxes.length) })}</h3>
+              <ul className={css.removeHeldList}>{held.sandboxes.map((b) => <li key={b.name}><code>{b.name}</code>{b.project ? <span className={css.muted}> · {b.project}</span> : null}</li>)}</ul>
+              <p className={css.muted}>{t('removeHeldSandboxesNote')}</p>
+            </section>
+          ) : null}
+          {held.stores.length ? (
+            <section>
+              <h3 className={css.removeHeldTitle}>{t('removeHeldStores', { n: String(held.stores.length) })}</h3>
+              <ul className={css.removeHeldList}>{held.stores.map((s) => (
+                <li key={s.name}><code>{s.name}</code><span className={css.muted}> · {s.names?.length ? s.names.join(', ') : t('removeHeldProjects', { n: String(s.projects) })}</span></li>
+              ))}</ul>
+              <p className={css.muted}>{t('removeHeldStoresNote')}</p>
+            </section>
+          ) : null}
+          <Field label={t('removeTypeName', { name: m.name })}>
+            <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={m.name} autoComplete="off" spellCheck={false} disabled={busy} />
+          </Field>
+        </div>
+      ) : null}
+      {error != null && (
+        <div className={css.errorText}>
+          {error.step ? <p>{t('removeStoppedAt', { step: error.step })}</p> : null}
+          <Refusal error={error.error} labels={refusal} />
+        </div>
+      )}
     </Modal>
   )
 }

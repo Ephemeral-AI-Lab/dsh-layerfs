@@ -1,6 +1,7 @@
 /** Session data shared by the conversation views: the project root and its `session.state`. */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import { useQuery } from '../files/use-query.ts'
 import { rootOf, type MapBinding, type SessionRow } from './model.ts'
 
 /** DSH's session list as an observable (`ctx.sessions.list`). */
@@ -41,24 +42,21 @@ export interface SessionStateView {
 export function useRootState(api: LayerfsApi, sessionId: string, source: SessionsSource | undefined) {
   const { byId, title, label } = useSessionRows(source)
   const root = rootOf(sessionId, byId)
-  const [view, setView] = useState<SessionStateView | null>(null)
-  const [error, setError] = useState<unknown>(null)
   const [tick, setTick] = useState(0)
+  // One read at a time, never dropped for a newer event (events come many a second during a
+  // run); the last answer per session draws at once when a tab mounts.
+  const query = useQuery(() => api.op<SessionStateView>('session.state', { sessionId: root }), [api, root], { refresh: [tick], cache: `session.state:${root}`, persist: true })
   const reload = useCallback(() => setTick((n) => n + 1), [])
   useEffect(() => {
-    let live = true
-    api.op<SessionStateView>('session.state', { sessionId: root }).then(
-      (v) => { if (live) { setView(v); setError(null) } },
-      (e) => { if (live) setError(e) },
-    )
-    return () => { live = false }
-  }, [api, root, tick])
-  useEffect(() => {
-    const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === root) reload() }
-    const offs = [api.onEvent('layerfs-session', mine), api.onEvent('layerfs-checkpoint', mine), api.onEvent('connection', reload)]
-    return () => { offs.forEach((off) => off()) }
+    // Coalesce bursts: one refresh per 500 ms at most.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; reload() }, 500) }
+    const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === root) later() }
+    const offs = [api.onEvent('layerfs-session', mine), api.onEvent('layerfs-checkpoint', mine), api.onEvent('connection', later)]
+    return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
   }, [api, root, reload])
-  return { root, byId, title, label, view: view?.sessionId === root ? view : null, error, reload, tick }
+  const view = query.data?.sessionId === root ? query.data : null
+  return { root, byId, title, label, view, error: view ? null : query.error ?? null, reload, tick }
 }
 
 /** One focus request between views: JSON `{branch?, commit?, path?}`. */

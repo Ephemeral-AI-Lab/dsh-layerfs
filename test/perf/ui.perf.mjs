@@ -83,7 +83,6 @@ const toProject = [resources, click(openProject)]
 const toSession = [async (page) => { await page.evaluate((sid) => window.__dshLayerfs.openSession(sid), fx.session.id) }]
 
 const PAGES = [
-  { id: 'layerfs', title: 'LayerFS page', action: openPanel('layerfs'), ready: visible((p) => p.getByText('Storage', { exact: true }).first()) },
   { id: 'resources.projects', title: 'Resources overview (Projects)', action: resources, ready: visible(openProject) },
   { id: 'resources.stores', title: 'Resources overview: Stores tab', pre: [resources], action: click(tabRe(/^Stores\s*\d/)), ready: selected('Stores') },
   { id: 'resources.machines', title: 'Resources overview: Machines tab', pre: [resources], action: click(tabRe(/^Machines\s*\d/)), ready: selected('Machines') },
@@ -93,9 +92,8 @@ const PAGES = [
   ...(sandboxShort ? [{ id: 'sandbox', title: `Sandbox page (${sandboxShort})`, pre: [resources], action: click(tree(new RegExp(`^${sandboxShort}`))), ready: selected(sandboxShort) }] : []),
   { id: 'project.files', title: `Project ${projectName}: Files`, pre: [resources], action: click(openProject), ready: visible((p) => p.getByRole('tab', { name: 'Files', exact: true, selected: true })) },
   ...['History', 'Sandboxes', 'Sessions', 'Stats'].map((name) => ({ id: `project.${name.toLowerCase()}`, title: `Project ${projectName}: ${name}`, pre: toProject, action: click(tab(name)), ready: visible((p) => p.getByRole('tab', { name, exact: true, selected: true }).first()) })),
-  { id: 'health', title: 'Health', action: openPanel('layerfs-health') },
-  { id: 'logs', title: 'Logs', action: openPanel('layerfs-logs') },
-  { id: 'settings', title: 'Settings', action: openPanel('layerfs-settings') },
+  // Health, Logs and Settings are Center pages behind the bar's buttons.
+  ...['Health', 'Logs', 'Settings'].map((name) => ({ id: name.toLowerCase(), title: name, pre: [resources], action: click((p) => p.locator('header[aria-label="Center navigation"]').getByRole('button', { name: new RegExp(`^${name}\\b`) }).first()) })),
   { id: 'session.chat', title: 'Project session: open (Chat)', action: toSession[0], ready: visible((p) => p.getByRole('tab', { name: 'Trajectory', exact: true })) },
   ...['Trajectory', 'Files', 'History', 'Sandbox'].map((name) => ({ id: `session.${name.toLowerCase()}`, title: `Project session: ${name}`, pre: toSession, action: click(tab(name)), ready: visible((p) => p.getByRole('tab', { name, exact: true, selected: true }).first()) })),
 ].filter((p) => !only || only.includes(p.id))

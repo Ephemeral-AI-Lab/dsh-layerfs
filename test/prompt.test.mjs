@@ -28,7 +28,7 @@ test('names every project setting with its value and variable', () => {
   assert.match(text, /mount, exec, commit, unmount/)
   assert.match(text, /relative to the Workspace root, never its mount path/)
   assert.match(text, /\| Session Sandbox [^|]*\| "dsh-abc" \|/)
-  assert.match(text, /never exec in, commit or unmount dsh's Workspace/)
+  assert.match(text, /never exec in, commit or unmount dsh's Workspace, and never close the session Sandbox/)
   assert.doesNotMatch(text, /workspace exec "\$DSH_LAYERFS_WS"/)
   assert.match(text, /never read, write or `cd` into them directly/)
   assert.doesNotMatch(text, /checkpoint controls/)

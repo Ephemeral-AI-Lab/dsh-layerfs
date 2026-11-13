@@ -42,6 +42,14 @@ const KEEP_INITS = 50
 export const HISTORY_PAGE_SIZE = 20
 /** History pages kept per host (Projects.historyPages). */
 const HISTORY_PAGES_KEPT = 512
+/**
+ * A wide page (Load all, counting) asks for this many. Each Commit costs its message plus
+ * 1 KiB of LayerFS's 48 KiB reply budget, and a page over it is refused, not cut short: the
+ * read halves its size and asks again (`widePage`).
+ */
+const HISTORY_WIDE_PAGE = 32
+/** Branch Commit counts kept per host (Projects.historyCounts). */
+const HISTORY_COUNTS_KEPT = 2048
 
 /** Tagged ids: a Layer's first byte is 0x32. */
 const isLayer = (id: unknown) => typeof id === 'string' && id.startsWith('32')
@@ -178,6 +186,12 @@ export class Projects {
    * only the Branches that moved.
    */
   readonly historyPages = new Map<string, unknown>()
+  /**
+   * Each Branch's Commit count at its last counted head: a head that moved is
+   * counted only back to that head, so a live Branch costs one read per refresh.
+   */
+  readonly historyCounts = new Map<string, { head: string, count: number }>()
+  readonly counting = new Map<string, Promise<{ head: string | null, count: number }>>()
   /** Init job id -> ProjectInitJob: the Inits this host started (2.0 keeps no job registry). */
   readonly inits = new Map<string, ProjectInitJob>()
   readonly creations = new Map<string, Promise<unknown>>()
@@ -561,10 +575,12 @@ export class Projects {
     const at = q.get('at') ?? q.get('head')
     // the caller's fork point from the Branch list (`fork`) saves a branch.get per Branch
     const fork = branch === 'main' ? null : q.get('fork') || (await this.lfs.branch.get(project, branch)).forked_from
-    const cacheKey = at ? JSON.stringify([project, branch, at, fork]) : null
+    if (q.get('count')) return this.historyCount(project, branch, at, fork)
+    const wide = !!q.get('wide')
+    const cacheKey = at ? JSON.stringify([project, branch, at, fork, wide]) : null
     const cached = cacheKey ? this.historyPages.get(cacheKey) : undefined
     if (cached) { this.historyPages.delete(cacheKey!); this.historyPages.set(cacheKey!, cached); return cached }
-    const page = await this.lfs.branch.commits(project, branch, { page: 1, page_size: HISTORY_PAGE_SIZE, ...(at ? { at_commit: at } : {}) })
+    const page = wide ? await this.widePage(project, branch, at) : await this.lfs.branch.commits(project, branch, { page: 1, page_size: HISTORY_PAGE_SIZE, ...(at ? { at_commit: at } : {}) })
     const all: any[] = page.items ?? []
     const boundary = fork ? all.findIndex((c) => c.id === fork) : -1
     const items = boundary < 0 ? all : all.slice(0, boundary)
@@ -575,6 +591,57 @@ export class Projects {
       if (this.historyPages.size > HISTORY_PAGES_KEPT) this.historyPages.delete(this.historyPages.keys().next().value!)
     }
     return answer
+  }
+
+  /**
+   * How many Commits a side Branch has from `head` back to its fork (`main` has Layers, not
+   * Commits: null). Counted once in wide pages, then kept: a moved head reads back only to
+   * the head it was last counted at. One count runs at a time per Branch and head.
+   */
+  async historyCount(project: string, branch: string, head: string | null, fork: string | null): Promise<{ head: string | null, count: number | null }> {
+    if (branch === 'main') return { head, count: null }
+    if (!head || head === fork) return { head, count: 0 }
+    const key = JSON.stringify([project, branch])
+    const known = this.historyCounts.get(key)
+    if (known?.head === head) return known
+    const flight = JSON.stringify([project, branch, head])
+    const running = this.counting.get(flight)
+    if (running) return running
+    const run = (async () => {
+      let count = 0
+      let at: string = head
+      for (;;) {
+        const page = await this.widePage(project, branch, at)
+        const rows: any[] = page.items ?? []
+        let done = false
+        for (const c of rows) {
+          if (fork && c.id === fork) { done = true; break }
+          if (known && c.id === known.head) { count += known.count; done = true; break }
+          count++
+        }
+        const parent = rows.at(-1)?.parent
+        if (done || !page.has_more || !rows.length || !parent || parent === fork || parent === at) break
+        at = parent
+      }
+      const answer = { head, count }
+      this.historyCounts.delete(key)
+      this.historyCounts.set(key, answer)
+      if (this.historyCounts.size > HISTORY_COUNTS_KEPT) this.historyCounts.delete(this.historyCounts.keys().next().value!)
+      return answer
+    })()
+    this.counting.set(flight, run)
+    try { return await run } finally { this.counting.delete(flight) }
+  }
+
+  /** The widest page of a Branch's Commits from `at` that fits LayerFS's reply budget. */
+  async widePage(project: string, branch: string, at: string | null): Promise<any> {
+    for (let size = HISTORY_WIDE_PAGE; ; size = Math.floor(size / 2)) {
+      try {
+        return await this.lfs.branch.commits(project, branch, { page: 1, page_size: size, ...(at ? { at_commit: at } : {}) })
+      } catch (error: any) {
+        if (size <= 1 || !/reply budget/i.test(String(error?.message ?? ''))) throw error
+      }
+    }
   }
 
   /** One bounded immutable directory page; metadata is read only for opened files. */

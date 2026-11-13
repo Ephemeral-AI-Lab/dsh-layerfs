@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentTree, buildSandboxMap, execWords, innerCommand, mountedAt, phaseOf, replayClock, sanitizeCommand, rootOf, targetsOf, CALL_GAP_S, FLASH_S, MAX_CALL_S, MIN_CALL_S, RESULT_S, TAIL_S, requestS } from '../src/client/views/model.ts'
+import { isSessionWorkspace, recentBranchModel, recentBranches, wallAt, LIVE_BRANCH_WINDOW_MS, agentTree, buildSandboxMap, countEnded, execWords, indexEvents, isQuietCall, lastEnded, mergeCalls, startedBy, windowAt, innerCommand, mountedAt, phaseOf, replayClock, sanitizeCommand, rootOf, targetsOf, CALL_GAP_S, FLASH_S, MAX_CALL_S, MIN_CALL_S, RESULT_S, TAIL_S, requestS } from '../src/client/views/model.ts'
 
 const byId = {
   root: { running: false },
@@ -192,4 +192,144 @@ test('sanitizeCommand and execWords: terminal lines without the plugin plumbing'
   assert.equal(sanitizeCommand(`test -n "$DSH_LAYERFS_WS" && "$DSH_LAYERFS_CLI" workspace exec "$DSH_LAYERFS_WS" 'mkdir -p a && echo "x && y" > a/b' --stream`, 'main'), 'mkdir -p a && echo "x && y" > a/b')
   assert.equal(execWords(['workspace', 'exec', 'sbx:main', '<65 bytes>', '--stream']), null)
   assert.equal(execWords(['workspace', 'exec', 'sbx:main', '--', 'npm', 'test']), 'npm test')
+})
+
+test('mergeCalls keeps one copy of each line, newest first, at most keep', () => {
+  const line = (at, tag, argv = ['file', 'write']) => ({ v: 1, at, ms: 5, client: 'cli', argv, outcome: 'ok', tag })
+  const kept = [line(30, 'dsh:a:3'), line(20, 'dsh:a:2'), line(10, 'dsh:a:1')]
+  const fresh = [line(40, 'dsh:a:4'), line(30, 'dsh:a:3'), line(25, 'dsh:a:late')]
+  assert.deepEqual(mergeCalls(kept, fresh, 10).map((l) => l.tag), ['dsh:a:4', 'dsh:a:3', 'dsh:a:late', 'dsh:a:2', 'dsh:a:1'])
+  assert.deepEqual(mergeCalls(kept, fresh, 2).map((l) => l.tag), ['dsh:a:4', 'dsh:a:3'])
+  assert.equal(mergeCalls([], [line(1, 'x', ['a']), line(1, 'x', ['b'])], 10).length, 2, 'same tag and time, different call')
+})
+
+test('isQuietCall names the state polls the map leaves out', () => {
+  assert.equal(isQuietCall({ argv: ['workspace', 'status', 'sb:main'] }), true)
+  assert.equal(isQuietCall({ argv: ['branch', 'list', 'p'] }), true)
+  assert.equal(isQuietCall({ argv: ['workspace', 'exec', 'sb:w', 'ls'] }), false)
+  assert.equal(isQuietCall({ argv: ['file', 'write', 'p', 'b', '/x'] }), false)
+})
+
+test('indexEvents answers per-node questions the map asks every frame, as a full scan would', () => {
+  const ev = (id, agent, start, end, more = {}) => ({ id, agent, method: 'file.write', outcome: 'ok', at: start * 1000, ms: 5, start, end, argv: [], ...more })
+  const events = [
+    ev('a1', 'A', 0, 2, { branch: 'b1' }),
+    ev('m1', 'A', 1, 3, { method: 'workspace.mount', ws: 'sb:w', branch: 'b1', sandbox: 'sb' }),
+    ev('c1', 'B', 2, 8, { method: 'workspace.commit', ws: 'sb:w', branch: 'b1', sandbox: 'sb' }),
+    ev('a2', 'A', 4, 5, { branch: 'b1', outcome: 'Busy' }),
+    ev('u1', 'B', 9, 10, { method: 'workspace.unmount', ws: 'sb:w', branch: 'b1', sandbox: 'sb' }),
+  ]
+  const index = indexEvents(events)
+  assert.equal(index.maxSpan, 6)
+  for (const t of [0, 1.5, 3, 4.5, 6, 8, 9.5, 11]) {
+    const full = events.filter((e) => e.start <= t && t < e.end + 2).map((e) => e.id)
+    assert.deepEqual(windowAt(index, t, index.maxSpan + 2).filter((e) => t < e.end + 2).map((e) => e.id), full, `window at ${t}`)
+    const lastA = events.filter((e) => e.agent === 'A' && e.end <= t).sort((x, y) => x.end - y.end).at(-1)
+    assert.equal(lastEnded(index.endedByAgent.get('A'), t)?.id, lastA?.id, `last of A at ${t}`)
+    assert.equal(countEnded(index.savesByBranch.get('b1'), t), t >= 8 ? 1 : 0, `saves at ${t}`)
+    assert.equal(startedBy(events, t), events.filter((e) => e.start <= t).length)
+  }
+  assert.equal(lastEnded(index.endedOnBranch.get('b1'), 6)?.id, 'a2', 'branch calls without a Workspace')
+  assert.deepEqual(index.usersByWs.get('sb:w'), [{ agent: 'A', first: 1 }, { agent: 'B', first: 2 }])
+  assert.deepEqual(index.mountsByWs.get('sb:w').map((e) => e.id), ['m1', 'u1'])
+})
+
+test('mergeCalls returns the kept array itself when a refresh adds nothing', () => {
+  const line = (at, tag) => ({ v: 1, at, ms: 5, client: 'cli', argv: ['file', 'write'], outcome: 'ok', tag })
+  const kept = [line(20, 'b'), line(10, 'a')]
+  assert.equal(mergeCalls(kept, [line(20, 'b')], 10), kept)
+  assert.equal(mergeCalls(kept, [], 10), kept)
+  assert.notEqual(mergeCalls(kept, [line(30, 'c')], 10), kept)
+})
+
+test('a Workspace name reused across mounts takes each mount\'s Branch, and is mounted only between mount and unmount', () => {
+  const line = (at, argv, ms = 100) => ({ v: 1, at, ms, client: 'cli', argv, outcome: 'ok' })
+  const calls = { A: [
+    line(1000, ['workspace', 'mount', 'sb', 'b1', '--name', 'w']),
+    line(2000, ['workspace', 'exec', 'sb:w', 'ls']),
+    line(3000, ['workspace', 'unmount', 'sb:w']),
+    line(4000, ['workspace', 'mount', 'sb', 'b2', '--name', 'w']),
+    line(5000, ['workspace', 'exec', 'sb:w', 'ls']),
+    line(6000, ['workspace', 'unmount', 'sb:w']),
+  ] }
+  const model = buildSandboxMap([{ id: 'A', depth: 0, running: false }], null, calls)
+  const execs = model.events.filter((e) => e.method === 'workspace.exec')
+  assert.deepEqual(execs.map((e) => e.branch), ['b1', 'b2'])
+  const mounts = model.events.filter((e) => e.ws === 'sb:w' && /mount$/.test(e.method))
+  const [m1, u1, m2, u2] = mounts
+  assert.equal(mountedAt(mounts, 'sb:w', m1.start), true)
+  assert.equal(mountedAt(mounts, 'sb:w', u1.end + 0.01), false, 'gone after its unmount')
+  assert.equal(mountedAt(mounts, 'sb:w', m2.start), true, 'back at the next mount')
+  assert.equal(mountedAt(mounts, 'sb:w', u2.end + 0.01), false)
+})
+
+test('recentBranchModel keeps Branches active in the last 5 minutes, mounted ones and the session Branch', () => {
+  const now = Date.parse('2026-11-13T10:00:00Z'), min = 60_000
+  const ev = (id, branch, agoMin, extra = {}) => ({ id, agent: 'a', method: 'file.write', outcome: 'ok', at: now - agoMin * min, ms: 100, start: 0, end: 1, branch, argv: [], ...extra })
+  const model = {
+    agents: [], sandboxes: [], duration: 10,
+    branches: ['dsh.s', 'old', 'recent', 'built', 'unmounted'],
+    events: [
+      ev('1', 'old', 30),
+      ev('2', 'recent', 2),
+      ev('3', 'built', 20, { method: 'workspace.mount', ws: 'sb:w1' }),
+      ev('4', 'unmounted', 20, { method: 'workspace.mount', ws: 'sb:w2' }),
+      ev('5', 'unmounted', 19, { method: 'workspace.unmount', ws: 'sb:w2' }),
+    ],
+  }
+  const live = recentBranchModel(model, now, ['dsh.s'])
+  assert.deepEqual(live.branches, ['dsh.s', 'recent', 'built'])
+  assert.equal(live.events.find((e) => e.id === '1').branch, undefined, 'a hidden Branch loses its calls\' wires')
+  assert.equal(live.events.length, model.events.length, 'calls stay on the clock')
+  assert.equal(live.duration, model.duration)
+  assert.equal(recentBranchModel(model, now - 60 * min, ['dsh.s']), model, 'nothing hidden: the same model')
+  assert.equal(LIVE_BRANCH_WINDOW_MS, 5 * min)
+})
+
+test('a replay shows the Branches active in the 5 minutes before the playhead', () => {
+  const t0 = Date.parse('2026-11-13T10:00:00Z'), min = 60_000
+  const ev = (id, branch, atMin, start, extra = {}) => ({ id, agent: 'a', method: 'file.write', outcome: 'ok', at: t0 + atMin * min, ms: 2000, start, end: start + 2, branch, argv: [], ...extra })
+  const model = {
+    agents: [], sandboxes: [], duration: 40,
+    branches: ['a', 'b', 'c', 'w'],
+    events: [
+      ev('1', 'a', 0, 0),
+      ev('2', 'w', 1, 5, { method: 'workspace.mount', ws: 'sb:w' }),
+      ev('3', 'b', 10, 10),
+      ev('4', 'w', 11, 15, { method: 'workspace.unmount', ws: 'sb:w' }),
+      ev('5', 'c', 30, 30),
+    ],
+  }
+  assert.equal(wallAt(model, -1), -Infinity, 'before the first call')
+  assert.equal(wallAt(model, 11), t0 + 10 * min + 1000, 'halfway through call 3')
+  assert.equal(wallAt(model, 20), t0 + 11 * min + 2000, 'a gap reads as the end of the call before it')
+  const at = (t) => [...recentBranches(model, wallAt(model, t), [], undefined, t)].sort()
+  assert.deepEqual(at(1), ['a'])
+  assert.deepEqual(at(6), ['a', 'w'], 'w mounted')
+  assert.deepEqual(at(11), ['b', 'w'], 'a went quiet 10 minutes before; w still mounted')
+  assert.deepEqual(at(20), ['b', 'w'], 'w unmounted, but its unmount call is under 5 minutes old')
+  assert.deepEqual(at(31), ['c'], 'a call 30 minutes later; c not yet shown before it starts')
+  assert.deepEqual(at(29), ['b', 'w'], 'a shortened idle gap holds the moment before it')
+})
+
+test('dsh\'s own session Workspace stays off the map but keeps its slot', () => {
+  assert.equal(isSessionWorkspace('dsh-939f81ffc31646d8914d:main'), true)
+  assert.equal(isSessionWorkspace('dsh-939f81ffc31646d8914d:w-t1'), false)
+  assert.equal(isSessionWorkspace('lane-store:main'), false)
+  const SB = 'dsh-939f81ffc31646d8914d', B = 'dsh.939f81ffc31646d8914df60a5d3c2c79'
+  const line = (at, argv) => ({ v: 1, at, ms: 50, client: 'cli', argv, outcome: 'ok', tag: 'dsh:root:x' })
+  const model = buildSandboxMap([{ id: 'root', depth: 0, running: true }], { project: 'p/q', branch: B, sandbox: SB, ws: `${SB}:main`, machine: 'docker' }, {
+    root: [
+      line(1000, ['workspace', 'commit', `${SB}:main`, '--message', '<9 bytes>']),
+      line(2000, ['workspace', 'mount', SB, 'tools-r1', '--name', 'w-t1']),
+      line(3000, ['workspace', 'exec', `${SB}:w-t1`, 'cargo build']),
+    ],
+  })
+  const box = model.sandboxes.find((b) => b.name === SB)
+  assert.deepEqual(box.workspaces.map((w) => w.name), ['w-t1'])
+  assert.equal(box.reserved, 1)
+  const commit = model.events.find((e) => e.method === 'workspace.commit')
+  assert.equal(commit.ws, undefined)
+  assert.equal(commit.sandbox, SB)
+  assert.equal(commit.branch, B, 'a checkpoint Commit lands on the session Branch')
 })

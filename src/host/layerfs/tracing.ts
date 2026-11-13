@@ -12,7 +12,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { OUTPUT_MAX, operationOf, type CallLine, type CallOutput, type SimulationStep } from '../../shared/logs.ts'
 import { appendCallLine, makeReceipt, renderCall, ROTATE_BYTES, savedFields } from './call-log.ts'
-import { DEFAULT_BOUNDS, outputName, outputRecord, outputsDir, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
+import { DEFAULT_BOUNDS, RAW_DIR, outputName, outputRecord, outputsDir, outputSink, writeOutput, type OutputBounds } from './call-output.ts'
 
 export interface VersionLink { kind: 'Commit' | 'Layer'; id: string; effect: 'created' | 'unchanged' | 'referenced' }
 /**
@@ -326,6 +326,12 @@ export function managedCli(options: ManagedCliOptions): string {
   const outputs = options.callLog ? outputsDir(options.callLog) : null
   mkdirSync(join(options.root, 'agent-bin'), { recursive: true })
   if (options.callLog) mkdirSync(dirname(options.callLog), { recursive: true, mode: 0o700 })
+  if (options.native) {
+    // LayerFS writes the line: no node per call (about 45 ms each), only bash.
+    writeIfChanged(file, nativeWrapper({ cli: options.cli, home: options.home, bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null, raw: outputs ? join(outputs, RAW_DIR) : null }))
+    chmodSync(file, 0o700)
+    return file
+  }
   const config = {
     cli: options.cli, home: options.home, bundle: options.bundle ?? null, cacheHome: options.cacheHome ?? null,
     callLog: standIn ? options.callLog : null, bools: options.bools ?? [], content: options.content ?? CONTENT_CALLS, rotate: options.rotateBytes ?? ROTATE_BYTES,
@@ -363,6 +369,10 @@ export function managedCli(options: ManagedCliOptions): string {
     `const outputName = ${outputName.toString()};`,
     `const writeOutput = ${writeOutput.toString()};`,
     `const operation=(argv[0]??'')+'.'+(argv[1]??'').replaceAll('-','_');`,
+    // `workspace exec --stream` exits with the command's own code (125 still means
+    // LayerFS refused, its refusal frame on stderr): a non-zero exit is the command's result, not an
+    // unknown outcome; the line keeps it as `kind: "exit:<code>"`, as the JSON answer has it (FIX-LOG F13).
+    `const streamedExec=operation==='workspace.exec'&&argv.includes('--stream');`,
     `const piped=logged&&config.content.includes(operation)&&!argv.some(word=>word==='--from'||word.startsWith('--from='));`,
     `const at=Date.now(),started=performance.now();`,
     `let stdout='',stderr='',overflow=false,spawnError=false,inputBytes=0;`,
@@ -378,9 +388,9 @@ export function managedCli(options: ManagedCliOptions): string {
     `child.on('close',(code,signal)=>{`,
     ` if(piped)process.stdin.destroy();`,
     ` if(spawnError){process.exitCode=127;return}`,
-    ` if(logged&&code!==2&&(capture||config.callLog)){`,
+    ` if(logged&&(code!==2||streamedExec)&&(capture||config.callLog)){`,
     `  let result,valid=false,refusal;`,
-    `  if(config.callLog&&!overflow)try{const frames=stdout.trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line));`,
+    `  if(config.callLog&&!overflow&&!streamedExec)try{const frames=stdout.trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line));`,
     `   if(argv.includes('--events')){const finals=frames.filter(frame=>frame&&(Object.hasOwn(frame,'result')||Object.hasOwn(frame,'refusal')));if(finals.length===1){result=finals[0].result;refusal=finals[0].refusal;valid=!refusal}}`,
     `   else if(frames.length===1){result=frames[0];valid=true}`,
     `  }catch{}`,
@@ -388,9 +398,9 @@ export function managedCli(options: ManagedCliOptions): string {
     // The output first, so a page reloading on the new line already sees it.
     `  if(capture)writeOutput(fs,config.outputs,outputName(createHash,receipt.tag),outputRecord({tag:receipt.tag,exit:signal?null:code,stdout:sinks.stdout,stderr:sinks.stderr,refusal,max:config.max}),config.bounds);`,
     `  if(config.callLog){`,
-    `   const outcome=signal||(code!==0&&code!==125)?'Unknown':code===125?(refusal&&typeof refusal.code==='string'&&refusal.code.length<=64?refusal.code:'Failed'):'ok';`,
+    `   const outcome=signal?'Unknown':code===125?(refusal&&typeof refusal.code==='string'&&refusal.code.length<=64?refusal.code:'Failed'):code===0||streamedExec?'ok':'Unknown';`,
     `   const words=renderCall(argv,piped?inputBytes:null,config.bools);`,
-    `   appendCallLine(fs,config.callLog,{v:1,at,ms:Math.max(0,Math.round(performance.now()-started)),client:'cli',argv:words,outcome,...(outcome==='ok'&&valid?savedFields(words,result):{}),...(receipt&&receipt.tag?{tag:receipt.tag}:{})},config.rotate);`,
+    `   appendCallLine(fs,config.callLog,{v:1,at,ms:Math.max(0,Math.round(performance.now()-started)),client:'cli',argv:words,outcome,...(outcome==='ok'&&streamedExec?{kind:'exit:'+code}:outcome==='ok'&&valid?savedFields(words,result):{}),...(receipt&&receipt.tag?{tag:receipt.tag}:{})},config.rotate);`,
     `  }`,
     ` }`,
     ` finish(code,signal);`,
@@ -400,16 +410,72 @@ export function managedCli(options: ManagedCliOptions): string {
   const body = [...prelude, `if(config.callLog||capture){`, ...piping, `}else{`, ...passthrough, `}`, ''].join('\n')
   // A .mjs implementation preserves the invoked command's stdin (no heredoc).
   const script = `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(implementation)} "$@"\n`
-  const write = (path: string, text: string) => {
-    if (existsSync(path) && readFileSync(path, 'utf8') === text) return
-    const tmp = `${path}.${process.pid}.tmp`
-    writeFileSync(tmp, text, { mode: 0o700 })
-    renameSync(tmp, path)
-  }
-  write(implementation, body)
-  write(file, script)
+  writeIfChanged(implementation, body)
+  writeIfChanged(file, script)
   chmodSync(file, 0o700)
   return file
+}
+
+function writeIfChanged(path: string, text: string): void {
+  if (existsSync(path) && readFileSync(path, 'utf8') === text) return
+  const tmp = `${path}.${process.pid}.tmp`
+  writeFileSync(tmp, text, { mode: 0o700 })
+  renameSync(tmp, path)
+}
+
+/**
+ * The managed CLI when LayerFS writes its own call log (#659): a bash script,
+ * since starting node for every call cost about 45 ms. Like the node wrapper
+ * it sets `LAYERFS_LOGS_TAG` to `dsh:<sessionId>:<scope>.<random>` (the
+ * `makeReceipt` shape) from `DSH_LAYERFS_TRACE_CONTEXT`, removing an inherited
+ * tag otherwise, and keeps a tagged call's output: stdout and stderr are teed
+ * to `raw/<tag>.out` and `.err` while passing through, and the exit code goes
+ * to `.exit` when the call ends (`readRaw`, `compactRaw`). stdin, the exit code
+ * and INT/TERM/HUP pass through; a call killed by a signal re-raises it. Usage
+ * and help words, `logs` calls and untagged shells run the CLI directly.
+ */
+export function nativeWrapper(o: { cli: string, home: string, bundle: string | null, cacheHome: string | null, raw: string | null }): string {
+  return [
+    '#!/bin/bash',
+    '# dsh-layerfs managed LayerFS CLI (native call log). Generated; do not edit.',
+    'umask 077',
+    `export LAYERFS_HOME=${shellQuote(o.home)}`,
+    ...(o.bundle ? [`export LAYERFS_BUNDLE=${shellQuote(o.bundle)}`] : []),
+    ...(o.cacheHome ? [`export XDG_CACHE_HOME=${shellQuote(o.cacheHome)}`] : []),
+    'unset LAYERFS_LOGS_TAG',
+    `cli=${shellQuote(o.cli)}`,
+    `raw=${shellQuote(o.raw ?? '')}`,
+    'ctx=${DSH_LAYERFS_TRACE_CONTEXT-}',
+    'case "${1-}" in \'\'|-*|help|logs) exec "$cli" "$@" ;; esac',
+    'case "${2-}" in \'\'|-*) exec "$cli" "$@" ;; esac',
+    '[[ $1 =~ ^[a-z][a-z_]*$ && $2 =~ ^[a-z][a-z_-]*$ ]] || exec "$cli" "$@"',
+    '[[ $ctx =~ \\"sessionId\\":\\"([A-Za-z0-9.-]{1,100})\\" ]] || exec "$cli" "$@"',
+    'tag="dsh:${BASH_REMATCH[1]}:"',
+    '[[ $ctx =~ \\"scope\\":\\"([a-f0-9]{1,16})\\" ]] && tag="$tag${BASH_REMATCH[1]}."',
+    'id=$(LC_ALL=C od -An -N16 -tx1 /dev/urandom 2>/dev/null); id=${id//[^0-9a-f]/}',
+    'room=$((128 - ${#tag})); [ "$room" -gt 32 ] && room=32',
+    '[ "$room" -ge 8 ] && [ ${#id} -ge 8 ] || exec "$cli" "$@"',
+    'export LAYERFS_LOGS_TAG="$tag${id:0:$room}"',
+    '[ -n "$raw" ] || exec "$cli" "$@"',
+    '[ -d "$raw" ] || mkdir -p "$raw" 2>/dev/null || exec "$cli" "$@"',
+    'out="$raw/${LAYERFS_LOGS_TAG//[^A-Za-z0-9._-]/_}"',
+    // Named pipes, not `>(…)`: DSH's command sandbox denies /dev/fd. The CLI runs in the
+    // background with stdin given explicitly (an async command's stdin is /dev/null
+    // otherwise), so signals can be forwarded to it.
+    'mkfifo "$out.po" "$out.pe" 2>/dev/null || exec "$cli" "$@"',
+    'tee "$out.out" < "$out.po" &',
+    'tee "$out.err" < "$out.pe" >&2 &',
+    '"$cli" "$@" <&0 > "$out.po" 2> "$out.pe" &',
+    'pid=$!',
+    'for s in INT TERM HUP; do trap "kill -$s $pid 2>/dev/null" $s; done',
+    'while :; do wait "$pid"; code=$?; kill -0 "$pid" 2>/dev/null || break; done',
+    'wait',
+    'rm -f "$out.po" "$out.pe"',
+    'printf \'%s\\n\' "$code" > "$out.exit" 2>/dev/null',
+    'if [ "$code" -gt 128 ] && [ "$code" -lt 160 ]; then trap - INT TERM HUP; kill -$((code - 128)) $$; fi',
+    'exit "$code"',
+    '',
+  ].join('\n')
 }
 
 /** Resolve existing aliases and missing output leaves without hiding broken symlinks. */

@@ -1,7 +1,8 @@
 /**
  * The Storage page's navigation, in one bar over the page: Back and Forward
  * through the pages visited, a breadcrumb from Center (the Overview) down to
- * the page, Jump to (⌘K / Ctrl+K), the running transfers, Refresh and Add.
+ * the page, Jump to (⌘K / Ctrl+K), the running transfers, the Health, Logs
+ * and Settings pages, Refresh and Add.
  *
  * A crumb with siblings carries a switcher: the current page's crumb opens a
  * menu of the pages beside it (the other Stores, machines, projects in the
@@ -106,6 +107,17 @@ export interface AddItem {
   run: () => void
 }
 
+/** A page with its own button in the bar (Health, Logs, Settings). */
+export interface NavPage {
+  id: TabId
+  label: string
+  icon: ReactNode
+  /** A number beside the icon (Health's findings). */
+  count?: number | undefined
+  /** The button's tooltip when it says more than the label. */
+  title?: string | undefined
+}
+
 export interface NavBarProps {
   t: StorageT
   history: NavHistory
@@ -116,11 +128,13 @@ export interface NavBarProps {
   onRefresh: () => void
   add: readonly AddItem[]
   onOpen: (id: TabId) => void
+  /** The pages with their own button, between Jump to and Refresh. */
+  pages: readonly NavPage[]
 }
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
 
-export function NavBar({ t, history, crumbs, jump, jobs, refreshing, onRefresh, add, onOpen }: NavBarProps): ReactNode {
+export function NavBar({ t, history, crumbs, jump, jobs, refreshing, onRefresh, add, onOpen, pages }: NavBarProps): ReactNode {
   const [jumping, setJumping] = useState(false)
   const barRef = useRef<HTMLElement>(null)
   // ⌘K / Ctrl+K opens Jump to while this page shows and nothing modal is open over it.
@@ -161,6 +175,18 @@ export function NavBar({ t, history, crumbs, jump, jobs, refreshing, onRefresh, 
           <span className={css.jumpText}>{t('jumpTo')}</span>
           <ShortcutKeys keys={[isMac ? '⌘' : 'Ctrl', 'K']} className={css.jumpKeys} />
         </button>
+        <span className={css.pages}>
+          {pages.map((p) => {
+            const on = history.current === p.id
+            return (
+              <Button key={p.id} variant="ghost" size="sm" className={clsx(css.iconButton, p.count ? css.pageCounted : null, on && css.pageOn)}
+                aria-label={p.title ?? p.label} title={p.title ?? p.label} aria-current={on ? 'page' : undefined}
+                icon={p.icon} onClick={() => onOpen(p.id)}>
+                {p.count ? <span className={css.pageCount}>{p.count}</span> : null}
+              </Button>
+            )
+          })}
+        </span>
         <Button variant="ghost" size="sm" className={css.iconButton} aria-label={t('refresh')} title={t('refresh')} disabled={refreshing}
           icon={refreshing ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />} onClick={onRefresh} />
         <AddMenu items={add} t={t} />

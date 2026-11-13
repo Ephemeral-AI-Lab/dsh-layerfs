@@ -24,7 +24,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
-import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
+import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, workerDown, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, PowerButton, useMachineRun } from '../machines/parts.tsx'
 import { MoreMenu } from '../ui/index.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -69,14 +69,34 @@ function Name({ children, onClick, title }: { children: ReactNode, onClick: () =
  * an unreachable PostgreSQL server, a machine that cannot reach it, or its
  * machine stopped. Backup state is not trouble here: the Store card shows it.
  */
-function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place: Place): RowSignal | null {
-  if (s.state === 'down') return { state: 'error', reason: s.down ? `${t('stateDown')}: ${s.down}` : t('stateDown') }
+/** A Store's trouble, short; `detail` is LayerFS's full words, `restart` the machine whose worker would fix it. */
+type Trouble = RowSignal & { detail?: string, restart?: MachineInfo }
+
+function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place: Place, fleet?: AvailableView | null): Trouble | null {
+  // its machine's worker does not answer: say that, and offer the fix, instead of LayerFS's long refusal
+  const host = s.kind === 'sqlite' ? fleet?.machines.find((m) => m.name === s.machine) : undefined
+  if (host && workerDown(host, fleet?.status[host.name])) {
+    return { state: 'error', reason: t('ovStoreWorkerDown', { machine: place(host.name) }), detail: s.down ?? downReason(host, fleet?.status[host.name]) ?? undefined, restart: host }
+  }
+  if (s.state === 'down') return { state: 'error', reason: t('stateDown'), detail: s.down ?? undefined }
   if (s.state === 'unresolved') return { state: 'error', reason: t('unresolved') }
   if (s.postgresql?.reachable === false) return { state: 'error', reason: s.postgresql.error ?? t('unreachable') }
   const broken = attachmentsOf(s).find((a) => a.lastError)
   if (broken) return { state: 'error', reason: t('ovAttachBroken', { store: s.name, machine: place(broken.machine) }) }
   if (s.kind === 'sqlite' && view.machines.find((m) => m.name === s.machine)?.state === 'stopped') return { state: 'warning', reason: t('machineStopped', { machine: place(s.machine) }) }
   return null
+}
+
+/** Restart worker on a card: busy while it runs, LayerFS's refusal as its tooltip. */
+function RestartButton({ m, t, onRestart }: { m: MachineInfo, t: StorageT, onRestart: (m: MachineInfo) => Promise<unknown> }): ReactNode {
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+  return (
+    <Button variant="primary" size="sm" disabled={busy} title={failed ?? t('ovRestartWorkerTitle', { machine: m.name })}
+      onClick={() => { setBusy(true); setFailed(null); void onRestart(m).catch((e: unknown) => setFailed(String((e as Error)?.message ?? e))).finally(() => setBusy(false)) }}>
+      {busy ? t('ovRestarting') : failed ? t('ovRestartFailed') : t('ovRestartWorker')}
+    </Button>
+  )
 }
 
 /** A running push, pull, move, backup or restore, with its progress. */
@@ -159,17 +179,19 @@ function sandboxesOfProject(sandboxes: readonly MachineSandbox[], stores: readon
 
 // ---------- projects: one card per project ----------
 
-export function ProjectCards({ stores, view, fleet, machines, t, jobs, place, onOpen, onRemove }: {
+export function ProjectCards({ stores, view, fleet, machines, t, jobs, place, onOpen, onRemove, onRestart }: {
   stores: readonly StoreRow[], view: StorageView, fleet: AvailableView | null, machines: readonly MachineInfo[], t: StorageT
   jobs: readonly StorageJob[], place: Place, onOpen: (id: TabId) => void
   /** Delete a project (the page's confirm dialog). */
   onRemove: (store: string, project: string) => void
+  /** Start a machine's worker again (a Store whose machine does not answer). */
+  onRestart?: (m: MachineInfo) => Promise<unknown>
 }): ReactNode {
   const sandboxes = fleet?.sandboxes ?? []
-  const rank = (x: RowSignal | null) => (x?.state === 'error' ? 0 : x?.state === 'warning' ? 1 : 2)
+  const rank = (x: Trouble | null) => (x?.state === 'error' ? 0 : x?.state === 'warning' ? 1 : 2)
   // Trouble first, then the Stores' own order.
   const projects = stores
-    .flatMap((s, order) => s.projects.map((p) => ({ s, p, order, trouble: storeTrouble(s, view, t, place) })))
+    .flatMap((s, order) => s.projects.map((p) => ({ s, p, order, trouble: storeTrouble(s, view, t, place, fleet) })))
     .sort((a, b) => rank(a.trouble) - rank(b.trouble) || a.order - b.order || a.p.localeCompare(b.p))
   return (
     <div className={css.cards}>
@@ -186,11 +208,12 @@ export function ProjectCards({ stores, view, fleet, machines, t, jobs, place, on
               <span className={css.titles}>
                 <Name onClick={open}>{p}</Name>
                 {trouble
-                  ? <span className={css.sub} data-tone={tone}>{trouble.reason}</span>
+                  ? <span className={css.sub} data-tone={tone} title={trouble.detail}>{trouble.reason}</span>
                   : boxes.length ? <span className={css.sub}>{boxes.length === 1 ? t('ovOneSandbox') : t('ovSandboxCount', { n: boxes.length })}</span> : null}
               </span>
               {/* The card opens the project on click: nothing in its actions (the menu's portal included) reaches it. */}
               <span className={css.headActions} onClick={(e) => e.stopPropagation()}>
+                {trouble?.restart && onRestart ? <RestartButton m={trouble.restart} t={t} onRestart={onRestart} /> : null}
                 <Button variant="outline" size="sm" onClick={open}>{t('ovOpen')}</Button>
                 <MoreMenu label={t('projectActions', { name: p })}>
                   {(close) => (
@@ -310,7 +333,7 @@ export function StoreCards({ stores, view, fleet, machines, t, now, jobs, place,
               ) : null}
             </div>
 
-            <StoreBackups s={s} view={view} t={t} now={now} job={job} blocked={blocked} trouble={storeTrouble(s, view, t, place)}
+            <StoreBackups s={s} view={view} t={t} now={now} job={job} blocked={blocked} trouble={storeTrouble(s, view, t, place, fleet)}
               on={on} onOpen={onOpen} onAddBucket={onAddBucket} />
           </article>
         )
@@ -327,7 +350,7 @@ export function StoreCards({ stores, view, fleet, machines, t, now, jobs, place,
  * anything keeping the Store from opening sit on top.
  */
 function StoreBackups({ s, view, t, now, job, blocked, trouble, on, onOpen, onAddBucket }: {
-  s: StoreRow, view: StorageView, t: StorageT, now: number, job: StorageJob | undefined, blocked: boolean, trouble: RowSignal | null
+  s: StoreRow, view: StorageView, t: StorageT, now: number, job: StorageJob | undefined, blocked: boolean, trouble: Trouble | null
   on: StoreActions, onOpen: (id: TabId) => void, onAddBucket: () => void
 }): ReactNode {
   const pg = s.kind === 'postgresql'
@@ -340,7 +363,7 @@ function StoreBackups({ s, view, t, now, job, blocked, trouble, on, onOpen, onAd
         <p className={css.trouble} data-tone="ongoing"><StateDot state="ongoing" size={10} />{[s.op.name, s.op.phase].filter(Boolean).join(' · ')}</p>
       ) : null}
       {trouble ? (
-        <p className={css.trouble} data-tone={trouble.state === 'error' ? 'danger' : 'warning'}>
+        <p className={css.trouble} data-tone={trouble.state === 'error' ? 'danger' : 'warning'} title={trouble.detail}>
           <StateDot state={trouble.state === 'error' ? 'error' : 'warning'} size={7} />{trouble.reason}
         </p>
       ) : null}

@@ -19,8 +19,20 @@ export async function dismiss(page) {
     break
   }
 }
+/** Center pages with their own button in Center's bar (not in the sidebar). */
+const CENTER_PAGES = new Set(['Health', 'Logs', 'Settings'])
 export async function openPanel(page, label) {
   await dismiss(page)
+  if (CENTER_PAGES.has(label)) {
+    const bar = page.locator('header[aria-label="Center navigation"]')
+    if (!(await bar.isVisible().catch(() => false))) {
+      await page.getByRole('navigation', { name: 'Global panels' }).getByRole('button', { name: 'LayerFS', exact: true }).first().click()
+      await bar.waitFor({ timeout: 15000 })
+    }
+    await bar.getByRole('button', { name: new RegExp(`^${label}\\b`) }).first().click()
+    await page.waitForTimeout(1500)
+    return
+  }
   const titled = page.locator('[class*=panelTitle]', { hasText: new RegExp(`^${label}$`) }).first()
   // At narrow widths the sidebar collapses to icons: fall back to the entry's accessible name.
   if (await titled.isVisible().catch(() => false)) await titled.click()

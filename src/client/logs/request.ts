@@ -1,12 +1,11 @@
 /**
  * Opening the Logs page pre-filtered from elsewhere (a checkpoint's "Calls").
- * The caller leaves a request here and selects the panel; the page takes the
- * request when it mounts, or when a new one arrives while it is open.
- * Kept free of the page so callers do not pull it in.
+ * The caller leaves a request here and opens Center's Logs page; the page
+ * takes the request when it mounts, or when a new one arrives while it is
+ * open. Kept free of the page so callers do not pull it in.
  */
-
-/** The id shared by the Logs sidebar entry and the main panel it opens. */
-export const PANEL_ID = 'layerfs-logs'
+import type { LayerfsApi } from '../api.ts'
+import { openStorage } from '../projects/navigation.ts'
 
 /** What the page should show when it opens. */
 export interface LogsRequest {
@@ -19,13 +18,13 @@ const listeners = new Set<() => void>()
 
 /**
  * Open the Logs page with a filter.
- * @param api - anything that can select a main panel.
+ * @param api - the host API (opens Center on its Logs page).
  * @param request - the filter to apply.
  */
-export function openLogs(api: { openPanel(id: string): void }, request: LogsRequest): void {
+export function openLogs(api: LayerfsApi, request: LogsRequest): void {
   pending = { ...request }
   for (const listener of [...listeners]) listener()
-  api.openPanel(PANEL_ID)
+  openStorage(api, 'logs')
 }
 
 /** The request left for the page, if any, without clearing it (safe in a render). */

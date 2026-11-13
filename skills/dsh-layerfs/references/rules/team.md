@@ -6,8 +6,11 @@ line; SDK examples run in a script that imported `layerfs` from `$DSH_LAYERFS_SD
 
 ## Slots: 16 Workspaces, the session's own included
 
-Every subagent works in the session Sandbox `$SB`, and you can't create another. It
-holds 16 Workspaces:
+Every Sandbox holds 16 Workspaces. The session Sandbox `$SB` is laid out like this;
+for more workers at once, create one Sandbox per lane ([sandbox create](../methods/sandbox.md#sandbox-create)),
+where every slot is for that lane's workers, and close those Sandboxes when the run
+ends. If `sandbox create` is refused `PermissionDenied`, this host doesn't allow it:
+use `$SB` for every lane. `$SB`'s slots:
 
 | Slots | Holder | Workspace name |
 | --- | --- | --- |
@@ -16,9 +19,9 @@ holds 16 Workspaces:
 | 1 | spare: a re-mount, a leftover, a fresh verify | — |
 | ≤ 13 | one per building worker | `w-<id>`, such as `w-p1`, `w-x2` |
 
-- At most 13 workers hold a Workspace at once. Further workers get work that needs no
-  build (docs, the test corpus, review), done with `file` calls on their own Branch,
-  or wait until a worker reports.
+- At most 13 workers hold a Workspace in `$SB` at once. Beyond that, put lanes in
+  Sandboxes of their own, or give further workers work that needs no build (docs, the
+  test corpus, review), done with `file` calls.
 - A worker holds at most one Workspace at a time, always named `w-<id>`. As everywhere,
   it mounts at the start of a bash call and commits and unmounts at its end; the
   committed `target/` and caches make the next mount warm. With a fixed name, a lost
@@ -125,15 +128,18 @@ shares a Branch:
 
 Every Workspace in `$SB` shares one machine: `/tmp`, `HOME`, CPU, RAM and disk.
 
-- **Your own `/tmp`:** write logs, exit codes and test data under `/tmp/$ME/` only,
-  never `/tmp/build.log`, and point test temp dirs there (`TMPDIR=/tmp/$ME`). Clear it
-  at the end of each step (`rm -rf /tmp/$ME/*`).
+- **Your own `/tmp`:** write logs and exit codes under `/tmp/$ME/` only, never
+  `/tmp/build.log`. On a `docker` Sandbox `/tmp` is a memory-backed tmpfs of a few GB
+  shared by everyone, so test data, databases and other large temp files go under
+  `$HOME/tmp/$ME` on the machine's disk (`export TMPDIR=$HOME/tmp/$ME; mkdir -p "$TMPDIR"`).
+  Clear both at the end of each step (`rm -rf /tmp/$ME/* "$HOME/tmp/$ME"/*`).
 - **Disk:** check before any build that compiles dependencies, and the main agent
   checks before each integration: `df -BG --output=avail / | tail -1`. Below 30 GB,
   start no cold build: report it. The main agent then unmounts finished workers'
   Workspaces and looks for leaks with `du -xsh /tmp/* 2>/dev/null | sort -h | tail`.
   A mounted Workspace keeps what it built until its unmount.
-- **CPU and RAM:** `CARGO_BUILD_JOBS=2`, and at most 4 cargo builds at once in `$SB`.
+- **CPU and RAM:** `CARGO_BUILD_JOBS=2`, and at most 4 cargo builds at once in `$SB`
+  (fewer on a small machine: the brief says how many).
   Where `command -v flock` finds it (Linux Sandboxes usually; native macOS has none),
   take a slot with `flock /tmp/lfs-build.$((RANDOM % 4)).lock cargo …`. Exit 137
   means the kernel killed the process (memory): wait and run it again; don't raise

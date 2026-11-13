@@ -637,3 +637,16 @@
     grid-column: 2 / -1;
   }
 }
+
+/* A finding's fixes the host can run: buttons under its suggested action. */
+.fixActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.fixError {
+  flex-basis: 100%;
+}

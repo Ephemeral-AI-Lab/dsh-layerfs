@@ -4,7 +4,7 @@
  * groups, and the selected node's details in a floating inspector. Ported from
  * LayerFS Connect's history view over the shared host routes.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { Button, IconBranchOutlineRegular, IconChevronDownOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, StateDot, Tag, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -13,7 +13,7 @@ import { filesApi } from './api.ts'
 import { BranchCompare, type CompareEnd } from './BranchCompare.tsx'
 import { changeKind, CommitDiff } from './CommitDiff.tsx'
 import { shortId, when } from './format.ts'
-import { branchLanes, graphNodes, layoutNodes } from './graph-model.ts'
+import { branchLanes, countedTotal, extendPage, graphNodes, layoutNodes, movedCount } from './graph-model.ts'
 import { HistoryGraph } from './HistoryGraph.tsx'
 import { branchLabel } from './labels.ts'
 import { EmptyState, Loading } from './States.tsx'
@@ -25,6 +25,10 @@ const noSources = new Map<string, string>()
 /** Branches read up front: enough that a simulation's whole tree has times to lay out (reads stay four at a time). */
 const INITIAL_BRANCHES = 32
 const DEEP_LINK_PAGES = 20
+/** Wide pages read to rejoin a Branch's loaded history when its head moved (else only its first page stays). */
+const REJOIN_PAGES = 5
+/** `loadingAll` while Show all reads every Branch. */
+const ALL = '\u0000all'
 
 /** One view's scroll, selection and fold state, kept across remounts per project. */
 interface View {
@@ -32,6 +36,8 @@ interface View {
   branch: string
   selected: string | null
   expanded: Set<string>
+  /** Show all: every run drawn one checkpoint at a time (and every Branch read in full). */
+  all: boolean
   families: Set<string>
   sides: Map<string, number>
   top: number
@@ -39,7 +45,18 @@ interface View {
 }
 
 const saved = new Map<string, View>()
-const newView = (): View => ({ query: '', branch: '', selected: null, expanded: new Set(), families: new Set(), sides: new Map(), top: 0, left: -1 })
+
+/** Each project's last read (Branch list and first pages), kept across remounts. */
+interface HistoryData { branches: HistoryBranch[], next: number | null, pages: Record<string, HistoryPage | undefined>, counts?: Record<string, BranchCount> }
+/** A side Branch's Commit count at a head (`files.commitCount`). */
+interface BranchCount { head: string | null, count: number }
+const dataCache = new Map<string, HistoryData>()
+const remember = (project: string, data: HistoryData) => {
+  dataCache.delete(project)
+  if (dataCache.size >= 8) dataCache.delete(dataCache.keys().next().value!)
+  dataCache.set(project, data)
+}
+const newView = (): View => ({ query: '', branch: '', selected: null, expanded: new Set(), all: false, families: new Set(), sides: new Map(), top: 0, left: -1 })
 
 export interface ProjectHistoryProps {
   api: LayerfsApi
@@ -69,10 +86,21 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   viewRef.current = view
   const viewport = useRef({ top: view.top, left: view.left })
   const [viewportRequest] = useState(() => (view.left >= 0 ? { left: view.left, top: view.top, token: 0 } : null))
-  const [branches, setBranches] = useState<HistoryBranch[]>([])
-  const [branchNext, setBranchNext] = useState<number | null>(null)
-  const [pages, setPages] = useState<Record<string, HistoryPage | undefined>>({})
-  const [busy, setBusy] = useState<string | null>('initial')
+  // The last read of this project draws at once on a remount (a tab switch); a fresh read follows.
+  const [cached] = useState(() => dataCache.get(project))
+  const [branches, setBranches] = useState<HistoryBranch[]>(() => cached?.branches ?? [])
+  const [branchNext, setBranchNext] = useState<number | null>(() => cached?.next ?? null)
+  const [pages, setPages] = useState<Record<string, HistoryPage | undefined>>(() => cached?.pages ?? {})
+  const [busy, setBusy] = useState<string | null>(cached ? null : 'initial')
+  const pagesRef = useRef(pages)
+  pagesRef.current = pages
+  // Each side Branch's whole Commit count, read after the pages in the background.
+  const [counts, setCounts] = useState<Record<string, BranchCount>>(() => cached?.counts ?? {})
+  const countsRef = useRef(counts)
+  countsRef.current = counts
+  // Load all: the Branch being read in full, and the read to stop when it is replaced.
+  const [loadingAll, setLoadingAll] = useState<string | null>(null)
+  const allGen = useRef(0)
   const [error, setError] = useState<unknown>(undefined)
   const [revision, setRevision] = useState(0)
   const [finderOpen, setFinderOpen] = useState(false)
@@ -89,45 +117,142 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     saved.set(key, { ...viewRef.current, ...viewport.current })
   }, [key])
 
-  useEffect(() => {
-    let live = true
-    setBusy('initial')
-    setError(undefined)
-    void filesApi.historyBranches(api, project).then(async (result) => {
-      if (!live) return
+  // Reads run one at a time. A refresh (`tick`) never cancels a read in flight: under a
+  // steady stream of events that would discard every result. It is queued and runs once
+  // the read ends. A new project, deep link or Retry (`gen`) does replace the read.
+  const gen = useRef(0)
+  const reading = useRef(0)
+  const again = useRef(false)
+  async function read(g: number): Promise<void> {
+    const stale = () => gen.current !== g
+    reading.current = g
+    try {
+      const result = await filesApi.historyBranches(api, project)
       while (initialBranch && !result.branches.some((b) => b.name === initialBranch) && result.next !== null) {
+        if (stale()) return
         const more = await filesApi.historyBranches(api, project, result.next)
-        if (!live) return
         result.branches.push(...more.branches)
         result.next = more.next
       }
+      if (stale()) return
+      // Progressive: the lanes draw from the Branch list at once, and each Branch's Commits
+      // join the graph as they arrive, main and the focused Branch first.
       setBranches(result.branches)
       setBranchNext(result.next)
-      const names = [...result.branches.filter((b) => b.name === 'main'), ...result.branches.filter((b) => b.name !== 'main')].slice(0, INITIAL_BRANCHES)
       // A deep link's branch is always read, even past the first INITIAL_BRANCHES.
       const focused = initialBranch ? result.branches.find((b) => b.name === initialBranch) : undefined
+      const main = result.branches.find((b) => b.name === 'main')
+      const first = [main, focused].filter((b, i, all): b is HistoryBranch => !!b && all.indexOf(b) === i)
+      const names = [...first, ...result.branches.filter((b) => !first.includes(b))].slice(0, Math.max(INITIAL_BRANCHES, first.length))
       if (focused && !names.includes(focused)) names.push(focused)
       const loaded: Record<string, HistoryPage | undefined> = {}
-      // Bound concurrent Store reads, irrespective of the number of forks.
-      for (let i = 0; i < names.length; i += 4) {
-        const results = await Promise.allSettled(names.slice(i, i + 4).map(async (b) => [b.name, await filesApi.branchHead(api, project, b)] as const))
+      // A Branch whose head has not moved keeps the pages already read (more than its first, maybe).
+      const had = pagesRef.current
+      const toRead = names.filter((b) => {
+        const old = had[b.name]
+        if (old && b.head && old.head === b.head) { loaded[b.name] = old; return false }
+        return true
+      })
+      // Bound concurrent Store reads, irrespective of the number of forks: the first Branches
+      // (main, the focused one) alone, so the graph has something to draw soonest.
+      const firstBatch = toRead.filter((b) => first.includes(b)).length || 4
+      for (let i = 0; i < toRead.length;) {
+        const size = i === 0 ? firstBatch : 4
+        const results = await Promise.allSettled(toRead.slice(i, i + size).map(async (b) => [b.name, await filesApi.branchHead(api, project, b)] as const))
+        i += size
+        if (stale()) return
+        const batch: Record<string, HistoryPage> = {}
         for (const r of results) {
-          if (r.status === 'fulfilled') loaded[r.value[0]] = r.value[1]
-          else if (live) setError(r.reason)
+          if (r.status !== 'fulfilled') { setError(r.reason); continue }
+          const [name, fresh] = r.value
+          // A moved head keeps what was loaded below it: the new page joins the old pages when
+          // it reaches the old head (most refreshes), else a few wide pages are read to rejoin them.
+          const old = pagesRef.current[name] ?? had[name]
+          let page = old ? extendPage(fresh, old) : undefined
+          if (old && !page && old.items.length > fresh.items.length) {
+            let joined = fresh
+            const branch = toRead.find((b) => b.name === name)
+            for (let n = 0; !page && joined.next && n < REJOIN_PAGES; n++) {
+              const next = await filesApi.commits(api, project, name, joined.next, branch?.forkedFrom, true).catch(() => null)
+              if (!next || stale()) break
+              joined = { ...joined, items: [...joined.items, ...next.items], next: next.next }
+              page = extendPage(joined, old)
+            }
+            if (stale()) return
+          }
+          batch[name] = loaded[name] = page ?? fresh
         }
+        if (Object.keys(batch).length) setPages((p) => ({ ...p, ...batch }))
       }
       // A deep-linked Commit older than the first page: read on until it is loaded (bounded).
       let page = initialCommit && focused ? loaded[focused.name] : undefined
       for (let i = 0; page && i < DEEP_LINK_PAGES && !page.items.some((c) => c.id === initialCommit) && page.next; i++) {
         const next: HistoryPage = await filesApi.commits(api, project, focused!.name, page.next ?? undefined, focused!.forkedFrom)
-        if (!live) return
+        if (stale()) return
         page = { ...next, items: [...new Map([...page.items, ...next.items].map((c) => [c.id, c])).values()] }
         loaded[focused!.name] = page
       }
-      if (live) setPages(loaded)
-    }).catch((e) => live && setError(e)).finally(() => live && setBusy(null))
-    return () => { live = false }
-  }, [api, project, revision, tick, initialBranch, initialCommit])
+      // Keep a deeper read of an unmoved Branch that landed meanwhile (Load all, Load earlier).
+      setPages((p) => {
+        for (const [name, page] of Object.entries(p)) {
+          const mine = loaded[name]
+          if (page && mine && page.head === mine.head && page.items.length > mine.items.length) loaded[name] = page
+        }
+        return { ...loaded }
+      })
+      remember(project, { branches: result.branches, next: result.next, pages: loaded, counts: countsRef.current })
+      await countAll(result.branches, loaded, stale)
+    } catch (e) {
+      if (!stale()) setError(e)
+    } finally {
+      if (reading.current === g) reading.current = 0
+      if (!stale()) {
+        setBusy((b) => (b === 'initial' ? null : b))
+        if (again.current) { again.current = false; void read(g) }
+      }
+    }
+  }
+
+  /**
+   * The whole count of each side Branch, after its pages, one Branch at a time and only while the
+   * page is visible. A moved head whose new page reaches the old head is counted here without a
+   * read; the host keeps the rest per head, so a recount reads only what is new.
+   */
+  async function countAll(list: HistoryBranch[], loaded: Record<string, HistoryPage | undefined>, stale: () => boolean) {
+    const next: Record<string, BranchCount> = { ...countsRef.current }
+    const publish = () => { const copy = { ...next }; startTransition(() => setCounts(copy)) }
+    let changed = false
+    for (const b of list) {
+      if (b.name === 'main' || stale()) continue
+      const known = next[b.name]
+      if (known && known.head === (b.head ?? null)) continue
+      const derived = movedCount(known, loaded[b.name], b)
+      if (derived !== null) { next[b.name] = { head: b.head ?? null, count: derived }; changed = true; continue }
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') continue
+      const answer = await filesApi.commitCount(api, project, b).catch(() => null)
+      if (stale()) return
+      if (answer?.count != null) { next[b.name] = { head: answer.head, count: answer.count }; publish(); changed = false }
+    }
+    if (changed) publish()
+    const data = dataCache.get(project)
+    if (data && !stale()) data.counts = next
+  }
+
+  useEffect(() => {
+    const g = ++gen.current
+    again.current = false
+    if (!Object.keys(pagesRef.current).length) setBusy('initial')
+    setError(undefined)
+    void read(g)
+    return () => { gen.current++ }
+  }, [api, project, revision, initialBranch, initialCommit])
+
+  const firstTick = useRef(tick)
+  useEffect(() => {
+    if (tick === firstTick.current) return
+    if (reading.current) again.current = true
+    else void read(gen.current)
+  }, [tick])
 
   async function loadBranch(name: string, more = false) {
     if (busy) return
@@ -142,6 +267,54 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       setPages((p) => ({ ...p, [name]: { ...next, items: more ? [...new Map([...(previous?.items ?? []), ...next.items].map((c) => [c.id, c])).values()] : next.items } }))
     } catch (e) { setError(e) } finally { setBusy(null) }
   }
+
+  /**
+   * Reads the rest of a Branch in wide pages, drawing each page as it lands (as a transition, so
+   * panning stays responsive), while `mine()` holds.
+   */
+  async function readAll(name: string, mine: () => boolean) {
+    const branch = branches.find((b) => b.name === name)
+    let page = pagesRef.current[name] ?? (branch ? await filesApi.branchHead(api, project, branch) : await filesApi.commits(api, project, name))
+    while (mine()) {
+      const current = page
+      // A refresh may have moved the head meanwhile: its newer Commits join this deeper read.
+      startTransition(() => setPages((p) => ({ ...p, [name]: p[name] && p[name]!.head !== current.head ? extendPage(p[name]!, current) ?? current : current })))
+      if (!current.next) return
+      const next = await filesApi.commits(api, project, name, current.next, branch?.forkedFrom, true)
+      if (!mine()) return
+      page = { ...current, items: [...new Map([...current.items, ...next.items].map((c) => [c.id, c])).values()], next: next.next }
+    }
+  }
+  /** Load all on one Branch. Stops when it is complete, Stop is pressed, another full read starts, or the view goes away. */
+  async function loadAll(name: string) {
+    const g = ++allGen.current
+    const mine = () => allGen.current === g
+    setLoadingAll(name)
+    setError(undefined)
+    try { await readAll(name, mine) } catch (e) { if (mine()) setError(e) } finally { if (allGen.current === g) setLoadingAll(null) }
+  }
+  /**
+   * Show all: every run unfolds at once, and each Branch with more to read is read in full, one
+   * Branch at a time (main and the selected Branch first), so the graph fills in as they land.
+   */
+  async function showAll() {
+    const g = ++allGen.current
+    const mine = () => allGen.current === g
+    writeView({ all: true })
+    setLoadingAll(ALL)
+    setError(undefined)
+    const first = new Set(['main', view.branch])
+    const order = [...branches.filter((b) => first.has(b.name)), ...branches.filter((b) => !first.has(b.name))]
+    try {
+      for (const b of order) {
+        if (!mine()) return
+        const page = pagesRef.current[b.name]
+        if (page && page.next === null) continue
+        await readAll(b.name, mine).catch((e) => { if (mine()) setError(e) })
+      }
+    } finally { if (allGen.current === g) setLoadingAll(null) }
+  }
+  useEffect(() => () => { allGen.current++ }, [project])
 
   const structure = useMemo(() => branchLanes(branches, pages, busy === 'initial' ? new Map(view.sides) : view.sides), [branches, pages, view.sides, busy === 'initial'])
   const parents = structure.parents
@@ -158,13 +331,23 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     }
     return true
   })
-  const nodes = graphNodes(visibleBranches, pages, noSources, view.expanded, view.selected, t)
-  const layout = layoutNodes(nodes, structure.lanes)
+  // The graph is recomputed only when what it draws changed, not on every render.
+  const visibleKey = visibleBranches.map((b) => `${b.name}\u0000${b.head ?? ''}\u0000${b.forkedFrom ?? ''}`).join('\u0001')
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- visibleKey stands for visibleBranches
+  const nodes = useMemo(() => graphNodes(visibleBranches, pages, noSources, view.expanded, view.selected, t, view.all), [visibleKey, pages, view.expanded, view.selected, t, view.all])
+  const layout = useMemo(() => layoutNodes(nodes, structure.lanes), [nodes, structure.lanes])
+  const branchesKey = branches.map((b) => b.name).join('\u0001')
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- branchesKey and parents stand for branches
+  const familyCounts = useMemo(() => new Map(branches.map((b) => [b.name, branches.filter((c) => parents.get(c.name) === b.name).length])), [branchesKey, parents])
   const selected = layout.points.get(view.selected ?? '')
   const selectedCommit = selected?.commits.find((c) => c.id === view.selected) ?? selected?.commits.at(-1)
   const detailFrom = selected?.kind === 'group' ? selected.commits[0].parent ?? undefined : undefined
   const detail = useDetail(api, project, selectedCommit, detailFrom)
-  const loaded = Object.values(pages).reduce((sum, p) => sum + (p?.items.length ?? 0), 0)
+  // Checkpoints are side Branch Commits (main holds Layers). The total shows once every Branch is counted.
+  const sideBranches = branches.filter((b) => b.name !== 'main')
+  const loaded = sideBranches.reduce((sum, b) => sum + (pages[b.name]?.items.length ?? 0), 0)
+  const total = countedTotal(sideBranches, counts)
+  const branchTotal = view.branch && view.branch !== 'main' ? countedTotal(branches.filter((b) => b.name === view.branch), counts) : null
 
   function select(id: string, branch: string) {
     writeView({ selected: id, branch })
@@ -260,8 +443,18 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       ) : null}
       {view.branch ? (
         <div className={css.pagination}>
-          {pages[view.branch]?.next != null
-            ? <Button variant="outline" size="sm" disabled={!!busy} onClick={() => void loadBranch(view.branch, true)}>{t('files_loadEarlierCheckpoints')}</Button>
+          {loadingAll === view.branch
+            ? <>
+                <p role="status">{branchTotal != null ? t('files_loadingAllOf', { count: pages[view.branch]?.items.length ?? 0, total: branchTotal }) : t('files_loadingAll', { count: pages[view.branch]?.items.length ?? 0 })}</p>
+                <Button variant="outline" size="sm" onClick={() => { allGen.current++; setLoadingAll(null) }}>{t('files_stopLoading')}</Button>
+              </>
+            : pages[view.branch]?.next != null
+            ? <>
+                <Button variant="outline" size="sm" disabled={!!busy || !!loadingAll} onClick={() => void loadBranch(view.branch, true)}>{t('files_loadEarlierCheckpoints')}</Button>
+                <Button variant="outline" size="sm" disabled={!!busy || !!loadingAll} onClick={() => void loadAll(view.branch)}>
+                  {branchTotal != null ? t('files_loadAllCount', { count: branchTotal - (pages[view.branch]?.items.length ?? 0) }) : t('files_loadAll')}
+                </Button>
+              </>
             : !pages[view.branch]
               ? <Button variant="outline" size="sm" disabled={!!busy} onClick={() => void loadBranch(view.branch)}>{t('files_loadCheckpoints')}</Button>
               : <p>{t('files_allCheckpoints')}</p>}
@@ -276,9 +469,20 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
         <div className={css.title}>
           <IconBranchOutlineRegular size={15} />
           <span className={css.mainSummary}>main <span>@ {shortId(branches.find((b) => b.name === 'main')?.head)}</span></span>
-          <span className={css.count}>{loaded === 1 ? t('files_checkpointsLoadedOne') : t('files_checkpointsLoaded', { count: loaded })}</span>
+          <span className={css.count} title={total != null && total > loaded ? t('files_checkpointsHint') : undefined}>
+            {total != null && total > loaded ? t('files_checkpointsLoadedOf', { count: loaded.toLocaleString(), total: total.toLocaleString() })
+              : loaded === 1 ? t('files_checkpointsLoadedOne') : t('files_checkpointsLoaded', { count: loaded.toLocaleString() })}
+          </span>
         </div>
         <div className={css.actions}>
+          {loadingAll === ALL
+            ? <>
+                <span className={css.count} role="status">{total != null ? t('files_loadingAllOf', { count: loaded.toLocaleString(), total: total.toLocaleString() }) : t('files_loadingAll', { count: loaded.toLocaleString() })}</span>
+                <Button variant="outline" size="sm" onClick={() => { allGen.current++; setLoadingAll(null) }}>{t('files_stopLoading')}</Button>
+              </>
+            : !view.all || total == null || total > loaded
+              ? <Button variant="outline" size="sm" disabled={!branches.length || !!busy || !!loadingAll} title={t('files_showAllHint')} onClick={() => void showAll()}>{t('files_showAll')}</Button>
+              : null}
           <Button variant="outline" size="sm" disabled={!branches.length} icon={<IconCompareSplitOutlineRegular size={13} />} onClick={openCompare}>{t('files_compare')}</Button>
           <span ref={finderAnchor}>
             <Button variant="outline" size="sm" aria-expanded={finderOpen} onClick={() => setFinderOpen((v) => !v)}>
@@ -312,9 +516,9 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
             ? <EmptyState title={t('files_historyNone')} className={css.center}>{t('files_historyNoneBody')}</EmptyState>
             : (
               <HistoryGraph
-                nodes={nodes} lanes={structure.lanes} branches={visibleBranches} familyCounts={new Map(branches.map((b) => [b.name, branches.filter((c) => parents.get(c.name) === b.name).length]))}
+                nodes={nodes} lanes={structure.lanes} branches={visibleBranches} familyCounts={familyCounts}
                 selected={view.selected} focus={view.selected} onSelect={select} onBranch={openBranch} collapsed={view.families} onToggleFamily={toggleFamily}
-                expanded={view.expanded.size > 0} onCollapse={() => writeView({ expanded: new Set(), selected: null, branch: '' })} reset={mapReset}
+                expanded={view.all || view.expanded.size > 0} onCollapse={() => { if (loadingAll === ALL) { allGen.current++; setLoadingAll(null) } writeView({ expanded: new Set(), all: false, selected: null, branch: '' }) }} reset={mapReset}
                 inspector={inspector} onViewport={(top, left) => { viewport.current = { top, left } }} viewportRequest={viewportRequest} t={t}
               />
             )}

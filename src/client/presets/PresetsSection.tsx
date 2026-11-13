@@ -39,7 +39,7 @@ export const modeKey = (mode: PresetExecutionMode): PresetsKey => mode === 'mixe
 export function PresetsSection({ api, t }: { api: LayerfsApi, t: PresetsT }): ReactNode {
   const [tick, setTick] = useState(0)
   const reload = () => setTick((n) => n + 1)
-  const live = useQuery(() => api.call<DemoPresets>('GET', '/api/demo-presets'), [api, tick])
+  const live = useQuery(() => api.call<DemoPresets>('GET', '/api/demo-presets'), [api], { refresh: [tick] })
   const active = !!live.data && (live.data.busy || live.data.items.some((item) => running(item.job)))
   useEffect(() => {
     const id = setInterval(() => { if (document.visibilityState === 'visible') reload() }, active ? 2000 : 5000)

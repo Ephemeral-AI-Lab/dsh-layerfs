@@ -106,7 +106,7 @@ function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, pro
   const q = useQuery(async () => {
     const value = await api.op<SessionRow[] | { sessions: SessionRow[] }>('sessions.list', { project })
     return Array.isArray(value) ? value : value?.sessions ?? []
-  }, [api, project, tick])
+  }, [api, project], { refresh: [tick], cache: `project-page-sessions:${project}` })
   const [busy, setBusy] = useState<string | null>(null)
   const [failed, setFailed] = useState<unknown>(undefined)
   const now = Date.now()

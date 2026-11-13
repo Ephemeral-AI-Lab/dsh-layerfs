@@ -7,7 +7,7 @@ import { memo, useMemo, type ReactNode } from 'react'
 import clsx from 'clsx'
 import type { TrajectoryTurn } from '../../shared/trajectory.ts'
 import type { Translate } from './locale.ts'
-import { LANES, laneItems, place, type Selection } from './trajectory-model.ts'
+import { LANES, laneItems, place, thinLane, type Selection } from './trajectory-model.ts'
 import css from './trajectory.module.css'
 
 export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now, span, selected, onSelect, t, layerfs = true }: {
@@ -23,6 +23,9 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now,
 }): ReactNode {
   const items = useMemo(() => laneItems(turns, now), [turns, now])
   const lanes = layerfs ? LANES : LANES.filter((lane) => lane !== 'layerfs')
+  // Each lane at most LANE_BINS marks: nearby items share one (the selected one always shows).
+  const marks = useMemo(() => new Map(lanes.map((lane) => [lane, span ? thinLane(items.filter((item) => item.lane === lane), span, selected) : []])),
+    [items, span?.start, span?.end, selected, layerfs]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!span) return <div className={css.timeline}><p className={css.timelineEmpty}>{t('trajNoTiming')}</p></div>
   return (
     <div className={css.timeline} role="group" aria-label={t('trajTimeline')}>
@@ -32,15 +35,16 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now,
       <div className={css.lanes}>
         {lanes.map((lane) => (
           <div key={lane} className={css.track}>
-            {items.filter((item) => item.lane === lane).map((item) => {
+            {(marks.get(lane) ?? []).map((item) => {
               const { left, width } = place(item, span)
               const tick = lane === 'layerfs'
+              const label = item.more ? t('trajMarkMore', { label: item.label || t(`trajLane_${lane}`), n: item.more }) : item.label
               return (
                 <button key={item.key} type="button" tabIndex={-1}
                   className={clsx(tick ? css.tick : css.bar, css[`lane_${lane}`],
                     item.tone && css[`tone_${item.tone}`], item.select && item.select === selected && css.markSelected)}
                   style={tick ? { left: `${left}%` } : { left: `${left}%`, width: `${width}%` }}
-                  title={item.label || undefined} aria-label={item.label || t(`trajLane_${lane}`)}
+                  title={label || undefined} aria-label={label || t(`trajLane_${lane}`)}
                   disabled={!item.select} onClick={() => item.select && onSelect(item.select)} />
               )
             })}

@@ -11,7 +11,7 @@ Chat · Trajectory · Files · History · Sandbox · Stats
 
 Chat (order 0) and Trajectory (order 10, shown only while Developer tools is
 on) are stock DSH and unchanged. Trajectory is the trace for now; the plugin's
-call log stays a sidebar page (`docs/specs/layerfs-logs.md`) and gets no tab.
+call log stays a Center page (`docs/specs/layerfs-logs.md`) and gets no tab.
 
 ## 1. Seam
 

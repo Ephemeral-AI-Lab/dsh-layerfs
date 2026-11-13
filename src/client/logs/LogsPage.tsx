@@ -100,7 +100,14 @@ export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
   current.current = { filters, data }
 
   /** `replace` starts over; `refresh` keeps appended pages and puts new lines on top. */
-  const load = useCallback(async (mode: 'replace' | 'refresh') => {
+  // A refresh (one per `logs` event, about every second in a run) never cancels a read in
+  // flight, or a page slower than a second would never land: it queues one more read.
+  const inFlight = useRef(false)
+  const queued = useRef(false)
+  const load = useCallback(async (mode: 'replace' | 'refresh'): Promise<void> => {
+    if (mode === 'refresh' && inFlight.current) { queued.current = true; return }
+    if (mode === 'replace') queued.current = false
+    inFlight.current = true
     const mine = ++generation.current
     const { filters: f, data: before } = current.current
     setLoading(true)
@@ -121,7 +128,11 @@ export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
     } catch (e) {
       if (mine === generation.current) setError(e)
     } finally {
-      if (mine === generation.current) setLoading(false)
+      if (mine === generation.current) {
+        inFlight.current = false
+        if (queued.current) { queued.current = false; void load('refresh') }
+        else setLoading(false)
+      }
     }
   }, [api])
 

@@ -23,11 +23,11 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import type { Query } from '../files/use-query.ts'
 import { useMachinesContext } from '../machines/context.tsx'
-import { downReason, machineOrder, machineState, type AvailableView } from '../machines/model.ts'
+import { downReason, machineOrder, machineState, workerDown, type AvailableView } from '../machines/model.ts'
 import { RuntimeCard } from '../machines/Runtime.tsx'
 import { EmptyState } from '../files/States.tsx'
-import { Card, LoadError, Loading } from '../ui/index.tsx'
-import { DoctorBadge, DoctorFindings } from './Doctor.tsx'
+import { Card, LoadError, Loading, Refusal } from '../ui/index.tsx'
+import { DoctorFindings } from './Doctor.tsx'
 import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import { BucketCards, MachineCards, ProjectCards, ProtectionList, StoreCards } from './HomeCards.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -112,6 +112,8 @@ interface Need {
   title: ReactNode
   detail?: ReactNode
   action?: { label: string, run: () => void | Promise<unknown> } | undefined
+  /** A second, quieter action (e.g. Stop beside Restart worker); runs and refuses like `action`. */
+  secondary?: { label: string, title?: string, run: () => void | Promise<unknown> } | undefined
   extra?: ReactNode
 }
 
@@ -164,9 +166,21 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       extra: <Button variant="ghost" size="sm" onClick={() => props.onDismiss(j)}>{t('dismiss')}</Button>,
     })
   }
+  // Machines whose worker does not answer: one need each, with the fix, standing in for their Stores' "down".
+  const unreachable = new Set(machines.filter((m) => workerDown(m, fleet?.status[m.name])).map((m) => m.name))
   for (const m of machines) {
     const look = machineState(m, fleet?.status[m.name])
-    if (look.key === 'needs') {
+    if (unreachable.has(m.name)) {
+      needs.push({
+        key: `unreachable:${m.name}`, tone: 'danger', rank: 1,
+        title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{m.stores.length
+          ? t('ovWorkerDownStores', { machine: place(m.name), stores: m.stores.join(', ') })
+          : t('ovWorkerDown', { machine: place(m.name) })}</Link>,
+        detail: downReason(m, fleet?.status[m.name]) ?? undefined,
+        action: { label: t('ovRestartWorker'), run: () => mc.act({ kind: 'start', name: m.name, platform: m.platform }) },
+        secondary: { label: t('ovStopUnreachable'), title: t('ovStopUnreachableTitle', { machine: place(m.name) }), run: () => mc.act({ kind: 'stop', name: m.name }) },
+      })
+    } else if (look.key === 'needs') {
       needs.push({
         key: `needs:${m.name}`, tone: 'danger', rank: 1,
         title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{t('ovMachineNeeds', { machine: place(m.name) })}</Link>,
@@ -200,7 +214,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         action: { label: t('ovOpen'), run: () => props.onOpen(`store:${s.name}`) },
       })
     }
-    if (s.kind === 'sqlite' && s.state === 'down') {
+    if (s.kind === 'sqlite' && s.state === 'down' && !unreachable.has(s.machine ?? '')) {
       needs.push({
         key: `down:${s.name}`, tone: 'danger', rank: 2,
         title: <Link onClick={() => props.onOpen(`store:${s.name}`)}>{t('ovStoreDown', { store: s.name })}</Link>,
@@ -265,7 +279,6 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
               <span>{runtimeWords}</span>
               {rt?.commit ? <span className={css.mono}>{rt.commit.slice(0, 8)}</span> : null}
             </button>
-            <DoctorBadge read={doctor} open={doctorOpen} onToggle={() => setDoctorOpen((o) => !o)} t={t} now={now} />
           </>
         )}
         headline={headline}
@@ -291,7 +304,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
             {needs.length ? (
               <Card>
                 <div ref={needsRef} id="ov-needs" className={css.needs} role="region" aria-label={t('ovNeedsYou')} tabIndex={-1}>
-                  {needs.map((n) => <NeedRow key={n.key} need={n} />)}
+                  {needs.map((n) => <NeedRow key={n.key} need={n} labels={refusalLabels(t)} />)}
                 </div>
               </Card>
             ) : null}
@@ -320,7 +333,8 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
               </EmptyState>
             </Card>
           ) : (
-            <ProjectCards stores={stores} view={view} fleet={fleet} machines={machines} t={t} jobs={runningJobs} place={place} onOpen={props.onOpen} onRemove={props.onRemoveProject} />
+            <ProjectCards stores={stores} view={view} fleet={fleet} machines={machines} t={t} jobs={runningJobs} place={place} onOpen={props.onOpen} onRemove={props.onRemoveProject}
+              onRestart={(m) => mc.act({ kind: 'start', name: m.name, platform: m.platform })} />
           )}
         </section>
       ) : null}
@@ -381,17 +395,26 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
 }
 
 /** One thing that needs you: its tone, what and why, and the verb that fixes it. Only a danger row is announced. */
-function NeedRow({ need: n }: { need: Need }): ReactNode {
+function NeedRow({ need: n, labels }: { need: Need, labels: ReturnType<typeof refusalLabels> }): ReactNode {
+  // one action at a time; a refusal stays on the row until the next try
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const go = (run: () => void | Promise<unknown>) => {
+    setBusy(true); setError(null)
+    void Promise.resolve().then(run).catch(setError).finally(() => setBusy(false))
+  }
   return (
     <div className={css.need} role={n.tone === 'danger' ? 'alert' : undefined}>
       <StateDot state={n.tone === 'danger' ? 'error' : n.tone === 'warning' ? 'warning' : 'idle'} size={8} className={css.needMark} />
       <div className={css.needBody}>
         <p className={css.needTitle}>{n.title}</p>
         {n.detail ? <p className={css.needDetail}>{n.detail}</p> : null}
+        {error != null ? <Refusal error={error} labels={labels} className={css.needDetail} /> : null}
       </div>
-      {n.action || n.extra ? (
+      {n.action || n.secondary || n.extra ? (
         <span className={css.needActions}>
-          {n.action ? <Button variant="outline" size="sm" onClick={() => { void n.action!.run() }}>{n.action.label}</Button> : null}
+          {n.action ? <Button variant="outline" size="sm" disabled={busy} onClick={() => go(n.action!.run)}>{n.action.label}</Button> : null}
+          {n.secondary ? <Button variant="ghost" size="sm" disabled={busy} title={n.secondary.title} onClick={() => go(n.secondary!.run)}>{n.secondary.label}</Button> : null}
           {n.extra}
         </span>
       ) : null}

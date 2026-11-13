@@ -27,7 +27,7 @@ its Commit and nothing else.
 | Committed by | dsh, to record each checkpoint | You, after the commands that changed files |
 | You may | `status`, nothing else | Every call |
 | Lives | The whole session | One step: unmount it before your turn ends, or it is lost with its changes when the session's Sandbox stops |
-| Sandbox | `$SB` | `$SB` too: sessions can't create Sandboxes. At most 16 Workspaces, dsh's included |
+| Sandbox | `$SB` | `$SB`, or a Sandbox you created for more room. At most 16 Workspaces per Sandbox, dsh's included in `$SB` |
 
 ## Shared rules
 

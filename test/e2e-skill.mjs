@@ -123,7 +123,8 @@ try {
   const before = (await must('session.state', { sessionId: placed.sessionId })).checkpoints.filter((c) => c.kind === 'turn').length
   const L = '"$DSH_LAYERFS_CLI"', SBX = '${DSH_LAYERFS_WS%%:*}'
   await runTurn(page, { message: [
-    `bash: printf 'policy-ok\\n' | ${L} file write "$DSH_LAYERFS_PROJECT" "$DSH_LAYERFS_BRANCH" /policy.txt -m "file write"`,
+    // As the skill says: a write refused by a busy Store is retried, after checking an Unknown landed nowhere.
+    `bash: for i in 1 2 3 4 5; do ${L} file read "$DSH_LAYERFS_PROJECT" "$DSH_LAYERFS_BRANCH" /policy.txt >/dev/null 2>&1 && break; printf 'policy-ok\\n' | ${L} file write "$DSH_LAYERFS_PROJECT" "$DSH_LAYERFS_BRANCH" /policy.txt -m "file write" && break; sleep $((2 + RANDOM % 4)); done`,
     `bash: S=${SBX}; ${L} workspace mount "$S" "$DSH_LAYERFS_BRANCH" --name e2e-run >/dev/null && ${L} workspace exec "$S:e2e-run" 'mkdir -p .cache && echo c > .cache/x && cat policy.txt' --stream && ${L} workspace commit "$S:e2e-run" -m "cache" >/dev/null && ${L} workspace unmount "$S:e2e-run" >/dev/null && echo RUN-DONE`,
   ].join('\n'), newSession: false, timeoutMs: 90000 })
   const outputs = toolOutputs(placed.sessionId)

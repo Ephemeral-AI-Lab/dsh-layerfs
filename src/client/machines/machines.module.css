@@ -923,3 +923,34 @@
     border-top: 0.5px solid var(--dsw-alias-border-l2);
   }
 }
+
+/* The guided Remove: what the machine still holds, removed in order. */
+.removeHeld {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.removeHeldTitle {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.removeHeldList {
+  margin: 0 0 4px;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.removeHeldList code {
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+}
+
+.removeHeld p {
+  margin: 0;
+  font-size: 12px;
+}

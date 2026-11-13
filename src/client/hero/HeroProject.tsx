@@ -101,8 +101,11 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
   useEffect(loadProjects, [api])
   // Store health and project changes reach an open picker too (it never polls).
   useEffect(() => {
-    const offs = ['layerfs-availability', 'layerfs-workspaces-changed', 'storage'].map((type) => api.onEvent(type, () => loadProjects()))
-    return () => offs.forEach((off) => off())
+    // These come in bursts during a run: read once per burst (2 s), not once per event.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; loadProjects() }, 2000) }
+    const offs = ['layerfs-availability', 'layerfs-workspaces-changed', 'storage'].map((type) => api.onEvent(type, later))
+    return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
   }, [api])
 
   useEffect(() => {

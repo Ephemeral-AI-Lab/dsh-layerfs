@@ -8,11 +8,12 @@
  * or red. Positions are measured per layout; everything that moves is a pure
  * function of the replay clock (docs/specs/conversation-views.md §5).
  */
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from 'react'
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from 'react'
 import clsx from 'clsx'
 import {
   Button, Checkbox, IconBranchOutlineRegular, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular,
   IconPauseOutlineRegular, IconPlayOutlineRegular, IconRefreshOutlineRegular, IconUsersOutlineRegular, IconWarningOutlineRegular,
+  SegmentedControl,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { LOGS_EVENT, shellCommand, type LabeledLine, type LogsListAnswer, type LogsOutputAnswer } from '../../shared/logs.ts'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
@@ -23,8 +24,8 @@ import type { Translate } from './locale.ts'
 import { LayerfsMark, Whale } from './marks.tsx'
 import { WorkspaceTerminal } from './WorkspaceTerminal.tsx'
 import {
-  RESULT_S, RIPPLE_S, TAIL_S, activeAt, agentTree, buildSandboxMap, easeOut, mountedAt, phaseOf, requestS, rippleAt, stamp,
-  type LiveSandboxes, type MapAgent, type MapBinding, type MapEvent, type SandboxMapModel,
+  RESULT_S, RIPPLE_S, TAIL_S, activeAt, agentTree, buildSandboxMap, recentBranches, onlyBranches, wallAt, countEnded, easeOut, indexEvents, isQuietCall, lastEnded, mergeCalls, mountedAt, phaseOf, requestS, rippleAt, stamp, startedBy, windowAt,
+  type LiveSandboxes, type MapAgent, type MapBinding, type MapEvent, type MapWorkspace, type SandboxMapModel,
 } from './model.ts'
 import css from './sandbox.module.css'
 
@@ -33,13 +34,27 @@ const LANES = 6
 const OK = 'var(--dsw-alias-state-success-primary)'
 const BAD = 'var(--dsw-alias-state-error-primary)'
 /** Calls that save a version on their branch. */
-const SAVES = new Set(['workspace.commit', 'commit.create', 'branch.merge'])
 
 const ACTIVITY_KEY = 'dsh-layerfs:sandbox-activity'
 const readFlag = (key: string) => { try { return window.localStorage.getItem(key) } catch { return null } }
 const writeFlag = (key: string, value: string) => { try { window.localStorage.setItem(key, value) } catch { /* storage unavailable */ } }
+/** Map lines an agent's first read gathers (state polls not counted). */
 const CALL_LIMIT = 500
+/** Pages of 1000 log lines read per agent at most while older calls fill in. */
+const CALL_PAGES = 3
+/** Pause between background reads of older pages. */
+const BACKFILL_MS = 1200
+/** Map lines kept per agent as refreshes add to them. */
+const CALL_KEEP = 2000
+/** How far before its last read an agent's refresh looks: a bash call runs up to 600 s and its line is dated at its start. */
+const LATE_CALL_MS = 660_000
+/** Wait after the log grows before reading it again: the log can grow every second during a team run. */
+const REFRESH_MS = 4000
+/** Agents whose newest page is read at the same time (the host's log reads are cheap since its tail cache, F15). */
+const READERS = 3
 const EVENT_ROWS = 50
+/** Workspaces a Sandbox can hold mounted at once. */
+const WS_SLOTS = 16
 type Kind = 'agent' | 'project' | 'branch' | 'ws' | 'sandbox'
 const node = (kind: Kind, id: string) => `${kind}:${id}`
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
@@ -67,27 +82,110 @@ function MachineMark({ kind, label }: { kind: MachineKind, label: string }): Rea
 /** A workspace: a window. */
 const WorkspaceGlyph = ({ size }: { size?: number }) => <Glyph size={size}><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M2 6.2h12" /></Glyph>
 
-/** Each agent's call log lines, reread when the log grows. */
+/** One page of an agent's map lines (state polls left out), newest first, and the cursor to older lines. */
+async function readPage(api: ViewProps['api'], id: string, args: { since?: number, cursor?: string }): Promise<{ lines: LabeledLine[], older?: string }> {
+  const answer = await api.op<LogsListAnswer>('logs.list', { tag: `dsh:${id}:`, limit: 1000, ...args })
+  return { lines: answer.lines.filter((line) => !isQuietCall(line)), ...(answer.has_more && answer.next ? { older: answer.next } : {}) }
+}
+
+interface AgentCalls {
+  lines: LabeledLine[]
+  /** When the newest lines were read (ms), for the next refresh's `since`. */
+  read: number
+  /** Cursor to older lines not read yet, while there is more and the agent is under `CALL_LIMIT`. */
+  older?: string
+  pages: number
+}
+
+/**
+ * Each agent's call log lines, loaded progressively: the newest page of every
+ * agent first (the map shows as each lands), then older pages one at a time in
+ * the background (`BACKFILL_MS` apart) until an agent has `CALL_LIMIT` map lines
+ * or `CALL_PAGES` pages, since a conversation's own host polls can fill the
+ * newest pages of its tag (F12). The log can grow every second during a team
+ * run, so one read runs at a time and always lands: refreshes wait
+ * `REFRESH_MS`, and those during a read become one more read after it. A known
+ * agent's refresh asks for one page of lines since its last read (less
+ * `LATE_CALL_MS`, as a line is written when its call ends but dated when it
+ * started). A hidden page reads nothing until shown.
+ */
 function useAgentCalls(api: ViewProps['api'], agents: readonly MapAgent[]) {
   const ids = agents.map((a) => a.id).join('|')
   const [calls, setCalls] = useState<Record<string, LabeledLine[]>>({})
   const [loaded, setLoaded] = useState(false)
-  const [tick, setTick] = useState(0)
+  const [backfilling, setBackfilling] = useState(false)
+  const wanted = useRef(ids)
+  wanted.current = ids
+  const kick = useRef<() => void>(() => {})
   useEffect(() => {
-    let live = true
-    const list = ids ? ids.split('|') : []
-    Promise.all(list.map((id) => api.op<LogsListAnswer>('logs.list', { tag: `dsh:${id}:`, limit: CALL_LIMIT })
-      .then((answer) => [id, answer.lines] as const, () => [id, [] as LabeledLine[]] as const)))
-      .then((pairs) => { if (live) { setCalls(Object.fromEntries(pairs)); setLoaded(true) } })
-    return () => { live = false }
-  }, [api, ids, tick])
-  useEffect(() => {
+    const store = new Map<string, AgentCalls>()
+    let running = false, again = false, stopped = false, missed = false
     let timer: ReturnType<typeof setTimeout> | undefined
-    const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; setTick((n) => n + 1) }, 600) }
-    const offs = [api.onEvent(LOGS_EVENT, later), api.onEvent('layerfs-checkpoint', later), api.onEvent('connection', later)]
-    return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
+    const later = (ms = REFRESH_MS) => { if (!timer) timer = setTimeout(() => { timer = undefined; void read() }, ms) }
+    const pending = (list: readonly string[]) => list.find((id) => { const a = store.get(id); return !!a?.older && a.pages < CALL_PAGES && a.lines.length < CALL_LIMIT })
+    const read = async () => {
+      if (stopped) return
+      // A hidden page reads nothing (each read costs the host a scan of the log); it catches up when shown.
+      if (document.visibilityState === 'hidden') { missed = true; return }
+      if (running) { again = true; return }
+      running = true
+      again = false
+      const started = Date.now()
+      const list = wanted.current ? wanted.current.split('|') : []
+      let changed = false
+      const show = () => { changed = false; setCalls(Object.fromEntries(list.map((id) => [id, store.get(id)?.lines ?? []]))) }
+      // Newest lines first, `READERS` agents at a time.
+      const queue = [...list]
+      const reader = async () => { for (let id = queue.shift(); id !== undefined && !stopped; id = queue.shift()) {
+        const had = store.get(id)
+        try {
+          if (had) {
+            const page = await readPage(api, id, { since: had.read - LATE_CALL_MS })
+            const lines = mergeCalls(had.lines, page.lines, CALL_KEEP)
+            if (lines !== had.lines) changed = true
+            store.set(id, { ...had, lines, read: started })
+          } else {
+            const page = await readPage(api, id, {})
+            store.set(id, { lines: page.lines, read: started, pages: 1, ...(page.older ? { older: page.older } : {}) })
+            if (!stopped) show()   // a first page shows at once
+          }
+        } catch {
+          // Kept as it was; an agent never read is read next time.
+        }
+      } }
+      await Promise.all(Array.from({ length: READERS }, reader))
+      // Then one older page of one agent per read, until none is left.
+      const back = stopped ? undefined : pending(list)
+      if (back) {
+        const had = store.get(back)!
+        try {
+          const page = await readPage(api, back, { cursor: had.older })
+          const lines = mergeCalls(had.lines, page.lines, CALL_KEEP)
+          if (lines !== had.lines) changed = true
+          store.set(back, { ...had, lines, pages: had.pages + 1, older: page.older })
+        } catch {
+          store.set(back, { ...had, older: undefined })   // the log rotated under the cursor: keep what we have
+        }
+      }
+      running = false
+      if (stopped) return
+      for (const id of [...store.keys()]) if (!list.includes(id)) { store.delete(id); changed = true }
+      // A read that added no map lines draws nothing again (the map rebuilds from every agent's lines).
+      if (changed) show()
+      setLoaded(true)
+      const more = !!pending(list)
+      setBackfilling(more)
+      if (again) later()
+      else if (more) later(BACKFILL_MS)
+    }
+    kick.current = () => { void read() }
+    const shown = () => { if (document.visibilityState === 'visible' && missed) { missed = false; void read() } }
+    document.addEventListener('visibilitychange', shown)
+    const offs = [api.onEvent(LOGS_EVENT, () => later()), api.onEvent('layerfs-checkpoint', () => later()), api.onEvent('connection', () => later())]
+    return () => { stopped = true; kick.current = () => {}; document.removeEventListener('visibilitychange', shown); offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
   }, [api])
-  return { calls, loaded }
+  useEffect(() => { kick.current() }, [api, ids])
+  return { calls, loaded, backfilling }
 }
 
 /** A machine's kind for its mark: from the Machines list when it is readable, else guessed from the name. */
@@ -117,30 +215,59 @@ function useMachineKinds(api: ViewProps['api'], names: readonly string[]) {
   return useCallback((name: string | undefined): MachineKind => name ? known[name] ?? guessKind(name) : { platform: 'unknown' }, [known])
 }
 
+/** Replay clock renders per second at most. */
+const CLOCK_FPS = 30
+/** Wall-clock now, re-read every `everyMs` while `on`. */
+function useWallClock(on: boolean, everyMs: number): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!on) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), everyMs)
+    return () => clearInterval(timer)
+  }, [on, everyMs])
+  return now
+}
+
+/** Replay speeds offered beside Replay (replay seconds per real second). */
+const REPLAY_SPEEDS = ['1', '10', '30', '100'] as const
+type ReplaySpeed = typeof REPLAY_SPEEDS[number]
+
+/** Seconds Live may trail the end while it plays through new calls. */
+const LIVE_LAG_S = 4
+
 /**
  * Replay clock: play/pause, scrub, Replay, Live. Live follows the end: when
  * new calls are appended the playhead plays through them at real speed.
  */
 function useClock(duration: number, startLive: boolean) {
   const [t, setT] = useState(duration)
+  // Replay seconds per real second while replaying; Live always follows the end at 1×.
+  const [speed, setSpeed] = useState<ReplaySpeed>('1')
   const [playing, setPlaying] = useState(startLive && !reducedMotion())
   const [live, setLive] = useState(startLive)
   const durationRef = useRef(duration)
   durationRef.current = duration
   const started = useRef(false)
-  // Open at the end; once there is data, keep a paused playhead where it is.
-  useEffect(() => { if (!started.current && duration > 0) { started.current = true; setT(duration) } }, [duration])
+  // Untouched (no pause, scrub or replay yet), a paused playhead stays at the end as older calls fill in.
+  const pinned = useRef(true)
+  // Open at the end; once the user moves it, keep a paused playhead where it is.
+  useEffect(() => { if ((!started.current || pinned.current) && duration > 0) { started.current = true; setT(duration) } }, [duration])
   const atEnd = t >= duration
   useEffect(() => {
     // Live at the end has nothing to draw until the log grows (`duration` changes).
     if (!playing || (live && atEnd)) return
     let raf = 0, last = 0
     const frame = (now: number) => {
-      const dt = last ? Math.min(0.1, (now - last) / 1000) : 0
+      // At most `CLOCK_FPS` renders a second: the whole map redraws on each. Real elapsed time, so a slow
+      // frame does not play the replay slow.
+      if (last && now - last < 1000 / CLOCK_FPS - 2) { raf = requestAnimationFrame(frame); return }
+      const dt = last ? Math.min(1, (now - last) / 1000) : 0
       last = now
       setT((value) => {
         const end = durationRef.current
-        const next = Math.min(end, value + dt)
+        // Live never trails the end by more than `LIVE_LAG_S`, however fast the log grows.
+        const next = Math.min(end, live ? Math.max(value + dt, end - LIVE_LAG_S) : value + dt * Number(speed))
         if (next >= end && !live) setPlaying(false)
         return next
       })
@@ -148,17 +275,19 @@ function useClock(duration: number, startLive: boolean) {
     }
     raf = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(raf)
-  }, [playing, live, atEnd])
+  }, [playing, live, atEnd, speed])
   return {
-    t, playing, live,
+    t, playing, live, speed,
+    setSpeed,
     toggle: () => {
+      pinned.current = false
       if (playing) { setPlaying(false); setLive(false); return }
       if (t >= durationRef.current) setT(0)
       setPlaying(true)
     },
-    scrub: (value: number) => { setLive(false); setPlaying(false); setT(value) },
+    scrub: (value: number) => { pinned.current = false; setLive(false); setPlaying(false); setT(value) },
     goLive: () => { setLive(true); setT(durationRef.current); setPlaying(!reducedMotion()) },
-    replay: () => { setLive(false); setT(0); setPlaying(true) },
+    replay: () => { pinned.current = false; setLive(false); setT(0); setPlaying(true) },
   }
 }
 
@@ -184,13 +313,14 @@ function ChatSandboxMap({ api, t, sessionId, project, binding, root, byId, title
   label: (id: string) => string | undefined
 }): ReactNode {
   const agents = useMemo(() => agentTree(root, byId), [root, byId])
-  const { calls, loaded } = useAgentCalls(api, agents)
+  const { calls, loaded, backfilling } = useAgentCalls(api, agents)
   const name = useCallback((agent: MapAgent) => agent.depth === 0 ? t('mainAgent')
     : label(agent.id) ?? title(agent.id) ?? t('subagent', { n: agents.indexOf(agent) }), [label, title, t, agents])
   const groupTitle = useCallback((head: MapAgent) => title(head.id) ?? t('lead'), [title, t])
   return (
     <SandboxMap api={api} t={t} project={project} agents={agents} calls={calls} loaded={loaded} binding={binding}
-      sessionId={sessionId} startLive={agents.some((a) => a.running)} name={name} groupTitle={groupTitle} />
+      sessionId={sessionId} startLive={agents.some((a) => a.running)} name={name} groupTitle={groupTitle}
+      note={backfilling ? t('olderLoading') : undefined} />
   )
 }
 
@@ -300,8 +430,19 @@ function chainOf(L: Layout, e: MapEvent): { d: string, target: string } | null {
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 export function SandboxMap({ api, t, project, agents, calls, loaded, binding, live, sessionId, startLive, name, groupTitle, boxState, boxActions, note, emptyCopy }: SandboxMapProps): ReactNode {
-  const model = useMemo(() => buildSandboxMap(agents, binding, calls, live), [agents, binding, calls, live])
-  const clock = useClock(model.duration, startLive)
+  const full = useMemo(() => buildSandboxMap(agents, binding, calls, live), [agents, binding, calls, live])
+  const clock = useClock(full.duration, startLive)
+  // Only the Branches active in the 5 minutes before the playhead (Live: before
+  // now), with a Workspace mounted, or the session Branch. The set is keyed by
+  // name so a playing replay rebuilds the map only when a Branch comes or goes.
+  const wall = useWallClock(clock.live, 15_000)
+  const atMs = clock.live ? wall : wallAt(full, clock.t)
+  const untilS = clock.live ? Infinity : clock.t
+  const sessionBranch = binding?.branch
+  const branchKey = useMemo(() => [...recentBranches(full, atMs, sessionBranch ? [sessionBranch] : [], undefined, untilS)].sort().join('\n'), [full, atMs, untilS, sessionBranch])
+  const model = useMemo(() => onlyBranches(full, new Set(branchKey ? branchKey.split('\n') : [])), [full, branchKey])
+  const hiddenBranches = full.branches.length - model.branches.length
+  const speedId = useId()
   const machineLabel = (kind: MachineKind, name: string | undefined) => [PLATFORM_LABEL[kind.platform] ? t(PLATFORM_LABEL[kind.platform]) : null, name].filter(Boolean).join(' · ')
   const kindOf = useMachineKinds(api, model.sandboxes.map((b) => b.machine ?? (binding?.sandbox === b.name ? binding.machine : undefined) ?? ''))
   const now = clock.t
@@ -325,11 +466,14 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
     const shown = new Set(shownKey.split('|'))
     return model.events.filter((e) => shown.has(e.agent))
   }, [model.events, shownKey])
-  const active = activeAt(events, now)
+  // Lookups built once per set of calls; a frame reads only the calls near the playhead.
+  const index = useMemo(() => indexEvents(events), [events])
+  const win = windowAt(index, now, index.maxSpan + TAIL_S + RIPPLE_S + 0.05)
+  const active = activeAt(win, now)
   const done = (e: MapEvent) => e.end <= now
   // Each agent keeps one hue; its calls travel in it.
   const laneIndex = useMemo(() => new Map(agents.map((a, i) => [a.id, i % LANES])), [agents])
-  const laneOf = (agent: string) => `var(--lane-${laneIndex.get(agent) ?? 0})`
+  const laneOf = useCallback((agent: string) => `var(--lane-${laneIndex.get(agent) ?? 0})`, [laneIndex])
 
   // What the focused node or call touches, for dimming the rest.
   const related = useMemo(() => {
@@ -361,19 +505,32 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
 
   // A sandbox retires when its close ends; its workspaces leave the map with it.
   const retired = (box: SandboxMapModel['sandboxes'][number]) => {
-    const closure = events.find((e) => e.method === 'sandbox.close' && e.sandbox === box.name && e.outcome === 'ok')
+    const closure = index.closeBySandbox.get(box.name)
     return box.closed && (!closure || done(closure))
   }
   const openBoxes = model.sandboxes.filter((box) => !retired(box))
-  const wsOrder = openBoxes.flatMap((box) => box.workspaces)
-  // Branches mounted in a workspace take arc slots in workspace order, so branch → workspace wires never cross.
+  // A Workspace lives from its mount to its unmount (usually one bash call), so a Sandbox lists only the ones
+  // mounted at the playhead (and any whose terminal is open), each on the Branch of its current mount.
+  const mountsOf = (id: string) => index.mountsByWs.get(id) ?? []
+  const branchAt = (ws: MapWorkspace) => {
+    let branch = ws.branch
+    for (const e of mountsOf(ws.id)) { if (e.start > now) break; if (e.method === 'workspace.mount' && e.branch) branch = e.branch }
+    return branch
+  }
+  const liveWs = new Map(openBoxes.map((box) => [box.name, box.workspaces
+    .filter((ws) => openWs.has(ws.id) || mountedAt(mountsOf(ws.id), ws.id, now))
+    .map((ws) => ({ ...ws, branch: branchAt(ws) }))]))
+  const wsOrder = openBoxes.flatMap((box) => liveWs.get(box.name) ?? [])
+  // Every Workspace seen, for the arc: Branch places stay put while Workspaces come and go.
+  const allWs = openBoxes.flatMap((box) => box.workspaces)
+  // Branches mounted in a workspace take arc slots in workspace order, so branch → workspace wires rarely cross.
   const arc = useMemo(() => {
-    const at = (b: string) => wsOrder.findIndex((w) => w.branch === b)
+    const at = (b: string) => allWs.findIndex((w) => w.branch === b)
     const mounted = model.branches.filter((b) => at(b) >= 0).sort((a, b) => at(a) - at(b))
     let k = 0
     return model.branches.map((b) => at(b) >= 0 ? mounted[k++] : b)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model.branches, wsOrder.map((w) => `${w.id}>${w.branch}`).join('|')])
+  }, [model.branches, allWs.map((w) => `${w.id}>${w.branch}`).join('|')])
   const born = useMemo(() => {
     const out = new Map<string, number>()
     for (const b of model.branches) {
@@ -421,7 +578,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
     const busy = new Set(events.map((e) => e.agent))
     return shownAgents.filter((a) => busy.has(a.id)).map((a) => a.id)
   }, [events, shownAgents])
-  const geometry = [arc.join(','), busyAgents.join(','), shownKey, showQuiet, openBoxes.map((b) => `${b.name}:${b.workspaces.map((w) => w.id).join('+')}`).join(','), model.sandboxes.length, compactAgents, compactWs, [...openWs].join('+')].join('#')
+  const geometry = [arc.join(','), busyAgents.join(','), shownKey, showQuiet, openBoxes.map((b) => `${b.name}:${(liveWs.get(b.name) ?? []).map((w) => w.id).join('+')}`).join(','), model.sandboxes.length, compactAgents, compactWs, [...openWs].join('+')].join('#')
   const measure = useCallback(() => {
     const el = mapRef.current
     if (!el || !el.clientWidth) return
@@ -512,16 +669,15 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
 
   const agentStatus = (agent: MapAgent) => {
     const running = active.find((e) => e.agent === agent.id)
-    const last = events.filter((e) => e.agent === agent.id && done(e)).at(-1)
+    const last = lastEnded(index.endedByAgent.get(agent.id), now)
     if (running) return { live: true, text: verb(running, t), running, last }
     if (last && last.outcome !== 'ok') return { live: false, warn: true, text: t('needsAttention'), last }
     if (agent.running) return { live: true, text: t('working'), last }
     return { live: false, text: last ? t('done') : t('idle'), last }
   }
-  /** The call `pred` matches that ended last, and how much of its green/red glow is left (1 → 0). */
-  const flashOf = (pred: (e: MapEvent) => boolean) => {
-    let found: MapEvent | undefined
-    for (const e of events) if (pred(e) && e.end <= now && (!found || e.end > found.end)) found = e
+  /** The call of `ended` that ended last, and how much of its green/red glow is left (1 → 0). */
+  const flashOf = (ended: Parameters<typeof lastEnded>[0]) => {
+    const found = lastEnded(ended, now)
     if (!found) return null
     const k = (now - found.end) / TAIL_S
     return k < 1 ? { e: found, f: reduced ? 1 : 1 - easeOut(k) } : null
@@ -546,7 +702,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
     else if (target.startsWith('sandbox:')) { const b = L.box[target.slice(8)]; if (b) r = { x: b.r.x + 4, y: b.r.y, w: b.r.w - 8, h: b.r.h, rx: 9 } }
     if (r) ripples.push(<rect key={key} x={r.x - grow} y={r.y - grow} width={r.w + 2 * grow} height={r.h + 2 * grow} rx={r.rx + grow} {...props} />)
   }
-  for (const e of events) {
+  for (const e of win) {
     if (now < e.start || now > e.end + TAIL_S + RIPPLE_S) continue
     const chain = chains.get(e.id)
     if (!chain) continue
@@ -587,37 +743,38 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
     }
   }
 
-  const selectedEvent = selected?.kind === 'event' ? events.find((e) => e.id === selected.id) : undefined
-  const matchesFocus = (e: MapEvent, f: NonNullable<Focus>) => f.kind === 'agent' ? e.agent === f.id : f.kind === 'branch' ? e.branch === f.id
-    : f.kind === 'ws' ? e.ws === f.id : f.kind === 'sandbox' ? e.sandbox === f.id : true
+  const selectedEvent = useMemo(() => selected?.kind === 'event' ? events.find((e) => e.id === selected.id) : undefined, [selected, events])
   const listFocus = focus && focus.kind !== 'event' ? focus : null
-  const listed = events.filter((e) => e.start <= now && (!listFocus || matchesFocus(e, listFocus)))
-  const agentName = (id: string) => { const a = agents.find((x) => x.id === id); return a ? name(a) : id }
+  const focusCalls = !listFocus || listFocus.kind === 'project' ? events
+    : (listFocus.kind === 'agent' ? index.byAgent : listFocus.kind === 'branch' ? index.byBranch : listFocus.kind === 'ws' ? index.byWs : index.bySandbox).get(listFocus.id) ?? []
+  const listedCount = startedBy(focusCalls, now)
+  const recentCalls = focusCalls.slice(Math.max(0, listedCount - EVENT_ROWS), listedCount)
+  const agentName = useCallback((id: string) => { const a = agents.find((x) => x.id === id); return a ? name(a) : id }, [agents, name])
   const focusName = (f: Focus) => !f || f.kind === 'event' ? null : f.kind === 'agent' ? agentName(f.id) : f.kind === 'project' ? project.split('/').at(-1) ?? project : f.id.split(':').at(-1) ?? f.id
-  const choose = (next: NonNullable<Focus>) => setSelected((s) => s && s.kind === next.kind && s.id === next.id ? null : next)
+  const choose = useCallback((next: NonNullable<Focus>) => setSelected((s) => s && s.kind === next.kind && s.id === next.id ? null : next), [])
   const hoverProps = (f: NonNullable<Focus>) => ({ onMouseEnter: () => setHover(f), onMouseLeave: () => setHover(null), onFocus: () => setHover(f), onBlur: () => setHover(null), onClick: () => choose(f) })
   const isSelected = (f: NonNullable<Focus>) => selected?.kind === f.kind && selected.id === f.id
   const empty = loaded && model.events.length === 0
   const disabled = model.duration === 0
   const playState = clock.live && clock.playing ? t('live') : clock.playing ? t('playing') : t('paused')
   const following = focusName(focus)
-  const hubBusy = events.some((e) => e.start <= now && now < e.end + RESULT_S)
+  const hubBusy = win.some((e) => e.start <= now && now < e.end + RESULT_S)
   const projectName = project.split('/').at(-1) ?? project
+  // One SVG in replay seconds: a longer log only changes its viewBox, and new calls add marks.
   const strip = useMemo(() => {
-    const rows = agents.filter((a) => events.some((e) => e.agent === a.id))
-    const h = rows.length ? 12 / rows.length : 12
-    return rows.flatMap((a, r) => events.filter((e) => e.agent === a.id).map((e) => (
-      <i key={e.id} className={clsx(e.outcome !== 'ok' && css.stripBad)} style={{
-        left: `${(e.start / Math.max(0.1, model.duration)) * 100}%`, width: `${Math.max(0.15, ((e.end - e.start) / Math.max(0.1, model.duration)) * 100)}%`,
-        top: r * h, height: Math.max(1.5, h - 1), background: `var(--lane-${laneIndex.get(a.id) ?? 0})`,
-      }} />
-    )))
-  }, [agents, events, model.duration, laneIndex])
+    const rows = agents.filter((a) => index.byAgent.has(a.id))
+    return (
+      <svg className={css.strip} viewBox={`0 0 ${f1(Math.max(0.1, model.duration))} ${Math.max(1, rows.length)}`} preserveAspectRatio="none" aria-hidden>
+        {rows.map((a, r) => <StripRow key={a.id} row={r} lane={laneIndex.get(a.id) ?? 0} events={index.byAgent.get(a.id)!} />)}
+      </svg>
+    )
+  }, [agents, index, model.duration, laneIndex])
 
   return (
     <div className={css.page} data-playing={clock.playing || undefined}>
       <div className={css.toolbar}>
-        <span className={css.facts}><IconUsersOutlineRegular size={13} />{[count(t, shownAgents.length, 'factAgentOne', 'factAgents'), count(t, model.branches.length, 'factBranchOne', 'factBranches'), count(t, model.sandboxes.length, 'factSandboxOne', 'factSandboxes')].join(' · ')}</span>
+        <span className={css.facts}><IconUsersOutlineRegular size={13} />{[count(t, shownAgents.length, 'factAgentOne', 'factAgents'), count(t, model.branches.length, 'factBranchOne', 'factBranches'), count(t, model.sandboxes.length, 'factSandboxOne', 'factSandboxes')].join(' · ')}
+          {hiddenBranches > 0 ? <span className={css.muted} title={t('recentBranchesHint')}> · {t('recentBranches', { n: full.branches.length })}</span> : null}</span>
         {sessionId && agents.length > 1 ? <Checkbox className={css.filter} checked={onlyChat} onChange={setOnlyChat} label={t('thisChat')} /> : null}
         <span className={css.spacer} />
         <Button variant="outline" size="sm" disabled={disabled} onClick={clock.toggle}
@@ -625,6 +782,8 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
           {clock.playing ? t('pause') : now >= model.duration && !disabled ? t('playAgain') : t('play')}
         </Button>
         <Button variant="ghost" size="sm" disabled={disabled} onClick={clock.replay} aria-label={t('replay')} title={t('replay')} icon={<IconRefreshOutlineRegular size={14} />} />
+        <SegmentedControl<ReplaySpeed> id={`${speedId}-speed`} className={css.speed} value={clock.speed} label={t('replaySpeed')}
+          disabled={disabled} onChange={clock.setSpeed} options={REPLAY_SPEEDS.map((v) => ({ value: v, label: `${v}×` }))} />
         <Button variant={clock.live ? 'outline' : 'ghost'} size="sm" disabled={disabled} onClick={clock.goLive} aria-pressed={clock.live}>
           <span className={clsx(css.liveDot, clock.live && clock.playing && css.liveOn)} aria-hidden />{t('live')}
         </Button>
@@ -664,7 +823,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
                 {wsOrder.map((w) => {
                   const B = w.branch ? L.branch[w.branch] : undefined, W = L.ws[w.id]
                   if (!B || !W) return null
-                  return <path key={w.id} d={`M ${f1(B.right)} ${f1(B.y)} ${curve(B.right, B.y, W.x, W.y)}`} strokeDasharray={!mountedAt(events, w.id, now) ? '2 4' : undefined} className={clsx(dim(node('ws', w.id)) && css.wireDim)} />
+                  return <path key={w.id} d={`M ${f1(B.right)} ${f1(B.y)} ${curve(B.right, B.y, W.x, W.y)}`} strokeDasharray={!mountedAt(index.mountsByWs.get(w.id) ?? [], w.id, now) ? '2 4' : undefined} className={clsx(dim(node('ws', w.id)) && css.wireDim)} />
                 })}
               </g>
               <g>{lit}</g>
@@ -739,9 +898,9 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
         {arc.map((branch) => {
           const f = { kind: 'branch', id: branch } as const
           const key = node('branch', branch)
-          const use = events.filter((e) => e.branch === branch && arrived(e) && now < e.end)
-          const flash = use.length ? null : flashOf((e) => e.branch === branch && !e.ws)
-          const saves = events.filter((e) => e.branch === branch && SAVES.has(e.method) && done(e) && e.outcome === 'ok').length
+          const use = win.filter((e) => e.branch === branch && arrived(e) && now < e.end)
+          const flash = use.length ? null : flashOf(index.endedOnBranch.get(branch))
+          const saves = countEnded(index.savesByBranch.get(branch), now)
           const B = L?.branch[branch]
           return (
             <button key={branch} type="button" data-flow-node={key} {...hoverProps(f)}
@@ -763,34 +922,38 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
             const f = { kind: 'sandbox', id: box.name } as const
             const key = node('sandbox', box.name)
             if (retired(box)) return <div key={box.name} className={css.retired}><IconCheckOutlineRegular size={13} />{t('closed', { name: box.name })}<span className={css.muted}>{t('closedNote')}</span></div>
-            const creation = events.find((e) => e.method === 'sandbox.create' && e.sandbox === box.name)
+            const creation = index.createBySandbox.get(box.name)
             const creating = !!creation && creation.start <= now && now < creation.end
             const ghost = unborn(key)
             const bound = !!binding && binding.sandbox === box.name
             const known = boxState?.(box.name)
             const state = ghost ? t('notCreated') : creating ? t('creating') : known ? known.text : bound ? binding.executionState ?? (binding.state === 'bound' ? t('active') : binding.state) : t('active')
             const stateLive = !ghost && (creating || (known ? known.live : bound && binding.state === 'bound'))
-            const use = events.find((e) => !e.branch && e.sandbox === box.name && arrived(e) && now < e.end)
+            const use = win.find((e) => !e.branch && e.sandbox === box.name && arrived(e) && now < e.end)
             const machine = box.machine ?? (bound ? binding.machine : undefined)
+            const shownWs = liveWs.get(box.name) ?? []
+            const mounted = shownWs.filter((ws) => mountedAt(mountsOf(ws.id), ws.id, now))
+            const used = mounted.length + (box.reserved ?? 0)   // dsh's own Workspace holds a slot though it is not drawn
             return (
               <div key={box.name} data-box className={clsx(css.box, ghost && css.ghost, dim(key) && css.dim)}>
                 <button type="button" className={clsx(css.boxHead, use && css.use, isSelected(f) && css.selected)} data-flow-node={key} {...hoverProps(f)}
-                  title={[box.name, machineLabel(kindOf(machine), machine ?? t('machineUnknown')), t('workspaces', { n: box.workspaces.length })].join('\n')}
+                  title={[box.name, machineLabel(kindOf(machine), machine ?? t('machineUnknown')), t('workspacesMounted', { n: used, max: WS_SLOTS })].join('\n')}
                   style={{ ['--lane' as string]: use ? laneOf(use.agent) : creation ? laneOf(creation.agent) : undefined }}>
                   <MachineMark kind={kindOf(machine)} label={machineLabel(kindOf(machine), machine)} /><span className={css.rowName}>{box.name}</span>
+                  {!ghost ? <span className={clsx(css.count, used >= WS_SLOTS - 1 && css.errorText)} title={t('workspacesMounted', { n: used, max: WS_SLOTS })}>{used}/{WS_SLOTS}</span> : null}
                   <span className={css.status}><i className={clsx(css.dot, creating ? css.dotLane : stateLive && css.dotLive)} />{state}</span>
                 </button>
                 {boxActions ? <div className={css.boxActions}>{boxActions(box.name)}</div> : null}
-                {box.workspaces.length === 0 ? <p className={css.boxEmpty}>{creating ? t('starting') : t('noWorkspaces')}</p> : box.workspaces.map((ws) => {
+                {shownWs.length === 0 ? <p className={css.boxEmpty}>{creating ? t('starting') : t('noWorkspaces')}</p> : shownWs.map((ws) => {
                   const wf = { kind: 'ws', id: ws.id } as const
                   const wkey = node('ws', ws.id)
-                  const wsGhost = ghost || !mountedAt(events, ws.id, now)
+                  const wsGhost = ghost || !mountedAt(mountsOf(ws.id), ws.id, now)
                   const run = active.find((e) => e.ws === ws.id)
                   const here = !!run && arrived(run)
-                  const last = events.filter((e) => e.ws === ws.id && done(e)).at(-1)
+                  const last = lastEnded(index.endedByWs.get(ws.id), now)
                   const bad = !run && !!last && last.outcome !== 'ok'
-                  const flash = run ? null : flashOf((e) => e.ws === ws.id)
-                  const users = [...new Set(events.filter((e) => e.ws === ws.id && e.start <= now).map((e) => e.agent))]
+                  const flash = run ? null : flashOf(index.endedByWs.get(ws.id))
+                  const users = (index.usersByWs.get(ws.id) ?? []).filter((u) => u.first <= now).map((u) => u.agent)
                   const open = openWs.has(ws.id)
                   // One line: the name, and a state only when something is going on. The rest is in the tooltip and the terminal.
                   const state = run ? (here ? verb(run, t) : t('incoming')) : bad ? last!.outcome : wsGhost ? t('notMounted') : null
@@ -803,7 +966,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
                       <span className={css.wsName}><IconChevronRightOutlineRegular size={11} className={clsx(css.foldIcon, css.wsChevron, open && css.foldOpen)} /><span className={css.rowName}>{ws.name}</span></span>
                       {state ? <span className={css.status}>{run ? <i className={clsx(css.dot, css.dotLane)} /> : null}{state}{run ? <span className={css.elapsed}>{t('dur_s', { n: (now - run.start).toFixed(1) })}</span> : null}</span> : null}
                     </button>
-                    {open ? <WorkspaceTerminal api={api} t={t} events={events.filter((e) => e.ws === ws.id && e.start <= now)} wsName={ws.name} now={now} agentName={agentName} laneOf={laneOf} reduced={reduced} /> : null}
+                    {open ? <WorkspaceTerminal api={api} t={t} events={(index.byWs.get(ws.id) ?? []).slice(0, startedBy(index.byWs.get(ws.id) ?? [], now))} wsName={ws.name} now={now} agentName={agentName} laneOf={laneOf} reduced={reduced} /> : null}
                     </Fragment>
                   )
                 })}
@@ -823,7 +986,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
       <div className={css.playback}>
         <span className={css.playState}><i className={clsx(css.dot, clock.playing && css.dotLive)} />{playState}</span>
         <div className={css.track}>
-          <div className={css.strip} aria-hidden>{strip}</div>
+          {strip}
           <input className={css.scrub} type="range" min={0} max={Math.max(0.1, model.duration)} step={0.05} value={Math.min(now, model.duration)}
             style={{ ['--fill' as string]: `${model.duration ? Math.min(100, (now / model.duration) * 100) : 0}%` }}
             aria-label={t('scrub')} disabled={disabled} onChange={(e) => clock.scrub(Number(e.target.value))} />
@@ -838,37 +1001,73 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
             <IconChevronRightOutlineRegular size={12} className={clsx(css.foldIcon, activityOpen && css.foldOpen)} />
             <strong>{selectedEvent ? selectedEvent.method : following ? t('following', { name: following }) : t('activity')}</strong>
           </button>
-          {!activityOpen ? <span className={css.muted}>{count(t, listed.length, 'callsOne', 'callsN')}</span>
+          {!activityOpen ? <span className={css.muted}>{count(t, listedCount, 'callsOne', 'callsN')}</span>
             : selected ? (
               <Button variant="ghost" size="sm" aria-label={t('clear')} title={t('clear')} icon={<IconCloseOutlineRegular size={13} />} onClick={() => { setSelected(null); setHover(null) }} />
-            ) : <span className={css.muted}>{listed.length > EVENT_ROWS ? t('callsShown', { n: EVENT_ROWS }) : t('follow')}</span>}
+            ) : <span className={css.muted}>{listedCount > EVENT_ROWS ? t('callsShown', { n: EVENT_ROWS }) : t('follow')}</span>}
         </header>
         {!activityOpen ? null : selectedEvent ? <EventDetail api={api} e={selectedEvent} t={t} now={now} owner={agentName(selectedEvent.agent)} lane={laneOf(selectedEvent.agent)} />
           : empty ? (
             <div className={css.emptyCalls}><p className={css.emptyTitle}>{emptyCopy?.title ?? t('noActivity')}</p><p className={css.muted}>{emptyCopy?.body ?? t('noActivityBody')}</p></div>
           ) : (
-            <ol className={css.events}>
-              {listed.slice(-EVENT_ROWS).reverse().map((e) => (
-                <li key={e.id}>
-                  <button type="button" className={css.event} onClick={() => choose({ kind: 'event', id: e.id })}
-                    onMouseEnter={() => setHover({ kind: 'event', id: e.id })} onMouseLeave={() => setHover(null)} style={{ ['--lane' as string]: laneOf(e.agent) }}>
-                    <EventIcon e={e} now={now} />
-                    <time className={css.eventTime} dateTime={new Date(e.at).toISOString()} title={new Date(e.at).toLocaleString()}>{stamp(e.start)}</time>
-                    <span className={css.eventMethod}>{e.method}</span>
-                    <span className={css.eventTarget}>{e.ws ?? e.branch ?? e.sandbox ?? ''}</span>
-                    {e.outcome !== 'ok' && done(e) ? <span className={css.errorText}>{e.outcome}</span> : null}
-                    <span className={css.eventOwner}><Whale size={16} />{agentName(e.agent)}{e.turn ? ` · ${t('turn', { n: e.turn })}` : ''}</span>
-                    <IconChevronRightOutlineRegular size={12} className={css.muted} />
-                  </button>
-                </li>
-              ))}
-            </ol>
+            <ActivityRows calls={focusCalls} count={listedCount} ended={recentCalls.filter(done).length} now={now} t={t}
+              choose={choose} setHover={setHover} laneOf={laneOf} agentName={agentName} />
           )}
       </section>
     </div>
   )
 }
 
+
+interface ActivityRowsProps {
+  /** The calls listed (sorted by start) and how many of them have started. */
+  calls: readonly MapEvent[]
+  count: number
+  /** How many of the rows shown have ended: with `calls` and `count`, all that changes the rows. */
+  ended: number
+  now: number
+  t: Translate
+  choose: (f: NonNullable<Focus>) => void
+  setHover: (f: Focus) => void
+  laneOf: (agent: string) => string
+  agentName: (id: string) => string
+}
+
+/** The newest `EVENT_ROWS` calls, newest first; redrawn only when a row is added or ends, not every frame. */
+const ActivityRows = memo(function ActivityRows({ calls, count, now, t, choose, setHover, laneOf, agentName }: ActivityRowsProps): ReactNode {
+  const rows = calls.slice(Math.max(0, count - EVENT_ROWS), count).reverse()
+  return (
+    <ol className={css.events}>
+      {rows.map((e) => (
+        <li key={e.id}>
+          <button type="button" className={css.event} onClick={() => choose({ kind: 'event', id: e.id })}
+            onMouseEnter={() => setHover({ kind: 'event', id: e.id })} onMouseLeave={() => setHover(null)} style={{ ['--lane' as string]: laneOf(e.agent) }}>
+            <EventIcon e={e} now={now} />
+            <time className={css.eventTime} dateTime={new Date(e.at).toISOString()} title={new Date(e.at).toLocaleString()}>{stamp(e.start)}</time>
+            <span className={css.eventMethod}>{e.method}</span>
+            <span className={css.eventTarget}>{e.ws ?? e.branch ?? e.sandbox ?? ''}</span>
+            {e.outcome !== 'ok' && e.end <= now ? <span className={css.errorText}>{e.outcome}</span> : null}
+            <span className={css.eventOwner}><Whale size={16} />{agentName(e.agent)}{e.turn ? ` · ${t('turn', { n: e.turn })}` : ''}</span>
+            <IconChevronRightOutlineRegular size={12} className={css.muted} />
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
+}, (a, b) => a.calls === b.calls && a.count === b.count && a.ended === b.ended && a.t === b.t && a.choose === b.choose
+  && a.setHover === b.setHover && a.laneOf === b.laneOf && a.agentName === b.agentName)
+
+/** One agent's calls on the timeline strip; a mark keeps at least a pixel at any zoom. */
+const StripRow = memo(function StripRow({ row, lane, events }: { row: number, lane: number, events: readonly MapEvent[] }): ReactNode {
+  return (
+    <g style={{ color: `var(--lane-${lane})` }}>
+      {events.map((e) => (
+        <rect key={e.id} x={e.start} y={row + 0.12} width={Math.max(0.001, e.end - e.start)} height={0.76} fill="currentColor"
+          stroke={e.outcome !== 'ok' ? BAD : 'currentColor'} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+      ))}
+    </g>
+  )
+})
 
 /** `1 agent` or `{n} agents`: a count with its singular. */
 function count(t: Translate, n: number, one: string, many: string): string {

@@ -193,6 +193,32 @@ export function place(item: { start: number, end: number }, span: { start: numbe
   return { left, width: Math.max(0, right - left) }
 }
 
+/** Marks a lane draws at most: about one per 2 px of the strip. */
+export const LANE_BINS = 600
+
+const TONE_RANK: Record<string, number> = { refused: 3, running: 2, created: 1 }
+
+/**
+ * One lane's items thinned to at most `bins` marks: items whose start falls in the same
+ * bin of `span` share one mark (a long team run has ten thousand LayerFS calls; a button
+ * each makes every redraw take seconds). The mark is the selected item if the bin holds
+ * it, else the one with the strongest tone (refused, running, created), else the first.
+ * `more` counts the other items it stands for. A lane within `bins` is returned as is.
+ */
+export function thinLane<I extends Pick<LaneItem, 'start' | 'select' | 'tone'>>(items: readonly I[], span: { start: number, end: number }, selected: Selection | null, bins = LANE_BINS): (I & { more: number })[] {
+  if (items.length <= bins) return items.map((item) => ({ ...item, more: 0 }))
+  const total = span.end - span.start || 1
+  const best = new Map<number, { item: I, n: number }>()
+  const rank = (item: I) => (selected && item.select === selected ? 10 : TONE_RANK[item.tone ?? ''] ?? 0)
+  for (const item of items) {
+    const bin = Math.min(bins - 1, Math.max(0, Math.floor(((item.start - span.start) / total) * bins)))
+    const had = best.get(bin)
+    if (!had) best.set(bin, { item, n: 1 })
+    else { had.n++; if (rank(item) > rank(had.item)) had.item = item }
+  }
+  return [...best.entries()].sort((a, b) => a[0] - b[0]).map(([, { item, n }]) => ({ ...item, more: n - 1 }))
+}
+
 // ---------------------------------------------------------------- rows
 
 export type Row =

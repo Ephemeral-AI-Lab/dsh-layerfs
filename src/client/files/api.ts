@@ -28,8 +28,14 @@ export const filesApi = {
    * the Branch list: a page read at a named Commit is immutable and the host keeps it).
    * `fork` is the Branch's fork point from the same list, which saves the host a branch.get.
    */
-  commits: (api: LayerfsApi, project: string, branch: string, at?: string, fork?: string | null) =>
-    api.call<HistoryPage>('GET', `${projectPath(project)}/history${q({ branch, at, fork: fork ?? undefined })}`),
+  commits: (api: LayerfsApi, project: string, branch: string, at?: string, fork?: string | null, wide = false) =>
+    api.call<HistoryPage>('GET', `${projectPath(project)}/history${q({ branch, at, fork: fork ?? undefined, wide: wide ? '1' : undefined })}`),
+  /**
+   * How many Commits a side Branch has at its head (null for main). The host keeps the
+   * count per head, so asking again after the head moved reads only the new Commits.
+   */
+  commitCount: (api: LayerfsApi, project: string, branch: HistoryBranch) =>
+    api.call<{ head: string | null, count: number | null }>('GET', `${projectPath(project)}/history${q({ branch: branch.name, at: branch.head ?? undefined, fork: branch.forkedFrom ?? undefined, count: '1' })}`),
   /** A Branch's first page; none is read for a side Branch with nothing saved since its fork. */
   branchHead: (api: LayerfsApi, project: string, branch: HistoryBranch): Promise<HistoryPage> =>
     branch.name !== 'main' && branch.head && branch.head === branch.forkedFrom

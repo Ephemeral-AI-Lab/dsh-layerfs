@@ -16,7 +16,7 @@ await build({
   absWorkingDir: root, entryPoints: { graph: 'src/client/files/graph-model.ts' }, outdir: out,
   bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning', outExtension: { '.js': '.mjs' },
 })
-const { graphNodes, branchLanes, layoutNodes } = await import(pathToFileURL(join(out, 'graph.mjs')).href)
+const { graphNodes, branchLanes, layoutNodes, extendPage, movedCount, countedTotal } = await import(pathToFileURL(join(out, 'graph.mjs')).href)
 process.on('exit', () => rmSync(out, { recursive: true, force: true }))
 
 const t = (key, params = {}) => (params.count !== undefined ? `${key}:${params.count}` : key)
@@ -182,6 +182,23 @@ test('layoutNodes: the tree grows long, not tall: rollouts in sequence reuse lan
   }
 })
 
+test('layoutNodes: a chain of nested branches zigzags near its parent instead of climbing', () => {
+  // k1 forks from main; each k(i+1) forks from k(i)'s head after it finished.
+  const branches = [branch('main', 'l1')]
+  const pages = { main: page([commit('l1', 'main', null, { at: 0 })]) }
+  let fork = 'l1'
+  for (let i = 1; i <= 7; i++) {
+    const n = `k${i}`
+    branches.push(branch(n, `${n}x3`, fork))
+    pages[n] = page([3, 2, 1].map((j) => commit(`${n}x${j}`, n, j === 1 ? fork : `${n}x${j - 1}`, { at: i * 1000 + j })))
+    fork = `${n}x3`
+  }
+  const layout = layoutNodes(graphNodes(branches, pages, noSources, new Set(), null, t), new Map())
+  const lanes = branches.slice(1).map((b) => layout.lanes.get(b.name))
+  assert.equal(new Set(lanes.map(Math.sign)).size, 1, 'the chain stays on one side of main')
+  assert.ok(Math.max(...lanes.map(Math.abs)) <= 3, `seven nested branches stay within a few lanes (${lanes})`)
+})
+
 test('layoutNodes: x is commit order, not the clock', () => {
   const hour = 3600000
   const branches = [branch('main', 'l1'), branch('w', 'w3', 'l1')]
@@ -192,7 +209,7 @@ test('layoutNodes: x is commit order, not the clock', () => {
   assert.ok(x('w3') - x('w2') < 30)
 })
 
-test('layoutNodes: a collapsed run keeps the length of its commits', () => {
+test('layoutNodes: a collapsed run takes a short width, not a step per commit', () => {
   const items = []
   for (let i = 12; i >= 1; i--) items.push(commit(`c${i}`, 'w', i === 1 ? 'l1' : `c${i - 1}`, { at: i * 1000 }))
   const branches = [branch('main', 'l1'), branch('w', 'c12', 'l1')]
@@ -200,7 +217,9 @@ test('layoutNodes: a collapsed run keeps the length of its commits', () => {
   const layout = layoutNodes(graphNodes(branches, pages, noSources, new Set(), null, t), new Map())
   const group = layout.positioned.find((n) => n.kind === 'group')
   assert.equal(group.commits.length, 11)
-  assert.ok(layout.points.get('c12').x - group.x > 5 * 14, 'the head sits past the whole run, not one step past a dot')
+  const gap = layout.points.get('c12').x - group.x
+  assert.ok(gap > 14 && gap <= 4 * 14, `the head sits just past the run's dots, not eleven steps on (${gap})`)
+  assert.ok(group.end - (2 * group.x - group.end) <= 4 * 14, 'eleven commits fold into a short run')
 })
 
 test('layoutNodes: rollouts saved at the same moments take separate lanes', () => {
@@ -266,4 +285,108 @@ test('layoutNodes: a branch is as long as its own commits, running ones share co
   assert.equal(len('b'), 5 * 14)
   assert.ok(Math.abs(s.points.get('a1').x - s.points.get('b1').x) <= 14, 'a and b run side by side')
   assert.ok(s.points.get('c1').x > Math.max(s.points.get('a6').x, s.points.get('b6').x), 'c starts past everything saved before it')
+})
+
+test('extendPage: a moved head keeps the pages loaded below the old head', () => {
+  const chain = (from, to, name = 'w') => Array.from({ length: from - to + 1 }, (_, i) => commit(`c${from - i}`, name, from - i > 1 ? `c${from - i - 1}` : 'l1'))
+  const old = page(chain(60, 1), null, 'c60')
+  // Three new Commits: the fresh first page (20) reaches c60.
+  const fresh = page(chain(63, 44), 'c43', 'c63')
+  const joined = extendPage(fresh, old)
+  assert.equal(joined.head, 'c63')
+  assert.equal(joined.items.length, 63)
+  assert.deepEqual(joined.items.slice(0, 4).map((c) => c.id), ['c63', 'c62', 'c61', 'c60'])
+  assert.equal(joined.next, null, 'the old pages were complete')
+  // Too many new Commits for one page: the caller has to read on.
+  assert.equal(extendPage(page(chain(100, 81), 'c80', 'c100'), old), undefined)
+  // Same head: the deeper of the two stays.
+  assert.equal(extendPage(page(chain(60, 41), 'c40', 'c60'), old), old)
+  // The old read was shallower than the fresh page's tail: the fresh tail and cursor win.
+  const shallow = page(chain(60, 59), 'c58', 'c60')
+  const deeper = extendPage(page(chain(61, 42), 'c41', 'c61'), shallow)
+  assert.equal(deeper.items.length, 20)
+  assert.equal(deeper.next, 'c41')
+})
+
+test('movedCount: counts without a read when the page tells it', () => {
+  const b = (head, fork = 'l1') => branch('w', head, fork)
+  const items = (ids) => ids.map((id, i) => commit(id, 'w', ids[i + 1] ?? 'l1'))
+  assert.equal(movedCount({ head: 'c9', count: 9 }, undefined, b('c9')), 9, 'unchanged head')
+  assert.equal(movedCount(undefined, undefined, b('l1')), 0, 'nothing saved since the fork')
+  assert.equal(movedCount(undefined, page(items(['c3', 'c2', 'c1']), null, 'c3'), b('c3')), 3, 'a complete page')
+  assert.equal(movedCount({ head: 'c40', count: 40 }, page(items(['c42', 'c41', 'c40', 'c39']), 'c38', 'c42'), b('c42')), 42, 'two new above the counted head')
+  assert.equal(movedCount({ head: 'c10', count: 10 }, page(items(['c42', 'c41']), 'c40', 'c42'), b('c42')), null, 'the counted head is past the page: the host counts')
+  assert.equal(movedCount(undefined, page(items(['c42', 'c41']), 'c40', 'c42'), b('c42')), null, 'nothing counted yet')
+  assert.equal(movedCount(undefined, page(items(['c3']), null, 'c2'), b('c3')), null, 'a page of another head')
+})
+
+test('graph at Quarry scale: 17 Branches, 1,100 Commits, folded and one run expanded, stays fast', () => {
+  const branches = [branch('main', 'l2')]
+  const pages = { main: page([commit('l2', 'main', 'l1'), commit('l1', 'main', null)], null, 'l2') }
+  let id = 1000
+  for (let b = 0; b < 17; b++) {
+    const n = b < 5 ? 160 : 40
+    const items = []
+    let parent = 'l2'
+    for (let i = 0; i < n; i++) { const c = commit(`c${id++}`, `b${b}`, parent); items.push(c); parent = c.id }
+    items.reverse()
+    branches.push(branch(`b${b}`, items[0].id, 'l2'))
+    pages[`b${b}`] = page(items, null, items[0].id)
+  }
+  const total = Object.values(pages).reduce((s, p) => s + p.items.length, 0)
+  assert.ok(total >= 1100)
+  const run = () => {
+    const { lanes } = branchLanes(branches, pages, new Map())
+    const nodes = graphNodes(branches, pages, noSources, new Set(), null, t)
+    return { nodes, layout: layoutNodes(nodes, lanes) }
+  }
+  run()
+  const started = performance.now()
+  const { nodes } = run()
+  const folded = performance.now() - started
+  assert.ok(nodes.length < 120, `runs fold: ${nodes.length} nodes for ${total} Commits`)
+  // Expanding a 100-Commit group draws its Commits one by one.
+  const group = nodes.find((n) => n.kind === 'group' && n.commits.length === 100)
+  const t2 = performance.now()
+  const { lanes } = branchLanes(branches, pages, new Map())
+  const open = graphNodes(branches, pages, noSources, new Set([group.id]), null, t)
+  layoutNodes(open, lanes)
+  const expanded = performance.now() - t2
+  assert.ok(open.length >= nodes.length + 99)
+  console.log(`  graph: ${total} Commits -> ${nodes.length} nodes in ${folded.toFixed(1)} ms; one group expanded -> ${open.length} nodes in ${expanded.toFixed(1)} ms`)
+  assert.ok(folded < 50 && expanded < 50, 'well inside a frame budget on a loaded machine')
+})
+
+test('countedTotal: only when every Branch is counted at its head; a headless Branch never crashes it', () => {
+  const branches = [branch('a', 'c2', 'l1'), { name: 'fresh', base: 'l1', forkedFrom: 'l1' }]
+  assert.equal(countedTotal(branches, {}), null, 'a headless Branch with no count: no total (it used to read undefined.count)')
+  assert.equal(countedTotal(branches, { a: { head: 'c2', count: 2 } }), null)
+  assert.equal(countedTotal(branches, { a: { head: 'c2', count: 2 }, fresh: { head: null, count: 0 } }), 2)
+  assert.equal(countedTotal(branches, { a: { head: 'c1', count: 1 }, fresh: { head: null, count: 0 } }), null, 'a moved head waits for its count')
+  assert.equal(countedTotal([], {}), null)
+})
+
+test('Show all: every run unfolds, and the whole Quarry-sized graph stays fast', () => {
+  const branches = [branch('main', 'l2')]
+  const pages = { main: page([commit('l2', 'main', 'l1'), commit('l1', 'main', null)], null, 'l2') }
+  let id = 5000
+  for (let b = 0; b < 17; b++) {
+    const items = []
+    let parent = 'l2'
+    for (let i = 0; i < (b < 5 ? 160 : 40); i++) { const c = commit(`c${id++}`, `b${b}`, parent); items.push(c); parent = c.id }
+    items.reverse()
+    branches.push(branch(`b${b}`, items[0].id, 'l2'))
+    pages[`b${b}`] = page(items, null, items[0].id)
+  }
+  const commits = Object.values(pages).reduce((s, p) => s + p.items.length, 0)
+  const { lanes } = branchLanes(branches, pages, new Map())
+  graphNodes(branches, pages, noSources, new Set(), null, t, true)
+  const started = performance.now()
+  const nodes = graphNodes(branches, pages, noSources, new Set(), null, t, true)
+  layoutNodes(nodes, lanes)
+  const ms = performance.now() - started
+  assert.equal(nodes.filter((n) => n.kind === 'group').length, 0, 'no folded runs left')
+  assert.equal(nodes.length, commits, 'one node per checkpoint and Layer')
+  console.log(`  show all: ${commits} Commits -> ${nodes.length} nodes in ${ms.toFixed(1)} ms`)
+  assert.ok(ms < 100)
 })

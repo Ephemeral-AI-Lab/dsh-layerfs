@@ -49,10 +49,25 @@ function useProjectCalls(api: LayerfsApi, project: string, sandboxes: readonly s
   const [grow, setGrow] = useState(0)
   const known = (sandboxes ?? []).join('|')
   useEffect(() => { setLines(null); setError(null) }, [project])
+  // One read at a time: a refresh while one runs queues one more (the scan is a heavy host
+  // read and the log grows every second in a run); another project or Sandbox set replaces it.
+  const flight = useRef<{ key: string } | null>(null)
+  const queued = useRef(false)
+  const scope = `${project}\u0000${known}\u0000${sandboxes === undefined}`
+  const current = useRef(scope)
+  current.current = scope
   useEffect(() => {
     if (sandboxes === undefined) return
+    if (flight.current?.key === scope) { queued.current = true; return }
     let live = true
-    api.op<LogsProjectAnswer>('logs.project', { project, sandboxes: known ? known.split('|') : [], limit: LIMIT }).then((answer) => {
+    const token = { key: scope }
+    flight.current = token
+    const done = () => {
+      if (flight.current !== token) return
+      flight.current = null
+      if (queued.current && live) { queued.current = false; setGrow((n) => n + 1) }
+    }
+    api.op<LogsProjectAnswer>('logs.project', { project, sandboxes: known ? known.split('|') : [], limit: LIMIT }).finally(done).then((answer) => {
       if (!live) return
       setError(null)
       setHasMore(answer.has_more && answer.lines.length >= LIMIT)
@@ -62,12 +77,14 @@ function useProjectCalls(api: LayerfsApi, project: string, sandboxes: readonly s
         return answer.lines
       })
     }, (e) => { if (live) setError(e) })
-    return () => { live = false }
+    // A refresh keeps this read (its answer is still this scope's); another scope or unmount drops it.
+    return () => { if (current.current !== token.key) live = false }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, project, known, tick, grow, sandboxes === undefined])
+  useEffect(() => () => { current.current = '' }, [])
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
-    const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; setGrow((n) => n + 1) }, 800) }
+    const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; if (document.visibilityState === 'visible') setGrow((n) => n + 1) }, 3000) }
     const offs = [api.onEvent(LOGS_EVENT, later), api.onEvent('layerfs-checkpoint', later), api.onEvent('connection', later)]
     return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
   }, [api])
@@ -86,7 +103,7 @@ export function ProjectSandboxes({ api, t: ts, share, project, tick, onDialog }:
   const [closed, setClosed] = useState(0)
   // The Sandbox list is reread on a refresh, a Close, and when the calls open or close something.
   const [shape, setShape] = useState(0)
-  const boxes = useQuery(() => api.call<SandboxInfo[]>('GET', `/api/projects/${enc(project)}/sandboxes`), [api, project, tick, closed, shape])
+  const boxes = useQuery(() => api.call<SandboxInfo[]>('GET', `/api/projects/${enc(project)}/sandboxes`), [api, project, shape], { refresh: [tick, closed], cache: `sandboxes:${project}:${String(shape)}` })
   const names = useMemo(() => boxes.data?.map((b) => b.name), [boxes.data])
   const calls = useProjectCalls(api, project, boxes.data || boxes.error ? names ?? [] : undefined, tick)
   const shapeCount = useMemo(() => calls.lines?.filter((l) => l.outcome === 'ok' && SHAPE.has(opOf(l))).length ?? 0, [calls.lines])

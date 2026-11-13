@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -25,5 +25,10 @@ test('a bound session writes only its own Store, Sandbox and machine in the Laye
     assert.deepEqual(sessionHomeRoots(home, { project: 'pg/app', sandbox: 'dsh-missing', machine: 'vm' }), [join(home, 'machine/vm')], 'missing directories are not granted')
     assert.deepEqual(sessionHomeRoots(home, { project: '../x', sandbox: '..', machine: '../../etc' }), [], 'path traversal is never granted')
     assert.deepEqual(sessionHomeRoots(undefined, { project: 'mine/app' }), [])
+    assert.deepEqual(sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a', machine: 'native' }, { createSandboxes: true }),
+      [join(home, 'store/mine'), join(home, 'sandbox'), join(home, 'machine/native')], 'a session that may create Sandboxes gets the records folder')
+    writeFileSync(join(home, 'layerfs.lock'), '')
+    for (const opts of [{}, { createSandboxes: true }]) for (const root of sessionHomeRoots(home, { project: 'mine/app', sandbox: 'dsh-a', machine: 'native' }, opts))
+      assert.ok(statSync(root).isDirectory(), `only directories are granted (DSH refuses file roots): ${root}`)
   } finally { rmSync(home, { recursive: true, force: true }) }
 })

@@ -41,18 +41,24 @@ export function ProjectFiles(props: ProjectFilesProps): ReactNode {
   const { api, project, t } = props
   const [pos, setPos] = useState(0)
   const [branches, setBranches] = useState<BranchInfo[]>([])
-  const query = useQuery(() => filesApi.branches(api, project, pos), [api, project, pos, props.tick])
+  const query = useQuery(() => filesApi.branches(api, project, pos), [api, project, pos], { refresh: [props.tick], cache: `branches:${project}:${pos}` })
   useEffect(() => {
     if (query.data) setBranches((all) => [...new Map([...(pos ? all : []), ...query.data!.items].map((b) => [b.name, b])).values()])
   }, [query.data, pos])
   if (query.error && !query.data) return <ErrorState title={t('files_readFailed', { what: project })} error={query.error} retryLabel={t('files_retry')} onRetry={query.reload} />
-  if (!query.data) return <Loading label={t('files_readingFiles')} className={css.pad} />
-  if (!branches.length) return <EmptyState title={t('files_noBranches')}>{t('files_noBranchesBody')}</EmptyState>
+  // Progressive: with a Branch to open, its folder tree loads at once (at its tip) while the
+  // Branch list is still on its way; the list fills the picker when it arrives.
+  if (!query.data && !props.initialBranch) return <Loading label={t('files_readingFiles')} className={css.pad} />
+  const shown = query.data ? branches : [provisional(props.initialBranch!)]
+  if (!shown.length) return <EmptyState title={t('files_noBranches')}>{t('files_noBranchesBody')}</EmptyState>
   return (
-    <FilesFrame key={project} {...props} branches={branches}
-      more={query.data.next != null ? () => setPos(query.data!.next!) : undefined} />
+    <FilesFrame key={project} {...props} branches={shown}
+      more={query.data?.next != null ? () => setPos(query.data!.next!) : undefined} />
   )
 }
+
+/** A Branch known only by name until the Branch list arrives (read at its tip). */
+const provisional = (name: string): BranchInfo => ({ name, head: null, parent: null, forkedFrom: null, state: 'open', commits: null })
 
 /** Browse one exact saved version without exposing internal branch controls. */
 export function SavedProjectFiles(props: Pick<ProjectFilesProps, 'api' | 'project' | 't'> & { version: string }): ReactNode {
@@ -82,9 +88,9 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
   const openRef = useRef(open)
   openRef.current = open
 
-  const load = useCallback((path: string, pos = 0) => {
+  const load = useCallback((path: string, pos = 0, quiet = false) => {
     const version = generation.current
-    if (!pos) setDirs((all) => new Map(all).set(path, 'loading'))
+    if (!pos && !quiet) setDirs((all) => new Map(all).set(path, 'loading'))
     filesApi.list(api, project, ref, path, at, pos).then(
       (page) => {
         if (version !== generation.current) return
@@ -94,16 +100,30 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
           return new Map(all).set(path, pos && Array.isArray(had) ? [...had, ...page.items] : page.items)
         })
       },
-      (e: unknown) => { if (version === generation.current) setDirs((all) => new Map(all).set(path, e instanceof Error ? e : new Error(String(e)))) },
+      (e: unknown) => {
+        if (version !== generation.current) return
+        // A quiet reread that fails keeps the folder it had.
+        setDirs((all) => quiet && Array.isArray(all.get(path)) ? all : new Map(all).set(path, e instanceof Error ? e : new Error(String(e))))
+      },
     )
   }, [api, project, ref, at])
 
+  // Another Branch or pinned version starts the tree over. The Branch's head moving (new
+  // saves) or a refresh rereads the open folders in place, keeping what is on screen.
+  const shown = useRef<string | null>(null)
   useEffect(() => {
     generation.current++
-    setDirs(new Map())
-    for (const path of ['/', ...openRef.current]) load(path)
+    const same = shown.current === `${ref}\u0000${pin ?? ''}`
+    shown.current = `${ref}\u0000${pin ?? ''}`
+    if (!same) setDirs(new Map())
+    for (const path of ['/', ...openRef.current]) load(path, 0, same)
     return () => { generation.current++ }
-  }, [load, tick])
+  }, [load])
+  const firstTick = useRef(tick)
+  useEffect(() => {
+    if (tick === firstTick.current) return
+    for (const path of ['/', ...openRef.current]) load(path, 0, true)
+  }, [tick])
 
   const root = dirs.get('/')
   const greeted = useRef(false)

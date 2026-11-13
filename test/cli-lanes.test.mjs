@@ -65,6 +65,7 @@ else if ((op === 'file.list' || op === 'file.write') && failing('race.count', 'F
 } else if (op === 'machine.update' && failing('update.count', 'FAKE_UPDATE_FAILS')) {
   process.stderr.write(JSON.stringify({ code: 'Failed', message: 'daemon not reachable' }) + '\\n'); process.exit(125)
 } else if (op === 'machine.get' && process.env.FAKE_SLOW_MS) setTimeout(() => answer({ slow: true }), Number(process.env.FAKE_SLOW_MS))
+else if (op === 'machine.list' && process.env.FAKE_SLOW_LIST_MS) setTimeout(() => answer({ items: [] }), Number(process.env.FAKE_SLOW_LIST_MS))
 else answer({ argv: a })
 `, { mode: 0o700 })
   return { cli, home: join(dir, 'home'), log: () => existsSync(join(dir, 'calls.log')) ? readFileSync(join(dir, 'calls.log'), 'utf8').trim().split('\n').map(JSON.parse) : [] }
@@ -73,7 +74,9 @@ let n = 0
 const fresh = () => { const dir = join(root, `t${n++}`); mkdirSync(dir); return { dir, ...fakeCli(dir) } }
 
 test('laneOf: short calls, long jobs, Workspace commands and exec-cancel take separate lanes', () => {
-  assert.equal(C.laneOf(['machine', 'list']).name, 'calls')
+  // Machine probes poll an unreachable VM for their whole budget: they never take a page read's slot.
+  for (const argv of [['machine', 'list'], ['machine', 'status', '--', 'vm'], ['machine', 'platforms']]) assert.equal(C.laneOf(argv).name, 'probes', argv.join(' '))
+  assert.equal(C.laneOf(['store', 'list']).name, 'calls')
   assert.equal(C.laneOf(['file', 'write', '--', 'p/a', 'main', '/x']).name, 'calls')
   for (const argv of [['store', 'push'], ['store', 'pull'], ['backup', 'create'], ['backup', 'restore'], ['project', 'init'], ['project', 'export'], ['machine', 'create'], ['machine', 'start'], ['machine', 'stop'], ['machine', 'update'], ['sandbox', 'create'], ['doctor', 'store', 'integrity']]) {
     assert.equal(C.laneOf(argv).name, 'jobs', argv.join(' '))
@@ -118,6 +121,20 @@ test('reads get a time budget (timeout_ms overrides it); a timed-out call is tra
   assert.deepEqual(await lfs.machine.get('vm', { timeout_ms: 0 }), { slow: true }, '0: no budget')
   await assert.rejects(lfs.machine.get('vm', { timeout_ms: -1 }), (error) => error.code === 'InvalidInput')
   assert.ok(!f.log().some((argv) => argv.some((word) => word.includes('timeout'))), 'timeout_ms never reaches the CLI')
+})
+
+test('machine probes default to the short budget: a dead VM answers unreachable in seconds, not minutes', { timeout: 40000 }, async (t) => {
+  const f = fresh()
+  const lfs = C.client({ cli: f.cli, home: f.home })
+  assert.ok(C.PROBE_TIMEOUT_MS < C.READ_TIMEOUT_MS)
+  assert.deepEqual([...C.PROBES].sort(), ['machine.list', 'machine.platforms', 'machine.status'])
+  t.after(() => { delete process.env.FAKE_SLOW_LIST_MS })
+  await lfs.machine.get('vm') // discovery first, so the clock times only the probe
+  process.env.FAKE_SLOW_LIST_MS = String(C.PROBE_TIMEOUT_MS + 20000)
+  const started = Date.now()
+  await assert.rejects(lfs.machine.list(), (error) => error.code === 'Unknown' && error.transport === 'transport-unknown' && error.detail.timeout === C.PROBE_TIMEOUT_MS)
+  const took = Date.now() - started
+  assert.ok(took >= C.PROBE_TIMEOUT_MS - 200 && took < C.PROBE_TIMEOUT_MS + 2 * C.KILL_GRACE_MS + 3000, `settled after ${took} ms`)
 })
 
 test('a timeout ends the CLI\'s process group, escalating to SIGKILL, and settles', { timeout: 40000 }, async () => {

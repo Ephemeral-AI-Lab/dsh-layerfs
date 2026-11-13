@@ -18,11 +18,14 @@
  * Event: `logs` after stand-in appends (at most once a second).
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { mkdirSync, watch } from 'node:fs'
-import { dirname } from 'node:path'
+import { mkdirSync, watch, type FSWatcher } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { HOST_SESSION, isDshTag, LOGS_EVENT, parseSimTag, parseTag, sessionTag, TAG_PREFIX, type CallLabel, type CallLine, type LabeledLine, type LogsListArgs, type LogsListAnswer, type LogsOutputAnswer, type LogsProjectAnswer } from '../../shared/logs.ts'
 import { matches, onCallLogAppend } from '../layerfs/call-log.ts'
-import { hasOutput, outputsDir, readOutput, validOutputTag } from '../layerfs/call-output.ts'
+import { compactRaw, hasOutput, outputsDir, RAW_DIR, RAW_SETTLE_MS, readOutput, validOutputTag } from '../layerfs/call-output.ts'
+
+/** Finished raw outputs are compacted into records at most this often. */
+const COMPACT_MS = 10_000
 import type { Checkpoint } from '../sessions/state.ts'
 import { callsSince, listArgs, projectCalls, readCalls, resetCalls, type CallPage } from './source.ts'
 
@@ -222,6 +225,36 @@ export function apply(ctx: Context): void {
       return () => watcher.close()
     } catch { return () => {} }
   }, 'dsh-layerfs: logs watch')
+  // With LayerFS's own call log no stand-in line is appended, so a call's end shows as its output: the
+  // agent shell's raw `.exit` (bash wrapper) or the SDK's record. Finished raw calls become records
+  // (`compactRaw`) at most every `COMPACT_MS`: a raw `.exit` arms one trailing run once it has settled,
+  // so the last call of a burst is folded in too (records' own `.json` writes never re-arm it).
+  const outputs = outputsDir(ctx.layerfs.callLog)
+  let compactedAt = 0
+  let pending: ReturnType<typeof setTimeout> | undefined
+  const ended = (file: string | Buffer | null) => {
+    const name = String(file ?? '')
+    if (name && !name.endsWith('.exit') && !name.endsWith('.json')) return
+    fire()
+    if (name.endsWith('.json') || pending) return
+    const wait = Math.max(RAW_SETTLE_MS + 500, compactedAt + COMPACT_MS - Date.now())
+    pending = setTimeout(() => { pending = undefined; compactedAt = Date.now(); compactRaw(outputs) }, wait)
+    pending.unref?.()
+  }
+  ctx.effect(() => {
+    const watchers: FSWatcher[] = []
+    for (const dir of [outputs, join(outputs, RAW_DIR)]) {
+      try {
+        mkdirSync(dir, { recursive: true, mode: 0o700 })
+        const watcher = watch(dir, (_event, file) => ended(file))
+        watcher.on('error', () => {})
+        watcher.unref?.()
+        watchers.push(watcher)
+      } catch { /* no watch: the page still reloads on its own actions */ }
+    }
+    compactRaw(outputs)
+    return () => { for (const watcher of watchers) watcher.close(); clearTimeout(pending); pending = undefined }
+  }, 'dsh-layerfs: outputs watch')
 
   ctx.layerfsRemote.operate(ctx, {
     'logs.list': async (args: any): Promise<LogsListAnswer> => {

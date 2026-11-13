@@ -44,7 +44,7 @@ export function ProjectStorage({ api, t, project, tick, onOpenStore, hero = true
     const refresh = force.current
     force.current = false
     return api.call<ProjectStorageView>('GET', `/api/projects/${enc(project)}/storage${refresh ? '?refresh=1' : ''}`)
-  }, [api, project, tick])
+  }, [api, project], { refresh: [tick], cache: `project-storage:${project}` })
   const view = q.data?.project === project ? q.data : undefined
   const building = view?.building ?? null
   useEffect(() => {

@@ -35,6 +35,7 @@
  */
 import { projectContext } from './prompt.ts'
 import type { Context } from '@deepseek-ai/cordis'
+import { existsSync, statSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { notifyCallLog } from '../layerfs/call-log.ts'
@@ -46,6 +47,9 @@ import { UNCLAIMED } from './catalog.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
 import { buildTrajectory, trajectoryDetail, type TrajectoryInput } from './trace.ts'
+
+/** Stored session logs kept parsed for the Trajectory (finished subagents' logs, which DSH has unloaded). */
+const STORED_LOGS = 16
 
 export const name = 'dsh-layerfs-sessions'
 export const inject = ['layerfs', 'layerfsRemote']
@@ -280,11 +284,36 @@ export function apply(ctx: Context): void {
       })
     })
 
-    /** The DSH session log of a loaded session, or undefined when it is not loaded. */
-    const sessionEvents = (id: string): any[] | undefined => {
+    /** Stored logs read for sessions DSH has not loaded, by id, kept while the file's size and mtime hold. */
+    const storedLogs = new Map<string, { key: string, events: any[] }>()
+    /**
+     * A session's DSH log: the loaded session's, else its stored log (a finished
+     * subagent is unloaded, but its log stays on disk). Undefined when neither exists.
+     */
+    const sessionEvents = async (id: string): Promise<any[] | undefined> => {
       try {
         const events = (ctx.get('sessions' as never) as any)?.get?.(id)?.snapshotEvents?.(0)
-        return Array.isArray(events) ? events : undefined
+        if (Array.isArray(events)) return events
+      } catch { /* not loaded */ }
+      try {
+        const persistence = localPersistence(ctx)
+        const snapshot = await persistence?.stat(id)
+        if (!snapshot) return undefined
+        const path = snapshot.location?.path
+        const info = path && existsSync(path) ? statSync(path) : undefined
+        const key = info ? `${info.size}:${info.mtimeMs}` : ''
+        const kept = storedLogs.get(id)
+        if (key && kept?.key === key) return kept.events
+        const reader = await persistence.open(id, 'read')
+        let read: any[]
+        try { read = (await reader.read()).events } finally { await reader.close() }
+        if (!Array.isArray(read)) return undefined
+        if (key) {
+          storedLogs.delete(id)
+          storedLogs.set(id, { key, events: read })
+          while (storedLogs.size > STORED_LOGS) storedLogs.delete(storedLogs.keys().next().value!)
+        }
+        return read
       } catch { return undefined }
     }
     /** What `buildTrajectory` reads: the log, receipts and checkpoints (shared subagents follow their parent's binding). */
@@ -294,7 +323,7 @@ export function apply(ctx: Context): void {
       let binding = sessions.binding(id)
       if (binding?.kind === 'shared' && binding.parent) binding = sessions.binding(binding.parent) ?? binding
       const local = sessions.checkpoints(id)
-      const events = sessionEvents(id)
+      const events = await sessionEvents(id)
       return {
         sessionId: id,
         project: binding?.project ?? persistence?.ownerOf?.(id)?.project ?? null,
@@ -477,8 +506,8 @@ export function apply(ctx: Context): void {
         const id = need(args, 'sessionId')
         const seq = Number(args?.seq)
         if (!Number.isInteger(seq)) throw new CliError('InvalidInput', 'seq must be an integer')
-        const detail = trajectoryDetail(sessionEvents(id), seq)
-        if (!detail) throw new CliError('NotFound', `No trajectory record ${seq} in this session's loaded log`)
+        const detail = trajectoryDetail(await sessionEvents(id), seq)
+        if (!detail) throw new CliError('NotFound', `No trajectory record ${seq} in this session's log`)
         return detail
       },
       'session.place': (args: any) => {

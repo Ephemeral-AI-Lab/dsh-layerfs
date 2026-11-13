@@ -41,6 +41,8 @@ export interface CliSpec {
   readonly home: string
   /** Optional folder scope. */
   readonly scope?: { readonly project: string, readonly folder: string, readonly branch?: string }
+  /** `false`: every read asks the CLI (no `KEPT_READS` answers), e.g. to count spawns per repetition. */
+  readonly keepReads?: boolean
   /** The Linux bundle folder VM/container machines start workers from (LAYERFS_BUNDLE). */
   readonly bundle?: string | null
   /**
@@ -243,20 +245,39 @@ export const KILL_GRACE_MS = 2000
 export const EXIT_GRACE_MS = 2000
 /** The default budget of an SDK read call; `timeout_ms` overrides it (0: none). */
 export const READ_TIMEOUT_MS = 120_000
+/**
+ * The default budget of a machine probe ({@link PROBES}). A healthy machine
+ * answers in well under a second; one whose VM died while its Lima host agent
+ * lives on (`limactl list` still says Running) holds the probe on an SSH that
+ * never connects, so the page learns it is unreachable in seconds, not minutes.
+ */
+export const PROBE_TIMEOUT_MS = 15_000
+/** Machine reads that pages poll: their own lane and the shorter budget. */
+export const PROBES = new Set(['machine.status', 'machine.list', 'machine.platforms'])
+/**
+ * Reads whose answer is reused for this many ms (state polls; machine probes take seconds
+ * each). A write through the same client clears them all.
+ */
+export const KEPT_READS = new Map<string, number>([
+  ['store.status', 2000], ['store.list', 2000], ['project.get', 2000], ['project.list', 2000], ['branch.list', 2000],
+  ['machine.get', 2000], ['machine.list', 5000], ['machine.status', 5000], ['machine.platforms', 5000],
+])
 
 /**
  * The admission lane a call takes when its caller names none. Short calls share
  * `calls`; calls that run as long as their work (VM create/start, Store
  * push/pull, backups, project init/export, Doctor, connection checks) take
- * `jobs`; Workspace commands (terminals) take `exec`; `exec-cancel` its own. So
- * a page's short reads are never queued behind long work, and terminals
- * never starve jobs or the other way round.
+ * `jobs`; Workspace commands (terminals) take `exec`; `exec-cancel` its own;
+ * machine probes ({@link PROBES}) take `probes`. So a page's short reads are
+ * never queued behind long work or behind probes of an unreachable machine,
+ * and terminals never starve jobs or the other way round.
  */
 export function laneOf(argv: readonly string[]): { name: string, limit: number } {
   const family = argv[0] ?? '', call = String(argv[1] ?? '').replaceAll('-', '_')
   if (family === 'workspace' && call === 'exec_cancel') return { name: 'cancel', limit: 4 }
   if (family === 'workspace' && call === 'exec') return { name: 'exec', limit: 8 }
   if (family === 'doctor' || LONG_CALLS.has(`${family}.${call}`)) return { name: 'jobs', limit: 4 }
+  if (PROBES.has(`${family}.${call}`)) return { name: 'probes', limit: 4 }
   return { name: 'calls', limit: 4 }
 }
 const LONG_CALLS = new Set([
@@ -545,6 +566,10 @@ export type Lfs = { readonly spec: CliSpec } & Record<string, Record<string, (..
  */
 export function client(spec: CliSpec): Lfs {
   const flying = new Map<string, Promise<unknown>>()
+  // Answers of polling reads, kept briefly: pages, tabs and every agent step ask these many
+  // times a second during a team run, each a CLI process in the Store's queue. Any write
+  // through this client clears them, so what it changed is read fresh.
+  const recent = new Map<string, { until: number, value: unknown }>()
   const families = new Map<string, Record<string, (...a: any[]) => Promise<any>>>()
   return new Proxy({ spec } as Lfs, {
     get(target, family: string | symbol) {
@@ -607,9 +632,9 @@ export function client(spec: CliSpec): Lfs {
             if (spec.scope) words.push('--scope', spec.scope.folder, '--scope-project', spec.scope.project, ...(spec.scope.branch ? ['--scope-branch', spec.scope.branch] : []))
             words.push('--', ...positionals)
             const read = READS.has(call)
-            // Reads get a generous default budget; writes and long work (exec, jobs) none unless asked.
+            // Reads get a generous default budget (machine probes a short one); writes and long work (exec, jobs) none unless asked.
             const opts: any = options
-            const timeout: number | undefined = opts.timeout_ms ?? (read ? READ_TIMEOUT_MS : undefined)
+            const timeout: number | undefined = opts.timeout_ms ?? (!read ? undefined : PROBES.has(`${family}.${call}`) ? PROBE_TIMEOUT_MS : READ_TIMEOUT_MS)
             const storeRead = read && args[0] && (entry.args[0]?.kind === 'project' || family === 'store') ? String(args[0]).split('/')[0] : undefined
             const invoke = () => execute(spec, words, {
               input, read, storeRead, events, timeout: timeout || undefined,
@@ -617,12 +642,23 @@ export function client(spec: CliSpec): Lfs {
               onSpawn: (child) => opts.on_spawn?.(child.pid),
               onFrame: (frame) => { if (frame.stream) opts[frame.stream]?.(bytes(frame.bytes)) },
             })
-            if (!read) return invoke()
+            if (!read) {
+              recent.clear()
+              return invoke().finally(() => recent.clear())
+            }
             const key = JSON.stringify([words, input ?? null])
+            // A call with its own budget is a deliberate probe: it always asks.
+            const keep = opts.timeout_ms === undefined && spec.keepReads !== false ? KEPT_READS.get(`${family}.${call}`) : undefined
+            const kept = keep ? recent.get(key) : undefined
+            if (kept && kept.until > Date.now()) return Promise.resolve(kept.value)
             if (!flying.has(key)) {
               const pending = retryRace(invoke)
               flying.set(key, pending)
-              pending.finally(() => flying.delete(key)).catch(() => {})
+              pending.then((value) => {
+                if (!keep) return
+                if (recent.size > 500) recent.clear()
+                recent.set(key, { until: Date.now() + keep, value })
+              }, () => {}).finally(() => flying.delete(key)).catch(() => {})
             }
             return flying.get(key)
           }

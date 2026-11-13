@@ -29,10 +29,14 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
   const load = (localOnly: boolean) => enabled
     ? readWithDeadline(api.op<SessionList>('sessions.list', { project, projectId, localOnly }))
     : Promise.resolve<SessionList>({ sessions: [] })
-  const local = useQuery(() => load(true), [api, project, projectId, enabled])
-  const archive = useQuery(() => load(false), [api, project, projectId, enabled])
+  const key = `${project}:${projectId ?? ''}:${enabled}`
+  const local = useQuery(() => load(true), [api, project, projectId, enabled], { cache: `sessions-local:${key}` })
+  const archive = useQuery(() => load(false), [api, project, projectId, enabled], { cache: `sessions-archive:${key}` })
   const reload = () => { local.reload(); archive.reload() }
-  useHostEvents(api, ['layerfs-session', 'layerfs-availability', 'layerfs-workspaces-changed', 'storage', 'machine-progress', 'connection'], () => { if (enabled) reload() })
+  // Session events come many a second during a run: they reread the local list only. The
+  // portable archive (a Store walk, one read per stored session) waits for the 15 s poll.
+  useHostEvents(api, ['layerfs-session', 'layerfs-workspaces-changed'], () => { if (enabled) local.reload() })
+  useHostEvents(api, ['layerfs-availability', 'storage', 'machine-progress', 'connection'], () => { if (enabled) reload() })
   useEffect(() => {
     if (!enabled) return
     const timer = setInterval(() => { if (document.visibilityState === 'visible') reload() }, 15_000)

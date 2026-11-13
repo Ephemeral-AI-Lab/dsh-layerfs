@@ -14,6 +14,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { EmptyState, ErrorState, Loading } from '../files/States.tsx'
+import { useQuery } from '../files/use-query.ts'
 import type { ToolRecord, TraceVersion, TrajectoryAnswer, TrajectoryRecord, TrajectoryTurn } from '../../shared/trajectory.ts'
 import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
@@ -32,35 +33,35 @@ import css from './trajectory.module.css'
 export const TRAJECTORY_VIEW = 'trajectory'
 /** While the session runs, how often the trajectory is read again (shell receipts land when the turn settles). */
 const RUNNING_POLL_MS = 3000
+/** Events wait this long so a burst reads once. */
+const REFRESH_MS = 1000
 /** Host events after which the trajectory may have changed (`{sessionId}` or none). */
 const EVENTS = ['layerfs-operation', 'layerfs-checkpoint', 'layerfs-session'] as const
 
-/** `session.trajectory` of `sessionId`, read again on its LayerFS events, on reconnect and while it runs. */
+/**
+ * `session.trajectory` of `sessionId`, read again on its LayerFS events, on reconnect and
+ * while it runs. One read at a time: events during a read queue one more (a run fires them
+ * many a second), at most one per second; the last answer draws at once on a remount.
+ */
 function useTrajectory(api: LayerfsApi, sessionId: string, running: boolean) {
-  const [state, setState] = useState<{ sessionId: string, answer: TrajectoryAnswer | null, error: unknown }>({ sessionId, answer: null, error: null })
   const [tick, setTick] = useState(0)
+  const query = useQuery(() => api.op<TrajectoryAnswer>('session.trajectory', { sessionId }).then((answer) => ({ sessionId, answer })), [api, sessionId], { refresh: [tick], cache: `session.trajectory:${sessionId}` })
   const reload = useCallback(() => setTick((n) => n + 1), [])
   useEffect(() => {
-    let live = true
-    api.op<TrajectoryAnswer>('session.trajectory', { sessionId }).then(
-      (answer) => { if (live) setState({ sessionId, answer, error: null }) },
-      (error) => { if (live) setState((s) => ({ sessionId, answer: s.sessionId === sessionId ? s.answer : null, error })) },
-    )
-    return () => { live = false }
-  }, [api, sessionId, tick])
-  useEffect(() => {
-    const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === sessionId) reload() }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; reload() }, REFRESH_MS) }
+    const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === sessionId) later() }
     const offs = EVENTS.map((name) => api.onEvent(name, mine))
-    offs.push(api.onEvent('connection', reload))
-    return () => { offs.forEach((off) => off()) }
+    offs.push(api.onEvent('connection', later))
+    return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
   }, [api, sessionId, reload])
   useEffect(() => {
     if (!running) return
-    const timer = setInterval(reload, RUNNING_POLL_MS)
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') reload() }, RUNNING_POLL_MS)
     return () => clearInterval(timer)
   }, [running, reload])
-  const mine = state.sessionId === sessionId
-  return { answer: mine ? state.answer : null, error: mine ? state.error : null, reload }
+  const answer = query.data?.sessionId === sessionId ? query.data.answer : null
+  return { answer, error: answer ? null : query.error ?? null, reload }
 }
 
 /** What a selection points at in the answer. */

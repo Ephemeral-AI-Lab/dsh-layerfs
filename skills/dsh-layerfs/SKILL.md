@@ -17,6 +17,13 @@ the local folder you are in. Use LayerFS as your filesystem:
 You never set anything up: the project, its machine and its Sandbox are ready before
 your first call.
 
+**Write project files straight onto the Branch**, one `file write` / `file edit` per
+file or one `file apply` per group that belongs together, each with a message. Don't
+draft them in the local folder and upload them later, and don't compile or test on the
+local machine: its toolchain, paths and OS are not the Sandbox's, and nothing there is
+saved or seen by anyone else. Build and test in a Workspace; fix what fails with
+`file edit` on the Branch and build again.
+
 ## What you already have
 
 Every bash call has these variables:
@@ -112,7 +119,7 @@ Every SDK example in this skill assumes the names above.
 | **dsh's Workspace** `$DSH_LAYERFS_WS` | dsh's Workspace on `$B`, which records the checkpoints | Leave it alone: no exec, commit or unmount |
 | **`main`** | The project's published version. Not a Branch | Read and fork from it. Changes only through `branch publish` |
 | **Side Branches** | Branches you fork | Experiments and parallel work ([parallel work](references/rules/parallel.md)) |
-| **Local folder** (your cwd) | The scratch folder the user picked. Not part of the project and never saved into it | Your notes, scripts and temporary files |
+| **Local folder** (your cwd) | The scratch folder the user picked. Not part of the project and never saved into it | Your notes, plans and the ledger. **Never project files**: don't draft code there to upload later, and don't build or test the project on the local machine |
 
 **Checkpoints.** At the end of every turn of the main agent in which `$B` moved
 (unless the runtime context says checkpoints are off), dsh records a checkpoint: the
@@ -219,9 +226,10 @@ try {
 - **Commit before you unmount**, a failing step too: everything the commands wrote
   inside the Workspace (sources, lockfiles, `node_modules`, build output) is saved by
   that Commit and nothing else. An unmount with changes left is refused `Dirty`.
-- **At most 16 Workspaces per Sandbox**, dsh's own included, and you can't create
-  Sandboxes. On `Capacity`, unmount Workspaces you're done with; if it stays full,
-  stop and tell the user.
+- **At most 16 Workspaces per Sandbox**, dsh's own included. On `Capacity`, unmount
+  Workspaces you're done with. For more at once, create a Sandbox of your own on the
+  project's machine and mount there ([sandbox](references/methods/sandbox.md#sandbox-create)).
+  Close it when its work is done.
 - A non-zero exit is a result, not a refusal. The command's `--stream` prints the
   output and exits with the command's exit code (125 still means LayerFS refused);
   without it, and in the SDK, the answer is `{ exit_code, stdout, stderr }`, each
@@ -241,6 +249,16 @@ try {
   server, probe it and stop it in one exec, with its output sent to `/tmp`.
 - Tools come from the Sandbox, not from your local machine. Check with
   `command -v node python3 git rg` before relying on one.
+- **On a `docker` (Linux) Sandbox the image's environment is not applied:** `PATH` is
+  the plain system one, so a tool installed under its own prefix is "not found" there.
+  Rust is in `/usr/local/cargo/bin`: start every exec that uses it with
+  `export RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH`. Look for
+  other tools with `ls /usr/local/*/bin`. You are not root: install into the Workspace.
+- **`/tmp` is small there:** a memory-backed tmpfs (about half the machine's RAM),
+  shared by every Workspace in the Sandbox. Keep logs and exit codes there; put large
+  temporary data (test databases, sorter spills, link temp files) under
+  `$HOME/tmp/<your workspace name>` (`$HOME` is on the machine's disk): set
+  `TMPDIR` to it, `mkdir -p` it, and clear it at the end of the step.
 
 ## Installs and caches belong in the Workspace
 
@@ -324,9 +342,23 @@ Never publish a side Branch the user has not reviewed.
   Stores, machines or backups; they are the user's setup, not part of the task.
 - **A Workspace you mount is yours.** Mount it in `$SB`, commit it, unmount it before
   your turn ends. Never `discard` or unmount another agent's Workspace.
-- **A refusal is information.** `Busy` means another call is changing LayerFS: wait
-  `sleep $((3 + RANDOM % 8))` and run it again, at most 5 times, then report it. `Unknown` or `Failed` means the outcome is uncertain:
-  look (`commit list`, `workspace status`, `sandbox get`) before you act again.
+- **A refusal is information.** The project's Store takes one writer at a time, and
+  on a macOS host a second writer is refused at once instead of waiting. So a write
+  (`file` writes, Workspace Commits, merges, forks) can be refused while dsh or another
+  agent writes:
+  - `Busy`, or `Failed` whose message says `busy before effect` or `Storage(Busy)`:
+    nothing happened. Wait `sleep $((2 + RANDOM % 6))` and run it again, at most 5
+    times, then report it.
+  - `Unknown` whose message says `Busy`: it may or may not have landed. Look first
+    (`file read`, `commit list`, `workspace status`), then run it again only if it
+    did not.
+  - `Failed` whose message is `Os { code: 2, kind: NotFound, … }` on a write: seen on
+    `docker` Stores when several writers land at once (about 1 in 70). So far it has
+    always been before effect, but check: `file stat` the path or `commit list` the
+    Branch; if your change is not there, wait `sleep $((2 + RANDOM % 6))` and run it
+    again (at most 5 times).
+  - Any other `Unknown` or `Failed` means the outcome is uncertain: look
+    (`commit list`, `workspace status`, `sandbox get`) before you act again.
 - **A merge conflict belongs to whoever merged or committed.** Resolve it or report
   it; never delete markers to make a Commit pass ([conflicts](references/rules/conflicts.md)).
 - **Generated files merge by `/.lww`.** In a new project's first step, make sure
@@ -345,7 +377,7 @@ command and SDK forms, results, refusals and examples.
 | [branch](references/methods/branch.md) | `list`, `get`, `commits`, `get-commit`, `fork`, `merge`, `publish`, `diff` |
 | [commit](references/methods/commit.md) | `list`, `get`, `diff` |
 | [file](references/methods/file.md) | reads: `read`, `stat`, `list`, `glob`, `grep`, `revision`, `blame`, `diff`; writes: `write`, `edit`, `rm`, `mkdir`, `mv`, `cp`, `apply` |
-| [sandbox](references/methods/sandbox.md) | `get`, `list` (sessions can't create or close Sandboxes) |
+| [sandbox](references/methods/sandbox.md) | `get`, `list`, `create`, `close` (only Sandboxes you created) |
 | [workspace](references/methods/workspace.md) | `mount`, `exec`, `exec-cancel`, `commit`, `unmount`, `status` |
 | [parallel work](references/rules/parallel.md) | side Branches, subagents, bringing work in |
 | [team runs](references/rules/team.md) | many workers in one Sandbox: slots, Branches, waiting, integrating, reports |

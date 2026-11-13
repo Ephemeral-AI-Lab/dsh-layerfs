@@ -47,6 +47,8 @@
 .note { margin: 0; color: var(--dsw-alias-label-tertiary); }
 .filter { margin-left: 8px; }
 .spacer { flex: 1; }
+/* Replay speed: applies to Play and Replay; Live follows the end at 1×. */
+.speed { flex: none; }
 
 .liveDot {
   display: inline-block;
@@ -402,9 +404,7 @@
 .playState { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; min-width: 72px; color: var(--dsw-alias-label-secondary); }
 .time { flex-shrink: 0; color: var(--dsw-alias-label-secondary); font-family: var(--dsw-font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
 .track { position: relative; flex: 1; height: 30px; }
-.strip { position: absolute; top: 2px; right: 6px; left: 6px; height: 12px; pointer-events: none; }
-.strip i { position: absolute; border-radius: 2px; opacity: 0.55; }
-.stripBad { box-shadow: inset 0 -2px 0 var(--dsw-alias-state-error-primary); }
+.strip { position: absolute; top: 2px; left: 6px; width: calc(100% - 12px); height: 12px; overflow: visible; opacity: 0.55; pointer-events: none; }
 
 .scrub {
   position: absolute;

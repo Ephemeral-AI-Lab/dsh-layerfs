@@ -34,6 +34,8 @@ import type { DoctorReport, PgAttachment, StorageView, StoreRow } from '../stora
 import { MachinesGlyph, SandboxesGlyph, StoreGlyph } from '../machines/icons.tsx'
 import { BucketGlyph } from '../storage/parts.tsx'
 import { CopyLine } from '../ui/index.tsx'
+import { FindingActions } from './FindingActions.tsx'
+import { findingFixes } from './fixes.ts'
 import css from './Health.module.css'
 
 type Group = 'host' | 'machines' | 'sandboxes' | 'stores' | 'buckets'
@@ -195,7 +197,7 @@ export function HealthPage(props: HealthProps): ReactNode {
 
 function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): ReactNode {
   const [tick, setTick] = useState(0)
-  const jobs = useQuery(() => api.call<DoctorJob[]>('GET', '/api/doctor-jobs'), [api, tick])
+  const jobs = useQuery(() => api.call<DoctorJob[]>('GET', '/api/doctor-jobs'), [api], { refresh: [tick] })
   useHostEvents(api, ['doctor'], () => setTick((n) => n + 1))
   const machines = useMachineRows()
   const base = useMemo(() => rowsOf(t, ts('groupHome'), machines, storage), [t, ts, machines, storage])
@@ -277,9 +279,9 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
 
   // Findings: errors first; the home sweep's, each report's and the host's own PostgreSQL facts, in LayerFS's words.
   const findings = [
-    ...sweepFindings.map((f) => ({ severity: f.severity, entity: f.entity ? `${f.entity.kind} · ${f.entity.name}` : null, message: f.message, fix: f.fix, source: t('healthSourceSweep') as string | null })),
-    ...done.flatMap((r) => r.cell.job!.summary!.findings.map((f) => ({ ...f, entity: `${r.row.kind} · ${r.row.label}`, source: 'probe' in r.item && r.item.probe.target.includes('.') ? r.item.probe.target : null }))),
-    ...liveProblems.map((c) => ({ severity: 'error' as const, entity: `${c.row.kind} · ${c.row.label}`, message: 'problem' in c.item && c.item.problem ? c.item.problem.message : c.cell.words, fix: 'problem' in c.item && c.item.problem ? c.item.problem.fix : null, source: c.item.label })),
+    ...sweepFindings.map((f) => ({ severity: f.severity, entity: f.entity ? `${f.entity.kind} · ${f.entity.name}` : null, target: f.entity ?? null, message: f.message, fix: f.fix, source: t('healthSourceSweep') as string | null })),
+    ...done.flatMap((r) => r.cell.job!.summary!.findings.map((f) => ({ ...f, entity: `${r.row.kind} · ${r.row.label}`, target: { kind: r.row.kind, name: r.row.name }, source: 'probe' in r.item && r.item.probe.target.includes('.') ? r.item.probe.target : null }))),
+    ...liveProblems.map((c) => ({ severity: 'error' as const, entity: `${c.row.kind} · ${c.row.label}`, target: { kind: c.row.kind, name: c.row.name }, message: 'problem' in c.item && c.item.problem ? c.item.problem.message : c.cell.words, fix: 'problem' in c.item && c.item.problem ? c.item.problem.fix : null, source: c.item.label })),
   ].sort((a, b) => Number(a.severity !== 'error') - Number(b.severity !== 'error'))
   const grouped = groupFindings(findings)
 
@@ -369,6 +371,7 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
                   {f.fix ? (/^layerfs\s/.test(f.fix)
                     ? <CopyLine text={f.fix} copyLabel={t('healthCopy')} copiedLabel={t('healthCopied')} />
                     : <span className={css.fix}><Inline text={f.fix} /></span>) : null}
+                  <FindingActions fixes={findingFixes(f)} t={t} onDone={onSweep} />
                   {also.length ? (
                     <details className={css.also}>
                       <summary>{t('healthAlsoAffects', { n: also.length })}</summary>
@@ -495,7 +498,7 @@ function withSweep(rows: Row[], sweep: DoctorReport | undefined, t: DoctorT): Ro
   })
 }
 
-interface Finding { severity: 'error' | 'warning', entity: string | null, message: string, fix: string | null, source: string | null }
+interface Finding { severity: 'error' | 'warning', entity: string | null, target?: { kind: string, name: string } | null, message: string, fix: string | null, source: string | null }
 
 /**
  * Findings that say the same thing about different resources become one
