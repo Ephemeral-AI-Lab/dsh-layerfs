@@ -27,15 +27,69 @@ Changing the owner after work starts requires a new session.
 
 ## Install
 
+Two parts: this plugin, and a LayerFS runtime built from the tip of
+[`layerfs_v2_0_0`](https://github.com/Ephemeral-AI-Lab/layerfs/tree/layerfs_v2_0_0).
+The plugin pins no LayerFS version; it runs the runtime you pin. To have an agent do
+all of this, give it [docs/install-prompt.md](docs/install-prompt.md).
+
+### 1. The plugin (Node ≥ 24, DSH 0.2.2-rc.1)
+
+`lib/` is not committed, so build after cloning; the `@deepseek-ai` packages come
+from the public npm registry.
+
 ```sh
-pnpm --dir /path/to/dsh-layerfs install   # or npm install
-node scripts/build.mjs
-dsh plugin --profile web add link:/path/to/dsh-layerfs
+git clone -b layerfs_v2_0_0 https://github.com/Ephemeral-AI-Lab/dsh-layerfs.git
+cd dsh-layerfs && npm install && node scripts/build.mjs
+dsh plugin --profile web add link:$PWD
 ```
 
-Pin LayerFS 2.0 (CLI and matching daemon) with `DSH_LAYERFS_CLI` / `DSH_LAYERFS_DAEMON`,
-or later on Machines → LayerFS runtime → Change, which installs the CLI, daemon and
-bundle into the LayerFS home (`runtime/<version>-<sha>/`) and pins those copies.
+### 2. A LayerFS runtime from the latest `layerfs_v2_0_0`
+
+Build in a LayerFS worktree registered with `tools/worktree.py` (LayerFS
+`docs/general/parallel-worktrees.md`). **Pass `--profile release` everywhere**: both
+build tools default to debug, and a debug daemon makes docker Workspaces several
+times slower.
+
+```sh
+git -C /path/to/layerfs fetch origin layerfs_v2_0_0
+git -C /path/to/layerfs worktree add --detach /path/to/layerfs-v2-tip origin/layerfs_v2_0_0
+cd /path/to/layerfs-v2-tip
+# prints the registration's resources.json ($R); the images are the LayerFS build,
+# runtime and sandbox images already installed on this host
+python3 tools/worktree.py register --worktree "$PWD" --owner <name> \
+  --build-image <build-image> --runtime-image <runtime-image> --sandbox-image <sandbox-image>
+# macOS CLI, daemon and Node SDK addon; prints the sealed build folder ($B)
+python3 tools/worktree.py build --resources "$R" --platform macos --profile release \
+  --features layerfs-cli/postgresql,layerfs-cli/tls,layerfs-daemon/postgresql,layerfs-node/postgresql,layerfs-node/tls
+# the Linux bundle docker and Lima machines run; --dest keeps the shared default untouched
+for s in daemon worker helper seal; do
+  python3 tools/linux_bundle.py $s --resources "$R" --profile release --dest "$HOME/layerfs-bundles/tip" || break
+done
+```
+
+Check that it matches the remote tip: the CLI's `commit` equals the branch head, and
+the bundle says `"profile": "release"` with the same `head`.
+
+```sh
+"$B/layerfs" --version --json
+git ls-remote https://github.com/Ephemeral-AI-Lab/layerfs layerfs_v2_0_0
+grep -E '"profile"|"head"' "$HOME"/layerfs-bundles/tip/*/linux-*/bundle.json   # <dest>/<version>/linux-<arch>/
+```
+
+### 3. The Node SDK agents import, then the pin
+
+```sh
+node scripts/install-sdk.mjs "$B"     # in this checkout; must match the pinned CLI's commit
+```
+
+Pin it on **Center → Settings → Runtime → Change…** (`$B/layerfs`, `$B/layerfs-daemon`
+and the bundle folder), which installs the CLI, daemon and bundle into the LayerFS
+home (`runtime/<version>-<sha>/`) and pins those copies; or start `dsh web` with
+`DSH_LAYERFS_CLI`, `DSH_LAYERFS_DAEMON` and `DSH_LAYERFS_BUNDLE`. Then stop and start
+each docker or Lima machine so its worker is of the new build (close its Sandboxes
+first; while the new CLI refuses a worker "of another build", pin the old runtime to
+close and stop, then pin the new one and start). When `layerfs_v2_0_0` moves, check
+out the new tip in the same worktree and repeat steps 2 and 3.
 The LayerFS home is LayerFS's own, apart from DSH: `~/.layerfs` by default
 (`DSH_LAYERFS_HOME`, then `LAYERFS_HOME`, override it). It holds LayerFS's records,
 its runtime, the secrets entered in the panel (`secret/`) and storage
