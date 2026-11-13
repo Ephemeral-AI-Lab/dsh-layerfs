@@ -98,6 +98,12 @@ export interface Checkpoint {
   readonly receipt?: string
 }
 
+/** One file of an append-only archive stream: lines `[from, to)` (the log's line 0 is its native header). */
+export interface ArchivePiece { readonly file: string, readonly from: number, readonly to: number, readonly bytes: number }
+
+/** How many lines of an archive stream the last confirmed save holds, and their checksum. */
+export interface StreamMark { readonly lines: number, readonly digest: string }
+
 /** The LayerFS session store's progress for one session. */
 export interface Mirror {
   readonly project: string
@@ -107,6 +113,8 @@ export interface Mirror {
   /** Events stored so far. */
   count: number
   segments: { readonly file: string, readonly from: number, readonly to: number }[]
+  /** Version-3 archives: what the confirmed save holds of each stream, so the next save appends. */
+  streams?: { readonly log: StreamMark, readonly invocations: StreamMark }
   updatedAt: number
   error?: string
 }

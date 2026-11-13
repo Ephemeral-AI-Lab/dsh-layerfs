@@ -98,6 +98,32 @@ restoring code does not roll back the conversation.
 
 Archive writes are asynchronous. Track the exact log position saved into LayerFS
 and expose pending/error state; a local write is not a claim of portable durability.
+
+The archive (version 3, under `/.dsh/session/` of the session's internal
+`dsh.session.<id>` branch) is append-only, so a save costs what was added rather
+than the whole conversation:
+
+- `session.jsonl` is a native unpacked DSH log (header and rows); each
+  `session.<line>.jsonl` part holds the native rows added by one later save. The
+  files concatenated in `manifest.log` order are the exact log.
+- `layerfs.json` is the sidecar without its receipts; `invocations.jsonl` and its
+  `invocations.<line>.jsonl` parts hold the receipts, one per line, in
+  `manifest.invocations` order.
+- Manifest file lists give each file's line range (`from`, `to`; the log's line 0
+  is its header) and byte size. Import checks names, contiguity, line counts and
+  the checksum over the log, the sidecar (without archive progress) and the
+  receipts.
+- A save appends only when the stream's archived prefix is unchanged (local
+  marks: line count and checksum). Otherwise (a header or receipt changed in
+  place, or no marks), or once a stream has 32 parts or its parts outgrow
+  `max(base, 64 KiB)`, the stream is rewritten as one base file and its parts are
+  removed in the same commit. Version-2 (one native file) and version-1 archives
+  stay readable and are rewritten as version 3 on their next save.
+
+Saves to one Store run one at a time, on a lane per Store: LayerFS serializes
+writers on a Store anyway, so concurrent saves would only wait on its Store lock
+and hold up the user's own calls. A session waiting in that queue is not queued
+again; its save reads the latest log when it starts.
 Import reconstructs the same DSH files and annotations without rewriting event
 identities. Resume local durable work first; reconcile archive progress without
 discarding locally pending events or blindly overwriting divergent histories.
@@ -359,7 +385,7 @@ ownership must not be inferred from a folder path.
   spool. Direct CLI bypass remains outside coverage; unresolved targets and
   missing saved-version receipts produce no speculative checkpoint links.
 - Portable archives contain a native unpacked DSH log and sidecar with a checksum.
-  Archive saves currently rewrite that native artifact as a unit. Migration keeps
+  Archive saves append to them (version 3, below) instead of rewriting them. Migration keeps
   original histories as recovery copies, outside the normal active log root when
   moving them is possible.
 - Shared subagent archives retain parent identity. Resuming a shared context

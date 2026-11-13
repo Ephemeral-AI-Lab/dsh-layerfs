@@ -1,7 +1,14 @@
 /** Project-owned portable session archives. Each internal history branch stores
- * a standard unpacked DSH session.jsonl and its additive layerfs.json sidecar.
+ * a standard unpacked DSH log and its additive sidecar. Version 3 keeps both
+ * append-only: the native log is `session.jsonl` plus `session.<line>.jsonl`
+ * parts holding the native rows added since (concatenated in manifest order
+ * they are the exact log), and the sidecar is `layerfs.json` without its
+ * receipts plus `invocations.jsonl` / `invocations.<line>.jsonl`, one receipt
+ * per line. A save writes only what was added; a stream is rewritten as one
+ * base file when its archived prefix changed or its parts outgrow the base.
  * Local logs are authoritative; archive progress advances only after confirmed
- * saves. Version-1 segmented archives remain readable for migration. */
+ * saves. Version-2 (one native file) and version-1 segmented archives remain
+ * readable for migration. */
 import type { Context } from '@deepseek-ai/cordis'
 import { constants, mkdirSync } from 'node:fs'
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, rm } from 'node:fs/promises'
@@ -11,11 +18,59 @@ import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import { mergeInvocations, withoutTraceContext } from '../layerfs/tracing.ts'
 import { CliError, pages } from '../layerfs/cli.ts'
 import type { LayerfsSessions } from './service.ts'
-import type { SimulationBinding } from './state.ts'
+import type { ArchivePiece, StreamMark, SimulationBinding } from './state.ts'
 
 export const STORE_PREFIX = 'dsh.session.'
 const DIR = '/.dsh/session'
 const MISS_MS = 30_000
+/** A stream with this many parts is rewritten as one base file on its next save. */
+export const PART_LIMIT = 32
+/** Parts may hold up to this many bytes, or the base's size if larger, before a rewrite. */
+export const COMPACT_FLOOR = 64 * 1024
+
+const sha = (text: string) => createHash('sha256').update(text).digest('hex')
+const joinLines = (lines: readonly string[], from = 0, to = lines.length) => to > from ? lines.slice(from, to).join('\n') + '\n' : ''
+const STREAM_FILE = { session: /^session(\.[0-9]+)?\.jsonl$/, invocations: /^invocations(\.[0-9]+)?\.jsonl$/ } as const
+type Stream = keyof typeof STREAM_FILE
+
+/** What one save writes for an append-only stream (lines without their newline). */
+export function planStream(stem: Stream, lines: readonly string[], mark: StreamMark | undefined, remote: readonly ArchivePiece[] | undefined): { changes: any[], pieces: ArchivePiece[], mark: StreamMark, text: string } {
+  const text = joinLines(lines)
+  const next = { lines: lines.length, digest: sha(text) }
+  const last = remote?.[remote.length - 1]
+  // Append only onto exactly what the archive is known to hold.
+  if (mark && remote?.length && last!.to === mark.lines && lines.length >= mark.lines && sha(joinLines(lines, 0, mark.lines)) === mark.digest) {
+    const added = joinLines(lines, mark.lines)
+    if (!added) return { changes: [], pieces: [...remote], mark: next, text }
+    const bytes = Buffer.byteLength(added)
+    const parts = remote.length // the existing parts and this one
+    const partBytes = remote.slice(1).reduce((sum, piece) => sum + piece.bytes, 0) + bytes
+    if (parts <= PART_LIMIT && partBytes <= Math.max(remote[0].bytes, COMPACT_FLOOR)) {
+      const piece = { file: `${stem}.${mark.lines}.jsonl`, from: mark.lines, to: lines.length, bytes }
+      return { changes: [{ op: 'write', path: `${DIR}/${piece.file}`, content: added }], pieces: [...remote, piece], mark: next, text }
+    }
+  }
+  const base = { file: `${stem}.jsonl`, from: 0, to: lines.length, bytes: Buffer.byteLength(text) }
+  return {
+    changes: [...(remote ?? []).filter((piece) => piece.file !== base.file).map((piece) => ({ op: 'rm', path: `${DIR}/${piece.file}` })), { op: 'write', path: `${DIR}/${base.file}`, content: text }],
+    pieces: [base], mark: next, text,
+  }
+}
+
+/** Version-3 archive checksum: the native log, the sidecar without its receipts or archive progress, and the receipts. */
+const archiveDigest = (logDigest: string, rest: any, invocationsDigest: string) => sha(JSON.stringify([logDigest, sha(JSON.stringify({ ...rest, archive: undefined })), invocationsDigest]))
+
+/** A version-3 manifest's pieces of one stream: safe names, contiguous from line 0. */
+function piecesOf(manifest: any, stream: Stream): ArchivePiece[] {
+  const pieces = manifest?.[stream === 'session' ? 'log' : 'invocations']
+  if (!Array.isArray(pieces) || !pieces.length) throw new CliError('InvalidInput', 'The stored manifest lists no archive files')
+  let at = 0
+  for (const piece of pieces) {
+    if (typeof piece?.file !== 'string' || !STREAM_FILE[stream].test(piece.file) || piece.from !== at || !Number.isSafeInteger(piece.to) || piece.to < at || !Number.isSafeInteger(piece.bytes)) throw new CliError('InvalidInput', 'Unsafe or discontinuous session archive file list')
+    at = piece.to
+  }
+  return pieces
+}
 
 const compact = (sessionId: string) => sessionId.replace(/^session-/, '').replace(/[^A-Za-z0-9]/g, '').toLowerCase()
 export const storeBranchOf = (sessionId: string) => `${STORE_PREFIX}${compact(sessionId)}`
@@ -64,75 +119,123 @@ export class SessionStore {
     this.found.delete(sessionId)
   }
 
-  /** Append the session's new events to its project. */
-  async mirror(sessionId: string): Promise<void> {
+  /** Mirrors queued on their Store's lane that have not started (session id -> run). */
+  private readonly queued = new Map<string, Promise<void>>()
+
+  /**
+   * Append the session's new events to its project. Saves to one Store run one
+   * at a time (concurrent writers only queue on LayerFS's Store lock), and a
+   * session already queued is not queued twice: its run reads the latest log.
+   */
+  mirror(sessionId: string): Promise<void> {
+    const waiting = this.queued.get(sessionId)
+    if (waiting) return waiting
+    const project = this.sessions.binding(sessionId)?.project
+    if (!project) return Promise.resolve()
+    // Once it starts, later changes need a run of their own.
+    let started = false
+    const run: Promise<void> = this.sessions.lane(`archive:${project.split('/')[0]}`, () => {
+      started = true
+      this.queued.delete(sessionId)
+      return this.mirrorNow(sessionId)
+    })
+    if (!started) this.queued.set(sessionId, run)
+    return run
+  }
+
+  private async mirrorNow(sessionId: string): Promise<void> {
     const binding = this.sessions.binding(sessionId)
     if (!binding || !binding.project) return
     const session = (this.ctx.get('sessions' as never) as any)?.get(sessionId)
     if (!session && !(await localPersistence(this.ctx)?.stat(sessionId))) return
-    await this.sessions.lane(`store:${sessionId}`, async () => {
-      const project = binding.project!
-      const branch = storeBranchOf(sessionId)
-      const state = this.sessions.state.read().mirror[sessionId]
-      const persistence = localPersistence(this.ctx)
-      await persistence.flush()
-      const handle = await persistence.open(sessionId, 'read')
-      let header: any, inheritedEventCount: number, events: any[]
-      try {
-        header = handle.header
-        inheritedEventCount = handle.inheritedEventCount ?? 0
-        events = (await handle.read()).events
-      } finally { await handle.close() }
-      const at = events!.length
-      const from = state?.count ?? 0
-      const checkpoints = this.sessions.checkpoints(sessionId)
-      const provider = this.ctx.get('sessionPersistence') as any
-      const annotations = await provider?.readSidecar?.(sessionId) ?? { version: 1, sessionId, project, invocations: [] }
-      const codeBranch = binding.branch ?? (binding.parent ? this.sessions.binding(binding.parent)?.branch : null) ?? null
-      const sidecar = { ...annotations, title: this.titleOf(session ?? { snapshotEvents: () => events }), bindingKind: binding.kind, ...(binding.parent ? { sharedParent: binding.parent } : {}), codeBranch, checkpoints, archive: { count: at, updatedAt: Date.now() } }
-      // Use the official codec, including native fork/inheritance metadata.
-      // This is a standard unpacked DSH log, not a second event representation.
-      const text = [
-        JSON.stringify(sessionFormatCatalog.encodeCurrentHeader({ ...header!, delegationDepth: header!.delegationDepth ?? 0 }, inheritedEventCount!)),
-        ...events!.map((event: any) => JSON.stringify(sessionFormatCatalog.encodeCurrentEvent(event))),
-      ].join('\n') + '\n'
-      const digest = createHash('sha256').update(text).update(JSON.stringify({ ...sidecar, archive: undefined })).digest('hex')
-      const segments = [{ file: 'session.jsonl', from: 0, to: at }]
+    const project = binding.project
+    const branch = storeBranchOf(sessionId)
+    const state = this.sessions.state.read().mirror[sessionId]
+    const persistence = localPersistence(this.ctx)
+    await persistence.flush()
+    const handle = await persistence.open(sessionId, 'read')
+    let header: any, inheritedEventCount: number, events: any[]
+    try {
+      header = handle.header
+      inheritedEventCount = handle.inheritedEventCount ?? 0
+      events = (await handle.read()).events
+    } finally { await handle.close() }
+    const at = events!.length
+    const from = state?.count ?? 0
+    const checkpoints = this.sessions.checkpoints(sessionId)
+    const provider = this.ctx.get('sessionPersistence') as any
+    const annotations = await provider?.readSidecar?.(sessionId) ?? { version: 1, sessionId, project, invocations: [] }
+    const codeBranch = binding.branch ?? (binding.parent ? this.sessions.binding(binding.parent)?.branch : null) ?? null
+    const title = this.titleOf(session ?? { snapshotEvents: () => events })
+    const sidecar = { ...annotations, title, bindingKind: binding.kind, ...(binding.parent ? { sharedParent: binding.parent } : {}), codeBranch, checkpoints, archive: { count: at, updatedAt: Date.now() } }
+    const { invocations = [], ...rest } = sidecar
+    // Use the official codec, including native fork/inheritance metadata. Its
+    // rows are a standard unpacked DSH log, not a second event representation.
+    const logLines = [
+      JSON.stringify(sessionFormatCatalog.encodeCurrentHeader({ ...header!, delegationDepth: header!.delegationDepth ?? 0 }, inheritedEventCount!)),
+      ...events!.map((event: any) => JSON.stringify(sessionFormatCatalog.encodeCurrentEvent(event))),
+    ]
+    const invocationLines = (Array.isArray(invocations) ? invocations : []).map((row: any) => JSON.stringify(row))
+    // Only a confirmed save (one with a digest) continues an archive; a state
+    // left by a failed first save is retried as a first save.
+    const confirmed = state?.digest ? state : undefined
+    try {
+      await provider?.assertSessionIdentity?.(sessionId)
+      // What the archive holds now: checked against the last confirmed save, or
+      // (first save) an existing branch left by an earlier attempt.
+      let remote: any = null
+      if (confirmed) {
+        remote = await this.readManifest(project, branch)
+        if (remote.digest !== confirmed.digest || remote.count !== from) {
+          throw new CliError('ArchiveConflict', 'The project archive differs from the last confirmed save, possibly after restore or another writer. Local history is retained; reconcile the archive before saving again.')
+        }
+      }
+      const v3 = remote?.version === 3
+      const marks = v3 ? confirmed?.streams : undefined
+      const log = planStream('session', logLines, marks?.log, v3 ? piecesOf(remote, 'session') : undefined)
+      const receipts = planStream('invocations', invocationLines, marks?.invocations, v3 ? piecesOf(remote, 'invocations') : undefined)
+      const digest = archiveDigest(log.mark.digest, rest, receipts.mark.digest)
+      if (confirmed?.digest === digest && !confirmed.error) return
       const manifest = {
-        version: 2, kind: 'dsh-session', sessionId, project, projectId: provider?.projectIdOf?.(sessionId), header,
-        inheritedEventCount, title: this.titleOf(session ?? { snapshotEvents: () => events }), codeBranch, bindingKind: binding.kind, ...(binding.parent ? { sharedParent: binding.parent } : {}),
-        count: at, segments, checkpoints, digest, updatedAt: Date.now(),
+        version: 3, kind: 'dsh-session', sessionId, project, projectId: provider?.projectIdOf?.(sessionId), header,
+        inheritedEventCount, title, codeBranch, bindingKind: binding.kind, ...(binding.parent ? { sharedParent: binding.parent } : {}),
+        count: at, log: log.pieces, invocations: receipts.pieces, checkpoints, digest, updatedAt: Date.now(),
       }
       const changes: any[] = [
-        { op: 'write', path: `${DIR}/session.jsonl`, content: text },
-        { op: 'write', path: `${DIR}/layerfs.json`, content: JSON.stringify(sidecar) + '\n' },
+        ...(confirmed ? [] : [{ op: 'mkdir', path: DIR }]),
+        ...log.changes,
+        ...receipts.changes,
+        { op: 'write', path: `${DIR}/layerfs.json`, content: JSON.stringify(rest) + '\n' },
         { op: 'write', path: `${DIR}/manifest.json`, content: JSON.stringify(manifest) + '\n' },
       ]
-      if (!state) changes.unshift({ op: 'mkdir', path: DIR })
-      try {
-        await provider?.assertSessionIdentity?.(sessionId)
-        if (state) {
-          const remote = await this.readManifest(project, branch)
-          if (!state.digest || remote.digest !== state.digest || remote.count !== from) {
-            throw new CliError('ArchiveConflict', 'The project archive differs from the last confirmed save, possibly after restore or another writer. Local history is retained; reconcile the archive before saving again.')
-          }
-        } else {
-          await withoutTraceContext(() => this.lfs.branch.fork(project, branch, 'main')).catch((error: any) => {
-            if (error?.code === 'Exists' || error?.code === 'NameTaken') throw new CliError('ArchiveConflict', 'An archive already exists for this conversation. Reconcile it before saving local history.')
-            throw error
+      let saved = false
+      if (!confirmed) {
+        await withoutTraceContext(() => this.lfs.branch.fork(project, branch, 'main')).catch(async (error: any) => {
+          if (error?.code !== 'Exists' && error?.code !== 'NameTaken') throw error
+          // The branch exists: ours from a first save whose write failed (no
+          // manifest yet), or one that already holds exactly this save. Anything
+          // else is another writer's archive.
+          const existing = await this.readManifest(project, branch).catch((e: any) => {
+            if (['NoSuchPath', 'NotFound'].includes(e?.code)) return null
+            throw e
           })
-        }
-        if (state?.digest === digest && !state.error) return
-        await withoutTraceContext(() => this.lfs.file.apply(project, branch, changes, { message: `dsh session ${sessionId.slice(0, 8)}: events ${from}..${at}` }))
-        this.sessions.state.update((s) => { s.mirror[sessionId] = { project, branch, count: at, segments, updatedAt: Date.now(), digest } as any })
-        await provider?.updateSidecar?.(sessionId, (value: any) => { value.title = sidecar.title; value.bindingKind = binding.kind; if (binding.parent) value.sharedParent = binding.parent; value.codeBranch = codeBranch; value.checkpoints = checkpoints; value.archive = sidecar.archive })
-        this.ctx.layerfs.emit('layerfs-session', { sessionId })
-      } catch (error: any) {
-        this.sessions.state.update((s) => { s.mirror[sessionId] = { ...(state ?? { project, branch, count: from, segments: [] }), updatedAt: Date.now(), error: String(error?.message ?? error) } })
-        await provider?.updateSidecar?.(sessionId, (value: any) => { value.archive = { count: from, updatedAt: Date.now(), error: String(error?.message ?? error) } })
-        throw error
+          if (existing && existing.digest !== digest) throw new CliError('ArchiveConflict', 'An archive already exists for this conversation. Reconcile it before saving local history.')
+          saved = !!existing
+        })
       }
-    })
+      const bytes = changes.reduce((sum, change) => sum + (typeof change.content === 'string' ? Buffer.byteLength(change.content) : 0), 0)
+      if (!saved) await withoutTraceContext(() => this.lfs.file.apply(project, branch, changes, { message: `dsh session ${compact(sessionId).slice(0, 8)}: events ${from}..${at} (${bytes} bytes)` }))
+      // An existing identical save holds the same content in its own layout: the
+      // marks stay valid, and the next save reads its file list from its manifest.
+      const streams = { log: log.mark, invocations: receipts.mark }
+      this.sessions.state.update((s) => { s.mirror[sessionId] = { project, branch, count: at, segments: log.pieces.map(({ file, from, to }) => ({ file, from, to })), streams, updatedAt: Date.now(), digest } })
+      await provider?.updateSidecar?.(sessionId, (value: any) => { value.title = sidecar.title; value.bindingKind = binding.kind; if (binding.parent) value.sharedParent = binding.parent; value.codeBranch = codeBranch; value.checkpoints = checkpoints; value.archive = sidecar.archive })
+      this.ctx.layerfs.emit('layerfs-session', { sessionId })
+    } catch (error: any) {
+      this.sessions.state.update((s) => { s.mirror[sessionId] = { ...(state ?? { project, branch, count: from, segments: [] }), updatedAt: Date.now(), error: String(error?.message ?? error) } })
+      await provider?.updateSidecar?.(sessionId, (value: any) => { value.archive = { count: from, updatedAt: Date.now(), error: String(error?.message ?? error) } })
+      throw error
+    }
   }
 
   private titleOf(session: any): string | null {
@@ -269,8 +372,8 @@ export class SessionStore {
     let header = manifest.header
     let inheritedEventCount = manifest.inheritedEventCount ?? 0
     let sidecar: any
-    if (manifest.version === 2) {
-      const text = await read(`${DIR}/session.jsonl`)
+    let streams: { log: StreamMark, invocations: StreamMark } | undefined
+    const restoreLog = (text: string) => {
       const lines = text.split('\n').filter((line) => line.trim())
       const restore = sessionFormatCatalog.createRestore(JSON.parse(lines.shift()!), { recovery: 'strict', validation: 'current' })
       for (const line of lines) restore.decodeRow(JSON.parse(line))
@@ -278,6 +381,31 @@ export class SessionStore {
       header = artifact.header
       events = [...artifact.events]
       inheritedEventCount = artifact.inheritedEventCount
+    }
+    if (manifest.version === 3) {
+      // Each stream is its files concatenated in manifest order, checked line by line.
+      const stream = async (name: 'session' | 'invocations') => {
+        let text = ''
+        for (const piece of piecesOf(manifest, name)) {
+          const part = await read(`${DIR}/${piece.file}`)
+          const lines = part ? part.split('\n') : ['']
+          if ((part !== '' && !part.endsWith('\n')) || lines.length - 1 !== piece.to - piece.from) throw new CliError('InvalidInput', 'A session archive file does not hold the lines its manifest lists')
+          text += part
+        }
+        return text
+      }
+      const logText = await stream('session')
+      const invocationsText = await stream('invocations')
+      restoreLog(logText)
+      const rest = JSON.parse(await read(`${DIR}/layerfs.json`))
+      if (rest.sessionId !== sessionId || rest.project !== project) throw new CliError('InvalidInput', 'The stored annotations name another session or project')
+      const lines = { log: logText.split('\n').length - 1, invocations: invocationsText ? invocationsText.split('\n').length - 1 : 0 }
+      streams = { log: { lines: lines.log, digest: sha(logText) }, invocations: { lines: lines.invocations, digest: sha(invocationsText) } }
+      if (manifest.digest !== archiveDigest(streams.log.digest, rest, streams.invocations.digest)) throw new CliError('InvalidInput', 'The archived session checksum does not match its manifest')
+      sidecar = { ...rest, invocations: invocationsText.split('\n').filter(Boolean).map((line) => JSON.parse(line)) }
+    } else if (manifest.version === 2) {
+      const text = await read(`${DIR}/session.jsonl`)
+      restoreLog(text)
       sidecar = JSON.parse(await read(`${DIR}/layerfs.json`))
       if (sidecar.sessionId !== sessionId || sidecar.project !== project) throw new CliError('InvalidInput', 'The stored annotations name another session or project')
       const digest = createHash('sha256').update(text).update(JSON.stringify({ ...sidecar, archive: undefined })).digest('hex')
@@ -324,7 +452,7 @@ export class SessionStore {
           state: 'closed', createdAt: Date.now(), updatedAt: Date.now(),
         }
       }
-      s.mirror[sessionId] = { project, branch, count: manifest.count ?? events.length, segments: manifest.segments ?? [], updatedAt: Date.now(), digest: manifest.digest }
+      s.mirror[sessionId] = { project, branch, count: manifest.count ?? events.length, segments: (manifest.version === 3 ? manifest.log : manifest.segments ?? []).map(({ file, from, to }: any) => ({ file, from, to })), ...(streams ? { streams } : {}), updatedAt: Date.now(), digest: manifest.digest }
     })
     await this.sessions.attach(list, sessionId)
     return { sessionId, imported: true }

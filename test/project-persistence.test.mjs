@@ -10,7 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 const root = new URL('..', import.meta.url).pathname
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-project-persistence-'))
-await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/session-persistence.ts'; export { SessionStore } from './src/host/sessions/store.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'persistence.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'] })
+await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/session-persistence.ts'; export { SessionStore, planStream, PART_LIMIT, COMPACT_FLOOR } from './src/host/sessions/store.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'persistence.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'] })
 const persistence = await import(pathToFileURL(join(out, 'persistence.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
@@ -98,6 +98,7 @@ test('legacy binding keeps stock log readable until validated migration', async 
 
 function archiveFixture(f, files) {
   const state = { projects: {}, sessions: {}, pending: {}, checkpoints: {}, mirror: {} }
+  const applied = []
   const binding = { sessionId: 'portable', kind: 'project', project: 'store/project', branch: 'internal-code', scratch: '/original/local/folder' }
   const session = { header: header('portable'), snapshotEvents: () => [], inheritedEventCount: 0 }
   const sessions = {
@@ -107,7 +108,13 @@ function archiveFixture(f, files) {
   }
   f.ctx.layerfs.emit = () => {}
   f.ctx.layerfs.lfs.file = {
-    apply: async (_, branch, changes) => { for (const change of changes) if (change.op === 'write') files.set(change.path, change.content) },
+    apply: async (_, branch, changes) => {
+      applied.push(changes)
+      for (const change of changes) {
+        if (change.op === 'write') files.set(change.path, change.content)
+        if (change.op === 'rm') { if (!files.has(change.path)) throw Object.assign(new Error(change.path), { code: 'NoSuchPath' }); files.delete(change.path) }
+      }
+    },
     read: async (_, branch, path) => ({ text: files.get(path) }),
   }
   f.ctx.layerfs.lfs.project = { ...f.ctx.layerfs.lfs.project, export: async (_, destination) => {
@@ -119,7 +126,7 @@ function archiveFixture(f, files) {
   } }
   const liveSessions = { get: () => session }
   f.ctx.provide('sessions', liveSessions)
-  return { store: new persistence.SessionStore(f.ctx, sessions), state, liveSessions, binding, sessions }
+  return { store: new persistence.SessionStore(f.ctx, sessions), state, liveSessions, binding, sessions, applied }
 }
 
 test('portable archive preserves native JSONL and sidecar, imports safely and refuses changed history', async () => {
@@ -133,7 +140,7 @@ test('portable archive preserves native JSONL and sidecar, imports safely and re
     const archiveA = archiveFixture(a, files)
     archiveA.liveSessions.get = () => undefined // Session already disposed; durable log still archives.
     await archiveA.store.mirror('portable')
-    assert.equal(JSON.parse(files.get('/.dsh/session/manifest.json')).version, 2)
+    assert.equal(JSON.parse(files.get('/.dsh/session/manifest.json')).version, 3)
     assert.equal(JSON.parse(files.get('/.dsh/session/session.jsonl').trim()).id, 'portable')
     const archiveB = archiveFixture(b, files)
     assert.equal((await archiveB.store.import('store/project', 'portable')).imported, true)
@@ -463,6 +470,43 @@ test('an archive changed by restore or another writer cannot overwrite locally p
 })
 
 
+test('a failed first archive save is retried as a first save; another writer\'s archive still conflicts', async () => {
+  const f = await fixture(), files = new Map()
+  try {
+    const log = await f.p.create(header('portable')); await log.flush()
+    await f.p.migrateProject('portable', 'store/project')
+    const archive = archiveFixture(f, files)
+    const lfs = f.ctx.layerfs.lfs
+    const refusal = (code) => Object.assign(new Error(code), { code })
+    const archiveBranches = new Set()
+    const fork = lfs.branch.fork
+    lfs.branch.fork = async (project, name, from) => {
+      if (!name.startsWith('dsh.session.')) return fork(project, name, from)
+      if (archiveBranches.has(name)) throw refusal('Exists')
+      archiveBranches.add(name); return {}
+    }
+    const read = lfs.file.read
+    lfs.file.read = async (project, branch, path, options) => { if (!files.has(path)) throw refusal('NoSuchPath'); return read(project, branch, path, options) }
+    const apply = lfs.file.apply
+    let failures = 1
+    lfs.file.apply = async (...args) => { if (failures-- > 0) throw refusal('Unavailable'); return apply(...args) }
+    await assert.rejects(archive.store.mirror('portable'), { code: 'Unavailable' })
+    assert.equal(archive.state.mirror.portable.digest, undefined)
+    assert.ok(archive.state.mirror.portable.error)
+    // The branch exists without a manifest: the retry writes the first save.
+    await archive.store.mirror('portable')
+    const saved = archive.state.mirror.portable
+    assert.ok(saved.digest); assert.equal(saved.error, undefined)
+    assert.equal(JSON.parse(files.get('/.dsh/session/manifest.json')).digest, saved.digest)
+    // An unconfirmed state never adopts an archive holding another save.
+    const manifest = JSON.parse(files.get('/.dsh/session/manifest.json'))
+    files.set('/.dsh/session/manifest.json', JSON.stringify({ ...manifest, digest: 'another-writer' }))
+    archive.state.mirror.portable = { project: 'store/project', branch: saved.branch, count: 0, segments: [], error: 'earlier failure' }
+    await assert.rejects(archive.store.mirror('portable'), { code: 'ArchiveConflict' })
+    await log.close()
+  } finally { await f.close() }
+})
+
 test('an owner recorded before project UUIDs keeps its history and is never adopted', async () => {
   const f = await fixture()
   try {
@@ -555,4 +599,128 @@ test('Presets Reset deletion: log folder, owner route and sidecar go; a deletion
     assert.equal(f.p.isDeleted('gone'), false, 'an explicit open lifts the record')
     assert.equal((await f.p.stat('kept')).header.id, 'kept')
   } finally { await f.close() }
+})
+
+
+/** The paths one archive apply wrote or removed. */
+const touched = (changes) => changes.filter((c) => c.op !== 'mkdir').map((c) => `${c.op} ${c.path.replace('/.dsh/session/', '')}`)
+
+test('archive saves append only the added native rows and receipts; import rebuilds the exact log and sidecar', async () => {
+  const a = await fixture(), b = await fixture(a.branches), files = new Map()
+  try {
+    const log = await a.p.create(header('portable')); await log.flush()
+    await a.p.migrateProject('portable', 'store/project')
+    const archive = archiveFixture(a, files)
+    const turn = (seq) => ({ seq, time: 123 + seq, type: 'plugin:layerfs/test', ignorable: true, data: { payload: `row ${seq}` } })
+    const receipt = (id) => ({ id, sessionId: 'portable', project: 'store/project', operation: 'file.write', outcome: 'success', versions: [] })
+    await log.append([turn(0), turn(1)]); await log.flush()
+    await a.p.recordInvocation(receipt('r0'))
+    await archive.store.mirror('portable')
+    assert.deepEqual(touched(archive.applied[0]), ['write session.jsonl', 'write invocations.jsonl', 'write layerfs.json', 'write manifest.json'])
+    // Unchanged history writes nothing.
+    await archive.store.mirror('portable')
+    assert.equal(archive.applied.length, 1)
+    await log.append([turn(2)]); await log.flush()
+    await a.p.recordInvocation(receipt('r1'))
+    await archive.store.mirror('portable')
+    assert.deepEqual(touched(archive.applied[1]), ['write session.3.jsonl', 'write invocations.1.jsonl', 'write layerfs.json', 'write manifest.json'])
+    assert.equal(files.get('/.dsh/session/session.3.jsonl').trim().split('\n').length, 1, 'a part holds only the added native row')
+    assert.equal(JSON.parse(files.get('/.dsh/session/session.3.jsonl')).seq, 2)
+    assert.equal(JSON.parse(files.get('/.dsh/session/layerfs.json')).invocations, undefined, 'receipts live in their own stream')
+    await log.append([turn(3)]); await log.flush()
+    await archive.store.mirror('portable')
+    assert.deepEqual(touched(archive.applied[2]), ['write session.4.jsonl', 'write layerfs.json', 'write manifest.json'])
+    const manifest = JSON.parse(files.get('/.dsh/session/manifest.json'))
+    assert.deepEqual(manifest.log.map((p) => [p.file, p.from, p.to]), [['session.jsonl', 0, 3], ['session.3.jsonl', 3, 4], ['session.4.jsonl', 4, 5]])
+    assert.equal(manifest.count, 4)
+    const restored = archiveFixture(b, files)
+    assert.equal((await restored.store.import('store/project', 'portable')).imported, true)
+    const imported = await b.p.open('portable', 'read')
+    assert.deepEqual((await imported.read()).events, (await log.read()).events)
+    await imported.close()
+    assert.deepEqual((await b.p.readSidecar('portable')).invocations.map((r) => r.id), ['r0', 'r1'])
+    // The importer continues the same archive by appending.
+    assert.deepEqual(restored.state.mirror.portable.streams, archive.state.mirror.portable.streams)
+    // A tampered part fails the checksum; local history stays authoritative.
+    files.set('/.dsh/session/session.4.jsonl', files.get('/.dsh/session/session.4.jsonl').replace('row 3', 'row X'))
+    const third = await fixture(a.branches)
+    try { await assert.rejects(archiveFixture(third, files).store.import('store/project', 'portable'), { code: 'InvalidInput' }) } finally { await third.close() }
+    await log.close()
+  } finally { await a.close(); await b.close() }
+})
+
+test('a changed archived prefix or too many parts rewrites the stream as one base file and removes its parts', async () => {
+  const f = await fixture(), files = new Map()
+  try {
+    const log = await f.p.create(header('portable')); await log.flush()
+    await f.p.migrateProject('portable', 'store/project')
+    const archive = archiveFixture(f, files)
+    const receipt = (id, outcome = 'success') => ({ id, sessionId: 'portable', project: 'store/project', operation: 'file.write', outcome, versions: [] })
+    await f.p.recordInvocation(receipt('r0', 'unknown'))
+    await archive.store.mirror('portable')
+    await f.p.recordInvocation(receipt('r1'))
+    await archive.store.mirror('portable')
+    assert.ok(files.has('/.dsh/session/invocations.1.jsonl'))
+    // A receipt settled in place changes the archived prefix.
+    await f.p.recordInvocation(receipt('r0', 'success'))
+    await archive.store.mirror('portable')
+    assert.deepEqual(touched(archive.applied.at(-1)).filter((t) => t.includes('invocations')), ['rm invocations.1.jsonl', 'write invocations.jsonl'])
+    assert.ok(!files.has('/.dsh/session/invocations.1.jsonl'))
+    assert.deepEqual(JSON.parse(files.get('/.dsh/session/manifest.json')).invocations.map((p) => p.file), ['invocations.jsonl'])
+    // Past PART_LIMIT parts the next save compacts.
+    for (let seq = 0; seq <= persistence.PART_LIMIT; seq++) {
+      await log.append([{ seq, time: 1, type: 'plugin:layerfs/test', ignorable: true, data: {} }]); await log.flush()
+      await archive.store.mirror('portable')
+    }
+    const pieces = JSON.parse(files.get('/.dsh/session/manifest.json')).log
+    assert.equal(pieces.length, 1, 'the parts were folded into the base')
+    assert.equal(pieces[0].to, persistence.PART_LIMIT + 2)
+    assert.deepEqual([...files.keys()].filter((p) => /session\.[0-9]+\.jsonl$/.test(p)), [])
+    await log.close()
+  } finally { await f.close() }
+})
+
+test('planStream appends while parts stay small and rewrites once they outgrow the base', () => {
+  const lines = (n, size = 10) => Array.from({ length: n }, (_, i) => `${i}`.padEnd(size, 'x'))
+  const first = persistence.planStream('session', lines(2), undefined, undefined)
+  assert.deepEqual(first.pieces.map((p) => p.file), ['session.jsonl'])
+  const grown = persistence.planStream('session', lines(3), first.mark, first.pieces)
+  assert.deepEqual(grown.changes.map((c) => c.op + ' ' + c.path), ['write /.dsh/session/session.2.jsonl'])
+  assert.equal(grown.changes[0].content, lines(3)[2] + '\n')
+  // Parts larger than both the base and the floor force a rewrite.
+  const big = lines(3 + 2, persistence.COMPACT_FLOOR)
+  const rewritten = persistence.planStream('session', [...lines(3), ...big.slice(3)], grown.mark, grown.pieces)
+  assert.deepEqual(rewritten.changes.map((c) => c.op + ' ' + c.path), ['rm /.dsh/session/session.2.jsonl', 'write /.dsh/session/session.jsonl'])
+  // A different prefix never appends.
+  const changed = persistence.planStream('session', ['other', ...lines(3).slice(1)], grown.mark, grown.pieces)
+  assert.equal(changed.pieces.length, 1)
+})
+
+test('saves to one Store run one at a time and a session already queued is not queued twice', async () => {
+  const lanes = new Map()
+  const lane = (key, run) => { const next = (lanes.get(key) ?? Promise.resolve()).then(run, run); lanes.set(key, next.catch(() => {})); return next }
+  const bindings = { a: { project: 'one/p' }, b: { project: 'one/q' }, c: { project: 'two/p' } }
+  const store = new persistence.SessionStore(new Context(), { binding: (id) => bindings[id], lane })
+  let running = 0, peak = 0
+  const runs = []
+  const release = []
+  store.mirrorNow = async (id) => { runs.push(id); running++; peak = Math.max(peak, running); await new Promise((r) => release.push(r)); running-- }
+  const first = store.mirror('a')
+  assert.equal(store.mirror('a'), first, 'a save that has not started is shared')
+  await new Promise((r) => setImmediate(r))
+  // Running saves do not absorb later changes: the next request queues anew, once.
+  const queuedA = store.mirror('a')
+  assert.notEqual(queuedA, first)
+  assert.equal(store.mirror('a'), queuedA)
+  const b = store.mirror('b')
+  const c = store.mirror('c')
+  await new Promise((r) => setImmediate(r))
+  assert.deepEqual(runs, ['a', 'c'], 'Store one runs a single save; Store two is independent')
+  release.shift()(); await first
+  await new Promise((r) => setImmediate(r))
+  assert.deepEqual(runs, ['a', 'c', 'a'])
+  while (release.length) { release.shift()(); await new Promise((r) => setImmediate(r)) }
+  await Promise.all([queuedA, b, c])
+  assert.deepEqual(runs.sort(), ['a', 'a', 'b', 'c'])
+  assert.equal(peak, 2)
 })
