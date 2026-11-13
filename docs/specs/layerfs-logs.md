@@ -110,7 +110,11 @@ same home appear with their own `client` and no `dsh:` tag.
   are the line's own when `logged()` writes one, `exit` is the result's
   `exit_code`) and `receiptFromLine` (agent shells; `exit` comes from the
   call's stored output, the `exit_code` of its final `{result}` frame, when
-  the output is kept and not cut). Older receipts may lack the call fields or
+  the output is kept and not cut). A line has no `fast_forward`, so for a
+  `Merged` line `receiptFromLine` reads it from the stored answer
+  (`fastForwardOfOutput`, the head of a cut answer): `false` links the merge
+  Commit as `created`, like the SDK path; `true`, a `--text` answer or no
+  output links it as `referenced`. Older receipts may lack the call fields or
   hold `arguments`, `startedAt`, `finishedAt`, `source` and `error`; they are
   read as they are and never written.
 - **Portable argv** (`portableArgv`): the call log words (already redacted

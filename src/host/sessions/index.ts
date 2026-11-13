@@ -26,6 +26,8 @@
  *   session.state {sessionId}           binding, checkpoints, Workspace status, store progress
  *   sessions.availability               poll Store health now (deactivating as needed); last health per Store
  *   session.place {sessionId}           the project a live session works in (New Session control)
+ *   session.trajectory {sessionId}      the Trajectory tab's records, LayerFS calls and checkpoints by turn
+ *   session.trajectory.record {sessionId, seq} one trajectory record in full (NotFound when not in the loaded log)
  *   checkpoints.create {sessionId, message?}
  *   checkpoints.diff {sessionId, from, to}
  *   checkpoints.restore {sessionId, commit}
@@ -35,11 +37,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { CliError, pages } from '../layerfs/cli.ts'
 import { notifyCallLog } from '../layerfs/call-log.ts'
 import { outputsDir, readOutput } from '../layerfs/call-output.ts'
-import { exitOfOutput, receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
+import { exitOfOutput, fastForwardOfOutput, receiptFromLine, toolScope, traceEnvironment, withTraceContext, type Invocation, type TraceIdentity } from '../layerfs/tracing.ts'
 import { callsSince } from '../logs/source.ts'
 import { parseTag, TAG_PREFIX } from '../../shared/logs.ts'
 import { LayerfsSessions } from './service.ts'
 import { localPersistence, SessionStore } from './store.ts'
+import { buildTrajectory, trajectoryDetail, type TrajectoryInput } from './trace.ts'
 
 export const name = 'dsh-layerfs-sessions'
 export const inject = ['layerfs', 'layerfsRemote']
@@ -101,8 +104,10 @@ export function apply(ctx: Context): void {
         if (!call) continue
         known.add(tag.receiptId)
         // The line has no exit code; a `workspace exec` call's stored output holds it in its final frame.
-        const exit = line.argv[0] === 'workspace' && line.argv[1] === 'exec' && line.tag ? exitOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag)) : undefined
-        await record(receiptFromLine(line, call.identity, tag.receiptId, exit))
+        const exit = line.argv[0] === 'workspace' && line.argv[1] === 'exec' && line.tag ? exitOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag), line.argv.includes('--stream')) : undefined
+        // Nor `fast_forward`: a merge's stored answer tells a new merge Commit from a moved pointer.
+        const fastForward = line.argv[0] === 'branch' && line.argv[1] === 'merge' && line.kind === 'Merged' && line.tag ? fastForwardOfOutput(readOutput(outputsDir(ctx.layerfs.callLog), line.tag)) : undefined
+        await record(receiptFromLine(line, call.identity, tag.receiptId, exit, fastForward))
       }
     }
     const settle = async (sessionId: string): Promise<void> => {
@@ -282,6 +287,31 @@ export function apply(ctx: Context): void {
       })
     })
 
+    /** The DSH session log of a loaded session, or undefined when it is not loaded. */
+    const sessionEvents = (id: string): any[] | undefined => {
+      try {
+        const events = (ctx.get('sessions' as never) as any)?.get?.(id)?.snapshotEvents?.(0)
+        return Array.isArray(events) ? events : undefined
+      } catch { return undefined }
+    }
+    /** What `buildTrajectory` reads: the log, receipts and checkpoints (shared subagents follow their parent's binding). */
+    const trajectoryInput = async (id: string): Promise<TrajectoryInput> => {
+      const persistence = ctx.get('sessionPersistence' as never) as any
+      const sidecar = await Promise.resolve(persistence?.readSidecar?.(id)).catch(() => undefined)
+      let binding = sessions.binding(id)
+      if (binding?.kind === 'shared' && binding.parent) binding = sessions.binding(binding.parent) ?? binding
+      const local = sessions.checkpoints(id)
+      const events = sessionEvents(id)
+      return {
+        sessionId: id,
+        project: binding?.project ?? persistence?.ownerOf?.(id)?.project ?? null,
+        branch: binding?.branch ?? (typeof sidecar?.codeBranch === 'string' ? sidecar.codeBranch : null),
+        ...(events ? { events } : {}),
+        invocations: Array.isArray(sidecar?.invocations) ? sidecar.invocations : [],
+        checkpoints: local.length ? local : Array.isArray(sidecar?.checkpoints) ? sidecar.checkpoints : [],
+      }
+    }
+
     ctx.layerfsRemote.operate(ctx, {
       'projects.catalog': async () => {
         const provider = ctx.get('sessionPersistence' as never) as any
@@ -393,6 +423,15 @@ export function apply(ctx: Context): void {
         const id = need(args, 'sessionId')
         const persistence = ctx.get('sessionPersistence' as never) as any
         return await persistence?.readSidecar?.(id) ?? { invocations: [] }
+      },
+      'session.trajectory': async (args: any) => buildTrajectory(await trajectoryInput(need(args, 'sessionId'))),
+      'session.trajectory.record': async (args: any) => {
+        const id = need(args, 'sessionId')
+        const seq = Number(args?.seq)
+        if (!Number.isInteger(seq)) throw new CliError('InvalidInput', 'seq must be an integer')
+        const detail = trajectoryDetail(sessionEvents(id), seq)
+        if (!detail) throw new CliError('NotFound', `No trajectory record ${seq} in this session's loaded log`)
+        return detail
       },
       'session.place': (args: any) => {
         const id = need(args, 'sessionId')

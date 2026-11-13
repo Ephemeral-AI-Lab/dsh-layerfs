@@ -20,6 +20,8 @@ import type { CommitInfo, HistoryBranch, HistoryPage, Translate } from './types.
 import css from './History.module.css'
 
 const noSources = new Map<string, string>()
+/** Pages read past the first to reach a deep-linked Commit. */
+const DEEP_LINK_PAGES = 20
 
 /** One view's scroll, selection and fold state, kept across remounts per project. */
 interface View {
@@ -99,6 +101,9 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       setBranches(result.branches)
       setBranchNext(result.next)
       const names = [...result.branches.filter((b) => b.name === 'main'), ...result.branches.filter((b) => b.name !== 'main')].slice(0, 8)
+      // A deep link's branch is always read, even past the first eight.
+      const focused = initialBranch ? result.branches.find((b) => b.name === initialBranch) : undefined
+      if (focused && !names.includes(focused)) names.push(focused)
       const loaded: Record<string, HistoryPage | undefined> = {}
       // Bound concurrent Store reads, irrespective of the number of forks.
       for (let i = 0; i < names.length; i += 4) {
@@ -108,10 +113,18 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
           else if (live) setError(r.reason)
         }
       }
+      // A deep-linked Commit older than the first page: read on until it is loaded (bounded).
+      let page = initialCommit && focused ? loaded[focused.name] : undefined
+      for (let i = 0; page && i < DEEP_LINK_PAGES && !page.items.some((c) => c.id === initialCommit) && page.next; i++) {
+        const next: HistoryPage = await filesApi.commits(api, project, focused!.name, page.next ?? undefined)
+        if (!live) return
+        page = { ...next, items: [...new Map([...page.items, ...next.items].map((c) => [c.id, c])).values()] }
+        loaded[focused!.name] = page
+      }
       if (live) setPages(loaded)
     }).catch((e) => live && setError(e)).finally(() => live && setBusy(null))
     return () => { live = false }
-  }, [api, project, revision, tick, initialBranch])
+  }, [api, project, revision, tick, initialBranch, initialCommit])
 
   async function loadBranch(name: string, more = false) {
     if (busy) return

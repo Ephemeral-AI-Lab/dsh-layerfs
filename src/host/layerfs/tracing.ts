@@ -96,14 +96,16 @@ export function savedVersions(operation: string, result: any): VersionLink[] {
 }
 
 /**
- * Versions a call log line names. A line has no `fast_forward`, so `Merged`
- * counts as referenced; `Committed`/`Added` created; `UpToDate`/`NoChanges`
- * unchanged; `Forked` referenced.
+ * Versions a call log line names. `Committed`/`Added` created;
+ * `UpToDate`/`NoChanges` unchanged; `Forked` referenced. A line has no
+ * `fast_forward`, so `Merged` is created only when the caller read
+ * `fastForward: false` from the call's stored answer ({@link fastForwardOfOutput}),
+ * else referenced.
  */
-export function lineVersions(line: Pick<CallLine, 'argv' | 'kind' | 'commit' | 'layer'>): VersionLink[] {
+export function lineVersions(line: Pick<CallLine, 'argv' | 'kind' | 'commit' | 'layer'>, fastForward?: boolean): VersionLink[] {
   const allowed: readonly string[] = CHECKPOINT_OPERATIONS
   if (!allowed.includes(operationOf(line.argv))) return []
-  const effects: Record<string, VersionLink['effect']> = { Committed: 'created', Added: 'created', UpToDate: 'unchanged', NoChanges: 'unchanged', Forked: 'referenced', Merged: 'referenced' }
+  const effects: Record<string, VersionLink['effect']> = { Committed: 'created', Added: 'created', UpToDate: 'unchanged', NoChanges: 'unchanged', Forked: 'referenced', Merged: fastForward === false ? 'created' : 'referenced' }
   const effect = line.kind ? effects[line.kind] : undefined
   const hex = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{66}$/.test(value)
   if (!effect) return []
@@ -165,11 +167,33 @@ function execFacts(operation: string, words: readonly string[], exit: unknown): 
   }
 }
 
-/** The exec exit code from a stored output: the final `{result}` frame, the last stdout line. */
-export function exitOfOutput(output: CallOutput | { missing: true } | undefined): number | undefined {
+/**
+ * The exec exit code from a stored output: the final `{result}` frame, the
+ * last stdout line (`--events`). A `--stream` call (`streamed`) prints the
+ * command's raw output and exits with the command's own code, so its process
+ * exit is the answer, except 125 (LayerFS itself failed).
+ */
+export function exitOfOutput(output: CallOutput | { missing: true } | undefined, streamed = false): number | undefined {
+  if (!output || 'missing' in output) return undefined
+  if (typeof output.stdout === 'string') {
+    const last = output.stdout.trimEnd().split('\n').at(-1)
+    try { const code = JSON.parse(last ?? '')?.result?.exit_code; if (Number.isInteger(code)) return code } catch { /* not a frame */ }
+  }
+  return streamed && Number.isInteger(output.exit) && output.exit !== 125 ? output.exit as number : undefined
+}
+
+/**
+ * `branch merge`: the answer's `fast_forward` from a stored output (stdout is
+ * the JSON answer). A cut answer is searched in its head, where the top-level
+ * field sits; `--text` answers and missing outputs give undefined.
+ */
+export function fastForwardOfOutput(output: CallOutput | { missing: true } | undefined): boolean | undefined {
   if (!output || 'missing' in output || typeof output.stdout !== 'string') return undefined
-  const last = output.stdout.trimEnd().split('\n').at(-1)
-  try { const code = JSON.parse(last ?? '')?.result?.exit_code; return Number.isInteger(code) ? code : undefined } catch { return undefined }
+  if (!output.truncated?.stdout) {
+    try { const value = JSON.parse(output.stdout)?.fast_forward; return typeof value === 'boolean' ? value : undefined } catch { return undefined }
+  }
+  const match = /^\s*\{[^{}]*?"fast_forward"\s*:\s*(true|false)/.exec(output.stdout.slice(0, 4096))
+  return match ? match[1] === 'true' : undefined
 }
 
 const shortText = (value: unknown): string | undefined => typeof value === 'string' && value && value.length <= 64 ? value : undefined
@@ -177,9 +201,10 @@ const shortText = (value: unknown): string | undefined => typeof value === 'stri
 /**
  * A receipt from a call log line made inside `identity`'s trace context.
  * `workspace commit` links versions only when its Workspace is the bound one.
- * `exit` is the exec exit code from the call's stored output, when the caller has it.
+ * `exit` is the exec exit code and `fastForward` a merge's `fast_forward`, both
+ * from the call's stored output, when the caller has it.
  */
-export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: string, exit?: number): Invocation {
+export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: string, exit?: number, fastForward?: boolean): Invocation {
   const operation = operationOf(line.argv)
   const targetKnown = operation !== 'workspace.commit' || (!!identity.workspace && line.argv[2] === identity.workspace)
   const project = !targetKnown ? '' : ['file', 'branch'].includes(line.argv[0]) && line.argv[2] ? line.argv[2] : identity.project
@@ -190,7 +215,7 @@ export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: str
   const code = line.outcome === 'ok' ? undefined : shortText(line.outcome), kind = shortText(line.kind)
   return {
     ...portable(identity, id, project), operation, outcome,
-    versions: outcome === 'success' && targetKnown && !identity.internal ? lineVersions(line) : [],
+    versions: outcome === 'success' && targetKnown && !identity.internal ? lineVersions(line, fastForward) : [],
     ...(captureGap ? { captureGap } : {}),
     at: line.at, ms: line.ms, argv: portableArgv(line.argv),
     ...(line.tag ? { tag: line.tag } : {}), ...(code ? { code } : {}), ...(kind ? { kind } : {}),

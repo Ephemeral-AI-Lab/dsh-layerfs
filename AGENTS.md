@@ -117,7 +117,12 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
     `register<Area>(ctx, api)`; `picker/` owns the shared `NewProjectForm` + locale,
     `hero/` puts the project choice on the New Session row (`conversation.hero.options`
     + the `session.place` op), `views/` adds the Files/History/Sandbox conversation
-    tabs for project sessions (`conversation.view`, docs/specs/conversation-views.md),
+    tabs for project sessions (`conversation.view`, docs/specs/conversation-views.md)
+    and replaces their Trajectory tab with the LayerFS trajectory while a project
+    session is on screen (LayerFS mode: same id, lower priority, and the stock
+    `ui-trajectory` browser entry suspended through the cordis Loader so the tab
+    shows once; DSH sessions keep the stock one; tool calls → LayerFS calls →
+    versions, `session.trajectory`, docs/specs/layerfs-trajectory.md),
     `session/` only marks project rows (there is no LayerFS side panel).
     Add-workspace flows are stock DSH folder picking.
 - `src/shared/remote-spec.ts` Remote descriptors shared by both faces.

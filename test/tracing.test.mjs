@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 const root = mkdtempSync(join(tmpdir(), 'dsh-tracing-'))
 await build({ stdin: { contents: "export * from './src/host/layerfs/tracing.ts'; export { execute } from './src/host/layerfs/cli.ts'; export { listCalls } from './src/host/layerfs/call-log.ts'; export { parseTag, sessionTag } from './src/shared/logs.ts'", resolveDir: process.cwd(), loader: 'ts' }, outfile: join(root, 'trace.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node24' })
-const { execute, savedVersions, lineVersions, receiptFromLine, withTraceContext, traceInvocation, managedCli, traceEnvironment, toolScope, listCalls, parseTag, sessionTag } = await import(pathToFileURL(join(root, 'trace.mjs')))
+const { execute, savedVersions, lineVersions, fastForwardOfOutput, exitOfOutput, receiptFromLine, withTraceContext, traceInvocation, managedCli, traceEnvironment, toolScope, listCalls, parseTag, sessionTag } = await import(pathToFileURL(join(root, 'trace.mjs')))
 const id = '12' + 'a'.repeat(64), base = '32' + 'b'.repeat(64)
 const RECEIPT_KEYS = ['id', 'origin', 'sessionId', 'project', 'turn', 'toolCallId', 'operation', 'outcome', 'versions', 'captureGap', 'at', 'ms', 'argv', 'tag', 'code', 'kind', 'execId', 'exit', 'step']
 
@@ -31,7 +31,7 @@ test('eligible result semantics preserve Commit, Layer, no-op and reference effe
   assert.deepEqual(savedVersions('file.apply', { kind: 'Committed', head: 'a'.repeat(64) }), []) // raw content digests are not typed version IDs
   assert.deepEqual(savedVersions('workspace.commit', { kind: 'UpToDate', head: null, root: id }), []) // a root hash is not a Layer
 })
-test('call log lines map to versions: created, unchanged, referenced; Merged is referenced', () => {
+test('call log lines map to versions: created, unchanged, referenced; Merged by its stored fast_forward', () => {
   const line = (argv, kind, extra = {}) => ({ argv, kind, ...extra })
   assert.deepEqual(lineVersions(line(['workspace', 'commit', 'ws'], 'Committed', { commit: id })), [{ kind: 'Commit', id, effect: 'created' }])
   assert.deepEqual(lineVersions(line(['branch', 'publish', 'p', 'b'], 'Added', { layer: base })), [{ kind: 'Layer', id: base, effect: 'created' }])
@@ -39,9 +39,38 @@ test('call log lines map to versions: created, unchanged, referenced; Merged is 
   assert.deepEqual(lineVersions(line(['branch', 'publish', 'p', 'b'], 'NoChanges', { layer: base })), [{ kind: 'Layer', id: base, effect: 'unchanged' }])
   assert.deepEqual(lineVersions(line(['branch', 'fork', 'p', 'n', 'main'], 'Forked', { layer: base })), [{ kind: 'Layer', id: base, effect: 'referenced' }])
   assert.deepEqual(lineVersions(line(['branch', 'merge', 'p', 'n', 'a', 'b'], 'Merged', { commit: id })), [{ kind: 'Commit', id, effect: 'referenced' }])
+  // the stored answer's fast_forward decides: a real merge Commit is created, a moved pointer referenced
+  assert.deepEqual(lineVersions(line(['branch', 'merge', 'p', 'n', 'a', 'b'], 'Merged', { commit: id }), false), [{ kind: 'Commit', id, effect: 'created' }])
+  assert.deepEqual(lineVersions(line(['branch', 'merge', 'p', 'n', 'a', 'b'], 'Merged', { commit: id }), true), [{ kind: 'Commit', id, effect: 'referenced' }])
+  assert.deepEqual(lineVersions(line(['branch', 'fork', 'p', 'n', 'main'], 'Forked', { layer: base }), false), [{ kind: 'Layer', id: base, effect: 'referenced' }])
   assert.deepEqual(lineVersions(line(['file', 'read', 'p', 'b', '/x'], 'Committed', { commit: id })), [])
   assert.deepEqual(lineVersions(line(['workspace', 'commit', 'ws'], 'Committed', { commit: 'short' })), [])
   assert.deepEqual(lineVersions(line(['workspace', 'commit', 'ws'], 'Mounted', { commit: id })), [])
+})
+test('a merge receipt rebuilt from its line reads fast_forward from the stored answer', () => {
+  const out = (stdout, truncated) => ({ tag: 't', stdout, bytes: { stdout: stdout.length, stderr: 0 }, ...(truncated ? { truncated: { stdout: true } } : {}) })
+  const answer = (ff) => JSON.stringify({ kind: 'Merged', fast_forward: ff, branch: 'm', head: id, root: base, lww: [] })
+  assert.equal(fastForwardOfOutput(out(answer(false))), false)
+  assert.equal(fastForwardOfOutput(out(answer(true))), true)
+  assert.equal(fastForwardOfOutput(out(answer(false).slice(0, 80), true)), false) // cut answer: the top-level field is in its head
+  assert.equal(fastForwardOfOutput(out('{"kind":"Merged","lww":[{"fast_forward":false', true)), undefined) // never a nested value
+  assert.equal(fastForwardOfOutput(out('Merged m (3 files)\n')), undefined) // --text
+  assert.equal(fastForwardOfOutput({ missing: true }), undefined)
+  assert.equal(fastForwardOfOutput(undefined), undefined)
+  const line = { v: 1, at: 1, ms: 2, client: 'cli', argv: ['branch', 'merge', 'p/q', 'm', 'a', 'b'], outcome: 'ok', kind: 'Merged', commit: id, tag: 'dsh:s:x.1' }
+  const identity = { origin: 'tool', sessionId: 's', project: 'p/q', toolCallId: 'call_7' }
+  assert.deepEqual(receiptFromLine(line, identity, 'x.1', undefined, false).versions, [{ kind: 'Commit', id, effect: 'created' }])
+  assert.deepEqual(receiptFromLine(line, identity, 'x.1').versions, [{ kind: 'Commit', id, effect: 'referenced' }])
+})
+test('an exec exit code comes from the final result frame, or from a --stream call\'s own exit', () => {
+  const out = (stdout, exit) => ({ tag: 't', stdout, exit, bytes: { stdout: stdout.length, stderr: 0 } })
+  assert.equal(exitOfOutput(out('hi\n{"result":{"exit_code":3}}\n', 0)), 3)
+  assert.equal(exitOfOutput(out('{"result":{"exit_code":3}}', 7), true), 3, 'a frame wins')
+  assert.equal(exitOfOutput(out('raw output\n', 2)), undefined, 'not streamed: the process exit is not the command\'s')
+  assert.equal(exitOfOutput(out('raw output\n', 2), true), 2)
+  assert.equal(exitOfOutput(out('', 0), true), 0)
+  assert.equal(exitOfOutput(out('', 125), true), undefined, '125: LayerFS failed, not the command')
+  assert.equal(exitOfOutput({ missing: true }, true), undefined)
 })
 test('concurrent SDK calls keep exact tool identity, host origin and failed outcomes in the smaller receipt', async () => {
   const receipts = []

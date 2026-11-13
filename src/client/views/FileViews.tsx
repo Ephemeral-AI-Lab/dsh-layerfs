@@ -29,8 +29,8 @@ export interface ViewInjected {
 }
 
 /** LayerFS views have no composer: hide it while the view is mounted. */
-export function useNoComposer(hideComposer: () => () => void): void {
-  useEffect(() => hideComposer(), [hideComposer])
+export function useNoComposer(hideComposer: () => () => void, hide = true): void {
+  useEffect(() => (hide ? hideComposer() : undefined), [hideComposer, hide])
 }
 
 /** DSH's owner share of a `conversation.view` entry. */
@@ -112,13 +112,16 @@ export function HistoryView(props: ViewProps): ReactNode {
   const { api, t, sessionId, sessions, openView } = props
   useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
+  // The Trajectory tab opens a version here: `{branch, commit}`.
+  const [focus, n] = useFocus(HISTORY_VIEW, props)
   return (
     <Gate state={state} t={t}>
       {(view, project) => (
         <div className={css.frame}>
           <SessionLine view={view} t={t} />
           <div className={css.fill}>
-            <ProjectHistory key={project} api={api} project={project} t={t} tick={state.tick} initialBranch={view.binding.branch}
+            <ProjectHistory key={`${project}:${n}`} api={api} project={project} t={t} tick={state.tick}
+              initialBranch={focus?.branch ?? view.binding.branch} initialCommit={focus?.commit}
               onOpenFile={openView ? (branch, path, pin) => openView(FILES_VIEW, JSON.stringify({ branch, path, commit: pin })) : undefined} />
           </div>
         </div>
