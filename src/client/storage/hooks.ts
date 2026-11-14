@@ -6,14 +6,23 @@ import type { StorageJob } from './types.ts'
 const DISMISSED_KEY = 'dsh-layerfs.storage.dismissed-jobs'
 
 /** Run `listener` on each host event of `types` while mounted. */
-export function useHostEvents(api: LayerfsApi, types: readonly string[], listener: (event: HostEvent) => void): void {
+export function useHostEvents(api: LayerfsApi, types: readonly string[], listener: (event: HostEvent) => void, { coalesceMs = 0 }: { coalesceMs?: number } = {}): void {
   const ref = useRef(listener)
   ref.current = listener
   const key = types.join(',')
   useEffect(() => {
-    const offs = key.split(',').map((type) => api.onEvent(type, (e) => ref.current(e)))
-    return () => { for (const off of offs) off() }
-  }, [api, key])
+    // With `coalesceMs`, a burst of events (many a second during a team run) is one
+    // call with the burst's last event, `coalesceMs` after the burst's first.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let last: HostEvent | undefined
+    const deliver = (e: HostEvent) => {
+      if (!coalesceMs) return ref.current(e)
+      last = e
+      timer ??= setTimeout(() => { timer = undefined; if (last) ref.current(last) }, coalesceMs)
+    }
+    const offs = key.split(',').map((type) => api.onEvent(type, deliver))
+    return () => { for (const off of offs) off(); clearTimeout(timer) }
+  }, [api, key, coalesceMs])
 }
 
 /** The current time, ticking every `ms`. */

@@ -5,12 +5,20 @@ import type { MachinesView } from '../machines/model.ts'
 import { useHostEvents } from '../storage/hooks.ts'
 import { readWithDeadline, steadyRead } from './read-deadline.ts'
 
+/**
+ * The sidebar's reads (catalog, Storage, machines) are on every page: host events
+ * carry their changes, so the poll only catches what no event reports (a VM that died).
+ */
+export const SIDEBAR_POLL_MS = 60_000
+/** Host events arrive many a second during a team run: one reread per burst. */
+export const EVENT_COALESCE_MS = 2_000
+
 export function useProjectMachines(api: LayerfsApi) {
   const last = useRef<{ value: MachinesView, failures: number } | null>(null)
   const read = useQuery(() => steadyRead(last, () => readWithDeadline(api.call<MachinesView>('GET', '/api/machines'))), [api])
-  useHostEvents(api, ['machine-progress', 'layerfs-availability', 'storage', 'runtime-changed', 'connection'], read.reload)
+  useHostEvents(api, ['machine-progress', 'layerfs-availability', 'storage', 'runtime-changed', 'connection'], read.reload, { coalesceMs: EVENT_COALESCE_MS })
   useEffect(() => {
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, 15_000)
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, SIDEBAR_POLL_MS)
     return () => clearInterval(timer)
   }, [read.reload])
   return read
@@ -24,6 +32,11 @@ export interface ProjectSession {
 }
 interface SessionList { sessions: ProjectSession[], discoveryError?: { code: string, message: string } | null }
 
+/** The local session list (this DSH's own logs, no Store walk). */
+const LOCAL_POLL_MS = 15_000
+/** The portable archive: a Store walk, so slow (F22). */
+const ARCHIVE_POLL_MS = 60_000
+
 /** Local logs remain visible while the portable archive loads or fails. */
 export function useProjectSessions(api: LayerfsApi, project: string, enabled = true, projectId?: string) {
   const load = (localOnly: boolean) => enabled
@@ -33,14 +46,18 @@ export function useProjectSessions(api: LayerfsApi, project: string, enabled = t
   const local = useQuery(() => load(true), [api, project, projectId, enabled], { cache: `sessions-local:${key}` })
   const archive = useQuery(() => load(false), [api, project, projectId, enabled], { cache: `sessions-archive:${key}` })
   const reload = () => { local.reload(); archive.reload() }
-  // Session events come many a second during a run: they reread the local list only. The
-  // portable archive (a Store walk, one read per stored session) waits for the 15 s poll.
-  useHostEvents(api, ['layerfs-session', 'layerfs-workspaces-changed'], () => { if (enabled) local.reload() })
-  useHostEvents(api, ['layerfs-availability', 'storage', 'machine-progress', 'connection'], () => { if (enabled) reload() })
+  // Session, storage and machine events come many a second during a run: they reread the
+  // local list only. The portable archive (a Store walk: a Branch list plus one manifest
+  // read per stored session) is reread on reconnect and by its own slow poll; under a team
+  // run a 15 s archive poll per open project stalled host reads (Quarry v2 FIX-LOG F22).
+  useHostEvents(api, ['layerfs-session', 'layerfs-workspaces-changed', 'layerfs-availability', 'storage', 'machine-progress'], () => { if (enabled) local.reload() }, { coalesceMs: 1_000 })
+  useHostEvents(api, ['connection'], () => { if (enabled) reload() })
   useEffect(() => {
     if (!enabled) return
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') reload() }, 15_000)
-    return () => clearInterval(timer)
+    const visible = () => document.visibilityState === 'visible'
+    const fast = setInterval(() => { if (visible()) local.reload() }, LOCAL_POLL_MS)
+    const slow = setInterval(() => { if (visible()) archive.reload() }, ARCHIVE_POLL_MS)
+    return () => { clearInterval(fast); clearInterval(slow) }
   }, [enabled, local.reload, archive.reload])
   const rows = new Map((archive.data?.sessions ?? []).map((s) => [s.sessionId, s]))
   for (const s of local.data?.sessions ?? []) rows.set(s.sessionId, { ...rows.get(s.sessionId), ...s, title: rows.get(s.sessionId)?.title ?? s.title })

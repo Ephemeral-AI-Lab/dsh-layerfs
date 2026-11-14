@@ -16,7 +16,7 @@ import { useQuery } from '../files/use-query.ts'
 import { useHostEvents } from '../storage/hooks.ts'
 import type { StorageView, StoreRow } from '../storage/types.ts'
 import { projectAvailability, type ProjectAvailability } from './availability.ts'
-import { useProjectMachines, useProjectSessions } from './hooks.ts'
+import { EVENT_COALESCE_MS, SIDEBAR_POLL_MS, useProjectMachines, useProjectSessions } from './hooks.ts'
 import type { ListT } from './list-locale.ts'
 import css from './list.module.css'
 import { openMachineHome } from './navigation.ts'
@@ -49,13 +49,17 @@ function useSummaries(sessionSource?: SessionSource) {
   return useSyncExternalStore(source.subscribe.bind(source), source.getSnapshot.bind(source))
 }
 
-/** A read kept on screen while a refresh runs, reloaded on `events` and every 15 s while visible. */
+/**
+ * A read kept on screen while a refresh runs, reloaded on `events` (coalesced) and by
+ * the slow poll while visible. The sidebar shows it on every page, so each poll costs
+ * every open tab a catalog, Store and machine read (Quarry v2 FIX-LOG F22).
+ */
 function useSteady<T>(api: LayerfsApi, load: () => Promise<T>, events: readonly string[]) {
   const last = useRef<{ value: T, failures: number } | null>(null)
   const read = useQuery(() => steadyRead(last, () => readWithDeadline(load())), [api])
-  useHostEvents(api, events, read.reload)
+  useHostEvents(api, events, read.reload, { coalesceMs: EVENT_COALESCE_MS })
   useEffect(() => {
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, 15_000)
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, SIDEBAR_POLL_MS)
     return () => clearInterval(timer)
   }, [read.reload])
   return read

@@ -21,6 +21,13 @@ import type { LayerfsSessions } from './service.ts'
 import type { ArchivePiece, StreamMark, SimulationBinding } from './state.ts'
 
 export const STORE_PREFIX = 'dsh.session.'
+
+/** A listed Branch's head Commit id (its live head, else its saved head), or null when it has none. */
+function branchHead(branch: any): string | null {
+  const head = branch?.head ?? branch?.saved_head
+  const id = typeof head === 'string' ? head : head?.id
+  return typeof id === 'string' && id ? id : null
+}
 const DIR = '/.dsh/session'
 const MISS_MS = 30_000
 /** A stream with this many parts is rewritten as one base file on its next save. */
@@ -250,14 +257,39 @@ export class SessionStore {
     return title
   }
 
+  /**
+   * Parsed manifests of stored sessions by `project\0branch`, with the Branch head they
+   * were read at: a Branch whose head did not move is not read again. The session list
+   * is polled by every open project view, and re-reading each manifest per poll stalled
+   * host reads during a team run (Quarry v2 FIX-LOG F22).
+   */
+  private readonly manifests = new Map<string, { head: string, manifest: any }>()
+  /** Discovery walks in flight by project: concurrent callers share one walk. */
+  private readonly discovering = new Map<string, Promise<StoredSession[]>>()
+
   /** The sessions stored in a project, joined with what this DSH has locally. */
-  async discover(project: string): Promise<StoredSession[]> {
+  discover(project: string): Promise<StoredSession[]> {
+    const running = this.discovering.get(project)
+    if (running) return running
+    const walk = this.discoverNow(project).finally(() => this.discovering.delete(project))
+    this.discovering.set(project, walk)
+    return walk
+  }
+
+  private async discoverNow(project: string): Promise<StoredSession[]> {
     const branches = await pages((paging) => this.lfs.branch.list(project, paging))
     const stored = branches.filter((b: any) => typeof b.name === 'string' && b.name.startsWith(STORE_PREFIX))
     const out: StoredSession[] = []
+    const seen = new Set<string>()
     for (const b of stored) {
       try {
-        const manifest = await this.readManifest(project, b.name)
+        const key = `${project}\0${b.name}`
+        seen.add(key)
+        const head = branchHead(b)
+        const kept = head ? this.manifests.get(key) : undefined
+        const manifest = kept && kept.head === head ? kept.manifest : await this.readManifest(project, b.name)
+        if (head) this.manifests.set(key, { head, manifest })
+        else this.manifests.delete(key)
         out.push({
           sessionId: manifest.sessionId,
           projectId: manifest.projectId,
@@ -273,6 +305,8 @@ export class SessionStore {
         this.found.set(manifest.sessionId, project)
       } catch { /* a branch without a readable manifest is not a session */ }
     }
+    // Branches gone from the project leave nothing kept.
+    for (const key of this.manifests.keys()) if (key.startsWith(`${project}\0`) && !seen.has(key)) this.manifests.delete(key)
     return out
   }
 

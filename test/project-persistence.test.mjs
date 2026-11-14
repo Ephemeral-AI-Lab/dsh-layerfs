@@ -724,3 +724,50 @@ test('saves to one Store run one at a time and a session already queued is not q
   assert.deepEqual(runs.sort(), ['a', 'a', 'b', 'c'])
   assert.equal(peak, 2)
 })
+
+test('discover rereads a stored session manifest only when its Branch head moves, and shares concurrent walks (F22)', async () => {
+  const store = new persistence.SessionStore(new Context(), { binding: () => undefined, lane: (_k, run) => run() })
+  const heads = { 'dsh.session.a': 'c1', 'dsh.session.b': 'c2' }
+  let lists = 0
+  const reads = []
+  const manifest = (name) => JSON.stringify({ sessionId: name.slice('dsh.session.'.length), projectId: 'p', title: `${name} @ ${heads[name]}`, count: 3, checkpoints: [] })
+  const fake = {
+    branch: {
+      list: async () => {
+        lists++
+        await new Promise((r) => setTimeout(r, 5))
+        return { items: [{ name: 'main', head: null, saved_head: { id: 'm1' } }, ...Object.keys(heads).map((name) => ({ name, head: heads[name] }))], next_page_pos: null }
+      },
+    },
+    file: {
+      read: async (_project, branch) => {
+        reads.push(branch)
+        const text = manifest(branch) + '\n'
+        return { kind: 'ok', start_line: 1, line_truncated: false, truncated: false, next_line: null, text, size: Buffer.byteLength(text) }
+      },
+    },
+  }
+  Object.defineProperty(store, 'lfs', { get: () => fake })
+  const first = await store.discover('s/p')
+  assert.deepEqual(first.map((r) => r.sessionId).sort(), ['a', 'b'])
+  assert.deepEqual(reads.sort(), ['dsh.session.a', 'dsh.session.b'])
+  // Unchanged heads: the next walk lists Branches but reads no manifest.
+  reads.length = 0
+  const again = await store.discover('s/p')
+  assert.deepEqual(reads, [], 'no manifest is reread while its Branch head is unchanged')
+  assert.deepEqual(again.map((r) => r.title).sort(), first.map((r) => r.title).sort())
+  // A save moves one head: only that manifest is read again, and its new contents show.
+  heads['dsh.session.b'] = 'c3'
+  const moved = await store.discover('s/p')
+  assert.deepEqual(reads, ['dsh.session.b'])
+  assert.equal(moved.find((r) => r.sessionId === 'b').title, 'dsh.session.b @ c3')
+  // Concurrent callers share one walk (one Branch list).
+  lists = 0
+  const [x, y] = await Promise.all([store.discover('s/p'), store.discover('s/p')])
+  assert.equal(lists, 1, 'concurrent discovery of one project lists its Branches once')
+  assert.equal(x, y)
+  // A Branch gone from the project leaves nothing kept.
+  delete heads['dsh.session.a']
+  await store.discover('s/p')
+  assert.equal([...store.manifests.keys()].some((k) => k.endsWith('dsh.session.a')), false)
+})

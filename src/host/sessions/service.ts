@@ -480,7 +480,13 @@ export class LayerfsSessions extends Service {
       observed = { workspaces: [] }
     }
     const existing = (observed.workspaces ?? []).find((w: any) => w.name === WS_NAME)
-    if (existing && existing.branch === branch && (existing.directory ?? existing.path)) return native ? (existing.directory ?? existing.path) : undefined
+    if (existing && existing.branch === branch && (existing.directory ?? existing.path)) {
+      // Re-activating an interrupted binding (which dropped `ws`) over a Workspace that
+      // is still mounted: restore the handle too, or every tool call stays refused
+      // "Project execution is not active" (Quarry v2 FIX-LOG F23).
+      binding.ws = existing.ws ?? `${sandbox}:${WS_NAME}`
+      return native ? (existing.directory ?? existing.path) : undefined
+    }
     if (existing) await this.lfs.workspace.unmount(`${sandbox}:${WS_NAME}`, { force: true, discard: false }).catch(() => this.lfs.workspace.unmount(`${sandbox}:${WS_NAME}`, { force: true, discard: true }))
     const mounted = await this.lfs.workspace.mount(sandbox, branch, { name: WS_NAME })
     binding.base ??= mounted.base ?? mounted.base_layer ?? null
@@ -656,6 +662,16 @@ export class LayerfsSessions extends Service {
       const message = String(error?.message ?? error)
       const kind = error?.code === 'Unavailable' ? 'availability' : 'blocked'
       const current = binding ? this.binding(binding.sessionId) : undefined
+      // A readiness read that fails under host load (a machine status timing out) must
+      // not stop a running team: when the bound execution Workspace still answers, the
+      // machine and Sandbox are up. Keep running; the next check reads again
+      // (Quarry v2 FIX-LOG F21).
+      if (kind === 'availability' && current?.state === 'bound' && current.ws
+        && await this.lfs.workspace.status(current.ws).then(() => true, () => false)) {
+        this.ctx.logger('layerfs').warn('session %s: readiness check failed while its Workspace answers; keeping execution: %s', current.sessionId, message)
+        checked.set(id, Date.now())
+        return
+      }
       // An active context is deactivated; an inactive one only records why it cannot start.
       if (current?.state === 'bound') this.interrupt(current.sessionId, message, kind)
       else if (current) this.save({ ...current, error: message, interruption: { kind, at: Date.now() } })

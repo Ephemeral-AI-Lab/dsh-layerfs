@@ -234,3 +234,42 @@ test('parallel identity lookups of one project share one read, and a dropped-lea
     await assert.rejects(f.catalog.uuidOf('store/app'), /nope/, 'other refusals are not retried')
   } finally { f.close() }
 })
+
+test('a listing reads an unclaimed project\'s Branches once per UNCLAIMED_MS; claims and placement reads stay live', async (t) => {
+  const f = fixture()
+  try {
+    let lists = 0
+    const lfs = f.catalog['lfs']()
+    const list = lfs.branch.list
+    lfs.branch.list = async (key, paging) => { lists++; return list(key, paging) }
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+    for (let i = 0; i < 3; i++) assert.equal((await f.catalog.list())[0].projectId, 'unclaimed:store/app')
+    assert.equal(lists, 1, 'one branch list for three listings')
+    // Another installation claims: placement reads see it at once, listings within a minute.
+    f.state.projects.get('store/app').branches.push(identityBranch(A))
+    assert.equal((await f.catalog.assert('store/app', 'unclaimed:store/app')).projectId, A)
+    t.mock.timers.tick(60_000)
+    assert.equal((await f.catalog.list())[0].projectId, A)
+    // A project recreated under the same name (new `created`) is read again at once.
+    f.state.projects.set('store/new', { info: info('store/new', 200), branches: ['main'] })
+    await f.catalog.list()
+    f.state.projects.set('store/new', { info: info('store/new', 300), branches: ['main'] })
+    const before = lists
+    await f.catalog.list()
+    assert.equal(lists, before + 1, 'a new `created` is a new project')
+  } finally { f.close() }
+})
+
+test('a listing never trusts an unclaimed read that failed', async () => {
+  const f = fixture()
+  try {
+    let lists = 0, failing = true
+    const lfs = f.catalog['lfs']()
+    const list = lfs.branch.list
+    lfs.branch.list = async (key, paging) => { lists++; if (failing) throw fail('Unavailable'); return list(key, paging) }
+    assert.equal((await f.catalog.list())[0].catalogState, 'unavailable')
+    failing = false
+    assert.equal((await f.catalog.list())[0].catalogState, 'available')
+    assert.equal(lists, 2)
+  } finally { f.close() }
+})

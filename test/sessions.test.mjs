@@ -903,3 +903,41 @@ test('a branched child whose mount fails keeps its forked branch for the next me
   assert.equal(child.state, 'failed'); assert.equal(child.ws, undefined)
   assert.deepEqual(child.from, { session: 'a', commit: hex('d'), turn: 1 })
 })
+
+// Quarry v2 FIX-LOG F21: a readiness read failing under host load interrupted a running team.
+test('a failed readiness check keeps a bound execution whose Workspace still answers (F21)', async () => {
+  const state = S.initialState()
+  state.sessions.owner = { sessionId: 'owner', kind: 'project', project: 'st/app', anchor: '/a', scratch: '/s', machine: 'docker', branch: 'dsh.owner', sandbox: 'dsh-owner', ws: 'dsh-owner:main', state: 'bound', executionState: 'active', createdAt: 0, updatedAt: 0 }
+  state.sessions.child = { sessionId: 'child', kind: 'shared', project: 'st/app', parent: 'owner', anchor: '/a', scratch: '', state: 'bound', createdAt: 0, updatedAt: 0 }
+  let answers = true
+  const { s, state: now } = sessions({ state, lfs: {
+    machine: { get: async () => ({ state: 'unknown' }) },
+    store: { status: async () => ({}) },
+    workspace: { status: async () => { if (!answers) throw new Refusal('NotMounted'); return { ws: 'dsh-owner:main' } } },
+  } })
+  s.ctx.get = (name) => name === 'sessionPersistence' ? { assertSessionIdentity: async () => ({ kind: 'sqlite', machine: 'docker', store: 'st', key: 'st/app' }) } : undefined
+  await s.validateExecutionIdentity('child')
+  assert.equal(now().sessions.owner.state, 'bound', 'the owner stays bound')
+  assert.equal(now().sessions.owner.ws, 'dsh-owner:main')
+  assert.equal(now().sessions.owner.interruption, undefined)
+  // A Workspace that no longer answers still interrupts, as before.
+  answers = false
+  s.identityChecked.clear()
+  await assert.rejects(s.validateExecutionIdentity('child'), (e) => e.code === 'Unavailable')
+  assert.equal(now().sessions.owner.state, 'closed')
+  assert.equal(now().sessions.owner.executionState, 'interrupted')
+})
+
+// Quarry v2 FIX-LOG F23: re-activation over a still-mounted Workspace left `ws` unset.
+test('re-activating an interrupted binding over a still-mounted Workspace restores its handle (F23)', async () => {
+  const mounts = []
+  const { s } = sessions({ lfs: {
+    sandbox: { get: async () => ({ state: 'running', workspaces: [{ name: 'main', branch: 'dsh.owner', path: '/layerfs/run/main', ws: 'dsh-owner:main' }] }) },
+    workspace: { mount: async (...args) => { mounts.push(args); return { ws: 'dsh-owner:main' } }, unmount: async () => {} },
+  } })
+  const binding = { sessionId: 'owner', kind: 'project', project: 'st/app', machine: 'docker', branch: 'dsh.owner', sandbox: 'dsh-owner', state: 'closed', executionState: 'interrupted' }
+  const mount = await s.mount(binding)
+  assert.equal(mount, undefined, 'a docker Workspace has no host path')
+  assert.equal(binding.ws, 'dsh-owner:main', 'the Workspace handle is restored')
+  assert.deepEqual(mounts, [], 'nothing is remounted')
+})

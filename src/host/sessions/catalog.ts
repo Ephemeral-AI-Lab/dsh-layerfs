@@ -63,6 +63,14 @@ const transientRead = (error: any): boolean => error?.code === 'Failed' && /NotF
  * A project that returns shows in the live listing, which this never skips.
  */
 const GONE_MS = 10 * 60_000
+/**
+ * How long a listing trusts that a live project has no identity branch before
+ * reading its Branches again. Listings run on every open page's timer and each
+ * unclaimed project costs a full `branch list`; a claim made here is remembered
+ * at once, so only a claim by another installation shows up this much later.
+ * Reads that place or resolve a conversation never use this.
+ */
+const UNCLAIMED_MS = 60_000
 const changed = () => new CliError('ProjectIdentityChanged', 'This name now refers to another project. The original conversation remains available; recover its original project before continuing.')
 
 /** Durable inventory, independent of the current live LayerFS listing. */
@@ -70,6 +78,8 @@ export class ProjectCatalog {
   private readonly path: string
   /** address -> when and how LayerFS last answered it as removed (GONE_MS) */
   private readonly gone = new Map<string, { at: number, message: string }>()
+  /** `<address>\0<created>` -> when a listing last read it as unclaimed (UNCLAIMED_MS) */
+  private readonly unclaimed = new Map<string, number>()
   constructor(private readonly lfs: () => Lfs, root: string) { this.path = join(root, 'project-catalog.json') }
   private read(): Record<string, CatalogProject> {
     if (!existsSync(this.path)) return {}
@@ -195,6 +205,7 @@ export class ProjectCatalog {
       return retained.map((row) => ({ ...row, catalogState: 'unavailable', catalogError: String(error?.message ?? error), storeState: null }))
     }
     const statuses = new Map<string, Promise<any>>()
+    const listed = new Set<string>()
     const rows: CatalogProject[] = []
     const seen = new Map<string, string>()
     for (const info of live) {
@@ -204,7 +215,14 @@ export class ProjectCatalog {
       const known = retained.find((row) => row.key === key && row.created === info.created && !row.projectId.startsWith(UNCLAIMED))
       let id: string | null = known?.projectId ?? null
       let failure: any
-      if (!id) id = await this.uuidOf(key).catch((error) => { failure = error; return null })
+      const unclaimedKey = `${key}\0${info.created ?? ''}`
+      const checked = this.unclaimed.get(unclaimedKey)
+      if (!id && !(checked !== undefined && Date.now() - checked < UNCLAIMED_MS)) {
+        id = await this.uuidOf(key).catch((error) => { failure = error; return null })
+        if (!id && !failure) this.unclaimed.set(unclaimedKey, Date.now())
+      }
+      if (id) this.unclaimed.delete(unclaimedKey)
+      listed.add(unclaimedKey)
       const storeState = (await statuses.get(store))?.state ?? null
       const base = { key, name: info.name ?? key.split('/')[1], store, kind: info.kind ?? null, machine: info.machine ?? null, created: info.created ?? null, lastSeen: Date.now(), storeState }
       if (!id) {
@@ -220,6 +238,7 @@ export class ProjectCatalog {
       seen.set(id, key)
       rows.push({ ...row, ...base, catalogState: 'available' })
     }
+    for (const key of this.unclaimed.keys()) if (!listed.has(key)) this.unclaimed.delete(key)
     for (const row of retained) {
       if (row.projectId.startsWith(UNCLAIMED) || seen.has(row.projectId)) continue
       const replaced = live.some((info) => keyOf(info) === row.key)
