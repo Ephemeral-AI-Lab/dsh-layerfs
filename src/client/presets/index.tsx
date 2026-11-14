@@ -1,17 +1,17 @@
 /**
- * Presets area of dsh-layerfs: LayerFS Connect's Presets (the Studio project
- * library built into this LayerFS home, its CLI script, Build and Reset). It
- * has no page or sidebar row of its own: `PresetsSection` renders on the
- * LayerFS Settings page, and this registers its copy.
+ * Presets area of dsh-layerfs: LayerFS Connect's Presets (sample project
+ * libraries built into this LayerFS home, their CLI script, Build and Reset).
+ * It has no page or sidebar row of its own: `PresetsDialog` opens from the
+ * LayerFS home, and this registers its copy.
  */
 import { locales, NS } from './locale.ts'
 
-export { PresetsSection } from './PresetsSection.tsx'
+export { PresetsDialog } from './PresetsDialog.tsx'
 export { NS as PRESETS_NS } from './locale.ts'
 export type { PresetsT } from './locale.ts'
 
 /**
- * Register the Presets copy the Settings page's Presets section reads.
+ * Register the Presets copy the Presets dialog reads.
  * @param ctx - the plugin's client context (locale).
  */
 export function registerPresets(ctx: any): void {

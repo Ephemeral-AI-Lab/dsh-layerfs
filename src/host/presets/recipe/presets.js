@@ -14,8 +14,12 @@ const vms = [
   { name: 'demo-build', platform: 'lima', cpus: 2, memory: '4G', disk: '20G' },
   { name: 'demo-research', platform: 'lima', cpus: 2, memory: '4G', disk: '20G' },
 ]
+// The Starter preset: one SQLite Store on the Docker machine, one project, no VMs.
+const starterStores = [{ name: 'demo-starter', machine: 'docker', projects: ['bookshelf'] }]
+// `concurrentHistory`: dense histories built after every Store is placed (independent Branches in parallel).
 export const presets = {
-  studio: { description: 'Four machines; two SQLite Stores and two PostgreSQL Stores (a Docker PostgreSQL server the preset runs, attached to their machines) with eight unequal project workloads and dense real commit, branch and publication histories. No sandboxes or workspaces.', machines: ['native', 'docker', ...vms], stores, sandboxes: false },
+  quickstart: { description: 'One SQLite Store on the Docker machine with one project and a deep history of feature Branches, merges and releases. No virtual machines.', machines: ['docker'], stores: starterStores, sandboxes: false, concurrentHistory: true },
+  studio: { concurrentHistory: true, description: 'Four machines; two SQLite Stores and two PostgreSQL Stores (a Docker PostgreSQL server the preset runs, attached to their machines) with eight unequal project workloads and dense real commit, branch and publication histories. No sandboxes or workspaces.', machines: ['native', 'docker', ...vms], stores, sandboxes: false },
 }
 // Kept addressable for existing private homes and cleanup; not offered as presets.
 const legacyPresets = {

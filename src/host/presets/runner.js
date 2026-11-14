@@ -100,7 +100,7 @@ export class DemoRunner extends CliInventory {
     if (existsSync(this.home) && lstatSync(this.home).isSymbolicLink()) fail('The demo home must not be a symlink.')
     if (existsSync(this.file)) {
       this.manifest = JSON.parse(readFileSync(this.file, 'utf8'))
-      if (this.manifest.tool !== TOOL || this.manifest.version !== 1 || this.manifest.preset !== this.presetName || this.manifest.state !== realpathSync(this.state)) fail('The demo ownership manifest does not match this state and preset. Use a separate state directory for each preset.')
+      if (this.manifest.tool !== TOOL || this.manifest.version !== 1 || (this.manifest.preset !== this.presetName && this.command !== 'reset') || this.manifest.state !== realpathSync(this.state)) fail('The demo ownership manifest does not match this state and preset. Use a separate state directory for each preset.')
       if (this.preset.sandboxes !== false && !this.sandboxesExplicit && typeof this.manifest.sandboxes === 'boolean') this.sandboxes = this.manifest.sandboxes
       if (this.sandboxesExplicit && this.manifest.sandboxes !== undefined && this.preset.sandboxes !== false && this.manifest.sandboxes !== this.sandboxes && this.command !== 'reset') fail('Changing sandbox configuration requires reset; setup does not silently remove existing sandboxes.')
     } else {
@@ -445,7 +445,7 @@ export class DemoRunner extends CliInventory {
     if (Object.keys(this.manifest.projects).length && this.manifest.contentVersion !== CONTENT_VERSION) fail('Preset content has changed. Use Build preset to reset and prepare the new project library; existing data has been preserved.')
     await this.preflight()
     let completed = 0
-    const total = this.preset.machines.length + this.preset.stores.length + this.preset.stores.reduce((n, store) => n + (this.presetName === 'studio' ? store.projects.reduce((sum, name) => sum + projectHistorySteps(store.name, name, this.historyOptions).length, 0) : store.projects.length), 0)
+    const total = this.preset.machines.length + this.preset.stores.length + this.preset.stores.reduce((n, store) => n + (this.preset.concurrentHistory ? store.projects.reduce((sum, name) => sum + projectHistorySteps(store.name, name, this.historyOptions).length, 0) : store.projects.length), 0)
     const reportProgress = (label, tasks) => this.progress({ stage: 'building', completed, total, label, ...(tasks ? { tasks } : {}) })
     const advance = (label, tasks) => { completed++; reportProgress(label, tasks) }
     this.progress({ stage: 'building', completed, total, label: 'Preparing preset resources' })
@@ -460,7 +460,7 @@ export class DemoRunner extends CliInventory {
       const native = await this.query(['machine', 'get', 'native'])
       if (native.daemon !== this.driver.spec.daemon) await this.once(`native.daemon:${this.driver.spec.daemon}`, ['machine', 'update', 'native', '--daemon', this.driver.spec.daemon])
     }
-    if (this.presetName === 'studio') {
+    if (this.preset.concurrentHistory) {
       await this.setupConcurrentProjects({ advance, reportProgress })
       return
     }

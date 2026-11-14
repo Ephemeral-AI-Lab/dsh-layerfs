@@ -673,3 +673,145 @@
     margin-left: 0;
   }
 }
+
+/* ---------- Presets dialog (opened from the LayerFS home) ---------- */
+.dialog.dialog {
+  width: min(960px, 100%);
+  height: min(720px, 100%);
+  max-height: 100%;
+  gap: 0;
+  padding: 0;
+}
+
+.dialogFrame {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.dialogHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 12px 16px 20px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.dialogHeadText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+
+.dialogPad {
+  padding: 20px;
+}
+
+.dialogBody {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+.presetList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 8px;
+  overflow-y: auto;
+  border-right: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.presetGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.presetGroupName {
+  margin: 0;
+  padding: 0 10px 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.presetItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.presetItem[aria-current='true'] {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+@media (hover: hover) {
+  .presetItem:not([aria-current='true']):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.presetItemHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.presetItemName {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.presetItemState,
+.presetChips {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.presetDetail {
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.library.libraryBare {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+@media (max-width: 640px) {
+  .dialogBody {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .presetList {
+    border-right: 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  }
+}

@@ -55,13 +55,18 @@ function dirs() {
   return { base, state: join(base, 'presets'), home: join(base, 'home') }
 }
 
-test('list: the Studio library over an uninitialized home', () => {
+test('list: the Starter and Studio libraries over an uninitialized home', () => {
   const d = dirs()
   const m = new PresetManager(fakeHost(d).host, d.state, d.home)
   const view = m.list()
   assert.equal(view.busy, false)
-  assert.equal(view.items.length, 1)
-  const studio = view.items[0]
+  assert.deepEqual(view.items.map((p) => p.id), ['quickstart', 'studio'])
+  const starter = view.items[0]
+  assert.deepEqual([starter.machines, starter.stores, starter.projects], [['docker'], 1, 1])
+  assert.deepEqual(starter.requirements, ['docker'])
+  assert.equal(starter.projectGroups[0].kind, 'sqlite')
+  assert.ok(starter.projectDefinitions[0].history.commits >= 500 && starter.projectDefinitions[0].history.branches >= 15)
+  const studio = view.items[1]
   assert.equal(studio.id, 'studio')
   assert.deepEqual([studio.machines.length, studio.stores, studio.projects], [4, 4, 8])
   assert.equal(studio.initialized, false)
@@ -71,6 +76,16 @@ test('list: the Studio library over an uninitialized home', () => {
   assert.ok(studio.projectDefinitions.every((p) => p.history.commits > 0 && p.branches.length > 0))
   assert.deepEqual(studio.requirements, ['docker', 'lima'])
   assert.equal(m.definition('studio', 'mixed').requirements.includes('daemon'), true)
+  rmSync(d.base, { recursive: true, force: true })
+})
+
+test('list: only the preset the manifest names is built', () => {
+  const d = dirs()
+  mkdirSync(d.state, { recursive: true })
+  writeFileSync(join(d.state, 'demo-fixtures.json'), JSON.stringify({ tool: 'dsh-layerfs-presets', version: 1, preset: 'quickstart', homeId: 'h1', contentVersion: CONTENT_VERSION }))
+  const m = new PresetManager(fakeHost(d).host, d.state, d.home)
+  const built = Object.fromEntries(m.list().items.map((p) => [p.id, p.built]))
+  assert.deepEqual(built, { quickstart: true, studio: false })
   rmSync(d.base, { recursive: true, force: true })
 })
 

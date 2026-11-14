@@ -10,14 +10,17 @@ export const DENSE_TIERS = Object.freeze({
   website: { tier: 8, cycles: 38, topics: ['catalog', 'delivery', 'care'] },
 })
 
+// Studio's tiers above (Simulations compile one profile per entry); the Starter's project here.
+const TIERS = Object.freeze({ ...DENSE_TIERS, bookshelf: { tier: 0, cycles: 2, topics: ['catalog', 'loans', 'search'] } })
+
 const padded = n => String(n).padStart(3, '0')
 export function denseCycleBranches(name, cycle) {
-  const { topics } = DENSE_TIERS[name], suffix = padded(cycle)
+  const { topics } = TIERS[name], suffix = padded(cycle)
   return { a: `${topics[0]}-${suffix}`, b: `${topics[1]}-${suffix}`, maintenance: `${topics[2]}-${suffix}`, integration: `integration-${suffix}`, release: `release-${suffix}` }
 }
 
 function revision(definition, name, cycle, lane, index) {
-  const topic = DENSE_TIERS[name].topics[{ a: 0, b: 1, maintenance: 2 }[lane]]
+  const topic = TIERS[name].topics[{ a: 0, b: 1, maintenance: 2 }[lane]]
   const artifact = ['specification', 'examples', 'policy', 'review'][(index - 1) % 4]
   // Every imported project already has docs/. file.write does not create parents.
   const path = `docs/revision-${topic}-${artifact}.${artifact === 'review' ? 'md' : 'json'}`
@@ -33,7 +36,7 @@ function releaseRevision(definition, cycle, lane, index) {
 }
 
 export function denseHistoryExtension(name, definition, { cycles } = {}) {
-  const original = DENSE_TIERS[name]
+  const original = TIERS[name]
   const profile = original && { ...original, cycles: cycles ?? original.cycles }
   if (!profile) throw new Error(`No dense history tier for ${name}`)
   if (!Number.isInteger(profile.cycles) || profile.cycles < 1 || profile.cycles > original.cycles) throw new Error(`Invalid cycle limit ${profile.cycles} for ${name}`)
@@ -51,7 +54,7 @@ export function denseHistoryExtension(name, definition, { cycles } = {}) {
   return { tier: profile.tier, cycles: profile.cycles, branches, expectedMain }
 }
 
-export function denseHistorySteps(store, name, definition, { cycles = DENSE_TIERS[name].cycles } = {}) {
+export function denseHistorySteps(store, name, definition, { cycles = TIERS[name].cycles } = {}) {
   const steps = [], project = `${store}/${name}`
   const fork = (key, branch) => steps.push({ key, argv: ['branch', 'fork', project, branch, 'main'], expect: { kind: 'Forked' } })
   const write = (key, branch, change) => steps.push({ key, argv: ['file', 'write', project, branch, `/${change.path}`, '--message', change.message], input: change.content, expect: { kind: 'Committed' } })

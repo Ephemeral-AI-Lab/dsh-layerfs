@@ -17,7 +17,7 @@
  * SQLite files.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconAgentPresetOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
@@ -54,6 +54,10 @@ export interface HomeOverviewProps {
   onCheckAgain: () => void
   onNewStore: () => void
   onNewMachine: () => void
+  /** Open the Presets dialog (sample libraries to build into this home). */
+  onPresets: () => void
+  /** "Try a preset", from the Presets copy. */
+  presetsLabel: string
   /** A machine's Add Store dialog. */
   onAddStore: (machine: string) => void
   /** New Sandbox on a machine. */
@@ -294,6 +298,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         ].filter(Boolean).join(' · ')}
         actions={(
           <>
+            <Button variant="outline" size="sm" icon={<IconAgentPresetOutlineRegular size={13} />} onClick={props.onPresets}>{props.presetsLabel}</Button>
             <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} disabled={doctor.loading} onClick={refreshAll}
               title={t('ovRefreshTitle')}>{t('refresh')}</Button>
           </>
@@ -329,7 +334,12 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           {projectCount === 0 ? (
             <Card>
               <EmptyState title={t('ovNoProjects')} icon={<LayerfsGlyph size={20} />}
-                action={<Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={13} />} onClick={newProject}>{t('newProject')}</Button>}>
+                action={(
+                  <>
+                    <Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={13} />} onClick={newProject}>{t('newProject')}</Button>
+                    <Button variant="outline" size="sm" icon={<IconAgentPresetOutlineRegular size={13} />} onClick={props.onPresets}>{props.presetsLabel}</Button>
+                  </>
+                )}>
                 {t('ovNoProjectsBody')}
               </EmptyState>
             </Card>

@@ -5,6 +5,47 @@ const markdown = (title, body) => `# ${title}\n\n${body}\n`
 const packageFile = name => json({ name: `preset-${name}`, private: true, type: 'module', description: 'Browsable source example; no dependency installation required.' })
 
 const profiles = {
+  bookshelf: {
+    title: 'Neighborhood library on SQLite', description: 'A small lending-library API: one SQLite schema, numbered migrations, seed rows and the queries behind each endpoint.', purpose: 'Follow a SQLite-backed app through schema changes, features and releases on many Branches.',
+    files: {
+      'db/schema.sql': 'CREATE TABLE books (\n  id INTEGER PRIMARY KEY,\n  title TEXT NOT NULL,\n  author TEXT NOT NULL,\n  year INTEGER\n);\n\nCREATE TABLE members (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL,\n  joined TEXT NOT NULL\n);\n',
+      'db/migrations/001_init.sql': '-- Initial tables. Applied once, in order, by src/migrate.js.\nCREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL, year INTEGER);\nCREATE TABLE members (id INTEGER PRIMARY KEY, name TEXT NOT NULL, joined TEXT NOT NULL);\n',
+      'db/seed.sql': "INSERT INTO books (id, title, author, year) VALUES\n  (1, 'The Trail Atlas', 'R. Ortega', 2019),\n  (2, 'Small Gardens', 'M. Chen', 2021),\n  (3, 'Repairing Things', 'A. Novak', 2017);\nINSERT INTO members (id, name, joined) VALUES\n  (1, 'Sample Reader', '2024-01-15'),\n  (2, 'Example Neighbor', '2024-03-02');\n",
+      'src/db.js': 'import { DatabaseSync } from "node:sqlite"\nexport function open(path = "library.db") { const db = new DatabaseSync(path); db.exec("PRAGMA foreign_keys = ON"); return db }\n',
+      'src/migrate.js': 'import { readdirSync, readFileSync } from "node:fs"\nexport function migrate(db, dir = "db/migrations") { db.exec("CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY)"); const done = new Set(db.prepare("SELECT name FROM migrations").all().map(r => r.name)); for (const name of readdirSync(dir).sort()) { if (done.has(name)) continue; db.exec(readFileSync(`${dir}/${name}`, "utf8")); db.prepare("INSERT INTO migrations (name) VALUES (?)").run(name) } }\n',
+      'src/books.js': 'export function listBooks(db) { return db.prepare("SELECT id, title, author, year FROM books ORDER BY title").all() }\nexport function getBook(db, id) { return db.prepare("SELECT id, title, author, year FROM books WHERE id = ?").get(id) ?? null }\n',
+      'docs/api.md': markdown('API', 'GET /books lists books by title. GET /books/:id returns one book or 404. Responses are JSON. This fixture describes the contract; it does not run a server.'),
+      'docs/database.md': markdown('Database', 'One SQLite file. Schema changes are numbered migrations under db/migrations and never edited after release. db/schema.sql is the current shape for reading.'),
+      'package.json': packageFile('bookshelf'),
+    },
+    features: [
+      { name: 'feature-loans', title: 'Loans', commits: [
+        ['db/migrations/002_loans.sql', '-- Who has which book, and until when.\nCREATE TABLE loans (id INTEGER PRIMARY KEY, book INTEGER NOT NULL REFERENCES books(id), member INTEGER NOT NULL REFERENCES members(id), due TEXT NOT NULL, returned TEXT);\n', 'Add the loans table'],
+        ['src/loans.js', 'export function lend(db, book, member, due) { const open = db.prepare("SELECT 1 FROM loans WHERE book = ? AND returned IS NULL").get(book); if (open) throw new Error("Book is already on loan"); return db.prepare("INSERT INTO loans (book, member, due) VALUES (?, ?, ?)").run(book, member, due).lastInsertRowid }\nexport function giveBack(db, loan, on) { db.prepare("UPDATE loans SET returned = ? WHERE id = ? AND returned IS NULL").run(on, loan) }\n', 'Lend and return books'],
+        ['docs/api.md', markdown('API', 'GET /books lists books by title. GET /books/:id returns one book or 404.\n\nPOST /loans {book, member, due} lends a book; 409 when it is already out. POST /loans/:id/return marks it returned.'), 'Document the loan endpoints'],
+        ['db/schema.sql', 'CREATE TABLE books (id INTEGER PRIMARY KEY, title TEXT NOT NULL, author TEXT NOT NULL, year INTEGER);\nCREATE TABLE members (id INTEGER PRIMARY KEY, name TEXT NOT NULL, joined TEXT NOT NULL);\nCREATE TABLE loans (id INTEGER PRIMARY KEY, book INTEGER NOT NULL REFERENCES books(id), member INTEGER NOT NULL REFERENCES members(id), due TEXT NOT NULL, returned TEXT);\n', 'Show loans in the current schema'],
+      ] },
+      { name: 'feature-search', title: 'Search', commits: [
+        ['db/migrations/003_search.sql', "-- Full-text index over titles and authors (SQLite FTS5).\nCREATE VIRTUAL TABLE books_fts USING fts5(title, author, content='books', content_rowid='id');\nINSERT INTO books_fts (rowid, title, author) SELECT id, title, author FROM books;\n", 'Index titles and authors with FTS5'],
+        ['src/search.js', 'export function search(db, query) { return db.prepare("SELECT b.id, b.title, b.author FROM books_fts f JOIN books b ON b.id = f.rowid WHERE books_fts MATCH ? ORDER BY rank LIMIT 20").all(query) }\n', 'Search books by title or author'],
+        ['docs/search.md', markdown('Search', 'GET /search?q= matches words in titles and authors, best match first, at most 20 rows. The index is rebuilt by migration 003; later inserts must update books_fts too.'), 'Explain search ranking and the index'],
+      ] },
+      { name: 'feature-holds', title: 'Holds', commits: [
+        ['db/migrations/004_holds.sql', '-- A queue of members waiting for a book that is out.\nCREATE TABLE holds (id INTEGER PRIMARY KEY, book INTEGER NOT NULL REFERENCES books(id), member INTEGER NOT NULL REFERENCES members(id), placed TEXT NOT NULL);\n', 'Add a holds queue'],
+        ['src/holds.js', 'export function place(db, book, member, at) { return db.prepare("INSERT INTO holds (book, member, placed) VALUES (?, ?, ?)").run(book, member, at).lastInsertRowid }\nexport function next(db, book) { return db.prepare("SELECT member FROM holds WHERE book = ? ORDER BY placed, id LIMIT 1").get(book)?.member ?? null }\n', 'Place holds and find who is next'],
+        ['docs/api.md', markdown('API', 'GET /books, GET /books/:id, POST /loans, POST /loans/:id/return.\n\nPOST /holds {book, member} joins the queue for a book. When a loan is returned, the earliest hold is next in line.'), 'Document holds next to loans'],
+      ] },
+    ],
+    maintenance: { name: 'fix-due-dates', title: 'Due-date checks', commits: [
+      ['src/dates.js', 'export function isDate(text) { return /^\\d{4}-\\d{2}-\\d{2}$/.test(text) && !Number.isNaN(Date.parse(`${text}T00:00:00Z`)) }\n', 'Validate ISO due dates'],
+      ['db/migrations/005_due_check.sql', "-- Reject loans whose due date is not YYYY-MM-DD.\nCREATE TRIGGER loans_due_check BEFORE INSERT ON loans WHEN NEW.due NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' BEGIN SELECT RAISE(ABORT, 'invalid due date'); END;\n", 'Check due dates in the database too'],
+      ['docs/database.md', markdown('Database', 'One SQLite file. Schema changes are numbered migrations and never edited after release. Dates are TEXT in YYYY-MM-DD; a trigger rejects anything else so bad rows cannot slip in from another client.'), 'Record the date format rule'],
+    ] },
+    explorations: [
+      { name: 'explore-postgres', title: 'Moving to PostgreSQL', files: [['proposals/postgres.md', markdown('PostgreSQL proposal', 'Draft: keep SQLite for single-branch libraries; consider PostgreSQL only when several branches share one catalog.')], ['proposals/postgres.json', json({ status: 'proposal', blockers: ['FTS5 has no direct equivalent', 'migration tooling'] })]] },
+      { name: 'explore-fines', title: 'Late fines', files: [['proposals/fines.md', markdown('Late fines proposal', 'Draft: many libraries dropped fines. If added, store amounts in integer cents and cap them per loan.')], ['proposals/fines.json', json({ status: 'proposal', perDayCents: 10, capCents: 500 })]] },
+    ],
+  },
   embeddings: {
     title: 'Field guide search collection', description: 'A tiny document corpus, transparent keyword vectors and a local similarity helper; no model or network is required.', purpose: 'Make document retrieval inspectable from source text through rankings.',
     files: {

@@ -62,7 +62,9 @@ export async function buildPreset({ spec, preset, driver, sandboxes = true, exec
       await onCleanup?.(cleanup)
       const file = join(spec.state, 'demo-fixtures.json')
       const manifest = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null
-      if (!manifest || manifest.tool !== TOOL || manifest.preset !== preset || manifest.homeId !== cleanup.homeId) throw new Error('Preset manifest does not match the cleaned home. Inspect the environment before building.')
+      if (!manifest || manifest.tool !== TOOL || manifest.homeId !== cleanup.homeId) throw new Error('Preset manifest does not match the cleaned home. Inspect the environment before building.')
+      // The reset cleared the whole home, so a Build may switch which preset owns it.
+      manifest.preset = preset
       if (!cleanup.verified) throw new Error('Cleanup was not verified; history receipts are retained.')
       const journal = new StepJournal(join(spec.state, 'demo-steps.ndjson')); journal.clear()
       manifest.stepJournal = journal.metadata(); delete manifest.activityCapture
@@ -118,7 +120,7 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
   const placeStore = store => isPostgresql(store)
     ? storeMachines(store).forEach(machine => add('build', ['store', 'attach', store.name, machine], { note: `LayerFS checks the connection from ${machine} before recording it.` }))
     : store.machine !== 'native' && add('build', ['store', 'push', store.name, store.machine, '--progress'])
-  if (configuration.preset === 'studio') {
+  if (configuration.concurrentHistory) {
     for (const store of configuration.stores) {
       createStore(store, 'Preparation only: project imports are serial within this store; independent stores can prepare concurrently.')
       for (const name of store.projects) add('build', ['project', 'init', `${store.name}/${name}`, join(spec.state, 'demo-sources', store.name, name), '--progress'], { note: 'The preset prepares source files here. All imports and store placements finish before concurrent histories start.' })

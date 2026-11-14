@@ -1,21 +1,22 @@
 /**
- * The Presets section of the LayerFS Settings page: the Studio sample
- * library, one status line for it, and its actions. Build/Rebuild opens a two-step dialog: the history options
+ * One preset in the Presets dialog: its status line and actions.
+ * Build/Rebuild opens a two-step dialog: the history options
  * (whether some commits go through sandbox workspaces) and then the impact,
  * confirmed against a fresh inventory plan. Stop machines (in the … menu)
- * confirms against the machine-stop plan. Reads poll every 2 s while a job
- * runs and every 5 s otherwise, and again on `demo-preset` events. A lost
+ * confirms against the machine-stop plan. `usePresets` polls every 2 s while a
+ * job runs and every 5 s otherwise, and again on `demo-preset` events. A lost
  * answer is reconciled by request ID, never resubmitted.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, Checkbox, IconCodeOutlineRegular, IconPlayOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import clsx from 'clsx'
+import { Button, Checkbox, IconCodeOutlineRegular, IconPlayOutlineRegular, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { BusySession, DemoPreset, DemoPresets, PresetResetPlan, PresetExecutionMode, PresetJob } from '../../shared/presets.ts'
 import { useQuery } from '../files/use-query.ts'
-import { Card, LinkButton, LoadError, Loading, MoreMenu, Notice, Refusal, Section } from '../ui/index.tsx'
+import { Card, LinkButton, MoreMenu, Notice, Refusal } from '../ui/index.tsx'
 import { refusalLabels } from './labels.ts'
 import type { PresetsKey, PresetsT } from './locale.ts'
-import { PresetProgress } from './Progress.tsx'
+import { count, PresetProgress } from './Progress.tsx'
 import { ScriptDrawer } from './ScriptDrawer.tsx'
 import { PresetTopology, type PresetResource } from './Topology.tsx'
 import css from './presets.module.css'
@@ -36,10 +37,14 @@ const sessionsOf = (error: unknown): BusySession[] => {
 /** The words for how a library's history is written. */
 export const modeKey = (mode: PresetExecutionMode): PresetsKey => mode === 'mixed' ? 'modeMixed' : 'modeFilesystem'
 
-export function PresetsSection({ api, t }: { api: LayerfsApi, t: PresetsT }): ReactNode {
+/**
+ * The presets listing, kept fresh while a view shows it: every 2 s while a job
+ * runs, every 5 s otherwise, and again on `demo-preset` and reconnect events.
+ */
+export function usePresets(api: LayerfsApi): { data: DemoPresets | undefined, error: unknown, loading: boolean, reload: () => void } {
   const [tick, setTick] = useState(0)
   const reload = () => setTick((n) => n + 1)
-  const live = useQuery(() => api.call<DemoPresets>('GET', '/api/demo-presets'), [api], { refresh: [tick] })
+  const live = useQuery(() => api.call<DemoPresets>('GET', '/api/demo-presets'), [api], { refresh: [tick], cache: 'layerfs-presets' })
   const active = !!live.data && (live.data.busy || live.data.items.some((item) => running(item.job)))
   useEffect(() => {
     const id = setInterval(() => { if (document.visibilityState === 'visible') reload() }, active ? 2000 : 5000)
@@ -51,21 +56,29 @@ export function PresetsSection({ api, t }: { api: LayerfsApi, t: PresetsT }): Re
     }))
     return () => { for (const off of offs) off() }
   }, [api])
-  return (
-    <Section title={t('title')}
-      actions={(
-        <Tooltip label={t('refresh')} side="top" portal delayMs={400}>
-          <Button variant="ghost" size="sm" className={css.iconButton} aria-label={t('refresh')} icon={<IconRefreshOutlineRegular size={14} />} disabled={live.loading} onClick={reload} />
-        </Tooltip>
-      )}>
-      {live.error !== undefined && !live.data && <LoadError title={t('loadFailed')} error={live.error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={reload} />}
-      {!live.data && live.loading && <Loading label={t('loading')} />}
-      {live.data && live.data.items[0] && <Library api={api} t={t} data={live.data} preset={live.data.items.find((p) => p.id === 'studio') ?? live.data.items[0]} onRefresh={reload} />}
-    </Section>
-  )
+  return { data: live.data, error: live.error, loading: live.loading, reload }
 }
 
-function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: PresetsT, data: DemoPresets, preset: DemoPreset, onRefresh: () => void }): ReactNode {
+/** A preset's name in words. */
+export function presetName(t: PresetsT, preset: DemoPreset): string {
+  return preset.id === 'studio' ? t('studio') : preset.id === 'quickstart' ? t('quickstart') : preset.id
+}
+
+/** All commits a preset's projects plan. */
+export const presetCommits = (preset: DemoPreset): number => preset.projectDefinitions.reduce((n, p) => n + p.history.commits, 0)
+
+/** One sentence on what a preset builds. */
+export function presetIntro(t: PresetsT, preset: DemoPreset): string {
+  if (preset.id === 'studio') return t('studioIntro', { projects: preset.projects, machines: preset.machines.length })
+  const only = preset.projectDefinitions[0]
+  if (preset.id === 'quickstart' && only) return t('quickstartIntro', { branches: count(only.history.branches), commits: count(only.history.commits) })
+  return preset.description
+}
+
+export { running as presetRunning }
+
+/** One preset: its name, status, actions, machines and projects, and the Build / Stop dialogs. */
+export function Library({ api, t, data, preset, onRefresh, className }: { api: LayerfsApi, t: PresetsT, data: DemoPresets, preset: DemoPreset, onRefresh: () => void, className?: string }): ReactNode {
   // The host answers for the saved library's mode; the script shows that plan.
   const builtMode = preset.executionMode ?? 'filesystem'
   const [script, setScript] = useState<{ open: boolean, resource?: PresetResource }>({ open: false })
@@ -76,7 +89,7 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
   const [failure, setFailure] = useState<unknown>()
   const disabled = waiting || data.busy || !!unknown
   const job = preset.job
-  const name = t('studio')
+  const name = presetName(t, preset)
   const built = preset.built || preset.contentReady
 
   const plan = async (build: boolean, mixed: boolean): Promise<PresetResetPlan> => {
@@ -124,11 +137,11 @@ function Library({ api, t, data, preset, onRefresh }: { api: LayerfsApi, t: Pres
 
   return (
     <>
-      <Card className={css.library} aria-label={name}>
+      <Card className={clsx(css.library, className)} aria-label={name}>
         <div className={css.libraryHead}>
           <div className={css.headText}>
             <h2>{name}</h2>
-            <p className={css.muted}>{t('studioIntro', { projects: preset.projects, machines: preset.machines.length })}</p>
+            <p className={css.muted}>{presetIntro(t, preset)}</p>
           </div>
           <div className={css.headActions}>
             <Button variant="outline" size="sm" icon={<IconCodeOutlineRegular size={14} />} onClick={() => setScript({ open: true })}>{t('viewScript')}</Button>
@@ -205,7 +218,7 @@ function LibraryStatus({ api, t, preset, checking }: { api: LayerfsApi, t: Prese
     )
   }
   if (preset.built) return <p className={css.status} role="status"><StateDot state="warning" />{t('statusStale')}</p>
-  return <p className={css.status} role="status"><StateDot state="idle" />{t('statusNotBuilt', { projects: preset.projects })}</p>
+  return <p className={css.status} role="status"><StateDot state="idle" />{preset.projects === 1 ? t('statusNotBuiltOne') : t('statusNotBuilt', { projects: preset.projects })}</p>
 }
 
 /** Build's first step: how the history is written, and what that needs. */

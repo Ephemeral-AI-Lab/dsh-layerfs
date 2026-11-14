@@ -26,7 +26,7 @@ import { MachineDetail } from '../machines/MachineDetail.tsx'
 import { shortSandbox } from '../machines/model.ts'
 import { SandboxDetail } from '../machines/SandboxDetail.tsx'
 import { NewSandboxDialog } from '../machines/Sandboxes.tsx'
-import type { PresetsT } from '../presets/index.tsx'
+import { PresetsDialog, type PresetsT } from '../presets/index.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
 import { SettingsView } from '../settings/index.tsx'
@@ -100,6 +100,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const [listing, setListing] = useState<string | null>(null)
   const [listingAll, setListingAll] = useState(false)
   const [newMachine, setNewMachine] = useState(false)
+  const [presetsOpen, setPresetsOpen] = useState(false)
   const [newSandbox, setNewSandbox] = useState<string | null>(null)
 
   // One page at a time: Back and Forward over the pages visited, and the Overview's section.
@@ -278,11 +279,13 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     { id: 'database', label: t('connectDatabaseRow'), run: () => setDialog({ kind: 'new-store', postgresql: true }) },
     ...(canCreate ? [{ id: 'machine', label: t('newMachine'), run: () => setNewMachine(true) }] : []),
     { id: 'bucket', label: t('addBucket'), run: () => setDialog({ kind: 'bucket' }) },
+    { id: 'presets', label: more.presets('openTitle'), run: () => setPresetsOpen(true) },
   ]
 
   const sandboxMachine = newSandbox !== null ? fleet?.machines.find((m) => m.name === newSandbox) : undefined
   const dialogs = (
     <>
+      <PresetsDialog api={api} t={more.presets} open={presetsOpen} onClose={() => setPresetsOpen(false)} />
       <StorageDialogs api={api} t={t} dialog={dialog} view={view} onClose={() => setDialog(null)} done={refresh} onOpenStore={(name) => open(`store:${name}`)} onDialog={setDialog} />
       {newMachine && fleet ? (
         <AddMachineDialog view={fleet} platforms={fleet.platforms} onClose={() => setNewMachine(false)} onMade={(name) => { setNewMachine(false); open(`machine:${name}`) }} />
@@ -302,7 +305,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const pageOf = (id: TabId): ReactNode => {
     if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} />
     if (id === 'logs') return <LogsPage api={api} t={more.logs} />
-    if (id === 'settings') return <SettingsView t={more.settings} tp={more.presets} api={api} />
+    if (id === 'settings') return <SettingsView t={more.settings} />
     if (id === 'machines') return <Board go={mc.go} />
     if (id.startsWith('machine:')) return <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })} />
     if (id.startsWith('sandbox:')) {
@@ -314,7 +317,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
         <Page wide label={t('title')}>
           <HomeOverview view={view} error={storage.error} t={t} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed}
             onOpen={open} onRefresh={refresh} onCheckAgain={() => setChecks((n) => n + 1)}
-            onNewStore={() => setDialog({ kind: 'new-store' })} onNewMachine={() => setNewMachine(true)}
+            onNewStore={() => setDialog({ kind: 'new-store' })} onNewMachine={() => setNewMachine(true)} onPresets={() => setPresetsOpen(true)} presetsLabel={more.presets('openTitle')}
             onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })} onNewSandbox={setNewSandbox}
             onRemoveProject={(store, project) => setDialog({
               kind: 'confirm', title: t('removeProjectTitle', { name: project }), body: t('removeProjectBody'), action: t('deleteAction'), name: project,

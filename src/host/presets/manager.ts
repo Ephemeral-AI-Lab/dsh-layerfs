@@ -124,7 +124,9 @@ export class PresetManager {
       const definition = projectDefinition(project), plan = projectHistoryPlan(project, { executionMode })
       return { store: store.name, name: project, title: definition.title, description: definition.description, branches: plan.branches, history: plan.history, tier: plan.tier, cycles: plan.cycles, layers: plan.layers, commands: plan.commands, workspaceRevisions: plan.workspaceRevisions, authoredRevisions: plan.authoredRevisions, sandboxLimit: plan.sandboxLimit, workspaceLimit: plan.workspaceLimit }
     }))
-    const contentReady = (manifest?.executionMode ?? 'filesystem') === executionMode && manifest?.contentVersion === CONTENT_VERSION && (executionMode !== 'mixed' || manifest?.mixedRecipeVersion === MIXED_RECIPE_VERSION) && buildJob?.state === 'completed' && !!buildJob.presetVerified
+    // One home holds one preset's library at a time: the manifest names which.
+    const owns = !!manifest && (manifest.preset ?? 'studio') === name
+    const contentReady = owns && (manifest?.executionMode ?? 'filesystem') === executionMode && manifest?.contentVersion === CONTENT_VERSION && (executionMode !== 'mixed' || manifest?.mixedRecipeVersion === MIXED_RECIPE_VERSION) && buildJob?.state === 'completed' && !!buildJob.presetVerified
     const projects = preset.stores.reduce((n: number, s: any) => n + s.projects.length, 0)
     return {
       id: name, description: preset.description, executionMode, contentVersion: CONTENT_VERSION, contentReady, projectDefinitions,
@@ -141,7 +143,7 @@ export class PresetManager {
       ],
       home: this.home, state: this.state,
       initialized: existsSync(join(this.home, 'layerfs.json')),
-      built: !!manifest?.homeId,
+      built: owns && !!manifest?.homeId,
       settings: manifest ? { sandboxes: manifest.sandboxes, executionMode: manifest.executionMode ?? 'filesystem' } : null,
       lastBuild: buildJob && buildJob.state === 'completed' && buildJob.ended ? { ended: buildJob.ended, executionMode: buildJob.executionMode, verified: !!buildJob.presetVerified } : null,
       job,
@@ -288,7 +290,7 @@ export class PresetManager {
         if (body.rebuild) job.presetVerified = result.presetVerified
         else await this.deleteConversations(job, before)
 
-        Object.assign(job, { state: 'completed', phase: body.rebuild ? 'Environment reset verified. Studio rebuilt and verified.' : `Machines force-closed; ${job.deletedSessions?.length ?? 0} project sessions deleted. Saved projects retained.`, ended: Date.now() })
+        Object.assign(job, { state: 'completed', phase: body.rebuild ? 'Environment reset verified. Preset rebuilt and verified.' : `Machines force-closed; ${job.deletedSessions?.length ?? 0} project sessions deleted. Saved projects retained.`, ended: Date.now() })
       }).catch((e: any) => {
         const receipt = read(join(this.state, body.rebuild ? 'environment-reset.json' : 'machine-stop.json'))
         Object.assign(job, { state: 'failed', cleanup: receipt?.actionId === job.actionId ? receipt : job.cleanup, error: { code: e?.code ?? 'Failed', message: String(e?.message ?? e) }, phase: String(e?.message ?? e), ended: Date.now() })

@@ -185,8 +185,12 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
 - Presets: `test/presets.test.mjs` (admission, request-ID reconciliation, restart recovery,
   the router's exclusive guard, script paging, live reset of a private home). A real Studio
   Build needs Docker, Lima and `DSH_LAYERFS_BUNDLE` (a Linux bundle built from the same `layerfs_v2_0_0` commit as the CLI) on the
-  dev server; it creates two Lima VMs (2 CPU, 4 GB) in the dev LayerFS home, so Reset the
-  home from Center → Settings (the bar's gear) → Presets afterwards.
+  dev server; it creates two Lima VMs (2 CPU, 4 GB) in the dev LayerFS home, so stop its
+  machines from the home's Presets dialog (head card → Presets → Studio → Stop machines…)
+  afterwards. A real Starter Build (`quickstart`: one SQLite Store on docker, 552 commits on
+  20 branches) needs only Docker and the bundle and takes under a minute; stop the dev home's
+  docker machine afterwards (`layerfs machine stop docker` with that home's
+  `LAYERFS_HOME` and `LAYERFS_BUNDLE`).
 - `node tools/cleanup-dev.mjs` removes leftover `e2e*`/`imp*` Stores through the host API.
 - After side verification passes, merge into the 3080 checkout and check it on 3080
   (see "Shared server on 3080"); that is the last step of every task.
