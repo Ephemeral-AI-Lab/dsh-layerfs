@@ -16,7 +16,7 @@ const api = join(LAYERFS, "api");
 const node = await import(pathToFileURL(join(api, "node/src/index.js")).href);
 
 // every call of the 2.0 table has a row: family.call keys, 66 of them
-assert.equal(node.table.length, 70, "the shipped 2.0 table (store.attach/detach, logs #659)");
+assert.equal(node.table.length, 73, "the shipped 2.0 table (machine images/load/prune #682 too)");
 const calls = node.table.map((spec) => `${spec.family}.${spec.call}`);
 for (const call of calls) {
   assert.ok(CLI[call], `${call} has a row in cli.js`);
