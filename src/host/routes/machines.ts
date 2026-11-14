@@ -15,7 +15,9 @@
  * and sandbox.list(), and machine.status() of the machines that run or hold an
  * operation (free disk, `op`): one read for the page, and none of it starts a machine.
  */
+import { join } from 'node:path'
 import { computer } from './computer.ts'
+import { readArchive, type ImageProblem } from '../images/archive.ts'
 import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -27,9 +29,149 @@ const OFF_OPTIONS = new Set(['nested', 'host'])
 const ASK_STATUS = new Set(['running', 'stopped', 'creating', 'removing', 'unresolved', 'failed', 'unknown'])
 
 const list = (value: any): any[] => (Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : [])
+const DIGEST = /^sha256:[a-f0-9]{64}$/
+/** The bundle's image has no RepoTags: what to call it. */
+const BUNDLE_NAME = 'LayerFS default'
+/** LayerFS's own copy of the bundle image in Docker (`layerfs-cache/sandbox:<config digest hex>`): never shown as a name. */
+const CACHE_REF = /^layerfs-cache\//
+/** Refusals of one image in a prune: answered in `refused`, the request goes on. */
+const PRUNE_PER_IMAGE = new Set(['InUse', 'NotFound', 'NoSuchImage', 'InvalidInput'])
+
+/** Why a listed image cannot run (docs/specs/sandbox-images.md §4.1). */
+export interface ImageReason { kind: 'arch' | 'os' | ImageProblem, value?: string }
+
+/** One ready row of `GET /api/machines/:id/sandbox-images`: an image a Sandbox on the machine starts at once. */
+export interface ReadyImage {
+  /** The config digest for bundle and VM-archive images; the Docker image Id for imported ones (D1). */
+  id: string
+  /** The ref ending `:latest`, else the first ref, or "LayerFS default" for the bundle's image. */
+  name: string
+  refs: string[]
+  size: number | null
+  source: 'bundle' | 'machine' | 'imported'
+  /** Sandboxes on the machine whose record names this image. */
+  sandboxes: number
+  lastUsed: string | null
+  usable: boolean
+  reason?: ImageReason
+}
+
+/** `GET /api/machines/:id/sandbox-images` (§4.1): the New Sandbox menu, the Images section and Free space. */
+export interface SandboxImagesView {
+  machine: string
+  platform: string | null
+  state: string
+  stage: 0 | 1
+  /** `host`: macOS native, no Image row. */
+  mode: 'images' | 'host'
+  /** The machine's Linux architecture. */
+  architecture: string | null
+  /** Data-disk bytes (machine.images `free`); null at Stage 0. */
+  free: number | null
+  /** The id of the preselected ready row (D7). */
+  default: string | null
+  observedAt: number
+  /** The ready rows are the last good answer kept in memory (this read failed: `code`, `message`; `WorkerOutdated`: the worker runs another LayerFS build). */
+  stale: false | { at: number, code: string, message?: string }
+  ready: ReadyImage[]
+  /** The "From Docker" group: null at Stage 0 and on macOS native. */
+  docker: null | { available: false, reason: 'not-installed' | 'not-running' | 'error', message?: string } | { available: true, images: DockerImage[] }
+}
+
+/** One row of the "From Docker" group (Stage 1): an image of this computer's Docker, copied to the machine once. */
+export interface DockerImage {
+  /** Docker's image Id (D1). */
+  id: string
+  /** The ref ending `:latest`, else the first ref. */
+  name: string
+  refs: string[]
+  size: number
+  architecture: string
+  os: string
+  /** Bytes the copy needs on the machine (D8). */
+  need: number
+  /** `free` is unknown, or `need` fits in it. */
+  fits: boolean
+  usable: boolean
+  reason?: ImageReason
+}
+
+/** `POST /api/machines/:id/prune-images`: what went, the bytes freed, and the images LayerFS kept (InUse, …). */
+export interface PruneAnswer { removed: string[], freed: number, refused: { id: string, code: string, message: string }[] }
+
+/** The Linux architecture a machine on this host runs (Lima, Apple containers and Docker Desktop run the host's). */
+export const linuxArchitecture = (arch: string = process.arch): string => (arch === 'x64' ? 'amd64' : arch)
 const text = (value: unknown): string | null => (typeof value === 'string' && value ? value : null)
 const count = (value: unknown): number => (typeof value === 'number' ? value : Array.isArray(value) ? value.length : 0)
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+
+const refsOf = (value: unknown): string[] => (Array.isArray(value) ? value.filter((r): r is string => typeof r === 'string' && !!r) : [])
+/** An ISO time from LayerFS's `last_used` (ISO text, or epoch seconds or ms). */
+const isoOf = (value: unknown): string | null => {
+  if (typeof value === 'string' && value && Number.isFinite(Date.parse(value))) return value
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return new Date(value < 1e12 ? value * 1000 : value).toISOString()
+  return null
+}
+
+/** One machine.images row as a ready row (Stage 1: all usable); null without an id. */
+/** LayerFS's `Unavailable` for a machine whose worker runs another LayerFS build ("is of another build", "replace its worker"). */
+const WORKER_OUTDATED = /another build|replace its worker/i
+
+/**
+ * Why a machine.images read failed, as the answer's `stale` (§4.1): the
+ * refusal's code and message; a worker of another LayerFS build is
+ * `WorkerOutdated` (the machine runs, restarting its worker fixes it),
+ * not a stopped machine.
+ */
+export function staleOf(error: any, at: number): { at: number, code: string, message: string } {
+  const message = error instanceof Error ? error.message : typeof error?.message === 'string' ? error.message : String(error)
+  const code = typeof error?.code === 'string' ? error.code : 'Unknown'
+  return { at, code: code === 'Unavailable' && WORKER_OUTDATED.test(message) ? 'WorkerOutdated' : code, message }
+}
+
+/** An image's name (§5.1.1): the ref ending `:latest` if it has one (what people pick), else its first ref. */
+export const imageName = (refs: readonly string[]): string | undefined => refs.find((r) => r.endsWith(':latest')) ?? refs[0]
+
+export function readyOf(i: any): ReadyImage | null {
+  const id = text(i?.id)
+  if (!id) return null
+  const refs = refsOf(i.refs).filter((r) => !CACHE_REF.test(r))
+  const source = i.source === 'bundle' || i.source === 'machine' ? i.source : 'imported'
+  return {
+    id, name: imageName(refs) ?? (source === 'bundle' ? BUNDLE_NAME : id.replace(/^sha256:/, '').slice(0, 12)),
+    refs, size: num(i.size), source, sandboxes: count(i.sandboxes), lastUsed: isoOf(i.last_used), usable: true,
+  }
+}
+
+/**
+ * machine.images' Docker part as the "From Docker" group (§4.1): LayerFS
+ * lists the images of the Docker it copies from (D3), already without the
+ * ready ones and the untagged ones, each with `usable`/`reason` and the
+ * space a copy needs (`need`, `fits`, D8). Mapped as it comes; null when
+ * LayerFS reports no Docker part (macOS native).
+ */
+export function dockerOf(answer: any): SandboxImagesView['docker'] {
+  const d = answer?.docker
+  if (!d || typeof d !== 'object') return null
+  if (d.available !== true) {
+    const reason = d.reason === 'not-installed' || d.reason === 'not-running' ? d.reason : 'error'
+    return { available: false, reason, ...(text(d.message) ? { message: d.message } : {}) }
+  }
+  const images: DockerImage[] = []
+  for (const r of Array.isArray(answer.available) ? answer.available : []) {
+    const id = text(r?.id)
+    const refs = refsOf(r?.refs)
+    if (!id) continue
+    const reason: ImageReason | undefined = r.reason && typeof r.reason === 'object' && typeof r.reason.kind === 'string'
+      ? { kind: r.reason.kind, ...(text(r.reason.value) ? { value: r.reason.value } : {}) } : undefined
+    images.push({
+      id, name: imageName(refs) ?? id.replace(/^sha256:/, '').slice(0, 12), refs, size: num(r.size) ?? 0,
+      architecture: text(r.architecture) ?? '', os: text(r.os) ?? '', need: num(r.need) ?? 0, fits: r.fits !== false,
+      usable: r.usable !== false, ...(reason ? { reason } : {}),
+    })
+  }
+  return { available: true, images }
+}
 
 /** One machine.list() entry, as the page reads it. */
 export function machineOf(m: any) {
@@ -123,8 +265,8 @@ export class Machines {
   private async identity(): Promise<{ version: string | null, features: CliFeatures }> {
     try {
       const d = await this.host.discover()
-      return { version: d.identity?.version ?? null, features: featuresOf(d.calls) }
-    } catch { return { version: null, features: featuresOf([]) } }
+      return { version: d.identity?.version ?? null, features: featuresOf(d) }
+    } catch { return { version: null, features: featuresOf(null) } }
   }
 
   /** A write somewhere (the router calls this on every non-GET): the next view() reads anew. */
@@ -160,7 +302,7 @@ export class Machines {
     const stores = listedStores.map(storeOf).filter(Boolean)
     const postgresql = listedStores.map(pgStoreOf).filter(Boolean)
     const { version, features } = await this.identity()
-    // features: what the pinned CLI can do (force stop, image inventory, image archives); the page offers only those
+    // features: what the pinned CLI can do (force stop, the image stage and its parts); the page offers only those
     const answer: any = { available: true, readErrors, layerfs: version, features, computer: computer(host), machines, platforms, stores, postgresql, sandboxes, status: Object.fromEntries(statuses.map((s: any) => [s.name, s])) }
     for (const [part, fields] of Object.entries({ stores: ['stores', 'postgresql'], sandboxes: ['sandboxes'], platforms: ['platforms'] })) {
       if (readErrors[part] && this.lastView) for (const field of fields) answer[field] = this.lastView[field]
@@ -187,12 +329,173 @@ export class Machines {
   async inspect(name: string) { return { ...(await this.lfs.machine.get(name)), ...(await this.lfs.machine.status(name)), observedAt: Date.now() } }
 
   /**
-   * The selected machine's Sandbox archive inventory; never starts or pulls.
-   * A CLI without machine.images answers `mode: 'unsupported'` with no images.
+   * `GET /api/machines/:id/sandbox-images` (docs/specs/sandbox-images.md
+   * §4.1). Never starts a machine or pulls an image. At Stage 0 (the pinned
+   * CLI has no machine.images) the ready rows come from the archive a Sandbox
+   * on the machine would run, read on this host ({@link archiveRows}), so a
+   * stopped machine answers too; `docker` is null and `free` unknown.
+   * Default (D7 at Stage 0): the record's digest, else the archive's only
+   * image, else the first usable row.
    */
-  async images(name: string) {
-    if (!(await cliFeatures(this.host)).images) return { machine: name, mode: 'unsupported', default_digest: null, images: [] }
-    return this.lfs.machine.images(name)
+  async sandboxImages(name: string): Promise<SandboxImagesView> {
+    if (!name) throw refuse(null, 'InvalidInput', 'name the machine')
+    const lfs = this.lfs
+    let record: any = null
+    try { record = await lfs.machine.get(name) } catch (error: any) { if (error?.code === 'NotFound' || error?.code === 'NoSuchMachine') throw error }
+    let state = text(record?.state)
+    if (!state) {
+      try { state = text(list((await lfs.machine.list()).machines).find((m: any) => m.name === name)?.state) } catch {}
+    }
+    const platform = text(record?.platform) ?? (BUILT_IN.has(name) ? name : null)
+    const stage = (await cliFeatures(this.host)).imageStage
+    const base = { machine: name, platform, state: state ?? 'unknown', stage: 0 as const, free: null, docker: null, observedAt: Date.now() }
+    // a native Sandbox off Linux runs on the computer itself: no image
+    if (platform === 'native' && process.platform !== 'linux') return { ...base, stage, mode: 'host', architecture: null, default: null, stale: false, ready: [] }
+    // Stage 1: everything from machine.images (ready images, free space, and the Docker images LayerFS can copy)
+    if (stage === 1) return this.stage1Images(name, base)
+    const architecture = linuxArchitecture()
+    const own = platform === 'docker' ? null : text(record?.image)
+    const pinned = own && DIGEST.test(own) ? own : null
+    let rows: ReadyImage[]
+    try {
+      rows = this.archiveRows(record, platform, architecture)
+    } catch (error: any) {
+      // an unreadable archive: the last good rows for this machine, marked stale; none kept, an empty group
+      const kept = this.keptImages.get(name)
+      const stale = staleOf(error, kept?.at ?? Date.now())
+      const ready = kept?.ready ?? []
+      return { ...base, mode: 'images', architecture, default: defaultOf(ready, pinned), stale, ready }
+    }
+    if (rows.length) {
+      const counts = await this.sandboxCounts(name)
+      rows = rows.map((r) => ({ ...r, sandboxes: counts.get(r.id) ?? 0 }))
+    }
+    this.keptImages.set(name, { at: base.observedAt, ready: rows })
+    return { ...base, mode: 'images', architecture, default: defaultOf(rows, pinned), stale: false, ready: rows }
+  }
+
+  /** The last good answer per machine (memory only): a later failed read answers it as `stale`. */
+  private readonly keptImages = new Map<string, { at: number, ready: ReadyImage[], free?: number | null, default?: string | null, docker?: SandboxImagesView['docker'] }>()
+
+  /**
+   * Stage 1 (§4.1): one machine.images read (a kept read, 5 s) answers it
+   * all: `images` are the ready rows, `free` the data disk, `default`, and
+   * `docker` + `available` the "From Docker" group, which LayerFS lists,
+   * dedupes and sizes itself. The plugin never reads Docker. A machine that
+   * cannot answer (stopped: `Unavailable`) answers the last good answer kept
+   * for it, marked `stale`, or none.
+   */
+  private async stage1Images(name: string, base: { machine: string, platform: string | null, state: string, observedAt: number }): Promise<SandboxImagesView> {
+    let ready: ReadyImage[]
+    let free: number | null
+    let own: string | null
+    let docker: SandboxImagesView['docker']
+    let architecture = linuxArchitecture()
+    let stale: SandboxImagesView['stale'] = false
+    try {
+      const answer = await this.lfs.machine.images(name)
+      if (answer?.mode === 'host') return { ...base, stage: 1, free: null, docker: null, mode: 'host', architecture: null, default: null, stale: false, ready: [] }
+      ready = (Array.isArray(answer?.images) ? answer.images : []).map(readyOf).filter((r: ReadyImage | null): r is ReadyImage => !!r)
+      free = num(answer?.free)
+      own = text(answer?.default)
+      docker = dockerOf(answer)
+      architecture = text(answer?.architecture) ?? architecture
+      this.keptImages.set(name, { at: base.observedAt, ready, free, default: own, docker })
+    } catch (error: any) {
+      if (error?.code === 'NotFound' || error?.code === 'NoSuchMachine') throw error
+      const kept = this.keptImages.get(name)
+      stale = staleOf(error, kept?.at ?? base.observedAt)
+      ready = kept?.ready ?? []
+      free = kept?.free ?? null
+      own = kept?.default ?? null
+      docker = kept?.docker ?? null
+    }
+    return { ...base, stage: 1, mode: 'images', architecture, free, default: defaultOf(ready, own), stale, ready, docker }
+  }
+
+  /**
+   * The Stage-1 disk precheck of a create (§4.1, D8): `{ need, free }` when
+   * `image` is a Docker image that is not ready on `machine` and its copy
+   * does not fit in the machine's free space; null when it fits, is ready,
+   * or anything is unknown (LayerFS's own NoSpace refusal is the real answer).
+   */
+  async spaceFor(machine: string, image: string): Promise<{ need: number, free: number } | null> {
+    try {
+      const view = await this.sandboxImages(machine)
+      if (view.stage !== 1 || view.stale || view.free == null) return null
+      if (view.ready.some((r) => r.id === image || r.refs.includes(image))) return null
+      const row = view.docker?.available ? view.docker.images.find((r) => r.id === image || r.refs.includes(image)) : undefined
+      return row && row.need > view.free ? { need: row.need, free: view.free } : null
+    } catch { return null }
+  }
+
+  /** Sandboxes on `machine` per recorded image id (sandbox.list; 0 each when it cannot be read). */
+  private async sandboxCounts(machine: string): Promise<Map<string, number>> {
+    const counts = new Map<string, number>()
+    try {
+      for (const b of (await pages((p) => this.lfs.sandbox.list(p))).map(sandboxOf)) {
+        if (b.machine === machine && b.image) counts.set(b.image, (counts.get(b.image) ?? 0) + 1)
+      }
+    } catch {}
+    return counts
+  }
+
+  /**
+   * The Stage-0 ready rows: the images of the archive LayerFS picks a
+   * Sandbox's root from (layerfs-sandbox `deploy::choose`) — the machine's
+   * own archive (`image_archive`, or an `image` path; never on docker), else
+   * the pinned Linux bundle's `sandbox-image.tar`. Read through the archive
+   * memo (path, size, mtime), so no GET parses a tar again. An image the
+   * archive shows LayerFS cannot run is `usable: false` with the reason.
+   * Throws when the archive cannot be read; no archive at all is no rows.
+   */
+  private archiveRows(record: any, platform: string | null, architecture: string): ReadyImage[] {
+    const own = platform === 'docker' ? null : text(record?.image)
+    const mine = platform === 'docker' ? null : text(record?.image_archive) ?? (own?.startsWith('/') ? own : null)
+    const bundle = this.host.bundle?.() ?? null
+    const archive = mine ?? (bundle ? join(bundle, 'sandbox-image.tar') : null)
+    if (!archive) return []
+    const source = mine ? 'machine' as const : 'bundle' as const
+    return readArchive(archive).map((i) => {
+      const reason: ImageReason | undefined = i.os && i.os !== 'linux' ? { kind: 'os', value: i.os }
+        : i.architecture && i.architecture !== architecture ? { kind: 'arch', value: i.architecture }
+        : i.problem ? { kind: i.problem } : undefined
+      return {
+        id: i.digest,
+        name: imageName(i.tags) ?? (source === 'bundle' ? BUNDLE_NAME : i.digest.slice(7, 19)),
+        refs: i.tags, size: i.size, source, sandboxes: 0, lastUsed: null,
+        usable: !reason, ...(reason ? { reason } : {}),
+      }
+    })
+  }
+
+  /**
+   * `POST /api/machines/:id/prune-images { images?: id[], unused?: boolean }`
+   * (§4.1): machine.prune once per id, or once with `unused`. An image LayerFS
+   * keeps (InUse, gone) is listed in `refused`, not an error of the request.
+   * 501 while the pinned CLI has no machine.prune.
+   */
+  async pruneImages(name: string, body: any): Promise<PruneAnswer> {
+    if (!name) throw refuse(null, 'InvalidInput', 'name the machine')
+    if (!(await cliFeatures(this.host)).imagePrune) {
+      throw Object.assign(refuse(501, 'Unsupported', 'The pinned LayerFS CLI cannot remove a machine\'s images (it has no machine.prune).'), { detail: { need: 'image-prune' } })
+    }
+    const unused = body?.unused === true
+    const ids = [...new Set(refsOf(body?.images))]
+    if (!unused && !ids.length) throw refuse(400, 'InvalidInput', 'Name the images to remove, or ask for the unused ones.')
+    const answer: PruneAnswer = { removed: [], freed: 0, refused: [] }
+    const take = (r: any) => {
+      for (const id of refsOf(r?.removed)) if (!answer.removed.includes(id)) answer.removed.push(id)
+      answer.freed += num(r?.freed) ?? 0
+    }
+    if (unused) take(await this.lfs.machine.prune(name, { unused: true }))
+    for (const id of ids) {
+      try { take(await this.lfs.machine.prune(name, id)) } catch (error: any) {
+        if (!PRUNE_PER_IMAGE.has(error?.code)) throw error
+        answer.refused.push({ id, code: error.code, message: error?.message ?? String(error) })
+      }
+    }
+    return answer
   }
 
   /** machine.start(name): a stopped machine and its worker, waited for; native and a running one answer at once. */
@@ -249,7 +552,8 @@ export class Machines {
 
   /** A built-in's settings ({ image, docker, wsl }) or a VM's size ({ cpus, memory }). */
   async update(name: string, body: any) {
-    return this.lfs.machine.update(name, pick(body ?? {}, ['cpus', 'memory', 'image', 'docker', 'wsl']))
+    const changes = pick(body ?? {}, ['cpus', 'memory', 'image', 'docker', 'wsl'])
+    return this.lfs.machine.update(name, changes)
   }
 
   /** Puts a sqlite Store on `machine`: a job in the host's table (its progress shows on Storage). */
@@ -258,4 +562,18 @@ export class Machines {
     if (!this.place) throw refuse(null, 'Unsupported', 'this host has no Storage job table to push or pull with')
     return this.place(store, machine)
   }
+}
+
+/**
+ * The preselected ready row (D7): the usable row used last (`lastUsed`,
+ * Stage 1), else the machine's own default when it is a usable row, else the
+ * only row when usable, else the first usable row; none without rows.
+ */
+export function defaultOf(rows: readonly Pick<ReadyImage, 'id' | 'usable' | 'lastUsed'>[], pinned: string | null): string | null {
+  const usable = rows.filter((r) => r.usable)
+  const used = usable.filter((r) => r.lastUsed && Number.isFinite(Date.parse(r.lastUsed))).sort((a, b) => Date.parse(b.lastUsed!) - Date.parse(a.lastUsed!))
+  if (used.length) return used[0].id
+  if (pinned && usable.some((r) => r.id === pinned)) return pinned
+  if (rows.length === 1 && rows[0].usable) return rows[0].id
+  return usable[0]?.id ?? null
 }

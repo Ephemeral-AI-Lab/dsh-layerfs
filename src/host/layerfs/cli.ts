@@ -253,14 +253,14 @@ export const READ_TIMEOUT_MS = 120_000
  */
 export const PROBE_TIMEOUT_MS = 15_000
 /** Machine reads that pages poll: their own lane and the shorter budget. */
-export const PROBES = new Set(['machine.status', 'machine.list', 'machine.platforms'])
+export const PROBES = new Set(['machine.status', 'machine.list', 'machine.platforms', 'machine.images'])
 /**
  * Reads whose answer is reused for this many ms (state polls; machine probes take seconds
  * each). A write through the same client clears them all.
  */
 export const KEPT_READS = new Map<string, number>([
   ['store.status', 2000], ['store.list', 2000], ['project.get', 2000], ['project.list', 2000], ['branch.list', 2000],
-  ['machine.get', 2000], ['machine.list', 5000], ['machine.status', 5000], ['machine.platforms', 5000],
+  ['machine.get', 2000], ['machine.list', 5000], ['machine.status', 5000], ['machine.platforms', 5000], ['machine.images', 5000],
 ])
 
 /**
@@ -282,7 +282,7 @@ export function laneOf(argv: readonly string[]): { name: string, limit: number }
 }
 const LONG_CALLS = new Set([
   'project.init', 'project.export',
-  'machine.create', 'machine.start', 'machine.stop', 'machine.update', 'machine.remove',
+  'machine.create', 'machine.start', 'machine.stop', 'machine.update', 'machine.remove', 'machine.load', 'machine.prune',
   'store.push', 'store.pull', 'store.connect', 'store.attach',
   'backup.connect', 'backup.create', 'backup.restore',
   'sandbox.create',
@@ -586,12 +586,6 @@ export function client(spec: CliSpec): Lfs {
             let options: any = {}
             const last = args.at(-1), slot = entry.args[args.length - 1]
             if (args.length > entry.args.length || (isPlain(last) && slot?.kind !== 'json')) options = args.pop() ?? {}
-            if (family === 'sandbox' && call === 'create' && isPlain(options.image)) {
-              const { archive, digest, ...extra } = options.image as Record<string, unknown>
-              if (Object.keys(extra).length || typeof archive !== 'string' || !isAbsolute(archive)) throw invalid('image.archive must be an absolute caller-local path')
-              if (digest !== undefined && (typeof digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(digest))) throw invalid('image.digest must be a full sha256 digest')
-              options = { ...options, image_archive: archive, image: digest }
-            }
             if (!isPlain(options) || args.length > entry.args.length) throw invalid('Invalid LayerFS arguments')
             // SDK-only options, never CLI flags: the spawn callback and the call's time budget.
             const local = new Set(['on_spawn', 'timeout_ms'])

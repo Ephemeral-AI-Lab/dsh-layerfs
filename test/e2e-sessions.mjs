@@ -275,6 +275,11 @@ try {
   await page.screenshot({ path: '/tmp/e2e-sessions-sandbox.png' })
   await page.getByRole('tab', { name: 'Chat', exact: true }).first().click()
 
+  step("Sandbox create: a project session's names no image (LayerFS's default rule, docs/specs/sandbox-images.md D6, §4.5)")
+  const creates = (await must('logs.list', { project, limit: 1000 })).lines.filter((line) => line.argv[0] === 'sandbox' && line.argv[1] === 'create' && line.argv[2] === project)
+  assert.ok(creates.length >= 1, `the call log has the project's sandbox create (${creates.length})`)
+  for (const line of creates) assert.ok(!line.argv.some((a) => a === '--image' || a.startsWith('--image=')), `no --image injected: ${line.argv.join(' ')}`)
+
   step('Logs: the call log binds checkpoints to their calls; Reset with confirm')
   state = await must('session.state', { sessionId: sid })
   const bound = state.checkpoints.filter((c) => c.kind === 'turn' && c.commit && c.receipt)

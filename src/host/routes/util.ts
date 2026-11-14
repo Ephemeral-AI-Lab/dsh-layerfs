@@ -29,6 +29,8 @@ export interface RouteHost {
   cli(): string | null
   /** The pinned daemon, if any. */
   daemon(): string | null
+  /** The pinned Linux bundle folder (holds bundle.json), if any. */
+  bundle?(): string | null
   /** The pinned CLI's discovery (identity, call table, commands). */
   discover(): Promise<Discovery>
   /** Record the native daemon once (never throws). */
@@ -73,28 +75,55 @@ export const keyOf = (p: any): string => p.project ?? `${p.store}/${p.name}`
 /**
  * Optional LayerFS features the pinned CLI may lack (an older or newer call
  * table): each is read from discovery, so the routes refuse or answer without
- * the feature instead of sending a call or option the CLI does not have.
+ * the feature instead of sending a call or option the CLI does not have
+ * (docs/specs/sandbox-images.md §4.2). Never read from a version string.
  */
 export interface CliFeatures {
   /** machine.stop takes `force`. */
   readonly forceStop: boolean
-  /** machine.images exists (a machine's Sandbox image inventory). */
+  /** machine.images exists (a machine's cached Sandbox images). */
   readonly images: boolean
-  /** sandbox.create takes `image_archive` (a caller-local image archive). */
-  readonly imageArchive: boolean
+  /** machine.load exists (copy an image to a machine without a Sandbox). */
+  readonly imageLoad: boolean
+  /** machine.prune exists (remove a machine's cached images). */
+  readonly imagePrune: boolean
+  /** sandbox.create's `image` option has kind `image`: a digest, Docker reference or Id (not only a digest). */
+  readonly imageRefs: boolean
+  /** sandbox.create takes `on_progress` (inspect, export, send, unpack, start phases). */
+  readonly createProgress: boolean
+  /** identity feature `sandbox-runtime`: the bundle's runtime layer runs images without glibc or bash. */
+  readonly sandboxRuntime: boolean
+  /** 1 when every Stage 1 piece is there (images, load, prune, refs, runtime), else 0. */
+  readonly imageStage: 0 | 1
 }
 
-/** The features a discovered call table has. */
-export function featuresOf(calls: Discovery['calls'] | undefined): CliFeatures {
-  const table: Discovery['calls'] = Array.isArray(calls) ? calls : []
+/** The features a discovery (its call table and identity features) has. */
+export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identity'>> | null | undefined): CliFeatures {
+  const table: Discovery['calls'] = Array.isArray(discovery?.calls) ? discovery.calls : []
+  const tokens: readonly string[] = Array.isArray(discovery?.identity?.features) ? discovery.identity.features : []
   const call = (family: string, name: string) => table.find((c) => c.family === family && c.call === name)
-  const option = (family: string, name: string, opt: string) => !!call(family, name)?.options?.some((o: { name: string }) => o.name === opt)
-  return { forceStop: option('machine', 'stop', 'force'), images: !!call('machine', 'images'), imageArchive: option('sandbox', 'create', 'image_archive') }
+  const optionOf = (family: string, name: string, opt: string) => call(family, name)?.options?.find((o: { name: string }) => o.name === opt)
+  const option = (family: string, name: string, opt: string) => !!optionOf(family, name, opt)
+  const images = !!call('machine', 'images'), imageLoad = !!call('machine', 'load'), imagePrune = !!call('machine', 'prune')
+  const imageRefs = optionOf('sandbox', 'create', 'image')?.kind === 'image'
+  const sandboxRuntime = tokens.includes('sandbox-runtime')
+  return {
+    forceStop: option('machine', 'stop', 'force'),
+    images, imageLoad, imagePrune, imageRefs,
+    createProgress: option('sandbox', 'create', 'on_progress'),
+    sandboxRuntime,
+    imageStage: images && imageLoad && imagePrune && imageRefs && sandboxRuntime ? 1 : 0,
+  }
 }
 
 /** The pinned CLI's features; none when discovery fails (its calls fail too). */
 export async function cliFeatures(host: Pick<RouteHost, 'discover'>): Promise<CliFeatures> {
-  try { return featuresOf((await host.discover()).calls) } catch { return featuresOf([]) }
+  try { return featuresOf(await host.discover()) } catch { return featuresOf(null) }
+}
+
+/** A route answer with a status other than 200 (e.g. `202` for a background job's admission). */
+export class Answer {
+  constructor(readonly status: number, readonly body: unknown) {}
 }
 
 /** How long a Sandbox's `Busy` refusal answers its reads before it is asked again. */

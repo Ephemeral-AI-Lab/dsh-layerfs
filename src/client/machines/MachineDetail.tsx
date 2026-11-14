@@ -11,6 +11,7 @@ import { Card, Empty, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
 import { DiskLine, attentionOf, blockedOf, glyphOs } from './Board.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
+import { ImagesSection } from './MachineImages.tsx'
 import type { View } from './context.tsx'
 import { Inventory, useMachineTitle } from './Inventory.tsx'
 import { clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, storesOn, type AvailableView, type MachineInfo } from './model.ts'
@@ -70,7 +71,8 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   const attention = startup?.status === 'running' ? null : attentionOf(m, view)
   const block = startup?.status === 'running' ? null : blockedOf(m, view)
   const calls = clearingCall('machine', m.name, state.op)
-  const canSandbox = pending === null && state.key === 'running'
+  // New Sandbox also works on a stopped machine (Start and create); it waits only while a power action runs
+  const canSandbox = pending === null
   const name = title(m)
   return (
     <Page wide label={name}>
@@ -119,11 +121,14 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
           ) : undefined}
           sandboxAction={(
             <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canSandbox}
-              title={canSandbox ? undefined : t('startBeforeSandbox')} onClick={() => setCreating(true)}>
+              title={canSandbox ? undefined : t('sandboxAfterPower')} onClick={() => setCreating(true)}>
               {t('newSandbox')}
             </Button>
           )} />
       </Card>
+
+      {/* Stage 1: the images copied to this machine (not macOS native, whose Sandboxes run on the Mac itself) */}
+      {view.features?.imageStage === 1 && m.backend !== 'native' && <ImagesSection m={m} />}
 
       <details className={css.details}>
         <summary className={css.detailsSummary}>

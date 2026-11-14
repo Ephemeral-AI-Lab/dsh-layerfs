@@ -35,6 +35,10 @@ const CALLS = {
   'file.write': [[a('project', 'project'), a('branch', 'name'), a('path', 'text'), a('content', 'content')], [o('message', 'text'), o('mode', 'int')]],
   'project.stats': [[a('project', 'project'), a('branch', 'name', true), a('commit', 'name', true)], []],
   'branch.diff': [[a('project', 'project'), a('from_branch', 'name'), a('to_branch', 'name')], [o('path_prefix', 'text'), o('paths_only', 'bool')]],
+  // Stage 1 (docs/specs/sandbox-images.md §3): images, prune, and create taking an image reference with progress
+  'machine.images': [[a('name', 'name')], []],
+  'machine.prune': [[a('name', 'name'), a('image', 'text', true)], [o('unused', 'bool')]],
+  'sandbox.create': [[a('project', 'project'), a('name', 'name'), a('machine', 'name', true)], [o('image', 'image'), o('on_progress', 'function')]],
 }
 const calls = [...new Set([...C.REQUIRED_CALLS, ...Object.keys(CALLS)])].map((name) => {
   const [family, call] = name.split('.'), [args, options] = CALLS[name] ?? [[], []]
@@ -48,7 +52,7 @@ function fakeCli(dir) {
   writeFileSync(join(dir, 'help.json'), JSON.stringify({ calls, commands: [], switches: [] }))
   const cli = join(dir, 'layerfs')
   writeFileSync(cli, `#!${process.execPath}
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 const dir = ${JSON.stringify(dir)}, a = process.argv.slice(2), op = a[0] + '.' + a[1]
 if (a[0] === '--version') { console.log(JSON.stringify({ version: '2.0.0', commit: 'a'.repeat(40), dirty: false, features: [] })); process.exit(0) }
 if (a[0] === 'help') { process.stdout.write(readFileSync(dir + '/help.json')); process.exit(0) }
@@ -65,6 +69,7 @@ else if ((op === 'file.list' || op === 'file.write') && failing('race.count', 'F
 } else if (op === 'machine.update' && failing('update.count', 'FAKE_UPDATE_FAILS')) {
   process.stderr.write(JSON.stringify({ code: 'Failed', message: 'daemon not reachable' }) + '\\n'); process.exit(125)
 } else if (op === 'machine.get' && process.env.FAKE_SLOW_MS) setTimeout(() => answer({ slow: true }), Number(process.env.FAKE_SLOW_MS))
+else if (op === 'sandbox.create' && a.includes('--progress')) { writeSync(2, JSON.stringify({ progress: { phase: 'send', done: 1, total: 2 } }) + '\\n'); answer({ argv: a }) }
 else if (op === 'machine.list' && process.env.FAKE_SLOW_LIST_MS) setTimeout(() => answer({ items: [] }), Number(process.env.FAKE_SLOW_LIST_MS))
 else answer({ argv: a })
 `, { mode: 0o700 })
@@ -127,7 +132,9 @@ test('machine probes default to the short budget: a dead VM answers unreachable 
   const f = fresh()
   const lfs = C.client({ cli: f.cli, home: f.home })
   assert.ok(C.PROBE_TIMEOUT_MS < C.READ_TIMEOUT_MS)
-  assert.deepEqual([...C.PROBES].sort(), ['machine.list', 'machine.platforms', 'machine.status'])
+  assert.deepEqual([...C.PROBES].sort(), ['machine.images', 'machine.list', 'machine.platforms', 'machine.status'])
+  // sandbox-images.md §4.1: machine.load and machine.prune run as long as their copy, in the jobs lane
+  for (const call of ['load', 'prune']) assert.equal(C.laneOf(['machine', call]).name, 'jobs', call)
   t.after(() => { delete process.env.FAKE_SLOW_LIST_MS })
   await lfs.machine.get('vm') // discovery first, so the clock times only the probe
   process.env.FAKE_SLOW_LIST_MS = String(C.PROBE_TIMEOUT_MS + 20000)
@@ -243,4 +250,25 @@ test('preset calls: reads and short writes keep 2 minutes, long work gets 30 min
     assert.equal(C.presetTimeout(argv, false), C.PRESET_LONG_TIMEOUT_MS, argv.join(' '))
   }
   assert.equal(C.PRESET_LONG_TIMEOUT_MS, 30 * 60_000)
+})
+
+test('Stage 1 calls: machine.images is kept 5 s and cleared by machine.prune; sandbox.create sends the reference and --progress', { timeout: 20000 }, async () => {
+  const f = fresh()
+  const lfs = C.client({ cli: f.cli, home: f.home })
+  assert.equal(C.KEPT_READS.get('machine.images'), 5000)
+  const images = () => f.log().filter((argv) => argv[0] === 'machine' && argv[1] === 'images').length
+  await lfs.machine.images('vm')
+  await lfs.machine.images('vm')
+  assert.equal(images(), 1, 'the second read is the kept answer')
+  await lfs.machine.prune('vm', { unused: true })
+  assert.deepEqual(f.log().find((argv) => argv[1] === 'prune'), ['machine', 'prune', '--unused=true', '--', 'vm'])
+  await lfs.machine.prune('vm', 'sha256:' + 'a'.repeat(64))
+  assert.deepEqual(f.log().filter((argv) => argv[1] === 'prune')[1], ['machine', 'prune', '--', 'vm', 'sha256:' + 'a'.repeat(64)])
+  await lfs.machine.images('vm')
+  assert.equal(images(), 2, 'a prune cleared the kept answer')
+  const seen = []
+  await lfs.sandbox.create('s/p', 'b1', 'vm', { image: 'postgres:17-bookworm', on_progress: (p) => seen.push(p) })
+  const create = f.log().find((argv) => argv[0] === 'sandbox' && argv[1] === 'create')
+  assert.deepEqual(create, ['sandbox', 'create', '--image', 'postgres:17-bookworm', '--progress', '--', 's/p', 'b1', 'vm'])
+  assert.deepEqual(seen, [{ phase: 'send', done: 1, total: 2 }])
 })

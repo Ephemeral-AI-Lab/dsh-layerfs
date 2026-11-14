@@ -116,14 +116,24 @@ export interface MachineLive {
   down: string | null
 }
 
-/** What the pinned LayerFS CLI can do beyond the calls every CLI has (host `featuresOf`). */
+/** What the pinned LayerFS CLI can do beyond the calls every CLI has (host `featuresOf`, docs/specs/sandbox-images.md §4.2). */
 export interface CliFeatures {
   /** machine.stop takes force. */
   forceStop: boolean
-  /** machine.images: a machine's Sandbox image inventory. */
+  /** machine.images: a machine's cached Sandbox images. */
   images: boolean
-  /** sandbox.create takes a caller-local image archive. */
-  imageArchive: boolean
+  /** machine.load: copy an image to a machine without a Sandbox. */
+  imageLoad?: boolean
+  /** machine.prune: remove cached images. */
+  imagePrune?: boolean
+  /** sandbox.create --image takes a Docker reference or Id, not only a digest. */
+  imageRefs?: boolean
+  /** sandbox.create reports progress phases (inspect, export, send, unpack, start). */
+  createProgress?: boolean
+  /** The bundle carries the Sandbox runtime layer. */
+  sandboxRuntime?: boolean
+  /** 1: images from Docker, sizes and free space; 0: the ready group from the archive only. */
+  imageStage?: 0 | 1
 }
 
 /** The computer this host runs on (the native machine): its OS names and marks it. */
@@ -242,14 +252,74 @@ export interface SandboxInfo {
   unread?: boolean
 }
 
-/** GET /api/machines/<name>/images. */
-export interface MachineImages {
+/** Why an image cannot run on a machine (its tag in the Image menu). */
+export interface ImageReason { kind: 'arch' | 'os' | 'no-glibc' | 'compressed' | 'device-node', value?: string }
+
+/** One image that starts at once on the machine (the "On <machine>, ready" group). */
+export interface ReadyImage {
+  id: string
+  /** The first ref, or "LayerFS default" for `source: 'bundle'` (the client says it in its words). */
+  name: string
+  refs: string[]
+  size: number | null
+  source: 'bundle' | 'machine' | 'imported'
+  sandboxes: number
+  lastUsed: string | null
+  usable: boolean
+  reason?: ImageReason
+}
+
+/** One image of this computer's Docker (Stage 1 only). */
+export interface DockerImage {
+  id: string
+  name: string
+  refs: string[]
+  size: number
+  architecture: string
+  os: string
+  need: number
+  fits: boolean
+  usable: boolean
+  reason?: ImageReason
+}
+
+/** GET /api/machines/<name>/sandbox-images: what a Sandbox on the machine can start from. */
+export interface SandboxImagesView {
   machine: string
-  /** `unsupported`: the pinned CLI has no machine.images (no inventory to show). */
-  mode: 'host' | 'archive' | 'unsupported'
-  archive?: string
-  default_digest: string | null
-  images: { digest: string, title?: string, tags: string[] }[]
+  platform: string
+  state: string
+  stage: 0 | 1
+  /** `host`: macOS native, Sandboxes run on the Mac itself (no Image row). */
+  mode: 'images' | 'host'
+  architecture: string | null
+  free: number | null
+  /** The id of the preselected ready row (D7). */
+  default: string | null
+  observedAt: number
+  /** The ready rows are the last answer kept in memory: a stopped machine, or an archive read that failed (`message` says why). */
+  stale: false | { at: number, code: string, message?: string }
+  ready: ReadyImage[]
+  docker: null
+    | { available: false, reason: 'not-installed' | 'not-running' | 'error', message?: string }
+    | { available: true, images: DockerImage[] }
+}
+
+/** POST /api/machines/<name>/prune-images: the ids removed, the bytes freed, and the images LayerFS kept (InUse, …). */
+export interface PruneAnswer { removed: string[], freed: number, refused: { id: string, code: string, message: string }[] }
+
+/** A Sandbox create's phase (host `SandboxCreates`). */
+export type CreationPhase = 'queued' | 'machine' | 'inspect' | 'export' | 'send' | 'unpack' | 'start' | 'done' | 'failed'
+
+/** A Sandbox create the host runs in the background: the admission answer, `GET /api/sandbox-creates` and `sandbox-progress`. */
+export interface Creation {
+  id: string
+  input: { project: string, name: string, machine: string, image?: string, start?: boolean }
+  phase: CreationPhase
+  done?: number
+  total?: number
+  error?: { code: string, message: string, detail?: unknown }
+  startedAt: number
+  updatedAt: number
 }
 
 /** GET /api/projects rows the New Sandbox dialog reads. */
@@ -518,14 +588,12 @@ export function freeMachineName(kind: string, machines: MachineInfo[]): string {
   for (let n = 1; ; n++) if (!taken.has(`${short}${n}`)) return `${short}${n}`
 }
 
-export interface VmForm { name: string, cpus: string, memory: string, disk: string, image: string }
+export interface VmForm { name: string, cpus: string, memory: string, disk: string }
 export type FormErrors = Partial<Record<keyof VmForm, Words>>
 
-export const emptyVm = (): VmForm => ({ name: '', cpus: String(VM_DEFAULTS.cpus), memory: '4G', disk: '20G', image: '' })
+export const emptyVm = (): VmForm => ({ name: '', cpus: String(VM_DEFAULTS.cpus), memory: '4G', disk: '20G' })
 
-export const isImageRef = (image: string): boolean => /^sha256:[0-9a-f]{12,64}$/.test(image) || image.startsWith('/')
-
-export function vmErrors(f: VmForm, machines: MachineInfo[], archive: boolean): FormErrors {
+export function vmErrors(f: VmForm, machines: MachineInfo[]): FormErrors {
   const e: FormErrors = {}
   const n = f.name.trim()
   if (!n) e.name = w('errNameRequired')
@@ -538,7 +606,6 @@ export function vmErrors(f: VmForm, machines: MachineInfo[], archive: boolean): 
   if (memory === null || memory < 512 * 2 ** 20) e.memory = w('errMemory')
   const disk = parseSize(f.disk)
   if (disk === null || disk < 2 * GIB) e.disk = w('errDisk')
-  if (archive && !isImageRef(f.image.trim())) e.image = w('errImage')
   return e
 }
 

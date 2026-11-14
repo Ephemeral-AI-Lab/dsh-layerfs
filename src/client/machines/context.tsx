@@ -10,7 +10,7 @@ import type { DoctorT } from '../doctor/locale.ts'
 import type { RefusalLabels } from '../ui/index.tsx'
 import type { MachinesFace, ReadState } from './controller.ts'
 import type { MachinesKey } from './locale.ts'
-import { kindKey, type MachineStartup, type MachinesView, type RuntimeStatus, type StateLook, type Words } from './model.ts'
+import { kindKey, type Creation, type MachineStartup, type MachinesView, type RuntimeStatus, type StateLook, type Words } from './model.ts'
 
 /** DSH's translate seat for this namespace: `{name}` placeholders take string values. */
 export type Translate = (key: MachinesKey, params?: Record<string, string>) => string
@@ -40,6 +40,7 @@ export interface MachinesPageProps extends Omit<MachinesFace, 'hooks'> {
   useStartups: Hook<Readonly<Record<string, MachineStartup>>>
   useRuntime: Hook<ReadState<RuntimeStatus>>
   useConnected: Hook<boolean>
+  useCreations: Hook<Readonly<Record<string, Creation>>>
   /** Open a Storage page in place (set by the Storage page); elsewhere a link opens the Storage page. */
   openTab?: ((id: string) => void) | undefined
 }

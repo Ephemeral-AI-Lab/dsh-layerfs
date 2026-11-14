@@ -2,17 +2,23 @@
  * A machine's inventory as both machine pages show it: its Stores and its
  * Sandboxes side by side, one row each. The Machines tab shows the first few
  * of each (Sandboxes that need you first) and links to the machine tab; the
- * machine tab shows all of them, its Sandboxes grouped by project. A row
- * opens the Store's or the Sandbox's own tab.
+ * machine tab shows all of them, its Sandboxes grouped by project (a
+ * Sandbox being created sits in its project's group, like the real rows). A
+ * row opens the Store's or the Sandbox's own tab.
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { StateChip } from '../ui/index.tsx'
+import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Meter, StateChip, refusalOf } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph, StoreKindGlyph } from './icons.tsx'
+import { besideCreating, creatingOn, creationStore, needsSpace, phaseShare, phaseWords, sandboxGroups } from './images.ts'
+
+export { besideCreating, creatingOn } from './images.ts'
+import { FreeSpaceDialog } from './MachineImages.tsx'
 import {
   SANDBOX_CAPACITY, bytes, machineState, opWords, pgUsable, projectRef, sandboxesOn, shortSandbox, stateLook, storesOn,
-  type AvailableView, type MachineInfo, type MachineSandbox,
+  type AvailableView, type Creation, type MachineInfo, type MachineSandbox,
 } from './model.ts'
 import css from './machines.module.css'
 
@@ -56,9 +62,12 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
   storeAction?: ReactNode
   sandboxAction?: ReactNode
 }): ReactNode {
-  const { t } = useMachinesContext()
+  const { t, useCreations } = useMachinesContext()
   const stores = storeLines(view, m)
   const sandboxes = sandboxLines(view, m)
+  const creations = useCreations((all) => all)
+  const creating = creatingOn(creations, m.name, sandboxes)
+  const rows = besideCreating(sandboxes, creating)
   const running = machineState(m, view.status[m.name]).key === 'running'
   const storesEmpty = view.readErrors?.stores ? t('storesUnread') : t('noStoresHere')
   const sandboxesEmpty = view.readErrors?.sandboxes ? t('sandboxesUnread') : running ? t('noSandboxesHere')
@@ -73,13 +82,80 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
       </section>
       <section className={css.inventoryColumn} aria-label={t('sandboxesOnMachine', { name: m.name })}>
         <ColumnHead label={t('sandboxes')} count={sandboxes.length} shown={limit} onMore={onMore} action={sandboxAction} />
-        {sandboxes.length === 0
+        {rows.length === 0 && creating.length === 0
           ? <p className={css.inventoryEmpty}>{sandboxesEmpty}</p>
           : limit
-            ? <SandboxRows rows={sandboxes.slice(0, limit)} machine={m.name} showProject more={Math.max(0, sandboxes.length - limit)} onMore={onMore} />
-            : <SandboxGroups rows={sandboxes} machine={m.name} />}
+            ? (
+              <>
+                {creating.length > 0 && <ul className={css.lines} aria-label={t('creatingSandboxes')}>{creating.map((c) => <CreatingRow key={c.id} c={c} showProject />)}</ul>}
+                {rows.length > 0 && <SandboxRows rows={rows.slice(0, limit)} machine={m.name} showProject more={Math.max(0, rows.length - limit)} onMore={onMore} />}
+              </>
+            )
+            : <SandboxGroups rows={rows} creating={creating} machine={m.name} />}
       </section>
     </div>
+  )
+}
+
+/**
+ * A Sandbox being created, drawn as a real row in the same place: its name
+ * and, like its neighbours, the project (`showProject`, ungrouped) or the
+ * Store (inside its project's group). Only the phase in words (a bar while
+ * the image copy reports bytes) tells it apart; a failed one keeps its place
+ * with the reason, Retry (the same input again) and dismiss; a create
+ * refused for lack of space offers Free space instead of Retry, and creates
+ * again once images were removed. Not clickable until the Sandbox exists.
+ */
+function CreatingRow({ c, showProject }: { c: Creation, showProject?: boolean }): ReactNode {
+  const { t, tw, retryCreation, dismissCreation } = useMachinesContext()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const [freeing, setFreeing] = useState(false)
+  const failed = c.phase === 'failed'
+  const space = needsSpace(c)
+  const need = space && c.error?.detail && typeof (c.error.detail as { need?: unknown }).need === 'number' ? (c.error.detail as { need: number }).need : null
+  const share = phaseShare(c)
+  const words = tw(phaseWords(c))
+  const act = async (run: () => Promise<unknown>) => {
+    setBusy(true); setError(null)
+    try { await run() } catch (e) { setError(e) } finally { setBusy(false) }
+  }
+  return (
+    <li>
+      <div className={clsx(css.line, css.sandboxLine, css.creatingLine)} data-failed={failed || undefined} aria-busy={!failed || undefined}
+        title={`${c.input.name} · ${c.input.project}`}>
+        <span className={css.lineIcon} aria-hidden="true"><SandboxGlyph size={14} /></span>
+        <span className={clsx(css.lineName, css.mono)}>{shortSandbox(c.input.name)}</span>
+        <span className={css.lineMeta}>
+          {showProject ? <span className={css.tag}>{projectRef(c.input.project).name}</span> : <span className={css.muted}>{creationStore(c)}</span>}
+        </span>
+        {failed
+          ? (
+            <>
+              <span className={css.creatingFailed} role="alert" title={error != null ? refusalOf(error).message : c.error?.message}>
+                {error != null ? t('createFailedRow', { reason: refusalOf(error).message }) : words}
+              </span>
+              <span className={css.creatingActions}>
+                {space
+                  ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setFreeing(true)}>{t('freeSpace')}</Button>
+                  : <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => retryCreation(c))}>{t('retryCreate')}</Button>}
+                <Button size="sm" variant="ghost" disabled={busy} aria-label={t('dismiss')} title={t('dismiss')}
+                  icon={<IconCloseOutlineRegular size={12} />} onClick={() => void act(() => dismissCreation(c.id))} />
+              </span>
+            </>
+          )
+          : (
+            <>
+              <span className={css.lineSlots}>{share !== null && <Meter share={share} tone="neutral" label={words} className={css.creatingBar} />}</span>
+              <StateChip tone="info" live label={words} />
+            </>
+          )}
+      </div>
+      {freeing && (
+        <FreeSpaceDialog machine={{ name: c.input.machine, state: 'running' }} need={need}
+          onClose={(freed) => { setFreeing(false); if (freed) void act(() => retryCreation(c)) }} />
+      )}
+    </li>
   )
 }
 
@@ -122,10 +198,11 @@ function StoreRows({ rows, more, onMore }: { rows: StoreLine[], more: number, on
   )
 }
 
-function SandboxRows({ rows, machine, showProject, more, onMore }: { rows: MachineSandbox[], machine: string, showProject?: boolean, more?: number, onMore?: (() => void) | undefined }): ReactNode {
+function SandboxRows({ rows, machine, showProject, more, onMore, lead }: { rows: MachineSandbox[], machine: string, showProject?: boolean, more?: number, onMore?: (() => void) | undefined, lead?: ReactNode }): ReactNode {
   const { t, stateWord, go } = useMachinesContext()
   return (
     <ul className={css.lines}>
+      {lead}
       {rows.map((b) => {
         const look = stateLook('sandbox', b.state)
         const ref = b.project ? projectRef(b.project) : null
@@ -151,23 +228,25 @@ function SandboxRows({ rows, machine, showProject, more, onMore }: { rows: Machi
   )
 }
 
-/** All of a machine's Sandboxes: those that need you on top, then one group per project. */
-function SandboxGroups({ rows, machine }: { rows: MachineSandbox[], machine: string }): ReactNode {
+/**
+ * All of a machine's Sandboxes: those that need you on top, then one group
+ * per project, the Sandboxes being created for it first in their group.
+ */
+function SandboxGroups({ rows, creating, machine }: { rows: MachineSandbox[], creating: Creation[], machine: string }): ReactNode {
   const { t } = useMachinesContext()
   const flagged = rows.filter(sandboxNeedsYou)
-  const groups = new Map<string, MachineSandbox[]>()
-  for (const b of rows) {
-    if (sandboxNeedsYou(b)) continue
-    const key = b.project ? projectRef(b.project).name : ''
-    groups.set(key, [...groups.get(key) ?? [], b])
-  }
+  const groups = sandboxGroups(rows.filter((b) => !sandboxNeedsYou(b)), creating)
   return (
     <>
       {flagged.length > 0 && <SandboxRows rows={flagged} machine={machine} showProject />}
-      {[...groups].map(([project, list]) => (
-        <div key={project || '-'} className={css.lineGroup}>
-          <div className={css.lineGroupHead}><span className={css.lineGroupName}>{project || t('noProject')}</span><span>{list.length}</span></div>
-          <SandboxRows rows={list} machine={machine} />
+      {groups.map((g) => (
+        <div key={g.project || '-'} className={css.lineGroup}>
+          <div className={css.lineGroupHead}>
+            <span className={css.lineGroupName}>{g.project || t('noProject')}</span>
+            {g.rows.length > 0 && <span>{g.rows.length}</span>}
+          </div>
+          <SandboxRows rows={g.rows} machine={machine}
+            lead={g.creating.length > 0 && g.creating.map((c) => <CreatingRow key={c.id} c={c} />)} />
         </div>
       ))}
     </>

@@ -14,7 +14,7 @@
 import { HostError, enc, q, type HostEvent, type LayerfsApi } from '../api.ts'
 import {
   mergeStage, startupFailure,
-  type MachineImages, type MachineStartup, type MachinesView, type NewMachine, type ProjectSummary, type RuntimeStatus, type SandboxInfo,
+  type Creation, type MachineStartup, type MachinesView, type NewMachine, type PruneAnswer, type ProjectSummary, type RuntimeStatus, type SandboxImagesView, type SandboxInfo,
 } from './model.ts'
 
 /** A snapshot source the DSH slot renderer binds to a `use<Name>` hook. */
@@ -63,6 +63,8 @@ export interface MachinesFace {
     startups: Source<Readonly<Record<string, MachineStartup>>>
     runtime: Source<ReadState<RuntimeStatus>>
     connected: Source<boolean>
+    /** Background Sandbox creates by job id: running, and failed ones until dismissed (host-kept, D10). */
+    creations: Source<Readonly<Record<string, Creation>>>
   }
   /** The page is shown: read now and poll every 5 s while the window is visible. Returns the release. */
   activate: () => () => void
@@ -72,10 +74,18 @@ export interface MachinesFace {
   reloadRuntime: () => void
   act: (action: MachineAction) => Promise<void>
   inspectMachine: (name: string) => Promise<{ state?: string, observedAt?: number }>
-  machineImages: (name: string) => Promise<MachineImages>
+  /** What a Sandbox on this machine can start from (GET /api/machines/<name>/sandbox-images). */
+  sandboxImages: (machine: string) => Promise<SandboxImagesView>
+  /** Removes cached images from a machine (POST /api/machines/<name>/prune-images, Stage 1). */
+  pruneImages: (machine: string, ids: string[]) => Promise<PruneAnswer>
   projects: () => Promise<ProjectSummary[]>
   readSandbox: (name: string) => Promise<SandboxInfo>
-  createSandbox: (project: string, input: { name: string, machine: string, image?: string | { archive: string, digest?: string } }) => Promise<unknown>
+  /** Starts a background create (`background: true`); resolves on admission with its job, or null from a host that created it at once. */
+  createSandbox: (project: string, input: NewSandbox) => Promise<Creation | null>
+  /** Sends a failed create's input again (a new job). */
+  retryCreation: (creation: Creation) => Promise<Creation | null>
+  /** Dismisses a failed create (DELETE /api/sandbox-creates/<id>). */
+  dismissCreation: (id: string) => Promise<void>
   closeSandbox: (name: string, force: boolean) => Promise<string[]>
   /** Deletes a Store and every project in it (the guided machine Remove). */
   removeStore: (name: string) => Promise<void>
@@ -85,13 +95,24 @@ export interface MachinesFace {
   openPanel: (id: string) => void
 }
 
+/** What New Sandbox sends: `image` is the picked row's id; `start` starts a stopped machine first (D5). */
+export interface NewSandbox { name: string, machine: string, image?: string, start?: boolean }
+
 const POLL_MS = 5000
+/** How long progress events settle before the machines view is read again (the data-loading rule). */
+const SETTLE_MS = 500
+
+const ended = (c: Creation): boolean => c.phase === 'done' || c.phase === 'failed'
 
 export class MachinesController {
   readonly machines = new Cell<ReadState<MachinesView>>(idle())
   readonly startups = new Cell<Readonly<Record<string, MachineStartup>>>({})
   readonly runtime = new Cell<ReadState<RuntimeStatus>>(idle())
   readonly connected: Cell<boolean>
+  readonly creations = new Cell<Readonly<Record<string, Creation>>>({})
+  /** Finished creates, by id, with when they finished: dropped once a machines read that began after it lands. */
+  private readonly finished = new Map<string, number>()
+  private settleTimer: ReturnType<typeof setTimeout> | undefined
   private active = 0
   private timer: ReturnType<typeof setInterval> | undefined
   private reading: Promise<void> | null = null
@@ -108,8 +129,9 @@ export class MachinesController {
     this.off.push(api.onEvent('connection', (e) => {
       const up = !!e.data?.connected
       this.connected.set(up)
-      if (up && this.active) { this.reload(); this.reloadRuntime() }
+      if (up && this.active) { this.reload(); this.reloadRuntime(); this.readCreations() }
     }))
+    this.off.push(api.onEvent('sandbox-progress', (e) => this.creationEvent(e)))
     this.off.push(api.onEvent('runtime-changed', () => { this.reloadRuntime(); if (this.active) this.reload() }))
     this.off.push(api.onEvent('machine-progress', (e) => this.progress(e)))
   }
@@ -118,7 +140,7 @@ export class MachinesController {
   face(): MachinesFace {
     const api = this.api
     return {
-      hooks: { machines: this.machines, startups: this.startups, runtime: this.runtime, connected: this.connected },
+      hooks: { machines: this.machines, startups: this.startups, runtime: this.runtime, connected: this.connected, creations: this.creations },
       activate: () => this.activate(),
       reload: () => this.reload(),
       recheck: async () => {
@@ -133,11 +155,25 @@ export class MachinesController {
       reloadRuntime: () => this.reloadRuntime(),
       act: (action) => this.act(action),
       inspectMachine: (name) => api.call('GET', `/api/machines/${enc(name)}/inspect`),
-      machineImages: (name) => api.call('GET', `/api/machines/${enc(name)}/images`),
+      sandboxImages: (machine) => api.call('GET', `/api/machines/${enc(machine)}/sandbox-images`),
+      pruneImages: async (machine, ids) => {
+        try { return await api.call<PruneAnswer>('POST', `/api/machines/${enc(machine)}/prune-images`, { images: ids }) } finally { this.reload() }
+      },
       projects: () => api.call('GET', '/api/projects'),
       readSandbox: (name) => api.call('GET', `/api/sandboxes/${enc(name)}`),
-      createSandbox: async (project, input) => {
-        try { return await api.call('POST', `/api/projects/${enc(project)}/sandboxes`, input) } finally { this.reload() }
+      createSandbox: (project, input) => this.create(project, input),
+      retryCreation: async (creation) => {
+        const { project, ...input } = creation.input
+        const next = await this.create(project, input)
+        this.drop(creation.id)
+        return next
+      },
+      dismissCreation: async (id) => {
+        try { await api.call('DELETE', `/api/sandbox-creates/${enc(id)}`) } catch (error) {
+          // already gone on the host (expired, or created again): nothing left to dismiss
+          if ((error as { status?: number }).status !== 404) throw error
+        }
+        this.drop(id)
       },
       closeSandbox: async (name, force) => {
         try {
@@ -164,6 +200,7 @@ export class MachinesController {
     if (this.active === 1) {
       this.reload()
       this.reloadRuntime()
+      this.readCreations()
       this.timer = setInterval(() => {
         if ((typeof document === 'undefined' || document.visibilityState === 'visible') && this.shown()) this.reload()
       }, POLL_MS)
@@ -182,10 +219,12 @@ export class MachinesController {
     if (this.reading) { this.again = true; return }
     const current = this.machines.getSnapshot()
     if (current.status === 'idle') this.machines.set({ ...current, status: 'loading' })
+    const began = Date.now()
     this.reading = (async () => {
       try {
         const data = await this.api.call<MachinesView>('GET', '/api/machines')
         this.machines.set({ status: 'ready', data, error: null, observedAt: Date.now() })
+        this.forgetFinished(began)
       } catch (error) {
         const prev = this.machines.getSnapshot()
         this.machines.set({ status: prev.data ? 'ready' : 'error', data: prev.data, error, observedAt: prev.observedAt })
@@ -281,8 +320,101 @@ export class MachinesController {
     if (stages !== current.stages) this.publish({ ...current, stages })
   }
 
+  // ---------- background Sandbox creates ----------
+
+  /** POST the create in the background; the job's row shows at once, before its first event. */
+  private async create(project: string, input: NewSandbox): Promise<Creation | null> {
+    try {
+      const answer = await this.api.call<{ creation?: Creation } | null>('POST', `/api/projects/${enc(project)}/sandboxes`, { ...input, background: true })
+      const creation = answer && typeof answer === 'object' && answer.creation && typeof answer.creation.id === 'string' ? answer.creation : null
+      // the job's first events can arrive before this answer: the admission (`queued`) never moves a row back
+      if (creation && !this.creations.getSnapshot()[creation.id] && !this.finished.has(creation.id)) this.put(creation)
+      return creation
+    } finally { this.reload() }
+  }
+
+  /** GET /api/sandbox-creates: the host's running and failed creates replace what this page knew. */
+  private readCreations(): void {
+    this.api.call<{ creations?: Creation[] }>('GET', '/api/sandbox-creates').then((answer) => {
+      const list = Array.isArray(answer?.creations) ? answer.creations : []
+      const next: Record<string, Creation> = {}
+      for (const c of list) if (c && typeof c.id === 'string' && c.phase !== 'done') next[c.id] = c
+      this.creations.set(next)
+    }, () => { /* an older host has no creates list: rows come from admissions and events */ })
+  }
+
+  /** A `sandbox-progress { creation }` event: the job's row moves in place; an end reads the machines again. */
+  private creationEvent(event: HostEvent): void {
+    const creation = (event.data as { creation?: Creation } | undefined)?.creation
+    if (!creation || typeof creation.id !== 'string') return
+    const known = this.creations.getSnapshot()[creation.id]
+    // an event older than what is shown (the admission answer can overtake it) changes nothing
+    if (known && known.updatedAt > creation.updatedAt) return
+    this.put(creation)
+    this.createStartup(creation)
+    if (ended(creation)) this.settle(creation)
+  }
+
+  /**
+   * "Start and create": the host starts the machine (phase `machine`, D5). The
+   * machine shows Starting with its `machine-progress` stages, as after its own
+   * Start, so its Start button is not offered while that start runs.
+   */
+  private createStartup(c: Creation): void {
+    const name = c.input.machine
+    const id = `create-${c.id}`
+    const current = this.startups.getSnapshot()[name]
+    if (c.phase === 'machine') {
+      if (current?.status === 'running') return
+      const view = this.machines.getSnapshot().data
+      const platform = (view?.available ? view.machines.find((m) => m.name === name)?.platform : undefined) ?? name
+      this.publish({ kind: 'start', name, platform, id, startedAt: c.updatedAt, status: 'running', stages: [] })
+      return
+    }
+    if (current?.id !== id || current.status !== 'running') return
+    // a failure straight from `machine` is the start's own
+    if (c.phase === 'failed' && c.error) {
+      const error = new HostError(c.error.code, c.error.message, 500, c.error.detail ?? null)
+      this.update(name, id, (s) => ({ ...s, status: startupFailure(error), endedAt: c.updatedAt, error }))
+    } else this.update(name, id, (s) => ({ ...s, status: 'success', endedAt: c.updatedAt }))
+  }
+
+  /** Shows a job; as on the host, a new job for the same project and name replaces that name's failed ones. */
+  private put(creation: Creation): void {
+    const next: Record<string, Creation> = {}
+    for (const [id, c] of Object.entries(this.creations.getSnapshot())) {
+      if (id !== creation.id && c.phase === 'failed' && c.input.project === creation.input.project && c.input.name === creation.input.name) continue
+      next[id] = c
+    }
+    next[creation.id] = creation
+    this.creations.set(next)
+  }
+
+  private drop(id: string): void {
+    const all = this.creations.getSnapshot()
+    if (!all[id]) return
+    const { [id]: _gone, ...rest } = all
+    this.creations.set(rest)
+  }
+
+  /** One machines read 500 ms after the last ended create; a done row leaves once that read shows its Sandbox. */
+  private settle(creation: Creation): void {
+    if (creation.phase === 'done') this.finished.set(creation.id, Date.now())
+    if (this.settleTimer) return
+    this.settleTimer = setTimeout(() => { this.settleTimer = undefined; this.reload() }, SETTLE_MS)
+  }
+
+  private forgetFinished(began: number): void {
+    for (const [id, at] of this.finished) {
+      if (at > began) continue
+      this.finished.delete(id)
+      this.drop(id)
+    }
+  }
+
   dispose(): void {
     for (const off of this.off) off()
     if (this.timer) clearInterval(this.timer)
+    if (this.settleTimer) clearTimeout(this.settleTimer)
   }
 }

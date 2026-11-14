@@ -9,7 +9,8 @@ import { DoctorManager } from './doctor.ts'
 import { Machines } from './machines.ts'
 import { Projects } from './projects.ts'
 import { Storage } from './storage.ts'
-import { invalidateSandbox, wire, type RouteHost } from './util.ts'
+import { Answer, invalidateSandbox, wire, type RouteHost } from './util.ts'
+import type { SandboxCreates } from './sandbox-creates.ts'
 
 /** LayerFS refusal codes and the HTTP status each answers. Anything else is 500. */
 export const STATUS: Record<string, number> = {
@@ -39,6 +40,8 @@ export const STATUS: Record<string, number> = {
   // the host's own guards (one job per Store on this host)
   ConnectBusy: 409,
   Capacity: 507,
+  // LayerFS's: not enough free disk on the machine (detail { need, free })
+  NoSpace: 507,
   Unknown: 500,
   Conflict: 409,
   Exists: 409,
@@ -47,6 +50,8 @@ export const STATUS: Record<string, number> = {
   Dirty: 409,
   ReadOnly: 409,
   InUse: 409,
+  // LayerFS's: a Sandbox closed while a Workspace is still mounted in it
+  MountsActive: 409,
   Denied: 403,
   Unavailable: 502,
   Unsupported: 501,
@@ -61,6 +66,9 @@ export const STATUS: Record<string, number> = {
   // the host's own: a project name now names another project (sessions/catalog.ts)
   ProjectIdentityChanged: 409,
 }
+
+/** Expected refusals answered 5xx (a stopped machine, a full disk, a CLI without the feature): no stack logged. */
+const EXPECTED = new Set(['Unavailable', 'NoSpace', 'Unsupported'])
 
 /** An error the routes throw: answered as { code, message } with `status`. */
 export const httpError = (status: number, code: string, message: string) => Object.assign(new Error(message), { status, code })
@@ -93,6 +101,8 @@ export interface Groups {
   readonly doctor: DoctorManager
   /** Commands a Sandbox page runs in its Workspaces, and their log (commands.ts). */
   readonly commands: SandboxCommands
+  /** Sandbox creations run in the background, with their progress (sandbox-creates.ts). */
+  readonly sandboxCreates: SandboxCreates
   /** Runtime facts for `GET /api/status` (`ctx.layerfs.status()`). */
   readonly runtime: () => Promise<unknown>
   /** `/api/demo-presets…` (presets/manager.ts), once attached. */
@@ -118,7 +128,13 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   const commands = new SandboxCommands(host)
   // a closed Sandbox's command logs go with it (its Workspace paths restart with a new daemon)
   projects.sandboxClosedHook = (name) => commands.closed(name)
-  return { host, machines, storage, projects, doctor, commands, runtime }
+  // "Start and create" starts the machine as the Machines page does (machine-progress events)
+  projects.startMachine = (name) => machines.start(name)
+  // Stage 1: a Docker image that cannot fit on the machine is refused NoSpace before its copy starts
+  projects.spaceFor = (machine, image) => machines.spaceFor(machine, image)
+  // a background create that ends changes the machines view: later GETs read anew
+  projects.sandboxCreates.settled = () => machines.changed()
+  return { host, machines, storage, projects, doctor, commands, sandboxCreates: projects.sandboxCreates, runtime }
 }
 
 /** method + path segments -> the answer, or undefined when no route matches. */
@@ -177,10 +193,18 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'doctor' && !id && method === 'GET') return storage.doctor()
   // Compute's machines. Power is manual (#535 D11): start and stop are their own calls, and no read starts one
   if (group === 'platforms' && !id && method === 'GET') return machines.platforms()
+  // Sandbox creations run in the background (`background: true`): running and failed jobs; dismiss a failed one
+  if (group === 'sandbox-creates' && !sub) {
+    if (!id && method === 'GET') return g.sandboxCreates.list()
+    if (id && method === 'DELETE') return g.sandboxCreates.dismiss(id)
+  }
   if (group === 'machines') {
     if (!id && !sub && method === 'GET') return machines.view(query.get('fresh') === '1')
     if (id && sub === 'inspect' && method === 'GET') return machines.inspect(id)
-    if (id && sub === 'images' && method === 'GET') return machines.images(id)
+    // what a Sandbox on it can run (the New Sandbox menu, the Images section); never starts it
+    if (id && sub === 'sandbox-images' && method === 'GET') return machines.sandboxImages(id)
+    // { images?: id[], unused?: boolean } -> { removed, freed, refused }: 501 while the pinned CLI has no machine.prune
+    if (id && sub === 'prune-images' && method === 'POST') return machines.pruneImages(id, body ?? {})
     if (id && sub === 'start' && method === 'POST') return machines.start(id)
     if (id && sub === 'stop' && method === 'POST') return machines.stop(id, { force: body?.force === true })
     if (!id && !sub && method === 'POST') return machines.create(body)
@@ -201,7 +225,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (projectId) await g.host.assertProjectIdentity?.(id, projectId)
     if (!sub && method === 'GET') return projects.state(id)
     if (!sub && method === 'DELETE') return projects.remove(id)
-    // a new Sandbox: { name, image?, machine? (PostgreSQL projects only) }
+    // a new Sandbox: { name, image? (a sha256 digest until Stage 1), machine? (PostgreSQL projects only), start?, background? }
     if (sub === 'sandboxes' && method === 'POST') return projects.createSandbox(id, body ?? {})
     // closes every Sandbox of the project: { force? }
     if (sub === 'close-sandboxes' && method === 'POST') return projects.closeSandboxes(id, { force: body?.force === true })
@@ -288,10 +312,11 @@ export async function handle(g: Groups, request: { method?: string, path?: strin
     await g.host.ensureNative()
     const answer = await route(g, method, parts, url.searchParams, body)
     if (answer === undefined) return { status: 404, body: { code: 'NotFound', message: `no route ${method} ${url.pathname}` } }
+    if (answer instanceof Answer) return { status: answer.status, body: wire(answer.body) ?? null }
     return { status: 200, body: wire(answer) ?? null }
   } catch (error: any) {
     const answer = errorAnswer(error)
-    if (answer.status >= 500 && answer.status !== 503) g.host.log(`${method} ${url.pathname}: ${error?.stack ?? answer.body.message}`)
+    if (answer.status >= 500 && answer.status !== 503 && !EXPECTED.has(String(answer.body.code))) g.host.log(`${method} ${url.pathname}: ${error?.stack ?? answer.body.message}`)
     return answer
   }
 }

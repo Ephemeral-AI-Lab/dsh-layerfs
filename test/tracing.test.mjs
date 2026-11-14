@@ -305,3 +305,17 @@ test('managed CLI never overwrites the installed CLI at root/bin/layerfs or foll
     assert.equal(readFileSync(cli,'utf8'),original)
   } finally { rmSync(fixture,{recursive:true,force:true}) }
 })
+
+// docs/specs/sandbox-images.md D6/§4.3: the wrappers pass `sandbox create` through untouched; LayerFS picks the image.
+test('managed CLI wrappers (node and bash) insert no --image into sandbox create', async () => {
+  const dir = mkdtempSync(join(root, 'noimage-')), callLog = join(dir, 'trace', 'calls.jsonl')
+  const cli = join(dir, 'echo-argv.mjs')
+  writeFileSync(cli, `#!${process.execPath}\nconsole.log(JSON.stringify({argv:process.argv.slice(2)}))`, { mode: 0o700 })
+  for (const native of [false, true]) {
+    const command = managedCli({ root: join(dir, String(native)), cli, home: join(dir, 'home'), callLog, native })
+    const text = readFileSync(command, 'utf8')
+    assert.doesNotMatch(text, /--image|defaults\.tsv|spawnSync/, `${native ? 'bash' : 'node'} wrapper`)
+    const answer = await run(command, ['sandbox', 'create', 's1/p', 'b1', 'lima1'], {})
+    assert.deepEqual(JSON.parse(answer.stdout).argv, ['sandbox', 'create', 's1/p', 'b1', 'lima1'])
+  }
+})

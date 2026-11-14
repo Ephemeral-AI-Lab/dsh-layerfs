@@ -9,9 +9,11 @@ import { Button, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRi
 import { Card, Field, MenuSelect, MoreMenu, Notice, Refusal, StateChip, type Choice } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
+import { ImageMenu, defaultPick, findPick, imagePlan, useSandboxImages } from './ImageMenu.tsx'
+import { FreeSpaceDialog } from './MachineImages.tsx'
 import {
   BUILT_IN, SANDBOX_CAPACITY, SANDBOX_NAME, clearingCall, opWords, projectRef, shortImage, stateLook, workspaceChanges, workspaceName,
-  type MachineImages, type MachineInfo, type MachineSandbox, type ProjectSummary, type SandboxInfo,
+  type MachineInfo, type MachineSandbox, type ProjectSummary, type SandboxInfo,
 } from './model.ts'
 import css from './machines.module.css'
 
@@ -101,65 +103,28 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
   )
 }
 
-/** Sandbox image choice: the bundle default, an image from the machine's archive, or a caller-local archive. */
-type SandboxImage = string | { archive: string, digest?: string } | undefined
-
-function SandboxImageFields({ machine, disabled, onChange }: { machine: string, disabled: boolean, onChange: (image: SandboxImage, valid: boolean) => void }): ReactNode {
-  const { t, machineImages, useMachines } = useMachinesContext()
-  // what the pinned CLI has: an image inventory (machine.images) and caller-local archives (sandbox.create image_archive)
-  const features = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.features : undefined))
-  const archives = features?.imageArchive !== false
-  const [inventory, setInventory] = useState<{ data: MachineImages | null, error: unknown, loading: boolean }>({ data: null, error: null, loading: true })
-  const [choice, setChoice] = useState('')
-  const [archive, setArchive] = useState('')
-  const [digest, setDigest] = useState('')
-  const inventoried = features?.images !== false
-  const load = useCallback(() => {
-    if (!inventoried) { setInventory({ data: { machine, mode: 'unsupported', default_digest: null, images: [] }, error: null, loading: false }); return }
-    setInventory((v) => ({ ...v, loading: true, error: null }))
-    machineImages(machine).then((data) => setInventory({ data, error: null, loading: false }), (error) => setInventory({ data: null, error, loading: false }))
-  }, [machine, machineImages, inventoried])
-  useEffect(() => { load() }, [load])
-  const abs = (p: string) => /^(?:\/|[A-Za-z]:[\\/])/.test(p.trim()) && !p.includes('\0')
-  const choose = (next: string, path = archive, pin = digest) => {
-    setChoice(next)
-    onChange(next === 'archive' ? { archive: path.trim(), ...(pin.trim() ? { digest: pin.trim() } : {}) } : next || undefined,
-      next !== 'archive' || (abs(path) && (!pin.trim() || /^sha256:[a-f0-9]{64}$/.test(pin.trim()))))
-  }
-  if (inventory.data?.mode === 'host') return null
-  // no inventory from this CLI: only the default image, and an archive when the CLI takes one
-  const listed = inventory.data?.mode !== 'unsupported'
-  if (!listed && !archives) return null
-  const options: Choice<string>[] = [
-    { value: 'default', label: t('imageDefault') },
-    ...(inventory.data?.images ?? []).map((image) => ({ value: image.digest, label: `${image.title || image.tags.join(', ') || image.digest}${image.digest === inventory.data?.default_digest ? ` (${t('defaultWord')})` : ''}` })),
-    ...(archives ? [{ value: 'archive', label: t('imageProvideArchive') }] : []),
-  ]
-  const errText = inventory.error ? (inventory.error as { message?: string }).message ?? String(inventory.error) : null
-  return (
-    <div className={css.form}>
-      <Field label={t('sandboxImage')}
-        hint={inventory.loading ? t('imagesLoading', { machine }) : errText ? t('imagesFailed', { message: errText }) : listed && inventory.data?.images.length === 0 ? t('imagesNone') : undefined}>
-        <MenuSelect label={t('sandboxImage')} value={choice || 'default'} options={options} disabled={disabled} onChange={(v) => choose(v === 'default' ? '' : v)} />
-      </Field>
-      {errText && <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={load}>{t('imagesRetry')}</Button>}
-      {choice === 'archive' && (
-        <>
-          <Field label={t('archivePath')} hint={t('archiveHint', { machine })} error={archive && !abs(archive) ? t('errAbsolute') : null}>
-            <Input value={archive} onChange={(e) => { setArchive(e.target.value); choose(choice, e.target.value) }} placeholder="/absolute/path/to/sandbox-image.tar" disabled={disabled} spellCheck={false} />
-          </Field>
-          <Field label={t('digestOptional')} hint={t('digestHint')} error={digest && !/^sha256:[a-f0-9]{64}$/.test(digest.trim()) ? t('errDigest') : null}>
-            <Input value={digest} onChange={(e) => { setDigest(e.target.value); choose(choice, archive, e.target.value) }} placeholder="sha256:…" disabled={disabled} spellCheck={false} />
-          </Field>
-        </>
-      )}
-    </div>
-  )
-}
-
-/** New Sandbox on this machine: SQLite projects whose Store is here, or PostgreSQL projects when the machine supports them. */
-export function NewSandboxDialog({ machine, taken, onClose }: { machine: MachineInfo, taken: string[], onClose: () => void }): ReactNode {
-  const { t, projects: readProjects, createSandbox, readSandbox, refusal, openStorageTab } = useMachinesContext()
+/**
+ * New Sandbox on this machine: SQLite projects whose Store is here, or
+ * PostgreSQL projects when the machine supports them; the Image menu; and a
+ * button that says what happens (Create, or Start and create on a stopped
+ * machine). The host creates in the background: the dialog closes on
+ * admission and the machine's Sandboxes list shows the create's row.
+ */
+export function NewSandboxDialog({ machine, taken: existing, onClose }: { machine: MachineInfo, taken: string[], onClose: () => void }): ReactNode {
+  const { t, tw, projects: readProjects, createSandbox, readSandbox, refusal, openStorageTab, useCreations } = useMachinesContext()
+  const creations = useCreations((all) => all)
+  // names a create still running (or failed, until dismissed) holds
+  const taken = [...existing, ...Object.values(creations).filter((c) => c.phase !== 'done').map((c) => c.input.name)]
+  const images = useSandboxImages(machine)
+  const answer = images.data ?? null
+  // macOS native runs Sandboxes on the Mac itself: no Image row (its backend says so before the answer does)
+  const host = answer ? answer.mode === 'host' : machine.backend === 'native'
+  // undefined: not chosen, the default (D7) follows the answer; null: LayerFS's default
+  const [chosen, setChosen] = useState<string | null | undefined>(undefined)
+  const pick = host ? null : chosen === undefined ? defaultPick(answer) : chosen === null ? null : findPick(answer, chosen) ?? defaultPick(answer)
+  const plan = imagePlan(answer, pick, machine.state)
+  const imagesPending = !host && !answer && images.loading
+  const imagesFailed = !host && !answer && !images.loading && images.error != null
   const [projects, setProjects] = useState<{ data: ProjectSummary[] | null, error: unknown, loading: boolean }>({ data: null, error: null, loading: true })
   const loadProjects = useCallback(() => {
     setProjects({ data: null, error: null, loading: true })
@@ -169,8 +134,6 @@ export function NewSandboxDialog({ machine, taken, onClose }: { machine: Machine
   const eligible = (projects.data ?? []).filter((p) => (p.kind === 'sqlite' ? p.machine === machine.name && machine.supports?.sqlite !== false : p.kind === 'postgresql' && machine.supports?.postgresql_sandbox === true))
   const [project, setProject] = useState('')
   const [name, setName] = useState('')
-  const [image, setImage] = useState<SandboxImage>()
-  const [imageValid, setImageValid] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [observation, setObservation] = useState('')
@@ -182,13 +145,18 @@ export function NewSandboxDialog({ machine, taken, onClose }: { machine: Machine
     setError(null)
   }
   const valid = SANDBOX_NAME.test(name) && !BUILT_IN.has(name) && !taken.includes(name)
-  const ready = !busy && !uncertain && valid && imageValid && eligible.some((p) => p.key === project)
+  const ready = !busy && !uncertain && valid && !imagesPending && eligible.some((p) => p.key === project)
+  // Free space (a Docker pick whose copy does not fit): a dialog on top of this one, so the form is kept (D14)
+  const [freeing, setFreeing] = useState(false)
+  const need = pick?.from === 'docker' && answer?.docker?.available ? answer.docker.images.find((r) => r.id === pick.id)?.need ?? null : null
   const make = async () => {
     if (!ready) return
+    if (plan.label === 'free') { setFreeing(true); return }
     setBusy(true)
     setError(null)
     try {
-      await createSandbox(project, { name, machine: machine.name, ...(image ? { image } : {}) })
+      // always the picked row's id; none when the images could not be read (LayerFS's default)
+      await createSandbox(project, { name, machine: machine.name, ...(pick ? { image: pick.id } : {}), ...(plan.label === 'start' ? { start: true } : {}) })
       onClose()
     } catch (e) { setError(e) } finally { setBusy(false) }
   }
@@ -197,7 +165,9 @@ export function NewSandboxDialog({ machine, taken, onClose }: { machine: Machine
       footer={(
         <>
           <Button variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" disabled={!ready} onClick={() => void make()}>{busy ? t('creating') : t('createSandbox')}</Button>
+          <Button variant="primary" disabled={!ready} onClick={() => void make()}>
+            {busy ? t('creating') : t(plan.label === 'start' ? 'startAndCreate' : plan.label === 'free' ? 'freeSpace' : 'create')}
+          </Button>
         </>
       )}>
       <form className={css.form} onSubmit={(e) => { e.preventDefault(); void make() }}>
@@ -226,7 +196,20 @@ export function NewSandboxDialog({ machine, taken, onClose }: { machine: Machine
                   <Field label={t('name')} hint={t('sandboxNameHint')} error={name && !valid ? t('errSandboxName') : null}>
                     <Input value={name} onChange={(e) => setName(e.target.value)} disabled={busy || uncertain} spellCheck={false} maxLength={63} />
                   </Field>
-                  <SandboxImageFields key={machine.name} machine={machine.name} disabled={busy || uncertain} onChange={(value, ok) => { setImage(value); setImageValid(ok) }} />
+                  {host
+                    ? <p className={css.muted}>{t('nativeOwnSystem')}</p>
+                    : (
+                      <Field label={t('image')} hint={plan.note && !imagesFailed ? tw(plan.note) : undefined}>
+                        <ImageMenu machine={machine} images={images} value={pick?.id ?? null} disabled={busy || uncertain}
+                          onChange={(next) => setChosen(next?.id ?? null)} />
+                      </Field>
+                    )}
+                  {imagesFailed && (
+                    <>
+                      <Refusal error={images.error} labels={refusal} compact className={css.errorText} />
+                      <div><Button type="button" size="sm" variant="ghost" onClick={images.reload}>{t('imagesRetry')}</Button></div>
+                    </>
+                  )}
                   <p className={css.muted}>{t('machineIs', { machine: machine.name })}</p>
                 </>
               )}
@@ -244,6 +227,7 @@ export function NewSandboxDialog({ machine, taken, onClose }: { machine: Machine
           </Notice>
         )}
       </form>
+      {freeing && <FreeSpaceDialog machine={machine} need={need} onClose={(freed) => { setFreeing(false); if (freed) images.reload() }} />}
     </Modal>
   )
 }

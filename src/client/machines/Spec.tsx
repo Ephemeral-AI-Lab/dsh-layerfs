@@ -10,8 +10,8 @@ import { Button, IconSettingsOutlineRegular, IconTrashOutlineRegular } from '@de
 import { Card, Fact, Facts, Meter, Section } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachinesKey } from './locale.ts'
-import { BUILT_IN, bytes, gib, heldWords, inUse, machineState, shortImage, type AvailableView, type MachineInfo, type MachineLive, type MachineSandbox, type MachineStore } from './model.ts'
-import { MachineStateChip } from './parts.tsx'
+import { BUILT_IN, bytes, gib, heldWords, inUse, machineState, type AvailableView, type MachineInfo, type MachineLive, type MachineSandbox, type MachineStore } from './model.ts'
+import { MachineStateChip, hasSettings } from './parts.tsx'
 import css from './machines.module.css'
 
 const RUNS_AS: Record<string, MachinesKey> = { docker: 'runsContainers', native: 'runsProcessesNotIsolated', namespaces: 'runsNamespacesCgroup' }
@@ -38,7 +38,6 @@ export function SpecTab({ m, live, view, sandboxes, stores, pending, onSettings,
   const running = sandboxes.filter((b) => b.state === 'running').length
   const workspaces = sandboxes.reduce((n, b) => n + (b.workspaces ?? 0), 0)
   const routes = [...new Set(sandboxes.flatMap((b) => (b.route ? [b.route] : [])))]
-  const images = [...new Set(sandboxes.flatMap((b) => (b.image ? [b.image] : [])))]
   const storeBytes = stores.reduce((n, s) => n + (s.size ?? 0), 0)
   const builtIn = BUILT_IN.has(m.platform)
   const shared = m.platform === 'native' ? t('sharedNative') : m.platform === 'docker' ? t('sharedDocker') : null
@@ -91,14 +90,12 @@ export function SpecTab({ m, live, view, sandboxes, stores, pending, onSettings,
             <Facts>
               <Fact label={t('runAs')}>{pick(RUNS_AS, m.backend) ?? t('runsUnknown')}</Fact>
               {p?.kernel && <Fact label={t('filesOver')}>{pick(KERNEL, p.kernel)}</Fact>}
-              <Fact label={t('defaultImage')} mono={!!m.image} title={m.image}>{m.image ? shortImage(m.image) : m.backend === 'native' ? t('imageNone') : t('noneSet')}</Fact>
               <Fact label={t('hereNow')}>
                 {sandboxes.length
                   ? t('hereNowValue', { running: String(running), total: String(sandboxes.length), ws: t(workspaces === 1 ? 'factWorkspaceOne' : 'factWorkspaces', { n: String(workspaces) }) })
                   : t('none')}
               </Fact>
               {routes.length > 0 && <Fact label={t('routesInUse')} mono>{routes.join(', ')}</Fact>}
-              {images.length > 0 && <Fact label={t('imagesInUse')} mono>{images.map(shortImage).join(', ')}</Fact>}
             </Facts>
           </Card>
         </Section>
@@ -137,7 +134,7 @@ export function SpecTab({ m, live, view, sandboxes, stores, pending, onSettings,
           ? (
             <>
               <span className={css.zoneText}>{t('builtInNoRemove')}</span>
-              <Button size="sm" variant="outline" icon={<IconSettingsOutlineRegular size={13} />} onClick={onSettings}>{t('updateSettings')}</Button>
+              {hasSettings(m) && <Button size="sm" variant="outline" icon={<IconSettingsOutlineRegular size={13} />} onClick={onSettings}>{t('updateSettings')}</Button>}
             </>
           )
           : (

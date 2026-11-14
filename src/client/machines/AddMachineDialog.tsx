@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CopyLine, Field, MenuSelect, Refusal } from '../ui/index.tsx'
+import { CopyLine, Field, Refusal } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import {
@@ -162,13 +162,12 @@ function VmForm({ kind, view, onBusy, onCancel, onDone }: { kind: string, view: 
   const has = (option: string) => declares(view.platforms, kind, option)
   const suggested = freeMachineName(kind, view.machines)
   const [f, setF] = useState<VmForm>(() => ({ ...emptyVm(), name: suggested }))
-  const [imageMode, setImageMode] = useState<'default' | 'archive'>('default')
   const [tried, setTried] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [submitted, setSubmitted] = useState<string | null>(null)
   const { inspection, inspect } = useInspect(submitted ?? f.name.trim())
-  const errors = vmErrors(f, view.machines, has('image') && imageMode === 'archive')
+  const errors = vmErrors(f, view.machines)
   const shown: FormErrors = tried ? errors : {}
   const set = (key: keyof VmForm) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [key]: e.target.value })
 
@@ -180,9 +179,8 @@ function VmForm({ kind, view, onBusy, onCancel, onDone }: { kind: string, view: 
     const name = f.name.trim()
     setBusy(true); onBusy(true); setSubmitted(name); setError(null)
     const size = { ...(has('cpus') ? { cpus: Number(f.cpus) } : {}), ...(has('memory') ? { memory: parseSize(f.memory)! } : {}), ...(has('disk') ? { disk: parseSize(f.disk)! } : {}) }
-    const image = has('image') && imageMode === 'archive' ? f.image.trim() : undefined
     try {
-      await act({ kind: 'create', input: { platform: kind, name, ...size, ...(image ? { image } : {}) } })
+      await act({ kind: 'create', input: { platform: kind, name, ...size } })
       if (first.current?.isConnected) onDone(name)
     } catch (e) {
       setError(e)
@@ -202,19 +200,6 @@ function VmForm({ kind, view, onBusy, onCancel, onDone }: { kind: string, view: 
           {has('memory') && <Field label={t('memory')} error={say(tw, shown, 'memory')}><Input value={f.memory} onChange={set('memory')} /></Field>}
           {has('disk') && <Field label={t('disk')} error={say(tw, shown, 'disk')} hint={t('diskHint')}><Input value={f.disk} onChange={set('disk')} /></Field>}
         </div>
-        {has('image') && (
-          <div className={css.vmImage}>
-            <Field label={t('sandboxImage')}>
-              <MenuSelect label={t('sandboxImage')} value={imageMode} disabled={busy} onChange={setImageMode}
-                options={[{ value: 'default', label: t('imageBundle') }, { value: 'archive', label: t('imageArchiveChoice') }]} />
-            </Field>
-            {imageMode === 'archive' && (
-              <Field label={t('archivePathOrDigest')} error={say(tw, shown, 'image')}>
-                <Input value={f.image} onChange={set('image')} placeholder="/path/to/sandbox-image.tar" spellCheck={false} />
-              </Field>
-            )}
-          </div>
-        )}
       </fieldset>
       {submitted && <MachineProgress name={submitted} />}
       {busy && <p className={css.muted}>{t('keepOpen')}</p>}

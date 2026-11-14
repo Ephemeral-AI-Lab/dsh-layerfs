@@ -35,7 +35,7 @@ const MUTATING = new Set([
   'sandbox.create', 'sandbox.close',
   'workspace.mount', 'workspace.unmount', 'workspace.commit', 'workspace.exec', 'workspace.exec_cancel',
   'project.init', 'project.remove', 'project.export',
-  'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update',
+  'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load', 'machine.prune',
   'backup.create', 'backup.restore', 'backup.connect', 'backup.disconnect',
   'logs.reset',
 ])
@@ -471,7 +471,8 @@ const GETS = [
   ['platforms', '/api/platforms'],
   ['machines', '/api/machines'],
   ['machines/:id/inspect', '/api/machines/lima1/inspect'],
-  ['machines/:id/images', '/api/machines/lima1/images'],
+  ['machines/:id/sandbox-images', '/api/machines/lima1/sandbox-images'],
+  ['sandbox-creates', '/api/sandbox-creates'],
   ['status', '/api/status'],
   ['projects', '/api/projects'],
   ['projects/:id', `/api/projects/${P}`],
@@ -568,7 +569,8 @@ test('no GET route makes a mutating LayerFS call, with or without a projectId', 
   assert.equal(statuses['/api/demo-presets'], 200)
   assert.equal(f.count('branch.fork'), 0, 'an unclaimed projectId never claims (C1)')
   assert.ok(readLog(log).some((argv) => argv[0] === 'doctor'), 'GET /api/doctor ran the doctor report through the CLI')
-  assert.ok(f.count('machine.images') > 0, 'GET /api/machines/:id/images read the image inventory')
+  // Stage 0: the ready images come from the archive on this host, never from a machine call
+  assert.equal(statuses['/api/machines/lima1/sandbox-images'], 200)
   // GETs that write local stat journals only: Store observations and the project storage ledger, in the stat folder
   const stats = join(home, 'stat')
   assert.ok(readdirSync(join(stats, 'storage-observations')).length > 0, '/stores/:id/stats records an observation locally')

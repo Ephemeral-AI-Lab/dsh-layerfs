@@ -12,7 +12,8 @@
  *                 Store's facts, no Sandbox asked
  *   sandboxes     sandbox.list; Workspaces are not read (`unread`), the client asks
  *                 GET /api/sandboxes/:name (sandbox.get) for each it shows
- *   createSandbox sandbox.create(key, name, machine, { image })
+ *   createSandbox sandbox.create(key, name, machine, { image }), after
+ *                 machine.start with `start`, as a job with `background`
  *   closeSandbox  sandbox.close(name, { force })
  *   commits       commit.list, newest first, each Commit's changed paths from
  *                 commit.diff against its parent
@@ -28,7 +29,8 @@ import { isAbsolute, join } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { pgMachineOf } from '../sessions/availability.ts'
-import { PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
+import { Answer, PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
+import { SandboxCreates, type Report } from './sandbox-creates.ts'
 
 /** Calls in flight at once for one answer (stats, diffs). */
 const WIDTH = 4
@@ -53,6 +55,21 @@ const HISTORY_COUNTS_KEPT = 2048
 
 /** Tagged ids: a Layer's first byte is 0x32. */
 const isLayer = (id: unknown) => typeof id === 'string' && id.startsWith('32')
+/** A full image digest: what the pinned CLI takes as `sandbox.create --image` before Stage 1. */
+const DIGEST = /^sha256:[a-f0-9]{64}$/
+
+/** The create phases `sandbox.create --progress` reports (docs/specs/sandbox-images.md §3, R1). */
+const CREATE_PHASES = new Set(['inspect', 'export', 'send', 'unpack', 'start'])
+const byteCount = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined)
+
+/** One `sandbox.create` progress event `{ phase, done?, total? }` as a job update; anything else is no update. */
+export function createPhase(progress: unknown): { phase: 'inspect' | 'export' | 'send' | 'unpack' | 'start', done?: number, total?: number } | null {
+  if (!progress || typeof progress !== 'object') return null
+  const p = progress as { phase?: unknown, done?: unknown, total?: unknown }
+  if (typeof p.phase !== 'string' || !CREATE_PHASES.has(p.phase)) return null
+  const done = byteCount(p.done), total = byteCount(p.total)
+  return { phase: p.phase as 'inspect', ...(done !== undefined ? { done } : {}), ...(total !== undefined ? { total } : {}) }
+}
 
 function checkBranch(branch: unknown): asserts branch is string {
   if (typeof branch !== 'string' || !branch || branch.includes('\0')) throw refuse(400, 'InvalidInput', 'branch must be a Branch name, main or a saved id')
@@ -198,11 +215,14 @@ export class Projects {
   readonly emptySources: string
   readonly storageObservations: StorageObservations
   readonly storageLedgers: ProjectStorageLedgers
+  /** Sandbox creations run in the background (`background: true`), with their progress events. */
+  readonly sandboxCreates: SandboxCreates
   /** Store name -> { state, op }: set by the host (Storage.projectJoin). */
   storeJoin: (() => Promise<Map<string, { state: string, op: unknown }>>) | null = null
 
   constructor(private readonly host: RouteHost) {
     this.emptySources = join(host.root, 'project-sources')
+    this.sandboxCreates = new SandboxCreates((type, data) => host.emit(type, data))
     // statistics journals and ledgers describe this home's Stores: they live in it
     this.storageObservations = new StorageObservations(host.stats, host.home)
     this.storageLedgers = new ProjectStorageLedgers(host.stats, host.home, () => host.lfs(), (line) => host.log(line))
@@ -407,12 +427,20 @@ export class Projects {
   }
 
   /**
-   * A new Sandbox of the project: `{ name, machine?, image? }`. A sqlite
-   * project's Sandboxes run on its Store's machine (another is Unsupported);
-   * a PostgreSQL project's on a machine its Store is attached to
-   * (`store.attach`), `machine` naming it (the default of `pgMachineOf`
-   * when none is named); an unattached machine is refused here, in
-   * LayerFS's words, before any LayerFS call.
+   * A new Sandbox of the project: `{ name, machine?, image?, start?, background? }`
+   * (docs/specs/sandbox-images.md §4.1). A sqlite project's Sandboxes run on
+   * its Store's machine (another is Unsupported); a PostgreSQL project's on a
+   * machine its Store is attached to (`store.attach`), `machine` naming it
+   * (the default of `pgMachineOf` when none is named); an unattached machine
+   * is refused here, in LayerFS's words, before any LayerFS call.
+   *
+   * `image` is a string. Until the pinned CLI declares references (Stage 1,
+   * `imageRefs`), only a full `sha256:` digest is taken: anything else is
+   * refused 501 `Unsupported` with `detail.need: 'image-refs'`, since the CLI
+   * would drop it silently. `start: true` runs machine.start first (the
+   * "Start and create" button). `background: true` answers `202 { creation }`
+   * and runs the create as a job ({@link SandboxCreates}); without it the
+   * route waits and answers sandbox.create's result.
    */
   async createSandbox(key: string, body: any = {}) {
     const record = await this.record(key)
@@ -426,13 +454,42 @@ export class Projects {
       if (body.machine && body.machine !== attached) throw refuse(400, 'Unsupported', `PostgreSQL Store ${store} is not attached to machine ${body.machine}; \`layerfs store attach ${store} ${body.machine}\``)
       machine = attached
     }
-    // a caller-local archive is sandbox.create's image_archive option, which not every CLI has
-    if (image && typeof image === 'object' && !(await cliFeatures(this.host)).imageArchive) {
-      throw refuse(501, 'Unsupported', 'The pinned LayerFS CLI cannot create a Sandbox from an image archive (sandbox.create has no image_archive option). Choose the default image or an image the machine has.')
+    if (image !== undefined && image !== null && image !== '' && typeof image !== 'string') throw refuse(400, 'InvalidInput', 'Name the image as a string: its id (a sha256 digest) or a reference.')
+    const picked = typeof image === 'string' && image ? image : undefined
+    const features = await cliFeatures(this.host)
+    if (picked && !DIGEST.test(picked) && features.imageStage < 1) {
+      throw Object.assign(refuse(501, 'Unsupported', `The pinned LayerFS CLI takes a Sandbox image only by its full sha256 digest, not ${JSON.stringify(picked)}. Pick an image from the list, or pin a LayerFS that takes image references.`), { detail: { need: 'image-refs' } })
     }
-    await this.host.ensureNative()
-    return this.lfs.sandbox.create(keyOf(record), name, machine, image ? { image } : {})
+    // Stage 1: a Docker image whose copy cannot fit is refused before the export starts (D8; LayerFS's NoSpace is the real answer)
+    if (picked && features.imageStage === 1) {
+      const short = await this.spaceFor(String(machine), picked)
+      if (short) throw Object.assign(refuse(507, 'NoSpace', `${picked} needs ${short.need} bytes on ${machine}; it has ${short.free} free.`), { detail: short })
+    }
+    const start = body.start === true
+    const project = keyOf(record)
+    const input = { project, name, machine: String(machine), ...(picked ? { image: picked } : {}), ...(start ? { start: true } : {}) }
+    const run = async (report: Report) => {
+      if (start) {
+        report({ phase: 'machine' })
+        await this.startMachine(input.machine)
+        report({ phase: 'queued' })
+      }
+      await this.host.ensureNative()
+      // the CLI's create phases (inspect, export, send, unpack, start) as the job's, bytes while a phase reports them
+      const progress = features.createProgress ? { on_progress: (p: unknown) => { const u = createPhase(p); if (u) report(u) } } : {}
+      const made = await this.lfs.sandbox.create(project, name, machine, { ...(picked ? { image: picked } : {}), ...progress })
+      this.sandboxCreates.created(project, name)
+      return made
+    }
+    if (body.background === true) return new Answer(202, { creation: this.sandboxCreates.admit(input, run) })
+    return run(() => {})
   }
+
+  /** Stage 1's disk precheck of a create; the router wires Machines.spaceFor (none: no precheck). */
+  spaceFor: (machine: string, image: string) => Promise<{ need: number, free: number } | null> = async () => null
+
+  /** machine.start of `name` before a create (`start: true`); the router wires Machines.start (machine-progress events). */
+  startMachine: (name: string) => Promise<unknown> = (name) => this.lfs.machine.start(name)
 
   /** One Sandbox with its Workspaces (sandbox.get). */
   async sandbox(name: string) {

@@ -10,7 +10,7 @@ import { Field, MoreMenu, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
-import { BUILT_IN, duration, forceStopOf, isImageRef, machineState, opWords, powerOf, stageWords, workerDown, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, duration, forceStopOf, machineState, opWords, powerOf, stageWords, workerDown, type MachineInfo, type MachineLive } from './model.ts'
 import css from './machines.module.css'
 
 /**
@@ -98,7 +98,7 @@ function useElapsed(on: boolean): number {
   return since === null ? 0 : Math.max(0, Math.round((now - since) / 1000))
 }
 
-/** The `…` menu: Open (on the board), power, Update settings… (built-ins) or Remove… (VMs). */
+/** The `…` menu: Open (on the board), power, Update settings… (docker) and Remove… (VMs). */
 export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineInfo, pending: string | null, run: Run, onOpen?: () => void, onDialog: (d: 'settings' | 'remove' | 'force-stop') => void }): ReactNode {
   const { t, useMachines } = useMachinesContext()
   const hasSandboxes = useMachines((snapshot) => m.sandboxes.length > 0 || !!(snapshot.data?.available && snapshot.data.sandboxes.some((sandbox) => sandbox.machine === m.name)))
@@ -139,16 +139,18 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
           {builtIn
             ? (
               <>
-                <MenuItemButton icon={<IconSettingsOutlineRegular size={14} />} onSelect={() => { close(); onDialog('settings') }}>{t('updateSettings')}</MenuItemButton>
+                {hasSettings(m) && <MenuItemButton icon={<IconSettingsOutlineRegular size={14} />} onSelect={() => { close(); onDialog('settings') }}>{t('updateSettings')}</MenuItemButton>}
                 <MenuItemButton separatorBefore disabled disabledReason={t('builtInNoRemove')} icon={<IconTrashOutlineRegular size={14} />} onSelect={close}>{t('remove')}</MenuItemButton>
               </>
             )
             : (
-              // a machine that still holds Stores or Sandboxes gets the guided Remove (RemoveDialog)
-              <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} disabled={pending !== null}
-                onSelect={() => { close(); onDialog('remove') }}>
-                {t('remove')}
-              </MenuItemButton>
+              <>
+                {/* a machine that still holds Stores or Sandboxes gets the guided Remove (RemoveDialog) */}
+                <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} disabled={pending !== null}
+                  onSelect={() => { close(); onDialog('remove') }}>
+                  {t('remove')}
+                </MenuItemButton>
+              </>
             )}
         </>
       )}
@@ -156,9 +158,12 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
   )
 }
 
-/** The menu's dialogs: a built-in's settings, or removing a VM. */
+/** Whether a machine has settings to update: the docker machine's socket and WSL distribution. */
+export const hasSettings = (m: MachineInfo): boolean => m.platform === 'docker'
+
+/** The menu's dialogs: the docker machine's settings, or removing a VM. */
 export function MachineDialogs({ m, dialog, onClose, pending, run, onRemoved }: { m: MachineInfo, dialog: 'settings' | 'remove' | 'force-stop' | null, onClose: () => void, pending: string | null, run: Run, onRemoved?: () => void }): ReactNode {
-  if (dialog === 'settings' && BUILT_IN.has(m.platform)) return <SettingsDialog m={m} onClose={onClose} pending={pending} run={run} />
+  if (dialog === 'settings' && hasSettings(m)) return <SettingsDialog m={m} onClose={onClose} pending={pending} run={run} />
   if (dialog === 'force-stop') return <ForceStopDialog m={m} onClose={onClose} pending={pending} run={run} />
   if (dialog === 'remove') return <RemoveDialog m={m} onClose={onClose} pending={pending} run={run} onRemoved={onRemoved} />
   return null
@@ -182,20 +187,17 @@ function ForceStopDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose
   )
 }
 
-/** A built-in's settings (machine.update): its Sandbox image; docker also its socket and WSL distribution. */
+/** The docker machine's settings (machine.update): its Docker socket and WSL distribution. */
 function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose: () => void, pending: string | null, run: Run }): ReactNode {
   const { t, refusal } = useMachinesContext()
-  const [image, setImage] = useState(m.image ?? '')
   const [socket, setSocket] = useState(m.docker ?? '')
   const [wsl, setWsl] = useState(m.wsl ?? '')
   const [error, setError] = useState<unknown>(null)
-  const docker = m.platform === 'docker'
-  const imageBad = image !== '' && !isImageRef(image)
   const save = async () => {
-    if (imageBad || pending !== null) return
+    if (pending !== null) return
     setError(null)
     try {
-      const ok = await run('update', { kind: 'update', name: m.name, changes: { image: image || undefined, ...(docker ? { docker: socket || undefined, wsl: wsl || undefined } : {}) } }, { rethrow: true })
+      const ok = await run('update', { kind: 'update', name: m.name, changes: { docker: socket || undefined, wsl: wsl || undefined } }, { rethrow: true })
       if (ok) onClose()
     } catch (e) { setError(e) }
   }
@@ -204,19 +206,14 @@ function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose:
       footer={(
         <>
           <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" disabled={pending !== null || imageBad} onClick={() => void save()}>{pending === 'update' ? t('saving') : t('save')}</Button>
+          <Button variant="primary" disabled={pending !== null} onClick={() => void save()}>{pending === 'update' ? t('saving') : t('save')}</Button>
         </>
       )}>
       <form className={css.form} onSubmit={(e) => { e.preventDefault(); void save() }}>
-        <Field label={t('sandboxImage')} error={imageBad ? t('errImage') : null}>
-          <Input value={image} onChange={(e) => setImage(e.target.value)} placeholder="sha256:…" spellCheck={false} />
+        <Field label={t('dockerSocket')}>
+          <Input value={socket} onChange={(e) => setSocket(e.target.value)} placeholder="/var/run/docker.sock" spellCheck={false} />
         </Field>
-        {docker && (
-          <Field label={t('dockerSocket')}>
-            <Input value={socket} onChange={(e) => setSocket(e.target.value)} placeholder="/var/run/docker.sock" spellCheck={false} />
-          </Field>
-        )}
-        {docker && m.wsl !== undefined && (
+        {m.wsl !== undefined && (
           <Field label={t('wslDistribution')}>
             <Input value={wsl} onChange={(e) => setWsl(e.target.value)} placeholder="Ubuntu-24.04" spellCheck={false} />
           </Field>

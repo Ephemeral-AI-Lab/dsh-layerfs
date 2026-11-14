@@ -277,10 +277,10 @@ export function LoadError({ title, error, labels, retryLabel, onRetry }: { title
 
 // ---------- meter ----------
 
-/** A share from 0 to 1 as a thin bar; its tone warns past 75 % and 90 %. */
-export function Meter({ share, label, className }: { share: number, label: string, className?: string }): ReactNode {
+/** A share from 0 to 1 as a thin bar; its tone warns past 75 % and 90 % unless `tone="neutral"` (progress, not use). */
+export function Meter({ share, label, className, tone: fixed }: { share: number, label: string, className?: string, tone?: 'neutral' | undefined }): ReactNode {
   const clamped = Math.max(0, Math.min(1, share))
-  const tone = clamped > 0.9 ? 'danger' : clamped > 0.75 ? 'warning' : undefined
+  const tone = fixed === 'neutral' ? undefined : clamped > 0.9 ? 'danger' : clamped > 0.75 ? 'warning' : undefined
   return (
     <span className={clsx(css.meter, className)} data-tone={tone} role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(clamped * 100)}>
       <span className={css.meterFill} style={{ width: `${clamped * 100}%` }} />
@@ -304,6 +304,34 @@ export function Field({ label, error, hint, children, className }: { label: stri
 /** One choice of a {@link MenuSelect}. */
 export interface Choice<V extends string> { readonly value: V, readonly label: string }
 
+/**
+ * The outline button a selection menu hangs from: the chosen value (or a
+ * muted placeholder) and a chevron. Shared by {@link MenuSelect} and menus
+ * whose rows are richer than a label (the Image menu).
+ */
+export function SelectAnchor({ label, value, placeholder, open, disabled, onToggle, title, className }: {
+  /** Accessible name. */
+  label: string
+  /** What the button shows; empty shows `placeholder`. */
+  value: ReactNode
+  placeholder?: string | undefined
+  open: boolean
+  disabled?: boolean | undefined
+  onToggle: (open: boolean) => void
+  title?: string | undefined
+  className?: string | undefined
+}): ReactNode {
+  const empty = value === null || value === undefined || value === ''
+  return (
+    <button type="button" className={clsx(css.select, className)} disabled={disabled} aria-label={label} aria-haspopup="listbox" aria-expanded={open} title={title}
+      onClick={() => onToggle(!open)}
+      onKeyDown={(e) => { if (!open && e.key === 'ArrowDown') { e.preventDefault(); onToggle(true) } }}>
+      <span className={clsx(css.selectValue, empty && css.selectPlaceholder)}>{empty ? placeholder ?? '' : value}</span>
+      <IconChevronDownOutlineRegular size={12} aria-hidden="true" />
+    </button>
+  )
+}
+
 /** A selection: an outline button showing the choice, opening a DSH `Menu` of the options. */
 export function MenuSelect<V extends string>({ value, options, onChange, label, disabled, placeholder, className }: {
   value: V | ''
@@ -321,14 +349,7 @@ export function MenuSelect<V extends string>({ value, options, onChange, label, 
     <Menu open={open} onClose={() => setOpen(false)} portal autoFocus minWidthFromAnchor selection="check" selectedId={value || undefined}
       items={options.map((o) => ({ id: o.value, label: o.label }))}
       onSelect={(id) => { setOpen(false); onChange(id as V) }}
-      anchor={(
-        <button type="button" className={clsx(css.select, className)} disabled={disabled} aria-label={label} aria-haspopup="listbox" aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          onKeyDown={(e) => { if (!open && e.key === 'ArrowDown') { e.preventDefault(); setOpen(true) } }}>
-          <span className={clsx(css.selectValue, !chosen && css.selectPlaceholder)}>{chosen?.label ?? placeholder ?? ''}</span>
-          <IconChevronDownOutlineRegular size={12} aria-hidden="true" />
-        </button>
-      )} />
+      anchor={<SelectAnchor label={label} value={chosen?.label} placeholder={placeholder} open={open} disabled={disabled} onToggle={setOpen} className={className} />} />
   )
 }
 

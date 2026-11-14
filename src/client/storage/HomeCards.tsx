@@ -24,7 +24,9 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
-import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, workerDown, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
+import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, workerDown, type AvailableView, type Creation, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
+import { besideCreating, creatingOn } from '../machines/Inventory.tsx'
+import { phaseWords } from '../machines/images.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, PowerButton, useMachineRun } from '../machines/parts.tsx'
 import { machineBlock, stepReasons } from '../machines/needs.ts'
 import { FixPanel } from '../machines/Readiness.tsx'
@@ -169,6 +171,20 @@ function SandboxChip({ b, t, place, onOpen }: { b: MachineSandbox, t: StorageT, 
       title={[b.project, t('ovSandboxOn', { sandbox: b.name, machine: place(b.machine) })].filter(Boolean).join(' · ')}>
       <StateDot state={b.state === 'running' ? 'done' : 'idle'} size={6} />
       <SandboxGlyph size={11} /><span className={css.chipText}>{shortSandbox(b.name)}</span>
+    </button>
+  )
+}
+
+/** A Sandbox being created on the card's machine: its phase on hover; it opens the machine's page, where a failed one has Retry. */
+function CreatingChip({ c, onOpen }: { c: Creation, onOpen: (id: TabId) => void }): ReactNode {
+  const mc = useMachinesContext()
+  const failed = c.phase === 'failed'
+  return (
+    <button type="button" className={css.chip} data-tone={failed ? 'danger' : undefined} aria-busy={!failed || undefined}
+      onClick={(e) => { e.stopPropagation(); onOpen(`machine:${c.input.machine}`) }}
+      title={`${c.input.project} · ${mc.tw(phaseWords(c))}`}>
+      <StateDot state={failed ? 'error' : 'ongoing'} size={6} />
+      <SandboxGlyph size={11} /><span className={css.chipText}>{shortSandbox(c.input.name)}</span>
     </button>
   )
 }
@@ -458,6 +474,8 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
   const own = stores.filter((s) => s.kind === 'sqlite' && s.machine === m.name)
   const attached = stores.filter((s) => s.kind === 'postgresql' && attachmentsOf(s).some((a) => a.machine === m.name))
   const boxes = fleet ? sandboxesOn(fleet, m) : []
+  const creations = mc.useCreations((all) => all)
+  const creating = creatingOn(creations, m.name, boxes)
   const runningBoxes = boxes.filter((b) => b.state === 'running').length
   const used = m.disk && free != null ? Math.max(0, m.disk - free) / m.disk : null
   const low = m.disk && free != null ? free / m.disk < 0.1 : false
@@ -524,9 +542,14 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
 
       <div className={css.list}>
         <ListHead label={t('ovTileSandboxes')} action={t('newSandbox')} onAction={() => onNewSandbox(m.name)}
-          disabled={look.key !== 'running' || pending !== null ? t('startBeforeSandbox') : null} />
-        {boxes.length
-          ? <span className={css.chips}>{boxes.map((b) => <SandboxChip key={b.name} b={{ ...b, machine: b.machine ?? m.name }} t={t} place={place} onOpen={onOpen} />)}</span>
+          disabled={pending !== null ? mc.t('sandboxAfterPower') : null} />
+        {boxes.length || creating.length
+          ? (
+            <span className={css.chips}>
+              {creating.map((c) => <CreatingChip key={c.id} c={c} onOpen={onOpen} />)}
+              {besideCreating(boxes, creating).map((b) => <SandboxChip key={b.name} b={{ ...b, machine: b.machine ?? m.name }} t={t} place={place} onOpen={onOpen} />)}
+            </span>
+          )
           : <p className={css.none}>{t('ovNothingHere')}</p>}
       </div>
 

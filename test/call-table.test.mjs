@@ -149,8 +149,8 @@ function objectKeys(text) {
 const lineOf = (src, index) => src.slice(0, index).split('\n').length
 /** SDK-only options (cli.ts `client`): never CLI flags. */
 const SDK_LOCAL = new Set(['on_spawn', 'timeout_ms'])
-/** Options the SDK rewrites into another CLI option (cli.ts `client`: an object `image` becomes `image_archive`). */
-const SDK_TRANSLATIONS = [{ call: 'sandbox.create', key: 'image', becomes: 'image_archive', proof: /image_archive: archive/ }]
+/** Options the SDK rewrites into another CLI option (cli.ts `client`); none since the `{ archive, digest }` image went (sandbox-images.md §4.3). */
+const SDK_TRANSLATIONS = []
 
 /**
  * Every call the source makes that the call table lacks, as `{ site, file, line }`:
@@ -212,12 +212,12 @@ export function violations(files, help) {
  * still be gated: `gate` must match within `lines` lines above the call site.
  */
 const GATED = [
-  // machine.images (the image inventory): Machines.images answers mode 'unsupported' first
-  { site: /^machine\.images$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.images\b/, lines: 3 },
+  // machine.images (Stage 1 of sandbox-images.md): only in stage1Images, which sandboxImages calls only at imageStage 1 (checked below)
+  { site: /^machine\.images$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.(images|imageStage)\b|private async stage1Images\(/, lines: 16 },
+  // machine.prune (Stage 1): Machines.pruneImages refuses 501 without imagePrune
+  { site: /^machine\.prune$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.imagePrune\b/, lines: 16 },
   // machine.stop --force: Machines.stop refuses 501 without forceStop
   { site: /^machine\.stop (option force|--force)$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.forceStop\b/, lines: 3 },
-  // sandbox.create image_archive (an object `image`): createSandbox refuses 501 without imageArchive
-  { site: /^sandbox\.create option image_archive$/, file: 'src/host/routes/projects.ts', gate: /cliFeatures\(this\.host\)\)\.imageArchive\b/, lines: 6 },
   // the native call log: only when the CLI's table has logs.list and logs.reset (else the stand-in)
   { site: /^logs\.(list|reset)$/, file: 'src/host/logs/source.ts', gate: /await layerfs\.nativeLogs\(\)/, lines: 20 },
   // the preset Reset's force-close refuses up front (preflight) when machine.stop lacks the bool force option
@@ -274,19 +274,25 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
     const sites = scan.found.filter((v) => rule.site.test(v.site) && v.file === rule.file)
     for (const v of sites) assert.ok(result.gated.some((g) => g.site === v.site && g.line === v.line), `${v.site} at ${v.file}:${v.line} is not behind ${rule.gate}`)
   }
-  // against the 2.0.0 table (no machine.images, no stop force, no image_archive, no logs family) all five are gated sites
+  // against the 2.0.0 table (no stop force, no logs family) these are gated sites; Stage 0 makes no machine.images call
   const lacks = (family, call, option) => { const c = help.calls.find((x) => x.family === family && x.call === call); return !c || (option && !c.options.some((o) => o.name === option)) }
-  const expected = [lacks('machine', 'images') && 'machine.images', lacks('machine', 'stop', 'force') && 'machine.stop option force',
-    lacks('sandbox', 'create', 'image_archive') && 'sandbox.create option image_archive', lacks('logs', 'list') && 'logs.list', lacks('logs', 'reset') && 'logs.reset'].filter(Boolean)
+  const expected = [lacks('machine', 'stop', 'force') && 'machine.stop option force',
+    lacks('logs', 'list') && 'logs.list', lacks('logs', 'reset') && 'logs.reset'].filter(Boolean)
   for (const site of expected) assert.ok(result.gated.some((g) => g.site === site), `the scan no longer sees the gated ${site} call site`)
-  // the SDK translation the image_archive rule relies on is still there
+  // any SDK translation a rule relies on is still there
   const sdk = readFileSync(join(root, 'src/host/layerfs/cli.ts'), 'utf8')
   for (const t of SDK_TRANSLATIONS) assert.match(sdk, t.proof, `cli.ts no longer translates ${t.key} into ${t.becomes}: update SDK_TRANSLATIONS`)
   // the gates are discovery reads (featuresOf over the call table), not constants
   const util = readFileSync(join(root, 'src/host/routes/util.ts'), 'utf8')
   assert.match(util, /forceStop: option\('machine', 'stop', 'force'\)/)
-  assert.match(util, /images: !!call\('machine', 'images'\)/)
-  assert.match(util, /imageArchive: option\('sandbox', 'create', 'image_archive'\)/)
+  assert.match(util, /images = !!call\('machine', 'images'\)/)
+  assert.match(util, /imageRefs = optionOf\('sandbox', 'create', 'image'\)\?\.kind === 'image'/)
+  assert.doesNotMatch(util, /image_archive/)
+  // stage1Images (the only machine.images call) runs only when discovery says Stage 1
+  const machines = readFileSync(join(root, 'src/host/routes/machines.ts'), 'utf8')
+  assert.match(machines, /const stage = \(await cliFeatures\(this\.host\)\)\.imageStage\n/)
+  assert.match(machines, /if \(stage === 1\) return this\.stage1Images\(/)
+  assert.equal(machines.match(/this\.stage1Images\(/g).length, 1)
 })
 
 // Sanity (V1 as found): the guard flags machine.images when the gate is missing, and accepts it gated.

@@ -12,9 +12,11 @@ import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Card, Fact, Facts, LoadError, Loading, Notice, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
+import { displayRef } from './images.ts'
 import { useMachineTitle } from './Inventory.tsx'
 import type { View } from './context.tsx'
-import { clearingCall, daemonLook, daemonSlots, opWords, stateLook, type SandboxInfo } from './model.ts'
+import { cachedAnswer } from '../ui/use-query.ts'
+import { clearingCall, daemonLook, daemonSlots, opWords, stateLook, type SandboxImagesView, type SandboxInfo } from './model.ts'
 import { SandboxMenu, useClose, useSandboxRead } from './Sandboxes.tsx'
 import { SandboxTerminals } from './SandboxTerminals.tsx'
 import css from './machines.module.css'
@@ -96,7 +98,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
           <Card>
             <Facts>
               <Fact label={t('project')} mono>{info.project}</Fact>
-              <Fact label={t('image')} mono title={info.image ?? undefined}>{info.image ?? (info.backend === 'native' ? t('imageNone') : null)}</Fact>
+              <ImageFact info={info} machine={machine} />
               <Fact label={t('filesystemRoute')}>{info.route}</Fact>
               <Fact label={t('runtime')}>{info.runtime}</Fact>
               <Fact label={t('sbBackend')}>{info.backend}</Fact>
@@ -148,5 +150,17 @@ function RetainedFailures({ info }: { info: SandboxInfo }): ReactNode {
         </tbody>
       </table>
     </Card>
+  )
+}
+
+/** The Sandbox's image: its name when the machine's last images answer (New Sandbox's) knows the id, else the id as LayerFS gives it. */
+function ImageFact({ info, machine }: { info: SandboxInfo, machine: string }): ReactNode {
+  const { t } = useMachinesContext()
+  const known = info.image ? cachedAnswer<SandboxImagesView>(`machines:images:${info.machine ?? machine}`)?.ready.find((r) => r.id === info.image) : undefined
+  const name = known ? (known.source === 'bundle' ? t('imageLayerfsDefault') : known.name || displayRef(known.refs)) : null
+  return (
+    <Fact label={t('image')} mono={!name} title={info.image ?? undefined}>
+      {name ?? info.image ?? (info.backend === 'native' ? t('imageNone') : null)}
+    </Fact>
   )
 }
