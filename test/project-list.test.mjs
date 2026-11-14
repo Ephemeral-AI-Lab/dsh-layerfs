@@ -6,6 +6,7 @@ test('project history hides unused drafts, retaining started and stored conversa
   const sessions = [{ sessionId: 'empty' }, { sessionId: 'greeting' }, { sessionId: 'untitled-but-started' }, { sessionId: 'stored' }]
   const summaries = { empty: { blank: true }, greeting: { blank: false }, 'untitled-but-started': { blank: false } }
   assert.deepEqual(visibleProjectSessions(sessions, summaries).map((s) => s.sessionId), ['greeting', 'untitled-but-started', 'stored'])
+  assert.deepEqual(visibleProjectSessions(sessions, summaries, 'empty').map((s) => s.sessionId), ['empty', 'greeting', 'untitled-but-started', 'stored'], 'the draft open on screen shows')
   summaries.empty.blank = false
   assert.equal(visibleProjectSessions(sessions, summaries).length, 4, 'the draft appears after its first turn')
 })

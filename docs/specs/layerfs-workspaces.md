@@ -117,8 +117,11 @@ the pane. Opened from the picker, the head has a **‹ Projects** link back to i
 
 - Projects with at least one session on this DSH (`projects.recent`, §7),
   newest activity first; unused drafts count.
-- Each row: chevron, the **LayerFS mark**, the project name. **No status
-  lights.** When it can't run, a few words follow the name.
+- Rows match DSH's own Workspaces list (32px, 14px titles, one 16px leading
+  slot): the **LayerFS mark**, swapped for the fold arrow on hover or keyboard
+  focus, then the project name. **No status lights.** When it can't run, a few
+  words follow the name. Sessions keep an empty leading slot so their titles
+  line up under the project's.
 - On hover or focus: **⚙** (configure) and **+** (new session); **Start**
   instead of `+` while its machine is stopped.
 - Header: the LayerFS switch and `+` (recent projects, Other project…, New

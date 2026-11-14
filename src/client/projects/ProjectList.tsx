@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconChevronDownOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { listProjects, type ProjectRow } from '../picker/NewProjectForm.tsx'
@@ -40,8 +40,15 @@ const storeOf = (p: ProjectRow) => p.store ?? p.key.split('/')[0] ?? ''
 const idOf = (p: ProjectRow) => p.projectId ?? p.key
 const errorMessage = (error: unknown, t: ListT) => error instanceof ReadDeadlineError ? t('timedOut') : String((error as Error).message ?? error)
 
-function Chevron({ open }: { open: boolean }): ReactNode {
-  return <IconChevronDownOutlineRegular size={12} className={clsx(css.chevron, open && css.openChevron)} />
+/**
+ * The row's one leading slot, as in DSH's own Workspaces list: the LayerFS mark at
+ * rest, the fold arrow while the row is hovered or focused (right closed, down open).
+ */
+function LeadingSlot({ open }: { open: boolean }): ReactNode {
+  return <span className={css.slot} aria-hidden="true">
+    <span className={css.mark}><LayerfsGlyph size={16} /></span>
+    <span className={css.fold}><IconTriangleRightFillRegular size={12} className={clsx(css.arrow, open && css.arrowOpen)} /></span>
+  </span>
 }
 
 function useSummaries(sessionSource?: SessionSource) {
@@ -124,26 +131,29 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
   // A name two listed projects share carries its Store, on screen and in every accessible name.
   const label = showStore ? `${nameOf(project)} · ${storeOf(project)}` : nameOf(project)
   const read = useProjectSessions(api, project.key, open, project.projectId)
-  const sessions = visibleProjectSessions(read.sessions, titles)
+  const selected = api.selectedSessionId()
+  const sessions = visibleProjectSessions(read.sessions, titles, selected)
   const status = sidebarStatus(project, availability)
   const resume = (sessionId: string) => { void api.op('sessions.open', { sessionId, project: project.key }).catch(() => {}) }
   const where = item.runsOn.join(', ')
   return <li data-layerfs-project={idOf(project)} data-ready={availability.canRun || undefined} className={css.projectItem}>
-    <div className={clsx(css.line, css.sidebarLine)}>
-      <button className={clsx(css.projectLink, css.sidebarProject, !availability.canRun && css.inactive)} type="button"
+    <div className={clsx(css.projectRow, !availability.canRun && css.inactive)} data-open={open || undefined} data-actions={availability.canStart ? 1 : 2}>
+      <button className={css.projectToggle} type="button"
         title={`${nameOf(project)} · ${storeOf(project)}${where ? ` · ${where}` : ''}`} aria-expanded={open} aria-label={t('expandProject', { project: label })} onClick={() => setOpen(!open)}>
-        <Chevron open={open} /><LayerfsGlyph size={16} />
-        <span className={css.projectText}><span className={css.label}>{nameOf(project)}{showStore ? <span className={css.store}> · {storeOf(project)}</span> : null}</span></span>
+        <LeadingSlot open={open} />
+        <span className={css.title}>{nameOf(project)}{showStore ? <span className={css.store}> · {storeOf(project)}</span> : null}</span>
         {!availability.canRun && availability.state !== 'checking' ? <span className={css.why}>{t(status.key)}</span> : null}
       </button>
       <span className={css.rowActions}>
-        <Button variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={14} />} aria-label={t('configure', { project: label })} title={t('configure', { project: label })}
+        <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={14} />} aria-label={t('configure', { project: label })} title={t('configure', { project: label })}
           onClick={() => projectDialog.open({ mode: 'configure', project: { key: project.key, projectId: project.projectId, name: nameOf(project), store: storeOf(project) } })} />
+        {availability.canStart ? null : <Button className={css.iconButton} variant="ghost" size="sm" disabled={actions.busy || !availability.canRun} icon={<IconPlusOutlineRegular size={14} />}
+          aria-label={t('newSession', { project: label })} title={availability.canRun ? t('newSession', { project: label }) : t('cannotRun', { reason: t(status.key) })}
+          onClick={() => { setOpen(true); void actions.create(project) }} />}
+        {availability.canStart
+          ? <Button className={css.start} variant="ghost" size="sm" disabled={actions.busy} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={() => void actions.start(availability.machine!)}>{t('start')}</Button>
+          : null}
       </span>
-      {availability.canStart
-        ? <Button className={css.action} variant="ghost" size="sm" disabled={actions.busy} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={() => void actions.start(availability.machine!)}>{t('start')}</Button>
-        : <span className={css.rowActions}><Button className={css.action} variant="ghost" size="sm" disabled={actions.busy || !availability.canRun} icon={<IconPlusOutlineRegular size={14} />}
-          aria-label={t('newSession', { project: label })} title={t('newSession', { project: label })} onClick={() => void actions.create(project)} /></span>}
     </div>
     <ActionError api={api} t={t} error={actions.error} />
     {open ? <ul className={css.sessions}>
@@ -152,8 +162,9 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
         <Button variant="ghost" size="sm" onClick={read.reload}>{t('retry')}</Button>
       </li> : read.loading ? <li className={css.notice}>{t('archiveLoading')}</li> : null}
       {sessions.length ? sessions.map((session) => <li key={session.sessionId}>
-        <button type="button" className={css.session} data-selected={api.selectedSessionId() === session.sessionId || undefined} onClick={() => resume(session.sessionId)}>
-          <span className={css.label}>{titles[session.sessionId]?.title || session.title || t('untitled')}</span>
+        <button type="button" className={css.session} data-selected={selected === session.sessionId || undefined} onClick={() => resume(session.sessionId)}>
+          <span className={css.slot} aria-hidden="true" />
+          <span className={css.title}>{titles[session.sessionId]?.title || session.title || t('untitled')}</span>
           {session.executionState === 'interrupted' ? <span className={css.interrupted} title={session.error ?? t('interruptedHint')}>{t('interrupted')}</span> : null}
         </button>
       </li>) : !read.error && !read.loading ? <li className={css.notice}>{t('noSessions')}</li> : null}
@@ -184,7 +195,7 @@ export type SidebarData = ReturnType<typeof useSidebarProjects>
 /** The sidebar's LayerFS list (§4): project rows. */
 export function SidebarProjects({ api, t, data }: { api: LayerfsApi, t: ListT, data: SidebarData }): ReactNode {
   const { items } = data
-  return <div className={clsx(css.tree, css.compact)}>
+  return <div className={css.tree}>
     {data.error && !items ? <div className={css.notice} role="alert">{t('failed', { message: errorMessage(data.error, t) })}<Button variant="ghost" size="sm" onClick={data.reload}>{t('retry')}</Button></div>
       : !items ? <div className={css.notice}>{t('loading')}</div>
         : !items.length ? <div className={css.empty}>

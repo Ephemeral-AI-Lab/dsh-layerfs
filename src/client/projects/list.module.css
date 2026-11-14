@@ -1,58 +1,11 @@
-/* The sidebar's LayerFS project list (docs/specs/layerfs-workspaces.md §4). */
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  min-height: 34px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: var(--dsw-radius-sm);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.toggle:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
-  outline-offset: -2px;
-}
-
-@media (hover: hover) {
-  .toggle:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-  }
-}
-
-
-
-.line {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  min-height: 34px;
-  gap: 2px;
-}
-
-.chevron {
-  width: 12px;
-  height: 12px;
-  flex: none;
-  transform: rotate(-90deg);
-}
-
-.openChevron {
-  transform: none;
-}
-
-.label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* The sidebar's LayerFS project list (docs/specs/layerfs-workspaces.md §4).
+   Geometry follows DSH's own Workspaces list (ui-workspace Rows.module.css) so
+   switching views moves nothing: 32px rows, 14px titles, one 16px leading slot,
+   session titles aligned under project titles, fills inset by the paint inset. */
+.tree {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 20px;
 }
 
 .projects {
@@ -61,37 +14,254 @@
   list-style: none;
 }
 
+.projectItem + .projectItem {
+  margin-top: 4px;
+}
+
+/* A project row: the fold button fills it; ⚙ and + trail it on hover or focus. */
+.projectRow {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  min-width: 0;
+  padding-inline-end: 8px;
+  border-inline: var(--dsh-sidebar-paint-inset, 3px) solid transparent;
+  border-radius: var(--dsw-radius-md);
+  background-clip: padding-box;
+  box-sizing: border-box;
+}
+
+.projectToggle,
+.session {
+  display: flex;
+  align-items: center;
+  gap: var(--dsh-sidebar-label-gap, 6px);
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0 0 0 calc(var(--dsh-sidebar-row-padding, 12px) - var(--dsh-sidebar-paint-inset, 3px));
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.projectToggle:focus-visible,
+.session:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-link));
+  outline-offset: -2px;
+}
+
+/* One leading slot: the LayerFS mark at rest, the fold arrow on hover or keyboard focus. */
+.slot {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.mark,
+.fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fold {
+  display: none;
+  color: var(--dsw-alias-label-caption);
+}
+
+.projectToggle:focus-visible .mark { display: none; }
+.projectToggle:focus-visible .fold { display: inline-flex; }
+
+@media (hover: hover) {
+  .projectRow:hover {
+    background-color: var(--dsw-alias-interactive-bg-hover);
+  }
+
+  .projectRow:hover .mark { display: none; }
+  .projectRow:hover .fold { display: inline-flex; }
+}
+
+/* Touch has no hover: show the arrow always so the fold state reads. */
+@media (hover: none) {
+  .mark { display: none; }
+  .fold { display: inline-flex; }
+}
+
+.arrow {
+  transition: transform 150ms var(--ds-ease-in-out);
+}
+
+.arrowOpen {
+  transform: rotate(90deg);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.inactive .title {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Why a project can't run, in words (no status lights). */
+.why {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Trailing actions: ⚙ and + are transparent at rest and pulled over the title's
+   end (--hidden), so they take no title width yet stay clickable and in the
+   accessibility tree; hover or keyboard focus shows them and gives them room.
+   Start, when a machine is stopped, always shows. */
+.projectRow {
+  --hidden: 50px;
+}
+
+.projectRow[data-actions='1'] {
+  --hidden: 26px;
+}
+
+.rowActions {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: calc(-1 * var(--hidden));
+}
+
+.rowActions .iconButton {
+  opacity: 0;
+}
+
+.projectRow:has(:focus-visible) .rowActions {
+  margin-inline-start: 4px;
+}
+
+.projectRow:has(:focus-visible) .iconButton {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .projectRow:hover .rowActions {
+    margin-inline-start: 4px;
+  }
+
+  .projectRow:hover .iconButton {
+    opacity: 1;
+  }
+}
+
+@media (hover: none) {
+  .rowActions {
+    margin-inline-start: 4px;
+  }
+
+  .rowActions .iconButton {
+    opacity: 1;
+  }
+}
+
+.rowActions .iconButton {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (hover: hover) {
+  .rowActions .iconButton:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.start {
+  flex: none;
+  height: 24px;
+}
+
+/* Sessions sit at the project's inset with an empty leading slot, so their
+   titles line up under the project title. */
 .sessions {
-  margin: 0 0 4px 27px;
+  margin: 2px 0 0;
   padding: 0;
   list-style: none;
 }
 
+.sessions > li + li {
+  margin-top: 2px;
+}
+
 .session {
-  composes: toggle;
-  min-height: 30px;
+  width: 100%;
+  height: 32px;
+  padding-inline-end: 8px;
+  border-inline: var(--dsh-sidebar-paint-inset, 3px) solid transparent;
+  background-clip: padding-box;
+  box-sizing: border-box;
   color: var(--dsw-alias-label-secondary);
 }
 
+@media (hover: hover) {
+  .session:hover {
+    background-color: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
 .session[data-selected] {
-  background: var(--dsw-alias-interactive-bg-active);
+  background-color: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
 .interrupted {
   flex: none;
-  margin-left: auto;
-  padding-left: 6px;
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 16px;
   color: var(--dsw-alias-state-error-primary);
 }
 
+/* Notices (no sessions, loading, errors) start where titles start. */
 .notice {
-  padding: 6px 8px 6px 34px;
-  color: var(--dsw-alias-label-tertiary);
+  padding: 4px 8px 6px calc(var(--dsh-sidebar-row-padding, 12px) + 16px + var(--dsh-sidebar-label-gap, 6px));
   font-size: 12px;
   line-height: 18px;
+  color: var(--dsw-alias-label-caption);
   overflow-wrap: anywhere;
+}
+
+.tree > .notice,
+.empty .notice {
+  padding-left: var(--dsh-sidebar-row-padding, 12px);
 }
 
 .error {
@@ -104,93 +274,6 @@
   margin-top: 4px;
 }
 
-.action {
-  flex: none;
-}
-
-.inactive .label {
-  color: var(--dsw-alias-label-secondary);
-}
-.projectLink {
-  composes: toggle;
-  flex: 1;
-  padding-inline: 2px;
-}
-.projectLink > svg { flex: none; }
-.projectText {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-}
-@media (pointer: coarse) {
-   .projectLink { min-height: 44px; }
-}
-
-/* Sidebar variant: rows start at the sidebar's row inset, notices align under labels. */
-.compact .projects {
-  margin: 0;
-}
-
-.compact .notice {
-  padding-left: 8px;
-}
-
-.tree {
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-/* Sidebar rows: the whole row folds; ⚙ and + show on hover or focus. */
-.sidebarLine {
-  gap: 0;
-}
-
-.sidebarProject {
-  gap: 6px;
-  padding-inline: 8px 2px;
-}
-
-.store {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.rowActions {
-  display: inline-flex;
-  flex: none;
-  opacity: 0;
-}
-
-.rowActions:focus-within,
-.projectItem:focus-within .rowActions {
-  opacity: 1;
-}
-
-@media (hover: hover) {
-  .projectItem:hover .rowActions {
-    opacity: 1;
-  }
-}
-
-@media (hover: none) {
-  .rowActions {
-    opacity: 1;
-  }
-}
-
-/* Why a project can't run, in words (no status lights). */
-.why {
-  flex: none;
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-}
-
 .empty {
   padding-bottom: 4px;
 }
@@ -198,5 +281,5 @@
 .emptyActions {
   display: flex;
   gap: 6px;
-  padding: 2px 8px 4px;
+  padding: 2px var(--dsh-sidebar-row-padding, 12px) 4px;
 }
