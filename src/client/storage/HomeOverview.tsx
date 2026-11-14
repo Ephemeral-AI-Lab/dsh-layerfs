@@ -34,6 +34,7 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { HomeHero, panelId } from './HomeHero.tsx'
 import type { StoreActions } from './StoreCard.tsx'
+import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
 import { attachmentsOf, bucketFiles, doingWords, endedWords, orderStores, shareOf } from './model.ts'
 import { BucketGlyph, refusalLabels, StoreGlyph } from './parts.tsx'
@@ -304,7 +305,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
             {needs.length ? (
               <Card>
                 <div ref={needsRef} id="ov-needs" className={css.needs} role="region" aria-label={t('ovNeedsYou')} tabIndex={-1}>
-                  {needs.map((n) => <NeedRow key={n.key} need={n} labels={refusalLabels(t)} />)}
+                  {needs.map((n) => <NeedRow key={n.key} need={n} labels={refusalLabels(t)} t={t} />)}
                 </div>
               </Card>
             ) : null}
@@ -394,8 +395,8 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   )
 }
 
-/** One thing that needs you: its tone, what and why, and the verb that fixes it. Only a danger row is announced. */
-function NeedRow({ need: n, labels }: { need: Need, labels: ReturnType<typeof refusalLabels> }): ReactNode {
+/** One thing that needs you: its signal (why, on hover), what, and the verb that fixes it. Only a danger row is announced. */
+function NeedRow({ need: n, labels, t }: { need: Need, labels: ReturnType<typeof refusalLabels>, t: StorageT }): ReactNode {
   // one action at a time; a refusal stays on the row until the next try
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -405,10 +406,11 @@ function NeedRow({ need: n, labels }: { need: Need, labels: ReturnType<typeof re
   }
   return (
     <div className={css.need} role={n.tone === 'danger' ? 'alert' : undefined}>
-      <StateDot state={n.tone === 'danger' ? 'error' : n.tone === 'warning' ? 'warning' : 'idle'} size={8} className={css.needMark} />
+      <span className={css.needMark}>
+        <Signal state={n.tone === 'danger' ? 'error' : n.tone === 'warning' ? 'warning' : 'idle'} title={n.tone === 'danger' ? t('ovSignalProblem') : n.tone === 'warning' ? t('ovSignalWarning') : t('ovSignalNote')} detail={n.detail} />
+      </span>
       <div className={css.needBody}>
         <p className={css.needTitle}>{n.title}</p>
-        {n.detail ? <p className={css.needDetail}>{n.detail}</p> : null}
         {error != null ? <Refusal error={error} labels={labels} className={css.needDetail} /> : null}
       </div>
       {n.action || n.secondary || n.extra ? (

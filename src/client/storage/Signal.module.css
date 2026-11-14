@@ -1,0 +1,71 @@
+.root {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+/* The dot is small; its button gives the pointer a 20px target. */
+.signal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0 -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .signal:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.signal:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+  max-width: 280px;
+  padding: 2px 4px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  text-align: left;
+  white-space: normal;
+  cursor: default;
+}
+
+.title {
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.title[data-state='error'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.title[data-state='warning'] {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.detail {
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.action {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}

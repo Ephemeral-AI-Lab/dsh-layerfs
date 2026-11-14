@@ -34,6 +34,7 @@ import { attachmentsOf, backupChip, bucketFiles, canAddProject, doingWords, late
 import { BucketGlyph, HomeGlyph, StoreGlyph } from './parts.tsx'
 import { BucketMark, providerWords } from './BucketPage.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
+import { Signal } from './Signal.tsx'
 import type { StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import css from './HomeCards.module.css'
 
@@ -87,12 +88,12 @@ function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place: Place,
   return null
 }
 
-/** Restart worker on a card: busy while it runs, LayerFS's refusal as its tooltip. */
+/** Restart worker inside a signal's hover card: busy while it runs, LayerFS's refusal as its tooltip. */
 function RestartButton({ m, t, onRestart }: { m: MachineInfo, t: StorageT, onRestart: (m: MachineInfo) => Promise<unknown> }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
   return (
-    <Button variant="primary" size="sm" disabled={busy} title={failed ?? t('ovRestartWorkerTitle', { machine: m.name })}
+    <Button variant="outline" size="sm" disabled={busy} title={failed ?? t('ovRestartWorkerTitle', { machine: m.name })}
       onClick={() => { setBusy(true); setFailed(null); void onRestart(m).catch((e: unknown) => setFailed(String((e as Error)?.message ?? e))).finally(() => setBusy(false)) }}>
       {busy ? t('ovRestarting') : failed ? t('ovRestartFailed') : t('ovRestartWorker')}
     </Button>
@@ -199,21 +200,21 @@ export function ProjectCards({ stores, view, fleet, machines, t, jobs, place, on
         const pg = s.kind === 'postgresql'
         const boxes = sandboxesOfProject(sandboxes, stores, s.name, p)
         const job = jobs.find((j) => j.store === s.name && !j.ended)
-        const tone = trouble ? (trouble.state === 'error' ? 'danger' : 'warning') : undefined
         const open = () => onOpen(`project:${s.name}/${p}`)
         return (
-          <article key={`${s.name}/${p}`} className={css.card} data-kind="project" data-clickable data-tone={tone === 'danger' ? 'danger' : undefined} onClick={open}>
+          <article key={`${s.name}/${p}`} className={css.card} data-kind="project" data-clickable onClick={open}>
             <header className={css.cardHead}>
               <span className={css.icon} data-kind="project"><LayerfsGlyph size={17} /></span>
               <span className={css.titles}>
-                <Name onClick={open}>{p}</Name>
-                {trouble
-                  ? <span className={css.sub} data-tone={tone} title={trouble.detail}>{trouble.reason}</span>
-                  : boxes.length ? <span className={css.sub}>{boxes.length === 1 ? t('ovOneSandbox') : t('ovSandboxCount', { n: boxes.length })}</span> : null}
+                <span className={css.nameLine}>
+                  <Name onClick={open}>{p}</Name>
+                  <Signal state={trouble ? trouble.state : 'ok'} title={trouble?.reason ?? t('ovSignalReady')} detail={trouble?.detail}
+                    action={trouble?.restart && onRestart ? <RestartButton m={trouble.restart} t={t} onRestart={onRestart} /> : undefined} />
+                </span>
+                {boxes.length ? <span className={css.sub}>{boxes.length === 1 ? t('ovOneSandbox') : t('ovSandboxCount', { n: boxes.length })}</span> : null}
               </span>
               {/* The card opens the project on click: nothing in its actions (the menu's portal included) reaches it. */}
               <span className={css.headActions} onClick={(e) => e.stopPropagation()}>
-                {trouble?.restart && onRestart ? <RestartButton m={trouble.restart} t={t} onRestart={onRestart} /> : null}
                 <Button variant="outline" size="sm" onClick={open}>{t('ovOpen')}</Button>
                 <MoreMenu label={t('projectActions', { name: p })}>
                   {(close) => (
@@ -280,12 +281,19 @@ export function StoreCards({ stores, view, fleet, machines, t, now, jobs, place,
         const job = jobs.find((j) => j.store === s.name && !j.ended)
         const blocked = s.state === 'down' || s.state === 'busy' || s.state === 'unresolved' || !!job
         const shown = s.projects.slice(0, STORE_PROJECTS)
+        const trouble = storeTrouble(s, view, t, place, fleet)
+        const working = !trouble && (!!job || s.state === 'busy')
         return (
           <article key={s.name} className={css.card} data-kind={s.kind}>
             <header className={css.cardHead}>
               <span className={css.icon} data-kind={s.kind}><StoreGlyph kind={s.kind} size={16} /></span>
               <span className={css.titles}>
-                <Name onClick={() => onOpen(`store:${s.name}`)} title={s.name}>{s.name}</Name>
+                <span className={css.nameLine}>
+                  <Name onClick={() => onOpen(`store:${s.name}`)} title={s.name}>{s.name}</Name>
+                  <Signal state={trouble ? trouble.state : working ? 'ongoing' : 'ok'}
+                    title={trouble?.reason ?? (working ? (job ? doingWords(job, t) : [s.op?.name, s.op?.phase].filter(Boolean).join(' · ') || t('ovSignalBusy')) : t('ovSignalReady'))}
+                    detail={trouble?.detail} />
+                </span>
                 <span className={css.sub}>{[pg ? t('postgresql') : t('sqlite'), size !== null ? bytes(size) : null, projectsWords(s.projects.length, t)].filter(Boolean).join(' · ')}</span>
               </span>
               <span className={css.headActions}>
@@ -333,7 +341,7 @@ export function StoreCards({ stores, view, fleet, machines, t, now, jobs, place,
               ) : null}
             </div>
 
-            <StoreBackups s={s} view={view} t={t} now={now} job={job} blocked={blocked} trouble={storeTrouble(s, view, t, place, fleet)}
+            <StoreBackups s={s} view={view} t={t} now={now} job={job} blocked={blocked}
               on={on} onOpen={onOpen} onAddBucket={onAddBucket} />
           </article>
         )
@@ -346,11 +354,11 @@ export function StoreCards({ stores, view, fleet, machines, t, now, jobs, place,
  * A Store's backups: every bucket file it is backed up to, each with its
  * state, when it was last backed up, and Back up now; then Back up to
  * another bucket. A PostgreSQL Store shows its server's health instead (it
- * backs itself up). A running transfer, an operation from elsewhere, and
- * anything keeping the Store from opening sit on top.
+ * backs itself up). A running transfer and an operation from elsewhere sit
+ * on top; what keeps the Store from opening is the card's signal.
  */
-function StoreBackups({ s, view, t, now, job, blocked, trouble, on, onOpen, onAddBucket }: {
-  s: StoreRow, view: StorageView, t: StorageT, now: number, job: StorageJob | undefined, blocked: boolean, trouble: Trouble | null
+function StoreBackups({ s, view, t, now, job, blocked, on, onOpen, onAddBucket }: {
+  s: StoreRow, view: StorageView, t: StorageT, now: number, job: StorageJob | undefined, blocked: boolean
   on: StoreActions, onOpen: (id: TabId) => void, onAddBucket: () => void
 }): ReactNode {
   const pg = s.kind === 'postgresql'
@@ -361,11 +369,6 @@ function StoreBackups({ s, view, t, now, job, blocked, trouble, on, onOpen, onAd
       {job ? <JobLine job={job} t={t} /> : null}
       {!job && s.state === 'busy' && s.op ? (
         <p className={css.trouble} data-tone="ongoing"><StateDot state="ongoing" size={10} />{[s.op.name, s.op.phase].filter(Boolean).join(' · ')}</p>
-      ) : null}
-      {trouble ? (
-        <p className={css.trouble} data-tone={trouble.state === 'error' ? 'danger' : 'warning'} title={trouble.detail}>
-          <StateDot state={trouble.state === 'error' ? 'error' : 'warning'} size={7} />{trouble.reason}
-        </p>
       ) : null}
       <div className={css.backupsHead}>
         <span className={css.label}>{pg ? t('ovServer') : t('ovBackups')}</span>
@@ -431,7 +434,7 @@ export function MachineCards({ machines, fleet, stores, t, jobs, place, pgSize, 
   )
 }
 
-/** One machine: its state (and why, when it needs you), Start or Stop with its progress, its disk, Stores and Sandboxes (each with its Add), and what is arriving. */
+/** One machine: its state as a signal (why it needs you on hover), Start or Stop with its progress, its disk, Stores and Sandboxes (each with its Add), and what is arriving. */
 function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddStore, onNewSandbox }: {
   m: MachineInfo, fleet: AvailableView | null, stores: readonly StoreRow[], t: StorageT, jobs: readonly StorageJob[]
   place: Place, pgSize: (name: string) => number | null, onOpen: (id: TabId) => void
@@ -457,14 +460,15 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
   const arriving = jobs.find((j) => !j.ended && ((j.kind === 'push' || j.kind === 'move') ? j.target === m.name : j.kind === 'pull' && m.name === 'native'))
   const sub = m.platform === 'native' ? mc.kind(m.platform) : m.platform === 'docker' ? mc.kind(m.platform) : `${mc.kind(m.platform)} · ${mc.tw(sizeOf({ ...m, disk: null } as MachineInfo, undefined)).split(' · ').slice(0, 2).join(' · ')}`
   return (
-    <article className={css.card} data-kind="machine" data-stopped={look.key === 'stopped' || undefined} data-tone={look.key === 'needs' ? 'danger' : undefined}>
+    <article className={css.card} data-kind="machine" data-stopped={look.key === 'stopped' || undefined}>
       <header className={css.cardHead}>
         <span className={css.icon}>{m.name === 'native' ? <HomeGlyph size={15} /> : <MachineGlyph platform={m.platform} size={15} mono />}</span>
         <span className={css.titles}>
           <span className={css.nameLine}>
             <Name onClick={() => onOpen(`machine:${m.name}`)}>{place(m.name)}</Name>
-            <StateDot state={starting || look.key === 'busy' ? 'ongoing' : look.key === 'running' ? 'done' : look.key === 'needs' ? 'error' : 'idle'} size={7} />
-            {look.key !== 'running' ? <span className={css.muted}>{mc.stateWord(look)}</span> : null}
+            <Signal state={starting || look.key === 'busy' ? 'ongoing' : look.key === 'running' ? 'ok' : look.key === 'needs' ? 'error' : 'idle'}
+              title={mc.stateWord(look)} detail={reason} />
+            {look.key !== 'running' && look.key !== 'needs' ? <span className={css.muted}>{mc.stateWord(look)}</span> : null}
           </span>
           <span className={css.sub}>{sub}</span>
         </span>
@@ -475,7 +479,6 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
       </header>
       <MachineDialogs m={m} dialog={dialog} onClose={() => setDialog(null)} pending={pending} run={run} />
       {starting ? <div className={css.progress}><MachineProgress name={m.name} compact /></div> : null}
-      {reason ? <p className={css.reason}>{reason}</p> : null}
 
       <div className={css.diskRow}>
         <span className={css.placeLabel}>{t('ovDisk')}</span>
@@ -649,13 +652,14 @@ export function BucketCards({ view, t, now, jobs, onOpen, onAddBucket, onList, o
           )
         }
         return (
-          <article key={b.name} className={css.card} data-kind="bucket" data-tone={b.error ? 'danger' : undefined}>
+          <article key={b.name} className={css.card} data-kind="bucket">
             <header className={css.cardHead}>
               <span className={css.icon} data-kind="bucket" title={providerWords(b.provider, t)}><BucketMark provider={b.provider} size={18} /></span>
               <span className={css.titles}>
                 <span className={css.nameLine}>
                   <Name onClick={() => onOpen(`bucket:${b.name}`)}>{b.name}</Name>
-                  <StateDot state={b.error ? 'error' : unlisted ? 'idle' : 'done'} size={7} />
+                  <Signal state={b.error ? 'error' : unlisted ? 'idle' : 'ok'}
+                    title={b.error ? t('ovBucketFailed') : unlisted ? t('ovBucketUnlisted') : t('ovSignalReady')} detail={b.error?.message} />
                 </span>
                 <span className={css.sub}>
                   {[whereOf(b) ?? providerWords(b.provider, t), b.error ? t('ovBucketFailed') : unlisted ? t('ovBucketUnlisted') : (files.length === 1 ? t('ovBucketFile') : t('ovBucketFiles', { n: files.length })), b.listed && !b.error ? t('ovListedAgo', { ago: ago(b.listed, now, t as Translate) }) : null].filter(Boolean).join(' · ')}
@@ -669,7 +673,6 @@ export function BucketCards({ view, t, now, jobs, onOpen, onAddBucket, onList, o
             </header>
             <div className={css.list}>
               {running.map((j) => <div key={j.id} className={css.jobRow}><JobLine job={j} t={t} label={`${j.store} · ${doingWords(j, t)}`} /></div>)}
-              {b.error ? <p className={css.danger}>{b.error.message}</p> : null}
               {!b.error && files.length === 0 ? <p className={css.none}>{unlisted ? t('ovBucketNotListedBody') : t('ovBucketEmpty')}</p> : null}
               {linked.map(row)}
               {foreign.length ? <span className={css.label}>{t('ovNotFromHome')}</span> : null}
