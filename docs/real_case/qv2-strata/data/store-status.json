@@ -1,0 +1,16 @@
+{
+    "name": "qv2-store",
+    "kind": "sqlite",
+    "state": "idle",
+    "holders": [],
+    "op": null,
+    "down_reason": null,
+    "machine": "docker",
+    "file": {
+        "exists": true,
+        "free": 118327435264,
+        "bytes": 4927545344,
+        "wal_bytes": 0,
+        "incoming_bytes": 0
+    }
+}

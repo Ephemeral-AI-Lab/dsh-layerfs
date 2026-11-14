@@ -1,0 +1,16 @@
+{
+    "project": "qv2-strata",
+    "at": {
+        "id": "3216799e4fcef118f87c5caff184eb437909590a82e01a4d747d9c84c57454731b",
+        "kind": "Layer",
+        "branch": "main",
+        "root": "1779dcfe68f546eb7a03fbce9bf3a433a07870136efd8030d8ca116ade7be477"
+    },
+    "files": 8007,
+    "directories": 1993,
+    "symlinks": 0,
+    "others": 0,
+    "logical": 11405079925,
+    "complete": false,
+    "reason": "query candidate budget exhausted; page is incomplete"
+}

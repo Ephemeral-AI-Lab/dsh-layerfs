@@ -1,0 +1,624 @@
+<title>Quarry v2 on LayerFS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one reading column on a pale tile tint; the LayerFS mark heads the page, and each section is a band of figures, then the detail. */
+:root {
+  --bg: #F3F6FB;
+  --surface: #FFFFFF;
+  --ink: #1F2A44;
+  --muted: #5A6785;
+  --line: rgba(31, 42, 68, 0.12);
+  --blue: #2F5BB5;
+  --sky: #93B1E0;
+  --sky-wash: #E4ECF8;
+  --good: #1F7A4D;
+  --good-wash: #E2F2E9;
+  --warn: #9A5B00;
+  --warn-wash: #FBEFD9;
+  --open: #8A3B12;
+  --open-wash: #F8E6DC;
+  --font-display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1523; --surface: #151F33; --ink: #E5EBF7; --muted: #9AA8C6; --line: rgba(229, 235, 247, 0.12);
+    --blue: #7EA2EA; --sky: #4C6FAE; --sky-wash: #1C2A45;
+    --good: #6FCF9B; --good-wash: #15301F; --warn: #E7B260; --warn-wash: #33260F; --open: #F09A6E; --open-wash: #3A2016;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1523; --surface: #151F33; --ink: #E5EBF7; --muted: #9AA8C6; --line: rgba(229, 235, 247, 0.12);
+  --blue: #7EA2EA; --sky: #4C6FAE; --sky-wash: #1C2A45;
+  --good: #6FCF9B; --good-wash: #15301F; --warn: #E7B260; --warn-wash: #33260F; --open: #F09A6E; --open-wash: #3A2016;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.6 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+.page { max-width: 1040px; margin: 0 auto; display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(32px, 5vw, 48px); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+h3 { font-size: 17px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow { font: 600 12px/1 var(--font-body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--blue); }
+.muted { color: var(--muted); }
+.mono, code { font-family: var(--font-mono); font-size: 0.88em; }
+code { background: var(--sky-wash); padding: 1px 5px; border-radius: 4px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Hero */
+header.hero { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: center; }
+.mark { width: 104px; height: 104px; background: var(--surface); border: 0.5px solid var(--line); border-radius: 24px; display: grid; place-items: center; box-shadow: 0 1px 2px rgba(31,42,68,0.06), 0 8px 24px rgba(47,91,181,0.10); }
+.mark svg { width: 76px; height: 76px; }
+.hero-text { display: grid; gap: 10px; min-width: 0; }
+.hero-text p { font-size: 17px; color: var(--muted); }
+.verdict { display: inline-flex; align-items: center; gap: 8px; width: fit-content; background: var(--good-wash); color: var(--good); font: 600 13px/1 var(--font-body); padding: 7px 12px; border-radius: 999px; }
+.verdict::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+
+/* Figures */
+.figures { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 0.5px solid var(--line); border-radius: 14px; overflow: hidden; }
+.fig { background: var(--surface); padding: 18px 20px; display: grid; gap: 4px; align-content: start; }
+.fig .v { font: 600 30px/1.1 var(--font-display); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.fig .v small { font-size: 16px; color: var(--muted); font-weight: 500; }
+.fig .l { font-size: 13px; color: var(--muted); }
+
+section { display: grid; gap: 20px; }
+.lede { display: grid; gap: 8px; }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.panel { background: var(--surface); border: 0.5px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 12px; min-width: 0; align-content: start; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; background: var(--surface); border: 0.5px solid var(--line); border-radius: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 0.5px solid var(--line); vertical-align: top; }
+th { font: 600 12px/1.3 var(--font-body); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); background: var(--sky-wash); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td .sub { display: block; color: var(--muted); font-size: 13px; }
+
+/* Acceptance grid */
+.checks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.check { background: var(--surface); border: 0.5px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; align-content: start; }
+.check b { font: 600 14px/1 var(--font-mono); color: var(--good); display: flex; justify-content: space-between; }
+.check b span { font: 600 11px/1 var(--font-body); letter-spacing: 0.06em; }
+.check div { font-size: 13px; color: var(--muted); line-height: 1.45; }
+
+/* Storage chart */
+.chart { background: var(--surface); border: 0.5px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 14px; }
+.bars { display: grid; gap: 12px; }
+.bar-row { display: grid; grid-template-columns: 210px minmax(0, 1fr) 96px; gap: 14px; align-items: center; }
+.bar-row .name { font-size: 14px; line-height: 1.3; }
+.bar-row .name small { display: block; color: var(--muted); font-size: 12px; }
+.track { position: relative; height: 22px; background: linear-gradient(to right, var(--line) 0 1px, transparent 1px) 0 0 / 20% 100% repeat-x; border-radius: 4px; }
+.fill { height: 100%; border-radius: 4px; background: var(--sky); }
+.fill.deep { background: var(--blue); }
+.bar-row .val { text-align: right; font: 500 14px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.axis { display: grid; grid-template-columns: 210px minmax(0, 1fr) 96px; gap: 14px; }
+.axis .ticks { display: flex; justify-content: space-between; font: 11px/1 var(--font-mono); color: var(--muted); }
+.ratios { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ratio { border-left: 3px solid var(--blue); padding: 2px 0 2px 12px; display: grid; gap: 2px; }
+.ratio .v { font: 600 24px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+.ratio .l { font-size: 13px; color: var(--muted); }
+
+/* Speed */
+.delta { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; align-items: center; }
+.minibar { height: 8px; background: var(--sky-wash); border-radius: 4px; overflow: hidden; }
+.minibar i { display: block; height: 100%; background: var(--blue); border-radius: 4px; }
+.gain { font: 600 14px/1 var(--font-mono); color: var(--good); text-align: right; }
+
+/* Bugs */
+.chip { display: inline-block; font: 600 11px/1 var(--font-body); letter-spacing: 0.05em; text-transform: uppercase; padding: 5px 8px; border-radius: 999px; white-space: nowrap; }
+.chip.fixed { background: var(--good-wash); color: var(--good); }
+.chip.work { background: var(--warn-wash); color: var(--warn); }
+.chip.open { background: var(--open-wash); color: var(--open); }
+.id { font: 500 13px/1.4 var(--font-mono); color: var(--blue); white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); align-items: center; }
+
+footer { font-size: 13px; color: var(--muted); display: grid; gap: 6px; border-top: 0.5px solid var(--line); padding-top: 20px; }
+
+/* Language switch */
+.lang-bar { max-width: 1040px; margin: 0 auto 24px; display: flex; justify-content: flex-end; }
+.lang { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface); border: 0.5px solid var(--line); border-radius: 999px; }
+.lang button { font: 500 13px/1 var(--font-body); color: var(--muted); background: transparent; border: 0; border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+.lang button[aria-pressed="true"] { background: var(--blue); color: var(--surface); }
+.lang button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+@media (hover: hover) { .lang button:not([aria-pressed="true"]):hover { color: var(--ink); } }
+[data-lang="zh"] {
+  --font-body: "Inter", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-display: "Space Grotesk", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  font-family: var(--font-body);
+  line-height: 1.7;
+}
+[data-lang="zh"] .eyebrow { letter-spacing: 0.06em; }
+[data-lang="zh"] h1 { letter-spacing: 0; }
+
+@media (max-width: 860px) {
+  .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .checks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .bar-row, .axis { grid-template-columns: 130px minmax(0, 1fr) 76px; gap: 10px; }
+}
+@media (max-width: 520px) {
+  body { padding-block: 24px 48px; }
+  header.hero { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .mark { width: 76px; height: 76px; border-radius: 18px; }
+  .mark svg { width: 56px; height: 56px; }
+  .ratios { grid-template-columns: minmax(0, 1fr); }
+  .bar-row, .axis { grid-template-columns: minmax(0, 1fr) 76px; }
+  .bar-row .track { grid-column: 1 / -1; grid-row: 2; }
+  .axis .ticks { grid-column: 1 / -1; }
+  .axis > span { display: none; }
+  .fig .v { font-size: 26px; }
+}
+</style>
+
+<div class="lang-bar">
+  <div class="lang" role="group" aria-label="Language / 语言">
+    <button type="button" id="lang-en" data-set="en" aria-pressed="false">English</button>
+    <button type="button" id="lang-zh" data-set="zh" aria-pressed="true">中文</button>
+  </div>
+</div>
+
+<div class="page" data-lang="en" lang="en" hidden>
+  <header class="hero">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <path d="M88.5 22 L111.5 22 L170 135 L148.5 135 L100 49.5 L51.5 135 L30 135 Z" fill="var(--sky)" stroke="var(--sky)" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M27 161 L57 161 L100 117 L143 161 L173 161" fill="none" stroke="var(--blue)" stroke-width="10.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="100" cy="117" r="15.5" fill="var(--blue)"/>
+        <circle cx="27" cy="161" r="15.5" fill="var(--blue)"/>
+        <circle cx="173" cy="161" r="15.5" fill="var(--blue)"/>
+      </svg>
+    </div>
+    <div class="hero-text">
+      <span class="eyebrow">LayerFS v2 · DeepSeek Harness · 13 November 2026</span>
+      <h1>Quarry v2 on LayerFS</h1>
+      <p>Nine agents built Strata, a SQLite-compatible database in Rust, inside one LayerFS project. This is the run's result, its storage and speed, and the bugs it found and fixed along the way.</p>
+      <span class="verdict">Terminal pass accepted at 21:05 UTC · main Layer 3216799e</span>
+    </div>
+  </header>
+
+  <div class="figures" role="list">
+    <div class="fig" role="listitem"><span class="v num">16<small>/16</small></span><span class="l">acceptance checks pass</span></div>
+    <div class="fig" role="listitem"><span class="v num">1,567</span><span class="l">tests pass, 0 fail</span></div>
+    <div class="fig" role="listitem"><span class="v num">4.93<small> GB</small></span><span class="l">Store holding 30.2 TB of saved history</span></div>
+    <div class="fig" role="listitem"><span class="v num">13<small> h </small>22<small> min</small></span><span class="l">from first step to terminal pass</span></div>
+  </div>
+
+  <!-- The task -->
+  <section aria-labelledby="task">
+    <div class="lede">
+      <span class="eyebrow">The task</span>
+      <h2 id="task">Build a SQLite-compatible engine as a team</h2>
+      <p>One main agent and eight DeepSeek workers worked through dsh-layerfs on the DeepSeek Harness at port 3080. Every file lived in the LayerFS project <code>qv2-store/qv2-strata</code>, on a Store on the Docker machine. Each bash call ran in a LayerFS Workspace: mount, run, commit, unmount. The run ended only when the SPEC's terminal pass held on a fresh fork of main.</p>
+    </div>
+    <div class="cols">
+      <div class="panel">
+        <h3>How the team worked</h3>
+        <ul class="plain">
+          <li>4 lanes (front end, VM, storage, tools), 2 workers each, plus a main agent who owned the shared contracts and integrated.</li>
+          <li>Each lane worked on its own Branch; the main agent merged lanes on an integration chain and published to main.</li>
+          <li>An operator session checked the run every 10–15 minutes (60 checks) and steered when it stalled.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>What "done" meant (SPEC §9)</h3>
+        <ul class="plain">
+          <li>fmt, clippy with <code>-D warnings</code>, and <code>cargo test</code> all exit 0, with at least 1,500 tests.</li>
+          <li>Every corpus record matches SQLite 3.40.1's own answer.</li>
+          <li>All 16 acceptance checks, A01 to A16, pass against the reference <code>sqlite3</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- What we built -->
+  <section aria-labelledby="built">
+    <div class="lede">
+      <span class="eyebrow">What was built</span>
+      <h2 id="built">Strata: 15 crates, about 87,000 lines of Rust</h2>
+      <p>A real b-tree pager with rollback and WAL journals, a SQLite-format schema, a shell that prints byte-for-byte what <code>sqlite3</code> prints, and a 3,166-record corpus whose expected answers all come from SQLite itself.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Area</th><th>Crates</th><th>Lane</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>Contracts</td><td class="mono">strata-types</td><td>Main agent</td><td>Values, AST, plan IR, opcodes, store traits, in-memory implementations</td></tr>
+          <tr><td>Front end</td><td class="mono">parser, sema, planner</td><td>F1, F2</td><td>Full SQLite 3.40 grammar with exact error text; catalog rebuilt from <code>sqlite_schema</code>; cost-based planner using <code>sqlite_stat1</code></td></tr>
+          <tr><td>Execution</td><td class="mono">codegen, vm, func</td><td>V1, V2</td><td>Bytecode for every statement; windows and upsert; a sorter that spills to disk; JSON1 matching SQLite byte for byte</td></tr>
+          <tr><td>Storage</td><td class="mono">btree, pager, wal</td><td>S1, S2</td><td>SQLite's page format; bulk loader 55× faster than row inserts; rollback journal and WAL; POSIX locking; recovery after kill -9</td></tr>
+          <tr><td>Tools</td><td class="mono">strata, cli, gen, slt, accept</td><td>T1, T2</td><td>Connection API with statement cache, the shell, a TPC-H data generator, the corpus runner, the 16 acceptance checks</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="checks">
+      <div class="check"><b>A01 <span>PASS</span></b><div>Corpus 3,166 / 3,166 against SQLite 3.40.1</div></div>
+      <div class="check"><b>A02 <span>PASS</span></b><div>5,000 generated queries match sqlite3</div></div>
+      <div class="check"><b>A03 <span>PASS</span></b><div>Reads sqlite3-written files: pages, overflow, freelist</div></div>
+      <div class="check"><b>A04 <span>PASS</span></b><div>4 workloads; sqlite3 integrity_check ok</div></div>
+      <div class="check"><b>A05 <span>PASS</span></b><div>Recovers a killed sqlite3's WAL; checkpoints</div></div>
+      <div class="check"><b>A06 <span>PASS</span></b><div>20 kill -9s in both journal modes, integrity ok</div></div>
+      <div class="check"><b>A07 <span>PASS</span></b><div>Locking with sqlite3 in both directions</div></div>
+      <div class="check"><b>A08 <span>PASS</span></b><div>Deferred foreign keys and nested triggers, 5 scenarios</div></div>
+      <div class="check"><b>A09 <span>PASS</span></b><div>199 affinity probes and 15 STRICT statements</div></div>
+      <div class="check"><b>A10 <span>PASS</span></b><div>62 function and aggregate probes</div></div>
+      <div class="check"><b>A11 <span>PASS</span></b><div>Window functions and recursive CTEs</div></div>
+      <div class="check"><b>A12 <span>PASS</span></b><div>1M rows: index 81× faster than a scan</div></div>
+      <div class="check"><b>A13 <span>PASS</span></b><div>8 TPC-H-style queries, all under 10 s; 449 MiB peak</div></div>
+      <div class="check"><b>A14 <span>PASS</span></b><div>2M-row sort and group with 57 MiB peak</div></div>
+      <div class="check"><b>A15 <span>PASS</span></b><div>Schema changes; VACUUM leaves 5.3% of the file</div></div>
+      <div class="check"><b>A16 <span>PASS</span></b><div>10 shell modes byte-identical to sqlite3</div></div>
+    </div>
+    <p class="muted">Disclosed in the run report: A13 is helped by secondary indexes the team added to its own TPC-H schema; TEMP tables are held in memory; A11's harness now feeds both engines identical input. The operator sent back two earlier "done" claims before accepting this one.</p>
+  </section>
+
+  <!-- Storage -->
+  <section aria-labelledby="storage">
+    <div class="lede">
+      <span class="eyebrow">Storage efficiency</span>
+      <h2 id="storage">30.2 TB of history in a 4.93 GB file</h2>
+      <p>Every Commit records the whole project tree, about 9 GB of it, including build folders. LayerFS keeps each distinct piece of content once, then compresses and delta-encodes it. The whole run's history ended up smaller than a single checkout of the final tree.</p>
+    </div>
+    <figure class="chart" style="margin:0">
+      <div class="bars">
+        <div class="bar-row"><div class="name">Every saved tree, added up<small>4,354 Commits on 211 Branches</small></div><div class="track"><div class="fill" style="width:89.6%"></div></div><div class="val num">30.2 TB</div></div>
+        <div class="bar-row"><div class="name">Distinct content<small>after deduplication</small></div><div class="track"><div class="fill" style="width:28.2%"></div></div><div class="val num">25.6 GB</div></div>
+        <div class="bar-row"><div class="name">Final tree on main<small>one checkout, 8,007 files</small></div><div class="track"><div class="fill" style="width:21.1%"></div></div><div class="val num">11.4 GB</div></div>
+        <div class="bar-row"><div class="name">Store file on disk<small>SQLite, no free pages</small></div><div class="track"><div class="fill deep" style="width:13.9%"></div></div><div class="val num">4.93 GB</div></div>
+        <div class="bar-row"><div class="name">Content stored<small>after compression and deltas</small></div><div class="track"><div class="fill deep" style="width:13.5%"></div></div><div class="val num">4.75 GB</div></div>
+      </div>
+      <div class="axis" aria-hidden="true"><span></span><div class="ticks"><span>1 GB</span><span>10 GB</span><span>100 GB</span><span>1 TB</span><span>10 TB</span><span>100 TB</span></div><span></span></div>
+      <figcaption class="muted" style="font-size:13px">Log scale: each grid line is ten times the one before. Source: <code>layerfs store stats qv2-store</code> and every Commit record in the project.</figcaption>
+    </figure>
+    <div class="ratios">
+      <div class="ratio"><span class="v num">1,179×</span><span class="l">deduplication: 30.2 TB of trees to 25.6 GB of distinct content</span></div>
+      <div class="ratio"><span class="v num">5.4×</span><span class="l">compression and delta encoding: 25.6 GB to 4.75 GB</span></div>
+      <div class="ratio"><span class="v num">~6,100×</span><span class="l">overall: saved history to bytes on disk</span></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Kind of Commit</th><th class="r">Commits</th><th class="r">New content (median)</th><th class="r">Stored (median)</th><th class="r">Stored in total</th></tr></thead>
+        <tbody>
+          <tr><td>File edits<span class="sub">read, write, edit, apply</span></td><td class="r">3,051</td><td class="r">29 KB</td><td class="r">0.9 KB</td><td class="r">0.07 GB</td></tr>
+          <tr><td>Builds and tests<span class="sub">workspace exec, mostly new files in target/</span></td><td class="r">1,195</td><td class="r">9.8 MB</td><td class="r">1.3 MB</td><td class="r">4.68 GB</td></tr>
+          <tr><td>Merges</td><td class="r">67</td><td class="r">188 KB</td><td class="r">16 KB</td><td class="r">0.002 GB</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Builds produced 98.5% of the stored bytes. Each of the 3,051 edits cost under 1 KB on disk at the median, even though every one recorded a 9 GB tree.</p>
+  </section>
+
+  <!-- Speed -->
+  <section aria-labelledby="speed">
+    <div class="lede">
+      <span class="eyebrow">Speed efficiency</span>
+      <h2 id="speed">Fixes made mid-run, and the speed they bought</h2>
+      <p>Two LayerFS runtime switches and a round of dsh-layerfs host fixes happened while the agents kept working. The first switch replaced a debug build of the Docker worker with a release build. The second brought in LayerFS PR #680, which stopped unmount from doing a Commit's leftover cleanup.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Measure</th><th class="r">Before</th><th class="r">After</th><th style="min-width:180px">Change</th></tr></thead>
+        <tbody>
+          <tr><td>Docker Workspace writes, 1 MB blocks<span class="sub">debug → release bundle</span></td><td class="r">32.5 MB/s</td><td class="r">437 MB/s</td><td><div class="delta"><div class="minibar"><i style="width:7.4%"></i></div><span class="gain">13× faster</span></div></td></tr>
+          <tr><td>Commit of 200 MB<span class="sub">debug → release bundle</span></td><td class="r">10.2 s</td><td class="r">0.38 s</td><td><div class="delta"><div class="minibar"><i style="width:3.7%"></i></div><span class="gain">27× faster</span></div></td></tr>
+          <tr><td>Agent file call through the wrapper<span class="sub">Node wrapper → bash wrapper, release</span></td><td class="r">~60 ms</td><td class="r">~24 ms</td><td><div class="delta"><div class="minibar"><i style="width:40%"></i></div><span class="gain">2.5× faster</span></div></td></tr>
+          <tr><td>Unmount after a Commit of 1 s or more<span class="sub">LayerFS PR #680, median</span></td><td class="r">281 ms</td><td class="r">26 ms</td><td><div class="delta"><div class="minibar"><i style="width:9.3%"></i></div><span class="gain">11× faster</span></div></td></tr>
+          <tr><td>Host machine list, <code>/api/machines</code><span class="sub">F15: cached reads, incremental log parse</span></td><td class="r">6.8 s</td><td class="r">33 ms</td><td><div class="delta"><div class="minibar"><i style="width:1%"></i></div><span class="gain">206× faster</span></div></td></tr>
+          <tr><td>Host CLI calls per 10 minutes<span class="sub">F22: slower polling, cached manifests</span></td><td class="r">1,223</td><td class="r">~240</td><td><div class="delta"><div class="minibar"><i style="width:19.6%"></i></div><span class="gain">80% fewer</span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:13px">The bar shows the "after" value as a share of "before". For write throughput it is the "before" value as a share of "after".</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Call, after both switches</th><th class="r">Median</th><th class="r">90th pct</th><th class="r">Calls</th></tr></thead>
+        <tbody>
+          <tr><td><code>workspace mount</code></td><td class="r">7 ms</td><td class="r">16 ms</td><td class="r">1,121</td></tr>
+          <tr><td><code>workspace commit</code></td><td class="r">204 ms</td><td class="r">1.06 s</td><td class="r">1,186</td></tr>
+          <tr><td><code>workspace unmount</code></td><td class="r">14 ms</td><td class="r">35 ms</td><td class="r">1,121</td></tr>
+          <tr><td><code>file read</code></td><td class="r">6 ms</td><td class="r">10 ms</td><td class="r">4,926</td></tr>
+          <tr><td><code>file edit</code></td><td class="r">14 ms</td><td class="r">25 ms</td><td class="r">982</td></tr>
+          <tr><td><code>branch fork</code></td><td class="r">5 ms</td><td class="r">8 ms</td><td class="r">93</td></tr>
+          <tr><td><code>branch merge</code></td><td class="r">263 ms</td><td class="r">479 ms</td><td class="r">67</td></tr>
+          <tr><td><code>branch publish</code><span class="sub">an 11 GB tree, published by reference</span></td><td class="r">7 ms</td><td class="r">11 ms</td><td class="r">39</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">Whole run: 59,331 LayerFS calls, 1.2% refused, and only 35 of 5,312 writes (0.66%) refused because the Store was busy. Still slow: copying a warm <code>target/</code> with <code>file cp</code> takes about a minute (F11).</p>
+  </section>
+
+  <!-- Bugs -->
+  <section aria-labelledby="bugs">
+    <div class="lede">
+      <span class="eyebrow">Bugs found and fixed</span>
+      <h2 id="bugs">24 findings: 13 fixed, 6 worked around, 5 open</h2>
+      <p>Most were found by the run itself, under the load of nine agents. dsh-layerfs fixes were verified on a side server, merged, and loaded with a coordinated restart of 3080. LayerFS fixes went upstream.</p>
+    </div>
+    <div class="legend"><span class="chip fixed">Fixed</span> fixed during the run <span class="chip work">Worked around</span> rule, steer or recovery <span class="chip open">Open</span> still to do</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Where</th><th>What happened</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td class="id">#680</td><td>LayerFS</td><td>Unmount right after a Commit ran that Commit's deferred cleanup, so unmount time grew with Commit size (up to 16 s). Filed as #679, fixed and merged mid-run.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F19</td><td>LayerFS build</td><td>Docker Workspace I/O was about 9× slow: the pinned Linux bundle was a debug build. Replaced with a release build.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F08</td><td>dsh-layerfs host</td><td>The sandbox policy made <code>~/.layerfs/sandbox/</code> read-only for sessions, so agents could not create Sandboxes.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F10</td><td>dsh-layerfs host</td><td>Granting the LayerFS home lock as a file broke every bash call. Reverted to directory grants.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F13</td><td>dsh-layerfs wrapper</td><td>A streamed command that exited non-zero was logged as Unknown, and exit 2 was not logged at all.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F14</td><td>dsh-layerfs UI</td><td>The main agent's Sandbox tab said "Nothing has run here yet" during the run.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F15</td><td>dsh-layerfs host</td><td>The 3080 event loop was blocked by call-log re-parsing and uncached polls. Host CPU went from about 80% to under 15%.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F09</td><td>dsh-layerfs host</td><td>An open project conversation made about 50 CLI calls a minute. Resolved by F15's cached reads.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F16</td><td>dsh-layerfs UI</td><td>The Trajectory tab froze the page for 1.7–2.6 s on every redraw.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F18</td><td>dsh-layerfs host</td><td>A finished subagent's Trajectory said "The conversation log is not loaded".</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F21</td><td>dsh-layerfs host</td><td>A readiness timeout under load interrupted the run's execution, even though its Workspace still answered.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F22</td><td>dsh-layerfs UI and host</td><td>Every open page walked the session archive every 15 s, causing 10–43 s stalls. Host calls fell 80%.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F23</td><td>dsh-layerfs host</td><td>Reconnecting to a still-mounted Workspace left the session without one, so the run stood still for 27 minutes.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F17</td><td>Build harness</td><td>Every cargo build was a full rebuild, because <code>RUSTFLAGS</code> held the mount path.</td><td><span class="chip fixed">Fixed</span></td></tr>
+          <tr><td class="id">F24</td><td>Run</td><td>Nine out-of-memory kills in the 8 GiB Docker VM: seven from the A13 bulk load, two from a recursive query that never ended. Test runs now have memory caps, and both causes were fixed.</td><td><span class="chip work">Worked around</span></td></tr>
+          <tr><td class="id">F20</td><td>Run</td><td>A settings save in the app reloaded the plugin and ended the live run. All work was recovered from Branches.</td><td><span class="chip work">Worked around</span></td></tr>
+          <tr><td class="id">F03</td><td>LayerFS</td><td>Concurrent writes to the Docker Store were sometimes refused with <code>Failed Os NotFound</code>. Agents retry.</td><td><span class="chip work">Worked around</span></td></tr>
+          <tr><td class="id">F01, F02</td><td>Environment</td><td>The Docker Sandbox ignored the image's environment (no Rust on PATH) and had no <code>sqlite3</code>. Fixed with an env script and an in-workspace build.</td><td><span class="chip work">Worked around</span></td></tr>
+          <tr><td class="id">F07</td><td>Agent</td><td>The main agent drafted the skeleton in the local folder and planned to build on the host. Steered, and the skill's introduction changed.</td><td><span class="chip work">Worked around</span></td></tr>
+          <tr><td class="id">F25</td><td>LayerFS</td><td>Stopping an agent's turn leaves its command running in the Sandbox, while <code>workspace status</code> says Idle. Draft issue 06.</td><td><span class="chip open">Open</span></td></tr>
+          <tr><td class="id">F11</td><td>LayerFS</td><td>Copying a warm <code>target/</code> folder with <code>file cp</code> takes about a minute per copy.</td><td><span class="chip open">Open</span></td></tr>
+          <tr><td class="id">F04, F06</td><td>dsh-layerfs UI</td><td>The new-project dialog flips to "Store exists" while creating; the conversation header keeps showing the old folder.</td><td><span class="chip open">Open</span></td></tr>
+          <tr><td class="id">F12</td><td>dsh-layerfs host</td><td>Some host polls are tagged with a worker's session in the call log.</td><td><span class="chip open">Open</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <span>Sources: the operator's run report and fix log (<code>demo/quarry-v2/</code>), Strata's <code>/docs/BUILD-REPORT.md</code> on main, <code>layerfs store stats</code>, every Commit record in <code>qv2-store/qv2-strata</code>, and LayerFS's call log.</span>
+    <span>Runtime <code>2.0.0-8134bc02b50f</code>, LayerFS commit c5e58735bb on <code>layerfs_v2_0_0</code>, release build. dsh-layerfs fixes are on <code>layerfs_v2_0_0</code> at 6a39cb1.</span>
+  </footer>
+</div>
+
+<div class="page" data-lang="zh" lang="zh-CN">
+  <header class="hero">
+    <div class="mark" aria-hidden="true">
+      <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <path d="M88.5 22 L111.5 22 L170 135 L148.5 135 L100 49.5 L51.5 135 L30 135 Z" fill="var(--sky)" stroke="var(--sky)" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M27 161 L57 161 L100 117 L143 161 L173 161" fill="none" stroke="var(--blue)" stroke-width="10.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="100" cy="117" r="15.5" fill="var(--blue)"/>
+        <circle cx="27" cy="161" r="15.5" fill="var(--blue)"/>
+        <circle cx="173" cy="161" r="15.5" fill="var(--blue)"/>
+      </svg>
+    </div>
+    <div class="hero-text">
+      <span class="eyebrow">LayerFS v2 · DeepSeek Harness · 2026 年 11 月 13 日</span>
+      <h1>LayerFS 上的 Quarry v2</h1>
+      <p>九个智能体在同一个 LayerFS 项目中构建了 Strata，一个用 Rust 编写、兼容 SQLite 的数据库。本页介绍这次运行的结果、存储与速度，以及运行中发现并修复的问题。</p>
+      <span class="verdict">21:05 UTC 通过终验 · main Layer 3216799e</span>
+    </div>
+  </header>
+
+  <div class="figures" role="list">
+    <div class="fig" role="listitem"><span class="v num">16<small>/16</small></span><span class="l">验收检查全部通过</span></div>
+    <div class="fig" role="listitem"><span class="v num">1,567</span><span class="l">项测试通过，0 项失败</span></div>
+    <div class="fig" role="listitem"><span class="v num">4.93<small> GB</small></span><span class="l">的 Store 保存了 30.2 TB 的历史</span></div>
+    <div class="fig" role="listitem"><span class="v num">13<small> 小时 </small>22<small> 分钟</small></span><span class="l">从第一步到通过终验</span></div>
+  </div>
+
+  <section aria-labelledby="task-zh">
+    <div class="lede">
+      <span class="eyebrow">任务</span>
+      <h2 id="task-zh">以团队方式构建一个兼容 SQLite 的数据库引擎</h2>
+      <p>一个主智能体和八个 DeepSeek 工作智能体通过 dsh-layerfs，在 3080 端口的 DeepSeek Harness 上协作。所有文件都存放在 LayerFS 项目 <code>qv2-store/qv2-strata</code> 中，其 Store 位于 Docker 机器上。每次 bash 调用都在一个 LayerFS Workspace 中运行：挂载、执行、提交、卸载。只有当 SPEC 的终验在 main 的全新分叉上成立时，运行才算结束。</p>
+    </div>
+    <div class="cols">
+      <div class="panel">
+        <h3>团队如何协作</h3>
+        <ul class="plain">
+          <li>4 条泳道（前端、虚拟机、存储、工具），每条 2 个工作智能体；主智能体负责共享契约并进行集成。</li>
+          <li>每条泳道在自己的 Branch 上工作；主智能体在集成链上合并各泳道，再发布到 main。</li>
+          <li>一个操作员会话每 10–15 分钟检查一次运行（共 60 次），在运行停滞时进行引导。</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>“完成”的标准（SPEC §9）</h3>
+        <ul class="plain">
+          <li>fmt、带 <code>-D warnings</code> 的 clippy 和 <code>cargo test</code> 全部以 0 退出，且测试不少于 1,500 项。</li>
+          <li>语料库中的每条记录都与 SQLite 3.40.1 自身给出的结果一致。</li>
+          <li>A01 至 A16 全部 16 项验收检查都对照参考 <code>sqlite3</code> 通过。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="built-zh">
+    <div class="lede">
+      <span class="eyebrow">构建成果</span>
+      <h2 id="built-zh">Strata：15 个 crate，约 87,000 行 Rust</h2>
+      <p>真正的 B 树分页器，支持回滚日志和 WAL；SQLite 格式的 schema；输出与 <code>sqlite3</code> 逐字节一致的命令行；以及一个包含 3,166 条记录的语料库，其预期结果全部来自 SQLite 本身。</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>领域</th><th>Crate</th><th>泳道</th><th>功能</th></tr></thead>
+        <tbody>
+          <tr><td>契约</td><td class="mono">strata-types</td><td>主智能体</td><td>值、AST、计划 IR、操作码、存储 trait 及其内存实现</td></tr>
+          <tr><td>前端</td><td class="mono">parser, sema, planner</td><td>F1、F2</td><td>完整的 SQLite 3.40 语法及精确的报错文本；从 <code>sqlite_schema</code> 重建目录；基于 <code>sqlite_stat1</code> 的代价优化器</td></tr>
+          <tr><td>执行</td><td class="mono">codegen, vm, func</td><td>V1、V2</td><td>为所有语句生成字节码；窗口函数与 upsert；可溢写到磁盘的排序器；与 SQLite 逐字节一致的 JSON1</td></tr>
+          <tr><td>存储</td><td class="mono">btree, pager, wal</td><td>S1、S2</td><td>SQLite 页面格式；比逐行插入快 55 倍的批量加载器；回滚日志与 WAL；POSIX 锁；kill -9 后恢复</td></tr>
+          <tr><td>工具</td><td class="mono">strata, cli, gen, slt, accept</td><td>T1、T2</td><td>带语句缓存的连接 API、命令行、TPC-H 数据生成器、语料库运行器、16 项验收检查</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="checks">
+      <div class="check"><b>A01 <span>通过</span></b><div>对照 SQLite 3.40.1，语料库 3,166 / 3,166</div></div>
+      <div class="check"><b>A02 <span>通过</span></b><div>5,000 条生成的查询与 sqlite3 一致</div></div>
+      <div class="check"><b>A03 <span>通过</span></b><div>读取 sqlite3 写入的文件：页面、溢出页、空闲列表</div></div>
+      <div class="check"><b>A04 <span>通过</span></b><div>4 组工作负载；sqlite3 integrity_check 通过</div></div>
+      <div class="check"><b>A05 <span>通过</span></b><div>恢复被强制终止的 sqlite3 的 WAL；检查点</div></div>
+      <div class="check"><b>A06 <span>通过</span></b><div>两种日志模式下 20 次 kill -9，完整性通过</div></div>
+      <div class="check"><b>A07 <span>通过</span></b><div>与 sqlite3 双向加锁</div></div>
+      <div class="check"><b>A08 <span>通过</span></b><div>延迟外键与嵌套触发器，5 个场景</div></div>
+      <div class="check"><b>A09 <span>通过</span></b><div>199 个类型亲和性探针和 15 条 STRICT 语句</div></div>
+      <div class="check"><b>A10 <span>通过</span></b><div>62 个函数与聚合探针</div></div>
+      <div class="check"><b>A11 <span>通过</span></b><div>窗口函数与递归 CTE</div></div>
+      <div class="check"><b>A12 <span>通过</span></b><div>100 万行：索引比全表扫描快 81 倍</div></div>
+      <div class="check"><b>A13 <span>通过</span></b><div>8 条 TPC-H 风格查询均低于 10 秒；峰值 449 MiB</div></div>
+      <div class="check"><b>A14 <span>通过</span></b><div>200 万行排序和分组，峰值 57 MiB</div></div>
+      <div class="check"><b>A15 <span>通过</span></b><div>schema 变更；VACUUM 后文件只剩 5.3%</div></div>
+      <div class="check"><b>A16 <span>通过</span></b><div>10 种命令行模式与 sqlite3 逐字节一致</div></div>
+    </div>
+    <p class="muted">运行报告中已披露：A13 部分得益于团队在自己的 TPC-H schema 中加入的二级索引；TEMP 表保存在内存中；A11 的测试框架现在向两个引擎提供完全相同的输入。在接受这次结果之前，操作员退回了两次较早的“完成”声明。</p>
+  </section>
+
+  <section aria-labelledby="storage-zh">
+    <div class="lede">
+      <span class="eyebrow">存储效率</span>
+      <h2 id="storage-zh">4.93 GB 的文件保存了 30.2 TB 的历史</h2>
+      <p>每次 Commit 都记录整个项目树，大约 9 GB，其中包括构建目录。LayerFS 对每份不同的内容只保存一次，再进行压缩和增量编码。整个运行的历史最终比最终代码树的一次检出还要小。</p>
+    </div>
+    <figure class="chart" style="margin:0">
+      <div class="bars">
+        <div class="bar-row"><div class="name">所有保存的树合计<small>211 个 Branch 上的 4,354 次 Commit</small></div><div class="track"><div class="fill" style="width:89.6%"></div></div><div class="val num">30.2 TB</div></div>
+        <div class="bar-row"><div class="name">不重复的内容<small>去重之后</small></div><div class="track"><div class="fill" style="width:28.2%"></div></div><div class="val num">25.6 GB</div></div>
+        <div class="bar-row"><div class="name">main 上的最终树<small>一次检出，8,007 个文件</small></div><div class="track"><div class="fill" style="width:21.1%"></div></div><div class="val num">11.4 GB</div></div>
+        <div class="bar-row"><div class="name">磁盘上的 Store 文件<small>SQLite，无空闲页</small></div><div class="track"><div class="fill deep" style="width:13.9%"></div></div><div class="val num">4.93 GB</div></div>
+        <div class="bar-row"><div class="name">实际存储的内容<small>压缩和增量编码之后</small></div><div class="track"><div class="fill deep" style="width:13.5%"></div></div><div class="val num">4.75 GB</div></div>
+      </div>
+      <div class="axis" aria-hidden="true"><span></span><div class="ticks"><span>1 GB</span><span>10 GB</span><span>100 GB</span><span>1 TB</span><span>10 TB</span><span>100 TB</span></div><span></span></div>
+      <figcaption class="muted" style="font-size:13px">对数刻度：每条网格线是前一条的十倍。来源：<code>layerfs store stats qv2-store</code> 以及项目中的每条 Commit 记录。</figcaption>
+    </figure>
+    <div class="ratios">
+      <div class="ratio"><span class="v num">1,179×</span><span class="l">去重：30.2 TB 的树变为 25.6 GB 的不重复内容</span></div>
+      <div class="ratio"><span class="v num">5.4×</span><span class="l">压缩与增量编码：25.6 GB 变为 4.75 GB</span></div>
+      <div class="ratio"><span class="v num">约 6,100×</span><span class="l">总体：从保存的历史到磁盘上的字节</span></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Commit 类型</th><th class="r">Commit 数</th><th class="r">新增内容（中位数）</th><th class="r">存储量（中位数）</th><th class="r">存储总量</th></tr></thead>
+        <tbody>
+          <tr><td>文件编辑<span class="sub">read、write、edit、apply</span></td><td class="r">3,051</td><td class="r">29 KB</td><td class="r">0.9 KB</td><td class="r">0.07 GB</td></tr>
+          <tr><td>构建与测试<span class="sub">workspace exec，主要是 target/ 中的新文件</span></td><td class="r">1,195</td><td class="r">9.8 MB</td><td class="r">1.3 MB</td><td class="r">4.68 GB</td></tr>
+          <tr><td>合并</td><td class="r">67</td><td class="r">188 KB</td><td class="r">16 KB</td><td class="r">0.002 GB</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">构建产生了 98.5% 的存储字节。3,051 次编辑在磁盘上的中位成本都不到 1 KB，尽管每一次都记录了一棵 9 GB 的树。</p>
+  </section>
+
+  <section aria-labelledby="speed-zh">
+    <div class="lede">
+      <span class="eyebrow">速度效率</span>
+      <h2 id="speed-zh">运行中途的修复及其带来的提速</h2>
+      <p>在智能体持续工作的同时，进行了两次 LayerFS 运行时切换和一轮 dsh-layerfs 主机端修复。第一次切换用发布版构建替换了 Docker worker 的调试版构建。第二次引入了 LayerFS PR #680，让卸载不再执行 Commit 遗留的清理工作。</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>指标</th><th class="r">之前</th><th class="r">之后</th><th style="min-width:180px">变化</th></tr></thead>
+        <tbody>
+          <tr><td>Docker Workspace 写入，1 MB 块<span class="sub">调试版 → 发布版 bundle</span></td><td class="r">32.5 MB/s</td><td class="r">437 MB/s</td><td><div class="delta"><div class="minibar"><i style="width:7.4%"></i></div><span class="gain">快 13 倍</span></div></td></tr>
+          <tr><td>200 MB 的 Commit<span class="sub">调试版 → 发布版 bundle</span></td><td class="r">10.2 s</td><td class="r">0.38 s</td><td><div class="delta"><div class="minibar"><i style="width:3.7%"></i></div><span class="gain">快 27 倍</span></div></td></tr>
+          <tr><td>通过包装器的智能体文件调用<span class="sub">Node 包装器 → bash 包装器，发布版</span></td><td class="r">~60 ms</td><td class="r">~24 ms</td><td><div class="delta"><div class="minibar"><i style="width:40%"></i></div><span class="gain">快 2.5 倍</span></div></td></tr>
+          <tr><td>1 秒以上 Commit 之后的卸载<span class="sub">LayerFS PR #680，中位数</span></td><td class="r">281 ms</td><td class="r">26 ms</td><td><div class="delta"><div class="minibar"><i style="width:9.3%"></i></div><span class="gain">快 11 倍</span></div></td></tr>
+          <tr><td>主机机器列表 <code>/api/machines</code><span class="sub">F15：缓存读取、增量解析日志</span></td><td class="r">6.8 s</td><td class="r">33 ms</td><td><div class="delta"><div class="minibar"><i style="width:1%"></i></div><span class="gain">快 206 倍</span></div></td></tr>
+          <tr><td>每 10 分钟的主机 CLI 调用<span class="sub">F22：降低轮询频率、缓存清单</span></td><td class="r">1,223</td><td class="r">~240</td><td><div class="delta"><div class="minibar"><i style="width:19.6%"></i></div><span class="gain">减少 80%</span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:13px">条形表示“之后”占“之前”的比例；写入吞吐量一行则是“之前”占“之后”的比例。</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>调用（两次切换之后）</th><th class="r">中位数</th><th class="r">第 90 百分位</th><th class="r">调用次数</th></tr></thead>
+        <tbody>
+          <tr><td><code>workspace mount</code></td><td class="r">7 ms</td><td class="r">16 ms</td><td class="r">1,121</td></tr>
+          <tr><td><code>workspace commit</code></td><td class="r">204 ms</td><td class="r">1.06 s</td><td class="r">1,186</td></tr>
+          <tr><td><code>workspace unmount</code></td><td class="r">14 ms</td><td class="r">35 ms</td><td class="r">1,121</td></tr>
+          <tr><td><code>file read</code></td><td class="r">6 ms</td><td class="r">10 ms</td><td class="r">4,926</td></tr>
+          <tr><td><code>file edit</code></td><td class="r">14 ms</td><td class="r">25 ms</td><td class="r">982</td></tr>
+          <tr><td><code>branch fork</code></td><td class="r">5 ms</td><td class="r">8 ms</td><td class="r">93</td></tr>
+          <tr><td><code>branch merge</code></td><td class="r">263 ms</td><td class="r">479 ms</td><td class="r">67</td></tr>
+          <tr><td><code>branch publish</code><span class="sub">一棵 11 GB 的树，按引用发布</span></td><td class="r">7 ms</td><td class="r">11 ms</td><td class="r">39</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">整个运行：59,331 次 LayerFS 调用，1.2% 被拒绝；5,312 次写入中只有 35 次（0.66%）因 Store 繁忙被拒绝。仍然较慢的是：用 <code>file cp</code> 复制已预热的 <code>target/</code> 大约需要一分钟（F11）。</p>
+  </section>
+
+  <section aria-labelledby="bugs-zh">
+    <div class="lede">
+      <span class="eyebrow">发现并修复的问题</span>
+      <h2 id="bugs-zh">24 项发现：13 项已修复，6 项已规避，5 项待处理</h2>
+      <p>大多数问题是在九个智能体的负载下由运行本身暴露出来的。dsh-layerfs 的修复先在旁路服务器上验证，再合并，并通过协调重启 3080 加载。LayerFS 的修复则提交到了上游。</p>
+    </div>
+    <div class="legend"><span class="chip fixed">已修复</span> 运行期间修复 <span class="chip work">已规避</span> 规则、引导或恢复 <span class="chip open">待处理</span> 仍需处理</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>编号</th><th>位置</th><th>发生了什么</th><th>状态</th></tr></thead>
+        <tbody>
+          <tr><td class="id">#680</td><td>LayerFS</td><td>Commit 之后立即卸载会执行该 Commit 推迟的清理，导致卸载时间随 Commit 大小增长（最长 16 秒）。已提交为 #679，并在运行中途修复合并。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F19</td><td>LayerFS 构建</td><td>Docker Workspace 的 I/O 慢了约 9 倍：固定使用的 Linux bundle 是调试版构建。已替换为发布版。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F08</td><td>dsh-layerfs 主机</td><td>沙箱策略使会话中的 <code>~/.layerfs/sandbox/</code> 变为只读，智能体因此无法创建 Sandbox。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F09</td><td>dsh-layerfs 主机</td><td>打开的项目会话每分钟发起约 50 次 CLI 调用。已由 F15 的缓存读取解决。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F10</td><td>dsh-layerfs 主机</td><td>以文件形式授予 LayerFS 主目录锁，导致所有 bash 调用失败。已恢复为目录授权。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F13</td><td>dsh-layerfs 包装器</td><td>以非零状态退出的流式命令被记为 Unknown，退出码 2 则完全没有记录。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F14</td><td>dsh-layerfs 界面</td><td>主智能体的 Sandbox 标签页在运行期间显示“这里还没有运行过任何内容”。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F15</td><td>dsh-layerfs 主机</td><td>3080 的事件循环被调用日志的反复解析和未缓存的轮询阻塞。主机 CPU 从约 80% 降到 15% 以下。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F16</td><td>dsh-layerfs 界面</td><td>Trajectory 标签页每次重绘都会让页面卡住 1.7–2.6 秒。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F18</td><td>dsh-layerfs 主机</td><td>已完成的子智能体的 Trajectory 显示“会话日志未加载”。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F21</td><td>dsh-layerfs 主机</td><td>负载下的一次就绪检查超时中断了运行，尽管它的 Workspace 仍有响应。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F22</td><td>dsh-layerfs 界面与主机</td><td>每个打开的页面每 15 秒遍历一次会话归档，造成 10–43 秒的停顿。主机调用减少了 80%。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F23</td><td>dsh-layerfs 主机</td><td>重新连接到仍处于挂载状态的 Workspace 时，会话丢失了 Workspace，运行因此停滞了 27 分钟。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F17</td><td>构建脚本</td><td>每次 cargo 构建都是完整重建，因为 <code>RUSTFLAGS</code> 中包含挂载路径。</td><td><span class="chip fixed">已修复</span></td></tr>
+          <tr><td class="id">F24</td><td>运行</td><td>8 GiB 的 Docker 虚拟机中发生了 9 次内存不足终止：7 次来自 A13 的批量加载，2 次来自一个永不结束的递归查询。测试运行现在有内存上限，两个根因也都已修复。</td><td><span class="chip work">已规避</span></td></tr>
+          <tr><td class="id">F20</td><td>运行</td><td>应用中的一次设置保存重新加载了插件，终止了正在进行的运行。所有工作都从 Branch 中恢复。</td><td><span class="chip work">已规避</span></td></tr>
+          <tr><td class="id">F03</td><td>LayerFS</td><td>对 Docker Store 的并发写入有时会以 <code>Failed Os NotFound</code> 被拒绝。智能体会重试。</td><td><span class="chip work">已规避</span></td></tr>
+          <tr><td class="id">F01, F02</td><td>环境</td><td>Docker Sandbox 忽略了镜像的环境变量（PATH 中没有 Rust），也没有 <code>sqlite3</code>。通过环境脚本和在工作区内构建解决。</td><td><span class="chip work">已规避</span></td></tr>
+          <tr><td class="id">F07</td><td>智能体</td><td>主智能体在本地文件夹中起草了骨架，并计划在主机上构建。经引导后修正，技能说明也已更新。</td><td><span class="chip work">已规避</span></td></tr>
+          <tr><td class="id">F25</td><td>LayerFS</td><td>停止智能体的回合后，它的命令仍在 Sandbox 中运行，而 <code>workspace status</code> 显示为空闲。已草拟为问题 06。</td><td><span class="chip open">待处理</span></td></tr>
+          <tr><td class="id">F11</td><td>LayerFS</td><td>用 <code>file cp</code> 复制已预热的 <code>target/</code> 目录，每次约需一分钟。</td><td><span class="chip open">待处理</span></td></tr>
+          <tr><td class="id">F04, F06</td><td>dsh-layerfs 界面</td><td>新建项目对话框在创建过程中会跳到“Store 已存在”；会话标题仍显示旧的文件夹。</td><td><span class="chip open">待处理</span></td></tr>
+          <tr><td class="id">F12</td><td>dsh-layerfs 主机</td><td>调用日志中部分主机轮询被标记为某个工作智能体的会话。</td><td><span class="chip open">待处理</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <span>来源：操作员的运行报告和修复日志（<code>demo/quarry-v2/</code>）、main 上 Strata 的 <code>/docs/BUILD-REPORT.md</code>、<code>layerfs store stats</code>、<code>qv2-store/qv2-strata</code> 中的每条 Commit 记录，以及 LayerFS 的调用日志。</span>
+    <span>运行时 <code>2.0.0-8134bc02b50f</code>，LayerFS 提交 c5e58735bb（<code>layerfs_v2_0_0</code>），发布版构建。dsh-layerfs 的修复位于 <code>layerfs_v2_0_0</code> 的 6a39cb1。</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var pages = document.querySelectorAll('.page[data-lang]');
+  var buttons = document.querySelectorAll('.lang button');
+  function show(lang) {
+    pages.forEach(function (p) { p.hidden = p.getAttribute('data-lang') !== lang; });
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-set') === lang)); });
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    try { localStorage.setItem('qv2-report-lang-v2', lang); } catch (e) {}
+  }
+  function fromHash() { return location.hash === '#zh' ? 'zh' : location.hash === '#en' ? 'en' : null; }
+  var start = fromHash();
+  if (!start) {
+    try { start = localStorage.getItem('qv2-report-lang-v2'); } catch (e) {}
+  }
+  if (start !== 'zh' && start !== 'en') start = 'zh';
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var lang = b.getAttribute('data-set');
+      show(lang);
+      try { history.replaceState(null, '', '#' + lang); } catch (e) {}
+    });
+  });
+  window.addEventListener('hashchange', function () { var l = fromHash(); if (l) show(l); });
+  show(start);
+})();
+</script>

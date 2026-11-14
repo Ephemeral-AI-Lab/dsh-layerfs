@@ -1,0 +1,11 @@
+{
+    "name": "qv2-store",
+    "kind": "sqlite",
+    "history_logical": 30207062652255,
+    "canonical": 25622518617,
+    "stored": 4754953132,
+    "metadata": 260310812,
+    "file": 4927545344,
+    "free": 0,
+    "init": null
+}
