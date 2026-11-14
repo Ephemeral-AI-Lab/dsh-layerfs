@@ -16,7 +16,9 @@ import {
   RANK, downReason, gib, machineOrder, machineState, runtimeOf,
   type AvailableView, type MachineInfo,
 } from './model.ts'
+import { machineBlock, nativeGlyphOs, nativeNameKey, osOfView, type Readiness } from './needs.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
+import { Blocked } from './Readiness.tsx'
 import css from './machines.module.css'
 
 /** Rows each list shows on this tab before "Show all". */
@@ -79,11 +81,19 @@ export function Board({ go }: { go: (view: View) => void }): ReactNode {
   )
 }
 
-/** How much a machine needs you: failed, missing or unresolved (danger); stopped while it holds Stores (warning). */
+/** How much a machine needs you: failed, missing or unresolved (danger); its platform not ready here, or stopped while it holds Stores (warning). */
 export function attentionOf(m: MachineInfo, view: AvailableView): 'danger' | 'warning' | null {
+  // a machine that cannot run here is a fix to make, not a failure; its record may still say failed or unreachable
+  if (blockedOf(m, view)) return 'warning'
   if (machineState(m, view.status[m.name]).key === 'needs') return 'danger'
   return m.state === 'stopped' && m.stores.length > 0 ? 'warning' : null
 }
+
+/** What keeps `m` from running here (needs.ts machineBlock). */
+export const blockedOf = (m: MachineInfo, view: AvailableView): Readiness | null => machineBlock(m, view)
+
+/** The machine's mark: the native machine's is this computer's OS. */
+export const glyphOs = (m: MachineInfo, view: AvailableView) => (m.platform === 'native' ? nativeGlyphOs(osOfView(view)) : undefined)
 
 /** A machine's free disk in words, with a meter when its size is known. */
 export function DiskLine({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
@@ -110,6 +120,7 @@ function MachineBlock({ m, view, onOpen }: { m: MachineInfo, view: AvailableView
   const startingNow = startup?.status === 'running'
   const reason = startingNow ? null : downReason(m, live)
   const attention = startingNow ? null : attentionOf(m, view)
+  const block = startingNow ? null : blockedOf(m, view)
   const { run, pending: localPending, error } = useMachineRun()
   const pending = localPending ?? (startingNow ? startup.kind : null)
   const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
@@ -118,20 +129,21 @@ function MachineBlock({ m, view, onOpen }: { m: MachineInfo, view: AvailableView
     <Card tone={attention === 'danger' ? 'danger' : undefined} className={css.block} data-machine={m.name} aria-label={name}>
       <header className={css.blockHead}>
         <span className={css.blockIdentity}>
-          <span className={css.blockGlyph} aria-hidden="true"><MachineGlyph platform={m.platform} os={m.backend === 'namespaces' ? 'linux' : m.backend == null ? 'pc' : undefined} size={16} /></span>
+          <span className={css.blockGlyph} aria-hidden="true"><MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={16} /></span>
           <span className={css.blockNames}>
             <button type="button" className={css.blockName} onClick={onOpen} title={t('openMachine', { name })}>{name}</button>
             <span className={css.blockSub}>{kind(m.platform)} · {tw(runtimeOf(m))}</span>
           </span>
         </span>
-        <MachineStateChip m={m} live={live} pending={pending} />
+        <MachineStateChip m={m} live={live} pending={pending} blocked={!!block} />
         <DiskLine m={m} view={view} />
         <span className={css.blockActions}>
-          {m.platform === 'native' ? <span className={css.muted}>{t('thisComputer')}</span> : <PowerButton m={m} pending={pending} run={run} />}
+          {m.platform === 'native' ? <span className={css.muted}>{t(nativeNameKey(osOfView(view)))}</span> : block ? null : <PowerButton m={m} pending={pending} run={run} />}
           <MachineMenu m={m} pending={pending} run={run} onOpen={onOpen} onDialog={setDialog} />
         </span>
       </header>
-      {(reason || attention === 'danger') && (
+      {block && <Blocked m={m} block={block} />}
+      {!block && (reason || attention === 'danger') && (
         <div className={css.blockReason}>
           <span className={css.blockReasonText} title={reason ?? undefined}>{reason ?? t('needsInspect', { state: t(machineState(m, live).label ?? 'stateUnknown') })}</span>
           {attention === 'danger' && <DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} />}

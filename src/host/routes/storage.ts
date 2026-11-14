@@ -43,6 +43,7 @@ import { basename, dirname, join } from 'node:path'
 import { execute } from '../layerfs/cli.ts'
 import { BackupMarks, historyFingerprint, remoteOnly, settleRemote } from './backup-heads.ts'
 import { JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
+import { computer } from './computer.ts'
 import { refuse, wire, type RouteHost } from './util.ts'
 
 /** Finished jobs kept in the table. */
@@ -322,6 +323,8 @@ export class Storage {
     })
     const view = {
       machines: (machines.machines ?? []).map((m: any) => ({ name: m.name, platform: m.platform, state: m.state ?? null, supports: m.supports ?? null })),
+      // this computer (the native machine): its OS names it
+      computer: computer(),
       stores,
       // store.attach in the pinned CLI: without it a PostgreSQL Store runs on native only
       features: { attach: await this.attachSupported() },

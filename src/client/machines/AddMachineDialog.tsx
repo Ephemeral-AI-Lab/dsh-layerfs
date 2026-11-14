@@ -1,83 +1,143 @@
 /**
- * Add a machine: one row per platform this host has (machine.platforms,
- * ssh and Firecracker left out by the host), with its tool's version or what
- * it misses. A ready `created` platform opens its Create form in its row; a
- * built-in (native, docker) needs none — it is detected, so its row shows
- * "Built in" with its machine's state. A missing
- * tool shows how to install it. A form shows only the options its platform
- * declares and checks itself before it is sent. The dialog stays open while
- * Create runs.
+ * Add a machine: one row per platform LayerFS knows on this computer
+ * (machine.platforms, ssh and Firecracker left out by the host), each at its
+ * step of the readiness ladder (needs.ts). Ready: a built-in (native, docker)
+ * shows "Built in" with its machine's state, a VM shows Create and opens its
+ * form in its row. Not ready: the step's tag and one button (Install, Set up,
+ * Start, Get runtime) that opens what to do for this OS, commands to copy,
+ * and Check again, which probes anew. Platforms this computer can never run
+ * fold under "Not available on this computer" with the reason; when nothing
+ * else is left (Windows today) the dialog says so plainly. The native row is
+ * this computer, named for its OS. The dialog stays open while Create runs.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, IconChevronDownOutlineRegular, IconWarningOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CopyLine, Field, MenuSelect, Refusal } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import {
-  blurbKey, declares, emptyVm, freeMachineName, installHelp, needWords, parseSize, vmErrors, VM_KINDS,
+  blurbKey, declares, emptyVm, freeMachineName, parseSize, vmErrors, VM_KINDS,
   type AvailableView, type FormErrors, type MachinePlatformInfo, type VmForm,
 } from './model.ts'
+import { STEP_WORDS, nativeGlyphOs, nativeNameKey, osOfView, readinessOf, shortVersion, type HostOs, type Readiness } from './needs.ts'
+import { FixPanel } from './Readiness.tsx'
 import { MachineProgress, MachineStateChip, useInspect } from './parts.tsx'
 import css from './machines.module.css'
 
 export function AddMachineDialog({ view, platforms, onClose, onMade }: { view: AvailableView, platforms: MachinePlatformInfo[], onClose: () => void, onMade: (name: string) => void }): ReactNode {
-  const { t, tw, kind } = useMachinesContext()
+  const { t, tw } = useMachinesContext()
   const [form, setForm] = useState<string | null>(null)
   const [help, setHelp] = useState<string | null>(null)
+  const [away, setAway] = useState(false)
   const [busy, setBusy] = useState(false)
+  const os = osOfView(view)
+  const rows = platforms.map((p) => ({ p, r: readinessOf(p, os, view.layerfs) }))
+  const here = rows.filter((x) => x.r.step !== 'unsupported')
+  const elsewhere = rows.filter((x) => x.r.step === 'unsupported')
+  const row = ({ p, r }: { p: MachinePlatformInfo, r: Readiness }) => (
+    <PlatformRow key={p.platform} p={p} r={r} os={os} view={view} busy={busy}
+      form={form === p.platform} onForm={(open) => setForm(open ? p.platform : null)}
+      help={help === p.platform} onHelp={(open) => setHelp(open ? p.platform : null)}
+      onBusy={setBusy} onMade={(name) => { setBusy(false); onClose(); onMade(name) }} />
+  )
   return (
     <Modal open onClose={() => { if (!busy) onClose() }} title={t('addTitle')} description={t('addBody')} closeLabel={t('close')} className={css.wideDialog} contentClassName={css.dialogContent}>
       {platforms.length === 0
         ? <p className={css.muted}>{t('addNone')}</p>
-        : (
-          <div className={css.platforms}>
-            {platforms.map((p) => {
-              const tool = installHelp(p.missing, view.layerfs, p.platform)
-              const expanded = form === p.platform
-              const blurb = blurbKey(p.platform)
-              return (
-                <div key={p.platform} className={css.platform} data-open={expanded || undefined}>
-                  <div className={css.platformRow}>
-                    <span className={css.kindTile} aria-hidden="true"><MachineGlyph platform={p.platform} os={p.kernel === 'fuse' ? 'linux' : p.kernel == null ? 'pc' : undefined} size={16} /></span>
-                    <div className={css.platformText}>
-                      <span className={css.platformName}>{kind(p.platform)}</span>
-                      {p.ready
-                        ? <span className={css.platformSub} title={p.description || undefined}>{blurb ? `${t(blurb)} · ` : p.description ? `${p.description} · ` : ''}{p.version ?? t('ready')}</span>
-                        : (
-                          <span className={css.platformMissing}>
-                            <IconWarningOutlineRegular size={12} aria-hidden="true" />
-                            <span>{p.missing.map((n) => tw(needWords(n, p.platform))).join(' · ')}</span>
-                          </span>
-                        )}
-                    </div>
-                    {p.how !== 'created' && p.ready
-                      ? <BuiltInMark view={view} platform={p.platform} />
-                      : p.ready
-                      ? <Button size="sm" variant={expanded ? 'ghost' : 'outline'} disabled={busy} aria-expanded={expanded} onClick={() => setForm(expanded ? null : p.platform)}>{t('create')}</Button>
-                      : tool
-                        ? (
-                          <Button size="sm" variant="ghost" aria-expanded={help === p.platform} onClick={() => setHelp(help === p.platform ? null : p.platform)}>
-                            {t(tool.label)}<IconChevronDownOutlineRegular size={12} className={help === p.platform ? css.flip : undefined} />
-                          </Button>
-                        )
-                        : null}
+        : here.length === 0
+          ? <NoneHere os={os} />
+          : <div className={css.platforms}>{here.map(row)}</div>}
+      {elsewhere.length > 0 && (
+        <div className={css.elsewhere}>
+          <button type="button" className={css.elsewhereToggle} aria-expanded={away} onClick={() => setAway(!away)}>
+            {away ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronRightOutlineRegular size={12} />}
+            {t('unavailableHere', { n: String(elsewhere.length) })}
+          </button>
+          {away && (
+            <div className={css.elsewhereList}>
+              {elsewhere.map(({ p, r }) => (
+                <div key={p.platform} className={css.platformRow} data-platform={p.platform}>
+                  <span className={css.kindTile} aria-hidden="true"><MachineGlyph platform={p.platform} os={p.platform === 'native' ? nativeGlyphOs(os) : undefined} size={16} mono /></span>
+                  <div className={css.platformText}>
+                    <span className={css.platformName}><PlatformName platform={p.platform} os={os} /></span>
+                    <span className={css.platformSub}>{r.fixes[0] ? tw(r.fixes[0].why) : null}</span>
                   </div>
-                  {!p.ready && tool && help === p.platform && (
-                    <div className={css.platformHelp}>
-                      <p>{tw(tool.words)}</p>
-                      {tool.commands.map((line) => <CopyLine key={line} text={line} copyLabel={t('copy')} copiedLabel={t('copied')} />)}
-                      <p className={css.muted}>{t('thenRefresh')}</p>
-                    </div>
-                  )}
-                  {expanded && p.ready && (VM_KINDS as readonly string[]).includes(p.platform) && (
-                    <VmForm kind={p.platform} view={view} onBusy={setBusy} onCancel={() => setForm(null)} onDone={(name) => { setBusy(false); onClose(); onMade(name) }} />
-                  )}
                 </div>
-              )
-            })}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
+  )
+}
+
+/** A platform's name: the native machine is this computer (This Mac, This computer, This PC). */
+function PlatformName({ platform, os }: { platform: string, os: HostOs }): ReactNode {
+  const { t, kind } = useMachinesContext()
+  return <>{platform === 'native' ? t(nativeNameKey(os)) : kind(platform)}</>
+}
+
+/** The native machine's line: the OS release, its architecture, and how its Sandboxes run. */
+function nativeLine(view: AvailableView, os: HostOs, t: ReturnType<typeof useMachinesContext>['t']): string {
+  const c = view.computer
+  return [c?.name, c?.arch, t(os === 'linux' ? 'nativeSandboxed' : 'nativeUnisolated')].filter(Boolean).join(' · ')
+}
+
+function PlatformRow({ p, r, os, view, busy, form, onForm, help, onHelp, onBusy, onMade }: {
+  p: MachinePlatformInfo, r: Readiness, os: HostOs, view: AvailableView, busy: boolean
+  form: boolean, onForm: (open: boolean) => void, help: boolean, onHelp: (open: boolean) => void
+  onBusy: (busy: boolean) => void, onMade: (name: string) => void
+}): ReactNode {
+  const { t, tw } = useMachinesContext()
+  const blurb = blurbKey(p.platform)
+  const ready = r.step === 'ready'
+  const step = r.step === 'ready' || r.step === 'unsupported' ? null : STEP_WORDS[r.step]
+  const sub = !ready
+    ? r.fixes.filter((f) => f.step === r.step).map((f) => tw(f.why)).join(' · ')
+    : p.platform === 'native'
+      ? nativeLine(view, os, t)
+      : [blurb ? t(blurb) : p.description || null, shortVersion(p.version) ?? t('ready')].filter(Boolean).join(' · ')
+  return (
+    <div className={css.platform} data-open={form || help || undefined} data-platform={p.platform} data-step={r.step}>
+      <div className={css.platformRow}>
+        <span className={css.kindTile} aria-hidden="true"><MachineGlyph platform={p.platform} os={p.platform === 'native' ? nativeGlyphOs(os) : undefined} size={16} /></span>
+        <div className={css.platformText}>
+          <span className={css.platformName}><PlatformName platform={p.platform} os={os} /></span>
+          <span className={css.platformSub} title={ready ? p.version ?? p.description ?? undefined : undefined}>{sub}</span>
+        </div>
+        {ready && p.how !== 'created'
+          ? <BuiltInMark view={view} platform={p.platform} />
+          : ready
+            ? <Button size="sm" variant={form ? 'ghost' : 'outline'} disabled={busy} aria-expanded={form} onClick={() => onForm(!form)}>{t('create')}</Button>
+            : step && (
+              <span className={css.platformMark}>
+                <span className={css.tag}>{t(step.tag)}</span>
+                <Button size="sm" variant="outline" aria-expanded={help} onClick={() => onHelp(!help)}>
+                  {t(step.button)}<IconChevronDownOutlineRegular size={12} className={help ? css.flip : undefined} />
+                </Button>
+              </span>
+            )}
+      </div>
+      {help && !ready && <FixPanel fixes={r.fixes} />}
+      {form && ready && (VM_KINDS as readonly string[]).includes(p.platform) && (
+        <VmForm kind={p.platform} view={view} onBusy={onBusy} onCancel={() => onForm(false)} onDone={onMade} />
+      )}
+    </div>
+  )
+}
+
+/** Nothing can run on this computer (Windows today): say so, and where LayerFS does run. */
+function NoneHere({ os }: { os: HostOs }): ReactNode {
+  const { t } = useMachinesContext()
+  const windows = os === 'windows'
+  return (
+    <div className={css.noneHere} role="status">
+      <p className={css.platformName}>{t(windows ? 'noneHereTitle' : 'noneHereOtherTitle')}</p>
+      <p>{t(windows ? 'noneHereBody' : 'noneHereOtherBody')}</p>
+      {windows && <CopyLine text="wsl --install -d Ubuntu" copyLabel={t('copy')} copiedLabel={t('copied')} />}
+      {windows && <a href="https://learn.microsoft.com/windows/wsl/install" target="_blank" rel="noreferrer" className={css.fixLink}>{t('wslGuide')}</a>}
+    </div>
   )
 }
 

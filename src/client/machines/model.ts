@@ -126,8 +126,18 @@ export interface CliFeatures {
   imageArchive: boolean
 }
 
+/** The computer this host runs on (the native machine): its OS names and marks it. */
+export interface Computer {
+  os: 'macos' | 'linux' | 'windows' | 'other'
+  /** The OS release in words (macOS 15.4, Ubuntu 24.04.1 LTS), or null. */
+  name: string | null
+  arch: string
+}
+
 export interface AvailableView {
   available: true
+  /** Absent from an older host: the native machine is then named as a Mac's. */
+  computer?: Computer
   readErrors?: Record<string, { error: { code: string, message: string }, at: number }>
   layerfs: string | null
   /** Absent from an older host: everything is offered and LayerFS refuses what it lacks. */
@@ -486,50 +496,7 @@ export function runtimeOf(m: MachineInfo): Words {
 
 // ---------- Add a machine ----------
 
-/** A can_create need in words. */
-export function needWords(need: string, platform?: string): Words {
-  // Docker's `host:<socket>`: the Engine does not answer there; starting it fixes it, so it is no hardware need.
-  if (platform === 'docker' && need.startsWith('host:/')) return w('needDockerSocket', { socket: need.slice(5) })
-  if (need.startsWith('tool:')) return w('needTool', { tool: need.slice(5) })
-  if (need.startsWith('bundle:')) return w('needBundle')
-  const host: Record<string, MachinesKey> = {
-    'host:apple-m3': 'needAppleM3',
-    'host:macos15': 'needMacos15',
-    'host:apple-silicon': 'needAppleSilicon',
-    'host:macos': 'needMacos',
-    'host:macos-or-linux': 'needMacosOrLinux',
-    'host:wsl2': 'needWsl2',
-    'host:root': 'needRoot',
-    'host:/dev/fuse': 'needFuse',
-    'host:cgroup2': 'needCgroup2',
-  }
-  if (host[need]) return w(host[need])
-  if (need.startsWith('host:')) return w('needHost', { thing: need.slice(5) })
-  return w('raw', { text: need })
-}
-
-/** How to get what a platform misses: words and commands to copy; null for hardware/OS needs. Docker's `host:<socket>` is excepted: a stopped Engine answers that, and starting it fixes it. */
-export function installHelp(missing: string[], layerfs: string | null, platform?: string): { label: MachinesKey, words: Words, commands: string[] } | null {
-  if (missing.some((n) => n.startsWith('host:') && !(platform === 'docker' && n.startsWith('host:/')))) return null
-  const tool = missing.find((n) => n.startsWith('tool:'))?.slice(5)
-  if (tool === 'msb') return { label: 'howToInstall', words: w('installMsb'), commands: ['curl -fsSL https://install.microsandbox.dev | sh', 'export PATH="$HOME/.microsandbox/bin:$PATH"'] }
-  if (tool === 'container') return { label: 'howToInstall', words: w('installContainer'), commands: ['https://github.com/apple/container/releases', 'container system start'] }
-  if (tool === 'limactl') return { label: 'howToInstall', words: w('installLima'), commands: ['brew install lima'] }
-  if (tool === 'docker') return { label: 'howToInstall', words: w('installDockerEngine'), commands: ['brew install --cask docker', 'brew install colima docker && colima start'] }
-  if (tool) return { label: 'howToInstall', words: w('installTool', { tool }), commands: [] }
-  if (platform === 'docker' && missing.some((n) => n.startsWith('host:/'))) {
-    return { label: 'howToInstall', words: w('installDockerStart'), commands: ['open -a Docker', 'colima start'] }
-  }
-  if (missing.some((n) => n.startsWith('bundle:'))) {
-    const version = layerfs ?? '<version>'
-    return {
-      label: 'howToGetIt',
-      words: w('installBundle', { version, folder: `~/.cache/layerfs/bundle/${version}/` }),
-      commands: ['daemon', 'worker', 'helper', 'seal'].map((step) => `python3 tools/linux_bundle.py ${step} --resources <resources.json>`),
-    }
-  }
-  return null
-}
+// A platform's needs and how to meet them: needs.ts.
 
 /** `8G`, `512M`, `40` (GiB) -> bytes; null when unreadable. */
 export function parseSize(text: string): number | null {

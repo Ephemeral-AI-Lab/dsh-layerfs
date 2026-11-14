@@ -15,6 +15,7 @@
  * and sandbox.list(), and machine.status() of the machines that run or hold an
  * operation (free disk, `op`): one read for the page, and none of it starts a machine.
  */
+import { computer } from './computer.ts'
 import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -129,8 +130,12 @@ export class Machines {
   /** A write somewhere (the router calls this on every non-GET): the next view() reads anew. */
   changed(): void { this.generation++ }
 
-  /** MachinesView: concurrent GETs (the sidebar, the machines store, a dialog) share one read. */
-  view(): ReturnType<Machines['readView']> {
+  /**
+   * MachinesView: concurrent GETs (the sidebar, the machines store, a dialog) share one read.
+   * `fresh`: probe the platforms again now (Check again after an install), not within 30 s.
+   */
+  view(fresh = false): ReturnType<Machines['readView']> {
+    if (fresh) { this.platformAnswer = null; this.generation++ }
     if (this.viewing && this.viewing.generation === this.generation) return this.viewing.promise
     const promise = this.readView().finally(() => { if (this.viewing?.promise === promise) this.viewing = null })
     this.viewing = { promise, generation: this.generation }
@@ -143,8 +148,9 @@ export class Machines {
     const machines = list(listed.machines).map(machineOf)
     const readErrors: Record<string, unknown> = {}
     const failed = (name: string) => (e: any) => { readErrors[name] = { error: { code: e?.code ?? 'Unknown', message: e?.message ?? String(e) }, at: Date.now() }; return [] as any[] }
+    let host: string | null = null
     const [platforms, listedStores, sandboxes, statuses] = await Promise.all([
-      this.platforms().then((p) => p.platforms, failed('platforms')),
+      this.platforms().then((p) => { host = p.host || null; return p.platforms }, failed('platforms')),
       lfs.store.list().then(list, failed('stores')),
       // sandbox.list items carry no Workspaces: each one's count is its sandbox.get (a record read; null when refused)
       pages((p) => lfs.sandbox.list(p)).then((rows) => rows.map(sandboxOf), failed('sandboxes')),
@@ -155,7 +161,7 @@ export class Machines {
     const postgresql = listedStores.map(pgStoreOf).filter(Boolean)
     const { version, features } = await this.identity()
     // features: what the pinned CLI can do (force stop, image inventory, image archives); the page offers only those
-    const answer: any = { available: true, readErrors, layerfs: version, features, machines, platforms, stores, postgresql, sandboxes, status: Object.fromEntries(statuses.map((s: any) => [s.name, s])) }
+    const answer: any = { available: true, readErrors, layerfs: version, features, computer: computer(host), machines, platforms, stores, postgresql, sandboxes, status: Object.fromEntries(statuses.map((s: any) => [s.name, s])) }
     for (const [part, fields] of Object.entries({ stores: ['stores', 'postgresql'], sandboxes: ['sandboxes'], platforms: ['platforms'] })) {
       if (readErrors[part] && this.lastView) for (const field of fields) answer[field] = this.lastView[field]
     }

@@ -8,13 +8,15 @@ import { useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Card, Empty, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
-import { DiskLine, attentionOf } from './Board.tsx'
+import { DiskLine, attentionOf, blockedOf, glyphOs } from './Board.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import type { View } from './context.tsx'
 import { Inventory, useMachineTitle } from './Inventory.tsx'
 import { clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, storesOn, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
+import { stepReasons } from './needs.ts'
+import { FixPanel } from './Readiness.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { SpecTab } from './Spec.tsx'
 import css from './machines.module.css'
@@ -66,19 +68,20 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   const state = machineState(m, live)
   const reason = startup?.status === 'running' ? null : downReason(m, live)
   const attention = startup?.status === 'running' ? null : attentionOf(m, view)
+  const block = startup?.status === 'running' ? null : blockedOf(m, view)
   const calls = clearingCall('machine', m.name, state.op)
   const canSandbox = pending === null && state.key === 'running'
   const name = title(m)
   return (
     <Page wide label={name}>
       <PageHead
-        icon={<MachineGlyph platform={m.platform} os={m.backend === 'namespaces' ? 'linux' : m.backend == null ? 'pc' : undefined} size={22} />}
+        icon={<MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={22} />}
         title={name}
-        badge={<MachineStateChip m={m} live={live} pending={pending} />}
+        badge={<MachineStateChip m={m} live={live} pending={pending} blocked={!!block} />}
         intro={`${kind(m.platform)} · ${tw(runtimeOf(m))}`}
         actions={(
           <>
-            <PowerButton m={m} pending={pending} run={run} />
+            {!block && <PowerButton m={m} pending={pending} run={run} />}
             <MachineMenu m={m} pending={pending} run={run} onDialog={setDialog} />
           </>
         )}
@@ -91,6 +94,13 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
       </dl>
 
       <MachineProgress name={m.name} />
+      {block && (
+        <Notice tone="warning">
+          <p>{t('unavailableWhy', { kind: kind(m.platform), reason: stepReasons(block, tw) })}</p>
+          {m.stores.length > 0 && <p>{t(m.stores.length === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(m.stores.length) })}</p>}
+          <FixPanel fixes={block.fixes} className={css.blockedHelp} />
+        </Notice>
+      )}
       {(reason || error !== null || state.state === 'unresolved') && (
         <Notice tone={attention === 'danger' || error !== null ? 'danger' : undefined}>
           {reason && <p>{reason}</p>}

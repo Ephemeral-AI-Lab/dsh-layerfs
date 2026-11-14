@@ -67,6 +67,8 @@ export interface MachinesFace {
   /** The page is shown: read now and poll every 5 s while the window is visible. Returns the release. */
   activate: () => () => void
   reload: () => void
+  /** Probe the platforms again now (Check again after an install or a start), then show the answer. */
+  recheck: () => Promise<void>
   reloadRuntime: () => void
   act: (action: MachineAction) => Promise<void>
   inspectMachine: (name: string) => Promise<{ state?: string, observedAt?: number }>
@@ -119,6 +121,15 @@ export class MachinesController {
       hooks: { machines: this.machines, startups: this.startups, runtime: this.runtime, connected: this.connected },
       activate: () => this.activate(),
       reload: () => this.reload(),
+      recheck: async () => {
+        try {
+          const data = await api.call<MachinesView>('GET', '/api/machines?fresh=1')
+          this.machines.set({ status: 'ready', data, error: null, observedAt: Date.now() })
+        } catch (error) {
+          const prev = this.machines.getSnapshot()
+          this.machines.set({ status: prev.data ? 'ready' : 'error', data: prev.data, error, observedAt: prev.observedAt })
+        }
+      },
       reloadRuntime: () => this.reloadRuntime(),
       act: (action) => this.act(action),
       inspectMachine: (name) => api.call('GET', `/api/machines/${enc(name)}/inspect`),

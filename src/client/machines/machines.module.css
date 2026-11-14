@@ -359,6 +359,68 @@
   transform: rotate(180deg);
 }
 
+.fixStep {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.fixLink {
+  color: var(--dsw-alias-link);
+  word-break: break-all;
+}
+
+.elsewhere {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.elsewhereToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .elsewhereToggle:hover {
+    color: var(--dsw-alias-label-secondary);
+  }
+}
+
+.elsewhereList .kindTile,
+.elsewhereList .platformName {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.noneHere {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-settings-card-fill);
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.noneHere p {
+  margin: 0;
+}
+
 .vmForm {
   display: flex;
   flex-direction: column;
@@ -585,6 +647,36 @@
   justify-content: flex-end;
   gap: 8px;
   font-size: 12.5px;
+}
+
+.blocked {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -4px 16px 12px 42px;
+}
+
+.blockedLine {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+}
+
+.blockedHelp {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.blockedHelp p {
+  margin: 0;
 }
 
 .blockReason {

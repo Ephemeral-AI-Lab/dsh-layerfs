@@ -834,3 +834,19 @@
 .jobRow {
   padding: 4px 8px 6px;
 }
+
+/* An unavailable machine's fix inside its signal's hover card (machines/Readiness.tsx FixPanel). */
+.fixCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 340px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.fixCard p {
+  margin: 0;
+}

@@ -104,6 +104,8 @@ export interface MachineSupports { sqlite: boolean, postgresql_sandbox: boolean,
 /** GET /api/storage. */
 export interface StorageView {
   machines: { name: string, platform: string, state: string | null, supports: MachineSupports | null }[]
+  /** This computer (the native machine); absent from an older host. */
+  computer?: { os: 'macos' | 'linux' | 'windows' | 'other', name: string | null, arch: string }
   stores: StoreRow[]
   buckets: BucketRow[]
   jobs: StorageJob[]

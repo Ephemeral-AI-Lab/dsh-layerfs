@@ -178,7 +178,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   // Compute's machines. Power is manual (#535 D11): start and stop are their own calls, and no read starts one
   if (group === 'platforms' && !id && method === 'GET') return machines.platforms()
   if (group === 'machines') {
-    if (!id && !sub && method === 'GET') return machines.view()
+    if (!id && !sub && method === 'GET') return machines.view(query.get('fresh') === '1')
     if (id && sub === 'inspect' && method === 'GET') return machines.inspect(id)
     if (id && sub === 'images' && method === 'GET') return machines.images(id)
     if (id && sub === 'start' && method === 'POST') return machines.start(id)

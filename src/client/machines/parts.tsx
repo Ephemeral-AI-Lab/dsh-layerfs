@@ -42,9 +42,11 @@ export function useMachineRun(): { run: Run, pending: string | null, error: unkn
 }
 
 /** The machine's state as the SDK gives it, or `Starting…` while a start runs here. */
-export function MachineStateChip({ m, live, pending }: { m: MachineInfo, live?: MachineLive | undefined, pending: string | null }): ReactNode {
+/** `blocked`: its platform is not ready here (needs.ts blockOf), so it cannot run whatever its record says. */
+export function MachineStateChip({ m, live, pending, blocked }: { m: MachineInfo, live?: MachineLive | undefined, pending: string | null, blocked?: boolean | undefined }): ReactNode {
   const { t, stateWord } = useMachinesContext()
   if (pending === 'start') return <StateChip tone="warning" live label={t(m.platform === 'docker' ? 'startingWorker' : 'starting')} />
+  if (blocked) return <StateChip tone="warning" label={t('stateUnavailable')} />
   const look = machineState(m, live)
   const op = opWords(look.op)
   return (

@@ -26,6 +26,8 @@ import { useMachinesContext } from '../machines/context.tsx'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, workerDown, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, PowerButton, useMachineRun } from '../machines/parts.tsx'
+import { machineBlock, stepReasons } from '../machines/needs.ts'
+import { FixPanel } from '../machines/Readiness.tsx'
 import { MoreMenu } from '../ui/index.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { TabId } from './tabs.ts'
@@ -76,6 +78,8 @@ type Trouble = RowSignal & { detail?: string, restart?: MachineInfo }
 function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place: Place, fleet?: AvailableView | null): Trouble | null {
   // its machine's worker does not answer: say that, and offer the fix, instead of LayerFS's long refusal
   const host = s.kind === 'sqlite' ? fleet?.machines.find((m) => m.name === s.machine) : undefined
+  // its machine cannot run here at all (Docker quit, Lima removed): say so; a restart would only fail
+  if (host && fleet && machineBlock(host, fleet)) return { state: 'warning', reason: t('machineUnavailable', { machine: place(host.name) }) }
   if (host && workerDown(host, fleet?.status[host.name])) {
     return { state: 'error', reason: t('ovStoreWorkerDown', { machine: place(host.name) }), detail: s.down ?? downReason(host, fleet?.status[host.name]) ?? undefined, restart: host }
   }
@@ -448,6 +452,7 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
   const pending = localPending ?? (starting ? startup.kind : null)
   const live = fleet?.status[m.name]
   const look = machineState(m, live)
+  const block = starting || !fleet ? null : machineBlock(m, fleet)
   const reason = starting ? null : downReason(m, live)
   const free = live?.freeDisk ?? null
   const own = stores.filter((s) => s.kind === 'sqlite' && s.machine === m.name)
@@ -466,14 +471,16 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
         <span className={css.titles}>
           <span className={css.nameLine}>
             <Name onClick={() => onOpen(`machine:${m.name}`)}>{place(m.name)}</Name>
-            <Signal state={starting || look.key === 'busy' ? 'ongoing' : look.key === 'running' ? 'ok' : look.key === 'needs' ? 'error' : 'idle'}
-              title={mc.stateWord(look)} detail={reason} />
-            {look.key !== 'running' && look.key !== 'needs' ? <span className={css.muted}>{mc.stateWord(look)}</span> : null}
+            {block
+              ? <Signal state="warning" title={mc.t('stateUnavailable')} detail={mc.t('unavailableWhy', { kind: mc.kind(m.platform), reason: stepReasons(block, mc.tw) })} action={<FixPanel fixes={block.fixes} className={css.fixCard} />} />
+              : <Signal state={starting || look.key === 'busy' ? 'ongoing' : look.key === 'running' ? 'ok' : look.key === 'needs' ? 'error' : 'idle'}
+                title={mc.stateWord(look)} detail={reason} />}
+            {block ? <span className={css.muted}>{mc.t('stateUnavailable')}</span> : look.key !== 'running' && look.key !== 'needs' ? <span className={css.muted}>{mc.stateWord(look)}</span> : null}
           </span>
           <span className={css.sub}>{sub}</span>
         </span>
         <span className={css.headActions}>
-          {m.platform !== 'native' ? <PowerButton m={m} pending={pending} run={run} /> : null}
+          {m.platform !== 'native' && !block ? <PowerButton m={m} pending={pending} run={run} /> : null}
           <MachineMenu m={m} pending={pending} run={run} onOpen={() => onOpen(`machine:${m.name}`)} onDialog={setDialog} />
         </span>
       </header>

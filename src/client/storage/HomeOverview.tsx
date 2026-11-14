@@ -24,6 +24,7 @@ import type { Translate } from '../files/types.ts'
 import type { Query } from '../files/use-query.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import { downReason, machineOrder, machineState, workerDown, type AvailableView } from '../machines/model.ts'
+import { machineBlock, stepReasons } from '../machines/needs.ts'
 import { RuntimeCard } from '../machines/Runtime.tsx'
 import { EmptyState } from '../files/States.tsx'
 import { Card, LoadError, Loading, Refusal } from '../ui/index.tsx'
@@ -172,10 +173,20 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     })
   }
   // Machines whose worker does not answer: one need each, with the fix, standing in for their Stores' "down".
-  const unreachable = new Set(machines.filter((m) => workerDown(m, fleet?.status[m.name])).map((m) => m.name))
+  // A machine whose platform is not ready here (Docker quit, Lima removed): its fix, not a worker restart that would fail.
+  const blocked = new Map(fleet ? machines.flatMap((m) => { const b = machineBlock(m, fleet); return b ? [[m.name, b] as const] : [] }) : [])
+  const unreachable = new Set(machines.filter((m) => !blocked.has(m.name) && workerDown(m, fleet?.status[m.name])).map((m) => m.name))
   for (const m of machines) {
     const look = machineState(m, fleet?.status[m.name])
-    if (unreachable.has(m.name)) {
+    const block = blocked.get(m.name)
+    if (block) {
+      needs.push({
+        key: `unavailable:${m.name}`, tone: 'warning', rank: 1,
+        title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{mc.t('unavailableWhy', { kind: place(m.name), reason: stepReasons(block, mc.tw) })}</Link>,
+        detail: m.stores.length ? m.stores.join(', ') : undefined,
+        action: { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
+      })
+    } else if (unreachable.has(m.name)) {
       needs.push({
         key: `unreachable:${m.name}`, tone: 'danger', rank: 1,
         title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{m.stores.length
@@ -260,7 +271,8 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   // A tab's dot: the worst state among what it shows.
   const storeTrouble = stores.some((x) => x.state === 'down' || x.state === 'unresolved' || x.postgresql?.reachable === false || attachmentsOf(x).some((a) => a.lastError))
   const storeTone = storeTrouble ? 'danger' : undefined
-  const machineTone = machines.some((m) => machineState(m, fleet?.status[m.name]).key === 'needs') ? 'danger'
+  const machineTone = machines.some((m) => !blocked.has(m.name) && machineState(m, fleet?.status[m.name]).key === 'needs') ? 'danger'
+    : blocked.size > 0 ? 'warning'
     : machines.some((m) => machineState(m, fleet?.status[m.name]).key === 'stopped' && m.stores.length > 0) ? 'warning' : undefined
   const refreshAll = () => { onRefresh(); props.onCheckAgain() }
   const newProject = () => projectDialog.open({ mode: 'new' })
