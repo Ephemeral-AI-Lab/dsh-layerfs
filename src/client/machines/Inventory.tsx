@@ -219,7 +219,7 @@ function SandboxRows({ rows, machine, showProject, more, onMore, lead }: { rows:
           <li key={b.name}>
             <button type="button" className={clsx(css.line, css.sandboxLine)} data-tone={bad ? 'danger' : undefined} data-sandbox-row={b.name} data-live={b.live === undefined ? undefined : String(b.live)}
               onClick={() => go({ kind: 'sandbox', machine, name: b.name })} title={`${b.name}${b.project ? ` · ${b.project}` : ''}${note ? ` · ${note}` : ''}`}
-              aria-label={t('openSandbox', { name: b.name })}>
+              aria-label={`${t('openSandbox', { name: b.name })}${note ? ` · ${note}` : ''}`}>
               <span className={css.lineIcon} aria-hidden="true"><SandboxGlyph size={14} /></span>
               <span className={clsx(css.lineName, css.mono)}>{shortSandbox(b.name)}</span>
               <span className={css.lineMeta}>

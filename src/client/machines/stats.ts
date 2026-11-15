@@ -9,8 +9,9 @@
  *
  * {@link StatsPoller} reads `GET /api/machines/:id/stats` for the machines a
  * page on screen watches: one read at a time (so it never holds more than one
- * of the host's two inspect slots), each machine no more often than the
- * shortest interval a watcher asked for, and only while the page is visible.
+ * of the host's two inspect slots), each machine no sooner than the shortest
+ * interval a watcher asked for after its last read ended, and only while the
+ * page is visible.
  * What was read stays while the next read runs or is refused.
  */
 import type { MachinesKey } from './locale.ts'
@@ -183,7 +184,11 @@ export class StatsPoller {
     } else this.set(name, { stats: kept?.stats ?? null, at: kept?.at ?? null, stale: lost, reading: false, loaded: true })
     const code = view ? (view.stale ? view.stale.code : null) : lost!.code
     const now = this.watched.get(name)
-    if (now && code && FINAL.has(code)) now.stopped = true
+    if (now) {
+      // the interval counts from the end of the read: a machine that answers slowly, or not at all, is not asked again at once
+      now.last = this.clock.now()
+      if (code && FINAL.has(code)) now.stopped = true
+    }
     this.pump()
   }
 }
