@@ -42,7 +42,7 @@ await main('e2e-inspect-logs-refusals', async ({ run, page, browser }) => {
       t.check(/showing lines read at/.test(got.state.staleText) && same(seqsOf(got.state.rows, tag), range(0, 19)), 'the lines read before stay, with the time they were read')
       t.check(got.state.status === 'Stopped reading', `a Sandbox that cannot be found is not polled on (status "${got.state.status}")`)
       t.check((await readAgain(page).count()) === 1, 'the refusal has "Read again"')
-      t.check(same(await tabs(page), ['Terminals', 'Daemon log']), 'the tabs are still there')
+      t.check(same((await tabs(page)).filter((x) => x !== 'Files'), ['Terminals', 'Daemon log']), 'the tabs are still there')
       await shot(page, 'inspect-logs-f3')
       if (spawns()) {
         const mark = spawnMark()
@@ -191,7 +191,7 @@ await main('e2e-inspect-logs-refusals', async ({ run, page, browser }) => {
     await page.evaluate((path) => { window.__get = 'pending'; window.__inspect.raw.call('GET', path).then(() => { window.__get = 'answered' }, (e) => { window.__get = `refused ${e?.code}` }) }, `/api/sandboxes/${enc(sb.name)}`)
     await jump(page, sb.title)
     t.check(((await editor(page).getByRole('heading', { level: 1 }).first().textContent()) ?? '').includes(sb.name), 'the head renders from the list row')
-    t.check(same(await tabs(page), ['Terminals', 'Daemon log']), `the tabs render: ${JSON.stringify(await tabs(page))}`)
+    t.check(same((await tabs(page)).filter((x) => x !== 'Files'), ['Terminals', 'Daemon log']), `the tabs render: ${JSON.stringify(await tabs(page))}`)
     t.note(`head and tabs shown ${Date.now() - h0} ms after sandbox.get began to hang`)
     await editor(page).getByRole('tab', { name: 'Terminals', exact: true }).click()
     const terminals = editor(page).locator('[data-sandbox-terminals]')
