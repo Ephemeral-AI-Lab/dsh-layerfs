@@ -15,7 +15,10 @@ import {
 } from './e2e-inspect-files-lib.mjs'
 
 const enc = encodeURIComponent
+// a label per role LayerFS answers; a role without one shows its path (the page never names a role it does not know)
 const KNOWN = { data: 'Data disk', stores: 'Stores', sandbox_records: 'Sandbox records', run_folders: 'Sandbox run folders', images: 'Sandbox images', staging: 'Incoming files', logs: 'Logs', state: 'Worker state', bundle: 'LayerFS bundle', image: 'Machine image', home: 'Home' }
+/** Whether a root's row reads its role's label with its path, or, for a role this page has no label for, the path alone. */
+const namedByRole = (rowText, e) => (KNOWN[e.role] ? rowText.startsWith(KNOWN[e.role]) && rowText.includes(e.path) : rowText.startsWith(e.path))
 const rootsOf = async (page, target) => {
   const r = await probe(page, 'GET', `/api/${target.kind === 'machine' ? 'machines' : 'sandboxes'}/${enc(target.name)}/files`)
   if (!r.ok || r.body.kind !== 'folder') throw new Error(`the roots of ${target.kind} ${target.name}: ${JSON.stringify(r).slice(0, 300)}`)
@@ -38,8 +41,7 @@ await main('e2e-inspect-files', async ({ run, page }) => {
     t.check(s.rows.every((r, i) => r.key === roots[i].path), `${m.name}: roots keep the server's order`)
     for (const [i, e] of roots.entries()) {
       if (e.path === '/') continue
-      const want = KNOWN[e.role] ?? e.role
-      t.check(s.rows[i].text.startsWith(want) && s.rows[i].text.includes(e.path), `${m.name}: root ${e.role} reads "${want}" with its path (${s.rows[i].text})`)
+      t.check(namedByRole(s.rows[i].text, e), `${m.name}: root ${e.role} reads ${KNOWN[e.role] ? `"${KNOWN[e.role]}" with its path` : 'its path (a role without a label)'} (${s.rows[i].text})`)
     }
     t.check(offersWhole ? s.views.length === 2 : s.views.length === 0, `${m.name}: ${offersWhole ? 'the roots offer / and the switch shows' : 'the roots offer no / and there is no view switch'} (${JSON.stringify(s.views)})`)
     await shot(page, 'inspect-files-s2-layerfs-only')
@@ -54,11 +56,15 @@ await main('e2e-inspect-files', async ({ run, page }) => {
     t.check(wroots.at(-1).path === '/' && wroots.at(-1).role === 'machine', 'the roots answer offers / (role machine) last')
     t.check(s.views.join('|') === 'LayerFS folders|Whole filesystem (/)', `the switch reads LayerFS folders | Whole filesystem (/) (${JSON.stringify(s.views)})`)
     t.check(s.view === 'layerfs' && s.rows.length === layer.length && s.rows.every((r, i) => r.key === layer[i].path), 'LayerFS folders: one row per root, in the server\'s order, without /')
-    for (const [i, e] of layer.entries()) t.check(s.rows[i].text.startsWith(KNOWN[e.role] ?? e.role) && s.rows[i].text.includes(e.path), `root ${e.role} reads "${KNOWN[e.role] ?? e.role}" with ${e.path}`)
+    for (const [i, e] of layer.entries()) t.check(namedByRole(s.rows[i].text, e), `root ${e.role} reads ${KNOWN[e.role] ? `"${KNOWN[e.role]}"` : 'its path'} with ${e.path} (${s.rows[i].text})`)
     const unknown = layer.find((e) => !KNOWN[e.role])
-    if (unknown) t.check(rowOf(s, unknown.path).text.startsWith(unknown.role), `a role this page does not know shows its raw name: ${rowOf(s, unknown.path).text}`); else t.note('no root with an unknown role on this machine')
+    if (unknown) t.check(rowOf(s, unknown.path).text === unknown.path, `a role this page does not know (${unknown.role}) shows its path and no name of the page's own: "${rowOf(s, unknown.path).text}"`); else t.note('no root with a role this page has no label for on this machine')
     const data = layer.find((e) => e.role === 'data')
-    if (data) t.check(/free/.test(rowOf(s, data.path).trailing), `the data root shows its free space (${rowOf(s, data.path).trailing})`)
+    if (data) {
+      t.check(typeof data.free_bytes === 'number' && !('free' in data), `the data root's answer carries free_bytes (${data.free_bytes})`)
+      t.check(/\d.* free$/.test(rowOf(s, data.path).trailing), `the data root shows its free space (${rowOf(s, data.path).trailing})`)
+    }
+    t.check(layer.every((e) => e.role !== 'machine' && e.role !== 'root'), 'the / entry is the second view, never a row')
     // open a folder in each view
     const logs = layer.find((e) => e.role === 'logs') ?? layer[0]
     let got = await toggle(page, logs.path)
@@ -93,7 +99,41 @@ await main('e2e-inspect-files', async ({ run, page }) => {
     await showFiles(page)
     s = await filesState(page)
     t.check(s.view === 'whole' && s.base === '/etc', `reopened: the last view and path of this machine (${s.view} ${s.base})`)
-    await switchView(page, 'LayerFS folders')
+    // a LayerFS folder met under /: listed with its role and not entered there; it opens by its own path among the LayerFS folders
+    if (data) {
+      const holder = data.path.slice(0, data.path.lastIndexOf('/')) || '/'
+      const listed = (await probe(page, 'GET', `/api/machines/${enc(w.name)}/files?path=${enc(holder)}&depth=1`)).body.entries.filter((e) => e.role)
+      await goPath(page, holder)
+      s = await filesState(page)
+      t.check(s.view === 'whole' && s.base === holder && listed.length > 0, `${holder} lists ${listed.length} LayerFS folders with their roles (${listed.map((e) => `${e.role}:${e.kind}`).join(' ')})`)
+      for (const e of listed) {
+        const r = rowOf(s, e.path)
+        t.check(!!r && namedByRole(r.text, e) && r.expanded === null && !r.disabled && r.trailing === 'LayerFS folders', `${e.path} (${e.kind}, role ${e.role}): a row by its role that is not entered here and can be activated (${JSON.stringify(r && { text: r.text, expanded: r.expanded, disabled: r.disabled, trailing: r.trailing })})`)
+      }
+      await row(page, data.path).click()
+      got = await waitFiles(page, (x) => x.view === 'layerfs' && x.base === data.path && x.state === 'ready')
+      t.check(got.ok && got.state.path === data.path, `activating it opens ${data.path} by its own path under LayerFS folders (view ${got.state.view}, top ${got.state.base})`)
+      t.check(got.state.rows.length > 0 && got.state.rows.every((r) => r.key.startsWith(`${data.path}/`)), `and lists it there (${got.state.rows.length} entries)`)
+      await switchView(page, 'Whole filesystem (/)')
+      s = await filesState(page)
+      t.check(s.view === 'whole' && s.base === holder, `Whole filesystem is still where it was (${s.base})`)
+      await shot(page, 'inspect-files-s2-linked')
+      await switchView(page, 'LayerFS folders')
+      await files(page).locator('[data-files-crumbs] button').first().click()
+      await waitFiles(page, (x) => x.base === '' && x.state === 'ready')
+    } else await switchView(page, 'LayerFS folders')
+    // the worker log among the files: a row that opens the Worker log tab (it is read with the logs calls, never here)
+    s = await filesState(page)
+    if (rowOf(s, logs.path)?.expanded !== 'true') await toggle(page, logs.path)
+    s = await filesState(page)
+    const workerLog = rowOf(s, `${logs.path}/worker.log`)
+    if (workerLog && (await tabs(page)).includes('Worker log')) {
+      t.check(workerLog.text.startsWith('Worker log') && workerLog.expanded === null && !workerLog.disabled && workerLog.trailing === 'Worker log', `worker.log is a log row (${JSON.stringify({ text: workerLog.text, trailing: workerLog.trailing, disabled: workerLog.disabled })})`)
+      await row(page, `${logs.path}/worker.log`).click()
+      await editor(page).locator('[data-log]').waitFor({ timeout: 10000 }).catch(() => t.check(false, 'the worker.log row does not open the Worker log tab'))
+      t.check((await editor(page).getByRole('tab', { name: 'Worker log', exact: true }).getAttribute('aria-selected')) === 'true', 'the worker.log row opens the Worker log tab')
+      await showFiles(page)
+    } else t.note(`no worker.log row under ${logs.path}, or no Worker log tab on this machine: the log row was not checked`)
   })
 
   await run.row('S3', 'Sandbox Files: roots by role (Workspaces with chip, Home, log); Whole filesystem lists /; Browse base', async (t) => {

@@ -30,7 +30,8 @@ export interface FileEntry {
   target?: string
   workspace?: string
   fs?: string
-  free?: number
+  /** What the filesystem of the `data` root has left (machine.files), as LayerFS names it. */
+  free_bytes?: number
 }
 
 export interface FolderView {
@@ -232,6 +233,27 @@ export function groupEntries(entries: readonly FileEntry[], root: string): Map<s
 
 /** The entry `/` a roots answer offers as the second view (role `machine` or `root`), if any. */
 export const wholeOf = (entries: readonly FileEntry[]): FileEntry | undefined => entries.find((e) => e.path === '/' && (e.role === 'machine' || e.role === 'root'))
+
+/**
+ * Whether an entry is a LayerFS folder listed where it is not entered: it has
+ * a `role` and is met in the Whole filesystem view, or on a mount of its own
+ * (machine.files lists it there and reads it by its own path). A Workspace
+ * and a log have rows of their own.
+ */
+export const isLinkedRole = (entry: FileEntry, view: 'layerfs' | 'whole'): boolean =>
+  !!entry.role && entry.role !== 'workspace' && entry.role !== 'log' && entry.path !== '/' && (entry.kind === 'folder' || entry.kind === 'mount') && (view === 'whole' || entry.kind === 'mount')
+
+/** A worker log as machine.files lists it: `worker.log` and its rotated part `worker.1.log`. */
+export const isWorkerLog = (path: string): boolean => /^worker(\.\d+)?\.log$/.test(baseName(path))
+
+/**
+ * The Sandbox a run folder is of, by the folder's name (`layerfs-<id8>-<name>`,
+ * or `lfs-<id8>-<name>` from before the rename); null when the name is not one.
+ */
+export function sandboxOfRunFolder(folder: string): string | null {
+  const m = /^(?:layerfs|lfs)-[0-9a-f]{8}-(.+)$/.exec(folder)
+  return m ? m[1]! : null
+}
 
 /** How a row acts, from LayerFS's kind: `open` a folder, `read` a file, or only listed. */
 export type RowAct = 'open' | 'read' | 'restricted' | 'unreadable' | 'system' | 'mount' | 'symlink' | 'other'

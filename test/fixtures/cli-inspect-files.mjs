@@ -25,15 +25,26 @@
 // a regular file (restricted, system, mount, unreadable, symlink, other) `InvalidInput`; a path that is not
 // there `NotFound` (this stand-in's choice: the spec names no code for it); a bad option `InvalidInput`.
 //
-// Aligned with the merged build's answers for `sandbox files` (the lead's
-// monitoring-179-API-SHAPES.md, 2026-11-16): `mode` is the permission bits,
-// `mtime` ms since 1970, `size` only for regular files, `next` of a folder
-// page the last entry's path whenever the page has entries (also when
-// `has_more` is false), `next` of a file the next byte offset, depth 1 to 32,
-// a missing path `NotFound`. Still this stand-in's reading of the spec, with
-// no real answer to compare yet: everything about `machine files` (its
-// `system` and `unreadable` kinds, a root's free space as `free`), and a
-// Sandbox's `/` root (role `root`; still offered by a stopped Sandbox).
+// Aligned with the answers of the build at LayerFS 73d824ec64 (79 calls; the
+// lead's monitoring-179-API-SHAPES.md and docs/architecture/api/sdk/
+// machine.md `machine.files`, sandbox.md `sandbox.files`, read beside the real
+// CLI on docker, Lima, Apple Container and native macOS, 2026-11-16):
+//   - `mode` is the permission bits, `mtime` ms since 1970, `size` only for regular files (a restricted one included);
+//     `next` of a folder page is the last entry's path whenever the page has entries, of a file the next byte offset
+//   - the `data` root carries `free_bytes`; `/` comes last, role `machine` (with the mode and mtime of `/`) or
+//     `root` (a Sandbox's: size, mode and mtime null; still offered by a stopped Sandbox)
+//   - a Workspace root is `mount` with `workspace` and no `fs` (it comes from the records, never from a stat)
+//   - a declared root met in a listing carries its `role`; listed from `/` it is not entered (each is read by its
+//     own path), and one on a mount of its own (`fs` in its declaration) is `mount` with that `fs` there
+//   - `worker.log`, `worker.1.log` in the `logs` root and a run folder's `daemon.log` are files with `role: "log"`;
+//     reading one is `InvalidInput` (the `logs` calls read them)
+//   - kinds of a machine's `/`: `system` (/proc, /sys, /dev, /run), `unreadable` (no o+r); of a Sandbox's `/`:
+//     `system` (/proc, /sys, /dev), no `unreadable`
+//   - restricted: `store.sqlite*`, a run folder's `config/` and `overlay/`, `control.json`, `worker.json`, `lock`,
+//     `*.lock`, a Store's `open/`, `/layerfs/state/secret` (declared in `overlay`)
+//   - a missing path is `NotFound` ("nothing is at <path>")
+// One thing here is NOT a real answer and is kept on purpose: a root with a role no build names (the lib's
+// `cache_future`), so the page's rule for a role it does not know stays checked.
 //
 // What a target (a machine or a Sandbox) holds is a folder tree on disk plus
 // a small declaration, in <LFS_INSPECT_DIR>/files.json, read on every call:
@@ -43,8 +54,10 @@
 //     "state": "stopped",                     default running
 //     "root": "/real/dir",                    the folder on disk that is the target's `/`
 //     "binds": [{ "at": "/abs", "from": "/real/dir" }],    paths under `at` are read from `from` instead (longest first)
-//     "roots": [{ "role", "path", "free"?, "kind"?, "workspace"?, "fs"? }],   the roots answer, in this order; one whose path
-//                                             is not there is left out, unless it declares its kind (a Workspace mount: never stat'ed)
+//     "roots": [{ "role", "path", "free_bytes"?, "kind"?, "workspace"?, "fs"? }],   the roots answer, in this order; one whose
+//                                             path is not there is left out, unless it declares its kind (a Workspace mount:
+//                                             never stat'ed). `fs` on a folder root: it is on a mount of its own, so a
+//                                             listing from `/` shows it as `mount` with that `fs` (and its role)
 //     "whole": "machine" | "root",            `/` is offered after the roots, with this role
 //     "confine": ["/abs", …],                 a path outside all of them is InvalidInput (a native machine, a host-process Sandbox)
 //     "home": "/abs",                         a Sandbox's home: readable while it is stopped
@@ -54,11 +67,12 @@
 //     "restricted_names": ["control.json", …],    names that are `restricted` wherever they are (default: the spec's list)
 //     "deadline": { "/abs/folder": <n> },     every page of that folder ends after n entries with reason "deadline"
 //     "run_folders": ["/abs/folder", …],      folders that hold Sandbox run folders: in each run folder, `config` and `overlay`
-//                                             are restricted and every entry of `workspaces` is a mount (`run_folders_fs`,
-//                                             default "nfs") that is listed by name and never stat'ed
+//                                             are restricted, its `daemon.log` is a log, and every entry of `workspaces` is a
+//                                             mount that is listed by name and never stat'ed (an `overlay` entry gives it its
+//                                             `workspace` id, and an `fs` where the mount table would name one)
 //     "records": "/real/<home>/sandbox/<name>" }   a Sandbox on this disk, from its LayerFS records: its run folder
 //                                             (record.json `daemon.directory`) is read at its own path; its roots are one
-//                                             `workspace` mount per Workspace record (path, id; fs from the record's route),
+//                                             `workspace` mount per Workspace record (path, id),
 //                                             `home` (<run folder>/tmp) and `log` (<run folder>/daemon.log); without `whole`
 //                                             only paths under its home are read (a host-process Sandbox)
 // and <LFS_INSPECT_DIR>/control.json (shared with cli-inspect-logs.mjs) holds
@@ -76,7 +90,8 @@ import { spawnSync } from 'node:child_process'
 need('cli-inspect-files')
 
 const WINDOW = 256 * 1024, MAX_LENGTH = 1024 * 1024, DEFAULT_LIMIT = 500, MAX_LIMIT = 1000
-const RESTRICTED = ['control.json', 'worker.json', 'store.sqlite', 'store.sqlite-wal', 'store.sqlite-shm', 'store.sqlite-journal', 'layerfs.lock', 'lock', 'serve.lock', 'start.lock']
+const RESTRICTED = ['control.json', 'worker.json', 'store.sqlite', 'store.sqlite-wal', 'store.sqlite-shm', 'store.sqlite-journal', 'lock']
+const WORKER_LOG = /^worker(\.\d+)?\.log$/
 const config = json('files.json')
 const answered = new Set(Array.isArray(config.calls) ? config.calls : ['sandbox.files', 'machine.files'])
 const key = `${family}.${call}`
@@ -117,7 +132,7 @@ async function files() {
   if (refusal) refuse(String(refusal.code), String(refusal.message ?? refusal.code))
 
   const target = config[kind]?.[name] ?? config[kind]?.['*']
-  if (!target) refuse(kind === 'sandbox' ? 'NoSuchSandbox' : 'NoSuchMachine', `no ${what} named ${name}`)
+  if (!target) refuse(kind === 'sandbox' ? 'NoSuchSandbox' : 'NotFound', `no ${what} named ${name}`)
   const invalid = (message) => refuse('InvalidInput', `${kind}.files: ${message}`)
   const whole = (flag, min, max, fallback) => {
     if (flags[flag] === undefined) return fallback
@@ -138,17 +153,15 @@ async function files() {
       const run = record.daemon.directory
       let records = []
       try { records = readdirSync(join(target.records, 'workspace')).filter((n) => n.endsWith('.json')).map((n) => JSON.parse(readFileSync(join(target.records, 'workspace', n), 'utf8'))) } catch { /* none mounted */ }
-      const fs = record.route === 'nfs' ? 'nfs' : 'fuse.layerfs'
       target.home ??= `${run}/tmp`
       target.binds = [...(target.binds ?? []), { at: run, from: run }]
       target.run_folders = [...(target.run_folders ?? []), posix.dirname(run)]
-      target.run_folders_fs ??= fs
       target.roots = [
-        ...records.sort((a, b) => a.namespace - b.namespace).map((w) => ({ role: 'workspace', path: w.path, kind: 'mount', workspace: w.id, fs })),
+        ...records.sort((a, b) => a.namespace - b.namespace).map((w) => ({ role: 'workspace', path: w.path, kind: 'mount', workspace: w.id })),
         { role: 'home', path: target.home }, { role: 'log', path: `${run}/daemon.log` },
         ...(target.roots ?? []),
       ]
-      target.overlay = { ...Object.fromEntries(records.map((w) => [w.path, { kind: 'mount', workspace: w.id, fs }])), ...(target.overlay ?? {}) }
+      target.overlay = { ...Object.fromEntries(records.map((w) => [w.path, { kind: 'mount', workspace: w.id }])), ...(target.overlay ?? {}) }
       if (!target.whole) target.confine ??= [target.home]
     } catch (error) { refuse('NoSuchSandbox', `no Sandbox named ${name} (${error?.message ?? error})`) }
   }
@@ -166,6 +179,16 @@ async function files() {
     return null
   }
   const restricted = new Set(Array.isArray(target.restricted_names) ? target.restricted_names : RESTRICTED)
+  // the LayerFS folders: the roots that are folders on disk, by path; a read of a path in none of them is a read from `/`
+  const folderRoots = new Map((target.roots ?? []).filter((r) => !r.kind).map((r) => [r.path, r]))
+  const inLayerfs = (p) => [...folderRoots.keys(), ...(target.home ? [target.home] : [])].some((b) => under(p, b))
+  const fromSlash = path !== undefined && !inLayerfs(path)
+  const logsRoots = (target.roots ?? []).filter((r) => r.role === 'logs').map((r) => r.path)
+  /** A log LayerFS lists with `role: "log"` and never reads here: worker.log and its rotated part, a run folder's daemon.log. */
+  const isLog = (p) => (logsRoots.includes(posix.dirname(p)) && WORKER_LOG.test(posix.basename(p))) || (posix.basename(p) === 'daemon.log' && runFolders.includes(posix.dirname(posix.dirname(p))))
+  /** A Store's `open/` (its leases): `<stores root>/<store>/open`. */
+  const storesRoots = (target.roots ?? []).filter((r) => r.role === 'stores').map((r) => r.path)
+  const isLease = (p) => posix.basename(p) === 'open' && storesRoots.includes(posix.dirname(posix.dirname(p)))
   const binds = [...(target.binds ?? [])].sort((a, b) => b.at.length - a.at.length)
   /** Where a path of the target is on this disk. */
   const onDisk = (p) => {
@@ -179,13 +202,16 @@ async function files() {
   const entry = (p, level) => {
     const declared = overlay[p]
     // a Workspace mount is reported from the records, never stat'ed: a stopped daemon cannot hang the listing
-    if (inRun(p) === 'mount') return { path: p, depth: level, kind: 'mount', size: null, mode: null, mtime: null, fs: declared?.fs ?? target.run_folders_fs ?? 'nfs', ...(declared?.workspace ? { workspace: declared.workspace } : {}) }
+    if (inRun(p) === 'mount') return { path: p, depth: level, kind: 'mount', size: null, mode: null, mtime: null, ...(declared?.fs ? { fs: declared.fs } : {}), ...(declared?.workspace ? { workspace: declared.workspace } : {}) }
+    // a LayerFS folder on a mount of its own, listed from `/`: a mount with its role, never stat'ed
+    const asRoot = folderRoots.get(p)
+    if (asRoot?.fs && fromSlash) return { path: p, depth: level, kind: 'mount', size: null, mode: null, mtime: null, fs: asRoot.fs, role: asRoot.role }
     const st = stat(p)
     if (!declared && !st) return null
     let kindOf = declared?.kind
     if (!kindOf) {
       kindOf = st.isDirectory() ? 'folder' : st.isFile() ? 'file' : st.isSymbolicLink() ? 'symlink' : 'other'
-      if (restricted.has(posix.basename(p)) || inRun(p) === 'restricted') kindOf = 'restricted'
+      if (restricted.has(posix.basename(p)) || posix.basename(p).endsWith('.lock') || isLease(p) || inRun(p) === 'restricted') kindOf = 'restricted'
       else if (target.o_r_outside && !under(p, target.o_r_outside) && kindOf !== 'symlink' && (st.mode & 0o004) === 0) kindOf = 'unreadable'
     }
     // as the merged build answers (monitoring-179-API-SHAPES.md): the permission bits, ms since 1970, a size for regular files only
@@ -193,6 +219,8 @@ async function files() {
     if (kindOf === 'symlink') { out.target = declared?.target; if (!out.target) { try { out.target = readlinkSync(onDisk(p)) } catch { /* shown without one */ } } }
     if (declared?.workspace) out.workspace = declared.workspace
     if (declared?.fs) out.fs = declared.fs
+    if (asRoot && kindOf === 'folder') out.role = asRoot.role
+    if (kindOf === 'file' && isLog(p)) out.role = 'log'
     return out
   }
 
@@ -207,11 +235,14 @@ async function files() {
       if (!e) continue
       e.role = root.role
       if (root.workspace) e.workspace = root.workspace
-      if (root.fs) e.fs = root.fs
-      if (typeof root.free === 'number') e.free = root.free
+      // only a declared kind (a mount) says its `fs` in the roots: a folder root is a folder there, whatever it is mounted on
+      if (root.kind && root.fs) e.fs = root.fs
+      else delete e.fs
+      if (typeof root.free_bytes === 'number') e.free_bytes = root.free_bytes
       entries.push(e)
     }
-    if (target.whole) entries.push({ path: '/', depth: 1, kind: 'folder', size: null, mode: null, mtime: null, role: target.whole })
+    // `/` last: a machine's with what its `/` is, a Sandbox's from its record (nothing of the root is opened)
+    if (target.whole) { const st = target.whole === 'machine' ? stat('/') : null; entries.push({ path: '/', depth: 1, kind: 'folder', size: null, mode: st ? st.mode & 0o7777 : null, mtime: st ? Math.floor(st.mtimeMs) : null, role: target.whole }) }
     answer({ kind: 'folder', entries, next: null, has_more: false })
   }
 
@@ -219,7 +250,7 @@ async function files() {
   if (!path.startsWith('/')) invalid('a path is absolute')
   if (path !== '/' && (path.endsWith('/') || path.split('/').slice(1).some((part) => part === '' || part === '.' || part === '..'))) invalid(`${path} leaves the folder it names (\`..\`, \`.\` or an empty part)`)
   if (stopped && !(target.home && under(path, target.home))) refuse('Unavailable', `Sandbox ${name} is stopped: only its home can be read`)
-  if (Array.isArray(target.confine) && !target.confine.some((base) => under(path, base))) invalid(kind === 'machine' ? `${path} is outside the LayerFS folders of machine ${name}` : `${path} is outside the home of Sandbox ${name}`)
+  if (Array.isArray(target.confine) && !target.confine.some((base) => under(path, base))) invalid(kind === 'machine' ? `${path} is outside this machine's LayerFS folders; on \`native\`, which is your own computer, only they are read` : `${path} is outside Sandbox ${name}'s home ${target.home}: only paths under the home are read`)
 
   // the base the read starts from (a root, or `/`): opened whatever it is; every part after it must be a folder
   const bases = ['/', ...(target.roots ?? []).filter((r) => !r.kind).map((r) => r.path), ...(target.home ? [target.home] : []), ...binds.map((b) => b.at)].filter((b) => under(path, b)).sort((a, b) => b.length - a.length)
@@ -229,13 +260,15 @@ async function files() {
   for (let i = 0; i < parts.length; i++) {
     at = at === '/' ? `/${parts[i]}` : `${at}/${parts[i]}`
     const e = entry(at, 1)
-    if (!e) refuse('NotFound', `${kind}.files: no such file or folder: ${path}`)
+    if (!e) refuse('NotFound', `${kind}.files: nothing is at ${path}`)
     const last = i === parts.length - 1
-    if (!last && e.kind !== 'folder') invalid(`${at} is ${e.kind}: it is not entered`)
-    if (last && e.kind !== 'folder' && e.kind !== 'file') invalid(`${path} is ${e.kind}: it is not read`)
+    const why = { unreadable: 'is not world-readable', system: 'is a system folder', restricted: 'is kept private by LayerFS', mount: 'is a mount point', symlink: 'is a symbolic link', other: 'is not a regular file or a folder' }[e.kind]
+    if (!last && e.kind !== 'folder') invalid(`${at} ${why ?? `is ${e.kind}`}; it is listed, not read`)
+    if (last && e.kind !== 'folder' && e.kind !== 'file') invalid(`${path} ${why ?? `is ${e.kind}`}; it is listed, not read`)
+    if (last && e.role === 'log') invalid(`${path} is a log; read it with the \`logs\` calls`)
   }
   const st = stat(path)
-  if (!st) refuse('NotFound', `${kind}.files: no such file or folder: ${path}`)
+  if (!st) refuse('NotFound', `${kind}.files: nothing is at ${path}`)
 
   // ------------------------------------------------------------ a file window
   if (st.isFile()) {
@@ -297,7 +330,9 @@ async function files() {
         if (!e) continue
         page.push(e)
       }
-      if (level < depth && (e ?? entry(p, level))?.kind === 'folder' && walk(p, level + 1) === false) return false
+      // a LayerFS folder met from `/` is listed with its role and not entered
+      const here = e ?? entry(p, level)
+      if (level < depth && here?.kind === 'folder' && !(fromSlash && here.role) && walk(p, level + 1) === false) return false
     }
     return true
   }

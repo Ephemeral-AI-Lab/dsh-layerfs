@@ -40,7 +40,7 @@ import { errorCode, errorText } from '../ui/use-query.ts'
 import { useMachinesContext } from './context.tsx'
 import { LockGlyph, MountGlyph, SandboxGlyph, SystemGlyph } from './icons.tsx'
 import {
-  ROOTS, ReadQueue, actOf, baseName, crumbsOf, filesRoute, groupEntries, isDropped, isUnder, parentOf, pastedPath, readFiles, refusalError, waitedSeconds, wholeOf,
+  ROOTS, ReadQueue, actOf, baseName, crumbsOf, filesRoute, groupEntries, isDropped, isLinkedRole, isUnder, isWorkerLog, parentOf, pastedPath, readFiles, refusalError, waitedSeconds, wholeOf,
   type FileEntry, type FilesView, type InspectEntry, type Stale,
 } from './inspect-files.ts'
 import type { MachinesKey } from './locale.ts'
@@ -50,9 +50,14 @@ import css from './inspect-files.module.css'
 /** The width under which the tree drills in instead of expanding in place. */
 const NARROW_PX = 600
 
+/**
+ * A label per role LayerFS answers (machine.files: `data` … `image`; sandbox.files: `home`).
+ * `workspace` and `log` have rows of their own; `machine` and `root` are the
+ * Whole filesystem view, never a row. A role this page does not know shows its path.
+ */
 const ROLE: Record<string, MachinesKey> = {
   data: 'roleData', stores: 'roleStores', sandbox_records: 'roleSandboxRecords', run_folders: 'roleRunFolders', images: 'roleImages', staging: 'roleStaging',
-  logs: 'roleLogs', state: 'roleState', bundle: 'roleBundle', image: 'roleImage', home: 'roleHome', log: 'roleLog',
+  logs: 'roleLogs', state: 'roleState', bundle: 'roleBundle', image: 'roleImage', home: 'roleHome',
 }
 
 export interface InspectFilesProps {
@@ -66,6 +71,12 @@ export interface InspectFilesProps {
   project?: string | null | undefined
   /** Opens the page's log tab (the daemon or worker log's own row); absent when the page has no such tab. */
   onOpenLog?: (() => void) | undefined
+  /**
+   * On a machine page: what opens the Daemon log tab of the Sandbox whose run
+   * folder is named `folder` (a `daemon.log` met in the machine's run folders);
+   * null when no Sandbox of this machine has that run folder.
+   */
+  onOpenSandboxLog?: ((folder: string) => (() => void) | null) | undefined
   /** The name of that tab, for a log row's tooltip. */
   logTab?: string | undefined
   /** Shows a Workspace's terminal. */
@@ -211,7 +222,7 @@ function useNarrow(): [(element: HTMLDivElement | null) => void, boolean] {
   return [ref, narrow]
 }
 
-export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog, logTab, onOpenTerminal, unavailableAction }: InspectFilesProps): ReactNode {
+export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog, onOpenSandboxLog, logTab, onOpenTerminal, unavailableAction }: InspectFilesProps): ReactNode {
   const { t, tw, api } = useMachinesContext()
   const ft = t as unknown as FilesTranslate
   const folders = useInspectFolders(kind, name)
@@ -349,17 +360,30 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
 
   // ---------- rows ----------
   const wsOf = (entry: FileEntry): WorkspaceInfo | undefined => (workspaces ?? []).find((w) => w.path === entry.path) ?? (entry.workspace ? (workspaces ?? []).find((w) => w.wsId === entry.workspace || w.ws === entry.workspace) : undefined)
-  // the log this page has a tab for: a Sandbox's `log` root; on a machine, worker.log in its `logs` root
   const roots = dirs.get(ROOTS)
-  const logsRoot = Array.isArray(roots) ? roots.find((r) => r.entry.role === 'logs')?.path : undefined
-  const logRow = (entry: FileEntry): boolean => entry.role === 'log' || (kind === 'machine' && logsRoot !== undefined && entry.path === `${logsRoot}/worker.log`)
+  // a log (role `log`) is read with the logs calls, never here: a Sandbox's own daemon log and a machine's worker log
+  // (worker.log and its rotated part) in this page's log tab; a Sandbox's daemon log met on its machine in that Sandbox's tab
+  const ownLog = (entry: FileEntry): boolean => kind === 'sandbox' || isWorkerLog(entry.path)
+  const logOpener = (entry: FileEntry): (() => void) | null => {
+    if (entry.role !== 'log') return null
+    if (ownLog(entry)) return onOpenLog ?? null
+    const folder = parentOf(entry.path)
+    return folder && onOpenSandboxLog ? onOpenSandboxLog(baseName(folder)) : null
+  }
+  /** A role's label with the real path as the second text; a role without a label shows its path. */
+  const roleName = (entry: FileEntry): { label?: string, secondary?: string } => {
+    const role = entry.role
+    if (!role) return {}
+    if (role === 'log') return isWorkerLog(entry.path) ? { label: t('roleWorkerLog'), secondary: entry.path } : baseName(entry.path) === 'daemon.log' ? { label: t('roleLog'), secondary: entry.path } : { label: entry.path }
+    return ROLE[role] ? { label: t(ROLE[role]), secondary: entry.path } : { label: entry.path }
+  }
   const tip = (entry: FileEntry, words?: string): string => [entry.path, words, entry.size != null && entry.kind !== 'folder' ? bytes(entry.size) : undefined, when(entry.mtime)].filter(Boolean).join(' · ')
 
   const row = (item: InspectEntry): Partial<TreeRow> => {
     const entry = item.entry
     const act = actOf(entry.kind)
     const role = entry.role
-    const named = role ? { label: ROLE[role] ? t(ROLE[role]) : role, secondary: entry.path } : {}
+    const named = roleName(entry)
     // a Workspace: never entered here (its live files are in its terminal)
     if (role === 'workspace' || (act === 'mount' && entry.workspace)) {
       const ws = wsOf(entry)
@@ -379,11 +403,20 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
       }
     }
     // the daemon or worker log: read in its own tab, by cursor
-    if (logRow(entry)) {
+    if (role === 'log') {
+      const opens = logOpener(entry) !== null
+      const where = ownLog(entry) ? logTab : t('tabDaemonLog')
       return {
-        ...named, expandable: false, disabled: !onOpenLog, icon: <FileTypeIcon path="daemon.log" size={16} />,
-        title: tip(entry, logTab ? t('filesLogHere', { tab: logTab }) : undefined),
-        trailing: onOpenLog && logTab ? <span className={css.hint}>{logTab}</span> : undefined,
+        ...named, expandable: false, disabled: !opens, icon: <FileTypeIcon path="daemon.log" size={16} />,
+        title: tip(entry, ownLog(entry) ? (logTab ? t('filesLogHere', { tab: logTab }) : t('filesLogNoTab')) : t('filesLogInSandbox')),
+        trailing: opens && where ? <span className={css.hint}>{where}</span> : undefined,
+      }
+    }
+    // a LayerFS folder listed where it is not entered (met under `/`, or on a mount of its own): it opens by its own path among the LayerFS folders
+    if (isLinkedRole(entry, shown)) {
+      return {
+        ...named, expandable: false, icon: <IconFolderCloseRegular size={16} />, title: tip(entry, t('filesOpensInLayerfs', { view: viewName('layerfs') })),
+        trailing: <span className={css.hint} data-files-linked>{viewName('layerfs')}</span>,
       }
     }
     const lock = <span className={css.lock} aria-hidden="true"><LockGlyph size={13} /></span>
@@ -394,7 +427,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
     if (act === 'symlink') return { ...named, expandable: false, disabled: true, secondary: entry.target ? `→ ${entry.target}` : named.secondary, title: tip(entry, t('kindSymlink', { target: entry.target ?? '?' })) }
     if (act === 'other') return { ...named, expandable: false, disabled: true, title: tip(entry, t('kindOther')) }
     if (act === 'open') {
-      const free = typeof entry.free === 'number' ? <span className={css.hint}>{t('filesFree', { size: bytes(entry.free) })}</span> : undefined
+      const free = typeof entry.free_bytes === 'number' ? <span className={css.hint}>{t('filesFree', { size: bytes(entry.free_bytes) })}</span> : undefined
       // narrow: a folder is entered, not expanded in place
       return { ...named, title: tip(entry), trailing: free, ...(narrow ? { expandable: false, icon: <IconFolderCloseRegular size={16} /> } : {}) }
     }
@@ -403,7 +436,8 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
 
   const openEntry = (item: InspectEntry) => {
     const entry = item.entry
-    if (logRow(entry)) { onOpenLog?.(); return }
+    if (entry.role === 'log') { logOpener(entry)?.(); return }
+    if (isLinkedRole(entry, shown)) { switchView('layerfs'); goTo('layerfs', entry.path); return }
     const act = actOf(entry.kind)
     if (act === 'open') { patch(shown, { base: entry.path, file: null }); setFilter(''); return }
     if (act === 'read') { patch(shown, { file: entry.path }); setTyped(null) }
@@ -468,7 +502,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
     const root = under[0]
     if (!root) return crumbsOf(vs.base, null)
     const role = root.entry.role
-    return [{ name: role && ROLE[role] ? t(ROLE[role]) : role ?? baseName(root.path), path: root.path }, ...crumbsOf(vs.base, root.path)]
+    return [{ name: role && ROLE[role] ? t(ROLE[role]) : baseName(root.path), path: root.path }, ...crumbsOf(vs.base, root.path)]
   }, [vs.base, shown, roots, t])
 
   // ---------- the file ----------
