@@ -10,6 +10,7 @@
  *
  *   router.ts               route table, status map, error answers
  *   machines.ts             /api/machines…, /api/platforms
+ *   inspect.ts              monitoring reads: /api/machines/:id/log, /api/sandboxes/:name/log (one read per key, last good answer kept)
  *   storage.ts, jobs.ts     /api/storage…, /api/stores…, /api/buckets…, /api/storage-jobs…, /api/doctor
  *   doctor.ts               /api/doctor-jobs…
  *   projects.ts             /api/status, /api/projects…, /api/sandboxes…, /api/workspaces…, /api/project-inits…
@@ -117,6 +118,10 @@ export function apply(ctx: Context): void {
     void groups.projects.close()
   }, 'dsh-layerfs: routes state')
   ctx.layerfsRemote.operate(ctx, {
-    http: (args: { method: string, path: string, body?: unknown }) => handle(groups, args ?? {}),
+    http: (args: { method: string, path: string, body?: unknown }, signal: AbortSignal) => handle(groups, args ?? {}, signal),
+    // The page stopped waiting for a monitoring read it named with `?rid=` (a left tab, a collapsed folder):
+    // queued, the read leaves the inspect lane without a process; running, its process is ended.
+    // Not a route: a POST would mark the machines view changed and drop its shared read.
+    'inspect.cancel': (args: { rid?: unknown }) => ({ cancelled: groups.machines.reads.cancel(args?.rid) }),
   })
 }

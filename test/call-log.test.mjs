@@ -175,3 +175,15 @@ test('the wrapper and execute() each write one line carrying the same tag as the
   await L.execute({ ...spec, nativeLogs: true }, ['file', 'write', '--', 'demo/app', 'main', '/x'], { input: '' })
   assert.equal(L.listCalls(callLog, {}).lines.length, 2)
 })
+
+test('loggable: table calls write a line; help, the logs family and the quiet monitoring reads do not', () => {
+  for (const argv of [['machine', 'list'], ['sandbox', 'get', '--', 'sb'], ['machine', 'get', '--', 'vm'], ['file', 'read', '--', 'p/a', 'main', '/x'], ['workspace', 'exec-cancel', '--', 'sb:ws'], ['sandbox', 'list'], ['machine', 'images', '--', 'vm']]) {
+    assert.equal(L.loggable(argv), true, argv.join(' '))
+  }
+  // not table calls
+  for (const argv of [['--version', '--json'], ['help', '--json'], ['doctor'], []]) assert.equal(L.loggable(argv), false, argv.join(' '))
+  // the logs family (#659): the call log's own reads, and the worker and daemon logs (layerfs-project#178)
+  for (const argv of [['logs', 'list'], ['logs', 'reset'], ['logs', 'machine', '--', 'vm'], ['logs', 'sandbox', '--cursor', 'c', '--', 'sb']]) assert.equal(L.loggable(argv), false, argv.join(' '))
+  // the files reads are quiet in LayerFS's log; the stand-in skips them too
+  for (const argv of [['sandbox', 'files', '--', 'sb'], ['sandbox', 'files', '--depth', '1', '--', 'sb', '/home'], ['machine', 'files', '--', 'vm', '/etc']]) assert.equal(L.loggable(argv), false, argv.join(' '))
+})

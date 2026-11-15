@@ -41,7 +41,9 @@ const MUTATING = new Set([
 ])
 /** The read calls (cli.ts READS plus workspace.status and logs.list): anything else a GET makes is suspect too. */
 const READS = new Set(['list', 'get', 'status', 'platforms', 'images', 'stats', 'storage_report', 'commits', 'get_commit', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'revision'])
-const isRead = (call) => READS.has(call.split('.')[1]) && !MUTATING.has(call)
+/** Monitoring reads, named with their family (cli.ts INSPECT_CALLS): `logs.machine` is no bare read name. */
+const INSPECT = new Set(['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files'])
+const isRead = (call) => (READS.has(call.split('.')[1]) || INSPECT.has(call)) && !MUTATING.has(call)
 
 const L = `32${'a'.repeat(64)}`
 const C1 = `c1${'1'.repeat(64)}`
@@ -121,6 +123,10 @@ function fakeLayerfs() {
       commit: async () => ({ id: C2 }),
     },
     backup: { list: async () => ({ items: [] }) },
+    logs: {
+      machine: async () => ({ lines: [{ text: 'worker up' }], cursor: 'c1', has_more: false }),
+      sandbox: async () => ({ lines: [{ text: 'daemon up' }], cursor: 'c1', has_more: false }),
+    },
   }
   const lfs = new Proxy({ spec: { cli: '/fake/layerfs', home: '/fake/home' } }, {
     get(target, family) {
@@ -472,6 +478,8 @@ const GETS = [
   ['machines', '/api/machines'],
   ['machines/:id/inspect', '/api/machines/lima1/inspect'],
   ['machines/:id/sandbox-images', '/api/machines/lima1/sandbox-images'],
+  ['machines/:id/log', '/api/machines/lima1/log'],
+  ['machines/:id/log', '/api/machines/lima1/log?cursor=c1&limit=50'],
   ['sandbox-creates', '/api/sandbox-creates'],
   ['status', '/api/status'],
   ['projects', '/api/projects'],
@@ -494,6 +502,8 @@ const GETS = [
   ['projects/:id/sandboxes', `/api/projects/${P}/sandboxes`],
   ['projects/:id/fs', `/api/projects/${P}/fs?branch=feat&path=/`],
   ['projects/:id/file', `/api/projects/${P}/file?branch=feat&path=/a.txt`],
+  ['sandboxes/:id/log', '/api/sandboxes/box1/log'],
+  ['sandboxes/:id/log', '/api/sandboxes/box1/log?before=b1'],
   ['sandboxes/:id', '/api/sandboxes/box1'],
   ['sandboxes/:id/commands', '/api/sandboxes/box1/commands'],
   ['workspaces/:id/commands', '/api/workspaces/box1:w/commands'],
@@ -515,7 +525,7 @@ test('the no-writes table covers every GET route in router.ts', () => {
 
 // C1 (finding: GETs with an `unclaimed:` projectId forked dsh.project.<uuid>): no GET route makes a mutating LayerFS call.
 test('no GET route makes a mutating LayerFS call, with or without a projectId', { timeout: 30_000 }, async (t) => {
-  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }]) })
+  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'logs', call: 'machine', args: [], options: [] }, { family: 'logs', call: 'sandbox', args: [], options: [] }]) })
   // the real identity check, wired as routes/index.ts wires it: reads never claim
   const catalog = new ProjectCatalog(() => f.lfs, join(f.dir, 'root'))
   f.host.host.assertProjectIdentity = (project, projectId) => catalog.assert(project, projectId, { claim: false })
@@ -569,6 +579,9 @@ test('no GET route makes a mutating LayerFS call, with or without a projectId', 
   assert.equal(statuses['/api/demo-presets'], 200)
   assert.equal(f.count('branch.fork'), 0, 'an unclaimed projectId never claims (C1)')
   assert.ok(readLog(log).some((argv) => argv[0] === 'doctor'), 'GET /api/doctor ran the doctor report through the CLI')
+  // the log reads made their calls, and nothing else: no sandbox.get, no machine probe
+  assert.equal(f.count('logs.machine'), 2)
+  assert.equal(f.count('logs.sandbox'), 2)
   // Stage 0: the ready images come from the archive on this host, never from a machine call
   assert.equal(statuses['/api/machines/lima1/sandbox-images'], 200)
   // GETs that write local stat journals only: Store observations and the project storage ledger, in the stat folder

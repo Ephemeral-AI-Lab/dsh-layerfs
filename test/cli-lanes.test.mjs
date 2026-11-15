@@ -39,6 +39,11 @@ const CALLS = {
   'machine.images': [[a('name', 'name')], []],
   'machine.prune': [[a('name', 'name'), a('image', 'text', true)], [o('unused', 'bool')]],
   'sandbox.create': [[a('project', 'project'), a('name', 'name'), a('machine', 'name', true)], [o('image', 'image'), o('on_progress', 'function')]],
+  // monitoring reads (layerfs-project#178)
+  'logs.machine': [[a('machine', 'name')], [o('cursor', 'text'), o('before', 'text'), o('limit', 'int')]],
+  'logs.sandbox': [[a('sandbox', 'name')], [o('cursor', 'text'), o('before', 'text'), o('limit', 'int')]],
+  'sandbox.files': [[a('sandbox', 'name'), a('path', 'text', true)], [o('depth', 'int'), o('cursor', 'text'), o('limit', 'int'), o('offset', 'int'), o('length', 'int')]],
+  'machine.files': [[a('machine', 'name'), a('path', 'text', true)], [o('depth', 'int'), o('cursor', 'text'), o('limit', 'int'), o('offset', 'int'), o('length', 'int')]],
 }
 const calls = [...new Set([...C.REQUIRED_CALLS, ...Object.keys(CALLS)])].map((name) => {
   const [family, call] = name.split('.'), [args, options] = CALLS[name] ?? [[], []]
@@ -63,7 +68,10 @@ const failing = (counter, env) => {
   writeFileSync(dir + '/' + counter, String(n + 1))
   return n < Number(process.env[env] ?? 0)
 }
+const inspect = ['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files'].includes(op)
 if (op === 'workspace.exec' || op === 'store.push') setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op }) }, 10)
+else if (inspect && process.env.FAKE_INSPECT_RACE) { process.stderr.write(JSON.stringify({ code: 'Failed', message: 'Os { code: 2, kind: NotFound, message: "No such file or directory" }' }) + '\\n'); process.exit(125) }
+else if (inspect && existsSync(dir + '/hold-inspect')) { appendFileSync(dir + '/held.pids', process.pid + '\\n'); setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op, argv: a }) }, 10) }
 else if ((op === 'file.list' || op === 'file.write') && failing('race.count', 'FAKE_RACE_FAILS')) {
   process.stderr.write(JSON.stringify({ code: 'Failed', message: 'Os { code: 2, kind: NotFound, message: "No such file or directory" }' }) + '\\n'); process.exit(125)
 } else if (op === 'machine.update' && failing('update.count', 'FAKE_UPDATE_FAILS')) {
@@ -271,4 +279,148 @@ test('Stage 1 calls: machine.images is kept 5 s and cleared by machine.prune; sa
   const create = f.log().find((argv) => argv[0] === 'sandbox' && argv[1] === 'create')
   assert.deepEqual(create, ['sandbox', 'create', '--image', 'postgres:17-bookworm', '--progress', '--', 's/p', 'b1', 'vm'])
   assert.deepEqual(seen, [{ phase: 'send', done: 1, total: 2 }])
+})
+
+// ---------------------------------------------------------------- monitoring reads (layerfs-project#179 D)
+
+const inspectSpawns = (f) => f.log().filter((argv) => C.INSPECT_CALLS.has(`${argv[0]}.${argv[1]}`))
+const until = async (check, ms = 6000) => { for (let i = 0; i < ms / 20 && !check(); i++) await new Promise((r) => setTimeout(r, 20)); return check() }
+
+test('monitoring reads are named with their family and take the inspect lane', () => {
+  assert.deepEqual([...C.INSPECT_CALLS].sort(), ['logs.machine', 'logs.sandbox', 'machine.files', 'sandbox.files'])
+  assert.deepEqual(C.INSPECT_LANE, { name: 'inspect', limit: 2, queue: 4 })
+  assert.ok(C.INSPECT_TIMEOUT_MS <= 15_000)
+  for (const argv of [['logs', 'machine', '--', 'vm'], ['logs', 'sandbox', '--', 'sb'], ['sandbox', 'files', '--', 'sb'], ['machine', 'files', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'inspect', argv.join(' '))
+  // the neighbours stay where they were: the call log's own reads, sandbox.get, machine.get
+  for (const argv of [['logs', 'list'], ['logs', 'reset'], ['sandbox', 'get', '--', 'sb'], ['machine', 'get', '--', 'vm'], ['sandbox', 'list']]) assert.equal(C.laneOf(argv).name, 'calls', argv.join(' '))
+})
+
+test('the inspect lane runs 2 and queues 4; a 7th read is Busy at once; a dropped queued read never starts a process; a dropped running one is ended', { timeout: 40000 }, async (t) => {
+  const f = fresh()
+  t.after(() => writeFileSync(join(f.dir, 'release'), ''))
+  const lfs = C.client({ cli: f.cli, home: f.home })
+  await lfs.machine.list()
+  writeFileSync(join(f.dir, 'hold-inspect'), '')
+  const signals = Array.from({ length: 6 }, () => new AbortController())
+  const settled = []
+  const reads = signals.map((c, i) => {
+    const read = (i % 2 ? lfs.logs.machine(`vm${i}`, { signal: c.signal }) : lfs.sandbox.files(`sb${i}`, { signal: c.signal }))
+    return read.then((value) => { settled[i] = { value }; return value }, (error) => { settled[i] = { error } })
+  })
+  assert.ok(await until(() => inspectSpawns(f).length === 2), 'two reads run')
+  await new Promise((r) => setTimeout(r, 300))
+  assert.equal(inspectSpawns(f).length, 2, 'the other four wait: no third process')
+  // the 7th: refused now, by this host, without a process
+  const started = Date.now()
+  await assert.rejects(lfs.logs.sandbox('sb7'), (error) => error.code === 'Busy' && error.transport === 'refusal' && error.detail.lane === 'inspect' && error.detail.running === 2 && error.detail.queued === 4)
+  assert.ok(Date.now() - started < 1000, `Busy after ${Date.now() - started} ms`)
+  assert.equal(inspectSpawns(f).length, 2)
+  // the calls and probes lanes are untouched: a page read answers while both inspect slots are held
+  assert.deepEqual((await lfs.machine.get('vm')).argv.slice(0, 2), ['machine', 'get'])
+  assert.deepEqual((await lfs.machine.list()).argv.slice(0, 2), ['machine', 'list'])
+  // a queued read is dropped: refused Cancelled, and it never starts
+  signals[5].abort()
+  await reads[5]
+  assert.equal(settled[5].error?.code, 'Cancelled')
+  // room for one more waiter again
+  const extra = new AbortController()
+  const seventh = lfs.machine.files('vm7', { signal: extra.signal }).then((value) => ({ value }), (error) => ({ error }))
+  await new Promise((r) => setTimeout(r, 100))
+  assert.equal(inspectSpawns(f).length, 2)
+  // a running read is dropped: its process is ended, it is refused Cancelled, and a waiter takes the slot
+  const pids = readFileSync(join(f.dir, 'held.pids'), 'utf8').trim().split('\n').map(Number)
+  assert.equal(pids.length, 2)
+  signals[0].abort()
+  await reads[0]
+  assert.equal(settled[0].error?.code, 'Cancelled')
+  assert.ok(await until(() => inspectSpawns(f).length === 3), 'the next waiter starts')
+  assert.ok(await until(() => pids.filter((pid) => { try { process.kill(pid, 0); return true } catch { return false } }).length === 1), 'the dropped read\'s process is gone')
+  writeFileSync(join(f.dir, 'release'), '')
+  await Promise.all(reads)
+  assert.ok((await seventh).value, 'the later waiter answers')
+  for (const i of [1, 2, 3, 4]) assert.ok(settled[i].value?.held, `read ${i} answered`)
+  // six processes in all: reads 0-4 and the later waiter; the dropped queued read (vm5) never ran
+  assert.equal(inspectSpawns(f).length, 6)
+  assert.ok(!inspectSpawns(f).some((argv) => argv.includes('vm5')), 'the dropped queued read never started a process')
+  assert.ok(!f.log().some((argv) => argv.some((word) => /signal|abort/i.test(word))), 'the signal never reaches the CLI')
+  assert.equal(C.children.size, 0)
+})
+
+test('monitoring reads run once (no Store-race retry), keep nothing, clear nothing and are not shared', { timeout: 20000 }, async (t) => {
+  const f = fresh()
+  const lfs = C.client({ cli: f.cli, home: f.home })
+  t.after(() => { delete process.env.FAKE_INSPECT_RACE })
+  const count = (family, call) => f.log().filter((argv) => argv[0] === family && argv[1] === call).length
+  // a kept read, then monitoring reads, then the kept read again: still the kept answer
+  await lfs.machine.images('vm')
+  await lfs.machine.list()
+  assert.deepEqual((await lfs.logs.machine('vm', { cursor: 'c1', limit: 50 })).argv, ['logs', 'machine', '--cursor', 'c1', '--limit', '50', '--', 'vm'])
+  assert.deepEqual((await lfs.logs.sandbox('sb', { before: 'b1' })).argv, ['logs', 'sandbox', '--before', 'b1', '--', 'sb'])
+  assert.deepEqual((await lfs.sandbox.files('sb', '/home', { depth: 1 })).argv, ['sandbox', 'files', '--depth', '1', '--', 'sb', '/home'])
+  assert.deepEqual((await lfs.machine.files('vm')).argv, ['machine', 'files', '--', 'vm'])
+  await lfs.machine.images('vm')
+  await lfs.machine.list()
+  assert.equal(count('machine', 'images'), 1, 'a monitoring read cleared no kept answer')
+  assert.equal(count('machine', 'list'), 1)
+  // the same read twice is two processes (routes share reads, not the SDK), and nothing is kept
+  await Promise.all([lfs.logs.machine('vm'), lfs.logs.machine('vm')])
+  assert.equal(count('logs', 'machine'), 3)
+  // LayerFS's Store-race refusal: any other read is run again; a monitoring read is not
+  process.env.FAKE_INSPECT_RACE = '1'
+  const before = inspectSpawns(f).length
+  await assert.rejects(lfs.logs.sandbox('sb'), (error) => error.code === 'Failed' && C.storeRace(error))
+  await assert.rejects(lfs.machine.files('vm', '/etc'), (error) => error.code === 'Failed')
+  assert.equal(inspectSpawns(f).length, before + 2, 'one process each: never retryRace')
+  // option checks: a signal must be one, and only monitoring reads take it
+  await assert.rejects(lfs.logs.machine('vm', { signal: {} }), (error) => error.code === 'InvalidInput' && /AbortSignal/.test(error.message))
+  await assert.rejects(lfs.machine.get('vm', { signal: new AbortController().signal }), (error) => error.code === 'InvalidInput' && /unknown option signal/.test(error.message))
+})
+
+test('monitoring reads write no call log line and keep no output, in stand-in mode too', { timeout: 20000 }, async () => {
+  const f = fresh()
+  const callLog = join(f.dir, 'trace', 'calls.jsonl')
+  const lfs = C.client({ cli: f.cli, home: f.home, callLog, nativeLogs: false })
+  await lfs.logs.machine('vm')
+  await lfs.logs.sandbox('sb', { cursor: 'c' })
+  await lfs.sandbox.files('sb')
+  await lfs.machine.files('vm', '/layerfs')
+  assert.equal(existsSync(callLog), false, 'no call log line')
+  assert.equal(existsSync(join(f.dir, 'trace', 'outputs')), false, 'no output kept')
+  // the same client does log an ordinary call
+  await lfs.machine.get('vm')
+  const lines = readFileSync(callLog, 'utf8').trim().split('\n').map(JSON.parse)
+  assert.deepEqual(lines.map((l) => l.argv.slice(0, 2)), [['machine', 'get']])
+  assert.equal(existsSync(join(f.dir, 'trace', 'outputs')), true)
+})
+
+test('a monitoring read has at most 15 s: a longer budget is cut to it, and running out is Timeout, not Unknown', { timeout: 40000 }, async (t) => {
+  const f = fresh()
+  t.after(() => writeFileSync(join(f.dir, 'release'), ''))
+  const lfs = C.client({ cli: f.cli, home: f.home })
+  await lfs.machine.list()
+  writeFileSync(join(f.dir, 'hold-inspect'), '')
+  let started = Date.now()
+  await assert.rejects(lfs.logs.machine('vm', { timeout_ms: 300 }), (error) => error.code === 'Timeout' && error.transport === 'transport-unknown' && error.detail.timeout === 300)
+  assert.ok(Date.now() - started < 300 + 2 * C.KILL_GRACE_MS + 2000, `settled in ${Date.now() - started} ms`)
+  // asked for a minute: stopped at 15 s
+  started = Date.now()
+  await assert.rejects(lfs.sandbox.files('sb', { timeout_ms: 60_000 }), (error) => error.code === 'Timeout' && error.detail.timeout === C.INSPECT_TIMEOUT_MS)
+  const took = Date.now() - started
+  assert.ok(took >= C.INSPECT_TIMEOUT_MS - 200 && took < C.INSPECT_TIMEOUT_MS + 2 * C.KILL_GRACE_MS + 3000, `settled after ${took} ms`)
+  assert.equal(C.children.size, 0)
+})
+
+test('a caller-named lane never moves a monitoring read out of the inspect lane', { timeout: 20000 }, async (t) => {
+  const f = fresh()
+  t.after(() => writeFileSync(join(f.dir, 'release'), ''))
+  const spec = { cli: f.cli, home: f.home }
+  writeFileSync(join(f.dir, 'hold-inspect'), '')
+  // a bulk caller's wide lane (presets, simulations): three reads would all run in it
+  const bulk = { name: 'bulk', limit: 16 }
+  const reads = [1, 2, 3].map((i) => C.execute(spec, ['machine', 'files', '--', `vm${i}`], { lane: bulk, read: true }))
+  assert.ok(await until(() => inspectSpawns(f).length === 2), 'two run')
+  await new Promise((r) => setTimeout(r, 300))
+  assert.equal(inspectSpawns(f).length, 2, 'the third waits in the inspect lane')
+  writeFileSync(join(f.dir, 'release'), '')
+  assert.equal((await Promise.all(reads)).length, 3)
 })

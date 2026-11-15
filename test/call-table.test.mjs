@@ -220,6 +220,9 @@ const GATED = [
   { site: /^machine\.stop (option force|--force)$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.forceStop\b/, lines: 3 },
   // the native call log: only when the CLI's table has logs.list and logs.reset (else the stand-in)
   { site: /^logs\.(list|reset)$/, file: 'src/host/logs/source.ts', gate: /await layerfs\.nativeLogs\(\)/, lines: 20 },
+  // the worker and daemon logs (layerfs-project#178): Machines.machineLog / sandboxLog refuse 501 without the call
+  { site: /^logs\.machine$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineLog\b/, lines: 4 },
+  { site: /^logs\.sandbox$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.sandboxLog\b/, lines: 4 },
   // the preset Reset's force-close refuses up front (preflight) when machine.stop lacks the bool force option
   { site: /^machine\.stop --force$/, file: 'src/host/presets/machine-stop.js', gate: /option\.name === 'force' && option\.kind === 'bool'/, lines: 45 },
 ]
@@ -277,7 +280,8 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   // against the 2.0.0 table (no stop force, no logs family) these are gated sites; Stage 0 makes no machine.images call
   const lacks = (family, call, option) => { const c = help.calls.find((x) => x.family === family && x.call === call); return !c || (option && !c.options.some((o) => o.name === option)) }
   const expected = [lacks('machine', 'stop', 'force') && 'machine.stop option force',
-    lacks('logs', 'list') && 'logs.list', lacks('logs', 'reset') && 'logs.reset'].filter(Boolean)
+    lacks('logs', 'list') && 'logs.list', lacks('logs', 'reset') && 'logs.reset',
+    lacks('logs', 'machine') && 'logs.machine', lacks('logs', 'sandbox') && 'logs.sandbox'].filter(Boolean)
   for (const site of expected) assert.ok(result.gated.some((g) => g.site === site), `the scan no longer sees the gated ${site} call site`)
   // any SDK translation a rule relies on is still there
   const sdk = readFileSync(join(root, 'src/host/layerfs/cli.ts'), 'utf8')
@@ -288,6 +292,7 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   assert.match(util, /images = !!call\('machine', 'images'\)/)
   assert.match(util, /imageRefs = optionOf\('sandbox', 'create', 'image'\)\?\.kind === 'image'/)
   assert.doesNotMatch(util, /image_archive/)
+  assert.match(util, /machineLog: !!call\('logs', 'machine'\), sandboxLog: !!call\('logs', 'sandbox'\)/)
   // stage1Images (the only machine.images call) runs only when discovery says Stage 1
   const machines = readFileSync(join(root, 'src/host/routes/machines.ts'), 'utf8')
   assert.match(machines, /const stage = \(await cliFeatures\(this\.host\)\)\.imageStage\n/)

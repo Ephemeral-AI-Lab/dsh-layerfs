@@ -95,6 +95,13 @@ export interface CliFeatures {
   readonly sandboxRuntime: boolean
   /** 1 when every Stage 1 piece is there (images, load, prune, refs, runtime), else 0. */
   readonly imageStage: 0 | 1
+  /**
+   * Monitoring reads (layerfs-project#178), one per call: a page shows a part
+   * only when its call is in the table. `machineLog`: logs.machine (a machine's
+   * worker log); `sandboxLog`: logs.sandbox (a Sandbox's daemon log); `files`:
+   * sandbox.files; `machineFiles`: machine.files.
+   */
+  readonly inspect: { readonly machineLog: boolean, readonly sandboxLog: boolean, readonly files: boolean, readonly machineFiles: boolean }
 }
 
 /** The features a discovery (its call table and identity features) has. */
@@ -113,6 +120,7 @@ export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identit
     createProgress: option('sandbox', 'create', 'on_progress'),
     sandboxRuntime,
     imageStage: images && imageLoad && imagePrune && imageRefs && sandboxRuntime ? 1 : 0,
+    inspect: { machineLog: !!call('logs', 'machine'), sandboxLog: !!call('logs', 'sandbox'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files') },
   }
 }
 

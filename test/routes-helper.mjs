@@ -15,7 +15,7 @@ export async function loadRoutes() {
   await build({
     absWorkingDir: root,
     stdin: {
-      contents: "export * from './src/host/routes/router.ts'\nexport * as cli from './src/host/layerfs/cli.ts'\nexport { wire } from './src/host/routes/util.ts'\nexport { recordUrl } from './src/host/routes/storage.ts'\nexport * as util from './src/host/routes/util.ts'\nexport * as machinesModule from './src/host/routes/machines.ts'\nexport * as creates from './src/host/routes/sandbox-creates.ts'\n",
+      contents: "export * from './src/host/routes/router.ts'\nexport * as cli from './src/host/layerfs/cli.ts'\nexport { wire } from './src/host/routes/util.ts'\nexport { recordUrl } from './src/host/routes/storage.ts'\nexport * as util from './src/host/routes/util.ts'\nexport * as machinesModule from './src/host/routes/machines.ts'\nexport * as creates from './src/host/routes/sandbox-creates.ts'\nexport * as inspect from './src/host/routes/inspect.ts'\n",
       resolveDir: root,
       loader: 'ts',
     },
