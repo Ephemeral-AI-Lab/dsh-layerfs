@@ -18,7 +18,7 @@
 import { join } from 'node:path'
 import { computer } from './computer.ts'
 import { readArchive, type ImageProblem } from '../images/archive.ts'
-import { InspectReads, logQuery, type LogView } from './inspect.ts'
+import { InspectReads, filesQuery, logQuery, type FilesView, type LogView } from './inspect.ts'
 import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -365,6 +365,38 @@ export class Machines {
     const lfs = this.lfs
     const request = this.reads.request(query.get('rid'), outer)
     try { return await this.reads.log(`sandbox:${name}`, logQuery(query), (options) => lfs.logs.sandbox(name, options), request.signal) } finally { request.done() }
+  }
+
+  /**
+   * `GET /api/machines/:id/files?path=&depth=&cursor=&limit=&offset=&length=&rid=`:
+   * the machine's files (machine.files). Without a path, its roots: LayerFS's
+   * own folders by role, then `/` where the machine has that view. With one, a
+   * folder page (by `cursor`) or a file window (by `offset`). Its own read, as
+   * {@link machineLog}: a refusal (`Unavailable`, `InvalidInput`, `Busy`,
+   * `Unsupported`, `Timeout`) is answered inside the view (`stale` on a kept
+   * folder page, else `refused`), not as an error. 501 while the pinned CLI
+   * has no machine.files (the page hides the tab).
+   */
+  async machineFiles(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<FilesView> {
+    if (!name) throw refuse(400, 'InvalidInput', 'name the machine')
+    if (!(await cliFeatures(this.host)).inspect.machineFiles) throw noCall('machine.files', 'a machine\'s files')
+    const lfs = this.lfs
+    const request = this.reads.request(query.get('rid'), outer)
+    try { return await this.reads.files(`machine:${name}`, filesQuery(query), (path, options) => lfs.machine.files(name, path, options), request.signal) } finally { request.done() }
+  }
+
+  /**
+   * `GET /api/sandboxes/:name/files?…`: the Sandbox's files (sandbox.files),
+   * as {@link machineFiles}. Without a path, its roots: one per Workspace,
+   * its home and its log, then `/` where its commands' root can be read. It
+   * never waits on sandbox.get and never dials the daemon.
+   */
+  async sandboxFiles(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<FilesView> {
+    if (!name) throw refuse(400, 'InvalidInput', 'name the Sandbox')
+    if (!(await cliFeatures(this.host)).inspect.files) throw noCall('sandbox.files', 'a Sandbox\'s files')
+    const lfs = this.lfs
+    const request = this.reads.request(query.get('rid'), outer)
+    try { return await this.reads.files(`sandbox:${name}`, filesQuery(query), (path, options) => lfs.sandbox.files(name, path, options), request.signal) } finally { request.done() }
   }
 
   /**

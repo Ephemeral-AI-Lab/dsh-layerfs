@@ -358,6 +358,9 @@ test('monitoring reads run once (no Store-race retry), keep nothing, clear nothi
   assert.deepEqual((await lfs.logs.sandbox('sb', { before: 'b1' })).argv, ['logs', 'sandbox', '--before', 'b1', '--', 'sb'])
   assert.deepEqual((await lfs.sandbox.files('sb', '/home', { depth: 1 })).argv, ['sandbox', 'files', '--depth', '1', '--', 'sb', '/home'])
   assert.deepEqual((await lfs.machine.files('vm')).argv, ['machine', 'files', '--', 'vm'])
+  // the files routes' form: no path (the roots) with options, and a file window
+  assert.deepEqual((await lfs.machine.files('vm', undefined, { limit: 5, signal: new AbortController().signal })).argv, ['machine', 'files', '--limit', '5', '--', 'vm'])
+  assert.deepEqual((await lfs.sandbox.files('sb', '/-odd name', { offset: 262144, length: 1048576 })).argv, ['sandbox', 'files', '--offset', '262144', '--length', '1048576', '--', 'sb', '/-odd name'])
   await lfs.machine.images('vm')
   await lfs.machine.list()
   assert.equal(count('machine', 'images'), 1, 'a monitoring read cleared no kept answer')
