@@ -4,17 +4,14 @@
  * wrote each line) and History (the versions that changed this file, each
  * with its diff). Selecting a version in Blame opens it in History.
  */
-import { useEffect, useState, type ReactNode } from 'react'
-import { Button, ReadBlock, SegmentedControl, languageForPath } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useCallback, useState, type ReactNode } from 'react'
+import { SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
 import { FileBlame } from './FileBlame.tsx'
 import { FileHistory } from './FileHistory.tsx'
-import { bytes } from './format.ts'
-import { codeLabels } from './labels.ts'
-import { EmptyState, ErrorState, Loading } from './States.tsx'
-import type { FileWindow, Translate } from './types.ts'
-import { errorCode, useQuery } from './use-query.ts'
+import type { Translate } from './types.ts'
+import { WindowedText, type TextWindow } from './WindowedText.tsx'
 import css from './Files.module.css'
 
 export { codeLabels } from './labels.ts'
@@ -66,37 +63,9 @@ export function FileViewer({ api, project, branch, path, pin, t, mode: controlle
   )
 }
 
+/** The Code view: the saved file in windows of lines (`file.read` from a line). */
 function FileCode({ api, project, branch, path, pin, t }: Omit<FileViewerProps, 'mode' | 'onModeChange'>): ReactNode {
-  const first = useQuery(() => filesApi.file(api, project, branch, path, pin), [api, project, branch, path, pin])
-  const [more, setMore] = useState<FileWindow[]>([])
-  const [loadingMore, setLoadingMore] = useState(false)
-  useEffect(() => { setMore([]) }, [first.data])
-  if (first.error) {
-    if (errorCode(first.error) === 'NoSuchPath') return <EmptyState title={t('files_absent')} />
-    return <ErrorState title={t('files_readFailed', { what: path })} error={first.error} retryLabel={t('files_retry')} onRetry={first.reload} />
-  }
-  if (!first.data) return <Loading label={t('files_loading')} className={css.pad} />
-  const file = first.data
-  if (file.binary) return <EmptyState title={t('files_binary', { size: bytes(file.size) })} />
-  const windows = [file, ...more]
-  const text = windows.map((w) => w.text ?? '').join('')
-  const lines = text.replace(/\n$/, '').split('\n').map((line, i) => ({ number: i + 1, text: line }))
-  const next = windows.at(-1)?.next_line ?? null
-  const loadMore = () => {
-    if (next == null) return
-    setLoadingMore(true)
-    filesApi.file(api, project, branch, path, pin, next).then((w) => setMore((m) => [...m, w]), () => undefined).finally(() => setLoadingMore(false))
-  }
-  return (
-    <div className={css.fileBody}>
-      <ReadBlock className={css.readBlock} label={path} lines={lines} totalLines={lines.length} lang={languageForPath(path)} labels={codeLabels(t)} maxLines={Math.max(lines.length + 1, 16)} />
-      {next != null ? (
-        <div className={css.fileFoot}>
-          <span>{t('files_windowNote', { shown: lines.length })}</span>
-          <Button variant="outline" size="sm" disabled={loadingMore} onClick={loadMore}>{t('files_moreLines')}</Button>
-        </div>
-      ) : null}
-      {windows.some((w) => w.line_truncated) ? <p className={css.fileNote}>{t('files_lineClipped')}</p> : null}
-    </div>
-  )
+  const read = useCallback((line?: number): Promise<TextWindow<number>> => filesApi.file(api, project, branch, path, pin, line)
+    .then((w) => ({ text: w.text, binary: w.binary, size: w.size, next: w.next_line, clipped: w.line_truncated })), [api, project, branch, path, pin])
+  return <WindowedText read={read} path={path} t={t} />
 }
