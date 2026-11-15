@@ -28,6 +28,8 @@ export interface MachineSupports {
   sqlite: boolean
   postgresql_sandbox: boolean
   reason: string | null
+  /** The machine has a worker log to read (logs.machine). Absent from a CLI before the field: then no Worker log tab. */
+  log?: boolean
 }
 
 export interface PlatformOption {
@@ -134,6 +136,8 @@ export interface CliFeatures {
   sandboxRuntime?: boolean
   /** 1: images from Docker, sizes and free space; 0: the ready group from the archive only. */
   imageStage?: 0 | 1
+  /** Monitoring reads the pinned CLI has (layerfs-project#178): a part shows only when its call is there. Absent from an older host. */
+  inspect?: { machineLog: boolean, sandboxLog: boolean, files: boolean, machineFiles: boolean }
 }
 
 /** The computer this host runs on (the native machine): its OS names and marks it. */

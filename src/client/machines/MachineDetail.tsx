@@ -1,17 +1,21 @@
 /**
- * One machine's tab: its head (name as the tree shows it, state, power,
- * menu), a line of facts, startup progress and notices, then its Stores and
- * its Sandboxes side by side, all of them, and the full spec folded under
- * Details.
+ * One machine's page: its head (name as the tree shows it, state, power,
+ * menu), startup progress and notices, then its tabs. Overview is a line of
+ * facts, its Stores and its Sandboxes side by side, all of them, and the full
+ * spec folded under Details. Worker log (LogPane.tsx) is there only when the
+ * pinned CLI has logs.machine and LayerFS says the machine has a worker log
+ * (`supports.log`); without it the page has no tab bar.
  */
-import { useState, type ReactNode } from 'react'
-import { Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useId, useState, type ReactNode } from 'react'
+import { Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
-import { Card, Empty, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
+import { Card, Empty, LinkButton, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
 import { DiskLine, attentionOf, blockedOf, glyphOs } from './Board.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import { ImagesSection } from './MachineImages.tsx'
+import { useDetailTab } from './detail-tabs.ts'
+import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { Inventory, useMachineTitle } from './Inventory.tsx'
 import { clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, storesOn, type AvailableView, type MachineInfo } from './model.ts'
@@ -21,6 +25,7 @@ import { FixPanel } from './Readiness.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { SpecTab } from './Spec.tsx'
 import css from './machines.module.css'
+import logCss from './log.module.css'
 
 /** `onAddStore`: the page's Add Store for this machine (Storage's dialog); without it the Stores column has no action. */
 export function MachineDetail({ name, go, onAddStore }: { name: string, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined }): ReactNode {
@@ -74,6 +79,38 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   // New Sandbox also works on a stopped machine (Start and create); it waits only while a power action runs
   const canSandbox = pending === null
   const name = title(m)
+  // Worker log: the pinned CLI has the call, and LayerFS says this machine has a worker log (no platform test here)
+  const hasLog = view.features?.inspect?.machineLog === true && m.supports?.log === true
+  // one line per tab: Files joins here with its call (machine.files)
+  const tabs: { value: 'overview' | 'log', label: string }[] = [
+    { value: 'overview', label: t('tabOverview') },
+    ...(hasLog ? [{ value: 'log' as const, label: t('tabWorkerLog') }] : []),
+  ]
+  const [tab, setTab] = useDetailTab('machine', m.name, tabs.map((x) => x.value), 'overview')
+  const ids = useId()
+  const logLink = hasLog && tab !== 'log' ? <LinkButton onClick={() => setTab('log')}>{t('openWorkerLog')}</LinkButton> : null
+  // startup progress and notices: on every tab, where today's page has them
+  const notices = (
+    <>
+      <MachineProgress name={m.name} failedAction={logLink} />
+      {block && (
+        <Notice tone="warning">
+          <p>{t('unavailableWhy', { kind: kind(m.platform), reason: stepReasons(block, tw) })}</p>
+          {m.stores.length > 0 && <p>{t(m.stores.length === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(m.stores.length) })}</p>}
+          <FixPanel fixes={block.fixes} className={css.blockedHelp} />
+        </Notice>
+      )}
+      {(reason || error !== null || state.state === 'unresolved') && (
+        <Notice tone={attention === 'danger' || error !== null ? 'danger' : undefined}>
+          {reason && <p>{reason}</p>}
+          {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
+          {m.stores.length > 0 && attention === 'danger' && <p>{t(m.stores.length === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(m.stores.length) })}</p>}
+          {error !== null && <Refusal error={error} labels={refusal} />}
+          {logLink && (reason || state.state === 'unresolved') ? <p>{logLink}</p> : null}
+        </Notice>
+      )}
+    </>
+  )
   return (
     <Page wide label={name}>
       <PageHead
@@ -89,28 +126,26 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
         )}
       />
 
+      {tabs.length > 1 && (
+        <SegmentedTabs size="sm" className={logCss.tabs} label={t('machineTabs', { name })} value={tab} onChange={setTab}
+          items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
+      )}
+
+      {tab === 'log' ? (
+        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
+          {notices}
+          <LogPane kind="machine" name={m.name} label={t('workerLogOf', { name })}
+            unavailable={state.state === 'stopped' ? { message: t('logMachineStopped'), action: block ? undefined : <PowerButton m={m} pending={pending} run={run} /> } : null} />
+        </div>
+      ) : (
+      <div className={logCss.tabPanel} {...(tabs.length > 1 ? { role: 'tabpanel', id: `${ids}-overview-panel`, 'aria-labelledby': `${ids}-overview` } : {})}>
       <dl className={css.factRow} aria-label={t('resources')}>
         <div><dt>{t('freeDisk')}</dt><dd><DiskLine m={m} view={view} /></dd></div>
         <div><dt>{t('cpuMemory')}</dt><dd>{resourcesOf(m, t)}</dd></div>
         {live?.toolVersion && <div><dt>{t('toolVersionOf', { kind: kind(m.platform) })}</dt><dd className={css.mono}>{live.toolVersion}</dd></div>}
       </dl>
 
-      <MachineProgress name={m.name} />
-      {block && (
-        <Notice tone="warning">
-          <p>{t('unavailableWhy', { kind: kind(m.platform), reason: stepReasons(block, tw) })}</p>
-          {m.stores.length > 0 && <p>{t(m.stores.length === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(m.stores.length) })}</p>}
-          <FixPanel fixes={block.fixes} className={css.blockedHelp} />
-        </Notice>
-      )}
-      {(reason || error !== null || state.state === 'unresolved') && (
-        <Notice tone={attention === 'danger' || error !== null ? 'danger' : undefined}>
-          {reason && <p>{reason}</p>}
-          {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
-          {m.stores.length > 0 && attention === 'danger' && <p>{t(m.stores.length === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(m.stores.length) })}</p>}
-          {error !== null && <Refusal error={error} labels={refusal} />}
-        </Notice>
-      )}
+      {notices}
 
       <Card className={css.block}>
         <Inventory m={m} view={view}
@@ -141,6 +176,8 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
             onSettings={() => setDialog('settings')} onRemove={() => setDialog('remove')} />
         </div>
       </details>
+      </div>
+      )}
 
       {creating && <NewSandboxDialog machine={m} taken={view.sandboxes.map((b) => b.name)} onClose={() => setCreating(false)} />}
       <MachineDialogs m={m} dialog={dialog} onClose={() => setDialog(null)} pending={pending} run={run} onRemoved={() => go({ kind: 'board' })} />
