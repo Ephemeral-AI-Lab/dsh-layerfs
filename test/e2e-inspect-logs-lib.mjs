@@ -37,8 +37,8 @@
 // Every row also fails on: a console or page error; a page request that
 // answered 4xx/5xx (a log read the page itself dropped, `Cancelled`, is not
 // one); and a new line in <dev dir>/layerfs-home/trace/calls.jsonl or a new
-// record in <dev dir>/state/layerfs/trace/outputs/ that comes from a log or
-// files read. Other reads of the page (store list, machine status, sandbox
+// record in <dev dir>/state/layerfs/trace/outputs/ that comes from a log,
+// files or machine stats read. Other reads of the page (store list, machine status, sandbox
 // get) do add lines there; they are told apart by argv and tag.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
@@ -159,8 +159,8 @@ export function spawns() {
   }
   return out
 }
-/** A monitoring read: `logs machine|sandbox`, `sandbox files`, `machine files`. */
-export const isInspect = (words) => (words[0] === 'logs' && (words[1] === 'machine' || words[1] === 'sandbox')) || ((words[0] === 'sandbox' || words[0] === 'machine') && words[1] === 'files')
+/** A monitoring read: `logs machine|sandbox`, `sandbox files`, `machine files`, `machine stats`. */
+export const isInspect = (words) => (words[0] === 'logs' && (words[1] === 'machine' || words[1] === 'sandbox')) || ((words[0] === 'sandbox' || words[0] === 'machine') && words[1] === 'files') || (words[0] === 'machine' && words[1] === 'stats')
 /** The processes started after `mark` (a count from `spawnMark`), split into monitoring reads and the rest by `family call`. */
 export function spawnsSince(mark) {
   const all = spawns()
@@ -196,7 +196,7 @@ export function traceGrowth(mark) {
     try { record = JSON.parse(readFileSync(join(outputsDir, name), 'utf8')) } catch { continue }
     const out = typeof record?.stdout === 'string' ? record.stdout : ''
     // a log answer's shape, or a files answer's (a folder page, a file window), whatever its tag
-    if (inspectTags.has(record?.tag) || (/"has_more"\s*:/.test(out) && /"lines"\s*:\s*\[/.test(out)) || (/"has_more"\s*:/.test(out) && /"kind"\s*:\s*"folder"/.test(out) && /"entries"\s*:\s*\[/.test(out)) || (/"kind"\s*:\s*"file"/.test(out) && /"binary"\s*:/.test(out) && /"offset"\s*:/.test(out))) bad.push(`trace/outputs/${name}: a log or files read's output (tag ${record?.tag})`)
+    if (inspectTags.has(record?.tag) || (/"has_more"\s*:/.test(out) && /"lines"\s*:\s*\[/.test(out)) || (/"has_more"\s*:/.test(out) && /"kind"\s*:\s*"folder"/.test(out) && /"entries"\s*:\s*\[/.test(out)) || (/"kind"\s*:\s*"file"/.test(out) && /"binary"\s*:/.test(out) && /"offset"\s*:/.test(out)) || (/"data_disk"\s*:/.test(out) && /"resources"\s*:/.test(out) && /"observed_at"\s*:/.test(out))) bad.push(`trace/outputs/${name}: a log, files or stats read's output (tag ${record?.tag})`)
   }
   return { bad, others, newLines: added.length, newOutputs }
 }
@@ -227,7 +227,7 @@ export async function track(page) {
 /** The page's requests that failed, without the log and files reads it dropped itself (`Cancelled`). */
 export async function failedRequests(page) {
   const calls = await page.evaluate(() => window.__inspect?.calls ?? [])
-  return calls.filter((c) => c.status !== undefined && c.status !== 'ok' && !(c.code === 'Cancelled' && /\/(log|files)\b/.test(c.what)))
+  return calls.filter((c) => c.status !== undefined && c.status !== 'ok' && !(c.code === 'Cancelled' && /\/(log|files|stats)\b/.test(c.what)))
     .map((c) => `${c.what} -> ${c.status} ${c.code ?? ''} ${c.message ?? ''}`.trim())
 }
 export const requestsTo = async (page, pattern) => (await page.evaluate(() => window.__inspect?.calls ?? [])).filter((c) => pattern.test(c.what))
