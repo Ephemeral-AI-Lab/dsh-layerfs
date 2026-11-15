@@ -164,6 +164,7 @@ await main('e2e-inspect-logs', async ({ run, page }) => {
     t.check(frame < 500, `two animation frames in under 500 ms with 5,000 lines loaded (${Math.round(frame)} ms)`)
     const long = await page.evaluate(() => window.__long)
     if (long) { t.check(long.max < 1000, `no task blocked the page for 1 s or more (longest ${Math.round(long.max)} ms, ${long.n} over 50 ms)`) } else t.note('longtask timing is not available in this browser')
+    t.note(`responsiveness with 5,000 lines: slowest "Earlier lines" read shown in ${slowest} ms (${clicks} reads), find answered in ${findMs} ms, two frames in ${Math.round(frame)} ms, longest task ${long ? `${Math.round(long.max)} ms (${long.n} over 50 ms)` : 'not measured'}; the reader's line moved at most ${moved} px`)
 
     // new lines still arrive by cursor, and the window stays bounded
     await pane(page).getByRole('button', { name: 'Read again', exact: true }).first().click()
