@@ -11,10 +11,14 @@
  * (a different daemon or bundle for the same CLI is refused, never replaced,
  * since a running machine may be using them). On macOS copies are APFS clones
  * (`cp -c`), so the 3 GB bundle costs no space; elsewhere they are plain copies.
+ *
+ * Old folders are removed by {@link cleanRuntimes} (layerfs-project#180): it
+ * keeps every runtime something may still use and removes only what it can
+ * show is unused; anything it cannot tell is kept.
  */
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 
 export interface InstalledRuntime {
@@ -126,4 +130,147 @@ export function installRuntime(home: string, version: string, given: { cli: stri
   const daemon = given.daemon ? placeFile(given.daemon, join(dir, 'bin', 'layerfs-daemon'), 'daemon') : present?.daemon ?? null
   const bundle = given.bundle ? placeBundle(given.bundle, dir) : present?.bundle ?? null
   return { id, cli, daemon, bundle }
+}
+
+// ---------------------------------------------------------------- cleanup
+
+/** How many of the newest runtimes a cleanup always keeps, whatever else holds. */
+export const KEEP_NEWEST = 3
+
+/** Why a cleanup kept a runtime. */
+export type KeptWhy =
+  /** A pin names it (this host's CLI, daemon or bundle; a saved or environment pin). */
+  | 'pinned'
+  /** One of the {@link KEEP_NEWEST} newest. */
+  | 'newest'
+  /** `machine.list()` names a path inside it (a machine record's `daemon`, …). */
+  | 'machine'
+  /** A running process was started from it (a native Sandbox's daemon, a CLI call). */
+  | 'process'
+  /** It has a Linux bundle and a worker machine is not stopped: its worker may have the bundle mounted. */
+  | 'worker'
+  /** A fact could not be read (machines, processes) or the folder is not a plain folder here: kept. */
+  | 'unknown'
+
+/** What a cleanup may rely on. A fact that could not be read is null, and then nothing is removed. */
+export interface CleanupFacts {
+  /** Pinned paths (CLI, daemon, bundle of this host's pin, its saved pin and the environment's). */
+  readonly pinned: readonly (string | null | undefined)[]
+  /** `machine.list()`'s answer as LayerFS gave it (`{ machines: [...] }`), or null when it could not be read. */
+  readonly machines: unknown | null
+  /** The command line of every running process (`ps`), or null when they could not be listed. */
+  readonly processes: readonly string[] | null
+  /** How many of the newest to keep (default {@link KEEP_NEWEST}). */
+  readonly newest?: number
+}
+
+/** What a cleanup did. */
+export interface RuntimeCleanup {
+  readonly kept: { readonly id: string, readonly why: KeptWhy }[]
+  readonly removed: string[]
+  readonly failed: { readonly id: string, readonly message: string }[]
+}
+
+const real = (path: string): string => { try { return realpathSync(path) } catch { return path } }
+const within = (dir: string, path: string): boolean => path === dir || inside(dir, path)
+
+/** Every string anywhere in a JSON value. */
+function strings(value: unknown, out: string[] = [], depth = 0): string[] {
+  if (typeof value === 'string') out.push(value)
+  else if (value && typeof value === 'object' && depth < 12) for (const v of Array.isArray(value) ? value : Object.values(value)) strings(v, out, depth + 1)
+  return out
+}
+
+/**
+ * Whether a worker may have a runtime's bundle mounted. LayerFS does not
+ * report which bundle folder a running docker worker bind-mounts
+ * (`machine.list`/`status` carry no path), so this answers for all bundles at
+ * once: true unless every machine that is not `native` is `stopped`. A machine
+ * with no readable platform or state counts as running.
+ */
+function workersMayRun(machines: readonly unknown[]): boolean {
+  return machines.some((m: any) => !(m && typeof m === 'object' && (m.platform === 'native' || m.state === 'stopped')))
+}
+
+/**
+ * Which installed runtimes a cleanup keeps (and why) and which it may remove.
+ * Pure: it reads only `facts` and the list. Kept, in this order of reasons:
+ * a pinned one, the newest few, one a machine record names, one a running
+ * process was started from, one with a bundle while a worker machine is not
+ * stopped; and all of them when a fact is missing.
+ */
+export function planRuntimeCleanup(runtimes: readonly InstalledRuntime[], facts: CleanupFacts): { keep: Map<string, KeptWhy>, remove: InstalledRuntime[] } {
+  const keep = new Map<string, KeptWhy>()
+  const remove: InstalledRuntime[] = []
+  const list = (facts.machines as any)?.machines
+  const known = Array.isArray(list) && Array.isArray(facts.processes)
+  const pinned = facts.pinned.filter((p): p is string => typeof p === 'string' && !!p).flatMap((p) => [p, real(p)])
+  const named = known ? strings(list).filter((s) => s.startsWith('/')).flatMap((p) => [p, real(p)]) : []
+  const mayRun = known ? workersMayRun(list) : true
+  const newest = Math.max(0, facts.newest ?? KEEP_NEWEST)
+  // newest first, as installedRuntimes answers
+  runtimes.forEach((r, index) => {
+    const dirs = [r.dir, real(r.dir)]
+    const holds = (paths: readonly string[]) => paths.some((p) => dirs.some((d) => within(d, p)))
+    const why: KeptWhy | null = holds(pinned) ? 'pinned'
+      : index < newest ? 'newest'
+      : !known ? 'unknown'
+      : holds(named) ? 'machine'
+      : facts.processes!.some((line) => dirs.some((d) => line.includes(`${d}/`))) ? 'process'
+      : mayRun && existsSync(join(r.dir, 'bundle')) ? 'worker'
+      : null
+    if (why) keep.set(r.id, why)
+    else remove.push(r)
+  })
+  return { keep, remove }
+}
+
+/** The command line of every running process, or null when `ps` cannot tell. */
+export function runningCommands(): string[] | null {
+  try {
+    const out = execFileSync('/bin/ps', ['-axww', '-o', 'command='], { encoding: 'utf8', timeout: 5000, maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] })
+    const lines = out.split('\n').filter(Boolean)
+    return lines.length ? lines : null
+  } catch { return null }
+}
+
+/**
+ * Removes the installed runtimes nothing uses ({@link planRuntimeCleanup}).
+ * A folder goes by a rename to `<id>.tmp-rm-<8 hex>` (so it is no longer
+ * listed), then a recursive delete; a rename left from an earlier run is
+ * deleted too. Only plain folders directly inside `<home>/runtime` are
+ * touched, never a symlink. Never throws.
+ */
+export function cleanRuntimes(home: string, facts: CleanupFacts): RuntimeCleanup {
+  const result: RuntimeCleanup = { kept: [], removed: [], failed: [] }
+  const root = runtimeRoot(home)
+  let plan: ReturnType<typeof planRuntimeCleanup>
+  try { plan = planRuntimeCleanup(installedRuntimes(home), facts) } catch (error: any) {
+    result.failed.push({ id: '*', message: String(error?.message ?? error) })
+    return result
+  }
+  for (const [id, why] of plan.keep) result.kept.push({ id, why })
+  for (const r of plan.remove) {
+    try {
+      const st = lstatSync(r.dir)
+      if (!st.isDirectory() || dirname(r.dir) !== root || real(r.dir) !== join(real(root), r.id)) { result.kept.push({ id: r.id, why: 'unknown' }); continue }
+      const gone = `${r.dir}.tmp-rm-${randomUUID().slice(0, 8)}`
+      renameSync(r.dir, gone)
+      result.removed.push(r.id)
+      rmSync(gone, { recursive: true, force: true })
+    } catch (error: any) {
+      result.failed.push({ id: r.id, message: String(error?.message ?? error) })
+    }
+  }
+  // what an interrupted removal left: already renamed away by this function, so nothing uses it
+  if (plan.remove.length || result.removed.length) {
+    try {
+      for (const name of readdirSync(root)) {
+        if (!/\.tmp-rm-[0-9a-f]{8}$/.test(name)) continue
+        const path = join(root, name)
+        try { if (lstatSync(path).isDirectory()) rmSync(path, { recursive: true, force: true }) } catch { /* next cleanup */ }
+      }
+    } catch { /* no runtime folder */ }
+  }
+  return result
 }
