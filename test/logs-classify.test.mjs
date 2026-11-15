@@ -19,10 +19,14 @@ const WRITES = new Set([
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load', 'machine.prune',
   'store.create', 'store.connect', 'store.attach', 'store.detach', 'store.push', 'store.pull', 'store.remove', 'store.disconnect',
   'backup.connect', 'backup.disconnect', 'backup.create', 'backup.restore',
+  'doctor.fix',
 ])
 
 test('family-only reads are not writes', () => {
-  for (const argv of [['doctor'], ['help', '--json'], ['logs', 'list'], ['--version', '--json']]) assert.equal(isWrite(argv), false, argv.join(' '))
+  for (const argv of [['doctor'], ['doctor', 'machine', 'docker'], ['help', '--json'], ['logs', 'list'], ['--version', '--json']]) assert.equal(isWrite(argv), false, argv.join(' '))
+  // the monitoring reads (they write no call-log line, and a line of one would be a read)
+  for (const argv of [['machine', 'files', 'docker', '/etc'], ['sandbox', 'files', 'sb'], ['machine', 'stats', 'docker'], ['logs', 'machine', 'docker'], ['logs', 'sandbox', 'sb']]) assert.equal(isWrite(argv), false, argv.join(' '))
+  assert.equal(isWrite(['doctor', 'fix', 'native:run-folder:x']), true, 'doctor fix removes a leftover')
 })
 
 test('every pinned CLI call is classified as its kind', { skip: !pinned() && 'no pinned CLI' }, () => {

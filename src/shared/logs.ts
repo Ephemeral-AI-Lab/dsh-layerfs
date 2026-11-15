@@ -189,12 +189,14 @@ export function operationOf(argv: readonly string[]): string {
 }
 
 /** Read-only calls hidden by `writes` until LayerFS #659 Q1 adds a read/write bit. */
-const READ_CALLS = new Set(['list', 'get', 'status', 'read', 'stat', 'diff', 'commits', 'blame', 'revision', 'images', 'search', 'glob', 'grep', 'log', 'platforms', 'show', 'tree', 'history', 'stats', 'info', 'check', 'capabilities'])
+const READ_CALLS = new Set(['list', 'get', 'status', 'read', 'stat', 'diff', 'commits', 'blame', 'revision', 'images', 'search', 'glob', 'grep', 'log', 'platforms', 'show', 'tree', 'history', 'stats', 'info', 'check', 'capabilities', 'files'])
 /** Families that only read and have no call word (`layerfs doctor`, `layerfs help`). */
 const READ_FAMILIES = new Set(['logs', 'doctor', 'help'])
 export function isWrite(argv: readonly string[]): boolean {
-  if (READ_FAMILIES.has(argv[0] ?? '') || argv[0]?.startsWith('-')) return false
   const call = (argv[1] ?? '').replaceAll('-', '_')
+  // `doctor fix <id>` is the one doctor call that changes something: it removes a leftover
+  if (argv[0] === 'doctor' && call === 'fix') return true
+  if (READ_FAMILIES.has(argv[0] ?? '') || argv[0]?.startsWith('-')) return false
   return !READ_CALLS.has(call) && !call.startsWith('get_') && !call.startsWith('list_')
 }
 
