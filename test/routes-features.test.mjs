@@ -39,8 +39,10 @@ const viewLfs = (extra = {}, sandboxes = []) => ({
   sandbox: { list: async () => ({ items: sandboxes, next_page_pos: null }) },
 })
 
-const NO_INSPECT = { machineLog: false, sandboxLog: false, files: false, machineFiles: false }
-const NONE = { forceStop: false, images: false, imageLoad: false, imagePrune: false, imageRefs: false, createProgress: false, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT }
+const NO_INSPECT = { machineLog: false, sandboxLog: false, files: false, machineFiles: false, machineStats: false }
+/** The features read from one call or option each (layerfs-project#164, #180): absent from this table's CLIs. */
+const NO_OBSERVE = { sandboxLive: false, leftovers: false }
+const NONE = { forceStop: false, images: false, imageLoad: false, imagePrune: false, imageRefs: false, createProgress: false, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT, ...NO_OBSERVE }
 
 test('features: the machines view says what the pinned CLI has, Stage 1 only with every piece', async () => {
   const pinned = fixture(viewLfs())
@@ -49,8 +51,8 @@ test('features: the machines view says what the pinned CLI has, Stage 1 only wit
   try {
     assert.deepEqual((await pinned.http('GET', '/api/machines')).body.features, NONE)
     // no `sandbox-runtime` identity feature: everything else is there, still Stage 0 (D11)
-    assert.deepEqual((await almost.http('GET', '/api/machines')).body.features, { forceStop: true, images: true, imageLoad: true, imagePrune: true, imageRefs: true, createProgress: true, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT })
-    assert.deepEqual((await full.http('GET', '/api/machines')).body.features, { forceStop: true, images: true, imageLoad: true, imagePrune: true, imageRefs: true, createProgress: true, sandboxRuntime: true, imageStage: 1, inspect: NO_INSPECT })
+    assert.deepEqual((await almost.http('GET', '/api/machines')).body.features, { forceStop: true, images: true, imageLoad: true, imagePrune: true, imageRefs: true, createProgress: true, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT, ...NO_OBSERVE })
+    assert.deepEqual((await full.http('GET', '/api/machines')).body.features, { forceStop: true, images: true, imageLoad: true, imagePrune: true, imageRefs: true, createProgress: true, sandboxRuntime: true, imageStage: 1, inspect: NO_INSPECT, ...NO_OBSERVE })
   } finally { pinned.close(); almost.close(); full.close() }
 })
 
@@ -650,9 +652,9 @@ const tick = () => new Promise((r) => setTimeout(r, 10))
 
 test('features: each monitoring call is its own feature, read from the call table; none is required', async () => {
   const { featuresOf } = R.util
-  assert.deepEqual(featuresOf({ calls: LOGS }).inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false })
-  assert.deepEqual(featuresOf({ calls: [entry('logs', 'list'), entry('logs', 'sandbox'), entry('sandbox', 'files')] }).inspect, { machineLog: false, sandboxLog: true, files: true, machineFiles: false })
-  assert.deepEqual(featuresOf({ calls: [entry('machine', 'files'), entry('logs', 'machine')] }).inspect, { machineLog: true, sandboxLog: false, files: false, machineFiles: true })
+  assert.deepEqual(featuresOf({ calls: LOGS }).inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false, machineStats: false })
+  assert.deepEqual(featuresOf({ calls: [entry('logs', 'list'), entry('logs', 'sandbox'), entry('sandbox', 'files')] }).inspect, { machineLog: false, sandboxLog: true, files: true, machineFiles: false, machineStats: false })
+  assert.deepEqual(featuresOf({ calls: [entry('machine', 'files'), entry('logs', 'machine')] }).inspect, { machineLog: true, sandboxLog: false, files: false, machineFiles: true, machineStats: false })
   for (const name of ['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files']) assert.ok(!R.cli.REQUIRED_CALLS.includes(name), `${name} is optional`)
   // the machines view carries them, and a machine's supports.log only when LayerFS answers it
   const f = fixture(viewLfs({ list: async () => ({ machines: [
@@ -662,7 +664,7 @@ test('features: each monitoring call is its own feature, read from the call tabl
   ] }), status: async (name) => ({ name, state: 'running' }) }), LOGS)
   try {
     const view = (await f.http('GET', '/api/machines')).body
-    assert.deepEqual(view.features.inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false })
+    assert.deepEqual(view.features.inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false, machineStats: false })
     assert.deepEqual(view.machines.map((m) => [m.name, m.supports.log]), [['native', false], ['docker', true], ['old', undefined]])
     assert.ok(!('log' in view.machines[2].supports), 'absent stays absent')
   } finally { f.close() }

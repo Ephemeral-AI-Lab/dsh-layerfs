@@ -226,6 +226,12 @@ const GATED = [
   // the machine's and the Sandbox's files (layerfs-project#178): Machines.machineFiles / sandboxFiles refuse 501 without the call
   { site: /^machine\.files$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineFiles\b/, lines: 4 },
   { site: /^sandbox\.files$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.files\b/, lines: 4 },
+  // a machine's observed resources (layerfs-project#164): Machines.machineStats refuses 501 without the call
+  { site: /^machine\.stats$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineStats\b/, lines: 10 },
+  // sandbox.list --live (layerfs-project#164): the machines view passes `live` only when the call table has the option
+  { site: /^sandbox\.list option live$/, file: 'src/host/routes/machines.ts', gate: /features\.sandboxLive\b/, lines: 3 },
+  // doctor.fix (layerfs-project#180) has no entry: this host never calls it (the Doctor page shows the command as text);
+  // `featuresOf(...).leftovers` reads the call table for it, checked below
   // the preset Reset's force-close refuses up front (preflight) when machine.stop lacks the bool force option
   { site: /^machine\.stop --force$/, file: 'src/host/presets/machine-stop.js', gate: /option\.name === 'force' && option\.kind === 'bool'/, lines: 45 },
 ]
@@ -284,7 +290,8 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   const lacks = (family, call, option) => { const c = help.calls.find((x) => x.family === family && x.call === call); return !c || (option && !c.options.some((o) => o.name === option)) }
   const expected = [lacks('machine', 'stop', 'force') && 'machine.stop option force',
     lacks('logs', 'list') && 'logs.list', lacks('logs', 'reset') && 'logs.reset',
-    lacks('logs', 'machine') && 'logs.machine', lacks('logs', 'sandbox') && 'logs.sandbox'].filter(Boolean)
+    lacks('logs', 'machine') && 'logs.machine', lacks('logs', 'sandbox') && 'logs.sandbox',
+    lacks('sandbox', 'files') && 'sandbox.files', lacks('machine', 'stats') && 'machine.stats', lacks('sandbox', 'list', 'live') && 'sandbox.list option live'].filter(Boolean)
   for (const site of expected) assert.ok(result.gated.some((g) => g.site === site), `the scan no longer sees the gated ${site} call site`)
   // any SDK translation a rule relies on is still there
   const sdk = readFileSync(join(root, 'src/host/layerfs/cli.ts'), 'utf8')
@@ -296,6 +303,11 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   assert.match(util, /imageRefs = optionOf\('sandbox', 'create', 'image'\)\?\.kind === 'image'/)
   assert.doesNotMatch(util, /image_archive/)
   assert.match(util, /machineLog: !!call\('logs', 'machine'\), sandboxLog: !!call\('logs', 'sandbox'\)/)
+  assert.match(util, /files: !!call\('sandbox', 'files'\), machineFiles: !!call\('machine', 'files'\), machineStats: !!call\('machine', 'stats'\)/)
+  assert.match(util, /sandboxLive: option\('sandbox', 'list', 'live'\)/)
+  assert.match(util, /leftovers: !!call\('doctor', 'fix'\)/)
+  // doctor.fix is never called from this host: the page shows the command, the person runs it
+  for (const f of files) assert.doesNotMatch(stripComments(f.text), /\.doctor\??\.fix\s*\(|\[\s*'doctor'\s*,\s*'fix'/, `${f.file} calls doctor.fix`)
   // stage1Images (the only machine.images call) runs only when discovery says Stage 1
   const machines = readFileSync(join(root, 'src/host/routes/machines.ts'), 'utf8')
   assert.match(machines, /const stage = \(await cliFeatures\(this\.host\)\)\.imageStage\n/)

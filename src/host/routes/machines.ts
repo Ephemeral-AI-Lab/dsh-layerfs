@@ -14,11 +14,14 @@
  * machine's `state` and `supports`, never guessed here), with store.list()
  * and sandbox.list(), and machine.status() of the machines that run or hold an
  * operation (free disk, `op`): one read for the page, and none of it starts a machine.
+ * Where the pinned CLI has it, sandbox.list is asked with `live`, so a Sandbox
+ * whose daemon has ended is not shown as running (layerfs-project#164).
  */
 import { join } from 'node:path'
 import { computer } from './computer.ts'
 import { readArchive, type ImageProblem } from '../images/archive.ts'
-import { InspectReads, filesQuery, logQuery, type FilesView, type LogView } from './inspect.ts'
+import { InspectReads, filesQuery, logQuery, refusalOf, type FilesView, type LogView } from './inspect.ts'
+import { STATS_KEEP_MS, liveOf, statsAnswer, type MachineStats, type MachineStatsView } from './observed.ts'
 import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -229,9 +232,9 @@ export function pgStoreOf(s: any) {
   return { name: String(s.name), projects: count(s.projects), names: Array.isArray(s.projects) ? s.projects.map(String) : [], state: text(s.state) ?? 'unknown', op: opOf(s.op), machines: s.machines && typeof s.machines === 'object' ? Object.entries(s.machines).map(([machine, a]: [string, any]) => ({ machine, checked: !!a?.checked })) : null }
 }
 
-/** One sandbox.list() item. */
+/** One sandbox.list() item; `live` (and `liveReason`) only when LayerFS answered it (the `live` option, layerfs-project#164). */
 export function sandboxOf(b: any) {
-  return { name: String(b.name ?? b.sandbox), machine: text(b.machine), project: text(b.project), workspaces: b.workspaces === undefined ? null : count(b.workspaces), state: text(b.state) ?? 'unknown', op: opOf(b.op), backend: text(b.backend), route: text(b.route), image: text(b.image) }
+  return { name: String(b.name ?? b.sandbox), machine: text(b.machine), project: text(b.project), workspaces: b.workspaces === undefined ? null : count(b.workspaces), state: text(b.state) ?? 'unknown', op: opOf(b.op), backend: text(b.backend), route: text(b.route), image: text(b.image), ...liveOf(b) }
 }
 
 /** One machine.status() answer (the reason is `down_reason`). */
@@ -274,8 +277,8 @@ export class Machines {
     } catch { return { version: null, features: featuresOf(null) } }
   }
 
-  /** A write somewhere (the router calls this on every non-GET): the next view() reads anew. */
-  changed(): void { this.generation++ }
+  /** A write somewhere (the router calls this on every non-GET): the next view() reads anew, and so does the next stats read. */
+  changed(): void { this.generation++; this.statsAt.clear() }
 
   /**
    * MachinesView: concurrent GETs (the sidebar, the machines store, a dialog) share one read.
@@ -296,17 +299,21 @@ export class Machines {
     const readErrors: Record<string, unknown> = {}
     const failed = (name: string) => (e: any) => { readErrors[name] = { error: { code: e?.code ?? 'Unknown', message: e?.message ?? String(e) }, at: Date.now() }; return [] as any[] }
     let host: string | null = null
+    const { version, features } = await this.identity()
+    // with `live`, LayerFS asks each machine once whether its Sandboxes' daemons run (no daemon call; a machine that does not answer is `live: null`)
+    const listSandboxes = features.sandboxLive
+      ? (p: { page_size: number, page_pos: number }) => lfs.sandbox.list({ ...p, live: true })
+      : (p: { page_size: number, page_pos: number }) => lfs.sandbox.list(p)
     const [platforms, listedStores, sandboxes, statuses] = await Promise.all([
       this.platforms().then((p) => { host = p.host || null; return p.platforms }, failed('platforms')),
       lfs.store.list().then(list, failed('stores')),
       // sandbox.list items carry no Workspaces: each one's count is its sandbox.get (a record read; null when refused)
-      pages((p) => lfs.sandbox.list(p)).then((rows) => rows.map(sandboxOf), failed('sandboxes')),
+      pages(listSandboxes).then((rows) => rows.map(sandboxOf), failed('sandboxes')),
       // Starts nothing; stopped machines can carry provider/socket diagnostics too.
       Promise.all(machines.filter((m) => m.platform !== 'native' && ASK_STATUS.has(m.state)).map((m) => lfs.machine.status(m.name).then(statusOf, (e: any) => ({ name: m.name, state: null, freeDisk: null, toolVersion: null, down: e?.message ?? String(e), op: null })))),
     ])
     const stores = listedStores.map(storeOf).filter(Boolean)
     const postgresql = listedStores.map(pgStoreOf).filter(Boolean)
-    const { version, features } = await this.identity()
     // features: what the pinned CLI can do (force stop, the image stage and its parts); the page offers only those
     const answer: any = { available: true, readErrors, layerfs: version, features, computer: computer(host), machines, platforms, stores, postgresql, sandboxes, status: Object.fromEntries(statuses.map((s: any) => [s.name, s])) }
     for (const [part, fields] of Object.entries({ stores: ['stores', 'postgresql'], sandboxes: ['sandboxes'], platforms: ['platforms'] })) {
@@ -397,6 +404,45 @@ export class Machines {
     const lfs = this.lfs
     const request = this.reads.request(query.get('rid'), outer)
     try { return await this.reads.files(`sandbox:${name}`, filesQuery(query), (path, options) => lfs.sandbox.files(name, path, options), request.signal) } finally { request.done() }
+  }
+
+  /** When each machine's kept stats answer was read, since the last write: within STATS_KEEP_MS it answers again without a call. */
+  private readonly statsAt = new Map<string, number>()
+
+  /**
+   * `GET /api/machines/:id/stats?rid=`: what the machine has and uses now
+   * (machine.stats, layerfs-project#164): observed processors, memory and
+   * data disk with their `scope`, the worker, each Store's size and the live
+   * Sandbox count. Its own read in the inspect lane, as {@link machineLog}:
+   * never part of the machines view, one process per machine at a time, and
+   * one answer serves every page for STATS_KEEP_MS. A refusal (a stopped
+   * machine `Unavailable`, a full lane `Busy`, no answer in time `Timeout`)
+   * is answered as `stale` with the last good values (none: `stats: null`),
+   * not as an error. 501 while the pinned CLI has no machine.stats (the
+   * pages then show what they showed before).
+   */
+  async machineStats(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<MachineStatsView> {
+    if (!name) throw refuse(400, 'InvalidInput', 'name the machine')
+    if (!(await cliFeatures(this.host)).inspect.machineStats) throw noCall('machine.stats', 'a machine\'s observed resources')
+    const lfs = this.lfs
+    const target = `stats:${name}`
+    const fresh = this.statsAt.get(name), kept = this.reads.last<MachineStats>(target)
+    if (kept && fresh === kept.at && Date.now() - kept.at < STATS_KEEP_MS) return { machine: name, readAt: Date.now(), at: kept.at, stats: kept.value, stale: false }
+    const request = this.reads.request(query.get('rid'), outer)
+    try {
+      const stats = statsAnswer(await this.reads.read(target, (signal) => { const options = { signal }; return lfs.machine.stats(name, options) }, request.signal))
+      const at = Date.now()
+      this.reads.keep(target, stats, at)
+      this.statsAt.set(name, at)
+      return { machine: name, readAt: at, at, stats, stale: false }
+    } catch (error: any) {
+      // nobody waits for it
+      if (error?.code === 'Cancelled') throw error
+      // a machine that is gone has no last values to show
+      if (error?.code === 'NotFound' || error?.code === 'NoSuchMachine') { this.reads.forget(target); this.statsAt.delete(name) }
+      const last = this.reads.last<MachineStats>(target)
+      return { machine: name, readAt: Date.now(), at: last?.at ?? null, stats: last?.value ?? null, stale: refusalOf(error, last?.at ?? null) }
+    } finally { request.done() }
   }
 
   /**

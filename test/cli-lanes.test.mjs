@@ -287,7 +287,7 @@ const inspectSpawns = (f) => f.log().filter((argv) => C.INSPECT_CALLS.has(`${arg
 const until = async (check, ms = 6000) => { for (let i = 0; i < ms / 20 && !check(); i++) await new Promise((r) => setTimeout(r, 20)); return check() }
 
 test('monitoring reads are named with their family and take the inspect lane', () => {
-  assert.deepEqual([...C.INSPECT_CALLS].sort(), ['logs.machine', 'logs.sandbox', 'machine.files', 'sandbox.files'])
+  assert.deepEqual([...C.INSPECT_CALLS].sort(), ['logs.machine', 'logs.sandbox', 'machine.files', 'machine.stats', 'sandbox.files'])
   assert.deepEqual(C.INSPECT_LANE, { name: 'inspect', limit: 2, queue: 4 })
   assert.ok(C.INSPECT_TIMEOUT_MS <= 15_000)
   for (const argv of [['logs', 'machine', '--', 'vm'], ['logs', 'sandbox', '--', 'sb'], ['sandbox', 'files', '--', 'sb'], ['machine', 'files', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'inspect', argv.join(' '))
