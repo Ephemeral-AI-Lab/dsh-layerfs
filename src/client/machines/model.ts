@@ -180,6 +180,8 @@ export interface NewMachine {
 
 export interface WorkspaceInfo {
   ws: string
+  /** The Workspace's own id (sandbox.get's `workspace`), as a files answer names a Workspace mount. */
+  wsId?: string | null
   name?: string | null
   branch: string
   path: string

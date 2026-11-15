@@ -10,6 +10,14 @@
  * steps into an open one, Left closes a folder or steps out to its parent,
  * typing goes to the next row whose name starts with what was typed, and Enter
  * or Space activates the row. A folder being read is `aria-busy`.
+ *
+ * A view may also say, per row ({@link TreeRow}): that it cannot be activated
+ * (`aria-disabled`: an entry that is listed but never opened), another name
+ * and a dimmer second text (a root's role and its real path, a link's
+ * target), what follows the row outside its button (a chip, a lock, actions)
+ * and a line under it; and, per folder, what a read in progress, a refused
+ * read and the "more entries" row show ({@link FileTreeProps.pending},
+ * `failed`, `more`).
  */
 import { useCallback, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import clsx from 'clsx'
@@ -131,6 +139,25 @@ export interface TreeRow {
   icon: ReactNode
   /** The row's tooltip. Default: the path, with a file's size. */
   title: string
+  /** The row cannot be activated: listed, reachable by the keys, `aria-disabled`. */
+  disabled?: boolean | undefined
+  /** The name shown instead of the entry's own (a root's role in words). Type-ahead uses it. */
+  label?: string | undefined
+  /** Dimmer text after the name: a root's real path, a link's target. */
+  secondary?: string | undefined
+  /** What follows the row, outside its button: a chip, a lock, actions. */
+  trailing?: ReactNode
+  /** A line under the row. */
+  below?: ReactNode
+}
+
+/** What a folder's "more entries" row shows instead of {@link FileTreeLabels.more}. */
+export interface TreeMore {
+  label: string
+  /** Its page is being read: the button does nothing. */
+  busy?: boolean | undefined
+  /** What follows the button (a refusal, Cancel). */
+  note?: ReactNode
 }
 
 export interface FileTreeProps<E extends TreeEntry, C> {
@@ -159,6 +186,14 @@ export interface FileTreeProps<E extends TreeEntry, C> {
   onOpen: (entry: E) => void
   /** Read `path`'s next page, at `cursor`. */
   onMore: (path: string, cursor: C) => void
+  /** What a folder being read shows instead of {@link FileTreeLabels.reading} (a timer, Cancel). */
+  pending?: ((path: string) => ReactNode) | undefined
+  /** What a folder whose read was refused shows instead of {@link FileTreeLabels.failed}. */
+  failed?: ((path: string, error: Error) => ReactNode) | undefined
+  /** A folder's "more entries" row; the default label when it answers nothing. */
+  more?: ((path: string) => TreeMore | undefined) | undefined
+  /** What a folder shows after its rows (a note that what is shown is a kept answer). */
+  after?: ((path: string) => ReactNode) | undefined
   labels: FileTreeLabels
 }
 
@@ -174,6 +209,7 @@ function rowOf<E extends TreeEntry>(entry: E, expanded: boolean, row: FileTreePr
     icon: custom.icon ?? (expandable ? (expanded ? <IconFolderOpenOutlineRegular size={16} /> : <IconFolderCloseRegular size={16} />)
       : entry.kind === 'symlink' ? <IconLinkOutlineRegular size={14} /> : <FileTypeIcon path={entry.name} size={16} />),
     title: custom.title ?? (expandable ? entry.path : `${entry.path} · ${bytes(entry.size)}`),
+    disabled: custom.disabled, label: custom.label, secondary: custom.secondary, trailing: custom.trailing, below: custom.below,
   }
 }
 
@@ -195,14 +231,19 @@ function Matches<E extends TreeEntry, C>({ dirs, selected, filter = '', row, onO
   if (matches.length === 0) return <p className={css.treeNote}>{labels.noMatch}</p>
   return (
     <ul className={css.tree} aria-label={labels.tree}>
-      {matches.map((n) => (
-        <li key={n.path}>
-          <button type="button" className={css.treeRow} data-active={n.path === selected || undefined} onClick={() => onOpen(n)} title={n.path}>
-            <span className={css.treeIcon}><FileTypeIcon path={n.name} size={16} /></span>
-            <span className={css.treePath}>{n.path}</span>
-          </button>
-        </li>
-      ))}
+      {matches.map((n) => {
+        const custom = row?.(n, false) ?? {}
+        return (
+          <li key={n.path} className={css.treeLine}>
+            <button type="button" className={css.treeRow} data-active={n.path === selected || undefined} aria-disabled={custom.disabled || undefined}
+              onClick={() => { if (!custom.disabled) onOpen(n) }} title={custom.title ?? n.path}>
+              <span className={css.treeIcon}>{custom.icon ?? <FileTypeIcon path={n.name} size={16} />}</span>
+              <span className={css.treePath}>{n.path}</span>
+            </button>
+            {custom.trailing != null ? <span className={css.treeTrailing}>{custom.trailing}</span> : null}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -238,7 +279,7 @@ function Rows<E extends TreeEntry, C>(props: FileTreeProps<E, C>): ReactNode {
       for (const entry of sorted.get(path) ?? []) {
         const expandable = row?.(entry, false).expandable ?? entry.kind === 'dir'
         const expanded = expandable && open.has(entry.path)
-        rows.push({ key: entry.path, parent, name: entry.name, expandable, expanded })
+        rows.push({ key: entry.path, parent, name: row?.(entry, false).label ?? entry.name, expandable, expanded })
         if (expanded) walk(entry.path, entry.path)
       }
       if (sorted.has(path) && nexts[path] != null) rows.push({ key: moreKey(path), parent, name: null, expandable: false, expanded: false })
@@ -309,40 +350,54 @@ interface FolderProps<E extends TreeEntry, C> extends FileTreeProps<E, C> {
 
 /** One folder's rows, each open folder's own rows under it. */
 function Folder<E extends TreeEntry, C>({ top, ...props }: FolderProps<E, C>): ReactNode {
-  const { path, depth, dirs, open, nexts, selected, sorted, stop, row, onToggle, onOpen, onMore, labels } = props
+  const { path, depth, dirs, open, nexts, selected, sorted, stop, row, onToggle, onOpen, onMore, pending, failed, more, after, labels } = props
   const dir = dirs.get(path)
   const indent = { '--files-depth': depth } as CSSProperties
-  if (dir === undefined || dir === 'loading') return <p className={css.treeNote} style={indent}>{labels.reading}</p>
-  if (dir instanceof Error) return <p className={clsx(css.treeNote, css.treeError)} style={indent} title={dir.message}>{labels.failed}</p>
-  if (dir.length === 0) return <p className={css.treeNote} style={indent}>{labels.empty}</p>
+  if (dir === undefined || dir === 'loading') return <div className={css.treeNote} style={indent} data-tree-reading={path}>{pending?.(path) ?? labels.reading}</div>
+  if (dir instanceof Error) {
+    const custom = failed?.(path, dir)
+    return custom != null
+      ? <div className={clsx(css.treeNote, css.treeError)} style={indent} data-tree-failed={path}>{custom}</div>
+      : <p className={clsx(css.treeNote, css.treeError)} style={indent} title={dir.message}>{labels.failed}</p>
+  }
+  if (dir.length === 0) return <p className={css.treeNote} style={indent} data-tree-empty={path}>{labels.empty}</p>
   const next = nexts[path]
   const tab = (key: string) => (key === stop ? 0 : -1)
+  const further = next != null ? more?.(path) : undefined
+  const trailer = after?.(path)
   return (
     <ul className={css.tree} role={depth === 0 ? 'tree' : 'group'} aria-label={depth === 0 ? labels.tree : undefined} {...top}>
       {(sorted.get(path) ?? dir).map((n) => {
         const expanded = open.has(n.path)
-        const { expandable, icon, title } = rowOf(n, expanded, row)
+        const { expandable, icon, title, disabled, label, secondary, trailing, below } = rowOf(n, expanded, row)
         const inside = expandable && expanded ? dirs.get(n.path) : null
         return (
           <li key={n.path} role="treeitem" aria-expanded={expandable ? expanded : undefined} aria-selected={n.path === selected}
             aria-busy={inside === undefined || inside === 'loading' || undefined}>
-            <button type="button" className={css.treeRow} style={indent} data-active={n.path === selected || undefined} data-tree-key={n.path} tabIndex={tab(n.path)}
-              title={title} onClick={() => (expandable ? onToggle(n.path) : onOpen(n))}>
-              {expandable
-                ? <IconChevronRightOutlineRegular size={12} className={clsx(css.chevron, expanded && css.chevronOpen)} />
-                : <span className={css.chevronSpace} />}
-              <span className={css.treeIcon}>{icon}</span>
-              <span className={css.treeName}>{n.name}</span>
-            </button>
+            <div className={css.treeLine}>
+              <button type="button" className={css.treeRow} style={indent} data-active={n.path === selected || undefined} data-tree-key={n.path} data-tree-kind={n.kind} tabIndex={tab(n.path)}
+                title={title} aria-disabled={disabled || undefined} onClick={() => { if (!disabled) { if (expandable) onToggle(n.path); else onOpen(n) } }}>
+                {expandable
+                  ? <IconChevronRightOutlineRegular size={12} className={clsx(css.chevron, expanded && css.chevronOpen)} />
+                  : <span className={css.chevronSpace} />}
+                <span className={css.treeIcon}>{icon}</span>
+                <span className={css.treeName}>{label ?? n.name}{secondary ? <span className={css.treeSecondary}>{secondary}</span> : null}</span>
+              </button>
+              {trailing != null ? <span className={css.treeTrailing}>{trailing}</span> : null}
+            </div>
+            {below != null ? <div className={css.treeBelow} style={indent}>{below}</div> : null}
             {expandable && expanded ? <Folder {...props} path={n.path} depth={depth + 1} /> : null}
           </li>
         )
       })}
       {next != null ? (
-        <li role="treeitem">
-          <button type="button" className={css.linkButton} style={indent} data-tree-key={moreKey(path)} tabIndex={tab(moreKey(path))} onClick={() => onMore(path, next)}>{labels.more}</button>
+        <li role="treeitem" className={css.treeMore}>
+          <button type="button" className={css.linkButton} style={indent} data-tree-key={moreKey(path)} data-tree-more={path} tabIndex={tab(moreKey(path))}
+            aria-disabled={further?.busy || undefined} onClick={() => { if (!further?.busy) onMore(path, next) }}>{further?.label ?? labels.more}</button>
+          {further?.note != null ? <span className={css.treeMoreNote}>{further.note}</span> : null}
         </li>
       ) : null}
+      {trailer != null ? <li role="none" className={css.treeNote} style={indent}>{trailer}</li> : null}
     </ul>
   )
 }

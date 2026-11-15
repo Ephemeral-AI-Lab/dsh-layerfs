@@ -81,3 +81,61 @@ export function watchDetailTab(kind: DetailKind, name: string, listener: (tab: D
   watchers.add(watch)
   return () => { watchers.delete(watch) }
 }
+
+// ---------------------------------------------------------------- a machine's or Sandbox's Files view
+
+/** The two Files views: the roots LayerFS ranks by role (its own folders on a machine, the Sandbox's on a Sandbox), and everything from `/`. */
+export type FilesViewId = 'layerfs' | 'whole'
+
+/** Where a Files tab is: its view, and the path open in it (null: the view's root). */
+export interface FilesPlace { view: FilesViewId, path: string | null }
+
+const FILES_KEY = 'dsh-layerfs:inspect-files'
+const isFilesView = (v: unknown): v is FilesViewId => v === 'layerfs' || v === 'whole'
+const placeOf = (v: unknown): FilesPlace | null => {
+  const o = v as { view?: unknown, path?: unknown } | null
+  if (!o || typeof o !== 'object' || !isFilesView(o.view)) return null
+  return { view: o.view, path: typeof o.path === 'string' && o.path.startsWith('/') && o.path.length <= 4096 ? o.path : null }
+}
+
+/** As the detail tabs: the place a link asks for is kept in the app, and the last one per entity mirrored to localStorage. */
+const places = new Map<string, FilesPlace>()
+const placeWatchers = new Set<(key: string, place: FilesPlace) => void>()
+
+function storedPlaces(): Record<string, unknown> {
+  try { const v = JSON.parse(localStorage.getItem(FILES_KEY) ?? '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {} } catch { return {} }
+}
+
+/** The view and path this viewer had last in a machine's or Sandbox's Files tab, if any (storage may be blocked). */
+export function readFilesPlace(kind: DetailKind, name: string): FilesPlace | null {
+  const key = detailKey(kind, name)
+  return places.get(key) ?? placeOf(storedPlaces()[key])
+}
+
+/**
+ * Remember where a Files tab is.
+ * @param tell - a link from elsewhere: a Files tab already showing that machine or Sandbox goes there.
+ */
+export function writeFilesPlace(kind: DetailKind, name: string, place: FilesPlace, tell = false): void {
+  const key = detailKey(kind, name)
+  places.delete(key)
+  places.set(key, place)
+  if (places.size > DETAIL_KEEP) places.delete(places.keys().next().value!)
+  try {
+    const all = storedPlaces()
+    delete all[key]
+    all[key] = place
+    const keys = Object.keys(all)
+    for (const old of keys.slice(0, Math.max(0, keys.length - DETAIL_KEEP))) delete all[old]
+    localStorage.setItem(FILES_KEY, JSON.stringify(all))
+  } catch { /* the view still goes there */ }
+  if (tell) for (const watch of [...placeWatchers]) watch(key, place)
+}
+
+/** Hear a place a link asked for on `kind:name`. Returns the release. */
+export function watchFilesPlace(kind: DetailKind, name: string, listener: (place: FilesPlace) => void): () => void {
+  const key = detailKey(kind, name)
+  const watch = (k: string, place: FilesPlace) => { if (k === key) listener(place) }
+  placeWatchers.add(watch)
+  return () => { placeWatchers.delete(watch) }
+}

@@ -221,6 +221,80 @@
   font-size: 12px;
 }
 
+/* a row and what follows it outside its button (a chip, a lock, actions) */
+.treeLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.treeLine > .treeRow {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.treeRow[aria-disabled='true'] {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+.treeRow[aria-disabled='true'] .treeIcon {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.treeSecondary {
+  margin-left: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+.treeTrailing {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding-right: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.treeBelow {
+  --files-depth: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 0 8px 6px calc(46px + var(--files-depth) * 14px);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.treeMore {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.treeMore .linkButton[aria-disabled='true'] {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+.treeMoreNote {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
 .treeNote {
   --files-depth: 0;
   margin: 0;
