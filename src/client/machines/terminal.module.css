@@ -409,3 +409,67 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* what runs in the Sandbox, whoever started it: a link to its Workspace */
+.runSummary {
+  padding: 1px 7px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-full, 999px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.runSummary:hover {
+  background: var(--dsw-alias-fill-hover, rgb(127 127 127 / 0.12));
+}
+
+.runSummary:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-state-business-primary);
+  outline-offset: 1px;
+}
+
+/* a pane's changes: the count; the overlay file's size is its tooltip */
+.changes {
+  flex: none;
+  padding: 0 5px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.changes[data-tone='warning'] {
+  border-color: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+/* a command another client runs here: one line, view only */
+.also {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 10px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+}
+
+.alsoText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alsoMore {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}

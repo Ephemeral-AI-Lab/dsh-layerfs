@@ -73,7 +73,7 @@ export function StoragePage(props: StorageMainProps): ReactNode {
   // Machine pages open their links here; the ref reaches the page's latest `open`.
   const openRef = useRef<(id: TabId) => void>(() => {})
   const machines = useMemo<MachinesPageProps>(() => ({
-    ...rest, api, doctorT, t: tm, openTab: (id: string) => { if (isTabId(id)) openRef.current(id) },
+    ...rest, api, doctorT, logsT: more.logs, t: tm, openTab: (id: string) => { if (isTabId(id)) openRef.current(id) },
   }), [props])
   return (
     <MachinesProvider props={machines}>

@@ -12,16 +12,25 @@ import { SandboxGlyph } from './icons.tsx'
 import { ImageMenu, defaultPick, findPick, imagePlan, useSandboxImages } from './ImageMenu.tsx'
 import { FreeSpaceDialog } from './MachineImages.tsx'
 import {
-  BUILT_IN, SANDBOX_CAPACITY, SANDBOX_NAME, clearingCall, opWords, projectRef, shortImage, stateLook, workspaceChanges, workspaceName,
+  BUILT_IN, SANDBOX_NAME, clearingCall, opWords, projectRef, shortImage, stateLook,
   type MachineInfo, type MachineSandbox, type ProjectSummary, type SandboxInfo,
 } from './model.ts'
 import css from './machines.module.css'
 
 const POLL_MS = 15_000
+/** While LayerFS says a command runs in one of its Workspaces. */
+const RUNNING_POLL_MS = 5_000
+/** How long after a command's start its record is read. */
+const STARTED_MS = 800
 
-/** sandbox.get at mount, after its state or count changes, and every 15 s while it runs and the window is visible. */
+/**
+ * sandbox.get at mount, after its state or count changes, on this host's
+ * `sandbox-command` events for it, and while it runs and the window is
+ * visible every 15 s, or every 5 s only while a command runs in one of its
+ * Workspaces (sandbox.get dials the daemon: layerfs-project#179 B.2).
+ */
 export function useSandboxRead(name: string, state: string | undefined, count: number | null | undefined): { data: SandboxInfo | null, error: unknown, loading: boolean, reload: () => void } {
-  const { readSandbox } = useMachinesContext()
+  const { readSandbox, api } = useMachinesContext()
   const [data, setData] = useState<SandboxInfo | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [loading, setLoading] = useState(true)
@@ -31,11 +40,24 @@ export function useSandboxRead(name: string, state: string | undefined, count: n
     try { setData(await reader.current(name)); setError(null) } catch (e) { setError(e) } finally { setLoading(false) }
   }, [name])
   useEffect(() => { void read() }, [read, state, count])
+  // a command of this host started or ended here: what runs has changed
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const off = api.onEvent('sandbox-command', (event) => {
+      const data = event.data as { sandbox?: string, state?: string } | undefined
+      if (data?.sandbox !== name || document.visibilityState !== 'visible') return
+      clearTimeout(timer)
+      // a start is read a moment later, once LayerFS has written the command's record
+      timer = setTimeout(() => void read(), data.state === 'running' ? STARTED_MS : 0)
+    })
+    return () => { clearTimeout(timer); off() }
+  }, [api, name, read])
+  const busy = !!data?.workspaces.some((w) => (w.running?.length ?? 0) > 0)
   useEffect(() => {
     if (state !== 'running') return
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') void read() }, POLL_MS)
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') void read() }, busy ? RUNNING_POLL_MS : POLL_MS)
     return () => clearInterval(timer)
-  }, [read, state])
+  }, [read, state, busy])
   return { data, error, loading, reload: () => void read() }
 }
 

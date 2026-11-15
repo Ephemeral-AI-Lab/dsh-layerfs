@@ -10,7 +10,7 @@ import {
 import { enc } from '../api.ts'
 import { Field, MenuSelect, Refusal } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
-import { SANDBOX_CAPACITY, type SandboxInfo } from './model.ts'
+import { runningSummary, workspaceCapacity, workspaceName, type SandboxInfo } from './model.ts'
 import { orderWorkspaces, pageLayout, pageOf } from './terminal.ts'
 import { TerminalPane } from './TerminalPane.tsx'
 import css from './terminal.module.css'
@@ -25,7 +25,10 @@ export function SandboxTerminals({ info, onChanged }: { info: SandboxInfo, onCha
   const reachable = info.state === 'running' && !info.downReason && !info.refusal && !info.unread
   const workspaces = useMemo(() => orderWorkspaces(reachable || info.workspaces.length ? info.workspaces : []), [info.workspaces, reachable])
   const ids = useMemo(() => workspaces.map((w) => w.ws), [workspaces])
-  const canAdd = reachable && workspaces.length < SANDBOX_CAPACITY
+  // "n of N": what sandbox.get says a Sandbox holds, else the constant it had before it said
+  const capacity = workspaceCapacity(info)
+  const canAdd = reachable && workspaces.length < capacity
+  const runs = useMemo(() => runningSummary(workspaces), [workspaces])
   const [page, setPage] = useState(0)
   const [max, setMax] = useState<string | null>(null)
   const [active, setActive] = useState<string | null>(null)
@@ -59,6 +62,20 @@ export function SandboxTerminals({ info, onChanged }: { info: SandboxInfo, onCha
   }
   const say = useCallback((text: string) => setAnnounce(text), [])
 
+  // the Workspaces with a running command, another client's first; the summary steps through them from the active one
+  const withRuns = useMemo(() => {
+    const has = workspaces.filter((w) => (w.running?.length ?? 0) > 0)
+    const foreign = has.filter((w) => w.running!.some((r) => !r.own))
+    return foreign.length ? foreign : has
+  }, [workspaces])
+  const nextRunning = withRuns.length ? withRuns[(withRuns.findIndex((w) => w.ws === active) + 1) % withRuns.length]! : null
+  const showRunning = () => {
+    if (!nextRunning) return
+    setMax(null)
+    setAdding(false)
+    setOpened(nextRunning.ws)
+  }
+
   const startAdding = () => {
     setMax(null)
     setAdding(true)
@@ -69,7 +86,14 @@ export function SandboxTerminals({ info, onChanged }: { info: SandboxInfo, onCha
   return (
     <div className={css.terminals}>
       <div className={css.toolbar}>
-        <span className={css.count}>{t('sbWorkspaceCount', { n: String(workspaces.length), cap: String(SANDBOX_CAPACITY) })}</span>
+        <span className={css.count} data-ws-count>{t('sbWorkspaceCount', { n: String(workspaces.length), cap: String(capacity) })}</span>
+        {runs.running > 0 && (
+          // what runs in the Sandbox, any Workspace, any client: the way to a command on another page of terminals
+          <button type="button" className={css.runSummary} data-running-summary onClick={showRunning}
+            title={t('sbRunningShow', { name: nextRunning ? workspaceName(nextRunning) : '' })}>
+            {[t('sbRunning', { n: String(runs.running) }), ...(runs.others > 0 ? [t('sbRunningOthers', { n: String(runs.others) })] : [])].join(' · ')}
+          </button>
+        )}
         <span className={css.spacer} />
         {layout.pages > 1 && !max && (
           <span className={css.pager}>
@@ -84,7 +108,7 @@ export function SandboxTerminals({ info, onChanged }: { info: SandboxInfo, onCha
             </Tooltip>
           </span>
         )}
-        <Tooltip label={canAdd ? t('termNewWorkspace') : reachable ? t('termFull') : t('termOffline')}>
+        <Tooltip label={canAdd ? t('termNewWorkspace') : reachable ? t('termFull', { cap: String(capacity) }) : t('termOffline')}>
           <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canAdd} onClick={startAdding}>{t('termNewWorkspace')}</Button>
         </Tooltip>
       </div>

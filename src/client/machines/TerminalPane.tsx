@@ -16,7 +16,8 @@ import { enc } from '../api.ts'
 import { bytes, shortId } from '../files/format.ts'
 import { MoreMenu, Refusal } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
-import { workspaceName, type SandboxCommand, type WorkspaceInfo } from './model.ts'
+import { sessionParts } from '../logs/session-words.ts'
+import { alsoRunning, runnerOf, workspaceChanges, workspaceName, type RunningCommand, type SandboxCommand, type WorkspaceInfo } from './model.ts'
 import { duration, historyStep, mountLabel, paneStore, transcript, type Row } from './terminal.ts'
 import css from './terminal.module.css'
 
@@ -70,7 +71,7 @@ function useTick(on: boolean): number {
 }
 
 export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, onMaximize, onChanged, onAnnounce }: TerminalPaneProps): ReactNode {
-  const { t, api, refusal } = useMachinesContext()
+  const { t, tw, api, refusal, logsT } = useMachinesContext()
   const log = useWorkspaceLog(ws.ws)
   const pane = useSyncExternalStore(paneStore.subscribe, () => paneStore.get(ws.ws))
   const [starting, setStarting] = useState(false)
@@ -84,7 +85,19 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
   const entries = log.items ?? []
   const running = entries.find((e) => e.state === 'running') ?? null
   const busy = starting || !!running
-  const now = useTick(!!running)
+  // commands LayerFS says run here that this pane did not start: by the exact exec ids of its own log, never by an id's prefix
+  const others = alsoRunning(ws, new Set(entries.map((e) => e.id)))
+  const now = useTick(!!running || others.length > 0)
+  // the changes chip: the count only; the overlay file's size is its tooltip, when LayerFS reported one
+  const changes = ws.pendingMerge || ws.dirty != null ? workspaceChanges(ws) : null
+  const overlayTip = typeof ws.overlayBytes === 'number' ? t('wsOverlayTip', { size: bytes(ws.overlayBytes) }) : undefined
+  /** Who started a command, in words: a session as the Logs page names it, this app, a tag, or another client. */
+  const who = (r: RunningCommand): string => {
+    const by = runnerOf(r)
+    if (by.kind === 'session') return [t('alsoBySession', { name: by.title ?? by.sessionId.slice(0, 8) }), ...(r.session && logsT ? sessionParts(r.session, logsT) : [])].join(' · ')
+    return by.kind === 'dsh' ? t('alsoByDsh') : by.kind === 'tag' ? t('alsoByTag', { tag: by.tag }) : t('alsoByOther')
+  }
+  const alsoLine = (r: RunningCommand): string => t('alsoRunning', { program: r.program ?? t('alsoProgramUnknown'), age: r.started > 0 ? duration(Math.max(0, now - r.started)) : '—', who: who(r) })
   const rows = transcript(entries, pane.clearedAt, now)
   const name = workspaceName(ws)
   const label = mountLabel(ws.path)
@@ -188,6 +201,7 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
         <span className={css.name} title={ws.ws}>{name}</span>
         {ws.branch && <span className={css.branch}>{ws.branch}</span>}
         <span className={css.path} title={ws.path}>{label}</span>
+        {changes && <span className={css.changes} data-ws-changes data-tone={changes.tone} title={overlayTip}>{tw(changes)}</span>}
         {busy && <StateDot state="ongoing" size={7} />}
         <span className={css.spacer} />
         <Tooltip label={maximized ? t('termRestore') : t('termMaximize')}>
@@ -207,6 +221,15 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
             icon={<IconCloseOutlineRegular size={14} />} onClick={(e) => { e.stopPropagation(); void close() }} />
         </Tooltip>
       </header>
+
+      {others.length > 0 && (
+        // view-only (layerfs-project#178 D3): this page cancels only the commands it started
+        <div className={css.also} data-also-running={others.length} title={[t('alsoViewOnly'), ...(others.length > 1 ? others.map(alsoLine) : [])].join('\n')}>
+          <StateDot state="ongoing" size={7} />
+          <span className={css.alsoText}>{alsoLine(others[0]!)}</span>
+          {others.length > 1 && <span className={css.alsoMore}>{t('alsoRunningMore', { n: String(others.length - 1) })}</span>}
+        </div>
+      )}
 
       <div ref={scroller} className={css.scroll} onScroll={onScroll} role="log" aria-live="off" tabIndex={0}>
         {log.items != null && rows.length === 0 && !notice && <div className={clsx(css.line, css.meta, css.emptyHint)}>{t('termEmptyHint')}</div>}

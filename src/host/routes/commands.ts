@@ -9,7 +9,8 @@
  *   GET    /api/sandboxes/<name>/commands            -> { items } all its Workspaces', newest first (at most KEEP)
  *
  * A start answers at once; the command runs in the background and its end is
- * published as a `sandbox-command` event `{ type, sandbox, ws, id, state }`.
+ * published as a `sandbox-command` event `{ type, sandbox, ws, id, state }`
+ * (its start too, with state `running`).
  * Only commands started here are listed: an agent's commands go through its
  * own CLI calls, and other clients' through theirs. One command runs per
  * Workspace at a time.
@@ -269,6 +270,12 @@ export class SandboxCommands {
     return false
   }
 
+  /** Whether this host started command `id` in Workspace `ws` (running now, or in its kept log). */
+  started(ws: string, id: string): boolean {
+    if (this.live.get(id)?.entry.ws === ws) return true
+    try { return this.read(ws).some((c) => c.id === id) } catch { return false }
+  }
+
   /** Refuses 409 CommandRunning while this host runs a command in `ws`. */
   assertIdle(ws: string, doing = 'Wait for it to end or cancel it first.'): void {
     if (this.running(ws)) throw refuse(409, 'CommandRunning', `A command is running in ${ws}. ${doing}`)
@@ -291,6 +298,8 @@ export class SandboxCommands {
     this.read(ws).unshift(entry)
     this.live.set(entry.id, run)
     this.save(ws)
+    // pages read what runs in the Sandbox again (sandbox.get `running`)
+    this.host.emit('sandbox-command', { type: 'sandbox-command', sandbox, ws, id: entry.id, state: 'running' })
     const finish = (patch: Partial<CommandEntry>) => {
       Object.assign(entry, patch, { finishedAt: Date.now() }, output(run))
       this.live.delete(entry.id)

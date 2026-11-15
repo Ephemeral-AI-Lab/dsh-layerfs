@@ -38,6 +38,8 @@
  * CORS and `/api/events` stream (the `layerfs/events` Remote replaces it).
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { CallLabel, CallLine } from '../../shared/logs.ts'
+import { label } from '../logs/index.ts'
 import { PresetManager } from '../presets/manager.ts'
 import { presetStateFor } from '../presets/state-dir.ts'
 import { createGroups, handle } from './router.ts'
@@ -76,6 +78,11 @@ export function apply(ctx: Context): void {
       if (!owner) return false
       await sessions.close(owner.sessionId, 'user')
       return true
+    },
+    labelTags: async (tags) => {
+      const out: Record<string, CallLabel> = {}
+      for (const line of await label(ctx, tags.map((tag) => ({ tag }) as CallLine))) if (line.tag && line.dsh) out[line.tag] = line.dsh
+      return out
     },
     log: (line) => logger.warn(line),
   }
