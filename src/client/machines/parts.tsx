@@ -299,7 +299,7 @@ function RemoveDialog({ m, onClose, pending, run, onRemoved }: { m: MachineInfo,
  * elapsed time, and the reported error. Completion shows only after the call
  * answered; a lost reply says the outcome needs inspection.
  */
-export function MachineProgress({ name, compact }: { name: string, compact?: boolean }): ReactNode {
+export function MachineProgress({ name, compact, failedAction }: { name: string, compact?: boolean, /** Shown under a failed or uncertain start (a link to the worker log). */ failedAction?: ReactNode }): ReactNode {
   const { t, tw, useStartups, refusal } = useMachinesContext()
   const operation = useStartups((all) => all[name])
   const running = operation?.status === 'running'
@@ -357,6 +357,7 @@ export function MachineProgress({ name, compact }: { name: string, compact?: boo
         </>
       )}
       {(status === 'failed' || status === 'uncertain') && operation.error != null && !compact && <Refusal error={operation.error} labels={refusal} compact />}
+      {(status === 'failed' || status === 'uncertain') && !compact && failedAction ? <p className={css.progressNote}>{failedAction}</p> : null}
     </section>
   )
 }

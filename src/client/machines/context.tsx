@@ -5,6 +5,7 @@
  */
 import { createContext, useContext, useMemo } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import { writeDetailTab, type DetailTab } from '../storage/tabs.ts'
 import { openStorage } from '../projects/navigation.ts'
 import type { DoctorT } from '../doctor/locale.ts'
 import type { RefusalLabels } from '../ui/index.tsx'
@@ -15,11 +16,15 @@ import { kindKey, type Creation, type MachineStartup, type MachinesView, type Ru
 /** DSH's translate seat for this namespace: `{name}` placeholders take string values. */
 export type Translate = (key: MachinesKey, params?: Record<string, string>) => string
 
-/** Where a machine page sends you: the board, one machine, or one Sandbox (each a Storage page). */
+/**
+ * Where a machine page sends you: the board, one machine, or one Sandbox (each
+ * a Storage page). `tab` names the tab to show inside a machine or Sandbox
+ * page (its worker or daemon log); left out, the page shows the tab it had last.
+ */
 export type View =
   | { kind: 'board' }
-  | { kind: 'machine', name: string }
-  | { kind: 'sandbox', machine: string, name: string }
+  | { kind: 'machine', name: string, tab?: DetailTab }
+  | { kind: 'sandbox', machine: string, name: string, tab?: DetailTab }
 
 /** The Storage page a view opens. */
 export function tabOfView(view: View): string {
@@ -73,7 +78,11 @@ export function MachinesProvider({ props, children }: { props: MachinesPageProps
     return {
       ...props,
       openStorageTab,
-      go: (view: View) => openStorageTab(tabOfView(view)),
+      go: (view: View) => {
+        // dsh has no URLs: the tab asked for is view state in the app (and the page's last tab)
+        if (view.kind !== 'board' && view.tab) writeDetailTab(view.kind, view.name, view.tab)
+        openStorageTab(tabOfView(view))
+      },
       tw,
       kind: (platform) => { const k = kindKey(platform); return k ? t(k) : platform },
       stateWord: (look) => (look.label ? t(look.label) : look.raw || t('stateUnknown')),

@@ -1,35 +1,50 @@
 /**
- * One Sandbox's page (sandbox.get): its state, the daemon line, and its
- * Workspaces as terminals (SandboxTerminals.tsx); the record's other fields
- * and the daemon's retained failures fold away under Record details.
+ * One Sandbox's page. Its head (name, state, machine, project) and its tabs
+ * are drawn from the `sandbox.list` row the machines view already holds, so
+ * the page never waits on one slow read (layerfs-project#179 D): only
+ * Terminals (the Workspaces as terminals, SandboxTerminals.tsx, with the
+ * daemon line and the record's other fields under Record details) waits on
+ * sandbox.get. Daemon log (LogPane.tsx) reads on its own, and is there only
+ * when the pinned CLI has logs.sandbox.
  *
  * Delete is sandbox.close, with an explicit Force delete action. A Sandbox
  * whose machine differs from the one it was opened from is refused here.
  */
-import type { ReactNode } from 'react'
-import { Button, IconChevronRightOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useId, type ReactNode } from 'react'
+import { Button, IconChevronRightOutlineRegular, IconRefreshOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
-import { Card, Fact, Facts, LoadError, Loading, Notice, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
+import { Card, Fact, Facts, LinkButton, LoadError, Loading, Notice, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
+import { useDetailTab } from './detail-tabs.ts'
 import { SandboxGlyph } from './icons.tsx'
 import { displayRef } from './images.ts'
 import { useMachineTitle } from './Inventory.tsx'
+import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { cachedAnswer } from '../ui/use-query.ts'
 import { clearingCall, daemonLook, daemonSlots, opWords, stateLook, type SandboxImagesView, type SandboxInfo } from './model.ts'
 import { SandboxMenu, useClose, useSandboxRead } from './Sandboxes.tsx'
 import { SandboxTerminals } from './SandboxTerminals.tsx'
 import css from './machines.module.css'
+import logCss from './log.module.css'
 import term from './terminal.module.css'
 
 export function SandboxDetail({ machine, name, go }: { machine: string, name: string, go: (view: View) => void }): ReactNode {
   const { t, stateWord, refusal, kind, api, doctorT, useMachines } = useMachinesContext()
   const listed = useMachines((s) => (s.data?.available ? s.data.sandboxes.find((b) => b.name === name) : undefined))
   const parent = useMachines((s) => (s.data?.available ? s.data.machines.find((m) => m.name === machine) : undefined))
+  const hasLog = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.sandboxLog === true : false))
   const detail = useSandboxRead(name, listed?.state, listed?.workspaces)
   const closing = useClose(name)
   const title = useMachineTitle()
   const machineTitle = title({ name: machine, platform: parent?.platform ?? (machine === 'native' ? 'native' : '') })
+  // one line per tab: Files joins here with its call (sandbox.files)
+  const tabs: { value: 'terminals' | 'log', label: string }[] = [
+    { value: 'terminals', label: t('tabTerminals') },
+    ...(hasLog ? [{ value: 'log' as const, label: t('tabDaemonLog') }] : []),
+  ]
+  const [tab, setTab] = useDetailTab('sandbox', name, tabs.map((x) => x.value), 'terminals')
+  const ids = useId()
   const crumbs = [
     { label: t('panel'), ariaLabel: t('backToMachines'), onClick: () => go({ kind: 'board' }) },
     { label: machineTitle, onClick: () => go({ kind: 'machine', name: machine }) },
@@ -37,7 +52,8 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   const info = detail.data
   const targetMachine = info?.machine ?? listed?.machine
   const wrong = !!targetMachine && targetMachine !== machine
-  if (!info || wrong) {
+  // neither the list row nor sandbox.get knows it (yet): nothing to draw a head from
+  if ((!info && !listed) || wrong) {
     return (
       <Page wide label={name}>
         <PageHead title={name} crumbs={crumbs} current={name} icon={<SandboxGlyph size={22} />}
@@ -51,13 +67,20 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
       </Page>
     )
   }
-  const look = stateLook('sandbox', info.state)
-  const op = opWords(info.op)
-  const calls = info.state === 'unresolved' ? clearingCall('sandbox', name, info.op) : null
+  // the head: sandbox.get's answer once it is in, the list row until then (and when it never answers)
+  const state = info?.state ?? listed?.state ?? 'unknown'
+  const currentOp = info ? info.op ?? null : listed?.op ?? null
+  const look = stateLook('sandbox', state)
+  const op = opWords(currentOp)
+  const calls = state === 'unresolved' ? clearingCall('sandbox', name, currentOp) : null
+  const project = info?.project ?? listed?.project ?? null
   const intro = [
-    t('sbOnMachine', { machine: machineTitle, kind: parent ? kind(parent.platform) : info.platform ?? '—' }),
-    info.project ? t('sandboxProject', { project: info.project }) : t('noProject'),
+    t('sbOnMachine', { machine: machineTitle, kind: parent ? kind(parent.platform) : info?.platform ?? '—' }),
+    project ? t('sandboxProject', { project }) : t('noProject'),
   ].join(' · ')
+  const logLink = hasLog && tab !== 'log' ? <LinkButton onClick={() => setTab('log')}>{t('openDaemonLog')}</LinkButton> : null
+  // a Sandbox that ended behind LayerFS's back, or whose record has no runtime: a refused log read will not get better by waiting
+  const ended = state === 'lost' || state === 'gone'
   return (
     <Page wide label={name}>
       <PageHead
@@ -65,57 +88,79 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
         current={name}
         icon={<SandboxGlyph size={22} />}
         title={name}
-        badge={<StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={op} title={op ? t(info.op?.uncertain ? 'opTitleUncertain' : 'opTitle', { op }) : undefined} />}
+        badge={<StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={op} title={op ? t(currentOp?.uncertain ? 'opTitleUncertain' : 'opTitle', { op }) : undefined} />}
         intro={intro}
         actions={(
           <>
             <DoctorAction api={api} t={doctorT} target="sandbox" name={name} label={doctorT('diagnose')} />
             <Button variant="outline" size="sm" icon={<IconRefreshOutlineRegular size={13} />} onClick={detail.reload}>{t('refresh')}</Button>
-            <SandboxMenu name={name} op={info.op ?? null} closing={closing} onDeleted={() => go({ kind: 'machine', name: machine })} />
+            <SandboxMenu name={name} op={currentOp} closing={closing} onDeleted={() => go({ kind: 'machine', name: machine })} />
           </>
         )}
       />
 
-      <DaemonLine info={info} />
+      {info && <DaemonLine info={info} action={logLink} />}
 
-      {(info.refusal || detail.error != null || calls || info.downReason || closing.error !== null || !!closing.unknown?.length) && (
+      {((info && (info.refusal || info.downReason)) || calls || closing.error !== null || !!closing.unknown?.length || (info && detail.error != null)) && (
         <Notice tone="danger">
-          {info.downReason && <p>{t('wsUnavailable', { reason: info.downReason })}</p>}
-          {info.down && <p>{t('sbCapacityDown', { pool: String(info.down.pool_vacant ?? '—'), reserved: String(info.down.reserved_vacant ?? '—'), retained: String(info.down.retained ?? '—') })}</p>}
-          {info.refusal && <Refusal error={info.refusal} labels={refusal} compact />}
-          {detail.error != null && <Refusal error={detail.error} labels={refusal} compact />}
+          {info?.downReason && <p>{t('wsUnavailable', { reason: info.downReason })}{logLink ? <> · {logLink}</> : null}</p>}
+          {info?.down && <p>{t('sbCapacityDown', { pool: String(info.down.pool_vacant ?? '—'), reserved: String(info.down.reserved_vacant ?? '—'), retained: String(info.down.retained ?? '—') })}</p>}
+          {info?.refusal && <Refusal error={info.refusal} labels={refusal} compact />}
+          {info && detail.error != null && <Refusal error={detail.error} labels={refusal} compact />}
           {calls && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
           {closing.error !== null && <Refusal error={closing.error} labels={refusal} />}
           {!!closing.unknown?.length && <p>{t('forceClosedUnknown', { list: closing.unknown.join(', ') })}</p>}
         </Notice>
       )}
 
-      <SandboxTerminals info={info} onChanged={detail.reload} />
+      {tabs.length > 1 && (
+        <SegmentedTabs size="sm" className={logCss.tabs} label={t('machineTabs', { name })} value={tab} onChange={setTab}
+          items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
+      )}
 
-      <details className={css.details}>
-        <summary className={css.detailsSummary}><IconChevronRightOutlineRegular size={12} className={css.detailsChevron} /><span>{t('sbDetails')}</span></summary>
-        <div className={css.detailsBody}>
-          <Card>
-            <Facts>
-              <Fact label={t('project')} mono>{info.project}</Fact>
-              <ImageFact info={info} machine={machine} />
-              <Fact label={t('filesystemRoute')}>{info.route}</Fact>
-              <Fact label={t('runtime')}>{info.runtime}</Fact>
-              <Fact label={t('sbBackend')}>{info.backend}</Fact>
-              {info.platform && <Fact label={t('platform')}>{info.platform}</Fact>}
-              {info.created != null && <Fact label={t('created')}>{new Date(info.created < 1e12 ? info.created * 1000 : info.created).toLocaleString()}</Fact>}
-              {info.runtimeId && <Fact label={t('runtimeReference')} mono>{info.runtimeId}</Fact>}
-            </Facts>
-          </Card>
-          <RetainedFailures info={info} />
+      {tab === 'log' ? (
+        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
+          <LogPane kind="sandbox" name={name} label={t('daemonLogOf', { name })} final={ended} />
         </div>
-      </details>
+      ) : (
+        <div className={logCss.tabPanel} {...(tabs.length > 1 ? { role: 'tabpanel', id: `${ids}-terminals-panel`, 'aria-labelledby': `${ids}-terminals` } : {})} data-sandbox-terminals>
+          {!info
+            // only this tab waits on sandbox.get
+            ? detail.error != null
+              ? <LoadError title={t('readSandboxFailed')} error={detail.error} labels={refusal} retryLabel={t('retry')} onRetry={detail.reload} />
+              : <Loading label={t('readingSandbox')} />
+            : (
+              <>
+                <SandboxTerminals info={info} onChanged={detail.reload} />
+
+                <details className={css.details}>
+                  <summary className={css.detailsSummary}><IconChevronRightOutlineRegular size={12} className={css.detailsChevron} /><span>{t('sbDetails')}</span></summary>
+                  <div className={css.detailsBody}>
+                    <Card>
+                      <Facts>
+                        <Fact label={t('project')} mono>{info.project}</Fact>
+                        <ImageFact info={info} machine={machine} />
+                        <Fact label={t('filesystemRoute')}>{info.route}</Fact>
+                        <Fact label={t('runtime')}>{info.runtime}</Fact>
+                        <Fact label={t('sbBackend')}>{info.backend}</Fact>
+                        {info.platform && <Fact label={t('platform')}>{info.platform}</Fact>}
+                        {info.created != null && <Fact label={t('created')}>{new Date(info.created < 1e12 ? info.created * 1000 : info.created).toLocaleString()}</Fact>}
+                        {info.runtimeId && <Fact label={t('runtimeReference')} mono>{info.runtimeId}</Fact>}
+                      </Facts>
+                    </Card>
+                    <RetainedFailures info={info} />
+                  </div>
+                </details>
+              </>
+            )}
+        </div>
+      )}
     </Page>
   )
 }
 
-/** The daemon in one line: reachable or not, its free control slots and retained failures. */
-function DaemonLine({ info }: { info: SandboxInfo }): ReactNode {
+/** The daemon in one line: reachable or not, its free control slots and retained failures; `action` links to its log. */
+function DaemonLine({ info, action }: { info: SandboxInfo, action?: ReactNode }): ReactNode {
   const { t } = useMachinesContext()
   const daemon = daemonLook(info)
   const slots = daemonSlots(info)
@@ -126,6 +171,7 @@ function DaemonLine({ info }: { info: SandboxInfo }): ReactNode {
       <span>{t(daemon.key)}</span>
       {slots && <span>· {t('sbSlotsFree', { free: String(slots.free), total: String(slots.total) })}</span>}
       {failures > 0 && <span>· {failures === 1 ? t('sbFailuresOne') : t('sbFailures', { n: String(failures) })}</span>}
+      {action ? <span>· {action}</span> : null}
     </p>
   )
 }
