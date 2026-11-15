@@ -226,12 +226,19 @@ function UsageLine({ info }: { info: SandboxInfo }): ReactNode {
     )
   }
   const none = t('notObserved')
+  // a usage with null counts and LayerFS's reason for them (`no_controller`): not measured on that machine, never a 0
+  const why = info.usageReason ? tw(reasonWords(info.usageReason)) : null
+  const noMemory = u.memoryCurrent == null && u.memoryPeak == null, noPids = u.pids == null
+  const memory = <span data-usage-memory>· {t('sbUsageMemory', { now: u.memoryCurrent != null ? bytes(u.memoryCurrent) : none, peak: u.memoryPeak != null ? bytes(u.memoryPeak) : none })}</span>
+  const pids = <span data-usage-pids>· {u.pids == null ? t('sbUsagePidsNone') : u.pids === 1 ? t('sbUsagePidsOne') : t('sbUsagePids', { n: String(u.pids) })}</span>
   return (
-    <p className={term.usageLine} data-sandbox-usage="observed">
+    <p className={term.usageLine} data-sandbox-usage="observed" data-usage-reason={info.usageReason ?? ''}>
       <span>{t('sbUsage')}</span>
       <span data-usage-cpu>{t('sbUsageCpu', { time: u.cpuUsec != null ? cpuTime(u.cpuUsec) : none })}</span>
-      <span data-usage-memory>· {t('sbUsageMemory', { now: u.memoryCurrent != null ? bytes(u.memoryCurrent) : none, peak: u.memoryPeak != null ? bytes(u.memoryPeak) : none })}</span>
-      <span data-usage-pids>· {u.pids == null ? t('sbUsagePidsNone') : u.pids === 1 ? t('sbUsagePidsOne') : t('sbUsagePids', { n: String(u.pids) })}</span>
+      {why && noMemory && noPids ? <span className={css.muted} data-usage-not-measured="memory pids">· {t('sbUsageNotMeasured', { reason: why })}</span>
+        : why && noMemory ? <><span className={css.muted} data-usage-not-measured="memory">· {t('sbUsageMemoryNotMeasured', { reason: why })}</span>{pids}</>
+          : why && noPids ? <>{memory}<span className={css.muted} data-usage-not-measured="pids">· {t('sbUsagePidsNotMeasured', { reason: why })}</span></>
+            : <>{memory}{pids}</>}
     </p>
   )
 }

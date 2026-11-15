@@ -296,7 +296,7 @@ export interface SandboxInfo {
   daemon?: { pid: number | null, startedAt: number | null } | null
   /** What the Sandbox's own cgroup has used; null with `usageReason` when there is none to read. */
   usage?: { cpuUsec: number | null, memoryCurrent: number | null, memoryPeak: number | null, pids: number | null } | null
-  /** `host_process`, `cgroup_v1`, `no_cgroup` or `not_observed`. */
+  /** Why `usage` is null (`host_process`, `cgroup_v1`, `no_cgroup`, `not_observed`), or why a usage that is there has null memory or process counts (`no_controller`). */
   usageReason?: string
   unread?: boolean
 }
