@@ -6,6 +6,7 @@
 // the environment differs:
 //
 //   DSH_LAYERFS_DEV_DIR    the side server's dev dir (url.txt, layerfs-home/, state/)   required
+//   DSH_LAYERFS_HOME       the LayerFS home that server uses, when it is not <dev dir>/layerfs-home
 //   DSH_LAYERFS_CLI        the CLI that server pins                                      required
 //   INSPECT_MACHINE        the machine whose page is opened (default `native`)
 //   INSPECT_MACHINE_TITLE  its title in "Jump to" (default `LayerFS Home` for native, else its name)
@@ -173,7 +174,7 @@ export const spawnMark = () => (spawns() ?? []).length
 
 // ---------------------------------------------------------------- the call log and the saved outputs
 
-const callsFile = join(devDir, 'layerfs-home', 'trace', 'calls.jsonl')
+const callsFile = join(process.env.DSH_LAYERFS_HOME || join(devDir, 'layerfs-home'), 'trace', 'calls.jsonl')
 const outputsDir = join(devDir, 'state', 'layerfs', 'trace', 'outputs')
 const callLines = () => { try { return readFileSync(callsFile, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
 const outputNames = () => { try { return readdirSync(outputsDir) } catch { return [] } }
@@ -194,8 +195,8 @@ export function traceGrowth(mark) {
     let record = null
     try { record = JSON.parse(readFileSync(join(outputsDir, name), 'utf8')) } catch { continue }
     const out = typeof record?.stdout === 'string' ? record.stdout : ''
-    // a log answer's shape, whatever its tag
-    if (inspectTags.has(record?.tag) || (/"has_more"\s*:/.test(out) && /"lines"\s*:\s*\[/.test(out))) bad.push(`trace/outputs/${name}: a log read's output (tag ${record?.tag})`)
+    // a log answer's shape, or a files answer's (a folder page, a file window), whatever its tag
+    if (inspectTags.has(record?.tag) || (/"has_more"\s*:/.test(out) && /"lines"\s*:\s*\[/.test(out)) || (/"has_more"\s*:/.test(out) && /"kind"\s*:\s*"folder"/.test(out) && /"entries"\s*:\s*\[/.test(out)) || (/"kind"\s*:\s*"file"/.test(out) && /"binary"\s*:/.test(out) && /"offset"\s*:/.test(out))) bad.push(`trace/outputs/${name}: a log or files read's output (tag ${record?.tag})`)
   }
   return { bad, others, newLines: added.length, newOutputs }
 }
@@ -223,10 +224,10 @@ export async function track(page) {
     api.op = (name, args) => watch({ kind: 'op', what: name === 'http' ? `http ${args?.method} ${args?.path}` : name }, () => op(name, args))
   })
 }
-/** The page's requests that failed, without the log reads it dropped itself (`Cancelled`). */
+/** The page's requests that failed, without the log and files reads it dropped itself (`Cancelled`). */
 export async function failedRequests(page) {
   const calls = await page.evaluate(() => window.__inspect?.calls ?? [])
-  return calls.filter((c) => c.status !== undefined && c.status !== 'ok' && !(c.code === 'Cancelled' && /\/log\b/.test(c.what)))
+  return calls.filter((c) => c.status !== undefined && c.status !== 'ok' && !(c.code === 'Cancelled' && /\/(log|files)\b/.test(c.what)))
     .map((c) => `${c.what} -> ${c.status} ${c.code ?? ''} ${c.message ?? ''}`.trim())
 }
 export const requestsTo = async (page, pattern) => (await page.evaluate(() => window.__inspect?.calls ?? [])).filter((c) => pattern.test(c.what))
