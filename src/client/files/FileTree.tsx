@@ -4,8 +4,14 @@
  * view and the machine and Sandbox file views. The caller owns what a folder
  * read asks ({@link useFolders}' `read`), which folders are open, the order of
  * the rows and what opening a row does.
+ *
+ * Keyboard: the tree is one tab stop. Up and Down move between the rows
+ * showing, Home and End go to the first and last, Right opens a folder or
+ * steps into an open one, Left closes a folder or steps out to its parent,
+ * typing goes to the next row whose name starts with what was typed, and Enter
+ * or Space activates the row. A folder being read is `aria-busy`.
  */
-import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import clsx from 'clsx'
 import {
   FileTypeIcon, IconChevronRightOutlineRegular, IconFolderCloseRegular, IconFolderOpenOutlineRegular, IconLinkOutlineRegular,
@@ -172,9 +178,12 @@ function rowOf<E extends TreeEntry>(entry: E, expanded: boolean, row: FileTreePr
 }
 
 export function FileTree<E extends TreeEntry, C>(props: FileTreeProps<E, C>): ReactNode {
-  const { root = '/', dirs, selected, filter = '', row, onOpen, labels } = props
+  return (props.filter ?? '').trim() ? <Matches {...props} /> : <Rows {...props} />
+}
+
+/** The entries read so far that match the filter, by path. */
+function Matches<E extends TreeEntry, C>({ dirs, selected, filter = '', row, onOpen, labels }: FileTreeProps<E, C>): ReactNode {
   const q = filter.trim().toLowerCase()
-  if (!q) return <Folder {...props} path={root} depth={0} />
   const folder = (entry: E) => row?.(entry, false).expandable ?? entry.kind === 'dir'
   const matches: E[] = []
   for (const dir of dirs.values()) {
@@ -198,23 +207,126 @@ export function FileTree<E extends TreeEntry, C>(props: FileTreeProps<E, C>): Re
   )
 }
 
+/** A row as the keyboard sees it: an entry, or a folder's "more entries" button (no name). */
+interface Shown {
+  key: string
+  /** The folder row it is under; null at the top. */
+  parent: string | null
+  name: string | null
+  expandable: boolean
+  expanded: boolean
+}
+
+/** The key of a folder's "more entries" row; `more` is its place among `dataset` keys, apart from any path. */
+const moreKey = (path: string): string => `more ${path}`
+
+/** Typed characters count as one word while they follow each other within this long. */
+const TYPE_AHEAD_MS = 500
+
+/** The tree: its rows in order, the one tab stop and the keys. */
+function Rows<E extends TreeEntry, C>(props: FileTreeProps<E, C>): ReactNode {
+  const { root = '/', dirs, open, nexts, selected, order, row, onToggle } = props
+  // Each read folder's rows in the order they show, sorted once for drawing and for the keys.
+  const sorted = useMemo(() => {
+    const all = new Map<string, readonly E[]>()
+    for (const [path, dir] of dirs) if (Array.isArray(dir)) all.set(path, order ? [...dir].sort(order) : dir)
+    return all
+  }, [dirs, order])
+  const rows = useMemo(() => {
+    const rows: Shown[] = []
+    const walk = (path: string, parent: string | null) => {
+      for (const entry of sorted.get(path) ?? []) {
+        const expandable = row?.(entry, false).expandable ?? entry.kind === 'dir'
+        const expanded = expandable && open.has(entry.path)
+        rows.push({ key: entry.path, parent, name: entry.name, expandable, expanded })
+        if (expanded) walk(entry.path, entry.path)
+      }
+      if (sorted.has(path) && nexts[path] != null) rows.push({ key: moreKey(path), parent, name: null, expandable: false, expanded: false })
+    }
+    walk(root, null)
+    return rows
+  }, [sorted, open, nexts, root, row])
+
+  // The row Tab enters the tree at: the one last focused, else the selected one, else the first.
+  const [focus, setFocus] = useState<string | null>(null)
+  const has = (key: string | null | undefined): key is string => key != null && rows.some((r) => r.key === key)
+  const stop = has(focus) ? focus : has(selected) ? selected : rows[0]?.key
+  const tree = useRef<HTMLUListElement>(null)
+  const typed = useRef({ text: '', at: 0 })
+
+  const keyOf = (target: EventTarget): string | undefined => (target as HTMLElement).closest<HTMLElement>('[data-tree-key]')?.dataset.treeKey
+  const onFocus = (e: FocusEvent<HTMLUListElement>) => {
+    const key = keyOf(e.target)
+    if (key !== undefined) setFocus(key)
+  }
+  const onKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return
+    const key = keyOf(e.target)
+    const at = rows.findIndex((r) => r.key === key)
+    const here = rows[at]
+    if (!here) return
+    let to = -1
+    if (e.key === 'ArrowDown') to = Math.min(at + 1, rows.length - 1)
+    else if (e.key === 'ArrowUp') to = Math.max(at - 1, 0)
+    else if (e.key === 'Home') to = 0
+    else if (e.key === 'End') to = rows.length - 1
+    else if (e.key === 'ArrowRight') {
+      if (here.expandable && !here.expanded) onToggle(here.key)
+      else if (here.expanded && rows[at + 1]?.parent === here.key) to = at + 1
+    } else if (e.key === 'ArrowLeft') {
+      if (here.expanded) onToggle(here.key)
+      else if (here.parent !== null) to = rows.findIndex((r) => r.key === here.parent)
+    } else if (e.key.length === 1 && (e.key !== ' ' || (typed.current.text && e.timeStamp - typed.current.at <= TYPE_AHEAD_MS))) {
+      // Type-ahead: one character looks from the next row on, a longer word from this row; both wrap.
+      const text = (e.timeStamp - typed.current.at <= TYPE_AHEAD_MS ? typed.current.text : '') + e.key.toLowerCase()
+      typed.current = { text, at: e.timeStamp }
+      for (let i = 0; i < rows.length; i++) {
+        const j = (at + (text.length === 1 ? 1 : 0) + i) % rows.length
+        if (rows[j]!.name?.toLowerCase().startsWith(text)) { to = j; break }
+      }
+    } else return
+    e.preventDefault()
+    if (to < 0 || to === at) return
+    const target = rows[to]!.key
+    for (const el of tree.current?.querySelectorAll<HTMLElement>('[data-tree-key]') ?? []) {
+      if (el.dataset.treeKey === target) { el.focus(); break }
+    }
+  }
+
+  return <Folder {...props} path={root} depth={0} sorted={sorted} stop={stop} top={{ ref: tree, onFocus, onKeyDown }} />
+}
+
+interface FolderProps<E extends TreeEntry, C> extends FileTreeProps<E, C> {
+  path: string
+  depth: number
+  /** Each read folder's rows in order. */
+  sorted: ReadonlyMap<string, readonly E[]>
+  /** The key of the row that is the tab stop. */
+  stop: string | undefined
+  /** The outermost list's handlers. */
+  top?: { ref: RefObject<HTMLUListElement>, onFocus: (e: FocusEvent<HTMLUListElement>) => void, onKeyDown: (e: KeyboardEvent<HTMLUListElement>) => void } | undefined
+}
+
 /** One folder's rows, each open folder's own rows under it. */
-function Folder<E extends TreeEntry, C>(props: FileTreeProps<E, C> & { path: string, depth: number }): ReactNode {
-  const { path, depth, dirs, open, nexts, selected, order, row, onToggle, onOpen, onMore, labels } = props
+function Folder<E extends TreeEntry, C>({ top, ...props }: FolderProps<E, C>): ReactNode {
+  const { path, depth, dirs, open, nexts, selected, sorted, stop, row, onToggle, onOpen, onMore, labels } = props
   const dir = dirs.get(path)
   const indent = { '--files-depth': depth } as CSSProperties
   if (dir === undefined || dir === 'loading') return <p className={css.treeNote} style={indent}>{labels.reading}</p>
   if (dir instanceof Error) return <p className={clsx(css.treeNote, css.treeError)} style={indent} title={dir.message}>{labels.failed}</p>
   if (dir.length === 0) return <p className={css.treeNote} style={indent}>{labels.empty}</p>
   const next = nexts[path]
+  const tab = (key: string) => (key === stop ? 0 : -1)
   return (
-    <ul className={css.tree} role={depth === 0 ? 'tree' : 'group'} aria-label={depth === 0 ? labels.tree : undefined}>
-      {(order ? [...dir].sort(order) : dir).map((n) => {
+    <ul className={css.tree} role={depth === 0 ? 'tree' : 'group'} aria-label={depth === 0 ? labels.tree : undefined} {...top}>
+      {(sorted.get(path) ?? dir).map((n) => {
         const expanded = open.has(n.path)
         const { expandable, icon, title } = rowOf(n, expanded, row)
+        const inside = expandable && expanded ? dirs.get(n.path) : null
         return (
-          <li key={n.path} role="treeitem" aria-expanded={expandable ? expanded : undefined} aria-selected={n.path === selected}>
-            <button type="button" className={css.treeRow} style={indent} data-active={n.path === selected || undefined}
+          <li key={n.path} role="treeitem" aria-expanded={expandable ? expanded : undefined} aria-selected={n.path === selected}
+            aria-busy={inside === undefined || inside === 'loading' || undefined}>
+            <button type="button" className={css.treeRow} style={indent} data-active={n.path === selected || undefined} data-tree-key={n.path} tabIndex={tab(n.path)}
               title={title} onClick={() => (expandable ? onToggle(n.path) : onOpen(n))}>
               {expandable
                 ? <IconChevronRightOutlineRegular size={12} className={clsx(css.chevron, expanded && css.chevronOpen)} />
@@ -226,7 +338,11 @@ function Folder<E extends TreeEntry, C>(props: FileTreeProps<E, C> & { path: str
           </li>
         )
       })}
-      {next != null ? <li><button type="button" className={css.linkButton} style={indent} onClick={() => onMore(path, next)}>{labels.more}</button></li> : null}
+      {next != null ? (
+        <li role="treeitem">
+          <button type="button" className={css.linkButton} style={indent} data-tree-key={moreKey(path)} tabIndex={tab(moreKey(path))} onClick={() => onMore(path, next)}>{labels.more}</button>
+        </li>
+      ) : null}
     </ul>
   )
 }

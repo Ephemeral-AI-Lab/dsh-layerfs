@@ -152,8 +152,7 @@ try {
   for (let i = 0; i < 12 && (await more().count()); i++) {
     const had = pages.at(-1)
     await more().click()
-    await page.waitForFunction((n) => document.querySelectorAll('[role=tree] [class*=treeName]').length > n + 3, had).catch(() => fail(`Show more entries: nothing after ${had} rows`))
-    await sleep(150)
+    await page.waitForFunction((n) => [...document.querySelectorAll('[role=tree] [class*=treeName]')].filter((el) => el.textContent.startsWith('file-')).length > n, had).catch(() => fail(`Show more entries: nothing after ${had} rows`))
     pages.push(await count())
     check(pages.at(-1) > had, `Show more entries appends: ${had} → ${pages.at(-1)}`)
   }
@@ -194,8 +193,8 @@ try {
     const busy = await page.evaluate(async () => {
       const item = [...document.querySelectorAll('[role=tree] [role=treeitem]')].find((li) => li.querySelector('[class*=treeName]')?.textContent === 'docs')
       let seen = false
-      const watch = new MutationObserver(() => { if (item.getAttribute('aria-busy') === 'true') seen = true })
-      watch.observe(item, { attributes: true })
+      const watch = new MutationObserver((records) => { if (item.getAttribute('aria-busy') === 'true' || records.some((r) => r.oldValue === 'true')) seen = true })
+      watch.observe(item, { attributes: true, attributeFilter: ['aria-busy'], attributeOldValue: true })
       item.querySelector('button').click()
       for (let i = 0; i < 100 && !item.querySelector('[role=group]'); i++) await new Promise((r) => setTimeout(r, 50))
       watch.disconnect()
