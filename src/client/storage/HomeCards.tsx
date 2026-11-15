@@ -25,7 +25,8 @@ import type { Translate } from '../files/types.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, workerDown, type AvailableView, type Creation, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
-import { sandboxRuns } from '../machines/stats.ts'
+import { STATS_BOARD_MS, diskScopeWords, notObserved, reasonList, sandboxRuns, type StatsRead } from '../machines/stats.ts'
+import { useMachineStats } from '../machines/MachineStats.tsx'
 import { besideCreating, creatingOn } from '../machines/Inventory.tsx'
 import { phaseWords } from '../machines/images.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, PowerButton, useMachineRun } from '../machines/parts.tsx'
@@ -455,6 +456,61 @@ export function MachineCards({ machines, fleet, stores, t, jobs, place, pgSize, 
   )
 }
 
+/**
+ * A machine card's disk row from `machine.stats`: free and total of the
+ * machine's data disk as LayerFS observed them, the meter their used share,
+ * and whose disk it is in the tooltip. Never the record's requested size: a
+ * machine that is not asked (stopped), a refused read and a value LayerFS
+ * answered as null each say so, with no meter.
+ */
+function ObservedDiskRow({ m, read, t }: { m: MachineInfo, read: StatsRead | undefined, t: StorageT }): ReactNode {
+  const mc = useMachinesContext()
+  const why = notObserved(m, read)
+  const r = read?.stats?.resources
+  if (why || !r) {
+    return (
+      <div className={css.diskRow} data-ov-disk="not-observed">
+        <span className={css.placeLabel}>{t('ovDisk')}</span>
+        <span className={css.end} title={read?.stale ? read.stale.message : undefined}>{mc.tw(why ?? { key: 'notObservedYet' })}</span>
+      </div>
+    )
+  }
+  if (r.diskTotal == null || r.diskUsed == null) {
+    return (
+      <div className={css.diskRow} data-ov-disk="not-observed">
+        <span className={css.placeLabel}>{t('ovDisk')}</span>
+        <span className={css.end}>{mc.t('diskNotObserved', { reason: reasonList(r.reason).map(mc.tw).join(', ') || mc.t('reasonNotObserved') })}</span>
+      </div>
+    )
+  }
+  const free = r.diskFree ?? Math.max(0, r.diskTotal - r.diskUsed)
+  const low = r.diskTotal > 0 && free / r.diskTotal < 0.1
+  const scope = diskScopeWords(read!.stats!.dataDisk.scope)
+  const stale = read!.stale ? mc.t('statsAsOf', { time: read!.at ? new Date(read!.at).toLocaleTimeString() : '—', code: read!.stale.code }) : null
+  return (
+    <div className={css.diskRow} data-ov-disk="observed" data-ov-disk-scope={read!.stats!.dataDisk.scope ?? ''} title={[scope ? mc.tw(scope) : null, stale].filter(Boolean).join(' · ') || undefined}>
+      <span className={css.placeLabel}>{t('ovDisk')}</span>
+      <span className={css.end} data-tone={low ? 'warning' : undefined}>{t('ovDiskOf', { free: gib(free), total: gib(r.diskTotal) })}</span>
+      <span className={css.bar} data-tone={low ? 'warning' : undefined}><span style={{ width: `${Math.round((r.diskTotal > 0 ? Math.min(1, r.diskUsed / r.diskTotal) : 0) * 100)}%` }} /></span>
+    </div>
+  )
+}
+
+/** The disk row with a CLI that has no machine.stats, as it was: free space from machine.status, and a meter against the record's requested size. */
+function RecordDiskRow({ m, free, t }: { m: MachineInfo, free: number | null, t: StorageT }): ReactNode {
+  const used = m.disk && free != null ? Math.max(0, m.disk - free) / m.disk : null
+  const low = m.disk && free != null ? free / m.disk < 0.1 : false
+  return (
+    <div className={css.diskRow} data-ov-disk="record">
+      <span className={css.placeLabel}>{t('ovDisk')}</span>
+      <span className={css.end} data-tone={low ? 'warning' : undefined}>
+        {m.disk && free != null ? t('ovDiskOf', { free: gib(free), total: gib(m.disk) }) : free != null ? t('ovFree', { free: gib(free) }) : t('ovDiskUnknown')}
+      </span>
+      {used !== null ? <span className={css.bar} data-tone={low ? 'warning' : undefined}><span style={{ width: `${Math.round(used * 100)}%` }} /></span> : null}
+    </div>
+  )
+}
+
 /** One machine: its state as a signal (why it needs you on hover), Start or Stop with its progress, its disk, Stores and Sandboxes (each with its Add), and what is arriving. */
 function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddStore, onNewSandbox }: {
   m: MachineInfo, fleet: AvailableView | null, stores: readonly StoreRow[], t: StorageT, jobs: readonly StorageJob[]
@@ -478,13 +534,14 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
   const creations = mc.useCreations((all) => all)
   const creating = creatingOn(creations, m.name, boxes)
   const runningBoxes = boxes.filter(sandboxRuns).length
-  const used = m.disk && free != null ? Math.max(0, m.disk - free) / m.disk : null
-  const low = m.disk && free != null ? free / m.disk < 0.1 : false
+  // the data disk as LayerFS observed it (machine.stats, layerfs-project#164), through the Machines board's own poller: one
+  // read per running machine every 30 s while these cards are on screen, a stopped machine never asked
+  const observed = useMachineStats(m, STATS_BOARD_MS)
   // A push or move arriving here, or a pull arriving in the home.
   const arriving = jobs.find((j) => !j.ended && ((j.kind === 'push' || j.kind === 'move') ? j.target === m.name : j.kind === 'pull' && m.name === 'native'))
   const sub = m.platform === 'native' ? mc.kind(m.platform) : m.platform === 'docker' ? mc.kind(m.platform) : `${mc.kind(m.platform)} · ${mc.tw(sizeOf({ ...m, disk: null } as MachineInfo, undefined)).split(' · ').slice(0, 2).join(' · ')}`
   return (
-    <article className={css.card} data-kind="machine" data-stopped={look.key === 'stopped' || undefined}>
+    <article className={css.card} data-kind="machine" data-ov-machine={m.name} data-stopped={look.key === 'stopped' || undefined}>
       <header className={css.cardHead}>
         <span className={css.icon}>{m.name === 'native' ? <HomeGlyph size={15} /> : <MachineGlyph platform={m.platform} size={15} mono />}</span>
         <span className={css.titles}>
@@ -506,13 +563,7 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
       <MachineDialogs m={m} dialog={dialog} onClose={() => setDialog(null)} pending={pending} run={run} />
       {starting ? <div className={css.progress}><MachineProgress name={m.name} compact /></div> : null}
 
-      <div className={css.diskRow}>
-        <span className={css.placeLabel}>{t('ovDisk')}</span>
-        <span className={css.end} data-tone={low ? 'warning' : undefined}>
-          {m.disk && free != null ? t('ovDiskOf', { free: gib(free), total: gib(m.disk) }) : free != null ? t('ovFree', { free: gib(free) }) : t('ovDiskUnknown')}
-        </span>
-        {used !== null ? <span className={css.bar} data-tone={low ? 'warning' : undefined}><span style={{ width: `${Math.round(used * 100)}%` }} /></span> : null}
-      </div>
+      {observed.offered ? <ObservedDiskRow m={m} read={observed.read} t={t} /> : <RecordDiskRow m={m} free={free} t={t} />}
 
       <div className={css.list}>
         <ListHead label={t('ovTileStores')} action={t('addStore')} onAction={() => onAddStore(m.name)} />
