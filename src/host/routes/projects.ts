@@ -30,6 +30,7 @@ import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { pgMachineOf } from '../sessions/availability.ts'
 import { Answer, PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
+import { processOf } from './observed.ts'
 import { SandboxCreates, type Report } from './sandbox-creates.ts'
 
 /** Calls in flight at once for one answer (stats, diffs). */
@@ -151,6 +152,8 @@ export function sandboxInfo(s: any, workspaces: any[] | null = null) {
         ws: w.ws ?? `${s.name}:${w.name ?? w.directory}`, wsId: typeof w.workspace === 'string' ? w.workspace : null, name: w.name ?? null, branch: w.branch ?? '', path: w.directory ?? w.path, activity: w.activity ?? null, base: w.base ?? null, baseLayer: w.base_layer ?? null, root: w.root ?? null, headMovedSinceMount: w.head_moved_since_mount ?? null, dirty: w.dirty ?? null, pendingMerge: w.pending_merge ?? null, revision: w.revision ?? null,
         ...runningOf(w), ...overlayBytesOf(w),
       })),
+    // the daemon process and the Sandbox's cgroup usage (layerfs-project#164): absent from a CLI that does not say, null when not observed
+    ...processOf(s),
     // the Workspace slots of one Sandbox (layerfs-project#178): absent from a CLI that does not say
     ...(Number.isSafeInteger(s.workspace_capacity) && s.workspace_capacity > 0 ? { workspaceCapacity: s.workspace_capacity as number } : {}),
     ...(workspaces ? {} : { unread: true }),

@@ -106,9 +106,15 @@ export interface CliFeatures {
    * Monitoring reads (layerfs-project#178), one per call: a page shows a part
    * only when its call is in the table. `machineLog`: logs.machine (a machine's
    * worker log); `sandboxLog`: logs.sandbox (a Sandbox's daemon log); `files`:
-   * sandbox.files; `machineFiles`: machine.files.
+   * sandbox.files; `machineFiles`: machine.files; `machineStats`: machine.stats
+   * (a machine's observed resources, data disk, Store sizes and live Sandbox
+   * count, layerfs-project#164).
    */
-  readonly inspect: { readonly machineLog: boolean, readonly sandboxLog: boolean, readonly files: boolean, readonly machineFiles: boolean }
+  readonly inspect: { readonly machineLog: boolean, readonly sandboxLog: boolean, readonly files: boolean, readonly machineFiles: boolean, readonly machineStats: boolean }
+  /** sandbox.list takes `live`: each Sandbox says whether its daemon process runs now (layerfs-project#164). */
+  readonly sandboxLive: boolean
+  /** doctor.fix exists: `layerfs doctor` lists what interrupted operations left, each with the id `layerfs doctor fix <id>` takes (layerfs-project#180). */
+  readonly leftovers: boolean
 }
 
 /** The features a discovery (its call table and identity features) has. */
@@ -127,7 +133,9 @@ export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identit
     createProgress: option('sandbox', 'create', 'on_progress'),
     sandboxRuntime,
     imageStage: images && imageLoad && imagePrune && imageRefs && sandboxRuntime ? 1 : 0,
-    inspect: { machineLog: !!call('logs', 'machine'), sandboxLog: !!call('logs', 'sandbox'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files') },
+    inspect: { machineLog: !!call('logs', 'machine'), sandboxLog: !!call('logs', 'sandbox'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files'), machineStats: !!call('machine', 'stats') },
+    sandboxLive: option('sandbox', 'list', 'live'),
+    leftovers: !!call('doctor', 'fix'),
   }
 }
 

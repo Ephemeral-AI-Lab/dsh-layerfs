@@ -44,7 +44,8 @@ import { execute } from '../layerfs/cli.ts'
 import { BackupMarks, historyFingerprint, remoteOnly, settleRemote } from './backup-heads.ts'
 import { JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
 import { computer } from './computer.ts'
-import { refuse, wire, type RouteHost } from './util.ts'
+import { cliFeatures, refuse, wire, type RouteHost } from './util.ts'
+import { leftoverOf, walksOf } from './observed.ts'
 
 /** Finished jobs kept in the table. */
 const KEEP_JOBS = 30
@@ -254,18 +255,30 @@ export class Storage {
 
   /**
    * What `layerfs doctor` finds in the home (#537 §5 "Needs attention"):
-   * `{ ok, findings: [{ severity, entity: { kind, name }, message, fix }], at }`.
+   * `{ ok, findings: [{ severity, entity: { kind, name }, message, fix, leftover? }], leftovers?, at }`.
    * Report-only; read when the Storage page asks, never on a timer.
+   *
+   * With a CLI that has `doctor.fix` (layerfs-project#180) a finding of
+   * something an interrupted operation left carries `leftover` (its machine,
+   * kind, path, size, age and the id `layerfs doctor fix <id>` takes), and
+   * `leftovers` lists each machine walked with what LayerFS only counts
+   * (image lock files, unmount markers). This host never runs `doctor fix`:
+   * the page shows the command. Without that call the answer is as before.
    */
   async doctor() {
     const report = await this.doctorCall()
-    const findings = (report?.findings ?? []).map((f: any) => ({
-      severity: f?.severity === 'error' ? 'error' : 'warning',
-      entity: f?.entity && typeof f.entity === 'object' ? { kind: String(f.entity.kind ?? ''), name: String(f.entity.name ?? '') } : null,
-      message: String(f?.message ?? ''),
-      fix: typeof f?.fix === 'string' && f.fix ? f.fix : null,
-    }))
-    return { ok: report?.ok !== false && !findings.some((f: any) => f.severity === 'error'), findings, at: Date.now() }
+    const leftovers = (await cliFeatures(this.host)).leftovers
+    const findings = (report?.findings ?? []).map((f: any) => {
+      const leftover = leftovers ? leftoverOf(f) : null
+      return {
+        severity: f?.severity === 'error' ? 'error' : 'warning',
+        entity: f?.entity && typeof f.entity === 'object' ? { kind: String(f.entity.kind ?? ''), name: String(f.entity.name ?? '') } : null,
+        message: String(f?.message ?? ''),
+        fix: typeof f?.fix === 'string' && f.fix ? f.fix : null,
+        ...(leftover ? { leftover } : {}),
+      }
+    })
+    return { ok: report?.ok !== false && !findings.some((f: any) => f.severity === 'error'), findings, ...(leftovers && Array.isArray(report?.leftovers) ? { leftovers: walksOf(report) } : {}), at: Date.now() }
   }
 
   changed(): void {

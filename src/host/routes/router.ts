@@ -207,6 +207,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'log' && method === 'GET') return machines.machineLog(id, query, signal)
     // the machine's files (machine.files): its roots without ?path=; a folder page (?cursor=, ?depth=, ?limit=) or a file window (?offset=, ?length=); ?rid= as the log
     if (id && sub === 'files' && method === 'GET') return machines.machineFiles(id, query, signal)
+    // what the machine has and uses now (machine.stats): its own read in the inspect lane, ?rid= as the log; refusals answer as `stale`
+    if (id && sub === 'stats' && method === 'GET') return machines.machineStats(id, query, signal)
     // what a Sandbox on it can run (the New Sandbox menu, the Images section); never starts it
     if (id && sub === 'sandbox-images' && method === 'GET') return machines.sandboxImages(id)
     // { images?: id[], unused?: boolean } -> { removed, freed, refused }: 501 while the pinned CLI has no machine.prune
