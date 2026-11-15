@@ -89,7 +89,10 @@ test('a replaced log: a divider, then the new log; nothing is shown twice', () =
   s = M.applyReplaced(s, view(['new1', 'new2'], { cursor: 'n1', before: null }))
   assert.deepEqual(texts(s), ['old1', 'old-open', '---', 'new1', 'new2'])
   assert.equal(s.rows[1].open, false, 'the old log\'s open line is closed')
-  assert.equal(s.cursor, 'n1'); assert.equal(s.before, null); assert.equal(s.cutTop, false); assert.equal(s.live, true)
+  assert.equal(s.cursor, 'n1'); assert.equal(s.before, null); assert.equal(s.live, true)
+  assert.equal(s.cutTop, true, 'the old log had earlier lines still to read: the top says they are gone, not "start of the log"')
+  const whole = M.applyReplaced(M.applyTail(M.emptyLog(), view(['only'])), view(['new']))
+  assert.equal(whole.cutTop, false, 'the old log was shown from its start: the top is still the start')
   s = M.applyForward(s, view(['new3'], { cursor: 'n2' }))
   assert.deepEqual(texts(s), ['old1', 'old-open', '---', 'new1', 'new2', 'new3'])
   assert.equal(M.logText(s.rows, 'replaced'), 'old1\nold-open\n--- replaced ---\nnew1\nnew2\nnew3')
@@ -105,6 +108,14 @@ test('a refused read keeps what is shown, marked stale; a first refusal shows th
   assert.deepEqual(texts(first), ['kept']); assert.equal(first.readAt, 500); assert.equal(first.loaded, true)
   first = M.applyRefused(M.emptyLog(), view([], { stale: { at: null, code: 'Unsupported', message: 'no' } }))
   assert.equal(first.loaded, true); assert.equal(first.rows.length, 0); assert.equal(first.readAt, null)
+})
+
+test('a refused "Earlier lines" read: InvalidInput ends earlier paging; another refusal keeps it', () => {
+  const s = M.applyTail(M.emptyLog(), view(['a'], { before: 'b0' }))
+  const gone = M.applyEarlierRefused(s, view([], { before: 'b0', stale: { at: null, code: 'InvalidInput', message: 'rotated' } }))
+  assert.equal(gone.before, null); assert.equal(gone.cutTop, true); assert.equal(gone.stale.code, 'InvalidInput'); assert.deepEqual(texts(gone), ['a'])
+  const busy = M.applyEarlierRefused(s, view([], { before: 'b0', stale: { at: null, code: 'Busy', message: 'full' } }))
+  assert.equal(busy.before, 'b0'); assert.equal(busy.cutTop, false); assert.equal(busy.stale.code, 'Busy')
 })
 
 test('polling: 2 s, doubling to 10 s while nothing is new; final refusals stop it', () => {

@@ -26,7 +26,7 @@ import { Notice } from '../ui/index.tsx'
 import { errorCode, errorText } from '../ui/use-query.ts'
 import { useMachinesContext } from './context.tsx'
 import {
-  EARLIER_LIMIT, FORWARD_LIMIT, MORE_MS, POLL_MS, applyEarlier, applyForward, applyRefused, applyReplaced, applyTail, emptyLog, findRows, logText, matchParts, nextInterval, stopsPolling,
+  EARLIER_LIMIT, FORWARD_LIMIT, MORE_MS, POLL_MS, applyEarlier, applyEarlierRefused, applyForward, applyRefused, applyReplaced, applyTail, emptyLog, findRows, logText, matchParts, nextInterval, stopsPolling,
   type LogRow, type LogState, type LogView,
 } from './log-model.ts'
 import css from './log.module.css'
@@ -41,7 +41,7 @@ const readWrap = (): boolean => { try { return localStorage.getItem(WRAP_KEY) ==
 const writeWrap = (on: boolean): void => { try { localStorage.setItem(WRAP_KEY, on ? '1' : '0') } catch { /* the toggle still works */ } }
 
 type Action =
-  | { type: 'tail' | 'forward' | 'earlier' | 'replaced' | 'refused', view: LogView }
+  | { type: 'tail' | 'forward' | 'earlier' | 'replaced' | 'refused' | 'earlierRefused', view: LogView }
   | { type: 'reset' }
 
 function reduce(state: LogState, action: Action): LogState {
@@ -51,6 +51,7 @@ function reduce(state: LogState, action: Action): LogState {
     case 'earlier': return applyEarlier(state, action.view)
     case 'replaced': return applyReplaced(state, action.view)
     case 'refused': return applyRefused(state, action.view)
+    case 'earlierRefused': return applyEarlierRefused(state, action.view)
     case 'reset': return emptyLog()
   }
 }
@@ -199,7 +200,7 @@ function useFollow(api: LayerfsApi, path: string, paused: boolean, final: boolea
     void get({ before, limit: EARLIER_LIMIT }).then((view) => {
       if (!live.current.mounted) return
       if (view.stale && view.stale.code === 'Cancelled') return
-      if (view.stale) dispatch({ type: 'refused', view })
+      if (view.stale) dispatch({ type: 'earlierRefused', view })
       else dispatch({ type: 'earlier', view })
     }).finally(() => {
       if (!live.current.mounted) return
@@ -359,7 +360,7 @@ export function LogPane({ kind, name, label, unavailable = null, final = false }
                 <>
                   {state.before
                     ? <button type="button" className={css.earlier} disabled={paging || reading} onClick={earlier} data-log-earlier>{paging ? t('logReading') : t('logEarlier')}</button>
-                    : state.cutTop ? <p className={css.note}>{t('logCutTop')}</p> : <p className={css.note} data-log-start>{t('logStart')}</p>}
+                    : state.cutTop ? <p className={css.note} data-log-cut>{t('logCutTop')}</p> : <p className={css.note} data-log-start>{t('logStart')}</p>}
                   {rows.map((row, i) => <Row key={row.id} row={row} find={hits.length ? find : ''} current={i === current} replaced={t('logReplaced')} />)}
                 </>
               )}
