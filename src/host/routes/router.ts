@@ -205,6 +205,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'inspect' && method === 'GET') return machines.inspect(id)
     // the machine's worker log (logs.machine): ?cursor= | ?before=, ?limit=, ?rid= (a request the page can cancel); refusals answer as `stale`
     if (id && sub === 'log' && method === 'GET') return machines.machineLog(id, query, signal)
+    // the machine's files (machine.files): its roots without ?path=; a folder page (?cursor=, ?depth=, ?limit=) or a file window (?offset=, ?length=); ?rid= as the log
+    if (id && sub === 'files' && method === 'GET') return machines.machineFiles(id, query, signal)
     // what a Sandbox on it can run (the New Sandbox menu, the Images section); never starts it
     if (id && sub === 'sandbox-images' && method === 'GET') return machines.sandboxImages(id)
     // { images?: id[], unused?: boolean } -> { removed, freed, refused }: 501 while the pinned CLI has no machine.prune
@@ -254,6 +256,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'sandboxes' && id && !sub && method === 'DELETE') return projects.closeSandbox(id, { force: query.get('force') === '1' })
   // the Sandbox's daemon log (logs.sandbox), as the machine's; never waits on sandbox.get
   if (group === 'sandboxes' && id && sub === 'log' && method === 'GET') return machines.sandboxLog(id, query, signal)
+  // the Sandbox's files (sandbox.files), as the machine's; never waits on sandbox.get
+  if (group === 'sandboxes' && id && sub === 'files' && method === 'GET') return machines.sandboxFiles(id, query, signal)
   // one Sandbox with its Workspaces (sandbox.get)
   if (group === 'sandboxes' && id && !sub && method === 'GET') return projects.sandbox(id)
   // the commands this host ran in the Sandbox's Workspaces, newest first, at most 50 (commands.ts)

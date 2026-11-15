@@ -1,7 +1,7 @@
 /**
  * Monitoring reads behind the Machines and Sandbox pages (layerfs-project#179
- * D, #178 "Host side"): a machine's worker log and a Sandbox's daemon log now,
- * their files later. What every such route shares lives here:
+ * D, #178 "Host side"): a machine's worker log, a Sandbox's daemon log, and
+ * the files of both. What every such route shares lives here:
  *
  * - **One read per key at a time** ({@link InspectReads.read}). Callers asking
  *   the same thing share one CLI process; each may stop waiting on its own
@@ -83,6 +83,129 @@ export function refusalOf(error: any, at: number | null): Stale {
   return { at, code: typeof error?.code === 'string' ? error.code : 'Unknown', message }
 }
 
+// ---------------------------------------------------------------- files
+
+/**
+ * One entry of a folder as LayerFS lists it (`sandbox.files`, `machine.files`).
+ * `kind`: `file`, `folder`, `symlink` (its `target`, never followed), `mount`
+ * (its `fs`; a Workspace's carries `workspace`), `restricted` (kept private by
+ * LayerFS), `system`, `unreadable` (not world-readable) or `other`; a kind
+ * this host does not know is passed as it came. A root carries its `role`.
+ */
+export interface FileEntry {
+  path: string
+  /** 1 for an entry of the folder read; deeper ones only with `?depth=`. */
+  depth: number
+  kind: string
+  size: number | null
+  mode: number | null
+  mtime: number | null
+  role?: string
+  target?: string
+  workspace?: string
+  fs?: string
+  /** Free space of the filesystem a root is on (the `data` root), when LayerFS says. */
+  free?: number
+}
+
+/** A folder page, or the roots (no path). `reason` says why a page ended early: its time budget (`deadline`) or its size (`limit`). */
+export interface FolderView {
+  kind: 'folder'
+  /** The folder read; null for the roots answer. */
+  path: string | null
+  entries: FileEntry[]
+  /** Where the next page starts (`?cursor=`); null at the end. */
+  next: string | null
+  hasMore: boolean
+  reason: 'deadline' | 'limit' | null
+  observedAt: number
+  /** This read was refused: what is shown is the folder's last good first page. */
+  stale: false | Stale
+}
+
+/** One window of a file. */
+export interface FileWindowView {
+  kind: 'file'
+  path: string
+  size: number
+  offset: number
+  /** The window's text; not shown when `binary`. */
+  content: string
+  /** The first window holds a NUL: the page shows the size instead of text. */
+  binary: boolean
+  /** The byte offset of the next window (`?offset=`); null at the end. */
+  next: number | null
+  observedAt: number
+  stale: false
+}
+
+/** A read LayerFS refused, with nothing kept to show for it. */
+export interface RefusedView {
+  kind: 'refused'
+  path: string | null
+  observedAt: number
+  stale: Stale
+}
+
+/** `GET /api/machines/:id/files` and `GET /api/sandboxes/:name/files`. */
+export type FilesView = FolderView | FileWindowView | RefusedView
+
+/** The `?path=&depth=&cursor=&limit=&offset=&length=` of a files route. */
+export interface FilesQuery { path: string | null, depth: number | null, cursor: string | null, limit: number | null, offset: number | null, length: number | null }
+
+/** The most entries one folder page answers, the deepest walk asked for, and the largest file window (LayerFS's own limits). */
+export const FILES_LIMIT_MAX = 1000
+export const FILES_DEPTH_MAX = 64
+export const FILES_LENGTH_MAX = 1024 * 1024
+/** How many folders (first pages, and each target's roots) keep a last good answer. */
+export const KEEP_FOLDERS = 128
+
+/** A files route's query, checked before any call: an absolute path, whole numbers in LayerFS's ranges. */
+export function filesQuery(query: URLSearchParams): FilesQuery {
+  const path = query.get('path') || null
+  if (path !== null && (!path.startsWith('/') || path.length > 4096 || path.includes('\0'))) throw refuse(400, 'InvalidInput', 'A path here is absolute: it starts with /.')
+  const cursor = query.get('cursor') || null
+  if (cursor !== null && (cursor.length > 8192 || cursor.includes('\0'))) throw refuse(400, 'InvalidInput', 'That is not a folder cursor.')
+  const whole = (name: string, min: number, max: number): number | null => {
+    const raw = query.get(name)
+    if (raw === null || raw === '') return null
+    const n = Number(raw)
+    if (!Number.isSafeInteger(n) || n < min || n > max) throw refuse(400, 'InvalidInput', `A files read's ${name} is ${min} to ${max}.`)
+    return n
+  }
+  const q: FilesQuery = { path, cursor, depth: whole('depth', 1, FILES_DEPTH_MAX), limit: whole('limit', 1, FILES_LIMIT_MAX), offset: whole('offset', 0, Number.MAX_SAFE_INTEGER), length: whole('length', 1, FILES_LENGTH_MAX) }
+  if (path === null && (q.cursor !== null || q.offset !== null || q.length !== null)) throw refuse(400, 'InvalidInput', 'The roots are read without a cursor, offset or length.')
+  if (q.cursor !== null && (q.offset !== null || q.length !== null)) throw refuse(400, 'InvalidInput', 'A folder page takes a cursor, a file window an offset and length, not both.')
+  return q
+}
+
+const count = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null)
+
+/** A `sandbox.files` / `machine.files` answer as the page reads it. */
+export function filesAnswer(answer: any, path: string | null): Omit<FolderView, 'observedAt' | 'stale'> | Omit<FileWindowView, 'observedAt' | 'stale'> {
+  if (answer?.kind === 'file') {
+    const next = typeof answer.next === 'number' ? answer.next : typeof answer.next === 'string' && /^\d+$/.test(answer.next) ? Number(answer.next) : null
+    return {
+      kind: 'file', path: path ?? '', size: count(answer.size) ?? 0, offset: count(answer.offset) ?? 0,
+      content: typeof answer.content === 'string' ? answer.content : '', binary: answer.binary === true, next: next !== null && Number.isSafeInteger(next) && next >= 0 ? next : null,
+    }
+  }
+  if (answer?.kind !== 'folder') throw refuse(null, 'Unknown', 'LayerFS answered neither a folder nor a file.')
+  const entries: FileEntry[] = []
+  for (const e of Array.isArray(answer.entries) ? answer.entries : []) {
+    if (!e || typeof e.path !== 'string' || !e.path) continue
+    entries.push({
+      path: e.path, depth: Number.isSafeInteger(e.depth) && e.depth > 0 ? e.depth : 1, kind: typeof e.kind === 'string' && e.kind ? e.kind : 'other',
+      size: count(e.size), mode: count(e.mode), mtime: count(e.mtime),
+      ...(text(e.role) ? { role: e.role } : {}), ...(text(e.target) ? { target: e.target } : {}), ...(text(e.workspace) ? { workspace: e.workspace } : {}), ...(text(e.fs) ? { fs: e.fs } : {}),
+      ...(count(e.free ?? e.free_bytes) !== null ? { free: count(e.free ?? e.free_bytes)! } : {}),
+    })
+  }
+  const next = text(answer.next)
+  const hasMore = answer.has_more === true
+  return { kind: 'folder', path, entries, next: hasMore ? next : null, hasMore, reason: hasMore && (answer.reason === 'deadline' || answer.reason === 'limit') ? answer.reason : null }
+}
+
 const cancelled = () => refuse(null, 'Cancelled', 'The read was dropped: nobody waits for its answer')
 
 interface Flight { promise: Promise<unknown>, controller: AbortController, waiters: number }
@@ -92,6 +215,7 @@ export class InspectReads {
   private readonly flying = new Map<string, Flight>()
   private readonly kept = new Map<string, { at: number, value: unknown }>()
   private readonly requests = new Map<string, AbortController>()
+  private readonly keptFolders = new Map<string, { at: number, value: Omit<FolderView, 'observedAt' | 'stale'> }>()
 
   /**
    * Run `run` once for every caller asking `key` at the same time. `signal`
@@ -198,6 +322,43 @@ export class InspectReads {
       // only the tail this read continues: another reader's cursor leaves the kept answer alone
       if (kept && kept.value.cursor === query.cursor) this.keep(`log:${target}`, bounded({ ...kept.value, lines: [...kept.value.lines, ...view.lines], cursor: view.cursor, hasMore: view.hasMore }), observedAt)
     }
+    return { ...view, observedAt, stale: false }
+  }
+
+  /**
+   * One files read for `target` (`machine:<name>` or `sandbox:<name>`): the
+   * roots (no path), a folder page, or a file window; LayerFS says which a
+   * path is. A folder's first page (and the roots) is kept; when a later read
+   * of it is refused, the kept page answers again marked `stale`. Any other
+   * refused read answers `refused` with the refusal: a refusal stays inside
+   * the folder or file it is about, and never fails the page's request.
+   * @param call - the LayerFS call: `(path, options) => lfs.machine.files(name, path, options)`.
+   */
+  async files(target: string, query: FilesQuery, call: (path: string | undefined, options: Record<string, unknown>) => Promise<unknown>, signal?: AbortSignal): Promise<FilesView> {
+    const key = `files:${target}:${JSON.stringify([query.path, query.depth, query.cursor, query.limit, query.offset, query.length])}`
+    const first = query.cursor === null && query.offset === null && query.length === null
+    const keptKey = `${target}\0${query.path ?? ''}\0${query.depth ?? ''}\0${query.limit ?? ''}`
+    const observedAt = Date.now()
+    let answer: unknown
+    try {
+      answer = await this.read(key, (inner) => call(query.path ?? undefined, {
+        ...(query.depth !== null ? { depth: query.depth } : {}), ...(query.cursor !== null ? { cursor: query.cursor } : {}), ...(query.limit !== null ? { limit: query.limit } : {}),
+        ...(query.offset !== null ? { offset: query.offset } : {}), ...(query.length !== null ? { length: query.length } : {}), signal: inner,
+      }), signal)
+    } catch (error: any) {
+      if (error?.code === 'Cancelled') throw error
+      const kept = first ? this.keptFolders.get(keptKey) : undefined
+      const stale = refusalOf(error, kept?.at ?? null)
+      if (kept) return { ...kept.value, observedAt, stale }
+      return { kind: 'refused', path: query.path, observedAt, stale }
+    }
+    let view: ReturnType<typeof filesAnswer>
+    try { view = filesAnswer(answer, query.path) } catch (error) { return { kind: 'refused', path: query.path, observedAt, stale: refusalOf(error, null) } }
+    if (view.kind === 'folder' && first) {
+      this.keptFolders.delete(keptKey)
+      if (this.keptFolders.size >= KEEP_FOLDERS) this.keptFolders.delete(this.keptFolders.keys().next().value!)
+      this.keptFolders.set(keptKey, { at: observedAt, value: view })
+    } else if (view.kind === 'file' && first) this.keptFolders.delete(keptKey)
     return { ...view, observedAt, stale: false }
   }
 }

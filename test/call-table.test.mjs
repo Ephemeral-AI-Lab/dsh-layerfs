@@ -223,6 +223,9 @@ const GATED = [
   // the worker and daemon logs (layerfs-project#178): Machines.machineLog / sandboxLog refuse 501 without the call
   { site: /^logs\.machine$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineLog\b/, lines: 4 },
   { site: /^logs\.sandbox$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.sandboxLog\b/, lines: 4 },
+  // the machine's and the Sandbox's files (layerfs-project#178): Machines.machineFiles / sandboxFiles refuse 501 without the call
+  { site: /^machine\.files$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineFiles\b/, lines: 4 },
+  { site: /^sandbox\.files$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.files\b/, lines: 4 },
   // the preset Reset's force-close refuses up front (preflight) when machine.stop lacks the bool force option
   { site: /^machine\.stop --force$/, file: 'src/host/presets/machine-stop.js', gate: /option\.name === 'force' && option\.kind === 'bool'/, lines: 45 },
 ]

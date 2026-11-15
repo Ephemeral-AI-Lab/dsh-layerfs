@@ -10,7 +10,7 @@
  *
  *   router.ts               route table, status map, error answers
  *   machines.ts             /api/machines…, /api/platforms
- *   inspect.ts              monitoring reads: /api/machines/:id/log, /api/sandboxes/:name/log (one read per key, last good answer kept)
+ *   inspect.ts              monitoring reads: /api/machines/:id/log and /files, /api/sandboxes/:name/log and /files (one read per key, last good answer kept)
  *   storage.ts, jobs.ts     /api/storage…, /api/stores…, /api/buckets…, /api/storage-jobs…, /api/doctor
  *   doctor.ts               /api/doctor-jobs…
  *   projects.ts             /api/status, /api/projects…, /api/sandboxes…, /api/workspaces…, /api/project-inits…
