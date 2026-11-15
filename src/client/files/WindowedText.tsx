@@ -38,20 +38,30 @@ export interface WindowedTextProps<C> {
   path: string
   /** A translator whose namespace carries the files dictionary. */
   t: Translate
+  /** The view's own words where the files dictionary's do not fit it. */
+  words?: {
+    /** A binary file, from its size in bytes (default: the dictionary's, with a rounded size). */
+    binary?: (size: number) => string
+    /** A file without a byte: shown instead of an empty text. Left out, an empty file is an empty text. */
+    empty?: string
+    /** The button that reads a refused window again (default: Retry). */
+    retry?: string
+  } | undefined
 }
 
-export function WindowedText<C>({ read, path, t }: WindowedTextProps<C>): ReactNode {
+export function WindowedText<C>({ read, path, t, words }: WindowedTextProps<C>): ReactNode {
   const first = useQuery(() => read(), [read])
   const [more, setMore] = useState<TextWindow<C>[]>([])
   const [loadingMore, setLoadingMore] = useState(false)
   useEffect(() => { setMore([]) }, [first.data])
   if (first.error) {
     if (errorCode(first.error) === 'NoSuchPath') return <EmptyState title={t('files_absent')} />
-    return <ErrorState title={t('files_readFailed', { what: path })} error={first.error} retryLabel={t('files_retry')} onRetry={first.reload} />
+    return <ErrorState title={t('files_readFailed', { what: path })} error={first.error} retryLabel={words?.retry ?? t('files_retry')} onRetry={first.reload} />
   }
   if (!first.data) return <Loading label={t('files_loading')} className={css.pad} />
   const file = first.data
-  if (file.binary) return <EmptyState title={t('files_binary', { size: bytes(file.size) })} />
+  if (file.binary) return <EmptyState title={words?.binary?.(file.size) ?? t('files_binary', { size: bytes(file.size) })} />
+  if (words?.empty !== undefined && file.size === 0 && !file.text) return <EmptyState title={words.empty} />
   const windows = [file, ...more]
   const text = windows.map((w) => w.text ?? '').join('')
   const lines = text.replace(/\n$/, '').split('\n').map((line, i) => ({ number: i + 1, text: line }))

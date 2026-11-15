@@ -2,9 +2,10 @@
  * One machine's page: its head (name as the tree shows it, state, power,
  * menu), startup progress and notices, then its tabs. Overview is a line of
  * facts, its Stores and its Sandboxes side by side, all of them, and the full
- * spec folded under Details. Worker log (LogPane.tsx) is there only when the
- * pinned CLI has logs.machine and LayerFS says the machine has a worker log
- * (`supports.log`); without it the page has no tab bar.
+ * spec folded under Details. Files (InspectFiles.tsx) is there only when the
+ * pinned CLI has machine.files, and Worker log (LogPane.tsx) only when it has
+ * logs.machine and LayerFS says the machine has a worker log (`supports.log`);
+ * with neither the page has no tab bar.
  */
 import { useId, useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -15,6 +16,7 @@ import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import { ImagesSection } from './MachineImages.tsx'
 import { useDetailTab } from './detail-tabs.ts'
+import { InspectFiles } from './InspectFiles.tsx'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { Inventory, useMachineTitle } from './Inventory.tsx'
@@ -81,9 +83,11 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   const name = title(m)
   // Worker log: the pinned CLI has the call, and LayerFS says this machine has a worker log (no platform test here)
   const hasLog = view.features?.inspect?.machineLog === true && m.supports?.log === true
-  // one line per tab: Files joins here with its call (machine.files)
-  const tabs: { value: 'overview' | 'log', label: string }[] = [
+  // Files: the pinned CLI has machine.files (which views it has is LayerFS's answer, never a platform test here)
+  const hasFiles = view.features?.inspect?.machineFiles === true
+  const tabs: { value: 'overview' | 'files' | 'log', label: string }[] = [
     { value: 'overview', label: t('tabOverview') },
+    ...(hasFiles ? [{ value: 'files' as const, label: t('tabFiles') }] : []),
     ...(hasLog ? [{ value: 'log' as const, label: t('tabWorkerLog') }] : []),
   ]
   const [tab, setTab] = useDetailTab('machine', m.name, tabs.map((x) => x.value), 'overview')
@@ -131,7 +135,13 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
           items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
       )}
 
-      {tab === 'log' ? (
+      {tab === 'files' ? (
+        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>
+          {notices}
+          <InspectFiles kind="machine" name={m.name} label={t('filesOf', { name })} onOpenLog={hasLog ? () => setTab('log') : undefined} logTab={hasLog ? t('tabWorkerLog') : undefined}
+            unavailableAction={state.state === 'stopped' && !block ? <PowerButton m={m} pending={pending} run={run} /> : undefined} />
+        </div>
+      ) : tab === 'log' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
           {notices}
           <LogPane kind="machine" name={m.name} label={t('workerLogOf', { name })}

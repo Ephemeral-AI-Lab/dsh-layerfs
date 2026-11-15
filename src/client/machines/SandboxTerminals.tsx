@@ -20,7 +20,8 @@ const NEW_BRANCH = '\u0000new'
 /** The New workspace form's place in the layout, after the last Workspace. */
 const ADDING = '\u0000adding'
 
-export function SandboxTerminals({ info, onChanged }: { info: SandboxInfo, onChanged: () => void }): ReactNode {
+/** `focus`: a Workspace to show and focus (its page of terminals too); a new `n` asks again. */
+export function SandboxTerminals({ info, onChanged, focus }: { info: SandboxInfo, onChanged: () => void, focus?: { ws: string, n: number } | null | undefined }): ReactNode {
   const { t } = useMachinesContext()
   const reachable = info.state === 'running' && !info.downReason && !info.refusal && !info.unread
   const workspaces = useMemo(() => orderWorkspaces(reachable || info.workspaces.length ? info.workspaces : []), [info.workspaces, reachable])
@@ -44,6 +45,8 @@ export function SandboxTerminals({ info, onChanged }: { info: SandboxInfo, onCha
     if (max && !ids.includes(max)) setMax(null)
     if (layout.page !== page) setPage(layout.page)
   }, [ids, max, layout.page, page])
+  // a Workspace asked for from elsewhere on the page (Files' "Open terminal")
+  useEffect(() => { if (focus) { setMax(null); setAdding(false); setOpened(focus.ws) } }, [focus?.ws, focus?.n])
   // a Workspace just mounted here: show its page and focus it
   useEffect(() => {
     if (opened && ids.includes(opened)) { setPage(pageOf(ids, opened)); setActive(opened); setOpened(null) }

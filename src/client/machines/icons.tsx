@@ -201,3 +201,34 @@ export function BucketProviderGlyph({ provider, ...props }: GlyphProps & { provi
   if (provider === 'minio') return <BrandGlyph icon={MINIO} {...props} />
   return null
 }
+
+/** A padlock: an entry that is listed but never opened. */
+export function LockGlyph(props: GlyphProps): ReactNode {
+  return (
+    <Svg {...props}>
+      <rect x="3.4" y="7.2" width="9.2" height="6.4" rx="1.4" />
+      <path d="M5.4 7.2V5.4a2.6 2.6 0 0 1 5.2 0v1.8" />
+    </Svg>
+  )
+}
+
+/** A disk with a link: a mount that is not entered. */
+export function MountGlyph(props: GlyphProps): ReactNode {
+  return (
+    <Svg {...props}>
+      <rect x="2.2" y="8.6" width="11.6" height="4.6" rx="1.4" />
+      <path d="M4.8 10.9h.01" strokeWidth={1.6} />
+      <path d="M8 2.6v4.2M6.2 5 8 6.8 9.8 5" />
+    </Svg>
+  )
+}
+
+/** A gear: a system folder that is not entered. */
+export function SystemGlyph(props: GlyphProps): ReactNode {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="2.1" />
+      <path d="M8 2.4v1.5M8 12.1v1.5M2.4 8h1.5M12.1 8h1.5M4 4l1.1 1.1M10.9 10.9 12 12M12 4l-1.1 1.1M5.1 10.9 4 12" />
+    </Svg>
+  )
+}

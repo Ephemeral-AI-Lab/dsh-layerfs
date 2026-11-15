@@ -5,7 +5,7 @@
  */
 import { createContext, useContext, useMemo } from 'react'
 import type { LayerfsApi } from '../api.ts'
-import { writeDetailTab, type DetailTab } from '../storage/tabs.ts'
+import { readFilesPlace, writeDetailTab, writeFilesPlace, type DetailTab, type FilesViewId } from '../storage/tabs.ts'
 import { openStorage } from '../projects/navigation.ts'
 import type { DoctorT } from '../doctor/locale.ts'
 import type { LogsT } from '../logs/locale.ts'
@@ -20,12 +20,16 @@ export type Translate = (key: MachinesKey, params?: Record<string, string>) => s
 /**
  * Where a machine page sends you: the board, one machine, or one Sandbox (each
  * a Storage page). `tab` names the tab to show inside a machine or Sandbox
- * page (its worker or daemon log); left out, the page shows the tab it had last.
+ * page (its files, its worker or daemon log); left out, the page shows the
+ * tab it had last. With `tab: 'files'`, `view` and `path` say where the Files
+ * tab opens: "Show in Files" from elsewhere is
+ * `go({ kind: 'machine', name, tab: 'files', view: 'whole', path: '/var/log' })`.
+ * A path that is not there falls back to the view's root, and the tab says so.
  */
 export type View =
   | { kind: 'board' }
-  | { kind: 'machine', name: string, tab?: DetailTab }
-  | { kind: 'sandbox', machine: string, name: string, tab?: DetailTab }
+  | { kind: 'machine', name: string, tab?: DetailTab, view?: FilesViewId, path?: string }
+  | { kind: 'sandbox', machine: string, name: string, tab?: DetailTab, view?: FilesViewId, path?: string }
 
 /** The Storage page a view opens. */
 export function tabOfView(view: View): string {
@@ -84,6 +88,10 @@ export function MachinesProvider({ props, children }: { props: MachinesPageProps
       go: (view: View) => {
         // dsh has no URLs: the tab asked for is view state in the app (and the page's last tab)
         if (view.kind !== 'board' && view.tab) writeDetailTab(view.kind, view.name, view.tab)
+        // a place in its Files tab: the view named (else the one it had), at the path named
+        if (view.kind !== 'board' && view.tab === 'files' && (view.view || view.path)) {
+          writeFilesPlace(view.kind, view.name, { view: view.view ?? readFilesPlace(view.kind, view.name)?.view ?? 'layerfs', path: view.path ?? null }, true)
+        }
         openStorageTab(tabOfView(view))
       },
       tw,

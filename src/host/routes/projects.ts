@@ -148,7 +148,7 @@ export function sandboxInfo(s: any, workspaces: any[] | null = null) {
     workspaces: (workspaces ?? [])
       .filter((w) => w.mounted !== false && (w.directory || w.path))
       .map((w) => ({
-        ws: w.ws ?? `${s.name}:${w.name ?? w.directory}`, name: w.name ?? null, branch: w.branch ?? '', path: w.directory ?? w.path, activity: w.activity ?? null, base: w.base ?? null, baseLayer: w.base_layer ?? null, root: w.root ?? null, headMovedSinceMount: w.head_moved_since_mount ?? null, dirty: w.dirty ?? null, pendingMerge: w.pending_merge ?? null, revision: w.revision ?? null,
+        ws: w.ws ?? `${s.name}:${w.name ?? w.directory}`, wsId: typeof w.workspace === 'string' ? w.workspace : null, name: w.name ?? null, branch: w.branch ?? '', path: w.directory ?? w.path, activity: w.activity ?? null, base: w.base ?? null, baseLayer: w.base_layer ?? null, root: w.root ?? null, headMovedSinceMount: w.head_moved_since_mount ?? null, dirty: w.dirty ?? null, pendingMerge: w.pending_merge ?? null, revision: w.revision ?? null,
         ...runningOf(w), ...overlayBytesOf(w),
       })),
     // the Workspace slots of one Sandbox (layerfs-project#178): absent from a CLI that does not say

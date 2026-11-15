@@ -4,13 +4,14 @@
  * the page never waits on one slow read (layerfs-project#179 D): only
  * Terminals (the Workspaces as terminals, SandboxTerminals.tsx, with the
  * daemon line and the record's other fields under Record details) waits on
- * sandbox.get. Daemon log (LogPane.tsx) reads on its own, and is there only
- * when the pinned CLI has logs.sandbox.
+ * sandbox.get. Files (InspectFiles.tsx) and Daemon log (LogPane.tsx) read on
+ * their own, and each is there only when the pinned CLI has its call
+ * (sandbox.files, logs.sandbox).
  *
  * Delete is sandbox.close, with an explicit Force delete action. A Sandbox
  * whose machine differs from the one it was opened from is refused here.
  */
-import { useId, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, IconRefreshOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Card, Fact, Facts, LinkButton, LoadError, Loading, Notice, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
@@ -19,6 +20,7 @@ import { useDetailTab } from './detail-tabs.ts'
 import { SandboxGlyph } from './icons.tsx'
 import { displayRef } from './images.ts'
 import { useMachineTitle } from './Inventory.tsx'
+import { InspectFiles } from './InspectFiles.tsx'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { cachedAnswer } from '../ui/use-query.ts'
@@ -34,13 +36,16 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   const listed = useMachines((s) => (s.data?.available ? s.data.sandboxes.find((b) => b.name === name) : undefined))
   const parent = useMachines((s) => (s.data?.available ? s.data.machines.find((m) => m.name === machine) : undefined))
   const hasLog = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.sandboxLog === true : false))
+  const hasFiles = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.files === true : false))
+  // the Workspace whose terminal Files asked for ("Open terminal")
+  const [focus, setFocus] = useState<{ ws: string, n: number } | null>(null)
   const detail = useSandboxRead(name, listed?.state, listed?.workspaces)
   const closing = useClose(name)
   const title = useMachineTitle()
   const machineTitle = title({ name: machine, platform: parent?.platform ?? (machine === 'native' ? 'native' : '') })
-  // one line per tab: Files joins here with its call (sandbox.files)
-  const tabs: { value: 'terminals' | 'log', label: string }[] = [
+  const tabs: { value: 'terminals' | 'files' | 'log', label: string }[] = [
     { value: 'terminals', label: t('tabTerminals') },
+    ...(hasFiles ? [{ value: 'files' as const, label: t('tabFiles') }] : []),
     ...(hasLog ? [{ value: 'log' as const, label: t('tabDaemonLog') }] : []),
   ]
   const [tab, setTab] = useDetailTab('sandbox', name, tabs.map((x) => x.value), 'terminals')
@@ -118,7 +123,14 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
           items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
       )}
 
-      {tab === 'log' ? (
+      {tab === 'files' ? (
+        // reads on its own: the Workspace rows take their names and chips from sandbox.get when it has answered
+        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>
+          <InspectFiles kind="sandbox" name={name} label={t('filesOf', { name })} workspaces={info?.workspaces ?? null} project={project}
+            onOpenLog={hasLog ? () => setTab('log') : undefined} logTab={hasLog ? t('tabDaemonLog') : undefined}
+            onOpenTerminal={(ws) => { setFocus((f) => ({ ws, n: (f?.n ?? 0) + 1 })); setTab('terminals') }} />
+        </div>
+      ) : tab === 'log' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
           <LogPane kind="sandbox" name={name} label={t('daemonLogOf', { name })} final={ended} />
         </div>
@@ -131,7 +143,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
               : <Loading label={t('readingSandbox')} />
             : (
               <>
-                <SandboxTerminals info={info} onChanged={detail.reload} />
+                <SandboxTerminals info={info} onChanged={detail.reload} focus={focus} />
 
                 <details className={css.details}>
                   <summary className={css.detailsSummary}><IconChevronRightOutlineRegular size={12} className={css.detailsChevron} /><span>{t('sbDetails')}</span></summary>
