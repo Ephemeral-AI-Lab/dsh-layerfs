@@ -15,7 +15,7 @@ import type { LayerfsApi } from '../../api.ts'
 import { useQuery } from '../../files/use-query.ts'
 import { MachineGlyph, StoreKindGlyph } from '../../machines/icons.tsx'
 import { LayerfsGlyph } from '../../overview/glyph.tsx'
-import { messageOf, NAME, type ProjectRow } from '../../picker/NewProjectForm.tsx'
+import { messageOf, NAME, type ProjectInitJob, type ProjectRow } from '../../picker/NewProjectForm.tsx'
 import { slugify } from '../../picker/location.ts'
 import { useHostEvents } from '../../storage/hooks.ts'
 import type { StorageView, StoreRow } from '../../storage/types.ts'
@@ -50,7 +50,7 @@ export function ProjectDialog({ api, t, tl, request }: { api: LayerfsApi, t: Set
     ? <Configure api={api} t={t} project={request.project} back={back} onBusy={setBusy} />
     : request.mode === 'pick'
       ? <Pick api={api} t={t} tl={tl} />
-      : <Create api={api} t={t} importing={request.mode === 'import'} back={back} onBusy={setBusy} />
+      : <Create api={api} t={t} startFromFolder={request.mode === 'import'} back={back} onBusy={setBusy} />
   const title = request.mode === 'configure' ? request.project.name ?? request.project.key.split('/')[1] ?? request.project.key
     : request.mode === 'pick' ? t('pickTitle') : request.mode === 'import' ? t('importTitle') : t('newTitle')
   return <Modal open headless onClose={close} title={title} className={css.dialog}>
@@ -161,12 +161,16 @@ function NewMachineTile({ api, t }: { api: LayerfsApi, t: SetupT }): ReactNode {
 
 type StepState = { step: Step, state: 'pending' | 'running' | 'done' | 'failed' }
 
+/** A path with the user's home folder shown as `~` (`/Users/me/code/shop` -> `~/code/shop`). */
+export const shortPath = (path: string): string => path.replace(/\/+$/, '').replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
+
 function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
   const store = plan.store?.name ?? plan.newStore?.name ?? ''
   const id = step.id
+  if (id === 'check') return t('step_check', { source: shortPath(plan.source ?? '') })
   if (id === 'store') return t('step_store', { store })
   if (id === 'connect') return t('step_connect', { store })
-  if (id === 'init') return t('step_init', { name: plan.name })
+  if (id === 'init') return plan.source ? t('step_import', { source: shortPath(plan.source), name: plan.name }) : t('step_init', { name: plan.name })
   if (id === 'open') return t('step_open')
   if (id === 'detach:native') return t('step_detach', { store })
   if (id === 'start-store' || id.startsWith('start:')) return t('step_start', { machine: step.machine ?? '' })
@@ -174,13 +178,22 @@ function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
   return t('step_attach', { store, machine: step.machine ?? '' })
 }
 
-function Progress({ steps, plan, t, error }: { steps: StepState[], plan: CreatePlan, t: SetupT, error: string | null }): ReactNode {
+/** The running Init's phase and count: `hash · 8,412 / 12,930`. */
+function initDetail(job: ProjectInitJob | null): string | null {
+  const p = job?.progress
+  if (!p?.phase) return null
+  const n = (v: number | null) => (v === null ? null : v.toLocaleString())
+  return p.total ? `${p.phase} · ${n(p.done ?? 0)} / ${n(p.total)}` : p.done !== null ? `${p.phase} · ${n(p.done)}` : p.phase
+}
+
+function Progress({ steps, plan, t, error, initJob }: { steps: StepState[], plan: CreatePlan, t: SetupT, error: string | null, initJob: ProjectInitJob | null }): ReactNode {
   return <div className={css.progress} aria-live="polite">
     <h3 className={css.label}>{error ? t('createStopped') : t('creating')}</h3>
     <ol className={css.steps}>
       {steps.map(({ step, state }) => <li key={step.id} className={css.step} data-state={state}>
         <span className={css.stepMark} aria-hidden="true">{state === 'running' ? <StateDot state="ongoing" size={10} /> : state === 'done' ? <IconCheckOutlineRegular size={11} /> : state === 'failed' ? <IconCloseOutlineRegular size={11} /> : null}</span>
         <span>{stepLabel(step, plan, t)}</span>
+        {step.id === 'init' && state === 'running' && initDetail(initJob) ? <span className={css.stepDetail}>{initDetail(initJob)}</span> : null}
       </li>)}
     </ol>
     {error ? <p className={css.error} role="alert">{error}</p> : null}
@@ -192,6 +205,10 @@ function Progress({ steps, plan, t, error }: { steps: StepState[], plan: CreateP
 type Part = 0 | 1 | 2
 const PARTS = [0, 1, 2] as const
 type StoreMode = 'new' | 'existing'
+/** What the project starts from: nothing, or a copy of a folder on this computer. */
+type StartFrom = 'empty' | 'folder'
+/** Folder on this Mac, PC or computer, by the native machine's OS (Mac for an older host). */
+const fromFolderKey = (os?: string): 'fromFolderPc' | 'fromFolderMac' | 'fromFolderLinux' => (os === 'windows' ? 'fromFolderPc' : os === 'macos' || os === undefined ? 'fromFolderMac' : 'fromFolderLinux')
 
 /** One part on the rail: ready (a check) or not (its number), its title and what was chosen or is missing. Click jumps to it. */
 function RailStep({ index, title, summary, current, ready, onSelect, disabled }: {
@@ -212,10 +229,12 @@ function RailStep({ index, title, summary, current, ready, onSelect, disabled }:
 }
 
 /**
- * Create (or import): Project, Store and Runs on on one scrolling page; the rail
- * shows whether each is ready and jumps to it. Create runs the steps and opens a session.
+ * Create: Project, Store and Runs on on one scrolling page; the rail shows
+ * whether each is ready and jumps to it. The project starts empty or from a
+ * folder (Start from); `startFromFolder` opens it on Folder (Import a folder).
+ * Create runs the steps and opens a session.
  */
-function Create({ api, t, importing, back, onBusy }: { api: LayerfsApi, t: SetupT, importing: boolean, back?: DialogRequest | undefined, onBusy: (busy: boolean) => void }): ReactNode {
+function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t: SetupT, startFromFolder: boolean, back?: DialogRequest | undefined, onBusy: (busy: boolean) => void }): ReactNode {
   const id = useId()
   const view = useStorage(api)
   const scratch = useQuery(() => api.op<{ scratchKey?: string | null }>('projects.catalog').catch(() => ({ scratchKey: null })), [api])
@@ -223,7 +242,12 @@ function Create({ api, t, importing, back, onBusy }: { api: LayerfsApi, t: Setup
   const pane = useRef<HTMLFieldSetElement>(null)
   const sections = useRef<(HTMLElement | null)[]>([])
   const [name, setName] = useState('')
+  // the name follows the folder until it is typed in
+  const [nameTyped, setNameTyped] = useState(false)
+  const [from, setFrom] = useState<StartFrom>(startFromFolder ? 'folder' : 'empty')
+  const importing = from === 'folder'
   const [source, setSource] = useState('')
+  const [initJob, setInitJob] = useState<ProjectInitJob | null>(null)
   const [pickerMissing, setPickerMissing] = useState(false)
   const [kind, setKind] = useState<StoreKind>('sqlite')
   const [mode, setMode] = useState<StoreMode>('new')
@@ -252,11 +276,23 @@ function Create({ api, t, importing, back, onBusy }: { api: LayerfsApi, t: Setup
   const running = steps !== null && !error
   useEffect(() => { onBusy(running) }, [running])
 
+  const folderName = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? ''
+  const pickSource = (path: string) => { setSource(path); if (!nameTyped) setName(folderName(path)) }
+  // a picker answer counts only if the path was not typed and Start from not changed since it opened
+  const edits = useRef(0)
+  const typeSource = (path: string) => { edits.current++; pickSource(path) }
   const browse = async () => {
-    try { const path = await api.pickDirectory(); if (path) { setSource(path); if (!name) setName(path.replace(/\/+$/, '').split('/').pop() ?? '') } }
+    const at = edits.current
+    try { const path = await api.pickDirectory(); if (path && edits.current === at) pickSource(path) }
     catch (e) { if ((e as { code?: string })?.code === 'no-picker') setPickerMissing(true); else setError(messageOf(e)) }
   }
-  useEffect(() => { if (importing) void browse() }, [importing])
+  useEffect(() => { if (startFromFolder) void browse() }, [])
+  const chooseFrom = (next: StartFrom) => {
+    edits.current++
+    setFrom(next)
+    if (next === 'folder' && !source.trim() && !pickerMissing) void browse()
+    if (next === 'empty' && !nameTyped) setName('')
+  }
 
   const nameError = name.trim() && !NAME.test(slug) ? t('nameInvalid') : null
   const folderError = importing && source.trim() && !source.trim().startsWith('/') ? t('folderInvalid') : null
@@ -281,7 +317,7 @@ function Create({ api, t, importing, back, onBusy }: { api: LayerfsApi, t: Setup
     if (!valid || running) return
     const p = plan()
     const list = createSteps(p, data).map((step) => ({ step, state: 'pending' as const }))
-    setShown(p); setError(null); setSteps(list)
+    setShown(p); setError(null); setSteps(list); setInitJob(null)
     pane.current?.scrollTo({ top: 0 })
     const mark = (i: number, state: StepState['state']) => setSteps((had) => had?.map((s, j) => (j === i ? { ...s, state } : s)) ?? null)
     const key = `${p.store?.name ?? p.newStore!.name}/${p.name}`
@@ -290,7 +326,7 @@ function Create({ api, t, importing, back, onBusy }: { api: LayerfsApi, t: Setup
       mark(i, 'running')
       try {
         if (step.id === 'open') await api.openProjectSession(key)
-        else await runStep(api, p, step)
+        else await runStep(api, p, step, setInitJob)
         mark(i, 'done')
       } catch (e) {
         mark(i, 'failed')
@@ -313,7 +349,7 @@ function Create({ api, t, importing, back, onBusy }: { api: LayerfsApi, t: Setup
 
   const kindWord = kind === 'sqlite' ? t('kindSqliteTitle') : t('kindPgTitle')
   const summaries: Record<Part, string> = {
-    0: ok[0] ? slug : importing && !source.trim() ? t('needFolder') : t('notNamed'),
+    0: ok[0] ? (importing ? t('fromSummary', { name: slug, source: shortPath(source.trim()) }) : slug) : importing && !source.trim() ? t('needFolder') : t('notNamed'),
     1: !ok[1] ? (mode === 'existing' ? t('pickStore') : kind === 'postgresql' ? t('needConnection') : t('needStoreName'))
       : existing ? `${kindWord} · ${existing.name}` : `${kindWord} · ${t('newWord')} · ${newStoreName}`,
     2: ok[2] ? chosen.join(', ') : t('noneChosen'),
@@ -351,18 +387,25 @@ function Create({ api, t, importing, back, onBusy }: { api: LayerfsApi, t: Setup
         </ol>
       </nav>
       <fieldset ref={pane} className={css.pane} disabled={running} onScroll={spy}>
-        {steps && shown ? <Progress steps={steps} plan={shown} t={t} error={error} /> : null}
+        {steps && shown ? <Progress steps={steps} plan={shown} t={t} error={error} initJob={initJob} /> : null}
         <section ref={(el) => { sections.current[0] = el }} className={css.part} aria-labelledby={`${id}-p0`}>
           <h3 id={`${id}-p0`} className={css.partTitle}>{titles[0]}</h3>
           <div className={css.fields}>
+          <Group label={t('startFrom')}>
+            <SegmentedControl<StartFrom> id={`${id}-from`} className={css.modes} value={from} label={t('startFrom')} onChange={chooseFrom}
+              options={[
+                { value: 'empty', label: t('fromEmpty') },
+                { value: 'folder', label: t(fromFolderKey(data.computer?.os)) },
+              ]} />
+          </Group>
           {importing ? <Field label={t('folder')} hint={t('folderHint')} error={folderError}>
             <span className={css.inline}>
-              <Input value={source} className={css.mono} autoComplete="off" spellCheck={false} onChange={(e) => setSource(e.target.value)} />
+              <Input value={source} className={css.mono} placeholder="/Users/me/code/shop" autoComplete="off" spellCheck={false} onChange={(e) => typeSource(e.target.value)} />
               {pickerMissing ? null : <Button type="button" variant="outline" size="sm" icon={<IconFolderOpenOutlineRegular size={14} />} onClick={() => void browse()}>{t('browse')}</Button>}
             </span>
           </Field> : null}
-          <Field label={t('name')} error={nameError} hint={!nameError && slug && slug !== name.trim() ? t('savedAs', { slug }) : t('nameHint')}>
-            <Input value={name} placeholder={t('namePlaceholder')} autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => setName(e.target.value)} />
+          <Field label={t('name')} error={nameError} hint={!nameError && slug && slug !== name.trim() ? t('savedAs', { slug }) : importing && !nameTyped ? t('nameFollows') : t('nameHint')}>
+            <Input value={name} placeholder={t('namePlaceholder')} autoComplete="off" spellCheck={false} data-modal-autofocus="" onChange={(e) => { setName(e.target.value); setNameTyped(e.target.value.trim() !== '') }} />
           </Field>
           </div>
         </section>

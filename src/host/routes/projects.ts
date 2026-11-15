@@ -24,8 +24,8 @@
  * statistics are independent queries with separate scopes.
  */
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { pgMachineOf } from '../sessions/availability.ts'
@@ -304,9 +304,7 @@ export class Projects {
     if (typeof name !== 'string' || !/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(name)) throw refuse(400, 'InvalidInput', 'Project names use lowercase letters, numbers, dots, underscores and hyphens, with a letter or number at each end (maximum 63 characters).')
     const { key } = projectRef(`${store}/${name}`)
     if ([...this.inits.values()].some((j) => j.name === key && !j.ended)) throw refuse(409, 'Exists', `${key} is being created`)
-    if (source !== undefined && (typeof source !== 'string' || !isAbsolute(source) || source.includes('\0') || !statSync(source, { throwIfNoEntry: false })?.isDirectory())) {
-      throw refuse(400, 'InvalidInput', 'Choose an existing absolute source folder.')
-    }
+    if (source !== undefined) this.checkSource({ source })
     let emptySource: string | undefined
     if (source === undefined) {
       mkdirSync(this.emptySources, { recursive: true, mode: 0o700 })
@@ -334,6 +332,25 @@ export class Projects {
       })
     this.creations.set(job.id, completion)
     return { ...job }
+  }
+
+  /**
+   * A folder an Init may copy from: an existing absolute directory outside the
+   * LayerFS home. Reads no file in it; answers
+   * `{ source }` (the real path) or refuses. The dialog calls it before it
+   * makes a Store, so a wrong folder leaves no empty Store behind.
+   */
+  checkSource(input: any): { source: string } {
+    const source = input?.source
+    if (typeof source !== 'string' || !isAbsolute(source) || source.includes('\0') || !statSync(source, { throwIfNoEntry: false })?.isDirectory()) {
+      throw refuse(400, 'InvalidInput', 'Choose an existing absolute source folder.')
+    }
+    const real = realpathSync(source)
+    // the home holds the Stores: copying it into one of them is never meant
+    const home = safeReal(this.host.home)
+    const rel = home ? relative(home, real) : '..'
+    if (!(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel))) throw refuse(400, 'InvalidInput', `Choose a folder outside the LayerFS home (${this.host.home}).`)
+    return { source: real }
   }
 
   /** One of this host's Init jobs. */
@@ -862,4 +879,9 @@ export class Projects {
   async close() {
     await Promise.all([...this.creations.values(), this.storageLedgers.close()])
   }
+}
+
+/** A path's real path, or null when it does not exist. */
+function safeReal(path: string): string | null {
+  try { return realpathSync(path) } catch { return null }
 }

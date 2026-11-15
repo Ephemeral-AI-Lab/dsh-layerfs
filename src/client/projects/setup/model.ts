@@ -72,10 +72,11 @@ export interface CreatePlan {
   newStore?: { name: string, url?: string, password?: string }
   /** SQLite: one machine. PostgreSQL: every ticked machine. */
   machines: string[]
+  /** An absolute folder the project starts from; empty when absent. */
   source?: string
 }
 
-export type StepId = 'store' | 'connect' | 'start-store' | 'init' | `start:${string}` | `place:${string}` | `attach:${string}` | 'detach:native' | 'open'
+export type StepId = 'check' | 'store' | 'connect' | 'start-store' | 'init' | `start:${string}` | `place:${string}` | `attach:${string}` | 'detach:native' | 'open'
 export interface Step { id: StepId, machine?: string }
 
 /**
@@ -85,7 +86,8 @@ export interface Step { id: StepId, machine?: string }
 export function createSteps(plan: CreatePlan, view: Pick<StorageView, 'machines'> | undefined): Step[] {
   const state = (name: string) => view?.machines.find((m) => m.name === name)
   const start = (name: string): Step[] => (isRunning(state(name)) ? [] : [{ id: `start:${name}`, machine: name }])
-  const steps: Step[] = []
+  // the folder is checked before anything is made, so a wrong one leaves no empty Store
+  const steps: Step[] = plan.source ? [{ id: 'check' }] : []
   if (plan.kind === 'sqlite') {
     const target = plan.machines[0] ?? 'native'
     const at = plan.store?.machine ?? 'native'

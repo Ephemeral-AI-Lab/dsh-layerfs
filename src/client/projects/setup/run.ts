@@ -1,6 +1,6 @@
 /**
  * Running the Setup card's steps over the host API (docs/specs/layerfs-workspaces.md §3):
- * machine start, Store create / connect, Init, place (push, pull or move),
+ * folder check, machine start, Store create / connect, Init, place (push, pull or move),
  * attach and detach. Each waits for its job; a refusal throws.
  */
 import { enc, type LayerfsApi } from '../../api.ts'
@@ -44,6 +44,9 @@ export const storeOfPlan = (plan: CreatePlan): string => plan.store?.name ?? pla
 export async function runStep(api: LayerfsApi, plan: CreatePlan, step: Step, onJob?: (job: ProjectInitJob) => void): Promise<void> {
   const store = storeOfPlan(plan)
   switch (true) {
+    case step.id === 'check':
+      await api.call('POST', '/api/project-sources/check', { source: plan.source ?? '' })
+      return
     case step.id === 'store':
       await api.call('POST', '/api/stores', { name: store })
       return

@@ -278,6 +278,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     g.commands.unmounted(id)
     return result
   }
+  // a folder an Init may copy from, checked before a Store is made: { source } -> { source (real path) }
+  if (group === 'project-sources' && id === 'check' && !sub && method === 'POST') return projects.checkSource(body ?? {})
   if (group === 'project-inits' && !id && method === 'GET') return projects.initJobs()
   if (group === 'project-inits' && id && !sub && method === 'GET') return projects.init(id)
   return undefined

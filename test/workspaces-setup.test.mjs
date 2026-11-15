@@ -61,3 +61,11 @@ test('create steps: PostgreSQL connects, attaches ticked machines, detaches nati
   const existing = { name: 'pg', kind: 'postgresql', attachments: [{ machine: 'native' }], projects: [] }
   assert.deepEqual(ids(createSteps({ name: 'app', kind: 'postgresql', store: existing, machines: ['native'] }, view)), ['init', 'open'])
 })
+
+test('create steps: a folder is checked before anything is made', () => {
+  assert.deepEqual(ids(createSteps({ name: 'app', kind: 'sqlite', store: null, newStore: { name: 'app' }, machines: ['docker'], source: '/Users/me/code/shop' }, view)),
+    ['check', 'store', 'init', 'start:docker', 'place:docker', 'open'])
+  assert.deepEqual(ids(createSteps({ name: 'app', kind: 'postgresql', store: null, newStore: { name: 'pg' }, machines: ['native'], source: '/srv/app' }, view)),
+    ['check', 'connect', 'init', 'open'])
+  assert.equal(createSteps({ name: 'app', kind: 'sqlite', store: null, newStore: { name: 'app' }, machines: ['native'] }, view)[0].id, 'store', 'an empty project has no check')
+})
