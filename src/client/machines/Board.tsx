@@ -18,6 +18,8 @@ import {
 } from './model.ts'
 import { machineBlock, nativeGlyphOs, nativeNameKey, osOfView, type Readiness } from './needs.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
+import { ObservedDisk, useMachineStats } from './MachineStats.tsx'
+import { STATS_BOARD_MS } from './stats.ts'
 import { Blocked } from './Readiness.tsx'
 import css from './machines.module.css'
 
@@ -95,8 +97,20 @@ export const blockedOf = (m: MachineInfo, view: AvailableView): Readiness | null
 /** The machine's mark: the native machine's is this computer's OS. */
 export const glyphOs = (m: MachineInfo, view: AvailableView) => (m.platform === 'native' ? nativeGlyphOs(osOfView(view)) : undefined)
 
-/** A machine's free disk in words, with a meter when its size is known. */
-export function DiskLine({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
+/**
+ * A machine's disk in words, with a meter. With a CLI that has machine.stats
+ * it is the observed data disk (used, total, free and what that filesystem
+ * is; MachineStats.tsx), read every `every` ms while this line is on screen.
+ * Without it, the line is what it was: free space from machine.status against
+ * the record's requested size.
+ */
+export function DiskLine({ m, view, every = STATS_BOARD_MS }: { m: MachineInfo, view: AvailableView, every?: number }): ReactNode {
+  const { offered, read } = useMachineStats(m, every)
+  return offered ? <ObservedDisk m={m} read={read} /> : <RecordDisk m={m} view={view} />
+}
+
+/** The disk line of a CLI without machine.stats: free space as reported, a meter against the requested size. */
+function RecordDisk({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
   const { t } = useMachinesContext()
   const live = view.status[m.name]
   const used = m.disk && live?.freeDisk != null ? Math.max(0, m.disk - live.freeDisk) : null

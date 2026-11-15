@@ -20,6 +20,8 @@ import {
   SANDBOX_CAPACITY, bytes, machineState, opWords, pgUsable, projectRef, sandboxesOn, shortSandbox, stateLook, storesOn,
   type AvailableView, type Creation, type MachineInfo, type MachineSandbox,
 } from './model.ts'
+import { storeSizes, useMachineStats } from './MachineStats.tsx'
+import { STATS_BOARD_MS, STATS_PAGE_MS, liveNote, sandboxLook } from './stats.ts'
 import css from './machines.module.css'
 
 /** The name a machine goes by everywhere: the tree's "LayerFS Home" for the native machine, else its own. */
@@ -28,9 +30,12 @@ export function useMachineTitle(): (m: { name: string, platform: string }) => st
   return (m) => (m.platform === 'native' ? t('homeName') : m.name)
 }
 
-/** Whether a Sandbox needs you: its state is one LayerFS flags. */
+/** A listed Sandbox's look: its record's state, or "Daemon not running" when LayerFS saw its daemon ended (stats.ts). */
+const lookOf = (b: MachineSandbox) => sandboxLook(b, (state) => stateLook('sandbox', state))
+
+/** Whether a Sandbox needs you: its state is one LayerFS flags, or it is recorded running and its daemon has ended. */
 export function sandboxNeedsYou(b: MachineSandbox): boolean {
-  const look = stateLook('sandbox', b.state)
+  const look = lookOf(b)
   return !!look.attention || look.tone === 'danger'
 }
 
@@ -63,7 +68,9 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
   sandboxAction?: ReactNode
 }): ReactNode {
   const { t, useCreations } = useMachinesContext()
-  const stores = storeLines(view, m)
+  // each Store's observed size (machine.stats), where the pinned CLI has the call and the machine answered
+  const sizes = storeSizes(useMachineStats(m, limit ? STATS_BOARD_MS : STATS_PAGE_MS).read)
+  const stores = storeLines(view, m).map((s) => (s.family === 'sqlite' && sizes?.get(s.name) != null ? { ...s, size: sizes.get(s.name)! } : s))
   const sandboxes = sandboxLines(view, m)
   const creations = useCreations((all) => all)
   const creating = creatingOn(creations, m.name, sandboxes)
@@ -199,18 +206,19 @@ function StoreRows({ rows, more, onMore }: { rows: StoreLine[], more: number, on
 }
 
 function SandboxRows({ rows, machine, showProject, more, onMore, lead }: { rows: MachineSandbox[], machine: string, showProject?: boolean, more?: number, onMore?: (() => void) | undefined, lead?: ReactNode }): ReactNode {
-  const { t, stateWord, go } = useMachinesContext()
+  const { t, tw, stateWord, go } = useMachinesContext()
   return (
     <ul className={css.lines}>
       {lead}
       {rows.map((b) => {
-        const look = stateLook('sandbox', b.state)
+        const look = lookOf(b)
+        const note = liveNote(b, tw)
         const ref = b.project ? projectRef(b.project) : null
         const bad = sandboxNeedsYou(b)
         return (
           <li key={b.name}>
-            <button type="button" className={clsx(css.line, css.sandboxLine)} data-tone={bad ? 'danger' : undefined}
-              onClick={() => go({ kind: 'sandbox', machine, name: b.name })} title={`${b.name}${b.project ? ` · ${b.project}` : ''}`}
+            <button type="button" className={clsx(css.line, css.sandboxLine)} data-tone={bad ? 'danger' : undefined} data-sandbox-row={b.name} data-live={b.live === undefined ? undefined : String(b.live)}
+              onClick={() => go({ kind: 'sandbox', machine, name: b.name })} title={`${b.name}${b.project ? ` · ${b.project}` : ''}${note ? ` · ${note}` : ''}`}
               aria-label={t('openSandbox', { name: b.name })}>
               <span className={css.lineIcon} aria-hidden="true"><SandboxGlyph size={14} /></span>
               <span className={clsx(css.lineName, css.mono)}>{shortSandbox(b.name)}</span>
@@ -218,7 +226,7 @@ function SandboxRows({ rows, machine, showProject, more, onMore, lead }: { rows:
                 {showProject ? (ref ? <span className={css.tag}>{ref.name}</span> : <span className={css.muted}>{t('noProject')}</span>) : <span className={css.muted}>{ref?.store ?? ''}</span>}
               </span>
               <span className={css.lineSlots}>{b.workspaces != null ? t('slotsOf', { n: String(b.workspaces), max: String(SANDBOX_CAPACITY) }) : ''}</span>
-              <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={opWords(b.op)} />
+              <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={opWords(b.op)} title={note ?? undefined} />
             </button>
           </li>
         )

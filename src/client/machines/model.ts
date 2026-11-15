@@ -107,6 +107,13 @@ export interface MachineSandbox {
   machine: string | null
   project: string | null
   workspaces: number | null
+  /**
+   * Whether its daemon process runs now (sandbox.list `live`, layerfs-project#164):
+   * absent from a CLI without the option, `null` when LayerFS could not
+   * observe it (`liveReason` says why: `machine_stopped`, `deadline`, …).
+   */
+  live?: boolean | null
+  liveReason?: string
 }
 
 /** machine.status(name). */
@@ -137,8 +144,12 @@ export interface CliFeatures {
   sandboxRuntime?: boolean
   /** 1: images from Docker, sizes and free space; 0: the ready group from the archive only. */
   imageStage?: 0 | 1
-  /** Monitoring reads the pinned CLI has (layerfs-project#178): a part shows only when its call is there. Absent from an older host. */
-  inspect?: { machineLog: boolean, sandboxLog: boolean, files: boolean, machineFiles: boolean }
+  /** Monitoring reads the pinned CLI has (layerfs-project#178, #164): a part shows only when its call is there. Absent from an older host. */
+  inspect?: { machineLog: boolean, sandboxLog: boolean, files: boolean, machineFiles: boolean, machineStats?: boolean }
+  /** sandbox.list answers `live` per Sandbox (layerfs-project#164). */
+  sandboxLive?: boolean
+  /** `layerfs doctor` lists leftovers and `layerfs doctor fix <id>` removes one (layerfs-project#180). */
+  leftovers?: boolean
 }
 
 /** The computer this host runs on (the native machine): its OS names and marks it. */
@@ -281,6 +292,12 @@ export interface SandboxInfo {
   workspaces: WorkspaceInfo[]
   /** How many Workspaces one Sandbox holds (sandbox.get `workspace_capacity`); absent from an older CLI. */
   workspaceCapacity?: number
+  /** The daemon process as the side that runs it sees it (layerfs-project#164): `startedAt` null once it has ended; null when not observed; absent from an older CLI. */
+  daemon?: { pid: number | null, startedAt: number | null } | null
+  /** What the Sandbox's own cgroup has used; null with `usageReason` when there is none to read. */
+  usage?: { cpuUsec: number | null, memoryCurrent: number | null, memoryPeak: number | null, pids: number | null } | null
+  /** `host_process`, `cgroup_v1`, `no_cgroup` or `not_observed`. */
+  usageReason?: string
   unread?: boolean
 }
 
