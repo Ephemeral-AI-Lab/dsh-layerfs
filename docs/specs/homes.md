@@ -102,6 +102,19 @@ and the Linux bundle the docker and VM machines start workers from.
   refuse to start.
 - **The native machine** records the daemon path the pin names. With installed
   runtimes that path is inside the home.
+- **Old folders are removed after an install** (`cleanRuntimes`, layerfs-project#180).
+  After a Change installs a runtime, folders nothing uses are removed. Kept: any
+  folder a pin names (this host's pin, `runtime.json`, config and the environment),
+  the 3 newest, any folder `machine.list()` names a path in (the native machine's
+  `daemon`), any folder a running process was started from (`ps`: a native
+  Sandbox's daemon), and every folder with a Linux bundle unless all machines other
+  than `native` are `stopped`. The last rule is broad on purpose: a docker worker
+  bind-mounts its bundle folder and LayerFS reports no path for it, so while any
+  worker machine may run, no bundle is removed. When `machine.list()` or the
+  process list cannot be read, nothing is removed. A folder goes by a rename to
+  `<id>.tmp-rm-<8 hex>` and then a delete; a symlink is never followed or removed.
+  Another host sharing the home is protected only by the "3 newest" rule and by
+  its processes and machine records.
 - Dev servers and tests pin through the environment and do not install.
 
 ## 4. Secrets live in the LayerFS home

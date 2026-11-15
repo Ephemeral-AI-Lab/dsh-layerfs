@@ -95,7 +95,7 @@ const storms = [...storm.entries()].filter(([, n]) => n > 60)
 const mounts = calls.filter((x) => op(x) === 'workspace.mount').map((x) => { const i = x.argv.indexOf('--name'); return i > 0 ? x.argv[i + 1] : '?' })
 const mountNames = {}; for (const m of mounts) mountNames[m] = (mountNames[m] ?? 0) + 1
 const execMain = calls.filter((x) => op(x) === 'workspace.exec' && /:main$/.test(x.argv[2]) && x.session !== '-').length
-const execMountPath = calls.filter((x) => op(x) === 'workspace.exec' && /\/layerfs\/data|\/run\/lfs-|\/workspaces\//.test(String(x.argv[3] ?? ''))).length
+const execMountPath = calls.filter((x) => op(x) === 'workspace.exec' && /\/layerfs\/data|\/run\/(?:lfs|layerfs)-|\/workspaces\//.test(String(x.argv[3] ?? ''))).length
 const slow = calls.filter((x) => op(x) !== 'workspace.exec' && x.ms > 10000).map((x) => `${op(x)} ${fmt(x.ms)} ${x.outcome}`)
 
 const out = []

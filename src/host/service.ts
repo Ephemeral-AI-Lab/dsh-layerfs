@@ -22,7 +22,7 @@ function packageRoot(): string {
     dir = up
   }
 }
-import { installRuntime, installedRuntimes } from './layerfs/runtime-home.ts'
+import { cleanRuntimes, installRuntime, installedRuntimes, runningCommands, type RuntimeCleanup } from './layerfs/runtime-home.ts'
 import type { LayerfsRemote } from './remote.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -350,7 +350,33 @@ export class LayerfsService extends Service {
     // the native machine follows the new daemon (the installed copy in the home)
     if (pin.daemon) await this.ensureNative(true)
     this.emit('runtime-changed')
+    // a new runtime folder was installed: remove the ones nothing uses any more (never fails the save)
+    if (pin.cli !== null) void this.cleanRuntimes()
     return await this.status()
+  }
+
+  /**
+   * Removes old runtime folders from `<home>/runtime` (layerfs-project#180).
+   * Kept: the pinned one (this host's pin, its saved pin and the environment's),
+   * the newest few, any a machine record names (`machine.list()`), any a running
+   * process was started from, and every one with a Linux bundle unless all
+   * worker machines are stopped (LayerFS does not report which bundle folder a
+   * running docker worker has mounted). When `machine.list()` or the process
+   * list cannot be read nothing is removed. Never throws.
+   */
+  async cleanRuntimes(): Promise<RuntimeCleanup> {
+    const saved = this.settings.read()
+    const pinned = [this.pin.cli, this.pin.daemon, this.pin.bundle, saved.cli, saved.daemon, saved.bundle,
+      this.config.cli, this.config.daemon, this.config.bundle,
+      process.env.DSH_LAYERFS_CLI, process.env.DSH_LAYERFS_DAEMON, process.env.DSH_LAYERFS_BUNDLE, process.env.LAYERFS_BUNDLE]
+    let machines: unknown = null
+    // a deliberate probe (its own budget), so the answer is read now, after the native record moved
+    try { if (this.pin.cli && existsSync(join(this.home, 'layerfs.json'))) machines = await this.lfs.machine.list({ timeout_ms: 15000 }) } catch { machines = null }
+    const result = cleanRuntimes(this.home, { pinned, machines, processes: runningCommands() })
+    const logger = this.ctx.logger('layerfs')
+    if (result.removed.length) logger.info('removed %d unused LayerFS runtime folder(s): %s', result.removed.length, result.removed.join(', '))
+    for (const f of result.failed) logger.warn('runtime folder %s not removed: %s', f.id, f.message)
+    return result
   }
 
   /** Publish a host event to connected clients (the `layerfs/events` stream). */
