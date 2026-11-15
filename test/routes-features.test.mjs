@@ -39,7 +39,8 @@ const viewLfs = (extra = {}, sandboxes = []) => ({
   sandbox: { list: async () => ({ items: sandboxes, next_page_pos: null }) },
 })
 
-const NONE = { forceStop: false, images: false, imageLoad: false, imagePrune: false, imageRefs: false, createProgress: false, sandboxRuntime: false, imageStage: 0 }
+const NO_INSPECT = { machineLog: false, sandboxLog: false, files: false, machineFiles: false }
+const NONE = { forceStop: false, images: false, imageLoad: false, imagePrune: false, imageRefs: false, createProgress: false, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT }
 
 test('features: the machines view says what the pinned CLI has, Stage 1 only with every piece', async () => {
   const pinned = fixture(viewLfs())
@@ -48,8 +49,8 @@ test('features: the machines view says what the pinned CLI has, Stage 1 only wit
   try {
     assert.deepEqual((await pinned.http('GET', '/api/machines')).body.features, NONE)
     // no `sandbox-runtime` identity feature: everything else is there, still Stage 0 (D11)
-    assert.deepEqual((await almost.http('GET', '/api/machines')).body.features, { forceStop: true, images: true, imageLoad: true, imagePrune: true, imageRefs: true, createProgress: true, sandboxRuntime: false, imageStage: 0 })
-    assert.deepEqual((await full.http('GET', '/api/machines')).body.features, { forceStop: true, images: true, imageLoad: true, imagePrune: true, imageRefs: true, createProgress: true, sandboxRuntime: true, imageStage: 1 })
+    assert.deepEqual((await almost.http('GET', '/api/machines')).body.features, { forceStop: true, images: true, imageLoad: true, imagePrune: true, imageRefs: true, createProgress: true, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT })
+    assert.deepEqual((await full.http('GET', '/api/machines')).body.features, { forceStop: true, images: true, imageLoad: true, imagePrune: true, imageRefs: true, createProgress: true, sandboxRuntime: true, imageStage: 1, inspect: NO_INSPECT })
   } finally { pinned.close(); almost.close(); full.close() }
 })
 
@@ -637,5 +638,222 @@ test('create: no on_progress option when the CLI declares none (Stage 0 sends ex
   try {
     await f.http('POST', `/api/projects/${encodeURIComponent('s1/p')}/sandboxes`, { name: 'b1', image: `sha256:${hex('a')}` })
     assert.deepEqual(created, [['s1/p', 'b1', 'native', { image: `sha256:${hex('a')}` }]])
+  } finally { f.close() }
+})
+
+// ---------------------------------------------------------------- monitoring reads (layerfs-project#178 "Host side")
+
+const LOGS = [...PINNED, entry('logs', 'machine', ['cursor', 'before', 'limit']), entry('logs', 'sandbox', ['cursor', 'before', 'limit'])]
+const tailOf = (n, from = 0) => ({ lines: Array.from({ length: n }, (_, i) => ({ text: `line ${from + i}` })), cursor: `c${from + n}`, before: from > 0 ? `b${from}` : undefined, has_more: false })
+const refusal = (code, message = code) => new Refusal(code, message)
+const tick = () => new Promise((r) => setTimeout(r, 10))
+
+test('features: each monitoring call is its own feature, read from the call table; none is required', async () => {
+  const { featuresOf } = R.util
+  assert.deepEqual(featuresOf({ calls: LOGS }).inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false })
+  assert.deepEqual(featuresOf({ calls: [entry('logs', 'list'), entry('logs', 'sandbox'), entry('sandbox', 'files')] }).inspect, { machineLog: false, sandboxLog: true, files: true, machineFiles: false })
+  assert.deepEqual(featuresOf({ calls: [entry('machine', 'files'), entry('logs', 'machine')] }).inspect, { machineLog: true, sandboxLog: false, files: false, machineFiles: true })
+  for (const name of ['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files']) assert.ok(!R.cli.REQUIRED_CALLS.includes(name), `${name} is optional`)
+  // the machines view carries them, and a machine's supports.log only when LayerFS answers it
+  const f = fixture(viewLfs({ list: async () => ({ machines: [
+    { name: 'native', platform: 'native', state: 'ready', supports: { sqlite: true, postgresql_sandbox: true, reason: null, log: false } },
+    { name: 'docker', platform: 'docker', state: 'running', supports: { sqlite: true, postgresql_sandbox: true, reason: null, log: true } },
+    { name: 'old', platform: 'lima', state: 'stopped', supports: { sqlite: true, postgresql_sandbox: true, reason: null } },
+  ] }), status: async (name) => ({ name, state: 'running' }) }), LOGS)
+  try {
+    const view = (await f.http('GET', '/api/machines')).body
+    assert.deepEqual(view.features.inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false })
+    assert.deepEqual(view.machines.map((m) => [m.name, m.supports.log]), [['native', false], ['docker', true], ['old', undefined]])
+    assert.ok(!('log' in view.machines[2].supports), 'absent stays absent')
+  } finally { f.close() }
+})
+
+test('log routes: a CLI without the call answers 501 and makes no call; bad queries are refused before any call', async () => {
+  let calls = 0
+  const lfs = { ...viewLfs(), logs: { machine: async () => { calls++; return tailOf(1) }, sandbox: async () => { calls++; return tailOf(1) } } }
+  const without = fixture(lfs)
+  const withLogs = fixture(lfs, LOGS)
+  try {
+    for (const path of ['/api/machines/docker/log', '/api/sandboxes/sb/log']) {
+      const r = await without.http('GET', path)
+      assert.equal(r.status, 501)
+      assert.equal(r.body.code, 'Unsupported')
+      assert.match(r.body.detail.need, /^logs\.(machine|sandbox)$/)
+    }
+    assert.equal(calls, 0)
+    assert.deepEqual(without.logs, [], 'an expected refusal logs no stack')
+    for (const query of ['cursor=a&before=b', 'limit=0', 'limit=1001', 'limit=abc', 'limit=1.5', `cursor=${'x'.repeat(1025)}`]) {
+      const r = await withLogs.http('GET', `/api/machines/docker/log?${query}`)
+      assert.equal(r.status, 400, query)
+      assert.equal(r.body.code, 'InvalidInput', query)
+    }
+    assert.equal(calls, 0)
+    // only GET
+    assert.equal((await withLogs.http('POST', '/api/machines/docker/log', {})).status, 404)
+  } finally { without.close(); withLogs.close() }
+})
+
+test('log routes: the answer as the page reads it, with the options LayerFS takes; never part of the machines view', async () => {
+  const seen = []
+  const lfs = { ...viewLfs(), logs: {
+    machine: async (name, options) => { seen.push(['machine', name, { ...options, signal: options.signal instanceof AbortSignal }]); return { lines: [{ text: 'a' }, { text: 'b'.repeat(8), continued: true }, { text: 'c' }, 'bare', { nope: 1 }], cursor: 'c3', before: 'b0', has_more: true } },
+    sandbox: async (name, options) => { seen.push(['sandbox', name, { ...options, signal: options.signal instanceof AbortSignal }]); return { lines: [], cursor: 'c0', has_more: false } },
+  } }
+  const f = fixture(lfs, LOGS)
+  try {
+    const m = await f.http('GET', '/api/machines/docker/log?limit=50')
+    assert.equal(m.status, 200)
+    assert.deepEqual(m.body.lines, [{ text: 'a' }, { text: 'bbbbbbbb', continued: true }, { text: 'c' }, { text: 'bare' }])
+    assert.deepEqual([m.body.cursor, m.body.before, m.body.hasMore, m.body.stale], ['c3', 'b0', true, false])
+    assert.equal(typeof m.body.observedAt, 'number')
+    const s = await f.http('GET', '/api/sandboxes/sb/log?cursor=c9')
+    assert.deepEqual([s.body.lines, s.body.cursor, s.body.before, s.body.hasMore, s.body.stale], [[], 'c0', null, false, false])
+    await f.http('GET', '/api/machines/docker/log?before=b0&limit=1000')
+    assert.deepEqual(seen, [
+      ['machine', 'docker', { limit: 50, signal: true }],
+      ['sandbox', 'sb', { cursor: 'c9', signal: true }],
+      ['machine', 'docker', { before: 'b0', limit: 1000, signal: true }],
+    ])
+    // the machines view makes no log call, and a log GET does not make the view read again
+    seen.length = 0
+    let lists = 0
+    lfs.machine.list = async () => { lists++; return { machines: [{ name: 'native', platform: 'native', state: 'ready' }] } }
+    const first = f.http('GET', '/api/machines')
+    await f.http('GET', '/api/machines/docker/log')
+    await Promise.all([first, f.http('GET', '/api/machines')])
+    assert.equal(seen.length, 1)
+  } finally { f.close() }
+})
+
+test('log routes: one read per key at a time; different cursors are different reads', async () => {
+  let running = 0, most = 0, calls = 0
+  const gates = []
+  const lfs = { ...viewLfs(), logs: { machine: async (_name, options) => { calls++; running++; most = Math.max(most, running); await new Promise((r) => gates.push(r)); running--; return tailOf(2, options.cursor ? 10 : 0) } } }
+  const f = fixture(lfs, LOGS)
+  try {
+    const same = [1, 2, 3].map(() => f.http('GET', '/api/machines/docker/log'))
+    await tick()
+    assert.equal(calls, 1, 'three GETs of the same tail share one read')
+    const other = f.http('GET', '/api/machines/docker/log?cursor=c2')
+    const elsewhere = f.http('GET', '/api/machines/lima/log')
+    await tick()
+    assert.equal(calls, 3, 'another cursor and another machine read on their own')
+    for (const g of gates.splice(0)) g()
+    const answers = await Promise.all(same)
+    assert.deepEqual(answers.map((a) => a.body.cursor), ['c2', 'c2', 'c2'])
+    assert.equal((await other).body.cursor, 'c12')
+    await elsewhere
+    // settled: the next GET reads again
+    const again = f.http('GET', '/api/machines/docker/log')
+    await tick()
+    assert.equal(calls, 4)
+    for (const g of gates.splice(0)) g()
+    await again
+    assert.equal(f.groups.machines.reads.flights, 0)
+  } finally { f.close() }
+})
+
+test('log routes: a refused read answers the last good tail marked stale; a cursor read keeps the page\'s cursor', async () => {
+  let fail = null
+  const lfs = { ...viewLfs(), logs: {
+    machine: async (_name, options) => { if (fail) throw fail; return options.cursor ? { lines: [{ text: 'new 1' }, { text: 'new 2' }], cursor: 'c5', has_more: false } : tailOf(3, 4) },
+    sandbox: async () => { throw refusal('NoSuchSandbox', 'no Sandbox named gone') },
+  } }
+  const f = fixture(lfs, LOGS)
+  try {
+    // never read: stale with no lines and no time
+    fail = refusal('Unavailable', 'machine docker is stopped')
+    const cold = (await f.http('GET', '/api/machines/docker/log')).body
+    assert.deepEqual([cold.lines, cold.cursor, cold.before, cold.stale], [[], null, null, { at: null, code: 'Unavailable', message: 'machine docker is stopped' }])
+    fail = null
+    const good = (await f.http('GET', '/api/machines/docker/log')).body
+    assert.equal(good.stale, false)
+    assert.deepEqual(good.lines.map((l) => l.text), ['line 4', 'line 5', 'line 6'])
+    // a forward read from the kept cursor extends what is kept
+    const more = (await f.http('GET', `/api/machines/docker/log?cursor=${good.cursor}`)).body
+    assert.deepEqual([more.lines.map((l) => l.text), more.cursor, more.stale], [['new 1', 'new 2'], 'c5', false])
+    for (const [code, status] of [['Unavailable', 502], ['Busy', 409], ['Timeout', 504], ['Unknown', 500], ['Unsupported', 501]]) {
+      fail = refusal(code, `${code} now`)
+      const r = await f.http('GET', '/api/machines/docker/log')
+      assert.equal(r.status, 200, `${code} would be ${status} as an error; here it is an answer`)
+      assert.deepEqual(r.body.lines.map((l) => l.text), ['line 4', 'line 5', 'line 6', 'new 1', 'new 2'], code)
+      assert.deepEqual([r.body.cursor, r.body.before, r.body.stale.code, r.body.stale.message], ['c5', 'b4', code, `${code} now`])
+      assert.ok(r.body.stale.at >= good.observedAt && r.body.stale.at <= Date.now())
+    }
+    // a refused forward or earlier read: no lines, the cursors it was asked with, so the page keeps what it shows
+    fail = refusal('InvalidInput', 'the log was replaced; read the tail again')
+    const stale = (await f.http('GET', '/api/machines/docker/log?cursor=c5&limit=10')).body
+    assert.deepEqual([stale.lines, stale.cursor, stale.before, stale.hasMore, stale.stale.code], [[], 'c5', null, false, 'InvalidInput'])
+    const earlier = (await f.http('GET', '/api/machines/docker/log?before=b4')).body
+    assert.deepEqual([earlier.lines, earlier.cursor, earlier.before, earlier.stale.code], [[], null, 'b4', 'InvalidInput'])
+    // a lost Sandbox: its refusal, as an answer
+    const lost = await f.http('GET', '/api/sandboxes/gone/log')
+    assert.equal(lost.status, 200)
+    assert.deepEqual(lost.body.stale, { at: null, code: 'NoSuchSandbox', message: 'no Sandbox named gone' })
+    // another machine keeps its own answer
+    fail = null
+    assert.equal((await f.http('GET', '/api/machines/lima/log')).body.stale, false)
+    assert.deepEqual(f.logs, [], 'no refusal was logged as a host error')
+  } finally { f.close() }
+})
+
+test('log routes: the kept tail is bounded, and a cut start has no `before`', async () => {
+  const { InspectReads, KEEP_LINES } = R.inspect
+  const reads = new InspectReads()
+  const big = { lines: Array.from({ length: KEEP_LINES + 50 }, (_, i) => ({ text: `l${i}` })), cursor: 'end', before: 'start', has_more: false }
+  let fail = false
+  const call = async () => { if (fail) throw refusal('Unavailable'); return big }
+  const none = { cursor: null, before: null, limit: null }
+  assert.equal((await reads.log('machine:m', none, call)).lines.length, KEEP_LINES + 50, 'the answer itself is whole')
+  fail = true
+  const kept = await reads.log('machine:m', none, call)
+  assert.equal(kept.lines.length, KEEP_LINES)
+  assert.equal(kept.lines[0].text, 'l50')
+  assert.equal(kept.before, null)
+  assert.equal(kept.cursor, 'end')
+  assert.equal(kept.stale.code, 'Unavailable')
+})
+
+test('log routes: a page request can be cancelled by its rid; the read ends only when its last caller has gone', async () => {
+  const signals = []
+  let release
+  const lfs = { ...viewLfs(), logs: { sandbox: (_name, options) => new Promise((resolve, reject) => {
+    signals.push(options.signal)
+    release = () => resolve(tailOf(1))
+    options.signal.addEventListener('abort', () => reject(Object.assign(new Error('dropped'), { code: 'Cancelled' })), { once: true })
+  }) } }
+  const f = fixture(lfs, LOGS)
+  const reads = f.groups.machines.reads
+  try {
+    // two pages wait for the same read; one leaves
+    const a = f.http('GET', '/api/sandboxes/sb/log?rid=a')
+    const b = f.http('GET', '/api/sandboxes/sb/log?rid=b')
+    await tick()
+    assert.equal(signals.length, 1)
+    assert.equal(reads.cancel('a'), true)
+    const gone = await a
+    assert.equal(gone.status, 409)
+    assert.equal(gone.body.code, 'Cancelled')
+    assert.equal(signals[0].aborted, false, 'another page still waits: the read goes on')
+    assert.equal(reads.cancel('a'), false, 'already gone')
+    release()
+    assert.equal((await b).body.stale, false)
+    // the only waiter leaves: the read itself is dropped (the SDK then leaves the lane or ends the process)
+    const c = f.http('GET', '/api/sandboxes/sb/log?rid=c')
+    await tick()
+    assert.equal(signals.length, 2)
+    assert.equal(reads.cancel('c'), true)
+    assert.equal((await c).body.code, 'Cancelled')
+    assert.equal(signals[1].aborted, true)
+    assert.equal(reads.flights, 0)
+    // the connection that asked going away does the same (the http operation's own signal)
+    const outer = new AbortController()
+    const d = R.handle(f.groups, { method: 'GET', path: '/api/sandboxes/sb/log' }, outer.signal)
+    await tick()
+    outer.abort()
+    assert.equal((await d).body.code, 'Cancelled')
+    assert.equal(signals[2].aborted, true)
+    assert.equal(reads.cancel(undefined), false)
+    assert.equal(reads.cancel('never'), false)
   } finally { f.close() }
 })

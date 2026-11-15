@@ -157,7 +157,13 @@ interface ExecuteOptions {
   /** Recheck cancellation after admission, immediately before starting a process. */
   beforeSpawn?: () => void
   /** A separate admission lane (name and limit) for bulk callers, so page reads are not queued behind them. */
-  lane?: { name: string, limit: number }
+  lane?: Lane
+  /**
+   * Ends the call for a caller that stopped waiting: a call still queued leaves
+   * its lane and never starts a process; a running one has its process group
+   * ended. Either way it is refused `Cancelled`.
+   */
+  signal?: AbortSignal
   /**
    * `LAYERFS_LOGS_TAG` for this call. {@link execute} sets it from the trace
    * context; outside one a caller may pass a `dsh-sim:<runId>:<stepKey>` tag
@@ -180,13 +186,15 @@ const lanes = new Map<string, { active: number, waiting: (() => void)[] }>()
  * Work started inside `run` without being awaited inherits the hold while it lasts,
  * so it must not run a CLI call on the same Store concurrently with the holder. */
 const holding = new AsyncLocalStorage<readonly { key: string, live: boolean }[]>()
-async function admit<T>(key: string, limit: number, run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+async function admit<T>(key: string, limit: number, run: () => Promise<T>, signal?: AbortSignal, queue?: { most: number, full: () => Error }): Promise<T> {
   // Re-entrant: work awaited inside an exclusive hold (a hook nested in a held tool call)
   // runs in that hold instead of queueing behind itself.
   const outer = holding.getStore()?.filter(hold => hold.live) ?? []
   if (limit === 1 && outer.some(hold => hold.key === key)) return run()
   signal?.throwIfAborted()
   let lane = lanes.get(key)
+  // A bounded queue (the inspect lane): one more waiter than it holds is refused now, not queued.
+  if (queue && lane && lane.active >= limit && lane.waiting.length >= queue.most) throw queue.full()
   if (!lane) lanes.set(key, lane = { active: 0, waiting: [] })
   if (lane.active >= limit) {
     const current = lane
@@ -263,17 +271,39 @@ export const KEPT_READS = new Map<string, number>([
   ['machine.get', 2000], ['machine.list', 5000], ['machine.status', 5000], ['machine.platforms', 5000], ['machine.images', 5000],
 ])
 
+/** An admission lane: at most `limit` processes at once; with `queue`, at most that many waiting (one more is refused `Busy`). */
+export interface Lane { readonly name: string, readonly limit: number, readonly queue?: number }
+
+/**
+ * Monitoring reads (layerfs-project#179 D, #178): a machine's worker log, a
+ * Sandbox's daemon log and the files of either (`machine.stats` joins them
+ * with #164). Named with their family, and checked before {@link READS} and
+ * `retryRace`: `logs.machine` would not match a bare call name, and none of
+ * them opens a Store. Each is a read in its own {@link INSPECT_LANE}, never in
+ * `calls` (mount, Commit, unmount) or `probes`; it runs once (no `retryRace`),
+ * for at most {@link INSPECT_TIMEOUT_MS}; it clears no kept answer, writes no
+ * call log line and keeps no output.
+ */
+export const INSPECT_CALLS = new Set(['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files'])
+/** The inspect lane: 2 reads run, 4 wait; one more is refused `Busy` at once (admission, not a retry). */
+export const INSPECT_LANE: Lane = { name: 'inspect', limit: 2, queue: 4 }
+/** The most an inspect read may take (LayerFS's own budget is connect 2 s, hello 2 s, answer 8 s). */
+export const INSPECT_TIMEOUT_MS = 15_000
+
 /**
  * The admission lane a call takes when its caller names none. Short calls share
  * `calls`; calls that run as long as their work (VM create/start, Store
  * push/pull, backups, project init/export, Doctor, connection checks) take
  * `jobs`; Workspace commands (terminals) take `exec`; `exec-cancel` its own;
- * machine probes ({@link PROBES}) take `probes`. So a page's short reads are
+ * machine probes ({@link PROBES}) take `probes`; monitoring reads
+ * ({@link INSPECT_CALLS}) take `inspect`. So a page's short reads are
  * never queued behind long work or behind probes of an unreachable machine,
- * and terminals never starve jobs or the other way round.
+ * terminals never starve jobs or the other way round, and a hung log or files
+ * read holds nothing else.
  */
-export function laneOf(argv: readonly string[]): { name: string, limit: number } {
+export function laneOf(argv: readonly string[]): Lane {
   const family = argv[0] ?? '', call = String(argv[1] ?? '').replaceAll('-', '_')
+  if (INSPECT_CALLS.has(`${family}.${call}`)) return INSPECT_LANE
   if (family === 'workspace' && call === 'exec_cancel') return { name: 'cancel', limit: 4 }
   if (family === 'workspace' && call === 'exec') return { name: 'exec', limit: 8 }
   if (family === 'doctor' || LONG_CALLS.has(`${family}.${call}`)) return { name: 'jobs', limit: 4 }
@@ -364,7 +394,14 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     return Promise.reject(new CliError('CliUnavailable', 'Pin an absolute LayerFS CLI (Settings → LayerFS or DSH_LAYERFS_CLI)', null, 'unavailable'))
   }
   const own = laneOf(argv)
-  const chosen = own.name === 'cancel' ? own : options.lane ?? own
+  // exec-cancel and monitoring reads keep their own lane whatever the caller names
+  const chosen = own.name === 'cancel' || own.name === 'inspect' ? own : options.lane ?? own
+  const signal = options.signal
+  const full = chosen.queue === undefined ? undefined : {
+    most: chosen.queue,
+    full: () => new CliError('Busy', `${chosen.limit} ${chosen.name} reads are running and ${chosen.queue} are waiting on this host; read again in a moment`, { lane: chosen.name, running: chosen.limit, queued: chosen.queue }),
+  }
+  const cancelled = () => new CliError('Cancelled', 'The read was dropped: nobody waits for its answer')
   const launch = () => admit(`${spec.cli}:${chosen.name}`, chosen.limit, () => new Promise<unknown>((resolve, reject) => {
     if (!options.discovery && !spec.home) return reject(new CliError('InvalidInput', 'LayerFS requires an explicit home'))
     if (options.read && !existsSync(join(spec.home, 'layerfs.json'))) return reject(new CliError('Unavailable', 'LayerFS home is not initialized; reads will not create it'))
@@ -392,6 +429,8 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
       } catch { /* plain-text usage; exit 2 classifies it */ }
     })
     try { options.beforeSpawn?.() } catch (error) { reject(error); return }
+    // Dropped while it waited for the lane (the waiter was already woken): no process starts.
+    if (signal?.aborted) { reject(cancelled()); return }
     // Its own process group, so a timeout or shutdown ends the CLI's helpers with it;
     // `child.kill` signals that group for every holder (shutdown, simulation cancel).
     const child = spawn(spec.cli, [...argv], {
@@ -408,16 +447,26 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     child.stdout?.on('data', (data: Buffer) => { if (capture && !events) capture.stdout.push(data); stdout.write(data) })
     child.stderr?.on('data', (data: Buffer) => { capture?.stderr.push(data); stderr.write(data) })
     let deadline: NodeJS.Timeout | undefined, exitGrace: NodeJS.Timeout | undefined, giveUp: NodeJS.Timeout | undefined
-    let timedOut = false, exited = false, done = false
+    let timedOut = false, dropped = false, exited = false, done = false
     const unclose = () => { child.stdout?.destroy(); child.stderr?.destroy() }
+    /** End the process group now and settle even if a helper of it survives SIGTERM. */
+    const stop = () => {
+      child.kill('SIGTERM')
+      // Escalate even after the CLI itself is gone: a helper of its group may ignore SIGTERM.
+      setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS).unref()
+      giveUp = setTimeout(() => { unclose(); settle(null, null) }, 2 * KILL_GRACE_MS)
+    }
+    const drop = () => { if (done || timedOut || dropped) return; dropped = true; clearTimeout(deadline); stop() }
     const settle = (code: number | null, signal: NodeJS.Signals | null) => {
       if (done) return
       done = true
       clearTimeout(deadline); clearTimeout(exitGrace); clearTimeout(giveUp)
+      options.signal?.removeEventListener('abort', drop)
       // A process that outlived even SIGKILL stays listed until it exits, for shutdown.
-      if (exited || !timedOut) children.delete(child)
+      if (exited || !(timedOut || dropped)) children.delete(child)
       stdout.end(); stderr.end()
       if (capture) { capture.exit = code; capture.refusal = refusal }
+      if (dropped) { reject(cancelled()); return }
       if (timedOut) {
         reject(new CliError('Unknown', 'LayerFS did not answer in time and was stopped; inspect state before another action', { signal, timeout: options.timeout }, 'transport-unknown'))
         return
@@ -426,13 +475,12 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     }
     if (options.timeout) {
       deadline = setTimeout(() => {
+        if (dropped) return
         timedOut = true
-        child.kill('SIGTERM')
-        // Escalate even after the CLI itself is gone: a helper of its group may ignore SIGTERM.
-        setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS).unref()
-        giveUp = setTimeout(() => { unclose(); settle(null, null) }, 2 * KILL_GRACE_MS)
+        stop()
       }, options.timeout)
     }
+    signal?.addEventListener('abort', drop, { once: true })
     child.once('exit', (code, signal) => {
       exited = true
       clearTimeout(deadline)
@@ -443,7 +491,11 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     child.once('close', (code, signal) => settle(code, signal))
     try { options.onSpawn?.(child) } catch { malformed = true; child.kill('SIGTERM') }
     child.stdin?.end(options.input)
-  }))
+  }), signal, full).catch((error) => {
+    // A waiter dropped from the queue is refused like a dropped running read.
+    if (signal?.aborted && !(error instanceof CliError)) throw cancelled()
+    throw error
+  })
   // One CLI process per Store at a time, reads and writes alike, for every caller in this host
   // (presets, routes, sessions). Two processes on one Store fail in LayerFS: a lease claim deletes a
   // neighbour's lease file that its exiting owner already removed (`Os NotFound`), and on macOS a
@@ -531,6 +583,23 @@ export function discover(spec: Pick<CliSpec, 'cli'>, fresh = false): Promise<Dis
 
 // ---------------------------------------------------------------- client
 
+/**
+ * One monitoring read ({@link INSPECT_CALLS}): one process in the inspect
+ * lane, once, for at most {@link INSPECT_TIMEOUT_MS}. It bypasses the call log,
+ * the output store and session receipts (a 2 s poll would flood all three), and
+ * a read that outlives its budget is refused `Timeout`, not `Unknown`: it
+ * writes nothing, so there is no state to inspect before reading again.
+ */
+export function inspectRead(spec: CliSpec, argv: readonly string[], options: { timeout?: number, signal?: AbortSignal, onSpawn?: (child: ChildProcess) => void } = {}): Promise<any> {
+  const timeout = Math.min(options.timeout && options.timeout > 0 ? options.timeout : INSPECT_TIMEOUT_MS, INSPECT_TIMEOUT_MS)
+  return executeRaw(spec, argv, { read: true, timeout, signal: options.signal, onSpawn: options.onSpawn }).catch((error) => {
+    if (error instanceof CliError && error.transport === 'transport-unknown' && (error.detail as any)?.timeout) {
+      throw new CliError('Timeout', `LayerFS did not answer the read in ${Math.round(timeout / 1000)} s; it was stopped`, { timeout }, 'transport-unknown')
+    }
+    throw error
+  })
+}
+
 const READS = new Set(['list', 'get', 'status', 'platforms', 'images', 'stats', 'storage_report', 'commits', 'get_commit', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'revision'])
 const invalid = (message: string) => new CliError('InvalidInput', message)
 const isPlain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v)
@@ -587,8 +656,9 @@ export function client(spec: CliSpec): Lfs {
             const last = args.at(-1), slot = entry.args[args.length - 1]
             if (args.length > entry.args.length || (isPlain(last) && slot?.kind !== 'json')) options = args.pop() ?? {}
             if (!isPlain(options) || args.length > entry.args.length) throw invalid('Invalid LayerFS arguments')
-            // SDK-only options, never CLI flags: the spawn callback and the call's time budget.
-            const local = new Set(['on_spawn', 'timeout_ms'])
+            // SDK-only options, never CLI flags: the spawn callback, the call's time budget, and (monitoring reads) the caller's abort signal.
+            const inspect = INSPECT_CALLS.has(`${family}.${call}`)
+            const local = new Set(inspect ? ['on_spawn', 'timeout_ms', 'signal'] : ['on_spawn', 'timeout_ms'])
             for (const name of Object.keys(options)) {
               if (!local.has(name) && !entry.options.some((o) => o.name === name)) throw invalid(`${family}.${call}: unknown option ${name}`)
             }
@@ -596,6 +666,7 @@ export function client(spec: CliSpec): Lfs {
               const option = entry.options.find((o) => o.name === name)
               if (option?.kind === 'bool' && value != null && typeof value !== 'boolean') throw invalid(`${name} must be true or false`)
               if (name === 'timeout_ms') { if (value != null && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) throw invalid('timeout_ms must be a nonnegative integer'); continue }
+              if (name === 'signal' && inspect) { if (value != null && !(value instanceof AbortSignal)) throw invalid('signal must be an AbortSignal'); continue }
               if ((option?.kind === 'function' || local.has(name)) && value != null && typeof value !== 'function') throw invalid(`${name} must be a function`)
               if (typeof value === 'number' && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) throw invalid(`${name} must preserve exact numeric values`)
             }
@@ -625,6 +696,8 @@ export function client(spec: CliSpec): Lfs {
             else if (options.on_progress || (((family === 'machine' && ['start', 'create'].includes(call)) || (family === 'sandbox' && call === 'create')) && entry.options.some((o) => o.name === 'on_progress'))) words.push('--progress')
             if (spec.scope) words.push('--scope', spec.scope.folder, '--scope-project', spec.scope.project, ...(spec.scope.branch ? ['--scope-branch', spec.scope.branch] : []))
             words.push('--', ...positionals)
+            // Monitoring reads first: their own lane and budget, one attempt, nothing kept and nothing cleared.
+            if (inspect) return inspectRead(spec, words, { timeout: (options as any).timeout_ms || undefined, signal: (options as any).signal ?? undefined, onSpawn: (child) => (options as any).on_spawn?.(child.pid) })
             const read = READS.has(call)
             // Reads get a generous default budget (machine probes a short one); writes and long work (exec, jobs) none unless asked.
             const opts: any = options

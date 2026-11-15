@@ -138,7 +138,7 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
 }
 
 /** method + path segments -> the answer, or undefined when no route matches. */
-export async function route(g: Groups, method: string, parts: string[], query: URLSearchParams, body: any): Promise<unknown> {
+export async function route(g: Groups, method: string, parts: string[], query: URLSearchParams, body: any, signal?: AbortSignal): Promise<unknown> {
   const { machines, storage, projects, doctor } = g
   const [api, group, id, sub, ...rest] = parts
   // any write may change the machines view: a GET after it must not join a read started before
@@ -201,6 +201,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'machines') {
     if (!id && !sub && method === 'GET') return machines.view(query.get('fresh') === '1')
     if (id && sub === 'inspect' && method === 'GET') return machines.inspect(id)
+    // the machine's worker log (logs.machine): ?cursor= | ?before=, ?limit=, ?rid= (a request the page can cancel); refusals answer as `stale`
+    if (id && sub === 'log' && method === 'GET') return machines.machineLog(id, query, signal)
     // what a Sandbox on it can run (the New Sandbox menu, the Images section); never starts it
     if (id && sub === 'sandbox-images' && method === 'GET') return machines.sandboxImages(id)
     // { images?: id[], unused?: boolean } -> { removed, freed, refused }: 501 while the pinned CLI has no machine.prune
@@ -248,6 +250,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   }
   // sandbox.close(name, { force }): ?force=1; drops the Sandbox's command logs once closed
   if (group === 'sandboxes' && id && !sub && method === 'DELETE') return projects.closeSandbox(id, { force: query.get('force') === '1' })
+  // the Sandbox's daemon log (logs.sandbox), as the machine's; never waits on sandbox.get
+  if (group === 'sandboxes' && id && sub === 'log' && method === 'GET') return machines.sandboxLog(id, query, signal)
   // one Sandbox with its Workspaces (sandbox.get)
   if (group === 'sandboxes' && id && !sub && method === 'GET') return projects.sandbox(id)
   // the commands this host ran in the Sandbox's Workspaces, newest first, at most 50 (commands.ts)
@@ -286,7 +290,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
 }
 
 /** One request: `{ method, path, body }` -> `{ status, body }` (JSON, unsafe integers tagged `i64-v1`). */
-export async function handle(g: Groups, request: { method?: string, path?: string, body?: unknown }): Promise<{ status: number, body: unknown }> {
+export async function handle(g: Groups, request: { method?: string, path?: string, body?: unknown }, signal?: AbortSignal): Promise<{ status: number, body: unknown }> {
   const method = String(request?.method ?? 'GET').toUpperCase()
   let url: URL
   try {
@@ -312,7 +316,7 @@ export async function handle(g: Groups, request: { method?: string, path?: strin
     }
     // Connect recorded the native daemon at boot; here once, before the first call that needs it
     await g.host.ensureNative()
-    const answer = await route(g, method, parts, url.searchParams, body)
+    const answer = await route(g, method, parts, url.searchParams, body, signal)
     if (answer === undefined) return { status: 404, body: { code: 'NotFound', message: `no route ${method} ${url.pathname}` } }
     if (answer instanceof Answer) return { status: answer.status, body: wire(answer.body) ?? null }
     return { status: 200, body: wire(answer) ?? null }

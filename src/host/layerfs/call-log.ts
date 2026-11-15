@@ -146,9 +146,16 @@ export function callLine(o: { at: number, ms: number, argv: readonly string[], i
   }
 }
 
-/** Calls that are not table calls write no line (#659 L1, L10). */
+/**
+ * Calls that are not table calls write no line (#659 L1, L10); nor does the
+ * `logs` family, nor the quiet monitoring reads `sandbox files` and
+ * `machine files` (layerfs-project#178: LayerFS's own log skips them too, so
+ * a poll or a folder read adds nothing to the Logs page).
+ */
 export function loggable(argv: readonly string[]): boolean {
-  return argv.length >= 2 && /^[a-z][a-z_]*$/.test(argv[0] ?? '') && /^[a-z][a-z_-]*$/.test(argv[1] ?? '') && argv[0] !== 'help' && argv[0] !== 'logs'
+  if (!(argv.length >= 2 && /^[a-z][a-z_]*$/.test(argv[0] ?? '') && /^[a-z][a-z_-]*$/.test(argv[1] ?? ''))) return false
+  if (argv[0] === 'help' || argv[0] === 'logs') return false
+  return !((argv[0] === 'sandbox' || argv[0] === 'machine') && argv[1] === 'files')
 }
 
 const listeners = new Map<string, Set<() => void>>()

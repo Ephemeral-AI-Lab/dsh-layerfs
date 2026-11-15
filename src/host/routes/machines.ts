@@ -18,6 +18,7 @@
 import { join } from 'node:path'
 import { computer } from './computer.ts'
 import { readArchive, type ImageProblem } from '../images/archive.ts'
+import { InspectReads, logQuery, type LogView } from './inspect.ts'
 import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -181,7 +182,8 @@ export function machineOf(m: any) {
     backend: text(m.backend),
     // the SDK's state, as it is (#537 U4)
     state: text(m.state) ?? 'unknown',
-    ...(m.supports && typeof m.supports === 'object' ? { supports: { sqlite: m.supports.sqlite !== false, postgresql_sandbox: m.supports.postgresql_sandbox === true, reason: text(m.supports.reason) } } : {}),
+    // `log` (the machine has a worker log to read, layerfs-project#178) only when LayerFS says so: absent from an older CLI
+    ...(m.supports && typeof m.supports === 'object' ? { supports: { sqlite: m.supports.sqlite !== false, postgresql_sandbox: m.supports.postgresql_sandbox === true, reason: text(m.supports.reason), ...(typeof m.supports.log === 'boolean' ? { log: m.supports.log } : {}) } } : {}),
     cpus: num(m.cpus),
     memory: num(m.memory),
     disk: num(m.disk),
@@ -234,6 +236,9 @@ export function sandboxOf(b: any) {
 
 /** One machine.status() answer (the reason is `down_reason`). */
 export const statusOf = (s: any) => ({ name: String(s.name), state: text(s.state), freeDisk: num(s.free_disk), toolVersion: text(s.tool_version), down: /^the machine is stopped\.?$/i.test(String(s.down_reason ?? s.why_down ?? '')) ? null : text(s.down_reason ?? s.why_down), op: opOf(s.op) })
+
+/** 501: the pinned CLI's call table has no such monitoring call. */
+const noCall = (call: string, what: string) => Object.assign(refuse(501, 'Unsupported', `The pinned LayerFS CLI cannot read ${what} (it has no ${call}).`), { detail: { need: call } })
 
 /** The options a call takes, without empty ones. */
 function pick(body: Record<string, unknown>, keys: string[]): Record<string, unknown> {
@@ -327,6 +332,40 @@ export class Machines {
   }
 
   async inspect(name: string) { return { ...(await this.lfs.machine.get(name)), ...(await this.lfs.machine.status(name)), observedAt: Date.now() } }
+
+  /** The monitoring reads' shared state: one read per key, last good answers, page requests that can be cancelled. */
+  readonly reads = new InspectReads()
+
+  /**
+   * `GET /api/machines/:id/log?cursor=&before=&limit=&rid=`: the machine's
+   * worker log (logs.machine), a tail without a cursor. Its own read: never
+   * part of the machines view. A refusal (a stopped machine `Unavailable`, a
+   * machine without a worker `Unsupported`, a replaced log's cursor
+   * `InvalidInput`, a full inspect lane `Busy`, no answer in time `Timeout`)
+   * is answered as `stale` with the last good tail, not as an error. 501
+   * while the pinned CLI has no logs.machine (the page hides the tab).
+   */
+  async machineLog(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<LogView> {
+    if (!name) throw refuse(400, 'InvalidInput', 'name the machine')
+    if (!(await cliFeatures(this.host)).inspect.machineLog) throw noCall('logs.machine', 'a machine\'s worker log')
+    const lfs = this.lfs
+    const request = this.reads.request(query.get('rid'), outer)
+    try { return await this.reads.log(`machine:${name}`, logQuery(query), (options) => lfs.logs.machine(name, options), request.signal) } finally { request.done() }
+  }
+
+  /**
+   * `GET /api/sandboxes/:name/log?cursor=&before=&limit=&rid=`: the Sandbox's
+   * daemon log (logs.sandbox), as {@link machineLog}. It never waits on
+   * sandbox.get and never dials the daemon; a lost or unresolved Sandbox's
+   * refusal is answered as `stale`.
+   */
+  async sandboxLog(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<LogView> {
+    if (!name) throw refuse(400, 'InvalidInput', 'name the Sandbox')
+    if (!(await cliFeatures(this.host)).inspect.sandboxLog) throw noCall('logs.sandbox', 'a Sandbox\'s daemon log')
+    const lfs = this.lfs
+    const request = this.reads.request(query.get('rid'), outer)
+    try { return await this.reads.log(`sandbox:${name}`, logQuery(query), (options) => lfs.logs.sandbox(name, options), request.signal) } finally { request.done() }
+  }
 
   /**
    * `GET /api/machines/:id/sandbox-images` (docs/specs/sandbox-images.md
