@@ -155,7 +155,7 @@ export interface FilesQuery { path: string | null, depth: number | null, cursor:
 
 /** The most entries one folder page answers, the deepest walk asked for, and the largest file window (LayerFS's own limits). */
 export const FILES_LIMIT_MAX = 1000
-export const FILES_DEPTH_MAX = 64
+export const FILES_DEPTH_MAX = 32
 export const FILES_LENGTH_MAX = 1024 * 1024
 /** How many folders (first pages, and each target's roots) keep a last good answer. */
 export const KEEP_FOLDERS = 128

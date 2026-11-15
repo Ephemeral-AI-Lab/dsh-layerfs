@@ -106,8 +106,10 @@ function fakeLayerfs() {
       status: async (name) => ({ name, state: 'stopped', free_disk: 10 }),
       get: async (name) => ({ name, platform: name === 'native' ? 'native' : 'lima', state: 'ready', daemon: '/fake/daemon' }),
       images: async (name) => ({ machine: name, mode: 'cached', default_digest: null, images: [] }),
+      files: async () => ({ kind: 'folder', entries: [], next: null, has_more: false }),
     },
     sandbox: {
+      files: async () => ({ kind: 'folder', entries: [], next: null, has_more: false }),
       list: async () => ({ items: [{ name: 'box1', project: 's1/p', state: 'ready', machine: 'native' }], next_page_pos: null }),
       get: async (name) => {
         if (state.gate) await state.gate.promise
@@ -480,6 +482,9 @@ const GETS = [
   ['machines/:id/sandbox-images', '/api/machines/lima1/sandbox-images'],
   ['machines/:id/log', '/api/machines/lima1/log'],
   ['machines/:id/log', '/api/machines/lima1/log?cursor=c1&limit=50'],
+  ['machines/:id/files', '/api/machines/lima1/files'],
+  ['machines/:id/files', '/api/machines/lima1/files?path=%2Fetc&depth=1&limit=200'],
+  ['machines/:id/files', '/api/machines/lima1/files?path=%2Fetc%2Fhosts&offset=0&length=4096'],
   ['sandbox-creates', '/api/sandbox-creates'],
   ['status', '/api/status'],
   ['projects', '/api/projects'],
@@ -504,6 +509,8 @@ const GETS = [
   ['projects/:id/file', `/api/projects/${P}/file?branch=feat&path=/a.txt`],
   ['sandboxes/:id/log', '/api/sandboxes/box1/log'],
   ['sandboxes/:id/log', '/api/sandboxes/box1/log?before=b1'],
+  ['sandboxes/:id/files', '/api/sandboxes/box1/files'],
+  ['sandboxes/:id/files', '/api/sandboxes/box1/files?path=%2Ftmp&cursor=%2Ftmp%2Fa'],
   ['sandboxes/:id', '/api/sandboxes/box1'],
   ['sandboxes/:id/commands', '/api/sandboxes/box1/commands'],
   ['workspaces/:id/commands', '/api/workspaces/box1:w/commands'],
@@ -525,7 +532,7 @@ test('the no-writes table covers every GET route in router.ts', () => {
 
 // C1 (finding: GETs with an `unclaimed:` projectId forked dsh.project.<uuid>): no GET route makes a mutating LayerFS call.
 test('no GET route makes a mutating LayerFS call, with or without a projectId', { timeout: 30_000 }, async (t) => {
-  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'logs', call: 'machine', args: [], options: [] }, { family: 'logs', call: 'sandbox', args: [], options: [] }]) })
+  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'logs', call: 'machine', args: [], options: [] }, { family: 'logs', call: 'sandbox', args: [], options: [] }, { family: 'machine', call: 'files', args: [], options: [] }, { family: 'sandbox', call: 'files', args: [], options: [] }]) })
   // the real identity check, wired as routes/index.ts wires it: reads never claim
   const catalog = new ProjectCatalog(() => f.lfs, join(f.dir, 'root'))
   f.host.host.assertProjectIdentity = (project, projectId) => catalog.assert(project, projectId, { claim: false })

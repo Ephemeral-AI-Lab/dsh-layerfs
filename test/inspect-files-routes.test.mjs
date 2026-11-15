@@ -65,7 +65,7 @@ test('files routes: bad queries are refused before any call', async () => {
   lfs.machine.files = async () => { calls++; return folder([]) }
   const f = fixture(lfs)
   try {
-    for (const query of ['path=relative/x', 'path=/a&depth=0', 'path=/a&depth=65', 'path=/a&limit=0', 'path=/a&limit=1001', 'path=/a&limit=1.5', 'path=/a&offset=-1', 'path=/a&length=0', `path=/a&length=${1024 * 1024 + 1}`, 'cursor=/a', 'offset=0', 'path=/a&cursor=/a/b&offset=0', `path=/${'x'.repeat(4096)}`]) {
+    for (const query of ['path=relative/x', 'path=/a&depth=0', 'path=/a&depth=33', 'path=/a&limit=0', 'path=/a&limit=1001', 'path=/a&limit=1.5', 'path=/a&offset=-1', 'path=/a&length=0', `path=/a&length=${1024 * 1024 + 1}`, 'cursor=/a', 'offset=0', 'path=/a&cursor=/a/b&offset=0', `path=/${'x'.repeat(4096)}`]) {
       const r = await f.http('GET', `/api/machines/docker/files?${query}`)
       assert.equal(r.status, 400, query)
       assert.equal(r.body.code, 'InvalidInput', query)
@@ -243,5 +243,35 @@ test('files routes: ?rid= names a read the page can drop (inspect.cancel); the r
     // a dropped read keeps nothing: the folder is not answered stale later
     lfs.machine.files = async () => { throw new Refusal('Unavailable') }
     assert.equal((await f.http('GET', '/api/machines/vm/files?path=/c')).body.kind, 'refused')
+  } finally { f.close() }
+})
+
+test('files routes: the merged build\'s shapes: a last page names its last entry as `next`; permission bits, ms, and kinds as they come', async () => {
+  // sandbox.files of the merged build (the lead's monitoring-179-API-SHAPES.md): `next` is the last entry's
+  // path whenever the page has entries, also when has_more is false; the page offers "More entries" only by has_more
+  const lfs = base()
+  lfs.sandbox.files = async (_name, path, options) => {
+    if (path === undefined) return { kind: 'folder', entries: [{ path: '/run/workspaces/1', depth: 1, kind: 'mount', size: null, mode: null, mtime: null, role: 'workspace', workspace: 'abc' }, { path: '/run/tmp', depth: 1, kind: 'folder', size: null, mode: 0o1777, mtime: 1794774161000, role: 'home' }, { path: '/run/daemon.log', depth: 1, kind: 'file', size: 564, mode: 0o600, mtime: 1794774745000, role: 'log' }], next: null, has_more: false }
+    if (path === '/run/tmp/empty') return { kind: 'folder', entries: [], next: null, has_more: false }
+    if (path === '/run/tmp/f') return { kind: 'file', size: 41, offset: 0, content: 'text\n', binary: false, next: null }
+    const all = [{ path: `${path}/a`, depth: 1, kind: 'file', size: 3, mode: 0o644, mtime: 1794774161000 }, { path: `${path}/l`, depth: 1, kind: 'symlink', size: null, mode: 0o777, mtime: 1794774161000, target: 'a' }, { path: `${path}/p`, depth: 1, kind: 'other', size: null, mode: 0o644, mtime: 1794774161000 }, { path: `${path}/secret`, depth: 1, kind: 'restricted', size: 9, mode: 0o600, mtime: 1794774161000 }]
+    return options.cursor ? { kind: 'folder', entries: all.slice(2), next: `${path}/secret`, has_more: false } : { kind: 'folder', entries: all.slice(0, 2), next: `${path}/l`, has_more: true, reason: 'limit' }
+  }
+  const f = fixture(lfs)
+  try {
+    const roots = (await f.http('GET', '/api/sandboxes/sb/files')).body
+    assert.deepEqual(roots.entries.map((e) => [e.role, e.kind, e.workspace ?? null, e.mtime]), [['workspace', 'mount', 'abc', null], ['home', 'folder', null, 1794774161000], ['log', 'file', null, 1794774745000]])
+    const first = (await f.http('GET', '/api/sandboxes/sb/files?path=/run/tmp')).body
+    assert.deepEqual([first.hasMore, first.next, first.reason], [true, '/run/tmp/l', 'limit'])
+    const last = (await f.http('GET', '/api/sandboxes/sb/files?path=/run/tmp&cursor=/run/tmp/l')).body
+    assert.deepEqual([last.hasMore, last.next, last.reason], [false, null, null], 'a last page\'s `next` is not a page to ask for')
+    assert.deepEqual(last.entries.map((e) => [e.kind, e.size, e.mode]), [['other', null, 0o644], ['restricted', 9, 0o600]])
+    assert.equal(first.entries[1].target, 'a')
+    const empty = (await f.http('GET', '/api/sandboxes/sb/files?path=/run/tmp/empty')).body
+    assert.deepEqual([empty.entries, empty.next, empty.hasMore], [[], null, false])
+    const file = (await f.http('GET', '/api/sandboxes/sb/files?path=/run/tmp/f')).body
+    assert.deepEqual([file.kind, file.content, file.binary, file.next, file.size], ['file', 'text\n', false, null, 41])
+    assert.equal((await f.http('GET', '/api/sandboxes/sb/files?path=/run/tmp&depth=33')).status, 400, 'depth is 1 to 32')
+    assert.equal((await f.http('GET', '/api/sandboxes/sb/files?path=/run/tmp&depth=32')).status, 200)
   } finally { f.close() }
 })
