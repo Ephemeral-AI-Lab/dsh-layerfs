@@ -8,6 +8,7 @@ import type { LayerfsApi } from '../api.ts'
 import { writeDetailTab, type DetailTab } from '../storage/tabs.ts'
 import { openStorage } from '../projects/navigation.ts'
 import type { DoctorT } from '../doctor/locale.ts'
+import type { LogsT } from '../logs/locale.ts'
 import type { RefusalLabels } from '../ui/index.tsx'
 import type { MachinesFace, ReadState } from './controller.ts'
 import type { MachinesKey } from './locale.ts'
@@ -41,6 +42,8 @@ export interface MachinesPageProps extends Omit<MachinesFace, 'hooks'> {
   api: LayerfsApi
   /** The `layerfsDoctor` namespace's translate seat. */
   doctorT: DoctorT
+  /** The `layerfsLogs` namespace's translate seat (a running command's session reads as on the Logs page); absent on a page that has none. */
+  logsT?: LogsT | undefined
   useMachines: Hook<ReadState<MachinesView>>
   useStartups: Hook<Readonly<Record<string, MachineStartup>>>
   useRuntime: Hook<ReadState<RuntimeStatus>>

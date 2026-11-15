@@ -147,9 +147,55 @@ export function sandboxInfo(s: any, workspaces: any[] | null = null) {
     ...(s.platform ? { platform: s.platform } : {}),
     workspaces: (workspaces ?? [])
       .filter((w) => w.mounted !== false && (w.directory || w.path))
-      .map((w) => ({ ws: w.ws ?? `${s.name}:${w.name ?? w.directory}`, name: w.name ?? null, branch: w.branch ?? '', path: w.directory ?? w.path, activity: w.activity ?? null, base: w.base ?? null, baseLayer: w.base_layer ?? null, root: w.root ?? null, headMovedSinceMount: w.head_moved_since_mount ?? null, dirty: w.dirty ?? null, pendingMerge: w.pending_merge ?? null, revision: w.revision ?? null })),
+      .map((w) => ({
+        ws: w.ws ?? `${s.name}:${w.name ?? w.directory}`, name: w.name ?? null, branch: w.branch ?? '', path: w.directory ?? w.path, activity: w.activity ?? null, base: w.base ?? null, baseLayer: w.base_layer ?? null, root: w.root ?? null, headMovedSinceMount: w.head_moved_since_mount ?? null, dirty: w.dirty ?? null, pendingMerge: w.pending_merge ?? null, revision: w.revision ?? null,
+        ...runningOf(w), ...overlayBytesOf(w),
+      })),
+    // the Workspace slots of one Sandbox (layerfs-project#178): absent from a CLI that does not say
+    ...(Number.isSafeInteger(s.workspace_capacity) && s.workspace_capacity > 0 ? { workspaceCapacity: s.workspace_capacity as number } : {}),
     ...(workspaces ? {} : { unread: true }),
   }
+}
+
+/** One command LayerFS says is running in a Workspace (sandbox.get `running`), whoever started it. */
+export interface RunningCommand {
+  execId: string
+  /** When it started, epoch ms. */
+  started: number
+  /** The log tag of the call that started it; null when it had none. */
+  tag: string | null
+  /** The command's first word; null when LayerFS did not record it. */
+  program: string | null
+  /** This host started it from a Sandbox page (its terminal shows it). */
+  own?: boolean
+  /** The project session its tag names, as the Logs page labels a call. */
+  session?: unknown
+}
+
+/**
+ * A Workspace item's `running` (layerfs-project#178 "Fields"), by presence:
+ * absent from an older worker (unknown: the page shows nothing), `null` when
+ * the records could not be read, else the commands, oldest first.
+ */
+function runningOf(w: any): { running?: RunningCommand[] | null } {
+  if (!w || !('running' in w)) return {}
+  if (!Array.isArray(w.running)) return { running: null }
+  const running: RunningCommand[] = []
+  for (const r of w.running) {
+    if (!r || typeof r.exec_id !== 'string' || !r.exec_id) continue
+    const started = Number(r.started)
+    running.push({
+      execId: r.exec_id, started: Number.isFinite(started) ? (started < 1e12 ? started * 1000 : started) : 0,
+      tag: typeof r.tag === 'string' && r.tag ? r.tag : null, program: typeof r.program === 'string' && r.program ? r.program : null,
+    })
+  }
+  return { running: running.sort((a, b) => a.started - b.started) }
+}
+
+/** A Workspace item's `overlay_bytes`, by presence: absent from an older worker, `null` when not observed. */
+function overlayBytesOf(w: any): { overlayBytes?: number | null } {
+  if (!w || !('overlay_bytes' in w)) return {}
+  return { overlayBytes: typeof w.overlay_bytes === 'number' && Number.isFinite(w.overlay_bytes) && w.overlay_bytes >= 0 ? w.overlay_bytes : null }
 }
 
 /** BranchInfo[] from branch.list records and the Commits read (by id). */
@@ -512,8 +558,23 @@ export class Projects {
   async sandbox(name: string) {
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'Name the Sandbox.')
     const record = await sandboxObservation(this.lfs, name)
-    return sandboxInfo({ ...record, name }, record.workspaces)
+    const info = sandboxInfo({ ...record, name }, record.workspaces)
+    // running commands: which ones this host's Sandbox pages started (by exact exec id), and whose session a tag names
+    const tags = new Set<string>()
+    for (const w of info.workspaces) for (const r of w.running ?? []) if (r.tag) tags.add(r.tag)
+    let labels: Record<string, unknown> = {}
+    if (tags.size) { try { labels = await this.host.labelTags?.([...tags]) ?? {} } catch { /* a label is optional */ } }
+    for (const w of info.workspaces) {
+      for (const r of w.running ?? []) {
+        r.own = this.ownExec?.(w.ws, r.execId) ?? false
+        if (r.tag && labels[r.tag]) r.session = labels[r.tag]
+      }
+    }
+    return info
   }
+
+  /** Whether this host's Sandbox pages started command `execId` in Workspace `ws` (set by the router from commands.ts). */
+  ownExec?: (ws: string, execId: string) => boolean
 
   /**
    * Mounts a Workspace in Sandbox `name`: `{ branch, fork?, name? }`. Only

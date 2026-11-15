@@ -11,6 +11,7 @@
  * turned off: the host leaves them out of machine.platforms.
  */
 import type { Tone } from '../ui/index.tsx'
+import { parseTag, type CallLabel } from '../../shared/logs.ts'
 import type { MachinesKey } from './locale.ts'
 
 // ---------- host shapes ----------
@@ -190,6 +191,29 @@ export interface WorkspaceInfo {
   pendingMerge?: boolean | null
   root?: string | null
   revision?: unknown
+  /**
+   * The commands LayerFS says are running here, oldest first, whoever started
+   * them (sandbox.get `running`). Absent from an older worker (unknown); null
+   * when the records could not be read.
+   */
+  running?: RunningCommand[] | null
+  /** The size of the Workspace's overlay file; it grows until unmount. Absent from an older worker; null when not observed. */
+  overlayBytes?: number | null
+}
+
+/** One command running in a Workspace, as sandbox.get reports it. */
+export interface RunningCommand {
+  execId: string
+  /** When it started, epoch ms (0 when LayerFS gave no time). */
+  started: number
+  /** The log tag of the call that started it. */
+  tag: string | null
+  /** The command's first word. */
+  program: string | null
+  /** A Sandbox page of this host started it: its terminal shows it. */
+  own?: boolean
+  /** The project session its tag names (the host's label, as on the Logs page). */
+  session?: CallLabel
 }
 
 /** sandbox.get `daemon_capacity`: the daemon's control admission and the connection failures it kept (best effort). */
@@ -253,6 +277,8 @@ export interface SandboxInfo {
   /** A capacity refusal's counts when the daemon was not reached for want of a control slot. */
   down?: { code?: string, resource?: string, pool_vacant?: number, reserved_vacant?: number, retained?: number } | null
   workspaces: WorkspaceInfo[]
+  /** How many Workspaces one Sandbox holds (sandbox.get `workspace_capacity`); absent from an older CLI. */
+  workspaceCapacity?: number
   unread?: boolean
 }
 
@@ -687,6 +713,41 @@ export function projectRef(key: string): { name: string, store: string | null } 
 }
 
 export const workspaceName = (ws: WorkspaceInfo): string => ws.name || ws.path.split('/').filter(Boolean).at(-1) || ws.ws
+
+/** The Workspace slots of a Sandbox: what sandbox.get says, else the constant LayerFS had before it said (16). */
+export const workspaceCapacity = (info: Pick<SandboxInfo, 'workspaceCapacity'> | null | undefined): number =>
+  (typeof info?.workspaceCapacity === 'number' && info.workspaceCapacity > 0 ? info.workspaceCapacity : SANDBOX_CAPACITY)
+
+/**
+ * The commands in a Workspace that this pane did not start: `running` without
+ * the ones the host marks its own and without the exact exec ids the pane's
+ * own log holds (never by an id's prefix). Oldest first.
+ */
+export function alsoRunning(ws: Pick<WorkspaceInfo, 'running'>, ownIds: ReadonlySet<string> = new Set()): RunningCommand[] {
+  return (ws.running ?? []).filter((r) => !r.own && !ownIds.has(r.execId))
+}
+
+/** A Sandbox's running commands in numbers: all of them, and those another client started. */
+export function runningSummary(workspaces: readonly Pick<WorkspaceInfo, 'ws' | 'running'>[]): { running: number, others: number, first: string | null } {
+  let running = 0, others = 0, first: string | null = null, any: string | null = null
+  for (const w of workspaces) {
+    const all = w.running ?? []
+    const other = alsoRunning(w).length
+    running += all.length
+    others += other
+    if (other && first === null) first = w.ws
+    if (all.length && any === null) any = w.ws
+  }
+  return { running, others, first: first ?? any }
+}
+
+/** Who started a running command, from its tag: a project session, this app's own host call, another tagged client, or an untagged one. */
+export function runnerOf(r: Pick<RunningCommand, 'tag' | 'session'>): { kind: 'session', sessionId: string, title: string | null } | { kind: 'dsh' } | { kind: 'tag', tag: string } | { kind: 'other' } {
+  const parsed = parseTag(r.tag ?? undefined)
+  if (parsed) return { kind: 'session', sessionId: parsed.sessionId, title: r.session?.title ?? null }
+  if (r.tag?.startsWith('dsh:') || r.tag?.startsWith('dsh-sim:')) return { kind: 'dsh' }
+  return r.tag ? { kind: 'tag', tag: r.tag } : { kind: 'other' }
+}
 
 export function workspaceChanges(ws: WorkspaceInfo): Words & { tone?: 'warning' } {
   if (ws.pendingMerge) return { ...w('wsMergePending'), tone: 'warning' }

@@ -128,6 +128,8 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   const commands = new SandboxCommands(host)
   // a closed Sandbox's command logs go with it (its Workspace paths restart with a new daemon)
   projects.sandboxClosedHook = (name) => commands.closed(name)
+  // sandbox.get's running commands: the ones a Sandbox page of this host started are its own
+  projects.ownExec = (ws, id) => commands.started(ws, id)
   // "Start and create" starts the machine as the Machines page does (machine-progress events)
   projects.startMachine = (name) => machines.start(name)
   // Stage 1: a Docker image that cannot fit on the machine is refused NoSpace before its copy starts

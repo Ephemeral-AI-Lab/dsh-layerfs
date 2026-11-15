@@ -4,6 +4,7 @@
  * observation reader (Connect `host/config.js` and `host/layerfs.js`).
  */
 import { PAGE, pages, type Discovery, type Lfs } from '../layerfs/cli.ts'
+import type { CallLabel } from '../../shared/logs.ts'
 
 export { PAGE, pages }
 
@@ -51,6 +52,12 @@ export interface RouteHost {
   machinesStopped?(machines: string[]): Promise<void>
   /** A confirmed Sandbox close invalidates its local mounts. */
   sandboxClosed?(name: string): Promise<void>
+  /**
+   * What each session tag (`dsh:<session>:<receipt>`) means to a project
+   * session on this host: its title, turn and checkpoint, as the Logs page
+   * labels a call. A tag no session here owns is absent. Best effort.
+   */
+  labelTags?(tags: readonly string[]): Promise<Record<string, CallLabel>>
 }
 
 /** An error the routes throw: answered as `{ code, message }` with `status` (or the code's mapped status). */
