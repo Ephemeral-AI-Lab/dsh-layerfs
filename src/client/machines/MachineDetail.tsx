@@ -26,6 +26,8 @@ import { stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { SpecTab } from './Spec.tsx'
+import { ObservedCpuMemory, useMachineStats, workerLine } from './MachineStats.tsx'
+import { STATS_PAGE_MS } from './stats.ts'
 import css from './machines.module.css'
 import logCss from './log.module.css'
 
@@ -92,6 +94,9 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   ]
   const [tab, setTab] = useDetailTab('machine', m.name, tabs.map((x) => x.value), 'overview')
   const ids = useId()
+  // observed values (machine.stats), read every 10 s while this page is on screen; without the call the facts are the record's, as before
+  const observed = useMachineStats(m, STATS_PAGE_MS)
+  const worker = observed.offered ? workerLine(observed.read?.stats, t) : null
   const logLink = hasLog && tab !== 'log' ? <LinkButton onClick={() => setTab('log')}>{t('openWorkerLog')}</LinkButton> : null
   // startup progress and notices: on every tab, where today's page has them
   const notices = (
@@ -150,9 +155,10 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
       ) : (
       <div className={logCss.tabPanel} {...(tabs.length > 1 ? { role: 'tabpanel', id: `${ids}-overview-panel`, 'aria-labelledby': `${ids}-overview` } : {})}>
       <dl className={css.factRow} aria-label={t('resources')}>
-        <div><dt>{t('freeDisk')}</dt><dd><DiskLine m={m} view={view} /></dd></div>
-        <div><dt>{t('cpuMemory')}</dt><dd>{resourcesOf(m, t)}</dd></div>
+        <div><dt>{t(observed.offered ? 'disk' : 'freeDisk')}</dt><dd><DiskLine m={m} view={view} every={STATS_PAGE_MS} /></dd></div>
+        <div><dt>{t('cpuMemory')}</dt><dd>{observed.offered && observed.read?.stats ? <ObservedCpuMemory read={observed.read} /> : resourcesOf(m, t)}</dd></div>
         {live?.toolVersion && <div><dt>{t('toolVersionOf', { kind: kind(m.platform) })}</dt><dd className={css.mono}>{live.toolVersion}</dd></div>}
+        {worker && <div><dt>{t('worker')}</dt><dd data-worker-line>{worker}</dd></div>}
       </dl>
 
       {notices}

@@ -16,6 +16,7 @@ import {
   mergeStage, startupFailure,
   type Creation, type MachineStartup, type MachinesView, type NewMachine, type PruneAnswer, type ProjectSummary, type RuntimeStatus, type SandboxImagesView, type SandboxInfo,
 } from './model.ts'
+import { STATS_ANSWER_MS, StatsPoller, type MachineStatsView, type StatsRead } from './stats.ts'
 
 /** A snapshot source the DSH slot renderer binds to a `use<Name>` hook. */
 export interface Source<T> {
@@ -56,6 +57,17 @@ export type MachineAction =
   | { kind: 'stop', name: string, force?: boolean }
   | { kind: 'update', name: string, changes: { image?: string, docker?: string, wsl?: string } }
 
+/**
+ * `machine.stats` per machine (stats.ts `StatsPoller`): a page watches the
+ * machines it shows; each is read no more often than the interval asked, one
+ * read at a time, only while the page is on screen.
+ */
+export interface StatsFace extends Source<Readonly<Record<string, StatsRead>>> {
+  watch: (name: string, everyMs: number) => () => void
+  /** Read `name` now, if a page watches it. */
+  refresh: (name: string) => void
+}
+
 /** What the page receives through its slot `inject`. */
 export interface MachinesFace {
   hooks: {
@@ -66,6 +78,8 @@ export interface MachinesFace {
     /** Background Sandbox creates by job id: running, and failed ones until dismissed (host-kept, D10). */
     creations: Source<Readonly<Record<string, Creation>>>
   }
+  /** Observed machine values (machine.stats), read only for the machines a page watches. */
+  stats: StatsFace
   /** The page is shown: read now and poll every 5 s while the window is visible. Returns the release. */
   activate: () => () => void
   reload: () => void
@@ -119,6 +133,8 @@ export class MachinesController {
   private again = false
   private readonly off: (() => void)[] = []
   private seq = 0
+  /** machine.stats of the machines a page watches; reads only while the window is visible and a reading page is the one shown. */
+  readonly stats: StatsPoller
 
   /**
    * @param api - the dsh-layerfs host API.
@@ -126,6 +142,13 @@ export class MachinesController {
    */
   constructor(private readonly api: LayerfsApi, private readonly shown: () => boolean = () => true) {
     this.connected = new Cell(api.connected())
+    const onScreen = () => (typeof document === 'undefined' || document.visibilityState === 'visible') && this.shown()
+    this.stats = new StatsPoller((name) => this.readStats(name), onScreen)
+    if (typeof document !== 'undefined') {
+      const seen = () => { if (onScreen()) this.stats.wake() }
+      document.addEventListener('visibilitychange', seen)
+      this.off.push(() => document.removeEventListener('visibilitychange', seen))
+    }
     this.off.push(api.onEvent('connection', (e) => {
       const up = !!e.data?.connected
       this.connected.set(up)
@@ -141,6 +164,7 @@ export class MachinesController {
     const api = this.api
     return {
       hooks: { machines: this.machines, startups: this.startups, runtime: this.runtime, connected: this.connected, creations: this.creations },
+      stats: { getSnapshot: this.stats.getSnapshot, subscribe: this.stats.subscribe, watch: (name, everyMs) => this.stats.watch(name, everyMs), refresh: (name) => this.stats.refresh(name) },
       activate: () => this.activate(),
       reload: () => this.reload(),
       recheck: async () => {
@@ -235,6 +259,23 @@ export class MachinesController {
     })()
   }
 
+  /**
+   * One `GET /api/machines/<name>/stats`. A refusal LayerFS gave is in the
+   * answer (`stale`); a read with no answer in STATS_ANSWER_MS is dropped on
+   * the host (`inspect.cancel`) and thrown as `Timeout`.
+   */
+  private readStats(name: string): Promise<MachineStatsView> {
+    const rid = `stats-${Date.now().toString(36)}-${++this.seq}`
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        void this.api.op('inspect.cancel', { rid }).catch(() => {})
+        reject(new HostError('Timeout', `No answer in ${STATS_ANSWER_MS / 1000} s`, 504))
+      }, STATS_ANSWER_MS)
+    })
+    return Promise.race([this.api.call<MachineStatsView>('GET', `/api/machines/${enc(name)}/stats${q({ rid })}`), late]).finally(() => clearTimeout(timer))
+  }
+
   reloadRuntime(): void {
     const prev = this.runtime.getSnapshot()
     if (prev.status === 'idle') this.runtime.set({ ...prev, status: 'loading' })
@@ -268,6 +309,8 @@ export class MachinesController {
       }
     } finally {
       this.reload()
+      // a start or stop changes what the machine answers: its stats are read now, if a page watches it
+      if (action.kind === 'start' || action.kind === 'stop') this.stats.refresh(action.name)
     }
   }
 
@@ -414,6 +457,7 @@ export class MachinesController {
 
   dispose(): void {
     for (const off of this.off) off()
+    this.stats.dispose()
     if (this.timer) clearInterval(this.timer)
     if (this.settleTimer) clearTimeout(this.settleTimer)
   }

@@ -24,7 +24,8 @@ import { InspectFiles } from './InspectFiles.tsx'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { cachedAnswer } from '../ui/use-query.ts'
-import { clearingCall, daemonLook, daemonSlots, opWords, stateLook, type SandboxImagesView, type SandboxInfo } from './model.ts'
+import { bytes, clearingCall, daemonLook, daemonSlots, opWords, stateLook, type SandboxImagesView, type SandboxInfo } from './model.ts'
+import { cpuTime, liveNote, reasonWords, sandboxLook } from './stats.ts'
 import { SandboxMenu, useClose, useSandboxRead } from './Sandboxes.tsx'
 import { SandboxTerminals } from './SandboxTerminals.tsx'
 import css from './machines.module.css'
@@ -32,7 +33,7 @@ import logCss from './log.module.css'
 import term from './terminal.module.css'
 
 export function SandboxDetail({ machine, name, go }: { machine: string, name: string, go: (view: View) => void }): ReactNode {
-  const { t, stateWord, refusal, kind, api, doctorT, useMachines } = useMachinesContext()
+  const { t, tw, stateWord, refusal, kind, api, doctorT, useMachines } = useMachinesContext()
   const listed = useMachines((s) => (s.data?.available ? s.data.sandboxes.find((b) => b.name === name) : undefined))
   const parent = useMachines((s) => (s.data?.available ? s.data.machines.find((m) => m.name === machine) : undefined))
   const hasLog = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.sandboxLog === true : false))
@@ -75,7 +76,9 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   // the head: sandbox.get's answer once it is in, the list row until then (and when it never answers)
   const state = info?.state ?? listed?.state ?? 'unknown'
   const currentOp = info ? info.op ?? null : listed?.op ?? null
-  const look = stateLook('sandbox', state)
+  // until sandbox.get answers, the list row's `live` says whether the daemon runs (a dead one is not shown as running)
+  const look = info || !listed ? stateLook('sandbox', state) : sandboxLook(listed, (s) => stateLook('sandbox', s))
+  const liveWhy = info || !listed ? null : liveNote(listed, tw)
   const op = opWords(currentOp)
   const calls = state === 'unresolved' ? clearingCall('sandbox', name, currentOp) : null
   const project = info?.project ?? listed?.project ?? null
@@ -93,7 +96,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
         current={name}
         icon={<SandboxGlyph size={22} />}
         title={name}
-        badge={<StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={op} title={op ? t(currentOp?.uncertain ? 'opTitleUncertain' : 'opTitle', { op }) : undefined} />}
+        badge={<StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={op} title={op ? t(currentOp?.uncertain ? 'opTitleUncertain' : 'opTitle', { op }) : liveWhy ?? undefined} />}
         intro={intro}
         actions={(
           <>
@@ -105,6 +108,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
       />
 
       {info && <DaemonLine info={info} action={logLink} />}
+      {info && <UsageLine info={info} />}
 
       {((info && (info.refusal || info.downReason)) || calls || closing.error !== null || !!closing.unknown?.length || (info && detail.error != null)) && (
         <Notice tone="danger">
@@ -181,9 +185,51 @@ function DaemonLine({ info, action }: { info: SandboxInfo, action?: ReactNode })
     <p className={term.daemonLine} data-tone={daemon.tone}>
       <span className={term.daemonDot} aria-hidden="true" />
       <span>{t(daemon.key)}</span>
+      {info.daemon !== undefined && <DaemonProcess daemon={info.daemon} />}
       {slots && <span>· {t('sbSlotsFree', { free: String(slots.free), total: String(slots.total) })}</span>}
       {failures > 0 && <span>· {failures === 1 ? t('sbFailuresOne') : t('sbFailures', { n: String(failures) })}</span>}
       {action ? <span>· {action}</span> : null}
+    </p>
+  )
+}
+
+/** The daemon process as the side that runs it sees it (sandbox.get `daemon`): its pid and when it started; said so when it has ended or was not observed. */
+function DaemonProcess({ daemon }: { daemon: NonNullable<SandboxInfo['daemon']> | null }): ReactNode {
+  const { t } = useMachinesContext()
+  if (!daemon) return <span data-daemon-process="not-observed">· {t('sbProcessNotObserved')}</span>
+  return (
+    <span data-daemon-process={daemon.startedAt != null ? 'running' : 'ended'}>
+      · {daemon.pid != null ? t('pidOf', { pid: String(daemon.pid) }) : t('sbNoPid')}
+      {' · '}{daemon.startedAt != null ? t('sbStartedAt', { time: new Date(daemon.startedAt).toLocaleString() }) : t('sbProcessEnded')}
+    </span>
+  )
+}
+
+/**
+ * What the Sandbox's own cgroup has used (sandbox.get `usage`): CPU time,
+ * memory now and at its peak, and its process count; each value LayerFS
+ * could not read says so. Without a cgroup to read, the reason in plain
+ * words. Nothing with a CLI that has no such field.
+ */
+function UsageLine({ info }: { info: SandboxInfo }): ReactNode {
+  const { t, tw } = useMachinesContext()
+  if (info.usage === undefined) return null
+  const u = info.usage
+  if (!u) {
+    return (
+      <p className={term.usageLine} data-sandbox-usage="none" data-usage-reason={info.usageReason ?? ''}>
+        <span>{t('sbUsage')}</span>
+        <span className={css.muted}>{t('sbUsageNone', { reason: tw(reasonWords(info.usageReason ?? 'not_observed')) })}</span>
+      </p>
+    )
+  }
+  const none = t('notObserved')
+  return (
+    <p className={term.usageLine} data-sandbox-usage="observed">
+      <span>{t('sbUsage')}</span>
+      <span data-usage-cpu>{t('sbUsageCpu', { time: u.cpuUsec != null ? cpuTime(u.cpuUsec) : none })}</span>
+      <span data-usage-memory>· {t('sbUsageMemory', { now: u.memoryCurrent != null ? bytes(u.memoryCurrent) : none, peak: u.memoryPeak != null ? bytes(u.memoryPeak) : none })}</span>
+      <span data-usage-pids>· {u.pids == null ? t('sbUsagePidsNone') : u.pids === 1 ? t('sbUsagePidsOne') : t('sbUsagePids', { n: String(u.pids) })}</span>
     </p>
   )
 }

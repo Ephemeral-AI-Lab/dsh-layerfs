@@ -25,6 +25,7 @@ import type { Translate } from '../files/types.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, workerDown, type AvailableView, type Creation, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
+import { sandboxRuns } from '../machines/stats.ts'
 import { besideCreating, creatingOn } from '../machines/Inventory.tsx'
 import { phaseWords } from '../machines/images.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, PowerButton, useMachineRun } from '../machines/parts.tsx'
@@ -169,7 +170,7 @@ function SandboxChip({ b, t, place, onOpen }: { b: MachineSandbox, t: StorageT, 
   return (
     <button type="button" className={css.chip} onClick={(e) => { e.stopPropagation(); onOpen(`sandbox:${b.machine ?? ''}/${b.name}`) }}
       title={[b.project, t('ovSandboxOn', { sandbox: b.name, machine: place(b.machine) })].filter(Boolean).join(' · ')}>
-      <StateDot state={b.state === 'running' ? 'done' : 'idle'} size={6} />
+      <StateDot state={sandboxRuns(b) ? 'done' : 'idle'} size={6} />
       <SandboxGlyph size={11} /><span className={css.chipText}>{shortSandbox(b.name)}</span>
     </button>
   )
@@ -346,7 +347,7 @@ export function StoreCards({ stores, view, fleet, machines, t, now, jobs, place,
                       {boxes.length > 1 ? (
                         <button type="button" className={css.chip} onClick={(e) => { e.stopPropagation(); onOpen(`project:${s.name}/${p}`) }}
                           title={boxes.map((b) => t('ovSandboxOn', { sandbox: b.name, machine: place(b.machine) })).join('\n')}>
-                          <StateDot state={boxes.some((b) => b.state === 'running') ? 'done' : 'idle'} size={6} />
+                          <StateDot state={boxes.some(sandboxRuns) ? 'done' : 'idle'} size={6} />
                           <SandboxGlyph size={11} /><span className={css.chipText}>{t('ovSandboxCount', { n: boxes.length })}</span>
                         </button>
                       ) : null}
@@ -476,7 +477,7 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
   const boxes = fleet ? sandboxesOn(fleet, m) : []
   const creations = mc.useCreations((all) => all)
   const creating = creatingOn(creations, m.name, boxes)
-  const runningBoxes = boxes.filter((b) => b.state === 'running').length
+  const runningBoxes = boxes.filter(sandboxRuns).length
   const used = m.disk && free != null ? Math.max(0, m.disk - free) / m.disk : null
   const low = m.disk && free != null ? free / m.disk < 0.1 : false
   // A push or move arriving here, or a pull arriving in the home.
