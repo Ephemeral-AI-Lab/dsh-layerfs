@@ -38,6 +38,24 @@ test('a tail read replaces the window; a forward read appends', () => {
   assert.deepEqual(texts(s), ['z'])
 })
 
+// A real `logs.*` answer always carries a cursor: a log file that is not there
+// yet answers `c1.0.0.0.0`, and a read after it reads the file from its start.
+test('a log that does not exist yet: the empty tail has a cursor, and the first lines arrive as a forward read', () => {
+  let s = M.applyTail(M.emptyLog(), view([], { cursor: 'c1.0.0.0.0' }))
+  assert.deepEqual(texts(s), [])
+  assert.equal(s.cursor, 'c1.0.0.0.0', 'the pane follows from this cursor: no second tail read')
+  assert.equal(s.loaded, true); assert.equal(s.live, true); assert.equal(s.before, null); assert.equal(s.stale, null)
+  // nothing yet
+  s = M.applyForward(s, view([], { cursor: 'c1.0.0.0.0', observedAt: 2000 }))
+  assert.deepEqual(texts(s), []); assert.equal(s.cursor, 'c1.0.0.0.0'); assert.equal(s.readAt, 2000)
+  // the file is there: its first lines, with no "log replaced" divider
+  s = M.applyForward(s, view(['worker started', 'ready'], { cursor: 'c1.0.2a.9f.40', observedAt: 3000 }))
+  assert.deepEqual(texts(s), ['worker started', 'ready'])
+  assert.equal(s.cursor, 'c1.0.2a.9f.40'); assert.ok(s.rows.every((r) => r.kind !== 'replaced'))
+  s = M.applyForward(s, view(['next'], { cursor: 'c1.0.30.9f.40' }))
+  assert.deepEqual(texts(s), ['worker started', 'ready', 'next'])
+})
+
 test('pieces of a long line are one visual line, within a read and across reads', () => {
   let s = M.applyTail(M.emptyLog(), view(['a', { text: 'long-', continued: true }, { text: 'er-', continued: true }, { text: 'line' }, 'b', { text: 'open-', continued: true }]))
   assert.deepEqual(texts(s), ['a', 'long-er-line', 'b', 'open-'])

@@ -96,6 +96,12 @@ function open(path) {
   return { fd, size: st.size, ino: String(st.ino), hash, read: (from, to) => { const b = Buffer.alloc(Math.max(0, to - from)); readSync(fd, b, 0, b.length, from); return b } }
 }
 const cursorText = (index, offset, file) => `s1.${index}.${offset}.${file.ino}.${file.hash || '-'}`
+/**
+ * The cursor of a log file that is not there yet. A real `logs.*` answer always
+ * carries a cursor: a missing file answers this one, and a read after it reads
+ * the file from its start once it is there.
+ */
+const NO_FILE = 'c1.0.0.0.0'
 function cursorOf(text) {
   const m = /^s1\.([01])\.(\d+)\.(\d+)\.([0-9a-f]{12}|-)$/.exec(String(text))
   return m ? { index: Number(m[1]), offset: Number(m[2]), ino: m[3], hash: m[4] === '-' ? '' : m[4] } : null
@@ -151,7 +157,7 @@ function read(kind, name) {
     if (from < 0) {
       const whole = buffer[buffer.length - 1] === 10
       const before = cursorText(cursor.index, start, file)
-      return out([{ text: escaped(whole ? buffer.subarray(0, buffer.length - 1) : buffer), continued: !whole }], current ? cursorText(0, current.size, current) : null, before, true)
+      return out([{ text: escaped(whole ? buffer.subarray(0, buffer.length - 1) : buffer), continued: !whole }], current ? cursorText(0, current.size, current) : NO_FILE, before, true)
     }
     const body = buffer.subarray(from)
     const { lines, rest } = wholeLines(body, start + from)
@@ -160,12 +166,13 @@ function read(kind, name) {
     const page = lines.slice(-limit)
     const first = page.length ? page[0].at : end
     const before = beforeOf(cursor.index, first, file)
-    return out(page, current ? cursorText(0, current.size, current) : null, before, !!before)
+    return out(page, current ? cursorText(0, current.size, current) : NO_FILE, before, !!before)
   }
 
   // lines after a cursor
   if (flags.cursor !== undefined) {
-    const cursor = cursorOf(flags.cursor)
+    if (flags.cursor === NO_FILE && !current) return out([], NO_FILE, undefined, false)
+    const cursor = flags.cursor === NO_FILE ? { index: 0, offset: 0, ino: current.ino, hash: '' } : cursorOf(flags.cursor)
     if (!cursor || cursor.index !== 0 || !names(cursor, current)) stale()
     const buffer = current.read(cursor.offset, Math.min(current.size, cursor.offset + CHUNK))
     let { lines, rest } = wholeLines(buffer, cursor.offset)
@@ -184,7 +191,7 @@ function read(kind, name) {
   }
 
   // the tail
-  if (!current) return out([], null, undefined, false)
+  if (!current) return out([], NO_FILE, undefined, false)
   const start = Math.max(0, current.size - CHUNK)
   const buffer = current.read(start, current.size)
   let from = 0
