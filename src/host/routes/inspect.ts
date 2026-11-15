@@ -104,8 +104,8 @@ export interface FileEntry {
   target?: string
   workspace?: string
   fs?: string
-  /** Free space of the filesystem a root is on (the `data` root), when LayerFS says. */
-  free?: number
+  /** What the filesystem of the `data` root has left (`machine.files` roots), under LayerFS's own name. */
+  free_bytes?: number
 }
 
 /** A folder page, or the roots (no path). `reason` says why a page ended early: its time budget (`deadline`) or its size (`limit`). */
@@ -198,7 +198,7 @@ export function filesAnswer(answer: any, path: string | null): Omit<FolderView, 
       path: e.path, depth: Number.isSafeInteger(e.depth) && e.depth > 0 ? e.depth : 1, kind: typeof e.kind === 'string' && e.kind ? e.kind : 'other',
       size: count(e.size), mode: count(e.mode), mtime: count(e.mtime),
       ...(text(e.role) ? { role: e.role } : {}), ...(text(e.target) ? { target: e.target } : {}), ...(text(e.workspace) ? { workspace: e.workspace } : {}), ...(text(e.fs) ? { fs: e.fs } : {}),
-      ...(count(e.free ?? e.free_bytes) !== null ? { free: count(e.free ?? e.free_bytes)! } : {}),
+      ...(count(e.free_bytes) !== null ? { free_bytes: count(e.free_bytes)! } : {}),
     })
   }
   const next = text(answer.next)

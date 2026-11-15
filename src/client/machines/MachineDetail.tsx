@@ -17,6 +17,7 @@ import { MachineGlyph } from './icons.tsx'
 import { ImagesSection } from './MachineImages.tsx'
 import { useDetailTab } from './detail-tabs.ts'
 import { InspectFiles } from './InspectFiles.tsx'
+import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { Inventory, useMachineTitle } from './Inventory.tsx'
@@ -144,6 +145,11 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>
           {notices}
           <InspectFiles kind="machine" name={m.name} label={t('filesOf', { name })} onOpenLog={hasLog ? () => setTab('log') : undefined} logTab={hasLog ? t('tabWorkerLog') : undefined}
+            onOpenSandboxLog={view.features?.inspect?.sandboxLog === true ? (folder) => {
+              // a daemon.log in a run folder: the Daemon log tab of the Sandbox that folder is of, when this machine has it
+              const sandbox = sandboxOfRunFolder(folder)
+              return sandbox && sandboxesOn(view, m).some((sb) => sb.name === sandbox) ? () => go({ kind: 'sandbox', machine: m.name, name: sandbox, tab: 'log' }) : null
+            } : undefined}
             unavailableAction={state.state === 'stopped' && !block ? <PowerButton m={m} pending={pending} run={run} /> : undefined} />
         </div>
       ) : tab === 'log' ? (

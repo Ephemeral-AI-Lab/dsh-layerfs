@@ -80,7 +80,7 @@ test('files routes: the roots, a folder page and a file window as the page reads
   lfs.machine.files = async (name, path, options) => {
     seen.push(['machine', name, path, { ...options, signal: options.signal instanceof AbortSignal }])
     if (path === undefined) return { kind: 'folder', entries: [
-      { path: '/layerfs/data', depth: 1, kind: 'folder', size: 4096, mode: 0o40700, mtime: 1763290000, role: 'data', free: 123456789 },
+      { path: '/layerfs/data', depth: 1, kind: 'folder', size: 4096, mode: 0o40700, mtime: 1763290000, role: 'data', free_bytes: 123456789 },
       { path: '/layerfs/data/store', depth: 1, kind: 'folder', size: 96, mode: 0o40700, mtime: 1763290001, role: 'stores' },
       { path: '/', depth: 1, kind: 'folder', size: 4096, mode: 0o40755, mtime: 1, role: 'machine' },
     ], next: null, has_more: false }
@@ -102,7 +102,7 @@ test('files routes: the roots, a folder page and a file window as the page reads
     assert.equal(roots.kind, 'folder')
     assert.equal(roots.path, null)
     assert.deepEqual(roots.entries.map((e) => [e.path, e.role, e.kind]), [['/layerfs/data', 'data', 'folder'], ['/layerfs/data/store', 'stores', 'folder'], ['/', 'machine', 'folder']])
-    assert.equal(roots.entries[0].free, 123456789)
+    assert.equal(roots.entries[0].free_bytes, 123456789)
     assert.deepEqual([roots.next, roots.hasMore, roots.reason, roots.stale], [null, false, null, false])
     assert.equal(typeof roots.observedAt, 'number')
 

@@ -269,3 +269,24 @@ test('the place a Files tab was left at: per machine and per Sandbox, and safe w
     assert.deepEqual(T.readFilesPlace('machine', 'private'), { view: 'whole', path: '/etc' })
   } finally { delete globalThis.localStorage }
 })
+
+test('rows of the real answers: a LayerFS folder met where it is not entered, a worker log, the Sandbox of a run folder', () => {
+  const e = (path, kind, more = {}) => ({ path, depth: 1, kind, size: null, mode: null, mtime: null, ...more })
+  // from `/`: a role makes a folder or a mount a link to its own path; among the LayerFS folders only a mount is one
+  assert.equal(F.isLinkedRole(e('/layerfs/bundle', 'folder', { role: 'bundle' }), 'whole'), true)
+  assert.equal(F.isLinkedRole(e('/layerfs/data', 'mount', { role: 'data', fs: 'ext4' }), 'whole'), true)
+  assert.equal(F.isLinkedRole(e('/layerfs/data', 'mount', { role: 'data', fs: 'ext4' }), 'layerfs'), true)
+  assert.equal(F.isLinkedRole(e('/layerfs/data/log', 'folder', { role: 'logs' }), 'layerfs'), false, 'a LayerFS folder inside another is opened in place')
+  assert.equal(F.isLinkedRole(e('/etc', 'folder'), 'whole'), false)
+  assert.equal(F.isLinkedRole(e('/mnt', 'mount', { fs: 'virtiofs' }), 'whole'), false)
+  // a Workspace, a log and `/` itself have rows or views of their own
+  assert.equal(F.isLinkedRole(e('/run/ws/1', 'mount', { role: 'workspace', workspace: 'w' }), 'whole'), false)
+  assert.equal(F.isLinkedRole(e('/layerfs/data/log/worker.log', 'file', { role: 'log' }), 'whole'), false)
+  assert.equal(F.isLinkedRole(e('/', 'folder', { role: 'machine' }), 'whole'), false)
+  assert.deepEqual(['/layerfs/data/log/worker.log', '/layerfs/data/log/worker.1.log', '/x/daemon.log', '/x/worker.log.txt', '/x/myworker.log'].map(F.isWorkerLog), [true, true, false, false, false])
+  assert.deepEqual(['layerfs-b2c56068-bd', 'lfs-0a1b2c3d-shop', 'layerfs-b2c56068-a-b', 'images', 'layerfs-xyz-bd', 'layerfs-b2c56068-'].map(F.sandboxOfRunFolder), ['bd', 'shop', 'a-b', null, null, null])
+  // the data root's free space comes as LayerFS names it
+  assert.equal(F.wholeOf([e('/layerfs/data', 'folder', { role: 'data', free_bytes: 5 }), e('/', 'folder', { role: 'machine' })]).role, 'machine')
+  assert.equal(F.wholeOf([e('/home', 'folder', { role: 'home' }), e('/', 'folder', { role: 'root' })]).role, 'root')
+  assert.equal(F.wholeOf([e('/layerfs/data', 'folder', { role: 'data' })]), undefined, 'no `/` in the roots: no second view')
+})

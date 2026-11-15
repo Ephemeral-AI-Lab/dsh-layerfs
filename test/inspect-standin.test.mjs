@@ -46,18 +46,64 @@ else { console.error(JSON.stringify({ code: 'Unsupported', message: 'no such cal
 const names = (answer) => answer.entries.map((e) => e.path)
 
 test('files: the roots answer: roles in the declared order, only roots that exist, then / when offered', () => {
-  const f = fixture({ whole: 'machine', roots: [{ role: 'data', path: '/layerfs/data', free: 5 }, { role: 'stores', path: '/layerfs/data/store' }, { role: 'image', path: '/layerfs/image' }, { role: 'workspace', path: '/ws/1', kind: 'mount', workspace: 'w1', fs: 'nfs' }] })
+  const f = fixture({ whole: 'machine', roots: [{ role: 'data', path: '/layerfs/data', free_bytes: 5, fs: 'ext4' }, { role: 'stores', path: '/layerfs/data/store' }, { role: 'image', path: '/layerfs/image' }, { role: 'workspace', path: '/ws/1', kind: 'mount', workspace: 'w1', fs: 'nfs' }] })
   try {
     f.put('layerfs/data/store/s/record.json', '{}')
     const roots = f.files().out
     assert.deepEqual([roots.kind, roots.next, roots.has_more], ['folder', null, false])
     assert.deepEqual(roots.entries.map((e) => [e.role, e.path, e.kind, e.depth]), [['data', '/layerfs/data', 'folder', 1], ['stores', '/layerfs/data/store', 'folder', 1], ['workspace', '/ws/1', 'mount', 1], ['machine', '/', 'folder', 1]], 'a root that is not there is left out; a declared mount is listed without a stat')
-    assert.equal(roots.entries[0].free, 5)
+    assert.deepEqual([roots.entries[0].free_bytes, roots.entries[0].free, roots.entries[0].fs], [5, undefined, undefined], 'the data root says what is left as `free_bytes`; a folder root is a folder in the roots, whatever it is mounted on')
+    assert.equal(typeof roots.entries[3].mode, 'number', 'a machine\'s / carries its mode')
     assert.deepEqual([roots.entries[2].workspace, roots.entries[2].fs, roots.entries[2].size], ['w1', 'nfs', null])
     f.write({ machine: { m: { root: f.root, roots: [{ role: 'stores', path: '/layerfs/data/store' }] } } })
     assert.deepEqual(f.files().out.entries.map((e) => e.path), ['/layerfs/data/store'], 'without `whole` no / is offered')
-    assert.equal(f.run(filesShim, ['machine', 'files', '--', 'other']).err.code, 'NoSuchMachine')
+    assert.equal(f.run(filesShim, ['machine', 'files', '--', 'other']).err.code, 'NotFound')
     assert.equal(f.run(filesShim, ['sandbox', 'files', '--', 'sb']).err.code, 'NoSuchSandbox')
+  } finally { f.done() }
+})
+
+test('files: a LayerFS folder met in a listing carries its role; from / it is not entered, and on its own mount it is a mount; logs are listed, not read', () => {
+  const run = '/layerfs/data/machine/native/run'
+  const f = fixture({ whole: 'machine', run_folders: [run], overlay: { '/layerfs/state/secret': { kind: 'restricted' } }, roots: [
+    { role: 'data', path: '/layerfs/data', free_bytes: 5, fs: 'ext4' }, { role: 'stores', path: '/layerfs/data/store' }, { role: 'run_folders', path: run },
+    { role: 'images', path: `${run}/images` }, { role: 'logs', path: '/layerfs/data/log' }, { role: 'state', path: '/layerfs/state' }, { role: 'bundle', path: '/layerfs/bundle' },
+  ] })
+  try {
+    f.put('layerfs/data/store/s/store.sqlite', 'db')
+    f.put('layerfs/data/store/s/open/42', '')
+    for (const n of ['worker.log', 'worker.1.log', 'other.txt']) f.put(`layerfs/data/log/${n}`, n)
+    f.put('layerfs/data/machine/native/run/rf/daemon.log', 'd')
+    f.put('layerfs/data/machine/native/run/rf/tmp/daemon.log', 'not the daemon\'s')
+    f.put('layerfs/data/machine/native/run/images/x.2.lock', '')
+    f.put('layerfs/data/machine/native/run/images/x.2.json', '{}')
+    f.put('layerfs/state/secret', 's')
+    f.put('layerfs/bundle/bundle.json', '{}')
+    const by = (answer) => Object.fromEntries(answer.entries.map((e) => [e.path, e]))
+    // from /: listed with their roles, never entered, whatever the depth; the one on a mount of its own is a mount
+    const top = by(f.files('/layerfs', '--depth', '4').out)
+    assert.deepEqual(Object.keys(top), ['/layerfs/bundle', '/layerfs/data', '/layerfs/state'])
+    assert.deepEqual([top['/layerfs/bundle'].kind, top['/layerfs/bundle'].role, top['/layerfs/bundle'].fs], ['folder', 'bundle', undefined])
+    assert.deepEqual([top['/layerfs/data'].kind, top['/layerfs/data'].fs, top['/layerfs/data'].role, top['/layerfs/data'].mode, top['/layerfs/data'].mtime], ['mount', 'ext4', 'data', null, null])
+    assert.ok(by(f.files('/', '--depth', '3').out)['/layerfs/data'] && !by(f.files('/', '--depth', '3').out)['/layerfs/data/store'], 'a deep walk from / stops at a LayerFS folder')
+    // by its own path a root is read, and the roots inside it carry their roles
+    const data = by(f.files('/layerfs/data', '--depth', '6').out)
+    assert.deepEqual(['store', 'log', 'machine/native/run', 'machine/native/run/images'].map((n) => [data[`/layerfs/data/${n}`].kind, data[`/layerfs/data/${n}`].role]), [['folder', 'stores'], ['folder', 'logs'], ['folder', 'run_folders'], ['folder', 'images']])
+    assert.equal(data['/layerfs/data/machine'].role, undefined)
+    // logs: worker.log and its rotated part in the logs root, a run folder's daemon.log; nothing else
+    assert.deepEqual(['log/worker.log', 'log/worker.1.log', 'log/other.txt', 'machine/native/run/rf/daemon.log', 'machine/native/run/rf/tmp/daemon.log'].map((n) => [data[`/layerfs/data/${n}`].kind, data[`/layerfs/data/${n}`].role]),
+      [['file', 'log'], ['file', 'log'], ['file', undefined], ['file', 'log'], ['file', undefined]])
+    for (const path of ['/layerfs/data/log/worker.log', `${run}/rf/daemon.log`]) {
+      const r = f.files(path)
+      assert.deepEqual([r.status, r.err.code], [125, 'InvalidInput'], path)
+      assert.match(r.err.message, /is a log; read it with the `logs` calls/)
+    }
+    assert.equal(f.files('/layerfs/data/log/other.txt').out.content, 'other.txt')
+    // what LayerFS keeps private: a Store's leases, lock files, the worker's secret
+    assert.deepEqual(['store/s/open', 'store/s/store.sqlite', 'machine/native/run/images/x.2.lock', 'machine/native/run/images/x.2.json'].map((n) => data[`/layerfs/data/${n}`].kind), ['restricted', 'restricted', 'restricted', 'file'])
+    assert.equal(data['/layerfs/data/store/s/open/42'], undefined, 'a restricted folder is not entered')
+    assert.equal(by(f.files('/layerfs/state').out)['/layerfs/state/secret'].kind, 'restricted')
+    // a missing path, in LayerFS's words
+    assert.deepEqual([f.files('/layerfs/data/nope').err.code, f.files('/layerfs/data/nope').err.message], ['NotFound', 'machine.files: nothing is at /layerfs/data/nope'])
   } finally { f.done() }
 })
 

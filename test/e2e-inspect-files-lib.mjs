@@ -124,8 +124,10 @@ export function baseOf(target) {
  * The stand-in's world, written once per run (idempotent): fixture trees
  * under <stand-in dir>/files and their declaration in files.json.
  * - `native`: the private home's own folders by role (stores, Sandbox records, run folders, logs); no `/`.
- * - INSPECT_WHOLE_MACHINE (docker): a fixture tree that is its `/`: LayerFS's folders under /layerfs by role,
- *   a role this page does not know, system folders, a host mount, a Workspace mount, unreadable entries.
+ * - INSPECT_WHOLE_MACHINE (docker): a fixture tree that is its `/`: LayerFS's folders under /layerfs by role, at
+ *   the paths and on the mounts a docker machine of the real build has them (machine.md `machine.files`),
+ *   system folders, a host mount, a Workspace mount, unreadable entries; and one root with a role no build
+ *   names (`cache_future`: not a real answer, kept so the page's rule for an unknown role stays checked).
  * - INSPECT_SANDBOX: the real Sandbox from its records: Workspaces, home, log; only its home is read.
  * - INSPECT_WHOLE_SANDBOX: the same, plus a fixture tree as its `/` (what a namespaces Sandbox's commands see),
  *   with its run folder and the project's Store folder at their own paths.
@@ -156,7 +158,9 @@ export function setup() {
     put(join(root, run, 'tmp/hello.txt'), 'hello from the Sandbox home\n')
     put(join(root, run, 'daemon.log'), 'daemon started\n')
     mkdirSync(join(root, run, 'workspaces/1'), { recursive: true })
-    put(join(root, 'layerfs/data/images/sha256-1f2e3d/manifest.json'), '{}\n')
+    put(join(root, 'layerfs/data/machine/native/run/images/1f2e3d.2.json'), '{}\n')
+    put(join(root, 'layerfs/data/machine/native/run/images/1f2e3d.2.lock'), '')
+    put(join(root, 'layerfs/data/store/shop/open/4242'), '')
     mkdirSync(join(root, 'layerfs/data/incoming'), { recursive: true })
     put(join(root, 'layerfs/data/log/worker.log'), 'worker listening\n')
     put(join(root, 'layerfs/data/log/worker.1.log'), 'earlier start\n')
@@ -178,16 +182,17 @@ export function setup() {
     config.machine[T.wholeMachine.name] = {
       root, whole: 'machine', o_r_outside: '/layerfs',
       roots: [
-        { role: 'data', path: '/layerfs/data', free: 48_500_000_000 }, { role: 'stores', path: '/layerfs/data/store' }, { role: 'sandbox_records', path: '/layerfs/data/sandbox' },
-        { role: 'run_folders', path: '/layerfs/data/machine/native/run' }, { role: 'images', path: '/layerfs/data/images' }, { role: 'staging', path: '/layerfs/data/incoming' },
-        { role: 'logs', path: '/layerfs/data/log' }, { role: 'state', path: '/layerfs/state' }, { role: 'bundle', path: '/layerfs/bundle' }, { role: 'image', path: '/layerfs/image' },
+        // as a docker machine answers: the data volume, the worker's tmpfs and the bundle bind are mounts of their own
+        { role: 'data', path: '/layerfs/data', free_bytes: 48_500_000_000, fs: 'ext4' }, { role: 'stores', path: '/layerfs/data/store' }, { role: 'sandbox_records', path: '/layerfs/data/sandbox' },
+        { role: 'run_folders', path: '/layerfs/data/machine/native/run' }, { role: 'images', path: '/layerfs/data/machine/native/run/images' }, { role: 'staging', path: '/layerfs/data/incoming' },
+        { role: 'logs', path: '/layerfs/data/log' }, { role: 'state', path: '/layerfs/state', fs: 'tmpfs' }, { role: 'bundle', path: '/layerfs/bundle', fs: 'fakeowner' }, { role: 'image', path: '/layerfs/image' },
         { role: 'cache_future', path: '/layerfs/cache' },
       ],
-      run_folders: ['/layerfs/data/machine/native/run'], run_folders_fs: 'fuse.layerfs',
+      run_folders: ['/layerfs/data/machine/native/run'],
       overlay: {
         '/proc': { kind: 'system' }, '/sys': { kind: 'system' }, '/dev': { kind: 'system' }, '/run': { kind: 'system' },
         '/mnt': { kind: 'mount', fs: 'virtiofs' }, '/layerfs/state/secret': { kind: 'restricted' },
-        [`${run}/workspaces/1`]: { kind: 'mount', fs: 'fuse.layerfs', workspace: 'ws-0001' },
+        [`${run}/workspaces/1`]: { kind: 'mount', workspace: 'ws-0001' },
       },
       deadline: { '/var/e2e-files/slow': 15 },
     }
@@ -211,8 +216,8 @@ export function setup() {
       const store = join(home, 'store')
       Object.assign(entry, {
         root, whole: 'root', binds: [{ at: store, from: store }],
-        // the merged build's sandbox.files has no `system` kind: what is not entered is a mount
-        overlay: { '/proc': { kind: 'mount', fs: 'proc' }, '/sys': { kind: 'mount', fs: 'sysfs' }, '/dev': { kind: 'mount', fs: 'tmpfs' } },
+        // a Sandbox's root (sandbox.md "The root"): /proc, /sys and /dev are `system`
+        overlay: { '/proc': { kind: 'system' }, '/sys': { kind: 'system' }, '/dev': { kind: 'system' } },
       })
     }
     config.sandbox[target.name] = entry
