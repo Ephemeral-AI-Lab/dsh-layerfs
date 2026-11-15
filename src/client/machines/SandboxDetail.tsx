@@ -76,9 +76,11 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   // the head: sandbox.get's answer once it is in, the list row until then (and when it never answers)
   const state = info?.state ?? listed?.state ?? 'unknown'
   const currentOp = info ? info.op ?? null : listed?.op ?? null
-  // until sandbox.get answers, the list row's `live` says whether the daemon runs (a dead one is not shown as running)
-  const look = info || !listed ? stateLook('sandbox', state) : sandboxLook(listed, (s) => stateLook('sandbox', s))
-  const liveWhy = info || !listed ? null : liveNote(listed, tw)
+  // Whether its daemon runs: what sandbox.get saw of the process (a pid with no start time has ended), else what the list saw.
+  const live = info?.daemon ? info.daemon.startedAt != null : listed?.live
+  const seen = { state, live, liveReason: listed?.liveReason }
+  const look = sandboxLook(seen, (s) => stateLook('sandbox', s))
+  const liveWhy = liveNote(seen, tw)
   const op = opWords(currentOp)
   const calls = state === 'unresolved' ? clearingCall('sandbox', name, currentOp) : null
   const project = info?.project ?? listed?.project ?? null

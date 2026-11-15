@@ -405,6 +405,24 @@ test('poller: a slow read shows the last values, a refused or lost one keeps the
   assert.deepEqual(fresh.getSnapshot().b, { stats: null, at: null, stale: { at: null, code: 'Busy', message: 'busy' }, reading: false, loaded: true })
 })
 
+test('poller: the interval counts from the end of a read: a machine that takes 15 s to refuse is asked again 10 s later, not at once', async () => {
+  const clock = fakeClock()
+  const starts = []
+  let finish
+  const poller = new S.StatsPoller((name) => new Promise((resolve) => { starts.push(clock.now()); finish = () => resolve({ machine: name, readAt: clock.now(), at: null, stats: null, stale: { at: null, code: 'Timeout', message: 'no answer in 15 s' } }) }), () => true, clock)
+  poller.watch('a', 10_000); await settle()
+  assert.equal(starts.length, 1)
+  await clock.advance(15_000)
+  assert.equal(starts.length, 1, 'one read at a time')
+  finish(); await settle()
+  assert.equal(poller.getSnapshot().a.stale.code, 'Timeout')
+  await clock.advance(9_900)
+  assert.equal(starts.length, 1, 'not again before the interval has passed since it ended')
+  await clock.advance(200)
+  assert.equal(starts.length, 2)
+  assert.equal(starts[1] - starts[0], 25_000, 'a machine that hangs costs one process per 25 s, and holds an inspect slot 15 s of them')
+})
+
 test('poller: a CLI that lost the call, or a machine that is gone, is not asked again until watched anew; refresh reads now', async () => {
   const clock = fakeClock()
   let reads = 0, code = 'Unsupported'
