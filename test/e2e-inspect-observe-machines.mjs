@@ -15,10 +15,10 @@
 //   DSH_LAYERFS_DEV_DIR=… DSH_LAYERFS_CLI=… [INSPECT_STANDIN_DIR=… | INSPECT_*_MACHINE / INSPECT_*_SANDBOX] \
 //     node test/e2e-inspect-observe-machines.mjs
 // Environment and what every row also checks: test/e2e-inspect-logs-lib.mjs, test/e2e-inspect-observe-lib.mjs.
-import { NotRun, O, SCOPE_WORDS, cli, diskOf, editor, features, gibText, jump, main, needO, observed, openBoard, setupObserve, shot, sleep, spawnMark, spawnsSince, statsDriver, statsSpawns, waitObserved } from './e2e-inspect-observe-lib.mjs'
+import { NotRun, O, SCOPE_WORDS, cfg, cli, diskOf, editor, features, gibText, jump, main, needO, observed, openBoard, openOverviewMachines, overviewDisks, setupObserve, shot, sleep, spawnMark, spawnsSince, statsDriver, statsSpawns, waitObserved } from './e2e-inspect-observe-lib.mjs'
 
 const RESOURCE_SCOPE = { host: 'of this computer', engine_host: 'of the system Docker runs on', vm: 'of this machine\'s VM' }
-const REASON = { machine_stopped: 'the machine is stopped', host_process: 'a Sandbox on this computer is a plain process with no cgroup of its own', not_observed: 'the side that runs it did not answer', memory_not_read: 'memory was not read', deadline: 'the time limit came first', no_cgroup: 'the Sandbox\'s cgroup is not there', cgroup_v1: 'the machine has no cgroup v2', not_answered: 'the machine did not say', no_pid: 'its record names no process' }
+const REASON = { machine_stopped: 'the machine is stopped', host_process: 'a Sandbox on this computer is a plain process with no cgroup of its own', not_observed: 'the side that runs it did not answer', memory_not_read: 'memory was not read', deadline: 'the time limit came first', no_cgroup: 'the Sandbox\'s cgroup is not there', cgroup_v1: 'the machine has no cgroup v2', not_answered: 'the machine did not say', no_pid: 'its record names no process', no_controller: 'this machine\'s cgroup for Sandboxes has no memory or process-count controller' }
 /** A size as machines/model.ts `bytes` writes it. */
 function bytesText(n) {
   if (n < 1000) return `${n} B`
@@ -39,9 +39,30 @@ const sandboxPage = (page) => page.evaluate(() => {
     head: head?.innerText ?? null, chipTitle: head?.querySelector('[data-tone]')?.getAttribute('title') ?? null, chipTone: head?.querySelector('[data-tone]')?.getAttribute('data-tone') ?? null, chipDashed: head?.querySelector('[data-tone]')?.hasAttribute('data-dashed') ?? false,
     process: proc?.getAttribute('data-daemon-process') ?? null, processText: proc?.textContent ?? null,
     usage: usage?.getAttribute('data-sandbox-usage') ?? null, usageReason: usage?.getAttribute('data-usage-reason') ?? null, usageText: usage?.innerText ?? null,
+    notMeasured: usage?.querySelector('[data-usage-not-measured]')?.getAttribute('data-usage-not-measured') ?? null, notMeasuredText: usage?.querySelector('[data-usage-not-measured]')?.textContent ?? null,
     cpu: usage?.querySelector('[data-usage-cpu]')?.textContent ?? null, memory: usage?.querySelector('[data-usage-memory]')?.textContent ?? null, pids: usage?.querySelector('[data-usage-pids]')?.textContent ?? null,
   }
 })
+/**
+ * The memory and process parts of a usage line against `sandbox get`: each
+ * count that was measured, as it is; counts that are null with LayerFS's
+ * reason beside them (`no_controller`) read "not measured on this machine"
+ * with the reason, and nothing reads as a zero.
+ */
+function usageParts(t, name, rec, s) {
+  const u = rec.usage, why = rec.usage_reason ? (REASON[rec.usage_reason] ?? String(rec.usage_reason).replaceAll('_', ' ')) : null
+  const noMemory = u.memory_current == null && u.memory_peak == null, noPids = u.pids == null
+  t.check((s.usageReason ?? '') === (rec.usage_reason ?? ''), `${name}: the line carries LayerFS's reason word (${JSON.stringify(rec.usage_reason ?? null)}: "${s.usageReason}")`)
+  if (why && noMemory && noPids) {
+    t.check(s.notMeasured === 'memory pids' && s.notMeasuredText.includes(`memory and process counts are not measured on this machine (${why})`) && s.memory === null && s.pids === null, `${name}: memory and process counts are not measured on this machine, with why ("${s.notMeasuredText}")`)
+  } else {
+    if (why && noMemory) t.check(s.notMeasured === 'memory' && s.notMeasuredText.includes(`memory is not measured on this machine (${why})`), `${name}: memory is not measured on this machine ("${s.notMeasuredText}")`)
+    else t.check(!!s.memory && s.memory.includes(`memory ${u.memory_current == null ? 'Not observed' : bytesText(u.memory_current)}`) && s.memory.includes(u.memory_peak == null ? 'peak Not observed' : `peak ${bytesText(u.memory_peak)}`), `${name}: memory now and at its peak ("${s.memory}")`)
+    if (why && noPids) t.check(s.notMeasured === 'pids' && s.notMeasuredText.includes(`process counts are not measured on this machine (${why})`), `${name}: process counts are not measured on this machine ("${s.notMeasuredText}")`)
+    else t.check(!!s.pids && s.pids.includes(u.pids == null ? 'processes not observed' : u.pids === 1 ? '1 process' : `${u.pids} processes`), `${name}: its process count ("${s.pids}")`)
+  }
+  t.check(!/\b0 (B|KB|MB)\b/.test(s.usageText) && !/\b0 processes\b/.test(s.usageText), `${name}: no zero stands in for a count that was not measured ("${s.usageText.replace(/\n/g, ' ')}")`)
+}
 async function waitSandbox(page, test, timeout = 20000) {
   const until = Date.now() + timeout
   let last = null
@@ -105,6 +126,26 @@ await main('e2e-inspect-observe-machines', async ({ run, page }) => {
     const asked = statsSpawns(spawnsSince(mark))
     t.check(!(O.stopped.name in asked), `no \`machine stats ${O.stopped.name}\` was started (asked: ${Object.entries(asked).map(([k, v]) => `${k} ×${v.length}`).join(', ') || 'none'})`)
     await shot(page, 'observe-board')
+    // the Overview's machine cards: the same observed disk (free of total, a meter of the used share), never the record's requested size
+    await openOverviewMachines(page)
+    let cards = null
+    for (const until = Date.now() + 30000; Date.now() < until; await sleep(200)) { cards = await overviewDisks(page); if (running.every((m) => cards[m.name]?.state === 'observed')) break }
+    for (const m of running) {
+      const st = cli('machine', 'stats', '--', m.name), r = st.resources, c = cards[m.name]
+      const said = /^(.+) free of (.+)$/.exec(c?.text ?? '')
+      const freeGib = said ? Number.parseFloat(said[1]) * (said[1].endsWith('MiB') ? 1 / 1024 : 1) : NaN
+      t.check(c?.state === 'observed' && !!said && said[2] === gibText(r.disk_total) && Math.abs(freeGib - r.disk_free / 2 ** 30) <= 0.3, `Overview card of ${m.name}: observed free of observed total ("${c?.text}"; machine stats: ${gibText(r.disk_free)} free of ${gibText(r.disk_total)})`)
+      t.check(c?.meter !== null && Math.abs(c.meter - Math.round(r.disk_used / r.disk_total * 100)) <= 1, `Overview card of ${m.name}: its meter is the observed used share (${c?.meter}% of ${Math.round(r.disk_used / r.disk_total * 100)}%)`)
+      t.check(c?.scope === (st.data_disk.scope ?? '') && (c.title ?? '').includes(SCOPE_WORDS[st.data_disk.scope] ?? st.data_disk.scope), `Overview card of ${m.name}: whose disk it is, in its tooltip ("${c?.title}")`)
+      const rec = cli('machine', 'get', '--', m.name)
+      if (rec.disk != null && gibText(rec.disk) !== gibText(r.disk_total)) t.check(!c.text.includes(gibText(rec.disk)), `Overview card of ${m.name}: the record's requested ${gibText(rec.disk)} is not what the row is measured against`)
+    }
+    const offCard = cards[O.stopped.name]
+    t.check(offCard?.state === 'not-observed' && offCard.text === 'Not observed (machine stopped)' && offCard.meter === null, `Overview card of ${O.stopped.name}: "Not observed (machine stopped)" and no meter (${JSON.stringify(offCard)})`)
+    t.check(Object.values(cards).every((c) => c && c.state !== 'record'), `no Overview card infers a disk use from a record (${Object.entries(cards).map(([k, c]) => `${k}:${c?.state}`).join(' ')})`)
+    await sleep(1200)
+    t.check(!(O.stopped.name in statsSpawns(spawnsSince(mark))), `the Overview started no \`machine stats ${O.stopped.name}\` either`)
+    await shot(page, 'observe-overview-cards')
     // its own page: the record's values stay, named as what it was created with
     const rec = cli('machine', 'get', '--', O.stopped.name)
     await jump(page, O.stopped.title)
@@ -215,8 +256,7 @@ await main('e2e-inspect-observe-machines', async ({ run, page }) => {
         withUsage++
         const u = rec.usage
         t.check(s.usage === 'observed' && /^CPU time \S/.test(s.cpu) && !s.cpu.includes('Not observed'), `${b.name}: CPU time (${u.cpu_usec} µs: "${s.cpu}")`)
-        t.check(s.memory.includes(`memory ${bytesText(u.memory_current)}`) && s.memory.includes(u.memory_peak == null ? 'peak Not observed' : `peak ${bytesText(u.memory_peak)}`), `${b.name}: memory now and at its peak ("${s.memory}")`)
-        t.check(s.pids.includes(u.pids === 1 ? '1 process' : `${u.pids} processes`), `${b.name}: its process count ("${s.pids}")`)
+        usageParts(t, b.name, rec, s)
       } else {
         withReason++
         const why = REASON[rec.usage_reason] ?? String(rec.usage_reason ?? '').replaceAll('_', ' ')
@@ -227,5 +267,20 @@ await main('e2e-inspect-observe-machines', async ({ run, page }) => {
     }
     if (!seen) throw new NotRun('no named Sandbox\'s sandbox.get has the daemon or usage field')
     t.note(`Sandboxes with usage: ${withUsage}; with a reason instead: ${withReason}`)
+    // the stand-in only: the same Sandbox with every count measured (a machine whose cgroup has the controllers)
+    if (O.up.name && cfg.standin) {
+      const before = JSON.stringify(cli('sandbox', 'get', '--', O.up.name).usage)
+      const kept = {}
+      statsDriver.declare((c) => { kept.box = c.sandboxes[O.up.name]; c.sandboxes[O.up.name] = { ...kept.box, usage: { cpu_usec: 184_000_000, memory_current: 52_428_800, memory_peak: 104_857_600, pids: 7 }, usage_reason: undefined } })
+      try {
+        const rec = cli('sandbox', 'get', '--', O.up.name)
+        await jump(page, O.dead.name ?? O.up.name)
+        await jump(page, O.up.name)
+        await editor(page).getByRole('button', { name: 'Refresh', exact: true }).first().click().catch(() => {})
+        const s = await waitSandbox(page, (x) => x.usage === 'observed' && x.memory !== null && x.pids !== null && x.notMeasured === null)
+        t.check(JSON.stringify(rec.usage) !== before && !('usage_reason' in rec), 'stand-in: the same Sandbox, now with memory and process counts measured')
+        usageParts(t, `${O.up.name} (every count measured)`, rec, s)
+      } finally { statsDriver.declare((c) => { c.sandboxes[O.up.name] = kept.box }) }
+    }
   })
 })

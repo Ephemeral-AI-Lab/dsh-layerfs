@@ -140,7 +140,8 @@ export function setupObserve() {
       },
     },
     sandboxes: {
-      [O.up.name]: { machine: O.docker.name, live: true, daemon: { pid: 4242, started_at: now - 2 * 3600_000 }, usage: { cpu_usec: 184_000_000, memory_current: 52_428_800, memory_peak: 104_857_600, pids: 7 } },
+      // as a namespaces machine of the build at 73d824ec64 answers: CPU time only, and why the rest is null
+      [O.up.name]: { machine: O.docker.name, live: true, daemon: { pid: 4242, started_at: now - 2 * 3600_000 }, usage: { cpu_usec: 184_000_000, memory_current: null, memory_peak: null, pids: null }, usage_reason: 'no_controller' },
       [O.dead.name]: { live: false, daemon: { pid: pidOf(O.dead.name) ?? 4243, started_at: null }, usage: null, usage_reason: 'host_process' },
       [O.unseen.name]: { machine: O.stopped.name, live: null, live_reason: 'machine_stopped', daemon: null, usage: null, usage_reason: 'not_observed' },
     },
@@ -231,14 +232,33 @@ export async function openHealth(page) {
   await bar(page).getByRole('button', { name: /^Health\b/ }).first().click()
   await page.getByRole('region', { name: 'Health' }).first().waitFor({ timeout: 20000 })
 }
-/** The Machines board: every machine's card. */
-export async function openBoard(page) {
+/** The Overview's Machines tab: one card per machine (storage/HomeCards.tsx). */
+export async function openOverviewMachines(page) {
   const root = bar(page).getByRole('navigation', { name: 'Location' }).getByRole('button', { name: 'Center', exact: true })
   if (await root.count()) await root.first().click()
   await editor(page).getByRole('tab', { name: /^Machines\b/ }).first().click()
+  await editor(page).locator('[data-ov-machine]').first().waitFor()
+}
+/** The Machines board: every machine's card. */
+export async function openBoard(page) {
+  await openOverviewMachines(page)
   await editor(page).getByRole('button', { name: 'Open board', exact: true }).click()
   await editor(page).getByRole('heading', { name: 'Machines', exact: true }).waitFor()
 }
+/** The disk row of every Overview machine card, by machine: `{ state, scope, text, meter (its width in percent, null without one), title }`. */
+export const overviewDisks = (page) => page.evaluate(() => {
+  const root = [...document.querySelectorAll('[data-storage-page]')].find((e) => e.offsetParent)
+  const out = {}
+  for (const card of root?.querySelectorAll('[data-ov-machine]') ?? []) {
+    const row = card.querySelector('[data-ov-disk]')
+    const meter = row?.querySelector(':scope > span:last-child > span')
+    out[card.getAttribute('data-ov-machine')] = row ? {
+      state: row.getAttribute('data-ov-disk'), scope: row.getAttribute('data-ov-disk-scope'), text: row.querySelector(':scope > span:nth-child(2)')?.textContent ?? null,
+      meter: meter && row.children.length === 3 ? Number.parseInt(meter.style.width, 10) : null, title: row.getAttribute('title'),
+    } : null
+  }
+  return out
+})
 
 /** What the open page shows of a machine's observed values (machine page, Details card and board cards). */
 export const observed = (page) => page.evaluate(() => {
