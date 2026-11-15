@@ -114,9 +114,28 @@ export interface StorageView {
   at: number
 }
 
-export interface DoctorFinding { severity: 'error' | 'warning', entity: { kind: string, name: string } | null, message: string, fix: string | null }
-/** GET /api/doctor. */
-export interface DoctorReport { ok: boolean, findings: DoctorFinding[], at: number }
+/** One thing an interrupted operation left on a machine (a doctor finding's `leftover`, layerfs-project#180). */
+export interface Leftover {
+  machine: string
+  /** `run-folder`, `empty-root`, `init-copy`, `backup-staging`, `image-tmp`, `image-part`. */
+  kind: string
+  path: string
+  /** Null when the walk's bound ended before it was measured. */
+  bytes: number | null
+  /** Seconds since it last changed. */
+  age: number | null
+  /** What `layerfs doctor fix <id>` takes. */
+  id: string
+  /** False for one LayerFS only reports. */
+  fixable: boolean
+  /** `doctor fix` is refused before this time (epoch ms). */
+  notBefore?: number
+}
+/** One machine `layerfs doctor` walked for leftovers, with what it only counts and keeps. */
+export interface LeftoverWalk { machine: string, complete: boolean, imageLocks: number, unmountMarkers: number }
+export interface DoctorFinding { severity: 'error' | 'warning', entity: { kind: string, name: string } | null, message: string, fix: string | null, leftover?: Leftover }
+/** GET /api/doctor. `leftovers` only from a CLI that has `doctor.fix`. */
+export interface DoctorReport { ok: boolean, findings: DoctorFinding[], leftovers?: LeftoverWalk[], at: number }
 
 /** GET /api/projects: one project. */
 export interface ProjectSummary {

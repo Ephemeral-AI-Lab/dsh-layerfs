@@ -35,6 +35,7 @@ import { MachinesGlyph, SandboxesGlyph, StoreGlyph } from '../machines/icons.tsx
 import { BucketGlyph } from '../storage/parts.tsx'
 import { CopyLine } from '../ui/index.tsx'
 import { FindingActions } from './FindingActions.tsx'
+import { Leftovers } from './Leftovers.tsx'
 import { findingFixes } from './fixes.ts'
 import css from './Health.module.css'
 
@@ -278,8 +279,9 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
   ]
 
   // Findings: errors first; the home sweep's, each report's and the host's own PostgreSQL facts, in LayerFS's words.
+  // A leftover (layerfs-project#180) is listed below with its size, age and command, not here, so each keeps its own row.
   const findings = [
-    ...sweepFindings.map((f) => ({ severity: f.severity, entity: f.entity ? `${f.entity.kind} · ${f.entity.name}` : null, target: f.entity ?? null, message: f.message, fix: f.fix, source: t('healthSourceSweep') as string | null })),
+    ...sweepFindings.filter((f) => !f.leftover).map((f) => ({ severity: f.severity, entity: f.entity ? `${f.entity.kind} · ${f.entity.name}` : null, target: f.entity ?? null, message: f.message, fix: f.fix, source: t('healthSourceSweep') as string | null })),
     ...done.flatMap((r) => r.cell.job!.summary!.findings.map((f) => ({ ...f, entity: `${r.row.kind} · ${r.row.label}`, target: { kind: r.row.kind, name: r.row.name }, source: 'probe' in r.item && r.item.probe.target.includes('.') ? r.item.probe.target : null }))),
     ...liveProblems.map((c) => ({ severity: 'error' as const, entity: `${c.row.kind} · ${c.row.label}`, target: { kind: c.row.kind, name: c.row.name }, message: 'problem' in c.item && c.item.problem ? c.item.problem.message : c.cell.words, fix: 'problem' in c.item && c.item.problem ? c.item.problem.fix : null, source: c.item.label })),
   ].sort((a, b) => Number(a.severity !== 'error') - Number(b.severity !== 'error'))
@@ -384,6 +386,9 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
           </ul>
         </section>
       ) : null}
+
+      {/* ---------- what interrupted operations left ---------- */}
+      {sweep.data ? <Leftovers findings={sweepFindings} walks={sweep.data.leftovers} at={sweep.data.at} now={now} t={t} ts={ts} /> : null}
 
       {/* ---------- every resource ---------- */}
       <section className={css.block} aria-label={t('healthAllTitle')}>
