@@ -33,8 +33,16 @@ const texts = (answer) => answer.lines.map((l) => l.text)
 test('tail: the last 200 lines by default, oldest first, a limit of 1 to 1000, an empty or missing log', () => {
   const f = fixture()
   try {
-    // no file: an empty log, no cursor to follow yet
-    assert.deepEqual(f.run(['logs', 'machine', '--', 'docker']).out, { lines: [], cursor: null, has_more: false })
+    // no file: an empty log with the cursor of a file that is not there (a real answer always carries one)
+    const none = { lines: [], cursor: 'c1.0.0.0.0', has_more: false }
+    assert.deepEqual(f.run(['logs', 'machine', '--', 'docker']).out, none)
+    // reading after it: nothing while there is no file, then the file from its start
+    assert.deepEqual(f.run(['logs', 'machine', '--cursor', 'c1.0.0.0.0', '--', 'docker']).out, none)
+    writeFileSync(f.log('machine', 'docker'), 'first\nsecond\n')
+    const started = f.run(['logs', 'machine', '--cursor', 'c1.0.0.0.0', '--', 'docker']).out
+    assert.deepEqual([texts(started), started.has_more, 'before' in started], [['first', 'second'], false, false])
+    assert.match(started.cursor, /^s1\.0\.13\./)
+    assert.deepEqual(texts(f.run(['logs', 'machine', '--cursor', started.cursor, '--', 'docker']).out), [])
     writeFileSync(f.log('machine', 'docker'), '')
     const empty = f.run(['logs', 'machine', '--', 'docker']).out
     assert.deepEqual([empty.lines, empty.has_more, 'before' in empty], [[], false, false])
