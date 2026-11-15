@@ -152,8 +152,9 @@ export function applyReplaced(state: LogState, view: LogView): LogState {
   const closed = state.rows.map((r) => (r.open ? { ...r, open: false } : r))
   const divider: LogRow = { id: state.nextId, kind: 'replaced', text: '' }
   const { rows, nextId } = joined(view.lines, state.nextId + 1)
-  // above the divider is another file: its `before` and marks no longer page this window's top
-  return boundTop({ ...state, rows: [...closed, divider, ...rows], cursor: view.cursor, before: null, live: true, loaded: true, stale: null, readAt: view.observedAt, marks: [], nextId })
+  // above the divider is another file: its `before` and marks no longer page this window's top,
+  // so lines that were still to be read before it cannot be read any more
+  return boundTop({ ...state, rows: [...closed, divider, ...rows], cursor: view.cursor, before: null, cutTop: state.cutTop || state.before != null, live: true, loaded: true, stale: null, readAt: view.observedAt, marks: [], nextId })
 }
 
 /**
@@ -167,6 +168,16 @@ export function applyRefused(state: LogState, view: LogView): LogState {
     return boundTop({ ...state, rows, cursor: view.cursor, before: view.before, live: true, loaded: true, stale, readAt: stale.at, nextId })
   }
   return { ...state, loaded: true, stale, readAt: state.readAt ?? stale.at }
+}
+
+/**
+ * A refused "Earlier lines" read. `InvalidInput` means the `before` cursor
+ * names a log that was rotated or replaced since: the lines before the window
+ * cannot be read any more, so the window stops offering them.
+ */
+export function applyEarlierRefused(state: LogState, view: LogView): LogState {
+  const next = applyRefused(state, view)
+  return view.stale && view.stale.code === 'InvalidInput' ? { ...next, before: null, cutTop: true, marks: [] } : next
 }
 
 /** Refusals after which polling stops: nothing the page can wait for will change them. */
