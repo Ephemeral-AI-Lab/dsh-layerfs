@@ -97,7 +97,7 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
     if (by.kind === 'session') return [t('alsoBySession', { name: by.title ?? by.sessionId.slice(0, 8) }), ...(r.session && logsT ? sessionParts(r.session, logsT) : [])].join(' · ')
     return by.kind === 'dsh' ? t('alsoByDsh') : by.kind === 'tag' ? t('alsoByTag', { tag: by.tag }) : t('alsoByOther')
   }
-  const alsoLine = (r: RunningCommand): string => t('alsoRunning', { program: r.program ?? t('alsoProgramUnknown'), age: r.started > 0 ? duration(Math.max(0, now - r.started)) : '—', who: who(r) })
+  const alsoLine = (r: RunningCommand): string => t('alsoRunning', { program: r.program ?? t('alsoProgramUnknown'), age: r.started > 0 ? duration(Math.max(1, Math.floor((now - r.started) / 1000)) * 1000) : '—', who: who(r) })
   const rows = transcript(entries, pane.clearedAt, now)
   const name = workspaceName(ws)
   const label = mountLabel(ws.path)
