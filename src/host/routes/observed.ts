@@ -103,7 +103,9 @@ export function liveOf(item: any): { live?: boolean | null, liveReason?: string 
 
 /**
  * `daemon`, `usage` and `usage_reason` of `sandbox.get`, by presence: absent
- * from a CLI before the fields; `null` when LayerFS observed none.
+ * from a CLI before the fields; `null` when LayerFS observed none. The reason
+ * comes with a null `usage`, and also beside a `usage` whose memory or
+ * process counts are null (`no_controller`).
  */
 export function processOf(record: any): {
   daemon?: { pid: number | null, startedAt: number | null } | null
@@ -118,8 +120,9 @@ export function processOf(record: any): {
   if (record && 'usage' in record) {
     const u = record.usage
     out.usage = u && typeof u === 'object' ? { cpuUsec: count(u.cpu_usec), memoryCurrent: count(u.memory_current), memoryPeak: count(u.memory_peak), pids: count(u.pids) } : null
+    // the reason there is no usage, or (`no_controller`) why a usage that is there has no memory or process counts
     const reason = text(record.usage_reason)
-    if (!out.usage && reason) out.usageReason = reason
+    if (reason) out.usageReason = reason
   }
   return out
 }

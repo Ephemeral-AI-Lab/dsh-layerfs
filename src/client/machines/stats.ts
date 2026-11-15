@@ -221,7 +221,7 @@ const REASONS: Record<string, MachinesKey> = {
   memory_not_read: 'reasonMemoryNotRead', disk_not_read: 'reasonDiskNotRead', deadline: 'reasonDeadline',
   machine_stopped: 'reasonMachineStopped', no_pid: 'reasonNoPid', record_unreadable: 'reasonRecordUnreadable', not_answered: 'reasonNotAnswered',
   unavailable: 'reasonUnavailable', busy: 'reasonBusy', invalid_input: 'reasonOlderWorker',
-  host_process: 'reasonHostProcess', cgroup_v1: 'reasonCgroupV1', no_cgroup: 'reasonNoCgroup', not_observed: 'reasonNotObserved',
+  host_process: 'reasonHostProcess', cgroup_v1: 'reasonCgroupV1', no_cgroup: 'reasonNoCgroup', not_observed: 'reasonNotObserved', no_controller: 'reasonNoController',
 }
 
 /** One of LayerFS's reason words (`deadline`, `host_process`, …) in plain words; an unknown one as it came. */

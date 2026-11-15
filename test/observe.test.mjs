@@ -218,6 +218,9 @@ test('sandbox.get: daemon, usage and usage_reason by presence', async () => {
   const ns = await get(record({ daemon: { pid: 77, started_at: null }, usage: { cpu_usec: 1234567, memory_current: 34000000, memory_peak: null, pids: 3 } }))
   assert.deepEqual(ns.daemon, { pid: 77, startedAt: null }, 'a process that has ended has no start time')
   assert.deepEqual(ns.usage, { cpuUsec: 1234567, memoryCurrent: 34000000, memoryPeak: null, pids: 3 }); assert.ok(!('usageReason' in ns))
+  // the build at 73d824ec64: a usage whose memory and process counts are null comes with the reason beside it
+  const bare = await get(record({ daemon: { pid: 7, started_at: 1794776000000 }, usage: { cpu_usec: 205364, memory_current: null, memory_peak: null, pids: null }, usage_reason: 'no_controller' }))
+  assert.deepEqual([bare.usage, bare.usageReason], [{ cpuUsec: 205364, memoryCurrent: null, memoryPeak: null, pids: null }, 'no_controller'])
   const unseen = await get(record({ daemon: null, usage: null, usage_reason: 'not_observed' }))
   assert.equal(unseen.daemon, null); assert.equal(unseen.usageReason, 'not_observed')
 })

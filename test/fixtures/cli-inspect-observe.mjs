@@ -151,7 +151,8 @@ if (family === 'sandbox' && call === 'get' && positionals[0]) {
       ...record, ...(b.machine ? { machine: b.machine } : {}),
       daemon: 'daemon' in b ? b.daemon : (record.daemon?.pid ? { pid: record.daemon.pid, started_at: record.created ?? null } : null),
       usage,
-      ...(usage ? {} : { usage_reason: b.usage_reason ?? 'host_process' }),
+      // with no usage: why; beside a usage (LayerFS 73d824ec64): `no_controller` when its memory or process counts are null
+      ...(usage ? (b.usage_reason ? { usage_reason: b.usage_reason } : {}) : { usage_reason: b.usage_reason ?? 'host_process' }),
     }
   })
 }
