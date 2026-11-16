@@ -1479,45 +1479,208 @@
 }
 .tabToolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-height: 28px;
   font-size: 13px;
 }
-.sbTable .mxName {
-  width: 22%;
-}
-.sbTable td[data-tone='warning'] {
-  color: inherit;
-}
-.sbTable tr[data-tone='warning'] .mxRowName {
-  color: var(--dsw-alias-state-warn-primary);
-}
-.sbTable tr[data-sb-closed] td {
-  color: var(--dsw-alias-label-tertiary);
-}
-.sbActionCol {
-  width: 76px;
-  text-align: end;
+.tabToolbar > button {
+  flex: none;
+  white-space: nowrap;
 }
 .sbAction {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-@container (max-width: 640px) {
-  .sbTable th:nth-child(2),
-  .sbTable td:nth-child(2) {
-    display: none;
+
+/* ---------- the Sandboxes tab: filter chips, then one card per Sandbox ---------- */
+
+.sbFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.sbFilter {
+  display: inline-flex;
+  flex: none;
+  white-space: nowrap;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0.5px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.sbFilter[aria-pressed='true'] {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-primary);
+}
+.sbFilter[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.sbFilter:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  .sbFilter:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
   }
 }
-/* the Sandboxes table has many columns: an unread figure is a dash, its reason the cell's title
-   and still read aloud (visually hidden, not removed) */
-.sbTable .mxWhy {
-  position: absolute;
-  width: 1px;
-  height: 1px;
+.sbFilterCount {
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.sbSort {
+  min-width: 120px;
+}
+.sbGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 10px;
+}
+.sbGridItem {
+  display: flex;
+  min-width: 0;
+}
+.sbCard {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+}
+.sbCard.sbCardClosed {
+  gap: 4px;
+  border-style: dashed;
+  background: transparent;
+}
+.sbCardHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 24px;
+}
+.sbCard[data-tone='warning'] .sbCardHead .mxRowName {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.sbCardSub {
+  margin: 0;
   overflow: hidden;
-  clip-path: inset(50%);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  line-height: 18px;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.sbCardImage {
+  margin: -6px 0 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sbCardImageLabel {
+  margin-inline-end: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.sbCardClosed .sbCardSub,
+.sbCardClosed .sbCardHead {
+  color: var(--dsw-alias-label-tertiary);
+}
+.sbCardGone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--dsw-radius-m, 8px);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.sbCardGone p {
+  flex: 1;
+  margin: 0;
+}
+.sbFigures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.sbFigure {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.sbFigure dt {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+.sbFigure dd {
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* an unread figure: the dash, the reason under it on one line, cut, with the whole reason as its title */
+.sbFigure .mxDash {
+  max-width: 100%;
+}
+.sbFigure .mxWhy {
+  max-width: 100%;
+  white-space: nowrap;
+}
+.sbFigure .sbMeter,
+.sbBar {
+  display: flex;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.sbBarSeg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--dsw-alias-state-business-primary);
+}
+.sbBarSeg[data-part='overlays'] {
+  opacity: 0.75;
+}
+.sbBarSeg[data-part='sandboxFiles'] {
+  opacity: 0.55;
+}
+.sbBarSeg[data-part='sandboxRuntime'] {
+  opacity: 0.35;
+}
+.sbCardNote {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+.sbCardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
 }

@@ -1,42 +1,81 @@
 /**
  * The machine page's tabs, pure (MachineTabs.tsx draws them): which tabs a
- * machine page has, the Sandboxes tab's one row per Sandbox (its record, the
- * sampler's newest values and its run folder on disk, joined by name), and
- * what the Overview's "needs you" notices count.
+ * machine page has, the Sandboxes tab's cards (each Sandbox's record, the
+ * sampler's newest values and its run folder on disk, joined by name, filtered
+ * and ordered), and what the Overview's "needs you" notices count.
  */
 import type { MachineSandbox } from './model.ts'
 import type { SandboxSpace } from './space.ts'
 
-export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'usage' | 'disk' | 'files' | 'log'
+export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'images' | 'usage' | 'disk' | 'files' | 'log'
 
-/** The tabs a machine page has, in order: Usage needs machine.stats, Disk machine.space, Files machine.files, Worker log logs.machine and a worker log. */
-export function machineTabs(has: { usage: boolean, disk: boolean, files: boolean, log: boolean }): MachineTab[] {
-  return ['overview', 'sandboxes', 'stores', ...(has.usage ? ['usage' as const] : []), ...(has.disk ? ['disk' as const] : []),
+/**
+ * The tabs a machine page has, in order: Images needs a machine that keeps
+ * Sandbox image copies (Stage 1, not macOS native), Usage machine.stats, Disk
+ * machine.space, Files machine.files, Worker log logs.machine and a worker log.
+ */
+export function machineTabs(has: { images: boolean, usage: boolean, disk: boolean, files: boolean, log: boolean }): MachineTab[] {
+  return ['overview', 'sandboxes', 'stores', ...(has.images ? ['images' as const] : []), ...(has.usage ? ['usage' as const] : []), ...(has.disk ? ['disk' as const] : []),
     ...(has.files ? ['files' as const] : []), ...(has.log ? ['log' as const] : [])]
 }
 
-/** What the Sandboxes tab needs of one sampler row (metrics.ts `sandboxTable`). */
-export interface MetricsRowLike { name: string, closedAt: number | null }
+/** What the Sandboxes tab needs of one sampler row (metrics.ts `sandboxTable`): its memory now, null when not read. */
+export interface MetricsRowLike { name: string, closedAt: number | null, memory?: number | null }
 
-/** One Sandboxes-tab row: `record` null for a Sandbox closed within the sampler's hour (only its values remain). */
-export interface SandboxTabRow<M extends MetricsRowLike> { name: string, record: MachineSandbox | null, metrics: M | null, space: SandboxSpace | null }
+/** One Sandbox card: `record` null for a Sandbox closed within the sampler's hour (only its values remain). */
+export interface SandboxCard<M extends MetricsRowLike> { name: string, record: MachineSandbox | null, metrics: M | null, space: SandboxSpace | null }
+
+/** The Sandboxes tab's filters: every recorded Sandbox, the running ones, those that need you, and those closed within the hour. */
+export type SandboxFilter = 'all' | 'running' | 'attention' | 'closed'
+export const SANDBOX_FILTERS: readonly SandboxFilter[] = ['all', 'running', 'attention', 'closed']
+
+/** The Sandboxes tab's orders: as LayerFS lists them, by name, the most disk first, the most memory first. */
+export type SandboxSort = 'listed' | 'name' | 'disk' | 'memory'
+export const SANDBOX_SORTS: readonly SandboxSort[] = ['listed', 'name', 'disk', 'memory']
+
+/** An unknown size sorts after every known one; ties by name. */
+function bySize<M extends MetricsRowLike>(size: (c: SandboxCard<M>) => number | null | undefined) {
+  return (a: SandboxCard<M>, b: SandboxCard<M>): number => {
+    const x = size(a) ?? null, y = size(b) ?? null
+    if (x == null && y == null) return a.name.localeCompare(b.name)
+    if (x == null) return 1
+    if (y == null) return -1
+    return y - x || a.name.localeCompare(b.name)
+  }
+}
 
 /**
- * The Sandboxes tab's rows: every recorded Sandbox (those that need you
- * first, then as listed), each with its sampler values and disk row, then,
- * with `showClosed`, those closed within the hour. `closed` counts them
- * either way, for the switch.
+ * The Sandboxes tab's cards for one filter and order, and how many each
+ * filter holds (for its chip). Recorded Sandboxes are joined by name with
+ * their sampler values and disk row; those that need you always come first,
+ * then the chosen order. "Closed" holds only Sandboxes the sampler saw close
+ * within its hour, the most recently closed first; the other filters hold
+ * only recorded ones.
  */
-export function sandboxTabRows<M extends MetricsRowLike>(records: readonly MachineSandbox[], metrics: readonly M[], space: readonly SandboxSpace[] | null,
-  needsYou: (b: MachineSandbox) => boolean, showClosed: boolean): { rows: SandboxTabRow<M>[], closed: number } {
+export function sandboxCards<M extends MetricsRowLike>(records: readonly MachineSandbox[], metrics: readonly M[], space: readonly SandboxSpace[] | null,
+  needsYou: (b: MachineSandbox) => boolean, filter: SandboxFilter, sort: SandboxSort): { cards: SandboxCard<M>[], counts: Record<SandboxFilter, number> } {
   const byName = new Map(metrics.map((r) => [r.name, r]))
   const disk = new Map((space ?? []).map((r) => [r.name, r]))
   const recorded = new Set(records.map((b) => b.name))
-  const ordered = [...records.filter(needsYou), ...records.filter((b) => !needsYou(b))]
-  const rows: SandboxTabRow<M>[] = ordered.map((b) => ({ name: b.name, record: b, metrics: byName.get(b.name) ?? null, space: disk.get(b.name) ?? null }))
   const closed = metrics.filter((r) => r.closedAt != null && !recorded.has(r.name))
-  if (showClosed) rows.push(...closed.map((r) => ({ name: r.name, record: null, metrics: r, space: null })))
-  return { rows, closed: closed.length }
+  const counts: Record<SandboxFilter, number> = {
+    all: records.length,
+    running: records.filter((b) => b.state === 'running').length,
+    attention: records.filter(needsYou).length,
+    closed: closed.length,
+  }
+  if (filter === 'closed') {
+    const cards = closed.map((r) => ({ name: r.name, record: null, metrics: r, space: null }))
+    return { cards: cards.sort((a, b) => (b.metrics.closedAt ?? 0) - (a.metrics.closedAt ?? 0) || a.name.localeCompare(b.name)), counts }
+  }
+  const kept = records.filter((b) => filter === 'all' || (filter === 'running' ? b.state === 'running' : needsYou(b)))
+  const cards: SandboxCard<M>[] = kept.map((b) => ({ name: b.name, record: b, metrics: byName.get(b.name) ?? null, space: disk.get(b.name) ?? null }))
+  const order = sort === 'name' ? (a: SandboxCard<M>, b: SandboxCard<M>) => a.name.localeCompare(b.name)
+    : sort === 'disk' ? bySize<M>((c) => c.space?.bytes)
+      : sort === 'memory' ? bySize<M>((c) => c.metrics?.memory)
+        : null
+  const sorted = order ? [...cards].sort(order) : cards
+  return { cards: [...sorted.filter((c) => needsYou(c.record!)), ...sorted.filter((c) => !needsYou(c.record!))], counts }
 }
 
 /**
