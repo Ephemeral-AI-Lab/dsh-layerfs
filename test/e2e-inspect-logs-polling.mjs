@@ -28,7 +28,13 @@ await main('e2e-inspect-logs-polling', async ({ run, page }) => {
     let mark = spawnMark()
     await sleep(WINDOW_MS)
     const base = spawnsSince(mark)
-    t.check(base.inspect.length === 0, `no inspection process while the log tab is closed (${base.inspect.length})`)
+    // a machine page also asks `machine stats` every 10 s on every tab (layerfs-project#164, row R1): those reads are
+    // counted on their own, not in the log tab's budget
+    const isStats = (s) => s.argv[0] === 'machine' && s.argv[1] === 'stats'
+    const statsMost = Math.ceil(WINDOW_MS / 10000) + 1
+    const baseStats = base.inspect.filter(isStats).length
+    t.check(base.inspect.length - baseStats === 0, `no log or files read while the log tab is closed (${base.inspect.length - baseStats})`)
+    t.check(baseStats <= statsMost, `\`machine stats\` reads while the log tab is closed: ${baseStats} (at most ${statsMost}: one per 10 s on a machine page, none on a Sandbox page)`)
     t.note(`baseline, ${WINDOW_MS / 1000} s on "${target.other}": other reads ${tally(base.others)}`)
 
     // the log tab, with a new line every second
@@ -39,10 +45,12 @@ await main('e2e-inspect-logs-polling', async ({ run, page }) => {
     let seq = 50
     for (const until = Date.now() + WINDOW_MS; Date.now() < until;) { driver.append(target.kind, target.name, seq++, 1, tag); await sleep(1000) }
     const live = spawnsSince(mark)
-    t.check(live.inspect.length <= 15, `${live.inspect.length} inspection processes in ${WINDOW_MS / 1000} s on the log tab with a line written every second (at most 15)`)
-    t.check(live.inspect.length >= 5, `the tab did poll (${live.inspect.length} reads)`)
-    t.check(live.inspect.every((s) => s.argv.includes('--cursor')), 'every poll reads by --cursor')
-    t.note(`log tab, ${WINDOW_MS / 1000} s with a line written every second: ${live.inspect.length} inspection processes, all by --cursor; other reads ${tally(live.others)}`)
+    const liveStats = live.inspect.filter(isStats).length, logReads = live.inspect.filter((s) => !isStats(s))
+    t.check(logReads.length <= 15, `${logReads.length} log reads in ${WINDOW_MS / 1000} s on the log tab with a line written every second (at most 15)`)
+    t.check(logReads.length >= 5, `the tab did poll (${logReads.length} reads)`)
+    t.check(logReads.every((s) => s.argv[0] === 'logs' && s.argv.includes('--cursor')), 'every poll is a log read by --cursor')
+    t.check(liveStats <= statsMost && liveStats <= baseStats + 1, `\`machine stats\` is not read more often on the log tab (${liveStats} against ${baseStats} in the baseline)`)
+    t.note(`log tab, ${WINDOW_MS / 1000} s with a line written every second: ${logReads.length} log reads, all by --cursor, and ${liveStats} \`machine stats\` reads of the page (${live.inspect.length} inspection processes in all); other reads ${tally(live.others)}`)
     // the same page in the same time: a read the log tab made more often (its kept answer dropped) shows as a higher count.
     // One more of a kind is the phase of that read's own timer between two 30 s windows, not the log tab.
     for (const [name, n] of Object.entries(live.others)) t.check(n <= (base.others[name] ?? 0) + 1, `\`${name}\` is not read more often on the log tab (${n} against ${base.others[name] ?? 0} in the baseline)`)

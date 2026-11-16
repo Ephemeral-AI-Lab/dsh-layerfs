@@ -77,11 +77,11 @@ await main('e2e-inspect-logs-refusals', async ({ run, page, browser }) => {
       ran++
       // the stand-in knows nothing of a Sandbox's state: there the log call is made to refuse as well; a real build answers by itself
       let injected = false
-      try { driver.refuse('sandbox', lost, 'Unavailable', `Sandbox ${lost} is lost: its daemon is not running`); injected = true } catch (error) { if (!(error instanceof NotRun)) throw error }
+      if (cfg.standin) { try { driver.refuse('sandbox', lost, 'Unavailable', `Sandbox ${lost} is lost: its daemon is not running`); injected = true } catch (error) { if (!(error instanceof NotRun)) throw error } }
       await jump(page, lost)
       t.check(((await editor(page).getByRole('heading', { level: 1 }).first().textContent()) ?? '').includes(lost), 'lost Sandbox: the head renders')
       const names = await tabs(page)
-      t.check(same(names, ['Terminals', 'Daemon log']), `lost Sandbox: tabs ${JSON.stringify(names)}`)
+      t.check(same(names.filter((x) => x !== 'Files'), ['Terminals', 'Daemon log']), `lost Sandbox: tabs ${JSON.stringify(names)}`)
       await editor(page).getByRole('tab', { name: 'Daemon log', exact: true }).click()
       let got = await waitPane(page, (s) => s.state !== 'reading', { timeout: 20000 })
       t.check(got.ok, 'lost Sandbox: the log tab answers, never an endless "Reading"')

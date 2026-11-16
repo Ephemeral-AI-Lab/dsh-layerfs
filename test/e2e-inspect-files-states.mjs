@@ -83,7 +83,10 @@ await main('e2e-inspect-files-states', async ({ run, page }) => {
       await inert(t, page, `${records.path}/${T.sandbox.name}/control.json`, 'restricted', /Kept private by LayerFS/)
     } else t.note('no Sandbox records root (or no INSPECT_SANDBOX): control.json was not checked')
     if (stores) {
-      const inside = (await listing(page, m, stores.path)).body.entries.find((e) => e.kind === 'folder')
+      // a home also keeps the records of Stores that live on other machines: take a Store folder that holds its database
+      const folders = (await listing(page, m, stores.path)).body.entries.filter((e) => e.kind === 'folder')
+      let inside = folders[0]
+      for (const f of folders) { const got = (await listing(page, m, f.path)).body; if (got.kind === 'folder' && got.entries.some((e) => /store\.sqlite$/.test(e.path))) { inside = f; break } }
       if (inside) {
         await goPath(page, inside.path)
         const s = await filesState(page)
@@ -252,7 +255,8 @@ await main('e2e-inspect-files-states', async ({ run, page }) => {
     await waitFiles(page, (s) => /deep file/.test(s.viewer ?? ''))
     await files(page).getByRole('button', { name: 'Refresh', exact: true }).click()
     await sleep(1200)
-    if (T.machine.name) { await openFiles(page, T.machine); const s = await filesState(page); if (s.rows[0]) await toggle(page, s.rows[0].key) }
+    // the machine's tab opens in the view and place it was left at: open the first row that is a folder (in `/` the first row can be a link)
+    if (T.machine.name) { await openFiles(page, T.machine); const s = await filesState(page); const first = s.rows.find((r) => r.kind === 'folder' && !r.disabled && !r.more); if (first) await toggle(page, first.key) }
     const added = callLines().slice(before).map((l) => { try { return JSON.parse(l) } catch { return {} } })
     const fromFiles = added.filter((l) => Array.isArray(l.argv) && l.argv[1] === 'files')
     t.check(fromFiles.length === 0, `no call-log line from a files read (${added.length} new lines, ${fromFiles.length} from files)`)

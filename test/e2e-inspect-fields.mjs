@@ -63,7 +63,10 @@ await main('e2e-inspect-fields', async ({ run, page }) => {
     await terminals(page, sb)
     const info = await get(page, sb.name)
     if (!info.workspaces.some((w) => 'running' in w)) throw new NotRun('this CLI\'s sandbox.get has no running (a build before the fields)')
-    const ws = info.workspaces[1] ?? info.workspaces[0]
+    // a Workspace whose pane is on the first page of Terminals (sandbox.get's order is not the page's: the second, else any shown)
+    let ws = null
+    for (const w of [info.workspaces[1], ...info.workspaces].filter(Boolean)) { if (await paneOf(page, w.name).locator('input[data-term-input]').count()) { ws = w; break } }
+    if (!ws) throw new Error(`no Workspace of ${sb.name} has a pane on the Terminals tab (${info.workspaces.map((w) => w.name).join(', ')})`)
     const pane = paneOf(page, ws.name)
     const also = pane.locator('[data-also-running]')
     t.check((await also.count()) === 0, `${ws.name}: no "also running" line before`)
