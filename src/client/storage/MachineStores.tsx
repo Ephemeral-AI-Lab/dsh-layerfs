@@ -8,25 +8,26 @@
  *
  * Both kinds draw the same card, split by the Store's projects:
  *
- *   head      name (opens the Store) · size and its backups badge (SQLite),
- *             or the last check's version and time (PostgreSQL) · ⋯
- *   sub       where it is · the newest Commit of any project
- *   bar       each project's packed bytes; a SQLite bar ends with the part of
- *             the file no project accounts for
- *   rows      up to three projects (the LayerFS mark): bytes, with the bar's
- *             color, and newest Commit (opens it)
- *   foot      its state (idle, in use, reachable…) · text actions
+ *   head      name (opens the Store) · ⋯
+ *   figure    one large figure: the file's size (SQLite), else the projects'
+ *             packed bytes, else their count (PostgreSQL); small words beside
+ *             it (projects, last write; or version and the server dialled)
+ *   rows      up to three projects (the LayerFS mark), each with its bytes and
+ *             its own bar: its share of the file, or of the projects
+ *   status    only when something is happening: a transfer, in use, down
+ *   foot      the backups badge (SQLite) or the last check (PostgreSQL) on
+ *             the left; one action on the right (PostgreSQL: and a ⋯ with
+ *             the other of Check again and Edit; the head's ⋯ has the rest)
  *
  * The backups badge counts the Store's bucket copies, marks their providers
- * and dots the worst state; it opens Backups (BackupDialogs.tsx). A transfer
- * this host runs replaces the foot with its progress.
+ * and dots the worst state; it opens Backups (BackupDialogs.tsx).
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Card, LinkButton } from '../ui/index.tsx'
+import { Card, LinkButton, MoreMenu } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { BucketMark } from './BucketPage.tsx'
@@ -164,38 +165,46 @@ function useSplit(api: LayerfsApi, s: StoreRow, total: number | null): ProjectSp
   return q.data ? projectSplit(q.data.projects, total) : null
 }
 
-function Head({ s, on, t, machine, onOpenStore, children }: { s: StoreRow, on: StoreActions, t: StorageT, machine?: string, onOpenStore: (name: string) => void, children: ReactNode }): ReactNode {
+function Head({ s, on, t, machine, onOpenStore }: { s: StoreRow, on: StoreActions, t: StorageT, machine?: string, onOpenStore: (name: string) => void }): ReactNode {
   return (
     <div className={css.head}>
-      <span className={css.glyph}><StoreGlyph kind={s.kind} size={15} /></span>
+      <span className={css.glyph}><StoreGlyph kind={s.kind} size={18} /></span>
       <LinkButton className={css.name} onClick={() => onOpenStore(s.name)} title={s.name}>{s.name}</LinkButton>
-      {children}
       <StoreMenu store={s} on={on} t={t} machine={machine} />
     </div>
   )
 }
 
-/** The bar and up to three rows: each project's packed bytes and newest Commit. */
+/** The card's one large figure and the small words beside it. */
+function Figure({ big, meta, title }: { big: ReactNode, meta: string, title?: string | undefined }): ReactNode {
+  return (
+    <div className={css.figure} title={title}>
+      <span className={css.big}>{big}</span>
+      {meta ? <span className={css.meta}>{meta}</span> : null}
+    </div>
+  )
+}
+
+const projectsWords = (n: number, t: StorageT) => (n === 1 ? t('msProjectOne') : t('msProjectCount', { n }))
+
+/** Up to three projects, each with its packed bytes and its own bar: its share of the file (SQLite) or of the projects (PostgreSQL). */
 function Projects({ s, split, t, now, onOpenProject, onOpenStore }: { s: StoreRow, split: ProjectSplit | null, t: StorageT, now: number, onOpenProject: (key: string) => void, onOpenStore: (name: string) => void }): ReactNode {
   const tt = t as Translate
   if (!s.projects.length) return <p className={css.none}>{t('msNoProjects')}</p>
   const rows = split?.rows ?? [...s.projects].sort().map((name) => ({ name, bytes: null, share: 0, hue: 0, at: null, counting: true, error: null }))
   return (
     <>
-      <div className={css.bar} role="img" aria-label={rows.filter((r) => r.share > 0).map((r) => `${r.name} ${bytes(r.bytes ?? 0)}`).join(', ') || t('colProjects')}>
-        {rows.filter((r) => r.share > 0).map((r) => <span key={r.name} data-hue={r.hue} style={{ flex: r.share }} title={`${r.name} · ${bytes(r.bytes ?? 0)}`} />)}
-        {split && split.rest > 0 ? <span className={css.barRest} style={{ flex: split.rest }} title={t('msBarRest')} /> : null}
-      </div>
       <ul className={css.projects}>
         {rows.slice(0, ROWS).map((r) => (
           <li key={r.name}>
-            <button type="button" className={css.project} onClick={() => onOpenProject(`${s.name}/${r.name}`)} title={t('msOpenProject', { project: r.name })}>
-              <span className={css.projectIcon}><LayerfsGlyph size={14} /></span>
+            <button type="button" className={css.project} onClick={() => onOpenProject(`${s.name}/${r.name}`)}
+              title={[t('msOpenProject', { project: r.name }), r.at ? t('msLastWrite', { when: ago(r.at, now, tt) }) : null].filter(Boolean).join(' · ')}>
+              <span className={css.projectIcon}><LayerfsGlyph size={16} /></span>
               <span className={css.projectName}>{r.name}</span>
               <span className={css.projectMeta}>
-                {r.share > 0 ? <span className={css.swatch} data-hue={r.hue} aria-hidden="true" /> : null}
-                {r.bytes === null ? (r.counting ? t('spReading') : <span title={r.error ?? t('msNotCounted')}>—</span>) : r.at === null ? t('spNoCommits') : `${bytes(r.bytes)} · ${ago(r.at, now, tt)}`}
+                {r.bytes === null ? (r.counting ? t('spReading') : <span title={r.error ?? t('msNotCounted')}>—</span>) : r.at === null ? t('spNoCommits') : bytes(r.bytes)}
               </span>
+              <span className={css.track} aria-hidden="true"><span style={{ width: `${Math.round(r.share * 1000) / 10}%` }} /></span>
             </button>
           </li>
         ))}
@@ -214,24 +223,25 @@ function BackupsBadge({ s, view, t, onBackups, onBackup }: { s: StoreRow, view: 
   const providers = backupProviders(backups)
   return (
     <button type="button" className={css.badge} onClick={onBackups} aria-label={`${t('msBackupsOpen', { store: s.name, n: backups.length })}. ${t('bkHealth', n)}`} title={t('bkHealth', n)}>
-      <span className={css.marks}>{providers.slice(0, 3).map((p) => <span key={p ?? '?'} className={css.mark}><BucketMark provider={p} size={12} /></span>)}</span>
-      {backups.length}
+      <span className={css.marks}>{providers.slice(0, 3).map((p) => <span key={p ?? '?'} className={css.mark}><BucketMark provider={p} size={13} /></span>)}</span>
+      {backups.length === 1 ? t('msBackupOne') : t('msBackupCount', { n: backups.length })}
       <span className={css.dot} data-health={worst} />
     </button>
   )
 }
 
-/** Text actions, separated by dots. */
-function Actions({ items }: { items: ({ label: string, run: () => void, disabled?: boolean } | null)[] }): ReactNode {
-  const shown = items.filter((x): x is NonNullable<typeof x> => !!x)
+interface Act { label: string, run: () => void, disabled?: boolean }
+
+/** The foot's actions: one button, the rest in a ⋯ menu. */
+function FootActions({ main, rest, label }: { main: Act, rest: Act[], label: string }): ReactNode {
   return (
-    <span className={css.textActions}>
-      {shown.map((a, i) => (
-        <span key={a.label} className={css.textActionItem}>
-          {i ? <span aria-hidden="true">·</span> : null}
-          <button type="button" className={css.textAction} disabled={a.disabled} onClick={a.run}>{a.label}</button>
-        </span>
-      ))}
+    <span className={css.footActions}>
+      <Button size="sm" variant="outline" disabled={main.disabled} onClick={main.run}>{main.label}</Button>
+      {rest.length ? (
+        <MoreMenu label={label}>
+          {(close) => rest.map((a) => <MenuItemButton key={a.label} disabled={a.disabled} onSelect={() => { close(); a.run() }}>{a.label}</MenuItemButton>)}
+        </MoreMenu>
+      ) : null}
     </span>
   )
 }
@@ -241,28 +251,28 @@ function SqliteCard({ s, api, t, view, jobs, dismissed, now, actionsFor, onOpenS
   const job = cardJob(jobs, s.name, dismissed, now)
   const split = useSplit(api, s, s.size?.bytes ?? null)
   const busy = s.state === 'busy' || s.state === 'down' || !!job && !job.ended
-  const place = s.machine === 'native' ? t('layerfsHome') : s.machine ?? '?'
-  const state = s.down ? <span className={css.danger} title={s.down}>{s.down}</span>
-    : s.state === 'in_use' ? <span className={css.warning}>{s.holders > 0 ? t('msInUseHolders', { n: s.holders }) : t('msInUse')}</span>
-      : s.state === 'unresolved' ? <span className={css.warning}>{t('unresolved')}</span>
-        : <span>{t('msIdle')}</span>
+  const running = !!job && !job.ended
+  // Shown only when something is happening: idle says nothing.
+  const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
+    : s.op ? <OpPanel store={s} t={t} />
+      : s.down ? <p className={css.status} data-tone="danger" title={s.down}>{s.down}</p>
+        : s.state === 'in_use' ? <p className={css.status} data-tone="warning">{s.holders > 0 ? t('msInUseHolders', { n: s.holders }) : t('msInUse')}</p>
+          : s.state === 'unresolved' ? <p className={css.status} data-tone="warning">{t('unresolved')}</p>
+            : null
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">
-      <Head s={s} on={on} t={t} onOpenStore={onOpenStore}>
-        <span className={css.size} title={s.size ? `${bytes(s.size.file)} + WAL ${bytes(s.size.wal)}` : undefined}>{s.size ? bytes(s.size.bytes) : t('sizeUnavailable')}</span>
-        <BackupsBadge s={s} view={view} t={t} onBackups={() => onBackups(s.name)} onBackup={on.backup} />
-      </Head>
-      <span className={css.sub}>{[t('msOn', { place }), split?.lastWrite ? t('msLastWrite', { when: ago(split.lastWrite, now, t as Translate) }) : null].filter(Boolean).join(' · ')}</span>
+      <Head s={s} on={on} t={t} onOpenStore={onOpenStore} />
+      <Figure big={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} title={s.size ? `${bytes(s.size.file)} + WAL ${bytes(s.size.wal)}` : undefined}
+        meta={[projectsWords(s.projects.length, t), split?.lastWrite ? t('msLastWrite', { when: ago(split.lastWrite, now, t as Translate) }) : null].filter(Boolean).join(' · ')} />
       <Projects s={s} split={split} t={t} now={now} onOpenProject={onOpenProject} onOpenStore={onOpenStore} />
-      {job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} /> : s.op ? <OpPanel store={s} t={t} /> : null}
-      {job && !job.ended ? null : (
-        <div className={css.foot}>
-          <span className={css.state}>{state}</span>
-          <Actions items={s.machine === 'native'
-            ? [{ label: t('pushTo'), run: on.push, disabled: s.state !== 'idle' }, { label: t('msBackUp'), run: on.backup, disabled: s.state === 'down' || s.state === 'busy' }]
-            : [{ label: t('msPull'), run: on.pull, disabled: busy }, { label: t('msMoveTo'), run: on.move, disabled: busy }, { label: t('msBackUp'), run: on.backup, disabled: s.state === 'down' || s.state === 'busy' }]} />
-        </div>
-      )}
+      {status}
+      <div className={css.foot}>
+        <BackupsBadge s={s} view={view} t={t} onBackups={() => onBackups(s.name)} onBackup={on.backup} />
+        {/* the head's ⋯ holds Move, Back up and Remove */}
+        {running ? null : s.machine === 'native'
+          ? <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('pushTo'), run: on.push, disabled: s.state !== 'idle' }} rest={[]} />
+          : <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('msPull'), run: on.pull, disabled: busy }} rest={[]} />}
+      </div>
     </Card>
   )
 }
@@ -300,25 +310,24 @@ function PgCard({ s, a, api, machine, t, view, now, actionsFor, onOpenStore, onO
   const target = a.own && a.target ? a.target : s.postgresql?.target ?? null
   const server = dialedServer(s, a, view.machines.find((m) => m.name === machine)?.platform)
   const checked = a.checked
+  const counted = split?.rows.filter((r) => r.bytes !== null) ?? []
+  const total = counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null
+  const version = checked?.version ? t('msPgShort', { version: checked.version.split(' ')[0]! }) : null
+  const edit: Act = { label: t('msEditConnection'), run: () => on.attach(machine, a) }
+  const recheck: Act = { label: t('msCheckAgain'), run: () => on.recheck(a) }
   return (
     <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={failed ? 'danger' : undefined}>
-      <Head s={s} on={on} t={t} machine={machine} onOpenStore={onOpenStore}>
-        {failed
-          ? <span className={css.check} data-state="failed" title={`${a.lastError!.code}: ${a.lastError!.message}`}>{failWords(a.lastError!, t)}<span className={css.dot} data-health="problem" /></span>
-          : checked
-            ? <span className={css.check} title={checked.version ?? undefined}>{t('msCheckOk', { latency: checked.latencyMs ?? '—', version: (checked.version ?? '?').split(' ')[0]! })}<span className={css.dot} data-health="current" /></span>
-            : <span className={css.check}>{t('msNotCheckedShort')}<span className={css.dot} data-health="unknown" /></span>}
-      </Head>
-      <span className={css.sub} title={target ?? undefined}>{[server ? t('msOn', { place: server }) : null, split?.lastWrite ? t('msLastWrite', { when: ago(split.lastWrite, now, tt) }) : null].filter(Boolean).join(' · ') || t('postgresql')}</span>
+      <Head s={s} on={on} t={t} machine={machine} onOpenStore={onOpenStore} />
+      <Figure big={total !== null ? bytes(total) : projectsWords(s.projects.length, t)} title={target ?? undefined}
+        meta={[total !== null ? projectsWords(s.projects.length, t) : null, version, server].filter(Boolean).join(' · ')} />
       <Projects s={s} split={split} t={t} now={now} onOpenProject={onOpenProject} onOpenStore={onOpenStore} />
       <div className={css.foot}>
-        <span className={css.state} title={failed ? when(a.lastError!.at) : checked?.at ? when(checked.at) : undefined}>
-          {failed ? <span className={css.danger}>{t('msNotReached', { when: ago(a.lastError!.at, now, tt) })}</span>
-            : checked ? t('msReachableAt', { when: checked.at ? ago(checked.at, now, tt) : '—' }) : t('msNotCheckedShort')}
-        </span>
-        <Actions items={failed
-          ? [{ label: t('msEdit'), run: () => on.attach(machine, a) }, { label: t('msCheckAgain'), run: () => on.recheck(a) }]
-          : [{ label: t('msCheckAgain'), run: () => on.recheck(a) }, { label: t('msEdit'), run: () => on.attach(machine, a) }]} />
+        {failed
+          ? <span className={css.check} data-state="failed" title={`${a.lastError!.code}: ${a.lastError!.message} · ${when(a.lastError!.at)}`}><span className={css.dot} data-health="problem" />{failWords(a.lastError!, t)} · {ago(a.lastError!.at, now, tt)}</span>
+          : checked
+            ? <span className={css.check} title={[checked.version, checked.at ? when(checked.at) : null].filter(Boolean).join(' · ')}><span className={css.dot} data-health="current" />{t('msReachableMs', { latency: checked.latencyMs ?? '—' })}</span>
+            : <span className={css.check}><span className={css.dot} data-health="unknown" />{t('msNotCheckedShort')}</span>}
+        <FootActions label={t('msMoreActions', { name: s.name })} main={failed ? edit : recheck} rest={[failed ? recheck : edit]} />
       </div>
     </Card>
   )
