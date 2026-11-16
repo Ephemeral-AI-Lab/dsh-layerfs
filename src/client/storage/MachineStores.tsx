@@ -167,7 +167,7 @@ function useSplit(api: LayerfsApi, s: StoreRow, total: number | null): ProjectSp
 function Head({ s, on, t, machine, onOpenStore, children }: { s: StoreRow, on: StoreActions, t: StorageT, machine?: string, onOpenStore: (name: string) => void, children: ReactNode }): ReactNode {
   return (
     <div className={css.head}>
-      <StoreGlyph kind={s.kind} size={15} />
+      <span className={css.glyph}><StoreGlyph kind={s.kind} size={15} /></span>
       <LinkButton className={css.name} onClick={() => onOpenStore(s.name)} title={s.name}>{s.name}</LinkButton>
       {children}
       <StoreMenu store={s} on={on} t={t} machine={machine} />
@@ -208,7 +208,7 @@ function Projects({ s, split, t, now, onOpenProject, onOpenStore }: { s: StoreRo
 /** The backups badge: provider marks, the count and the worst state's dot; "No backup" when there is none. */
 function BackupsBadge({ s, view, t, onBackups, onBackup }: { s: StoreRow, view: StorageView, t: StorageT, onBackups: () => void, onBackup: () => void }): ReactNode {
   const backups = storeBackups(s, view.buckets)
-  if (!backups.length) return <button type="button" className={css.badge} data-none onClick={onBackup}>{t('noBackup')}</button>
+  if (!backups.length) return <button type="button" className={css.badge} data-none onClick={onBackup} title={t('noBackup')}>{t('msNoBackup')}</button>
   const n = backupCounts(backups)
   const worst = n.problem ? 'problem' : n.stale ? 'stale' : n.unknown ? 'unknown' : 'current'
   const providers = backupProviders(backups)
