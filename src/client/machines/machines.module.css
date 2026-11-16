@@ -1549,7 +1549,7 @@
 
 .ovTiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: 12px;
 }
 
@@ -1626,6 +1626,37 @@
   border-radius: 999px;
 }
 
+.ovSparkBox {
+  position: relative;
+  margin-top: 4px;
+}
+
+/* the chart's top as a figure ("5 %"), on its faint top line */
+.ovSparkMax {
+  position: absolute;
+  top: -8px;
+  right: 0;
+  padding-left: 4px;
+  background: var(--dsw-alias-settings-card-fill);
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ovSparkTop {
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 1px;
+  stroke-dasharray: 2 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.ovUnit {
+  margin-left: -4px;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .ovSpark {
   display: block;
   width: 100%;
@@ -1689,7 +1720,7 @@
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
 }
 
 @container (max-width: 760px) {
@@ -1707,6 +1738,16 @@
 
 .ovDetails {
   padding: 12px 16px 6px;
+}
+
+/* its buttons keep their words on one line; in a narrow card they move under the title */
+.ovDetails > header {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.ovDetails > header button {
+  white-space: nowrap;
 }
 
 /* the facts list, compact: one short ruled line each */
