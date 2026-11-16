@@ -138,10 +138,21 @@ export function runningByProject(store: string, sandboxes: readonly { project: s
   return counts
 }
 
-/** The sum of the projects' Commits, and whether every ledger has finished its first read. */
-export function commitTotal(projects: readonly StoreProject[]): { commits: number, complete: boolean } {
-  return { commits: projects.reduce((a, p) => a + (p.totals?.saves ?? 0), 0), complete: projects.every((p) => !p.partial && p.totals !== null) }
+/**
+ * The sum of the projects' Commits, whether every ledger has finished its
+ * first read, and the first refusal of a ledger that has nothing counted
+ * (its Store cannot be read: no total is coming).
+ */
+export function commitTotal(projects: readonly StoreProject[]): { commits: number, complete: boolean, refused: string | null } {
+  return {
+    commits: projects.reduce((a, p) => a + (p.totals?.saves ?? 0), 0),
+    complete: projects.every((p) => !p.partial && p.totals !== null),
+    refused: projects.find((p) => p.error && p.totals === null)?.error?.message ?? null,
+  }
 }
+
+/** Whether a ledger is still being read (and the answer worth asking again): partial or building, not refused. */
+export const stillCounting = (p: StoreProject): boolean => (p.partial || p.building !== null) && !(p.error && !p.building)
 
 /** main's file count as a figure: "1,234", "10,000+" past the read budget, or null when unknown. */
 export function filesNumber(files: StoreProject['files']): string | null {

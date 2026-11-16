@@ -23,7 +23,7 @@ import { Location, StoreMenu, storeNotice, type StoreActions } from './StoreCard
 import { StoreBackups, StoreConnections } from './StoreLinks.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
-import { runningByProject, storeTabs, type StoreProjectsView, type StoreStats, type StoreTab } from './store-page.ts'
+import { runningByProject, stillCounting, storeTabs, type StoreProjectsView, type StoreStats, type StoreTab } from './store-page.ts'
 import type { ProjectSummary, StorageJob, StorageView } from './types.ts'
 import css from './Storage.module.css'
 import tabCss from './StorePage.module.css'
@@ -54,7 +54,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
   const [tick, setTick] = useState(0)
   useHostEvents(api, ['storage', 'storage-job', 'layerfs-workspaces-changed'], () => setTick((n) => n + 1), { coalesceMs: 2000 })
   const projects = useQuery(() => api.call<StoreProjectsView>('GET', `/api/stores/${enc(name)}/projects`), [api, name], { refresh: [tick, s?.projects.length], cache: `store-projects:${name}` })
-  const counting = projects.data?.projects.some((p) => p.partial || p.building) ?? false
+  const counting = projects.data?.projects.some(stillCounting) ?? false
   useEffect(() => {
     if (!counting) return
     const timer = setTimeout(projects.reload, COUNTING_POLL_MS)
@@ -114,7 +114,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
         ) : tab === 'connections' ? (
           <StoreConnections store={s} view={view} t={t} now={now} on={on} />
         ) : (
-          <StoreOverview store={s} view={view} t={t} api={api} now={now} stats={stats.data} projects={projects.data?.projects} running={running}
+          <StoreOverview store={s} view={view} t={t} api={api} now={now} stats={stats.data} statsError={stats.error} projects={projects.data?.projects} running={running}
             machineState={machineState} onTab={setTab} onRemove={pg ? on.disconnect : on.remove} />
         )}
       </div>

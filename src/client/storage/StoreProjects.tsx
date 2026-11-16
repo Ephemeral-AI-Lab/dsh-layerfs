@@ -44,7 +44,7 @@ export function StoreProjects({ store, names, projects, stored, running, t, now,
       <div className={css.toolbar}>
         <span className={css.muted}>
           {t(rows.length === 1 ? 'spProjectOne' : 'spProjects', { n: String(rows.length) })}
-          {projects ? ` · ${t(commits.complete ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() })}` : ''}
+          {projects ? ` · ${commits.refused && !commits.commits ? t('spCommitsUnread') : t(commits.complete || commits.refused ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() })}` : ''}
           {sandboxes ? ` · ${t('spRunningN', { n: String(sandboxes) })}` : ''}
         </span>
         <span className={css.spacer} />
