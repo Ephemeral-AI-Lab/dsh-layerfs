@@ -68,3 +68,17 @@ test('the Overview peak and Sandbox memory count read values only', () => {
   assert.equal(T.sandboxMemory([row(null)]), null)
   assert.equal(T.sandboxMemory([]), null)
 })
+
+test('the Overview processor figure shows small shares exactly and scales its chart to the peak', () => {
+  assert.equal(T.cpuShare(0), '0')
+  assert.equal(T.cpuShare(0.0004), '<0.1')
+  assert.equal(T.cpuShare(0.004), '0.4')
+  assert.equal(T.cpuShare(0.0961), '9.6')
+  assert.equal(T.cpuShare(0.234), '23')
+  assert.equal(T.cpuShare(1.2), '100')
+  assert.equal(T.cpuScale(null), 0.01)
+  assert.equal(T.cpuScale(0.004), 0.01)
+  assert.equal(T.cpuScale(0.03), 0.05)
+  assert.equal(T.cpuScale(0.5), 0.5)
+  assert.equal(T.cpuScale(0.73), 1)
+})

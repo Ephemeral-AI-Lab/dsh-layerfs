@@ -108,3 +108,23 @@ export function sandboxMemory(rows: readonly MemoryRowLike[]): number | null {
   }
   return sum
 }
+
+/**
+ * A processor share (0–1) as the Overview prints it, the unit apart: "0.4"
+ * under 10 %, whole numbers above, "0" for none and "<0.1" for a trace —
+ * never the bare "<1 %" that hides the difference between idle and busy.
+ */
+export function cpuShare(share: number): string {
+  const pct = share * 100
+  if (!(pct > 0)) return '0'
+  if (pct < 0.1) return '<0.1'
+  if (pct < 10) return pct.toFixed(1)
+  return String(Math.round(Math.min(pct, 100)))
+}
+
+const SCALES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1]
+
+/** The top of the processor chart: the smallest of 1, 2, 5, 10, 20, 50, 100 % at or above the hour's peak, so a quiet machine's line is not flat on the floor. */
+export function cpuScale(peak: number | null): number {
+  return SCALES.find((s) => (peak ?? 0) <= s) ?? 1
+}
