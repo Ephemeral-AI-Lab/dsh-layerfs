@@ -103,7 +103,7 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
 }
 
 /** The machine's Store rows, each sqlite Store with its observed size (machine.stats) where the pinned CLI has the call and the machine answered. */
-function useStoreRows(m: MachineInfo, view: AvailableView): StoreLine[] {
+export function useStoreRows(m: MachineInfo, view: AvailableView): StoreLine[] {
   const sizes = storeSizes(useMachineStats(m).read)
   return storeLines(view, m).map((s) => (s.family === 'sqlite' && sizes?.get(s.name) != null ? { ...s, size: sizes.get(s.name)! } : s))
 }
@@ -184,7 +184,7 @@ export function CreatingRow({ c, showProject }: { c: Creation, showProject?: boo
   )
 }
 
-function ColumnHead({ label, count, shown, onMore, action }: { label: string, count: number, shown?: number | undefined, onMore?: (() => void) | undefined, action?: ReactNode }): ReactNode {
+export function ColumnHead({ label, count, shown, onMore, action }: { label: string, count: number, shown?: number | undefined, onMore?: (() => void) | undefined, action?: ReactNode }): ReactNode {
   const { t } = useMachinesContext()
   return (
     <header className={css.columnHead}>
@@ -197,7 +197,7 @@ function ColumnHead({ label, count, shown, onMore, action }: { label: string, co
   )
 }
 
-function StoreRows({ rows, more, onMore }: { rows: StoreLine[], more: number, onMore?: (() => void) | undefined }): ReactNode {
+export function StoreRows({ rows, more, onMore }: { rows: StoreLine[], more: number, onMore?: (() => void) | undefined }): ReactNode {
   const { t, stateWord, openStorageTab } = useMachinesContext()
   return (
     <ul className={css.lines}>
