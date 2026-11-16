@@ -1820,10 +1820,6 @@
   overflow: visible;
 }
 
-.ovChartEmpty {
-  height: 70px;
-}
-
 .ovSparkLine {
   fill: none;
   stroke: var(--dsw-alias-state-business-primary);

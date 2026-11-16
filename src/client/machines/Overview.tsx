@@ -72,10 +72,10 @@ export function MachineOverview({ m, view, live, troubled, notices, fallback, ac
 const CHART_W = 200
 const CHART_H = 64
 
-/** The hour as a chart with its top value on a faint top line; an empty frame when no value in it was read. */
+/** The hour as a chart with its top value on a faint top line; nothing when no value in it was read. */
 function HourChart({ samples, max, maxText, from, to, label }: { samples: readonly SparkSample[], max: number, maxText: string, from: number, to: number, label: string }): ReactNode {
   const paths = sparkPaths(samples, from, to, max, CHART_W, CHART_H)
-  if (!paths.length) return <div className={css.ovChartEmpty} aria-hidden="true" />
+  if (!paths.length) return null
   return (
     <div className={css.ovSparkBox}>
       <span className={css.ovSparkMax} data-ov-spark-max>{maxText}</span>
@@ -150,7 +150,7 @@ function UsageCard({ m, healthy, onDisk }: { m: MachineInfo, healthy: boolean, o
             {cpuNow && cpuNow.v != null ? <div className={css.ovValue} data-ov-cpu>{cpuShare(cpuNow.v)}<span className={css.ovUnit}>%</span></div>
               : <NotRead why={cpuWhy} />}
             <HourChart samples={cpu} max={cpuTop} maxText={`${Math.round(cpuTop * 100)} %`} from={from} to={to} label={t('mxProcessor')} />
-            <div className={css.ovFoot}><span>{t('mxHourAgo')}</span>{cpuPeak != null && <span>{t('ovPeak', { value: `${cpuShare(cpuPeak)} %` })}</span>}<span>{t('mxNow')}</span></div>
+            {cpuPeak != null && <div className={css.ovFoot}><span>{t('mxHourAgo')}</span><span>{t('ovPeak', { value: `${cpuShare(cpuPeak)} %` })}</span><span>{t('mxNow')}</span></div>}
           </Column>
         )}
         <Column label={t('memory')} aside={scope ? tw(scope) : null} data-ov-tile="memory">
