@@ -473,6 +473,7 @@ const GETS = [
   ['storage', '/api/storage'],
   ['stores/:id/stats', '/api/stores/s1/stats'],
   ['stores/:id/observations', '/api/stores/s1/observations'],
+  ['stores/:id/projects', '/api/stores/s1/projects'],
   ['buckets/:id/files', '/api/buckets/b1/files'],
   ['storage-jobs/:id', '/api/storage-jobs/job-x'],
   ['doctor', '/api/doctor'],

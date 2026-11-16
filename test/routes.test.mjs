@@ -136,6 +136,36 @@ test('stores: create emits storage, answers the view; bigints are tagged i64-v1'
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('store projects: every project with its ledger, newest Commit and main files; one tree walk per main head', async () => {
+  let head = 'h1'
+  const { http, calls, groups, root } = fakeGroups({
+    ...base,
+    store: { ...base.store, get: async () => ({ name: 's1', projects: ['web', 'docs', 'web'] }) },
+    project: {
+      get: async (key) => ({ project: key, store: 's1', name: key.slice(3), created: 1000 }),
+      stats: async (key) => ({ project: key, files: key === 's1/web' ? 40 : 10001, complete: key === 's1/web' }),
+    },
+    branch: {
+      get: async () => ({ name: 'main', saved_head: { id: head } }),
+      list: async () => ({ items: [], next_page_pos: null }),
+    },
+  })
+  try {
+    const a = await http('GET', '/api/stores/s1/projects')
+    assert.equal(a.status, 200)
+    assert.equal(a.body.store, 's1')
+    assert.deepEqual(a.body.projects.map((p) => p.name), ['docs', 'web'], 'deduplicated and sorted')
+    assert.deepEqual(a.body.projects.map((p) => p.files), [{ files: 10001, complete: false }, { files: 40, complete: true }])
+    assert.equal(a.body.projects[0].created, 1000)
+    await http('GET', '/api/stores/s1/projects')
+    assert.equal(calls.filter((c) => c === 'project.stats').length, 2, 'an unchanged head walks no tree again')
+    head = 'h2'
+    await http('GET', '/api/stores/s1/projects')
+    assert.equal(calls.filter((c) => c === 'project.stats').length, 4, 'a new head is walked once per project')
+    await groups.projects.close()
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('postgresql: an entered password goes to an owner-only file; attach and detach; refusals kept, never echoed', async () => {
   const record = { name: 'pg', kind: 'postgresql', url: 'postgresql://lfs@db.lan:5432/team', password: 'env:PGPW', projects: ['app'], state: 'idle', machines: { native: { checked: { at: 1, server_version: '17.1', latency_ms: 2 } } } }
   const seen = []
