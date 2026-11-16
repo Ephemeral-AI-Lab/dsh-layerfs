@@ -195,6 +195,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'doctor' && !id && method === 'GET') return storage.doctor()
   // Compute's machines. Power is manual (#535 D11): start and stop are their own calls, and no read starts one
   if (group === 'platforms' && !id && method === 'GET') return machines.platforms()
+  // machine and Sandbox metrics: ?machines=a,b&since=<seq>, answered from the sampler's memory (no LayerFS call, layerfs-project#182 D2)
+  if (group === 'metrics' && !id && method === 'GET') return machines.metrics.view(query)
   // Sandbox creations run in the background (`background: true`): running and failed jobs; dismiss a failed one
   if (group === 'sandbox-creates' && !sub) {
     if (!id && method === 'GET') return g.sandboxCreates.list()
@@ -207,8 +209,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'log' && method === 'GET') return machines.machineLog(id, query, signal)
     // the machine's files (machine.files): its roots without ?path=; a folder page (?cursor=, ?depth=, ?limit=) or a file window (?offset=, ?length=); ?rid= as the log
     if (id && sub === 'files' && method === 'GET') return machines.machineFiles(id, query, signal)
-    // what the machine has and uses now (machine.stats): its own read in the inspect lane, ?rid= as the log; refusals answer as `stale`
-    if (id && sub === 'stats' && method === 'GET') return machines.machineStats(id, query, signal)
+    // what the machine has and uses now, as the metrics sampler last read it (no LayerFS call); a gap answers as `stale`
+    if (id && sub === 'stats' && method === 'GET') return machines.machineStats(id)
     // what a Sandbox on it can run (the New Sandbox menu, the Images section); never starts it
     if (id && sub === 'sandbox-images' && method === 'GET') return machines.sandboxImages(id)
     // { images?: id[], unused?: boolean } -> { removed, freed, refused }: 501 while the pinned CLI has no machine.prune

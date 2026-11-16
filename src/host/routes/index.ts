@@ -10,6 +10,7 @@
  *
  *   router.ts               route table, status map, error answers
  *   machines.ts             /api/machines…, /api/platforms
+ *   metrics.ts              the metrics sampler (one machine.stats at a time, an hour in memory) behind /api/metrics
  *   inspect.ts              monitoring reads: /api/machines/:id/log and /files, /api/sandboxes/:name/log and /files (one read per key, last good answer kept)
  *   storage.ts, jobs.ts     /api/storage…, /api/stores…, /api/buckets…, /api/storage-jobs…, /api/doctor
  *   doctor.ts               /api/doctor-jobs…
@@ -119,7 +120,10 @@ export function apply(ctx: Context): void {
   }, presetState, ctx.layerfs.home)
   groups.presets = presets
   ctx.layerfs.exclusive = () => presets.exclusive() ? 'A preset build or reset is changing this LayerFS home; the session gets its Sandbox when it finishes. Send the message again then.' : null
+  // the metrics sampler runs as long as dsh does, whether a page is open or not (layerfs-project#182 D1)
+  groups.machines.metrics.start()
   ctx.effect(() => () => {
+    groups.machines.metrics.stop()
     ctx.layerfs.exclusive = undefined
     groups.storage.close()
     void groups.projects.close()

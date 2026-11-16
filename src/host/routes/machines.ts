@@ -13,15 +13,19 @@
  * The view (MachinesView) is machine.list() as the SDK answers it (each
  * machine's `state` and `supports`, never guessed here), with store.list()
  * and sandbox.list(), and machine.status() of the machines that run or hold an
- * operation (free disk, `op`): one read for the page, and none of it starts a machine.
- * Where the pinned CLI has it, sandbox.list is asked with `live`, so a Sandbox
- * whose daemon has ended is not shown as running (layerfs-project#164).
+ * operation (free disk, `op`): one read for the page, and none of it starts a
+ * machine. One answer serves every tab for {@link VIEW_KEEP_MS}. Whether a
+ * listed Sandbox's daemon runs (`live`, layerfs-project#164) comes from the
+ * metrics sampler's newest point (metrics.ts, #182 D2), not from
+ * `sandbox.list --live`: the sampler reads each machine once per 15 s,
+ * whoever looks.
  */
 import { join } from 'node:path'
 import { computer } from './computer.ts'
 import { readArchive, type ImageProblem } from '../images/archive.ts'
 import { InspectReads, filesQuery, logQuery, refusalOf, type FilesView, type LogView } from './inspect.ts'
-import { STATS_KEEP_MS, liveOf, statsAnswer, type MachineStats, type MachineStatsView } from './observed.ts'
+import { MetricsSampler, STOPPED } from './metrics.ts'
+import { liveOf, type MachineStatsView } from './observed.ts'
 import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -31,6 +35,8 @@ export const OFF = new Set(['ssh', 'firecracker'])
 const OFF_OPTIONS = new Set(['nested', 'host'])
 /** States whose machine.status says something the list does not: free disk, or the op that holds it. */
 const ASK_STATUS = new Set(['running', 'stopped', 'creating', 'removing', 'unresolved', 'failed', 'unknown'])
+/** How long one machines view answers every tab (a write reads anew at once). */
+export const VIEW_KEEP_MS = 5000
 
 const list = (value: any): any[] => (Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : [])
 const DIGEST = /^sha256:[a-f0-9]{64}$/
@@ -258,6 +264,8 @@ export class Machines {
   /** The MachinesView read in flight, shared by concurrent GETs; `changed()` (any write) makes later GETs read anew. */
   private viewing: { promise: ReturnType<Machines['readView']>, generation: number } | null = null
   private generation = 0
+  /** When `lastView` was read, and in which generation: within VIEW_KEEP_MS of the same generation it answers again without a call. */
+  private lastViewAt: { at: number, generation: number } | null = null
   private platformAnswer: { at: number, value: PlatformsView } | null = null
   private platformRead: Promise<PlatformsView> | null = null
 
@@ -277,19 +285,48 @@ export class Machines {
     } catch { return { version: null, features: featuresOf(null) } }
   }
 
-  /** A write somewhere (the router calls this on every non-GET): the next view() reads anew, and so does the next stats read. */
-  changed(): void { this.generation++; this.statsAt.clear() }
+  /** A write somewhere (the router calls this on every non-GET): the next view() reads anew. */
+  changed(): void { this.generation++ }
+
+  /**
+   * The metrics sampler (metrics.ts, layerfs-project#182 D1): one
+   * `machine.stats` at a time across the machines that run, each once per
+   * 15 s, kept as an hour of history in memory. Started by the routes plugin
+   * (index.ts) for as long as dsh runs; `GET /api/metrics` and the stats route
+   * answer from it without a LayerFS call.
+   */
+  readonly metrics = new MetricsSampler({
+    // the native daemon is recorded once before the first call, as the router does before every route
+    list: async () => {
+      await this.host.ensureNative()
+      return list((await this.lfs.machine.list()).machines).map((m: any) => ({ name: String(m?.name ?? ''), state: text(m?.state) ?? 'unknown' }))
+    },
+    // the abort signal is an SDK-side option of monitoring reads (cli.ts), never a CLI flag
+    stats: (name, signal) => { const options = { signal }; return this.lfs.machine.stats(name, options) },
+    offered: async () => (await cliFeatures(this.host)).inspect.machineStats,
+  })
+
+  /** The view with each Sandbox's `live` from the sampler's newest point (absent where it has none). */
+  private withLive(answer: any): any {
+    if (!Array.isArray(answer?.sandboxes)) return answer
+    return { ...answer, sandboxes: answer.sandboxes.map((b: any) => ({ ...b, ...this.metrics.liveOf(b.name) })) }
+  }
 
   /**
    * MachinesView: concurrent GETs (the sidebar, the machines store, a dialog) share one read.
    * `fresh`: probe the platforms again now (Check again after an install), not within 30 s.
    */
-  view(fresh = false): ReturnType<Machines['readView']> {
+  async view(fresh = false): Promise<any> {
     if (fresh) { this.platformAnswer = null; this.generation++ }
-    if (this.viewing && this.viewing.generation === this.generation) return this.viewing.promise
+    const kept = this.lastViewAt
+    if (kept && kept.generation === this.generation && Date.now() - kept.at < VIEW_KEEP_MS && this.lastView) return this.withLive(this.lastView)
+    if (this.viewing && this.viewing.generation === this.generation) return this.withLive(await this.viewing.promise)
+    const generation = this.generation
     const promise = this.readView().finally(() => { if (this.viewing?.promise === promise) this.viewing = null })
-    this.viewing = { promise, generation: this.generation }
-    return promise
+    this.viewing = { promise, generation }
+    const answer = await promise
+    this.lastViewAt = { at: Date.now(), generation }
+    return this.withLive(answer)
   }
 
   private async readView() {
@@ -300,10 +337,8 @@ export class Machines {
     const failed = (name: string) => (e: any) => { readErrors[name] = { error: { code: e?.code ?? 'Unknown', message: e?.message ?? String(e) }, at: Date.now() }; return [] as any[] }
     let host: string | null = null
     const { version, features } = await this.identity()
-    // with `live`, LayerFS asks each machine once whether its Sandboxes' daemons run (no daemon call; a machine that does not answer is `live: null`)
-    const listSandboxes = features.sandboxLive
-      ? (p: { page_size: number, page_pos: number }) => lfs.sandbox.list({ ...p, live: true })
-      : (p: { page_size: number, page_pos: number }) => lfs.sandbox.list(p)
+    // never `live`: whether each daemon runs is the metrics sampler's (withLive), one machine.stats per machine per 15 s
+    const listSandboxes = (p: { page_size: number, page_pos: number }) => lfs.sandbox.list(p)
     const [platforms, listedStores, sandboxes, statuses] = await Promise.all([
       this.platforms().then((p) => { host = p.host || null; return p.platforms }, failed('platforms')),
       lfs.store.list().then(list, failed('stores')),
@@ -406,43 +441,26 @@ export class Machines {
     try { return await this.reads.files(`sandbox:${name}`, filesQuery(query), (path, options) => lfs.sandbox.files(name, path, options), request.signal) } finally { request.done() }
   }
 
-  /** When each machine's kept stats answer was read, since the last write: within STATS_KEEP_MS it answers again without a call. */
-  private readonly statsAt = new Map<string, number>()
-
   /**
-   * `GET /api/machines/:id/stats?rid=`: what the machine has and uses now
-   * (machine.stats, layerfs-project#164): observed processors, memory and
-   * data disk with their `scope`, the worker, each Store's size and the live
-   * Sandbox count. Its own read in the inspect lane, as {@link machineLog}:
-   * never part of the machines view, one process per machine at a time, and
-   * one answer serves every page for STATS_KEEP_MS. A refusal (a stopped
-   * machine `Unavailable`, a full lane `Busy`, no answer in time `Timeout`)
-   * is answered as `stale` with the last good values (none: `stats: null`),
-   * not as an error. 501 while the pinned CLI has no machine.stats (the
-   * pages then show what they showed before).
+   * `GET /api/machines/:id/stats`: what the machine has and uses now
+   * (machine.stats, layerfs-project#164), as the metrics sampler last read it
+   * (#182 D1): no LayerFS call. When the sampler's newest point is a gap (a
+   * refusal, or a machine that is not running), it is answered as `stale`
+   * with the last good values (none: `stats: null`). 501 while the pinned CLI
+   * has no machine.stats.
    */
-  async machineStats(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<MachineStatsView> {
+  async machineStats(name: string): Promise<MachineStatsView> {
     if (!name) throw refuse(400, 'InvalidInput', 'name the machine')
     if (!(await cliFeatures(this.host)).inspect.machineStats) throw noCall('machine.stats', 'a machine\'s observed resources')
-    const lfs = this.lfs
-    const target = `stats:${name}`
-    const fresh = this.statsAt.get(name), kept = this.reads.last<MachineStats>(target)
-    if (kept && fresh === kept.at && Date.now() - kept.at < STATS_KEEP_MS) return { machine: name, readAt: Date.now(), at: kept.at, stats: kept.value, stale: false }
-    const request = this.reads.request(query.get('rid'), outer)
-    try {
-      const stats = statsAnswer(await this.reads.read(target, (signal) => { const options = { signal }; return lfs.machine.stats(name, options) }, request.signal))
-      const at = Date.now()
-      this.reads.keep(target, stats, at)
-      this.statsAt.set(name, at)
-      return { machine: name, readAt: at, at, stats, stale: false }
-    } catch (error: any) {
-      // nobody waits for it
-      if (error?.code === 'Cancelled') throw error
-      // a machine that is gone has no last values to show
-      if (error?.code === 'NotFound' || error?.code === 'NoSuchMachine') { this.reads.forget(target); this.statsAt.delete(name) }
-      const last = this.reads.last<MachineStats>(target)
-      return { machine: name, readAt: Date.now(), at: last?.at ?? null, stats: last?.value ?? null, stale: refusalOf(error, last?.at ?? null) }
-    } finally { request.done() }
+    const now = Date.now()
+    const kept = this.metrics.machine(name)
+    const at = kept?.latest?.at ?? null, stats = kept?.latest?.stats ?? null
+    const last = kept?.last
+    if (last && !last.values) {
+      const code = last.code ?? 'Unknown'
+      return { machine: name, readAt: now, at, stats, stale: { at, code: code === STOPPED ? 'Unavailable' : code, message: last.message ?? (code === STOPPED ? 'The machine is not running; it is not asked.' : code) } }
+    }
+    return { machine: name, readAt: now, at, stats, stale: false }
   }
 
   /**
@@ -618,7 +636,7 @@ export class Machines {
   /** machine.start(name): a stopped machine and its worker, waited for; native and a running one answer at once. */
   async start(name: string) {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to start')
-    return this.lfs.machine.start(name, { on_progress: this.progress(name, 'start') })
+    try { return await this.lfs.machine.start(name, { on_progress: this.progress(name, 'start') }) } finally { this.metrics.relist() }
   }
 
   /** Startup phases as `machine-progress` events (the Machines page shows them live). */
@@ -635,6 +653,7 @@ export class Machines {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to stop')
     if (force && !(await cliFeatures(this.host)).forceStop) throw refuse(501, 'Unsupported', 'The pinned LayerFS CLI has no forced stop (machine.stop takes no force option). Stop the machine normally, or pin a CLI that has it.')
     const result = force ? await this.lfs.machine.stop(name, { force: true }) : await this.lfs.machine.stop(name)
+    this.metrics.relist()
     await this.host.machinesStopped?.([name])
     return result
   }
@@ -655,7 +674,7 @@ export class Machines {
     const given = pick(rest, Object.keys(rest))
     const extra = Object.keys(given).filter((k) => !declared.includes(k))
     if (extra.length) throw refuse(null, 'InvalidInput', `${platform} takes no ${extra.join(', ')} (its options: ${declared.join(', ') || 'none'})`)
-    return this.lfs.machine.create(name, platform, { ...given, on_progress: this.progress(name, 'create') })
+    try { return await this.lfs.machine.create(name, platform, { ...given, on_progress: this.progress(name, 'create') }) } finally { this.metrics.relist() }
   }
 
   /** Removes a VM; LayerFS refuses InUse while it holds Stores or running Sandboxes. */
@@ -664,7 +683,7 @@ export class Machines {
     if (BUILT_IN.has(name)) throw refuse(null, 'InvalidInput', `${name} is built in and can't be removed`)
     const m = list((await lfs.machine.list()).machines).find((x) => x.name === name)
     if (!m) throw refuse(null, 'NotFound', `no machine named ${name}`)
-    return lfs.machine.remove(name)
+    try { return await lfs.machine.remove(name) } finally { this.metrics.relist() }
   }
 
   /** A built-in's settings ({ image, docker, wsl }) or a VM's size ({ cpus, memory }). */
