@@ -46,3 +46,25 @@ test('Overview: gone Sandboxes and what LayerFS measured for them; other Sandbox
   assert.deepEqual(T.sandboxAttention(records, null, needsYou), { gone: 2, goneBytes: null, needsYou: 1 }, 'without machine.space: counted, no size')
   assert.deepEqual(T.sandboxAttention([sb('a', 'running')], [], needsYou), { gone: 0, goneBytes: null, needsYou: 0 })
 })
+
+test('the Overview sparkline breaks at a gap, scales to the max and leaves out what is before the hour', () => {
+  const paths = T.sparkPaths([{ t: 0, v: 9 }, { t: 100, v: 0 }, { t: 200, v: 50 }, { t: 300, v: null }, { t: 400, v: 100 }, { t: 500, v: 200 }], 100, 500, 100, 200, 42)
+  assert.equal(paths.length, 2)
+  assert.equal(paths[0].line, 'M0.0 41.0 L50.0 21.0')
+  assert.equal(paths[0].area, 'M0.0 41.0 L50.0 21.0 L50.0 42 L0.0 42 Z')
+  // above the max is drawn at the top, never past it
+  assert.equal(paths[1].line, 'M150.0 1.0 L200.0 1.0')
+  assert.deepEqual(T.sparkPaths([{ t: 10, v: 1 }], 0, 10, 1, 100, 10), [{ line: 'M100.0 1.0 h0.1', area: null }])
+  assert.deepEqual(T.sparkPaths([{ t: 10, v: null }], 0, 10, 1, 100, 10), [])
+  // two samples a minute apart in an hour: a line, no area (it would draw as a bar)
+  assert.deepEqual(T.sparkPaths([{ t: 3540, v: 1 }, { t: 3600, v: 1 }], 0, 3600, 1, 200, 42), [{ line: 'M196.7 1.0 L200.0 1.0', area: null }])
+})
+
+test('the Overview peak and Sandbox memory count read values only', () => {
+  assert.equal(T.peakSince([{ t: 0, v: 0.9 }, { t: 10, v: 0.2 }, { t: 20, v: null }, { t: 30, v: 0.4 }], 5), 0.4)
+  assert.equal(T.peakSince([{ t: 10, v: null }], 0), null)
+  const row = (memoryCurrent, extra = {}) => ({ gap: null, row: { live: true, usage: { memoryCurrent } }, ...extra })
+  assert.equal(T.sandboxMemory([row(10), row(5), row(null), row(7, { gap: 'Timeout' }), { gap: null, row: { live: false, usage: { memoryCurrent: 99 } } }]), 15)
+  assert.equal(T.sandboxMemory([row(null)]), null)
+  assert.equal(T.sandboxMemory([]), null)
+})

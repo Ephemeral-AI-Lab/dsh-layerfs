@@ -1,9 +1,9 @@
 /**
  * One machine's page: its head (name as the tree shows it, state, power,
  * menu), startup progress and notices, then its tabs (MachineTabs.tsx).
- * Overview is the machine's figures, what needs you on it with links to the
- * tab that fixes it, its Sandboxes and Stores in a line and the full spec
- * folded under Details. Sandboxes and Stores list them all, with New Sandbox
+ * Overview (Overview.tsx) is a status line or what needs you, processor,
+ * memory and disk tiles with their hour, what is on the machine and its
+ * Details. Sandboxes and Stores list them all, with New Sandbox
  * and Add Store. Usage (processor, memory and disk over the hour) is there
  * only when the pinned CLI has machine.stats, Disk (where the disk goes) only
  * with machine.space, Files (InspectFiles.tsx) only with machine.files, and
@@ -11,7 +11,7 @@
  * has a worker log (`supports.log`).
  */
 import { useId, useState, type ReactNode } from 'react'
-import { IconChevronRightOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconSettingsOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Empty, LinkButton, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
 import { DiskLine, attentionOf, blockedOf, glyphOs } from './Board.tsx'
@@ -23,16 +23,15 @@ import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { useMachineTitle } from './Inventory.tsx'
-import { clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, storesOn, type AvailableView, type MachineInfo } from './model.ts'
-import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
+import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, type AvailableView, type MachineInfo } from './model.ts'
+import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
-import { SpecTab } from './Spec.tsx'
+import { MachineOverview } from './Overview.tsx'
 import { ObservedCpuMemory, useMachineStats, workerLine } from './MachineStats.tsx'
-import { MachineFigures } from './MetricsViews.tsx'
 import { machineTabs, type MachineTab } from './machine-tabs.ts'
-import { DiskTab, OverviewAttention, OverviewCounts, SandboxesTab, StoresTab, UsageTab } from './MachineTabs.tsx'
+import { DiskTab, SandboxesTab, StoresTab, UsageTab } from './MachineTabs.tsx'
 import { useSpaceOffered } from './SpaceViews.tsx'
 import { storeLines } from './Inventory.tsx'
 import css from './machines.module.css'
@@ -174,31 +173,27 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
         </div>
       ) : (
       <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
-      {/* the sampler's figures once it has read the machine; until then (or without machine.stats) the facts as they were */}
-      {observed.offered && observed.read?.stats ? <MachineFigures m={m} /> : (
-      <dl className={css.factRow} aria-label={t('resources')}>
-        <div><dt>{t(observed.offered ? 'disk' : 'freeDisk')}</dt><dd><DiskLine m={m} view={view} /></dd></div>
-        <div><dt>{t('cpuMemory')}</dt><dd>{observed.offered && observed.read?.stats ? <ObservedCpuMemory read={observed.read} /> : resourcesOf(m, t)}</dd></div>
-        {live?.toolVersion && <div><dt>{t('toolVersionOf', { kind: kind(m.platform) })}</dt><dd className={css.mono}>{live.toolVersion}</dd></div>}
-        {worker && <div><dt>{t('worker')}</dt><dd data-worker-line>{worker}</dd></div>}
-      </dl>
-      )}
-
-      {notices}
-      <OverviewAttention m={m} view={view} onTab={setTab} />
-      <OverviewCounts m={m} view={view} onTab={setTab} />
-
-      <details className={css.details}>
-        <summary className={css.detailsSummary}>
-          <IconChevronRightOutlineRegular size={12} className={css.detailsChevron} />
-          <span>{t('details')}</span>
-        </summary>
-        <div className={css.detailsBody}>
-          <div className={css.detailsActions}><DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} /></div>
-          <SpecTab m={m} live={live} view={view} sandboxes={sandboxesOn(view, m)} stores={storesOn(view, m)} pending={pending}
-            onSettings={() => setDialog('settings')} onRemove={() => setDialog('remove')} />
-        </div>
-      </details>
+        <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} hasDiskTab={hasDisk}
+          troubled={!!(reason || block || error !== null || state.state === 'unresolved')}
+          notices={notices}
+          fallback={(
+            // without the sampler's read (no machine.stats, or not read yet): the facts as the record has them
+            <dl className={css.factRow} aria-label={t('resources')}>
+              <div><dt>{t(observed.offered ? 'disk' : 'freeDisk')}</dt><dd><DiskLine m={m} view={view} /></dd></div>
+              <div><dt>{t('cpuMemory')}</dt><dd>{observed.offered && observed.read?.stats ? <ObservedCpuMemory read={observed.read} /> : resourcesOf(m, t)}</dd></div>
+              {live?.toolVersion && <div><dt>{t('toolVersionOf', { kind: kind(m.platform) })}</dt><dd className={css.mono}>{live.toolVersion}</dd></div>}
+              {worker && <div><dt>{t('worker')}</dt><dd data-worker-line>{worker}</dd></div>}
+            </dl>
+          )}
+          actions={(
+            <>
+              <DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} />
+              {BUILT_IN.has(m.platform) && hasSettings(m) && (
+                <Button size="sm" variant="outline" icon={<IconSettingsOutlineRegular size={13} />} onClick={() => setDialog('settings')}>{t('updateSettings')}</Button>
+              )}
+            </>
+          )}
+          onRemove={() => setDialog('remove')} />
       </div>
       )}
 
