@@ -37,6 +37,7 @@ import { StorageDialogs, type StorageDialog } from './dialogs.tsx'
 import { HomeOverview } from './HomeOverview.tsx'
 import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
+import { MachineStores } from './MachineStores.tsx'
 import { attachmentsOf, bucketFiles, cardJob, inHome, orderStores } from './model.ts'
 import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
@@ -307,7 +308,16 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     if (id === 'logs') return <LogsPage api={api} t={more.logs} />
     if (id === 'settings') return <SettingsView t={more.settings} />
     if (id === 'machines') return <Board go={mc.go} />
-    if (id.startsWith('machine:')) return <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })} />
+    if (id.startsWith('machine:')) {
+      return (
+        <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
+          storesTab={view ? (machine) => (
+            <MachineStores machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor}
+              onPushHere={(m) => setDialog({ kind: 'to-machine', machine: m })} onConnect={(m) => setDialog({ kind: 'pg-to-machine', machine: m })}
+              onOpenStore={(name) => open(`store:${name}`)} />
+          ) : undefined} />
+      )
+    }
     if (id.startsWith('sandbox:')) {
       const body = id.slice(8)
       return <SandboxDetail key={id} machine={body.slice(0, body.indexOf('/'))} name={body.slice(body.indexOf('/') + 1)} go={mc.go} />
