@@ -9,8 +9,8 @@
  *   and, when it cannot be attached here, why;
  * - `parsePgUrl` / `pgUrl`: a connection URL from and to its parts (never a
  *   password: the host takes it apart from the URL);
- * - `projectSplit`: a Store card's bar and rows, its projects by the bytes
- *   their Commits packed.
+ * - `projectSplit`: a Store card's project rows, by the bytes their Commits
+ *   packed, each with its share.
  */
 import type { StorageT } from './locale.ts'
 import { attachmentsOf, attachRefusal } from './model.ts'
@@ -147,18 +147,17 @@ export interface ProjectSlice { name: string, bytes: number | null, share: numbe
 
 export interface ProjectSplit {
   rows: ProjectSlice[]
-  /** The bar's unaccounted end: the part of the file no project's packed bytes cover (shared content, metadata, free pages). */
-  rest: number
   /** The newest Commit of any project. */
   lastWrite: number | null
 }
 
 /**
  * A Store's projects by the bytes their Commits packed, most first. Against a
- * file size (`total`, SQLite) each share is of the file and the bar ends with
- * the rest; without one (PostgreSQL), or when the projects count more than the
- * file holds, the shares are of the projects' sum and fill the bar. A project
- * not yet counted stays in the rows with no share.
+ * file size (`total`, SQLite) each share is of the file (content projects
+ * share, metadata and free pages are in no project's bytes); without one
+ * (PostgreSQL), or when the projects count more than the file holds, the
+ * shares are of the projects' sum. A project not yet counted stays in the
+ * rows with no share.
  */
 export function projectSplit(projects: readonly StoreProject[], total: number | null): ProjectSplit {
   const counted = projects.reduce((a, p) => a + (p.totals?.stored ?? 0), 0)
@@ -168,5 +167,5 @@ export function projectSplit(projects: readonly StoreProject[], total: number | 
     return { name: p.name, bytes, share: base > 0 && bytes ? bytes / base : 0, hue: hueOf(p.name, projects), at: p.last?.time ?? null, counting: !!p.building, error: p.error?.message ?? null }
   }).sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1) || a.name.localeCompare(b.name))
   const times = rows.map((r) => r.at).filter((n): n is number => n !== null)
-  return { rows, rest: base > 0 ? Math.max(0, 1 - counted / base) : 0, lastWrite: times.length ? Math.max(...times) : null }
+  return { rows, lastWrite: times.length ? Math.max(...times) : null }
 }

@@ -89,18 +89,16 @@ test('the step a store.attach refusal failed, from LayerFS\'s documented refusal
 
 const proj = (name, stored, time, more = {}) => ({ name, created: 1, totals: stored == null ? null : { saves: 1, merges: 0, branches: 1, stored, metadata: 0, commitLogical: 0, canonical: 0 }, last: time == null ? null : { id: 'c', time, branch: 'main', message: '' }, files: null, partial: false, building: null, error: null, ...more })
 
-test('a card\'s projects: shares of the file with the rest left over, of their sum without a file size, uncounted projects kept without a share', () => {
+test('a card\'s projects: shares of the file, of their sum without a file size, uncounted projects kept without a share', () => {
   const sp = M.projectSplit([proj('b', 100, 5), proj('a', 300, 9), proj('c', null, null, { partial: true })], 1000)
   assert.deepEqual(sp.rows.map((r) => [r.name, r.share, r.counting]), [['a', 0.3, false], ['b', 0.1, false], ['c', 0, false]], 'a project read but not counted is not counting: it is not polled')
   assert.equal(M.projectSplit([proj('d', null, null, { partial: true, building: { branches: 0, branchesTotal: 1, saves: 3 } })], null).rows[0].counting, true)
   assert.equal(M.projectSplit([proj('e', null, null, { partial: true, error: { code: 'Unsupported', message: 'no engine' } })], null).rows[0].error, 'no engine')
-  assert.equal(sp.rest, 0.6)
   assert.equal(sp.lastWrite, 9)
   assert.deepEqual(sp.rows.map((r) => r.hue), [0, 1, 2], 'hues follow name order, as on the Store page')
   const pgSplit = M.projectSplit([proj('x', 30, 1), proj('y', 10, null)], null)
   assert.deepEqual(pgSplit.rows.map((r) => r.share), [0.75, 0.25])
-  assert.equal(pgSplit.rest, 0)
-  assert.equal(M.projectSplit([proj('x', 30, 1)], 20).rest, 0, 'projects counting more than the file fill the bar, never past it')
+  assert.deepEqual(M.projectSplit([proj('x', 30, 1)], 20).rows.map((r) => r.share), [1], 'projects counting more than the file never pass a full bar')
   assert.equal(M.projectSplit([], 50).lastWrite, null)
 })
 
