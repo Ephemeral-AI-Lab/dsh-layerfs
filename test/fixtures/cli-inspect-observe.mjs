@@ -1,4 +1,4 @@
-#!/Users/yifanxu/.nvm/versions/node/v24.21.0/bin/node
+#!/usr/bin/env node
 // STAND-IN, not LayerFS: a pinned-CLI wrapper that ANSWERS the observed values
 // of layerfs-project#164 and the Doctor leftovers of #180 for a CLI built
 // before them, so the Machines, Sandbox and Doctor pages can be checked before

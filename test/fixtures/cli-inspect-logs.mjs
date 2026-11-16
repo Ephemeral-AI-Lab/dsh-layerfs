@@ -1,4 +1,4 @@
-#!/Users/yifanxu/.nvm/versions/node/v24.21.0/bin/node
+#!/usr/bin/env node
 // STAND-IN, not LayerFS: a pinned-CLI wrapper that ANSWERS `logs machine` and
 // `logs sandbox` for a CLI that does not have the calls yet (layerfs-project#178
 // step 1), so the dsh-layerfs log views can be built and checked before the real

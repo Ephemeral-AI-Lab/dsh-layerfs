@@ -1,4 +1,4 @@
-#!/Users/yifanxu/.nvm/versions/node/v24.21.0/bin/node
+#!/usr/bin/env node
 // STAND-IN, not LayerFS: a pinned-CLI wrapper that ADDS the monitoring fields
 // of layerfs-project#178 "Fields" to `sandbox get`, for a CLI built before
 // them, so the Sandbox page's use of the fields can be checked before a build

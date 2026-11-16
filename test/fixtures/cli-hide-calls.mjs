@@ -1,4 +1,4 @@
-#!/Users/yifanxu/.nvm/versions/node/v24.21.0/bin/node
+#!/usr/bin/env node
 // A pinned-CLI wrapper that stands in for a CLI lacking some calls (a UI part
 // that must hide when the pinned CLI has no such call, #178 scenario F6):
 // `help --json` loses the calls named in $LFS_HIDE_CALLS (`family.call`, comma
