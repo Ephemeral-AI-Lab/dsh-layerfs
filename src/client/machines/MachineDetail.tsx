@@ -4,8 +4,8 @@
  * Overview (Overview.tsx) is a status line or what needs you, processor,
  * memory and disk tiles with their hour, what is on the machine and its
  * Details. Sandboxes and Stores list them all, with New Sandbox
- * and Add Store. Disk (where the disk goes) is there only
- * with machine.space, Files (InspectFiles.tsx) only with machine.files, and
+ * and Add Store; where the disk goes is a dialog from the Overview
+ * (SpaceDialog.tsx, only with machine.space), Files (InspectFiles.tsx) only with machine.files, and
  * Worker log (LogPane.tsx) only with logs.machine and a machine LayerFS says
  * has a worker log (`supports.log`).
  */
@@ -30,7 +30,8 @@ import { NewSandboxDialog } from './Sandboxes.tsx'
 import { MachineOverview } from './Overview.tsx'
 import { ObservedCpuMemory, useMachineStats, workerLine } from './MachineStats.tsx'
 import { machineTabs, type MachineTab } from './machine-tabs.ts'
-import { DiskTab, StoresTab } from './MachineTabs.tsx'
+import { StoresTab } from './MachineTabs.tsx'
+import { SpaceDialog } from './SpaceDialog.tsx'
 import { ImagesTab } from './MachineImages.tsx'
 import { SandboxesTab } from './SandboxCards.tsx'
 import { useSpaceOffered } from './SpaceViews.tsx'
@@ -80,6 +81,7 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   const pending = localPending ?? (startup?.status === 'running' ? startup.kind : null)
   const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
   const [creating, setCreating] = useState(false)
+  const [spaceOpen, setSpaceOpen] = useState(false)
   const live = view.status[m.name]
   const state = machineState(m, live)
   const reason = startup?.status === 'running' ? null : downReason(m, live)
@@ -102,9 +104,9 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   const storeCount = storeLines(view, m).length
   const labels: Record<MachineTab, string> = {
     overview: t('tabOverview'), sandboxes: t('tabSandboxes', { n: String(sandboxCount) }), stores: t('tabStores', { n: String(storeCount) }),
-    images: t('tabImages'), disk: t('tabDisk'), files: t('tabFiles'), log: t('tabWorkerLog'),
+    images: t('tabImages'), files: t('tabFiles'), log: t('tabWorkerLog'),
   }
-  const tabs = machineTabs({ images: hasImages, disk: hasDisk, files: hasFiles, log: hasLog }).map((value) => ({ value, label: labels[value] }))
+  const tabs = machineTabs({ images: hasImages, files: hasFiles, log: hasLog }).map((value) => ({ value, label: labels[value] }))
   const [tab, setTab] = useDetailTab<MachineTab>('machine', m.name, tabs.map((x) => x.value), 'overview')
   const ids = useId()
   const worker = observed.offered ? workerLine(observed.read?.stats, t) : null
@@ -171,12 +173,11 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
           {notices}
           {tab === 'sandboxes' ? <SandboxesTab m={m} view={view} canCreate={canSandbox} onCreate={() => setCreating(true)} onImages={hasImages ? () => setTab('images') : undefined} />
             : tab === 'stores' ? <StoresTab m={m} view={view} onAddStore={onAddStore} />
-            : tab === 'images' ? <ImagesTab m={m} />
-              : <DiskTab m={m} />}
+            : <ImagesTab m={m} />}
         </div>
       ) : (
       <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
-        <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} onDisk={hasDisk ? () => setTab('disk') : null}
+        <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} onDisk={hasDisk ? () => setSpaceOpen(true) : null}
           troubled={!!(reason || block || error !== null || state.state === 'unresolved')}
           notices={notices}
           fallback={(
@@ -200,6 +201,7 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
       </div>
       )}
 
+      {spaceOpen && <SpaceDialog m={m} onClose={() => setSpaceOpen(false)} onTab={(x) => { setSpaceOpen(false); setTab(x) }} />}
       {creating && <NewSandboxDialog machine={m} taken={view.sandboxes.map((b) => b.name)} onClose={() => setCreating(false)} />}
       <MachineDialogs m={m} dialog={dialog} onClose={() => setDialog(null)} pending={pending} run={run} onRemoved={() => go({ kind: 'board' })} />
     </Page>
