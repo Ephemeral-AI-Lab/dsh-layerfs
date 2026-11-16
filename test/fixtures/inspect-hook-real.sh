@@ -10,12 +10,16 @@
 #                    server's CLI is that shim. Without it every hang / refuse / deadline action is
 #                    exit 3 (NOT_RUN).
 #   HOOK_LOG         a file every call is appended to (action, target, how it was done)
+#   HOOK_CLI         the real CLI, for machine-stop / machine-start; HOOK_CACHE_HOME its XDG_CACHE_HOME when the
+#                    home was made with one
 #
 # What is done by real means, on the machine itself (native: this computer; docker: `docker exec`
 # in the worker container; lima: `limactl shell … sudo`; apple-container: `container exec`):
 #   fill, append, truncate   the worker log (<worker root>/log/worker.log) or a Sandbox's daemon.log
 #   rotate                   worker.log -> worker.1.log and a new empty worker.log, as a worker's start does. A daemon
 #                            log never rotates in LayerFS: it is replaced by hand the same way, and the row says so
+#   worker-pause / worker-resume   SIGSTOP / SIGCONT to the machine's worker (its pid in /layerfs/state/worker.pid)
+#   machine-stop / machine-start   `layerfs machine stop <name> --force` / `machine start <name>` with $HOOK_CLI (the real CLI)
 # What the fault shim injects (the row is then "real build, fault injected by shim"):
 #   hang / unhang, refuse / unrefuse, hang-get / unhang-get,
 #   files-hang / files-unhang, files-refuse / files-unrefuse, files-deadline / files-undeadline,
@@ -101,5 +105,21 @@ case "$action" in
   stats-unhang) control del delay_ms "stats:$name"; did "shim";;
   stats-refuse) control set refuse "stats:$name" "$(js "$1" "$2")"; did "shim: refuse $1";;
   stats-unrefuse) control del refuse "stats:$name"; did "shim";;
+  # ---- reads of the machine's side (test/e2e-inspect-leases.mjs): the entries of <worker root>/store/<store>/open, and the worker's pid
+  leases) [ "$kind" = machine ] || cannot "leases is for a machine"
+    if [ "$platform" = native ]; then ls -1 "$root/store/$1/open" 2>/dev/null; echo "worker -"; else side "ls -1 $root/store/$1/open 2>/dev/null; echo worker \$(cat /layerfs/state/worker.pid)" </dev/null || exit 1; fi; exit 0;;
+  # ---- real means only (test/e2e-inspect-real.mjs)
+  worker-pause|worker-resume)
+    [ "$kind" = machine ] || cannot "$action is for a machine"
+    [ "$platform" != native ] || cannot "the native machine has no worker: its calls run in the caller's process"
+    sig=STOP; [ "$action" = worker-resume ] && sig=CONT
+    side "kill -$sig \$(cat /layerfs/state/worker.pid)" </dev/null || exit 1; did "real: SIG$sig to the worker of $machine";;
+  machine-stop|machine-start)
+    [ "$kind" = machine ] || cannot "$action is for a machine"
+    [ "$platform" != native ] || cannot "the native machine is not stopped or started"
+    [ -n "${HOOK_CLI:-}" ] || cannot "HOOK_CLI (the real CLI) is not set"
+    [ -z "${HOOK_CACHE_HOME:-}" ] || export XDG_CACHE_HOME=$HOOK_CACHE_HOME
+    if [ "$action" = machine-stop ]; then "$HOOK_CLI" machine stop "$name" --force >/dev/null || exit 1; did "real: layerfs machine stop $name --force"
+    else "$HOOK_CLI" machine start "$name" >/dev/null || exit 1; did "real: layerfs machine start $name"; fi;;
   *) cannot "this hook has no action \`$action\`";;
 esac
