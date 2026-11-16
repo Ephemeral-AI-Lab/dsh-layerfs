@@ -161,7 +161,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     pull: () => act(() => api.call('POST', `/api/stores/${enc(s.name)}/pull`)),
     move: () => setDialog({ kind: 'move', store: s }),
     // With no bucket yet there is nowhere to back up to: add one first.
-    backup: () => setDialog(view && view.buckets.length === 0 ? { kind: 'bucket' } : { kind: 'backup', store: s }),
+    backup: () => setDialog(view && view.buckets.length === 0 ? { kind: 'bucket', then: { kind: 'backup', store: s, known: [] } } : { kind: 'backup', store: s }),
     backupTo: (l) => act(() => api.call('POST', `/api/stores/${enc(s.name)}/backup`, { bucket: l.bucket, file: l.file })),
     restore: (bucket, file) => setDialog({ kind: 'restore', bucket, file, store: s.name }),
     remove: () => setDialog({
@@ -312,9 +312,9 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
       return (
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
           storesTab={view ? (machine) => (
-            <MachineStores machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor}
+            <MachineStores api={api} machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor}
               onPushHere={(m) => setDialog({ kind: 'to-machine', machine: m })} onConnect={(m) => setDialog({ kind: 'pg-to-machine', machine: m })}
-              onOpenStore={(name) => open(`store:${name}`)} />
+              onOpenStore={(name) => open(`store:${name}`)} onOpenProject={(key) => open(`project:${key}`)} onBackups={(store) => setDialog({ kind: 'backups', store })} />
           ) : undefined} />
       )
     }

@@ -42,7 +42,8 @@ export function Location({ store: s, t, onMachine }: { store: StoreRow, t: Stora
 }
 
 /** The Store menu: every Store-wide action. */
-export function StoreMenu({ store: s, on, t }: { store: StoreRow, on: StoreActions, t: StorageT }): ReactNode {
+/** A Store's ⋯ menu. On a machine page (`machine`), a PostgreSQL Store's menu also detaches it from that machine. */
+export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined }): ReactNode {
   const pg = s.kind === 'postgresql'
   return (
     <MoreMenu label={t('storeActions', { name: s.name })}>
@@ -50,7 +51,8 @@ export function StoreMenu({ store: s, on, t }: { store: StoreRow, on: StoreActio
         const run = (fn: () => void) => () => { close(); fn() }
         return pg ? (
           <>
-            <MenuItemButton danger onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
+            {machine ? <MenuItemButton onSelect={run(() => on.detach(machine))}>{t('msDetachFrom', { machine: machine === 'native' ? t('layerfsHome') : machine })}</MenuItemButton> : null}
+            <MenuItemButton danger separatorBefore={!!machine} onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
           </>
         ) : (
           <>

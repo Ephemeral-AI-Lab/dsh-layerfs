@@ -1,7 +1,8 @@
 // The machine page's Stores tab and Connect a database, as data
 // (src/client/storage/machine-stores.ts): the two kinds on a machine, the kind
 // the tab opens on, PostgreSQL Stores by server, connection URLs and which
-// check a store.attach refusal failed.
+// check a store.attach refusal failed; a card's projects split and a Store's
+// backups by provider (src/client/storage/store-backups.ts).
 //   node --test test/machine-stores.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -12,7 +13,7 @@ import { build } from 'esbuild'
 
 const root = new URL('..', import.meta.url).pathname
 const out = mkdtempSync(join(root, 'lib', '.test-machine-stores-'))
-await build({ absWorkingDir: root, stdin: { contents: "export * from './src/client/storage/machine-stores.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'ms.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })
+await build({ absWorkingDir: root, stdin: { contents: "export * from './src/client/storage/machine-stores.ts'; export * from './src/client/storage/store-backups.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'ms.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })
 const M = await import(pathToFileURL(join(out, 'ms.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
@@ -84,4 +85,46 @@ test('the step a store.attach refusal failed, from LayerFS\'s documented refusal
   assert.equal(M.failedStep('Denied', 'role app lacks INSERT on table layerfs.objects (1 privilege(s) missing in all)'), 'write')
   assert.equal(M.failedStep('Conflict', 'Store x changed while machine docker was checked; attach it again'), null)
   assert.equal(M.failedStep(undefined, undefined), null)
+})
+
+const proj = (name, stored, time, more = {}) => ({ name, created: 1, totals: stored == null ? null : { saves: 1, merges: 0, branches: 1, stored, metadata: 0, commitLogical: 0, canonical: 0 }, last: time == null ? null : { id: 'c', time, branch: 'main', message: '' }, files: null, partial: false, building: null, error: null, ...more })
+
+test('a card\'s projects: shares of the file with the rest left over, of their sum without a file size, uncounted projects kept without a share', () => {
+  const sp = M.projectSplit([proj('b', 100, 5), proj('a', 300, 9), proj('c', null, null, { partial: true })], 1000)
+  assert.deepEqual(sp.rows.map((r) => [r.name, r.share, r.counting]), [['a', 0.3, false], ['b', 0.1, false], ['c', 0, true]])
+  assert.equal(sp.rest, 0.6)
+  assert.equal(sp.lastWrite, 9)
+  assert.deepEqual(sp.rows.map((r) => r.hue), [0, 1, 2], 'hues follow name order, as on the Store page')
+  const pgSplit = M.projectSplit([proj('x', 30, 1), proj('y', 10, null)], null)
+  assert.deepEqual(pgSplit.rows.map((r) => r.share), [0.75, 0.25])
+  assert.equal(pgSplit.rest, 0)
+  assert.equal(M.projectSplit([proj('x', 30, 1)], 20).rest, 0, 'projects counting more than the file fill the bar, never past it')
+  assert.equal(M.projectSplit([], 50).lastWrite, null)
+})
+
+const bucket = (name, provider, files = null) => ({ name, provider, listed: files ? 1 : null, files, error: null, stores: [] })
+const linked = (name, links) => ({ ...sqlite(name, 'docker', 10), links: links.map(([b, at]) => ({ bucket: b, file: name, last: at == null ? null : { op: 'backup', at, bytes: 10 } })) })
+const listed = (store, state, modified = 1) => ({ file: store, store, state, bytes: 10, modified, reason: null })
+
+test('a Store\'s backups: most urgent first, grouped by provider with the urgent group first, and the action each state offers', () => {
+  const buckets = [bucket('m1', 'minio', [listed('s', 'current', 50)]), bucket('m2', 'minio', [listed('s', 'missing')]), bucket('r1', 'r2', [listed('s', 'store_changed', 20)]), bucket('x', null)]
+  const backups = M.storeBackups(linked('s', [['m1', 5], ['m2', 1], ['r1', 3], ['x', 99]]), buckets)
+  assert.deepEqual(backups.map((b) => [b.link.bucket, b.health]), [['m2', 'problem'], ['r1', 'stale'], ['x', 'unknown'], ['m1', 'current']])
+  assert.equal(backups.find((b) => b.link.bucket === 'm1').at, 50, 'the listing\'s time before this host\'s last run')
+  assert.deepEqual(M.backupGroups(backups).map((g) => [g.provider, g.items.map((b) => b.link.bucket)]), [['minio', ['m2', 'm1']], ['r2', ['r1']], [null, ['x']]])
+  assert.deepEqual(M.backupCounts(backups), { problem: 1, stale: 1, current: 1, unknown: 1 })
+  assert.deepEqual(M.backupProviders(backups), ['minio', 'r2', null])
+  assert.deepEqual(['missing', 'store_changed', 'both_changed', 'current', 'bucket_changed', 'unknown', null].map(M.actionOf), ['again', 'update', 'update', 'restore', 'restore', 'now', 'now'])
+})
+
+test('Back up: every bucket by provider with the backup it would update; it starts on a bucket just added, else the copy most in need', () => {
+  const buckets = [bucket('r1', 'r2', [listed('s', 'current')]), bucket('m1', 'minio', [listed('s', 'missing')]), bucket('m0', 'minio')]
+  const groups = M.backupTargets(linked('s', [['r1', 1], ['m1', 1]]), { buckets })
+  assert.deepEqual(groups.map((g) => [g.provider, g.items.map((x) => [x.bucket.name, x.backup ? x.backup.health : null])]), [['minio', [['m0', null], ['m1', 'problem']]], ['r2', [['r1', 'current']]]])
+  assert.equal(M.firstTarget(groups, undefined), 'm1')
+  assert.equal(M.firstTarget(groups, ['r1', 'm1']), 'm0', 'Add a bucket returns on the new one')
+  assert.equal(M.firstTarget([], undefined), '')
+  assert.equal(M.freshName('s', ['s', 's-2']), 's-3', 'a missing copy goes under a name LayerFS has not seen in the bucket')
+  assert.equal(M.freshName('s', []), 's-2')
+  assert.equal(M.freshName('s-2', []), 's-3', 'counting on, never s-2-2, and never the missing name itself')
 })

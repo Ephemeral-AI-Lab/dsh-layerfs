@@ -17,6 +17,7 @@ import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { FormModal, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
 import { PG_URL_PASSWORD, PgPasswordFields, usePgPassword } from './pg-fields.tsx'
 import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
+import { BackUpDialog, BackupsDialog } from './BackupDialogs.tsx'
 import type { BackupState, MachinesView, PgAttachment, ProjectInitJob, StorageView, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
@@ -33,9 +34,12 @@ export type StorageDialog =
   /** Connect a database to a machine: attach a connected one, or connect a new one and attach it. */
   | { kind: 'pg-to-machine', machine: string }
   | { kind: 'move', store: StoreRow }
-  | { kind: 'backup', store: StoreRow }
+  /** `known`: the buckets when Add a bucket left Back up, so it comes back on the new one; `pick`: the bucket it starts on. */
+  | { kind: 'backup', store: StoreRow, known?: string[], pick?: string }
+  | { kind: 'backups', store: string }
   | { kind: 'restore', bucket: string, file: string, store?: string | null }
-  | { kind: 'bucket' }
+  /** `then`: the dialog Add a bucket returns to, closed or saved. */
+  | { kind: 'bucket', then?: StorageDialog }
   | { kind: 'confirm', title: string, body: string, action: string, name?: string, force?: ConfirmForce, run: (force: boolean) => Promise<unknown> }
 
 /** An optional Force checkbox on a confirm: checked, the action runs with force and reads `action`. */
@@ -67,9 +71,10 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done, onOpenStor
     case 'move': return <PlaceDialog api={api} t={t} kind={dialog.kind} store={dialog.store} onClose={onClose} done={done} />
     case 'pg-to-machine': return <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} onClose={onClose} done={done} />
     case 'to-machine': return <ToMachineDialog api={api} t={t} view={view} machine={dialog.machine} onClose={onClose} done={done} onDialog={onDialog} />
-    case 'backup': return <BackupDialog api={api} t={t} store={dialog.store} view={view} onClose={onClose} done={done} />
+    case 'backup': return <BackUpDialog api={api} t={t} store={dialog.store} known={dialog.known} pick={dialog.pick} view={view} onClose={onClose} done={done} onDialog={onDialog} />
+    case 'backups': return <BackupsDialog api={api} t={t} store={dialog.store} view={view} onClose={onClose} done={done} onDialog={onDialog} />
     case 'restore': return <RestoreDialog api={api} t={t} dialog={dialog} view={view} onClose={onClose} done={done} />
-    case 'bucket': return <BucketDialog api={api} t={t} onClose={onClose} done={done} />
+    case 'bucket': return <BucketDialog api={api} t={t} onClose={dialog.then && onDialog ? () => onDialog(dialog.then!) : onClose} done={done} />
     case 'confirm': return <ConfirmDialog t={t} title={dialog.title} body={dialog.body} action={dialog.action} name={dialog.name} force={dialog.force} onClose={onClose} run={(force) => after(dialog.run(force))} />
   }
 }
@@ -407,23 +412,6 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
           </button>
         </p>
       ) : null}
-    </FormModal>
-  )
-}
-
-// ---------- Back up ----------
-
-function BackupDialog({ api, t, store: s, view, onClose, done }: { api: LayerfsApi, t: StorageT, store: StoreRow, view: StorageView | undefined, onClose: () => void, done: () => void }): ReactNode {
-  const buckets = (view?.buckets ?? []).map((b) => b.name)
-  const [bucket, setBucket] = useState(s.links[0]?.bucket ?? buckets[0] ?? '')
-  const [file, setFile] = useState('')
-  return (
-    <FormModal open onClose={onClose} t={t} title={t('backupTitle', { store: s.name })} description={t('backupBody')} action={t('backup')} valid={!!bucket}
-      submit={() => api.call('POST', `/api/stores/${enc(s.name)}/backup`, { bucket, ...(file.trim() ? { file: file.trim() } : {}) }).then(done)}>
-      <Field label={t('bucket')} hint={buckets.length ? undefined : t('noBucketForRestore')}>
-        <MenuSelect value={bucket} label={t('bucket')} placeholder={t('chooseBucket')} onChange={setBucket} options={buckets.map((n) => ({ value: n, label: n }))} />
-      </Field>
-      <TextField label={t('fileName')} value={file} onChange={setFile} mono placeholder={s.links.find((l) => l.bucket === bucket)?.file ?? s.name} hint={t('fileNameHint')} />
     </FormModal>
   )
 }
