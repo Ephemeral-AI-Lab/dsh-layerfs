@@ -27,7 +27,7 @@ export interface InstalledRuntime {
   readonly cli: string
   readonly daemon: string | null
   readonly bundle: string | null
-  /** When the folder was installed (ms). */
+  /** Its CLI file's modification time (ms): the build's own time, which an install keeps. Newest first by it. */
   readonly at: number
 }
 
