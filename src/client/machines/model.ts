@@ -597,10 +597,14 @@ export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>
 export const forceStopOf = (m: MachineInfo, hasSandboxes = m.sandboxes.length > 0, features?: CliFeatures): boolean =>
   features?.forceStop !== false && m.platform !== 'ssh' && m.platform !== 'firecracker' && (powerOf(m) === 'stop' || hasSandboxes)
 
-/** A machine's size in a line. */
+/**
+ * A machine's size in a line: what its record was created with (VM defaults
+ * for a value it leaves out). A record with no size at all (a machine that
+ * shares what it runs on) says only its free disk, or nothing known; decided
+ * by what the record holds, never by the platform.
+ */
 export function sizeOf(m: MachineInfo, live?: MachineLive): Words {
-  if (m.platform === 'native') return w('sizeNative')
-  if (m.platform === 'docker') return live?.freeDisk != null ? w('sizeDockerFree', { free: gib(live.freeDisk) }) : w('sizeDocker')
+  if (m.cpus == null && m.memory == null && m.disk == null) return live?.freeDisk != null ? w('sizeFree', { free: gib(live.freeDisk) }) : w('sizeNotRecorded')
   const values = { cpus: m.cpus ?? VM_DEFAULTS.cpus, memory: gib(m.memory ?? VM_DEFAULTS.memory), disk: gib(m.disk ?? VM_DEFAULTS.disk) }
   return live?.freeDisk != null ? w('sizeVmFree', { ...values, free: gib(live.freeDisk) }) : w('sizeVm', values)
 }

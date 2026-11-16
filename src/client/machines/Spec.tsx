@@ -13,7 +13,7 @@ import type { MachinesKey } from './locale.ts'
 import { BUILT_IN, bytes, gib, heldWords, inUse, machineState, type AvailableView, type MachineInfo, type MachineLive, type MachineSandbox, type MachineStore } from './model.ts'
 import { MachineStateChip, hasSettings } from './parts.tsx'
 import { ObservedResources, liveWords, storeSizeWords, storeSizes, useMachineStats } from './MachineStats.tsx'
-import { STATS_PAGE_MS, liveCounts } from './stats.ts'
+import { liveCounts } from './stats.ts'
 import css from './machines.module.css'
 
 const RUNS_AS: Record<string, MachinesKey> = { docker: 'runsContainers', native: 'runsProcessesNotIsolated', namespaces: 'runsNamespacesCgroup' }
@@ -41,13 +41,14 @@ export function SpecTab({ m, live, view, sandboxes, stores, pending, onSettings,
   const counts = liveCounts(sandboxes)
   const running = counts.running
   // observed values (machine.stats); without the call the card shows the record and the reported free space, as before
-  const { offered, read } = useMachineStats(m, STATS_PAGE_MS)
+  const { offered, read } = useMachineStats(m)
   const sizes = offered ? storeSizes(read) : null
   const workspaces = sandboxes.reduce((n, b) => n + (b.workspaces ?? 0), 0)
   const routes = [...new Set(sandboxes.flatMap((b) => (b.route ? [b.route] : [])))]
   const storeBytes = stores.reduce((n, s) => n + (s.size ?? 0), 0)
   const builtIn = BUILT_IN.has(m.platform)
-  const shared = m.platform === 'native' ? t('sharedNative') : m.platform === 'docker' ? t('sharedDocker') : null
+  // nothing observed: the size the record was created with, labelled "allocated" (never a platform's words)
+  const allocated = (value: string | null) => (value != null ? t('mxAllocated', { size: value }) : t('notReported'))
   const missing = p?.missing ?? []
   const postgresql = (view.postgresql ?? []).length
   const pick = (map: Record<string, MachinesKey>, key: string | null | undefined) => (key ? (map[key] ? t(map[key]) : key) : null)
@@ -78,9 +79,9 @@ export function SpecTab({ m, live, view, sandboxes, stores, pending, onSettings,
               ? <Facts><ObservedResources m={m} read={read} /></Facts>
               : (
                 <Facts>
-                  <Fact label={t('cpus')}>{m.cpus ?? shared}</Fact>
-                  <Fact label={t('memory')}>{m.memory != null ? gib(m.memory) : shared}</Fact>
-                  <Fact label={t('disk')}>{m.disk != null ? gib(m.disk) : shared}</Fact>
+                  <Fact label={t('cpus')}>{allocated(m.cpus != null ? String(m.cpus) : null)}</Fact>
+                  <Fact label={t('memory')}>{allocated(m.memory != null ? gib(m.memory) : null)}</Fact>
+                  <Fact label={t('disk')}>{allocated(m.disk != null ? gib(m.disk) : null)}</Fact>
                   {share !== null
                     ? (
                       <Fact label={t('diskUse')}>

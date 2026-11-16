@@ -224,8 +224,8 @@ test('parallel project list and Storage reads make one store.list; a write reads
   assert.ok(created.body.stores.some((s) => s.name === 's2'))
 })
 
-// §4.1 Hits: concurrent machines views (the sidebar, the machines store, a dialog) share one read;
-// a GET after a write does not join a read started before it.
+// §4.1 Hits: concurrent machines views (the sidebar, the machines store, a dialog) share one read,
+// and one answer serves every tab for 5 s (layerfs-project#182 D2); a GET after a write reads anew.
 test('parallel machines views make one machine.list; a write reads anew', async (t) => {
   const f = setup(t)
   const [a, b] = await Promise.all([f.http('GET', '/api/machines'), f.http('GET', '/api/machines')])
@@ -236,7 +236,7 @@ test('parallel machines views make one machine.list; a write reads anew', async 
   await f.http('POST', '/api/machines/lima1/start')
   const second = f.http('GET', '/api/machines')
   await Promise.all([first, second])
-  assert.equal(f.count('machine.list'), 3, 'the GET after the start read anew')
+  assert.equal(f.count('machine.list'), 2, 'the GET before the start was the kept answer; the GET after it read anew')
 })
 
 // §4.1 Hits (finding 1): History reads a Branch at its head with its fork point from the Branch
@@ -508,6 +508,7 @@ const GETS = [
   ['projects/:id/sandboxes', `/api/projects/${P}/sandboxes`],
   ['projects/:id/fs', `/api/projects/${P}/fs?branch=feat&path=/`],
   ['projects/:id/file', `/api/projects/${P}/file?branch=feat&path=/a.txt`],
+  ['metrics', '/api/metrics?machines=lima1&since=0'],
   ['sandboxes/:id/log', '/api/sandboxes/box1/log'],
   ['sandboxes/:id/log', '/api/sandboxes/box1/log?before=b1'],
   ['sandboxes/:id/files', '/api/sandboxes/box1/files'],

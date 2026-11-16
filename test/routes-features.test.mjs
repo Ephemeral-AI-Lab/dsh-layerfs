@@ -275,8 +275,13 @@ test('Sandbox reads: a cached Busy refusal is dropped by mount, unmount, commit 
     workspace: { mount: async () => ({ ws: 'b1:w' }), unmount: async () => ({}), commit: async () => ({ id: 'c' }) },
   }
   const f = fixture(lfs)
+  // a good answer serves every tab for SANDBOX_KEEP_MS: each round starts once it has run out
+  const realNow = Date.now
+  let skew = 0
+  Date.now = () => realNow() + skew
   const busyAgain = async () => {
     busy = true
+    skew += R.util.SANDBOX_KEEP_MS + 1
     assert.equal((await f.http('GET', '/api/sandboxes/b1')).status, 409)
     const before = reads
     assert.equal((await f.http('GET', '/api/sandboxes/b1')).status, 409)
@@ -296,7 +301,7 @@ test('Sandbox reads: a cached Busy refusal is dropped by mount, unmount, commit 
       assert.equal((await f.http('GET', '/api/sandboxes/b1')).status, 200, 'the write cleared the Busy answer')
       assert.equal(reads, before + 1)
     }
-  } finally { f.close() }
+  } finally { Date.now = realNow; f.close() }
 })
 
 test('Branches: main first on page 0 and never again, however many pages', async () => {
