@@ -23,6 +23,7 @@ import { Location, StoreMenu, storeNotice, type StoreActions } from './StoreCard
 import { StoreBackups, StoreConnections } from './StoreLinks.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
+import type { TabId } from './tabs.ts'
 import { runningByProject, stillCounting, storeTabs, type StoreProjectsView, type StoreStats, type StoreTab } from './store-page.ts'
 import type { ProjectSummary, StorageJob, StorageView } from './types.ts'
 import css from './Storage.module.css'
@@ -43,9 +44,11 @@ export interface StorePageProps {
   catalog: ReadonlyMap<string, ProjectSummary>
   on: StoreActions | undefined
   onOpenProject: (key: string) => void
+  /** Open any page by its id (a Store, a Sandbox, a project), for the project table's links. */
+  onOpen?: (id: TabId) => void
 }
 
-export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenProject }: StorePageProps): ReactNode {
+export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen }: StorePageProps): ReactNode {
   const ids = useId()
   const s = view.stores.find((x) => x.name === name)
   const kind = s?.kind ?? 'sqlite'
@@ -107,8 +110,9 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
 
       <div className={tabCss.panelArea} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
         {tab === 'projects' ? (
-          <StoreProjects store={s.name} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored === 'number' ? stats.data.stored : null} running={running} t={t} now={now}
-            canAdd={canAddProject(s)} onAdd={on.addProject} onOpen={onOpenProject} />
+          <StoreProjects api={api} store={{ name: s.name, kind: s.kind }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored === 'number' ? stats.data.stored : null}
+            stores={view.stores} fleet={machines.data?.available ? machines.data : null} t={t} now={now} tick={tick}
+            canAdd={canAddProject(s)} onAdd={on.addProject} onOpen={(id) => (onOpen ? onOpen(id) : id.startsWith('project:') ? onOpenProject(id.slice('project:'.length)) : undefined)} />
         ) : tab === 'backups' ? (
           <StoreBackups store={s} view={view} t={t} now={now} on={on} />
         ) : tab === 'connections' ? (

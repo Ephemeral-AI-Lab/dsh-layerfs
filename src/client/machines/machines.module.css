@@ -690,10 +690,10 @@
   width: 80px;
 }
 
-/* The two columns: Stores (narrower) and Sandboxes. */
+/* The two columns, equally wide: Stores and Sandboxes. */
 .inventory {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
@@ -740,22 +740,55 @@
   flex: 1;
 }
 
-.columnLink,
-.lineMore {
-  padding: 0;
+/* A column's add verb (Add Store, New Sandbox): quiet text with a plus, at the head's end. */
+.columnAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  margin-right: -6px;
+  padding: 0 6px;
   border: 0;
+  border-radius: var(--dsw-radius-sm);
   background: none;
   font: inherit;
   font-size: 12px;
-  color: var(--dsw-alias-link);
+  color: var(--dsw-alias-label-secondary);
   cursor: pointer;
 }
 
+.columnAction:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+.columnAction:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: -1px;
+}
+
 @media (hover: hover) {
-  .columnLink:hover,
-  .lineMore:hover {
-    text-decoration: underline;
+  .columnAction:not(:disabled):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
   }
+}
+
+/* A list's scroll box: six and a half rows high, so the half row says there
+   is more, then it scrolls. The side padding keeps the rows' hover band (8px
+   past the text) inside it. */
+.lineScroll {
+  max-height: 214px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dsw-alias-border-l3) transparent;
+}
+
+.lineScroll > .lines + .lines {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 .lines {
@@ -768,8 +801,36 @@
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
-.lineMore {
-  min-height: 30px;
+/* A row with a menu: the row's button, then the menu at its end, shown on
+   hover, on focus, or while open (always on a touch screen). */
+.lineRow {
+  display: flex;
+  align-items: center;
+}
+
+.lineRow > .line {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin-right: 0;
+}
+
+.lineMenu {
+  display: inline-flex;
+  flex: none;
+  margin-left: 2px;
+}
+
+@media (hover: hover) {
+  .lineMenu {
+    opacity: 0;
+  }
+
+  .lineRow:hover .lineMenu,
+  .lineMenu:focus-within,
+  .lineMenu:has([aria-expanded='true']) {
+    opacity: 1;
+  }
 }
 
 /* One row: icon, name, meta, then size or slots and state. The whole row opens its tab. */
@@ -858,26 +919,6 @@
   line-height: 16px;
   color: var(--dsw-alias-label-secondary);
   text-overflow: ellipsis;
-}
-
-.lineGroup + .lineGroup,
-.lines + .lineGroup {
-  margin-top: 6px;
-}
-
-.lineGroupHead {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 6px 0 4px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.lineGroupName {
-  font-weight: 500;
-  color: var(--dsw-alias-label-secondary);
 }
 
 /* A machine tab's line of facts. */
@@ -2499,6 +2540,423 @@
     grid-template-columns: 32px minmax(0, 1fr) 84px;
   }
   .imgRowSize {
+    display: none;
+  }
+}
+
+/* ---------- a Sandbox page's Overview tab (SandboxOverview.tsx) ---------- */
+
+.sbovGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  gap: 12px 24px;
+  margin: 0;
+}
+
+.sbovGrid .dtItem {
+  min-width: 0;
+}
+
+.sbovGrid .dtItem dd {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+
+.ovCols[data-cols='4'] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@container (max-width: 760px) {
+  .ovCols[data-cols='4'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ovCols[data-cols='4'] > .ovCol:nth-child(3) {
+    border-left: 0;
+  }
+
+  .ovCols[data-cols='4'] > .ovCol:nth-child(n + 3) {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
+}
+
+.ovValue[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.ovSparkBox[data-muted] .ovSparkLine {
+  stroke: var(--dsw-alias-label-tertiary);
+}
+
+.ovSparkBox[data-muted] .ovSparkArea {
+  fill: var(--dsw-alias-label-tertiary);
+  fill-opacity: 0.05;
+}
+
+.sbovChart {
+  display: block;
+  width: 100%;
+  height: 48px;
+  overflow: visible;
+}
+
+.sbovChartRoom {
+  height: 54px;
+}
+
+.sbovNote {
+  margin: 0 16px 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-module-platform);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sbovPair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@container (max-width: 600px) {
+  .sbovPair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.sbovSmall {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 14px;
+}
+
+.sbovTotal {
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sbovBar {
+  display: flex;
+  overflow: hidden;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.sbovBar > span {
+  min-width: 2px;
+  height: 100%;
+}
+
+.sbovBar > span[data-part='changes'],
+.sbovKey[data-part='changes'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.sbovBar > span[data-part='files'],
+.sbovKey[data-part='files'] {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.sbovBar > span[data-part='runtime'],
+.sbovKey[data-part='runtime'] {
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.sbovKeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sbovKey {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+
+.sbovTone {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sbovTone[data-tone='success'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.sbovTone[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.sbovSlots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sbovSlots > i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.sbovSlots > i[data-used] {
+  background: var(--dsw-alias-border-l2);
+}
+
+.sbovLine {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sbovLine[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.sbovHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.sbovHeadIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-lg);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sbovHeadName {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 26px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sbovHeadActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- the machines table (Board.tsx): a row per machine, open to show what it holds ---------- */
+
+/* One card; the rows share the table's columns through subgrid so every
+   machine's state, memory, disk and actions line up. */
+.fleet {
+  overflow: hidden;
+  padding: 0;
+  container-type: inline-size;
+}
+
+.fleetTable {
+  display: grid;
+  grid-template-columns:
+    20px minmax(160px, 1.3fr) auto minmax(110px, 0.8fr)
+    minmax(150px, 1.3fr) minmax(84px, auto) minmax(64px, auto);
+  column-gap: 16px;
+}
+
+.fleetMachine {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.fleetMachine + .fleetMachine,
+.fleetHead + .fleetMachine {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.fleetRow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 12px 8px 10px;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.fleetHead {
+  min-height: 0;
+  padding-block: 8px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .fleetMachine > .fleetRow:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.fleetToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.fleetToggle > svg {
+  transition: transform 120ms ease;
+}
+
+.fleetMachine[data-open] .fleetToggle > svg {
+  transform: rotate(90deg);
+}
+
+.fleetToggle:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+
+.fleetState,
+.fleetMemory,
+.fleetDisk,
+.fleetHolds {
+  min-width: 0;
+}
+
+.fleetActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+/* An open row: what the machine holds, inset as much on the left as on the right. */
+.fleetDetail {
+  grid-column: 1 / -1;
+  padding: 0 12px 12px;
+}
+
+.fleetDetail .blocked,
+.fleetDetail .blockReason {
+  margin: 0 0 10px;
+}
+
+.fleetDetail .blockProgress {
+  padding: 0 0 10px;
+}
+
+.fleetDetail .inventory {
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+}
+
+/* A cell's meter over its short words. */
+.cellStack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cellStack > .cellBar {
+  width: 100%;
+  max-width: 140px;
+  height: 5px;
+}
+
+.cellText {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cellMuted {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.cellText[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.cellText[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* An open row's lists, at full length (no scroll box of their own). */
+.lineFlat > .lines + .lines {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+/* Narrow: memory and holds go first, then the disk. */
+@container (max-width: 760px) {
+  .fleetTable {
+    grid-template-columns: 20px minmax(140px, 1.6fr) auto minmax(130px, 1fr) minmax(64px, auto);
+  }
+
+  .fleetMemory,
+  .fleetHolds {
+    display: none;
+  }
+
+  .fleetDetail .inventory {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fleetDetail .inventoryColumn + .inventoryColumn {
+    border-left: 0;
+    border-top: 0.5px solid var(--dsw-alias-border-l2);
+  }
+}
+
+@container (max-width: 520px) {
+  .fleetTable {
+    grid-template-columns: 20px minmax(0, 1fr) auto minmax(64px, auto);
+  }
+
+  .fleetDisk {
     display: none;
   }
 }

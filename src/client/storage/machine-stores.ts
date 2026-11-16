@@ -48,7 +48,7 @@ export function machineStores(view: StorageView, machine: string, t: StorageT): 
 }
 
 /** The kind the tab opens on: the one asked for when the machine takes it, else the one with Stores here, else SQLite. */
-export function startKind(stores: MachineStores, asked: StoreKind | null): StoreKind {
+export function startKind(stores: Pick<MachineStores, 'noSqlite' | 'noPostgresql'> & { sqlite: readonly unknown[], postgresql: readonly unknown[] }, asked: StoreKind | null): StoreKind {
   const takes = (k: StoreKind) => (k === 'sqlite' ? !stores.noSqlite || stores.sqlite.length > 0 : !stores.noPostgresql || stores.postgresql.length > 0)
   if (asked && takes(asked)) return asked
   if (stores.sqlite.length) return 'sqlite'

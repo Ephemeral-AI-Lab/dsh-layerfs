@@ -32,6 +32,8 @@ export interface StoreActions {
   recheck: (attachment: PgAttachment) => void
   /** PostgreSQL: confirm, then store.detach. */
   detach: (machine: string) => void
+  /** PostgreSQL: Connect database on this Store's server, with its user and password. */
+  newOnServer: () => void
 }
 
 /** Where a Store is: the home, a machine (opens it on Machines), or its PostgreSQL server. */
@@ -51,8 +53,11 @@ export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: S
         const run = (fn: () => void) => () => { close(); fn() }
         return pg ? (
           <>
+            {s.postgresql?.url && s.postgresql.server
+              ? <MenuItemButton onSelect={run(on.newOnServer)}>{t('newStoreSameServer')}</MenuItemButton>
+              : null}
             {machine ? <MenuItemButton onSelect={run(() => on.detach(machine))}>{t('msDetachFrom', { machine: machine === 'native' ? t('layerfsHome') : machine })}</MenuItemButton> : null}
-            <MenuItemButton danger separatorBefore={!!machine} onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
+            <MenuItemButton danger separatorBefore={!!(s.postgresql?.url && s.postgresql.server) || !!machine} onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
           </>
         ) : (
           <>

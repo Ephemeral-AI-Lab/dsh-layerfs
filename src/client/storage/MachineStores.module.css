@@ -3,78 +3,116 @@
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   container-type: inline-size;
 }
 
 /* ---------- the two kind tiles: they switch the panel ---------- */
 
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.barAction {
+  display: inline-flex;
+  gap: 8px;
+  margin-inline-start: auto;
+}
 .tiles {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  display: inline-flex;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
 }
 .tile {
   all: unset;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
-  padding: 10px 12px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-xl);
-  background: var(--dsw-alias-bg-module-platform);
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
   cursor: pointer;
 }
 .tile[aria-selected='true'] {
-  border: 1.5px solid var(--dsw-alias-link);
   background: var(--dsw-alias-settings-card-fill);
-  padding: 9px 11px;
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-soft);
 }
 .tile:focus-visible {
   outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 @media (hover: hover) {
   .tile[aria-selected='false']:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
   }
 }
-.tileHead {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.tileLabel {
   font-size: 13px;
   font-weight: 500;
-  line-height: 18px;
-}
-.tileLabel {
-  color: var(--dsw-alias-label-primary);
-}
-.tileRole {
-  margin-inline-start: auto;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  font-weight: 400;
+  white-space: nowrap;
 }
 .tileFigure {
+  min-width: 0;
   overflow: hidden;
-  color: var(--dsw-alias-label-primary);
-  font-size: 18px;
-  font-weight: 500;
-  line-height: 26px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tileNote {
-  overflow: hidden;
+
+/* Home only: the kind's second view (Stores | Buckets, Databases | Servers), a smaller switch by the actions */
+.views {
+  display: inline-flex;
+  gap: 2px;
+  margin-inline-start: auto;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.views + .barAction {
+  margin-inline-start: 0;
+}
+.view {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 5px;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
-  line-height: 16px;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+.view[aria-selected='true'] {
+  background: var(--dsw-alias-settings-card-fill);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-soft);
+}
+.view:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  .view[aria-selected='false']:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+.viewCount {
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- the panel ---------- */
@@ -106,70 +144,160 @@
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
 }
 
-/* ---------- a Store card (both kinds), split by its projects ---------- */
+/* ---------- a Store card (both kinds): one height for every card, three project rows kept ---------- */
 
 .card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
   min-width: 0;
-  padding: 18px 20px;
+  min-height: 212px;
+  padding: 12px 14px;
 }
 .head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  min-height: 26px;
+  min-height: 24px;
 }
 .glyph {
   display: inline-flex;
   flex: none;
 }
+/* The name reads as a title; it shows it opens only on hover. */
 .name {
   flex: 1 1 auto;
   min-width: 5em;
   overflow: hidden;
-  font-size: 16px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
   font-weight: 500;
   text-align: start;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+@media (hover: hover) {
+  .name:hover {
+    color: var(--dsw-alias-link);
+  }
+}
 .figure {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  column-gap: 10px;
-  row-gap: 2px;
+  gap: 8px;
   min-width: 0;
-  margin-top: -6px;
 }
 .big {
+  flex: none;
   color: var(--dsw-alias-label-primary);
-  font-size: 26px;
+  font-size: 18px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  line-height: 32px;
+  line-height: 24px;
   white-space: nowrap;
 }
 .meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-  line-height: 18px;
-  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 16px;
   white-space: nowrap;
+}
+.metaMark {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+.metaText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Home: where the Store lives, one line: "Stored on" one machine, or "Attached" machines. */
+.machines {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 24px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.machinesLabel {
+  flex: none;
+  margin-inline-end: 2px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11.5px;
+}
+.machinesNone {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+.chip {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.chip[data-add] {
+  flex: none;
+  border-style: dashed;
+  border-color: var(--dsw-alias-border-l3);
+  color: var(--dsw-alias-label-secondary);
+}
+.chip:disabled {
+  cursor: default;
+}
+.chip .dot {
+  width: 6px;
+  height: 6px;
+}
+.chip:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+@media (hover: hover) {
+  .chip:not(:disabled):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+.chipName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Room for three project rows on every card, so a row of cards lines up. */
+.slot {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 82px;
 }
 .projects {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -178,14 +306,14 @@
   all: unset;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto 56px;
   align-items: center;
   column-gap: 10px;
-  row-gap: 5px;
   width: calc(100% + 12px);
+  height: 26px;
   margin-inline: -6px;
-  padding: 5px 6px;
-  border-radius: 8px;
+  padding: 0 6px;
+  border-radius: 6px;
   cursor: pointer;
 }
 .project:focus-visible {
@@ -196,25 +324,21 @@
     background: var(--dsw-alias-interactive-bg-hover);
   }
 }
-.projectIcon {
-  display: inline-flex;
-}
 .projectName {
   overflow: hidden;
   color: var(--dsw-alias-label-primary);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 12.5px;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .projectMeta {
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .track {
-  grid-column: 2 / 4;
   height: 4px;
   overflow: hidden;
   border-radius: 2px;
@@ -226,24 +350,30 @@
   border-radius: 2px;
   background: var(--dsw-alias-link);
 }
-.more {
-  align-self: flex-start;
-  margin-inline-start: 26px;
-  font-size: 13px;
-}
+/* No project yet: the kept room says so, with Add project. */
 .none {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   margin: 0;
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  border-radius: 8px;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
+  font-size: 12px;
+}
+.noneAction {
+  font-size: 12px;
 }
 .status {
   margin: 0;
-  padding: 8px 12px;
+  padding: 6px 10px;
   overflow: hidden;
   border-radius: var(--dsw-radius-m, 8px);
   background: var(--dsw-alias-bg-module-platform);
-  font-size: 13px;
-  line-height: 18px;
+  font-size: 12px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -256,11 +386,18 @@
 .foot {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  margin-top: auto;
-  padding-top: 14px;
+  min-height: 28px;
+  padding-top: 8px;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+/* "+N projects": the rest are on the Store page. */
+.more {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .footActions {
   display: inline-flex;
@@ -277,7 +414,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -293,20 +430,17 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
-  height: 28px;
-  padding: 0 10px 0 6px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
+  height: 24px;
+  margin-inline-start: -6px;
+  padding: 0 6px;
+  border-radius: 6px;
   color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   white-space: nowrap;
 }
 .badge[data-none] {
-  padding: 0 10px;
-  border-style: dashed;
-  border-color: var(--dsw-alias-border-l3);
   color: var(--dsw-alias-label-tertiary);
 }
 .badge:focus-visible {

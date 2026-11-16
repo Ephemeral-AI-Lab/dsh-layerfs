@@ -60,6 +60,7 @@ export function apply(ctx: Context): void {
     stats: ctx.layerfs.statDir,
     cli: () => ctx.layerfs.cli,
     daemon: () => ctx.layerfs.daemon,
+    bundle: () => ctx.layerfs.bundle,
     discover: () => ctx.layerfs.discovery(),
     ensureNative: () => ctx.layerfs.ensureNative(),
     emit: (type, data) => ctx.layerfs.emit(type, data),

@@ -19,17 +19,20 @@ export async function dismiss(page) {
     break
   }
 }
-/** Center pages with their own button in Center's bar (not in the sidebar). */
+/** Pages with their own button on Home's head card (not in the sidebar). */
 const CENTER_PAGES = new Set(['Health', 'Logs', 'Settings'])
 export async function openPanel(page, label) {
   await dismiss(page)
   if (CENTER_PAGES.has(label)) {
-    const bar = page.locator('header[aria-label="Center navigation"]')
+    const bar = page.locator('header[aria-label="Home navigation"]')
     if (!(await bar.isVisible().catch(() => false))) {
       await page.getByRole('navigation', { name: 'Global panels' }).getByRole('button', { name: 'LayerFS', exact: true }).first().click()
       await bar.waitFor({ timeout: 15000 })
     }
-    await bar.getByRole('button', { name: new RegExp(`^${label}\\b`) }).first().click()
+    // Home's head card holds the buttons: go up to Home first (its crumb is a button on any other page).
+    const root = bar.getByRole('navigation', { name: 'Location' }).getByRole('button', { name: 'Home', exact: true })
+    if (await root.count()) { await root.first().click(); await page.waitForTimeout(400) }
+    await page.getByRole('navigation', { name: 'Health, Logs and Settings' }).getByRole('button', { name: new RegExp(`^${label}\\b`) }).first().click()
     await page.waitForTimeout(1500)
     return
   }

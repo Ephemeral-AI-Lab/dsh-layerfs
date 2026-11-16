@@ -17,7 +17,7 @@
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Button, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconFolderCloseRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -105,7 +105,7 @@ function LayerfsWorkspaces({ wide, expandSidebar, api, sessionSource, dshT, t }:
 }): ReactNode {
   if (!wide) {
     return <div className={css.rail} data-layerfs-workspaces-view="">
-      <Button className={css.switchRail} variant="ghost" size="sm" icon={<LayerfsGlyph size={18} />} aria-label={t('layerfs')} title={t('layerfs')} onClick={expandSidebar} />
+      <Button className={css.switchRail} variant="ghost" size="sm" icon={<IconFolderCloseRegular size={18} />} aria-label={t('layerfs')} title={t('layerfs')} onClick={expandSidebar} />
     </div>
   }
   return <WideWorkspaces api={api} sessionSource={sessionSource} dshT={dshT} t={t} />

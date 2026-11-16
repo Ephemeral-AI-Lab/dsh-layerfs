@@ -30,7 +30,7 @@ import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { pgMachineOf } from '../sessions/availability.ts'
 import { Answer, PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
-import { processOf } from './observed.ts'
+import { processOf, usageOf, type Usage } from './observed.ts'
 import { SandboxCreates, type Report } from './sandbox-creates.ts'
 
 /** Calls in flight at once for one answer (stats, diffs). */
@@ -150,7 +150,7 @@ export function sandboxInfo(s: any, workspaces: any[] | null = null) {
       .filter((w) => w.mounted !== false && (w.directory || w.path))
       .map((w) => ({
         ws: w.ws ?? `${s.name}:${w.name ?? w.directory}`, wsId: typeof w.workspace === 'string' ? w.workspace : null, name: w.name ?? null, branch: w.branch ?? '', path: w.directory ?? w.path, activity: w.activity ?? null, base: w.base ?? null, baseLayer: w.base_layer ?? null, root: w.root ?? null, headMovedSinceMount: w.head_moved_since_mount ?? null, dirty: w.dirty ?? null, pendingMerge: w.pending_merge ?? null, revision: w.revision ?? null,
-        ...runningOf(w), ...overlayBytesOf(w),
+        ...runningOf(w), ...overlayBytesOf(w), ...workspaceUsageOf(w),
       })),
     // the daemon process and the Sandbox's cgroup usage (layerfs-project#164): absent from a CLI that does not say, null when not observed
     ...processOf(s),
@@ -199,6 +199,19 @@ function runningOf(w: any): { running?: RunningCommand[] | null } {
 function overlayBytesOf(w: any): { overlayBytes?: number | null } {
   if (!w || !('overlay_bytes' in w)) return {}
   return { overlayBytes: typeof w.overlay_bytes === 'number' && Number.isFinite(w.overlay_bytes) && w.overlay_bytes >= 0 ? w.overlay_bytes : null }
+}
+
+/**
+ * A Workspace item's `usage` (its `ws-<workspace>` cgroup: `{ cpu_usec,
+ * memory_current, memory_peak, pids }`, as the Sandbox's own) and
+ * `usage_reason`, by presence: absent from a worker that does not report
+ * usage per Workspace (the page shows a dash), `null` with the reason when
+ * there was nothing to read (no command runs, so LayerFS has removed the group).
+ */
+function workspaceUsageOf(w: any): { usage?: Usage | null, usageReason?: string } {
+  if (!w || !('usage' in w)) return {}
+  const reason = typeof w.usage_reason === 'string' && w.usage_reason ? w.usage_reason : null
+  return { usage: usageOf(w.usage), ...(reason ? { usageReason: reason } : {}) }
 }
 
 /** BranchInfo[] from branch.list records and the Commits read (by id). */
@@ -726,6 +739,26 @@ export class Projects {
       store: { name: record.store, projects, ...('refusal' in store ? { refusal: store.refusal } : { historyLogical: store.history_logical ?? null, canonical: store.canonical ?? null, stored: store.stored ?? null, metadata: store.metadata ?? null, file: store.file ?? null }) },
       main: main ? { logical: main.logical ?? null, files: main.files ?? null, directories: main.directories ?? null, complete: main.complete !== false } : null,
     }
+  }
+
+  /**
+   * A project's size for its Overview card, and the raw bytes of main's latest
+   * tree. Alone in its Store (`?alone=1`, the caller knows the Store's
+   * projects) the project's size is the Store's packed bytes, which count every
+   * write, publications to main included. In a shared Store it is the packed
+   * bytes its saves wrote first (the ledger above, refreshed in the background;
+   * `counting` until a first read finishes or while one runs).
+   */
+  async projectSize(key: string, q: URLSearchParams) {
+    const record = await this.record(key)
+    const project = keyOf(record), created = typeof record.created === 'number' ? record.created : null
+    const files = this.lfs.project.stats(project).then((main: any) => typeof main?.logical === 'number' ? main.logical : null, () => null)
+    if (q.get('alone') === '1') {
+      const [store, logical] = await Promise.all([this.lfs.store.stats(record.store).catch(() => null), files])
+      return { project, stored: typeof store?.stored === 'number' ? store.stored : null, counting: false, files: logical }
+    }
+    const [view, logical] = await Promise.all([this.storageLedgers.view(project, created), files])
+    return { project, stored: view.totals && !view.partial ? view.totals.stored : null, counting: view.partial || view.building !== null, files: logical }
   }
 
   async history(key: string, q: URLSearchParams) {

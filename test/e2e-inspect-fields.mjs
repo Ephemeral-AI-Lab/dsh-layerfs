@@ -18,7 +18,7 @@ const get = async (page, name) => { const r = await probe(page, 'GET', `/api/san
 const paneOf = (page, name) => editor(page).locator('section').filter({ has: page.getByRole('textbox', { name: `Command for ${name}`, exact: true }) }).last()
 async function terminals(page, sb) {
   await jump(page, sb.title)
-  await editor(page).getByRole('tab', { name: 'Terminals', exact: true }).click().catch(() => {})
+  await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click().catch(() => {})
   await editor(page).locator('input[data-term-input]').first().waitFor({ timeout: 20000 })
 }
 const until = async (test, timeout, every = 300) => { for (const end = Date.now() + timeout; ;) { const v = await test(); if (v) return v; if (Date.now() > end) return null; await sleep(every) } }
@@ -66,7 +66,7 @@ await main('e2e-inspect-fields', async ({ run, page }) => {
     // a Workspace whose pane is on the first page of Terminals (sandbox.get's order is not the page's: the second, else any shown)
     let ws = null
     for (const w of [info.workspaces[1], ...info.workspaces].filter(Boolean)) { if (await paneOf(page, w.name).locator('input[data-term-input]').count()) { ws = w; break } }
-    if (!ws) throw new Error(`no Workspace of ${sb.name} has a pane on the Terminals tab (${info.workspaces.map((w) => w.name).join(', ')})`)
+    if (!ws) throw new Error(`no Workspace of ${sb.name} has a pane on the Workspaces tab (${info.workspaces.map((w) => w.name).join(', ')})`)
     const pane = paneOf(page, ws.name)
     const also = pane.locator('[data-also-running]')
     t.check((await also.count()) === 0, `${ws.name}: no "also running" line before`)

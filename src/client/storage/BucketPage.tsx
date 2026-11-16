@@ -61,6 +61,11 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
   const total = (b.files ?? []).reduce((n, f) => n + (f.bytes ?? 0), 0)
   const linked = new Set(rows.flatMap((r) => (r.storeName ? [r.storeName] : []))).size
   const tt = t as Translate
+  // bound to a Store of this home first, then the files not in this home
+  const groups = [
+    { key: 'bound', label: t('bucketBoundGroup'), rows: rows.filter((r) => r.state !== 'unlinked') },
+    { key: 'other', label: t('bucketOtherGroup'), rows: rows.filter((r) => r.state === 'unlinked') },
+  ].filter((g) => g.rows.length > 0)
   return (
     <>
       <PaneBar title={b.name}
@@ -91,28 +96,31 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
             <thead>
               <tr><th>{t('colFile')}</th><th>{t('colLinked')}</th><th>{t('colState')}</th><th className={`${css.num} ${css.wide}`}>{t('colSize')}</th><th className={css.wide}>{t('colWritten')}</th><th><span className={css.srOnly}>{t('storeActions', { name: b.name })}</span></th></tr>
             </thead>
-            <tbody>
-              {rows.map((r) => {
-                const chip = backupChip(r.state, t)
-                const s = r.store
-                const canBackUp = !!s && s.kind === 'sqlite' && s.state !== 'busy' && s.state !== 'down'
-                const backUp = (r.state === 'store_changed' || r.state === 'missing' || (r.state === null && !!r.link)) && canBackUp
-                const restore = r.state !== null && r.state !== 'missing'
-                return (
-                  <tr key={`${r.file}:${r.storeName ?? ''}`}>
-                    <td className={css.mono}><LinkButton onClick={() => onOpenFile(r.file)}>{r.file}</LinkButton><span className={css.muted}>/store.sqlite</span></td>
-                    <td>{r.storeName ? <span className={css.linkList}><LinkButton onClick={() => onOpenStore(r.storeName!)}>{r.storeName}</LinkButton>{s ? <span className={css.muted}>{s.kind === 'postgresql' ? t('postgresql') : placeWords(s.machine, t)}</span> : null}</span> : <span className={css.muted}>{t('notLinked')}</span>}</td>
-                    <td title={r.reason ?? undefined}><StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} /></td>
-                    <td className={`${css.num} ${css.wide} ${css.muted}`}>{bytes(r.bytes)}</td>
-                    <td className={`${css.wide} ${css.muted}`} title={when(r.modified)}>{r.modified ? ago(r.modified, now, tt) : '—'}</td>
-                    <td className={css.actionsCell}>
-                      {backUp ? <Button variant="outline" size="sm" onClick={() => onBackup(r.storeName!, r.file)}>{t('backupNow')}</Button> : null}
-                      {restore ? <Button variant="outline" size="sm" onClick={() => onRestore(r.file, r.storeName)}>{t('restore')}</Button> : null}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
+            {groups.map((g) => (
+              <tbody key={g.key}>
+                <tr className={css.groupRow}><th colSpan={6} scope="colgroup">{g.label}<span className={css.groupCount}>{g.rows.length}</span></th></tr>
+                {g.rows.map((r) => {
+                  const chip = backupChip(r.state, t)
+                  const s = r.store
+                  const canBackUp = !!s && s.kind === 'sqlite' && s.state !== 'busy' && s.state !== 'down'
+                  const backUp = (r.state === 'store_changed' || r.state === 'missing' || (r.state === null && !!r.link)) && canBackUp
+                  const restore = r.state !== null && r.state !== 'missing'
+                  return (
+                    <tr key={`${r.file}:${r.storeName ?? ''}`}>
+                      <td className={css.mono}><LinkButton onClick={() => onOpenFile(r.file)}>{r.file}</LinkButton><span className={css.muted}>/store.sqlite</span></td>
+                      <td>{g.key === 'other' ? <span className={css.muted}>—</span> : r.storeName ? <span className={css.linkList}>{s ? <LinkButton onClick={() => onOpenStore(r.storeName!)}>{r.storeName}</LinkButton> : <span>{r.storeName}</span>}{s ? <span className={css.muted}>{s.kind === 'postgresql' ? t('postgresql') : placeWords(s.machine, t)}</span> : null}</span> : <span className={css.muted}>{t('notLinked')}</span>}</td>
+                      <td title={r.reason ?? undefined}>{g.key === 'other' ? null : <StateChip tone={chip.tone} label={chip.label} dashed={chip.dashed} />}</td>
+                      <td className={`${css.num} ${css.wide} ${css.muted}`}>{bytes(r.bytes)}</td>
+                      <td className={`${css.wide} ${css.muted}`} title={when(r.modified)}>{r.modified ? ago(r.modified, now, tt) : '—'}</td>
+                      <td className={css.actionsCell}>
+                        {backUp ? <Button variant="outline" size="sm" onClick={() => onBackup(r.storeName!, r.file)}>{t('backupNow')}</Button> : null}
+                        {restore ? <Button variant="outline" size="sm" onClick={() => onRestore(r.file, r.storeName)}>{t('restore')}</Button> : null}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            ))}
           </table>
         </Card>
       )}

@@ -214,6 +214,14 @@ export interface WorkspaceInfo {
   running?: RunningCommand[] | null
   /** The size of the Workspace's overlay file; it grows until unmount. Absent from an older worker; null when not observed. */
   overlayBytes?: number | null
+  /**
+   * What the Workspace's own cgroup (`ws-<workspace>`, its commands) has used,
+   * as a Sandbox's `usage`. Absent from a worker that does not report usage
+   * per Workspace; null with `usageReason` when there was none to read (LayerFS
+   * removes the group once no command runs, so its CPU time starts again).
+   */
+  usage?: { cpuUsec: number | null, memoryCurrent: number | null, memoryPeak: number | null, pids: number | null } | null
+  usageReason?: string
 }
 
 /** One command running in a Workspace, as sandbox.get reports it. */

@@ -16,7 +16,18 @@ export interface StoreBackupLink {
   last: { op: string, at: number | null, bytes: number | null } | null
 }
 
-export interface PgServer { target: string | null, reachable: boolean | null, version: string | null, latencyMs: number | null, error: string | null }
+export interface PgServer {
+  target: string | null, reachable: boolean | null, version: string | null, latencyMs: number | null, error: string | null
+  /** The Store's URL (LayerFS keeps no password in it). */
+  url?: string | null
+  /** The server as `host:port` (host in lower case, port 5432 by default). */
+  server?: string | null
+  database?: string | null
+  user?: string | null
+}
+
+/** A PostgreSQL server to connect another database on: a Store's URL (server and user) and the Store whose password to reuse. */
+export interface ServerPrefill { server: string, url: string, from: string }
 
 /** One Store: store.list with its store.status. */
 export interface StoreRow {

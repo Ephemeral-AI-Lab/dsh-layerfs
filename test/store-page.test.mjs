@@ -56,7 +56,7 @@ test('shares skip projects with nothing counted and keep a hue by name order', (
   assert.equal(P.hueOf('web', rows), 2)
 })
 
-test('cards order by last commit, name or size, and search by name', () => {
+test('rows order by last commit, name, commits, branches or size, and search by name', () => {
   const rows = [
     project('b', { last: { id: 'x', time: 50, branch: 'main', message: '' }, totals: totals(1, 10) }),
     project('a', { created: 10, totals: totals(0, 99) }),
@@ -65,8 +65,17 @@ test('cards order by last commit, name or size, and search by name', () => {
   assert.deepEqual(P.orderProjects(rows, 'recent', '').map((p) => p.name), ['c', 'b', 'a'])
   assert.deepEqual(P.orderProjects(rows, 'name', '').map((p) => p.name), ['a', 'b', 'c'])
   assert.deepEqual(P.orderProjects(rows, 'size', '').map((p) => p.name), ['a', 'b', 'c'])
+  assert.deepEqual(P.orderProjects(rows, 'commits', '').map((p) => p.name), ['c', 'b', 'a'])
+  assert.deepEqual(P.orderProjects(rows, 'branches', '').map((p) => p.name), ['a', 'b', 'c'])
   assert.deepEqual(P.orderProjects(rows, 'name', ' B ').map((p) => p.name), ['b'])
   assert.deepEqual(rows.map((p) => p.name), ['b', 'a', 'c'], 'the input is not reordered')
+})
+
+test('a session-store save reads as its session and event range; other Commits keep their first line', () => {
+  assert.deepEqual(P.commitLine({ id: 'x', time: 1, branch: 'dsh.session.939f81ffc31646d8914df60a5d', message: 'dsh session 939f81ff: events 7591..7616 (54925 bytes)' }),
+    { session: { id: '939f81ff', range: '7591–7616' }, message: 'dsh session 939f81ff: events 7591..7616 (54925 bytes)', branch: null })
+  assert.deepEqual(P.commitLine({ id: 'y', time: 1, branch: 'c1', message: 'b\n\nmore detail' }), { session: null, message: 'b', branch: 'c1' })
+  assert.equal(P.commitLine({ id: 'z', time: 1, branch: 'main', message: '' }).message, '')
 })
 
 test('running Sandboxes count live daemons of this Store only', () => {

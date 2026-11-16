@@ -17,6 +17,12 @@
 //   workspaces[].overlay_bytes   the size of <run folder>/overlay/<namespace>.sqlite, taken
 //                        from the Workspace's mount path <run folder>/workspaces/<namespace>
 //                        (what LayerFS stats); null when that file is not there
+//   workspaces[].usage   only when fields.json says `"usage": "synthetic"`: made-up numbers in the
+//                        shape of a Sandbox's usage, for the Workspace's own cgroup
+//                        (`ws-<workspace>`): while commands run through this wrapper,
+//                        cpu_usec grows by 0.8 processor per command from its start, memory
+//                        is 48 MB + 64 MB a command; with none running, null and
+//                        usage_reason `not_observed` (LayerFS removes the empty group)
 // and `workspace exec` records the command in <LFS_INSPECT_DIR>/execs/<exec id>.json
 // while it runs. Everything else passes through to $LFS_REAL_CLI unchanged
 // (cli-standin-lib.mjs: the chain).
@@ -28,6 +34,7 @@
 //       { "workspace_capacity": 8 | "absent",      default 16
 //         "running": "absent" | "null",            an older worker / records that could not be read
 //         "overlay_bytes": "absent" | "null" | <n>,
+//         "usage": "absent" | "synthetic",          default absent (no usage per Workspace)
 //         "extra_running": { "<ws>": [{ "exec_id", "started", "tag", "program" }] } }   declared, not run
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -68,8 +75,13 @@ if (family === 'sandbox' && call === 'get') {
       let overlay = null
       if (typeof config.overlay_bytes === 'number') overlay = config.overlay_bytes
       else if (w.directory) { try { overlay = statSync(join(dirname(dirname(w.directory)), 'overlay', `${basename(w.directory)}.sqlite`)).size } catch { overlay = null } }
+      const now = Date.now()
+      const usage = mine.length
+        ? { cpu_usec: Math.round(mine.reduce((a, r) => a + Math.max(0, now - r.started), 0) * 800), memory_current: (48 + 64 * mine.length) * 1e6, memory_peak: (48 + 64 * mine.length + 20) * 1e6, pids: mine.length + 1 }
+        : null
       return {
         ...w,
+        ...(config.usage === 'synthetic' ? { usage, ...(usage ? {} : { usage_reason: 'not_observed' }) } : {}),
         ...(config.running === 'absent' ? {} : { running: config.running === 'null' ? null : mine }),
         ...(config.overlay_bytes === 'absent' ? {} : { overlay_bytes: config.overlay_bytes === 'null' ? null : overlay }),
       }

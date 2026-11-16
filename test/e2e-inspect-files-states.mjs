@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // What the Files tabs show when an entry or a read is not an ordinary one
 // (layerfs-project#178 matrix):
-//   F9   a Workspace mount shows as a mount and is never entered; listing the folder that holds it never hangs
+//   F9   on the machine page a Workspace mount shows as a mount and is never entered; listing the folder that holds it never hangs
 //   F10  restricted, unreadable and system entries cannot be opened; a link to a missing path falls back to the view's root and says so
-//   F11  Sandbox stopped: Home still browsable, Whole filesystem shows `Unavailable`; the Terminals tab is unaffected
+//   F11  Sandbox stopped: Home still browsable, Whole filesystem shows `Unavailable`; the Workspaces tab is unaffected
 //   F12  Whole filesystem (Sandbox): the run folder's config/ and a bound Store show locked and cannot be opened
 //   F13  binary file, empty file, empty folder and empty log show their states
 //   F15  folder and file reads add no lines to the Logs page
@@ -47,7 +47,7 @@ setup()
 await main('e2e-inspect-files-states', async ({ run, page }) => {
   await forgetPlace(page)
 
-  await run.row('F9', 'a Workspace mount shows as a mount, is never entered, and its folder lists without a wait', async (t) => {
+  await run.row('F9', 'on the machine page a Workspace mount shows as a mount, is never entered, and its folder lists without a wait', async (t) => {
     const sb = need(T.sandbox)
     // the Sandbox's own roots: one mount per Workspace
     const roots = (await listing(page, sb)).body.entries
@@ -141,15 +141,16 @@ await main('e2e-inspect-files-states', async ({ run, page }) => {
     filesDriver.stop(w)
     try {
       await openFiles(page, w)
+      await switchView(page, 'Sandbox folders')
       let s = await filesState(page)
       const home = (await listing(page, w)).body.entries.find((e) => e.role === 'home')
-      t.check(s.state === 'ready' && !!rowOf(s, home.path), 'stopped: the Sandbox view still lists its roots')
+      t.check(s.state === 'ready' && !!rowOf(s, home.path), 'stopped: Sandbox folders still lists its home and log')
       let got = await toggle(page, home.path)
       t.check(got.ok && under(got.state, home.path).length > 0 && got.state.refusals.length === 0, `Home opens (${under(got.state, home.path).length} entries)`)
       await goPath(page, `${base}/notes.txt`)
       got = await waitFiles(page, (x) => (x.viewer ?? '').includes('second line of notes'))
       t.check(got.ok, 'and a file in it reads')
-      if (s.views.length === 2) {
+      if (s.views.includes('Whole filesystem (/)')) {
         await switchView(page, 'Whole filesystem (/)')
         got = await waitFiles(page, (x) => x.refusals.length + x.stale.length > 0, { timeout: 15000 })
         const said = got.state?.refusals[0] ?? got.state?.stale[0]
@@ -157,23 +158,23 @@ await main('e2e-inspect-files-states', async ({ run, page }) => {
         t.check(/Read again/.test(said?.text ?? ''), 'with "Read again"')
         t.note(got.state?.stale.length ? `the listing read before the stop stays under it, marked with its time (${got.state.rows.length} rows)` : 'nothing was read before the stop: no tree, only the refusal')
         await shot(page, 'inspect-files-f11-whole')
-        await switchView(page, 'Sandbox')
-        got = await waitFiles(page, (x) => x.view === 'layerfs' && x.refusals.length === 0 && (x.viewer ?? '').includes('second line of notes'))
-        t.check(got.ok, 'back in the Sandbox view: Home as it was, no refusal')
+        await switchView(page, 'Sandbox folders')
+        got = await waitFiles(page, (x) => x.view === 'sandbox' && x.refusals.length === 0 && (x.viewer ?? '').includes('second line of notes'))
+        t.check(got.ok, 'back in Sandbox folders: Home as it was, no refusal')
       } else t.note(`a stopped Sandbox's roots offer no / here: no Whole filesystem view to refuse (${JSON.stringify(s.views)})`)
-      await editor(page).getByRole('tab', { name: 'Terminals', exact: true }).click()
-      await editor(page).getByRole('button', { name: 'New workspace', exact: true }).first().waitFor({ timeout: 15000 }).catch(() => t.check(false, 'the Terminals tab does not render'))
-      t.check((await editor(page).locator('input[data-term-input]').count()) > 0, 'the Terminals tab shows its panes')
+      await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
+      await editor(page).getByRole('button', { name: 'New workspace', exact: true }).first().waitFor({ timeout: 15000 }).catch(() => t.check(false, 'the Workspaces tab does not render'))
+      t.check((await editor(page).locator('input[data-term-input]').count()) > 0, 'the Workspaces tab shows its panes')
       s = null
     } finally { filesDriver.start(w) }
     await showFiles(page)
-    if ((await filesState(page)).views.length === 2) {
+    if ((await filesState(page)).views.includes('Whole filesystem (/)')) {
       await switchView(page, 'Whole filesystem (/)')
       const again = files(page).getByRole('button', { name: 'Read again', exact: true })
       if (await again.count()) await again.first().click()
       const got = await waitFiles(page, (x) => x.view === 'whole' && x.state === 'ready' && x.rows.length > 0 && x.refusals.length === 0, { timeout: 15000 })
       t.check(got.ok, 'started again: Read again lists /')
-      await switchView(page, 'Sandbox')
+      await switchView(page, 'Sandbox folders')
     }
     if (cfg.standin) t.note('the stand-in answers as the spec says a stopped Sandbox does; the real Sandbox kept running')
   })
@@ -195,8 +196,17 @@ await main('e2e-inspect-files-states', async ({ run, page }) => {
     if (ws) {
       const t0 = Date.now()
       await toggle(page, parentPath(ws.path))
-      await inert(t, page, ws.path, 'mount', /Mount( \(.+\))?, not entered/)
-      t.check(Date.now() - t0 < 5000, `the folder that holds the Workspace mounts lists without a wait (${Date.now() - t0} ms with the checks)`)
+      t.check(Date.now() - t0 < 5000, `the folder that holds the Workspace mounts lists without a wait (${Date.now() - t0} ms)`)
+      // met under /, a Workspace is the same folder of its saved files as in the Workspaces view (when LayerFS marks it as one there)
+      const listed = (await listing(page, w, parentPath(ws.path))).body.entries.find((e) => e.path === ws.path)
+      const info = (await probe(page, 'GET', `/api/sandboxes/${enc(w.name)}`)).body
+      const wsInfo = info.workspaces?.find((x) => x.path === ws.path)
+      if (listed && (listed.role === 'workspace' || listed.workspace) && wsInfo?.base && info.project) {
+        const s = await filesState(page)
+        t.check(rowOf(s, ws.path)?.expanded === 'false', `${ws.path}: a Workspace folder row under / too`)
+        const got = await toggle(page, ws.path)
+        t.check(got.ok && under(got.state, ws.path).length > 0 && got.state.refusals.length === 0, `…that lists its saved files (${under(got.state, ws.path).length} entries)`)
+      } else await inert(t, page, ws.path, 'mount', /Mount( \(.+\))?, not entered/)
     }
     await goPath(page, `${runFolder}/config`)
     got = await waitFiles(page, (s) => s.notice !== null)
@@ -212,7 +222,7 @@ await main('e2e-inspect-files-states', async ({ run, page }) => {
     t.check(got.ok, `the bound Store folder lists at its own path (${got.state.rows.map((r) => `${r.key.split('/').pop()}:${r.kind}`).join(' ')})`)
     for (const r of got.state.rows.filter((x) => /store\.sqlite/.test(x.key))) await inert(t, page, r.key, 'restricted', /Kept private by LayerFS/)
     await shot(page, 'inspect-files-f12-store')
-    await switchView(page, 'Sandbox')
+    await switchView(page, 'Workspaces')
   })
 
   await run.row('F13', 'binary file, empty file, empty folder and empty log show their states', async (t) => {

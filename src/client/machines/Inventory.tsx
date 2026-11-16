@@ -1,10 +1,10 @@
 /**
- * A machine's inventory as both machine pages show it: its Stores and its
- * Sandboxes side by side, one row each. The Machines tab shows the first few
- * of each (Sandboxes that need you first) and links to the machine tab; the
- * machine tab shows all of them, its Sandboxes grouped by project (a
- * Sandbox being created sits in its project's group, like the real rows). A
- * row opens the Store's or the Sandbox's own tab.
+ * A machine's inventory on the Machines board: its Stores and its Sandboxes
+ * side by side, one row each (Sandboxes that need you first, those being
+ * created on top). Each list keeps a fixed height and scrolls past it, or
+ * (`flat`, the board's open row) shows every row. A row
+ * opens the Store's or the Sandbox's own tab; its menu (shown on hover or
+ * focus) holds what can be done to it, and each column's head its add verb.
  */
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -12,10 +12,11 @@ import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-prim
 import { Meter, StateChip, refusalOf } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph, StoreKindGlyph } from './icons.tsx'
-import { besideCreating, creatingOn, creationStore, needsSpace, phaseShare, phaseWords, sandboxGroups } from './images.ts'
+import { besideCreating, creatingOn, creationStore, needsSpace, phaseShare, phaseWords } from './images.ts'
 
 export { besideCreating, creatingOn } from './images.ts'
 import { FreeSpaceDialog } from './MachineImages.tsx'
+import { SandboxMenu, useClose } from './Sandboxes.tsx'
 import {
   SANDBOX_CAPACITY, bytes, machineState, opWords, pgUsable, projectRef, sandboxesOn, shortSandbox, stateLook, storesOn,
   type AvailableView, type Creation, type MachineInfo, type MachineSandbox,
@@ -54,20 +55,26 @@ function sandboxLines(view: AvailableView, m: MachineInfo): MachineSandbox[] {
   return [...all.filter(sandboxNeedsYou), ...all.filter((b) => !sandboxNeedsYou(b))]
 }
 
+/** One Store row's menu, given by the page that holds the Store actions (Storage): null for none. */
+export type StoreMenuOf = (store: { name: string, family: 'sqlite' | 'postgresql' }) => ReactNode
+
 /**
- * The two columns. `limit` cuts each list (the Machines tab) and offers the
- * machine tab for the rest; without it every row shows and the Sandboxes
- * group by project. `actions` sit in each column's head.
+ * The two columns, each list in a scroll box of fixed height. `storeAction`
+ * and `sandboxAction` sit in each column's head; `storeMenu` gives each Store
+ * row its menu, and `sandboxMenus` each Sandbox row its own (Open, Delete).
  */
-export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }: {
+export function Inventory({ m, view, storeAction, sandboxAction, storeMenu, sandboxMenus, flat }: {
   m: MachineInfo
   view: AvailableView
-  limit?: number
-  onMore?: () => void
   storeAction?: ReactNode
   sandboxAction?: ReactNode
+  storeMenu?: StoreMenuOf | undefined
+  sandboxMenus?: boolean
+  /** Every row at full length, no scroll box of its own (the board's open row, inside the page's one scroll). */
+  flat?: boolean
 }): ReactNode {
   const { t, useCreations } = useMachinesContext()
+  const box = flat ? css.lineFlat : css.lineScroll
   const stores = useStoreRows(m, view)
   const sandboxes = sandboxLines(view, m)
   const creations = useCreations((all) => all)
@@ -80,23 +87,21 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
   return (
     <div className={css.inventory}>
       <section className={css.inventoryColumn} aria-label={t('storesOnMachine', { name: m.name })}>
-        <ColumnHead label={t('stores')} count={stores.length} shown={limit} onMore={onMore} action={storeAction} />
+        <ColumnHead label={t('stores')} count={stores.length} action={storeAction} />
         {stores.length === 0
           ? <p className={css.inventoryEmpty}>{storesEmpty}</p>
-          : <StoreRows rows={limit ? stores.slice(0, limit) : stores} more={limit && stores.length > limit ? stores.length - limit : 0} onMore={onMore} />}
+          : <div className={box} data-line-scroll="stores"><StoreRows rows={stores} menu={storeMenu} projects={false} /></div>}
       </section>
       <section className={css.inventoryColumn} aria-label={t('sandboxesOnMachine', { name: m.name })}>
-        <ColumnHead label={t('sandboxes')} count={sandboxes.length} shown={limit} onMore={onMore} action={sandboxAction} />
+        <ColumnHead label={t('sandboxes')} count={sandboxes.length} action={sandboxAction} />
         {rows.length === 0 && creating.length === 0
           ? <p className={css.inventoryEmpty}>{sandboxesEmpty}</p>
-          : limit
-            ? (
-              <>
-                {creating.length > 0 && <ul className={css.lines} aria-label={t('creatingSandboxes')}>{creating.map((c) => <CreatingRow key={c.id} c={c} showProject />)}</ul>}
-                {rows.length > 0 && <SandboxRows rows={rows.slice(0, limit)} machine={m.name} showProject more={Math.max(0, rows.length - limit)} onMore={onMore} />}
-              </>
-            )
-            : <SandboxGroups rows={rows} creating={creating} machine={m.name} />}
+          : (
+            <div className={box} data-line-scroll="sandboxes">
+              {creating.length > 0 && <ul className={css.lines} aria-label={t('creatingSandboxes')}>{creating.map((c) => <CreatingRow key={c.id} c={c} bare />)}</ul>}
+              {rows.length > 0 && <SandboxRows rows={rows} machine={m.name} menus={sandboxMenus} />}
+            </div>
+          )}
       </section>
     </div>
   )
@@ -117,21 +122,21 @@ export function StoreSection({ m, view, action }: { m: MachineInfo, view: Availa
       <ColumnHead label={t('stores')} count={stores.length} action={action} />
       {stores.length === 0
         ? <p className={css.inventoryEmpty}>{view.readErrors?.stores ? t('storesUnread') : t('noStoresHere')}</p>
-        : <StoreRows rows={stores} more={0} />}
+        : <StoreRows rows={stores} />}
     </section>
   )
 }
 
 /**
  * A Sandbox being created, drawn as a real row in the same place: its name
- * and, like its neighbours, the project (`showProject`, ungrouped) or the
- * Store (inside its project's group). Only the phase in words (a bar while
+ * and, like its neighbours, the project (`showProject`), the Store, or
+ * nothing (`bare`, the Machines board). Only the phase in words (a bar while
  * the image copy reports bytes) tells it apart; a failed one keeps its place
  * with the reason, Retry (the same input again) and dismiss; a create
  * refused for lack of space offers Free space instead of Retry, and creates
  * again once images were removed. Not clickable until the Sandbox exists.
  */
-export function CreatingRow({ c, showProject }: { c: Creation, showProject?: boolean }): ReactNode {
+export function CreatingRow({ c, showProject, bare }: { c: Creation, showProject?: boolean, bare?: boolean }): ReactNode {
   const { t, tw, retryCreation, dismissCreation } = useMachinesContext()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -152,7 +157,7 @@ export function CreatingRow({ c, showProject }: { c: Creation, showProject?: boo
         <span className={css.lineIcon} aria-hidden="true"><SandboxGlyph size={14} /></span>
         <span className={clsx(css.lineName, css.mono)}>{shortSandbox(c.input.name)}</span>
         <span className={css.lineMeta}>
-          {showProject ? <span className={css.tag}>{projectRef(c.input.project).name}</span> : <span className={css.muted}>{creationStore(c)}</span>}
+          {bare ? null : showProject ? <span className={css.tag}>{projectRef(c.input.project).name}</span> : <span className={css.muted}>{creationStore(c)}</span>}
         </span>
         {failed
           ? (
@@ -184,29 +189,29 @@ export function CreatingRow({ c, showProject }: { c: Creation, showProject?: boo
   )
 }
 
-function ColumnHead({ label, count, shown, onMore, action }: { label: string, count: number, shown?: number | undefined, onMore?: (() => void) | undefined, action?: ReactNode }): ReactNode {
-  const { t } = useMachinesContext()
+function ColumnHead({ label, count, action }: { label: string, count: number, action?: ReactNode }): ReactNode {
   return (
     <header className={css.columnHead}>
       <h3 className={css.columnTitle}>{label}</h3>
       <span className={css.columnCount}>{count}</span>
       <span className={css.columnSpacer} />
-      {shown != null && count > shown && onMore && <button type="button" className={css.columnLink} onClick={onMore}>{t('showAll')}</button>}
       {action}
     </header>
   )
 }
 
-function StoreRows({ rows, more, onMore }: { rows: StoreLine[], more: number, onMore?: (() => void) | undefined }): ReactNode {
+/** Store rows; `projects` false leaves out each Store's project names (the Machines board). */
+function StoreRows({ rows, menu, projects: named = true }: { rows: StoreLine[], menu?: StoreMenuOf | undefined, projects?: boolean }): ReactNode {
   const { t, stateWord, openStorageTab } = useMachinesContext()
   return (
     <ul className={css.lines}>
       {rows.map((s) => {
         const look = stateLook('store', s.state)
         const busy = !!s.op || (!!s.state && s.state !== 'idle')
-        const projects = s.projects.length ? s.projects.join(', ') : s.count > 0 ? t(s.count === 1 ? 'projectCountOne' : 'projectCount', { n: String(s.count) }) : null
+        const projects = !named ? null : s.projects.length ? s.projects.join(', ') : s.count > 0 ? t(s.count === 1 ? 'projectCountOne' : 'projectCount', { n: String(s.count) }) : null
+        const actions = menu?.(s) ?? null
         return (
-          <li key={`${s.family}:${s.name}`}>
+          <li key={`${s.family}:${s.name}`} className={css.lineRow} data-store-row={s.name}>
             <button type="button" className={clsx(css.line, css.storeLine)} onClick={() => openStorageTab(`store:${s.name}`)} title={t('openStore', { name: s.name })}>
               <span className={css.lineIcon} aria-hidden="true"><StoreKindGlyph kind={s.family} size={14} mono /></span>
               <span className={css.lineName}>{s.name}</span>
@@ -215,66 +220,45 @@ function StoreRows({ rows, more, onMore }: { rows: StoreLine[], more: number, on
                 ? <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={opWords(s.op)} />
                 : <span className={css.lineSize}>{s.family === 'postgresql' ? t('pgChip') : s.size != null ? bytes(s.size) : null}</span>}
             </button>
+            {menu && <span className={css.lineMenu}>{actions}</span>}
           </li>
         )
       })}
-      {more > 0 && onMore && <li><button type="button" className={css.lineMore} onClick={onMore}>{t('moreRows', { n: String(more) })}</button></li>}
     </ul>
   )
 }
 
-function SandboxRows({ rows, machine, showProject, more, onMore, lead }: { rows: MachineSandbox[], machine: string, showProject?: boolean, more?: number, onMore?: (() => void) | undefined, lead?: ReactNode }): ReactNode {
+/** The board's Sandbox rows: name, slots and state (the project only in the row's tooltip). */
+function SandboxRows({ rows, machine, menus }: { rows: MachineSandbox[], machine: string, menus?: boolean | undefined }): ReactNode {
   const { t, tw, stateWord, go } = useMachinesContext()
   return (
     <ul className={css.lines}>
-      {lead}
       {rows.map((b) => {
         const look = lookOf(b)
         const note = liveNote(b, tw)
-        const ref = b.project ? projectRef(b.project) : null
         const bad = sandboxNeedsYou(b)
         return (
-          <li key={b.name}>
+          <li key={b.name} className={css.lineRow}>
             <button type="button" className={clsx(css.line, css.sandboxLine)} data-tone={bad ? 'danger' : undefined} data-sandbox-row={b.name} data-live={b.live === undefined ? undefined : String(b.live)}
               onClick={() => go({ kind: 'sandbox', machine, name: b.name })} title={`${b.name}${b.project ? ` · ${b.project}` : ''}${note ? ` · ${note}` : ''}`}
               aria-label={`${t('openSandbox', { name: b.name })}${note ? ` · ${note}` : ''}`}>
               <span className={css.lineIcon} aria-hidden="true"><SandboxGlyph size={14} /></span>
               <span className={clsx(css.lineName, css.mono)}>{shortSandbox(b.name)}</span>
-              <span className={css.lineMeta}>
-                {showProject ? (ref ? <span className={css.tag}>{ref.name}</span> : <span className={css.muted}>{t('noProject')}</span>) : <span className={css.muted}>{ref?.store ?? ''}</span>}
-              </span>
+              <span className={css.lineMeta} />
               <span className={css.lineSlots}>{b.workspaces != null ? t('slotsOf', { n: String(b.workspaces), max: String(SANDBOX_CAPACITY) }) : ''}</span>
               <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={opWords(b.op)} title={note ?? undefined} />
             </button>
+            {menus && <span className={css.lineMenu}><SandboxRowMenu b={b} machine={machine} /></span>}
           </li>
         )
       })}
-      {more != null && more > 0 && onMore && <li><button type="button" className={css.lineMore} onClick={onMore}>{t('moreRows', { n: String(more) })}</button></li>}
     </ul>
   )
 }
 
-/**
- * All of a machine's Sandboxes: those that need you on top, then one group
- * per project, the Sandboxes being created for it first in their group.
- */
-function SandboxGroups({ rows, creating, machine }: { rows: MachineSandbox[], creating: Creation[], machine: string }): ReactNode {
-  const { t } = useMachinesContext()
-  const flagged = rows.filter(sandboxNeedsYou)
-  const groups = sandboxGroups(rows.filter((b) => !sandboxNeedsYou(b)), creating)
-  return (
-    <>
-      {flagged.length > 0 && <SandboxRows rows={flagged} machine={machine} showProject />}
-      {groups.map((g) => (
-        <div key={g.project || '-'} className={css.lineGroup}>
-          <div className={css.lineGroupHead}>
-            <span className={css.lineGroupName}>{g.project || t('noProject')}</span>
-            {g.rows.length > 0 && <span>{g.rows.length}</span>}
-          </div>
-          <SandboxRows rows={g.rows} machine={machine}
-            lead={g.creating.length > 0 && g.creating.map((c) => <CreatingRow key={c.id} c={c} />)} />
-        </div>
-      ))}
-    </>
-  )
+/** A Sandbox row's menu: Open, Delete (sandbox.close, confirmed) and Force delete. */
+function SandboxRowMenu({ b, machine }: { b: MachineSandbox, machine: string }): ReactNode {
+  const { go } = useMachinesContext()
+  const closing = useClose(b.name)
+  return <SandboxMenu name={b.name} op={b.op} closing={closing} onOpen={() => go({ kind: 'sandbox', machine, name: b.name })} />
 }

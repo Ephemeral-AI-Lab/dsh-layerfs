@@ -56,11 +56,12 @@ await main('e2e-inspect-logs-axe', async ({ run, page }) => {
     }
     const sb = targets.sandbox, tag = newTag('axe')
 
-    // the Sandbox page's tab bar, on Terminals
+    // the Sandbox page's tab bar, on Workspaces
     await openQuiet(page, sb)
     driver.fill('sandbox', sb.name, 80, tag)
+    await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
     await editor(page).getByRole('button', { name: 'New workspace', exact: true }).first().waitFor({ timeout: 20000 }).catch(() => {})
-    await scan('Sandbox page, Terminals tab')
+    await scan('Sandbox page, Workspaces tab')
 
     // Daemon log: lines, a find with matches
     await showLog(page, sb)

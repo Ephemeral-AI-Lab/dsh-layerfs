@@ -15,7 +15,7 @@
 //   DSH_LAYERFS_DEV_DIR=… DSH_LAYERFS_CLI=… [INSPECT_STANDIN_DIR=… | INSPECT_*_MACHINE / INSPECT_*_SANDBOX] \
 //     node test/e2e-inspect-observe-machines.mjs
 // Environment and what every row also checks: test/e2e-inspect-logs-lib.mjs, test/e2e-inspect-observe-lib.mjs.
-import { NotRun, O, SCOPE_WORDS, cfg, cli, diskOf, editor, features, gibText, jump, main, needO, observed, openBoard, openOverviewMachines, overviewDisks, setupObserve, shot, sleep, spawnMark, spawnsSince, statsDriver, statsSpawns, waitObserved } from './e2e-inspect-observe-lib.mjs'
+import { NotRun, O, SCOPE_WORDS, cfg, cli, diskOf, editor, features, gibText, jump, main, needO, observed, openBoard, setupObserve, shot, sleep, spawnMark, spawnsSince, statsDriver, statsSpawns, waitObserved } from './e2e-inspect-observe-lib.mjs'
 
 const RESOURCE_SCOPE = { host: 'of this computer', engine_host: 'of the system Docker runs on', vm: 'of this machine\'s VM' }
 const REASON = { machine_stopped: 'the machine is stopped', unavailable: 'the machine did not answer', busy: 'the machine was busy with other reads', host_process: 'a Sandbox on this computer is a plain process with no cgroup of its own', not_observed: 'the side that runs it did not answer', memory_not_read: 'memory was not read', deadline: 'the time limit came first', no_cgroup: 'the Sandbox\'s cgroup is not there', cgroup_v1: 'the machine has no cgroup v2', not_answered: 'the machine did not say', no_pid: 'its record names no process', no_controller: 'this machine\'s cgroup for Sandboxes has no memory or process-count controller' }
@@ -147,26 +147,6 @@ await main('e2e-inspect-observe-machines', async ({ run, page }) => {
     const asked = statsSpawns(spawnsSince(mark))
     t.check(!(O.stopped.name in asked), `no \`machine stats ${O.stopped.name}\` was started (asked: ${Object.entries(asked).map(([k, v]) => `${k} ×${v.length}`).join(', ') || 'none'})`)
     await shot(page, 'observe-board')
-    // the Overview's machine cards: the same observed disk (free of total, a meter of the used share), never the record's requested size
-    await openOverviewMachines(page)
-    let cards = null
-    for (const until = Date.now() + 30000; Date.now() < until; await sleep(200)) { cards = await overviewDisks(page); if (running.every((m) => cards[m.name]?.state === 'observed')) break }
-    for (const m of running) {
-      const st = cli('machine', 'stats', '--', m.name), r = st.resources, c = cards[m.name]
-      const said = /^(.+) free of (.+)$/.exec(c?.text ?? '')
-      const freeGib = said ? Number.parseFloat(said[1]) * (said[1].endsWith('MiB') ? 1 / 1024 : 1) : NaN
-      t.check(c?.state === 'observed' && !!said && said[2] === gibText(r.disk_total) && Math.abs(freeGib - r.disk_free / 2 ** 30) <= 0.3, `Overview card of ${m.name}: observed free of observed total ("${c?.text}"; machine stats: ${gibText(r.disk_free)} free of ${gibText(r.disk_total)})`)
-      t.check(c?.meter !== null && Math.abs(c.meter - Math.round(r.disk_used / r.disk_total * 100)) <= 1, `Overview card of ${m.name}: its meter is the observed used share (${c?.meter}% of ${Math.round(r.disk_used / r.disk_total * 100)}%)`)
-      t.check(c?.scope === (st.data_disk.scope ?? '') && (c.title ?? '').includes(SCOPE_WORDS[st.data_disk.scope] ?? st.data_disk.scope), `Overview card of ${m.name}: whose disk it is, in its tooltip ("${c?.title}")`)
-      const rec = cli('machine', 'get', '--', m.name)
-      if (rec.disk != null && gibText(rec.disk) !== gibText(r.disk_total)) t.check(!c.text.includes(gibText(rec.disk)), `Overview card of ${m.name}: the record's requested ${gibText(rec.disk)} is not what the row is measured against`)
-    }
-    const offCard = cards[O.stopped.name]
-    t.check(offCard?.state === 'not-observed' && offCard.text === 'Not observed (machine stopped)' && offCard.meter === null, `Overview card of ${O.stopped.name}: "Not observed (machine stopped)" and no meter (${JSON.stringify(offCard)})`)
-    t.check(Object.values(cards).every((c) => c && c.state !== 'record'), `no Overview card infers a disk use from a record (${Object.entries(cards).map(([k, c]) => `${k}:${c?.state}`).join(' ')})`)
-    await sleep(1200)
-    t.check(!(O.stopped.name in statsSpawns(spawnsSince(mark))), `the Overview started no \`machine stats ${O.stopped.name}\` either`)
-    await shot(page, 'observe-overview-cards')
     // its own page: the record's values stay, named as what it was created with
     const rec = cli('machine', 'get', '--', O.stopped.name)
     await jump(page, O.stopped.title)

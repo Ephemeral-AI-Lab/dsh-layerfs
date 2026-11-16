@@ -1,0 +1,321 @@
+/* The Backups tab (BucketCards.tsx): a wrapping grid of bucket cards, each with its Store files. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---------- the provider switch ---------- */
+
+.seg {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.seg button[aria-selected='true'] {
+  background: var(--dsw-alias-settings-card-fill);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-soft);
+}
+
+.count {
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- the grid and a card ---------- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 24px;
+}
+
+.mark {
+  display: inline-flex;
+  flex: none;
+}
+
+.name {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menu {
+  display: inline-flex;
+  margin-inline-start: auto;
+}
+
+.line {
+  margin: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.line[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* Room for five file rows on every card, so a row of cards lines up. */
+.files {
+  display: flex;
+  flex-direction: column;
+  min-height: 140px;
+  margin-top: 2px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, auto);
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  font-size: 12.5px;
+}
+
+.row + .row {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.file {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.size {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.store {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 0;
+  max-width: 170px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.storeName {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.storeName {
+  cursor: pointer;
+}
+
+.when {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.when[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-border-l3);
+}
+
+.dot[data-health='current'] {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.dot[data-health='stale'] {
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.dot[data-health='problem'] {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+/* Words that act, quiet until hovered. */
+.restore,
+.inline {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: right;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.inline {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.job {
+  padding: 4px 0 6px;
+}
+
+/* Nothing to list: the kept room says why. */
+.none {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (hover: hover) {
+  .seg button[aria-selected='false']:hover,
+  .name:hover,
+  button.storeName:hover,
+  .restore:hover,
+  .inline:hover {
+    color: var(--dsw-alias-link);
+  }
+}
+
+.seg button:focus-visible,
+.name:focus-visible,
+.storeName:focus-visible,
+.restore:focus-visible,
+.inline:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+  border-radius: var(--dsw-radius-xs);
+}
+
+/* ---------- no bucket yet ---------- */
+
+.emptyCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+}
+
+.emptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.emptyText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.emptyTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}

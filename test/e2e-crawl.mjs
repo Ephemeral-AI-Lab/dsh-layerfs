@@ -279,24 +279,24 @@ async function panel(name) {
   await sleep(400)
 }
 const openPanelId = (id) => page.evaluate((i) => window.__dshLayerfs.openPanel(i), id)
-/** The Center page's navigation bar (Back/Forward, breadcrumb, Jump to, Refresh, Add). */
-const bar = () => page.locator('header[aria-label="Center navigation"]')
+/** The Home page's navigation bar (Back/Forward, breadcrumb, Jump to, Refresh, Add). */
+const bar = () => page.locator('header[aria-label="Home navigation"]')
 async function resources() {
   await escapeAll()
   if (!(await bar().isVisible().catch(() => false))) await panel('LayerFS')
   await bar().waitFor()
 }
 const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-/** A page with its own button in Center's bar: Health (its label may carry the findings count), Logs, Settings. */
+/** A page with its own button on Home's head card: Health (its label may carry the findings count), Logs, Settings. */
 async function centerPage(name) {
-  await resources()
-  await bar().getByRole('button', { name: new RegExp(`^${name}\\b`) }).first().click()
+  await home()
+  await page.getByRole('navigation', { name: 'Health, Logs and Settings' }).getByRole('button', { name: new RegExp(`^${name}\\b`) }).first().click()
   await sleep(400)
 }
-/** The Overview: the breadcrumb's Center crumb (absent when the Overview already shows). */
+/** The Overview: the breadcrumb's Home crumb (absent when the Overview already shows). */
 async function home() {
   await resources()
-  const root = bar().getByRole('navigation', { name: 'Location' }).getByRole('button', { name: 'Center', exact: true })
+  const root = bar().getByRole('navigation', { name: 'Location' }).getByRole('button', { name: 'Home', exact: true })
   if (await root.count()) await root.first().click()
   await sleep(300)
 }
@@ -323,7 +323,7 @@ async function overviewTab(tab) {
   await editor().getByRole('tab', { name: new RegExp(`^${tab}\\b`) }).first().click()
   await sleep(300)
 }
-/** The Center page showing. */
+/** The Home page showing. */
 const editor = () => page.locator('[data-storage-page]:visible').first()
 /** Open a dialog or menu from `trigger`, require it to appear, then dismiss it. */
 async function openAndDismiss(trigger, kind = 'dialog') {
@@ -354,8 +354,17 @@ const views = []
 const view = (panelName, name, go) => views.push({ panel: panelName, name, go })
 
 view('resources', 'overview', async () => { await home(); await editor().getByRole('tablist', { name: /Projects, Stores/ }).waitFor() })
-for (const tab of ['Projects', 'Stores', 'Machines', 'Backups']) {
+for (const tab of ['Projects', 'Stores', 'Machines']) {
   view('resources', `overview tab ${tab}`, () => overviewTab(tab))
+}
+// Stores' second views (once the Backups and Connections tabs): each kind's view switch
+for (const [kind, name] of [['sqlite', 'Stores'], ['sqlite', 'Buckets'], ['postgresql', 'Databases'], ['postgresql', 'Servers']]) {
+  view('resources', `overview stores ${kind} ${name}`, async () => {
+    await overviewTab('Stores')
+    await editor().locator(`[data-store-kind=${kind}]`).first().click()
+    await editor().getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: new RegExp(`^${name}\\b`) }).first().click()
+    await sleep(300)
+  })
 }
 view('resources', 'overview doctor findings', async () => {
   await home()
@@ -369,8 +378,7 @@ view('resources', 'dialog Connect a database', () => addMenu('Connect a database
 view('resources', 'dialog Add bucket', () => addMenu('Add bucket'))
 view('resources', 'machines board', async () => {
   await overviewTab('Machines')
-  await editor().getByRole('button', { name: 'Open board', exact: true }).click()
-  await editor().getByRole('heading', { name: 'Machines', exact: true }).waitFor()
+  await editor().locator('[data-machine]').first().waitFor()
 })
 view('resources', 'jump to', async () => {
   await resources()

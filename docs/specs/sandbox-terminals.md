@@ -49,11 +49,16 @@ sbpage-box ● Running            On native · project sbpage-v/demo        Diag
   - Ctrl+C cancels the running command; when idle with no selection it echoes `^C` and clears the line.
   - Ctrl+L clears the view only; the log is kept.
   - Esc leaves maximize or closes the commit dialog.
-  - Alt+1–4 focuses a pane, Alt+PageUp/PageDown changes the page, and Alt+Enter maximizes.
+  - Alt+1–9 focuses a pane, Alt+PageUp/PageDown changes the page, and Alt+Enter maximizes.
   - Clicking a pane focuses its prompt unless you're selecting text.
-- **Tiling.**
-  - Up to 4 panes per page: 1 fills the area, 2 sit side by side, 3 fill a 2×2 with a "+ New workspace" tile, 4 fill a 2×2.
-  - More than 4 Workspaces page by 4 (`‹ 1 / 2 ›`).
+- **Two views, Grid and Terminals** (a switch in the toolbar, remembered in this browser; Grid first).
+  - **Grid** (`WorkspaceGrid.tsx`): a card per Workspace, as many columns as the page is wide (cards at least 280px). A card has a tick, the name (opens its terminal), `workspaces/<n>`, the Branch, "Head moved" when it is, what LayerFS says runs there (first program and its age, "+n more") or "Idle", and three figures: **CPU** (the rate between two reads of `usage.cpu_usec`, with a sparkline of the last 24), **Memory** (`usage.memory_current`, peak under it) and **Overlay** (`overlay_bytes`, the change count under it). Then Terminal and Files. The last tile is "+ New workspace · n left", or the form while adding.
+  - CPU and memory come from the Workspace's own cgroup (`ws-<workspace>`, `workspaces[].usage` / `usage_reason` in `sandbox.get`). LayerFS removes that group once no command runs, so an idle Workspace shows a dash, and its CPU time starts again with the next command (`workspace-usage.ts` starts a new series instead of giving a negative rate). A worker that does not report usage per Workspace shows a dash too, and its tooltip says so. The pinned `layerfs_v2_0_0` does not report it yet; the stand-in declares it with `"usage": "synthetic"` (`test/fixtures/cli-inspect-fields.mjs`).
+  - Ticked Workspaces: "Open n in terminals" shows only them; the Terminals view then says "Showing n chosen · Show all".
+- **Tiling** (Terminals view). There is no layout to choose: the area decides (`paneFit`).
+  - As many columns and rows as keep each pane at least 380 × 220 px, from the area's width and from its top to the bottom of the window; at most 4 × 3.
+  - A page that holds every Workspace draws only the columns and rows they need: 1 fills the area, 2 sit side by side, a free tile left in those rows offers "+ New workspace".
+  - More Workspaces than fit page by that many (`‹ 1 / 2 ›`), keeping the full grid so panes do not change size while paging.
   - Order is by namespace number, so creation order, stable across reloads and clients.
   - ⤢ maximizes one pane.
   - At 16 Workspaces the New tile and button are disabled ("16 Workspaces is the most a Sandbox holds").

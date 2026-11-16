@@ -282,26 +282,6 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* a Workspace's base, in the project file view */
-.browseHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-}
-
-.browseTitle {
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-
-.browseBody {
-  flex: 1;
-  min-height: 0;
-}
-
 @media (hover: hover) {
   .dismiss:hover {
     background: var(--dsw-alias-interactive-bg-hover);

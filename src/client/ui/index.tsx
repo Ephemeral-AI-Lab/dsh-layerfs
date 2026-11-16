@@ -291,13 +291,18 @@ export function Meter({ share, label, className, tone: fixed }: { share: number,
 // ---------- forms and menus ----------
 
 /** A labelled form field: its label, the control, then its error or hint. */
-export function Field({ label, error, hint, children, className }: { label: string, error?: string | null | undefined, hint?: string | undefined, children: ReactNode, className?: string }): ReactNode {
+export function Field({ label, error, hint, children, className, group }: {
+  label: string, error?: string | null | undefined, hint?: string | undefined, children: ReactNode, className?: string
+  /** Several controls (a set of tiles): a div, so a click on the label or hint does not press the first one. */
+  group?: boolean
+}): ReactNode {
+  const Tag = group ? 'div' : 'label'
   return (
-    <label className={clsx(css.field, className)} data-invalid={error ? '' : undefined}>
+    <Tag className={clsx(css.field, className)} data-invalid={error ? '' : undefined}>
       <span className={css.fieldLabel}>{label}</span>
       {children}
       {error ? <span className={css.fieldError} role="alert">{error}</span> : hint ? <span className={css.fieldHint}>{hint}</span> : null}
-    </label>
+    </Tag>
   )
 }
 

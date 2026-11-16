@@ -3,10 +3,14 @@
  * "Files view"), read through `GET /api/machines/:id/files` or
  * `/api/sandboxes/:name/files`: one shared tree.
  *
- * - Two views when the roots answer offers `/`: the roots LayerFS ranks by
- *   role (LayerFS folders on a machine, the Sandbox's on a Sandbox) and Whole
- *   filesystem (/). Each view keeps its own folder, opened folders and file.
- *   The page never tests a platform or backend name.
+ * - Views. A machine: LayerFS folders (the roots LayerFS ranks by role)
+ *   and, when the roots answer offers `/`, Whole filesystem (/). A Sandbox:
+ *   Workspaces, each a folder of its saved files (its Branch at its base
+ *   Commit, read through the project: LayerFS lists no Workspace mount),
+ *   Sandbox folders (home, daemon log), and Whole filesystem (/) when offered.
+ *   On a machine page a Workspace mount is listed, never entered.
+ *   Each view keeps its own folder, opened folders and file. The page never
+ *   tests a platform or backend name.
  * - A path bar: the path shown, editable; "Go to path" takes a path typed or
  *   pasted from a terminal. A folder becomes the tree's top (a breadcrumb
  *   leads back); a file opens with its folder. A path that cannot be opened
@@ -23,13 +27,12 @@
  * when its folder collapses or the view is left. A refusal stays inside the
  * folder or file it is about.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from 'react'
 import {
   Button, FileTypeIcon, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderCloseRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, SegmentedControl,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FileTree, type TreeDir, type TreeMore, type TreeRow } from '../files/FileTree.tsx'
-import { bytes, when } from '../files/format.ts'
-import { SavedProjectFiles } from '../files/ProjectFiles.tsx'
+import { bytes, shortId, when } from '../files/format.ts'
 import { EmptyState } from '../files/States.tsx'
 import type { Translate as FilesTranslate } from '../files/types.ts'
 import { WindowedText, type TextWindow } from '../files/WindowedText.tsx'
@@ -40,8 +43,8 @@ import { errorCode, errorText } from '../ui/use-query.ts'
 import { useMachinesContext } from './context.tsx'
 import { LockGlyph, MountGlyph, SandboxGlyph, SystemGlyph } from './icons.tsx'
 import {
-  ROOTS, ReadQueue, actOf, baseName, crumbsOf, filesRoute, groupEntries, isDropped, isLinkedRole, isUnder, isWorkerLog, parentOf, pastedPath, readFiles, refusalError, waitedSeconds, wholeOf,
-  type FileEntry, type FilesView, type InspectEntry, type Stale,
+  ROOTS, ReadQueue, SB_ROOTS, WS_ROOTS, actOf, baseName, crumbsOf, filesRoute, groupEntries, isDropped, isLinkedRole, isUnder, isWorkerLog, isWorkspaceEntry, parentOf, pastedPath, readFiles, readKey,
+  readWorkspace, refusalError, waitedSeconds, wholeOf, type FileEntry, type FilesAsk, type FilesView, type InspectEntry, type Stale, type WorkspaceSource,
 } from './inspect-files.ts'
 import type { MachinesKey } from './locale.ts'
 import { workspaceChanges, workspaceName, type WorkspaceInfo } from './model.ts'
@@ -65,9 +68,9 @@ export interface InspectFilesProps {
   name: string
   /** The tree's accessible name ("Files of <name>"). */
   label: string
-  /** A Sandbox's Workspaces (sandbox.get), for its Workspace rows; null while that read has not answered. */
+  /** A Sandbox's Workspaces (sandbox.get), for its Workspace rows and where their files are read; null while that read has not answered. */
   workspaces?: readonly WorkspaceInfo[] | null | undefined
-  /** A Sandbox's project: Browse base opens its saved files. */
+  /** A Sandbox's project: its Workspaces' saved files are read from it. */
   project?: string | null | undefined
   /** Opens the page's log tab (the daemon or worker log's own row); absent when the page has no such tab. */
   onOpenLog?: (() => void) | undefined
@@ -79,8 +82,6 @@ export interface InspectFilesProps {
   onOpenSandboxLog?: ((folder: string) => (() => void) | null) | undefined
   /** The name of that tab, for a log row's tooltip. */
   logTab?: string | undefined
-  /** Shows a Workspace's terminal. */
-  onOpenTerminal?: ((ws: string) => void) | undefined
   /** What stands beside an `Unavailable` refusal (a stopped machine's Start). */
   unavailableAction?: ReactNode
 }
@@ -101,8 +102,11 @@ interface FolderMeta {
 
 interface Pending { since: number, more: boolean, view: FilesViewId }
 
+/** How a tab reads one path: the files route, or a Workspace's saved files. */
+type Reader = (route: string, ask: FilesAsk, signal: AbortSignal) => Promise<FilesView>
+
 /** The folders of one Files tab: what was read, what is being read, and the reads themselves. */
-function useInspectFolders(kind: DetailKind, name: string) {
+function useInspectFolders(kind: DetailKind, name: string, reader: MutableRefObject<Reader>) {
   const { api, t } = useMachinesContext()
   const route = filesRoute(kind, name)
   const queue = useMemo(() => new ReadQueue(), [route])
@@ -154,28 +158,30 @@ function useInspectFolders(kind: DetailKind, name: string) {
    * Read folder `key` (a path, or {@link ROOTS}): its first page, or with `cursor` the page there.
    * @param quiet - a first page that keeps what is on screen until it answers, and when it is refused.
    */
-  const load = useCallback((key: string, view: FilesViewId, cursor: string | null = null, quiet = false) => {
+  const load = useCallback((asked: string, view: FilesViewId, cursor: string | null = null, quiet = false) => {
+    const key = readKey(asked)
     controllers.current.get(key)?.abort()
     const controller = new AbortController()
     controllers.current.set(key, controller)
     setPending((p) => ({ ...p, [key]: { since: Date.now(), more: cursor !== null, view } }))
     if (cursor === null && !quiet) setDirs((all) => new Map(all).set(key, 'loading'))
     else if (cursor !== null) setMeta((m) => (m[key]?.moreError ? { ...m, [key]: { ...m[key]!, moreError: null } } : m))
-    readFiles(api, queue, route, { path: key === ROOTS ? null : key, cursor, depth: key === ROOTS ? undefined : 1 }, controller.signal).then(
+    reader.current(route, { path: key === ROOTS ? null : key, cursor, depth: key === ROOTS ? undefined : 1 }, controller.signal).then(
       (answer) => { if (settle(key, controller)) take(key, answer, cursor, quiet) },
       (error: unknown) => {
         if (!settle(key, controller) || isDropped(error)) return
         take(key, { kind: 'refused', path: key === ROOTS ? null : key, observedAt: Date.now(), stale: { at: null, code: errorCode(error) ?? 'Unknown', message: errorText(error) } }, cursor, quiet)
       },
     )
-  }, [api, queue, route, settle, take])
+  }, [route, settle, take, reader])
 
   /**
    * Stop waiting for folder `key`'s read: a read still queued in the page is
    * never sent; one already sent is dropped on the host too.
    * @returns whether a first page was being read (the folder has nothing to show).
    */
-  const drop = useCallback((key: string): boolean => {
+  const drop = useCallback((asked: string): boolean => {
+    const key = readKey(asked)
     const controller = controllers.current.get(key)
     if (!controller) return false
     controllers.current.delete(key)
@@ -222,30 +228,53 @@ function useNarrow(): [(element: HTMLDivElement | null) => void, boolean] {
   return [ref, narrow]
 }
 
-export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog, onOpenSandboxLog, logTab, onOpenTerminal, unavailableAction }: InspectFilesProps): ReactNode {
+export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog, onOpenSandboxLog, logTab, unavailableAction }: InspectFilesProps): ReactNode {
   const { t, tw, api } = useMachinesContext()
   const ft = t as unknown as FilesTranslate
-  const folders = useInspectFolders(kind, name)
+  // a path under a Workspace's mount is read from its saved files (LayerFS lists no mount); every other path from the files route
+  const sourceOf = (path: string | null | undefined): WorkspaceSource | null => {
+    if (!path || !project) return null
+    const ws = (workspaces ?? []).find((w) => !!w.base && !!w.path && isUnder(path, w.path))
+    return ws ? { root: ws.path, project, branch: ws.branch, base: ws.base! } : null
+  }
+  const reader = useRef<Reader>(() => Promise.reject(new Error('unready')))
+  reader.current = (route, ask, signal) => {
+    const source = sourceOf(ask.path)
+    return source ? readWorkspace(api, queue, source, ask, signal) : readFiles(api, queue, route, ask, signal)
+  }
+  const folders = useInspectFolders(kind, name, reader)
   const { dirs, nexts, meta, pending, whole, load, drop, put, fail, queue, route } = folders
   const [frame, narrow] = useNarrow()
 
   // ---------- where the tab is: the view, and per view its folder, opened folders and file ----------
   const [place] = useState<FilesPlace>(() => readFilesPlace(kind, name) ?? { view: 'layerfs', path: null })
   const [view, setView] = useState<FilesViewId>(place.view)
-  const [views, setViews] = useState<Record<FilesViewId, ViewState>>({ layerfs: EMPTY_VIEW, whole: EMPTY_VIEW })
+  const [views, setViews] = useState<Record<FilesViewId, ViewState>>({ layerfs: EMPTY_VIEW, sandbox: EMPTY_VIEW, whole: EMPTY_VIEW })
   const [notice, setNotice] = useState<Partial<Record<FilesViewId, string>>>({})
   const [going, setGoing] = useState<{ view: FilesViewId, path: string, since: number } | null>(null)
   const [typed, setTyped] = useState<string | null>(null)
   const [pathProblem, setPathProblem] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [fileTick, setFileTick] = useState(0)
-  const [browse, setBrowse] = useState<{ name: string, version: string } | null>(null)
-  // the view shown: Whole filesystem only when the roots answer offers `/` (until it answers, the roots themselves)
-  const shown: FilesViewId = view === 'whole' && !whole ? 'layerfs' : view
+  // A machine: LayerFS folders, and Whole filesystem when the roots answer offers `/` (until it answers, the roots themselves).
+  // A Sandbox: its Workspaces, its other folders (home, daemon log), and Whole filesystem when offered.
+  const offered = (w: FileEntry | null | undefined): FilesViewId[] => ['layerfs', ...(kind === 'sandbox' ? ['sandbox' as const] : []), ...(w ? ['whole' as const] : [])]
+  const shown: FilesViewId = offered(whole).includes(view) ? view : 'layerfs'
   const vs = views[shown]
-  const rootKey = shown === 'whole' ? '/' : ROOTS
+  const rootKey = shown === 'whole' ? '/' : shown === 'sandbox' ? SB_ROOTS : kind === 'sandbox' ? WS_ROOTS : ROOTS
   const top = vs.base ?? rootKey
-  const viewName = (id: FilesViewId): string => (id === 'whole' ? t('filesViewWhole') : t(kind === 'machine' ? 'filesViewLayerfs' : 'filesViewSandbox'))
+  const viewName = (id: FilesViewId): string => t(id === 'whole' ? 'filesViewWhole' : id === 'sandbox' ? 'filesViewSandbox' : kind === 'sandbox' ? 'filesViewWorkspaces' : 'filesViewLayerfs')
+  // where a LayerFS folder met under `/` opens: a machine's among its LayerFS folders, a Sandbox's home among its folders
+  const roleView: FilesViewId = kind === 'sandbox' ? 'sandbox' : 'layerfs'
+  // a Sandbox's two views are drawn from its one roots answer
+  const treeDirs = useMemo(() => {
+    const r = dirs.get(ROOTS)
+    if (kind !== 'sandbox' || r === undefined) return dirs
+    const next = new Map(dirs)
+    next.set(WS_ROOTS, Array.isArray(r) ? r.filter((e) => isWorkspaceEntry(e.entry)) : r)
+    next.set(SB_ROOTS, Array.isArray(r) ? r.filter((e) => !isWorkspaceEntry(e.entry)) : r)
+    return next
+  }, [dirs, kind])
   const patch = useCallback((id: FilesViewId, change: Partial<ViewState>) => setViews((all) => ({ ...all, [id]: { ...all[id], ...change } })), [])
 
   // the file window Go to path already read, handed to the viewer once
@@ -276,7 +305,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
       setNotice((n) => ({ ...n, [id]: t('filesFallback', { path, code, message, root: id === 'whole' ? '/' : viewName(id) }) }))
       patch(id, { base: null, file: null })
     }
-    readFiles(api, queue, route, { path, depth: 1 }, controller.signal).then(
+    reader.current(route, { path, depth: 1 }, controller.signal).then(
       (answer) => {
         if (controller.signal.aborted) return
         done()
@@ -293,7 +322,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
       },
       (error: unknown) => { if (isDropped(error) || controller.signal.aborted) return; done(); fallback(errorCode(error) ?? 'Unknown', errorText(error)) },
     )
-  }, [api, queue, route, patch, put, t])
+  }, [route, patch, put, t, whole])
 
   // the roots first: they say which views there are; then the place this tab was left at, or a link named
   useEffect(() => { load(ROOTS, 'layerfs') }, [load])
@@ -302,15 +331,14 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
     if (restored.current || whole === undefined) return
     restored.current = true
     const at = readFilesPlace(kind, name) ?? place
-    const id: FilesViewId = at.view === 'whole' && whole === null ? 'layerfs' : at.view
+    const id: FilesViewId = offered(whole).includes(at.view) ? at.view : 'layerfs'
     setView(id)
     if (at.path) goTo(id, at.path)
   }, [whole, kind, name, place, goTo])
   // a link from elsewhere while the tab is open ("Show in Files")
   useEffect(() => watchFilesPlace(kind, name, (to) => {
-    const id: FilesViewId = to.view === 'whole' && whole === null ? 'layerfs' : to.view
+    const id: FilesViewId = offered(whole).includes(to.view) ? to.view : 'layerfs'
     setView(id)
-    setBrowse(null)
     goTo(id, to.path)
   }), [kind, name, goTo, whole])
   // remember the view and the path shown (the file, else the folder at the top)
@@ -321,7 +349,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
 
   // every folder the view shows is read: its top and the folders open under it (a read dropped with its view starts over here)
   useEffect(() => {
-    for (const key of [top, ...(narrow ? [] : vs.open)]) if (dirs.get(key) === undefined && !pending[key]) load(key, shown)
+    for (const key of [top, ...(narrow ? [] : vs.open)].map(readKey)) if (dirs.get(key) === undefined && !pending[key]) load(key, shown)
   }, [shown, top, vs.open, narrow, dirs, pending, load])
 
   const switchView = (id: FilesViewId) => {
@@ -354,7 +382,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
   const refresh = () => {
     setNotice((n) => ({ ...n, [shown]: undefined }))
     load(ROOTS, 'layerfs', null, Array.isArray(dirs.get(ROOTS)))
-    for (const key of new Set([top, ...(narrow ? [] : vs.open)])) if (key !== ROOTS) load(key, shown, null, Array.isArray(dirs.get(key)))
+    for (const key of new Set([top, ...(narrow ? [] : vs.open)].map(readKey))) if (key !== ROOTS) load(key, shown, null, Array.isArray(dirs.get(key)))
     setFileTick((n) => n + 1)
   }
 
@@ -379,27 +407,32 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
   }
   const tip = (entry: FileEntry, words?: string): string => [entry.path, words, entry.size != null && entry.kind !== 'folder' ? bytes(entry.size) : undefined, when(entry.mtime)].filter(Boolean).join(' · ')
 
+  const workspaceLabel = (entry: FileEntry): string => { const ws = wsOf(entry); return t('roleWorkspace', { name: ws ? workspaceName(ws) : baseName(entry.path) }) }
   const row = (item: InspectEntry): Partial<TreeRow> => {
     const entry = item.entry
     const act = actOf(entry.kind)
     const role = entry.role
     const named = roleName(entry)
-    // a Workspace: never entered here (its live files are in its terminal)
-    if (role === 'workspace' || (act === 'mount' && entry.workspace)) {
-      const ws = wsOf(entry)
-      const changes = ws && (ws.pendingMerge || ws.dirty != null) ? workspaceChanges(ws) : null
+    // a Workspace on a machine page: a mount, not entered (the machine page does not know its project)
+    if (isWorkspaceEntry(entry) && kind !== 'sandbox') {
       return {
-        expandable: false, disabled: true, icon: <SandboxGlyph size={15} />,
-        label: t('roleWorkspace', { name: ws ? workspaceName(ws) : baseName(entry.path) }), secondary: entry.path,
+        expandable: false, disabled: true, icon: <SandboxGlyph size={15} />, label: workspaceLabel(entry), secondary: entry.path,
         title: tip(entry, entry.fs ? t('kindMount', { fs: entry.fs }) : t('kindMountPlain')),
+      }
+    }
+    // a Workspace on its Sandbox's page: a folder of its saved files (its Branch at its base Commit), opened in place
+    if (isWorkspaceEntry(entry)) {
+      const ws = wsOf(entry)
+      const source = sourceOf(entry.path)
+      const changes = ws && (ws.pendingMerge || ws.dirty != null) ? workspaceChanges(ws) : null
+      const words = source
+        ? t(changes?.tone === 'warning' || ws?.pendingMerge ? 'filesWsSavedDirty' : 'filesWsSaved', { branch: source.branch, id: shortId(source.base) })
+        : t(workspaces == null ? 'filesWsWaiting' : 'filesWsNoSource')
+      return {
+        expandable: !!source && !narrow, disabled: !source, icon: <SandboxGlyph size={15} />,
+        label: workspaceLabel(entry), secondary: ws?.branch ?? entry.path,
+        title: tip(entry, words),
         trailing: changes ? <span className={css.chip} data-tone={changes.tone} data-files-changes>{tw(changes)}</span> : undefined,
-        below: (
-          <>
-            <span>{t('filesWsHint')}</span>
-            {ws && onOpenTerminal ? <LinkButton onClick={() => onOpenTerminal(ws.ws)}>{t('filesOpenTerminal')}</LinkButton> : null}
-            {ws?.base && project ? <LinkButton onClick={() => setBrowse({ name: workspaceName(ws), version: ws.base! })}>{t('filesBrowseBase')}</LinkButton> : null}
-          </>
-        ),
       }
     }
     // the daemon or worker log: read in its own tab, by cursor
@@ -413,10 +446,10 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
       }
     }
     // a LayerFS folder listed where it is not entered (met under `/`, or on a mount of its own): it opens by its own path among the LayerFS folders
-    if (isLinkedRole(entry, shown)) {
+    if (isLinkedRole(entry, shown === 'whole' ? 'whole' : 'layerfs')) {
       return {
-        ...named, expandable: false, icon: <IconFolderCloseRegular size={16} />, title: tip(entry, t('filesOpensInLayerfs', { view: viewName('layerfs') })),
-        trailing: <span className={css.hint} data-files-linked>{viewName('layerfs')}</span>,
+        ...named, expandable: false, icon: <IconFolderCloseRegular size={16} />, title: tip(entry, t('filesOpensInLayerfs', { view: viewName(roleView) })),
+        trailing: <span className={css.hint} data-files-linked>{viewName(roleView)}</span>,
       }
     }
     const lock = <span className={css.lock} aria-hidden="true"><LockGlyph size={13} /></span>
@@ -437,7 +470,9 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
   const openEntry = (item: InspectEntry) => {
     const entry = item.entry
     if (entry.role === 'log') { logOpener(entry)?.(); return }
-    if (isLinkedRole(entry, shown)) { switchView('layerfs'); goTo('layerfs', entry.path); return }
+    // narrow: a Workspace is entered like a folder
+    if (isWorkspaceEntry(entry)) { if (sourceOf(entry.path)) { patch(shown, { base: entry.path, file: null }); setFilter('') } return }
+    if (isLinkedRole(entry, shown === 'whole' ? 'whole' : 'layerfs')) { switchView(roleView); goTo(roleView, entry.path); return }
     const act = actOf(entry.kind)
     if (act === 'open') { patch(shown, { base: entry.path, file: null }); setFilter(''); return }
     if (act === 'read') { patch(shown, { file: entry.path }); setTyped(null) }
@@ -498,12 +533,14 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
   const crumbs = useMemo(() => {
     if (vs.base === null) return []
     if (shown === 'whole') return crumbsOf(vs.base, '/')
-    const under = (Array.isArray(roots) ? roots : []).filter((r) => actOf(r.entry.kind) === 'open' && isUnder(vs.base!, r.path)).sort((a, b) => b.path.length - a.path.length)
+    const under = (Array.isArray(roots) ? roots : []).filter((r) => (actOf(r.entry.kind) === 'open' || isWorkspaceEntry(r.entry)) && isUnder(vs.base!, r.path)).sort((a, b) => b.path.length - a.path.length)
     const root = under[0]
     if (!root) return crumbsOf(vs.base, null)
     const role = root.entry.role
-    return [{ name: role && ROLE[role] ? t(ROLE[role]) : baseName(root.path), path: root.path }, ...crumbsOf(vs.base, root.path)]
-  }, [vs.base, shown, roots, t])
+    const rootName = isWorkspaceEntry(root.entry) ? workspaceLabel(root.entry) : role && ROLE[role] ? t(ROLE[role]) : baseName(root.path)
+    return [{ name: rootName, path: root.path }, ...crumbsOf(vs.base, root.path)]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vs.base, shown, roots, t, workspaces])
 
   // ---------- the file ----------
   const file = vs.file
@@ -526,28 +563,16 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
     const path = file!
     const kept = offset === undefined && probed.current?.path === path ? probed.current.view : null
     probed.current = null
-    const answer = kept ? Promise.resolve(kept) : readFiles(api, queue, route, { path, offset }, fileSignal(fileKey))
+    const answer = kept ? Promise.resolve(kept) : reader.current(route, { path, offset }, fileSignal(fileKey))
     return answer.then((got) => {
       if (got.kind === 'file') return { text: got.content, binary: got.binary, size: got.size, next: got.next }
       if (got.kind === 'refused') throw refusalError(got.stale)
       throw new HostError('InvalidInput', t('filesIsFolder', { path }), 200)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, queue, route, file, fileKey, fileSignal])
+  }, [route, file, fileKey, fileSignal])
 
-  if (browse && project) {
-    return (
-      <div className={css.files} data-files={kind} data-files-browse={browse.version}>
-        <div className={css.browseHead}>
-          <Button variant="outline" size="sm" icon={<IconChevronLeftOutlineRegular size={13} />} onClick={() => setBrowse(null)}>{t('filesBackToFiles')}</Button>
-          <span className={css.browseTitle}>{t('filesBaseOf', { name: browse.name })}</span>
-        </div>
-        <div className={css.browseBody}><SavedProjectFiles api={api} project={project} t={ft} version={browse.version} /></div>
-      </div>
-    )
-  }
-
-  const topDir = dirs.get(top)
+  const topDir = treeDirs.get(top)
   const switchId = `files-view-${kind}-${name.replace(/[^\w-]/g, '_')}`
   const busy = Object.keys(pending).length > 0 || going !== null
   const showTree = !(narrow && file)
@@ -557,9 +582,9 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
     <div ref={frame} className={css.files} data-files={kind} data-files-view={shown} data-files-base={vs.base ?? ''} data-files-file={file ?? ''} data-files-narrow={narrow || undefined}
       data-files-state={going ? 'going' : topDir === undefined || topDir === 'loading' ? 'reading' : topDir instanceof Error ? 'refused' : 'ready'} aria-busy={busy || undefined}>
       <div className={css.bar}>
-        {whole ? (
+        {offered(whole).length > 1 ? (
           <SegmentedControl id={switchId} label={t('filesView')} value={shown}
-            options={[{ value: 'layerfs' as const, label: viewName('layerfs') }, { value: 'whole' as const, label: viewName('whole') }]} onChange={switchView} />
+            options={offered(whole).map((id) => ({ value: id, label: viewName(id) })) as [never, ...never[]]} onChange={switchView} />
         ) : null}
         <form className={css.pathForm} onSubmit={submitPath} data-files-pathbar>
           <Input className={css.pathInput} value={typed ?? shownPath} placeholder={t('filesPathPlaceholder')} aria-label={t('filesPath')} spellCheck={false} autoComplete="off" autoCapitalize="off"
@@ -579,7 +604,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
       ) : null}
 
       {/* the switch is a tab list (the DSH control): the frame is the panel of the view shown */}
-      <div className={css.frame} data-narrow={narrow || undefined} {...(whole ? { role: 'tabpanel', id: `${switchId}-${shown}-panel`, 'aria-labelledby': `${switchId}-${shown}` } : {})}>
+      <div className={css.frame} data-narrow={narrow || undefined} {...(offered(whole).length > 1 ? { role: 'tabpanel', id: `${switchId}-${shown}-panel`, 'aria-labelledby': `${switchId}-${shown}` } : {})}>
         {showTree ? (
           <div className={css.side}>
             <div className={css.sideHead}>
@@ -607,10 +632,10 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
                 value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape' && filter) { e.preventDefault(); setFilter('') } }} />
             </div>
             <div className={css.treeScroll} data-files-tree>
-              <FileTree<InspectEntry, string> root={top} dirs={dirs} open={narrow ? NO_OPEN : vs.open} nexts={nexts} selected={file ?? undefined} filter={filter}
+              <FileTree<InspectEntry, string> root={top} dirs={treeDirs} open={narrow ? NO_OPEN : vs.open} nexts={nexts} selected={file ?? undefined} filter={filter}
                 row={row} onToggle={toggle} onOpen={openEntry} onMore={(path, cursor) => load(path, shown, cursor)}
                 pending={pendingNote} failed={failedNote} more={moreOf} after={afterNote}
-                labels={{ tree: label, reading: t('files_reading'), failed: t('files_folderFailed'), empty: t('files_emptyFolder'), more: t('filesMore'), noMatch: t('files_noMatch') }} />
+                labels={{ tree: label, reading: t('files_reading'), failed: t('files_folderFailed'), empty: top === WS_ROOTS ? t('filesNoWorkspaces') : t('files_emptyFolder'), more: t('filesMore'), noMatch: t('files_noMatch') }} />
             </div>
           </div>
         ) : null}

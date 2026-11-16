@@ -98,11 +98,34 @@ function pgTarget(url: string): string | null {
   }
 }
 
+/**
+ * Where a PostgreSQL URL points: the server as `host:port` (host in lower
+ * case, port 5432 by default, as LayerFS compares them), the database and
+ * the user. Null when it does not parse.
+ */
+export function pgWhere(url: unknown): { server: string, database: string | null, user: string | null } | null {
+  if (typeof url !== 'string') return null
+  try {
+    const u = new URL(url)
+    if (!/^postgres(ql)?:$/.test(u.protocol) || !u.hostname) return null
+    const database = decodeURIComponent(u.pathname.replace(/^\//, '')) || null
+    return { server: `${u.hostname.toLowerCase()}:${u.port || '5432'}`, database, user: u.username ? decodeURIComponent(u.username) : null }
+  } catch {
+    return null
+  }
+}
+
 /** A PostgreSQL Store's server: its record's URL (no password) and what store.status's `server` answered. */
 function pgServer(s: any, server: any) {
   const reached = typeof server?.reachable === 'boolean' ? server.reachable : null
+  const where = pgWhere(s.url)
   return {
     target: typeof s.url === 'string' ? pgTarget(s.url) : null,
+    // LayerFS keeps no password in a Store's URL (store.connect refuses one)
+    url: typeof s.url === 'string' ? s.url : null,
+    server: where?.server ?? null,
+    database: where?.database ?? null,
+    user: where?.user ?? null,
     reachable: reached,
     version: reached ? (server.server_version ?? null) : null,
     latencyMs: reached ? (server.latency_ms ?? null) : null,
@@ -431,7 +454,8 @@ export class Storage {
     const { name, url, synchronousCommit } = input
     checkName(name, 'A PostgreSQL Store')
     checkUrl(url, 'The database URL', { user: false })
-    if (!input.passwordValue) checkReference(input.password, 'The password')
+    if (input.passwordFrom !== undefined && input.passwordFrom !== null && input.passwordFrom !== '') input = { ...input, password: undefined, passwordValue: undefined, ...(await this.passwordOf(input.passwordFrom, url)) }
+    else if (!input.passwordValue) checkReference(input.password, 'The password')
     const { password, written } = this.pgPassword(input, name, '')
     try {
       await this.lfs.store.connect(name, url, { password, ...(synchronousCommit ? { synchronous_commit: synchronousCommit } : {}) })
@@ -441,6 +465,31 @@ export class Storage {
     }
     this.changed()
     return this.view()
+  }
+
+  /**
+   * The password of PostgreSQL Store `from` for a new Store on the same
+   * server (`passwordFrom`): a file this host wrote is copied into the new
+   * Store's own file (`passwordValue`), so disconnecting either Store never
+   * takes the other's password; any other reference (env:, a file of the
+   * user's) is shared as it is. Refused when `from` is not a PostgreSQL Store
+   * of this home or its server is not the URL's.
+   */
+  private async passwordOf(from: unknown, url: string): Promise<{ password: string } | { passwordValue: string }> {
+    checkName(from, 'The Store to take the password from')
+    const source: any = await this.lfs.store.get(from)
+    if (source?.kind !== 'postgresql') throw refuse(400, 'InvalidInput', `Store ${from} is not a PostgreSQL Store`)
+    const here = pgWhere(url)
+    const there = pgWhere(source.url)
+    if (!here || !there || here.server !== there.server) throw refuse(400, 'InvalidInput', `Store ${from} is on another server (${there?.server ?? 'unknown'}); give this connection its own password`)
+    const reference = source.password
+    if (typeof reference !== 'string' || !REFERENCE.test(reference)) throw refuse(400, 'InvalidInput', `Store ${from} keeps no password to reuse; give this connection its own password`)
+    if (!savedFile(reference, this.host.secrets, 'pg-')) return { password: reference }
+    try {
+      return { passwordValue: readFileSync(reference.slice('file:'.length), 'utf8') }
+    } catch {
+      throw refuse(400, 'InvalidInput', `The password file of Store ${from} is gone; give this connection its own password`)
+    }
   }
 
   /**

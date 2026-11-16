@@ -221,8 +221,9 @@ await main('e2e-inspect-real', async ({ run, page }) => {
     const answer = roots.some((e) => e.role === 'root') ? refusalOf('sandbox', 'files', name, '/') : null
     await jump(page, name)
     await showFiles(page, { timeout: 25000 })
+    await switchView(page, 'Sandbox folders')
     let s = await filesState(page)
-    t.check(s.state === 'ready' && !!rowOf(s, home.path), `the Sandbox view lists its roots (${s.rows.length} rows)`)
+    t.check(s.state === 'ready' && !!rowOf(s, home.path), `Sandbox folders lists its home and log (${s.rows.length} rows)`)
     let got = await toggle(page, home.path)
     t.check(got.ok && got.state.refusals.length === 0, `Home opens (${under(got.state, home.path).length} entries)`)
     if (!answer) { t.note(`${name}'s roots offer no /: no Whole filesystem view to refuse`); return }
@@ -234,8 +235,8 @@ await main('e2e-inspect-real', async ({ run, page }) => {
     t.check((x?.text ?? '').includes('its daemon is not running'), 'in LayerFS\'s words: its daemon is not running, its home is still read')
     t.check((await readAgain(page).count()) >= 1, 'with "Read again"')
     await shot(page, 'inspect-real-f11r')
-    await switchView(page, 'Sandbox')
-    got = await waitFiles(page, (y) => y.view === 'layerfs' && y.refusals.length === 0 && !!rowOf(y, home.path))
-    t.check(got.ok, 'back in the Sandbox view: Home as it was, no refusal')
+    await switchView(page, 'Sandbox folders')
+    got = await waitFiles(page, (y) => y.view === 'sandbox' && y.refusals.length === 0 && !!rowOf(y, home.path))
+    t.check(got.ok, 'back in Sandbox folders: Home as it was, no refusal')
   })
 })

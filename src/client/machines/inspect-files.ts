@@ -11,6 +11,7 @@
  * (`inspect.cancel`) so the read leaves the lane or its process ends.
  */
 import { HostError, enc, q, type LayerfsApi } from '../api.ts'
+import { filesApi } from '../files/api.ts'
 import type { TreeEntry } from '../files/FileTree.tsx'
 import type { DetailKind } from '../storage/tabs.ts'
 
@@ -158,6 +159,51 @@ export function readFiles(api: Pick<LayerfsApi, 'call' | 'op'>, queue: ReadQueue
   }), signal)
 }
 
+/**
+ * Where a Workspace's files are read. LayerFS never lists a Workspace mount
+ * through `sandbox.files` (its live files are reached only by its commands),
+ * so the Files tab lists what the Workspace was mounted from: its Branch at its
+ * base Commit, under the mount's own path. Changes not yet committed are not in it.
+ */
+export interface WorkspaceSource {
+  /** The mount's path (`workspaces[].path`): every path under it is read here. */
+  root: string
+  /** The project key, `<store>/<project>`. */
+  project: string
+  branch: string
+  /** The Commit the Workspace was mounted at. */
+  base: string
+}
+
+const savedKind = (kind: string): string => (kind === 'dir' ? 'folder' : kind === 'file' || kind === 'symlink' ? kind : 'other')
+
+/**
+ * A files read under a Workspace's mount, answered from its saved files: a
+ * folder page (`cursor` is the page position), or with `offset` a file window
+ * (`offset` and `next` are line numbers). A path read without `offset` that is
+ * not a folder is read as a file (Go to path).
+ */
+export function readWorkspace(api: Pick<LayerfsApi, 'call'>, queue: ReadQueue, source: WorkspaceSource, ask: FilesAsk, signal?: AbortSignal): Promise<FilesView> {
+  const path = ask.path ?? source.root
+  const rel = path.length > source.root.length ? path.slice(source.root.length) : '/'
+  const file = (line: number): Promise<FileWindowView> => filesApi.file(api as LayerfsApi, source.project, source.branch, rel, source.base, line).then((w) => ({
+    kind: 'file', path, size: w.size, offset: line, content: w.text ?? '', binary: w.binary, next: w.next_line ?? null, observedAt: Date.now(), stale: false,
+  }))
+  const folder = (): Promise<FolderView> => filesApi.list(api as LayerfsApi, source.project, source.branch, rel, source.base, ask.cursor ? Number(ask.cursor) : 0).then((page) => ({
+    kind: 'folder', path,
+    entries: page.items.map((item): FileEntry => ({ path: item.path === '/' ? source.root : `${source.root}${item.path}`, depth: 1, kind: savedKind(item.kind), size: item.size, mode: item.mode ?? null, mtime: null })),
+    next: page.next != null ? String(page.next) : null, hasMore: page.next != null, reason: null, observedAt: Date.now(), stale: false,
+  }))
+  return queue.run(async () => {
+    if (signal?.aborted) throw new Dropped()
+    const answer: FilesView = ask.offset !== undefined ? await file(ask.offset)
+      : rel === '/' || ask.cursor ? await folder()
+      : await folder().catch((error: unknown) => file(1).catch(() => { throw error }))
+    if (signal?.aborted) throw new Dropped()
+    return answer
+  }, signal)
+}
+
 /** A refusal as the error a tree folder or the file view shows: LayerFS's code and words. */
 export const refusalError = (stale: Stale): HostError => new HostError(stale.code, stale.message, 200)
 
@@ -165,6 +211,11 @@ export const refusalError = (stale: Stale): HostError => new HostError(stale.cod
 
 /** The key of the roots answer among the folders read (no path is `\0roots`: it can never be a path). */
 export const ROOTS = '\u0000roots'
+/** A Sandbox's views over its roots answer: its Workspaces, and its other roots (home, log) when LayerFS offers no `/`. */
+export const WS_ROOTS = '\u0000workspaces'
+export const SB_ROOTS = '\u0000sandbox'
+/** The folder read for a tree key: both Sandbox views are the roots answer. */
+export const readKey = (key: string): string => (key === WS_ROOTS || key === SB_ROOTS ? ROOTS : key)
 
 /** The folder a path is in; `/` for a top entry, null for `/` itself. */
 export function parentOf(path: string): string | null {
@@ -232,6 +283,9 @@ export function groupEntries(entries: readonly FileEntry[], root: string): Map<s
 }
 
 /** The entry `/` a roots answer offers as the second view (role `machine` or `root`), if any. */
+/** A Workspace's mount among a Sandbox's roots. */
+export const isWorkspaceEntry = (entry: FileEntry): boolean => entry.role === 'workspace' || (actOf(entry.kind) === 'mount' && !!entry.workspace)
+
 export const wholeOf = (entries: readonly FileEntry[]): FileEntry | undefined => entries.find((e) => e.path === '/' && (e.role === 'machine' || e.role === 'root'))
 
 /**

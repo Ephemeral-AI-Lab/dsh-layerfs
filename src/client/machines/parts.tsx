@@ -61,7 +61,8 @@ function powerKey(m: MachineInfo, power: 'start' | 'stop') {
 }
 
 /** Start or Stop, when the machine is non-native and running or stopped. */
-export function PowerButton({ m, pending, run, size = 'sm' }: { m: MachineInfo, pending: string | null, run: Run, size?: 'sm' | 'md' }): ReactNode {
+/** `compact`: an icon button (the board's rows) while nothing runs; the words come back for a start, a stop or a worker to restart. */
+export function PowerButton({ m, pending, run, size = 'sm', compact }: { m: MachineInfo, pending: string | null, run: Run, size?: 'sm' | 'md', compact?: boolean }): ReactNode {
   const { t, useMachines } = useMachinesContext()
   const live = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.status[m.name] : undefined))
   const power = powerOf(m)
@@ -74,6 +75,14 @@ export function PowerButton({ m, pending, run, size = 'sm' }: { m: MachineInfo, 
         onClick={(e) => { e.stopPropagation(); void run('start', { kind: 'start', name: m.name, platform: m.platform }) }}>
         {pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t('restartWorker')}
       </Button>
+    )
+  }
+  if (compact && pending === null) {
+    const words = t(powerKey(m, power))
+    return (
+      <Button size={size} variant="ghost" icon={<PowerGlyph size={14} />} aria-label={words}
+        title={`${words} · ${t(power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}`}
+        onClick={(e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }} />
     )
   }
   return (

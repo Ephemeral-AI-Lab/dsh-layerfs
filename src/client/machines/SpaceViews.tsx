@@ -133,6 +133,35 @@ export function CardSpace({ m }: { m: MachineInfo }): ReactNode {
   )
 }
 
+/**
+ * A machine row's disk: the space bar and "4.6 GiB LayerFS · 292 GiB free",
+ * in the warning or danger tone when the disk is getting full, the full
+ * split and the warning on hover. `fallback` when machine.space has no
+ * answer for this machine (not offered, not running, not read yet).
+ */
+export function SpaceCell({ m, fallback }: { m: MachineInfo, fallback: ReactNode }): ReactNode {
+  const { t } = useMachinesContext()
+  const { offered, read } = useMachineSpace(m)
+  const space = offered ? read.data?.space ?? null : null
+  const { level, free, total } = useDiskLevel(m)
+  if (!space || !diskSpans(space)) return fallback
+  const warn = level === 'low' || level === 'critical'
+  const mostlyOutside = space.outside != null && space.layerfs != null && space.outside > space.layerfs
+  const title = [
+    legend(space, t),
+    warn ? t(level === 'critical' ? 'diskCriticalTitle' : 'diskLowTitle', { free: gib(free), total: gib(total) }) : null,
+    warn && mostlyOutside ? t('spaceMostlyOutside') : null,
+  ].filter(Boolean).join('\n')
+  return (
+    <span className={css.cellStack} data-card-space={m.name}>
+      <SpaceBar space={space} className={css.cellBar} />
+      <span className={css.cellText} data-tone={level === 'critical' ? 'danger' : warn ? 'warning' : undefined} data-disk-level={level ?? undefined} title={title} data-space-legend>
+        {t('spaceShort', { layerfs: size(space.layerfs), free: size(space.disk.free) })}
+      </span>
+    </span>
+  )
+}
+
 /** A notice on the machine's page while its disk is getting full: how much is free and, when known, how much is not LayerFS's. */
 export function DiskNotice({ m, action }: { m: MachineInfo, action?: ReactNode }): ReactNode {
   const { t, tw } = useMachinesContext()

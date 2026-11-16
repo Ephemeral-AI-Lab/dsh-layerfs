@@ -39,7 +39,7 @@ await main('e2e-inspect-files-hang', async ({ run, page, browser }) => {
     const b = await second(browser, devUrl())
     run.watch(b.page, b.logs)
     await jump(b.page, sb.title)
-    await editor(b.page).getByRole('tab', { name: 'Terminals', exact: true }).click()
+    await editor(b.page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
     const input = editor(b.page).locator('[data-term-input]').first()
     await input.waitFor({ timeout: 20000 })
 
@@ -85,8 +85,8 @@ await main('e2e-inspect-files-hang', async ({ run, page, browser }) => {
     t.note(`Files tab: \`${said(got.state)?.code}\` shown ${Date.now() - h0} ms into the hang${got.state?.stale.length ? ', over the listing the host had kept' : ''}`)
     await shot(page, 'inspect-files-f7-files')
     // the rest of the Files tab answers nothing new while the lane's reads hang, but the page works: its tabs switch
-    await editor(page).getByRole('tab', { name: 'Terminals', exact: true }).click()
-    await editor(page).locator('input[data-term-input]').first().waitFor({ timeout: 10000 }).catch(() => t.check(false, 'page A: the Terminals tab does not render during the hang'))
+    await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
+    await editor(page).locator('input[data-term-input]').first().waitFor({ timeout: 10000 }).catch(() => t.check(false, 'page A: the Workspaces tab does not render during the hang'))
     await editor(page).getByRole('tab', { name: 'Files', exact: true }).click()
     await files(page).waitFor()
 
