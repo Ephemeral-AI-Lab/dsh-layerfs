@@ -20,7 +20,7 @@ import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
 import { ColumnHead, StoreRows, sandboxNeedsYou, useStoreRows } from './Inventory.tsx'
 import { useMetrics } from './MachineStats.tsx'
-import { cpuScale, cpuShare, peakSince, sandboxAttention, sandboxMemory, sandboxTabRows, sparkPaths, type MachineTab, type SparkSample } from './machine-tabs.ts'
+import { cpuScale, cpuShare, peakSince, sandboxAttention, sandboxCards, sandboxMemory, sparkPaths, type MachineTab, type SparkSample } from './machine-tabs.ts'
 import { OverviewAttention } from './MachineTabs.tsx'
 import { HOUR_MS, latest, machineCpu, machineMemory, percent, sandboxTable, upTime } from './metrics.ts'
 import { useWords } from './MetricsViews.tsx'
@@ -221,7 +221,7 @@ function Contents({ m, view, onTab }: { m: MachineInfo, view: AvailableView, onT
   const records = sandboxesOn(view, m)
   const table = useMemo(() => (metrics.offered ? sandboxTable(metrics.snapshot, m.name) : []), [metrics.offered, metrics.snapshot, m.name])
   const spaceData = space.offered ? space.read.data?.space ?? null : null
-  const { rows } = sandboxTabRows(records, table, spaceData?.sandboxes ?? null, sandboxNeedsYou, false)
+  const { cards: rows } = sandboxCards(records, table, spaceData?.sandboxes ?? null, sandboxNeedsYou, 'all', 'listed')
   const shown = rows.slice(0, SANDBOX_ROWS)
   const memOf = (r: (typeof rows)[number]) => (r.metrics && !r.metrics.gap && r.metrics.row?.live !== false ? r.metrics.row?.usage?.memoryCurrent ?? null : null)
   // the bars compare the Sandboxes shown: the busiest is full

@@ -31,13 +31,13 @@ export function writeOverviewTab(tab: OverviewTab): void {
 // ---------------------------------------------------------------- a machine's or Sandbox's own tabs
 
 /** The tabs inside a machine page (Overview, Files, Worker log) and a Sandbox page (Terminals, Files, Daemon log). */
-export type DetailTab = 'overview' | 'terminals' | 'files' | 'log' | 'sandboxes' | 'stores' | 'disk'
+export type DetailTab = 'overview' | 'terminals' | 'files' | 'log' | 'sandboxes' | 'stores' | 'images' | 'disk'
 export type DetailKind = 'machine' | 'sandbox'
 
 const DETAIL_KEY = 'dsh-layerfs:detail-tabs'
 /** How many machines and Sandboxes keep their last tab. */
 const DETAIL_KEEP = 100
-const DETAIL_TABS: readonly unknown[] = ['overview', 'terminals', 'files', 'log', 'sandboxes', 'stores', 'disk']
+const DETAIL_TABS: readonly unknown[] = ['overview', 'terminals', 'files', 'log', 'sandboxes', 'stores', 'images', 'disk']
 const isDetailTab = (v: unknown): v is DetailTab => DETAIL_TABS.includes(v)
 
 /** dsh has no URLs: the tab a link asks for is kept here, in the app, and mirrored to localStorage as the last one per entity. */

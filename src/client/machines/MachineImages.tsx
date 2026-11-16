@@ -13,7 +13,8 @@ import { Card, Refusal, Section } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { useImageName, useRestartWorker, useSandboxImages } from './ImageMenu.tsx'
 import { freeSpaceRows, freesWords, imagesFooter, imagesStatus, imagesTotal, removable, usedByWords } from './images.ts'
-import { bytes, type MachineInfo, type PruneAnswer } from './model.ts'
+import { bytes, type MachineInfo, type PruneAnswer, type SandboxImagesView } from './model.ts'
+import type { Query } from '../ui/use-query.ts'
 import css from './machines.module.css'
 
 type MachineRef = Pick<MachineInfo, 'name' | 'state'>
@@ -29,10 +30,18 @@ function Refused({ refused, names }: { refused: PruneAnswer['refused'], names: M
   )
 }
 
-/** The machine page's Images section: rendered only at Stage 1 and when the machine runs images (not macOS native). */
-export function ImagesSection({ m }: { m: MachineInfo }): ReactNode {
+/** The machine page's Images tab: the image copies stored on the machine, read while the tab is open. */
+export function ImagesTab({ m }: { m: MachineInfo }): ReactNode {
+  return <ImagesSection m={m} images={useSandboxImages(m)} />
+}
+
+/**
+ * The machine page's Images section: the image copies stored on the machine
+ * (each Sandbox names its own on its card), rendered only at Stage 1 and when
+ * the machine runs images (not macOS native).
+ */
+export function ImagesSection({ m, images }: { m: MachineInfo, images: Query<SandboxImagesView> }): ReactNode {
   const { t, tw, refusal, pruneImages } = useMachinesContext()
-  const images = useSandboxImages(m)
   const nameOf = useImageName()
   const answer = images.data
   const [removing, setRemoving] = useState<string | null>(null)
@@ -53,7 +62,7 @@ export function ImagesSection({ m }: { m: MachineInfo }): ReactNode {
   }
   return (
     <Card className={css.block}>
-      <Section title={t('imagesTitle')} count={answer ? rows.length : undefined} className={css.imagesSection}
+      <Section title={t('imagesOnMachine', { machine: m.name })} count={answer ? rows.length : undefined} className={css.imagesSection}
         actions={answer && !stopped && rows.some(removable) ? <Button variant="outline" size="sm" onClick={() => setFreeing(true)}>{t('freeSpaceItem')}</Button> : undefined}>
         {!answer
           ? images.error != null
