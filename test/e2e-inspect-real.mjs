@@ -6,14 +6,18 @@
 //         and says so, Files shows `Unavailable` with Read again; when it answers again both recover
 //   F14   a machine is stopped while its Files tab reads: the reads end as `Unavailable`, the page stays up
 //   F11r  a Sandbox whose daemon was killed: Home still browsable, Whole filesystem `Unavailable` in LayerFS's words
+//   F5r   the machine's two inspect slots are taken by another client's reads: a read of the page is refused `Busy`
+//         by LayerFS itself, with Read again
 //
 //   INSPECT_STOPPED_MACHINE   a stopped machine (F1)
 //   INSPECT_MACHINE(+_TITLE)  a running machine with a worker (F2); INSPECT_HOOK does `worker-pause` / `worker-resume`
 //   INSPECT_STOP_MACHINE      a machine this script may start and stop by force (F14: `machine-start` / `machine-stop`);
 //                             it is left stopped
 //   INSPECT_DEAD_SANDBOX      a Sandbox recorded running whose daemon process was killed (F11r)
+//   INSPECT_HUGE_FOLDER       on INSPECT_MACHINE, a folder with some 400,000 entries (a page of it takes LayerFS about
+//                             0.1 s): F5r reads it from six loops of the real CLI ($LFS_REAL_CLI, else the pinned CLI)
 // Environment and what every row also checks: test/e2e-inspect-logs-lib.mjs.
-import { spawn, spawnSync } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import {
   NotRun, cfg, driver, editor, files, filesSpawns, filesState, forgetPlace, goPath, jump, lfs, main, newTag, offered, openLog, pane, rowOf, seqsOf, shot, showFiles,
   sleep, spawnMark, spawns, spawnsSince, switchView, tabs, targets, toggle, under, waitFiles, waitPane,
@@ -29,7 +33,8 @@ function act(action, name) {
   if (r.status !== 0) throw new Error(`INSPECT_HOOK ${action} machine ${name} failed (exit ${r.status}): ${(r.stderr || r.stdout || '').trim().slice(0, 300)}`)
 }
 const refusalOf = (...args) => { try { lfs(...args); return null } catch (error) { try { return JSON.parse(String(error.stderr ?? '').trim().split('\n').pop()) } catch { return { code: '?', message: String(error.stderr ?? error.message).slice(0, 200) } } } }
-const start = (page, within) => within(page).getByRole('button', { name: 'Start', exact: true })
+// a machine's power button: "Start", on the built-in docker machine "Start worker" ("Restart worker" while its worker does not answer)
+const start = (page, within) => within(page).getByRole('button', { name: /^(Start|Start worker|Restart worker)$/ })
 const logUnavailable = (page) => pane(page).locator('[data-log-unavailable]')
 
 await main('e2e-inspect-real', async ({ run, page }) => {
@@ -158,6 +163,51 @@ await main('e2e-inspect-real', async ({ run, page }) => {
     if (mark !== null) t.note(`files reads that became CLI processes around the stop: ${filesSpawns(spawnsSince(mark)).length}`)
     await shot(page, 'inspect-real-f14')
     t.note(`machine ${name} is left stopped`)
+  })
+
+  await run.row('F5r', 'another client holds the machine\'s two inspect slots: the page\'s read is refused `Busy` by LayerFS, with Read again', async (t) => {
+    if (cfg.standin) throw new NotRun('a real build only')
+    const huge = process.env.INSPECT_HUGE_FOLDER
+    if (!huge) throw new NotRun('INSPECT_HUGE_FOLDER is not set')
+    const m = targets.machine
+    const real = process.env.LFS_REAL_CLI || cfg.cli
+    const env = { ...process.env, LAYERFS_HOME: process.env.DSH_LAYERFS_HOME || process.env.LAYERFS_HOME }
+    const tally = { ok: 0, Busy: 0, other: 0 }
+    let words = null
+    const one = () => new Promise((resolve) => execFile(real, ['machine', 'files', m.name, huge, '--limit', '1000'], { env, maxBuffer: 1 << 26, timeout: 20000 }, (error, _out, err) => {
+      if (!error) tally.ok++
+      else { let code = null; try { const j = JSON.parse(String(err).trim().split('\n').pop()); code = j.code; if (code === 'Busy') words = j.message } catch { /* not a refusal */ } if (code === 'Busy') tally.Busy++; else tally.other++ }
+      resolve()
+    }))
+    await jump(page, m.title)
+    await showFiles(page, { timeout: 25000 })
+    const s0 = await filesState(page)
+    if (!t.check(s0.state === 'ready' && s0.rows.length > 0, `the Files tab lists before the other client starts (${s0.rows.length} rows)`)) return
+    let holding = true
+    const loops = Array.from({ length: 6 }, async () => { while (holding) await one() })
+    try {
+      await sleep(400)
+      let got = null, tries = 0
+      const t0 = Date.now()
+      for (; tries < 40 && Date.now() - t0 < 30000;) {
+        tries++
+        await files(page).getByRole('button', { name: 'Refresh', exact: true }).click().catch(() => {})
+        got = await waitFiles(page, (s) => !!said(s, 'Busy'), { timeout: 700, every: 60 })
+        if (got.ok) break
+      }
+      const x = said(got?.state, 'Busy')
+      t.check(!!x, `a read of the page was refused \`Busy\` while the other client's reads held the slots (after ${tries} reads in ${Date.now() - t0} ms: ${JSON.stringify(x).slice(0, 240)})`)
+      t.check(/inspect requests are running on this machine/.test(x?.text ?? ''), 'in LayerFS\'s own words')
+      t.check((await readAgain(page).count()) >= 1, 'with "Read again"')
+      await shot(page, 'inspect-real-f5r')
+      holding = false
+      await Promise.all(loops)
+      t.note(`the other client (six loops of the real CLI reading ${huge}, 1,000 entries a page): ${tally.ok} reads answered, ${tally.Busy} refused Busy ("${words ?? ''}"), ${tally.other} other`)
+      t.check(tally.Busy > 0 && tally.other === 0, 'that client was refused Busy by LayerFS too, and met nothing else')
+      await readAgain(page).first().click().catch(() => {})
+      got = await waitFiles(page, (s) => s.state === 'ready' && !said(s, 'Busy') && s.rows.length > 0, { timeout: 15000 })
+      t.check(got.ok, 'with the slots free, Read again lists')
+    } finally { holding = false; await Promise.all(loops) }
   })
 
   await run.row('F11r', 'a Sandbox whose daemon was killed: Home still browsable, Whole filesystem `Unavailable` in LayerFS\'s words', async (t) => {
