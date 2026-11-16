@@ -41,7 +41,7 @@ const viewLfs = (extra = {}, sandboxes = []) => ({
 
 const NO_INSPECT = { machineLog: false, sandboxLog: false, files: false, machineFiles: false, machineStats: false }
 /** The features read from one call or option each (layerfs-project#164, #180): absent from this table's CLIs. */
-const NO_OBSERVE = { sandboxLive: false, leftovers: false }
+const NO_OBSERVE = { sandboxLive: false, leftovers: false, machineSpace: false }
 const NONE = { forceStop: false, images: false, imageLoad: false, imagePrune: false, imageRefs: false, createProgress: false, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT, ...NO_OBSERVE }
 
 test('features: the machines view says what the pinned CLI has, Stage 1 only with every piece', async () => {

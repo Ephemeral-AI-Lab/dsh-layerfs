@@ -148,6 +148,98 @@ export function statsAnswer(answer: any): MachineStats {
   }
 }
 
+// ---------------------------------------------------------------- machine.space
+
+/** The parts of LayerFS's own data on a machine's data disk, each the blocks it takes; `null`: the walk did not reach it. */
+export interface SpaceParts {
+  stores: number | null
+  sandboxes: number | null
+  images: number | null
+  /** Run folders no recorded Sandbox names (a create in flight, or a leftover `layerfs doctor` reports). */
+  otherRuns: number | null
+  logs: number | null
+  other: number | null
+}
+
+/** One recorded Sandbox's run folder by part; sizes `null` with `reason` when it was not measured. */
+export interface SandboxSpace {
+  name: string
+  bytes: number | null
+  /** Its Workspaces' overlay databases. */
+  overlays: number | null
+  /** Its own writable layer: what its commands wrote outside Workspaces. */
+  writes: number | null
+  /** `HOME` for its commands. */
+  home: number | null
+  log: number | null
+  /** Its copies of the daemon, helper and runtime layer, and its config. */
+  runtime: number | null
+  /** `no_run_folder`, `outside_run_root`, `record_unreadable`, `deadline`; another word as it came. */
+  reason?: string
+}
+
+/** What `machine.space` answered. Every number is LayerFS's own; `null` is "not read". */
+export interface MachineSpace {
+  platform: string | null
+  observedAt: number | null
+  disk: { total: number | null, used: number | null, free: number | null, path: string | null, fs: string | null, scope: string | null }
+  /** The sum of `parts`; a lower bound when not `complete`. */
+  layerfs: number | null
+  /** What the disk uses that is not LayerFS's data; `null` unless the walk finished. */
+  outside: number | null
+  parts: SpaceParts
+  stores: { name: string, bytes: number | null }[]
+  sandboxes: SandboxSpace[]
+  /** Folders the walk could not list. */
+  unreadable: number
+  complete: boolean
+  /** Comma-joined `deadline`, `unreadable`, `disk_not_read`. */
+  reason: string | null
+}
+
+/** `GET /api/machines/:id/space`. */
+export interface MachineSpaceView {
+  machine: string
+  readAt: number
+  /** When `space` was read from LayerFS (this host's clock); null when there is none. */
+  at: number | null
+  /** The last good answer; null when the machine never answered on this host. */
+  space: MachineSpace | null
+  /** This read was refused (`code`, `message`): `space` is what was read before. */
+  stale: false | Stale
+}
+
+/** One `sandboxes` row; null without a name. */
+function sandboxSpaceOf(row: any): SandboxSpace | null {
+  const name = text(row?.name)
+  if (!name) return null
+  const reason = text(row.reason)
+  return {
+    name, bytes: count(row.bytes), overlays: count(row.overlays), writes: count(row.writes), home: count(row.home),
+    log: count(row.log), runtime: count(row.runtime), ...(reason ? { reason } : {}),
+  }
+}
+
+/** A `machine.space` answer as the page reads it. */
+export function spaceAnswer(answer: any): MachineSpace {
+  const d = answer?.disk ?? {}, p = answer?.parts ?? {}
+  return {
+    platform: text(answer?.platform),
+    observedAt: count(answer?.observed_at),
+    disk: { total: count(d.total), used: count(d.used), free: count(d.free), path: text(d.path), fs: text(d.fs), scope: text(d.scope) },
+    layerfs: count(answer?.layerfs),
+    outside: count(answer?.outside),
+    parts: { stores: count(p.stores), sandboxes: count(p.sandboxes), images: count(p.images), otherRuns: count(p.other_runs), logs: count(p.logs), other: count(p.other) },
+    stores: (Array.isArray(answer?.stores) ? answer.stores : [])
+      .filter((s: any) => s && typeof s.name === 'string' && s.name)
+      .map((s: any) => ({ name: s.name as string, bytes: count(s.bytes) })),
+    sandboxes: (Array.isArray(answer?.sandboxes) ? answer.sandboxes : []).map(sandboxSpaceOf).filter((x: SandboxSpace | null): x is SandboxSpace => !!x),
+    unreadable: count(answer?.unreadable) ?? 0,
+    complete: answer?.complete !== false,
+    reason: text(answer?.reason),
+  }
+}
+
 // ---------------------------------------------------------------- sandbox.list live, sandbox.get daemon and usage
 
 /**

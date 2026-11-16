@@ -853,3 +853,38 @@
 .fixCard p {
   margin: 0;
 }
+
+/* the disk bar split by machine.space: LayerFS's data, what is not LayerFS's, used space not split */
+.diskRow .bar[data-split] {
+  display: flex;
+}
+.diskRow .bar[data-split] > span {
+  border-radius: 0;
+  transition: none;
+}
+.diskRow .bar[data-split] > span[data-part='layerfs'] {
+  min-width: 2px;
+}
+.diskRow .bar[data-split] > span[data-part='outside'] {
+  background: var(--dsw-alias-label-tertiary);
+}
+.diskRow .bar[data-split] > span[data-part='unsplit'] {
+  background: repeating-linear-gradient(135deg, var(--dsw-alias-border-l3) 0 3px, transparent 3px 6px);
+}
+.diskRow .bar[data-split][data-tone='warning'] > span[data-part='layerfs'],
+.diskRow .bar[data-split][data-tone='danger'] > span[data-part='layerfs'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+.diskRow .end[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+.diskRow .bar[data-tone='danger']:not([data-split]) > span {
+  background: var(--dsw-alias-state-error-primary);
+}
+.diskSplit {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}

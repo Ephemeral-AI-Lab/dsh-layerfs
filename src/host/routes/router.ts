@@ -211,6 +211,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'files' && method === 'GET') return machines.machineFiles(id, query, signal)
     // what the machine has and uses now, as the metrics sampler last read it (no LayerFS call); a gap answers as `stale`
     if (id && sub === 'stats' && method === 'GET') return machines.machineStats(id)
+    // where its data disk goes (machine.space): kept a minute per machine, ?fresh=1 reads now; a refusal answers as `stale`
+    if (id && sub === 'space' && method === 'GET') return machines.machineSpace(id, query)
     // what a Sandbox on it can run (the New Sandbox menu, the Images section); never starts it
     if (id && sub === 'sandbox-images' && method === 'GET') return machines.sandboxImages(id)
     // { images?: id[], unused?: boolean } -> { removed, freed, refused }: 501 while the pinned CLI has no machine.prune

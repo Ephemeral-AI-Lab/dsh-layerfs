@@ -25,7 +25,7 @@ import { computer } from './computer.ts'
 import { readArchive, type ImageProblem } from '../images/archive.ts'
 import { InspectReads, filesQuery, logQuery, refusalOf, type FilesView, type LogView } from './inspect.ts'
 import { MetricsSampler, STOPPED } from './metrics.ts'
-import { liveOf, type MachineStatsView } from './observed.ts'
+import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type MachineStatsView } from './observed.ts'
 import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -247,6 +247,9 @@ export function sandboxOf(b: any) {
 export const statusOf = (s: any) => ({ name: String(s.name), state: text(s.state), freeDisk: num(s.free_disk), toolVersion: text(s.tool_version), down: /^the machine is stopped\.?$/i.test(String(s.down_reason ?? s.why_down ?? '')) ? null : text(s.down_reason ?? s.why_down), op: opOf(s.op) })
 
 /** 501: the pinned CLI's call table has no such monitoring call. */
+/** How long a `machine.space` answer (or refusal) stands before a page's read asks LayerFS again. */
+export const SPACE_KEEP_MS = 60_000
+
 const noCall = (call: string, what: string) => Object.assign(refuse(501, 'Unsupported', `The pinned LayerFS CLI cannot read ${what} (it has no ${call}).`), { detail: { need: call } })
 
 /** The options a call takes, without empty ones. */
@@ -461,6 +464,43 @@ export class Machines {
       return { machine: name, readAt: now, at, stats, stale: { at, code: code === STOPPED ? 'Unavailable' : code, message: last.message ?? (code === STOPPED ? 'The machine is not running; it is not asked.' : code) } }
     }
     return { machine: name, readAt: now, at, stats, stale: false }
+  }
+
+  /** Each machine's last good `machine.space` answer and when it was read (this host's clock). */
+  private readonly spaceKept = new Map<string, { at: number, space: MachineSpace }>()
+  /** Each machine's last `machine.space` attempt, good or refused: one read per {@link SPACE_KEEP_MS} unless asked `fresh`. */
+  private readonly spaceTried = new Map<string, { at: number, stale: false | { at: number | null, code: string, message: string } }>()
+
+  /**
+   * `GET /api/machines/:id/space?fresh=1`: where the machine's data disk goes
+   * (machine.space): LayerFS's parts, each Sandbox's run folder and what the
+   * disk holds that is not LayerFS's. One bounded walk where the machine's
+   * data is, so it is read at most once per {@link SPACE_KEEP_MS} per machine
+   * (concurrent callers share one read) unless `fresh=1` (the page's Refresh).
+   * A refusal (a stopped machine `Unavailable`, an older worker
+   * `InvalidInput`, a full lane `Busy`) is answered as `stale` with the last
+   * good answer. 501 while the pinned CLI has no machine.space.
+   */
+  async machineSpace(name: string, query: URLSearchParams = new URLSearchParams()): Promise<MachineSpaceView> {
+    if (!name) throw refuse(400, 'InvalidInput', 'name the machine')
+    if (!(await cliFeatures(this.host)).machineSpace) throw noCall('machine.space', 'where a machine\'s disk goes')
+    const tried = this.spaceTried.get(name)
+    const answer = (): MachineSpaceView => {
+      const kept = this.spaceKept.get(name)
+      const last = this.spaceTried.get(name)
+      return { machine: name, readAt: Date.now(), at: kept?.at ?? null, space: kept?.space ?? null, stale: last?.stale ?? false }
+    }
+    if (tried && query.get('fresh') !== '1' && Date.now() - tried.at < SPACE_KEEP_MS) return answer()
+    const lfs = this.lfs
+    try {
+      const raw = await this.reads.read(`space:${name}`, (signal) => { const options = { signal }; return lfs.machine.space(name, options) })
+      const at = Date.now()
+      this.spaceKept.set(name, { at, space: spaceAnswer(raw) })
+      this.spaceTried.set(name, { at, stale: false })
+    } catch (error: any) {
+      this.spaceTried.set(name, { at: Date.now(), stale: refusalOf(error, this.spaceKept.get(name)?.at ?? null) })
+    }
+    return answer()
   }
 
   /**

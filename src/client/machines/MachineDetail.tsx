@@ -29,6 +29,7 @@ import { NewSandboxDialog } from './Sandboxes.tsx'
 import { SpecTab } from './Spec.tsx'
 import { ObservedCpuMemory, useMachineStats, workerLine } from './MachineStats.tsx'
 import { MachineCharts, MachineFigures, SandboxUsage } from './MetricsViews.tsx'
+import { DiskNotice, WhereSpaceGoes } from './SpaceViews.tsx'
 import css from './machines.module.css'
 import logCss from './log.module.css'
 
@@ -170,9 +171,11 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
       )}
 
       {notices}
+      <DiskNotice m={m} />
 
       <MachineCharts m={m} />
       <SandboxUsage m={m} />
+      <WhereSpaceGoes m={m} />
 
       <Card className={css.block}>
         <Inventory m={m} view={view}

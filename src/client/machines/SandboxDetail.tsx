@@ -28,6 +28,7 @@ import { bytes, clearingCall, daemonLook, daemonSlots, opWords, stateLook, type 
 import { cpuTime, liveNote, reasonWords, sandboxLook } from './stats.ts'
 import { SandboxMenu, useClose, useSandboxRead } from './Sandboxes.tsx'
 import { SandboxTerminals } from './SandboxTerminals.tsx'
+import { SandboxDisk } from './SpaceViews.tsx'
 import { SandboxMetrics } from './MetricsViews.tsx'
 import css from './machines.module.css'
 import logCss from './log.module.css'
@@ -114,6 +115,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
 
       {info && <DaemonLine info={info} action={logLink} />}
       {metrics ? <SandboxMetrics name={name} machine={machine} /> : info && <UsageLine info={info} />}
+      <SandboxDisk name={name} machine={machine} />
 
       {((info && (info.refusal || info.downReason)) || calls || closing.error !== null || !!closing.unknown?.length || (info && detail.error != null)) && (
         <Notice tone="danger">

@@ -42,7 +42,7 @@ const MUTATING = new Set([
 /** The read calls (cli.ts READS plus workspace.status and logs.list): anything else a GET makes is suspect too. */
 const READS = new Set(['list', 'get', 'status', 'platforms', 'images', 'stats', 'storage_report', 'commits', 'get_commit', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'revision'])
 /** Monitoring reads, named with their family (cli.ts INSPECT_CALLS): `logs.machine` is no bare read name. */
-const INSPECT = new Set(['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files', 'machine.stats'])
+const INSPECT = new Set(['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files', 'machine.stats', 'machine.space'])
 const isRead = (call) => (READS.has(call.split('.')[1]) || INSPECT.has(call)) && !MUTATING.has(call)
 
 const L = `32${'a'.repeat(64)}`
@@ -486,6 +486,8 @@ const GETS = [
   ['machines/:id/files', '/api/machines/lima1/files?path=%2Fetc&depth=1&limit=200'],
   ['machines/:id/files', '/api/machines/lima1/files?path=%2Fetc%2Fhosts&offset=0&length=4096'],
   ['machines/:id/stats', '/api/machines/lima1/stats'],
+  ['machines/:id/space', '/api/machines/lima1/space'],
+  ['machines/:id/space', '/api/machines/lima1/space?fresh=1'],
   ['sandbox-creates', '/api/sandbox-creates'],
   ['status', '/api/status'],
   ['projects', '/api/projects'],
@@ -534,7 +536,7 @@ test('the no-writes table covers every GET route in router.ts', () => {
 
 // C1 (finding: GETs with an `unclaimed:` projectId forked dsh.project.<uuid>): no GET route makes a mutating LayerFS call.
 test('no GET route makes a mutating LayerFS call, with or without a projectId', { timeout: 30_000 }, async (t) => {
-  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'logs', call: 'machine', args: [], options: [] }, { family: 'logs', call: 'sandbox', args: [], options: [] }, { family: 'machine', call: 'files', args: [], options: [] }, { family: 'sandbox', call: 'files', args: [], options: [] }, { family: 'machine', call: 'stats', args: [], options: [] }, { family: 'doctor', call: 'fix', args: [], options: [] }, { family: 'sandbox', call: 'list', args: [], options: [{ name: 'live', kind: 'bool' }] }]) })
+  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'logs', call: 'machine', args: [], options: [] }, { family: 'logs', call: 'sandbox', args: [], options: [] }, { family: 'machine', call: 'files', args: [], options: [] }, { family: 'sandbox', call: 'files', args: [], options: [] }, { family: 'machine', call: 'stats', args: [], options: [] }, { family: 'machine', call: 'space', args: [], options: [] }, { family: 'doctor', call: 'fix', args: [], options: [] }, { family: 'sandbox', call: 'list', args: [], options: [{ name: 'live', kind: 'bool' }] }]) })
   // the real identity check, wired as routes/index.ts wires it: reads never claim
   const catalog = new ProjectCatalog(() => f.lfs, join(f.dir, 'root'))
   f.host.host.assertProjectIdentity = (project, projectId) => catalog.assert(project, projectId, { claim: false })
