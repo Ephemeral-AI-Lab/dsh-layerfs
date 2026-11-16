@@ -7,11 +7,11 @@
 import type { MachineSandbox } from './model.ts'
 import type { SandboxSpace } from './space.ts'
 
-export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'usage' | 'disk' | 'files' | 'log'
+export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'disk' | 'files' | 'log'
 
-/** The tabs a machine page has, in order: Usage needs machine.stats, Disk machine.space, Files machine.files, Worker log logs.machine and a worker log. */
-export function machineTabs(has: { usage: boolean, disk: boolean, files: boolean, log: boolean }): MachineTab[] {
-  return ['overview', 'sandboxes', 'stores', ...(has.usage ? ['usage' as const] : []), ...(has.disk ? ['disk' as const] : []),
+/** The tabs a machine page has, in order: Disk needs machine.space, Files machine.files, Worker log logs.machine and a worker log. The hour of processor and memory is on the Overview. */
+export function machineTabs(has: { disk: boolean, files: boolean, log: boolean }): MachineTab[] {
+  return ['overview', 'sandboxes', 'stores', ...(has.disk ? ['disk' as const] : []),
     ...(has.files ? ['files' as const] : []), ...(has.log ? ['log' as const] : [])]
 }
 

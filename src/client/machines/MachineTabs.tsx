@@ -9,7 +9,6 @@
  *   up time; gone ones offer Close; those closed within the sampler's hour only
  *   on request. New Sandbox and the machine's Sandbox images sit here.
  * - Stores: every Store its Sandboxes can use, with Add Store.
- * - Usage: processor, memory and disk over the hour (machine.stats).
  * - Disk: where the data disk goes (machine.space).
  *
  * A column whose call the pinned CLI lacks is not drawn; a value LayerFS did
@@ -27,7 +26,7 @@ import { ImagesSection } from './MachineImages.tsx'
 import { useMetrics } from './MachineStats.tsx'
 import { sandboxAttention, sandboxTabRows, type MachineTab } from './machine-tabs.ts'
 import { processors, sandboxTable, upTime } from './metrics.ts'
-import { Dash, MachineCharts, useWords } from './MetricsViews.tsx'
+import { Dash, useWords } from './MetricsViews.tsx'
 import { gib, machineState, opWords, projectRef, sandboxesOn, shortSandbox, type AvailableView, type MachineInfo } from './model.ts'
 import { useClose } from './Sandboxes.tsx'
 import { sandboxSpaceReason, spaceSize } from './space.ts'
@@ -194,7 +193,7 @@ export function SandboxesTab({ m, view, canCreate, onCreate }: { m: MachineInfo,
   )
 }
 
-// ---------------------------------------------------------------- Stores, Usage, Disk
+// ---------------------------------------------------------------- Stores, Disk
 
 /** The Stores tab: the machine's Stores, Add Store in the head when the page has it. */
 export function StoresTab({ m, view, onAddStore }: { m: MachineInfo, view: AvailableView, onAddStore?: ((machine: string) => void) | undefined }): ReactNode {
@@ -206,13 +205,6 @@ export function StoresTab({ m, view, onAddStore }: { m: MachineInfo, view: Avail
       ) : undefined} />
     </Card>
   )
-}
-
-/** The Usage tab: processor, memory and disk over the hour. */
-export function UsageTab({ m }: { m: MachineInfo }): ReactNode {
-  const { t } = useMachinesContext()
-  const { snapshot } = useMetrics(m.name)
-  return snapshot.loaded ? <MachineCharts m={m} /> : <p className={css.muted}>{t('spaceReading')}</p>
 }
 
 /** The Disk tab: the notice while the disk is getting full, then where the disk goes. */

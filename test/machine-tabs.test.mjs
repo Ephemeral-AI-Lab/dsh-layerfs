@@ -18,10 +18,10 @@ test.after(() => rmSync(out, { recursive: true, force: true }))
 const sb = (name, state, extra = {}) => ({ name, state, machine: 'docker', project: 'qv2-store/qv2-probe', workspaces: 0, ...extra })
 const needsYou = (b) => b.state === 'failed' || b.state === 'gone'
 
-test('tabs: Overview, Sandboxes and Stores always; Usage, Disk, Files and Worker log by what the CLI has', () => {
-  assert.deepEqual(T.machineTabs({ usage: false, disk: false, files: false, log: false }), ['overview', 'sandboxes', 'stores'])
-  assert.deepEqual(T.machineTabs({ usage: true, disk: true, files: true, log: true }), ['overview', 'sandboxes', 'stores', 'usage', 'disk', 'files', 'log'])
-  assert.deepEqual(T.machineTabs({ usage: false, disk: true, files: true, log: false }), ['overview', 'sandboxes', 'stores', 'disk', 'files'])
+test('tabs: Overview, Sandboxes and Stores always; Disk, Files and Worker log by what the CLI has; no Usage tab (its hour is on the Overview)', () => {
+  assert.deepEqual(T.machineTabs({ disk: false, files: false, log: false }), ['overview', 'sandboxes', 'stores'])
+  assert.deepEqual(T.machineTabs({ disk: true, files: true, log: true }), ['overview', 'sandboxes', 'stores', 'disk', 'files', 'log'])
+  assert.deepEqual(T.machineTabs({ disk: true, files: true, log: false }), ['overview', 'sandboxes', 'stores', 'disk', 'files'])
 })
 
 test('Sandboxes tab rows: those that need you first, joined with sampler values and disk by name; closed ones only on request', () => {

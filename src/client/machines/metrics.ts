@@ -262,13 +262,6 @@ export function machineMemory(points: readonly Point<MachineValues>[]): Sample[]
       : { t: p.t, v: p.values.memoryUsed }))
 }
 
-/** The machine's data disk used over the hour (bytes); a gap with why where it was not read. */
-export function machineDisk(points: readonly Point<MachineValues>[]): Sample[] {
-  return points.map((p) => (!p.values ? { t: p.t, v: null, reason: p.code ?? 'not_observed' }
-    : p.values.diskUsed == null ? { t: p.t, v: null, reason: reasonFor(p.values.reason, ['disk_not_read']) ?? 'not_observed' }
-      : { t: p.t, v: p.values.diskUsed }))
-}
-
 /** Why a Sandbox point has no usage value: the machine read's code, its row's reason, or not observed. */
 const sandboxReason = (p: Point<SandboxValues>): string => (!p.values ? p.code ?? 'not_observed' : p.values.usageReason ?? p.values.liveReason ?? 'not_observed')
 
