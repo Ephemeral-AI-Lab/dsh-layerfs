@@ -11,7 +11,8 @@
  *   worth ("1.3 of 4").
  * A rate is drawn only between two successful samples at most two ticks
  * apart. A negative delta, a changed `started_at` (the Sandbox restarted or
- * its name was reused) or a machine whose busy or total went down (it
+ * its name was reused; a move of at most {@link START_SLACK_MS} is the same
+ * run, see {@link sameRun}) or a machine whose busy or total went down (it
  * rebooted) is a gap. A value LayerFS did not read is a gap with its reason,
  * never a zero.
  */
@@ -265,6 +266,22 @@ export function machineMemory(points: readonly Point<MachineValues>[]): Sample[]
 const sandboxReason = (p: Point<SandboxValues>): string => (!p.values ? p.code ?? 'not_observed' : p.values.usageReason ?? p.values.liveReason ?? 'not_observed')
 
 /**
+ * How far a Sandbox's `started_at` may move between two reads of the same
+ * run. Linux places a start by the boot time (`btime`) plus clock ticks, to
+ * about a second, and a VM whose clock is being corrected moves `btime`:
+ * on Lima it was seen to step back 1 s about every 90 s (layerfs-project#182
+ * real runs). A restart or a reused name moves it further, and also resets
+ * `cpu_usec`, which is checked on its own.
+ */
+export const START_SLACK_MS = 2_000
+
+/** Whether two reads' `started_at` are one run of the Sandbox ({@link START_SLACK_MS}). */
+export function sameRun(a: number | null, b: number | null): boolean {
+  if (a == null || b == null) return a === b
+  return Math.abs(a - b) <= START_SLACK_MS
+}
+
+/**
  * A Sandbox's processor in processors' worth (1.0 = one processor busy the
  * whole time) at each point after the first: Δcpu_usec / Δobserved_at.
  */
@@ -275,7 +292,7 @@ export function sandboxCpu(points: readonly Point<SandboxValues>[], tick = METRI
     if (!p.values || !u || u.cpuUsec == null || p.values.observedAt == null) { out.push({ t: p.t, v: null, reason: sandboxReason(p) }); continue }
     const q = points[i - 1], w = q?.values, wu = w?.usage
     if (!q || !w || !wu || wu.cpuUsec == null || w.observedAt == null || !near(q, p, tick)) { out.push({ t: p.t, v: null, reason: 'first_sample' }); continue }
-    if (w.startedAt !== p.values.startedAt) { out.push({ t: p.t, v: null, reason: 'restarted' }); continue }
+    if (!sameRun(w.startedAt, p.values.startedAt)) { out.push({ t: p.t, v: null, reason: 'restarted' }); continue }
     const cpu = u.cpuUsec - wu.cpuUsec, ms = p.values.observedAt - w.observedAt
     if (cpu < 0) { out.push({ t: p.t, v: null, reason: 'restarted' }); continue }
     if (ms <= 0) { out.push({ t: p.t, v: null, reason: 'first_sample' }); continue }
@@ -296,7 +313,7 @@ export function oomMarks(points: readonly Point<SandboxValues>[]): { t: number, 
   for (const p of points) {
     const v = p.values
     if (!v?.usage || v.usage.oomKills == null) continue
-    if (before && before.startedAt === v.startedAt && before.usage!.oomKills != null && v.usage.oomKills > before.usage!.oomKills!) out.push({ t: p.t, kills: v.usage.oomKills - before.usage!.oomKills! })
+    if (before && sameRun(before.startedAt, v.startedAt) && before.usage!.oomKills != null && v.usage.oomKills > before.usage!.oomKills!) out.push({ t: p.t, kills: v.usage.oomKills - before.usage!.oomKills! })
     before = v
   }
   return out

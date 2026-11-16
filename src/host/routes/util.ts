@@ -187,6 +187,9 @@ export function sandboxObservation(lfs: Lfs, sandbox: string, { wait = null as n
   if (good && Date.now() - good.at < SANDBOX_KEEP_MS) return Promise.resolve(good.value)
   let read = flying.get(sandbox)
   if (!read) {
+    // a kept answer's age counts from when its read began, so a page that
+    // polls every 5 s while a command runs still gets a new answer every 10 s
+    const began = Date.now()
     // only the read still current settles the cache: one an invalidation dropped leaves it alone
     const current = () => flying.get(sandbox) === read
     read = (async () => {
@@ -204,7 +207,7 @@ export function sandboxObservation(lfs: Lfs, sandbox: string, { wait = null as n
         if (current()) {
           busy.delete(sandbox)
           if (kept.size >= 256) kept.delete(kept.keys().next().value!)
-          kept.set(sandbox, { at: Date.now(), value: all })
+          kept.set(sandbox, { at: began, value: all })
         }
         return all
       },
@@ -214,7 +217,7 @@ export function sandboxObservation(lfs: Lfs, sandbox: string, { wait = null as n
         throw error
       },
     ).finally(() => { if (current()) flying.delete(sandbox) }) as Read
-    read.started = Date.now()
+    read.started = began
     flying.set(sandbox, read)
   }
   if (!wait) return read

@@ -211,7 +211,7 @@ function fixture(answers) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-metrics-'))
   const t = testHost({ lfs, root: dir, home: join(dir, 'home'), discovery: async () => ({ identity: { version: '2.0.0-test', features: [] }, calls: CALLS }) })
   const groups = R.createGroups(t.host, async () => ({}))
-  return { groups, calls, http: (method, path, body) => R.handle(groups, { method, path, body }), close: () => { groups.machines.metrics.stop(); rmSync(dir, { recursive: true, force: true }) } }
+  return { groups, calls, answers, http: (method, path, body) => R.handle(groups, { method, path, body }), close: () => { groups.machines.metrics.stop(); rmSync(dir, { recursive: true, force: true }) } }
 }
 const until = async (check, ms = 2000) => { const end = Date.now() + ms; while (!check()) { if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 5)) } }
 
@@ -284,9 +284,23 @@ test('sandbox.get: one answer serves every tab for 10 s; a write on the Sandbox 
     Date.now = () => t0 + 10_001
     await f.http('GET', '/api/sandboxes/sb')
     assert.equal(gets, 2, 'asked again after 10 s')
+    // the age counts from when the read began: a slow read does not stretch it (a page polling
+    // every 5 s while a command runs gets a new answer every 10 s, not every 15 s)
+    let release
+    const slow = new Promise((r) => { release = r })
+    f.answers['sandbox.get'] = async () => { gets++; await slow; return { name: 'sb', state: 'running', project: 's/p', machine: 'native', workspaces: [], next_page_pos: null } }
+    Date.now = () => t0 + 20_002
+    const pending = f.http('GET', '/api/sandboxes/sb')
+    await new Promise((r) => setTimeout(r, 20))
+    Date.now = () => t0 + 24_000
+    release(); await pending
+    assert.equal(gets, 3)
+    Date.now = () => t0 + 30_003
+    await f.http('GET', '/api/sandboxes/sb')
+    assert.equal(gets, 4, '10 s after the read began, though it ended 6 s ago')
     await f.http('POST', '/api/sandboxes/sb/workspaces', { branch: 'side' })
     await f.http('GET', '/api/sandboxes/sb')
-    assert.equal(gets, 3, 'a mount drops the kept answer')
+    assert.equal(gets, 5, 'a mount drops the kept answer')
     assert.equal(R.util.SANDBOX_KEEP_MS, 10_000)
   } finally { Date.now = realNow; f.close() }
 })
@@ -357,7 +371,7 @@ test('Sandbox processor in processors\' worth: Δcpu_usec/Δobserved_at; restart
   const points = [
     sp(1, 0, 0),
     sp(2, 15_000, 19_500_000), // 1.3 processors
-    sp(3, 30_000, 20_000_000, { startedAt: 2 }), // restarted (started_at changed)
+    sp(3, 30_000, 20_000_000, { startedAt: 60_000 }), // restarted (started_at moved by a minute)
     sp(4, 45_000, 10_000_000), // started_at back to 1 but counter went down
     sp(5, 60_000, 25_000_000, {}, { oomKills: 1 }),
     sp(6, 120_000, 26_000_000, {}, { oomKills: 3 }), // 60 s apart
@@ -369,7 +383,11 @@ test('Sandbox processor in processors\' worth: Δcpu_usec/Δobserved_at; restart
   ])
   assert.deepEqual(C.sandboxMemory(points).map((x) => x.v ?? x.reason), [1001, 1002, 1003, 1004, 1005, 1006, 'host_process', 'Timeout'])
   assert.deepEqual(C.oomMarks(points), [{ t: 60_000, kills: 1 }, { t: 120_000, kills: 2 }])
-  assert.deepEqual(C.oomMarks([sp(1, 0, 0, {}, { oomKills: 5 }), sp(2, 15_000, 1, { startedAt: 9 }, { oomKills: 0 })]), [], 'a restarted Sandbox counts from its new start')
+  assert.deepEqual(C.oomMarks([sp(1, 0, 0, {}, { oomKills: 5 }), sp(2, 15_000, 1, { startedAt: 9_000_000 }, { oomKills: 0 })]), [], 'a restarted Sandbox counts from its new start')
+  // a Linux start read through a corrected VM clock moves by a second or two: the same run (Lima, real runs)
+  const drift = [sp(1, 0, 0, { startedAt: 100_000 }), sp(2, 15_000, 15_000_000, { startedAt: 99_000 }), sp(3, 30_000, 30_000_000, { startedAt: 101_000 }), sp(4, 45_000, 45_000_000, { startedAt: 104_000 })]
+  assert.deepEqual(C.sandboxCpu(drift, TICK).map((x) => [x.v, x.reason]), [[null, 'first_sample'], [1, undefined], [1, undefined], [null, 'restarted']])
+  assert.ok(C.sameRun(1, 2_001) && !C.sameRun(1, 2_002) && C.sameRun(null, null) && !C.sameRun(null, 5))
   assert.equal(C.processors(1.3), '1.3'); assert.equal(C.processors(0.05), '0.05'); assert.equal(C.percent(0.25), '25 %')
   assert.equal(C.upTime(0, 3_725_000), '1 h 2 min'); assert.equal(C.upTime(null, 1), '—')
 })

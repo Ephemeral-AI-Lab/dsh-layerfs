@@ -22,7 +22,7 @@ import {
   type MetricsSnapshot, type Sample,
 } from './metrics.ts'
 import { useMetrics } from './MachineStats.tsx'
-import { bytes, gib, shortSandbox, type MachineInfo } from './model.ts'
+import { gib, shortSandbox, type MachineInfo } from './model.ts'
 import { diskScopeWords, reasonList, reasonWords, resourceScopeWords, statsAskable, type MachineStats } from './stats.ts'
 import css from './machines.module.css'
 
@@ -211,7 +211,7 @@ export function SandboxUsage({ m }: { m: MachineInfo }): ReactNode {
                   </button>
                 </td>
                 <td data-mx-cell="cpu">{r.cpu?.v != null ? (cpus != null ? t('mxProcessorsOf', { n: processors(r.cpu.v), of: String(cpus) }) : processors(r.cpu.v)) : <Dash why={w.gap(r.cpu?.reason ?? why)} />}</td>
-                <td data-mx-cell="memory">{!r.gap && u?.memoryCurrent != null ? bytes(u.memoryCurrent) : <Dash why={w.reason(why)} />}</td>
+                <td data-mx-cell="memory">{!r.gap && u?.memoryCurrent != null ? gib(u.memoryCurrent) : <Dash why={w.reason(why)} />}</td>
                 <td data-mx-cell="up" className={css.muted}>{!r.gap && r.row?.startedAt != null ? upTime(r.row.startedAt, now) : '—'}</td>
               </tr>
             )
@@ -270,11 +270,11 @@ export function SandboxMetrics({ name, machine }: { name: string, machine: strin
         </Figure>
         <Figure label={t('memory')} data-mx-figure="memory" gap={!usable || u!.memoryCurrent == null}
           sub={usable && u!.memoryCurrent != null ? [
-            u!.memoryPeak != null ? t('mxPeak', { size: bytes(u!.memoryPeak) }) : null,
-            'memoryFile' in u! ? (u!.memoryFile != null ? t('mxFileShare', { size: bytes(u!.memoryFile) }) : t('mxFileNotRead')) : null,
+            u!.memoryPeak != null ? t('mxPeak', { size: gib(u!.memoryPeak) }) : null,
+            'memoryFile' in u! ? (u!.memoryFile != null ? t('mxFileShare', { size: gib(u!.memoryFile) }) : t('mxFileNotRead')) : null,
             t('mxMemoryNote'),
           ].filter(Boolean).join(' · ') : undefined}>
-          {usable && u!.memoryCurrent != null ? bytes(u!.memoryCurrent) : <Dash why={w.reason(why)} />}
+          {usable && u!.memoryCurrent != null ? gib(u!.memoryCurrent) : <Dash why={w.reason(why)} />}
         </Figure>
         <Figure label={t('mxProcesses')} data-mx-figure="pids" gap={!usable || u!.pids == null}>
           {usable && u!.pids != null ? String(u!.pids) : <Dash why={w.reason(why)} />}
@@ -287,8 +287,8 @@ export function SandboxMetrics({ name, machine }: { name: string, machine: strin
       </Figures>
       <ChartGroup>
         <LineArea label={t('mxProcessor')} samples={f.cpu as ChartSample[]} max={cpuTop} maxText={f.cpus != null ? t('mxProcessorsMax', { n: String(f.cpus) }) : processors(cpuTop)} format={of} marks={marks} {...frame} />
-        <LineArea label={t('mxMemoryChart')} samples={f.memory as ChartSample[]} max={top} maxText={memoryRead ? bytes(top) : undefined} format={(v) => bytes(v)} marks={marks}
-          peak={peak != null ? { v: peak, label: t('mxPeak', { size: bytes(peak) }) } : null} {...frame} />
+        <LineArea label={t('mxMemoryChart')} samples={f.memory as ChartSample[]} max={top} maxText={memoryRead ? gib(top) : undefined} format={(v) => gib(v)} marks={marks}
+          peak={peak != null ? { v: peak, label: t('mxPeak', { size: gib(peak) }) } : null} {...frame} />
       </ChartGroup>
       <HistoryNote snapshot={snapshot} />
     </div>
