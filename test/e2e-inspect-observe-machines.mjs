@@ -18,7 +18,7 @@
 import { NotRun, O, SCOPE_WORDS, cfg, cli, diskOf, editor, features, gibText, jump, main, needO, observed, openBoard, openOverviewMachines, overviewDisks, setupObserve, shot, sleep, spawnMark, spawnsSince, statsDriver, statsSpawns, waitObserved } from './e2e-inspect-observe-lib.mjs'
 
 const RESOURCE_SCOPE = { host: 'of this computer', engine_host: 'of the system Docker runs on', vm: 'of this machine\'s VM' }
-const REASON = { machine_stopped: 'the machine is stopped', host_process: 'a Sandbox on this computer is a plain process with no cgroup of its own', not_observed: 'the side that runs it did not answer', memory_not_read: 'memory was not read', deadline: 'the time limit came first', no_cgroup: 'the Sandbox\'s cgroup is not there', cgroup_v1: 'the machine has no cgroup v2', not_answered: 'the machine did not say', no_pid: 'its record names no process', no_controller: 'this machine\'s cgroup for Sandboxes has no memory or process-count controller' }
+const REASON = { machine_stopped: 'the machine is stopped', unavailable: 'the machine did not answer', busy: 'the machine was busy with other reads', host_process: 'a Sandbox on this computer is a plain process with no cgroup of its own', not_observed: 'the side that runs it did not answer', memory_not_read: 'memory was not read', deadline: 'the time limit came first', no_cgroup: 'the Sandbox\'s cgroup is not there', cgroup_v1: 'the machine has no cgroup v2', not_answered: 'the machine did not say', no_pid: 'its record names no process', no_controller: 'this machine\'s cgroup for Sandboxes has no memory or process-count controller' }
 /** A size as machines/model.ts `bytes` writes it. */
 function bytesText(n) {
   if (n < 1000) return `${n} B`
@@ -28,6 +28,27 @@ function bytesText(n) {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 const diskText = (r) => `${gibText(r.disk_used)} used of ${gibText(r.disk_total)}${r.disk_free != null ? ` · ${gibText(r.disk_free)} free` : ''}`
+/**
+ * Whether the page's `text` starts with `want`. The stand-in's values are fixed, so there it is exact. A real machine's
+ * memory and disk move between this script's `machine stats` and the page's own: there the words must be the same and
+ * each number within 0.3 of its unit (GiB) of the other.
+ */
+function startsAlike(text, want) {
+  if (cfg.standin) return String(text ?? '').startsWith(want)
+  const num = /\d+(?:\.\d+)?/g
+  const a = String(text ?? ''), wantWords = want.split(num), wantNums = want.match(num) ?? []
+  let at = 0
+  for (let i = 0; i < wantWords.length; i++) {
+    if (!a.startsWith(wantWords[i], at)) return false
+    at += wantWords[i].length
+    if (i === wantNums.length) break
+    const m = /^\d+(?:\.\d+)?/.exec(a.slice(at))
+    if (!m || Math.abs(Number(m[0]) - Number(wantNums[i])) > 0.3) return false
+    at += m[0].length
+  }
+  return true
+}
+const alike = (text, want) => startsAlike(text, want) && (cfg.standin || !/\d/.test(String(text ?? '').split(/\d+(?:\.\d+)?/).slice((want.match(/\d+(?:\.\d+)?/g) ?? []).length + 1).join('')))
 
 /** The Sandbox page's head chip, daemon line and usage line. */
 const sandboxPage = (page) => page.evaluate(() => {
@@ -86,10 +107,10 @@ await main('e2e-inspect-observe-machines', async ({ run, page }) => {
       const s = got.state, disk = diskOf(s)
       if (!t.check(got.ok, `${m.name}: the page shows observed values (${JSON.stringify(disk)})`)) continue
       scopes.add(d.scope)
-      t.check(disk.text.startsWith(diskText(r)), `${m.name}: the disk line is LayerFS's used, total and free ("${disk.text}" / ${diskText(r)})`)
+      t.check(startsAlike(disk.text, diskText(r)), `${m.name}: the disk line is LayerFS's used, total and free ("${disk.text}" / ${diskText(r)})`)
       t.check(disk.scope === d.scope && disk.scopeWords === (SCOPE_WORDS[d.scope] ?? d.scope), `${m.name}: whose disk it is, in words (${d.scope}: "${disk.scopeWords}")`)
-      t.check(s.resources.startsWith(`${r.cpus} cores · ${gibText(r.memory_used)} of ${gibText(r.memory_total)} memory used`) && s.resources.endsWith(RESOURCE_SCOPE[r.scope] ?? ''), `${m.name}: observed processors and memory, and whose (${r.scope}: "${s.resources}")`)
-      t.check(s.card.cpus === String(r.cpus) && s.card.memory === `${gibText(r.memory_used)} of ${gibText(r.memory_total)} memory used` && s.card.disk === diskText(r), `${m.name}: the Details card has the same three (${s.card.cpus} · ${s.card.memory} · ${s.card.disk})`)
+      t.check(startsAlike(s.resources, `${r.cpus} cores · ${gibText(r.memory_used)} of ${gibText(r.memory_total)} memory used`) && s.resources.endsWith(RESOURCE_SCOPE[r.scope] ?? ''), `${m.name}: observed processors and memory, and whose (${r.scope}: "${s.resources}")`)
+      t.check(s.card.cpus === String(r.cpus) && alike(s.card.memory, `${gibText(r.memory_used)} of ${gibText(r.memory_total)} memory used`) && alike(s.card.disk, diskText(r)), `${m.name}: the Details card has the same three (${s.card.cpus} · ${s.card.memory} · ${s.card.disk})`)
       t.check(s.card.diskScope === d.scope && s.card.diskSub.includes(SCOPE_WORDS[d.scope] ?? d.scope) && s.card.diskSub.includes(d.fs) && s.card.diskSub.includes(d.path), `${m.name}: the card names the scope, the filesystem and the path ("${s.card.diskSub}")`)
       if (d.volume) t.check(s.card.diskSub.endsWith(`volume ${d.volume}`), `${m.name}: the provider's volume name is shown as LayerFS gave it (${d.volume})`)
       if (st.worker) {
@@ -230,11 +251,20 @@ await main('e2e-inspect-observe-machines', async ({ run, page }) => {
       const tip = await editor(page).locator(`[data-sandbox-row=${JSON.stringify(unseen.name)}]`).getAttribute('title')
       const why = REASON[unseen.live_reason] ?? String(unseen.live_reason ?? '').replaceAll('_', ' ')
       t.check(r?.live === 'null' && !r.text.includes('Daemon not running'), `${unseen.name} (live null) keeps its recorded state ("${r?.text}")`)
-      t.check((tip ?? '').includes(`its daemon was not observed (${why})`), `…with the reason in its tooltip (${unseen.live_reason}: "${tip}")`)
       const dashed = await editor(page).locator(`[data-sandbox-row=${JSON.stringify(unseen.name)}] [data-dashed]`).count()
-      t.check(dashed === 1, 'its chip is dashed: recorded, not confirmed')
       const mine = listed.filter((b) => b.machine === unseen.machine)
-      t.check(g.state.card.hereNow?.startsWith(`${mine.filter((b) => b.state === 'running' && b.live === true).length} of ${mine.length} running`) && /recorded as running (was|were) not observed/.test(g.state.card.hereUnknown ?? ''), `it is not counted as running, and the count says it was not observed ("${g.state.card.hereNow}")`)
+      const counted = g.state.card.hereNow?.startsWith(`${mine.filter((b) => b.state === 'running' && b.live === true).length} of ${mine.length} running`)
+      if (unseen.state === 'running') {
+        t.check((tip ?? '').includes(`its daemon was not observed (${why})`), `…with the reason in its tooltip (${unseen.live_reason}: "${tip}")`)
+        t.check(dashed === 1, 'its chip is dashed: recorded, not confirmed')
+        t.check(counted && /recorded as running (was|were) not observed/.test(g.state.card.hereUnknown ?? ''), `it is not counted as running, and the count says it was not observed ("${g.state.card.hereNow}")`)
+      } else {
+        // the record itself no longer says running (a machine stopped by force marks its Sandboxes): nothing is claimed
+        // that needs confirming, so the row is its recorded state, plain, and it is not counted
+        t.check(!/Running$/.test(r?.text ?? '') && dashed === 0, `recorded \`${unseen.state}\` (${unseen.live_reason}): the row shows that state, with no unconfirmed mark ("${r?.text}")`)
+        t.check(counted && !g.state.card.hereUnknown, `it is not counted as running ("${g.state.card.hereNow}")`)
+        t.note(`${unseen.name}: LayerFS lists it \`${unseen.state}\` with live null (${unseen.live_reason}); the "recorded running, not observed" look needs a Sandbox listed \`running\` with live null`)
+      }
     } else t.note(`no Sandbox with live null was named (INSPECT_UNSEEN_SANDBOX${unseen ? `: ${unseen.name} is live ${unseen.live}` : ''}): that part was not checked`)
     void view
   })

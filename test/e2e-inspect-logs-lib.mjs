@@ -296,7 +296,8 @@ export async function jump(page, text) {
 }
 
 export const pane = (page) => editor(page).locator('[data-log]')
-export const tabs = (page) => editor(page).getByRole('tab').allTextContents()
+/** The page's own tabs (the Files pane's view switch is a tab list of its own, shown where a target has two views: not counted). */
+export const tabs = (page) => editor(page).locator('[role=tab]:not([data-files] [role=tab])').allTextContents()
 /** Whether the open page offers a tab named `name`. */
 export const hasTab = async (page, name) => (await editor(page).getByRole('tab', { name, exact: true }).count()) > 0
 

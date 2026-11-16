@@ -83,7 +83,8 @@ await main('e2e-inspect-observe-doctor', async ({ run, page }) => {
       t.check(r.path === l.path, `${l.id}: its path (${r.path})`)
       if (l.bytes == null) t.check(r.size === 'not-measured' && r.sizeText === 'Size not measured' && !/\b0 B\b/.test(r.sizeText), `${l.id}: a size LayerFS did not measure reads "Size not measured", not 0 ("${r.sizeText}")`)
       else t.check(r.size === String(l.bytes) && /^Size [\d.]+ (B|KB|MB|GB|TB)$/.test(r.sizeText), `${l.id}: its size (${l.bytes} bytes: "${r.sizeText}")`)
-      t.check(r.age === String(l.age) && /last changed .+ ago|last changed just now/.test(r.ageText ?? ''), `${l.id}: its age (${l.age} s: "${r.ageText}")`)
+      // the stand-in's ages are fixed; a real leftover ages between the page's `doctor` and this script's: two minutes apart at most
+      t.check((cfg.standin ? r.age === String(l.age) : Math.abs(Number(r.age) - l.age) <= 120) && /last changed .+ ago|last changed just now/.test(r.ageText ?? ''), `${l.id}: its age (${l.age} s here, ${r.age} s on the page: "${r.ageText}")`)
       if (l.fixable === false) {
         t.check(r.command === null && r.copy === null && !!r.reportOnly, `${l.id}: LayerFS only reports it: no command, and the row says so ("${r.reportOnly}")`)
       } else {
