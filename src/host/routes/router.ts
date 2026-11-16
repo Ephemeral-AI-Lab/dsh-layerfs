@@ -162,6 +162,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id === 'postgresql' && !sub && method === 'POST') return storage.connectPostgresql(body ?? {})
     if (id && sub === 'stats' && method === 'GET') return projects.storeStats(id)
     if (id && sub === 'observations' && method === 'GET') return projects.storeObservations(id)
+    if (id && sub === 'projects' && method === 'GET') return projects.storeProjects(id)
     if (id && !sub && method === 'DELETE') return storage.removeStore(id, { confirm: query.get('confirm') })
     if (id && sub === 'disconnect' && method === 'POST') return storage.disconnectStore(id)
     // a PostgreSQL Store on a machine: { machine, url?, password? | passwordValue? }, checked from the machine

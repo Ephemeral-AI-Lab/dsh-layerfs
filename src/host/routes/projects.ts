@@ -668,6 +668,42 @@ export class Projects {
 
   async storeObservations(name: string) { return this.storageObservations.read(name) }
 
+  /**
+   * StoreProjects (the Store page's Projects tab and Overview): every project of
+   * a Store with its ledger totals (project-storage.ts), its newest Commit, and
+   * main's file count (project.stats). Ledgers refresh in the background as for
+   * one project; reads go one project at a time, as the Store takes them. A
+   * project.stats answer is reused while main's head is unchanged, so a reread
+   * walks no tree again.
+   */
+  async storeProjects(name: string) {
+    const store = await this.lfs.store.get(name)
+    const names = [...new Set((Array.isArray(store?.projects) ? store.projects : []).map(String))].sort()
+    const projects = []
+    for (const short of names) {
+      const record = await this.lfs.project.get(`${name}/${short}`).catch(() => null)
+      if (!record) { projects.push({ name: short, created: null, totals: null, last: null, files: null, partial: true, building: null, error: null }); continue }
+      const project = keyOf(record), created = typeof record.created === 'number' ? record.created : null
+      const view = await this.storageLedgers.view(project, created)
+      const last = view.recent.length ? view.recent[view.recent.length - 1] : null
+      projects.push({ name: short, created, totals: view.totals, last, files: await this.mainFiles(project), partial: view.partial, building: view.building, error: view.error })
+    }
+    return { store: name, projects }
+  }
+
+  /** main's file count, by main's head (one project.stats walk per head). */
+  private readonly filesByHead = new Map<string, { head: string, files: number | null, complete: boolean }>()
+  private async mainFiles(project: string): Promise<{ files: number | null, complete: boolean } | null> {
+    const head = await this.lfs.branch.get(project, 'main').then((b: any) => String(b?.saved_head?.id ?? b?.head ?? b?.base ?? ''), () => '')
+    const known = this.filesByHead.get(project)
+    if (head && known?.head === head) return { files: known.files, complete: known.complete }
+    const stats = await this.lfs.project.stats(project).catch(() => null)
+    if (!stats) return null
+    const row = { head, files: typeof stats.files === 'number' ? stats.files : null, complete: stats.complete !== false }
+    if (head) this.filesByHead.set(project, row)
+    return { files: row.files, complete: row.complete }
+  }
+
   // ---------- a project's own storage ----------
 
   /**
