@@ -176,7 +176,7 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
         </div>
       ) : (
       <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
-        <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} hasDiskTab={hasDisk}
+        <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} onDisk={hasDisk ? () => setTab('disk') : null}
           troubled={!!(reason || block || error !== null || state.state === 'unresolved')}
           notices={notices}
           fallback={(
