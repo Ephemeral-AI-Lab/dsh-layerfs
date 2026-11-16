@@ -5,7 +5,7 @@
  * a background create's phase in words (docs/specs/sandbox-images.md §5).
  */
 import type { MachinesKey } from './locale.ts'
-import { bytes, projectRef, type Creation, type DockerImage, type ImageReason, type MachineSandbox, type ReadyImage, type SandboxImagesView, type Words } from './model.ts'
+import { bytes, projectRef, type Creation, type DockerImage, type ImageLoad, type ImageReason, type MachineSandbox, type ReadyImage, type SandboxImagesView, type Words } from './model.ts'
 
 const words = (key: MachinesKey, values?: Record<string, string>): Words => (values ? { key, values } : { key })
 
@@ -113,7 +113,8 @@ export function imagesFooter(answer: SandboxImagesView | null | undefined, state
 export function reasonWords(reason: ImageReason | undefined): Words {
   switch (reason?.kind) {
     case 'arch': return words('dockerOtherArch', { arch: reason.value ?? '' })
-    case 'os': return words('imageOnlyOs', { os: reason.value ?? '' })
+    // an image whose config names no OS (a broken or attestation-only manifest) would read " only"
+    case 'os': return reason.value ? words('imageOnlyOs', { os: reason.value }) : words('imageNoOs')
     case 'no-glibc': return words('imageNeedsGlibc')
     default: return words('imageCannotUnpack')
   }
@@ -272,3 +273,66 @@ export function failureWords(error: Creation['error'] | null | undefined, machin
 
 /** A failure Free space can fix (its Retry reads "Free space"). */
 export const needsSpace = (c: Pick<Creation, 'phase' | 'error'>): boolean => c.phase === 'failed' && c.error?.code === 'NoSpace'
+
+/**
+ * The Images tab's Docker section: the images of this computer's Docker not
+ * on the machine yet (LayerFS lists them already without the stored ones),
+ * the ones that can run first, each group in LayerFS's order, narrowed by a
+ * case-blind match on any ref. `fits` false still lists the image: the copy
+ * is LayerFS's to refuse (NoSpace).
+ */
+export function dockerRows(answer: SandboxImagesView | null | undefined, query = ''): { usable: DockerImage[], unusable: DockerImage[], total: number } {
+  const all = answer?.docker?.available ? answer.docker.images : []
+  const q = query.trim().toLowerCase()
+  const shown = q ? all.filter((r) => r.name.toLowerCase().includes(q) || r.refs.some((ref) => ref.toLowerCase().includes(q))) : all
+  return { usable: shown.filter((r) => r.usable), unusable: shown.filter((r) => !r.usable), total: all.length }
+}
+
+/** An image's name in parts: the registry and path before the repository (shown quieter), the repository, and its tags. */
+export interface ImageLabel { registry: string, repo: string, tags: string[] }
+
+const parseRef = (ref: string): { registry: string, repo: string, tag: string } => {
+  const slash = ref.lastIndexOf('/')
+  const colon = ref.lastIndexOf(':')
+  const path = colon > slash ? ref.slice(0, colon) : ref
+  const tag = colon > slash ? ref.slice(colon + 1) : ''
+  const cut = path.lastIndexOf('/')
+  return { registry: cut >= 0 ? path.slice(0, cut + 1) : '', repo: cut >= 0 ? path.slice(cut + 1) : path, tag }
+}
+
+/**
+ * `cgr.dev/chainguard/minio:latest` as `{ registry: 'cgr.dev/chainguard/', repo: 'minio', tags: ['latest'] }`:
+ * the repository of `name` (the ref the row is named by), and every tag the
+ * image carries in that repository, the name's own first. One image only:
+ * two tags that are different images stay two rows.
+ */
+export function imageLabel(name: string, refs: readonly string[]): ImageLabel {
+  const own = parseRef(name)
+  const tags = [own.tag, ...refs.map(parseRef).filter((p) => p.registry === own.registry && p.repo === own.repo).map((p) => p.tag)].filter(Boolean)
+  return { registry: own.registry, repo: own.repo, tags: [...new Set(tags)] }
+}
+
+/** A repository's badge colour, 0–5, the same every time for the same name. */
+export function badgeHue(repo: string): number {
+  let h = 0
+  for (const ch of repo) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return h % 6
+}
+
+/** The Images tab's disk bar: one segment per stored image, then everything else used, then free; null without the disk's total. */
+export function diskSegments(ready: readonly Pick<ReadyImage, 'id' | 'size'>[], total: number | null, free: number | null): { images: { id: string, bytes: number, share: number }[], imagesBytes: number, rest: number, free: number, total: number } | null {
+  if (total == null || free == null || !(total > 0)) return null
+  const images = ready.map((r) => ({ id: r.id, bytes: Math.max(0, r.size ?? 0), share: Math.max(0, r.size ?? 0) / total }))
+  const imagesBytes = images.reduce((sum, r) => sum + r.bytes, 0)
+  return { images, imagesBytes, rest: Math.max(0, total - free - imagesBytes), free: Math.max(0, free), total }
+}
+
+/** A copy's row text: waiting, the copy's bytes, unpacking, or why it failed. */
+export function loadWords(load: Pick<ImageLoad, 'phase' | 'done' | 'total' | 'error' | 'machine'>): Words {
+  switch (load.phase) {
+    case 'queued': return words('imgCopyQueued')
+    case 'failed': return failureWords(load.error, load.machine) ?? words('imgCopyFailed', { reason: load.error?.message ?? load.error?.code ?? '' })
+    case 'done': return words('imgCopyDone')
+    default: return phaseWords({ phase: load.phase, done: load.done, total: load.total })
+  }
+}

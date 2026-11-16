@@ -1347,12 +1347,6 @@
   background: var(--dsw-alias-bg-module-platform);
   box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
 }
-.spaceBarWide {
-  width: 100%;
-  height: 10px;
-  border-radius: 5px;
-  margin: 8px 0 4px;
-}
 .spaceSeg {
   display: block;
   height: 100%;
@@ -1367,35 +1361,6 @@
 }
 .spaceSeg[data-part='unsplit'] {
   background: repeating-linear-gradient(135deg, var(--dsw-alias-border-l3) 0 3px, transparent 3px 6px);
-}
-.spaceCard {
-  padding-top: 12px;
-  padding-bottom: 8px;
-}
-.spaceCard .spaceTable[data-space-breakdown] td {
-  white-space: normal;
-}
-.spaceHead {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.spaceTitle {
-  margin: 0;
-  flex: 1;
-  font-size: 14px;
-  line-height: 22px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary);
-}
-.spaceTable {
-  margin-top: 8px;
-}
-.spaceTable td {
-  vertical-align: top;
-}
-.spaceSwatchCell {
-  width: 16px;
 }
 .spaceSwatch {
   display: inline-block;
@@ -1426,11 +1391,6 @@
 }
 .spaceRowLabel {
   color: var(--dsw-alias-label-primary);
-}
-.spaceSize {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 .spaceCopy {
   border: 0;
@@ -1961,4 +1921,584 @@
 
 .dtItem[data-tone='muted'] dd {
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* ---------- "Where the disk goes" dialog (SpaceDialog.tsx) ---------- */
+
+.spaceDialog {
+  width: min(680px, 100%);
+  max-height: min(820px, 100%);
+}
+
+.sdBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  container-type: inline-size;
+}
+
+.sdHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.sdBar {
+  display: flex;
+  width: 100%;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-module-platform);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
+}
+
+.sdSeg {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.sdSeg[data-part='stores'] {
+  min-width: 2px;
+}
+
+.sdSeg[data-part='overlays'],
+.sdSeg[data-part='images'],
+.sdMini > [data-part='overlays'],
+.sdMini > [data-part='images'] {
+  opacity: 0.75;
+}
+
+.sdSeg[data-part='sandboxFiles'],
+.sdSeg[data-part='otherRuns'],
+.sdMini > [data-part='sandboxFiles'],
+.sdMini > [data-part='otherRuns'] {
+  opacity: 0.55;
+}
+
+.sdSeg[data-part='sandboxRuntime'],
+.sdSeg[data-part='logs'],
+.sdMini > [data-part='sandboxRuntime'],
+.sdMini > [data-part='logs'] {
+  opacity: 0.35;
+}
+
+.sdSeg[data-part='outside'] {
+  opacity: 1;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.sdSeg[data-part='unsplit'] {
+  background: repeating-linear-gradient(135deg, var(--dsw-alias-border-l3) 0 3px, transparent 3px 6px);
+}
+
+.ovKey[data-part='free'] {
+  background: var(--dsw-alias-bg-module-platform);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l3);
+}
+
+.sdCols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.sdCols[data-even] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@container (max-width: 520px) {
+  .sdCols,
+  .sdCols[data-even] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.sdTitle {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sdTitle > span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.sdTitle .spaceSwatch {
+  margin-right: 7px;
+}
+
+.sdRows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sdRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px minmax(64px, auto);
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.sdRow[data-even] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.sdRowName {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sdRowName .spaceSwatch {
+  flex: none;
+  margin-top: 5px;
+}
+
+.sdRowText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sdRowButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sdRowButton:hover > span {
+  text-decoration: underline;
+}
+
+.sdMini {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.sdMini > span {
+  display: block;
+  height: 100%;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.sdSize {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: end;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sdSide {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sdBox {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.sdText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sdCommand {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-settings-card-fill);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
+}
+
+.sdActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* Images tab: the disk bar, the stored images as cards, the Docker images as rows */
+.imgDisk {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+}
+.imgDiskHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.imgDiskTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+.imgDiskSub {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.imgDiskBar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.imgDiskBar > span {
+  min-width: 3px;
+  height: 100%;
+}
+.imgDiskBar > span + span {
+  box-shadow: inset 1px 0 0 var(--dsw-alias-settings-card-fill);
+}
+.imgDiskLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+.imgLegendItem {
+  display: inline-flex;
+  align-items: center;
+  max-width: 260px;
+  white-space: nowrap;
+}
+.imgLegendName {
+  overflow: hidden;
+  margin-right: 4px;
+  text-overflow: ellipsis;
+}
+.imgDiskLegend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 2px;
+}
+/* one hue per repository (badge, bar segment, legend swatch); the bundle and "everything else" have their own */
+[data-hue='0'] { --img-hue: var(--dsw-alias-link); }
+[data-hue='1'] { --img-hue: var(--dsw-alias-state-success-primary); }
+[data-hue='2'] { --img-hue: var(--dsw-alias-state-business-primary); }
+[data-hue='3'] { --img-hue: var(--dsw-alias-state-warn-primary); }
+[data-hue='4'] { --img-hue: var(--dsw-alias-state-error-primary); }
+[data-hue='5'] { --img-hue: var(--dsw-alias-label-secondary); }
+[data-hue='bundle'] { --img-hue: var(--dsw-alias-link); }
+[data-hue='off'] { --img-hue: var(--dsw-alias-label-tertiary); }
+.imgDiskBar > span[data-hue],
+.imgDiskLegend i[data-hue] {
+  background: var(--img-hue);
+}
+.imgDiskBar > span[data-part='rest'],
+.imgDiskLegend i[data-part='rest'] {
+  background: var(--dsw-alias-border-l3);
+}
+.imgBadge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--img-hue) 14%, transparent);
+  color: var(--img-hue);
+  font-size: 13px;
+  font-weight: 500;
+}
+.imgTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+.imgRegistry {
+  max-width: 45%;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imgRepo {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.imgTagChip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.imgRowSub {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.imgWarn {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.imgStored {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.imgStoredTitle {
+  font-size: 14px;
+  font-weight: 500;
+}
+.imgCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  max-height: 440px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.imgCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: 12px;
+  background: var(--dsw-alias-settings-card-fill);
+}
+.imgCardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.imgCardName {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.imgDefault {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-link) 12%, transparent);
+  color: var(--dsw-alias-link);
+  font-size: 11px;
+  line-height: 18px;
+}
+.imgFacts {
+  display: flex;
+  gap: 18px;
+  margin: 0;
+}
+.imgFacts dt {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.imgFacts dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+/* the card's actions sit on its bottom edge, so cards in one row line up; New Sandbox left, Remove right */
+.imgCardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: auto -14px -12px;
+  padding: 8px 10px 8px 14px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+.imgRemove {
+  color: var(--dsw-alias-label-secondary);
+}
+.imgRemove:hover {
+  color: var(--dsw-alias-state-error-primary);
+}
+.imgStoredFoot p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+.imgTools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.imgSearch {
+  width: 160px;
+}
+/* a long Docker list scrolls in place (about eight rows), the search and Refresh above it stay in view */
+.imgList {
+  max-height: 440px;
+  margin: 0 -4px;
+  padding: 0 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  list-style: none;
+}
+.imgRow {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 110px 96px;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+.imgRow:first-child {
+  border-top: none;
+}
+.imgRow[data-off] .imgRowMain,
+.imgRow[data-off] .imgRowSize {
+  opacity: 0.6;
+}
+.imgRowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.imgRowProgress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.imgRowSize {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.imgSizeBar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.imgSizeBar > span {
+  display: block;
+  height: 100%;
+  margin-left: auto;
+  border-radius: 2px;
+  background: var(--dsw-alias-label-tertiary);
+  opacity: 0.6;
+}
+.imgRowAction {
+  display: flex;
+  justify-content: flex-end;
+}
+.imgPercent {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-link) 12%, transparent);
+  color: var(--dsw-alias-link);
+  font-size: 11px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.imgBar {
+  display: inline-block;
+  flex: 1;
+  max-width: 220px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--dsw-alias-border-l2);
+}
+.imgBar > span {
+  display: block;
+  height: 100%;
+  background: var(--dsw-alias-link);
+  transition: width 0.3s ease;
+}
+.imgBar > span[data-unknown] {
+  width: 30% !important;
+  opacity: 0.5;
+}
+.imgHint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.imgHintText {
+  flex: 1;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+.imgCode {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--dsw-alias-settings-card-fill);
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+@container (max-width: 640px) {
+  .imgRow {
+    grid-template-columns: 32px minmax(0, 1fr) 84px;
+  }
+  .imgRowSize {
+    display: none;
+  }
 }
