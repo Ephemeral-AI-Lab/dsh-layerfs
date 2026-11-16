@@ -91,7 +91,9 @@ const proj = (name, stored, time, more = {}) => ({ name, created: 1, totals: sto
 
 test('a card\'s projects: shares of the file with the rest left over, of their sum without a file size, uncounted projects kept without a share', () => {
   const sp = M.projectSplit([proj('b', 100, 5), proj('a', 300, 9), proj('c', null, null, { partial: true })], 1000)
-  assert.deepEqual(sp.rows.map((r) => [r.name, r.share, r.counting]), [['a', 0.3, false], ['b', 0.1, false], ['c', 0, true]])
+  assert.deepEqual(sp.rows.map((r) => [r.name, r.share, r.counting]), [['a', 0.3, false], ['b', 0.1, false], ['c', 0, false]], 'a project read but not counted is not counting: it is not polled')
+  assert.equal(M.projectSplit([proj('d', null, null, { partial: true, building: { branches: 0, branchesTotal: 1, saves: 3 } })], null).rows[0].counting, true)
+  assert.equal(M.projectSplit([proj('e', null, null, { partial: true, error: { code: 'Unsupported', message: 'no engine' } })], null).rows[0].error, 'no engine')
   assert.equal(sp.rest, 0.6)
   assert.equal(sp.lastWrite, 9)
   assert.deepEqual(sp.rows.map((r) => r.hue), [0, 1, 2], 'hues follow name order, as on the Store page')

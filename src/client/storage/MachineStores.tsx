@@ -32,8 +32,8 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { failedStep, machineStores, projectSplit, startKind, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { cardJob } from './model.ts'
+import { failedStep, machineStores, projectSplit, routedServer, startKind, type ProjectSplit, type StoreKind } from './machine-stores.ts'
+import { cardJob, loopbackAlias } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
@@ -147,11 +147,15 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
 }
 
 
-/** The Store's projects, as the Store page reads them (shared cache), read again while a ledger is still counting. */
+/**
+ * The Store's projects, as the Store page reads them (shared cache), read
+ * again only while a ledger is being counted (`building`): a project that
+ * could not be read (no job, perhaps an error) is not polled.
+ */
 function useSplit(api: LayerfsApi, s: StoreRow, total: number | null): ProjectSplit | null {
   const q = useQuery(() => api.call<StoreProjectsView>('GET', `/api/stores/${enc(s.name)}/projects`), [api, s.name],
     { refresh: [s.projects.length, s.size?.bytes], cache: `store-projects:${s.name}` })
-  const counting = q.data?.projects.some((p) => p.partial || p.building) ?? false
+  const counting = q.data?.projects.some((p) => p.building) ?? false
   useEffect(() => {
     if (!counting) return
     const timer = setTimeout(q.reload, COUNTING_POLL_MS)
@@ -175,7 +179,7 @@ function Head({ s, on, t, machine, onOpenStore, children }: { s: StoreRow, on: S
 function Projects({ s, split, t, now, onOpenProject, onOpenStore }: { s: StoreRow, split: ProjectSplit | null, t: StorageT, now: number, onOpenProject: (key: string) => void, onOpenStore: (name: string) => void }): ReactNode {
   const tt = t as Translate
   if (!s.projects.length) return <p className={css.none}>{t('msNoProjects')}</p>
-  const rows = split?.rows ?? [...s.projects].sort().map((name) => ({ name, bytes: null, share: 0, hue: 0, at: null, counting: true }))
+  const rows = split?.rows ?? [...s.projects].sort().map((name) => ({ name, bytes: null, share: 0, hue: 0, at: null, counting: true, error: null }))
   return (
     <>
       <div className={css.bar} role="img" aria-label={rows.filter((r) => r.share > 0).map((r) => `${r.name} ${bytes(r.bytes ?? 0)}`).join(', ') || t('colProjects')}>
@@ -190,7 +194,7 @@ function Projects({ s, split, t, now, onOpenProject, onOpenStore }: { s: StoreRo
               <span className={css.projectName}>{r.name}</span>
               <span className={css.projectMeta}>
                 {r.share > 0 ? <span className={css.swatch} data-hue={r.hue} aria-hidden="true" /> : null}
-                {r.bytes === null ? t('spReading') : r.at === null ? t('spNoCommits') : `${bytes(r.bytes)} · ${ago(r.at, now, tt)}`}
+                {r.bytes === null ? (r.counting ? t('spReading') : <span title={r.error ?? t('msNotCounted')}>—</span>) : r.at === null ? t('spNoCommits') : `${bytes(r.bytes)} · ${ago(r.at, now, tt)}`}
               </span>
             </button>
           </li>
@@ -281,13 +285,20 @@ function serverOf(target: string | null | undefined): string | null {
   return slash >= 0 ? rest.slice(0, slash) : rest
 }
 
-function PgCard({ s, a, api, machine, t, now, actionsFor, onOpenStore, onOpenProject }: MachineStoresProps & { s: StoreRow, a: PgAttachment }): ReactNode {
+/** The server `machine` dials: its own connection's, else the Store's with a loopback host renamed for the machine (host.docker.internal…). */
+function dialedServer(s: StoreRow, a: PgAttachment, platform: string | undefined): string | null {
+  if (a.own && a.target) return serverOf(a.target)
+  const server = serverOf(s.postgresql?.target)
+  return server ? routedServer(server, platform ? loopbackAlias(platform) : null) : null
+}
+
+function PgCard({ s, a, api, machine, t, view, now, actionsFor, onOpenStore, onOpenProject }: MachineStoresProps & { s: StoreRow, a: PgAttachment }): ReactNode {
   const on = actionsFor(s)
   const split = useSplit(api, s, null)
   const failed = !!a.lastError
   const tt = t as Translate
   const target = a.own && a.target ? a.target : s.postgresql?.target ?? null
-  const server = serverOf(target)
+  const server = dialedServer(s, a, view.machines.find((m) => m.name === machine)?.platform)
   const checked = a.checked
   return (
     <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={failed ? 'danger' : undefined}>
