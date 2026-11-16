@@ -138,8 +138,12 @@ export function failedStep(code: string | undefined, message: string | undefined
   return null
 }
 
-/** One project on a Store card: its packed bytes, its share of the bar, its color and its newest Commit. */
-export interface ProjectSlice { name: string, bytes: number | null, share: number, hue: number, at: number | null, counting: boolean }
+/**
+ * One project on a Store card: its packed bytes, its share of the bar, its
+ * color and its newest Commit; `counting` while its ledger is being read, and
+ * `error` when it could not be read (null bytes and not counting: unknown).
+ */
+export interface ProjectSlice { name: string, bytes: number | null, share: number, hue: number, at: number | null, counting: boolean, error: string | null }
 
 export interface ProjectSplit {
   rows: ProjectSlice[]
@@ -161,7 +165,7 @@ export function projectSplit(projects: readonly StoreProject[], total: number | 
   const base = total && total >= counted ? total : counted
   const rows = projects.map((p) => {
     const bytes = p.totals ? p.totals.stored : null
-    return { name: p.name, bytes, share: base > 0 && bytes ? bytes / base : 0, hue: hueOf(p.name, projects), at: p.last?.time ?? null, counting: p.partial || !!p.building }
+    return { name: p.name, bytes, share: base > 0 && bytes ? bytes / base : 0, hue: hueOf(p.name, projects), at: p.last?.time ?? null, counting: !!p.building, error: p.error?.message ?? null }
   }).sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1) || a.name.localeCompare(b.name))
   const times = rows.map((r) => r.at).filter((n): n is number => n !== null)
   return { rows, rest: base > 0 ? Math.max(0, 1 - counted / base) : 0, lastWrite: times.length ? Math.max(...times) : null }
