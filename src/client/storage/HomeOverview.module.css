@@ -172,14 +172,6 @@
   padding-top: 8px;
 }
 
-.sectionHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 4px 10px;
-  min-height: 22px;
-}
-
 .sectionText {
   display: flex;
   flex-direction: column;
@@ -216,13 +208,6 @@
   margin-left: auto;
   padding-bottom: 1px;
   font-size: 12.5px;
-}
-
-.sectionActions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-left: auto;
 }
 
 .eyebrowName {

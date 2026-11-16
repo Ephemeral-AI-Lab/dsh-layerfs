@@ -30,6 +30,7 @@ await main('e2e-inspect-files-absent', async ({ run, page }) => {
 
     if (cfg.sandbox) {
       await jump(page, targets.sandbox.title)
+      await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
       await editor(page).getByRole('button', { name: 'New workspace', exact: true }).first().waitFor({ timeout: 20000 }).catch(() => t.check(false, 'Sandbox page: the terminals do not render'))
       await sleep(2500)
       t.check(!(await hasTab(page, 'Files')), `Sandbox page: no Files tab (${JSON.stringify(await tabs(page))})`)

@@ -49,7 +49,7 @@ await main('e2e-inspect-logs-hang', async ({ run, page, browser }) => {
     const b = await second(browser, devUrl())
     run.watch(b.page, b.logs)
     await jump(b.page, sb.title)
-    await editor(b.page).getByRole('tab', { name: 'Terminals', exact: true }).click()
+    await editor(b.page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
     const input = editor(b.page).locator('[data-term-input]').first()
     await input.waitFor({ timeout: 20000 })
 

@@ -88,7 +88,7 @@ const REASONS: Record<string, MachinesKey> = {
   memory_not_read: 'reasonMemoryNotRead', disk_not_read: 'reasonDiskNotRead', deadline: 'reasonDeadline',
   machine_stopped: 'reasonMachineStopped', no_pid: 'reasonNoPid', record_unreadable: 'reasonRecordUnreadable', not_answered: 'reasonNotAnswered',
   unavailable: 'reasonUnavailable', busy: 'reasonBusy', invalid_input: 'reasonOlderWorker',
-  host_process: 'reasonHostProcess', cgroup_v1: 'reasonCgroupV1', no_cgroup: 'reasonNoCgroup', not_observed: 'reasonNotObserved', no_controller: 'reasonNoController',
+  host_process: 'reasonHostProcess', cgroup_v1: 'reasonCgroupV1', no_cgroup: 'reasonNoCgroup', not_observed: 'reasonNotObserved', no_controller: 'reasonNoController', no_command: 'reasonNoCommand',
   cpu_unsupported: 'reasonCpuUnsupported', cpu_not_read: 'reasonCpuNotRead', not_supported: 'reasonNotSupported',
   first_sample: 'reasonFirstSample', restarted: 'reasonRestarted',
   // a refused sampler read's code

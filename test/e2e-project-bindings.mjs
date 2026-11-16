@@ -113,7 +113,7 @@ try {
   await retained.hover()
   await retained.getByRole('button', { name: 'Set up app', exact: true }).click()
   const setup = page.getByRole('dialog', { name: 'app', exact: true })
-  await setup.getByText('Runs on', { exact: true }).waitFor()
+  await setup.getByText('Machine', { exact: true }).waitFor()
   await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click().catch(() => {})
   await page.setViewportSize({ width: 320, height: 844 })
   await page.waitForTimeout(250)

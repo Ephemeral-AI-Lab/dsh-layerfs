@@ -130,7 +130,6 @@ export function HistoryView(props: ViewProps): ReactNode {
     <Gate state={state} t={t}>
       {(view, project) => (
         <div className={css.frame}>
-          <SessionLine view={view} sessionId={sessionId} t={t} />
           <div className={css.fill}>
             <ProjectHistory key={`${project}:${n}`} api={api} project={project} t={t} tick={state.tick}
               initialBranch={focus?.branch ?? view.binding.branch} initialCommit={focus?.commit}

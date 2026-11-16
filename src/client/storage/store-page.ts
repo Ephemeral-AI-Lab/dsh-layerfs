@@ -112,15 +112,18 @@ export function hueOf(name: string, projects: readonly { name: string }[]): numb
   return (i < 0 ? 0 : i) % 6
 }
 
-export type ProjectOrder = 'recent' | 'name' | 'size'
+/** `session`: last session first, by an order frozen by the table (ProjectTable.tsx); `orderProjects` leaves it to the caller. */
+export type ProjectOrder = 'session' | 'recent' | 'name' | 'commits' | 'branches' | 'size'
 
-/** The cards in the chosen order, filtered by a case-blind name search. A project never saved sorts after saved ones by recency. */
+/** The rows in the chosen order (names A→Z, figures largest first), filtered by a case-blind name search. A project never saved sorts after saved ones by recency. */
 export function orderProjects(projects: readonly StoreProject[], order: ProjectOrder, query: string): StoreProject[] {
   const q = query.trim().toLowerCase()
   const shown = projects.filter((p) => p.name.toLowerCase().includes(q))
   const byName = (a: StoreProject, b: StoreProject) => a.name.localeCompare(b.name)
   if (order === 'name') return shown.sort(byName)
   if (order === 'size') return shown.sort((a, b) => (b.totals?.stored ?? -1) - (a.totals?.stored ?? -1) || byName(a, b))
+  if (order === 'commits') return shown.sort((a, b) => (b.totals?.saves ?? -1) - (a.totals?.saves ?? -1) || byName(a, b))
+  if (order === 'branches') return shown.sort((a, b) => (b.totals?.branches ?? -1) - (a.totals?.branches ?? -1) || byName(a, b))
   const at = (p: StoreProject) => p.last?.time ?? p.created ?? -1
   return shown.sort((a, b) => at(b) - at(a) || byName(a, b))
 }
@@ -153,6 +156,23 @@ export function commitTotal(projects: readonly StoreProject[]): { commits: numbe
 
 /** Whether a ledger is still being read (and the answer worth asking again): partial or building, not refused. */
 export const stillCounting = (p: StoreProject): boolean => (p.partial || p.building !== null) && !(p.error && !p.building)
+
+/** The session store's Branch prefix (host `STORE_PREFIX`): one Branch per archived DSH conversation. */
+const SESSION_BRANCH = 'dsh.session.'
+const SESSION_SAVE = /^dsh session ([0-9a-f]+): events (\d+)\.\.(\d+)/
+
+/**
+ * A project's newest Commit as one readable line: a session-store save
+ * (`dsh session <id>: events a..b (n bytes)`) becomes its session and event
+ * range; any other Commit keeps its message. The Branch is named unless it is
+ * a session archive Branch, which the session line already says.
+ */
+export function commitLine(last: NonNullable<StoreProject['last']>): { session: { id: string, range: string } | null, message: string, branch: string | null } {
+  const m = SESSION_SAVE.exec(last.message)
+  const branch = last.branch && !last.branch.startsWith(SESSION_BRANCH) ? last.branch : null
+  if (m) return { session: { id: m[1]!, range: `${m[2]}–${m[3]}` }, message: last.message, branch }
+  return { session: null, message: last.message.split('\n')[0]!.trim(), branch }
+}
 
 /** main's file count as a figure: "1,234", "10,000+" past the read budget, or null when unknown. */
 export function filesNumber(files: StoreProject['files']): string | null {

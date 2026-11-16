@@ -57,7 +57,9 @@ await main('e2e-inspect-files-axe', async ({ run, page }) => {
 
     // ---- the Sandbox's Files tab, by keys only from the tab bar on
     await openFiles(page, sb)
-    await scan('Sandbox Files, roots (Workspace rows, Home, log)')
+    await scan('Sandbox Files, Workspaces (Workspace folder rows)')
+    await switchView(page, 'Sandbox folders')
+    await scan('Sandbox Files, Sandbox folders (Home, log)')
     await goPath(page, base)
     await waitFiles(page, (s) => s.base === base && s.rows.length >= 8)
     // Tab from the filter reaches the tree in one stop, and the next Tab leaves it

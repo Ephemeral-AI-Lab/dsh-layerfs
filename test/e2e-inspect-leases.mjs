@@ -86,7 +86,7 @@ await main('e2e-inspect-leases', async ({ run, page }) => {
       }
     } else t.note('INSPECT_PUSH_STORE is not set: the push of another Store was NOT_RUN')
     // the Sandbox page still shows its Workspaces
-    await editor(page).getByRole('tab', { name: 'Terminals', exact: true }).click()
+    await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
     const info = (await probe(page, 'GET', `/api/sandboxes/${enc(cfg.sandbox)}`)).body
     const panes = await editor(page).locator('input[data-term-input]').count()
     t.check(info.workspaces.length === rec.workspaces.length && panes > 0, `the Sandbox page still shows its Workspaces (${info.workspaces.length} of ${rec.workspaces.length}; ${panes} panes on this page of Terminals)`)

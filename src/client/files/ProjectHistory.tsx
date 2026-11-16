@@ -1,33 +1,39 @@
 /**
- * A project's saved history as one topology: main's Layers centered with every
- * Branch on its own lane, fork/merge/publish edges, dense runs collapsed into
- * groups, and the selected node's details in a floating inspector. Ported from
- * LayerFS Connect's history view over the shared host routes.
+ * A project's saved history as one tree: main's Layers along the middle, every
+ * Branch on a lane above or below it, a leaf per checkpoint in saved order, and
+ * the selected one's details in a floating inspector. Every Branch is read in
+ * full in the background, so the whole run is on screen without folding.
  */
 import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Button, IconBranchOutlineRegular, IconChevronDownOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, StateDot, Tag, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconBranchOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, StateDot, Tag, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
 import { BranchCompare, type CompareEnd } from './BranchCompare.tsx'
 import { changeKind, CommitDiff } from './CommitDiff.tsx'
 import { shortId, when } from './format.ts'
-import { branchLanes, countedTotal, extendPage, graphNodes, layoutNodes, movedCount } from './graph-model.ts'
+import { countedTotal, extendPage, movedCount } from './graph-model.ts'
+import { branchParents, treeLayout } from './tree-model.ts'
 import { HistoryGraph } from './HistoryGraph.tsx'
 import { branchLabel } from './labels.ts'
 import { EmptyState, Loading } from './States.tsx'
 import type { CommitInfo, HistoryBranch, HistoryPage, Translate } from './types.ts'
 import css from './History.module.css'
 
-const noSources = new Map<string, string>()
 /** Pages read past the first to reach a deep-linked Commit. */
-/** Branches read up front: enough that a simulation's whole tree has times to lay out (reads stay four at a time). */
-const INITIAL_BRANCHES = 32
 const DEEP_LINK_PAGES = 20
+/** Branch list pages read up front. */
+const BRANCH_PAGES = 40
+/** The longest the tree waits for the whole history before it grows in. */
+const GROW_WAIT = 8000
+/** How often the tree is laid out again while the background read is running. */
+const DRAW_EVERY = 1200
+/** Checkpoints read in the background without asking; past this, Load all reads the rest. */
+const AUTO_LIMIT = 20000
 /** Wide pages read to rejoin a Branch's loaded history when its head moved (else only its first page stays). */
 const REJOIN_PAGES = 5
-/** `loadingAll` while Show all reads every Branch. */
+/** `loadingAll` while every Branch is being read in full. */
 const ALL = '\u0000all'
 
 /** One view's scroll, selection and fold state, kept across remounts per project. */
@@ -35,13 +41,10 @@ interface View {
   query: string
   branch: string
   selected: string | null
-  expanded: Set<string>
-  /** Show all: every run drawn one checkpoint at a time (and every Branch read in full). */
-  all: boolean
   families: Set<string>
-  sides: Map<string, number>
-  top: number
+  /** The camera: `zoom` 0 is the whole run. */
   left: number
+  zoom: number
 }
 
 const saved = new Map<string, View>()
@@ -56,7 +59,7 @@ const remember = (project: string, data: HistoryData) => {
   if (dataCache.size >= 8) dataCache.delete(dataCache.keys().next().value!)
   dataCache.set(project, data)
 }
-const newView = (): View => ({ query: '', branch: '', selected: null, expanded: new Set(), all: false, families: new Set(), sides: new Map(), top: 0, left: -1 })
+const newView = (): View => ({ query: '', branch: '', selected: null, families: new Set(), left: 0, zoom: 0 })
 
 export interface ProjectHistoryProps {
   api: LayerfsApi
@@ -84,16 +87,21 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   })
   const viewRef = useRef(view)
   viewRef.current = view
-  const viewport = useRef({ top: view.top, left: view.left })
-  const [viewportRequest] = useState(() => (view.left >= 0 ? { left: view.left, top: view.top, token: 0 } : null))
+  const viewport = useRef({ left: view.left, zoom: view.zoom })
+  const [viewportRequest] = useState(() => (view.zoom ? { left: view.left, zoom: view.zoom } : null))
   // The last read of this project draws at once on a remount (a tab switch); a fresh read follows.
   const [cached] = useState(() => dataCache.get(project))
   const [branches, setBranches] = useState<HistoryBranch[]>(() => cached?.branches ?? [])
   const [branchNext, setBranchNext] = useState<number | null>(() => cached?.next ?? null)
-  const [pages, setPages] = useState<Record<string, HistoryPage | undefined>>(() => cached?.pages ?? {})
+  const [pages, setPagesState] = useState<Record<string, HistoryPage | undefined>>(() => cached?.pages ?? {})
   const [busy, setBusy] = useState<string | null>(cached ? null : 'initial')
+  // What is read so far, ahead of the render: the loaders check their own progress against it.
   const pagesRef = useRef(pages)
-  pagesRef.current = pages
+  const setPages = (update: (p: Record<string, HistoryPage | undefined>) => Record<string, HistoryPage | undefined>, transition = false) => {
+    const next = pagesRef.current = update(pagesRef.current)
+    if (transition) startTransition(() => setPagesState(next))
+    else setPagesState(next)
+  }
   // Each side Branch's whole Commit count, read after the pages in the background.
   const [counts, setCounts] = useState<Record<string, BranchCount>>(() => cached?.counts ?? {})
   const countsRef = useRef(counts)
@@ -101,11 +109,23 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   // Load all: the Branch being read in full, and the read to stop when it is replaced.
   const [loadingAll, setLoadingAll] = useState<string | null>(null)
   const allGen = useRef(0)
+  // Stop was pressed (or the history is past AUTO_LIMIT): the background read waits for Load all.
+  const held = useRef(false)
+  const filling = useRef(false)
+  const branchesRef = useRef(branches)
+  branchesRef.current = branches
   const [error, setError] = useState<unknown>(undefined)
   const [revision, setRevision] = useState(0)
   const [finderOpen, setFinderOpen] = useState(false)
   const finderAnchor = useRef<HTMLSpanElement>(null)
-  const [mapReset, setMapReset] = useState(0)
+  // The tree has no bar: its zoom controls join the other controls in a corner of it.
+  const [zoomSlot, setZoomSlot] = useState<HTMLElement | null>(null)
+  // How long the tree waits for the whole history before it grows in with what it has.
+  const [patience, setPatience] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setPatience(true), GROW_WAIT)
+    return () => clearTimeout(timer)
+  }, [project])
   const [diffOpen, setDiffOpen] = useState(false)
   // A comparison: open in its dialog, or waiting for its second side to be picked in the graph.
   const [compare, setCompare] = useState<{ from: CompareEnd, to: CompareEnd } | null>(null)
@@ -128,7 +148,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     reading.current = g
     try {
       const result = await filesApi.historyBranches(api, project)
-      while (initialBranch && !result.branches.some((b) => b.name === initialBranch) && result.next !== null) {
+      for (let n = 1; result.next !== null && (n < BRANCH_PAGES || (initialBranch && !result.branches.some((b) => b.name === initialBranch))); n++) {
         if (stale()) return
         const more = await filesApi.historyBranches(api, project, result.next)
         result.branches.push(...more.branches)
@@ -139,12 +159,10 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       // join the graph as they arrive, main and the focused Branch first.
       setBranches(result.branches)
       setBranchNext(result.next)
-      // A deep link's branch is always read, even past the first INITIAL_BRANCHES.
       const focused = initialBranch ? result.branches.find((b) => b.name === initialBranch) : undefined
       const main = result.branches.find((b) => b.name === 'main')
       const first = [main, focused].filter((b, i, all): b is HistoryBranch => !!b && all.indexOf(b) === i)
-      const names = [...first, ...result.branches.filter((b) => !first.includes(b))].slice(0, Math.max(INITIAL_BRANCHES, first.length))
-      if (focused && !names.includes(focused)) names.push(focused)
+      const names = [...first, ...result.branches.filter((b) => !first.includes(b))]
       const loaded: Record<string, HistoryPage | undefined> = {}
       // A Branch whose head has not moved keeps the pages already read (more than its first, maybe).
       const had = pagesRef.current
@@ -201,7 +219,10 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
         return { ...loaded }
       })
       remember(project, { branches: result.branches, next: result.next, pages: loaded, counts: countsRef.current })
-      await countAll(result.branches, loaded, stale)
+      // The rest of every Branch follows in the background; counting only matters when that is held.
+      branchesRef.current = result.branches
+      if (!held.current) void fill()
+      else await countAll(result.branches, loaded, stale)
     } catch (e) {
       if (!stale()) setError(e)
     } finally {
@@ -278,46 +299,57 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     while (mine()) {
       const current = page
       // A refresh may have moved the head meanwhile: its newer Commits join this deeper read.
-      startTransition(() => setPages((p) => ({ ...p, [name]: p[name] && p[name]!.head !== current.head ? extendPage(p[name]!, current) ?? current : current })))
+      setPages((p) => ({ ...p, [name]: p[name] && p[name]!.head !== current.head ? extendPage(p[name]!, current) ?? current : current }), true)
       if (!current.next) return
       const next = await filesApi.commits(api, project, name, current.next, branch?.forkedFrom, true)
       if (!mine()) return
       page = { ...current, items: [...new Map([...current.items, ...next.items].map((c) => [c.id, c])).values()], next: next.next }
     }
   }
-  /** Load all on one Branch. Stops when it is complete, Stop is pressed, another full read starts, or the view goes away. */
-  async function loadAll(name: string) {
-    const g = ++allGen.current
-    const mine = () => allGen.current === g
-    setLoadingAll(name)
-    setError(undefined)
-    try { await readAll(name, mine) } catch (e) { if (mine()) setError(e) } finally { if (allGen.current === g) setLoadingAll(null) }
-  }
   /**
-   * Show all: every run unfolds at once, and each Branch with more to read is read in full, one
-   * Branch at a time (main and the selected Branch first), so the graph fills in as they land.
+   * Reads every Branch that has more to read, one Branch at a time (main and the selected
+   * Branch first) and only while the page is visible, so the tree fills in as pages land.
+   * A refresh queues behind it; Stop holds it until Load all.
    */
-  async function showAll() {
+  async function fill(force = false) {
+    if (filling.current && !force) return
+    const order = () => {
+      const first = new Set(['main', viewRef.current.branch])
+      const list = branchesRef.current
+      return [...list.filter((b) => first.has(b.name)), ...list.filter((b) => !first.has(b.name))].filter((b) => pagesRef.current[b.name]?.next != null)
+    }
+    if (!order().length) return
+    const loadedNow = () => Object.values(pagesRef.current).reduce((n, page) => n + (page?.items.length ?? 0), 0)
+    if (!force && loadedNow() > AUTO_LIMIT) { held.current = true; return }
+    held.current = false
     const g = ++allGen.current
     const mine = () => allGen.current === g
-    writeView({ all: true })
+    filling.current = true
     setLoadingAll(ALL)
     setError(undefined)
-    const first = new Set(['main', view.branch])
-    const order = [...branches.filter((b) => first.has(b.name)), ...branches.filter((b) => !first.has(b.name))]
     try {
-      for (const b of order) {
+      for (let next = order()[0]; next && mine(); next = order()[0]) {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') await new Promise<void>((done) => document.addEventListener('visibilitychange', () => done(), { once: true }))
         if (!mine()) return
-        const page = pagesRef.current[b.name]
-        if (page && page.next === null) continue
-        await readAll(b.name, mine).catch((e) => { if (mine()) setError(e) })
+        const before = pagesRef.current[next.name]?.items.length ?? 0
+        await readAll(next.name, mine).catch((e) => { if (mine()) setError(e) })
+        // A Branch that could not be read on is left for the next refresh.
+        if (pagesRef.current[next.name]?.next != null && (pagesRef.current[next.name]?.items.length ?? 0) === before) break
+        if (!force && loadedNow() > AUTO_LIMIT) { held.current = true; break }
       }
-    } finally { if (allGen.current === g) setLoadingAll(null) }
+    } finally {
+      if (allGen.current === g) {
+        filling.current = false
+        setLoadingAll(null)
+        const data = dataCache.get(project)
+        if (data) data.pages = { ...pagesRef.current }
+      }
+    }
   }
+  const stopFill = () => { held.current = true; filling.current = false; allGen.current++; setLoadingAll(null) }
   useEffect(() => () => { allGen.current++ }, [project])
 
-  const structure = useMemo(() => branchLanes(branches, pages, busy === 'initial' ? new Map(view.sides) : view.sides), [branches, pages, view.sides, busy === 'initial'])
-  const parents = structure.parents
+  const parents = useMemo(() => branchParents(branches, pages), [branches, pages])
   // A collapsed family hides descendants, never its own fork/head or the selected branch's ancestry.
   const forced = new Set<string>()
   for (let b: string | null = view.branch; b && !forced.has(b); b = parents.get(b) ?? null) forced.add(b)
@@ -331,29 +363,41 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     }
     return true
   })
-  // The graph is recomputed only when what it draws changed, not on every render.
+  // The tree is laid out again only when what it draws changed, not on every render.
   const visibleKey = visibleBranches.map((b) => `${b.name}\u0000${b.head ?? ''}\u0000${b.forkedFrom ?? ''}`).join('\u0001')
+  // While every Branch is being read, pages land many times a second; the tree is laid out again
+  // about once a second, so its lanes hold still between updates.
+  const [drawnPages, setDrawnPages] = useState(pages)
+  const lastDraw = useRef(0)
+  useEffect(() => {
+    const draw = () => { lastDraw.current = Date.now(); setDrawnPages(pages) }
+    if (loadingAll !== ALL && busy !== 'initial') { draw(); return }
+    const timer = setTimeout(draw, Math.max(0, DRAW_EVERY - (Date.now() - lastDraw.current)))
+    return () => clearTimeout(timer)
+  }, [pages, loadingAll, busy])
+  // A Branch keeps the lane it had, where that is still free, so the tree does not reshuffle as it fills in.
+  const lanes = useRef(new Map<string, number>())
   // eslint-disable-next-line react-hooks/exhaustive-deps -- visibleKey stands for visibleBranches
-  const nodes = useMemo(() => graphNodes(visibleBranches, pages, noSources, view.expanded, view.selected, t, view.all), [visibleKey, pages, view.expanded, view.selected, t, view.all])
-  const layout = useMemo(() => layoutNodes(nodes, structure.lanes), [nodes, structure.lanes])
-  const branchesKey = branches.map((b) => b.name).join('\u0001')
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- branchesKey and parents stand for branches
-  const familyCounts = useMemo(() => new Map(branches.map((b) => [b.name, branches.filter((c) => parents.get(c.name) === b.name).length])), [branchesKey, parents])
-  const selected = layout.points.get(view.selected ?? '')
-  const selectedCommit = selected?.commits.find((c) => c.id === view.selected) ?? selected?.commits.at(-1)
-  const detailFrom = selected?.kind === 'group' ? selected.commits[0].parent ?? undefined : undefined
-  const detail = useDetail(api, project, selectedCommit, detailFrom)
+  const layout = useMemo(() => {
+    const next = treeLayout(visibleBranches, drawnPages, lanes.current)
+    lanes.current = new Map(next.branches.map((b) => [b.name, b.lane]))
+    return next
+  }, [visibleKey, drawnPages])
+  const selected = layout.byId.get(view.selected ?? '')
+  const selectedCommit = selected?.commit ?? undefined
+  // An empty Branch is selected through its fork point: the row is its parent's, the Branch is the one opened.
+  const selectedBranch = selected ? (view.branch && view.branch !== selected.branch && !layout.byName.has(view.branch) ? view.branch : selected.branch) : ''
+  const selectedEmpty = !!selected && selectedBranch !== selected.branch
+  const detail = useDetail(api, project, selectedEmpty ? undefined : selectedCommit, undefined)
   // Checkpoints are side Branch Commits (main holds Layers). The total shows once every Branch is counted.
   const sideBranches = branches.filter((b) => b.name !== 'main')
   const loaded = sideBranches.reduce((sum, b) => sum + (pages[b.name]?.items.length ?? 0), 0)
   const total = countedTotal(sideBranches, counts)
-  const branchTotal = view.branch && view.branch !== 'main' ? countedTotal(branches.filter((b) => b.name === view.branch), counts) : null
 
   function select(id: string, branch: string) {
     writeView({ selected: id, branch })
     if (!picking) return
-    const point = layout.points.get(id)
-    const commit = point?.commits.find((c) => c.id === id) ?? point?.commits.at(-1)
+    const commit = layout.byId.get(id)?.commit
     const to: CompareEnd = commit ? { branch: commit.branch, pin: commit.id } : { branch }
     if (to.pin && to.pin === picking.pin) return
     setCompare({ from: picking, to })
@@ -372,47 +416,43 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   }
   const openBranch = (name: string) => {
     const b = branches.find((x) => x.name === name)
-    writeView({ branch: name, selected: b?.head ?? `branch:${name}` })
+    // A Branch with nothing saved yet is shown through the point it forked from.
+    writeView({ branch: name, selected: (b?.head && layout.byId.has(b.head) ? b.head : b?.forkedFrom) ?? null })
     setFinderOpen(false)
     if (!pages[name]) void loadBranch(name)
   }
 
-  const eyebrow = selected?.kind === 'group' ? t(selected.branch === 'main' ? 'files_layerGroup' : 'files_checkpointGroup')
+  const eyebrow = selectedEmpty ? t('files_branchHead')
     : selected?.kind === 'layer' ? t('files_layerOnMain')
-    : selected?.kind === 'fork' ? t('files_branchHead')
-    : selected?.second ? t('files_merge')
+    : selected?.kind === 'merge' ? t('files_merge')
     : t('files_checkpoint')
+  const selectedLive = layout.byName.get(selectedBranch)?.live ?? true
   const inspector = selected ? (
     <aside className={css.detail} aria-label={t('files_commitDetails')}>
       <button type="button" className={css.inspectorClose} aria-label={t('files_closeDetails')} onClick={() => writeView({ selected: null, branch: '' })}><IconCloseOutlineRegular size={14} /></button>
       <span className={css.eyebrow}>{eyebrow}</span>
-      <h3>{selected.kind === 'group' ? selected.label : detail.data?.item.message || selected.label}</h3>
+      <h3>{selectedEmpty ? branchLabel(selectedBranch, t) : detail.data?.item.message || selectedCommit?.message || eyebrow}</h3>
       <dl>
         <dt>{t('files_branch')}</dt>
-        <dd title={selected.branch}>{branchLabel(selected.branch, t)}</dd>
-        {selected.kind === 'fork'
-          ? <><dt>{t('files_forkedFrom')}</dt><dd><code title={branches.find((b) => b.name === selected.branch)?.forkedFrom ?? ''}>{shortId(branches.find((b) => b.name === selected.branch)?.forkedFrom)}</code></dd></>
-          : <><dt>{selected.kind === 'group' ? t('files_checkpoints') : t('files_id')}</dt><dd>{selected.kind === 'group' ? selected.commits.length : <code title={selected.id}>{shortId(selected.id)}</code>}</dd></>}
-        {selectedCommit?.at ? <><dt>{t('files_when')}</dt><dd>{when(selectedCommit.at)}</dd></> : null}
+        <dd title={selectedBranch}>{branchLabel(selectedBranch, t)}</dd>
+        {selectedEmpty
+          ? <><dt>{t('files_forkedFrom')}</dt><dd><code title={selected.id}>{shortId(selected.id)}</code></dd></>
+          : <><dt>{t('files_id')}</dt><dd><code title={selected.id}>{shortId(selected.id)}</code></dd></>}
+        {!selectedEmpty && selectedCommit?.at ? <><dt>{t('files_when')}</dt><dd>{when(selectedCommit.at)}</dd></> : null}
       </dl>
-      {selected.kind === 'group' ? (
-        <>
-          <div className={css.detailActions}><Button variant="outline" size="sm" onClick={() => writeView({ expanded: new Set([...view.expanded, selected.id]), selected: selected.commits[0].id })}>{t(selected.branch === 'main' ? 'files_expandLayers' : 'files_expandCheckpoints', { count: selected.commits.length })}</Button></div>
-          <p>{t('files_expandCheckpointsBody')}</p>
-        </>
-      ) : null}
-      {selected.parent && !layout.points.has(selected.parent) ? <p>{t('files_parentMissing', { id: shortId(selected.parent) })}</p> : null}
-      {selectedCommit?.sourceBranch ? <p title={selectedCommit.sourceBranch}>{t('files_sourceBranch')}: {branchLabel(selectedCommit.sourceBranch, t)}</p> : null}
-      {selectedCommit?.sourceCommit ? <p>{t('files_sourceCommit')}: <code>{shortId(selectedCommit.sourceCommit)}</code></p> : null}
-      {selectedCommit?.base ? <p>{t('files_baseLayer')}: <code>{shortId(selectedCommit.base)}</code></p> : null}
-      {selected?.second ? <p>{t('files_mergeParent', { id: shortId(selected.second) })}</p> : null}
-      {selected.kind !== 'fork' ? (
+      {!selectedLive ? <p>{t('files_neverReachedMain')}</p> : null}
+      {!selectedEmpty && selectedCommit?.parent && !layout.byId.has(selectedCommit.parent) ? <p>{t('files_parentMissing', { id: shortId(selectedCommit.parent) })}</p> : null}
+      {!selectedEmpty && selectedCommit?.sourceBranch ? <p title={selectedCommit.sourceBranch}>{t('files_sourceBranch')}: {branchLabel(selectedCommit.sourceBranch, t)}</p> : null}
+      {!selectedEmpty && selectedCommit?.sourceCommit ? <p>{t('files_sourceCommit')}: <code>{shortId(selectedCommit.sourceCommit)}</code></p> : null}
+      {!selectedEmpty && selectedCommit?.base ? <p>{t('files_baseLayer')}: <code>{shortId(selectedCommit.base)}</code></p> : null}
+      {!selectedEmpty && selectedCommit?.merged ? <p>{t('files_mergeParent', { id: shortId(selectedCommit.merged) })}</p> : null}
+      {!selectedEmpty ? (
         <>
           {detail.error ? <p role="alert">{t('files_readFailed', { what: t('files_changes') })}</p>
             : selectedCommit && !detail.data ? <p>{t('files_readingPaths')}</p>
             : detail.data ? (
               <>
-                <h4>{selected.kind === 'group' ? t('files_netChanges') : t('files_changes')}</h4>
+                <h4>{t('files_changes')}</h4>
                 {detail.data.changes == null ? <p>{t('files_noCompare')}</p>
                   : detail.data.changes.length === 0 ? <p>{selected.kind === 'layer' && !selectedCommit?.parent && !selectedCommit?.base ? t('files_initialImport') : t('files_noChanges')}</p>
                   : (
@@ -433,7 +473,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
                 {detail.data.nextChanges != null ? <div className={css.detailActions}><Button variant="outline" size="sm" disabled={detail.loading} onClick={detail.more}>{t('files_moreChanges')}</Button></div> : null}
               </>
             ) : null}
-          {selectedCommit && selected.kind !== 'group' ? (
+          {selectedCommit ? (
             <div className={css.detailActions}>
               <Button variant="outline" size="sm" onClick={() => setDiffOpen(true)}>{t('files_viewDiff')}</Button>
               <Button variant="outline" size="sm" onClick={() => setPicking({ branch: selectedCommit.branch, pin: selectedCommit.id })}>{t('files_comparePick')}</Button>
@@ -441,58 +481,15 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
           ) : null}
         </>
       ) : null}
-      {view.branch ? (
-        <div className={css.pagination}>
-          {loadingAll === view.branch
-            ? <>
-                <p role="status">{branchTotal != null ? t('files_loadingAllOf', { count: pages[view.branch]?.items.length ?? 0, total: branchTotal }) : t('files_loadingAll', { count: pages[view.branch]?.items.length ?? 0 })}</p>
-                <Button variant="outline" size="sm" onClick={() => { allGen.current++; setLoadingAll(null) }}>{t('files_stopLoading')}</Button>
-              </>
-            : pages[view.branch]?.next != null
-            ? <>
-                <Button variant="outline" size="sm" disabled={!!busy || !!loadingAll} onClick={() => void loadBranch(view.branch, true)}>{t('files_loadEarlierCheckpoints')}</Button>
-                <Button variant="outline" size="sm" disabled={!!busy || !!loadingAll} onClick={() => void loadAll(view.branch)}>
-                  {branchTotal != null ? t('files_loadAllCount', { count: branchTotal - (pages[view.branch]?.items.length ?? 0) }) : t('files_loadAll')}
-                </Button>
-              </>
-            : !pages[view.branch]
-              ? <Button variant="outline" size="sm" disabled={!!busy} onClick={() => void loadBranch(view.branch)}>{t('files_loadCheckpoints')}</Button>
-              : <p>{t('files_allCheckpoints')}</p>}
-        </div>
-      ) : null}
     </aside>
   ) : undefined
+  const more = total != null ? total > loaded : sideBranches.some((b) => pages[b.name]?.next != null)
+  // The tree grows in once the whole history is read (or the read is stopped, or it has taken too long), so it grows whole.
+  const unread = branches.some((b) => pages[b.name]?.next != null)
+  const ready = busy !== 'initial' && (!unread || loadingAll !== ALL || patience) && (drawnPages === pages || patience)
 
   return (
     <div className={clsx(css.view, className)}>
-      <div className={css.toolbar}>
-        <div className={css.title}>
-          <IconBranchOutlineRegular size={15} />
-          <span className={css.mainSummary}>main <span>@ {shortId(branches.find((b) => b.name === 'main')?.head)}</span></span>
-          <span className={css.count} title={total != null && total > loaded ? t('files_checkpointsHint') : undefined}>
-            {total != null && total > loaded ? t('files_checkpointsLoadedOf', { count: loaded.toLocaleString(), total: total.toLocaleString() })
-              : loaded === 1 ? t('files_checkpointsLoadedOne') : t('files_checkpointsLoaded', { count: loaded.toLocaleString() })}
-          </span>
-        </div>
-        <div className={css.actions}>
-          {loadingAll === ALL
-            ? <>
-                <span className={css.count} role="status">{total != null ? t('files_loadingAllOf', { count: loaded.toLocaleString(), total: total.toLocaleString() }) : t('files_loadingAll', { count: loaded.toLocaleString() })}</span>
-                <Button variant="outline" size="sm" onClick={() => { allGen.current++; setLoadingAll(null) }}>{t('files_stopLoading')}</Button>
-              </>
-            : !view.all || total == null || total > loaded
-              ? <Button variant="outline" size="sm" disabled={!branches.length || !!busy || !!loadingAll} title={t('files_showAllHint')} onClick={() => void showAll()}>{t('files_showAll')}</Button>
-              : null}
-          <Button variant="outline" size="sm" disabled={!branches.length} icon={<IconCompareSplitOutlineRegular size={13} />} onClick={openCompare}>{t('files_compare')}</Button>
-          <span ref={finderAnchor}>
-            <Button variant="outline" size="sm" aria-expanded={finderOpen} onClick={() => setFinderOpen((v) => !v)}>
-              {t('files_branches')} <span>{branches.length}{branchNext !== null ? '+' : ''}</span> <IconChevronDownOutlineRegular size={12} />
-            </Button>
-          </span>
-          <Button variant="outline" size="sm" onClick={() => { writeView({ selected: null, branch: '' }); setMapReset((n) => n + 1) }}>{t('files_resetView')}</Button>
-          <Button variant="outline" size="sm" aria-label={t('files_refresh')} disabled={!!busy} icon={busy ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />} onClick={() => setRevision((n) => n + 1)} />
-        </div>
-      </div>
       {finderOpen ? (
         <BranchFinder anchorRef={finderAnchor} t={t} branches={branches} parents={parents} families={view.families} filtered={view.query} onQuery={(query) => writeView({ query })} onBranch={openBranch} onToggleFamily={toggleFamily} busy={busy} branchNext={branchNext} onMore={() => {
           setBusy('branches')
@@ -516,22 +513,43 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
             ? <EmptyState title={t('files_historyNone')} className={css.center}>{t('files_historyNoneBody')}</EmptyState>
             : (
               <HistoryGraph
-                nodes={nodes} lanes={structure.lanes} branches={visibleBranches} familyCounts={familyCounts}
-                selected={view.selected} focus={view.selected} onSelect={select} onBranch={openBranch} collapsed={view.families} onToggleFamily={toggleFamily}
-                expanded={view.all || view.expanded.size > 0} onCollapse={() => { if (loadingAll === ALL) { allGen.current++; setLoadingAll(null) } writeView({ expanded: new Set(), all: false, selected: null, branch: '' }) }} reset={mapReset}
-                inspector={inspector} onViewport={(top, left) => { viewport.current = { top, left } }} viewportRequest={viewportRequest} t={t}
+                layout={layout} selected={view.selected} branch={view.branch} focus={view.selected} onSelect={select} onBranch={openBranch} controlsHost={zoomSlot}
+                inspector={inspector} onViewport={(left, zoom) => { viewport.current = { left, zoom } }} viewportRequest={viewportRequest} ready={ready} t={t}
               />
             )}
+        {!ready && Object.keys(pages).length ? <Loading label={total != null ? t('files_loadingAllOf', { count: loaded.toLocaleString(), total: total.toLocaleString() }) : t('files_loadingAll', { count: loaded.toLocaleString() })} className={css.waiting} /> : null}
+        <div className={css.dock}>
+          <span ref={setZoomSlot} className={css.zoomSlot} />
+          <div className={css.mapControls} role="group" aria-label={t('files_history')}>
+            {loadingAll === ALL
+              ? <button type="button" onClick={stopFill}>{t('files_stopLoading')}</button>
+              : more && !busy
+                ? <button type="button" disabled={!!loadingAll} title={t('files_checkpointsHint')} onClick={() => void fill(true)}>{t('files_loadAll')}</button>
+                : null}
+            <button type="button" disabled={!branches.length} aria-label={t('files_compare')} title={t('files_compare')} onClick={openCompare}><IconCompareSplitOutlineRegular size={14} /></button>
+            <span ref={finderAnchor} className={css.dockSlot}>
+              <button type="button" aria-expanded={finderOpen} aria-label={t('files_branches')} title={t('files_branches')} onClick={() => setFinderOpen((v) => !v)}>
+                <IconBranchOutlineRegular size={14} />{branches.length}{branchNext !== null ? '+' : ''}
+              </button>
+            </span>
+            <button type="button" aria-label={t('files_refresh')} title={t('files_refresh')} disabled={!!busy} onClick={() => setRevision((n) => n + 1)}>{busy ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={14} />}</button>
+          </div>
+        </div>
+        {branches.length ? (
+          <div className={css.legend} aria-label={t('files_historyLegend')}>
+            <span className={css.count} role={loadingAll === ALL ? 'status' : undefined}>
+              {loadingAll === ALL ? (total != null ? t('files_loadingAllOf', { count: loaded.toLocaleString(), total: total.toLocaleString() }) : t('files_loadingAll', { count: loaded.toLocaleString() }))
+                : total != null && total > loaded ? t('files_checkpointsLoadedOf', { count: loaded.toLocaleString(), total: total.toLocaleString() })
+                : t('files_treeCounts', { branches: sideBranches.length.toLocaleString(), checkpoints: (view.families.size ? loaded : layout.rows.length - layout.layers.length).toLocaleString(), layers: layout.layers.length.toLocaleString() })}
+            </span>
+            <span><i className={css.legendTrunk} />{t('files_layerOnMain')}</span>
+            <span><svg width="12" height="14" viewBox="-4 -11 12 14" aria-hidden="true"><path className={css.legendLeaf} d="M0 0q4.6 -0.6 5.7 -7q-4.8 1.5 -5.7 7z" /></svg>{t('files_checkpoint')}</span>
+            <span><i className={css.legendMerge} />{t('files_merge')}</span>
+            <span><i className={css.legendPublish} />{t('files_legendPublish')}</span>
+            <span><i className={css.legendDead} />{t('files_neverReachedMain')}</span>
+          </div>
+        ) : null}
       </div>
-      <div className={css.legend} aria-label={t('files_historyLegend')}>
-        <span><i className={css.legendTrunk} />{t('files_layerOnMain')}</span>
-        <span><svg width="19" height="14" viewBox="-1 -8 20 16" aria-hidden="true"><circle cx="8" cy="0" r="3.5" /></svg>{t('files_checkpoint')}</span>
-        <span><i className={css.legendBough} />{t('files_branch')}</span>
-        <span><i className={css.legendMerge} />{t('files_merge')}</span>
-        <span><i className={css.legendPublish} />{t('files_legendPublish')}</span>
-        <span className={css.legendHint}>{t('files_legendHint')}</span>
-      </div>
-      <div className={css.foot}><span>{t('files_historyFoot')}</span></div>
       {compare ? (
         <Modal open onClose={() => setCompare(null)} title={t('files_compareTitle')} closeLabel={t('files_closeLabel')} className={css.compareModal} contentClassName={css.compareModalBody}>
           <BranchCompare api={api} project={project} t={t} branches={compareEnds} from={compare.from} to={compare.to} onOpenFile={onOpenFile} />
@@ -539,7 +557,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
       ) : null}
       {diffOpen && selectedCommit ? (
         <Modal open onClose={() => setDiffOpen(false)} title={t('files_diffTitle', { id: shortId(selectedCommit.id) })} closeLabel={t('files_closeLabel')} className={css.diffModal} contentClassName={css.diffModalBody}>
-          <CommitDiff api={api} project={project} branch={selectedCommit.branch} commit={selectedCommit.id} from={detailFrom} t={t}
+          <CommitDiff api={api} project={project} branch={selectedCommit.branch} commit={selectedCommit.id} t={t}
             onOpenFile={onOpenFile && ((path, pin) => onOpenFile(selectedCommit.branch, path, pin))} />
         </Modal>
       ) : null}
@@ -581,7 +599,7 @@ function BranchFinder({ anchorRef, t, branches, parents, families, filtered, onQ
   busy: string | null, branchNext: number | null, onMore: () => void, onClose: () => void
 }): ReactNode {
   const panel = useRef<HTMLDivElement>(null)
-  const position = useAnchoredPosition({ open: true, anchorRef, panelRef: panel, side: 'bottom', align: 'end', gap: 4, margin: 8 })
+  const position = useAnchoredPosition({ open: true, anchorRef, panelRef: panel, side: 'top', align: 'end', gap: 6, margin: 8 })
   useDismissOnOutsidePointer(anchorRef, true, () => onClose(), panel)
   const q = filtered.toLowerCase()
   const rows = branches.filter((b) => b.name.toLowerCase().includes(q) || branchLabel(b.name, t).toLowerCase().includes(q))

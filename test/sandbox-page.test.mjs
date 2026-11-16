@@ -14,7 +14,7 @@ const root = new URL('..', import.meta.url).pathname
 const out = mkdtempSync(join(root, 'lib', '.test-sandbox-page-'))
 await build({
   absWorkingDir: root,
-  stdin: { contents: "export { daemonLook, daemonSlots, overlayDirty, overlayCount, workspaceChanges } from './src/client/machines/model.ts'; export * from './src/client/machines/terminal.ts'", resolveDir: root, loader: 'ts' },
+  stdin: { contents: "export { daemonLook, daemonSlots, overlayDirty, overlayCount, workspaceChanges } from './src/client/machines/model.ts'; export * from './src/client/machines/terminal.ts'; export * from './src/client/machines/workspace-usage.ts'", resolveDir: root, loader: 'ts' },
   outfile: join(out, 'page.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning',
 })
 const M = await import(pathToFileURL(join(out, 'page.mjs')).href)
@@ -46,25 +46,92 @@ test('Workspaces keep creation order: numeric by mount path', () => {
 
 test('page layout: one, two, 2×2 with a New tile, pages of four, maximize, full', () => {
   const ids = (n) => Array.from({ length: n }, (_, i) => `w${i + 1}`)
-  const shape = (l) => [l.grid, l.slots.join(','), l.page, l.pages]
+  const grid = (l) => (l.columns === 1 && l.rows === 1 ? 'one' : l.columns === 2 && l.rows === 1 ? 'two' : `${l.columns}x${l.rows}`)
+  const shape = (l) => [grid(l), l.slots.join(','), l.page, l.pages]
+  // without a measured area: the 2×2 page
   assert.deepEqual(shape(M.pageLayout([], 0, null, true)), ['one', 'new', 0, 1])
   assert.deepEqual(shape(M.pageLayout([], 0, null, false)), ['one', 'blank', 0, 1])
   assert.deepEqual(shape(M.pageLayout(ids(1), 0, null, true)), ['one', 'w1', 0, 1])
   assert.deepEqual(shape(M.pageLayout(ids(2), 0, null, true)), ['two', 'w1,w2', 0, 1])
-  assert.deepEqual(shape(M.pageLayout(ids(3), 0, null, true)), ['quad', 'w1,w2,w3,new', 0, 1])
-  assert.deepEqual(shape(M.pageLayout(ids(3), 0, null, false)), ['quad', 'w1,w2,w3,blank', 0, 1])
-  assert.deepEqual(shape(M.pageLayout(ids(4), 0, null, true)), ['quad', 'w1,w2,w3,w4', 0, 1])
-  assert.deepEqual(shape(M.pageLayout(ids(5), 0, null, true)), ['quad', 'w1,w2,w3,w4', 0, 2])
-  assert.deepEqual(shape(M.pageLayout(ids(5), 1, null, true)), ['quad', 'w5,new,blank,blank', 1, 2])
-  assert.deepEqual(shape(M.pageLayout(ids(9), 2, null, true)), ['quad', 'w9,new,blank,blank', 2, 3])
+  assert.deepEqual(shape(M.pageLayout(ids(3), 0, null, true)), ['2x2', 'w1,w2,w3,new', 0, 1])
+  assert.deepEqual(shape(M.pageLayout(ids(3), 0, null, false)), ['2x2', 'w1,w2,w3,blank', 0, 1])
+  assert.deepEqual(shape(M.pageLayout(ids(4), 0, null, true)), ['2x2', 'w1,w2,w3,w4', 0, 1])
+  assert.deepEqual(shape(M.pageLayout(ids(5), 0, null, true)), ['2x2', 'w1,w2,w3,w4', 0, 2])
+  assert.deepEqual(shape(M.pageLayout(ids(5), 1, null, true)), ['2x2', 'w5,new,blank,blank', 1, 2])
+  assert.deepEqual(shape(M.pageLayout(ids(9), 2, null, true)), ['2x2', 'w9,new,blank,blank', 2, 3])
   // a page past the end clamps; a maximized Workspace shows alone
-  assert.deepEqual(shape(M.pageLayout(ids(5), 7, null, true)), ['quad', 'w5,new,blank,blank', 1, 2])
+  assert.deepEqual(shape(M.pageLayout(ids(5), 7, null, true)), ['2x2', 'w5,new,blank,blank', 1, 2])
   assert.deepEqual(shape(M.pageLayout(ids(5), 0, 'w3', true)), ['one', 'w3', 0, 2])
-  assert.deepEqual(shape(M.pageLayout(ids(5), 0, 'gone', true)), ['quad', 'w1,w2,w3,w4', 0, 2])
-  assert.deepEqual(shape(M.pageLayout(ids(16), 3, null, false)), ['quad', 'w13,w14,w15,w16', 3, 4])
+  assert.deepEqual(shape(M.pageLayout(ids(5), 0, 'gone', true)), ['2x2', 'w1,w2,w3,w4', 0, 2])
+  assert.deepEqual(shape(M.pageLayout(ids(16), 3, null, false)), ['2x2', 'w13,w14,w15,w16', 3, 4])
   assert.equal(M.pageOf(ids(9), 'w5'), 1)
   assert.equal(M.pageOf(ids(9), 'w9'), 2)
   assert.equal(M.pageOf(ids(9), 'nope'), 0)
+})
+
+test('page layout follows the area: as many panes as fit, no choice of layout', () => {
+  const ids = (n) => Array.from({ length: n }, (_, i) => `w${i + 1}`)
+  // each pane at least 380 × 220 with 8px gaps, at most 4 × 3
+  assert.deepEqual(M.paneFit(370, 300), { columns: 1, rows: 1 })
+  assert.deepEqual(M.paneFit(768, 448), { columns: 2, rows: 2 })
+  assert.deepEqual(M.paneFit(767, 447), { columns: 1, rows: 1 })
+  assert.deepEqual(M.paneFit(1156, 700), { columns: 3, rows: 3 })
+  assert.deepEqual(M.paneFit(4000, 3000), { columns: 4, rows: 3 })
+  assert.deepEqual(M.paneFit(0, 0), { columns: 1, rows: 1 })
+  assert.deepEqual(M.paneFit(Number.NaN, 500), { columns: 1, rows: 2 })
+  const wide = { columns: 3, rows: 2 }
+  const at = (n, page = 0, max = null, add = true) => {
+    const l = M.pageLayout(ids(n), page, max, add, wide)
+    return [l.columns, l.rows, l.slots.join(','), l.page, l.pages]
+  }
+  // one page: only the columns and rows its Workspaces need
+  assert.deepEqual(at(2), [2, 1, 'w1,w2', 0, 1])
+  assert.deepEqual(at(3), [3, 1, 'w1,w2,w3', 0, 1])
+  assert.deepEqual(at(4), [3, 2, 'w1,w2,w3,w4,new,blank', 0, 1])
+  assert.deepEqual(at(6), [3, 2, 'w1,w2,w3,w4,w5,w6', 0, 1])
+  // more pages keep the full grid so panes keep their size
+  assert.deepEqual(at(7), [3, 2, 'w1,w2,w3,w4,w5,w6', 0, 2])
+  assert.deepEqual(at(7, 1), [3, 2, 'w7,new,blank,blank,blank,blank', 1, 2])
+  assert.deepEqual(at(7, 1, null, false), [3, 2, 'w7,blank,blank,blank,blank,blank', 1, 2])
+  assert.deepEqual(at(7, 0, 'w7'), [1, 1, 'w7', 0, 2])
+  // a narrow area: one pane a page
+  assert.deepEqual(M.pageLayout(ids(3), 1, null, true, { columns: 1, rows: 1 }).slots, ['w2'])
+  assert.equal(M.pageOf(ids(16), 'w7', wide), 1)
+  assert.equal(M.pageOf(ids(16), 'w13', wide), 2)
+})
+
+test('Workspace CPU: a rate between reads, a new series when the group is made again', () => {
+  const u = (cpuUsec, memoryCurrent = 1) => ({ cpuUsec, memoryCurrent, memoryPeak: null, pids: 1 })
+  let tr = M.step(undefined, u(1_000_000), 10_000)
+  assert.deepEqual(tr.rates, [])
+  assert.equal(M.latestRate(tr), null)
+  // 2 s of CPU over 1 s: two processors
+  tr = M.step(tr, u(3_000_000), 11_000)
+  assert.equal(M.latestRate(tr), 2)
+  assert.equal(M.cpuWords(M.latestRate(tr)), '2.0')
+  // a read too soon after the last adds nothing
+  assert.equal(M.step(tr, u(9_000_000), 11_500), tr)
+  // the count went down: the group was made again, no negative rate
+  tr = M.step(tr, u(500_000), 12_000)
+  assert.equal(M.latestRate(tr), null)
+  tr = M.step(tr, u(750_000), 13_000)
+  assert.equal(M.latestRate(tr), 0.25)
+  assert.equal(M.cpuWords(0.25), '0.25')
+  assert.equal(M.cpuWords(12.4), '12')
+  // nothing runs (usage null): a gap, then a fresh start
+  tr = M.step(tr, null, 14_000)
+  assert.equal(M.latestRate(tr), null)
+  tr = M.step(tr, u(100), 15_000)
+  assert.equal(M.latestRate(tr), null)
+  // reads a minute apart (a hidden page) are not one series
+  assert.equal(M.latestRate(M.step(tr, u(60_100), 80_000)), null)
+  assert.equal(M.sparkPoints([1], 60, 10), null)
+  assert.equal(M.sparkPoints([0, null, 2], 60, 10), '0.0,10.0 60.0,0.0')
+  // only Workspaces whose worker reports usage are tracked
+  const tracked = M.recordUsage([{ ws: 'sb:a', branch: 'b', path: '/w/1', usage: u(5) }, { ws: 'sb:b', branch: 'b', path: '/w/2' }], 1_000)
+  assert.deepEqual([...tracked.keys()], ['sb:a'])
+  for (let i = 0; i < 40; i++) tr = M.step(tr, u(100 + i), 100_000 + i * 2000)
+  assert.equal(tr.rates.length, M.SERIES_LENGTH)
 })
 
 test('history steps like a shell: older on ↑, back to the draft on ↓, repeats once', () => {

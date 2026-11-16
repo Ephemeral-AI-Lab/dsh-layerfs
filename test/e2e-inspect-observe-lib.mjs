@@ -232,33 +232,13 @@ export async function openHealth(page) {
   await bar(page).getByRole('button', { name: /^Health\b/ }).first().click()
   await page.getByRole('region', { name: 'Health' }).first().waitFor({ timeout: 20000 })
 }
-/** The Overview's Machines tab: one card per machine (storage/HomeCards.tsx). */
-export async function openOverviewMachines(page) {
+/** The Machines board: the Overview's Machines tab, every machine's card (machines/Board.tsx). */
+export async function openBoard(page) {
   const root = bar(page).getByRole('navigation', { name: 'Location' }).getByRole('button', { name: 'Center', exact: true })
   if (await root.count()) await root.first().click()
   await editor(page).getByRole('tab', { name: /^Machines\b/ }).first().click()
-  await editor(page).locator('[data-ov-machine]').first().waitFor()
+  await editor(page).locator('[data-machine]').first().waitFor()
 }
-/** The Machines board: every machine's card. */
-export async function openBoard(page) {
-  await openOverviewMachines(page)
-  await editor(page).getByRole('button', { name: 'Open board', exact: true }).click()
-  await editor(page).getByRole('heading', { name: 'Machines', exact: true }).waitFor()
-}
-/** The disk row of every Overview machine card, by machine: `{ state, scope, text, meter (its width in percent, null without one), title }`. */
-export const overviewDisks = (page) => page.evaluate(() => {
-  const root = [...document.querySelectorAll('[data-storage-page]')].find((e) => e.offsetParent)
-  const out = {}
-  for (const card of root?.querySelectorAll('[data-ov-machine]') ?? []) {
-    const row = card.querySelector('[data-ov-disk]')
-    const meter = row?.querySelector(':scope > span:last-child > span')
-    out[card.getAttribute('data-ov-machine')] = row ? {
-      state: row.getAttribute('data-ov-disk'), scope: row.getAttribute('data-ov-disk-scope'), text: row.querySelector(':scope > span:nth-child(2)')?.textContent ?? null,
-      meter: meter && row.children.length === 3 ? Number.parseInt(meter.style.width, 10) : null, title: row.getAttribute('title'),
-    } : null
-  }
-  return out
-})
 
 /** What the open page shows of a machine's observed values (machine page, Details card and board cards). */
 export const observed = (page) => page.evaluate(() => {

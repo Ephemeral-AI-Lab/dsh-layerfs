@@ -24,7 +24,7 @@ await main('e2e-inspect-logs', async ({ run, page }) => {
     t.check(has.sandboxLog, 'the CLI has logs.sandbox')
     await openQuiet(page, sb)
     driver.fill('sandbox', sb.name, 120, tag)
-    t.check(same((await tabs(page)).filter((x) => x !== 'Files'), ['Terminals', 'Daemon log']), `Sandbox tabs: ${JSON.stringify(await tabs(page))}`)
+    t.check(same((await tabs(page)).filter((x) => x !== 'Files'), ['Overview', 'Workspaces', 'Daemon log']), `Sandbox tabs: ${JSON.stringify(await tabs(page))}`)
     await showLog(page, sb)
     let got = await waitPane(page, (s) => s.state === 'ready' && seqsOf(s.rows, tag).length === 120)
     t.check(got.ok, `the daemon log shows the 120 lines written (state ${got.state?.state}, ${got.state?.lines} lines)`)
@@ -76,7 +76,7 @@ await main('e2e-inspect-logs', async ({ run, page }) => {
     t.check(clip.split('\n').length === 125 && clip.endsWith(`${tag} 000124 served`), `Copy copies every loaded line (${clip.split('\n').length} lines, ends "${clip.slice(-30)}")`)
 
     // the daemon line links to the log; the last tab is kept
-    await editor(page).getByRole('tab', { name: 'Terminals', exact: true }).click()
+    await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
     await pane(page).waitFor({ state: 'detached' })
     const link = editor(page).getByRole('button', { name: 'Open daemon log', exact: true }).first()
     if (t.check((await link.count()) > 0, 'the daemon line has "Open daemon log"')) {

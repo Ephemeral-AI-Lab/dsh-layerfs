@@ -363,7 +363,7 @@ export async function offeredFiles(page) {
   if (!view.ok) throw new Error(`GET /api/machines: ${view.status} ${view.code} ${view.message}`)
   return view.body.features?.inspect ?? {}
 }
-/** Switch the Files tab to the view named `name` ("Whole filesystem (/)", "LayerFS folders", "Sandbox"). */
+/** Switch the Files tab to the view named `name` ("Whole filesystem (/)", "LayerFS folders", "Workspaces", "Sandbox folders"). */
 export async function switchView(page, name) {
   await files(page).getByText(name, { exact: true }).first().click()
   await waitFiles(page, (s) => s.state !== 'reading' && s.state !== 'going')

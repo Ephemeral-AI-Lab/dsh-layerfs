@@ -207,8 +207,11 @@
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  /* Kind, Store and Location: up to two lines */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 /* The one scroll area: Project, Store and Runs on in a column. */
@@ -899,4 +902,40 @@
 /* A part that is not ready says what it misses in the warning ink. */
 .railStep:not([data-ready]) .railSummary {
   color: var(--dsw-alias-state-warn-label);
+}
+
+/* Compact machine tiles (Storage's New Store): one row each, three to a row. */
+.machinesCompact {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.machine.compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+  padding: 8px 10px;
+}
+
+.compactMark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.compactText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+
+.compact .machineName {
+  font-size: 13px;
+  line-height: 18px;
 }

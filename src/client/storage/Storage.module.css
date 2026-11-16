@@ -247,6 +247,27 @@
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
+.table .groupRow th {
+  padding: 14px 16px 6px;
+  border-bottom: 0;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.table tbody + tbody .groupRow th {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.table .groupRow + tr td {
+  border-top: 0;
+}
+
+.groupCount {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .num {
   text-align: right !important;
   font-variant-numeric: tabular-nums;

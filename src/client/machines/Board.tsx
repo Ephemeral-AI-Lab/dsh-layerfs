@@ -1,37 +1,48 @@
 /**
- * The Machines tab: one block per machine (those that need you first), each
- * its header (name, state, disk, power, menu) over its Stores and its
- * Sandboxes. A block's name or "Show all" opens the machine's tab.
+ * The machines board: one table, a row per machine (those that need you
+ * first) with aligned columns (name, state, memory, disk, what it holds,
+ * power and menu). A row opens to show its Stores and Sandboxes, each column
+ * with its add verb (Add Store, New Sandbox) and each row a menu; the row's
+ * name opens the machine's tab. It is the home page's Machines tab
+ * (HomeOverview.tsx), whose tab bar carries New machine and Diagnose host;
+ * the `machines` page id opens that tab.
  */
-import { useMemo, useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
+import clsx from 'clsx'
+import { IconChevronRightOutlineRegular, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
-import { Card, Empty, LoadError, Loading, Meter, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
-import { AddMachineDialog } from './AddMachineDialog.tsx'
+import { Card, Empty, LoadError, Loading, Meter, Notice, Refusal } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph, MachinesGlyph } from './icons.tsx'
 import type { View } from './context.tsx'
-import { Inventory, useMachineTitle } from './Inventory.tsx'
+import { Inventory, creatingOn, storeLines, useMachineTitle, type StoreMenuOf } from './Inventory.tsx'
 import {
-  RANK, downReason, gib, machineOrder, machineState, runtimeOf,
+  RANK, downReason, gib, machineOrder, machineState, runtimeOf, sandboxesOn,
   type AvailableView, type MachineInfo,
 } from './model.ts'
 import { machineBlock, nativeGlyphOs, nativeNameKey, osOfView, type Readiness } from './needs.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
 import { ObservedDisk, useMachineStats } from './MachineStats.tsx'
-import { MachineMeters } from './MetricsViews.tsx'
+import { MemoryCell } from './MetricsViews.tsx'
 import { Blocked } from './Readiness.tsx'
-import { CardSpace } from './SpaceViews.tsx'
+import { SpaceCell } from './SpaceViews.tsx'
+import { NewSandboxDialog } from './Sandboxes.tsx'
 import css from './machines.module.css'
 
-/** Rows each list shows on this tab before "Show all". */
-const ROWS = 4
-
-export function Board({ go }: { go: (view: View) => void }): ReactNode {
-  const { t, api, doctorT, useMachines, useStartups, reload, refusal } = useMachinesContext()
+/**
+ * `onAddStore`: Storage's Add Store dialog for a machine (move a SQLite Store
+ * there, or attach a PostgreSQL one); `storeMenu`: a Store row's menu for a
+ * machine (Storage's Store actions). Without them the Stores column has
+ * neither.
+ */
+export function Board({ go, onAddStore, storeMenu }: {
+  go: (view: View) => void
+  onAddStore?: ((machine: string) => void) | undefined
+  storeMenu?: ((machine: string) => StoreMenuOf) | undefined
+}): ReactNode {
+  const { t, useMachines, useStartups, reload, refusal } = useMachinesContext()
   const read = useMachines((s) => s)
   const startups = useStartups((s) => s)
-  const [adding, setAdding] = useState(false)
   const view = read.data
   const available = view?.available ? view : null
   const starting = useMemo(() => new Set(Object.values(startups).filter((s) => s.status === 'running').map((s) => s.name)), [startups])
@@ -40,19 +51,10 @@ export function Board({ go }: { go: (view: View) => void }): ReactNode {
     const rank = (m: MachineInfo) => (starting.has(m.name) ? RANK.busy : RANK[machineState(m, available.status[m.name]).key])
     return machineOrder(available.machines).sort((a, b) => rank(a) - rank(b))
   }, [available, starting])
+  const [choices, choose] = useOpenChoices()
 
   return (
-    <Page wide label={t('panel')}>
-      <PageHead
-        title={t('panel')}
-        hideTitle
-        actions={(
-          <>
-            <DoctorAction api={api} t={doctorT} target="host" label={doctorT('diagnoseHost')} />
-            {available && <Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={13} />} onClick={() => setAdding(true)}>{t('newMachine')}</Button>}
-          </>
-        )}
-      />
+    <>
       {view && read.error != null && (
         <Notice tone="warning" role="status">
           <p>{t('staleRead', { time: read.observedAt ? new Date(read.observedAt).toLocaleTimeString() : '—' })}</p>
@@ -72,15 +74,18 @@ export function Board({ go }: { go: (view: View) => void }): ReactNode {
                   <p>{t('partUnread', { part, time: new Date(e.at).toLocaleTimeString(), code: e.error.code, message: e.error.message })}</p>
                 </Notice>
               ))}
-              <div className={css.blocks}>
-                {machines.map((m) => (
-                  <MachineBlock key={m.name} m={m} view={available} onOpen={() => go({ kind: 'machine', name: m.name })} />
-                ))}
-              </div>
-              {adding && <AddMachineDialog view={available} onClose={() => setAdding(false)} onMade={(name) => go({ kind: 'machine', name })} platforms={available.platforms} />}
+              <Card className={css.fleet}>
+                <div className={css.fleetTable} role="table" aria-label={t('panel')}>
+                  <FleetHead />
+                  {machines.map((m) => (
+                    <MachineRow key={m.name} m={m} view={available} only={machines.length === 1} chosen={choices[m.name]} onToggle={(open) => choose(m.name, open)}
+                      onOpen={() => go({ kind: 'machine', name: m.name })} onAddStore={onAddStore} storeMenu={storeMenu?.(m.name)} />
+                  ))}
+                </div>
+              </Card>
             </>
           )}
-    </Page>
+    </>
   )
 }
 
@@ -111,16 +116,6 @@ export function DiskLine({ m, view }: { m: MachineInfo, view: AvailableView }): 
 }
 
 /**
- * A machine card's meters: with a CLI that has machine.stats, memory, data
- * disk and live Sandboxes from the metrics sampler (MetricsViews.tsx); without
- * it the disk line as it was.
- */
-function CardMeters({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
-  const { offered } = useMachineStats(m)
-  return offered ? <MachineMeters m={m} /> : <RecordDisk m={m} view={view} />
-}
-
-/**
  * The disk line of a CLI without machine.stats: free space as reported, a
  * meter against the size the record was created with. Without a reported
  * free space, the recorded size labelled "allocated" (keyed on what was
@@ -142,7 +137,78 @@ function RecordDisk({ m, view }: { m: MachineInfo, view: AvailableView }): React
   )
 }
 
-function MachineBlock({ m, view, onOpen }: { m: MachineInfo, view: AvailableView, onOpen: () => void }): ReactNode {
+
+/**
+ * A machine's disk in its row: with machine.space, LayerFS's data, what is
+ * not LayerFS's and free space as one bar (SpaceViews.tsx SpaceCell); else the
+ * observed data disk from machine.stats; else what the record says.
+ */
+function DiskCell({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
+  const { t } = useMachinesContext()
+  const { offered, read } = useMachineStats(m)
+  const r = offered ? read?.stats?.resources : undefined
+  const observed = r?.diskTotal != null && r.diskUsed != null && r.diskTotal > 0
+    ? (
+      <span className={css.cellStack} data-mx-disk>
+        <Meter share={r.diskUsed / r.diskTotal} label={t('diskUse')} className={css.cellBar} />
+        <span className={css.cellText} title={t('mxDiskOf', { used: gib(r.diskUsed), total: gib(r.diskTotal) })}>
+          {r.diskFree != null ? t('diskFreeOf', { free: gib(r.diskFree), total: gib(r.diskTotal) }) : t('mxDiskOf', { used: gib(r.diskUsed), total: gib(r.diskTotal) })}
+        </span>
+      </span>
+    )
+    : <span className={css.cellText}><RecordDisk m={m} view={view} /></span>
+  return <SpaceCell m={m} fallback={observed} />
+}
+
+/** What a machine holds, in two short lines: its Stores and its Sandboxes (those being created count). */
+function HoldsCell({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
+  const { t, useCreations } = useMachinesContext()
+  const sandboxes = sandboxesOn(view, m)
+  const creations = useCreations((all) => all)
+  const stores = storeLines(view, m).length
+  const boxes = sandboxes.length + creatingOn(creations, m.name, sandboxes).length
+  return (
+    <span className={css.cellStack}>
+      <span className={css.cellText} data-holds="stores">{stores === 0 ? t('holdsNoStores') : t(stores === 1 ? 'holdsStoreOne' : 'holdsStores', { n: String(stores) })}</span>
+      <span className={css.cellText} data-holds="sandboxes">{boxes === 0 ? t('holdsNoSandboxes') : t(boxes === 1 ? 'holdsSandboxOne' : 'holdsSandboxes', { n: String(boxes) })}</span>
+    </span>
+  )
+}
+
+/** The table's head row: the columns' names. */
+function FleetHead(): ReactNode {
+  const { t } = useMachinesContext()
+  return (
+    <div className={clsx(css.fleetRow, css.fleetHead)} role="row">
+      <span role="columnheader" aria-hidden="true" />
+      <span role="columnheader">{t('colMachine')}</span>
+      <span role="columnheader">{t('state')}</span>
+      <span role="columnheader" className={css.fleetMemory}>{t('memory')}</span>
+      <span role="columnheader" className={css.fleetDisk}>{t('disk')}</span>
+      <span role="columnheader" className={css.fleetHolds}>{t('colHolds')}</span>
+      <span role="columnheader" aria-hidden="true" />
+    </div>
+  )
+}
+
+/** Whether a click on the row came from one of its own controls (or a menu portalled out of it), which handle themselves. */
+function fromControl(e: MouseEvent<HTMLElement>): boolean {
+  const target = e.target as Element
+  if (!e.currentTarget.contains(target)) return true
+  return target.closest('button, a, input, select, [role="menu"], [role="menuitem"]') !== null
+}
+
+/**
+ * One machine: its row (name, state, memory, disk, what it holds, power and
+ * menu) and, when open, what it holds (its Stores and Sandboxes) with the
+ * reason it needs you. The row toggles; its name opens the machine's tab.
+ * Open by default when it needs you, is blocked or is starting, or is the
+ * only machine; a choice made here is kept for this viewer.
+ */
+function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, only }: {
+  m: MachineInfo, view: AvailableView, chosen: boolean | undefined, onToggle: (open: boolean) => void, onOpen: () => void
+  onAddStore?: ((machine: string) => void) | undefined, storeMenu?: StoreMenuOf | undefined, only: boolean
+}): ReactNode {
   const { t, tw, kind, api, doctorT, useStartups, refusal } = useMachinesContext()
   const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
@@ -154,36 +220,74 @@ function MachineBlock({ m, view, onOpen }: { m: MachineInfo, view: AvailableView
   const { run, pending: localPending, error } = useMachineRun()
   const pending = localPending ?? (startingNow ? startup.kind : null)
   const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
+  const [creating, setCreating] = useState(false)
   const name = title(m)
+  const open = chosen ?? (only || attention !== null || startingNow || error !== null)
+  const detailId = `machine-detail-${m.name}`
+  const plus = <IconPlusOutlineRegular size={11} />
+  const storeAction = onAddStore && !block
+    ? <button type="button" className={css.columnAction} onClick={() => onAddStore(m.name)} title={t('addStoreTo', { name })}>{plus}{t('addStore')}</button>
+    : null
+  // a Sandbox on a stopped machine starts it first (the dialog says so); not while a start or stop runs
+  const sandboxAction = !block
+    ? <button type="button" className={css.columnAction} disabled={pending !== null} onClick={() => setCreating(true)} title={t('newSandboxOn', { name })}>{plus}{t('newSandbox')}</button>
+    : null
+  const sub = m.platform === 'native' ? `${t(nativeNameKey(osOfView(view)))} · ${tw(runtimeOf(m))}` : `${kind(m.platform)} · ${tw(runtimeOf(m))}`
   return (
-    <Card tone={attention === 'danger' ? 'danger' : undefined} className={css.block} data-machine={m.name} aria-label={name}>
-      <header className={css.blockHead}>
-        <span className={css.blockIdentity}>
+    <div className={css.fleetMachine} data-machine={m.name} data-open={open || undefined} data-tone={attention ?? undefined} role="rowgroup" aria-label={name}>
+      <div className={css.fleetRow} role="row" onClick={(e) => { if (!fromControl(e)) onToggle(!open) }}>
+        <button type="button" className={css.fleetToggle} aria-expanded={open} aria-controls={detailId}
+          aria-label={t(open ? 'collapseMachine' : 'expandMachine', { name })} title={t(open ? 'collapseMachine' : 'expandMachine', { name })}
+          onClick={() => onToggle(!open)}>
+          <IconChevronRightOutlineRegular size={12} />
+        </button>
+        <span className={css.blockIdentity} role="cell">
           <span className={css.blockGlyph} aria-hidden="true"><MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={16} /></span>
           <span className={css.blockNames}>
             <button type="button" className={css.blockName} onClick={onOpen} title={t('openMachine', { name })}>{name}</button>
-            <span className={css.blockSub}>{kind(m.platform)} · {tw(runtimeOf(m))}</span>
+            <span className={css.blockSub} title={sub}>{sub}</span>
           </span>
         </span>
-        <MachineStateChip m={m} live={live} pending={pending} blocked={!!block} />
-        <CardMeters m={m} view={view} />
-        <span className={css.blockActions}>
-          {m.platform === 'native' ? <span className={css.muted}>{t(nativeNameKey(osOfView(view)))}</span> : block ? null : <PowerButton m={m} pending={pending} run={run} />}
+        <span role="cell" className={css.fleetState}><MachineStateChip m={m} live={live} pending={pending} blocked={!!block} /></span>
+        <span role="cell" className={css.fleetMemory}><MemoryCell m={m} /></span>
+        <span role="cell" className={css.fleetDisk}><DiskCell m={m} view={view} /></span>
+        <span role="cell" className={css.fleetHolds}><HoldsCell m={m} view={view} /></span>
+        <span role="cell" className={css.fleetActions}>
+          {m.platform === 'native' || block ? null : <PowerButton m={m} pending={pending} run={run} compact />}
           <MachineMenu m={m} pending={pending} run={run} onOpen={onOpen} onDialog={setDialog} />
         </span>
-      </header>
-      <CardSpace m={m} />
-      {block && <Blocked m={m} block={block} />}
-      {!block && (reason || attention === 'danger') && (
-        <div className={css.blockReason}>
-          <span className={css.blockReasonText} title={reason ?? undefined}>{reason ?? t('needsInspect', { state: t(machineState(m, live).label ?? 'stateUnknown') })}</span>
-          {attention === 'danger' && <DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} />}
+      </div>
+      {open && (
+        <div className={css.fleetDetail} id={detailId}>
+          {block && <Blocked m={m} block={block} />}
+          {!block && (reason || attention === 'danger') && (
+            <div className={css.blockReason}>
+              <span className={css.blockReasonText} title={reason ?? undefined}>{reason ?? t('needsInspect', { state: t(machineState(m, live).label ?? 'stateUnknown') })}</span>
+              {attention === 'danger' && <DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} />}
+            </div>
+          )}
+          {error !== null && <div className={css.blockReason}><Refusal error={error} labels={refusal} compact /></div>}
+          {startingNow && <div className={css.blockProgress}><MachineProgress name={m.name} compact /></div>}
+          <Inventory m={m} view={view} storeAction={storeAction} sandboxAction={sandboxAction} storeMenu={storeMenu} sandboxMenus flat />
         </div>
       )}
-      {error !== null && <div className={css.blockReason}><Refusal error={error} labels={refusal} compact /></div>}
-      {startingNow && <div className={css.blockProgress}><MachineProgress name={m.name} compact /></div>}
-      <Inventory m={m} view={view} limit={ROWS} onMore={onOpen} />
       <MachineDialogs m={m} dialog={dialog} onClose={() => setDialog(null)} pending={pending} run={run} />
-    </Card>
+      {creating && <NewSandboxDialog machine={m} taken={view.sandboxes.map((b) => b.name)} onClose={() => setCreating(false)} />}
+    </div>
   )
+}
+
+const OPEN_KEY = 'dsh-layerfs:machines-open'
+
+/** The rows opened or closed here, kept for this viewer (a convenience: nothing breaks without storage). */
+function useOpenChoices(): [Record<string, boolean>, (name: string, open: boolean) => void] {
+  const [choices, setChoices] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem(OPEN_KEY) ?? '{}') as Record<string, boolean> } catch { return {} }
+  })
+  const choose = (name: string, open: boolean) => setChoices((all) => {
+    const next = { ...all, [name]: open }
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(next)) } catch { /* storage unavailable */ }
+    return next
+  })
+  return [choices, choose]
 }

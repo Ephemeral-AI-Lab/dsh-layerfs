@@ -28,9 +28,10 @@ await main('e2e-inspect-logs-absent', async ({ run, page }) => {
 
     if (cfg.sandbox) {
       await jump(page, targets.sandbox.title)
+      await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
       await editor(page).getByRole('button', { name: 'New workspace', exact: true }).first().waitFor({ timeout: 20000 }).catch(() => t.check(false, 'Sandbox page: the terminals do not render'))
       await sleep(2500)
-      t.check(!(await hasTab(page, 'Daemon log')) && !(await hasTab(page, 'Terminals')), `Sandbox page: no tabs (${JSON.stringify(await tabs(page))})`)
+      t.check(!(await hasTab(page, 'Daemon log')), `Sandbox page: no Daemon log tab (${JSON.stringify(await tabs(page))})`)
       t.check((await editor(page).getByRole('button', { name: 'Open daemon log', exact: true }).count()) === 0, 'Sandbox page: no "Open daemon log"')
       t.check((await pane(page).count()) === 0, 'Sandbox page: no log pane')
       await shot(page, 'inspect-logs-f6-sandbox')

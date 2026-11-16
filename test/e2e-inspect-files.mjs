@@ -2,7 +2,7 @@
 // The Files tabs of the machine and Sandbox pages in a browser
 // (layerfs-project#178 matrix):
 //   S2  machine Files: LayerFS folders ranked by role; Whole filesystem from `/`; switching keeps each view's path and open folders
-//   S3  Sandbox Files: roots by role (Workspaces with chip, Home, log); Whole filesystem lists `/`; Browse base opens the saved files
+//   S3  Sandbox Files: Workspaces (each opens in place: its Branch's saved files at its base, chip) | Sandbox folders (Home, log) | Whole filesystem (/) when offered
 //   S4  Go to a pasted path opens it (the Doctor link is #180's: only its receiving side is checked here)
 //   P4  a 3,000-entry folder pages with More entries; a 50 MB file pages by window; a deadline page reads "Stopped at the time limit"
 //
@@ -15,6 +15,8 @@ import {
 } from './e2e-inspect-files-lib.mjs'
 
 const enc = encodeURIComponent
+// the page's short form of a saved id (src/client/files/format.ts)
+const shortId = (id) => (id.length <= 12 ? id : /^(12|32)[0-9a-f]{64}$/.test(id) ? id.slice(2, 10) : id.slice(0, 8))
 // a label per role LayerFS answers; a role without one shows its path (the page never names a role it does not know)
 const KNOWN = { data: 'Data disk', stores: 'Stores', sandbox_records: 'Sandbox records', run_folders: 'Sandbox run folders', images: 'Sandbox images', staging: 'Incoming files', logs: 'Logs', state: 'Worker state', bundle: 'LayerFS bundle', image: 'Machine image', home: 'Home' }
 /** Whether a root's row reads its role's label with its path, or, for a role this page has no label for, the path alone. */
@@ -136,71 +138,92 @@ await main('e2e-inspect-files', async ({ run, page }) => {
     } else t.note(`no worker.log row under ${logs.path}, or no Worker log tab on this machine: the log row was not checked`)
   })
 
-  await run.row('S3', 'Sandbox Files: roots by role (Workspaces with chip, Home, log); Whole filesystem lists /; Browse base', async (t) => {
+  await run.row('S3', 'Sandbox Files: Workspaces (each a folder of its saved files, chip) | Sandbox folders (Home, log) | Whole filesystem (/) when offered', async (t) => {
     const sb = need(T.sandbox)
     await openFiles(page, sb)
     let s = await filesState(page)
     const roots = await rootsOf(page, sb)
     const info = (await probe(page, 'GET', `/api/sandboxes/${enc(sb.name)}`)).body
-    t.check((await tabs(page)).join('|') === 'Terminals|Files|Daemon log', `Sandbox tabs: ${JSON.stringify(await tabs(page))}`)
+    t.check((await tabs(page)).join('|') === 'Overview|Workspaces|Files|Daemon log', `Sandbox tabs: ${JSON.stringify(await tabs(page))}`)
     const ws = roots.filter((e) => e.role === 'workspace'), home = roots.find((e) => e.role === 'home'), log = roots.find((e) => e.role === 'log')
     t.check(ws.length === info.workspaces.length && home && log, `the roots: ${ws.length} Workspaces, Home, log`)
-    t.check(s.rows.filter((r) => !r.key.startsWith(`${home.path}/`)).every((r, i) => r.key === roots.filter((e) => e.path !== '/')[i].path), 'roots keep the server\'s order')
+    const offersWhole = roots.some((e) => e.path === '/')
+    const switchReads = `Workspaces|Sandbox folders${offersWhole ? '|Whole filesystem (/)' : ''}`
+    t.check(s.views.join('|') === switchReads, `the switch reads ${switchReads.replaceAll('|', ' | ')} (${JSON.stringify(s.views)})`)
+    t.check(s.view === 'layerfs', `the tab opens on Workspaces (${s.view})`)
+    // the Workspaces view: only the Workspace roots, in the server's order, each a folder of its saved files
+    t.check(s.rows.length === ws.length && s.rows.every((r, i) => r.key === ws[i].path), `Workspaces lists the Workspace roots in the server's order (${s.rows.map((r) => r.key.split('/').pop()).join(' ')})`)
     for (const e of ws) {
       const r = rowOf(s, e.path), w = info.workspaces.find((x) => x.path === e.path || x.wsId === e.workspace)
-      t.check(r && r.text.startsWith(`Workspace ${w?.name}`) && r.disabled && r.expanded === null, `Workspace ${w?.name}: a row without a chevron, named by the Workspace (${r?.text.slice(0, 40)})`)
-      t.check(/Live files are in the terminal; saved files under Browse base/.test(r.below) && /Open terminal/.test(r.below), `…with the line about live and saved files and Open terminal`)
+      const opens = !!w?.base && !!info.project
+      t.check(r && r.text.startsWith(`Workspace ${w?.name}`) && r.text.includes(w?.branch ?? '\u0000'), `Workspace ${w?.name}: named by the Workspace, with its Branch (${r?.text.slice(0, 50)})`)
+      t.check(opens ? r.expanded === 'false' && !r.disabled : r.disabled && r.expanded === null, `…${opens ? 'a folder row (it has a base Commit)' : 'not opened (no base Commit or project)'}`)
+      t.check(r.below === '', `…with no line under it: no terminal link, no Browse base (${JSON.stringify(r.below)})`)
+      if (opens) t.check(r.title.includes(`Files saved on ${w.branch} at ${shortId(w.base)}`), `…its tooltip names the Branch and base it lists (${r.title})`)
       const dirty = (w?.dirty?.inodes ?? 0) + (w?.dirty?.entries ?? 0)
       t.check(r.trailing !== '' && (dirty ? /uncommitted|change/.test(r.trailing) : true), `…and its changes chip (${r.trailing}; ${dirty ? 'dirty' : 'clean'})`)
-      t.check(/Browse base/.test(r.below.replace('saved files under Browse base', '')) === !!w?.base, `…Browse base ${w?.base ? 'shown (it has a base Commit)' : 'hidden (no base)'}`)
+      if (dirty && opens) t.check(/changes not yet committed are not listed/.test(r.title), '…a dirty Workspace says its uncommitted changes are not listed')
     }
-    t.check(rowOf(s, home.path).text.startsWith('Home') && rowOf(s, home.path).expanded !== null, 'Home is a folder row')
-    t.check(rowOf(s, log.path).text.startsWith('Daemon log'), `the log row reads Daemon log (${rowOf(s, log.path).text.slice(0, 30)})`)
-    const offersWhole = roots.some((e) => e.path === '/')
-    t.check(offersWhole ? s.views.join('|') === 'Sandbox|Whole filesystem (/)' : s.views.length === 0, `${offersWhole ? 'the switch reads Sandbox | Whole filesystem (/)' : 'no / offered: no view switch'} (${JSON.stringify(s.views)})`)
-    await shot(page, 'inspect-files-s3-sandbox')
-    // Home opens
-    let got = await toggle(page, home.path)
-    t.check(got.ok && rowOf(got.state, home.path).expanded === 'true', 'Home opens')
-    // Browse base
+    await shot(page, 'inspect-files-s3-workspaces')
+    // a Workspace opens in place: its Branch's saved files at its base, under the mount's path
     const based = ws.map((e) => ({ e, w: info.workspaces.find((x) => x.path === e.path) })).find((x) => x.w?.base)
-    if (based) {
-      await itemOf(page, based.e.path).getByRole('button', { name: 'Browse base', exact: true }).click()
-      const browse = files(page).locator('[data-files-browse], :scope[data-files-browse]')
-      await page.waitForFunction(() => [...document.querySelectorAll('[data-storage-page] [data-files-browse]')].some((e) => e.offsetParent), null, { timeout: 15000 })
-      const at = await page.evaluate(() => [...document.querySelectorAll('[data-storage-page] [data-files-browse]')].find((e) => e.offsetParent).getAttribute('data-files-browse'))
-      t.check(at === based.w.base, `Browse base opens the project's saved files at the Workspace's base ${String(based.w.base).slice(0, 12)} (${String(at).slice(0, 12)})`)
-      const text = await editor(page).locator('[data-files-browse]').innerText()
-      t.check(/base, without live changes/.test(text), 'labelled "base, without live changes"')
-      await editor(page).locator('[data-files-browse] [role=tree] [role=treeitem]').first().waitFor({ timeout: 15000 }).catch(() => t.check(false, 'the saved files tree does not list'))
-      await shot(page, 'inspect-files-s3-base')
-      await editor(page).getByRole('button', { name: 'Back to Files', exact: true }).click()
-      got = await waitFiles(page, (x) => x.state === 'ready' && rowOf(x, home.path)?.expanded === 'true')
-      t.check(got.ok, 'Back to Files: the tree as it was left')
-      void browse
-    } else t.note('no Workspace with a base Commit: Browse base was not opened')
-    // Open terminal: the Terminals tab at that Workspace (the last one: past page 1 when there are more than four)
-    const last = ws.at(-1), lastWs = info.workspaces.find((x) => x.path === last.path)
-    await itemOf(page, last.path).getByRole('button', { name: 'Open terminal', exact: true }).click()
-    await editor(page).getByRole('textbox', { name: `Command for ${lastWs.name}`, exact: true }).waitFor({ timeout: 15000 }).catch(() => t.check(false, `Open terminal does not show ${lastWs.name}'s pane`))
-    t.check((await editor(page).getByRole('tab', { name: 'Terminals', exact: true }).getAttribute('aria-selected')) === 'true', 'Open terminal: the Terminals tab')
-    // the log row
-    await showFiles(page)
+    if (based && info.project) {
+      const { e, w } = based
+      const saved = await probe(page, 'GET', `/api/projects/${enc(info.project)}/fs?branch=${enc(w.branch)}&path=%2F&pin=${enc(w.base)}&pos=0`)
+      t.check(saved.ok, `the project lists ${w.branch} at ${w.base.slice(0, 12)} (${saved.status} ${saved.code ?? ''})`)
+      let got = await toggle(page, e.path)
+      const kids = under(got.state, e.path).filter((r) => !r.key.slice(e.path.length + 1).includes('/'))
+      t.check(got.ok && rowOf(got.state, e.path).expanded === 'true', `Workspace ${w.name} opens`)
+      t.check(saved.ok && kids.length > 0 && saved.body.items.every((i) => kids.some((k) => k.key === `${e.path}${i.path}`)), `…listing its saved files under ${e.path} (${kids.slice(0, 5).map((k) => k.key.slice(e.path.length)).join(' ')})`)
+      t.check(got.state.refusals.length === 0, `…with no refusal (${JSON.stringify(got.state.refusals)})`)
+      const file = saved.ok ? saved.body.items.find((i) => i.kind === 'file') : null
+      if (file) {
+        const want = await probe(page, 'GET', `/api/projects/${enc(info.project)}/file?branch=${enc(w.branch)}&path=${enc(file.path)}&pin=${enc(w.base)}&line=1`)
+        await row(page, `${e.path}${file.path}`).click()
+        got = await waitFiles(page, (x) => x.file === `${e.path}${file.path}` && x.viewer !== null && !/Reading/.test(x.viewer))
+        const head = (want.body?.text ?? '').split('\n').find((l) => l.trim()) ?? ''
+        t.check(got.ok && (want.body?.binary || (got.state.viewer ?? '').includes(head.trim())), `a saved file opens in the viewer (${file.path}: "${head.slice(0, 40)}")`)
+        t.check(got.state.path === `${e.path}${file.path}`, `the path bar shows it under the mount (${got.state.path})`)
+      } else t.note(`${w.branch} has no file at its top: no file was opened`)
+      const dir = saved.ok ? saved.body.items.find((i) => i.kind === 'dir') : null
+      if (dir) {
+        got = await toggle(page, `${e.path}${dir.path}`)
+        t.check(got.ok && under(got.state, `${e.path}${dir.path}`).length > 0, `a folder inside it opens (${dir.path})`)
+      }
+      await shot(page, 'inspect-files-s3-workspace-open')
+    } else t.note('no Workspace with a base Commit, or no project: no Workspace was opened')
+    // Sandbox folders: Home and the log
+    await switchView(page, 'Sandbox folders')
+    s = await filesState(page)
+    const others = roots.filter((e) => e.role !== 'workspace' && e.path !== '/')
+    t.check(s.view === 'sandbox' && s.rows.filter((r) => !r.key.startsWith(`${home.path}/`)).every((r, i) => r.key === others[i]?.path), `Sandbox folders lists Home and the log in the server's order (${s.rows.map((r) => r.text.slice(0, 12)).join(' | ')})`)
+    t.check(rowOf(s, home.path)?.text.startsWith('Home') && rowOf(s, home.path).expanded !== null, 'Home is a folder row')
+    t.check(rowOf(s, log.path)?.text.startsWith('Daemon log'), `the log row reads Daemon log (${rowOf(s, log.path)?.text.slice(0, 30)})`)
+    await shot(page, 'inspect-files-s3-sandbox')
+    const opened = await toggle(page, home.path)
+    t.check(opened.ok && rowOf(opened.state, home.path).expanded === 'true', 'Home opens')
     await row(page, log.path).click()
     await editor(page).locator('[data-log]').waitFor({ timeout: 10000 }).catch(() => t.check(false, 'the log row does not open the Daemon log tab'))
     t.check((await editor(page).getByRole('tab', { name: 'Daemon log', exact: true }).getAttribute('aria-selected')) === 'true', 'the log row opens the Daemon log tab')
+    await showFiles(page)
+    if (offersWhole) {
+      await switchView(page, 'Whole filesystem (/)')
+      s = await filesState(page)
+      t.check(s.view === 'whole' && s.rows.length > 0 && s.rows.every((r) => /^\/[^/]+$/.test(r.key)), `Whole filesystem lists / (${s.rows.map((r) => r.key).join(' ')})`)
+    }
+    await switchView(page, 'Workspaces')
 
     // a Sandbox with `/`
     if (!T.wholeSandbox.name) { t.note('INSPECT_WHOLE_SANDBOX is not set: the Whole filesystem part was NOT_RUN'); return }
     const w = T.wholeSandbox
     await openFiles(page, w)
     s = await filesState(page)
-    t.check(s.views.join('|') === 'Sandbox|Whole filesystem (/)', `${w.name}: the switch reads Sandbox | Whole filesystem (/) (${JSON.stringify(s.views)})`)
+    t.check(s.views.join('|') === 'Workspaces|Sandbox folders|Whole filesystem (/)', `${w.name}: the switch reads Workspaces | Sandbox folders | Whole filesystem (/) (${JSON.stringify(s.views)})`)
     await switchView(page, 'Whole filesystem (/)')
     s = await filesState(page)
     t.check(s.view === 'whole' && s.rows.length > 0 && s.rows.every((r) => /^\/[^/]+$/.test(r.key)), `Whole filesystem lists / (${s.rows.map((r) => r.key).join(' ')})`)
     await shot(page, 'inspect-files-s3-whole')
-    await switchView(page, 'Sandbox')
+    await switchView(page, 'Workspaces')
   })
 
   await run.row('S4', 'Go to a pasted path opens it; a stored place opens at its path (Doctor "Show in Files": NOT_RUN, #180)', async (t) => {

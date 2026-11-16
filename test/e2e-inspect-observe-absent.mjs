@@ -43,8 +43,7 @@ await main('e2e-inspect-observe-absent', async ({ run, page }) => {
     const root = bar(page).getByRole('navigation', { name: 'Location' }).getByRole('button', { name: 'Center', exact: true })
     if (await root.count()) await root.first().click()
     await editor(page).getByRole('tab', { name: /^Machines\b/ }).first().click()
-    await editor(page).getByRole('button', { name: 'Open board', exact: true }).click()
-    await editor(page).getByRole('heading', { name: 'Machines', exact: true }).waitFor()
+    await editor(page).locator('[data-machine]').first().waitFor()
     await sleep(2500)
     p = await parts(page)
     t.check(p.n === 0 && !/Not observed|Daemon not running/i.test(p.all), `board: no observed part and no "Not observed" (${p.n})`)
@@ -53,6 +52,7 @@ await main('e2e-inspect-observe-absent', async ({ run, page }) => {
     // the Sandbox page
     if (cfg.sandbox) {
       await jump(page, cfg.sandbox)
+      await editor(page).getByRole('tab', { name: 'Workspaces', exact: true }).click()
       await editor(page).getByRole('button', { name: 'New workspace', exact: true }).first().waitFor({ timeout: 20000 }).catch(() => t.check(false, 'Sandbox page: the terminals do not render'))
       await sleep(2000)
       p = await parts(page)

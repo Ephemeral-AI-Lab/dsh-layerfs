@@ -6,8 +6,33 @@
  */
 import type { SandboxCommand, WorkspaceInfo } from './model.ts'
 
-/** Terminals on one page, tiled 2×2. */
-export const PER_PAGE = 4
+/** The smallest a terminal pane gets before fewer fit on a page, in CSS px. */
+export const PANE_MIN_WIDTH = 380
+export const PANE_MIN_HEIGHT = 220
+/** The gap between panes, in CSS px. */
+export const PANE_GAP = 8
+/** At most this many columns and rows of panes, however large the page. */
+export const MAX_COLUMNS = 4
+export const MAX_ROWS = 3
+
+/** A page of panes: how many columns and rows fit. */
+export interface Fit { columns: number, rows: number }
+
+/** The panes of the 2×2 page, for a caller that has not measured its area yet. */
+export const DEFAULT_FIT: Fit = { columns: 2, rows: 2 }
+
+const clamp = (n: number, low: number, high: number): number => Math.min(high, Math.max(low, n))
+
+/**
+ * How many panes fit in an area `width` × `height` px: as many columns and
+ * rows as keep each pane at least PANE_MIN_WIDTH × PANE_MIN_HEIGHT, at least
+ * one of each and at most MAX_COLUMNS × MAX_ROWS. There is no layout choice:
+ * the page's size decides.
+ */
+export function paneFit(width: number, height: number): Fit {
+  const per = (size: number, min: number) => (Number.isFinite(size) ? Math.floor((size + PANE_GAP) / (min + PANE_GAP)) : 1)
+  return { columns: clamp(per(width, PANE_MIN_WIDTH), 1, MAX_COLUMNS), rows: clamp(per(height, PANE_MIN_HEIGHT), 1, MAX_ROWS) }
+}
 
 const collator = new Intl.Collator(undefined, { numeric: true })
 
@@ -30,35 +55,43 @@ export type Slot = string | 'new' | 'blank'
 export interface PageLayout {
   pages: number
   page: number
-  /** one: a single tile fills the area; two: side by side; quad: 2×2. */
-  grid: 'one' | 'two' | 'quad'
+  /** The grid the page draws: columns × rows of tiles, filling the area. */
+  columns: number
+  rows: number
   slots: Slot[]
 }
 
+const perPage = (fit: Fit): number => Math.max(1, fit.columns) * Math.max(1, fit.rows)
+
 /**
- * Which tiles a page shows. One Workspace fills the area and two sit side by
- * side; three or more use the 2×2 grid, whose first free tile offers a new
- * Workspace (`new`, while one can be added) and whose others stay empty.
- * More than four page by four. `max` (a maximized Workspace) shows alone.
+ * Which tiles a page shows, in a grid of at most `fit` (what the area holds,
+ * paneFit). A page that holds them all draws only the columns and rows its
+ * Workspaces need, so one Workspace fills the area and two sit side by side;
+ * a free tile left in those rows offers a new Workspace (`new`, while one can
+ * be added) and the rest stay empty. More than one page keeps the full grid
+ * on every page, so panes do not change size while paging. `max` (a
+ * maximized Workspace) shows alone.
  */
-export function pageLayout(ids: readonly string[], page: number, max: string | null, canAdd: boolean): PageLayout {
-  const pages = Math.max(1, Math.ceil(ids.length / PER_PAGE))
+export function pageLayout(ids: readonly string[], page: number, max: string | null, canAdd: boolean, fit: Fit = DEFAULT_FIT): PageLayout {
+  const size = perPage(fit)
+  const pages = Math.max(1, Math.ceil(ids.length / size))
   const at = Math.min(Math.max(0, Math.floor(page) || 0), pages - 1)
-  if (max && ids.includes(max)) return { pages, page: at, grid: 'one', slots: [max] }
-  if (!ids.length) return { pages, page: at, grid: 'one', slots: [canAdd ? 'new' : 'blank'] }
-  const shown = ids.slice(at * PER_PAGE, at * PER_PAGE + PER_PAGE)
-  if (pages === 1 && shown.length === 1) return { pages, page: at, grid: 'one', slots: shown }
-  if (pages === 1 && shown.length === 2) return { pages, page: at, grid: 'two', slots: shown }
+  const one = (slot: Slot): PageLayout => ({ pages, page: at, columns: 1, rows: 1, slots: [slot] })
+  if (max && ids.includes(max)) return one(max)
+  if (!ids.length) return one(canAdd ? 'new' : 'blank')
+  const shown = ids.slice(at * size, at * size + size)
+  const columns = pages === 1 ? Math.min(Math.max(1, fit.columns), shown.length) : Math.max(1, fit.columns)
+  const rows = pages === 1 ? Math.ceil(shown.length / columns) : Math.max(1, fit.rows)
   const slots: Slot[] = [...shown]
-  if (slots.length < PER_PAGE && canAdd) slots.push('new')
-  while (slots.length < PER_PAGE) slots.push('blank')
-  return { pages, page: at, grid: 'quad', slots }
+  if (slots.length < columns * rows && canAdd) slots.push('new')
+  while (slots.length < columns * rows) slots.push('blank')
+  return { pages, page: at, columns, rows, slots }
 }
 
-/** The page that shows Workspace `id` (0 when it is not there). */
-export function pageOf(ids: readonly string[], id: string): number {
+/** The page that shows Workspace `id` (0 when it is not there), `fit` panes a page. */
+export function pageOf(ids: readonly string[], id: string, fit: Fit = DEFAULT_FIT): number {
   const i = ids.indexOf(id)
-  return i < 0 ? 0 : Math.floor(i / PER_PAGE)
+  return i < 0 ? 0 : Math.floor(i / perPage(fit))
 }
 
 /**

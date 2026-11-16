@@ -10,6 +10,7 @@
  * restart starts it empty, and the charts say so.
  */
 import { useMemo, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { ChartGroup, Figure, Figures, LineArea, type ChartSample } from '../ui/LineArea.tsx'
 import { Meter } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
@@ -55,8 +56,8 @@ function HistoryNote({ snapshot }: { snapshot: MetricsSnapshot }): ReactNode {
 // ---------------------------------------------------------------- machine card
 
 /**
- * A machine card's meters: memory used of total, data disk used of total and
- * live Sandboxes of recorded, from the sampler's last answer. A machine the
+ * A machine card's meters: memory used of total and data disk used of total,
+ * from the sampler's last answer (the Sandboxes column counts the Sandboxes). A machine the
  * sampler does not read shows what its record was created with, labelled
  * "allocated", and "Not read" with why.
  */
@@ -78,7 +79,7 @@ export function MachineMeters({ m }: { m: MachineInfo }): ReactNode {
       </span>
     )
   }
-  const r = stats.resources, b = stats.sandboxes
+  const r = stats.resources
   return (
     <span className={css.meters} data-mx-meters="read">
       {r.memoryTotal != null && r.memoryUsed != null
@@ -87,7 +88,38 @@ export function MachineMeters({ m }: { m: MachineInfo }): ReactNode {
       {r.diskTotal != null && r.diskUsed != null
         ? <span className={css.meterItem} data-mx-disk><Meter share={r.diskTotal > 0 ? r.diskUsed / r.diskTotal : 0} label={t('diskUse')} className={css.diskMeter} />{t('mxDiskOf', { used: gib(r.diskUsed), total: gib(r.diskTotal) })}</span>
         : <span className={css.muted} data-mx-disk="null">{t('mxDiskNotRead', { reason: w.reasons(r.reason) || w.reason(null) })}</span>}
-      <span className={css.muted} data-mx-live>{b.live != null ? t('mxLiveOf', { live: String(b.live), recorded: b.recorded != null ? String(b.recorded) : '—' }) : t('mxLiveNotRead', { reason: w.reason(stats.reason) })}</span>
+    </span>
+  )
+}
+
+/**
+ * A machine row's memory: a meter and "89% of 36 GiB" (used of total on
+ * hover), warning past 75 % and danger past 90 %. Not read: the memory its
+ * record was created with, muted, or a dash, with why on hover.
+ */
+export function MemoryCell({ m }: { m: MachineInfo }): ReactNode {
+  const { t } = useMachinesContext()
+  const w = useWords()
+  const { offered, snapshot } = useMetrics(m.name)
+  const entry = offered ? snapshot.machines[m.name] : undefined
+  const r = statsAskable(m) ? entry?.latest?.stats?.resources : undefined
+  if (r?.memoryTotal != null && r.memoryUsed != null && r.memoryTotal > 0) {
+    const share = Math.max(0, Math.min(1, r.memoryUsed / r.memoryTotal))
+    return (
+      <span className={css.cellStack} data-mx-memory>
+        <Meter share={share} label={t('memoryUse')} className={css.cellBar} />
+        <span className={css.cellText} data-tone={share > 0.9 ? 'danger' : share > 0.75 ? 'warning' : undefined}
+          title={t('mxMemoryOf', { used: gib(r.memoryUsed), total: gib(r.memoryTotal) })}>
+          {t('memoryShare', { pct: String(Math.round(share * 100)), total: gib(r.memoryTotal) })}
+        </span>
+      </span>
+    )
+  }
+  const last = entry?.points.at(-1)
+  const why = !offered ? null : !statsAskable(m) ? w.reason('machine_stopped') : last && !last.values ? w.reason(last.code) : snapshot.loaded ? w.reason('not_observed') : null
+  return (
+    <span className={clsx(css.cellText, css.cellMuted)} data-mx-memory="null" title={why ? t('mxNotRead', { reason: why }) : undefined}>
+      {m.memory != null ? t('mxAllocatedMemory', { size: gib(m.memory) }) : '—'}
     </span>
   )
 }

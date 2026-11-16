@@ -1,0 +1,155 @@
+/* The Workspaces tab's grid (WorkspaceGrid.tsx) and its toolbar. The cards
+   themselves reuse the Sandbox cards' classes in machines.module.css
+   (sbGrid, sbCard, sbFigures); these are only the parts a Workspace adds. */
+
+.choose {
+  flex: none;
+  margin: 0;
+}
+
+.choose > span:empty {
+  display: none;
+}
+
+.ns {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--ds-font-family-code);
+  font-size: 11.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  min-height: 18px;
+}
+
+.branch,
+.tag {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 6px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-xs);
+  font-size: 11.5px;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.branch {
+  font-family: var(--ds-font-family-code);
+}
+
+.tag[data-tone='warning'] {
+  border-color: transparent;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.run {
+  margin: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.program {
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-primary);
+}
+
+.sub {
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sub[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.spark {
+  display: block;
+  overflow: visible;
+}
+
+.spark polyline {
+  fill: none;
+  stroke: var(--dsw-alias-state-business-primary);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+
+.newTile {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 168px;
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-lg);
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.newTile:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}
+
+.newForm {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (hover: hover) {
+  .newTile:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+/* ---------- toolbar ---------- */
+
+.capacity {
+  display: inline-flex;
+  width: 72px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.capacity > span {
+  display: block;
+  height: 100%;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.chosen {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.views {
+  display: inline-flex;
+  gap: 2px;
+}

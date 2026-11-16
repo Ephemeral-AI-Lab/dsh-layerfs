@@ -13,19 +13,17 @@
  * A link from another page (`openStorage`) opens its page here.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, IconSettingsOutlineRegular, IconShieldOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { DoctorT } from '../doctor/locale.ts'
 import { useQuery } from '../files/use-query.ts'
 import { HealthView } from '../health/index.tsx'
-import { LogsPage, LogsPanelIcon, type LogsT } from '../logs/index.tsx'
+import { LogsPage, type LogsT } from '../logs/index.tsx'
 import { AddMachineDialog } from '../machines/AddMachineDialog.tsx'
-import { Board } from '../machines/Board.tsx'
 import { MachinesProvider, useMachinesContext, type MachinesPageProps, type Translate as MachinesT } from '../machines/context.tsx'
 import { MachineDetail } from '../machines/MachineDetail.tsx'
 import { shortSandbox } from '../machines/model.ts'
 import { SandboxDetail } from '../machines/SandboxDetail.tsx'
-import { NewSandboxDialog } from '../machines/Sandboxes.tsx'
 import { PresetsDialog, type PresetsT } from '../presets/index.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
@@ -45,7 +43,7 @@ import { ProjectPage } from './ProjectPage.tsx'
 import type { ProjectMapShare } from './ProjectSandboxes.tsx'
 import type { StoreActions } from './StoreCard.tsx'
 import { StorePage } from './StorePage.tsx'
-import { isTabId, readOverviewTab, writeOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
+import { isTabId, openHomeStores, readOverviewTab, writeOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import type { DoctorReport, ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
@@ -102,7 +100,6 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const [listingAll, setListingAll] = useState(false)
   const [newMachine, setNewMachine] = useState(false)
   const [presetsOpen, setPresetsOpen] = useState(false)
-  const [newSandbox, setNewSandbox] = useState<string | null>(null)
 
   // One page at a time: Back and Forward over the pages visited, and the Overview's section.
   const history = useNavHistory('overview')
@@ -127,13 +124,14 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   useEffect(() => { if (!storage.loading) setManual(false) }, [storage.loading])
   const refresh = () => { reload(); setChecks((n) => n + 1) }
 
-  const open = history.open
+  // The machines board is the Overview's Machines tab: `machines` opens that tab.
+  const open = (id: TabId) => { if (id === 'machines') { setSection('machines'); history.open('overview') } else history.open(id) }
   openRef.current = open
   // A link from another page asked for a page: open it once.
   const request = useStorageRequest(api)
   useEffect(() => {
     if (request === null) return
-    // `machines:new`: the machines board with Add machine open (the Setup card's New machine…).
+    // `machines:new`: the Overview's Machines tab with Add machine open (the Setup card's New machine…).
     if (request === 'machines:new') { open('machines'); setNewMachine(true) }
     else if (isTabId(request)) open(request)
     takeStorageRequest(api)
@@ -181,6 +179,10 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
       body: t('detachBody', { machine: machine === 'native' ? t('layerfsHome') : machine }), action: t('detach'),
       run: () => api.call('POST', `/api/stores/${enc(s.name)}/detach`, { machine }),
     }),
+    newOnServer: () => {
+      const pg = s.postgresql
+      if (pg?.url && pg.server) setDialog({ kind: 'new-store', postgresql: true, server: { server: pg.server, url: pg.url, from: s.name } })
+    },
     retry: (j) => { dismiss(j.id); act(() => retry(j)) },
     dismiss: (j) => dismiss(j.id),
     openMachine,
@@ -216,21 +218,21 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
 
   const root: Crumb = { key: 'root', label: t('title'), go: () => open('overview') }
   const sectionCrumb = (key: OverviewTab, label: string): Crumb => ({ key: `section:${key}`, label, go: () => { setSection(key); open('overview') } })
+  // a bucket's way back: Home › Stores on SQLite's Buckets view (once the Backups tab)
+  const bucketsCrumb: Crumb = { key: 'section:buckets', label: t('hsViewBuckets'), go: () => { openHomeStores('sqlite', true); setSection('stores'); open('overview') } }
   const machineSiblings: Sibling[] = places.map((p) => ({ id: `machine:${p.name}`, label: machineWord(p.name), meta: mc.kind(p.platform) }))
   const storeSiblings: Sibling[] = stores.map((s) => ({ id: `store:${s.name}`, label: s.name, meta: `${kindWord(s)} · ${storeWhere(s)}`, group: s.kind }))
   const bucketSiblings: Sibling[] = (view?.buckets ?? []).map((b) => ({ id: `bucket:${b.name}`, label: b.name, meta: providerWords(b.provider, t) }))
-  // Health, Logs and Settings: Center pages with a button each in the bar.
-  const findings = doctor.data?.findings?.length ?? 0
+  // Health, Logs and Settings: pages under Home, opened from its head card (and Jump to).
   const pages: NavPage[] = [
-    { id: 'health', label: t('navHealth'), icon: <IconShieldOutlineRegular size={15} />, ...(findings ? { count: findings, title: t('navHealthFindings', { n: findings }) } : {}) },
-    { id: 'logs', label: t('navLogs'), icon: <LogsPanelIcon size={15} /> },
-    { id: 'settings', label: t('navSettings'), icon: <IconSettingsOutlineRegular size={15} /> },
+    { id: 'health', label: t('navHealth') },
+    { id: 'logs', label: t('navLogs') },
+    { id: 'settings', label: t('navSettings') },
   ]
   const crumbsOf = (id: TabId): Crumb[] => {
     if (id === 'overview') return [{ key: 'root', label: t('title') }]
     const extra = pages.find((p) => p.id === id)
     if (extra) return [root, { key: id, label: extra.label }]
-    if (id === 'machines') return [root, sectionCrumb('machines', t('ovMachines')), { key: 'board', label: t('machinesBoard') }]
     const body = id.slice(id.indexOf(':') + 1)
     const machineCrumb = (name: string, here: boolean): Crumb => ({
       key: `machine:${name}`, label: machineWord(name), id: `machine:${name}`, siblings: machineSiblings, ...(here ? {} : { go: () => openMachine(name) }),
@@ -253,12 +255,12 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     }
     const bucket = id.startsWith('backup:') ? body.slice(0, body.indexOf('/')) : body
     const bucketCrumb: Crumb = { key: `bucket:${bucket}`, label: bucket, id: `bucket:${bucket}`, siblings: bucketSiblings }
-    if (id.startsWith('bucket:')) return [root, sectionCrumb('backups', t('ovBackups')), bucketCrumb]
+    if (id.startsWith('bucket:')) return [root, bucketsCrumb, bucketCrumb]
     const file = body.slice(body.indexOf('/') + 1)
     const b = view?.buckets.find((x) => x.name === bucket)
     const files = b ? [...new Set(bucketFiles(b, view?.stores ?? []).map((r) => r.file))] : []
     const beside: Sibling[] = files.map((f) => ({ id: `backup:${bucket}/${f}`, label: f }))
-    return [root, sectionCrumb('backups', t('ovBackups')), { ...bucketCrumb, go: () => open(`bucket:${bucket}`) }, { key: id, label: file, id, siblings: beside }]
+    return [root, bucketsCrumb, { ...bucketCrumb, go: () => open(`bucket:${bucket}`) }, { key: id, label: file, id, siblings: beside }]
   }
 
   const jump: JumpItem[] = [
@@ -283,16 +285,12 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     { id: 'presets', label: more.presets('openTitle'), run: () => setPresetsOpen(true) },
   ]
 
-  const sandboxMachine = newSandbox !== null ? fleet?.machines.find((m) => m.name === newSandbox) : undefined
   const dialogs = (
     <>
       <PresetsDialog api={api} t={more.presets} open={presetsOpen} onClose={() => setPresetsOpen(false)} />
       <StorageDialogs api={api} t={t} dialog={dialog} view={view} onClose={() => setDialog(null)} done={refresh} onOpenStore={(name) => open(`store:${name}`)} onDialog={setDialog} />
       {newMachine && fleet ? (
         <AddMachineDialog view={fleet} platforms={fleet.platforms} onClose={() => setNewMachine(false)} onMade={(name) => { setNewMachine(false); open(`machine:${name}`) }} />
-      ) : null}
-      {sandboxMachine && fleet ? (
-        <NewSandboxDialog machine={sandboxMachine} taken={fleet.sandboxes.map((b) => b.name)} onClose={() => setNewSandbox(null)} />
       ) : null}
     </>
   )
@@ -307,7 +305,6 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} />
     if (id === 'logs') return <LogsPage api={api} t={more.logs} />
     if (id === 'settings') return <SettingsView t={more.settings} />
-    if (id === 'machines') return <Board go={mc.go} />
     if (id.startsWith('machine:')) {
       return (
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
@@ -327,8 +324,9 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
         <Page wide label={t('title')}>
           <HomeOverview view={view} error={storage.error} t={t} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed}
             onOpen={open} onRefresh={refresh} onCheckAgain={() => setChecks((n) => n + 1)}
-            onNewStore={() => setDialog({ kind: 'new-store' })} onNewMachine={() => setNewMachine(true)} onPresets={() => setPresetsOpen(true)} presetsLabel={more.presets('openTitle')}
-            onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })} onNewSandbox={setNewSandbox}
+            onNewStore={() => setDialog({ kind: 'new-store' })} onConnect={() => setDialog({ kind: 'new-store', postgresql: true })}
+            onBackups={(store) => setDialog({ kind: 'backups', store })} onNewMachine={() => setNewMachine(true)} onPresets={() => setPresetsOpen(true)} presetsLabel={more.presets('openTitle')}
+            onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
             onRemoveProject={(store, project) => setDialog({
               kind: 'confirm', title: t('removeProjectTitle', { name: project }), body: t('removeProjectBody'), action: t('deleteAction'), name: project,
               run: () => api.call('DELETE', `/api/projects/${enc(`${store}/${project}`)}`).then(() => { refresh(); close(`project:${store}/${project}`) }),
@@ -348,7 +346,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
       return (
         <Page wide label={t('title')}>
           <StorePage name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, name, dismissed, now)} jobs={jobs.filter((j) => j.store === name)}
-            catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} />
+            catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} onOpen={open} />
         </Page>
       )
     }
@@ -398,7 +396,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   return (
     <div className={css.shell}>
       <NavBar t={t} history={history} crumbs={crumbsOf(active)} jump={jump} jobs={jobs} refreshing={manual || storage.loading}
-        onRefresh={() => { setManual(true); refresh() }} add={add} onOpen={open} pages={pages} />
+        onRefresh={active === 'overview' ? undefined : () => { setManual(true); refresh() }} add={add} onOpen={open} />
       {refusal}
       <div className={css.panels}>
         <div key={active} className={css.tabBody} data-storage-page={active}>{pageOf(active)}</div>

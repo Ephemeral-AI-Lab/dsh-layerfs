@@ -290,3 +290,44 @@ test('rows of the real answers: a LayerFS folder met where it is not entered, a 
   assert.equal(F.wholeOf([e('/home', 'folder', { role: 'home' }), e('/', 'folder', { role: 'root' })]).role, 'root')
   assert.equal(F.wholeOf([e('/layerfs/data', 'folder', { role: 'data' })]), undefined, 'no `/` in the roots: no second view')
 })
+
+test('a Workspace is read from its saved files: its Branch at its base, under the mount path', async () => {
+  const root = '/run/sb/workspaces/4'
+  const source = { root, project: 's/p', branch: 'care-001', base: 'c0ffee' }
+  const calls = []
+  const api = {
+    call: async (method, path) => {
+      calls.push(path)
+      const u = new URL(path, 'http://x')
+      if (u.pathname.endsWith('/fs')) {
+        if (u.searchParams.get('path') === '/README.md') throw Object.assign(new Error('not a folder'), { code: 'InvalidInput' })
+        return u.searchParams.get('path') === '/'
+          ? { items: [{ name: 'src', path: '/src', kind: 'dir', size: null }, { name: 'README.md', path: '/README.md', kind: 'file', size: 12 }, { name: 'l', path: '/l', kind: 'symlink', size: null }], next: 2 }
+          : { items: [{ name: 'a.ts', path: '/src/a.ts', kind: 'file', size: 3 }], next: null }
+      }
+      return { path: u.searchParams.get('path'), size: 12, binary: false, text: 'hello\n', next_line: Number(u.searchParams.get('line')) === 1 ? 2 : null }
+    },
+  }
+  const queue = new F.ReadQueue()
+  const top = await F.readWorkspace(api, queue, source, { path: root, depth: 1 })
+  assert.equal(top.kind, 'folder')
+  assert.deepEqual(top.entries.map((e) => [e.path, e.kind, e.depth]), [[`${root}/src`, 'folder', 1], [`${root}/README.md`, 'file', 1], [`${root}/l`, 'symlink', 1]])
+  assert.equal(top.next, '2')
+  assert.match(calls[0], /branch=care-001/)
+  assert.match(calls[0], /pin=c0ffee/)
+  assert.match(calls[0], /\/api\/projects\/s%2Fp\/fs/)
+  const page = await F.readWorkspace(api, queue, source, { path: root, cursor: '2' })
+  assert.match(calls.at(-1), /pos=2/)
+  assert.equal(page.kind, 'folder')
+  const sub = await F.readWorkspace(api, queue, source, { path: `${root}/src`, depth: 1 })
+  assert.deepEqual(sub.entries.map((e) => e.path), [`${root}/src/a.ts`])
+  const file = await F.readWorkspace(api, queue, source, { path: `${root}/README.md`, offset: 1 })
+  assert.deepEqual([file.kind, file.content, file.offset, file.next], ['file', 'hello\n', 1, 2])
+  // Go to path on a file: not a folder, so read as one
+  const gone = await F.readWorkspace(api, queue, source, { path: `${root}/README.md`, depth: 1 })
+  assert.equal(gone.kind, 'file')
+  assert.equal(F.readKey(F.WS_ROOTS), F.ROOTS)
+  assert.equal(F.readKey(F.SB_ROOTS), F.ROOTS)
+  assert.equal(F.isWorkspaceEntry({ path: root, depth: 1, kind: 'mount', size: null, mode: null, mtime: null, role: 'workspace' }), true)
+  assert.equal(F.isWorkspaceEntry({ path: '/tmp', depth: 1, kind: 'folder', size: null, mode: null, mtime: null, role: 'home' }), false)
+})

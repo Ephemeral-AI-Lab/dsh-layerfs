@@ -8,7 +8,9 @@ import type { ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
+import { MachineGlyph } from '../machines/icons.tsx'
 import { Card, Notice } from '../ui/index.tsx'
+import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
 import { attachmentsOf, attachmentSignal } from './model.ts'
 import type { StoreActions } from './StoreCard.tsx'
@@ -65,6 +67,7 @@ export function StoreConnections({ store: s, view, t, now, on }: { store: StoreR
   const refusals = s.attachRefusals ?? []
   const tt = t as Translate
   const place = (m: string) => (m === 'native' ? t('layerfsHome') : m)
+  const platformOf = (m: string) => view.machines.find((x) => x.name === m)?.platform ?? (m === 'native' ? 'native' : 'unknown')
   const check = (a: PgAttachment) => {
     if (a.lastError) return <span className={css.dangerText} title={a.lastError.message}>{t('checkFailed')}: {a.lastError.message}</span>
     if (!a.checked) return <span className={css.muted}>{t('notChecked')}</span>
@@ -84,6 +87,7 @@ export function StoreConnections({ store: s, view, t, now, on }: { store: StoreR
           <Card key={a.machine} className={css.linkCard} data-tone={a.lastError ? 'danger' : undefined} data-attachment={a.machine}>
             <div className={css.linkHead}>
               <StateDot state={signal ? signal.state : 'done'} size={10} />
+              <span className={css.linkMark} aria-hidden="true">{a.machine === 'native' ? <HomeGlyph size={16} /> : <MachineGlyph platform={platformOf(a.machine)} size={16} />}</span>
               <span className={css.linkName}>{place(a.machine)}</span>
               <span className={a.own ? css.mono : css.muted}>{a.own ? t('ownTarget', { target: a.target ?? '—' }) : t('sameAsHost')}</span>
             </div>

@@ -26,7 +26,8 @@ import { useProjectData, useRecent, type ProjectItem } from '../ProjectList.tsx'
 import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
 import type { SetupT } from './locale.ts'
-import { attachedMachines, createSteps, defaultMachine, freeStoreName, isRunning, machinesFor, type CreatePlan, type Machine, type Step, type StoreKind } from './model.ts'
+import { attachedMachines, createSteps, defaultMachine, freeStoreName, isRunning, machinesFor, type CreatePlan, type Step, type StoreKind } from './model.ts'
+import { LocationPicker, machineNote, MachineTile, placeName, stoppedPicked, Tick, type LocationWords } from './MachineTiles.tsx'
 import { attachStore, detachStore, placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
 
@@ -103,10 +104,6 @@ function Group({ label, hint, children }: { label: string, hint?: string | undef
 
 // ---------- pieces ----------
 
-function Tick({ on, square }: { on: boolean, square?: boolean }): ReactNode {
-  return <span className={clsx(css.tick, square && css.tickSquare, on && css.tickOn)} aria-hidden="true">{on ? <IconCheckOutlineRegular size={11} /> : null}</span>
-}
-
 /** One Store kind as a card: its mark, name and what it means. */
 function KindCard({ kind, selected, t, onSelect }: { kind: StoreKind, selected: boolean, t: SetupT, onSelect: () => void }): ReactNode {
   return <button type="button" role="radio" aria-checked={selected} className={clsx(css.kind, selected && css.selected)} onClick={onSelect}>
@@ -119,38 +116,9 @@ function KindCard({ kind, selected, t, onSelect }: { kind: StoreKind, selected: 
   </button>
 }
 
-/** A machine's words: Running, Stopped, This Mac · no isolation. */
-function machineNote(m: Machine, t: SetupT): string {
-  if (m.name === 'native') return t('thisMac')
-  if (isRunning(m)) return t('running')
-  if (m.state === 'stopped') return t('stopped')
-  return m.state ?? ''
-}
-
-/** The chosen machines that are stopped (native never is). */
-function stoppedPicked(names: readonly string[], machines: readonly Machine[]): string[] {
-  return names.filter((n) => { const m = machines.find((x) => x.name === n); return !!m && !isRunning(m) })
-}
-
-/** One machine as a tile: its mark, name, state and a badge (Default, Here now). */
-function MachineTile({ m, selected, multi, note, badge, onSelect, disabled, working }: {
-  m: Machine, selected: boolean, multi: boolean, note: string, badge?: string | null, onSelect: () => void, disabled?: boolean, working?: boolean
-}): ReactNode {
-  return <button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={selected} disabled={disabled}
-    className={clsx(css.machine, selected && css.selected)} onClick={onSelect} data-machine={m.name}
-    aria-label={[m.name, note, badge].filter(Boolean).join(', ')}>
-    <span className={css.machineTop}>
-      <span className={css.machineMark}><MachineGlyph platform={m.platform || m.name} size={18} /></span>
-      {badge ? <span className={css.badge}>{badge}</span> : null}
-      {working ? <StateDot state="ongoing" size={11} /> : <Tick on={selected} square={multi} />}
-    </span>
-    <span className={css.machineName}>{m.name}</span>
-    <span className={css.machineNote}>
-      {m.name !== 'native' ? <span className={css.dot} data-on={isRunning(m) || undefined} aria-hidden="true" /> : null}
-      <span>{note}</span>
-    </span>
-  </button>
-}
+/** The tiles' words from this dialog's locale. */
+/** The tiles' words; `os` names the native machine (This Mac, unisolated; This computer, sandboxed; This PC). */
+const wordsOf = (t: SetupT, os?: string): LocationWords => ({ home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here') })
 
 function NewMachineTile({ api, t }: { api: LayerfsApi, t: SetupT }): ReactNode {
   return <button type="button" className={clsx(css.machine, css.newMachine)} onClick={() => { projectDialog.close(); openStorage(api, 'machines:new') }}>
@@ -173,9 +141,10 @@ function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
   if (id === 'init') return plan.source ? t('step_import', { source: shortPath(plan.source), name: plan.name }) : t('step_init', { name: plan.name })
   if (id === 'open') return t('step_open')
   if (id === 'detach:native') return t('step_detach', { store })
-  if (id === 'start-store' || id.startsWith('start:')) return t('step_start', { machine: step.machine ?? '' })
-  if (id.startsWith('place:')) return t('step_place', { store, machine: step.machine ?? '' })
-  return t('step_attach', { store, machine: step.machine ?? '' })
+  const machine = placeName(step.machine ?? '', wordsOf(t))
+  if (id === 'start-store' || id.startsWith('start:')) return t('step_start', { machine })
+  if (id.startsWith('place:')) return t('step_place', { store, machine })
+  return t('step_attach', { store, machine })
 }
 
 /** The running Init's phase and count: `hash · 8,412 / 12,930`. */
@@ -275,6 +244,8 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const chosen = kind === 'sqlite' ? [chosenSqlite] : chosenPg
   const running = steps !== null && !error
   useEffect(() => { onBusy(running) }, [running])
+  const words = wordsOf(t, data?.computer?.os)
+  const parts: readonly Part[] = PARTS
 
   const folderName = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? ''
   const pickSource = (path: string) => { setSource(path); if (!nameTyped) setName(folderName(path)) }
@@ -302,9 +273,9 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
     1: mode === 'existing' ? !!existing : NAME.test(newStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !!password.trim())),
-    2: chosen.length > 0 && chosen.every(Boolean),
+    2: chosen.length > 0 && chosen.every((m) => machines.some((x) => x.name === m)),
   }
-  const valid = !!data && ok[0] && ok[1] && ok[2]
+  const valid = !!data && parts.every((i) => ok[i])
 
   const plan = (): CreatePlan => ({
     name: slug, kind, store: existing,
@@ -352,10 +323,10 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     0: ok[0] ? (importing ? t('fromSummary', { name: slug, source: shortPath(source.trim()) }) : slug) : importing && !source.trim() ? t('needFolder') : t('notNamed'),
     1: !ok[1] ? (mode === 'existing' ? t('pickStore') : kind === 'postgresql' ? t('needConnection') : t('needStoreName'))
       : existing ? `${kindWord} · ${existing.name}` : `${kindWord} · ${t('newWord')} · ${newStoreName}`,
-    2: ok[2] ? chosen.join(', ') : t('noneChosen'),
+    2: ok[2] ? chosen.map((m) => placeName(m, words)).join(', ') : t('noneChosen'),
   }
   const railTitles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: t('stepMachine') }
-  const titles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: t('runsOn') }
+  const titles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: kind === 'sqlite' ? t('stepMachine') : t('runsOn') }
   const q = query.trim().toLowerCase()
   const listed = stores.filter((s) => !q || s.name.toLowerCase().includes(q) || (s.postgresql?.target ?? '').toLowerCase().includes(q))
   const moving = kind === 'sqlite' && existing && (existing.machine ?? 'native') !== chosenSqlite
@@ -369,12 +340,12 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const spy = () => {
     const root = pane.current
     if (!root) return
-    if (root.scrollTop + root.clientHeight >= root.scrollHeight - 4) { setActive(2); return }
+    if (root.scrollTop + root.clientHeight >= root.scrollHeight - 4) { setActive(parts[parts.length - 1]!); return }
     let on: Part = 0
-    for (const i of PARTS) { const el = sections.current[i]; if (el && el.offsetTop - root.scrollTop <= 48) on = i }
+    for (const i of parts) { const el = sections.current[i]; if (el && el.offsetTop - root.scrollTop <= 48) on = i }
     setActive(on)
   }
-  const firstMissing = PARTS.find((i) => !ok[i])
+  const firstMissing = parts.find((i) => !ok[i])
 
   return <form className={css.form} aria-busy={running}
     onSubmit={(e) => { e.preventDefault(); if (firstMissing !== undefined) jump(firstMissing); else void create() }}>
@@ -382,7 +353,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     <div className={css.wizard}>
       <nav className={css.rail} aria-label={t('steps')}>
         <ol className={css.railList}>
-          {PARTS.map((i) => <RailStep key={i} index={i} title={railTitles[i]} summary={summaries[i]} current={active === i} ready={ok[i]}
+          {parts.map((i) => <RailStep key={i} index={i} title={railTitles[i]} summary={summaries[i]} current={active === i} ready={ok[i]}
             disabled={running} onSelect={() => jump(i)} />)}
         </ol>
       </nav>
@@ -465,22 +436,24 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
         <section ref={(el) => { sections.current[2] = el }} className={css.part} aria-labelledby={`${id}-p2`}>
           <h3 id={`${id}-p2`} className={css.partTitle}>{titles[2]}</h3>
           <div className={css.fields}>
-          <Group label={t('machines')} hint={kind === 'sqlite' ? t('runsOnOne') : t('runsOnMany')}>
-            <div className={css.machines} role={kind === 'sqlite' ? 'radiogroup' : 'group'} aria-label={t('runsOn')}>
-              {machines.map((m) => {
-                const here = existing && kind === 'sqlite' && (existing.machine ?? 'native') === m.name
-                const badge = here ? t('here') : !existing && m.name === fallback ? t('default') : null
-                return kind === 'sqlite'
-                  ? <MachineTile key={m.name} m={m} multi={false} selected={chosenSqlite === m.name} note={machineNote(m, t)} badge={badge} onSelect={() => setSqliteMachine(m.name)} />
-                  : <MachineTile key={m.name} m={m} multi selected={chosenPg.includes(m.name)} note={machineNote(m, t)} badge={badge}
-                    onSelect={() => setPgMachines(chosenPg.includes(m.name) ? chosenPg.filter((x) => x !== m.name) : [...chosenPg, m.name])} />
-              })}
-              <NewMachineTile api={api} t={t} />
-            </div>
-          </Group>
+          {kind === 'sqlite'
+            ? <Group label={t('machines')} hint={t('locationHint')}>
+              <LocationPicker machines={machines} value={chosenSqlite} onChange={setSqliteMachine} words={words} label={t('stepMachine')}
+                current={existing ? existing.machine ?? 'native' : null} fallback={fallback}>
+                <NewMachineTile api={api} t={t} />
+              </LocationPicker>
+            </Group>
+            : <Group label={t('machines')} hint={t('runsOnMany')}>
+              <div className={css.machines} role="group" aria-label={t('runsOn')}>
+                {machines.map((m) => <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={chosenPg.includes(m.name)} note={machineNote(m, words)}
+                  badge={!existing && m.name === fallback ? t('default') : null}
+                  onSelect={() => setPgMachines(chosenPg.includes(m.name) ? chosenPg.filter((x) => x !== m.name) : [...chosenPg, m.name])} />)}
+                <NewMachineTile api={api} t={t} />
+              </div>
+            </Group>}
           {machines.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
           {stoppedPicked(chosen, machines).map((m) => <p key={m} className={css.note}>{t('startsOnCreate', { machine: m })}</p>)}
-          {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: chosenSqlite, n: Math.max(0, existing!.projects.length) })}</p> : null}
+          {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: placeName(chosenSqlite, words), n: Math.max(0, existing!.projects.length) })}</p> : null}
           </div>
         </section>
       </fieldset>
@@ -543,20 +516,19 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
     </div>
   </Group>
 
+  const words = wordsOf(t, view.data?.computer?.os)
   if (!pg) {
     const current = store.machine ?? 'native'
     const chosen = target ?? current
     return <>{head}
       <div className={css.body}><div className={css.fields}>
         {storeCard}
-        <Group label={t('runsOn')} hint={t('runsOnOne')}>
-          <div className={css.machines} role="radiogroup" aria-label={t('runsOn')}>
-            {machines.map((m) => <MachineTile key={m.name} m={m} multi={false} selected={chosen === m.name} disabled={!!busy}
-              note={machineNote(m, t)} badge={m.name === current ? t('here') : null} onSelect={() => setTarget(m.name)} />)}
+        <Group label={t('stepMachine')} hint={t('locationHint')}>
+          <LocationPicker machines={machines} value={chosen} onChange={setTarget} words={words} label={t('stepMachine')} current={current} disabled={!!busy}>
             <NewMachineTile api={api} t={t} />
-          </div>
+          </LocationPicker>
         </Group>
-        {chosen !== current ? <p className={css.warn}>{t('moveWarn', { store: store.name, machine: chosen, n: others })}</p> : null}
+        {chosen !== current ? <p className={css.warn}>{t('moveWarn', { store: store.name, machine: placeName(chosen, words), n: others })}</p> : null}
         {chosen !== current ? stoppedPicked([chosen], machines).map((m) => <p key={m} className={css.note}>{t('startsOnMove', { machine: m })}</p>) : null}
         {error ? <p className={css.error} role="alert">{error}</p> : null}
       </div></div>
@@ -568,7 +540,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
               <Button variant="outline" disabled={!!busy} onClick={() => setTarget(null)}>{t('cancel')}</Button>
               <Button variant="primary" disabled={!!busy} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}
                 onClick={() => void run('move', async () => { if (current !== 'native') await ensure(current); await ensure(chosen); await placeStore(api, store.name, chosen) })}>
-                {busy ? t('moving') : t('moveTo', { machine: chosen })}
+                {busy ? t('moving') : t('moveTo', { machine: placeName(chosen, words) })}
               </Button>
             </>
             : <Button variant="primary" onClick={() => projectDialog.close()}>{t('done')}</Button>}
@@ -585,7 +557,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
           {machines.map((m) => {
             const a = attached.get(m.name)
             const note = busy === m.name ? t('working') : a ? (a.checked ? t('attachedChecked') : t('attachedUnchecked')) : t('notAttached')
-            return <MachineTile key={m.name} m={m} multi selected={!!a} disabled={!!busy} working={busy === m.name} note={note}
+            return <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={!!a} disabled={!!busy} working={busy === m.name} workingMark={<StateDot state="ongoing" size={11} />} note={note}
               onSelect={() => void run(m.name, async () => { if (!a) { await ensure(m.name); await attachStore(api, store.name, m.name) } else await detachStore(api, store.name, m.name) })} />
           })}
           <NewMachineTile api={api} t={t} />

@@ -499,6 +499,8 @@ const GETS = [
   ['projects/:id/history', `/api/projects/${P}/history?branch=feat&commit=${C2}`],
   ['projects/:id/storage', `/api/projects/${P}/storage`],
   ['projects/:id/storage', `/api/projects/${P}/storage?refresh=1`],
+  ['projects/:id/size', `/api/projects/${P}/size`],
+  ['projects/:id/size', `/api/projects/${P}/size?alone=1`],
   ['projects/:id/branches', `/api/projects/${P}/branches`],
   ['projects/:id/branches', `/api/projects/${P}/branches?branch=feat`],
   ['projects/:id/file-query', `/api/projects/${P}/file-query?branch=feat&path=/a.txt&kind=blame`],

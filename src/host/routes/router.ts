@@ -254,6 +254,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (sub === 'history') return projects.history(id, query)
     // this project's own storage from its saves' counters (see project-storage.ts): ?refresh=1
     if (sub === 'storage') return projects.projectStorage(id, query)
+    // the Overview card's size: packed bytes (the Store's when alone in it: ?alone=1) and main's raw bytes
+    if (sub === 'size') return projects.projectSize(id, query)
     if (sub === 'branches') return projects.branches(id, query)
     if (sub === 'file-query') return projects.fileQuery(id, query)
     if (sub === 'stats') return projects.projectStats(id, query)

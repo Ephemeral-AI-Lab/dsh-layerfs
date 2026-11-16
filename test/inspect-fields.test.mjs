@@ -81,6 +81,24 @@ test('host: workspace_capacity, running (oldest first, own marked by exact exec 
   } finally { done() }
 })
 
+test('host: a Workspace\'s own usage (its ws-<id> cgroup), by presence', async () => {
+  const answer = record([
+    item(1, { usage: { cpu_usec: 2500000, memory_current: 52428800, memory_peak: 104857600, pids: 3 } }),
+    item(2, { usage: null, usage_reason: 'not_observed' }),
+    item(3, {}),
+  ])
+  const { groups, done } = routes(answer)
+  try {
+    const [a, b, c] = (await get(groups)).workspaces
+    assert.deepEqual(a.usage, { cpuUsec: 2500000, memoryCurrent: 52428800, memoryPeak: 104857600, pids: 3 })
+    assert.equal('usageReason' in a, false)
+    assert.equal(b.usage, null)
+    assert.equal(b.usageReason, 'not_observed')
+    // a worker that does not report usage per Workspace: absent, never a zero
+    assert.equal('usage' in c, false)
+  } finally { done() }
+})
+
 test('host: a label that fails leaves the answer whole', async () => {
   const { groups, done } = routes(record([item(1, { running: [{ exec_id: 'e1', started: 1, tag: 'dsh:s:r', program: 'sleep' }] })]), { labelTags: async () => { throw new Error('no sessions service') } })
   try {

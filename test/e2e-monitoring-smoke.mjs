@@ -56,8 +56,8 @@ try {
 
   // Overview → Machines tab: the native machine is listed.
   await editor().getByRole('tab', { name: /^Machines\b/ }).first().click()
-  // The native machine's card is titled "LayerFS Home" with the platform "Native" under it.
-  for (const text of ['Native', 'Docker']) await editor().getByText(text, { exact: true }).first().waitFor().catch(() => fail(`Machines tab: no ${text} machine card`))
+  // The machines table has a row for the native machine ("LayerFS Home") and one for docker.
+  for (const name of ['native', 'docker']) await editor().locator(`[data-machine="${name}"]`).first().waitFor().catch(() => fail(`Machines tab: no ${name} machine row`))
   await page.screenshot({ path: join(shots, 'smoke-machines-tab.png') })
 
   // The native machine's page (Jump to → LayerFS Home).

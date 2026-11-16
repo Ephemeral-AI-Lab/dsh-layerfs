@@ -239,6 +239,45 @@ test('postgresql: an entered password goes to an owner-only file; attach and det
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('postgresql: a Store row names its server; a new Store reuses a Store\'s password on the same server only', async () => {
+  const records = [
+    { name: 'pg', kind: 'postgresql', url: 'postgresql://lfs@DB.lan/team?sslmode=require', password: 'env:PGPW', projects: [], state: 'idle', machines: {} },
+  ]
+  const seen = []
+  const { http, root } = fakeGroups({
+    ...base,
+    store: {
+      ...base.store,
+      list: async () => ({ items: records }),
+      get: async (name) => records.find((r) => r.name === name) ?? (() => { throw new Refusal('NotFound', `no Store ${name}`) })(),
+      status: async () => ({ state: 'idle', server: { reachable: true, server_version: '17.1', latency_ms: 2 } }),
+      connect: async (name, url, options) => { seen.push([name, url, options.password]); records.push({ name, kind: 'postgresql', url, password: options.password, projects: [], state: 'idle', machines: {} }) },
+    },
+  })
+  const secrets = join(root, 'secrets')
+  try {
+    const view = await http('GET', '/api/storage')
+    const pg = view.body.stores.find((s) => s.name === 'pg').postgresql
+    assert.deepEqual([pg.server, pg.database, pg.user, pg.url], ['db.lan:5432', 'team', 'lfs', 'postgresql://lfs@DB.lan/team?sslmode=require'])
+    // a reference of the user's is shared as it is
+    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'pg2', url: 'postgresql://lfs@db.lan:5432/two', passwordFrom: 'pg' })).status, 200)
+    assert.deepEqual(seen.at(-1), ['pg2', 'postgresql://lfs@db.lan:5432/two', 'env:PGPW'])
+    // a file this host wrote is copied into the new Store's own file
+    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'pg3', url: 'postgresql://lfs@db.lan/three', passwordValue: 's3cret' })).status, 200)
+    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'pg4', url: 'postgresql://lfs@db.lan/four', passwordFrom: 'pg3' })).status, 200)
+    const [, , ref3] = seen.find((x) => x[0] === 'pg3')
+    const [, , ref4] = seen.find((x) => x[0] === 'pg4')
+    assert.ok(ref4.startsWith(`file:${secrets}/pg-pg4--`))
+    assert.notEqual(ref4, ref3)
+    assert.equal(readFileSync(ref4.slice(5), 'utf8'), 's3cret')
+    // another server, or no such Store: refused before LayerFS
+    const before = seen.length
+    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'pg5', url: 'postgresql://lfs@other/five', passwordFrom: 'pg' })).status, 400)
+    assert.notEqual((await http('POST', '/api/stores/postgresql', { name: 'pg6', url: 'postgresql://lfs@db.lan/six', passwordFrom: 'nope' })).status, 200)
+    assert.equal(seen.length, before)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 /** A fake LayerFS `backup` family that keeps its bucket records in `<home>/backup/<name>/record.json`, as 2.0 does. */
 function fakeBackup(home, seen = []) {
   const dir = (name) => join(home, 'backup', name)
@@ -590,6 +629,44 @@ test('project storage: a ledger of each save\'s counters, read from listing page
     assert.equal(again.body.totals.stored, 180)
   } finally {
     openB()
+    await groups.projects.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('project size: counting until the first count ends, then packed bytes and main\'s files; the Store\'s bytes when alone', async () => {
+  const id = (n) => `12${String(n).padStart(2, '0')}${'a'.repeat(62)}`
+  const history = [2, 1].map((n) => ({ id: id(n), ref: { id: id(n), kind: 'Commit', branch: 'a' }, time: 1000 + n, via: 'fs', logical: 100, new_canonical: 20, new_stored: 10, new_metadata: 4 }))
+  let open = () => {}
+  const gate = new Promise((resolve) => { open = resolve })
+  const impl = {
+    ...base,
+    project: { get: async (key) => ({ project: key, name: 'p', store: 's1', machine: 'native', created: 7 }), stats: async () => ({ logical: 900, files: 3, directories: 1, complete: true }) },
+    store: { ...base.store, stats: async () => ({ name: 's1', stored: 8423, metadata: 222021 }) },
+    branch: {
+      list: async () => ({ items: [{ name: 'a', head: history[0].id }], next_page_pos: null }),
+      commits: async (_project, _branch, options) => {
+        await gate
+        const start = (options.page - 1) * options.page_size
+        return { items: history.slice(start, start + options.page_size), has_more: start + options.page_size < history.length }
+      },
+    },
+  }
+  const { http, groups, root } = fakeGroups(impl)
+  const path = `/api/projects/${encodeURIComponent('s1/p')}/size`
+  try {
+    const first = await http('GET', path)
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.deepEqual(first.body, { project: 's1/p', stored: null, counting: true, files: 900 })
+    open()
+    await groups.projects.storageLedgers.settle('s1/p', 7)
+    const done = await http('GET', path)
+    assert.deepEqual(done.body, { project: 's1/p', stored: 20, counting: false, files: 900 })
+    // alone in its Store: the Store's packed bytes, publications to main included
+    const alone = await http('GET', `${path}?alone=1`)
+    assert.deepEqual(alone.body, { project: 's1/p', stored: 8423, counting: false, files: 900 })
+  } finally {
+    open()
     await groups.projects.close()
     rmSync(root, { recursive: true, force: true })
   }

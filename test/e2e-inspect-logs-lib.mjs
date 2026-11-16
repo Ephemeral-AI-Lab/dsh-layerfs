@@ -253,7 +253,8 @@ export async function open() {
 export async function second(browser, url) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 820 } })
   const page = await context.newPage()
-  await page.addInitScript(() => { try { localStorage.setItem('dsh-layerfs:debug', '1') } catch {} })
+  // the Sandbox page's Workspaces tab opens on its Terminals view (Grid is the default): these rows drive terminals
+  await page.addInitScript(() => { try { localStorage.setItem('dsh-layerfs:debug', '1'); localStorage.setItem('dsh-layerfs:sandbox-workspaces-view', 'terminals') } catch {} })
   const logs = []
   page.on('console', (m) => { if (m.type() === 'error') logs.push(`[error] ${m.text()}`) })
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`))
@@ -275,7 +276,8 @@ export async function second(browser, url) {
 export async function outside(browser) {
   const context = await browser.newContext()
   const page = await context.newPage()
-  await page.addInitScript(() => { try { localStorage.setItem('dsh-layerfs:debug', '1') } catch {} })
+  // the Sandbox page's Workspaces tab opens on its Terminals view (Grid is the default): these rows drive terminals
+  await page.addInitScript(() => { try { localStorage.setItem('dsh-layerfs:debug', '1'); localStorage.setItem('dsh-layerfs:sandbox-workspaces-view', 'terminals') } catch {} })
   await page.goto(devUrl(), { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => window.__dshLayerfs, null, { timeout: 30000 })
   return page
@@ -304,7 +306,7 @@ export const hasTab = async (page, name) => (await editor(page).getByRole('tab',
 /** The two logs: where each is opened and under which tab. */
 export const targets = {
   machine: { kind: 'machine', name: cfg.machine, title: cfg.machineTitle, tab: 'Worker log', other: 'Overview', link: 'Open worker log' },
-  sandbox: { kind: 'sandbox', name: cfg.sandbox, title: cfg.sandbox, tab: 'Daemon log', other: 'Terminals', link: 'Open daemon log' },
+  sandbox: { kind: 'sandbox', name: cfg.sandbox, title: cfg.sandbox, tab: 'Daemon log', other: 'Workspaces', link: 'Open daemon log' },
 }
 /** What the server says about the logs: the CLI's features and the machine's `supports.log`. */
 export async function offered(page) {
