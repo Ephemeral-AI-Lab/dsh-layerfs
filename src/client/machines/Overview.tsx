@@ -20,7 +20,7 @@ import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
 import { ColumnHead, StoreRows, sandboxNeedsYou, useStoreRows } from './Inventory.tsx'
 import { useMetrics } from './MachineStats.tsx'
-import { peakSince, sandboxAttention, sandboxCards, sandboxMemory, sparkPaths, type MachineTab, type SparkSample } from './machine-tabs.ts'
+import { cpuScale, cpuShare, peakSince, sandboxAttention, sandboxCards, sandboxMemory, sparkPaths, type MachineTab, type SparkSample } from './machine-tabs.ts'
 import { OverviewAttention } from './MachineTabs.tsx'
 import { HOUR_MS, latest, machineCpu, machineMemory, percent, sandboxTable, upTime } from './metrics.ts'
 import { useWords } from './MetricsViews.tsx'
@@ -107,18 +107,22 @@ const SPARK_W = 200
 const SPARK_H = 40
 
 /** The hour as a sparkline; nothing when no value in it was read. */
-function Spark({ samples, max, from, to, label }: { samples: readonly SparkSample[], max: number, from: number, to: number, label: string }): ReactNode {
+function Spark({ samples, max, maxText, from, to, label }: { samples: readonly SparkSample[], max: number, maxText?: string, from: number, to: number, label: string }): ReactNode {
   const paths = sparkPaths(samples, from, to, max, SPARK_W, SPARK_H)
   if (!paths.length) return null
   return (
-    <svg className={css.ovSpark} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" role="img" aria-label={label} data-ov-spark>
-      {paths.map((p, i) => (
-        <g key={i}>
-          {p.area && <path className={css.ovSparkArea} d={p.area} />}
-          <path className={css.ovSparkLine} d={p.line} />
-        </g>
-      ))}
-    </svg>
+    <div className={css.ovSparkBox}>
+      {maxText && <span className={css.ovSparkMax} data-ov-spark-max>{maxText}</span>}
+      <svg className={css.ovSpark} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} preserveAspectRatio="none" role="img" aria-label={label} data-ov-spark>
+        <line className={css.ovSparkTop} x1={0} x2={SPARK_W} y1={0.5} y2={0.5} />
+        {paths.map((p, i) => (
+          <g key={i}>
+            {p.area && <path className={css.ovSparkArea} d={p.area} />}
+            <path className={css.ovSparkLine} d={p.line} />
+          </g>
+        ))}
+      </svg>
+    </div>
   )
 }
 
@@ -159,6 +163,7 @@ function ResourceTiles({ m, onTab }: { m: MachineInfo, onTab: ((tab: MachineTab)
   // under "Not read" the reason alone: a second sample still to come, or why LayerFS did not read it
   const cpuWhy = cpuNow?.reason ? (cpuNow.reason === 'first_sample' ? t('mxNeedsSecond') : w.reason(cpuNow.reason)) : r.cpuBusyUsec == null ? notRead : t('mxNeedsSecond')
   const cpuPeak = peakSince(cpu, from)
+  const cpuTop = cpuScale(cpuPeak)
   const disk = space.offered ? space.read.data?.space ?? null : null
   const diskTotal = disk?.disk.total ?? r.diskTotal
   const diskFree = disk?.disk.free ?? r.diskFree
@@ -166,10 +171,10 @@ function ResourceTiles({ m, onTab }: { m: MachineInfo, onTab: ((tab: MachineTab)
     <section className={css.ovTiles} aria-label={t('ovResources')}>
       {'cpuBusyUsec' in r && (
         <Tile label={t('mxProcessor')} aside={r.cpus != null ? t('mxProcessorsMax', { n: String(r.cpus) }) : scope ? tw(scope) : null} data-ov-tile="cpu">
-          {cpuNow && cpuNow.v != null ? <div className={css.ovValue}>{percent(cpuNow.v)}</div>
+          {cpuNow && cpuNow.v != null ? <div className={css.ovValue} data-ov-cpu>{cpuShare(cpuNow.v)}<span className={css.ovUnit}>%</span></div>
             : <NotRead why={cpuWhy} />}
-          <Spark samples={cpu} max={1} from={from} to={to} label={t('mxProcessor')} />
-          {cpuPeak != null && <div className={css.ovFoot}><span>{t('ovLastHour')}</span><span>{t('ovPeak', { value: percent(cpuPeak) })}</span></div>}
+          <Spark samples={cpu} max={cpuTop} maxText={`${Math.round(cpuTop * 100)} %`} from={from} to={to} label={t('mxProcessor')} />
+          {cpuPeak != null && <div className={css.ovFoot}><span>{t('ovLastHour')}</span><span>{t('ovPeak', { value: `${cpuShare(cpuPeak)} %` })}</span></div>}
         </Tile>
       )}
       <Tile label={t('memory')} aside={scope ? tw(scope) : null} data-ov-tile="memory">
