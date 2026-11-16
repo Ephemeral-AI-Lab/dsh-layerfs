@@ -1347,12 +1347,6 @@
   background: var(--dsw-alias-bg-module-platform);
   box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
 }
-.spaceBarWide {
-  width: 100%;
-  height: 10px;
-  border-radius: 5px;
-  margin: 8px 0 4px;
-}
 .spaceSeg {
   display: block;
   height: 100%;
@@ -1367,35 +1361,6 @@
 }
 .spaceSeg[data-part='unsplit'] {
   background: repeating-linear-gradient(135deg, var(--dsw-alias-border-l3) 0 3px, transparent 3px 6px);
-}
-.spaceCard {
-  padding-top: 12px;
-  padding-bottom: 8px;
-}
-.spaceCard .spaceTable[data-space-breakdown] td {
-  white-space: normal;
-}
-.spaceHead {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.spaceTitle {
-  margin: 0;
-  flex: 1;
-  font-size: 14px;
-  line-height: 22px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary);
-}
-.spaceTable {
-  margin-top: 8px;
-}
-.spaceTable td {
-  vertical-align: top;
-}
-.spaceSwatchCell {
-  width: 16px;
 }
 .spaceSwatch {
   display: inline-block;
@@ -1426,11 +1391,6 @@
 }
 .spaceRowLabel {
   color: var(--dsw-alias-label-primary);
-}
-.spaceSize {
-  text-align: right;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 .spaceCopy {
   border: 0;
@@ -1961,4 +1921,234 @@
 
 .dtItem[data-tone='muted'] dd {
   color: var(--dsw-alias-label-tertiary);
+}
+
+/* ---------- "Where the disk goes" dialog (SpaceDialog.tsx) ---------- */
+
+.spaceDialog {
+  width: min(680px, 100%);
+  max-height: min(820px, 100%);
+}
+
+.sdBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  container-type: inline-size;
+}
+
+.sdHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.sdBar {
+  display: flex;
+  width: 100%;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-module-platform);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
+}
+
+.sdSeg {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.sdSeg[data-part='stores'] {
+  min-width: 2px;
+}
+
+.sdSeg[data-part='overlays'],
+.sdSeg[data-part='images'],
+.sdMini > [data-part='overlays'],
+.sdMini > [data-part='images'] {
+  opacity: 0.75;
+}
+
+.sdSeg[data-part='sandboxFiles'],
+.sdSeg[data-part='otherRuns'],
+.sdMini > [data-part='sandboxFiles'],
+.sdMini > [data-part='otherRuns'] {
+  opacity: 0.55;
+}
+
+.sdSeg[data-part='sandboxRuntime'],
+.sdSeg[data-part='logs'],
+.sdMini > [data-part='sandboxRuntime'],
+.sdMini > [data-part='logs'] {
+  opacity: 0.35;
+}
+
+.sdSeg[data-part='outside'] {
+  opacity: 1;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.sdSeg[data-part='unsplit'] {
+  background: repeating-linear-gradient(135deg, var(--dsw-alias-border-l3) 0 3px, transparent 3px 6px);
+}
+
+.ovKey[data-part='free'] {
+  background: var(--dsw-alias-bg-module-platform);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l3);
+}
+
+.sdCols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.sdCols[data-even] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@container (max-width: 520px) {
+  .sdCols,
+  .sdCols[data-even] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.sdTitle {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.sdTitle > span:last-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.sdTitle .spaceSwatch {
+  margin-right: 7px;
+}
+
+.sdRows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sdRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px minmax(64px, auto);
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.sdRow[data-even] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.sdRowName {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sdRowName .spaceSwatch {
+  flex: none;
+  margin-top: 5px;
+}
+
+.sdRowText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sdRowButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sdRowButton:hover > span {
+  text-decoration: underline;
+}
+
+.sdMini {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.sdMini > span {
+  display: block;
+  height: 100%;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.sdSize {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: end;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sdSide {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sdBox {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.sdText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sdCommand {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-settings-card-fill);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
+}
+
+.sdActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
 }

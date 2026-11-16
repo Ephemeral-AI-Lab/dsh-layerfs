@@ -7,7 +7,6 @@
  *   tab that fixes it (the rest of the Overview is Overview.tsx).
  * - Sandboxes: one card per Sandbox (SandboxCards.tsx).
  * - Stores: every Store its Sandboxes can use, with Add Store.
- * - Disk: where the data disk goes (machine.space).
  *
  * A column whose call the pinned CLI lacks is not drawn; a value LayerFS did
  * not read is a dash with why, never 0.
@@ -20,7 +19,7 @@ import { StoreSection, sandboxNeedsYou } from './Inventory.tsx'
 import { sandboxAttention, type MachineTab } from './machine-tabs.ts'
 import { sandboxesOn, type AvailableView, type MachineInfo } from './model.ts'
 import { spaceSize } from './space.ts'
-import { DiskNotice, WhereSpaceGoes, useMachineSpace } from './SpaceViews.tsx'
+import { DiskNotice, useMachineSpace } from './SpaceViews.tsx'
 
 // ---------------------------------------------------------------- Overview
 
@@ -28,16 +27,17 @@ import { DiskNotice, WhereSpaceGoes, useMachineSpace } from './SpaceViews.tsx'
  * The Overview's notices past the machine's own: the disk getting full
  * (machine.stats), gone Sandboxes still on disk with what they hold
  * (machine.space, when offered), and Sandboxes that need you, each linking to
- * the tab that shows them. Nothing when nothing needs you.
+ * the tab that shows them; the disk notice opens where the disk goes
+ * (`onDisk`). Nothing when nothing needs you.
  */
-export function OverviewAttention({ m, view, onTab }: { m: MachineInfo, view: AvailableView, onTab: (tab: MachineTab) => void }): ReactNode {
+export function OverviewAttention({ m, view, onTab, onDisk }: { m: MachineInfo, view: AvailableView, onTab: (tab: MachineTab) => void, onDisk?: (() => void) | null | undefined }): ReactNode {
   const { t } = useMachinesContext()
   const records = sandboxesOn(view, m)
   const { read } = useMachineSpace(m)
   const a = sandboxAttention(records, read.data?.space?.sandboxes ?? null, sandboxNeedsYou)
   return (
     <>
-      <DiskNotice m={m} />
+      <DiskNotice m={m} action={onDisk ? <LinkButton onClick={onDisk}>{t('ovWhereItGoes')}</LinkButton> : undefined} />
       {a.gone > 0 && (
         <Notice tone="warning" role="status">
           <p data-attention="gone">
@@ -64,7 +64,7 @@ export function OverviewAttention({ m, view, onTab }: { m: MachineInfo, view: Av
 
 // SandboxesTab: SandboxCards.tsx
 
-// ---------------------------------------------------------------- Stores, Disk
+// ---------------------------------------------------------------- Stores
 
 /** The Stores tab: the machine's Stores, Add Store in the head when the page has it. */
 export function StoresTab({ m, view, onAddStore }: { m: MachineInfo, view: AvailableView, onAddStore?: ((machine: string) => void) | undefined }): ReactNode {
@@ -75,15 +75,5 @@ export function StoresTab({ m, view, onAddStore }: { m: MachineInfo, view: Avail
         <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={() => onAddStore(m.name)}>{t('addStore')}</Button>
       ) : undefined} />
     </Card>
-  )
-}
-
-/** The Disk tab: the notice while the disk is getting full, then where the disk goes. */
-export function DiskTab({ m }: { m: MachineInfo }): ReactNode {
-  return (
-    <>
-      <DiskNotice m={m} />
-      <WhereSpaceGoes m={m} />
-    </>
   )
 }

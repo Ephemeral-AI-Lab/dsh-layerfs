@@ -59,7 +59,7 @@ export function MachineOverview({ m, view, live, troubled, notices, fallback, ac
   return (
     <div className={css.ovStack} data-machine-overview={m.name}>
       {notices}
-      {!clear && <OverviewAttention m={m} view={view} onTab={onTab} />}
+      {!clear && <OverviewAttention m={m} view={view} onTab={onTab} onDisk={onDisk} />}
       {read ? <UsageCard m={m} healthy={clear} onDisk={onDisk} /> : fallback}
       <MachineDetailsCard m={m} live={live} view={view} actions={actions} onTab={onTab} />
       <DangerZone m={m} pending={pending} onRemove={onRemove} />
