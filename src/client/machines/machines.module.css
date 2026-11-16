@@ -1511,3 +1511,13 @@
     display: none;
   }
 }
+/* the Sandboxes table has many columns: an unread figure is a dash, its reason the cell's title
+   and still read aloud (visually hidden, not removed) */
+.sbTable .mxWhy {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

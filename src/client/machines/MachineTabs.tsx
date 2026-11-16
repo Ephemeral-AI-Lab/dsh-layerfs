@@ -130,6 +130,8 @@ export function SandboxesTab({ m, view, canCreate, onCreate }: { m: MachineInfo,
   const creations = useCreations((all) => all)
   const creating = creatingOn(creations, m.name, records)
   const cpus = metrics.snapshot.machines[m.name]?.latest?.stats.resources.cpus ?? null
+  // the action column is drawn only while some row has an action, so it never takes room from the figures
+  const anyAction = rows.some((r) => r.record?.state === 'gone')
   const now = metrics.snapshot.now ?? Date.now()
   const running = machineState(m, view.status[m.name]).key === 'running'
   const empty = view.readErrors?.sandboxes ? t('sandboxesUnread') : running ? t('noSandboxesHere')
@@ -164,7 +166,7 @@ export function SandboxesTab({ m, view, canCreate, onCreate }: { m: MachineInfo,
                   {metrics.offered && <th>{t('memory')}</th>}
                   {space.offered && <th>{t('spaceColTotal')}</th>}
                   {metrics.offered && <th>{t('mxUpTime')}</th>}
-                  <th className={css.sbActionCol} aria-label={t('actions')} />
+                  {anyAction && <th className={css.sbActionCol} aria-label={t('actions')} />}
                 </tr>
               </thead>
               <tbody>
@@ -203,7 +205,7 @@ export function SandboxesTab({ m, view, canCreate, onCreate }: { m: MachineInfo,
                         </td>
                       )}
                       {metrics.offered && <td data-sb-cell="up" className={css.muted}>{mx && !mx.gap && mx.row?.startedAt != null && b?.state === 'running' ? upTime(mx.row.startedAt, now) : '—'}</td>}
-                      <td className={css.sbActionCol}>{gone && <CloseGone name={r.name} />}</td>
+                      {anyAction && <td className={css.sbActionCol}>{gone && <CloseGone name={r.name} />}</td>}
                     </tr>
                   )
                 })}
