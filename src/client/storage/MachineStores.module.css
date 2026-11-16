@@ -1,0 +1,414 @@
+/* The machine page's Stores tab (MachineStores.tsx) and Connect a database (ConnectDatabase.tsx). */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  container-type: inline-size;
+}
+
+/* ---------- the two kind tiles: they switch the panel ---------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.tile {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-bg-module-platform);
+  cursor: pointer;
+}
+.tile[aria-selected='true'] {
+  border: 1.5px solid var(--dsw-alias-link);
+  background: var(--dsw-alias-settings-card-fill);
+  padding: 9px 11px;
+}
+.tile:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .tile[aria-selected='false']:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+.tileHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.tileLabel {
+  color: var(--dsw-alias-label-primary);
+}
+.tileRole {
+  margin-inline-start: auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-weight: 400;
+}
+.tileFigure {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 26px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tileNote {
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- the panel ---------- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+.panelNote {
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.empty {
+  margin: 0;
+  padding: 18px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr));
+  gap: 10px;
+}
+
+/* ---------- a Store card (both kinds, the same lines) ---------- */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 24px;
+}
+.name {
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.right {
+  margin-inline-start: auto;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.second {
+  display: flex;
+  font-size: 12.5px;
+  line-height: 18px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 34px;
+  justify-content: center;
+}
+.meter {
+  width: 100%;
+}
+.chips {
+  display: flex;
+  font-size: 12px;
+  line-height: 18px;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 20px;
+}
+.chip {
+  padding: 1px 8px;
+  border-radius: var(--dsw-radius-m, 8px);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.line[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+.toneText[data-tone='success'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+.toneText[data-tone='warning'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.toneText[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+.grow {
+  flex: 1;
+}
+.danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+.muted {
+  color: var(--dsw-alias-label-tertiary);
+}
+.mono {
+  font-family: var(--dsw-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.cut {
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* narrow: the tiles stack their note under a shorter figure */
+@container (max-width: 520px) {
+  .tileFigure {
+    font-size: 15px;
+    line-height: 22px;
+  }
+  .tileNote {
+    white-space: normal;
+  }
+}
+
+/* ---------- Connect a database ---------- */
+
+.servers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.server {
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-m, 8px);
+}
+.serverHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.serverName {
+  color: var(--dsw-alias-label-primary);
+}
+.db {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+.dbMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.dbName {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dbSub {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.addRow {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-link);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.addRow.addServer {
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-m, 8px);
+}
+.addRow:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .addRow:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+.serverGiven {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+/* the check, drawn as the path the machine dials */
+.path {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 4px 2px;
+}
+.hop {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 40%;
+  min-width: 0;
+  text-align: center;
+}
+.node {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 10px;
+  background: var(--dsw-alias-settings-card-fill);
+  color: var(--dsw-alias-label-secondary);
+}
+.hopLabel {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+.wire {
+  flex: 1;
+  height: 2px;
+  margin-top: 17px;
+  border-radius: 1px;
+  background: var(--dsw-alias-border-l3);
+}
+.wire[data-state='running'] {
+  background: repeating-linear-gradient(90deg, var(--dsw-alias-link) 0 6px, transparent 6px 10px);
+}
+.wire[data-state='ok'] {
+  background: var(--dsw-alias-state-success-primary);
+}
+.wire[data-state='failed'] {
+  background: var(--dsw-alias-state-error-primary);
+}
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--dsw-radius-m, 8px);
+  background: var(--dsw-alias-bg-module-platform);
+  list-style: none;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 18px;
+}
+.step[data-state='ok'] {
+  color: var(--dsw-alias-label-primary);
+}
+.step[data-state='failed'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+.stepMark {
+  display: inline-flex;
+  width: 14px;
+  justify-content: center;
+}
+.result {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+}
