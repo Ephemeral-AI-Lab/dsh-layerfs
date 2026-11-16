@@ -215,3 +215,17 @@
     width: 100%;
   }
 }
+
+/* A page whose tabs come first (the machine page): the tabs take the page's top inset
+   that the head would otherwise have, and the head inside the Overview panel drops it. */
+.tabsTop {
+  margin-top: var(--lfs-page-top-inset, 28px);
+}
+
+:global([data-platform='darwin']) .tabsTop {
+  margin-top: calc(var(--lfs-page-top-inset, 28px) + var(--dsh-frame-top-clearance, 0px));
+}
+
+.panelHead > header {
+  padding-top: 0;
+}
