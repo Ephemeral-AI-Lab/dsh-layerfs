@@ -64,31 +64,6 @@ export function OverviewAttention({ m, view, onTab }: { m: MachineInfo, view: Av
   )
 }
 
-/** The Overview's line of Sandboxes (running, gone) and Stores, each opening its tab. */
-export function OverviewCounts({ m, view, onTab }: { m: MachineInfo, view: AvailableView, onTab: (tab: MachineTab) => void }): ReactNode {
-  const { t } = useMachinesContext()
-  const records = sandboxesOn(view, m)
-  const running = records.filter((b) => b.state === 'running').length
-  const gone = records.filter((b) => b.state === 'gone').length
-  const stores = storeLines(view, m).length
-  return (
-    <dl className={css.factRow} aria-label={t('machineContents')} data-overview-counts>
-      <div>
-        <dt>{t('sandboxes')}</dt>
-        <dd><LinkButton onClick={() => onTab('sandboxes')}>
-          {[t(records.length === 1 ? 'countSandboxOne' : 'countSandboxes', { n: String(records.length) }),
-            records.length ? t('countRunning', { n: String(running) }) : null,
-            gone ? t('countGone', { n: String(gone) }) : null].filter(Boolean).join(' · ')}
-        </LinkButton></dd>
-      </div>
-      <div>
-        <dt>{t('stores')}</dt>
-        <dd><LinkButton onClick={() => onTab('stores')}>{t(stores === 1 ? 'countStoreOne' : 'countStores', { n: String(stores) })}</LinkButton></dd>
-      </div>
-    </dl>
-  )
-}
-
 // ---------------------------------------------------------------- Sandboxes
 
 // SandboxesTab: SandboxCards.tsx

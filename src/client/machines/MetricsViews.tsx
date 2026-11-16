@@ -1,7 +1,7 @@
 /**
  * The metrics views (layerfs-project#182 D3), drawn from the host's sampler
- * (metrics.ts): a machine card's meters, a machine page's figures, its hour
- * of processor, memory and disk (the Usage tab), and a Sandbox page's
+ * (metrics.ts): a machine card's meters, a machine's hour of processor,
+ * memory and disk (the Usage tab; the Overview's tiles are Overview.tsx), and a Sandbox page's
  * figures and charts. Per-Sandbox rows are the Sandboxes tab (MachineTabs.tsx).
  *
  * Everything renders from field presence, never from a platform name: an
@@ -17,11 +17,11 @@ import { Card, Meter } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import {
   HOUR_MS, latest, machineCpu, machineDisk, machineMemory, percent, processors, sandboxFigures, upTime,
-  type MetricsSnapshot, type Sample,
+  type MetricsSnapshot,
 } from './metrics.ts'
 import { useMetrics } from './MachineStats.tsx'
 import { gib, type MachineInfo } from './model.ts'
-import { diskScopeWords, reasonList, reasonWords, resourceScopeWords, statsAskable } from './stats.ts'
+import { reasonList, reasonWords, statsAskable } from './stats.ts'
 import css from './machines.module.css'
 
 const clock = (t: number): string => new Date(t).toLocaleTimeString()
@@ -95,55 +95,6 @@ export function MachineMeters({ m }: { m: MachineInfo }): ReactNode {
 }
 
 // ---------------------------------------------------------------- machine page
-
-/** The machine's processor share now: the newest rate, or why there is none; null when the build has no counters (hidden). */
-function machineCpuNow(points: MetricsSnapshot['machines'][string]['points'], tick: number): Sample | null {
-  return latest(machineCpu(points, tick))
-}
-
-/**
- * A machine page's figures: processor %, memory used of total, data disk used
- * of total with free inodes, whose processor and memory they are (`scope`),
- * and the worker's version and up time.
- */
-export function MachineFigures({ m }: { m: MachineInfo }): ReactNode {
-  const { t, tw } = useMachinesContext()
-  const w = useWords()
-  const { offered, snapshot } = useMetrics(m.name)
-  if (!offered || !statsAskable(m)) return null
-  const entry = snapshot.machines[m.name]
-  const stats = entry?.latest?.stats
-  if (!stats) return null
-  const r = stats.resources, d = stats.dataDisk
-  const cpu = entry ? machineCpuNow(entry.points, snapshot.tick) : null
-  const scope = resourceScopeWords(r.scope), diskScope = diskScopeWords(d.scope)
-  const now = snapshot.now ?? Date.now()
-  return (
-    <Figures label={t('mxFigures')}>
-      {'cpuBusyUsec' in r && (
-        <Figure label={t('mxProcessor')} gap={!cpu || cpu.v == null} data-mx-figure="cpu" sub={scope ? tw(scope) : undefined}>
-          {cpu && cpu.v != null ? percent(cpu.v) : <Dash why={w.gap(cpu?.reason ?? (r.cpuBusyUsec == null ? w.reasons(r.reason) || undefined : 'first_sample'))} />}
-        </Figure>
-      )}
-      <Figure label={t('memory')} gap={r.memoryUsed == null} data-mx-figure="memory" sub={!('cpuBusyUsec' in r) && scope ? tw(scope) : undefined}>
-        {r.memoryTotal != null && r.memoryUsed != null
-          ? <><Meter share={r.memoryTotal > 0 ? r.memoryUsed / r.memoryTotal : 0} label={t('memoryUse')} />{t('mxOf', { used: gib(r.memoryUsed), total: gib(r.memoryTotal) })}</>
-          : <Dash why={w.reasons(r.reason) || w.reason(null)} />}
-      </Figure>
-      <Figure label={t('disk')} gap={r.diskUsed == null} data-mx-figure="disk"
-        sub={[d.inodesFree != null ? t('mxInodesFree', { n: d.inodesFree.toLocaleString() }) : null, diskScope ? tw(diskScope) : null].filter(Boolean).join(' · ') || undefined}>
-        {r.diskTotal != null && r.diskUsed != null
-          ? <><Meter share={r.diskTotal > 0 ? r.diskUsed / r.diskTotal : 0} label={t('diskUse')} />{t('mxOf', { used: gib(r.diskUsed), total: gib(r.diskTotal) })}</>
-          : <Dash why={w.reasons(r.reason) || w.reason(null)} />}
-      </Figure>
-      {stats.worker && (
-        <Figure label={t('worker')} data-mx-figure="worker" sub={stats.worker.startedAt != null ? t('mxUpFor', { time: upTime(stats.worker.startedAt, now) }) : undefined}>
-          {stats.worker.version ? t('workerVersion', { version: stats.worker.version }) : <Dash why={w.reason(null)} />}
-        </Figure>
-      )}
-    </Figures>
-  )
-}
 
 /**
  * The machine's processor, memory and data disk over the last hour (the

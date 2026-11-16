@@ -160,20 +160,8 @@
   }
 }
 
-/* ---------- spec ---------- */
+/* ---------- details ---------- */
 
-.spec {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.specGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
-  gap: 24px;
-  align-items: start;
-}
 
 .factSub {
   display: block;
@@ -1683,4 +1671,295 @@
   align-items: center;
   gap: 6px;
   margin-top: auto;
+}
+
+/* ---------- machine Overview (Overview.tsx) ---------- */
+
+.ovStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  container-type: inline-size;
+}
+
+.ovStatus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+  box-shadow: inset 0 0 0 0.5px var(--dsw-alias-border-l2);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ovStatusTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.ovStatusTime {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ovTiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px;
+}
+
+.ovTile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px 12px;
+}
+
+.ovTileHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ovTileHead > span:last-child:not(:first-child) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ovValue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* "of 7.8 GiB" drops under the value when the tile is narrow, never cut */
+.ovValueOf {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ovNotRead {
+  font-size: 16px;
+  line-height: 32px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ovWhy {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ovMeter {
+  width: 100%;
+  height: 8px;
+}
+
+.ovDiskBar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.ovSpark {
+  display: block;
+  width: 100%;
+  height: 40px;
+  overflow: visible;
+}
+
+.ovSparkLine {
+  fill: none;
+  stroke: var(--dsw-alias-state-business-primary);
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ovSparkArea {
+  fill: var(--dsw-alias-state-business-primary);
+  fill-opacity: 0.12;
+  stroke: none;
+}
+
+.ovKeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ovKey {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: 0;
+}
+
+.ovKey[data-part='layerfs'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.ovKey[data-part='outside'] {
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.ovFoot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 10px;
+  margin-top: auto;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ovLower {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@container (max-width: 760px) {
+  .ovLower {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ovContents {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 12px 16px 14px;
+}
+
+.ovDetails {
+  padding: 12px 16px 6px;
+}
+
+/* the facts list, compact: one short ruled line each */
+.ovDetails dl {
+  padding: 0;
+}
+
+.ovDetails dl > div {
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.ovSbRows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ovSbRow,
+.ovImages {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.ovSbRow:first-child {
+  border-top: 0;
+}
+
+.ovImages {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.ovSbName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: start;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ovSbName > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ovSbName:hover > span:last-child {
+  text-decoration: underline;
+}
+
+.ovSbMuted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.ovSbMem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ovSbMeter {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 24px;
+}
+
+.ovNum {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: end;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.ovSbMem .ovNum {
+  min-width: 56px;
 }
