@@ -187,7 +187,7 @@ function Figure({ big, meta, title }: { big: ReactNode, meta: string, title?: st
 
 const projectsWords = (n: number, t: StorageT) => (n === 1 ? t('msProjectOne') : t('msProjectCount', { n }))
 
-/** Up to three projects, each with its packed bytes and its own bar: its share of the file (SQLite) or of the projects (PostgreSQL). */
+/** Up to three projects, each with its packed bytes and its own bar: its share of the file (SQLite) or of the projects (PostgreSQL); no bar while its bytes are unknown. */
 function Projects({ s, split, t, now, onOpenProject, onOpenStore }: { s: StoreRow, split: ProjectSplit | null, t: StorageT, now: number, onOpenProject: (key: string) => void, onOpenStore: (name: string) => void }): ReactNode {
   const tt = t as Translate
   if (!s.projects.length) return <p className={css.none}>{t('msNoProjects')}</p>
@@ -204,7 +204,7 @@ function Projects({ s, split, t, now, onOpenProject, onOpenStore }: { s: StoreRo
               <span className={css.projectMeta}>
                 {r.bytes === null ? (r.counting ? t('spReading') : <span title={r.error ?? t('msNotCounted')}>—</span>) : r.at === null ? t('spNoCommits') : bytes(r.bytes)}
               </span>
-              <span className={css.track} aria-hidden="true"><span style={{ width: `${Math.round(r.share * 1000) / 10}%` }} /></span>
+              {r.bytes !== null ? <span className={css.track} aria-hidden="true"><span style={{ width: `${Math.round(r.share * 1000) / 10}%` }} /></span> : null}
             </button>
           </li>
         ))}
