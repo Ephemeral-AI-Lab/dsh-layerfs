@@ -1,4 +1,4 @@
-#!/Users/yifanxu/.nvm/versions/node/v24.21.0/bin/node
+#!/usr/bin/env node
 // A pinned-CLI wrapper for UI checks of a machine whose worker does not answer:
 // `machine status|list|get` report $LFS_DOWN_MACHINE as stopped with LayerFS's
 // down reason, and `doctor` adds the warning LayerFS gives for it (with its fix

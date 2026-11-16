@@ -1,4 +1,4 @@
-#!/Users/yifanxu/.nvm/versions/node/v24.21.0/bin/node
+#!/usr/bin/env node
 // STAND-IN, not LayerFS: a pinned-CLI wrapper that ANSWERS `sandbox files` and
 // `machine files` for a CLI that does not have the calls yet
 // (layerfs-project#178 steps 3 to 5), so the dsh-layerfs Files views can be
