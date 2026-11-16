@@ -11,7 +11,7 @@ import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
-import { Card, Fact, Facts } from '../ui/index.tsx'
+import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { attachmentsOf, attachmentSignal, latestBackup } from './model.ts'
 import { commitTotal, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
@@ -27,6 +27,8 @@ export interface StoreOverviewProps {
   now: number
   /** `store.stats` (the page reads it, as the Projects tab's shares need it too). */
   stats: StoreStats | undefined
+  /** Why the last stats read was refused. */
+  statsError: unknown
   projects: readonly StoreProject[] | undefined
   running: ReadonlyMap<string, number>
   machineState: string | null | undefined
@@ -34,7 +36,7 @@ export interface StoreOverviewProps {
   onRemove: () => void
 }
 
-export function StoreOverview({ store: s, view, t, api, now, stats, projects, running, machineState, onTab, onRemove }: StoreOverviewProps): ReactNode {
+export function StoreOverview({ store: s, view, t, api, now, stats, statsError, projects, running, machineState, onTab, onRemove }: StoreOverviewProps): ReactNode {
   const pg = s.kind === 'postgresql'
   const tt = t as Translate
   // Each stats read is journaled by the host, so the journal is read again after one.
@@ -55,7 +57,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, projects, ru
           <Tile label={t('spDatabaseFile')} value={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} sub={s.size ? t('spWalPart', { wal: bytes(s.size.wal) }) : undefined} />
         )}
         <Tile label={t('tabProjects')} value={String(s.projects.length)} onOpen={() => onTab('projects')}
-          sub={commits ? t(commits.complete ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() }) : undefined} />
+          sub={commits ? (commits.refused && !commits.commits ? t('spCommitsUnread') : t(commits.complete || commits.refused ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() })) : undefined} />
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} sub={t('spHolders', { n: String(s.holders) })} />
         {pg ? (
           <Tile label={t('spMachines')} value={t('spConnectOf', { n: String(connecting), total: String(attached.length) })} onOpen={() => onTab('connections')}
@@ -66,7 +68,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, projects, ru
         )}
       </dl>
 
-      <FileCard stats={stats} pg={pg} t={t} />
+      <FileCard stats={stats} error={stats ? undefined : statsError} pg={pg} t={t} />
       {/* The host journals a read only when store.stats names the Store's identity
           (store_id, store_generation); a build without it records nothing, so no card. */}
       {growthRuns(journal.data).length ? <GrowthCard journal={journal.data} t={t} now={now} /> : null}
@@ -114,14 +116,10 @@ function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value
 }
 
 /** The database file's pages by part, and unique content over its packed bytes. */
-function FileCard({ stats, pg, t }: { stats: StoreStats | undefined, pg: boolean, t: StorageT }): ReactNode {
+function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, error: unknown, pg: boolean, t: StorageT }): ReactNode {
   const parts = fileParts(stats)
   const ratio = compressionOf(stats)
-  const words: Record<string, [string, string]> = {
-    stored: [t('spPartStored'), t('spPartStoredHint')],
-    metadata: [t('spPartMetadata'), t('spPartMetadataHint')],
-    free: [t('spPartFree'), t('spPartFreeHint')],
-  }
+  const words: Record<string, string> = { stored: t('spPartStored'), metadata: t('spPartMetadata'), free: t('spPartFree') }
   return (
     <Card className={css.panel} data-store-file>
       <header className={css.panelHead}>
@@ -130,15 +128,14 @@ function FileCard({ stats, pg, t }: { stats: StoreStats | undefined, pg: boolean
       </header>
       {parts ? (
         <>
-          <div className={css.partsBar} role="img" aria-label={parts.map((p) => `${words[p.key]![0]} ${bytes(p.bytes)}`).join(', ')}>
+          <div className={css.partsBar} role="img" aria-label={parts.map((p) => `${words[p.key]} ${bytes(p.bytes)}`).join(', ')}>
             {parts.map((p) => <span key={p.key} data-part={p.key} style={{ width: `${(p.share * 100).toFixed(2)}%` }} />)}
           </div>
           <ul className={css.partsLegend}>
             {parts.map((p) => (
               <li key={p.key}>
-                <span className={css.legendName}><i data-part={p.key} />{words[p.key]![0]}</span>
+                <span className={css.legendName}><i data-part={p.key} />{words[p.key]}</span>
                 <span className={css.legendValue}>{bytes(p.bytes)} <span className={css.muted}>{Math.round(p.share * 100)}%</span></span>
-                <span className={css.legendHint}>{words[p.key]![1]}</span>
               </li>
             ))}
           </ul>
@@ -149,7 +146,7 @@ function FileCard({ stats, pg, t }: { stats: StoreStats | undefined, pg: boolean
             </p>
           ) : null}
         </>
-      ) : <p className={css.muted}>{stats ? t('spFileUnknown') : t('spReading')}</p>}
+      ) : <p className={css.muted}>{stats ? t('spFileUnknown') : error ? t('spNotRead', { message: refusalOf(error).message }) : t('spReading')}</p>}
     </Card>
   )
 }
@@ -191,7 +188,6 @@ function GrowthCard({ journal, t, now }: { journal: ObservationJournal | undefin
           <div className={css.axis}><span>{when(from)}</span><span>{when(to)}</span></div>
         </>
       ) : <p className={css.muted}>{t('spGrowthFew')}</p>}
-      <p className={css.note}>{t('spGrowthNote')}</p>
     </Card>
   )
 }
@@ -208,7 +204,7 @@ function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[
   const stored = typeof stats?.stored === 'number' ? stats.stored : null
   const rest = stored !== null && stored > counted ? stored - counted : 0
   const whole = counted + rest
-  const counting = projects?.some((p) => p.partial) ?? true
+  const refused = projects ? commitTotal(projects).refused : null
   return (
     <Card className={css.panel} data-store-shares>
       <header className={css.panelHead}><h2 className={css.panelTitle}>{t('spSharesTitle')}</h2></header>
@@ -227,8 +223,7 @@ function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[
             </div>
           ) : null}
         </div>
-      ) : <p className={css.muted}>{projects ? t('spSharesNone') : t('spReading')}</p>}
-      <p className={css.note}>{counting && projects ? t('spSharesCounting') : t('spSharesNote')}</p>
+      ) : <p className={css.muted}>{!projects ? t('spReading') : refused ? t('spNotRead', { message: refused }) : t('spSharesNone')}</p>}
     </Card>
   )
 }

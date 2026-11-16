@@ -51,12 +51,6 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-.note {
-  margin: 8px 0 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
 
 /* ---------- tiles ---------- */
 
@@ -230,11 +224,6 @@
   font-weight: 400;
 }
 
-.legendHint {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
-}
 
 .ratioLine {
   display: flex;
