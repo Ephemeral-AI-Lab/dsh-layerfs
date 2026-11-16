@@ -15,15 +15,13 @@ import type { StorageT } from './locale.ts'
 import { attachRefusal, attachmentsOf, canMove, inHome, loopbackAlias } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { FormModal, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
+import { PG_URL_PASSWORD, PgPasswordFields, usePgPassword } from './pg-fields.tsx'
+import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
 import type { BackupState, MachinesView, PgAttachment, ProjectInitJob, StorageView, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
 const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 const REFERENCE = /^(env:LAYERFS_[A-Z0-9_]+|file:\/.+)$/
-/** A PostgreSQL password reference: any env: name (the server's environment) or a file. */
-const PG_REFERENCE = /^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/
-/** A PostgreSQL URL that holds a password (user:password@, or a password parameter). */
-const PG_URL_PASSWORD = /^postgres(?:ql)?:\/\/[^/@?]*:[^/@?]*@|[?&][^=&]*password=/i
 
 /** Which dialog is open, and on what. */
 export type StorageDialog =
@@ -32,6 +30,8 @@ export type StorageDialog =
   | { kind: 'add-project', store: string }
   | { kind: 'push', store: StoreRow }
   | { kind: 'to-machine', machine: string }
+  /** Connect a database to a machine: attach a connected one, or connect a new one and attach it. */
+  | { kind: 'pg-to-machine', machine: string }
   | { kind: 'move', store: StoreRow }
   | { kind: 'backup', store: StoreRow }
   | { kind: 'restore', bucket: string, file: string, store?: string | null }
@@ -65,6 +65,7 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done, onOpenStor
     case 'add-project': return <NewProjectDialog api={api} t={t} store={dialog.store} onClose={onClose} done={done} />
     case 'push':
     case 'move': return <PlaceDialog api={api} t={t} kind={dialog.kind} store={dialog.store} onClose={onClose} done={done} />
+    case 'pg-to-machine': return <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} onClose={onClose} done={done} />
     case 'to-machine': return <ToMachineDialog api={api} t={t} view={view} machine={dialog.machine} onClose={onClose} done={done} onDialog={onDialog} />
     case 'backup': return <BackupDialog api={api} t={t} store={dialog.store} view={view} onClose={onClose} done={done} />
     case 'restore': return <RestoreDialog api={api} t={t} dialog={dialog} view={view} onClose={onClose} done={done} />
@@ -176,39 +177,6 @@ function NewStoreDialog({ api, t, view, postgresql, onClose, done, onOpenStore }
 // ---------- PostgreSQL password and Attach ----------
 
 /** A PostgreSQL password: typed (the host keeps it in an owner-only file) or a reference. */
-function usePgPassword(initial: 'entered' | 'reference' = 'entered', reference = '') {
-  const [how, setHow] = useState<'entered' | 'reference'>(initial)
-  const [value, setValue] = useState('')
-  const [ref, setRef] = useState(reference)
-  return {
-    how, setHow, value, setValue, ref, setRef,
-    /** Nothing given yet. */
-    missing: how === 'entered' ? !value : !ref.trim(),
-    error: (t: StorageT) => (how === 'reference' && ref.trim() && !PG_REFERENCE.test(ref.trim()) ? t('passwordInvalid') : null),
-    /** The route's body fields. */
-    body: (): { passwordValue: string } | { password: string } => (how === 'entered' ? { passwordValue: value } : { password: ref.trim() }),
-  }
-}
-
-function PgPasswordFields({ id, pw, t }: { id: string, pw: ReturnType<typeof usePgPassword>, t: StorageT }): ReactNode {
-  return (
-    <>
-      <Field label={t('pgPasswordHow')}>
-        <SegmentedControl<'entered' | 'reference'> id={id} className={css.selfStart} value={pw.how} onChange={pw.setHow} label={t('pgPasswordHow')}
-          options={[{ value: 'entered', label: t('pgPasswordEntered') }, { value: 'reference', label: t('pgPasswordReference') }]} />
-      </Field>
-      {pw.how === 'entered' ? (
-        <>
-          <TextField label={t('pgPasswordValue')} value={pw.value} onChange={pw.setValue} mono type="password" />
-          <p className={css.formNote}>{t('pgPasswordNote')}</p>
-        </>
-      ) : (
-        <TextField label={t('pgPasswordReferenceLabel')} value={pw.ref} onChange={pw.setRef} mono placeholder="env:LAYERFS_PG_PASSWORD" hint={t('pgEnvHint')} error={pw.error(t)} />
-      )}
-    </>
-  )
-}
-
 /** Is the URL's host this host's loopback? */
 const loopback = (target: string | null | undefined) => /@?(localhost|127\.[0-9.]+|\[::1\])(:|\/|$)/.test(target ?? '')
 

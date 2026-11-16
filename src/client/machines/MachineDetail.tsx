@@ -38,8 +38,8 @@ import { storeLines } from './Inventory.tsx'
 import css from './machines.module.css'
 import logCss from './log.module.css'
 
-/** `onAddStore`: the page's Add Store for this machine (Storage's dialog); without it the Stores column has no action. */
-export function MachineDetail({ name, go, onAddStore }: { name: string, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined }): ReactNode {
+/** `onAddStore`: the page's Add Store for this machine (Storage's dialog); without it the Stores column has no action. `storesTab`: the Stores tab Storage draws (its Store cards and dialogs), else the plain list. */
+export function MachineDetail({ name, go, onAddStore, storesTab }: { name: string, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined, storesTab?: ((machine: string) => ReactNode) | undefined }): ReactNode {
   const { t, useMachines, refusal } = useMachinesContext()
   const title = useMachineTitle()
   const read = useMachines((s) => s)
@@ -62,7 +62,7 @@ export function MachineDetail({ name, go, onAddStore }: { name: string, go: (vie
       </Page>
     )
   }
-  return <MachineView key={m.name} view={view} m={m} go={go} onAddStore={onAddStore} />
+  return <MachineView key={m.name} view={view} m={m} go={go} onAddStore={onAddStore} storesTab={storesTab} />
 }
 
 /** CPU and memory in words when nothing was observed: the size the record was created with, labelled "allocated" (keyed on what is there, never on the platform). */
@@ -72,7 +72,7 @@ function resourcesOf(m: MachineInfo, t: ReturnType<typeof useMachinesContext>['t
   return t('mxAllocated', { size: `${cpu} · ${m.memory != null ? gib(m.memory) : t('notReported')}` })
 }
 
-function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: MachineInfo, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined }): ReactNode {
+function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableView, m: MachineInfo, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined, storesTab?: ((machine: string) => ReactNode) | undefined }): ReactNode {
   const { t, tw, kind, api, doctorT, useStartups, refusal } = useMachinesContext()
   const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
@@ -170,7 +170,7 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
           {notices}
           {tab === 'sandboxes' ? <SandboxesTab m={m} view={view} canCreate={canSandbox} onCreate={() => setCreating(true)} onImages={hasImages ? () => setTab('images') : undefined} />
-            : tab === 'stores' ? <StoresTab m={m} view={view} onAddStore={onAddStore} />
+            : tab === 'stores' ? (storesTab ? storesTab(m.name) : <StoresTab m={m} view={view} onAddStore={onAddStore} />)
             : tab === 'images' ? <ImagesTab m={m} />
               : <DiskTab m={m} />}
         </div>
