@@ -25,7 +25,7 @@ const WRITES = new Set([
 test('family-only reads are not writes', () => {
   for (const argv of [['doctor'], ['doctor', 'machine', 'docker'], ['help', '--json'], ['logs', 'list'], ['--version', '--json']]) assert.equal(isWrite(argv), false, argv.join(' '))
   // the monitoring reads (they write no call-log line, and a line of one would be a read)
-  for (const argv of [['machine', 'files', 'docker', '/etc'], ['sandbox', 'files', 'sb'], ['machine', 'stats', 'docker'], ['logs', 'machine', 'docker'], ['logs', 'sandbox', 'sb']]) assert.equal(isWrite(argv), false, argv.join(' '))
+  for (const argv of [['machine', 'files', 'docker', '/etc'], ['sandbox', 'files', 'sb'], ['machine', 'stats', 'docker'], ['machine', 'space', 'docker'], ['logs', 'machine', 'docker'], ['logs', 'sandbox', 'sb']]) assert.equal(isWrite(argv), false, argv.join(' '))
   assert.equal(isWrite(['doctor', 'fix', 'native:run-folder:x']), true, 'doctor fix removes a leftover')
 })
 

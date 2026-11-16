@@ -170,3 +170,12 @@ test('bar spans and what is not LayerFS\'s in words', () => {
   assert.deepEqual(S.sandboxSpaceReason('new_reason'), { key: 'raw', values: { text: 'new_reason' } })
   assert.equal(S.sandboxSpaceReason(undefined), null)
 })
+
+test('sizes in the disk views: nothing is 0 KiB, never 0 MiB', () => {
+  assert.equal(S.spaceSize(0), '0 KiB')
+  assert.equal(S.spaceSize(100), '1 KiB')
+  assert.equal(S.spaceSize(155648), '152 KiB')
+  assert.equal(S.spaceSize(6553600), '6 MiB')
+  assert.equal(S.spaceSize(3348140032), '3.1 GiB')
+  assert.equal(S.spaceSize(null), '—')
+})

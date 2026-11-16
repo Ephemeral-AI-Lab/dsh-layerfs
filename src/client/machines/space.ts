@@ -12,7 +12,7 @@
  */
 import type { MachinesKey } from './locale.ts'
 import type { StatsStale } from './stats.ts'
-import type { Words } from './model.ts'
+import { gib, type Words } from './model.ts'
 
 const w = (key: MachinesKey, values?: Record<string, string>): Words => ({ key, ...(values ? { values } : {}) })
 
@@ -53,6 +53,13 @@ export interface SpaceView {
 }
 
 const GIB = 2 ** 30
+
+/** A size in the disk views: 0 KiB for nothing, KiB under a MiB, else as the page's other disk sizes (MiB, GiB). */
+export function spaceSize(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—'
+  if (n < 2 ** 20) return `${n <= 0 ? 0 : Math.max(1, Math.round(n / 1024))} KiB`
+  return gib(n)
+}
 
 /**
  * How full a data disk is: `low` under 15 % or 5 GiB free, `critical` under
