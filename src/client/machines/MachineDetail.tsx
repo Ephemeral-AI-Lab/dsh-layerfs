@@ -1,6 +1,7 @@
 /**
- * One machine's page: its head (name as the tree shows it, state, power,
- * menu), startup progress and notices, then its tabs (MachineTabs.tsx).
+ * One machine's page: its tabs (MachineTabs.tsx), with startup progress and
+ * notices on every tab. The head (name as the tree shows it, state, power,
+ * menu) opens the Overview tab.
  * Overview (Overview.tsx) is a status line or what needs you, processor,
  * memory and disk tiles with their hour, what is on the machine and its
  * Details. Sandboxes and Stores list them all, with New Sandbox
@@ -10,6 +11,7 @@
  * has a worker log (`supports.log`).
  */
 import { useId, useState, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { Button, IconSettingsOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import { Empty, LinkButton, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
@@ -135,20 +137,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   )
   return (
     <Page wide label={name}>
-      <PageHead
-        icon={<MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={22} />}
-        title={name}
-        badge={<MachineStateChip m={m} live={live} pending={pending} blocked={!!block} />}
-        intro={`${kind(m.platform)} · ${tw(runtimeOf(m))}`}
-        actions={(
-          <>
-            {!block && <PowerButton m={m} pending={pending} run={run} />}
-            <MachineMenu m={m} pending={pending} run={run} onDialog={setDialog} />
-          </>
-        )}
-      />
-
-      <SegmentedTabs size="sm" className={logCss.tabs} label={t('machineTabs', { name })} value={tab} onChange={setTab}
+      <SegmentedTabs size="sm" className={clsx(logCss.tabs, logCss.tabsTop)} label={t('machineTabs', { name })} value={tab} onChange={setTab}
         items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
 
       {tab === 'files' ? (
@@ -177,6 +166,21 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
         </div>
       ) : (
       <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
+        {/* the machine's head (glyph, name, state, kind, power and menu) belongs to the Overview tab */}
+        <div className={logCss.panelHead}>
+          <PageHead
+            icon={<MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={22} />}
+            title={name}
+            badge={<MachineStateChip m={m} live={live} pending={pending} blocked={!!block} />}
+            intro={`${kind(m.platform)} · ${tw(runtimeOf(m))}`}
+            actions={(
+              <>
+                {!block && <PowerButton m={m} pending={pending} run={run} />}
+                <MachineMenu m={m} pending={pending} run={run} onDialog={setDialog} />
+              </>
+            )}
+          />
+        </div>
         <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} onDisk={hasDisk ? () => setSpaceOpen(true) : null}
           troubled={!!(reason || block || error !== null || state.state === 'unresolved')}
           notices={notices}
