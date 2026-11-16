@@ -132,7 +132,7 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
  * machine). The host creates in the background: the dialog closes on
  * admission and the machine's Sandboxes list shows the create's row.
  */
-export function NewSandboxDialog({ machine, taken: existing, onClose }: { machine: MachineInfo, taken: string[], onClose: () => void }): ReactNode {
+export function NewSandboxDialog({ machine, taken: existing, image, onClose }: { machine: MachineInfo, taken: string[], /** An image Id to preselect (the Images tab's New Sandbox on a stored image). */ image?: string, onClose: () => void }): ReactNode {
   const { t, tw, projects: readProjects, createSandbox, readSandbox, refusal, openStorageTab, useCreations } = useMachinesContext()
   const creations = useCreations((all) => all)
   // names a create still running (or failed, until dismissed) holds
@@ -142,7 +142,7 @@ export function NewSandboxDialog({ machine, taken: existing, onClose }: { machin
   // macOS native runs Sandboxes on the Mac itself: no Image row (its backend says so before the answer does)
   const host = answer ? answer.mode === 'host' : machine.backend === 'native'
   // undefined: not chosen, the default (D7) follows the answer; null: LayerFS's default
-  const [chosen, setChosen] = useState<string | null | undefined>(undefined)
+  const [chosen, setChosen] = useState<string | null | undefined>(image)
   const pick = host ? null : chosen === undefined ? defaultPick(answer) : chosen === null ? null : findPick(answer, chosen) ?? defaultPick(answer)
   const plan = imagePlan(answer, pick, machine.state)
   const imagesPending = !host && !answer && images.loading

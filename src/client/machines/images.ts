@@ -288,17 +288,43 @@ export function dockerRows(answer: SandboxImagesView | null | undefined, query =
   return { usable: shown.filter((r) => r.usable), unusable: shown.filter((r) => !r.usable), total: all.length }
 }
 
-/** The tab's flow strip: what Docker offers, what the machine stores, and how many Sandboxes use the stored images. */
-export function imagesFlow(answer: SandboxImagesView | null | undefined): { docker: number | null, dockerUsable: number, stored: number, storedBytes: number, sandboxes: number } {
-  const docker = answer?.docker?.available ? answer.docker.images : null
-  const ready = answer?.ready ?? []
-  return {
-    docker: docker ? docker.length : null,
-    dockerUsable: docker ? docker.filter((r) => r.usable).length : 0,
-    stored: ready.length,
-    storedBytes: ready.reduce((sum, r) => sum + (r.size ?? 0), 0),
-    sandboxes: ready.reduce((sum, r) => sum + Math.max(0, r.sandboxes), 0),
-  }
+/** An image's name in parts: the registry and path before the repository (shown quieter), the repository, and its tags. */
+export interface ImageLabel { registry: string, repo: string, tags: string[] }
+
+const parseRef = (ref: string): { registry: string, repo: string, tag: string } => {
+  const slash = ref.lastIndexOf('/')
+  const colon = ref.lastIndexOf(':')
+  const path = colon > slash ? ref.slice(0, colon) : ref
+  const tag = colon > slash ? ref.slice(colon + 1) : ''
+  const cut = path.lastIndexOf('/')
+  return { registry: cut >= 0 ? path.slice(0, cut + 1) : '', repo: cut >= 0 ? path.slice(cut + 1) : path, tag }
+}
+
+/**
+ * `cgr.dev/chainguard/minio:latest` as `{ registry: 'cgr.dev/chainguard/', repo: 'minio', tags: ['latest'] }`:
+ * the repository of `name` (the ref the row is named by), and every tag the
+ * image carries in that repository, the name's own first. One image only:
+ * two tags that are different images stay two rows.
+ */
+export function imageLabel(name: string, refs: readonly string[]): ImageLabel {
+  const own = parseRef(name)
+  const tags = [own.tag, ...refs.map(parseRef).filter((p) => p.registry === own.registry && p.repo === own.repo).map((p) => p.tag)].filter(Boolean)
+  return { registry: own.registry, repo: own.repo, tags: [...new Set(tags)] }
+}
+
+/** A repository's badge colour, 0–5, the same every time for the same name. */
+export function badgeHue(repo: string): number {
+  let h = 0
+  for (const ch of repo) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return h % 6
+}
+
+/** The Images tab's disk bar: one segment per stored image, then everything else used, then free; null without the disk's total. */
+export function diskSegments(ready: readonly Pick<ReadyImage, 'id' | 'size'>[], total: number | null, free: number | null): { images: { id: string, bytes: number, share: number }[], imagesBytes: number, rest: number, free: number, total: number } | null {
+  if (total == null || free == null || !(total > 0)) return null
+  const images = ready.map((r) => ({ id: r.id, bytes: Math.max(0, r.size ?? 0), share: Math.max(0, r.size ?? 0) / total }))
+  const imagesBytes = images.reduce((sum, r) => sum + r.bytes, 0)
+  return { images, imagesBytes, rest: Math.max(0, total - free - imagesBytes), free: Math.max(0, free), total }
 }
 
 /** A copy's row text: waiting, the copy's bytes, unpacking, or why it failed. */

@@ -3,7 +3,7 @@
 // with the queued copy, `image-load { load }` events through the copy's phases,
 // a copy of the same image already running answered instead of a second one,
 // a failed copy kept with its refusal until dismissed, 501 without machine.load;
-// and the Images tab's pure helpers (dockerRows, imagesFlow, loadWords).
+// and the Images tab's pure helpers (dockerRows, imageLabel, badgeHue, diskSegments, loadWords).
 //   node --test test/image-loads.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -22,7 +22,7 @@ await build({
   stdin: { contents: "export * from './src/client/machines/images.ts'", resolveDir: root, loader: 'ts' },
   outfile: join(out, 'images.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
 })
-const { dockerRows, imagesFlow, loadWords, reasonWords } = await import(pathToFileURL(join(out, 'images.mjs')).href)
+const { dockerRows, imageLabel, badgeHue, diskSegments, loadWords, reasonWords } = await import(pathToFileURL(join(out, 'images.mjs')).href)
 rmSync(out, { recursive: true, force: true })
 
 class Refusal extends Error {
@@ -107,15 +107,14 @@ test('load-image: 501 without machine.load, 400 without an image', async () => {
 const view = (images) => ({ machine: 'docker', stage: 1, mode: 'images', free: 1000, ready: [{ id: 'r', size: 300, sandboxes: 2 }, { id: 's', size: 100, sandboxes: 0 }], docker: images === null ? null : { available: true, images } })
 const img = (name, usable = true, refs = [name]) => ({ id: `sha256:${name}`, name, refs, size: 10, need: 21, fits: true, usable, ...(usable ? {} : { reason: { kind: 'os', value: '' } }) })
 
-test('dockerRows: usable first, unusable after, narrowed by any ref; imagesFlow counts both groups', () => {
+test('dockerRows: usable first, unusable after, narrowed by any ref', () => {
   const v = view([img('alpine:3.19', false), img('postgres:17', true, ['postgres:17', 'pg:latest']), img('rust:1.85')])
   const all = dockerRows(v)
   assert.deepEqual(all.usable.map((r) => r.name), ['postgres:17', 'rust:1.85'])
   assert.deepEqual(all.unusable.map((r) => r.name), ['alpine:3.19'])
   assert.equal(all.total, 3)
   assert.deepEqual(dockerRows(v, ' PG ').usable.map((r) => r.name), ['postgres:17'], 'any ref matches, case-blind')
-  assert.deepEqual(imagesFlow(v), { docker: 3, dockerUsable: 2, stored: 2, storedBytes: 400, sandboxes: 2 })
-  assert.equal(imagesFlow(view(null)).docker, null)
+  assert.equal(dockerRows(view(null)).total, 0)
 })
 
 test('loadWords and reasonWords: copy phases, a failure, an image with no OS', () => {
@@ -126,4 +125,15 @@ test('loadWords and reasonWords: copy phases, a failure, an image with no OS', (
   assert.deepEqual(loadWords({ phase: 'failed', error: { code: 'Weird', message: 'boom' }, machine: 'docker' }), { key: 'imgCopyFailed', values: { reason: 'boom' } })
   assert.deepEqual(reasonWords({ kind: 'os', value: '' }), { key: 'imageNoOs' })
   assert.deepEqual(reasonWords({ kind: 'os', value: 'windows' }), { key: 'imageOnlyOs', values: { os: 'windows' } })
+})
+
+test('imageLabel, badgeHue and diskSegments: names in parts, a stable colour, the disk bar', () => {
+  assert.deepEqual(imageLabel('cgr.dev/chainguard/minio:latest', ['cgr.dev/chainguard/minio:latest']), { registry: 'cgr.dev/chainguard/', repo: 'minio', tags: ['latest'] })
+  assert.deepEqual(imageLabel('alpine:latest', ['alpine:3', 'alpine:latest', 'other:1']), { registry: '', repo: 'alpine', tags: ['latest', '3'] }, 'the name\'s tag first, only this repository\'s tags')
+  assert.deepEqual(imageLabel('localhost:5000/app:dev', ['localhost:5000/app:dev']), { registry: 'localhost:5000/', repo: 'app', tags: ['dev'] }, 'a registry port is not a tag')
+  assert.deepEqual(imageLabel('LayerFS default', []), { registry: '', repo: 'LayerFS default', tags: [] })
+  assert.equal(badgeHue('postgres'), badgeHue('postgres'))
+  assert.ok(badgeHue('postgres') >= 0 && badgeHue('postgres') < 6)
+  assert.equal(diskSegments([{ id: 'a', size: 10 }], null, 5), null)
+  assert.deepEqual(diskSegments([{ id: 'a', size: 10 }, { id: 'b', size: null }], 100, 60), { images: [{ id: 'a', bytes: 10, share: 0.1 }, { id: 'b', bytes: 0, share: 0 }], imagesBytes: 10, rest: 30, free: 60, total: 100 })
 })

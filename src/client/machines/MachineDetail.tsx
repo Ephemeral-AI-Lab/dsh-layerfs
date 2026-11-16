@@ -173,7 +173,7 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
           {notices}
           {tab === 'sandboxes' ? <SandboxesTab m={m} view={view} canCreate={canSandbox} onCreate={() => setCreating(true)} onImages={hasImages ? () => setTab('images') : undefined} />
             : tab === 'stores' ? <StoresTab m={m} view={view} onAddStore={onAddStore} />
-            : <ImagesTab m={m} />}
+            : <ImagesTab m={m} taken={view.sandboxes.map((b) => b.name)} canCreate={canSandbox} />}
         </div>
       ) : (
       <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
