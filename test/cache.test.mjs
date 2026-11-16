@@ -489,6 +489,7 @@ const GETS = [
   ['machines/:id/space', '/api/machines/lima1/space'],
   ['machines/:id/space', '/api/machines/lima1/space?fresh=1'],
   ['sandbox-creates', '/api/sandbox-creates'],
+  ['image-loads', '/api/image-loads'],
   ['status', '/api/status'],
   ['projects', '/api/projects'],
   ['projects/:id', `/api/projects/${P}`],

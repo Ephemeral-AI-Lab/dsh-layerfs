@@ -5,7 +5,7 @@
  * a background create's phase in words (docs/specs/sandbox-images.md §5).
  */
 import type { MachinesKey } from './locale.ts'
-import { bytes, projectRef, type Creation, type DockerImage, type ImageReason, type MachineSandbox, type ReadyImage, type SandboxImagesView, type Words } from './model.ts'
+import { bytes, projectRef, type Creation, type DockerImage, type ImageLoad, type ImageReason, type MachineSandbox, type ReadyImage, type SandboxImagesView, type Words } from './model.ts'
 
 const words = (key: MachinesKey, values?: Record<string, string>): Words => (values ? { key, values } : { key })
 
@@ -113,7 +113,8 @@ export function imagesFooter(answer: SandboxImagesView | null | undefined, state
 export function reasonWords(reason: ImageReason | undefined): Words {
   switch (reason?.kind) {
     case 'arch': return words('dockerOtherArch', { arch: reason.value ?? '' })
-    case 'os': return words('imageOnlyOs', { os: reason.value ?? '' })
+    // an image whose config names no OS (a broken or attestation-only manifest) would read " only"
+    case 'os': return reason.value ? words('imageOnlyOs', { os: reason.value }) : words('imageNoOs')
     case 'no-glibc': return words('imageNeedsGlibc')
     default: return words('imageCannotUnpack')
   }
@@ -272,3 +273,40 @@ export function failureWords(error: Creation['error'] | null | undefined, machin
 
 /** A failure Free space can fix (its Retry reads "Free space"). */
 export const needsSpace = (c: Pick<Creation, 'phase' | 'error'>): boolean => c.phase === 'failed' && c.error?.code === 'NoSpace'
+
+/**
+ * The Images tab's Docker section: the images of this computer's Docker not
+ * on the machine yet (LayerFS lists them already without the stored ones),
+ * the ones that can run first, each group in LayerFS's order, narrowed by a
+ * case-blind match on any ref. `fits` false still lists the image: the copy
+ * is LayerFS's to refuse (NoSpace).
+ */
+export function dockerRows(answer: SandboxImagesView | null | undefined, query = ''): { usable: DockerImage[], unusable: DockerImage[], total: number } {
+  const all = answer?.docker?.available ? answer.docker.images : []
+  const q = query.trim().toLowerCase()
+  const shown = q ? all.filter((r) => r.name.toLowerCase().includes(q) || r.refs.some((ref) => ref.toLowerCase().includes(q))) : all
+  return { usable: shown.filter((r) => r.usable), unusable: shown.filter((r) => !r.usable), total: all.length }
+}
+
+/** The tab's flow strip: what Docker offers, what the machine stores, and how many Sandboxes use the stored images. */
+export function imagesFlow(answer: SandboxImagesView | null | undefined): { docker: number | null, dockerUsable: number, stored: number, storedBytes: number, sandboxes: number } {
+  const docker = answer?.docker?.available ? answer.docker.images : null
+  const ready = answer?.ready ?? []
+  return {
+    docker: docker ? docker.length : null,
+    dockerUsable: docker ? docker.filter((r) => r.usable).length : 0,
+    stored: ready.length,
+    storedBytes: ready.reduce((sum, r) => sum + (r.size ?? 0), 0),
+    sandboxes: ready.reduce((sum, r) => sum + Math.max(0, r.sandboxes), 0),
+  }
+}
+
+/** A copy's row text: waiting, the copy's bytes, unpacking, or why it failed. */
+export function loadWords(load: Pick<ImageLoad, 'phase' | 'done' | 'total' | 'error' | 'machine'>): Words {
+  switch (load.phase) {
+    case 'queued': return words('imgCopyQueued')
+    case 'failed': return failureWords(load.error, load.machine) ?? words('imgCopyFailed', { reason: load.error?.message ?? load.error?.code ?? '' })
+    case 'done': return words('imgCopyDone')
+    default: return phaseWords({ phase: load.phase, done: load.done, total: load.total })
+  }
+}

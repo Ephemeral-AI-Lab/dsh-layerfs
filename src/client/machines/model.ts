@@ -358,6 +358,21 @@ export interface SandboxImagesView {
 /** POST /api/machines/<name>/prune-images: the ids removed, the bytes freed, and the images LayerFS kept (InUse, …). */
 export interface PruneAnswer { removed: string[], freed: number, refused: { id: string, code: string, message: string }[] }
 
+/** An image copy the host runs in the background (host `ImageLoads`): `POST /api/machines/<name>/load-image`, `GET /api/image-loads` and `image-load` events. */
+export interface ImageLoad {
+  id: string
+  machine: string
+  /** The Docker image's Id, as the client sent it. */
+  image: string
+  phase: 'queued' | 'inspect' | 'export' | 'send' | 'unpack' | 'done' | 'failed'
+  done?: number
+  total?: number
+  reused?: boolean
+  error?: { code: string, message: string, detail?: unknown }
+  startedAt: number
+  updatedAt: number
+}
+
 /** A Sandbox create's phase (host `SandboxCreates`). */
 export type CreationPhase = 'queued' | 'machine' | 'inspect' | 'export' | 'send' | 'unpack' | 'start' | 'done' | 'failed'
 

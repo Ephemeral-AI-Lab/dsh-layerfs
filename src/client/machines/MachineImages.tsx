@@ -7,13 +7,14 @@
  * themselves. Both read `GET /api/machines/<name>/sandbox-images` and remove
  * through `prune-images`; Docker's own copies are never touched.
  */
-import { useState, type ReactNode } from 'react'
-import { Button, Checkbox, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Button, Checkbox, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import clsx from 'clsx'
 import { Card, Refusal, Section } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
-import { useImageName, useRestartWorker, useSandboxImages } from './ImageMenu.tsx'
-import { freeSpaceRows, freesWords, imagesFooter, imagesStatus, imagesTotal, removable, usedByWords } from './images.ts'
-import { bytes, type MachineInfo, type PruneAnswer, type SandboxImagesView } from './model.ts'
+import { onMac, useImageName, useRestartWorker, useSandboxImages } from './ImageMenu.tsx'
+import { dockerRows, freeSpaceRows, freesWords, imagesFlow, imagesFooter, imagesStatus, imagesTotal, loadWords, phaseShare, reasonWords, removable, usedByWords } from './images.ts'
+import { bytes, type DockerImage, type ImageLoad, type MachineInfo, type PruneAnswer, type SandboxImagesView } from './model.ts'
 import type { Query } from '../ui/use-query.ts'
 import css from './machines.module.css'
 
@@ -30,9 +31,160 @@ function Refused({ refused, names }: { refused: PruneAnswer['refused'], names: M
   )
 }
 
-/** The machine page's Images tab: the image copies stored on the machine, read while the tab is open. */
+/**
+ * The machine page's Images tab, read while it is open: a flow strip (this
+ * computer's Docker, copied once, stored on the machine, used by Sandboxes),
+ * the images stored on the machine, and the Docker images not on it yet, each
+ * with Copy (machine.load in the background).
+ */
 export function ImagesTab({ m }: { m: MachineInfo }): ReactNode {
-  return <ImagesSection m={m} images={useSandboxImages(m)} />
+  const images = useSandboxImages(m)
+  const answer = images.data
+  if (answer && (answer.stage !== 1 || answer.mode === 'host')) return null
+  return (
+    <div className={css.tabStack}>
+      {answer && <ImagesFlow m={m} answer={answer} />}
+      <ImagesSection m={m} images={images} />
+      {answer && <DockerSection m={m} images={images} />}
+    </div>
+  )
+}
+
+/** Three tiles: Docker on this computer (n, n can run here) → stored on the machine (n, size) → Sandboxes using them. */
+function ImagesFlow({ m, answer }: { m: MachineInfo, answer: SandboxImagesView }): ReactNode {
+  const { t } = useMachinesContext()
+  const f = imagesFlow(answer)
+  return (
+    <div className={css.imgFlow} data-images-flow>
+      <div className={css.imgFlowTile}>
+        <span className={css.imgFlowLabel}>{t(onMac() ? 'imgFlowDockerMac' : 'imgFlowDockerHost')}</span>
+        <span className={css.imgFlowValue}>{f.docker == null ? '—' : t(f.docker === 1 ? 'imgCountOne' : 'imgCount', { n: String(f.docker) })}</span>
+        <span className={css.imgFlowNote}>{f.docker == null ? t('imgFlowDockerUnread') : t('imgFlowCanRun', { n: String(f.dockerUsable) })}</span>
+      </div>
+      <span className={css.imgFlowArrow} aria-hidden="true">{t('imgFlowCopyOnce')} →</span>
+      <div className={css.imgFlowTile}>
+        <span className={css.imgFlowLabel}>{t('imgFlowStored', { machine: m.name })}</span>
+        <span className={css.imgFlowValue}>{t(f.stored === 1 ? 'imgCountOne' : 'imgCount', { n: String(f.stored) })}</span>
+        <span className={css.imgFlowNote}>{answer.free != null ? t('imgFlowStoredFree', { size: bytes(f.storedBytes), free: bytes(answer.free) }) : bytes(f.storedBytes)}</span>
+      </div>
+      <span className={css.imgFlowArrow} aria-hidden="true">{t('imgFlowStarts')} →</span>
+      <div className={css.imgFlowTile}>
+        <span className={css.imgFlowLabel}>{t('imgFlowSandboxes')}</span>
+        <span className={css.imgFlowValue}>{String(f.sandboxes)}</span>
+        <span className={css.imgFlowNote}>{t('imgFlowUsing')}</span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The image copies to `machine` the host runs (`GET /api/image-loads`, then
+ * `image-load` events), keyed by image Id; `copy` admits one, `dismiss`
+ * drops a failed one. A done copy leaves the map (the image is then stored).
+ */
+function useImageLoads(machine: string): { loads: Record<string, ImageLoad>, copy: (image: string) => Promise<void>, dismiss: (load: ImageLoad) => Promise<void> } {
+  const { api } = useMachinesContext()
+  const [loads, setLoads] = useState<Record<string, ImageLoad>>({})
+  const put = (l: ImageLoad) => setLoads((now) => {
+    const next = { ...now }
+    if (l.phase === 'done') delete next[l.image]; else next[l.image] = l
+    return next
+  })
+  useEffect(() => {
+    let live = true
+    setLoads({})
+    void api.call<{ loads: ImageLoad[] }>('GET', '/api/image-loads').then((r) => {
+      if (live) setLoads((now) => ({ ...Object.fromEntries((r?.loads ?? []).filter((l) => l.machine === machine).map((l) => [l.image, l])), ...now }))
+    }).catch(() => {})
+    const off = api.onEvent('image-load', (e) => { const l = e.data?.load as ImageLoad | undefined; if (live && l?.machine === machine) put(l) })
+    return () => { live = false; off() }
+  }, [api, machine])
+  return {
+    loads,
+    copy: async (image) => { put((await api.call<{ load: ImageLoad }>('POST', `/api/machines/${encodeURIComponent(machine)}/load-image`, { image })).load) },
+    dismiss: async (load) => {
+      await api.call('DELETE', `/api/image-loads/${encodeURIComponent(load.id)}`)
+      setLoads((now) => { const next = { ...now }; if (next[load.image]?.id === load.id) delete next[load.image]; return next })
+    },
+  }
+}
+
+/**
+ * The Docker images not on the machine yet: search, Refresh, one row per
+ * image with its size and the space a copy needs, and Copy to <machine>
+ * (one attempt; a failure stays on its row with Dismiss). The ones that
+ * cannot run here follow, with why. Copying needs a machine that answers
+ * now; a stopped machine or an outdated worker shows the list without Copy.
+ */
+function DockerSection({ m, images }: { m: MachineInfo, images: Query<SandboxImagesView> }): ReactNode {
+  const { t, tw, refusal } = useMachinesContext()
+  const answer = images.data
+  const [query, setQuery] = useState('')
+  const [error, setError] = useState<unknown>(null)
+  const { loads, copy, dismiss } = useImageLoads(m.name)
+  if (!answer?.docker) return null
+  const title = t(onMac() ? 'imgDockerTitleMac' : 'imgDockerTitleHost', { machine: m.name })
+  if (!answer.docker.available) {
+    return (
+      <Card className={css.block}>
+        <Section title={title} className={css.imagesSection}>
+          <p className={css.muted}>{t(answer.docker.reason === 'not-installed' ? 'noteDockerMissing' : 'noteDockerOff', { machine: m.name })}</p>
+        </Section>
+      </Card>
+    )
+  }
+  const canCopy = imagesStatus(answer, m.state) === 'fresh'
+  const { usable, unusable, total } = dockerRows(answer, query)
+  const start = async (id: string) => { setError(null); try { await copy(id) } catch (e) { setError(e) } }
+  const row = (r: DockerImage) => {
+    const load = loads[r.id]
+    const share = load ? phaseShare({ phase: load.phase === 'queued' ? 'queued' : load.phase, done: load.done, total: load.total } as Parameters<typeof phaseShare>[0]) : null
+    return (
+      <tr key={r.id} data-docker-image={r.name} data-off={!r.usable || undefined}>
+        <td className={css.imgName} title={[r.refs.join('\n'), r.id].filter(Boolean).join('\n')}><span className={css.mono}>{r.name}</span></td>
+        <td className={css.imagesSize}>{bytes(r.size)}</td>
+        <td className={r.usable && !r.fits ? css.imgWarn : css.muted}>
+          {!r.usable ? <span className={css.imageTag} data-off>{tw(reasonWords(r.reason))}</span>
+            : load ? <span className={load.phase === 'failed' ? css.errorText : undefined} role={load.phase === 'failed' ? 'alert' : undefined}>{tw(loadWords(load))}</span>
+              : r.fits ? t('imgNeeds', { size: bytes(r.need) }) : t('imgNoFit', { size: bytes(r.need) })}
+        </td>
+        <td className={css.imgActionCol}>
+          {r.usable && load && load.phase !== 'failed'
+            ? <span className={css.imgBar} aria-hidden="true"><span style={{ width: `${Math.round((share ?? 0) * 100)}%` }} data-unknown={share == null || undefined} /></span>
+            : r.usable && load?.phase === 'failed'
+              ? <Button variant="ghost" size="sm" onClick={() => void dismiss(load).catch(setError)}>{t('imgDismiss')}</Button>
+              : r.usable && canCopy && <Button variant="outline" size="sm" onClick={() => void start(r.id)} data-copy-image={r.name}>{t('imgCopyTo', { machine: m.name })}</Button>}
+        </td>
+      </tr>
+    )
+  }
+  return (
+    <Card className={css.block}>
+      <Section title={title} count={answer.docker.images.filter((r) => r.usable).length} className={css.imagesSection}
+        actions={(
+          <span className={css.imgTools}>
+            {total > 6 && <Input value={query} placeholder="postgres" aria-label={t('imgSearch')} className={css.imgSearch} onChange={(e) => setQuery(e.target.value)} />}
+            <Button variant="ghost" size="sm" onClick={() => images.reload()}>{t('imgRefresh')}</Button>
+          </span>
+        )}>
+        {total === 0
+          ? <p className={css.muted}>{t('imgDockerEmpty', { machine: m.name })}</p>
+          : usable.length + unusable.length === 0
+            ? <p className={css.muted}>{t('imgNoMatch', { query })}</p>
+            : (
+              <table className={clsx(css.rows, css.imgTable)} aria-label={title}>
+                <thead><tr><th className={css.imgName}>{t('imagesColImage')}</th><th className={css.imagesSize}>{t('imagesColSize')}</th><th>{t('imgColCopy')}</th><th className={css.imgActionCol} aria-label={t('imgColActions')} /></tr></thead>
+                <tbody>{usable.map(row)}{unusable.map(row)}</tbody>
+              </table>
+            )}
+        <div className={css.imagesFoot}>
+          {!canCopy && <p>{t('imgCopyNeedsRunning', { machine: m.name })}</p>}
+          <p>{t('imgBuildHint')}</p>
+        </div>
+        {error != null && <Refusal error={error} labels={refusal} compact className={css.errorText} />}
+      </Section>
+    </Card>
+  )
 }
 
 /**

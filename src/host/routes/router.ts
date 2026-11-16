@@ -202,6 +202,11 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (!id && method === 'GET') return g.sandboxCreates.list()
     if (id && method === 'DELETE') return g.sandboxCreates.dismiss(id)
   }
+  // image copies run in the background: running and failed copies; dismiss a failed one
+  if (group === 'image-loads' && !sub) {
+    if (!id && method === 'GET') return machines.loads.list()
+    if (id && method === 'DELETE') return machines.loads.dismiss(id)
+  }
   if (group === 'machines') {
     if (!id && !sub && method === 'GET') return machines.view(query.get('fresh') === '1')
     if (id && sub === 'inspect' && method === 'GET') return machines.inspect(id)
@@ -217,6 +222,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'sandbox-images' && method === 'GET') return machines.sandboxImages(id)
     // { images?: id[], unused?: boolean } -> { removed, freed, refused }: 501 while the pinned CLI has no machine.prune
     if (id && sub === 'prune-images' && method === 'POST') return machines.pruneImages(id, body ?? {})
+    // { image } -> 202 { load }: machine.load in the background (`image-load` events); 501 while the pinned CLI has no machine.load
+    if (id && sub === 'load-image' && method === 'POST') return machines.loadImage(id, body ?? {})
     if (id && sub === 'start' && method === 'POST') return machines.start(id)
     if (id && sub === 'stop' && method === 'POST') return machines.stop(id, { force: body?.force === true })
     if (!id && !sub && method === 'POST') return machines.create(body)

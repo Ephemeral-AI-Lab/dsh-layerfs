@@ -26,7 +26,9 @@ import { readArchive, type ImageProblem } from '../images/archive.ts'
 import { InspectReads, filesQuery, logQuery, refusalOf, type FilesView, type LogView } from './inspect.ts'
 import { MetricsSampler, STOPPED } from './metrics.ts'
 import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type MachineStatsView } from './observed.ts'
-import { cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
+import { Answer, cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
+import { ImageLoads, type LoadReport } from './image-loads.ts'
+import { createPhase } from './projects.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
 /** Platforms LayerFS has that are turned off here: not offered, not created or connected. */
@@ -671,6 +673,31 @@ export class Machines {
       }
     }
     return answer
+  }
+
+  /** Image copies running in the background (`image-load` events); a copy that ends drops the machine's kept images answer. */
+  readonly loads = new ImageLoads((type, data) => this.host.emit(type, data), (machine) => { this.keptImages.delete(machine) })
+
+  /**
+   * `POST /api/machines/:id/load-image { image }`: copies one image of this
+   * computer's Docker (its Id or a ref) to the machine with machine.load,
+   * without creating a Sandbox, in the background: `202 { load }` at once,
+   * then `image-load` events. A copy of the same image already running is
+   * answered instead of a second one. 501 while the pinned CLI has no
+   * machine.load. Never starts the machine (a stopped one is refused by LayerFS).
+   */
+  async loadImage(name: string, body: any): Promise<Answer> {
+    if (!name) throw refuse(null, 'InvalidInput', 'name the machine')
+    const image = text(body?.image)
+    if (!image || image.includes('\0')) throw refuse(400, 'InvalidInput', 'name the Docker image to copy (its Id or a ref)')
+    const features = await cliFeatures(this.host)
+    if (!features.imageLoad) {
+      throw Object.assign(refuse(501, 'Unsupported', 'The pinned LayerFS CLI cannot copy an image to a machine (it has no machine.load).'), { detail: { need: 'image-load' } })
+    }
+    const running = this.loads.running(name, image)
+    if (running) return new Answer(202, { load: running })
+    const run = (report: LoadReport) => this.lfs.machine.load(name, image, { on_progress: (p: unknown) => { const u = createPhase(p); if (u && u.phase !== 'start') report(u as Parameters<LoadReport>[0]) } })
+    return new Answer(202, { load: this.loads.admit(name, image, run) })
   }
 
   /** machine.start(name): a stopped machine and its worker, waited for; native and a running one answer at once. */

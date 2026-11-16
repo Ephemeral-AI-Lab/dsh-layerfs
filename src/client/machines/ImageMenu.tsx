@@ -43,6 +43,11 @@ export function useSandboxImages(machine: Pick<MachineInfo, 'name' | 'state'>): 
       }),
       api.onEvent('machine-progress', (e) => { if ((e.data?.name ?? e.data?.machine) === name) bump() }),
       api.onEvent('storage-changed', bump),
+      // an image copy to this machine that ends changes both groups
+      api.onEvent('image-load', (e) => {
+        const l = e.data?.load
+        if (l?.machine === name && (l.phase === 'done' || l.phase === 'failed')) bump()
+      }),
     ]
     const focus = () => { if (document.visibilityState === 'visible') bump() }
     window.addEventListener('focus', focus)
@@ -52,7 +57,7 @@ export function useSandboxImages(machine: Pick<MachineInfo, 'name' | 'state'>): 
 }
 
 /** The Docker group's heading: "…on this Mac" on macOS, else "…on this computer". */
-const onMac = (): boolean => typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')
+export const onMac = (): boolean => typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')
 
 /** A ready row's name: "LayerFS default" (in this locale) for the bundle's image, else its `:latest` ref or first ref. */
 export function useImageName(): (row: Pick<ReadyImage, 'name' | 'refs' | 'source'>) => string {
