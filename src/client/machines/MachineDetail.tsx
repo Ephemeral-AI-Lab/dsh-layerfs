@@ -1,26 +1,28 @@
 /**
  * One machine's page: its head (name as the tree shows it, state, power,
- * menu), startup progress and notices, then its tabs. Overview is a line of
- * facts, its Stores and its Sandboxes side by side, all of them, and the full
- * spec folded under Details. Files (InspectFiles.tsx) is there only when the
- * pinned CLI has machine.files, and Worker log (LogPane.tsx) only when it has
- * logs.machine and LayerFS says the machine has a worker log (`supports.log`);
- * with neither the page has no tab bar.
+ * menu), startup progress and notices, then its tabs (MachineTabs.tsx).
+ * Overview is the machine's figures, what needs you on it with links to the
+ * tab that fixes it, its Sandboxes and Stores in a line and the full spec
+ * folded under Details. Sandboxes and Stores list them all, with New Sandbox
+ * and Add Store. Usage (processor, memory and disk over the hour) is there
+ * only when the pinned CLI has machine.stats, Disk (where the disk goes) only
+ * with machine.space, Files (InspectFiles.tsx) only with machine.files, and
+ * Worker log (LogPane.tsx) only with logs.machine and a machine LayerFS says
+ * has a worker log (`supports.log`).
  */
 import { useId, useState, type ReactNode } from 'react'
-import { Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
-import { Card, Empty, LinkButton, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
+import { Empty, LinkButton, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
 import { DiskLine, attentionOf, blockedOf, glyphOs } from './Board.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
-import { ImagesSection } from './MachineImages.tsx'
 import { useDetailTab } from './detail-tabs.ts'
 import { InspectFiles } from './InspectFiles.tsx'
 import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
-import { Inventory, useMachineTitle } from './Inventory.tsx'
+import { useMachineTitle } from './Inventory.tsx'
 import { clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, storesOn, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
 import { stepReasons } from './needs.ts'
@@ -28,8 +30,11 @@ import { FixPanel } from './Readiness.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { SpecTab } from './Spec.tsx'
 import { ObservedCpuMemory, useMachineStats, workerLine } from './MachineStats.tsx'
-import { MachineCharts, MachineFigures, SandboxUsage } from './MetricsViews.tsx'
-import { DiskNotice, WhereSpaceGoes } from './SpaceViews.tsx'
+import { MachineFigures } from './MetricsViews.tsx'
+import { machineTabs, type MachineTab } from './machine-tabs.ts'
+import { DiskTab, OverviewAttention, OverviewCounts, SandboxesTab, StoresTab, UsageTab } from './MachineTabs.tsx'
+import { useSpaceOffered } from './SpaceViews.tsx'
+import { storeLines } from './Inventory.tsx'
 import css from './machines.module.css'
 import logCss from './log.module.css'
 
@@ -88,15 +93,18 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   const hasLog = view.features?.inspect?.machineLog === true && m.supports?.log === true
   // Files: the pinned CLI has machine.files (which views it has is LayerFS's answer, never a platform test here)
   const hasFiles = view.features?.inspect?.machineFiles === true
-  const tabs: { value: 'overview' | 'files' | 'log', label: string }[] = [
-    { value: 'overview', label: t('tabOverview') },
-    ...(hasFiles ? [{ value: 'files' as const, label: t('tabFiles') }] : []),
-    ...(hasLog ? [{ value: 'log' as const, label: t('tabWorkerLog') }] : []),
-  ]
-  const [tab, setTab] = useDetailTab('machine', m.name, tabs.map((x) => x.value), 'overview')
-  const ids = useId()
   // observed values (machine.stats), read every 10 s while this page is on screen; without the call the facts are the record's, as before
   const observed = useMachineStats(m)
+  const hasDisk = useSpaceOffered()
+  const sandboxCount = sandboxesOn(view, m).length
+  const storeCount = storeLines(view, m).length
+  const labels: Record<MachineTab, string> = {
+    overview: t('tabOverview'), sandboxes: t('tabSandboxes', { n: String(sandboxCount) }), stores: t('tabStores', { n: String(storeCount) }),
+    usage: t('tabUsage'), disk: t('tabDisk'), files: t('tabFiles'), log: t('tabWorkerLog'),
+  }
+  const tabs = machineTabs({ usage: observed.offered, disk: hasDisk, files: hasFiles, log: hasLog }).map((value) => ({ value, label: labels[value] }))
+  const [tab, setTab] = useDetailTab<MachineTab>('machine', m.name, tabs.map((x) => x.value), 'overview')
+  const ids = useId()
   const worker = observed.offered ? workerLine(observed.read?.stats, t) : null
   const logLink = hasLog && tab !== 'log' ? <LinkButton onClick={() => setTab('log')}>{t('openWorkerLog')}</LinkButton> : null
   // startup progress and notices: on every tab, where today's page has them
@@ -136,10 +144,8 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
         )}
       />
 
-      {tabs.length > 1 && (
-        <SegmentedTabs size="sm" className={logCss.tabs} label={t('machineTabs', { name })} value={tab} onChange={setTab}
-          items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
-      )}
+      <SegmentedTabs size="sm" className={logCss.tabs} label={t('machineTabs', { name })} value={tab} onChange={setTab}
+        items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
 
       {tab === 'files' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>
@@ -158,8 +164,16 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
           <LogPane kind="machine" name={m.name} label={t('workerLogOf', { name })}
             unavailable={state.state === 'stopped' ? { message: t('logMachineStopped'), action: block ? undefined : <PowerButton m={m} pending={pending} run={run} /> } : null} />
         </div>
+      ) : tab !== 'overview' ? (
+        <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
+          {notices}
+          {tab === 'sandboxes' ? <SandboxesTab m={m} view={view} canCreate={canSandbox} onCreate={() => setCreating(true)} />
+            : tab === 'stores' ? <StoresTab m={m} view={view} onAddStore={onAddStore} />
+              : tab === 'usage' ? <UsageTab m={m} />
+                : <DiskTab m={m} />}
+        </div>
       ) : (
-      <div className={logCss.tabPanel} {...(tabs.length > 1 ? { role: 'tabpanel', id: `${ids}-overview-panel`, 'aria-labelledby': `${ids}-overview` } : {})}>
+      <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
       {/* the sampler's figures once it has read the machine; until then (or without machine.stats) the facts as they were */}
       {observed.offered && observed.read?.stats ? <MachineFigures m={m} /> : (
       <dl className={css.factRow} aria-label={t('resources')}>
@@ -171,29 +185,8 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
       )}
 
       {notices}
-      <DiskNotice m={m} />
-
-      <MachineCharts m={m} />
-      <SandboxUsage m={m} />
-      <WhereSpaceGoes m={m} />
-
-      <Card className={css.block}>
-        <Inventory m={m} view={view}
-          storeAction={onAddStore ? (
-            <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={() => onAddStore(m.name)}>
-              {t('addStore')}
-            </Button>
-          ) : undefined}
-          sandboxAction={(
-            <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canSandbox}
-              title={canSandbox ? undefined : t('sandboxAfterPower')} onClick={() => setCreating(true)}>
-              {t('newSandbox')}
-            </Button>
-          )} />
-      </Card>
-
-      {/* Stage 1: the images copied to this machine (not macOS native, whose Sandboxes run on the Mac itself) */}
-      {view.features?.imageStage === 1 && m.backend !== 'native' && <ImagesSection m={m} />}
+      <OverviewAttention m={m} view={view} onTab={setTab} />
+      <OverviewCounts m={m} view={view} onTab={setTab} />
 
       <details className={css.details}>
         <summary className={css.detailsSummary}>

@@ -31,7 +31,7 @@ export function useMachineTitle(): (m: { name: string, platform: string }) => st
 }
 
 /** A listed Sandbox's look: its record's state, or "Daemon not running" when LayerFS saw its daemon ended (stats.ts). */
-const lookOf = (b: MachineSandbox) => sandboxLook(b, (state) => stateLook('sandbox', state))
+export const lookOf = (b: MachineSandbox) => sandboxLook(b, (state) => stateLook('sandbox', state))
 
 /** Whether a Sandbox needs you: its state is one LayerFS flags, or it is recorded running and its daemon has ended. */
 export function sandboxNeedsYou(b: MachineSandbox): boolean {
@@ -42,7 +42,7 @@ export function sandboxNeedsYou(b: MachineSandbox): boolean {
 /** One Store row: what the machine's Sandboxes can use, sqlite on its disk or PostgreSQL attached to it. */
 interface StoreLine { name: string, family: 'sqlite' | 'postgresql', projects: string[], count: number, size: number | null, state?: string | undefined, op?: MachineSandbox['op'] }
 
-function storeLines(view: AvailableView, m: MachineInfo): StoreLine[] {
+export function storeLines(view: AvailableView, m: MachineInfo): StoreLine[] {
   const sqlite = storesOn(view, m).map((s): StoreLine => ({ name: s.name, family: 'sqlite', projects: s.names ?? [], count: s.projects, size: s.size, state: s.state, op: s.op ?? null }))
   const pg = pgUsable(m, view.postgresql ?? []).map((s): StoreLine => ({ name: s.name, family: 'postgresql', projects: s.names ?? [], count: s.projects, size: null, state: s.state, op: s.op ?? null }))
   return [...sqlite, ...pg]
@@ -68,9 +68,7 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
   sandboxAction?: ReactNode
 }): ReactNode {
   const { t, useCreations } = useMachinesContext()
-  // each Store's observed size (machine.stats), where the pinned CLI has the call and the machine answered
-  const sizes = storeSizes(useMachineStats(m).read)
-  const stores = storeLines(view, m).map((s) => (s.family === 'sqlite' && sizes?.get(s.name) != null ? { ...s, size: sizes.get(s.name)! } : s))
+  const stores = useStoreRows(m, view)
   const sandboxes = sandboxLines(view, m)
   const creations = useCreations((all) => all)
   const creating = creatingOn(creations, m.name, sandboxes)
@@ -104,6 +102,26 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
   )
 }
 
+/** The machine's Store rows, each sqlite Store with its observed size (machine.stats) where the pinned CLI has the call and the machine answered. */
+function useStoreRows(m: MachineInfo, view: AvailableView): StoreLine[] {
+  const sizes = storeSizes(useMachineStats(m).read)
+  return storeLines(view, m).map((s) => (s.family === 'sqlite' && sizes?.get(s.name) != null ? { ...s, size: sizes.get(s.name)! } : s))
+}
+
+/** The machine page's Stores tab: every Store the machine's Sandboxes can use, one row each, with `action` (Add Store) in its head. */
+export function StoreSection({ m, view, action }: { m: MachineInfo, view: AvailableView, action?: ReactNode }): ReactNode {
+  const { t } = useMachinesContext()
+  const stores = useStoreRows(m, view)
+  return (
+    <section className={css.inventoryColumn} aria-label={t('storesOnMachine', { name: m.name })} data-machine-stores={m.name}>
+      <ColumnHead label={t('stores')} count={stores.length} action={action} />
+      {stores.length === 0
+        ? <p className={css.inventoryEmpty}>{view.readErrors?.stores ? t('storesUnread') : t('noStoresHere')}</p>
+        : <StoreRows rows={stores} more={0} />}
+    </section>
+  )
+}
+
 /**
  * A Sandbox being created, drawn as a real row in the same place: its name
  * and, like its neighbours, the project (`showProject`, ungrouped) or the
@@ -113,7 +131,7 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
  * refused for lack of space offers Free space instead of Retry, and creates
  * again once images were removed. Not clickable until the Sandbox exists.
  */
-function CreatingRow({ c, showProject }: { c: Creation, showProject?: boolean }): ReactNode {
+export function CreatingRow({ c, showProject }: { c: Creation, showProject?: boolean }): ReactNode {
   const { t, tw, retryCreation, dismissCreation } = useMachinesContext()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)

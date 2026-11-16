@@ -1469,3 +1469,45 @@
   font-size: 13px;
   line-height: 20px;
 }
+
+/* the machine page's tabs (MachineTabs.tsx) */
+.tabStack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.tabToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 13px;
+}
+.sbTable .mxName {
+  width: 22%;
+}
+.sbTable td[data-tone='warning'] {
+  color: inherit;
+}
+.sbTable tr[data-tone='warning'] .mxRowName {
+  color: var(--dsw-alias-state-warn-primary);
+}
+.sbTable tr[data-sb-closed] td {
+  color: var(--dsw-alias-label-tertiary);
+}
+.sbActionCol {
+  width: 76px;
+  text-align: end;
+}
+.sbAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+@container (max-width: 640px) {
+  .sbTable th:nth-child(2),
+  .sbTable td:nth-child(2) {
+    display: none;
+  }
+}
