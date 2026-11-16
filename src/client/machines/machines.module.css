@@ -1246,13 +1246,6 @@
   font-weight: 500;
 }
 
-.mxCharts {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px 16px 12px;
-}
-
 .mxDash {
   display: inline-flex;
   flex-direction: column;

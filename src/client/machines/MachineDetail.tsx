@@ -4,8 +4,7 @@
  * Overview (Overview.tsx) is a status line or what needs you, processor,
  * memory and disk tiles with their hour, what is on the machine and its
  * Details. Sandboxes and Stores list them all, with New Sandbox
- * and Add Store. Usage (processor, memory and disk over the hour) is there
- * only when the pinned CLI has machine.stats, Disk (where the disk goes) only
+ * and Add Store. Disk (where the disk goes) is there only
  * with machine.space, Files (InspectFiles.tsx) only with machine.files, and
  * Worker log (LogPane.tsx) only with logs.machine and a machine LayerFS says
  * has a worker log (`supports.log`).
@@ -31,7 +30,7 @@ import { NewSandboxDialog } from './Sandboxes.tsx'
 import { MachineOverview } from './Overview.tsx'
 import { ObservedCpuMemory, useMachineStats, workerLine } from './MachineStats.tsx'
 import { machineTabs, type MachineTab } from './machine-tabs.ts'
-import { DiskTab, StoresTab, UsageTab } from './MachineTabs.tsx'
+import { DiskTab, StoresTab } from './MachineTabs.tsx'
 import { ImagesTab } from './MachineImages.tsx'
 import { SandboxesTab } from './SandboxCards.tsx'
 import { useSpaceOffered } from './SpaceViews.tsx'
@@ -103,9 +102,9 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   const storeCount = storeLines(view, m).length
   const labels: Record<MachineTab, string> = {
     overview: t('tabOverview'), sandboxes: t('tabSandboxes', { n: String(sandboxCount) }), stores: t('tabStores', { n: String(storeCount) }),
-    images: t('tabImages'), usage: t('tabUsage'), disk: t('tabDisk'), files: t('tabFiles'), log: t('tabWorkerLog'),
+    images: t('tabImages'), disk: t('tabDisk'), files: t('tabFiles'), log: t('tabWorkerLog'),
   }
-  const tabs = machineTabs({ images: hasImages, usage: observed.offered, disk: hasDisk, files: hasFiles, log: hasLog }).map((value) => ({ value, label: labels[value] }))
+  const tabs = machineTabs({ images: hasImages, disk: hasDisk, files: hasFiles, log: hasLog }).map((value) => ({ value, label: labels[value] }))
   const [tab, setTab] = useDetailTab<MachineTab>('machine', m.name, tabs.map((x) => x.value), 'overview')
   const ids = useId()
   const worker = observed.offered ? workerLine(observed.read?.stats, t) : null
@@ -173,8 +172,7 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
           {tab === 'sandboxes' ? <SandboxesTab m={m} view={view} canCreate={canSandbox} onCreate={() => setCreating(true)} onImages={hasImages ? () => setTab('images') : undefined} />
             : tab === 'stores' ? <StoresTab m={m} view={view} onAddStore={onAddStore} />
             : tab === 'images' ? <ImagesTab m={m} />
-              : tab === 'usage' ? <UsageTab m={m} />
-                : <DiskTab m={m} />}
+              : <DiskTab m={m} />}
         </div>
       ) : (
       <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>

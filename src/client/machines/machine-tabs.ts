@@ -7,15 +7,16 @@
 import type { MachineSandbox } from './model.ts'
 import type { SandboxSpace } from './space.ts'
 
-export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'images' | 'usage' | 'disk' | 'files' | 'log'
+export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'images' | 'disk' | 'files' | 'log'
 
 /**
  * The tabs a machine page has, in order: Images needs a machine that keeps
- * Sandbox image copies (Stage 1, not macOS native), Usage machine.stats, Disk
- * machine.space, Files machine.files, Worker log logs.machine and a worker log.
+ * Sandbox image copies (Stage 1, not macOS native), Disk machine.space,
+ * Files machine.files, Worker log logs.machine and a worker log. The hour of
+ * processor and memory is on the Overview (no Usage tab).
  */
-export function machineTabs(has: { images: boolean, usage: boolean, disk: boolean, files: boolean, log: boolean }): MachineTab[] {
-  return ['overview', 'sandboxes', 'stores', ...(has.images ? ['images' as const] : []), ...(has.usage ? ['usage' as const] : []), ...(has.disk ? ['disk' as const] : []),
+export function machineTabs(has: { images: boolean, disk: boolean, files: boolean, log: boolean }): MachineTab[] {
+  return ['overview', 'sandboxes', 'stores', ...(has.images ? ['images' as const] : []), ...(has.disk ? ['disk' as const] : []),
     ...(has.files ? ['files' as const] : []), ...(has.log ? ['log' as const] : [])]
 }
 

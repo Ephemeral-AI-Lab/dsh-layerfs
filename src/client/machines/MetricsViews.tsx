@@ -1,7 +1,6 @@
 /**
  * The metrics views (layerfs-project#182 D3), drawn from the host's sampler
- * (metrics.ts): a machine card's meters, a machine's hour of processor,
- * memory and disk (the Usage tab; the Overview's tiles are Overview.tsx), and a Sandbox page's
+ * (metrics.ts): a machine card's meters and a Sandbox page's
  * figures and charts. Per-Sandbox rows are the Sandboxes tab (MachineTabs.tsx).
  *
  * Everything renders from field presence, never from a platform name: an
@@ -11,12 +10,11 @@
  * restart starts it empty, and the charts say so.
  */
 import { useMemo, type ReactNode } from 'react'
-import clsx from 'clsx'
 import { ChartGroup, Figure, Figures, LineArea, type ChartSample } from '../ui/LineArea.tsx'
-import { Card, Meter } from '../ui/index.tsx'
+import { Meter } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import {
-  HOUR_MS, latest, machineCpu, machineDisk, machineMemory, percent, processors, sandboxFigures, upTime,
+  HOUR_MS, latest, processors, sandboxFigures, upTime,
   type MetricsSnapshot,
 } from './metrics.ts'
 import { useMetrics } from './MachineStats.tsx'
@@ -95,41 +93,6 @@ export function MachineMeters({ m }: { m: MachineInfo }): ReactNode {
 }
 
 // ---------------------------------------------------------------- machine page
-
-/**
- * The machine's processor, memory and data disk over the last hour (the
- * Usage tab); the processor chart only with a build that has the counters,
- * the disk chart once a read brought a disk total.
- */
-export function MachineCharts({ m }: { m: MachineInfo }): ReactNode {
-  const { t } = useMachinesContext()
-  const w = useWords()
-  const { offered, snapshot } = useMetrics(m.name)
-  const entry = snapshot.machines[m.name]
-  const cpu = useMemo(() => (entry ? machineCpu(entry.points, snapshot.tick) : []), [entry, snapshot.tick])
-  const memory = useMemo(() => (entry ? machineMemory(entry.points) : []), [entry])
-  const disk = useMemo(() => (entry ? machineDisk(entry.points) : []), [entry])
-  if (!offered || !snapshot.loaded) return null
-  const { from, to } = span(snapshot)
-  const stats = entry?.latest?.stats
-  const hasCpu = !!entry?.points.some((p) => p.values && 'cpuBusyUsec' in p.values) || (!!stats && 'cpuBusyUsec' in stats.resources)
-  // the scale: the machine's own total, else its recorded size (never read: no label)
-  const read = Math.max(0, ...memory.map((s) => s.v ?? 0))
-  const known = stats?.resources.memoryTotal ?? (m.memory != null && m.memory > 0 ? m.memory : read > 0 ? read : null)
-  const total = known ?? 1
-  const diskTotal = stats?.resources.diskTotal ?? entry?.points.findLast((p) => p.values?.diskTotal != null)?.values?.diskTotal ?? null
-  const frame = { from, to, gapText: w.gap, timeText: clock, startText: t('mxHourAgo'), endText: t('mxNow'), empty: t('mxEmpty') }
-  return (
-    <Card className={clsx(css.block, css.mxCharts)} data-mx-charts={m.name}>
-      <ChartGroup>
-        {hasCpu && <LineArea label={t('mxProcessor')} samples={cpu as ChartSample[]} max={1} maxText="100 %" format={percent} {...frame} />}
-        <LineArea label={t('memory')} samples={memory as ChartSample[]} max={total} maxText={known != null ? gib(known) : undefined} format={(v) => gib(v)} {...frame} />
-        {diskTotal != null && <LineArea label={t('mxDiskChart')} samples={disk as ChartSample[]} max={diskTotal} maxText={gib(diskTotal)} format={(v) => gib(v)} {...frame} />}
-      </ChartGroup>
-      <HistoryNote snapshot={snapshot} />
-    </Card>
-  )
-}
 
 // ---------------------------------------------------------------- Sandbox page
 
