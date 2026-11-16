@@ -176,7 +176,6 @@ function NewStoreDialog({ api, t, view, postgresql, onClose, done, onOpenStore }
 
 // ---------- PostgreSQL password and Attach ----------
 
-/** A PostgreSQL password: typed (the host keeps it in an owner-only file) or a reference. */
 /** Is the URL's host this host's loopback? */
 const loopback = (target: string | null | undefined) => /@?(localhost|127\.[0-9.]+|\[::1\])(:|\/|$)/.test(target ?? '')
 
