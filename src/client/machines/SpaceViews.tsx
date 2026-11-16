@@ -22,7 +22,7 @@ import { SandboxGlyph } from './icons.tsx'
 import { gib, shortSandbox, type MachineInfo } from './model.ts'
 import { diskScopeWords, statsAskable } from './stats.ts'
 import {
-  diskLevel, diskSpans, outsideCommand, outsideWords, sandboxSpaceReason, sandboxesBySize, spaceRows,
+  diskLevel, diskSpans, outsideCommand, spaceSize, outsideWords, sandboxSpaceReason, sandboxesBySize, spaceRows,
   type DiskLevel, type MachineSpace, type SpaceRow, type SpaceView,
 } from './space.ts'
 import css from './machines.module.css'
@@ -33,12 +33,8 @@ const REFRESH_MS = 60_000
 const enc = encodeURIComponent
 const clock = (at: number | null): string => (at ? new Date(at).toLocaleTimeString() : '—')
 
-/** A size for a breakdown row: KiB under a MiB, else as the page's other disk sizes. */
-export function size(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return '—'
-  if (n > 0 && n < 2 ** 20) return `${Math.max(1, Math.round(n / 1024))} KiB`
-  return gib(n)
-}
+/** A size in the disk views (space.ts `spaceSize`); also what the Center cards import. */
+export const size = spaceSize
 
 /** The pinned CLI has machine.space. */
 export function useSpaceOffered(): boolean {
