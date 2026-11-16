@@ -79,8 +79,14 @@ test('running Sandboxes count live daemons of this Store only', () => {
 })
 
 test('commit totals say whether every ledger finished, and the file figure marks a cut walk', () => {
-  assert.deepEqual(P.commitTotal([project('a', { totals: totals(3, 1) }), project('b', { totals: totals(4, 1) })]), { commits: 7, complete: true })
-  assert.deepEqual(P.commitTotal([project('a', { totals: totals(3, 1), partial: true })]), { commits: 3, complete: false })
+  assert.deepEqual(P.commitTotal([project('a', { totals: totals(3, 1) }), project('b', { totals: totals(4, 1) })]), { commits: 7, complete: true, refused: null })
+  assert.deepEqual(P.commitTotal([project('a', { totals: totals(3, 1), partial: true })]), { commits: 3, complete: false, refused: null })
+  const refused = project('pg', { partial: true, error: { code: 'Unsupported', message: 'no PostgreSQL engine' } })
+  assert.deepEqual(P.commitTotal([refused]), { commits: 0, complete: false, refused: 'no PostgreSQL engine' })
+  assert.equal(P.stillCounting(refused), false, 'a refused ledger is not polled')
+  assert.equal(P.stillCounting(project('a', { partial: true })), true)
+  assert.equal(P.stillCounting({ ...refused, building: { branches: 0, branchesTotal: 1, saves: 0 } }), true, 'a new read after a refusal is polled')
+  assert.equal(P.stillCounting(project('done', { totals: totals(1, 1) })), false)
   assert.equal(P.filesNumber({ files: 1234, complete: true }), (1234).toLocaleString())
   assert.equal(P.filesNumber({ files: 10000, complete: false }), `${(10000).toLocaleString()}+`)
   assert.equal(P.filesNumber({ files: null, complete: true }), null)
