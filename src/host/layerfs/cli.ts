@@ -278,14 +278,15 @@ export interface Lane { readonly name: string, readonly limit: number, readonly 
  * Monitoring reads (layerfs-project#179 D, #178, #164): a machine's worker
  * log, a Sandbox's daemon log, the files of either, and a machine's observed
  * resources (`machine.stats`: one worker request, polled by the Machines
- * pages). Named with their family, and checked before {@link READS} and
+ * pages), and where its data disk goes (`machine.space`: one bounded walk in
+ * that request, read about once a minute while a page shows it). Named with their family, and checked before {@link READS} and
  * `retryRace`: `logs.machine` would not match a bare call name, and none of
  * them opens a Store. Each is a read in its own {@link INSPECT_LANE}, never in
  * `calls` (mount, Commit, unmount) or `probes`; it runs once (no `retryRace`),
  * for at most {@link INSPECT_TIMEOUT_MS}; it clears no kept answer, writes no
  * call log line and keeps no output.
  */
-export const INSPECT_CALLS = new Set(['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files', 'machine.stats'])
+export const INSPECT_CALLS = new Set(['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files', 'machine.stats', 'machine.space'])
 /** The inspect lane: 2 reads run, 4 wait; one more is refused `Busy` at once (admission, not a retry). */
 export const INSPECT_LANE: Lane = { name: 'inspect', limit: 2, queue: 4 }
 /** The most an inspect read may take (LayerFS's own budget is connect 2 s, hello 2 s, answer 8 s). */

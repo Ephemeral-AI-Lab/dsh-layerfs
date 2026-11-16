@@ -228,6 +228,8 @@ const GATED = [
   { site: /^sandbox\.files$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.files\b/, lines: 4 },
   // a machine's observed resources (layerfs-project#164): Machines.machineStats refuses 501 without the call
   { site: /^machine\.stats$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineStats\b/, lines: 10 },
+  // where a machine's disk goes: Machines.machineSpace refuses 501 without the call
+  { site: /^machine\.space$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.machineSpace\b/, lines: 12 },
   // sandbox.list --live (layerfs-project#164): the machines view passes `live` only when the call table has the option
   { site: /^sandbox\.list option live$/, file: 'src/host/routes/machines.ts', gate: /features\.sandboxLive\b/, lines: 3 },
   // doctor.fix (layerfs-project#180) has no entry: this host never calls it (the Doctor page shows the command as text);
@@ -291,7 +293,7 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   const expected = [lacks('machine', 'stop', 'force') && 'machine.stop option force',
     lacks('logs', 'list') && 'logs.list', lacks('logs', 'reset') && 'logs.reset',
     lacks('logs', 'machine') && 'logs.machine', lacks('logs', 'sandbox') && 'logs.sandbox',
-    lacks('sandbox', 'files') && 'sandbox.files', lacks('machine', 'stats') && 'machine.stats', lacks('sandbox', 'list', 'live') && 'sandbox.list option live'].filter(Boolean)
+    lacks('sandbox', 'files') && 'sandbox.files', lacks('machine', 'stats') && 'machine.stats', lacks('machine', 'space') && 'machine.space', lacks('sandbox', 'list', 'live') && 'sandbox.list option live'].filter(Boolean)
   for (const site of expected) assert.ok(result.gated.some((g) => g.site === site), `the scan no longer sees the gated ${site} call site`)
   // any SDK translation a rule relies on is still there
   const sdk = readFileSync(join(root, 'src/host/layerfs/cli.ts'), 'utf8')
@@ -306,6 +308,7 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   assert.match(util, /files: !!call\('sandbox', 'files'\), machineFiles: !!call\('machine', 'files'\), machineStats: !!call\('machine', 'stats'\)/)
   assert.match(util, /sandboxLive: option\('sandbox', 'list', 'live'\)/)
   assert.match(util, /leftovers: !!call\('doctor', 'fix'\)/)
+  assert.match(util, /machineSpace: !!call\('machine', 'space'\)/)
   // doctor.fix is never called from this host: the page shows the command, the person runs it
   for (const f of files) assert.doesNotMatch(stripComments(f.text), /\.doctor\??\.fix\s*\(|\[\s*'doctor'\s*,\s*'fix'/, `${f.file} calls doctor.fix`)
   // stage1Images (the only machine.images call) runs only when discovery says Stage 1

@@ -21,6 +21,7 @@ import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerBu
 import { ObservedDisk, useMachineStats } from './MachineStats.tsx'
 import { MachineMeters } from './MetricsViews.tsx'
 import { Blocked } from './Readiness.tsx'
+import { CardSpace } from './SpaceViews.tsx'
 import css from './machines.module.css'
 
 /** Rows each list shows on this tab before "Show all". */
@@ -171,6 +172,7 @@ function MachineBlock({ m, view, onOpen }: { m: MachineInfo, view: AvailableView
           <MachineMenu m={m} pending={pending} run={run} onOpen={onOpen} onDialog={setDialog} />
         </span>
       </header>
+      <CardSpace m={m} />
       {block && <Blocked m={m} block={block} />}
       {!block && (reason || attention === 'danger') && (
         <div className={css.blockReason}>

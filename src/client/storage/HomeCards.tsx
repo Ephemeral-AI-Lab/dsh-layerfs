@@ -27,6 +27,8 @@ import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, workerDown, type AvailableView, type Creation, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { diskScopeWords, notObserved, reasonList, sandboxRuns, type StatsRead } from '../machines/stats.ts'
 import { useMachineStats } from '../machines/MachineStats.tsx'
+import { diskLevel, diskSpans } from '../machines/space.ts'
+import { size as spaceSize, useMachineSpace } from '../machines/SpaceViews.tsx'
 import { besideCreating, creatingOn } from '../machines/Inventory.tsx'
 import { phaseWords } from '../machines/images.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, PowerButton, useMachineRun } from '../machines/parts.tsx'
@@ -465,6 +467,7 @@ export function MachineCards({ machines, fleet, stores, t, jobs, place, pgSize, 
  */
 function ObservedDiskRow({ m, read, t }: { m: MachineInfo, read: StatsRead | undefined, t: StorageT }): ReactNode {
   const mc = useMachinesContext()
+  const space = useMachineSpace(m)
   const why = notObserved(m, read)
   const r = read?.stats?.resources
   if (why || !r) {
@@ -487,14 +490,31 @@ function ObservedDiskRow({ m, read, t }: { m: MachineInfo, read: StatsRead | und
     )
   }
   const free = r.diskFree ?? Math.max(0, r.diskTotal - r.diskUsed)
-  const low = r.diskTotal > 0 && free / r.diskTotal < 0.1
+  const level = diskLevel(free, r.diskTotal)
+  const tone = level === 'critical' ? 'danger' : level === 'low' ? 'warning' : undefined
+  const split = space.offered ? space.read.data?.space ?? null : null
+  const spans = split ? diskSpans(split) : null
   const scope = diskScopeWords(read!.stats!.dataDisk.scope)
   const stale = read!.stale ? mc.t('statsAsOf', { time: read!.at ? new Date(read!.at).toLocaleTimeString() : '—', code: read!.stale.code }) : null
   return (
-    <div className={css.diskRow} data-ov-disk="observed" data-ov-disk-scope={read!.stats!.dataDisk.scope ?? ''} title={[scope ? mc.tw(scope) : null, stale].filter(Boolean).join(' · ') || undefined}>
+    <div className={css.diskRow} data-ov-disk="observed" data-ov-disk-scope={read!.stats!.dataDisk.scope ?? ''} data-disk-level={level ?? undefined} title={[scope ? mc.tw(scope) : null, stale].filter(Boolean).join(' · ') || undefined}>
       <span className={css.placeLabel}>{t('ovDisk')}</span>
-      <span className={css.end} data-tone={low ? 'warning' : undefined}>{t('ovDiskOf', { free: gib(free), total: gib(r.diskTotal) })}</span>
-      <span className={css.bar} data-tone={low ? 'warning' : undefined}><span style={{ width: `${Math.round((r.diskTotal > 0 ? Math.min(1, r.diskUsed / r.diskTotal) : 0) * 100)}%` }} /></span>
+      <span className={css.end} data-tone={tone}>{t('ovDiskOf', { free: gib(free), total: gib(r.diskTotal) })}</span>
+      {spans && split ? (
+        // LayerFS's data and what is not LayerFS's (or used space the walk did not split), from machine.space
+        <span className={css.bar} data-split data-tone={tone} role="img" aria-label={mc.t(split.outside != null ? 'spaceBarLabel' : 'spaceBarLabelPartial', { layerfs: spaceSize(split.layerfs), outside: spaceSize(split.outside), free: spaceSize(split.disk.free) })}>
+          <span data-part="layerfs" style={{ width: `${(spans.layerfs * 100).toFixed(2)}%` }} />
+          {spans.outside > 0 && <span data-part="outside" style={{ width: `${(spans.outside * 100).toFixed(2)}%` }} />}
+          {spans.unsplit > 0 && <span data-part="unsplit" style={{ width: `${(spans.unsplit * 100).toFixed(2)}%` }} />}
+        </span>
+      ) : (
+        <span className={css.bar} data-tone={tone}><span style={{ width: `${Math.round((r.diskTotal > 0 ? Math.min(1, r.diskUsed / r.diskTotal) : 0) * 100)}%` }} /></span>
+      )}
+      {split && (
+        <span className={css.diskSplit} data-ov-disk-split>
+          {mc.t(split.outside != null ? 'spaceLegendShort' : 'spaceLegendShortPartial', { layerfs: spaceSize(split.layerfs), outside: spaceSize(split.outside) })}
+        </span>
+      )}
     </div>
   )
 }

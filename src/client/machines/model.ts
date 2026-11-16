@@ -150,6 +150,8 @@ export interface CliFeatures {
   sandboxLive?: boolean
   /** `layerfs doctor` lists leftovers and `layerfs doctor fix <id>` removes one (layerfs-project#180). */
   leftovers?: boolean
+  /** `layerfs machine space`: where a machine's data disk goes. */
+  machineSpace?: boolean
 }
 
 /** The computer this host runs on (the native machine): its OS names and marks it. */

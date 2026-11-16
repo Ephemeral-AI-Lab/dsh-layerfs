@@ -115,6 +115,8 @@ export interface CliFeatures {
   readonly sandboxLive: boolean
   /** doctor.fix exists: `layerfs doctor` lists what interrupted operations left, each with the id `layerfs doctor fix <id>` takes (layerfs-project#180). */
   readonly leftovers: boolean
+  /** machine.space exists: where a machine's data disk goes, by part, and what of it is not LayerFS's. */
+  readonly machineSpace: boolean
 }
 
 /** The features a discovery (its call table and identity features) has. */
@@ -136,6 +138,7 @@ export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identit
     inspect: { machineLog: !!call('logs', 'machine'), sandboxLog: !!call('logs', 'sandbox'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files'), machineStats: !!call('machine', 'stats') },
     sandboxLive: option('sandbox', 'list', 'live'),
     leftovers: !!call('doctor', 'fix'),
+    machineSpace: !!call('machine', 'space'),
   }
 }
 
