@@ -1,6 +1,6 @@
 // The machine page's tabs (src/client/machines/machine-tabs.ts): which tabs a
-// page has, the Sandboxes tab's rows (record + sampler values + disk, closed
-// ones only on request) and what the Overview flags.
+// page has, the Sandboxes tab's cards (record + sampler values + disk, by
+// filter and order) and what the Overview flags.
 //   node --test test/machine-tabs.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,26 +18,41 @@ test.after(() => rmSync(out, { recursive: true, force: true }))
 const sb = (name, state, extra = {}) => ({ name, state, machine: 'docker', project: 'qv2-store/qv2-probe', workspaces: 0, ...extra })
 const needsYou = (b) => b.state === 'failed' || b.state === 'gone'
 
-test('tabs: Overview, Sandboxes and Stores always; Usage, Disk, Files and Worker log by what the CLI has', () => {
-  assert.deepEqual(T.machineTabs({ usage: false, disk: false, files: false, log: false }), ['overview', 'sandboxes', 'stores'])
-  assert.deepEqual(T.machineTabs({ usage: true, disk: true, files: true, log: true }), ['overview', 'sandboxes', 'stores', 'usage', 'disk', 'files', 'log'])
-  assert.deepEqual(T.machineTabs({ usage: false, disk: true, files: true, log: false }), ['overview', 'sandboxes', 'stores', 'disk', 'files'])
+test('tabs: Overview, Sandboxes and Stores always; Images, Usage, Disk, Files and Worker log by what the machine and CLI have', () => {
+  assert.deepEqual(T.machineTabs({ images: false, usage: false, disk: false, files: false, log: false }), ['overview', 'sandboxes', 'stores'])
+  assert.deepEqual(T.machineTabs({ images: true, usage: true, disk: true, files: true, log: true }), ['overview', 'sandboxes', 'stores', 'images', 'usage', 'disk', 'files', 'log'])
+  assert.deepEqual(T.machineTabs({ images: false, usage: false, disk: true, files: true, log: false }), ['overview', 'sandboxes', 'stores', 'disk', 'files'])
+  assert.deepEqual(T.machineTabs({ images: true, usage: false, disk: false, files: false, log: false }), ['overview', 'sandboxes', 'stores', 'images'])
 })
 
-test('Sandboxes tab rows: those that need you first, joined with sampler values and disk by name; closed ones only on request', () => {
-  const records = [sb('a', 'running'), sb('b', 'gone'), sb('c', 'running')]
-  const metrics = [{ name: 'a', closedAt: null, mem: 1 }, { name: 'z', closedAt: 1794824100000 }, { name: 'c', closedAt: null }]
-  const space = [{ name: 'b', bytes: 261 * 2 ** 20 }, { name: 'a', bytes: 26 * 2 ** 20 }]
-  const hidden = T.sandboxTabRows(records, metrics, space, needsYou, false)
-  assert.deepEqual(hidden.rows.map((r) => r.name), ['b', 'a', 'c'], 'gone first')
-  assert.equal(hidden.closed, 1)
-  assert.equal(hidden.rows[1].metrics.mem, 1)
-  assert.equal(hidden.rows[0].space.bytes, 261 * 2 ** 20)
-  assert.equal(hidden.rows[2].space, null, 'no disk row: null, never 0')
-  const shown = T.sandboxTabRows(records, metrics, space, needsYou, true)
-  assert.deepEqual(shown.rows.map((r) => [r.name, r.record === null]), [['b', false], ['a', false], ['c', false], ['z', true]])
-  // without the calls: rows from the records alone
-  assert.deepEqual(T.sandboxTabRows(records, [], null, needsYou, true).rows.map((r) => [r.name, r.metrics, r.space]), [['b', null, null], ['a', null, null], ['c', null, null]])
+test('Sandbox cards: those that need you first, joined with sampler values and disk by name; counts per filter', () => {
+  const records = [sb('a', 'running'), sb('b', 'gone'), sb('c', 'running'), sb('d', 'stopped')]
+  const metrics = [{ name: 'a', closedAt: null, memory: 10 }, { name: 'z', closedAt: 1794824100000 }, { name: 'y', closedAt: 1794824200000 }, { name: 'c', closedAt: null, memory: 30 }]
+  const space = [{ name: 'b', bytes: 261 * 2 ** 20 }, { name: 'a', bytes: 26 * 2 ** 20 }, { name: 'd', bytes: 90 * 2 ** 20 }]
+  const all = T.sandboxCards(records, metrics, space, needsYou, 'all', 'listed')
+  assert.deepEqual(all.cards.map((c) => c.name), ['b', 'a', 'c', 'd'], 'gone first, then as listed')
+  assert.deepEqual(all.counts, { all: 4, running: 2, attention: 1, closed: 2 })
+  assert.equal(all.cards[1].metrics.memory, 10)
+  assert.equal(all.cards[0].space.bytes, 261 * 2 ** 20)
+  assert.equal(all.cards[2].space, null, 'no disk row: null, never 0')
+  assert.ok(all.cards.every((c) => c.record), 'All holds only recorded Sandboxes')
+  assert.deepEqual(T.sandboxCards(records, metrics, space, needsYou, 'running', 'listed').cards.map((c) => c.name), ['a', 'c'])
+  assert.deepEqual(T.sandboxCards(records, metrics, space, needsYou, 'attention', 'listed').cards.map((c) => c.name), ['b'])
+  const closed = T.sandboxCards(records, metrics, space, needsYou, 'closed', 'name').cards
+  assert.deepEqual(closed.map((c) => [c.name, c.record]), [['y', null], ['z', null]], 'closed: the most recently closed first')
+  // without the calls: cards from the records alone
+  assert.deepEqual(T.sandboxCards(records, [], null, needsYou, 'all', 'listed').cards.map((c) => [c.name, c.metrics, c.space]), [['b', null, null], ['a', null, null], ['c', null, null], ['d', null, null]])
+})
+
+test('Sandbox cards: orders keep those that need you first; an unknown size sorts last', () => {
+  const records = [sb('c', 'running'), sb('a', 'running'), sb('g', 'gone'), sb('b', 'running')]
+  const metrics = [{ name: 'a', closedAt: null, memory: 5 }, { name: 'b', closedAt: null, memory: null }, { name: 'c', closedAt: null, memory: 50 }]
+  const space = [{ name: 'a', bytes: 300 }, { name: 'b', bytes: null, reason: 'deadline' }, { name: 'c', bytes: 100 }]
+  const order = (sort) => T.sandboxCards(records, metrics, space, needsYou, 'all', sort).cards.map((c) => c.name)
+  assert.deepEqual(order('listed'), ['g', 'c', 'a', 'b'])
+  assert.deepEqual(order('name'), ['g', 'a', 'b', 'c'])
+  assert.deepEqual(order('disk'), ['g', 'a', 'c', 'b'])
+  assert.deepEqual(order('memory'), ['g', 'c', 'a', 'b'])
 })
 
 test('Overview: gone Sandboxes and what LayerFS measured for them; other Sandboxes that need you', () => {
