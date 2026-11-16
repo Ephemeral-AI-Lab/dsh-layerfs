@@ -8,10 +8,13 @@
  *   for Connect a database: each says whether it is on this machine already
  *   and, when it cannot be attached here, why;
  * - `parsePgUrl` / `pgUrl`: a connection URL from and to its parts (never a
- *   password: the host takes it apart from the URL).
+ *   password: the host takes it apart from the URL);
+ * - `projectSplit`: a Store card's bar and rows, its projects by the bytes
+ *   their Commits packed.
  */
 import type { StorageT } from './locale.ts'
 import { attachmentsOf, attachRefusal } from './model.ts'
+import { hueOf, type StoreProject } from './store-page.ts'
 import type { PgAttachment, StorageView, StoreRow } from './types.ts'
 
 export type StoreKind = 'sqlite' | 'postgresql'
@@ -133,4 +136,33 @@ export function failedStep(code: string | undefined, message: string | undefined
     return text.includes(' on schema ') ? 'store' : 'write'
   }
   return null
+}
+
+/** One project on a Store card: its packed bytes, its share of the bar, its color and its newest Commit. */
+export interface ProjectSlice { name: string, bytes: number | null, share: number, hue: number, at: number | null, counting: boolean }
+
+export interface ProjectSplit {
+  rows: ProjectSlice[]
+  /** The bar's unaccounted end: the part of the file no project's packed bytes cover (shared content, metadata, free pages). */
+  rest: number
+  /** The newest Commit of any project. */
+  lastWrite: number | null
+}
+
+/**
+ * A Store's projects by the bytes their Commits packed, most first. Against a
+ * file size (`total`, SQLite) each share is of the file and the bar ends with
+ * the rest; without one (PostgreSQL), or when the projects count more than the
+ * file holds, the shares are of the projects' sum and fill the bar. A project
+ * not yet counted stays in the rows with no share.
+ */
+export function projectSplit(projects: readonly StoreProject[], total: number | null): ProjectSplit {
+  const counted = projects.reduce((a, p) => a + (p.totals?.stored ?? 0), 0)
+  const base = total && total >= counted ? total : counted
+  const rows = projects.map((p) => {
+    const bytes = p.totals ? p.totals.stored : null
+    return { name: p.name, bytes, share: base > 0 && bytes ? bytes / base : 0, hue: hueOf(p.name, projects), at: p.last?.time ?? null, counting: p.partial || !!p.building }
+  }).sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1) || a.name.localeCompare(b.name))
+  const times = rows.map((r) => r.at).filter((n): n is number => n !== null)
+  return { rows, rest: base > 0 ? Math.max(0, 1 - counted / base) : 0, lastWrite: times.length ? Math.max(...times) : null }
 }

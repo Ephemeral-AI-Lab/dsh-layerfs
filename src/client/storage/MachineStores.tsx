@@ -6,32 +6,43 @@
  * attached to it (the data stays on its server: attach and detach change
  * which machines dial it). The choice is remembered per viewer and machine.
  *
- * Both kinds draw the same card, line for line:
+ * Both kinds draw the same card, split by the Store's projects:
  *
- *   head      name (opens the Store) · size, or the server's version
- *   second    the share of the machine's Stores on disk, or the connection
- *   chips     its projects
- *   status    idle, in use, a transfer under way; or the last check from here
- *   detail    its backup; or the route, password and other machines
- *   actions   Pull to home, Move to…, Back up; or Check again, Edit, Detach
+ *   head      name (opens the Store) · size and its backups badge (SQLite),
+ *             or the last check's version and time (PostgreSQL) · ⋯
+ *   sub       where it is · the newest Commit of any project
+ *   bar       each project's packed bytes; a SQLite bar ends with the part of
+ *             the file no project accounts for
+ *   rows      up to three projects (the LayerFS mark): bytes, with the bar's
+ *             color, and newest Commit (opens it)
+ *   foot      its state (idle, in use, reachable…) · text actions
  *
- * A transfer this host runs on a Store replaces its status and actions with
- * its progress (and, once failed, Retry and Dismiss).
+ * The backups badge counts the Store's bucket copies, marks their providers
+ * and dots the worst state; it opens Backups (BackupDialogs.tsx). A transfer
+ * this host runs replaces the foot with its progress.
  */
-import { useState, type ReactNode } from 'react'
-import clsx from 'clsx'
-import { Button, IconPlusOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ago, bytes } from '../files/format.ts'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Button, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { enc, type LayerfsApi } from '../api.ts'
+import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Card, LinkButton, Meter } from '../ui/index.tsx'
+import { Card, LinkButton } from '../ui/index.tsx'
+import { useQuery } from '../ui/use-query.ts'
+import { LayerfsGlyph } from '../overview/glyph.tsx'
+import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { failedStep, machineStores, routedServer, startKind, type StoreKind } from './machine-stores.ts'
-import { attachmentsOf, backupChip, cardJob, linkState, loopbackAlias } from './model.ts'
+import { failedStep, machineStores, projectSplit, startKind, type ProjectSplit, type StoreKind } from './machine-stores.ts'
+import { cardJob } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
+import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
+import type { StoreProjectsView } from './store-page.ts'
 import type { PgAttachment, StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './MachineStores.module.css'
+
+const COUNTING_POLL_MS = 2000
+const ROWS = 3
 
 const KIND_KEY = 'layerfs.machineStoreKind'
 
@@ -50,6 +61,7 @@ function writeKind(machine: string, kind: StoreKind): void {
 }
 
 export interface MachineStoresProps {
+  api: LayerfsApi
   machine: string
   view: StorageView
   t: StorageT
@@ -62,6 +74,10 @@ export interface MachineStoresProps {
   /** Connect a database: attach a connected one, or connect a new one and attach it. */
   onConnect: (machine: string) => void
   onOpenStore: (name: string) => void
+  /** Opens a project, by `store/project`. */
+  onOpenProject: (key: string) => void
+  /** Opens the Backups dialog of a SQLite Store. */
+  onBackups: (store: string) => void
 }
 
 export function MachineStores(props: MachineStoresProps): ReactNode {
@@ -70,16 +86,16 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
   const [kind, setKindState] = useState<StoreKind>(() => startKind(stores, readKind(machine)))
   const setKind = (k: StoreKind) => { setKindState(k); writeKind(machine, k) }
   const place = machine === 'native' ? t('layerfsHome') : machine
-  const tiles: { kind: StoreKind, label: string, figure: string, note: string, why: string | null }[] = [
+  const tiles: { kind: StoreKind, label: string, figure: string, why: string | null }[] = [
     {
       kind: 'sqlite', label: t('sqlite'),
       figure: stores.sqlite.length ? [t(stores.sqlite.length === 1 ? 'msStoreOne' : 'msStores', { n: stores.sqlite.length }), stores.sqliteBytes != null && bytes(stores.sqliteBytes)].filter(Boolean).join(' · ') : t('msNone'),
-      note: t('msSqliteNote'), why: stores.sqlite.length ? null : stores.noSqlite,
+      why: stores.sqlite.length ? null : stores.noSqlite,
     },
     {
       kind: 'postgresql', label: t('postgresql'),
       figure: stores.postgresql.length ? t(stores.postgresql.length === 1 ? 'msDatabaseOne' : 'msDatabases', { n: stores.postgresql.length }) : t('msNone'),
-      note: t('msPgNote'), why: stores.postgresql.length ? null : stores.noPostgresql,
+      why: stores.postgresql.length ? null : stores.noPostgresql,
     },
   ]
   const onKey = (e: React.KeyboardEvent) => {
@@ -102,7 +118,7 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
               <span className={css.tileRole}>{tile.kind === 'sqlite' ? t('msHeldHere') : t('msAttached')}</span>
             </span>
             <span className={css.tileFigure}>{tile.figure}</span>
-            <span className={css.tileNote}>{tile.why ?? tile.note}</span>
+            {tile.why ? <span className={css.tileNote}>{tile.why}</span> : null}
           </button>
         ))}
       </div>
@@ -120,7 +136,7 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
         </div>
         {sqlite
           ? stores.sqlite.length
-            ? <div className={css.grid}>{stores.sqlite.map((s) => <SqliteCard key={s.name} s={s} total={stores.sqliteBytes} {...props} />)}</div>
+            ? <div className={css.grid}>{stores.sqlite.map((s) => <SqliteCard key={s.name} s={s} {...props} />)}</div>
             : <p className={css.empty}>{stores.noSqlite ?? t('msSqliteEmpty', { machine: place })}</p>
           : stores.postgresql.length
             ? <div className={css.grid}>{stores.postgresql.map(({ store, attachment }) => <PgCard key={store.name} s={store} a={attachment} {...props} />)}</div>
@@ -130,67 +146,117 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
   )
 }
 
-function CardHead({ s, right, on, t, onOpenStore }: { s: StoreRow, right: ReactNode, on: StoreActions, t: StorageT, onOpenStore: (name: string) => void }): ReactNode {
+
+/** The Store's projects, as the Store page reads them (shared cache), read again while a ledger is still counting. */
+function useSplit(api: LayerfsApi, s: StoreRow, total: number | null): ProjectSplit | null {
+  const q = useQuery(() => api.call<StoreProjectsView>('GET', `/api/stores/${enc(s.name)}/projects`), [api, s.name],
+    { refresh: [s.projects.length, s.size?.bytes], cache: `store-projects:${s.name}` })
+  const counting = q.data?.projects.some((p) => p.partial || p.building) ?? false
+  useEffect(() => {
+    if (!counting) return
+    const timer = setTimeout(q.reload, COUNTING_POLL_MS)
+    return () => clearTimeout(timer)
+  }, [counting, q.data, q.reload])
+  return q.data ? projectSplit(q.data.projects, total) : null
+}
+
+function Head({ s, on, t, machine, onOpenStore, children }: { s: StoreRow, on: StoreActions, t: StorageT, machine?: string, onOpenStore: (name: string) => void, children: ReactNode }): ReactNode {
   return (
     <div className={css.head}>
-      <StoreGlyph kind={s.kind} size={16} />
+      <StoreGlyph kind={s.kind} size={15} />
       <LinkButton className={css.name} onClick={() => onOpenStore(s.name)} title={s.name}>{s.name}</LinkButton>
-      <span className={css.right}>{right}</span>
-      <StoreMenu store={s} on={on} t={t} />
+      {children}
+      <StoreMenu store={s} on={on} t={t} machine={machine} />
     </div>
   )
 }
 
-function Projects({ s, t }: { s: StoreRow, t: StorageT }): ReactNode {
+/** The bar and up to three rows: each project's packed bytes and newest Commit. */
+function Projects({ s, split, t, now, onOpenProject, onOpenStore }: { s: StoreRow, split: ProjectSplit | null, t: StorageT, now: number, onOpenProject: (key: string) => void, onOpenStore: (name: string) => void }): ReactNode {
+  const tt = t as Translate
+  if (!s.projects.length) return <p className={css.none}>{t('msNoProjects')}</p>
+  const rows = split?.rows ?? [...s.projects].sort().map((name) => ({ name, bytes: null, share: 0, hue: 0, at: null, counting: true }))
   return (
-    <div className={css.chips} aria-label={t('colProjects')}>
-      {s.projects.length ? s.projects.map((p) => <span key={p} className={css.chip}>{p}</span>) : <span className={css.muted}>{t('msNoProjects')}</span>}
-    </div>
+    <>
+      <div className={css.bar} role="img" aria-label={rows.filter((r) => r.share > 0).map((r) => `${r.name} ${bytes(r.bytes ?? 0)}`).join(', ') || t('colProjects')}>
+        {rows.filter((r) => r.share > 0).map((r) => <span key={r.name} data-hue={r.hue} style={{ flex: r.share }} title={`${r.name} · ${bytes(r.bytes ?? 0)}`} />)}
+        {split && split.rest > 0 ? <span className={css.barRest} style={{ flex: split.rest }} title={t('msBarRest')} /> : null}
+      </div>
+      <ul className={css.projects}>
+        {rows.slice(0, ROWS).map((r) => (
+          <li key={r.name}>
+            <button type="button" className={css.project} onClick={() => onOpenProject(`${s.name}/${r.name}`)} title={t('msOpenProject', { project: r.name })}>
+              <span className={css.projectIcon}><LayerfsGlyph size={14} /></span>
+              <span className={css.projectName}>{r.name}</span>
+              <span className={css.projectMeta}>
+                {r.share > 0 ? <span className={css.swatch} data-hue={r.hue} aria-hidden="true" /> : null}
+                {r.bytes === null ? t('spReading') : r.at === null ? t('spNoCommits') : `${bytes(r.bytes)} · ${ago(r.at, now, tt)}`}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {rows.length > ROWS ? <LinkButton className={css.more} onClick={() => onOpenStore(s.name)}>{t('msProjectsMore', { n: rows.length - ROWS })}</LinkButton> : null}
+    </>
   )
 }
 
-function Line({ tone, children, title }: { tone?: 'success' | 'warning' | 'danger' | 'accent' | undefined, children: ReactNode, title?: string | undefined }): ReactNode {
-  return <p className={css.line} data-tone={tone} title={title}>{children}</p>
+/** The backups badge: provider marks, the count and the worst state's dot; "No backup" when there is none. */
+function BackupsBadge({ s, view, t, onBackups, onBackup }: { s: StoreRow, view: StorageView, t: StorageT, onBackups: () => void, onBackup: () => void }): ReactNode {
+  const backups = storeBackups(s, view.buckets)
+  if (!backups.length) return <button type="button" className={css.badge} data-none onClick={onBackup}>{t('noBackup')}</button>
+  const n = backupCounts(backups)
+  const worst = n.problem ? 'problem' : n.stale ? 'stale' : n.unknown ? 'unknown' : 'current'
+  const providers = backupProviders(backups)
+  return (
+    <button type="button" className={css.badge} onClick={onBackups} aria-label={`${t('msBackupsOpen', { store: s.name, n: backups.length })}. ${t('bkHealth', n)}`} title={t('bkHealth', n)}>
+      <span className={css.marks}>{providers.slice(0, 3).map((p) => <span key={p ?? '?'} className={css.mark}><BucketMark provider={p} size={12} /></span>)}</span>
+      {backups.length}
+      <span className={css.dot} data-health={worst} />
+    </button>
+  )
 }
 
-function SqliteCard({ s, total, t, view, jobs, dismissed, now, actionsFor, onOpenStore }: MachineStoresProps & { s: StoreRow, total: number | null }): ReactNode {
+/** Text actions, separated by dots. */
+function Actions({ items }: { items: ({ label: string, run: () => void, disabled?: boolean } | null)[] }): ReactNode {
+  const shown = items.filter((x): x is NonNullable<typeof x> => !!x)
+  return (
+    <span className={css.textActions}>
+      {shown.map((a, i) => (
+        <span key={a.label} className={css.textActionItem}>
+          {i ? <span aria-hidden="true">·</span> : null}
+          <button type="button" className={css.textAction} disabled={a.disabled} onClick={a.run}>{a.label}</button>
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function SqliteCard({ s, api, t, view, jobs, dismissed, now, actionsFor, onOpenStore, onOpenProject, onBackups }: MachineStoresProps & { s: StoreRow }): ReactNode {
   const on = actionsFor(s)
   const job = cardJob(jobs, s.name, dismissed, now)
-  const share = s.size && total ? s.size.bytes / total : null
-  const latest = [...s.links].sort((a, b) => (b.last?.at ?? 0) - (a.last?.at ?? 0))[0]
-  const chip = latest ? backupChip(linkState(s, latest.bucket, latest.file, view.buckets), t) : null
+  const split = useSplit(api, s, s.size?.bytes ?? null)
   const busy = s.state === 'busy' || s.state === 'down' || !!job && !job.ended
+  const place = s.machine === 'native' ? t('layerfsHome') : s.machine ?? '?'
+  const state = s.down ? <span className={css.danger} title={s.down}>{s.down}</span>
+    : s.state === 'in_use' ? <span className={css.warning}>{s.holders > 0 ? t('msInUseHolders', { n: s.holders }) : t('msInUse')}</span>
+      : s.state === 'unresolved' ? <span className={css.warning}>{t('unresolved')}</span>
+        : <span>{t('msIdle')}</span>
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">
-      <CardHead s={s} on={on} t={t} onOpenStore={onOpenStore}
-        right={<span title={s.size ? `${bytes(s.size.file)} + WAL ${bytes(s.size.wal)}` : undefined}>{s.size ? bytes(s.size.bytes) : t('sizeUnavailable')}</span>} />
-      <div className={css.second}>
-        <Meter share={share ?? 0} tone="neutral" label={t('msShareLabel', { name: s.name })} className={css.meter} />
-        <span className={css.muted}>{share == null ? t('sizeUnavailable') : share < 0.01 ? t('msShareUnder') : t('msShare', { n: Math.round(share * 100) })}{s.size?.wal ? ` · WAL ${bytes(s.size.wal)}` : ''}</span>
-      </div>
-      <Projects s={s} t={t} />
-      {job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} /> : s.op ? <OpPanel store={s} t={t} /> : (
-        <>
-          {s.down ? <Line tone="danger">{s.down}</Line>
-            : s.state === 'in_use' ? <Line tone="warning">{s.holders > 0 ? t('msInUseHolders', { n: s.holders }) : t('msInUse')}</Line>
-              : s.state === 'unresolved' ? <Line tone="warning">{t('unresolved')}</Line>
-                : <Line><StateDot state="done" size={8} /> {t('msIdle')}</Line>}
-          <Line>{latest && chip
-            ? <>{t('msBackedUp', { place: `${latest.bucket}/${latest.file}`, when: latest.last?.at ? ago(latest.last.at, now, t as Translate) : '—' })} · <span data-tone={chip.tone} className={css.toneText}>{chip.label}</span></>
-            : t('noBackup')}</Line>
-        </>
-      )}
+      <Head s={s} on={on} t={t} onOpenStore={onOpenStore}>
+        <span className={css.size} title={s.size ? `${bytes(s.size.file)} + WAL ${bytes(s.size.wal)}` : undefined}>{s.size ? bytes(s.size.bytes) : t('sizeUnavailable')}</span>
+        <BackupsBadge s={s} view={view} t={t} onBackups={() => onBackups(s.name)} onBackup={on.backup} />
+      </Head>
+      <span className={css.sub}>{[t('msOn', { place }), split?.lastWrite ? t('msLastWrite', { when: ago(split.lastWrite, now, t as Translate) }) : null].filter(Boolean).join(' · ')}</span>
+      <Projects s={s} split={split} t={t} now={now} onOpenProject={onOpenProject} onOpenStore={onOpenStore} />
+      {job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} /> : s.op ? <OpPanel store={s} t={t} /> : null}
       {job && !job.ended ? null : (
-        <div className={css.actions}>
-          {s.machine === 'native'
-            ? <Button size="sm" variant="outline" disabled={s.state !== 'idle'} onClick={on.push}>{t('pushTo')}</Button>
-            : (
-              <>
-                <Button size="sm" variant="outline" disabled={busy} onClick={on.pull}>{t('pullHome')}</Button>
-                <Button size="sm" variant="outline" disabled={busy} onClick={on.move}>{t('msMoveTo')}</Button>
-              </>
-            )}
-          <Button size="sm" variant="outline" disabled={s.state === 'down' || s.state === 'busy'} onClick={on.backup}>{t('msBackUp')}</Button>
+        <div className={css.foot}>
+          <span className={css.state}>{state}</span>
+          <Actions items={s.machine === 'native'
+            ? [{ label: t('pushTo'), run: on.push, disabled: s.state !== 'idle' }, { label: t('msBackUp'), run: on.backup, disabled: s.state === 'down' || s.state === 'busy' }]
+            : [{ label: t('msPull'), run: on.pull, disabled: busy }, { label: t('msMoveTo'), run: on.move, disabled: busy }, { label: t('msBackUp'), run: on.backup, disabled: s.state === 'down' || s.state === 'busy' }]} />
         </div>
       )}
     </Card>
@@ -207,47 +273,41 @@ function failWords(e: { code: string, message: string }, t: StorageT): string {
   }
 }
 
-/** Where `machine` dials a PostgreSQL Store: its own connection's target, else the Store's with a loopback host renamed for the machine. */
-function dialed(s: StoreRow, a: PgAttachment, platform: string | undefined): string | null {
-  if (a.own && a.target) return a.target
-  const target = s.postgresql?.target
+/** A PostgreSQL target's server: `user@host:port/db` gives `host:port`. */
+function serverOf(target: string | null | undefined): string | null {
   if (!target) return null
-  const at = target.indexOf('@')
-  const user = at >= 0 ? target.slice(0, at + 1) : ''
-  const rest = at >= 0 ? target.slice(at + 1) : target
+  const rest = target.slice(target.indexOf('@') + 1)
   const slash = rest.indexOf('/')
-  const server = slash >= 0 ? rest.slice(0, slash) : rest
-  const path = slash >= 0 ? rest.slice(slash) : ''
-  return `${user}${routedServer(server, platform ? loopbackAlias(platform) : null)}${path}`
+  return slash >= 0 ? rest.slice(0, slash) : rest
 }
 
-function PgCard({ s, a, machine, t, view, now, actionsFor, onOpenStore }: MachineStoresProps & { s: StoreRow, a: PgAttachment }): ReactNode {
+function PgCard({ s, a, api, machine, t, now, actionsFor, onOpenStore, onOpenProject }: MachineStoresProps & { s: StoreRow, a: PgAttachment }): ReactNode {
   const on = actionsFor(s)
-  const place = (name: string) => (name === 'native' ? t('layerfsHome') : name)
-  const here = place(machine)
-  const platform = view.machines.find((m) => m.name === machine)?.platform
-  const target = dialed(s, a, platform)
-  const others = attachmentsOf(s).filter((x) => x.machine !== machine).map((x) => place(x.machine))
+  const split = useSplit(api, s, null)
   const failed = !!a.lastError
-  const password = a.own && a.password ? (a.saved ? t('msPasswordSaved') : a.password) : null
+  const tt = t as Translate
+  const target = a.own && a.target ? a.target : s.postgresql?.target ?? null
+  const server = serverOf(target)
+  const checked = a.checked
   return (
     <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={failed ? 'danger' : undefined}>
-      <CardHead s={s} on={on} t={t} onOpenStore={onOpenStore}
-        right={a.checked?.version ? <span title={a.checked.version}>{t('msPgVersion', { version: a.checked.version.split(' ')[0] })}</span> : <span className={css.muted}>{t('notChecked')}</span>} />
-      <div className={css.second}><span className={clsx(css.mono, css.cut)} title={target ?? undefined}>{target ?? t('postgresql')}</span></div>
-      <Projects s={s} t={t} />
-      {failed
-        ? <Line tone="danger" title={`${a.lastError!.code}: ${a.lastError!.message}`}>{t('msUnreachable', { machine: here, reason: failWords(a.lastError!, t), when: ago(a.lastError!.at, now, t as Translate) })}</Line>
-        : a.checked
-          ? <Line><StateDot state="done" size={8} /> {t('msReachable', { machine: here, latency: a.checked.latencyMs ?? '—', when: a.checked.at ? ago(a.checked.at, now, t as Translate) : '—' })}</Line>
-          : <Line tone="warning">{t('msNotChecked', { machine: here })}</Line>}
-      <Line>{[a.own ? t('ownConnection') : t('sameAsHost'), password, others.length ? t('msAlsoOn', { machines: others.join(', ') }) : null].filter(Boolean).join(' · ')}</Line>
-      <div className={css.actions}>
-        {failed ? <Button size="sm" variant="outline" onClick={() => on.attach(machine, a)}>{t('msEditConnection')}</Button> : null}
-        <Button size="sm" variant="outline" onClick={() => on.recheck(a)}>{t('msCheckAgain')}</Button>
-        {failed ? null : <Button size="sm" variant="outline" onClick={() => on.attach(machine, a)}>{t('msEditConnection')}</Button>}
-        <span className={css.grow} />
-        <Button size="sm" variant="ghost" className={css.danger} onClick={() => on.detach(machine)}>{t('detach')}</Button>
+      <Head s={s} on={on} t={t} machine={machine} onOpenStore={onOpenStore}>
+        {failed
+          ? <span className={css.check} data-state="failed" title={`${a.lastError!.code}: ${a.lastError!.message}`}>{failWords(a.lastError!, t)}<span className={css.dot} data-health="problem" /></span>
+          : checked
+            ? <span className={css.check} title={checked.version ?? undefined}>{t('msCheckOk', { latency: checked.latencyMs ?? '—', version: (checked.version ?? '?').split(' ')[0]! })}<span className={css.dot} data-health="current" /></span>
+            : <span className={css.check}>{t('msNotCheckedShort')}<span className={css.dot} data-health="unknown" /></span>}
+      </Head>
+      <span className={css.sub} title={target ?? undefined}>{[server ? t('msOn', { place: server }) : null, split?.lastWrite ? t('msLastWrite', { when: ago(split.lastWrite, now, tt) }) : null].filter(Boolean).join(' · ') || t('postgresql')}</span>
+      <Projects s={s} split={split} t={t} now={now} onOpenProject={onOpenProject} onOpenStore={onOpenStore} />
+      <div className={css.foot}>
+        <span className={css.state} title={failed ? when(a.lastError!.at) : checked?.at ? when(checked.at) : undefined}>
+          {failed ? <span className={css.danger}>{t('msNotReached', { when: ago(a.lastError!.at, now, tt) })}</span>
+            : checked ? t('msReachableAt', { when: checked.at ? ago(checked.at, now, tt) : '—' }) : t('msNotCheckedShort')}
+        </span>
+        <Actions items={failed
+          ? [{ label: t('msEdit'), run: () => on.attach(machine, a) }, { label: t('msCheckAgain'), run: () => on.recheck(a) }]
+          : [{ label: t('msCheckAgain'), run: () => on.recheck(a) }, { label: t('msEdit'), run: () => on.attach(machine, a) }]} />
       </div>
     </Card>
   )
