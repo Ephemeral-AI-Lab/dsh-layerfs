@@ -1,20 +1,16 @@
 /**
- * Observed values on the Machines and Sandbox pages (layerfs-project#164):
- * what `machine.stats` answered for a machine, whether a listed Sandbox's
- * daemon runs (`sandbox.list` with `live`), and a Sandbox's daemon process and
- * usage (`sandbox.get`). Pure: no React, no host calls of its own.
+ * Observed values on the Machines and Sandbox pages (layerfs-project#164,
+ * #182): what `machine.stats` answered for a machine, whether a listed
+ * Sandbox's daemon runs, and a Sandbox's daemon process and usage. Pure: no
+ * React, no host calls of its own. The values come from the host's metrics
+ * sampler (metrics.ts `MetricsPoller`, `GET /api/metrics`); nothing here asks
+ * LayerFS.
  *
  * Nothing here is derived from a record. A value LayerFS did not observe is
  * `null` and is shown as "not observed" with its reason, never as zero.
- *
- * {@link StatsPoller} reads `GET /api/machines/:id/stats` for the machines a
- * page on screen watches: one read at a time (so it never holds more than one
- * of the host's two inspect slots), each machine no sooner than the shortest
- * interval a watcher asked for after its last read ended, and only while the
- * page is visible.
- * What was read stays while the next read runs or is refused.
  */
 import type { MachinesKey } from './locale.ts'
+import type { SandboxRow } from './metrics.ts'
 import type { MachineInfo, MachineSandbox, StateLook, Words } from './model.ts'
 
 /** Why a read was refused, and when the host last had a good answer (null: never). */
@@ -29,10 +25,14 @@ export interface MachineStats {
     cpus: number | null, memoryTotal: number | null, memoryUsed: number | null
     diskTotal: number | null, diskUsed: number | null, diskFree: number | null
     scope: string | null, reason: string | null
+    /** Cumulative processor time of the machine (#182 L1); absent from an older build. */
+    cpuBusyUsec?: number | null
+    cpuTotalUsec?: number | null
   }
   dataDisk: { path: string | null, fs: string | null, scope: string | null, volume: string | null, inodesFree: number | null }
   stores: { name: string, bytes: number | null, allocated: number | null }[]
-  sandboxes: { recorded: number | null, live: number | null }
+  /** `items`: one row per recorded Sandbox (#182 L2); absent from a worker of an older build. */
+  sandboxes: { recorded: number | null, live: number | null, items?: SandboxRow[] }
   complete: boolean
   reason: string | null
 }
@@ -60,146 +60,13 @@ export interface StatsRead {
   loaded: boolean
 }
 
-/** The machine page reads its one machine every 10 s; the Machines tab each running machine every 30 s. */
-export const STATS_PAGE_MS = 10_000
-export const STATS_BOARD_MS = 30_000
-/** How long the page waits for one stats read (the host's own budget is 15 s plus its queue). */
-export const STATS_ANSWER_MS = 25_000
-/** How often a poller that may not read (a hidden window, another panel) looks again. */
-export const STATS_IDLE_MS = 2000
-
-/** Refusals after which a machine is not asked again until it is watched anew: waiting changes nothing. */
-const FINAL = new Set(['Unsupported', 'NotFound', 'NoSuchMachine', 'CliIncompatible'])
-
-export interface Clock {
-  now: () => number
-  setTimeout: (run: () => void, ms: number) => unknown
-  clearTimeout: (timer: unknown) => void
-}
-const realClock: Clock = { now: () => Date.now(), setTimeout: (run, ms) => setTimeout(run, ms), clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>) }
-
-interface Watched { every: number[], last: number, stopped: boolean }
-
-export class StatsPoller {
-  private value: Readonly<Record<string, StatsRead>> = {}
-  private readonly listeners = new Set<() => void>()
-  private readonly watched = new Map<string, Watched>()
-  private flying: string | null = null
-  private timer: unknown
-  private disposed = false
-
-  /**
-   * @param read - one `GET /api/machines/<name>/stats`; a refusal LayerFS gave arrives as `stale` in the answer, anything thrown is a lost read.
-   * @param visible - whether a page that shows stats is on screen now.
-   */
-  constructor(private readonly read: (name: string) => Promise<MachineStatsView>, private readonly visible: () => boolean = () => true, private readonly clock: Clock = realClock) {}
-
-  getSnapshot = (): Readonly<Record<string, StatsRead>> => this.value
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener)
-    return () => { this.listeners.delete(listener) }
-  }
-
-  /** Read `name` every `everyMs` while watched; the release ends this watcher (the values stay for the next one). */
-  watch(name: string, everyMs: number): () => void {
-    let w = this.watched.get(name)
-    if (!w) this.watched.set(name, w = { every: [], last: -Infinity, stopped: false })
-    w.every.push(everyMs)
-    // a new watcher asks again where polling had stopped
-    w.stopped = false
-    this.pump()
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      const now = this.watched.get(name)
-      if (!now) return
-      now.every.splice(now.every.indexOf(everyMs), 1)
-      if (!now.every.length) this.watched.delete(name)
-    }
-  }
-
-  /** Read `name` now (after a Start, or "Read again"), if it is watched. */
-  refresh(name: string): void {
-    const w = this.watched.get(name)
-    if (!w) return
-    w.last = -Infinity
-    w.stopped = false
-    this.pump()
-  }
-
-  /** Look for a due read now (the window became visible again). */
-  wake(): void { this.pump() }
-
-  dispose(): void {
-    this.disposed = true
-    this.clock.clearTimeout(this.timer)
-    this.watched.clear()
-  }
-
-  private set(name: string, next: StatsRead): void {
-    this.value = { ...this.value, [name]: next }
-    for (const l of [...this.listeners]) l()
-  }
-
-  private pump(): void {
-    if (this.disposed) return
-    this.clock.clearTimeout(this.timer)
-    this.timer = undefined
-    if (this.flying || !this.watched.size) return
-    if (!this.visible()) { this.timer = this.clock.setTimeout(() => this.pump(), STATS_IDLE_MS); return }
-    const now = this.clock.now()
-    let next: string | null = null, nextDue = Infinity, soonest = Infinity
-    for (const [name, w] of this.watched) {
-      if (w.stopped) continue
-      const due = w.last + Math.min(...w.every)
-      if (due <= now && due < nextDue) { next = name; nextDue = due }
-      soonest = Math.min(soonest, due)
-    }
-    if (next === null) {
-      if (soonest !== Infinity) this.timer = this.clock.setTimeout(() => this.pump(), Math.max(50, soonest - now))
-      return
-    }
-    void this.readOne(next)
-  }
-
-  private async readOne(name: string): Promise<void> {
-    const w = this.watched.get(name)!
-    w.last = this.clock.now()
-    this.flying = name
-    const before = this.value[name]
-    this.set(name, { stats: before?.stats ?? null, at: before?.at ?? null, stale: before?.stale ?? null, loaded: before?.loaded ?? false, reading: true })
-    let view: MachineStatsView | null = null, lost: StatsStale | null = null
-    try { view = await this.read(name) } catch (error) {
-      const e = error as { code?: unknown, message?: unknown }
-      lost = { at: before?.at ?? null, code: typeof e?.code === 'string' ? e.code : 'Unknown', message: typeof e?.message === 'string' ? e.message : String(error) }
-    }
-    if (this.disposed) return
-    this.flying = null
-    const kept = this.value[name]
-    if (view) {
-      // a refused read keeps the values already shown when the host has none (it was restarted)
-      const stats = view.stats ?? (view.stale ? kept?.stats ?? null : null)
-      this.set(name, { stats, at: view.stats ? view.at : stats ? kept?.at ?? null : null, stale: view.stale || null, reading: false, loaded: true })
-    } else this.set(name, { stats: kept?.stats ?? null, at: kept?.at ?? null, stale: lost, reading: false, loaded: true })
-    const code = view ? (view.stale ? view.stale.code : null) : lost!.code
-    const now = this.watched.get(name)
-    if (now) {
-      // the interval counts from the end of the read: a machine that answers slowly, or not at all, is not asked again at once
-      now.last = this.clock.now()
-      if (code && FINAL.has(code)) now.stopped = true
-    }
-    this.pump()
-  }
-}
-
 // ---------------------------------------------------------------- what the pages say
 
 const w = (key: MachinesKey, values?: Record<string, string | number>): Words =>
   ({ key, ...(values ? { values: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, String(v)])) } : {}) })
 
-/** Whether a machine can be asked for stats now: `native` always answers in the caller's process; another machine only while it runs. */
-export const statsAskable = (m: Pick<MachineInfo, 'platform' | 'state'>): boolean => m.platform === 'native' || m.state === 'running' || m.state === 'ready'
+/** Whether the sampler reads a machine: its `state` is `running` or `ready` (native's is `ready`; no platform test). */
+export const statsAskable = (m: Pick<MachineInfo, 'state'>): boolean => m.state === 'running' || m.state === 'ready'
 
 /** What the measured filesystem is, in plain words (`data_disk.scope`); an unknown scope as it came. */
 export function diskScopeWords(scope: string | null): Words | null {
@@ -222,6 +89,10 @@ const REASONS: Record<string, MachinesKey> = {
   machine_stopped: 'reasonMachineStopped', no_pid: 'reasonNoPid', record_unreadable: 'reasonRecordUnreadable', not_answered: 'reasonNotAnswered',
   unavailable: 'reasonUnavailable', busy: 'reasonBusy', invalid_input: 'reasonOlderWorker',
   host_process: 'reasonHostProcess', cgroup_v1: 'reasonCgroupV1', no_cgroup: 'reasonNoCgroup', not_observed: 'reasonNotObserved', no_controller: 'reasonNoController',
+  cpu_unsupported: 'reasonCpuUnsupported', cpu_not_read: 'reasonCpuNotRead', not_supported: 'reasonNotSupported',
+  first_sample: 'reasonFirstSample', restarted: 'reasonRestarted',
+  // a refused sampler read's code
+  Busy: 'reasonBusy', Unavailable: 'reasonUnavailable', Timeout: 'reasonTimeout',
 }
 
 /** One of LayerFS's reason words (`deadline`, `host_process`, …) in plain words; an unknown one as it came. */
@@ -235,7 +106,7 @@ export const reasonList = (reason: string | null): Words[] => (reason ? reason.s
  * stopped (never asked), the read was refused or lost, or no read has ended
  * yet. Null when there are values to show.
  */
-export function notObserved(m: Pick<MachineInfo, 'platform' | 'state'>, read: StatsRead | undefined): Words | null {
+export function notObserved(m: Pick<MachineInfo, 'state'>, read: StatsRead | undefined): Words | null {
   if (!statsAskable(m)) return m.state === 'stopped' ? w('notObservedStopped') : w('notObservedState', { state: m.state })
   if (read?.stats) return null
   if (read?.stale) return read.stale.code === 'Unavailable' ? w('notObservedUnavailable') : w('notObservedRefused', { code: read.stale.code, message: read.stale.message })

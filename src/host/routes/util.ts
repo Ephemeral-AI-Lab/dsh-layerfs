@@ -151,8 +151,10 @@ export class Answer {
 
 /** How long a Sandbox's `Busy` refusal answers its reads before it is asked again. */
 export const BUSY_MS = 30_000
+/** How long a Sandbox's sandbox.get answer serves every tab that asks (layerfs-project#182 D2): two tabs on one Sandbox cost what one does. */
+export const SANDBOX_KEEP_MS = 10_000
 type Read = Promise<any> & { started?: number }
-const reads = new WeakMap<object, { flying: Map<string, Read>, busy: Map<string, { at: number, error: unknown }> }>()
+const reads = new WeakMap<object, { flying: Map<string, Read>, busy: Map<string, { at: number, error: unknown }>, kept: Map<string, { at: number, value: any }> }>()
 
 /**
  * Forget what {@link sandboxObservation} holds for `sandbox` (a cached `Busy`
@@ -164,21 +166,25 @@ export function invalidateSandbox(lfs: object, sandbox: string): void {
   if (!state) return
   state.busy.delete(sandbox)
   state.flying.delete(sandbox)
+  state.kept.delete(sandbox)
 }
 
 /**
  * A Sandbox's Workspaces: every page of sandbox.get (its pages hold
  * `workspaces`, not `items`). One read per Sandbox at a time: callers share
  * the one in flight, so polls never stack 60 s admission waits. A `Busy`
- * refusal answers again for BUSY_MS without a call. With `wait` (ms) the
- * caller gives up first, refused `Timeout`; the read goes on and the next
- * caller shares it.
+ * refusal answers again for BUSY_MS without a call, and a good answer for
+ * SANDBOX_KEEP_MS (shared by every tab; a write on the Sandbox drops it,
+ * {@link invalidateSandbox}). With `wait` (ms) the caller gives up first,
+ * refused `Timeout`; the read goes on and the next caller shares it.
  */
 export function sandboxObservation(lfs: Lfs, sandbox: string, { wait = null as number | null } = {}): Promise<any> {
-  if (!reads.has(lfs)) reads.set(lfs, { flying: new Map(), busy: new Map() })
-  const { flying, busy } = reads.get(lfs)!
+  if (!reads.has(lfs)) reads.set(lfs, { flying: new Map(), busy: new Map(), kept: new Map() })
+  const { flying, busy, kept } = reads.get(lfs)!
   const refused = busy.get(sandbox)
   if (refused && Date.now() - refused.at < BUSY_MS) return Promise.reject(refused.error)
+  const good = kept.get(sandbox)
+  if (good && Date.now() - good.at < SANDBOX_KEEP_MS) return Promise.resolve(good.value)
   let read = flying.get(sandbox)
   if (!read) {
     // only the read still current settles the cache: one an invalidation dropped leaves it alone
@@ -194,8 +200,16 @@ export function sandboxObservation(lfs: Lfs, sandbox: string, { wait = null as n
       }
       return { ...observation, workspaces: all }
     })().then(
-      (all) => { if (current()) busy.delete(sandbox); return all },
+      (all) => {
+        if (current()) {
+          busy.delete(sandbox)
+          if (kept.size >= 256) kept.delete(kept.keys().next().value!)
+          kept.set(sandbox, { at: Date.now(), value: all })
+        }
+        return all
+      },
       (error) => {
+        if (current()) kept.delete(sandbox)
         if (error?.code === 'Busy' && current()) busy.set(sandbox, { at: Date.now(), error })
         throw error
       },

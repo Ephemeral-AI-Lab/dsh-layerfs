@@ -1,9 +1,10 @@
 /**
- * Observed machine values on the Machines pages (layerfs-project#164): the
- * disk line, the resources line and the Details facts drawn from
- * `machine.stats` (stats.ts), in place of the disk use the pages used to
- * infer from a record's requested size. Shown only when the pinned CLI has
- * machine.stats; without it each caller draws what it drew before.
+ * Observed machine values on the Machines pages (layerfs-project#164, #182):
+ * the disk line, the resources line and the Details facts drawn from the
+ * host's metrics sampler (`machine.stats`, once per machine per 15 s; metrics.ts),
+ * in place of the disk use the pages used to infer from a record's requested
+ * size. Shown only when the pinned CLI has machine.stats; without it each
+ * caller draws what it drew before.
  *
  * A machine that is not running is never asked: its record stays, with "Not
  * observed (machine stopped)". A refused or slow read keeps the last values
@@ -13,22 +14,32 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
 import { Fact, Meter } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
+import { statsReadOf, type MetricsSnapshot } from './metrics.ts'
 import { bytes, gib, type MachineInfo, type Words } from './model.ts'
 import { diskScopeWords, notObserved, reasonList, reasonWords, resourceScopeWords, staleWords, statsAskable, type MachineStats, type StatsRead } from './stats.ts'
 import css from './machines.module.css'
 
 /**
- * One machine's stats while this component is mounted.
- * @param everyMs - how often it is read (the shortest interval among the mounted watchers wins).
- * @returns `offered`: the pinned CLI has machine.stats; `read`: what is known so far (undefined before the first read starts, or when not offered).
+ * The page's metrics (every machine read so far) while this component is
+ * mounted, with `machine` watched: the page's one poll of the host covers it.
+ * @returns `offered`: the pinned CLI has machine.stats (else nothing is watched).
  */
-export function useMachineStats(m: Pick<MachineInfo, 'name' | 'platform' | 'state'>, everyMs: number): { offered: boolean, read: StatsRead | undefined } {
-  const { stats, useMachines } = useMachinesContext()
+export function useMetrics(machine: string | null | undefined): { offered: boolean, snapshot: MetricsSnapshot } {
+  const { metrics, useMachines } = useMachinesContext()
   const offered = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.machineStats === true : false))
-  const askable = statsAskable(m)
-  useEffect(() => (offered && askable ? stats.watch(m.name, everyMs) : undefined), [stats, offered, askable, m.name, everyMs])
-  const read = useSyncExternalStore(stats.subscribe, () => stats.getSnapshot()[m.name])
-  return { offered, read: offered && askable ? read : undefined }
+  useEffect(() => (offered && machine ? metrics.watch(machine) : undefined), [metrics, offered, machine])
+  const snapshot = useSyncExternalStore(metrics.subscribe, metrics.getSnapshot)
+  return { offered, snapshot }
+}
+
+/**
+ * One machine's stats while this component is mounted, as the sampler last
+ * read them.
+ * @returns `offered`: the pinned CLI has machine.stats; `read`: what is known so far (undefined before the page's first answer, when the machine is not running, or when not offered).
+ */
+export function useMachineStats(m: Pick<MachineInfo, 'name' | 'state'>): { offered: boolean, read: StatsRead | undefined } {
+  const { offered, snapshot } = useMetrics(m.name)
+  return { offered, read: offered && statsAskable(m) ? statsReadOf(snapshot, m.name) : undefined }
 }
 
 const clock = (at: number | null): string => (at ? new Date(at).toLocaleTimeString() : '—')

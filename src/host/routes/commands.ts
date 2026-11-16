@@ -28,7 +28,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { refuse, type RouteHost } from './util.ts'
+import { invalidateSandbox, refuse, type RouteHost } from './util.ts'
 
 /** Commands kept per Workspace (and listed per Sandbox). */
 export const KEEP = 50
@@ -298,13 +298,15 @@ export class SandboxCommands {
     this.read(ws).unshift(entry)
     this.live.set(entry.id, run)
     this.save(ws)
-    // pages read what runs in the Sandbox again (sandbox.get `running`)
+    // pages read what runs in the Sandbox again (sandbox.get `running`): its kept answer is dropped first
+    this.forgetSandbox(sandbox)
     this.host.emit('sandbox-command', { type: 'sandbox-command', sandbox, ws, id: entry.id, state: 'running' })
     const finish = (patch: Partial<CommandEntry>) => {
       Object.assign(entry, patch, { finishedAt: Date.now() }, output(run))
       this.live.delete(entry.id)
       // an unmount or close dropped this Workspace's log meanwhile: do not bring it back
       if (this.loaded.get(ws)?.includes(entry)) this.save(ws)
+      this.forgetSandbox(sandbox)
       this.host.emit('sandbox-command', { type: 'sandbox-command', sandbox, ws, id: entry.id, state: entry.state })
     }
     const chunk = (c: Buffer | string) => Buffer.isBuffer(c) ? c : Buffer.from(String(c))
@@ -327,6 +329,11 @@ export class SandboxCommands {
       (error: any) => finish({ state: error?.code === 'Unknown' ? 'unknown' : 'failed', error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } }),
     )
     return { ...entry }
+  }
+
+  /** Drop the Sandbox's kept sandbox.get answer (util.ts SANDBOX_KEEP_MS): what runs there changed. */
+  private forgetSandbox(sandbox: string): void {
+    try { invalidateSandbox(this.host.lfs(), sandbox) } catch { /* no CLI pinned: nothing is kept */ }
   }
 
   /** workspace.exec_cancel for one of this host's running commands. */
