@@ -1188,3 +1188,137 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- metrics (layerfs-project#182) ---------- */
+
+/* a machine card's meters: memory, data disk, live Sandboxes */
+.meters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.meterItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.meterItem .diskMeter {
+  flex: none;
+  width: 64px;
+}
+
+.mxName {
+  width: 45%;
+}
+
+.mxRowName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.mxRowName:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .mxRowName:hover > .mono {
+    text-decoration: underline;
+  }
+}
+
+.mxSandbox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.mxDanger {
+  color: var(--dsw-alias-state-error-primary);
+  font-weight: 500;
+}
+
+.mxCharts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 12px;
+}
+
+.mxDash {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mxWhy {
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+}
+
+/* in a table cell the reason stays on one line, cut, with the whole reason as the cell's title */
+.rows .mxDash {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.rows .mxWhy {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  white-space: nowrap;
+}
+
+/* phone width: values and reasons wrap instead of being cut, and the name column narrows */
+@media (max-width: 600px) {
+  .mxTable .mxName {
+    width: 34%;
+  }
+
+  .mxTable th,
+  .mxTable td:not(.mxName) {
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+
+  .mxTable .mxDash {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* two lines of the reason at most; the whole reason is the cell's title */
+  .mxTable .mxWhy {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+  }
+}

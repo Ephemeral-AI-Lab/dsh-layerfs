@@ -21,7 +21,7 @@ import {
   type AvailableView, type Creation, type MachineInfo, type MachineSandbox,
 } from './model.ts'
 import { storeSizes, useMachineStats } from './MachineStats.tsx'
-import { STATS_BOARD_MS, STATS_PAGE_MS, liveNote, sandboxLook } from './stats.ts'
+import { liveNote, sandboxLook } from './stats.ts'
 import css from './machines.module.css'
 
 /** The name a machine goes by everywhere: the tree's "LayerFS Home" for the native machine, else its own. */
@@ -69,7 +69,7 @@ export function Inventory({ m, view, limit, onMore, storeAction, sandboxAction }
 }): ReactNode {
   const { t, useCreations } = useMachinesContext()
   // each Store's observed size (machine.stats), where the pinned CLI has the call and the machine answered
-  const sizes = storeSizes(useMachineStats(m, limit ? STATS_BOARD_MS : STATS_PAGE_MS).read)
+  const sizes = storeSizes(useMachineStats(m).read)
   const stores = storeLines(view, m).map((s) => (s.family === 'sqlite' && sizes?.get(s.name) != null ? { ...s, size: sizes.get(s.name)! } : s))
   const sandboxes = sandboxLines(view, m)
   const creations = useCreations((all) => all)

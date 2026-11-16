@@ -25,7 +25,7 @@ import type { Translate } from '../files/types.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { downReason, gib, machineState, sandboxesOn, shortSandbox, sizeOf, workerDown, type AvailableView, type Creation, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
-import { STATS_BOARD_MS, diskScopeWords, notObserved, reasonList, sandboxRuns, type StatsRead } from '../machines/stats.ts'
+import { diskScopeWords, notObserved, reasonList, sandboxRuns, type StatsRead } from '../machines/stats.ts'
 import { useMachineStats } from '../machines/MachineStats.tsx'
 import { besideCreating, creatingOn } from '../machines/Inventory.tsx'
 import { phaseWords } from '../machines/images.ts'
@@ -468,10 +468,13 @@ function ObservedDiskRow({ m, read, t }: { m: MachineInfo, read: StatsRead | und
   const why = notObserved(m, read)
   const r = read?.stats?.resources
   if (why || !r) {
+    // nothing observed: the size the record was created with, labelled "allocated" (never a platform's words), and why
     return (
       <div className={css.diskRow} data-ov-disk="not-observed">
         <span className={css.placeLabel}>{t('ovDisk')}</span>
-        <span className={css.end} title={read?.stale ? read.stale.message : undefined}>{mc.tw(why ?? { key: 'notObservedYet' })}</span>
+        <span className={css.end} title={read?.stale ? read.stale.message : undefined}>
+          {[m.disk != null ? mc.t('mxAllocatedDisk', { size: gib(m.disk) }) : null, mc.tw(why ?? { key: 'notObservedYet' })].filter(Boolean).join(' · ')}
+        </span>
       </div>
     )
   }
@@ -492,6 +495,36 @@ function ObservedDiskRow({ m, read, t }: { m: MachineInfo, read: StatsRead | und
       <span className={css.placeLabel}>{t('ovDisk')}</span>
       <span className={css.end} data-tone={low ? 'warning' : undefined}>{t('ovDiskOf', { free: gib(free), total: gib(r.diskTotal) })}</span>
       <span className={css.bar} data-tone={low ? 'warning' : undefined}><span style={{ width: `${Math.round((r.diskTotal > 0 ? Math.min(1, r.diskUsed / r.diskTotal) : 0) * 100)}%` }} /></span>
+    </div>
+  )
+}
+
+/**
+ * A machine card's memory row from the metrics sampler (layerfs-project#182):
+ * used of total, its share as a bar (warning past 90 %), and how many of the
+ * recorded Sandboxes are live. Nothing when nothing was observed (the disk row
+ * says why); a value LayerFS answered as null says so.
+ */
+function ObservedMemoryRow({ read, t }: { read: StatsRead | undefined, t: StorageT }): ReactNode {
+  const mc = useMachinesContext()
+  const s = read?.stats
+  if (!s) return null
+  const r = s.resources, b = s.sandboxes
+  const live = b.live != null ? mc.t('mxLiveOf', { live: String(b.live), recorded: b.recorded != null ? String(b.recorded) : '—' }) : null
+  if (r.memoryTotal == null || r.memoryUsed == null) {
+    return (
+      <div className={css.diskRow} data-ov-memory="not-observed">
+        <span className={css.placeLabel}>{mc.t('memory')}</span>
+        <span className={css.end}>{mc.t('mxMemoryNotRead', { reason: reasonList(r.reason).map(mc.tw).join(', ') || mc.t('reasonNotObserved') })}</span>
+      </div>
+    )
+  }
+  const share = r.memoryTotal > 0 ? Math.min(1, r.memoryUsed / r.memoryTotal) : 0
+  return (
+    <div className={css.diskRow} data-ov-memory="observed" title={live ?? undefined}>
+      <span className={css.placeLabel}>{mc.t('memory')}</span>
+      <span className={css.end} data-tone={share > 0.9 ? 'warning' : undefined}>{mc.t('mxOf', { used: gib(r.memoryUsed), total: gib(r.memoryTotal) })}</span>
+      <span className={css.bar} data-tone={share > 0.9 ? 'warning' : undefined}><span style={{ width: `${Math.round(share * 100)}%` }} /></span>
     </div>
   )
 }
@@ -536,10 +569,13 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
   const runningBoxes = boxes.filter(sandboxRuns).length
   // the data disk as LayerFS observed it (machine.stats, layerfs-project#164), through the Machines board's own poller: one
   // read per running machine every 30 s while these cards are on screen, a stopped machine never asked
-  const observed = useMachineStats(m, STATS_BOARD_MS)
+  const observed = useMachineStats(m)
+  const counted = observed.read?.stats?.sandboxes
+  const liveOf = counted && counted.live != null && (counted.recorded ?? 0) > 0 ? counted as { live: number, recorded: number | null } : null
   // A push or move arriving here, or a pull arriving in the home.
   const arriving = jobs.find((j) => !j.ended && ((j.kind === 'push' || j.kind === 'move') ? j.target === m.name : j.kind === 'pull' && m.name === 'native'))
-  const sub = m.platform === 'native' ? mc.kind(m.platform) : m.platform === 'docker' ? mc.kind(m.platform) : `${mc.kind(m.platform)} · ${mc.tw(sizeOf({ ...m, disk: null } as MachineInfo, undefined)).split(' · ').slice(0, 2).join(' · ')}`
+  // the platform's name, and the size its record was created with when it has one ("allocated"; keyed on the record, never on the platform)
+  const sub = m.cpus == null && m.memory == null ? mc.kind(m.platform) : `${mc.kind(m.platform)} · ${mc.t('mxAllocated', { size: mc.tw(sizeOf({ ...m, disk: null } as MachineInfo, undefined)).split(' · ').slice(0, 2).join(' · ') })}`
   return (
     <article className={css.card} data-kind="machine" data-ov-machine={m.name} data-stopped={look.key === 'stopped' || undefined}>
       <header className={css.cardHead}>
@@ -563,6 +599,7 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
       <MachineDialogs m={m} dialog={dialog} onClose={() => setDialog(null)} pending={pending} run={run} />
       {starting ? <div className={css.progress}><MachineProgress name={m.name} compact /></div> : null}
 
+      {observed.offered ? <ObservedMemoryRow read={observed.read} t={t} /> : null}
       {observed.offered ? <ObservedDiskRow m={m} read={observed.read} t={t} /> : <RecordDiskRow m={m} free={free} t={t} />}
 
       <div className={css.list}>
@@ -606,6 +643,8 @@ function MachineCard({ m, fleet, stores, t, jobs, place, pgSize, onOpen, onAddSt
       </div>
 
       {arriving ? <footer className={css.cardFoot}><JobLine job={arriving} t={t} label={`${arriving.store} · ${doingWords(arriving, t)}`} /></footer>
+        // live Sandboxes of recorded, as the sampler read them; else the records' running count, as before
+        : liveOf ? <footer className={css.cardFoot}><span className={css.status} data-tone={liveOf.live ? 'success' : undefined} data-ov-live><StateDot state={liveOf.live ? 'done' : 'idle'} size={7} />{mc.t('mxLiveOf', { live: String(liveOf.live), recorded: String(liveOf.recorded ?? '—') })}</span></footer>
         : runningBoxes ? <footer className={css.cardFoot}><span className={css.status} data-tone="success"><StateDot state="done" size={7} />{runningBoxes === 1 ? t('ovOneSandboxRunning') : t('ovSandboxesRunning', { n: runningBoxes })}</span></footer>
           : null}
     </article>

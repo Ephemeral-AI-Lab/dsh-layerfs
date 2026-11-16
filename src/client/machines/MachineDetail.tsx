@@ -28,7 +28,7 @@ import { FixPanel } from './Readiness.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { SpecTab } from './Spec.tsx'
 import { ObservedCpuMemory, useMachineStats, workerLine } from './MachineStats.tsx'
-import { STATS_PAGE_MS } from './stats.ts'
+import { MachineCharts, MachineFigures, SandboxUsage } from './MetricsViews.tsx'
 import css from './machines.module.css'
 import logCss from './log.module.css'
 
@@ -59,12 +59,11 @@ export function MachineDetail({ name, go, onAddStore }: { name: string, go: (vie
   return <MachineView key={m.name} view={view} m={m} go={go} onAddStore={onAddStore} />
 }
 
-/** CPU and memory in words: shared for the native machine, Docker's own for docker, else the allocation. */
+/** CPU and memory in words when nothing was observed: the size the record was created with, labelled "allocated" (keyed on what is there, never on the platform). */
 function resourcesOf(m: MachineInfo, t: ReturnType<typeof useMachinesContext>['t']): string {
-  if (m.platform === 'native') return t('resourcesShared')
-  if (m.cpus == null && m.memory == null) return m.platform === 'docker' ? t('resourcesDocker') : t('notReported')
+  if (m.cpus == null && m.memory == null) return t('notReported')
   const cpu = m.cpus != null ? t(m.cpus === 1 ? 'coresOne' : 'cores', { n: String(m.cpus) }) : t('notReported')
-  return `${cpu} · ${m.memory != null ? gib(m.memory) : t('notReported')}`
+  return t('mxAllocated', { size: `${cpu} · ${m.memory != null ? gib(m.memory) : t('notReported')}` })
 }
 
 function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: MachineInfo, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined }): ReactNode {
@@ -96,7 +95,7 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
   const [tab, setTab] = useDetailTab('machine', m.name, tabs.map((x) => x.value), 'overview')
   const ids = useId()
   // observed values (machine.stats), read every 10 s while this page is on screen; without the call the facts are the record's, as before
-  const observed = useMachineStats(m, STATS_PAGE_MS)
+  const observed = useMachineStats(m)
   const worker = observed.offered ? workerLine(observed.read?.stats, t) : null
   const logLink = hasLog && tab !== 'log' ? <LinkButton onClick={() => setTab('log')}>{t('openWorkerLog')}</LinkButton> : null
   // startup progress and notices: on every tab, where today's page has them
@@ -160,14 +159,20 @@ function MachineView({ view, m, go, onAddStore }: { view: AvailableView, m: Mach
         </div>
       ) : (
       <div className={logCss.tabPanel} {...(tabs.length > 1 ? { role: 'tabpanel', id: `${ids}-overview-panel`, 'aria-labelledby': `${ids}-overview` } : {})}>
+      {/* the sampler's figures once it has read the machine; until then (or without machine.stats) the facts as they were */}
+      {observed.offered && observed.read?.stats ? <MachineFigures m={m} /> : (
       <dl className={css.factRow} aria-label={t('resources')}>
-        <div><dt>{t(observed.offered ? 'disk' : 'freeDisk')}</dt><dd><DiskLine m={m} view={view} every={STATS_PAGE_MS} /></dd></div>
+        <div><dt>{t(observed.offered ? 'disk' : 'freeDisk')}</dt><dd><DiskLine m={m} view={view} /></dd></div>
         <div><dt>{t('cpuMemory')}</dt><dd>{observed.offered && observed.read?.stats ? <ObservedCpuMemory read={observed.read} /> : resourcesOf(m, t)}</dd></div>
         {live?.toolVersion && <div><dt>{t('toolVersionOf', { kind: kind(m.platform) })}</dt><dd className={css.mono}>{live.toolVersion}</dd></div>}
         {worker && <div><dt>{t('worker')}</dt><dd data-worker-line>{worker}</dd></div>}
       </dl>
+      )}
 
       {notices}
+
+      <MachineCharts m={m} />
+      <SandboxUsage m={m} />
 
       <Card className={css.block}>
         <Inventory m={m} view={view}

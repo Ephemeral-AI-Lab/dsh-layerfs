@@ -743,8 +743,11 @@
 }
 
 .diskRow .end {
+  min-width: 0;
   margin-left: 0;
   justify-self: end;
+  text-align: end;
+  white-space: normal;
 }
 
 .placeLabel {

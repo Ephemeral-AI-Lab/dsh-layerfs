@@ -19,7 +19,7 @@ import {
 import { machineBlock, nativeGlyphOs, nativeNameKey, osOfView, type Readiness } from './needs.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
 import { ObservedDisk, useMachineStats } from './MachineStats.tsx'
-import { STATS_BOARD_MS } from './stats.ts'
+import { MachineMeters } from './MetricsViews.tsx'
 import { Blocked } from './Readiness.tsx'
 import css from './machines.module.css'
 
@@ -104,19 +104,34 @@ export const glyphOs = (m: MachineInfo, view: AvailableView) => (m.platform === 
  * Without it, the line is what it was: free space from machine.status against
  * the record's requested size.
  */
-export function DiskLine({ m, view, every = STATS_BOARD_MS }: { m: MachineInfo, view: AvailableView, every?: number }): ReactNode {
-  const { offered, read } = useMachineStats(m, every)
+export function DiskLine({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
+  const { offered, read } = useMachineStats(m)
   return offered ? <ObservedDisk m={m} read={read} /> : <RecordDisk m={m} view={view} />
 }
 
-/** The disk line of a CLI without machine.stats: free space as reported, a meter against the requested size. */
+/**
+ * A machine card's meters: with a CLI that has machine.stats, memory, data
+ * disk and live Sandboxes from the metrics sampler (MetricsViews.tsx); without
+ * it the disk line as it was.
+ */
+function CardMeters({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
+  const { offered } = useMachineStats(m)
+  return offered ? <MachineMeters m={m} /> : <RecordDisk m={m} view={view} />
+}
+
+/**
+ * The disk line of a CLI without machine.stats: free space as reported, a
+ * meter against the size the record was created with. Without a reported
+ * free space, the recorded size labelled "allocated" (keyed on what was
+ * observed, never on the platform).
+ */
 function RecordDisk({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
   const { t } = useMachinesContext()
   const live = view.status[m.name]
   const used = m.disk && live?.freeDisk != null ? Math.max(0, m.disk - live.freeDisk) : null
   const share = used !== null && m.disk ? used / m.disk : null
   if (live?.freeDisk == null) {
-    return <span className={css.muted}>{t(m.platform === 'native' ? 'diskShared' : m.platform === 'docker' ? 'resourcesDocker' : m.state === 'running' ? 'diskUnreported' : 'diskWhileStopped')}</span>
+    return <span className={css.muted}>{m.disk != null ? t('mxAllocatedDisk', { size: gib(m.disk) }) : t(m.state === 'running' || m.state === 'ready' ? 'diskUnreported' : 'diskWhileStopped')}</span>
   }
   return (
     <span className={css.diskLine}>
@@ -150,7 +165,7 @@ function MachineBlock({ m, view, onOpen }: { m: MachineInfo, view: AvailableView
           </span>
         </span>
         <MachineStateChip m={m} live={live} pending={pending} blocked={!!block} />
-        <DiskLine m={m} view={view} />
+        <CardMeters m={m} view={view} />
         <span className={css.blockActions}>
           {m.platform === 'native' ? <span className={css.muted}>{t(nativeNameKey(osOfView(view)))}</span> : block ? null : <PowerButton m={m} pending={pending} run={run} />}
           <MachineMenu m={m} pending={pending} run={run} onOpen={onOpen} onDialog={setDialog} />

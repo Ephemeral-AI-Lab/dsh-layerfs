@@ -28,6 +28,7 @@ import { bytes, clearingCall, daemonLook, daemonSlots, opWords, stateLook, type 
 import { cpuTime, liveNote, reasonWords, sandboxLook } from './stats.ts'
 import { SandboxMenu, useClose, useSandboxRead } from './Sandboxes.tsx'
 import { SandboxTerminals } from './SandboxTerminals.tsx'
+import { SandboxMetrics } from './MetricsViews.tsx'
 import css from './machines.module.css'
 import logCss from './log.module.css'
 import term from './terminal.module.css'
@@ -38,6 +39,8 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   const parent = useMachines((s) => (s.data?.available ? s.data.machines.find((m) => m.name === machine) : undefined))
   const hasLog = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.sandboxLog === true : false))
   const hasFiles = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.files === true : false))
+  // figures and charts come from the metrics sampler where the pinned CLI has machine.stats; else sandbox.get's usage line, as before
+  const metrics = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.machineStats === true : false))
   // the Workspace whose terminal Files asked for ("Open terminal")
   const [focus, setFocus] = useState<{ ws: string, n: number } | null>(null)
   const detail = useSandboxRead(name, listed?.state, listed?.workspaces)
@@ -110,7 +113,7 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
       />
 
       {info && <DaemonLine info={info} action={logLink} />}
-      {info && <UsageLine info={info} />}
+      {metrics ? <SandboxMetrics name={name} machine={machine} /> : info && <UsageLine info={info} />}
 
       {((info && (info.refusal || info.downReason)) || calls || closing.error !== null || !!closing.unknown?.length || (info && detail.error != null)) && (
         <Notice tone="danger">
