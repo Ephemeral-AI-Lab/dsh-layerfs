@@ -236,3 +236,15 @@ test('a lease whose host root is gone holds nothing', () => {
     assert.equal(H.leased(join(one.cli, '..', '..')), true)
   } finally { f.done() }
 })
+
+test('a service built in a test writes no pin lease until the plugin starts it', () => {
+  const f = runtimeFixture()
+  const saved = process.env.DSH_HOME
+  try {
+    process.env.DSH_HOME = join(f.dir, 'dsh')
+    const one = H.installRuntime(f.home, '1.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
+    const s = new H.LayerfsService(new H.Context(), { home: f.home })
+    assert.equal(s.cli, one.cli)
+    assert.ok(!existsSync(join(f.home, 'runtime', one.id, 'pins')), 'no lease before startSetup')
+  } finally { if (saved === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = saved; f.done() }
+})

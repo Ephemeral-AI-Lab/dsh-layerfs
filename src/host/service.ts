@@ -340,9 +340,11 @@ export class LayerfsService extends Service {
     this.pin = { cli, daemon, bundle, cacheHome, cacheHomeSource, source }
     this.sdk = undefined
     this.homeState = null
+    // a pin change makes a running check's answer stale
+    this.homeGeneration = (this.homeGeneration ?? 0) + 1
     this.nativeRecorded = undefined
-    // this host's lease on the runtime folder it pins, so no host's cleanup removes it
-    leasePin(this.home, this.root, cli)
+    // this host's lease on the runtime folder it pins, so no host's cleanup removes it (only once the plugin runs: never from a test)
+    if (this.started) leasePin(this.home, this.root, cli)
     // Discover the CLI (identity, call log kind) now, so the first agent shell already gets $DSH_LAYERFS_SDK.
     if (cli) void hasNativeLogs(cli)
   }
