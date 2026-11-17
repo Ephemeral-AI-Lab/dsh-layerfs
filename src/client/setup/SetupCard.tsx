@@ -10,7 +10,8 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { CopyLine } from '../ui/index.tsx'
 import type { SetupModalT } from './locale.ts'
 import { missingWords, short } from './SetupDialog.tsx'
-import { setupDialog, type SetupStatus } from './store.ts'
+import { setupDialog, type Piece, type SetupStatus } from './store.ts'
+import { verdictWords } from './verdict.ts'
 import css from './setup.module.css'
 
 /** Whether Center has nothing to show without setup: no runtime, or a folder LayerFS can't use yet. */
@@ -36,10 +37,10 @@ export function SetupCard({ s, t, first }: { s: SetupStatus, t: SetupModalT, fir
 export function SetupSummary({ s, t }: { s: SetupStatus, t: SetupModalT }): ReactNode {
   const r = s.runtime
   const terminal = r.cli ? [`LAYERFS_HOME='${s.folder.path}'`, ...(r.bundle ? [`LAYERFS_BUNDLE='${r.bundle}'`] : []), `'${r.cli}'`].join(' ') : null
-  const verdict = (v: string | undefined) => (v === 'matches' ? t('vMatches') : v === 'other' ? t('vOther') : v === 'unknown' ? t('vUnknown') : t('vMissing'))
+  const verdict = (piece: Piece | null | undefined) => t(verdictWords(piece, r.commit).key)
   const pieces = [
-    s.pieces.daemon ? `${t('pieceDaemon')}: ${verdict(s.pieces.daemon.verdict)}` : null,
-    `${t('pieceBundle')}: ${verdict(s.pieces.bundle?.verdict)}`,
+    s.pieces.daemon ? `${t('pieceDaemon')}: ${verdict(s.pieces.daemon)}` : null,
+    `${t('pieceBundle')}: ${verdict(s.pieces.bundle)}`,
     `${t('pieceSdk')}: ${r.sdk ? t('sdkPresent') : t('sdkMissing')}`,
   ].filter(Boolean).join(' · ')
   return (

@@ -24,6 +24,7 @@ import { useQuery } from '../ui/use-query.ts'
 import { useHostEvents } from '../storage/hooks.ts'
 import type { SetupModalT } from './locale.ts'
 import { RuntimePicker } from './RuntimePicker.tsx'
+import { verdictWords } from './verdict.ts'
 import { lately, setupDialog, useSetupStatus, type Piece, type SetupSection, type SetupStatus } from './store.ts'
 import dialog from '../projects/setup/dialog.module.css'
 import css from './setup.module.css'
@@ -153,11 +154,17 @@ function machinesSummary(view: AvailableView, tm: MachinesT, t: SetupModalT): st
   return native && readinessOf(native, os, view.layerfs).step === 'ready' ? t('sumNativeReady', { native: name }) : t('sumNativeBlocked', { native: name })
 }
 
-/** A verdict as words and a tone. */
-function VerdictWord({ piece, t, sdk }: { piece: Piece | null, t: SetupModalT, sdk?: boolean }): ReactNode {
-  const v = piece?.verdict ?? 'missing'
-  const word = v === 'matches' ? t('vMatches') : v === 'other' ? t('vOther') : v === 'unknown' ? t('vUnknown') : t('vMissing')
-  return <span className={css.verdict} data-verdict={sdk ? 'note' : v}>{word}</span>
+/** A verdict as words and a tone (verdict.ts says what an unknown one records). */
+function VerdictWord({ piece, cli, t }: { piece: Piece | null, cli: string | null, t: SetupModalT }): ReactNode {
+  const w = verdictWords(piece, cli)
+  return <span className={css.verdict} data-verdict={w.tone}>{t(w.key)}</span>
+}
+
+/** A piece's note: missing, or built before LayerFS stamped its builds. */
+function pieceNote(piece: Piece | null, cli: string | null, missing: string, t: SetupModalT): string | null {
+  if (!piece || piece.verdict === 'missing') return missing
+  const note = verdictWords(piece, cli).note
+  return note ? t(note) : null
 }
 
 const sourceKey = (source: SetupStatus['runtime']['source']) =>
@@ -184,8 +191,8 @@ function RuntimeSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
       {r.ok ? (
         <dl className={css.pieces}>
           <PieceRow label={t('pieceCli')} path={p.cli?.path ?? r.cli} value={<span className={css.verdict} data-verdict="matches">{t('vCli')}</span>} />
-          {p.daemon ? <PieceRow label={t('pieceDaemon')} path={p.daemon.path} value={<VerdictWord piece={p.daemon} t={t} />} note={p.daemon.verdict === 'missing' ? t('daemonMissingNote') : null} /> : null}
-          <PieceRow label={t('pieceBundle')} path={p.bundle?.path ?? null} value={<VerdictWord piece={p.bundle} t={t} />} note={!p.bundle || p.bundle.verdict === 'missing' ? t('bundleMissingNote') : null} />
+          {p.daemon ? <PieceRow label={t('pieceDaemon')} path={p.daemon.path} value={<VerdictWord piece={p.daemon} cli={r.commit} t={t} />} note={pieceNote(p.daemon, r.commit, t('daemonMissingNote'), t)} /> : null}
+          <PieceRow label={t('pieceBundle')} path={p.bundle?.path ?? null} value={<VerdictWord piece={p.bundle} cli={r.commit} t={t} />} note={pieceNote(p.bundle, r.commit, t('bundleMissingNote'), t)} />
           <PieceRow label={t('pieceSdk')} path={r.sdk?.dir ?? null} value={<span className={css.verdict} data-verdict={r.sdk ? 'matches' : 'note'}>{r.sdk ? t('sdkPresent') : t('sdkMissing')}</span>} note={r.sdk ? null : t('sdkNote')} />
         </dl>
       ) : null}
