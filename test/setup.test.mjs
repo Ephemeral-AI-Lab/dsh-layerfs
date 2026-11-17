@@ -96,7 +96,7 @@ test('a pin lease keeps a runtime from another host\'s cleanup and moves with th
 })
 
 /** A fake LayerFS CLI (node script) logging its argv; `homeCalls` adds the home family. */
-function fakeCli(dir, { homeCalls, homeGetFails = false, slowGetMs = 0 }) {
+function fakeCli(dir, { homeCalls, homeGetFails = false, slowGetMs = 0, recorded = null }) {
   const log = join(dir, 'calls.log')
   const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
     'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close',
@@ -117,7 +117,7 @@ const st = st0
 const create = () => { fs.mkdirSync(home, { recursive: true }); fs.writeFileSync(file, JSON.stringify({ layout: 3 })) }
 if (argv[0] === 'home' && argv[1] === 'get' && ${homeGetFails}) { process.stderr.write('boom\\n'); process.exit(1) }
 if (argv[0] === 'home' && argv[1] === 'get' && ${slowGetMs}) { const until = Date.now() + ${slowGetMs}; while (Date.now() < until) {} }
-if (argv[0] === 'home' && argv[1] === 'get') say({ home: { path: home, state: st, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', mode_ok: true }, bundle: null, daemon: null, cache: { path: '/c' }, warnings: [] })
+if (argv[0] === 'home' && argv[1] === 'get') say({ home: { path: home, state: st, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', mode_ok: true }, bundle: null, daemon: ${JSON.stringify(recorded)}, cache: { path: '/c' }, warnings: [] })
 if (argv[0] === 'home' && argv[1] === 'init') { const was = st; create(); say({ home, created: was === 'missing', converted: was === 'needs_conversion', layout: 3 }) }
 // every other call opens the home as LayerFS does (creates or converts it)
 create()
@@ -137,7 +137,7 @@ async function withService(opts, run) {
     const home = join(dir, 'home')
     if (opts.layout2) { mkdirSync(home, { recursive: true, mode: 0o700 }); writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 2 })) }
     const fake = fakeCli(dir, opts)
-    const s = new H.LayerfsService(new H.Context(), { cli: fake.cli, home })
+    const s = new H.LayerfsService(new H.Context(), { cli: fake.cli, home, ...(opts.daemon ? { daemon: opts.daemon } : {}) })
     await run({ s, home, fake })
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
@@ -247,4 +247,26 @@ test('a service built in a test writes no pin lease until the plugin starts it',
     assert.equal(s.cli, one.cli)
     assert.ok(!existsSync(join(f.home, 'runtime', one.id, 'pins')), 'no lease before startSetup')
   } finally { if (saved === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = saved; f.done() }
+})
+
+test('Use this daemon is offered only when the recorded daemon is gone or from another build, not for a same-build copy elsewhere', { skip: process.platform !== 'darwin' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-daemon-'))
+  try {
+    const ours = join(dir, 'layerfs-daemon')
+    writeFileSync(ours, Buffer.concat([Buffer.alloc(256, 1), Buffer.from(`layerfs-build-identity:${A}:clean\0`)]), { mode: 0o755 })
+    const elsewhere = { path: join(dir, 'debug', 'layerfs-daemon'), source: 'recorded', present: true }
+    const cases = [
+      [{ ...elsewhere, commit: A, dirty: false, matches: true }, false],
+      [{ ...elsewhere, commit: B, dirty: false, matches: false }, true],
+      [{ ...elsewhere, present: false, commit: null, dirty: null, matches: null }, true],
+      [{ ...elsewhere, commit: A, dirty: true, matches: null }, false],
+      [{ path: ours, source: 'recorded', present: true, commit: A, dirty: false, matches: true }, false],
+    ]
+    for (const [recorded, offered] of cases) {
+      await withService({ homeCalls: true, recorded, daemon: ours }, async ({ s }) => {
+        const status = await s.setup()
+        assert.equal(status.daemonRecordable, offered, JSON.stringify(recorded))
+      })
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })

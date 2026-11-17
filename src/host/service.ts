@@ -529,7 +529,9 @@ export class LayerfsService extends Service {
       pieces: { cli, daemon, bundle },
       warnings: got?.warnings ?? [],
       needs, mixedAllowed: mixedAllowed(), error,
-      daemonRecordable: process.platform === 'darwin' && !!this.pin.daemon && !!daemon?.path && daemon.path !== this.pin.daemon && verdictOf(cliStamp, daemonStamp(this.pin.daemon)) !== 'other',
+      // only when the recorded one is gone or from another build (a same-build copy elsewhere is fine), and ours is not
+      daemonRecordable: process.platform === 'darwin' && !!this.pin.daemon && !!daemon?.path && daemon.path !== this.pin.daemon
+        && (daemon.verdict === 'other' || daemon.verdict === 'missing') && verdictOf(cliStamp, daemonStamp(this.pin.daemon)) !== 'other',
     }
     this.lastSetup = answer
     return answer
