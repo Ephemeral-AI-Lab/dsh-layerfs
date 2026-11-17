@@ -44,8 +44,8 @@ export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Pr
     try {
       page = await layerfs.lfs.logs.list({ ...native, ...(cursor ? { cursor } : {}), limit: limit - lines.length })
     } catch (error: any) {
-      // A home that was never initialized has no log yet.
-      if (error?.code === 'Unavailable' && !cursor) return { lines: [], has_more: false, skipped: 0, source: 'layerfs' }
+      // A home that was never initialized (or is not set up yet) has no log yet.
+      if ((error?.code === 'Unavailable' || error?.code === 'Uninitialized') && !cursor) return { lines: [], has_more: false, skipped: 0, source: 'layerfs' }
       throw error
     }
     skipped += Number(page?.skipped ?? 0)

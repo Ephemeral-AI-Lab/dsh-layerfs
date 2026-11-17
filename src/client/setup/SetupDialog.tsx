@@ -1,7 +1,7 @@
 /**
- * Set up LayerFS (docs/specs/layerfs-setup.md §4.1): one modal with a
- * readiness rail — Runtime, LayerFS folder, Machines — beside one scrolling
- * page. It reads the host's setup check (`setup.status`), which already
+ * Set up LayerFS (docs/specs/layerfs-setup.md §4.1): one modal, one
+ * scrolling column — Runtime, LayerFS folder, Machines — each section's
+ * state in words beside its title. It reads the host's setup check (`setup.status`), which already
  * created a missing folder; converting an older folder waits for Convert
  * here. Done needs a runtime, the folder current and no piece from another
  * build (an unknown passes); the SDK and the folder's mode are notes. The
@@ -21,6 +21,7 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { openStorage } from '../projects/navigation.ts'
 import { CopyLine } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
+import { useHostEvents } from '../storage/hooks.ts'
 import type { SetupModalT } from './locale.ts'
 import { RuntimePicker } from './RuntimePicker.tsx'
 import { lately, setupDialog, useSetupStatus, type Piece, type SetupSection, type SetupStatus } from './store.ts'
@@ -58,11 +59,9 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
   const s = status.data
   const usable = !!s && s.runtime.ok && s.folder.state === 'current'
   const [tick, setTick] = useState(0)
-  const machines = useQuery(() => (usable ? api.call<MachinesView>('GET', '/api/machines') : Promise.resolve(null)), [api, usable], { refresh: [tick, s?.at], cache: usable ? 'GET /api/machines' : undefined })
-  useEffect(() => {
-    const offs = ['machine-progress', 'runtime-changed'].map((type) => api.onEvent(type, () => setTick((n) => n + 1)))
-    return () => { for (const off of offs) off() }
-  }, [api])
+  // reread on what changes the machines (a runtime or folder change, machine events), not on every setup poll
+  const machines = useQuery(() => (usable ? api.call<MachinesView>('GET', '/api/machines') : Promise.resolve(null)), [api, usable], { refresh: [tick, s?.runtime.cli, s?.folder.state], cache: usable ? 'GET /api/machines' : undefined })
+  useHostEvents(api, ['machine-progress', 'runtime-changed'], () => setTick((n) => n + 1), { coalesceMs: 1000 })
   const view = machines.data && (machines.data as AvailableView).available ? machines.data as AvailableView : null
   const ready = readiness(s, view)
   const pane = useRef<HTMLDivElement>(null)
@@ -77,7 +76,7 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
   }, [s])
   const tw = (w: Words) => tm(w.key as MachinesKey, w.values as Record<string, string> | undefined)
   const summaries: Record<SetupSection, string> = {
-    runtime: !s ? '…' : !s.runtime.cli ? t('sumNoRuntime') : !s.runtime.ok ? t('sumRuntimeFailed') : s.needs.includes('build') ? t('sumMixed') : t('sumRuntime', { version: s.runtime.version ?? '?', commit: short(s.runtime.commit) }),
+    runtime: !s ? '…' : !s.runtime.cli ? t('sumNoRuntime') : !s.runtime.ok ? t('sumRuntimeFailed') : [s.pieces.bundle, s.pieces.daemon].some((x) => x?.verdict === 'other') ? t('sumMixed') : t('sumRuntime', { version: s.runtime.version ?? '?', commit: short(s.runtime.commit) }),
     folder: !s ? '…' : folderSummary(s, t),
     machines: !usable ? t(s?.runtime.ok ? 'sumMachinesWaitFolder' : 'sumMachinesWait') : !view ? t('sumMachinesReading') : machinesSummary(view, tm, t),
   }
@@ -190,8 +189,23 @@ function RuntimeSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
           <PieceRow label={t('pieceSdk')} path={r.sdk?.dir ?? null} value={<span className={css.verdict} data-verdict={r.sdk ? 'matches' : 'note'}>{r.sdk ? t('sdkPresent') : t('sdkMissing')}</span>} note={r.sdk ? null : t('sdkNote')} />
         </dl>
       ) : null}
-      {s.needs.includes('build') ? <p className={dialog.warn} role="status">{t('mixedNote')}</p> : null}
+      {[p.bundle, p.daemon].some((x) => x?.verdict === 'other') ? <p className={dialog.warn} role="status">{s.mixedAllowed ? t('mixedAllowedNote') : t('mixedNote')}</p> : null}
+      {s.daemonRecordable ? <RecordDaemon api={api} t={t} /> : null}
       {changing ? <RuntimePicker api={api} t={t} other={changing === 'other'} onOther={() => setChanging('other')} onDone={() => setChanging(r.cli ? null : 'pick')} cancellable={!!r.cli} /> : null}
+    </div>
+  )
+}
+
+/** The native machine records another build's daemon: record this runtime's (never automatic: hosts sharing a home would flip it). */
+function RecordDaemon({ api, t }: { api: LayerfsApi, t: SetupModalT }): ReactNode {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const run = async () => { setBusy(true); setError(null); try { await api.op('setup.recordDaemon') } catch (e) { setError(e) } finally { setBusy(false) } }
+  return (
+    <div className={css.line}>
+      <span className={css.lineSub}>{t('daemonRecordedOther')}</span>
+      <span className={css.lineActions}><Button variant="outline" size="sm" disabled={busy} onClick={() => void run()}>{busy ? t('saving') : t('recordDaemon')}</Button></span>
+      {error != null ? <p className={dialog.error} role="alert">{messageOf(error)}</p> : null}
     </div>
   )
 }

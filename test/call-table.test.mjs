@@ -148,7 +148,7 @@ function objectKeys(text) {
 
 const lineOf = (src, index) => src.slice(0, index).split('\n').length
 /** SDK-only options (cli.ts `client`): never CLI flags. */
-const SDK_LOCAL = new Set(['on_spawn', 'timeout_ms', 'init_home'])
+const SDK_LOCAL = new Set(['on_spawn', 'timeout_ms'])
 /** Options the SDK rewrites into another CLI option (cli.ts `client`); none since the `{ archive, digest }` image went (sandbox-images.md §4.3). */
 const SDK_TRANSLATIONS = []
 

@@ -50,6 +50,7 @@ export interface SetupStatus {
   readonly warnings: readonly { readonly code: string, readonly message: string }[]
   readonly needs: readonly SetupNeed[]
   readonly mixedAllowed: boolean
+  readonly daemonRecordable: boolean
   readonly error: { readonly code: string, readonly message: string } | null
 }
 

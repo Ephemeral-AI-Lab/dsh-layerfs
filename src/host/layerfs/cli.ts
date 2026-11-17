@@ -62,8 +62,8 @@ export interface CliSpec {
   /** Whether the CLI has the native `logs` family; undefined: detect from its call table. */
   readonly nativeLogs?: boolean
   /**
-   * The home gate, awaited before every call but discovery, the `home`
-   * family and calls given `init_home`: it may set the home up first (a
+   * The home gate, awaited before every call but discovery and the `home`
+   * family (and an `execute` given `gated`): it may set the home up first (a
    * read on a missing home) or refuse `Uninitialized` (a home that needs
    * converting). Unset: a read on a home without `layerfs.json` is refused
    * `Uninitialized`, so reads never create a home.
@@ -154,7 +154,7 @@ function outcome(o: { code: number | null, signal: NodeJS.Signals | null, result
 interface ExecuteOptions {
   input?: string | Buffer
   read?: boolean
-  /** The home gate already ran (or must not: `init_home`, the `home` family). */
+  /** The home gate already ran, or must not (the service's own set up of a missing home). */
   gated?: boolean
   storeRead?: string
   events?: boolean
@@ -407,8 +407,7 @@ export const uninitialized = (home: string, message?: string): CliError => new C
 
 /**
  * The home gate a call waits on before it is admitted, or null when it has
- * none: discovery, the `home` family, a call given `init_home` and one
- * already gated pass; a spec without a gate refuses reads on a home without
+ * none: discovery, the `home` family and a call already gated pass; a spec without a gate refuses reads on a home without
  * `layerfs.json` (reads never create a home).
  */
 function gateOf(spec: CliSpec, argv: readonly string[], options: ExecuteOptions): Promise<void> | null {
@@ -688,7 +687,7 @@ export function client(spec: CliSpec): Lfs {
             if (!isPlain(options) || args.length > entry.args.length) throw invalid('Invalid LayerFS arguments')
             // SDK-only options, never CLI flags: the spawn callback, the call's time budget, and (monitoring reads) the caller's abort signal.
             const inspect = INSPECT_CALLS.has(`${family}.${call}`)
-            const local = new Set(inspect ? ['on_spawn', 'timeout_ms', 'signal', 'init_home'] : ['on_spawn', 'timeout_ms', 'init_home'])
+            const local = new Set(inspect ? ['on_spawn', 'timeout_ms', 'signal'] : ['on_spawn', 'timeout_ms'])
             for (const name of Object.keys(options)) {
               if (!local.has(name) && !entry.options.some((o) => o.name === name)) throw invalid(`${family}.${call}: unknown option ${name}`)
             }
@@ -696,7 +695,6 @@ export function client(spec: CliSpec): Lfs {
               const option = entry.options.find((o) => o.name === name)
               if (option?.kind === 'bool' && value != null && typeof value !== 'boolean') throw invalid(`${name} must be true or false`)
               if (name === 'timeout_ms') { if (value != null && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)) throw invalid('timeout_ms must be a nonnegative integer'); continue }
-              if (name === 'init_home') { if (value != null && typeof value !== 'boolean') throw invalid('init_home must be true or false'); continue }
               if (name === 'signal' && inspect) { if (value != null && !(value instanceof AbortSignal)) throw invalid('signal must be an AbortSignal'); continue }
               if ((option?.kind === 'function' || local.has(name)) && value != null && typeof value !== 'function') throw invalid(`${name} must be a function`)
               if (typeof value === 'number' && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) throw invalid(`${name} must preserve exact numeric values`)
@@ -735,7 +733,7 @@ export function client(spec: CliSpec): Lfs {
             const timeout: number | undefined = opts.timeout_ms ?? (!read ? undefined : PROBES.has(`${family}.${call}`) ? PROBE_TIMEOUT_MS : READ_TIMEOUT_MS)
             const storeRead = read && args[0] && (entry.args[0]?.kind === 'project' || family === 'store') ? String(args[0]).split('/')[0] : undefined
             const invoke = () => execute(spec, words, {
-              input, read, storeRead, events, timeout: timeout || undefined, gated: opts.init_home === true,
+              input, read, storeRead, events, timeout: timeout || undefined,
               onProgress: opts.on_progress,
               onSpawn: (child) => opts.on_spawn?.(child.pid),
               onFrame: (frame) => { if (frame.stream) opts[frame.stream]?.(bytes(frame.bytes)) },

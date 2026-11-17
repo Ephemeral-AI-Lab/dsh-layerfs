@@ -70,7 +70,7 @@ export function RuntimePicker({ api, t, other, onOther, onDone, cancellable, cur
             return (
               <li key={r.id} className={clsx(css.runtime, r.active && css.runtimeActive)} data-runtime={r.id}>
                 <span className={css.lineText}>
-                  <span className={css.lineTitle}>{r.version ?? r.id}<span className={css.commit}>{r.commit ? r.commit.slice(0, 8) : '—'}</span>{r.dirty ? <span className={css.commit}>dirty</span> : null}</span>
+                  <span className={css.lineTitle}>{r.version ?? r.id}<span className={css.commit}>{r.commit ? r.commit.slice(0, 8) : '—'}</span>{r.dirty ? <span className={css.commit}>{t('dirtyTree')}</span> : null}</span>
                   <span className={css.lineSub}>{new Date(r.at).toLocaleString()}</span>
                   <span className={css.lineSub} data-blocked={blocking || undefined}>{wrong.length ? wrong.join(' · ') : t('rowOk')}</span>
                 </span>

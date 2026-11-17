@@ -70,7 +70,9 @@ export function socketSourceWords(source: string | null | undefined): Words | nu
 
 // ---------------------------------------------------------------- open the setting from elsewhere
 
-let requested = false
+/** When the pending request was made; one docker's page does not take within a few seconds lapses. */
+let requested = 0
+const REQUEST_MS = 10_000
 const listeners = new Set<() => void>()
 
 /**
@@ -80,14 +82,14 @@ const listeners = new Set<() => void>()
  * it at once.
  */
 export function requestSocketSetting(): void {
-  requested = true
+  requested = Date.now()
   for (const l of listeners) l()
 }
 
 /** Takes a pending request (docker's page calls it on mount and on each request). */
 export function takeSocketRequest(): boolean {
-  const was = requested
-  requested = false
+  const was = requested > 0 && Date.now() - requested < REQUEST_MS
+  requested = 0
   return was
 }
 

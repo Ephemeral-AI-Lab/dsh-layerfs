@@ -50,7 +50,7 @@ export function useStorage(api: LayerfsApi) {
  */
 export function usePlatforms(api: LayerfsApi) {
   const read = useQuery(() => api.call<{ host: string, platforms: MachinePlatformInfo[] }>('GET', '/api/platforms').then((v) => v.platforms, () => undefined), [api], { cache: 'GET /api/platforms' })
-  useHostEvents(api, ['machine-progress', 'connection', 'layerfs-availability'], read.reload)
+  useHostEvents(api, ['machine-progress', 'connection', 'layerfs-availability'], read.reload, { coalesceMs: 1000 })
   return read.data
 }
 

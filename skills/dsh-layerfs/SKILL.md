@@ -52,8 +52,9 @@ Both make the same calls, with the same arguments in the same order, the same
 results and the same refusals. Every call is recorded in the session either way.
 
 **The command**, for single calls. Start every bash call that uses it with this
-line, which defines `layerfs` as a shell function (nothing named `layerfs` is on
-`PATH`) and the names every example uses:
+line, which defines `layerfs` as a shell function and the names every example
+uses. Never run a bare `layerfs` from `PATH` or a path of your own: it may be
+another build, bound to another LayerFS home.
 
 ```bash
 layerfs() { "$DSH_LAYERFS_CLI" "$@"; }; P=$DSH_LAYERFS_PROJECT B=$DSH_LAYERFS_BRANCH SB=${DSH_LAYERFS_WS%%:*}

@@ -4,7 +4,6 @@ export const NS = 'layerfsSetupModal'
 const en = {
   title: 'Set up LayerFS',
   sub: 'LayerFS keeps your projects’ files and runs the machines their sessions use.',
-  steps: 'Setup',
   close: 'Close', later: 'Later', done: 'Done', checkAgain: 'Check again', checking: 'Checking…',
   readFailed: 'Could not check the setup: {message}',
   // rail
@@ -24,6 +23,8 @@ const en = {
   daemonMissingNote: 'The native machine needs a daemon from this build.',
   sdkPresent: 'Installed', sdkMissing: 'None for this build', sdkNote: 'Agents can’t import the LayerFS SDK until one is installed from this build (scripts/install-sdk.mjs). It never blocks setup.',
   mixedNote: 'The pieces come from different builds. Choose a runtime whose pieces are one build.',
+  mixedAllowedNote: 'The pieces come from different builds; DSH_LAYERFS_ALLOW_MIXED=1 lets you go on (development).',
+  daemonRecordedOther: 'The native machine uses a daemon from another build. Record this runtime’s daemon on it?', recordDaemon: 'Use this daemon',
   runtimeError: '{code}: {message}',
   // folder section
   folderPath: 'Folder', folderMissingNoRuntime: 'Created as soon as a runtime is chosen.',
@@ -48,7 +49,7 @@ const en = {
   // picker
   pickerTitle: 'Choose a runtime', pickerSub: 'Runtimes the LayerFS app installed in the LayerFS folder, newest first.',
   pickerEmpty: 'No runtimes are installed in {path}. Install the LayerFS app, or use another build.',
-  pickerReading: 'Reading the installed runtimes…', inUse: 'In use', use: 'Use', using: 'Switching…',
+  pickerReading: 'Reading the installed runtimes…', inUse: 'In use', dirtyTree: 'uncommitted changes', use: 'Use', using: 'Switching…',
   rowOk: 'One build', rowBundleOther: 'Linux bundle from another build', rowBundleMissing: 'No Linux bundle: only the native machine can run',
   rowDaemonOther: 'Daemon from another build', rowDaemonMissing: 'No native daemon', rowNoHome: 'Older runtime: no setup check', rowNoSdk: 'No SDK', rowBroken: 'Can’t be used: {message}',
   otherTitle: 'Another build', otherSub: 'Absolute paths of one build’s CLI, daemon and Linux bundle. They are copied into the LayerFS folder.',
@@ -59,14 +60,13 @@ const en = {
   cardSetupTitle: 'LayerFS isn’t set up yet', cardSetupBody: 'Choose a runtime and check the LayerFS folder to start using projects and machines.',
   cardFinishTitle: 'Finish setting up LayerFS', cardFinishBody: '{what}', openSetup: 'Set up LayerFS…', checkSetup: 'Check setup…',
   // settings summary
-  summaryTitle: 'Setup', terminal: 'Use in a terminal', warnings: 'Notes from LayerFS', noWarnings: 'Nothing to fix.',
+  summaryTitle: 'Setup', terminal: 'Use in a terminal', warnings: 'Notes from LayerFS',
   copy: 'Copy', copied: 'Copied',
 }
 
 const zh: typeof en = {
   title: '设置 LayerFS',
   sub: 'LayerFS 保存项目文件，并运行会话所用的机器。',
-  steps: '设置',
   close: '关闭', later: '稍后', done: '完成', checkAgain: '重新检查', checking: '正在检查…',
   readFailed: '无法检查设置：{message}',
   railRuntime: '运行时', railFolder: 'LayerFS 文件夹', railMachines: '机器',
@@ -84,6 +84,8 @@ const zh: typeof en = {
   daemonMissingNote: '本机需要本构建的守护进程。',
   sdkPresent: '已安装', sdkMissing: '本构建没有 SDK', sdkNote: '在从本构建安装 SDK（scripts/install-sdk.mjs）之前，智能体无法导入 LayerFS SDK。它不会阻止完成设置。',
   mixedNote: '各部分来自不同构建。请选择各部分同属一个构建的运行时。',
+  mixedAllowedNote: '各部分来自不同构建；DSH_LAYERFS_ALLOW_MIXED=1 允许继续（开发用）。',
+  daemonRecordedOther: '本机记录的守护进程来自其他构建。要改用此运行时的守护进程吗？', recordDaemon: '使用此守护进程',
   runtimeError: '{code}：{message}',
   folderPath: '文件夹', folderMissingNoRuntime: '选择运行时后即创建。',
   folderCreated: '刚刚创建。', folderConverted: '刚刚转换。', folderReady: '就绪。', folderFacts: '布局 {layout} · 权限 {mode}',
@@ -104,7 +106,7 @@ const zh: typeof en = {
   missingRuntime: '选择运行时以完成设置。', missingFolder: 'LayerFS 文件夹尚未就绪。', missingBuild: '运行时的各部分来自不同构建。', allSet: '所有必需项已就绪。',
   pickerTitle: '选择运行时', pickerSub: 'LayerFS 应用安装在 LayerFS 文件夹中的运行时，最新的在前。',
   pickerEmpty: '{path} 中没有已安装的运行时。请安装 LayerFS 应用，或使用其他构建。',
-  pickerReading: '正在读取已安装的运行时…', inUse: '使用中', use: '使用', using: '正在切换…',
+  pickerReading: '正在读取已安装的运行时…', inUse: '使用中', dirtyTree: '含未提交的修改', use: '使用', using: '正在切换…',
   rowOk: '同一构建', rowBundleOther: 'Linux 包来自其他构建', rowBundleMissing: '没有 Linux 包：只有本机可以运行',
   rowDaemonOther: '守护进程来自其他构建', rowDaemonMissing: '没有本机守护进程', rowNoHome: '旧版运行时：没有设置检查', rowNoSdk: '没有 SDK', rowBroken: '无法使用：{message}',
   otherTitle: '其他构建', otherSub: '同一构建的 CLI、守护进程和 Linux 包的绝对路径。它们会被复制到 LayerFS 文件夹。',
@@ -113,7 +115,7 @@ const zh: typeof en = {
   errAbsolute: '请使用绝对路径。', save: '使用此构建', saving: '正在保存…', reset: '恢复自动', resetTitle: '忘记所选运行时：使用 LayerFS 文件夹中最新的运行时',
   cardSetupTitle: 'LayerFS 尚未设置', cardSetupBody: '选择运行时并检查 LayerFS 文件夹，即可开始使用项目和机器。',
   cardFinishTitle: '完成 LayerFS 设置', cardFinishBody: '{what}', openSetup: '设置 LayerFS…', checkSetup: '检查设置…',
-  summaryTitle: '设置', terminal: '在终端中使用', warnings: 'LayerFS 的提示', noWarnings: '没有需要修复的。',
+  summaryTitle: '设置', terminal: '在终端中使用', warnings: 'LayerFS 的提示',
   copy: '复制', copied: '已复制',
 }
 

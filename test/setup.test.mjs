@@ -83,20 +83,20 @@ test('a pin lease keeps a runtime from another host\'s cleanup and moves with th
     const one = H.installRuntime(f.home, '1.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
     writeFileSync(join(f.src, 'layerfs'), '#!/bin/sh\necho cli-2\n', { mode: 0o755 })
     const two = H.installRuntime(f.home, '2.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
-    H.leasePin(f.home, '/host/a', one.cli)
-    const id = H.hostId('/host/a')
+    H.leasePin(f.home, f.dir, one.cli)
+    const id = H.hostId(f.dir)
     assert.ok(existsSync(join(f.home, 'runtime', one.id, 'pins', id)))
     const plan = H.planRuntimeCleanup(H.installedRuntimes(f.home), { pinned: [], machines: { machines: [] }, processes: [], newest: 0 })
     assert.equal(plan.keep.get(one.id), 'lease')
     assert.deepEqual(plan.remove.map((r) => r.id), [two.id])
-    H.leasePin(f.home, '/host/a', two.cli)
+    H.leasePin(f.home, f.dir, two.cli)
     assert.ok(!existsSync(join(f.home, 'runtime', one.id, 'pins', id)))
     assert.ok(existsSync(join(f.home, 'runtime', two.id, 'pins', id)))
   } finally { f.done() }
 })
 
 /** A fake LayerFS CLI (node script) logging its argv; `homeCalls` adds the home family. */
-function fakeCli(dir, { homeCalls, state }) {
+function fakeCli(dir, { homeCalls, homeGetFails = false, slowGetMs = 0 }) {
   const log = join(dir, 'calls.log')
   const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
     'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close',
@@ -112,8 +112,11 @@ const say = (v) => { process.stdout.write(JSON.stringify(v) + '\\n'); process.ex
 if (argv[0] === '--version') say({ version: '9.9.9', commit: '${A}', dirty: false, features: [] })
 if (argv[0] === 'help') say({ calls: ${JSON.stringify(calls)}, commands: [], switches: [] })
 const file = path.join(home, 'layerfs.json')
-const st = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')).layout === 2 ? 'needs_conversion' : 'current') : 'missing'
+const st0 = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')).layout === 2 ? 'needs_conversion' : 'current') : 'missing'
+const st = st0
 const create = () => { fs.mkdirSync(home, { recursive: true }); fs.writeFileSync(file, JSON.stringify({ layout: 3 })) }
+if (argv[0] === 'home' && argv[1] === 'get' && ${homeGetFails}) { process.stderr.write('boom\\n'); process.exit(1) }
+if (argv[0] === 'home' && argv[1] === 'get' && ${slowGetMs}) { const until = Date.now() + ${slowGetMs}; while (Date.now() < until) {} }
 if (argv[0] === 'home' && argv[1] === 'get') say({ home: { path: home, state: st, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', mode_ok: true }, bundle: null, daemon: null, cache: { path: '/c' }, warnings: [] })
 if (argv[0] === 'home' && argv[1] === 'init') { const was = st; create(); say({ home, created: was === 'missing', converted: was === 'needs_conversion', layout: 3 }) }
 // every other call opens the home as LayerFS does (creates or converts it)
@@ -178,4 +181,58 @@ test('setup check, older CLI: one machine list creates a missing folder (today\'
     assert.ok(existsSync(join(home, 'layerfs.json')))
     assert.deepEqual(fake.calls().filter((c) => !c.startsWith('--version') && !c.startsWith('help')), ['machine list'])
   })
+})
+
+test('setup check, older CLI: a polled machine.list on a missing folder creates it and answers (no deadlock with the gate)', async () => {
+  await withService({ homeCalls: false }, async ({ s, home, fake }) => {
+    const answer = await Promise.race([s.lfs.machine.list(), new Promise((_, reject) => setTimeout(() => reject(new Error('machine.list hung')), 8000))])
+    assert.deepEqual(answer, { machines: [] })
+    assert.ok(existsSync(join(home, 'layerfs.json')))
+    const status = await s.setup()
+    assert.equal(status.folder.state, 'current')
+  })
+})
+
+test('setup check, new CLI: a failing home get is unknown, never current, and the gate converts nothing', async () => {
+  await withService({ homeCalls: true, homeGetFails: true, layout2: true }, async ({ s, home }) => {
+    const status = await s.setup()
+    assert.equal(status.folder.state, 'unknown')
+    assert.deepEqual(status.needs, ['folder'])
+    await assert.rejects(() => s.lfs.store.list(), (e) => e.code === 'Uninitialized')
+    assert.equal(JSON.parse(readFileSync(join(home, 'layerfs.json'), 'utf8')).layout, 2)
+  })
+})
+
+test('Convert while a setup check reads the old folder answers the converted folder and opens the gate', async () => {
+  await withService({ homeCalls: true, layout2: true, slowGetMs: 700 }, async ({ s }) => {
+    const running = s.setup()
+    await new Promise((r) => setTimeout(r, 150))
+    const after = await s.convertHome()
+    assert.equal(after.folder.state, 'current')
+    await running
+    await s.lfs.store.list()
+  })
+})
+
+test('a never-started docker (ready, no op) counts as idle for replacing a bundle; a running one does not', async () => {
+  await withService({ homeCalls: true }, async ({ s, home }) => {
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 3 }))
+    s.sdk = { machine: { list: async () => ({ machines: [{ name: 'native', platform: 'native', state: 'running' }, { name: 'docker', platform: 'docker', state: 'ready' }] }) } }
+    assert.equal(await s.workersIdle(), true)
+    s.sdk = { machine: { list: async () => ({ machines: [{ name: 'docker', platform: 'docker', state: 'running' }] }) } }
+    assert.equal(await s.workersIdle(), false)
+  })
+})
+
+test('a lease whose host root is gone holds nothing', () => {
+  const f = runtimeFixture()
+  try {
+    const one = H.installRuntime(f.home, '1.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
+    mkdirSync(join(one.cli, '..', '..', 'pins'), { recursive: true })
+    writeFileSync(join(one.cli, '..', '..', 'pins', 'gone'), JSON.stringify({ root: join(f.dir, 'no-such-root') }))
+    assert.equal(H.leased(join(one.cli, '..', '..')), false)
+    writeFileSync(join(one.cli, '..', '..', 'pins', 'live'), JSON.stringify({ root: f.dir }))
+    assert.equal(H.leased(join(one.cli, '..', '..')), true)
+  } finally { f.done() }
 })

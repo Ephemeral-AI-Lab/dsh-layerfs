@@ -179,9 +179,20 @@ export function leasePin(home: string, root: string, cli: string | null): void {
   }
 }
 
-/** Whether any host holds a lease on the runtime folder `dir`. */
+/**
+ * Whether any host holds a lease on the runtime folder `dir`. A lease whose
+ * host root is gone (a removed DSH install, a test's temporary folder) holds
+ * nothing; an unreadable one still holds.
+ */
 export function leased(dir: string): boolean {
-  try { return readdirSync(join(dir, 'pins')).some((n) => !n.startsWith('.')) } catch { return false }
+  let names: string[]
+  try { names = readdirSync(join(dir, 'pins')).filter((n) => !n.startsWith('.')) } catch { return false }
+  return names.some((n) => {
+    try {
+      const root = JSON.parse(readFileSync(join(dir, 'pins', n), 'utf8'))?.root
+      return typeof root !== 'string' || existsSync(root)
+    } catch { return true }
+  })
 }
 
 // ---------------------------------------------------------------- build identity
