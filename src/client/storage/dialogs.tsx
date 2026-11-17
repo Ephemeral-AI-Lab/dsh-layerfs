@@ -20,15 +20,12 @@ import { attachStore, detachStore, placeStore, startMachine, waitJob } from '../
 import { FormModal, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
 import type { BackupState, MachinesView, PgAttachment, ProjectInitJob, ServerPrefill, StorageJob, StorageView, StoreRow } from './types.ts'
 import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
+import { PG_URL_PASSWORD, PgPasswordFields, usePgPassword } from './pg-fields.tsx'
 import { BackUpDialog, BackupsDialog } from './BackupDialogs.tsx'
 import css from './Storage.module.css'
 
 const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 const REFERENCE = /^(env:LAYERFS_[A-Z0-9_]+|file:\/.+)$/
-/** A PostgreSQL password reference: any env: name (the server's environment) or a file. */
-const PG_REFERENCE = /^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/
-/** A PostgreSQL URL that holds a password (user:password@, or a password parameter). */
-const PG_URL_PASSWORD = /^postgres(?:ql)?:\/\/[^/@?]*:[^/@?]*@|[?&][^=&]*password=/i
 
 /** Which dialog is open, and on what. */
 export type StorageDialog =
@@ -144,7 +141,7 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
     pane === 'restore' && !bucket && t('bucket'),
     pane === 'restore' && !file && t('storeFile'),
     pane === 'postgresql' && (server ? !database.trim() && t('pgDatabase') : !url.trim() && t('pgUrl')),
-    pane === 'postgresql' && pw.missing && t('password'),
+    pane === 'postgresql' && pw.missing && t('pgPasswordHow'),
   ].filter(Boolean) as string[]
   const urlError = pane === 'postgresql' && PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
   const passwordError = pane === 'postgresql' ? pw.error(t) : null
@@ -211,6 +208,12 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
     },
     postgresql: { action: attachOnly ? t('nsFinishAttach') : t('connect'), description: t('newStorePgBody'), submit: connected },
   }[pane]
+  // The name's rule shows only once a typed name breaks it.
+  const nameError = taken ? t('nameTaken') : name.trim() && !NAME.test(name.trim()) ? t('storeNameHint') : null
+  const nameField = (
+    <TextField label={pane === 'restore' ? t('newStoreName') : t('name')} value={name} onChange={setName} mono autoFocus={pane !== 'restore'}
+      placeholder={pane === 'postgresql' ? 'team' : 'work'} error={nameError} />
+  )
   return (
     <FormModal open onClose={onClose} t={t} title={server ? t('newStoreOnServer', { server: server.server }) : postgresql ? t('connectDatabase') : t('newStore')} description={form.description} action={form.action}
       valid={!missing.length && nameOk && !passwordError && !urlError && !dbTaken} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
@@ -249,8 +252,7 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
           </>
         )
       ) : null}
-      <TextField label={pane === 'restore' ? t('newStoreName') : t('name')} value={name} onChange={setName} mono autoFocus={pane !== 'restore'}
-        placeholder={pane === 'postgresql' ? 'team' : 'work'} hint={t('storeNameHint')} error={taken ? t('nameTaken') : null} />
+      {pane === 'postgresql' && !server ? null : nameField}
       {family === 'sqlite' ? (
         <>
           <Field label={t('nsLocation')} hint={t('nsLocationHint')} group>
@@ -269,7 +271,10 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
                 error={dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null} />
             </>
           ) : (
-            <TextField label={t('pgUrl')} value={typedUrl} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db" hint={t('pgUrlHint')} error={urlError} />
+            <div className={css.nameUrlRow}>
+              {nameField}
+              <TextField label={t('pgUrl')} value={typedUrl} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db" error={urlError} />
+            </div>
           )}
           <PgPasswordFields id="lfs-pg-connect" pw={pw} t={t} />
           <Field label={t('nsAttachTo')} hint={t('nsAttachHint')} group>
@@ -295,25 +300,6 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
 
 // ---------- PostgreSQL password and Attach ----------
 
-/**
- * A PostgreSQL password: typed (the host keeps it in an owner-only file), a
- * reference, or (`same`, a Store on the same server) that Store's.
- */
-function usePgPassword(initial: 'entered' | 'reference' = 'entered', reference = '', same: string | null = null) {
-  const [how, setHow] = useState<'same' | 'entered' | 'reference'>(same ? 'same' : initial)
-  const [value, setValue] = useState('')
-  const [ref, setRef] = useState(reference)
-  return {
-    how, setHow, value, setValue, ref, setRef, same,
-    /** Nothing given yet. */
-    missing: how === 'same' ? false : how === 'entered' ? !value : !ref.trim(),
-    error: (t: StorageT) => (how === 'reference' && ref.trim() && !PG_REFERENCE.test(ref.trim()) ? t('passwordInvalid') : null),
-    /** The route's body fields. */
-    body: (): { passwordValue: string } | { password: string } | { passwordFrom: string } =>
-      (how === 'same' && same ? { passwordFrom: same } : how === 'entered' ? { passwordValue: value } : { password: ref.trim() }),
-  }
-}
-
 /** `url` (a Store's, no password) naming `database` instead, its parameters kept. */
 function withDatabase(url: string, database: string): string {
   try {
@@ -333,30 +319,6 @@ function serverWords(url: string): string {
   } catch {
     return url
   }
-}
-
-function PgPasswordFields({ id, pw, t }: { id: string, pw: ReturnType<typeof usePgPassword>, t: StorageT }): ReactNode {
-  return (
-    <>
-      <Field label={t('pgPasswordHow')}>
-        <SegmentedControl<'same' | 'entered' | 'reference'> id={id} className={css.selfStart} value={pw.how} onChange={pw.setHow} label={t('pgPasswordHow')}
-          options={[
-            ...(pw.same ? [{ value: 'same' as const, label: t('pgPasswordSame', { store: pw.same }) }] : []),
-            { value: 'entered' as const, label: t('pgPasswordEntered') }, { value: 'reference' as const, label: t('pgPasswordReference') },
-          ]} />
-      </Field>
-      {pw.how === 'same' ? (
-        <p className={css.formNote}>{t('pgPasswordSameNote', { store: pw.same ?? '' })}</p>
-      ) : pw.how === 'entered' ? (
-        <>
-          <TextField label={t('pgPasswordValue')} value={pw.value} onChange={pw.setValue} mono type="password" />
-          <p className={css.formNote}>{t('pgPasswordNote')}</p>
-        </>
-      ) : (
-        <TextField label={t('pgPasswordReferenceLabel')} value={pw.ref} onChange={pw.setRef} mono placeholder="env:LAYERFS_PG_PASSWORD" hint={t('pgEnvHint')} error={pw.error(t)} />
-      )}
-    </>
-  )
 }
 
 /** Is the URL's host this host's loopback? */
