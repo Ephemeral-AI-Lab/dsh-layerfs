@@ -33,7 +33,6 @@ import { setupDialog, useSetupStatus } from '../setup/store.ts'
 import { EmptyState } from '../files/States.tsx'
 import { Card, LoadError, Loading, MoreMenu, Refusal } from '../ui/index.tsx'
 import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
-import { ConnectionCards, serverKey } from './HomeCards.tsx'
 import { BucketCards } from './BucketCards.tsx'
 import { HomeStores } from './MachineStores.tsx'
 import { ProjectTable } from './ProjectTable.tsx'
@@ -48,9 +47,9 @@ import { BrandLockup, HomeHero, panelId } from './HomeHero.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
-import { attachmentsOf, bucketFiles, doingWords, endedWords, orderStores, shareOf } from './model.ts'
+import { bucketFiles, doingWords, endedWords, orderStores, shareOf } from './model.ts'
 import { refusalLabels, StoreGlyph } from './parts.tsx'
-import type { DoctorReport, PgAttachment, StorageJob, StorageView, StoreRow } from './types.ts'
+import type { DoctorReport, StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './HomeOverview.module.css'
 import heroCss from './HomeHero.module.css'
 
@@ -77,15 +76,14 @@ export interface HomeOverviewProps {
   onPresets: () => void
   /** "Try a preset", from the Presets copy. */
   presetsLabel: string
-  /** A machine's Add Store dialog (move a SQLite Store there, or attach a PostgreSQL one). */
+  /** A machine's Add Store dialog (move a SQLite Store there, or connect a PostgreSQL one). */
   onAddStore: (machine: string) => void
   /** Delete a project, through the page's confirm dialog. */
   onRemoveProject: (store: string, project: string) => void
   onRetry: (job: StorageJob) => void
   onDismiss: (job: StorageJob) => void
   onBackup: (store: string) => void
-  onRecheck: (store: string, attachment: PgAttachment) => void
-  /** A Store's actions (the Store menu, Back up, Attach), through the page's dialogs. */
+  /** A Store's actions (the Store menu, Back up, Edit connection), through the page's dialogs. */
   actionsFor: (store: StoreRow) => StoreActions
   onAddBucket: () => void
   /** Lists a bucket's files. */
@@ -178,9 +176,6 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const pgBytesOf = (name: string): number | null => { const z = pgSizes.get(name); return z && 'bytes' in z ? z.bytes : null }
   const machines = fleet ? machineOrder(fleet.machines) : []
   const runningJobs = props.jobs.filter((j) => !j.ended)
-  const pgStores = stores.filter((s) => s.kind === 'postgresql')
-  const pgCount = pgStores.length
-  const pgServerCount = new Set(pgStores.map(serverKey)).size
 
   // ---------- what needs you, most pressing first ----------
   const needs: Need[] = []
@@ -236,15 +231,6 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     }
   }
   for (const s of stores) {
-    for (const a of attachmentsOf(s)) {
-      if (!a.lastError) continue
-      needs.push({
-        key: `attach:${s.name}:${a.machine}`, tone: 'danger', rank: 2,
-        title: <Link onClick={() => props.onOpen(`store:${s.name}`)}>{t('ovAttachBroken', { store: s.name, machine: place(a.machine) })}</Link>,
-        detail: a.lastError.message,
-        action: { label: t('ovRecheck'), run: () => props.onRecheck(s.name, a) },
-      })
-    }
     if (s.kind === 'postgresql' && s.postgresql?.reachable === false) {
       needs.push({
         key: `pg:${s.name}`, tone: 'danger', rank: 2,
@@ -285,7 +271,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const top = needs[0]
   const rest = needs.slice(1)
   // A tab's dot: the worst state among what it shows.
-  const storeTrouble = stores.some((x) => x.state === 'down' || x.state === 'unresolved' || x.postgresql?.reachable === false || attachmentsOf(x).some((a) => a.lastError))
+  const storeTrouble = stores.some((x) => x.state === 'down' || x.state === 'unresolved' || x.postgresql?.reachable === false)
   const storeTone = storeTrouble ? 'danger' : undefined
   const machineTone = machines.some((m) => !blocked.has(m.name) && machineState(m, fleet?.status[m.name]).key === 'needs') ? 'danger'
     : blocked.size > 0 ? 'warning'
@@ -307,27 +293,19 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       </>
     )
     : null
-  // Stores' second views: SQLite's backup buckets and PostgreSQL's servers (once the Backups and Connections tabs)
+  // SQLite's second view: the backup buckets (once the Backups tab). PostgreSQL has one view: its databases under their server.
   const storesAlt = {
-    sqlite: {
-      main: { label: t('hsViewStores'), count: sqlite.length },
-      other: { label: t('hsViewBuckets'), count: view.buckets.length },
-      view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onRestore={props.onRestore} />,
-      add: (
-        <>
-          {view.buckets.length > 0 ? <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}>{t('ovListBuckets')}</Button> : null}
-          <Button variant="outline" size="sm" icon={plus} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>
-        </>
-      ),
-    },
-    postgresql: {
-      main: { label: t('hsViewDatabases'), count: pgCount },
-      other: { label: t('hsViewServers'), count: pgServerCount },
-      view: <ConnectionCards api={mc.api} stores={pgStores} view={view} t={t} onOpen={props.onOpen} actionsFor={props.actionsFor} onConnect={props.onConnect} />,
-      add: pgCount > 0 ? <Button variant="outline" size="sm" icon={plus} onClick={props.onConnect}>{t('connectDatabase')}</Button> : null,
-    },
+    main: { label: t('hsViewStores'), count: sqlite.length },
+    other: { label: t('hsViewBuckets'), count: view.buckets.length },
+    view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onRestore={props.onRestore} />,
+    add: (
+      <>
+        {view.buckets.length > 0 ? <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}>{t('ovListBuckets')}</Button> : null}
+        <Button variant="outline" size="sm" icon={plus} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>
+      </>
+    ),
   }
-  // A Store row's menu on the board: the Store card's own menu (a PostgreSQL Store's names this machine to detach from).
+  // A Store row's menu on the board: the Store card's own menu (a PostgreSQL Store's checks from this machine).
   const storeMenuOn = (machine: string) => ({ name }: { name: string }) => {
     const s = stores.find((x) => x.name === name)
     return s ? <StoreMenu store={s} on={props.actionsFor(s)} t={t} machine={s.kind === 'postgresql' ? machine : undefined} /> : null

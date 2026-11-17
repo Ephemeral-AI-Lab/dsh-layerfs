@@ -9,8 +9,8 @@
  *   host, machine, Sandbox   its diagnosis
  *   Store                    integrity; a PostgreSQL Store adds its doctor
  *                            connection check, whether the host reaches it
- *                            now (`GET /api/storage`'s live probe) and each
- *                            attached machine's last check; a backed-up Store
+ *                            now (`GET /api/storage`'s live probe); a
+ *                            backed-up Store
  *                            shows each bucket's connection
  *   bucket                   its connection
  *
@@ -33,7 +33,7 @@ import { useQuery, type Query } from '../files/use-query.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import type { StorageT } from '../storage/locale.ts'
 import { useHostEvents } from '../storage/hooks.ts'
-import type { DoctorReport, PgAttachment, StorageView, StoreRow } from '../storage/types.ts'
+import type { DoctorReport, StorageView, StoreRow } from '../storage/types.ts'
 import { MachinesGlyph, SandboxesGlyph, StoreGlyph } from '../machines/icons.tsx'
 import { BucketGlyph } from '../storage/parts.tsx'
 import { CopyLine } from '../ui/index.tsx'
@@ -111,23 +111,6 @@ function liveItem(s: StoreRow, t: DoctorT): Item | null {
   return { key: `${s.name}:live`, label: t('healthItemReachable'), live, ...!pg.reachable ? { problem: { message: pg.error ?? t('healthLiveUnreachable'), fix: null } } : {} }
 }
 
-/** One machine's last check of a PostgreSQL Store it is attached to. */
-function attachItem(s: StoreRow, a: PgAttachment, t: DoctorT, place: (m: string) => string): Item {
-  const checked = a.checked?.at ?? null
-  const failed = a.lastError && (checked === null || (a.lastError.at ?? 0) >= checked)
-  const live: Cell = failed
-    ? { state: 'error', words: t('healthAttachFailed'), job: null, at: a.lastError!.at, title: a.lastError!.message }
-    : a.checked
-      ? { state: 'done', words: a.checked.latencyMs != null ? msWords(a.checked.latencyMs, t) : t('healthCellOk'), job: null, at: checked, title: a.checked.version ?? undefined }
-      : { state: 'idle', words: t('healthCellNone'), job: null }
-  return {
-    key: `${s.name}:attach:${a.machine}`,
-    label: t('healthItemAttached', { machine: place(a.machine) }),
-    live,
-    ...failed ? { problem: { message: `${place(a.machine)}: ${a.lastError!.message}`, fix: t('healthAttachFix') } } : {},
-  }
-}
-
 interface MachineRow { name: string, platform: string }
 
 function useMachineRows(): { machines: MachineRow[], sandboxes: { name: string, machine: string | null }[] } {
@@ -169,7 +152,6 @@ function rowsOf(t: DoctorT, home: string, machines: ReturnType<typeof useMachine
     const items: Item[] = [
       ...live ? [live] : [],
       ...pg ? [{ key: `${s.name}:conn`, label: t('healthItemConnection'), probe: { target: 'store.connection' as const, name: s.name } }] : [],
-      ...(s.attachments ?? []).map((a) => attachItem(s, a, t, place)),
       { key: `${s.name}:integrity`, label: t('healthItemIntegrity'), probe: { target: 'store.integrity', name: s.name } },
       ...[...new Set(s.links.map((l) => l.bucket))].map((bucket) => ({ key: `${s.name}:backup:${bucket}`, label: t('healthItemBackup', { bucket }), probe: { target: 'backup.connection' as const, name: bucket }, mirror: true })),
     ]

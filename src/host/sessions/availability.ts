@@ -37,19 +37,3 @@ export function classifyStore(row: any | undefined, status?: any): StoreHealth {
 
 /** The Store name a project key (`<store>/<project>`) lives in. */
 export const storeOf = (project: string | undefined): string | undefined => project?.split('/')[0] || undefined
-
-/**
- * The machine a PostgreSQL Store's Sandboxes run on (`store.attach`): `preferred`
- * when the Store is attached to it, else `native` when attached, else the first
- * machine whose check passed, else the first attached. A record without
- * `machines` comes from a CLI before attachments: `preferred`, else `native`.
- * Null when the Store is attached to no machine.
- */
-export function pgMachineOf(record: any, preferred?: string | null): string | null {
-  const machines = record?.machines
-  if (!machines || typeof machines !== 'object') return preferred || 'native'
-  const names = Object.keys(machines)
-  if (preferred && names.includes(preferred)) return preferred
-  if (names.includes('native')) return 'native'
-  return names.find((m) => machines[m]?.checked) ?? names[0] ?? null
-}

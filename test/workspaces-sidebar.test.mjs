@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { defaultPgMachine, defaultStoreName, locationsOf, preferredStore, slugify } from '../src/client/picker/location.ts'
+import { defaultStoreName, locationsOf, preferredStore, slugify } from '../src/client/picker/location.ts'
 import { sidebarProjects } from '../src/client/projects/recent.ts'
 
 test('slugify turns free text into a project name', () => {
@@ -14,7 +14,7 @@ test('slugify turns free text into a project name', () => {
 test('locations: native SQLite then PostgreSQL, never Scratch or other machines', () => {
   const view = { stores: [
     { name: 'scratch', kind: 'sqlite', machine: 'native' },
-    { name: 'team', kind: 'postgresql', postgresql: { target: 'db.lan:5432/app' }, attachments: [{ machine: 'vm1', checked: null }, { machine: 'vm2', checked: { at: 1 } }] },
+    { name: 'team', kind: 'postgresql', postgresql: { target: 'db.lan:5432/app' }, runsOn: 'vm2' },
     { name: 'local', kind: 'sqlite', machine: 'native' },
     { name: 'far', kind: 'sqlite', machine: 'vm1' },
   ] }
@@ -26,11 +26,11 @@ test('locations: native SQLite then PostgreSQL, never Scratch or other machines'
   assert.equal(defaultStoreName({ stores: [{ name: 'projects' }, { name: 'projects-2' }] }), 'projects-3')
 })
 
-test('PostgreSQL sessions default to native, else the first checked, else the first attached', () => {
-  assert.equal(defaultPgMachine(null), 'native')
-  assert.equal(defaultPgMachine([{ machine: 'vm1' }, { machine: 'native' }]), 'native')
-  assert.equal(defaultPgMachine([{ machine: 'vm1' }, { machine: 'vm2', checked: {} }]), 'vm2')
-  assert.equal(defaultPgMachine([{ machine: 'vm1' }]), 'vm1')
+test('a PostgreSQL location runs where the host says its Store runs, native when it says nothing', () => {
+  const runsOn = (store) => locationsOf({ stores: [{ name: 'team', kind: 'postgresql', ...store }] })[0].runsOn
+  assert.equal(runsOn({ runsOn: 'docker' }), 'docker')
+  assert.equal(runsOn({}), 'native')
+  assert.equal(runsOn({ runsOn: null }), 'native')
 })
 
 test('the last Store is preselected while it is still offered', () => {

@@ -357,15 +357,20 @@ view('resources', 'overview', async () => { await home(); await editor().getByRo
 for (const tab of ['Projects', 'Stores', 'Machines']) {
   view('resources', `overview tab ${tab}`, () => overviewTab(tab))
 }
-// Stores' second views (once the Backups and Connections tabs): each kind's view switch
-for (const [kind, name] of [['sqlite', 'Stores'], ['sqlite', 'Buckets'], ['postgresql', 'Databases'], ['postgresql', 'Servers']]) {
-  view('resources', `overview stores ${kind} ${name}`, async () => {
+// Stores: SQLite's two views (Stores, Buckets); PostgreSQL has one (its databases under their server)
+for (const name of ['Stores', 'Buckets']) {
+  view('resources', `overview stores sqlite ${name}`, async () => {
     await overviewTab('Stores')
-    await editor().locator(`[data-store-kind=${kind}]`).first().click()
+    await editor().locator('[data-store-kind=sqlite]').first().click()
     await editor().getByRole('tablist', { name: 'Show' }).getByRole('tab', { name: new RegExp(`^${name}\\b`) }).first().click()
     await sleep(300)
   })
 }
+view('resources', 'overview stores postgresql', async () => {
+  await overviewTab('Stores')
+  await editor().locator('[data-store-kind=postgresql]').first().click()
+  await sleep(300)
+})
 view('resources', 'overview doctor findings', async () => {
   await home()
   const show = editor().getByRole('button', { name: 'Show findings', exact: true })

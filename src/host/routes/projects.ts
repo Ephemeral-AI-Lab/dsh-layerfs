@@ -28,7 +28,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
-import { pgMachineOf } from '../sessions/availability.ts'
+import { pgMachineOf, StoreMachines } from '../store-machines.ts'
 import { Answer, PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 import { processOf, usageOf, type Usage } from './observed.ts'
 import { SandboxCreates, type Report } from './sandbox-creates.ts'
@@ -508,10 +508,10 @@ export class Projects {
   /**
    * A new Sandbox of the project: `{ name, machine?, image?, start?, background? }`
    * (docs/specs/sandbox-images.md §4.1). A sqlite project's Sandboxes run on
-   * its Store's machine (another is Unsupported); a PostgreSQL project's on a
-   * machine its Store is attached to (`store.attach`), `machine` naming it
-   * (the default of `pgMachineOf` when none is named); an unattached machine
-   * is refused here, in LayerFS's words, before any LayerFS call.
+   * its Store's machine (another is Unsupported); a PostgreSQL project's on
+   * `machine` when one is named (any machine whose platform runs PostgreSQL
+   * Sandboxes; LayerFS refuses the rest), else its Store's default
+   * (store-machines.ts).
    *
    * `image` is a string. Until the pinned CLI declares references (Stage 1,
    * `imageRefs`), only a full `sha256:` digest is taken: anything else is
@@ -528,10 +528,8 @@ export class Projects {
     let machine = record.machine
     if (record.kind === 'postgresql') {
       const store = String(record.store ?? keyOf(record).split('/')[0])
-      const attached = pgMachineOf(await this.lfs.store.get(store), body.machine)
-      if (!attached) throw refuse(400, 'Unsupported', `Attach ${store} to a machine to run its projects.`)
-      if (body.machine && body.machine !== attached) throw refuse(400, 'Unsupported', `PostgreSQL Store ${store} is not attached to machine ${body.machine}; \`layerfs store attach ${store} ${body.machine}\``)
-      machine = attached
+      const named = typeof body.machine === 'string' && body.machine ? body.machine : null
+      machine = named ?? pgMachineOf(new StoreMachines(this.host.root).get(store), (await this.lfs.machine.list())?.machines ?? [])
     }
     if (image !== undefined && image !== null && image !== '' && typeof image !== 'string') throw refuse(400, 'InvalidInput', 'Name the image as a string: its id (a sha256 digest) or a reference.')
     const picked = typeof image === 'string' && image ? image : undefined

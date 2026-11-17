@@ -88,8 +88,6 @@ export interface MachineInfo {
   memory: number | null
   disk: number | null
   stores: string[]
-  /** The PostgreSQL Stores attached to it (store.attach); absent from a CLI before attachments. */
-  postgresql?: string[]
   sandboxes: string[]
   image?: string
   docker?: string
@@ -110,8 +108,8 @@ export interface MachineStore {
 
 /** A PostgreSQL Store: on no machine; Sandboxes on a machine that supports it reach its database. */
 export interface MachinePgStore {
-  /** The machines it is attached to, each checked or not; null from a CLI before attachments. */
-  machines?: { machine: string, checked: boolean }[] | null
+  /** The machine its sessions run on by default (this DSH install's own choice); absent from an older host half. */
+  runsOn?: string | null
   state?: string
   op?: SdkOperation | null
   name: string
@@ -897,10 +895,14 @@ export function shortSandbox(name: string): string {
   return /^dsh-[0-9a-f]{12,}$/.test(name) ? name.slice(4, 11) : name
 }
 
-/** The PostgreSQL Stores a machine's Sandboxes use: those attached to it, else (an older CLI) every one it can reach. */
-export function pgUsable(m: MachineInfo, postgresql: MachinePgStore[]): MachinePgStore[] {
-  if (m.postgresql) return postgresql.filter((s) => m.postgresql!.includes(s.name))
-  return m.supports?.postgresql_sandbox ? postgresql : []
+/**
+ * The PostgreSQL Stores a machine shows: those whose sessions run on it by
+ * default, and those with a Sandbox on it now. A PostgreSQL Store is on no
+ * machine, so every other one is left to Storage.
+ */
+export function pgUsable(view: Pick<AvailableView, 'postgresql' | 'sandboxes'>, m: Pick<MachineInfo, 'name'>): MachinePgStore[] {
+  const here = new Set(view.sandboxes.filter((b) => b.machine === m.name && b.project).map((b) => b.project!.split('/')[0]))
+  return (view.postgresql ?? []).filter((s) => s.runsOn === m.name || here.has(s.name))
 }
 
 // ---------- the Sandbox page ----------

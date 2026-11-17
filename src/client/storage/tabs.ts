@@ -14,8 +14,8 @@ export function isTabId(id: string): id is TabId {
 }
 
 /**
- * The Overview's sections. Buckets and PostgreSQL servers have no section of
- * their own: they are a view inside Stores (`openHomeStores`).
+ * The Overview's sections. Buckets have no section of their own: they are a
+ * view inside Stores, on SQLite (`openHomeStores`).
  */
 export type OverviewTab = 'projects' | 'stores' | 'machines'
 
@@ -27,9 +27,9 @@ export const isOverviewTab = (v: unknown): v is OverviewTab => v === 'projects' 
 export function readOverviewTab(): OverviewTab {
   try {
     const v = localStorage.getItem(TAB_KEY)
-    // the former Backups and Connections sections: Stores, on their view
+    // the former Backups and Connections sections: Stores, on Buckets or on PostgreSQL
     if (v === 'backups' || v === 'connections') {
-      openHomeStores(v === 'backups' ? 'sqlite' : 'postgresql', true)
+      openHomeStores(v === 'backups' ? 'sqlite' : 'postgresql', v === 'backups')
       localStorage.setItem(TAB_KEY, 'stores')
       return 'stores'
     }
@@ -65,23 +65,19 @@ export function writeStoreKind(scope: string, kind: StoreKind): void {
   try { localStorage.setItem(KIND_KEY, JSON.stringify({ ...storedMap(KIND_KEY), [scope]: kind })) } catch { /* the tile still switches */ }
 }
 
-/** Whether Home › Stores shows `kind`'s second view (SQLite: Buckets; PostgreSQL: Servers) instead of its Store cards. */
-export function readStoresAlt(kind: StoreKind): boolean {
-  const picked = storedMap(ALT_KEY)[kind]
-  return typeof picked === 'boolean' ? picked : STORES_ALT_DEFAULT[kind]
+/** Whether Home › Stores shows SQLite's second view (Buckets) instead of its Store cards. PostgreSQL has one view. */
+export function readStoresAlt(): boolean {
+  return storedMap(ALT_KEY).sqlite === true
 }
 
-/** The view each kind opens on until the viewer picks one: PostgreSQL its Servers (databases nested under their server), SQLite its Store cards. */
-export const STORES_ALT_DEFAULT: Record<StoreKind, boolean> = { sqlite: false, postgresql: true }
-
-export function writeStoresAlt(kind: StoreKind, alt: boolean): void {
-  try { localStorage.setItem(ALT_KEY, JSON.stringify({ ...storedMap(ALT_KEY), [kind]: alt })) } catch { /* the view still switches */ }
+export function writeStoresAlt(buckets: boolean): void {
+  try { localStorage.setItem(ALT_KEY, JSON.stringify({ sqlite: buckets })) } catch { /* the view still switches */ }
 }
 
-/** Point Home › Stores at `kind` and its Store cards or (alt) its Buckets / Servers, and tell a board already showing it. */
-export function openHomeStores(kind: StoreKind, alt: boolean): void {
+/** Point Home › Stores at `kind` (SQLite: its Store cards, or `buckets`) and tell a board already showing it. */
+export function openHomeStores(kind: StoreKind, buckets: boolean): void {
   writeStoreKind(HOME_SCOPE, kind)
-  writeStoresAlt(kind, alt)
+  if (kind === 'sqlite') writeStoresAlt(buckets)
   for (const watch of [...kindWatchers]) watch()
 }
 

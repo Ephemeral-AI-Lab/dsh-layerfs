@@ -1,6 +1,6 @@
 /** Storage's pure rules: placement, attention, backup coverage and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
-import type { BackupState, BucketRow, JobKind, PgAttachment, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
+import type { BackupState, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import type { StorageT } from './locale.ts'
 
 /** A sqlite Store saved under the LayerFS home (`native`). */
@@ -260,33 +260,20 @@ export function jobCounts(jobs: readonly StorageJob[], dismissed: ReadonlySet<st
   return { running: last.filter((j) => !j.ended).length, failed: last.filter((j) => j.ended && j.error && !dismissed.has(j.id)).length }
 }
 
-// ---------- PostgreSQL machines (store.attach) ----------
-
+// ---------- PostgreSQL: where a Store's sessions run ----------
 
 /**
- * A PostgreSQL Store's machines. Without store.attach in the pinned CLI (or
- * from a record before attachments) its Sandboxes run on the LayerFS Home,
- * shown as one unchecked attachment.
+ * The machine a PostgreSQL Store's sessions run on by default: this DSH
+ * install's saved choice as the host answers it (docker when it can run
+ * them, else the LayerFS Home, when none was chosen).
  */
-export function attachmentsOf(s: StoreRow): PgAttachment[] {
-  if (s.kind !== 'postgresql') return []
-  if (s.attachments) return s.attachments
-  return [{ machine: 'native', own: false, url: null, target: s.postgresql?.target ?? null, password: null, saved: false, checked: null, lastError: null }]
+export function runsOnOf(s: Pick<StoreRow, 'runsOn'>): string {
+  return s.runsOn ?? 'native'
 }
 
-/** The PostgreSQL Stores attached to `machine`, with their attachment. */
-export function pgStoresOn(view: StorageView, machine: string): { store: StoreRow, attachment: PgAttachment }[] {
-  return view.stores.filter((s) => s.kind === 'postgresql').flatMap((store) => {
-    const attachment = attachmentsOf(store).find((a) => a.machine === machine)
-    return attachment ? [{ store, attachment }] : []
-  }).sort((a, b) => a.store.name.localeCompare(b.store.name))
-}
-
-/** An attachment's dot: its last refusal, else not checked yet. */
-export function attachmentSignal(a: PgAttachment, t: StorageT): RowSignal | null {
-  if (a.lastError) return { state: 'error', reason: `${t('checkFailed')}: ${a.lastError.message}` }
-  if (!a.checked) return { state: 'warning', reason: t('notChecked') }
-  return null
+/** The PostgreSQL Stores whose sessions run on `machine` by default, or with a Sandbox there now (`busy`: their names), by name. */
+export function pgStoresOn(view: Pick<StorageView, 'stores'>, machine: string, busy: ReadonlySet<string> = new Set()): StoreRow[] {
+  return view.stores.filter((s) => s.kind === 'postgresql' && (runsOnOf(s) === machine || busy.has(s.name))).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** What a machine of `platform` dials for a server on this host's localhost (LayerFS's reach rewrite). */
@@ -297,14 +284,4 @@ export function loopbackAlias(platform: string): string | null {
     case 'apple-container': return '192.168.64.1'
     default: return null
   }
-}
-
-/** Why `machine` cannot take PostgreSQL Store `s` now, or null when it can. */
-export function attachRefusal(view: StorageView, s: StoreRow, machine: string, t: StorageT): string | null {
-  const m = view.machines.find((x) => x.name === machine)
-  if (!m) return null
-  if (attachmentsOf(s).some((a) => a.machine === machine)) return t('alreadyAttached')
-  if (m.supports && !m.supports.postgresql_sandbox) return m.supports.reason ?? t('postgresql')
-  if (m.state === 'stopped') return t('machineStoppedAttach')
-  return null
 }

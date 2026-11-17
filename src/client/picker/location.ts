@@ -19,14 +19,6 @@ export function slugify(text: string): string {
   return text.trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 63).replace(/[^a-z0-9]+$/, '')
 }
 
-/** The machine a PostgreSQL Store's sessions use when none is asked for (host `pgMachineOf`). */
-export function defaultPgMachine(attachments: readonly { machine: string, checked?: unknown }[] | null | undefined): string {
-  if (!attachments) return 'native'
-  const names = attachments.map((a) => a.machine)
-  if (names.includes('native')) return 'native'
-  return attachments.find((a) => a.checked)?.machine ?? names[0] ?? 'native'
-}
-
 /**
  * The Stores of a `/api/storage` view a project can be made in from this host:
  * SQLite Stores on native, then PostgreSQL Stores; never the Scratch Store.
@@ -37,7 +29,7 @@ export function locationsOf(view: any, scratchStore?: string | null): Location[]
   const sqlite = usable.filter((s) => (s.kind ?? 'sqlite') !== 'postgresql' && (s.machine ?? 'native') === 'native')
     .map((s): Location => ({ store: String(s.name), kind: 'sqlite', server: null, runsOn: null }))
   const pg = usable.filter((s) => s.kind === 'postgresql')
-    .map((s): Location => ({ store: String(s.name), kind: 'postgresql', server: s.postgresql?.target ?? null, runsOn: defaultPgMachine(s.attachments) }))
+    .map((s): Location => ({ store: String(s.name), kind: 'postgresql', server: s.postgresql?.target ?? null, runsOn: typeof s.runsOn === 'string' && s.runsOn ? s.runsOn : 'native' }))
   return [...sqlite, ...pg]
 }
 

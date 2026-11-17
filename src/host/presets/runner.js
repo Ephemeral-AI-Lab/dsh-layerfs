@@ -40,8 +40,10 @@ export const BUSY_ATTEMPTS = 7
 export const PRESET_HISTORY_LIMITS = Object.freeze({ ...DEFAULT_HISTORY_LIMITS, perStore: 1 })
 
 export class DemoRunner extends CliInventory {
-  constructor({ state, home, adoptHome = false, preset = 'studio', driver, sandboxes, report = console.log, progress = () => {}, historyDensity = 'dense', historyCycles, executionMode = 'filesystem', historySchedule = 'parallel', historyConcurrency = PRESET_HISTORY_LIMITS.concurrency, historyStoreConcurrency = PRESET_HISTORY_LIMITS.perStore, historyProjectConcurrency = PRESET_HISTORY_LIMITS.perProject, postgres }) {
+  constructor({ state, home, adoptHome = false, preset = 'studio', driver, sandboxes, report = console.log, progress = () => {}, historyDensity = 'dense', historyCycles, executionMode = 'filesystem', historySchedule = 'parallel', historyConcurrency = PRESET_HISTORY_LIMITS.concurrency, historyStoreConcurrency = PRESET_HISTORY_LIMITS.perStore, historyProjectConcurrency = PRESET_HISTORY_LIMITS.perProject, postgres, runsOn }) {
     super(driver)
+    // Saves the machine a PostgreSQL Store's sessions run on by default (the host's own choice; LayerFS records none).
+    this.runsOn = runsOn
     this.state = resolve(state)
     this.home = home ? resolve(home) : join(this.state, 'home-2')
     this.adoptHome = adoptHome
@@ -243,16 +245,12 @@ export class DemoRunner extends CliInventory {
     }
     return this.ensureResource('store', store.name, null)
   }
-  /** A SQLite Store pushed to its machine; a PostgreSQL Store attached to each of its machines. */
+  /** A SQLite Store pushed to its machine; a PostgreSQL Store is on none: its machine is saved as where its sessions run. */
   async placeStore(store, reportProgress = () => {}) {
     const placed = await this.query(['store', 'get', store.name])
     if (placed.op || placed.state === 'unresolved') fail(`Store ${store.name} has an operation that needs inspection.`)
     if (isPostgresql(store)) {
-      for (const machine of storeMachines(store)) {
-        if (placed.machines?.[machine]?.checked) continue
-        reportProgress(`Attaching ${store.name} to ${machine}`)
-        await this.once(`store.attach:${store.name}:${machine}`, ['store', 'attach', store.name, machine])
-      }
+      await this.runsOn?.(store.name, store.machine)
       return
     }
     if (placed.machine !== store.machine) {
@@ -346,7 +344,7 @@ export class DemoRunner extends CliInventory {
       }
       stopIfFailed()
       await this.placeStore(store, reportProgress)
-      advance(isPostgresql(store) ? `Store ${store.name} is attached to ${storeMachines(store).join(', ')}` : `Store ${store.name} is placed on ${store.machine}`)
+      advance(isPostgresql(store) ? `Store ${store.name} runs on ${store.machine}` : `Store ${store.name} is placed on ${store.machine}`)
     })
     const tasks = this.preset.stores.flatMap(store => store.projects.map(name => {
       const plan = projectHistoryPlan(name, this.historyOptions)
@@ -497,7 +495,7 @@ export class DemoRunner extends CliInventory {
         return this.query(argv)
       }
       const current = await query(['store', 'get', store.name])
-      const placedRight = isPostgresql(store) ? current.kind === 'postgresql' && storeMachines(store).every(machine => current.machines?.[machine]?.checked) : current.machine === store.machine
+      const placedRight = isPostgresql(store) ? current.kind === 'postgresql' : current.machine === store.machine
       if (!placedRight || current.op) fail(`Store ${store.name} does not match its intended placement or has an operation in flight.`)
       for (const name of store.projects) {
         const key = `${store.name}/${name}`

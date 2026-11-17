@@ -3,7 +3,7 @@
  * family and place, checks and the Store menu), alerts and a job in flight,
  * then three tabs. Overview: tiles, what fills the database file, how the
  * Store grew, which projects wrote it, its health and details. Projects: one
- * card per project. Backups (SQLite) or Connections (PostgreSQL).
+ * card per project. Backups (SQLite) or Connection (PostgreSQL).
  */
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Button, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -20,7 +20,7 @@ import type { StorageT } from './locale.ts'
 import { canAddProject, storeStateWords, storeTone } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
 import { Location, StoreMenu, storeNotice, type StoreActions } from './StoreCard.tsx'
-import { StoreBackups, StoreConnections } from './StoreLinks.tsx'
+import { StoreBackups, StoreConnection } from './StoreLinks.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
 import type { TabId } from './tabs.ts'
@@ -76,7 +76,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
     overview: t('tabOverview'),
     projects: `${t('tabProjects')} ${s.projects.length}`,
     backups: `${t('backupsSection')} ${s.links.length}`,
-    connections: `${t('spConnections')} ${(s.attachments ?? []).length}`,
+    connections: t('connection'),
   }
   return (
     <>
@@ -116,7 +116,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
         ) : tab === 'backups' ? (
           <StoreBackups store={s} view={view} t={t} now={now} on={on} />
         ) : tab === 'connections' ? (
-          <StoreConnections store={s} view={view} t={t} now={now} on={on} />
+          <StoreConnection store={s} view={view} t={t} on={on} />
         ) : (
           <StoreOverview store={s} view={view} t={t} api={api} now={now} stats={stats.data} statsError={stats.error} projects={projects.data?.projects} running={running}
             machineState={machineState} onTab={setTab} onRemove={pg ? on.disconnect : on.remove} />

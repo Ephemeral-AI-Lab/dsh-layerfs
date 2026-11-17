@@ -5,9 +5,10 @@
  * by hand), with a generated password kept in the
  * presets state folder (`<state>/postgresql/password`, 0600) and handed to
  * LayerFS as a `file:` reference. Each PostgreSQL Store gets a fresh database
- * right before `store connect`; machines then dial it through
- * `store attach <store> <machine>`, which LayerFS checks from that machine
- * (it rewrites 127.0.0.1 to what the machine reaches the host by).
+ * right before `store connect`. A PostgreSQL Store is on no machine: any
+ * machine whose platform runs PostgreSQL Sandboxes dials it (LayerFS rewrites
+ * 127.0.0.1 to what the machine reaches the host by), and the preset's
+ * `machine` is only where the Store's sessions run by default.
  * The container is reused by later builds and is never removed here.
  */
 import { execFile } from 'node:child_process'
@@ -21,8 +22,8 @@ export const POSTGRES_IMAGE = 'postgres:17'
 export const RESTART_POLICY = 'unless-stopped'
 
 export const isPostgresql = store => store?.kind === 'postgresql'
-/** The machines a preset Store is placed on (a SQLite Store) or attached to (a PostgreSQL Store). */
-export const storeMachines = store => isPostgresql(store) ? [...new Set([store.machine, ...(store.attach ?? [])])] : [store.machine]
+/** The machine a preset Store is placed on (a SQLite Store) or runs on by default (a PostgreSQL Store). */
+export const storeMachines = store => [store.machine]
 export const usesMachine = (store, name) => storeMachines(store).includes(name)
 
 const fail = (message, code = 'Failed') => { throw Object.assign(new Error(message), { code }) }

@@ -15,12 +15,14 @@ no per-project page.
   on native; `store push` / `store pull` move it (both machines running; the
   whole Store moves, every project in it; refused while one of its projects
   has a Sandbox).
-- A **PostgreSQL Store** is on no machine. `store connect` attaches native;
-  `store attach` / `detach` add or remove machines (detach is refused while a
-  Sandbox runs there). Attachments belong to the Store, not one project.
+- A **PostgreSQL Store** is on no machine. `store connect` records one
+  connection, and any machine that runs PostgreSQL Sandboxes reaches it;
+  nothing is attached. The plugin keeps one machine per Store, where its
+  sessions run (postgresql-stores-ui.md §2). It belongs to the Store, not one
+  project.
 - A **project** is `<store>/<name>`. Its sessions run on its SQLite Store's
-  machine, or on one machine its PostgreSQL Store is attached to (the host
-  picks: native when attached, else the first checked, else the first).
+  machine, or on the machine its PostgreSQL Store runs on (the saved choice,
+  else docker, else native).
 - `project init` never creates a Store. The UI creates SQLite projects on
   native and then pushes the Store, the order the presets use.
 
@@ -66,10 +68,10 @@ the pane. Opened from the picker, the head has a **‹ Projects** link back to i
   `<machine> · N projects` or `<server> · N projects`); the kind icon is on the
   card only, not repeated on rows.
 - **Runs on**: machine tiles with the machine's mark (Docker whale, Apple for
-  native, Lima…), name, state and a badge (Default, Here now). SQLite picks one
-  (radio); PostgreSQL ticks any (checkbox). **Default: docker** when it can run
-  the kind, else native. Machines that can't run the kind are not offered. A
-  stopped one is offered with a line saying Create starts it. **New machine**
+  native, Lima…), name, state and a badge (Default, Here now). Both kinds pick one
+  (radio). **Default: docker** when it can run the kind, else native. Machines
+  that can't run the kind are not offered. A stopped one is offered with a
+  line saying Create starts it. **New machine**
   closes the dialog and opens Resources with Add machine open
   (`openStorage(api, 'machines:new')`). Moving an existing SQLite Store warns
   that its other projects move too.
@@ -80,10 +82,10 @@ the pane. Opened from the picker, the head has a **‹ Projects** link back to i
     the storage job) when not native → open a session.
   - SQLite, existing Store: start its machine if stopped → Init → start the
     target and place when it differs → open.
-  - PostgreSQL, new connection: `POST /api/stores/postgresql` → Init → start
-    and attach each ticked machine other than native → detach native when
-    unticked → open. Existing connection: Init → attach ticked machines not yet
-    attached → open.
+  - PostgreSQL, new connection: `POST /api/stores/postgresql` (with the
+    machine picked, `runsOn`) → Init → start the machine if stopped → open.
+    Existing connection: Init → `POST /api/stores/<s>/runs-on` when another
+    machine is picked → start it if stopped → open. Nothing is attached.
 
   On success the dialog closes and the new session is on screen.
 
@@ -96,9 +98,9 @@ the pane. Opened from the picker, the head has a **‹ Projects** link back to i
 - **SQLite Runs on**: the tiles, the current one marked Here now. Choosing
   another shows the move warning and **Move to <machine>** in the footer, which
   starts both machines if needed and places the Store.
-- **PostgreSQL Runs on**: a tile per machine, ticked when attached; ticking
-  attaches (starting a stopped machine first), unticking detaches. Applies to
-  every project in the Store.
+- **PostgreSQL Runs on**: the tiles, the current one marked Here now. Choosing
+  another shows **Run on <machine>** in the footer, which saves the choice
+  (`POST /api/stores/<s>/runs-on`). Applies to every project in the Store.
 - Footer: **Hide from sidebar** (per browser, until the project's next
   session) and Done. A project whose Store is gone says so and offers Open
   Resources.
@@ -146,7 +148,7 @@ decides when a hidden project shows again.
 ## 8. Readiness
 
 A project's machine for readiness is its SQLite Store's machine, or for
-PostgreSQL the machine the host would pick from its attachments (§1), read
+PostgreSQL the machine its Store runs on (§1; the Store row's `runsOn`), read
 from `/api/storage`. Readiness shows as words, never a light.
 
 ## 9. Not in scope

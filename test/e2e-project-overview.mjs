@@ -29,7 +29,7 @@ try {
       if (method === 'GET' && path === '/api/machines') return { available: true, machines: [{ name: 'build', platform: 'lima', state: fixture.state, stores: ['demo-store'], sandboxes: [], cpus: 2, memory: 4000000000, disk: 20000000000 }], status: {}, platforms: [], stores: [], postgresql: [], sandboxes: [] }
       if (method === 'GET' && path === '/api/storage') return {
         machines: [{ name: 'native', platform: 'native', state: 'running', supports: null }, { name: 'build', platform: 'lima', state: fixture.state, supports: null }],
-        stores: [{ name: 'demo-store', kind: 'sqlite', machine: 'build', projects: ['compiler'], attachments: null }], buckets: [], jobs: [], at: Date.now(),
+        stores: [{ name: 'demo-store', kind: 'sqlite', machine: 'build', projects: ['compiler'] }], buckets: [], jobs: [], at: Date.now(),
       }
       if (method === 'POST' && path === '/api/machines/build/start') {
         fixture.starts++

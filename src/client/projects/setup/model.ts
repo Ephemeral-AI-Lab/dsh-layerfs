@@ -59,27 +59,22 @@ export function defaultMachine(machines: readonly Machine[], blocks: ReadonlyMap
 /** Whether `name` can be picked: not blocked here, or only waiting on the Docker Engine its Start launches. */
 export const pickable = (name: string, blocks: ReadonlyMap<string, TileBlock>): boolean => blocks.get(name)?.startable ?? true
 
-/** A PostgreSQL Store's attached machines (native when the CLI predates attachments). */
-export function attachedMachines(store: Pick<StoreRow, 'attachments'>): string[] {
-  return store.attachments ? store.attachments.map((a) => a.machine) : ['native']
+/**
+ * The machine a PostgreSQL Store's sessions run on by default: the host's
+ * answer (this install's saved choice, else docker when it can, else native).
+ */
+export function pgMachine(store: Pick<StoreRow, 'runsOn'>): string {
+  return store.runsOn ?? 'native'
 }
 
-/** The machine the host runs a PostgreSQL project's sessions on (`pgMachineOf`). */
-export function pgMachine(store: Pick<StoreRow, 'attachments'>): string | null {
-  if (!store.attachments) return 'native'
-  const names = store.attachments.map((a) => a.machine)
-  if (names.includes('native')) return 'native'
-  return store.attachments.find((a) => a.checked)?.machine ?? names[0] ?? null
-}
-
-/** Where a project runs: its SQLite Store's machine, or its PostgreSQL Store's attached machines. */
-export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'attachments'> | undefined): string[] {
+/** Where a project runs: its SQLite Store's machine, or the machine its PostgreSQL Store runs on. */
+export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'runsOn'> | undefined): string[] {
   if (!store) return []
-  return store.kind === 'postgresql' ? attachedMachines(store) : [store.machine ?? 'native']
+  return [store.kind === 'postgresql' ? pgMachine(store) : store.machine ?? 'native']
 }
 
 /** The machine a project's readiness follows (§8). */
-export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'attachments'> | undefined): string | null {
+export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'runsOn'> | undefined): string | null {
   if (!store) return null
   return store.kind === 'postgresql' ? pgMachine(store) : store.machine ?? 'native'
 }
@@ -105,18 +100,22 @@ export interface CreatePlan {
   /** An existing Store, or null for a new one. */
   store: StoreRow | null
   newStore?: { name: string, url?: string, password?: string }
-  /** SQLite: one machine. PostgreSQL: every ticked machine. */
+  /** One machine: where a SQLite Store's file goes, or where a PostgreSQL Store's sessions run. */
   machines: string[]
   /** An absolute folder the project starts from; empty when absent. */
   source?: string
 }
 
-export type StepId = 'check' | 'store' | 'connect' | 'start-store' | 'init' | `start:${string}` | `place:${string}` | `attach:${string}` | 'detach:native' | 'open'
+export type StepId = 'check' | 'store' | 'connect' | 'start-store' | 'init' | `start:${string}` | `place:${string}` | `runs-on:${string}` | 'open'
 export interface Step { id: StepId, machine?: string }
 
 /**
  * The steps a Create runs, in order (§3). `view` gives machine states, so a
- * running machine is not started again.
+ * running machine is not started again. A PostgreSQL Store is on no machine:
+ * a new one is connected with the machine its sessions run on, an existing
+ * one only has that choice changed (`runs-on:<m>`) when another is picked.
+ * Nothing is attached; the machine is started last, because a session starts
+ * none and the one Create opens runs there.
  */
 export function createSteps(plan: CreatePlan, view: Pick<StorageView, 'machines'> | undefined): Step[] {
   const state = (name: string) => view?.machines.find((m) => m.name === name)
@@ -131,14 +130,11 @@ export function createSteps(plan: CreatePlan, view: Pick<StorageView, 'machines'
     steps.push({ id: 'init' })
     if (target !== at) steps.push(...start(target), { id: `place:${target}`, machine: target })
   } else {
-    if (!plan.store) steps.push({ id: 'connect' })
+    const target = plan.machines[0]
+    if (!plan.store) steps.push({ id: 'connect', ...(target ? { machine: target } : {}) })
     steps.push({ id: 'init' })
-    const attached = plan.store ? attachedMachines(plan.store) : ['native']
-    for (const m of plan.machines) {
-      if (attached.includes(m)) continue
-      steps.push(...start(m), { id: `attach:${m}`, machine: m })
-    }
-    if (!plan.store && !plan.machines.includes('native')) steps.push({ id: 'detach:native', machine: 'native' })
+    if (plan.store && target && target !== pgMachine(plan.store)) steps.push({ id: `runs-on:${target}`, machine: target })
+    if (target) steps.push(...start(target))
   }
   steps.push({ id: 'open' })
   return steps

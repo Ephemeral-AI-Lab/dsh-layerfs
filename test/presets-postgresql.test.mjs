@@ -1,5 +1,5 @@
 // The Studio preset's PostgreSQL half (src/host/presets/postgresql.js): the
-// recipe, the command plan, connect + attach through the runner, and the
+// recipe, the command plan, connect and "runs on" through the runner, and the
 // preset-owned Docker server, all against fakes (no Docker, no CLI).
 //   node --test test/presets-postgresql.test.mjs
 import { test } from 'node:test'
@@ -22,33 +22,31 @@ const { presetScript } = await load('build')
 const { PresetPostgres, storeMachines } = await load('pg')
 const { presetOf } = await load('presets')
 
-test('studio: half its Stores are PostgreSQL, each attached to its machine', () => {
+test('studio: half its Stores are PostgreSQL, each with the one machine its sessions run on', () => {
   const stores = presetOf('studio').stores
   assert.equal(stores.length, 4)
   const pg = stores.filter((s) => s.kind === 'postgresql')
   assert.deepEqual(pg.map((s) => s.name), ['demo-services', 'demo-experiments'])
-  assert.deepEqual(storeMachines(pg[0]), ['docker', 'native'])
+  assert.deepEqual(storeMachines(pg[0]), ['docker'])
   assert.deepEqual(storeMachines(pg[1]), ['demo-research'])
   assert.ok(pg.every((s) => /^[a-z_]+$/.test(s.database)))
 })
 
-test('script: PostgreSQL Stores connect and attach, never create or push', () => {
+test('script: PostgreSQL Stores connect and nothing more: never attach, create or push', () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-state-'))
   const { commands, configuration } = presetScript({ preset: 'studio', spec: { state, home: join(state, 'home') }, sandboxes: false })
   assert.equal(configuration.historyLimits.perStore, 1) // one writer per Store
   const lines = commands.filter((c) => c.phase === 'build').map((c) => c.argv.join(' '))
   assert.ok(lines.some((l) => /^store connect demo-services postgresql:\/\/postgres@127\.0\.0\.1:<port>\/demo_services --password file:.*\/postgresql\/password$/.test(l)))
-  assert.ok(lines.includes('store attach demo-services docker'))
-  assert.ok(lines.includes('store attach demo-services native'))
-  assert.ok(lines.includes('store attach demo-experiments demo-research'))
+  assert.ok(!lines.some((l) => /^store (attach|detach|update)\b/.test(l)), 'a PostgreSQL Store is on no machine: LayerFS is told nothing about where it runs')
   assert.ok(!lines.some((l) => /store (create|push) demo-(services|experiments)\b/.test(l)))
   assert.ok(lines.includes('store create demo-studio') && lines.includes('store push demo-build-cache demo-build --progress'))
-  // every machine a Store uses is started, attach targets included
+  // every machine a Store uses is started, the ones PostgreSQL Stores run on included
   assert.ok(['docker', 'demo-research'].every((m) => lines.includes(`machine start ${m}`)))
   rmSync(state, { recursive: true, force: true })
 })
 
-/** A CLI that keeps Stores and their attachments, recording every mutation. */
+/** A CLI that keeps Stores, recording every mutation. */
 function fakeDriver() {
   const stores = new Map(), calls = []
   const invoke = async (argv, options = {}) => {
@@ -56,16 +54,15 @@ function fakeDriver() {
     if (!options.read) calls.push(argv.join(' '))
     if (family === 'store' && call === 'list') return { items: [...stores.values()] }
     if (family === 'store' && call === 'get') { if (!stores.has(name)) throw Object.assign(new Error('no'), { code: 'NoSuchStore' }); return stores.get(name) }
-    if (family === 'store' && call === 'connect') { stores.set(name, { name, kind: 'postgresql', created: 1, url: rest[0], machines: {} }); return stores.get(name) }
+    if (family === 'store' && call === 'connect') { stores.set(name, { name, kind: 'postgresql', created: 1, url: rest[0] }); return stores.get(name) }
     if (family === 'store' && call === 'create') { stores.set(name, { name, kind: 'sqlite', created: 2, machine: 'native' }); return stores.get(name) }
-    if (family === 'store' && call === 'attach') { stores.get(name).machines[rest[0]] = { checked: { at: 1 } }; return stores.get(name) }
     if (family === 'store' && call === 'push') { stores.get(name).machine = rest[0]; return stores.get(name) }
     throw new Error(`unexpected ${argv.join(' ')}`)
   }
   return { stores, calls, driver: { invoke, spec: {} } }
 }
 
-test('runner: a fresh database, then connect, then attach each machine once', async () => {
+test('runner: a fresh database, then connect; where it runs goes to the plugin, never to LayerFS', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-runner-'))
   const { calls, driver } = fakeDriver()
   const log = []
@@ -75,23 +72,22 @@ test('runner: a fresh database, then connect, then attach each machine once', as
     url: (port, db) => `postgresql://postgres@127.0.0.1:${port}/${db}`,
     passwordRef: () => 'file:/state/postgresql/password',
   }
-  const runner = new DemoRunner({ state, home: join(state, 'home'), adoptHome: true, preset: 'studio', driver, postgres, report: () => {} })
+  const runsOn = []
+  const runner = new DemoRunner({ state, home: join(state, 'home'), adoptHome: true, preset: 'studio', driver, postgres, report: () => {}, runsOn: (store, machine) => { runsOn.push(`${store} ${machine}`) } })
   runner.load(true)
   const services = presetOf('studio').stores.find((s) => s.name === 'demo-services')
   await runner.ensureStore(services)
   await runner.placeStore(services)
-  await runner.placeStore(services) // already attached and checked: nothing more
   assert.deepEqual(log, ['ensure', 'fresh demo_services'])
   assert.deepEqual(calls, [
     'store connect demo-services postgresql://postgres@127.0.0.1:54999/demo_services --password file:/state/postgresql/password',
-    'store attach demo-services docker',
-    'store attach demo-services native',
-  ])
+  ], 'placing a PostgreSQL Store makes no LayerFS call')
+  assert.deepEqual(runsOn, ['demo-services docker'], 'the plugin is told the machine its sessions run on')
   assert.equal(runner.manifest.resources.store['demo-services'].owned, true)
   // a second ensure finds the owned Store and neither drops nor reconnects it
   await runner.ensureStore(services)
   assert.deepEqual(log, ['ensure', 'fresh demo_services'])
-  assert.equal(calls.length, 3)
+  assert.equal(calls.length, 1)
   rmSync(state, { recursive: true, force: true })
 })
 

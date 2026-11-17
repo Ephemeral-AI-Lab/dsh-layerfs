@@ -2,8 +2,9 @@
  * The project dialog (docs/specs/layerfs-workspaces.md §2-§4): one modal that
  * creates or imports a project in three steps (Project, Store, Runs on, on a
  * left rail), configures where one runs, and picks a project to start a
- * session in. SQLite runs on one machine (place = push / pull / move);
- * PostgreSQL on any number (attach / detach). Docker is the default.
+ * session in. Both kinds run on one machine: a SQLite Store's file is placed
+ * there (push / pull / move); a PostgreSQL Store is on no machine, so its
+ * machine is only where its sessions run. Docker is the default.
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -27,9 +28,9 @@ import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
 import type { SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
-import { attachedMachines, createSteps, defaultMachine, freeStoreName, isRunning, machinesFor, pickable, tileBlocks, type CreatePlan, type Step, type StoreKind } from './model.ts'
-import { LocationPicker, machineNote, MachineTile, placeName, stoppedPicked, Tick, type LocationWords } from './MachineTiles.tsx'
-import { attachStore, detachStore, placeStore, runStep, startMachine } from './run.ts'
+import { createSteps, defaultMachine, freeStoreName, isRunning, machinesFor, pgMachine, pickable, tileBlocks, type CreatePlan, type Step, type StoreKind } from './model.ts'
+import { LocationPicker, placeName, stoppedPicked, Tick, type LocationWords } from './MachineTiles.tsx'
+import { placeStore, runStep, setRunsOn, startMachine } from './run.ts'
 import css from './dialog.module.css'
 
 const PG_URL = /^postgres(?:ql)?:\/\//i
@@ -152,11 +153,10 @@ function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
   if (id === 'connect') return t('step_connect', { store })
   if (id === 'init') return plan.source ? t('step_import', { source: shortPath(plan.source), name: plan.name }) : t('step_init', { name: plan.name })
   if (id === 'open') return t('step_open')
-  if (id === 'detach:native') return t('step_detach', { store })
   const machine = placeName(step.machine ?? '', wordsOf(t))
   if (id === 'start-store' || id.startsWith('start:')) return t('step_start', { machine })
   if (id.startsWith('place:')) return t('step_place', { store, machine })
-  return t('step_attach', { store, machine })
+  return t('step_runs_on', { store, machine })
 }
 
 /** The running Init's phase and count: `hash · 8,412 / 12,930`. */
@@ -238,7 +238,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [url, setUrl] = useState('')
   const [password, setPassword] = useState('')
   const [sqliteMachine, setSqliteMachine] = useState<string | null>(null)
-  const [pgMachines, setPgMachines] = useState<string[] | null>(null)
+  const [pgChoice, setPgChoice] = useState<string | null>(null)
   const [steps, setSteps] = useState<StepState[] | null>(null)
   const [shown, setShown] = useState<CreatePlan | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -255,8 +255,9 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const slug = slugify(name)
   const newStoreName = storeName ?? freeStoreName(slug || 'project', data)
   const chosenSqlite = sqliteMachine ?? (existing?.machine ?? fallback)
-  const chosenPg = pgMachines ?? (existing ? attachedMachines(existing).filter((m) => machines.some((x) => x.name === m)) : [fallback])
-  const chosen = kind === 'sqlite' ? [chosenSqlite] : chosenPg
+  // PostgreSQL: one machine too, the Store's saved one when it has one
+  const chosenPg = pgChoice ?? (existing ? pgMachine(existing) : fallback)
+  const chosen = [kind === 'sqlite' ? chosenSqlite : chosenPg]
   const running = steps !== null && !error
   useEffect(() => { onBusy(running) }, [running])
   const words = wordsOf(t, data?.computer?.os)
@@ -325,9 +326,9 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     projectDialog.close()
   }
 
-  const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setPgMachines(null); setSqliteMachine(null) }
+  const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setPgChoice(null); setSqliteMachine(null) }
   const chooseMode = (next: StoreMode) => {
-    setMode(next); setPgMachines(null); setSqliteMachine(null)
+    setMode(next); setPgChoice(null); setSqliteMachine(null)
     if (next === 'existing' && !stores.some((s) => s.name === picked)) setPicked(stores[0]?.name ?? null)
   }
   const head = <Head title={importing ? t('importTitle') : t('newTitle')} sub={importing ? t('importSub') : t('newSub')} t={t} back={running ? undefined : back} />
@@ -434,7 +435,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
               <div role="radiogroup" aria-label={t('store')}>
                 {listed.map((s) => <button key={s.name} type="button" role="radio" aria-checked={existing?.name === s.name}
                   className={clsx(css.storeRow, existing?.name === s.name && css.storeRowOn)}
-                  onClick={() => { setPicked(s.name); setPgMachines(null); setSqliteMachine(null) }}>
+                  onClick={() => { setPicked(s.name); setPgChoice(null); setSqliteMachine(null) }}>
                   <span className={css.storeName}>{s.name}</span>
                   <span className={css.storeNote}>
                     {kind === 'sqlite' ? (s.machine ?? 'native') : s.postgresql?.target ?? ''}
@@ -458,14 +459,11 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
                 <NewMachineTile api={api} t={t} />
               </LocationPicker>
             </Group>
-            : <Group label={t('machines')} hint={t('runsOnMany')}>
-              <div className={css.machines} role="group" aria-label={t('runsOn')}>
-                {machines.map((m) => <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={chosenPg.includes(m.name)} note={machineNote(m, words, blocks.get(m.name))}
-                  blocked={blocks.has(m.name)} disabled={!pickable(m.name, blocks) && !chosenPg.includes(m.name)}
-                  badge={!existing && m.name === fallback ? t('default') : null}
-                  onSelect={() => setPgMachines(chosenPg.includes(m.name) ? chosenPg.filter((x) => x !== m.name) : [...chosenPg, m.name])} />)}
+            : <Group label={t('machines')} hint={t('runsOnPg')}>
+              <LocationPicker machines={machines} value={chosenPg} onChange={setPgChoice} words={words} label={t('runsOn')}
+                current={existing ? pgMachine(existing) : null} fallback={fallback} blocks={blocks}>
                 <NewMachineTile api={api} t={t} />
-              </div>
+              </LocationPicker>
             </Group>}
           {machines.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
           {stoppedPicked(chosen, machines).map((m) => <p key={m} className={css.note}>{t('startsOnCreate', { machine: m })}</p>)}
@@ -488,7 +486,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
 
 // ---------- configure ----------
 
-/** Configure: the Store, where it runs (move, or attach / detach), and Hide from sidebar. */
+/** Configure: the Store, where it runs (a SQLite Store moves; a PostgreSQL Store's sessions run there), and Hide from sidebar. */
 function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: SetupT, project: ProjectRef, back?: DialogRequest | undefined, onBusy: (busy: boolean) => void }): ReactNode {
   const view = useStorage(api)
   const platforms = usePlatforms(api)
@@ -566,27 +564,31 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
       </footer>
     </>
   }
-  const attached = new Map((store.attachments ?? [{ machine: 'native', checked: null } as { machine: string, checked: boolean | null }]).map((a) => [a.machine, a]))
+  const current = pgMachine(store)
+  const chosen = target ?? current
   return <>{head}
     <div className={css.body}><div className={css.fields}>
       {storeCard}
-      <Group label={t('runsOn')} hint={t('attachNote', { store: store.name })}>
-        <div className={css.machines} role="group" aria-label={t('runsOn')}>
-          {machines.map((m) => {
-            const a = attached.get(m.name)
-            const block = blocks.get(m.name)
-            const note = busy === m.name ? t('working') : a ? (a.checked ? t('attachedChecked') : t('attachedUnchecked')) : block ? machineNote(m, words, block) : t('notAttached')
-            return <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={!!a} disabled={!!busy || (!a && !pickable(m.name, blocks))} blocked={!!block} working={busy === m.name} workingMark={<StateDot state="ongoing" size={11} />} note={note}
-              onSelect={() => void run(m.name, async () => { if (!a) { await ensure(m.name); await attachStore(api, store.name, m.name) } else await detachStore(api, store.name, m.name) })} />
-          })}
+      <Group label={t('runsOn')} hint={t('runsOnNote', { store: store.name })}>
+        <LocationPicker machines={machines} value={chosen} onChange={setTarget} words={words} label={t('runsOn')} current={current} disabled={!!busy} blocks={blocks}>
           <NewMachineTile api={api} t={t} />
-        </div>
+        </LocationPicker>
       </Group>
       {error ? <p className={css.error} role="alert">{error}</p> : null}
     </div></div>
     <footer className={css.foot}>
       {hide}
-      <div className={css.footActions}><Button variant="primary" disabled={!!busy} onClick={() => projectDialog.close()}>{t('done')}</Button></div>
+      <div className={css.footActions}>
+        {chosen !== current
+          ? <>
+            <Button variant="outline" disabled={!!busy} onClick={() => setTarget(null)}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={!!busy} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}
+              onClick={() => void run('runs-on', () => setRunsOn(api, store.name, chosen))}>
+              {busy ? t('saving') : t('runsOnSave', { machine: placeName(chosen, words) })}
+            </Button>
+          </>
+          : <Button variant="primary" disabled={!!busy} onClick={() => projectDialog.close()}>{t('done')}</Button>}
+      </div>
     </footer>
   </>
 }

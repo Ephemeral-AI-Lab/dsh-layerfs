@@ -17,7 +17,7 @@ const WRITES = new Set([
   'sandbox.create', 'sandbox.close',
   'workspace.mount', 'workspace.exec', 'workspace.exec_cancel', 'workspace.commit', 'workspace.unmount',
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load', 'machine.prune',
-  'store.create', 'store.connect', 'store.attach', 'store.detach', 'store.push', 'store.pull', 'store.remove', 'store.disconnect',
+  'store.create', 'store.connect', 'store.update', 'store.push', 'store.pull', 'store.remove', 'store.disconnect',
   'backup.connect', 'backup.disconnect', 'backup.create', 'backup.restore',
   'doctor.fix',
 ])

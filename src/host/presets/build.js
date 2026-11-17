@@ -13,9 +13,9 @@ import { MIXED_RECIPE_VERSION } from './recipe/mixed-recipe.js'
 import { projectHistorySteps, projectHistoryPlan, machineCreateArgs } from './recipe/recipe.js'
 import { projectVerificationSteps } from './recipe/project-verification.js'
 import { EnvironmentReset } from './environment-reset.js'
-import { POSTGRES_IMAGE, PresetPostgres, isPostgresql, storeMachines, usesMachine } from './postgresql.js'
+import { POSTGRES_IMAGE, PresetPostgres, isPostgresql, usesMachine } from './postgresql.js'
 
-const runnerFor = (spec, options) => new DemoRunner({ state: spec.state, home: spec.home, adoptHome: true, ...options })
+const runnerFor = (spec, options) => new DemoRunner({ state: spec.state, home: spec.home, adoptHome: true, runsOn: spec.runsOn, ...options })
 
 /** Prepare the manifest and initialize the home, check prerequisites, then plan the reset. Nothing is removed. */
 export async function prepareBuild({ spec, preset, driver, sandboxes, executionMode = 'filesystem', report = () => {}, progress = () => {} }) {
@@ -111,15 +111,13 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
     if (configuration.stores.some(store => usesMachine(store, name))) add('build', ['machine', 'start', name], { note: 'Only if the machine is not already running or ready.' })
   }
   if (sandboxes && spec.daemon && configuration.stores.some(store => store.machine === 'native')) add('build', ['machine', 'update', 'native', '--daemon', spec.daemon], { note: 'Only if the native daemon path differs.' })
-  // A PostgreSQL Store: a fresh database on the preset's own server, then connect; placement is attach.
+  // A PostgreSQL Store: a fresh database on the preset's own server, then connect; it is placed on no machine.
   const postgres = new PresetPostgres({ state: spec.state })
   const port = postgres.recorded()?.port ?? '<port>'
   const createStore = (store, note) => isPostgresql(store)
     ? add('build', ['store', 'connect', store.name, `postgresql://postgres@127.0.0.1:${port}/${store.database}`, '--password', postgres.passwordRef()], { note: `The preset runs its own PostgreSQL server (Docker container ${postgres.container}, ${POSTGRES_IMAGE}, on 127.0.0.1) and creates an empty database ${store.database} first; the password stays in the presets state folder. ${note}` })
     : add('build', ['store', 'create', store.name], { note })
-  const placeStore = store => isPostgresql(store)
-    ? storeMachines(store).forEach(machine => add('build', ['store', 'attach', store.name, machine], { note: `LayerFS checks the connection from ${machine} before recording it.` }))
-    : store.machine !== 'native' && add('build', ['store', 'push', store.name, store.machine, '--progress'])
+  const placeStore = store => !isPostgresql(store) && store.machine !== 'native' && add('build', ['store', 'push', store.name, store.machine, '--progress'])
   if (configuration.concurrentHistory) {
     for (const store of configuration.stores) {
       createStore(store, 'Preparation only: project imports are serial within this store; independent stores can prepare concurrently.')

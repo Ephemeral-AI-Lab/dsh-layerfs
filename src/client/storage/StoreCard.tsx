@@ -9,7 +9,7 @@ import type { Translate } from '../files/types.ts'
 import { LinkButton, MoreMenu } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { inHome, latestBackup } from './model.ts'
-import type { PgAttachment, StorageJob, StoreBackupLink, StoreRow } from './types.ts'
+import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
 export interface StoreActions {
@@ -26,13 +26,15 @@ export interface StoreActions {
   retry: (job: StorageJob) => void
   dismiss: (job: StorageJob) => void
   openMachine: (name: string) => void
-  /** PostgreSQL: the Attach dialog, for a machine (or a choice), or to edit an attachment. */
-  attach: (machine?: string, edit?: PgAttachment) => void
-  /** PostgreSQL: attach again with the same settings, so LayerFS checks it again. */
-  recheck: (attachment: PgAttachment) => void
-  /** PostgreSQL: confirm, then store.detach. */
-  detach: (machine: string) => void
-  /** PostgreSQL: Connect database on this Store's server, with its user and password. */
+  /** PostgreSQL: edit the Store's connection, or (`machine`) that machine's own. */
+  editConnection: (machine?: string) => void
+  /** PostgreSQL: the check from a machine (where its sessions run unless named). */
+  check: (machine?: string) => void
+  /** PostgreSQL: choose the machine its sessions run on. */
+  changeRunsOn: () => void
+  /** PostgreSQL: confirm, then remove a machine's own connection (it dials the Store's again). */
+  removeOwn: (machine: string) => void
+  /** PostgreSQL: Connect a database on this Store's server, with its user and password. */
   newOnServer: () => void
 }
 
@@ -43,8 +45,11 @@ export function Location({ store: s, t, onMachine }: { store: StoreRow, t: Stora
   return <LinkButton onClick={() => s.machine && onMachine(s.machine)}>{s.machine ?? '?'}</LinkButton>
 }
 
-/** The Store menu: every Store-wide action. */
-/** A Store's ⋯ menu. On a machine page (`machine`), a PostgreSQL Store's menu also detaches it from that machine. */
+/**
+ * A Store's ⋯ menu: every Store-wide action. A PostgreSQL Store's: Edit
+ * connection, Check from a machine (on a machine page, `machine`: from that
+ * one) and Disconnect.
+ */
 export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined }): ReactNode {
   const pg = s.kind === 'postgresql'
   return (
@@ -53,11 +58,9 @@ export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: S
         const run = (fn: () => void) => () => { close(); fn() }
         return pg ? (
           <>
-            {s.postgresql?.url && s.postgresql.server
-              ? <MenuItemButton onSelect={run(on.newOnServer)}>{t('newStoreSameServer')}</MenuItemButton>
-              : null}
-            {machine ? <MenuItemButton onSelect={run(() => on.detach(machine))}>{t('msDetachFrom', { machine: machine === 'native' ? t('layerfsHome') : machine })}</MenuItemButton> : null}
-            <MenuItemButton danger separatorBefore={!!(s.postgresql?.url && s.postgresql.server) || !!machine} onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
+            <MenuItemButton onSelect={run(() => on.editConnection())}>{t('msEditConnection')}</MenuItemButton>
+            <MenuItemButton onSelect={run(() => on.check(machine))}>{t('pgCheckFrom')}</MenuItemButton>
+            <MenuItemButton danger separatorBefore onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
           </>
         ) : (
           <>

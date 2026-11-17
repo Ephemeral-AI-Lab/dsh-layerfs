@@ -24,10 +24,12 @@ export interface PgServer {
   server?: string | null
   database?: string | null
   user?: string | null
+  /** The password's reference (`env:…`, `file:…`), or null when it names a file the host wrote (`saved`). */
+  password?: string | null
+  saved?: boolean
+  /** The Store's synchronous_commit, or null (LayerFS's default). */
+  synchronousCommit?: string | null
 }
-
-/** A PostgreSQL server to connect another database on: a Store's URL (server and user) and the Store whose password to reuse. */
-export interface ServerPrefill { server: string, url: string, from: string }
 
 /** One Store: store.list with its store.status. */
 export interface StoreRow {
@@ -46,27 +48,28 @@ export interface StoreRow {
   links: StoreBackupLink[]
   job: string | null
   postgresql?: PgServer | null
-  /** A PostgreSQL Store's machines (store.attach); null from a CLI before attachments. */
-  attachments?: PgAttachment[] | null
-  /** Refused attaches from this host to machines it is not attached to. */
-  attachRefusals?: (SdkRefusal & { machine: string, at: number })[]
+  /** PostgreSQL: the machine its sessions run on by default (this DSH install's choice, never a LayerFS record). */
+  runsOn?: string | null
+  /** PostgreSQL: the machines that dial it with a connection of their own (store.update --machine). */
+  ownConnections?: PgOwnConnection[]
 }
 
-/** A machine a PostgreSQL Store is attached to: its connection and its last check. */
-export interface PgAttachment {
+/** A machine's own connection to a PostgreSQL Store; every other machine dials the Store's. */
+export interface PgOwnConnection {
   machine: string
-  /** The machine dials its own URL or password, not the Store's. */
-  own: boolean
-  /** Its own URL (no password), or null (the Store's). */
+  /** Its own URL (no password), or null (the Store's URL, its own password). */
   url: string | null
   target: string | null
-  /** The machine's own password reference, or null (the Store's). */
+  /** Its own password reference, or null (the Store's, or a file the host wrote: `saved`). */
   password: string | null
   /** The reference names a file the host wrote from a typed password. */
   saved: boolean
-  checked: { at: number | null, version: string | null, latencyMs: number | null } | null
-  lastError: (SdkRefusal & { at: number }) | null
 }
+
+/** GET /api/stores/:s/check?machine=: what `machine` found when it dialled the Store (store.status --machine). Nothing keeps it. */
+export type PgCheck =
+  | { machine: string, host: string | null, ok: true, at: number, version: string | null, latencyMs: number | null }
+  | { machine: string, host: string | null, ok: false, error: { code: string, message: string } }
 
 export interface BackupFile {
   file: string, store: string | null, state: BackupState, bytes: number | null, modified: number | null, reason: string | null
@@ -121,8 +124,6 @@ export interface StorageView {
   stores: StoreRow[]
   buckets: BucketRow[]
   jobs: StorageJob[]
-  /** The pinned CLI's optional calls. */
-  features?: { attach: boolean }
   at: number
 }
 

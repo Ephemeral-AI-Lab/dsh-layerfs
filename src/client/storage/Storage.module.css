@@ -531,20 +531,12 @@
   min-width: 0;
 }
 
-/* New Store (PostgreSQL): the short name beside the long URL. */
-.nameUrlRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 12px;
-}
-
 .noShrink {
   flex: none;
 }
 
 @media (max-width: 560px) {
-  .fieldRow,
-  .nameUrlRow {
+  .fieldRow {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -567,6 +559,21 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* the password row: the input beside the how-toggle, which wraps under it
+   when the two do not fit */
+.passwordRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.passwordInput {
+  flex: 1 1 180px;
+  min-width: 0;
 }
 
 .tiles {

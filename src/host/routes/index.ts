@@ -95,7 +95,7 @@ export function apply(ctx: Context): void {
   const presets = new PresetManager({
     spec: () => {
       const { cli, home, bundle, cacheHome, callLog, gate } = ctx.layerfs.lfs.spec
-      return { cli, home, bundle, cacheHome, callLog, gate, daemon: ctx.layerfs.daemon, state: presetState }
+      return { cli, home, bundle, cacheHome, callLog, gate, daemon: ctx.layerfs.daemon, state: presetState, runsOn: (store: string, machine: string) => { groups.storage.storeMachines.set(store, machine); groups.storage.changed() } }
     },
     busy: () => [
       ...(groups.storage.busy() ? ['a storage job'] : []),
