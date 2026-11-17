@@ -193,14 +193,20 @@ function Pick({ t, groups, fixed, place, onCheck, onRunHere, onNew }: {
   )
 }
 
+/** `text` as a URL with its scheme, as `parsePgUrl` reads one typed without it. */
+const withScheme = (text: string) => (/^postgres(?:ql)?:\/\//i.test(text.trim()) ? text.trim() : `postgresql://${text.trim()}`)
+
 function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
   api: LayerfsApi, t: StorageT, view: StorageView, fixed: string | undefined, server: PgServerGroup | null, place: (m: string) => string
   onConnected: (store: string, machine: string) => void
 }): ReactNode {
+  // a new server is given whole, as one URL; a known server gives its host and user
   const [url, setUrl] = useState('')
-  const [host, setHost] = useState(server?.server ?? '')
-  const [user, setUser] = useState(server?.user ?? '')
-  const [database, setDatabase] = useState('')
+  const [typed, setTyped] = useState('')
+  const given = server ? null : parsePgUrl(url)
+  const host = server ? server.server : given?.host ?? ''
+  const user = server ? server.user : given?.user ?? ''
+  const database = (server ? typed : given?.database ?? '').trim()
   const [name, setName] = useState('')
   const [named, setNamed] = useState(false)
   const [sync, setSync] = useState('')
@@ -213,27 +219,22 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(undefined)
   const [tried, setTried] = useState(false)
-  const fill = (text: string) => {
-    setUrl(text)
-    const parts = parsePgUrl(text)
-    if (!parts || !/^postgres(?:ql)?:\/\//i.test(text.trim())) return
-    setHost(parts.host); setUser(parts.user); setDatabase(parts.database)
-    if (!named) setName(parts.database.toLowerCase().replace(/[^a-z0-9_.-]/g, '-'))
-  }
-  const storeName = (named ? name : name || database.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')).trim()
+  const storeName = (named ? name : database.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')).trim()
   const taken = view.stores.some((s) => s.name === storeName)
-  const dbTaken = server && database.trim() ? server.stores.find((s) => s.postgresql?.database === database.trim()) : undefined
-  const urlError = PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
-  const missing = [!database.trim() && t('cdDatabase'), !host.trim() && t('cdHost'), !storeName && t('cdStoreName'), pw.missing && (pw.how === 'entered' ? t('pgPasswordValue') : t('pgPasswordReferenceLabel'))].filter(Boolean) as string[]
+  const dbTaken = server && database ? server.stores.find((s) => s.postgresql?.database === database) : undefined
+  // a URL that names no server or no database is said so once Connect was tried, not while it is typed
+  const urlShort = !server && !!url.trim() && !(host && database)
+  const urlError = PG_URL_PASSWORD.test(withScheme(url)) ? t('pgPasswordInUrl') : tried && urlShort ? t('cdUrlInvalid') : null
+  const missing = [server ? !database && t('cdDatabase') : !url.trim() && t('cdUrl'), !storeName && t('cdStoreName'), pw.missing && (pw.how === 'entered' ? t('pgPasswordValue') : t('pgPasswordReferenceLabel'))].filter(Boolean) as string[]
   const nameError = storeName && !NAME.test(storeName) ? t('projectNameHint') : taken ? t('nameTaken') : null
-  const valid = !missing.length && !nameError && !urlError && !pw.error(t) && !dbTaken
+  const valid = !missing.length && !urlShort && !nameError && !urlError && !pw.error(t) && !dbTaken
   const submit = async () => {
     setTried(true)
     if (!valid || busy) return
     setBusy(true); setError(undefined)
     try {
       await api.call('POST', '/api/stores/postgresql', {
-        name: storeName, url: pgUrl({ user: user.trim(), host: host.trim(), database: database.trim() }), ...pw.body(), runsOn, ...(sync ? { synchronousCommit: sync } : {}),
+        name: storeName, url: pgUrl({ user, host, database }), ...pw.body(), runsOn, ...(sync ? { synchronousCommit: sync } : {}),
       })
       onConnected(storeName, runsOn)
     } catch (e) {
@@ -244,20 +245,15 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
   }
   return (
     <form id="lfs-cd-new" className={scss.form} onSubmit={(e) => { e.preventDefault(); void submit() }} aria-busy={busy}>
-      <p className={css.serverGiven}>{server ? t('cdOnServer', { server: server.server, user: server.user || '—' }) : t('cdNewServerBody')}</p>
-      {server ? null : <TextField label={t('cdUrl')} value={url} onChange={fill} mono placeholder="postgresql://app@db.internal:5432/orders" hint={t('cdUrlHint')} error={urlError} autoFocus />}
-      <TextField label={t('cdDatabase')} value={database} onChange={setDatabase} mono placeholder="orders" autoFocus={!!server} hint={server ? t('pgDatabaseHint') : undefined}
-        error={dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null} />
-      <TextField label={t('cdStoreName')} value={named ? name : storeName} onChange={(v) => { setNamed(true); setName(v) }} mono hint={t('cdStoreNameHint')} error={nameError} />
-      {server ? null : (
-        <div className={scss.inline}>
-          <span className={scss.grow}><TextField label={t('cdHost')} value={host} onChange={setHost} mono placeholder="db.internal:5432" /></span>
-          <span className={scss.grow}><TextField label={t('cdUserLabel')} value={user} onChange={setUser} mono placeholder="app" /></span>
-        </div>
-      )}
+      {server ? <p className={css.serverGiven}>{t('cdOnServer', { server: server.server, user: server.user || '—' })}</p> : null}
+      {server
+        ? <TextField label={t('cdDatabase')} value={typed} onChange={setTyped} mono placeholder="orders" autoFocus hint={t('pgDatabaseHint')}
+            error={dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null} />
+        : <TextField label={t('cdUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://app@db.internal:5432/orders" hint={t('cdUrlHint')} error={urlError} autoFocus />}
+      <TextField label={t('cdStoreName')} value={named ? name : storeName} onChange={(v) => { setNamed(true); setName(v) }} mono error={nameError} />
       <PgPasswordFields id="lfs-cd-password" pw={pw} t={t} />
       {fixed ? <p className={scss.formNote}>{t('cdRunsOnFixed', { machine: place(fixed) })}</p> : (
-        <Field label={t('pgRunsOnLabel')} hint={t('pgRunsOnHint')} group>
+        <Field label={t('pgRunsOnLabel')} hint={t('cdRunsOnHint')} group>
           <LocationPicker machines={machines} value={runsOn} onChange={setPicked} words={locationWords(t, view)} label={t('pgRunsOnLabel')} fallback={fallback} compact />
         </Field>
       )}
