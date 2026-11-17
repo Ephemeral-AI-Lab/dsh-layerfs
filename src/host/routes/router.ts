@@ -54,6 +54,10 @@ export const STATUS: Record<string, number> = {
   MountsActive: 409,
   Denied: 403,
   Unavailable: 502,
+  // the host's own: no runtime chosen, or a LayerFS folder not set up yet (the setup modal fixes both)
+  CliUnavailable: 503,
+  Uninitialized: 503,
+  MixedBuild: 409,
   Unsupported: 501,
   // a Workspace or Sandbox that is not (or no longer) what the caller named
   NotMounted: 409,

@@ -43,6 +43,7 @@ const en = {
   sessions: '{n} sessions', oneSession: '1 session', newProject: 'New project', importFolder: 'Import a folder',
   configure: 'Set up {project}', newSession: 'New session in {project}', start: 'Start', startFor: 'Start {machine} for {project}',
   openFailed: 'Could not open a session: {message}', startFailed: 'Could not start {machine}: {message}',
+  machineBlocked: 'Can’t run here now · see Machines', engineDown: 'Docker isn’t running · Create opens it',
 }
 
 const zh: typeof en = {
@@ -87,6 +88,7 @@ const zh: typeof en = {
   sessions: '{n} 个会话', oneSession: '1 个会话', newProject: '新建项目', importFolder: '导入文件夹',
   configure: '设置 {project}', newSession: '在 {project} 中新建会话', start: '启动', startFor: '为 {project} 启动 {machine}',
   openFailed: '无法打开会话：{message}', startFailed: '无法启动 {machine}：{message}',
+  machineBlocked: '目前无法在此运行 · 见“机器”', engineDown: 'Docker 未运行 · 创建时会打开它',
 }
 
 export const locales = { en, zh }

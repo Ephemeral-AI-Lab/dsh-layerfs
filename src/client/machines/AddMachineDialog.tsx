@@ -9,36 +9,47 @@
  * fold under "Not available on this computer" with the reason; when nothing
  * else is left (Windows today) the dialog says so plainly. The native row is
  * this computer, named for its OS. The dialog stays open while Create runs.
+ *
+ * A VM's form (docs/specs/layerfs-setup.md §4.4) starts from LayerFS's
+ * defaults (`options[].default`), says how much room this computer has
+ * (`machine stats native`) beside what the other VMs are set to, warns (never
+ * refuses) when the new one asks for more, and keeps "Use stock image" under
+ * More (`os_image: 'stock'`, only when the platform declares it). A missing
+ * Linux bundle is fixed in the Set up LayerFS modal ("Fix in setup").
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { setupDialog, useSetupStatus } from '../setup/store.ts'
 import { CopyLine, Field, Refusal } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
 import {
-  blurbKey, declares, emptyVm, freeMachineName, parseSize, vmErrors, VM_KINDS,
+  blurbKey, declares, emptyVm, freeMachineName, gib, parseSize, roomOf, vmErrors, VM_KINDS,
   type AvailableView, type FormErrors, type MachinePlatformInfo, type VmForm,
 } from './model.ts'
-import { STEP_WORDS, nativeGlyphOs, nativeNameKey, osOfView, readinessOf, shortVersion, type HostOs, type Readiness } from './needs.ts'
+import { useMachineStats } from './MachineStats.tsx'
+import { STEP_WORDS, nativeGlyphOs, nativeNameKey, osOfView, readinessOf, setupOf, shortVersion, type HostOs, type Readiness } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
 import { MachineProgress, MachineStateChip, useInspect } from './parts.tsx'
 import css from './machines.module.css'
 
 export function AddMachineDialog({ view, platforms, onClose, onMade }: { view: AvailableView, platforms: MachinePlatformInfo[], onClose: () => void, onMade: (name: string) => void }): ReactNode {
-  const { t, tw } = useMachinesContext()
+  const { t, tw, api } = useMachinesContext()
   const [form, setForm] = useState<string | null>(null)
   const [help, setHelp] = useState<string | null>(null)
   const [away, setAway] = useState(false)
   const [busy, setBusy] = useState(false)
   const os = osOfView(view)
-  const rows = platforms.map((p) => ({ p, r: readinessOf(p, os, view.layerfs) }))
+  // where LayerFS looks for its Linux bundle, for a `bundle:` need that names no folder (older CLIs)
+  const bundleDir = useSetupStatus(api).data?.pieces.bundle?.path ?? null
+  const rows = platforms.map((p) => ({ p, r: readinessOf(p, os, view.layerfs, { bundleDir }) }))
   const here = rows.filter((x) => x.r.step !== 'unsupported')
   const elsewhere = rows.filter((x) => x.r.step === 'unsupported')
   const row = ({ p, r }: { p: MachinePlatformInfo, r: Readiness }) => (
     <PlatformRow key={p.platform} p={p} r={r} os={os} view={view} busy={busy}
       form={form === p.platform} onForm={(open) => setForm(open ? p.platform : null)}
       help={help === p.platform} onHelp={(open) => setHelp(open ? p.platform : null)}
-      onBusy={setBusy} onMade={(name) => { setBusy(false); onClose(); onMade(name) }} />
+      onLeave={() => { if (!busy) onClose() }} onBusy={setBusy} onMade={(name) => { setBusy(false); onClose(); onMade(name) }} />
   )
   return (
     <Modal open onClose={() => { if (!busy) onClose() }} title={t('addTitle')} description={t('addBody')} closeLabel={t('close')} className={css.wideDialog} contentClassName={css.dialogContent}>
@@ -84,15 +95,19 @@ function nativeLine(view: AvailableView, os: HostOs, t: ReturnType<typeof useMac
   return [c?.name, c?.arch, t(os === 'linux' ? 'nativeSandboxed' : 'nativeUnisolated')].filter(Boolean).join(' · ')
 }
 
-function PlatformRow({ p, r, os, view, busy, form, onForm, help, onHelp, onBusy, onMade }: {
+function PlatformRow({ p, r, os, view, busy, form, onForm, help, onHelp, onLeave, onBusy, onMade }: {
   p: MachinePlatformInfo, r: Readiness, os: HostOs, view: AvailableView, busy: boolean
   form: boolean, onForm: (open: boolean) => void, help: boolean, onHelp: (open: boolean) => void
+  /** Closes the dialog before a fix opens another place (the setup modal, docker's socket setting). */
+  onLeave: () => void
   onBusy: (busy: boolean) => void, onMade: (name: string) => void
 }): ReactNode {
   const { t, tw } = useMachinesContext()
   const blurb = blurbKey(p.platform)
   const ready = r.step === 'ready'
   const step = r.step === 'ready' || r.step === 'unsupported' ? null : STEP_WORDS[r.step]
+  // a missing Linux bundle: Fix in setup opens the Set up LayerFS modal at its runtime
+  const setup = setupOf(r)
   const sub = !ready
     ? r.fixes.filter((f) => f.step === r.step).map((f) => tw(f.why)).join(' · ')
     : p.platform === 'native'
@@ -113,15 +128,19 @@ function PlatformRow({ p, r, os, view, busy, form, onForm, help, onHelp, onBusy,
             : step && (
               <span className={css.platformMark}>
                 <span className={css.tag}>{t(step.tag)}</span>
-                <Button size="sm" variant="outline" aria-expanded={help} onClick={() => onHelp(!help)}>
-                  {t(step.button)}<IconChevronDownOutlineRegular size={12} className={help ? css.flip : undefined} />
-                </Button>
+                {setup
+                  ? <Button size="sm" variant="outline" disabled={busy} onClick={() => { onLeave(); setupDialog.open(setup) }}>{t(step.button)}</Button>
+                  : (
+                    <Button size="sm" variant="outline" aria-expanded={help} onClick={() => onHelp(!help)}>
+                      {t(step.button)}<IconChevronDownOutlineRegular size={12} className={help ? css.flip : undefined} />
+                    </Button>
+                  )}
               </span>
             )}
       </div>
-      {help && !ready && <FixPanel fixes={r.fixes} />}
+      {help && !ready && !setup && <FixPanel fixes={r.fixes} onLeave={onLeave} />}
       {form && ready && (VM_KINDS as readonly string[]).includes(p.platform) && (
-        <VmForm kind={p.platform} view={view} onBusy={onBusy} onCancel={() => onForm(false)} onDone={onMade} />
+        <VmForm kind={p.platform} platform={p} view={view} os={os} onBusy={onBusy} onCancel={() => onForm(false)} onDone={onMade} />
       )}
     </div>
   )
@@ -155,13 +174,19 @@ function BuiltInMark({ view, platform }: { view: AvailableView, platform: string
 
 const say = (tw: (w: NonNullable<FormErrors[keyof VmForm]>) => string, errors: FormErrors, key: keyof VmForm): string | null => (errors[key] ? tw(errors[key]!) : null)
 
-function VmForm({ kind, view, onBusy, onCancel, onDone }: { kind: string, view: AvailableView, onBusy: (busy: boolean) => void, onCancel: () => void, onDone: (name: string) => void }): ReactNode {
+function VmForm({ kind, platform, view, os, onBusy, onCancel, onDone }: {
+  kind: string, platform: MachinePlatformInfo, view: AvailableView, os: HostOs
+  onBusy: (busy: boolean) => void, onCancel: () => void, onDone: (name: string) => void
+}): ReactNode {
   const { t, tw, act, refusal, kind: kindLabel } = useMachinesContext()
   const first = useRef<HTMLInputElement>(null)
   useEffect(() => { first.current?.focus() }, [])
   const has = (option: string) => declares(view.platforms, kind, option)
   const suggested = freeMachineName(kind, view.machines)
-  const [f, setF] = useState<VmForm>(() => ({ ...emptyVm(), name: suggested }))
+  // LayerFS's defaults for this platform when it reports them (options[].default), else the ones this page knew
+  const [f, setF] = useState<VmForm>(() => ({ ...emptyVm(platform), name: suggested }))
+  const [more, setMore] = useState(false)
+  const [stock, setStock] = useState(false)
   const [tried, setTried] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -179,8 +204,10 @@ function VmForm({ kind, view, onBusy, onCancel, onDone }: { kind: string, view: 
     const name = f.name.trim()
     setBusy(true); onBusy(true); setSubmitted(name); setError(null)
     const size = { ...(has('cpus') ? { cpus: Number(f.cpus) } : {}), ...(has('memory') ? { memory: parseSize(f.memory)! } : {}), ...(has('disk') ? { disk: parseSize(f.disk)! } : {}) }
+    // left out, LayerFS uses the prepared OS image when there is one; `stock` asks for the provider's own
+    const image = stock && has('os_image') ? { os_image: 'stock' } : {}
     try {
-      await act({ kind: 'create', input: { platform: kind, name, ...size } })
+      await act({ kind: 'create', input: { platform: kind, name, ...size, ...image } })
       if (first.current?.isConnected) onDone(name)
     } catch (e) {
       setError(e)
@@ -200,6 +227,21 @@ function VmForm({ kind, view, onBusy, onCancel, onDone }: { kind: string, view: 
           {has('memory') && <Field label={t('memory')} error={say(tw, shown, 'memory')}><Input value={f.memory} onChange={set('memory')} /></Field>}
           {has('disk') && <Field label={t('disk')} error={say(tw, shown, 'disk')} hint={t('diskHint')}><Input value={f.disk} onChange={set('disk')} /></Field>}
         </div>
+        <RoomLine view={view} os={os} form={f} />
+        {has('os_image') && (
+          <div className={css.vmMore}>
+            <button type="button" className={css.elsewhereToggle} aria-expanded={more} onClick={() => setMore(!more)}>
+              {more ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronRightOutlineRegular size={12} />}
+              {t('vmMore')}
+            </button>
+            {more && (
+              <div className={css.vmMoreBody}>
+                <Checkbox checked={stock} onChange={setStock} label={t('useStockImage')} />
+                <p className={css.muted}>{t('useStockImageHint')}</p>
+              </div>
+            )}
+          </div>
+        )}
       </fieldset>
       {submitted && <MachineProgress name={submitted} />}
       {busy && <p className={css.muted}>{t('keepOpen')}</p>}
@@ -219,5 +261,39 @@ function VmForm({ kind, view, onBusy, onCancel, onDone }: { kind: string, view: 
       </div>
       {error !== null && <Refusal error={error} labels={refusal} className={css.errorText} />}
     </form>
+  )
+}
+
+/**
+ * How much room this computer has for the new VM: its CPUs, memory and the
+ * free space on the LayerFS folder's disk (`machine stats native`), and what
+ * the other VMs are set to. Asking for more is a warning, never a refusal.
+ * Nothing when the pinned CLI has no machine.stats or it has not answered yet.
+ */
+function RoomLine({ view, os, form }: { view: AvailableView, os: HostOs, form: VmForm }): ReactNode {
+  const { t } = useMachinesContext()
+  const native = view.machines.find((m) => m.name === 'native') ?? { name: 'native', state: 'ready' }
+  const observed = useMachineStats(native)
+  const r = observed.read?.stats?.resources
+  if (!r || (r.cpus == null && r.memoryTotal == null && r.diskFree == null)) return null
+  const cpus = Number(form.cpus)
+  const room = roomOf({ cpus: r.cpus, memory: r.memoryTotal, diskFree: r.diskFree }, view.machines, {
+    cpus: Number.isInteger(cpus) && cpus > 0 ? cpus : null, memory: parseSize(form.memory), disk: parseSize(form.disk),
+  })
+  const host = t(nativeNameKey(os))
+  const count = (n: number) => t(n === 1 ? 'roomCpusOne' : 'roomCpus', { n: String(n) })
+  const parts = [
+    r.cpus != null && r.memoryTotal != null ? t('roomHost', { host, cpus: count(r.cpus), memory: gib(r.memoryTotal) })
+      : r.cpus != null ? t('roomHostCpus', { host, cpus: count(r.cpus) })
+        : r.memoryTotal != null ? t('roomHostMemory', { host, memory: gib(r.memoryTotal) }) : null,
+    r.diskFree != null ? t('roomDisk', { free: gib(r.diskFree) }) : null,
+  ].filter(Boolean).join(t('roomSep'))
+  const others = room.others.count > 0 ? t('roomOthers', { cpus: count(room.others.cpus), memory: gib(room.others.memory) }) : null
+  const over = room.over.map((x) => t(x === 'cpus' ? 'roomOverCpus' : x === 'memory' ? 'roomOverMemory' : 'roomOverDisk'))
+  return (
+    <div className={css.roomLine} data-room={room.over.length ? 'over' : 'ok'}>
+      <p className={css.muted}>{others ? t('roomWithOthers', { host: parts, others }) : t('roomAlone', { host: parts })}</p>
+      {over.length > 0 && <p className={css.roomWarn} role="status">{over.join(' ')}</p>}
+    </div>
   )
 }

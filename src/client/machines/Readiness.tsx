@@ -3,21 +3,29 @@
  * for each need with commands to copy and Check again; and Blocked, the line
  * a machine block shows when its platform stopped being ready here (Docker
  * quit, Lima removed): why it cannot run now and the one step that fixes it,
- * in place of a Start that would only fail.
+ * in place of a Start that would only fail. A missing Linux bundle is fixed
+ * in the Set up LayerFS modal ("Fix in setup"); Docker's socket that does not
+ * answer links to docker's socket setting when LayerFS found others.
  */
 import { useState, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CopyLine } from '../ui/index.tsx'
+import { setupDialog } from '../setup/store.ts'
+import { CopyLine, LinkButton } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachineInfo } from './model.ts'
-import { STEP_WORDS, stepReasons, type Fix, type Readiness } from './needs.ts'
+import { STEP_WORDS, setupOf, stepReasons, type Fix, type Readiness } from './needs.ts'
+import { requestSocketSetting } from './socket.ts'
 import css from './machines.module.css'
 
 const URL_LINE = /^https?:\/\//
 
-/** What to do for each need, in ladder order, then Check again (a fresh probe). */
-export function FixPanel({ fixes, className }: { fixes: Fix[], className?: string | undefined }): ReactNode {
-  const { t, tw, recheck } = useMachinesContext()
+/**
+ * What to do for each need, in ladder order, then Check again (a fresh probe).
+ * `onLeave`: called before a fix that opens another place (the setup modal,
+ * docker's socket setting), so a dialog showing the panel can close.
+ */
+export function FixPanel({ fixes, className, onLeave }: { fixes: Fix[], className?: string | undefined, onLeave?: (() => void) | undefined }): ReactNode {
+  const { t, tw, recheck, go } = useMachinesContext()
   const [checking, setChecking] = useState(false)
   const shown = fixes.filter((f) => f.step !== 'unsupported')
   return (
@@ -28,6 +36,12 @@ export function FixPanel({ fixes, className }: { fixes: Fix[], className?: strin
           {f.commands.map((line) => URL_LINE.test(line)
             ? <a key={line} href={line} target="_blank" rel="noreferrer" className={css.fixLink}>{line}</a>
             : <CopyLine key={line} text={line} copyLabel={t('copy')} copiedLabel={t('copied')} />)}
+          {f.setup && (
+            <Button size="sm" variant="outline" onClick={() => { onLeave?.(); setupDialog.open(f.setup) }}>{t('fixInSetup')}</Button>
+          )}
+          {f.socket && (
+            <p><LinkButton onClick={() => { onLeave?.(); requestSocketSetting(); go({ kind: 'machine', name: 'docker' }) }}>{t('chooseSocket')}</LinkButton></p>
+          )}
         </div>
       ))}
       <Button size="sm" variant="outline" disabled={checking} onClick={() => { setChecking(true); void recheck().finally(() => setChecking(false)) }}>
@@ -45,13 +59,16 @@ export function Blocked({ m, block, action }: { m: MachineInfo, block: Readiness
   const { t, tw, kind } = useMachinesContext()
   const [open, setOpen] = useState(false)
   const step = block.step === 'ready' || block.step === 'unsupported' ? null : STEP_WORDS[block.step]
+  // a missing Linux bundle: the setup modal fixes it, so its button opens it
+  const setup = setupOf(block)
   const reason = stepReasons(block, tw)
   return (
     <div className={css.blocked} data-step={block.step}>
       <div className={css.blockedLine}>
         <span className={css.blockReasonText} title={reason}>{t('unavailableWhy', { kind: kind(m.platform), reason })}</span>
         {action}
-        {step && !action && (
+        {step && !action && setup && <Button size="sm" variant="outline" onClick={() => setupDialog.open(setup)}>{t(step.button)}</Button>}
+        {step && !action && !setup && (
           <Button size="sm" variant="outline" aria-expanded={open} onClick={() => setOpen(!open)}>
             {t(step.button)}<IconChevronDownOutlineRegular size={12} className={open ? css.flip : undefined} />
           </Button>

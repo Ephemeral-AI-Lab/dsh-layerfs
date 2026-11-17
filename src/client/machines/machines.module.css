@@ -2960,3 +2960,130 @@
     display: none;
   }
 }
+
+/* ---------- Add machine: the VM form's room line and More (docs/specs/layerfs-setup.md §4.4) ---------- */
+
+.roomLine {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.roomLine p {
+  margin: 0;
+}
+
+.roomWarn {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.vmMore {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vmMoreBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.vmMoreBody p {
+  margin: 0;
+}
+
+/* ---------- docker's Settings: the socket choice (docs/specs/layerfs-setup.md §4.3) ---------- */
+
+.socketList {
+  display: flex;
+  flex-direction: column;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-lg);
+  overflow: hidden;
+}
+
+.socketRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.socketRow + .socketRow {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.socketRow[aria-checked='true'] {
+  background: var(--dsw-alias-interactive-bg-active);
+}
+
+.socketRow:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .socketRow:hover:not([aria-checked='true']):not(:disabled) {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.socketRadio {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 50%;
+}
+
+.socketRow[aria-checked='true'] .socketRadio {
+  border: 4px solid var(--dsw-alias-state-business-primary);
+}
+
+.socketText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.socketPath {
+  overflow: hidden;
+  font-family: var(--ds-font-family-code);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.socketMeta {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.socketNote {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.socketNote p {
+  margin: 0;
+}

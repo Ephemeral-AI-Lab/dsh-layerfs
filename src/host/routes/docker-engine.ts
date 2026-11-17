@@ -32,8 +32,10 @@ export const isSocketNeed = (need: string): boolean => need.startsWith('host:/')
  * ready only because its socket does not answer; null otherwise (ready, or
  * something else missing that starting the Engine does not fix).
  */
-export function engineSocket(row: { platform: string, ready: boolean, missing: readonly string[] } | null | undefined): string | null {
+export function engineSocket(row: { platform: string, ready: boolean, missing: readonly string[], socket?: { state?: string | null } } | null | undefined): string | null {
   if (!row || row.platform !== 'docker' || row.ready || row.missing.length === 0) return null
+  // the Engine answers but refuses this user (EACCES): launching it fixes nothing
+  if (row.socket?.state === 'denied') return null
   if (!row.missing.every(isSocketNeed)) return null
   return row.missing[0].slice('host:'.length)
 }

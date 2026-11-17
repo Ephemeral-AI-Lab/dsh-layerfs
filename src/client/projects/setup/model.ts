@@ -3,6 +3,8 @@
  * machines can run a Store kind, the default machine, where a project runs,
  * and the steps a Create takes. Pure; read from a `/api/storage` view.
  */
+import type { MachinePlatformInfo } from '../../machines/model.ts'
+import { engineStart, machineBlock, type HostOs } from '../../machines/needs.ts'
 import type { StorageView, StoreRow } from '../../storage/types.ts'
 
 export type StoreKind = 'sqlite' | 'postgresql'
@@ -19,10 +21,43 @@ export function machinesFor(view: Pick<StorageView, 'machines'> | undefined, kin
   return (view?.machines ?? []).filter(can).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 }
 
-/** The default machine: docker when it can run the kind, else native, else the first. */
-export function defaultMachine(machines: readonly Machine[]): string {
-  return machines.find((m) => m.name === 'docker')?.name ?? machines.find((m) => m.name === 'native')?.name ?? machines[0]?.name ?? 'native'
+/**
+ * A machine whose platform is not ready here (needs.ts machineBlock): it
+ * cannot run now whatever its record says. `startable`: only the Docker
+ * Engine is down on macOS, which the machine's Start launches first, so it
+ * stays pickable (Create starts it).
+ */
+export interface TileBlock { startable: boolean }
+
+/** The machines that cannot run here now, by name; empty while the platforms are not read (an older host). */
+export function tileBlocks(
+  machines: readonly Pick<Machine, 'name' | 'platform'>[],
+  platforms: readonly Pick<MachinePlatformInfo, 'platform' | 'ready' | 'missing' | 'socket' | 'candidates'>[] | undefined,
+  os: HostOs | undefined,
+): Map<string, TileBlock> {
+  const out = new Map<string, TileBlock>()
+  if (!platforms) return out
+  const computer = { os: os ?? 'macos', name: null, arch: '' } as const
+  for (const m of machines) {
+    const block = machineBlock(m, { platforms, computer })
+    if (block) out.set(m.name, { startable: engineStart(m, block, computer.os) })
+  }
+  return out
 }
+
+/**
+ * The default machine: docker when it can run the kind and nothing blocks it
+ * here (`blocks`: tileBlocks), else native, else the first that can run,
+ * else the first.
+ */
+export function defaultMachine(machines: readonly Machine[], blocks: ReadonlyMap<string, TileBlock> = new Map()): string {
+  const docker = machines.find((m) => m.name === 'docker')
+  if (docker && !blocks.has(docker.name)) return docker.name
+  return machines.find((m) => m.name === 'native')?.name ?? machines.find((m) => !blocks.has(m.name))?.name ?? machines[0]?.name ?? 'native'
+}
+
+/** Whether `name` can be picked: not blocked here, or only waiting on the Docker Engine its Start launches. */
+export const pickable = (name: string, blocks: ReadonlyMap<string, TileBlock>): boolean => blocks.get(name)?.startable ?? true
 
 /** A PostgreSQL Store's attached machines (native when the CLI predates attachments). */
 export function attachedMachines(store: Pick<StoreRow, 'attachments'>): string[] {

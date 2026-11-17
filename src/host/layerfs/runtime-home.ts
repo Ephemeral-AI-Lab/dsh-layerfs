@@ -18,7 +18,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 
 export interface InstalledRuntime {
@@ -100,12 +100,22 @@ function placeFile(src: string, dest: string, what: string): string {
   return dest
 }
 
-/** The bundle folder into `bundle/<platform>`: reused when its bundle.json matches, refused when different. */
-function placeBundle(src: string, dir: string): string {
+/**
+ * The bundle folder into `bundle/<platform>`: reused when its bundle.json
+ * matches. A different one is refused, unless `replace` (no worker machine
+ * runs, so none has the old one mounted): then the old folder is renamed away
+ * and removed after the new one is in place.
+ */
+function placeBundle(src: string, dir: string, replace = false): string {
   const dest = join(dir, 'bundle', basename(src))
   if (src === dest) return dest
   if (existsSync(dest)) {
-    if (readFileSync(join(src, 'bundle.json'), 'utf8') !== readFileSync(join(dest, 'bundle.json'), 'utf8')) throw refusal(`This runtime (${basename(dir)}) already has a different Linux bundle for ${basename(src)}`)
+    if (readFileSync(join(src, 'bundle.json'), 'utf8') === readFileSync(join(dest, 'bundle.json'), 'utf8')) return dest
+    if (!replace) throw refusal(`This runtime (${basename(dir)}) already has a different Linux bundle for ${basename(src)}; stop the docker and VM machines to replace it`)
+    const old = `${dest}.tmp-rm-${randomUUID().slice(0, 8)}`
+    renameSync(dest, old)
+    try { place(src, dest, true) } catch (error) { renameSync(old, dest); throw error }
+    rmSync(old, { recursive: true, force: true })
     return dest
   }
   place(src, dest, true)
@@ -117,7 +127,7 @@ function placeBundle(src: string, dir: string): string {
  * answers the paths to pin there. Paths already inside that folder are kept.
  * The home folder is made owner-only when this creates it (LayerFS requires 0700).
  */
-export function installRuntime(home: string, version: string, given: { cli: string, daemon: string | null, bundle: string | null }): { id: string, cli: string, daemon: string | null, bundle: string | null } {
+export function installRuntime(home: string, version: string, given: { cli: string, daemon: string | null, bundle: string | null }, options: { replaceBundle?: boolean } = {}): { id: string, cli: string, daemon: string | null, bundle: string | null } {
   if (!existsSync(home)) mkdirSync(home, { recursive: true, mode: 0o700 })
   const root = runtimeRoot(home)
   mkdirSync(root, { recursive: true, mode: 0o700 })
@@ -128,8 +138,104 @@ export function installRuntime(home: string, version: string, given: { cli: stri
   // not given: keep what this folder already has
   const present = installedRuntimes(home).find((r) => r.id === id)
   const daemon = given.daemon ? placeFile(given.daemon, join(dir, 'bin', 'layerfs-daemon'), 'daemon') : present?.daemon ?? null
-  const bundle = given.bundle ? placeBundle(given.bundle, dir) : present?.bundle ?? null
+  const bundle = given.bundle ? placeBundle(given.bundle, dir, options.replaceBundle === true) : present?.bundle ?? null
   return { id, cli, daemon, bundle }
+}
+
+// ---------------------------------------------------------------- pin leases
+
+/**
+ * A host's pin lease on a runtime folder: `<home>/runtime/<id>/pins/<host id>`
+ * (a small JSON file naming the host's plugin root). A cleanup on any host
+ * keeps a folder that holds a lease, so one host never removes the runtime
+ * another host pins. A host moves its lease when its pin moves.
+ */
+export const hostId = (root: string): string => createHash('sha256').update(root).digest('hex').slice(0, 16)
+
+/** The runtime folder (`<home>/runtime/<id>`) a path lies in, or null. */
+export function runtimeOf(home: string, path: string | null | undefined): string | null {
+  if (!path) return null
+  const root = runtimeRoot(home)
+  if (!inside(root, path)) return null
+  const id = relative(root, path).split(/[\\/]/)[0]
+  return id ? join(root, id) : null
+}
+
+/**
+ * Leaves this host's lease on the folder holding `cli` (if it is an installed
+ * runtime) and removes its lease from every other folder. Never throws.
+ */
+export function leasePin(home: string, root: string, cli: string | null): void {
+  const id = hostId(root)
+  const held = runtimeOf(home, cli)
+  for (const r of installedRuntimes(home)) {
+    const lease = join(r.dir, 'pins', id)
+    try {
+      if (r.dir === held) {
+        mkdirSync(join(r.dir, 'pins'), { recursive: true, mode: 0o700 })
+        writeFileSync(lease, `${JSON.stringify({ root, at: new Date().toISOString() })}\n`, { mode: 0o600 })
+      } else if (existsSync(lease)) rmSync(lease, { force: true })
+    } catch { /* a lease is advisory */ }
+  }
+}
+
+/** Whether any host holds a lease on the runtime folder `dir`. */
+export function leased(dir: string): boolean {
+  try { return readdirSync(join(dir, 'pins')).some((n) => !n.startsWith('.')) } catch { return false }
+}
+
+// ---------------------------------------------------------------- build identity
+
+/** A piece's build: its commit (40 hex) and whether its tree was dirty; null where it says nothing. */
+export interface BuildStamp { readonly commit: string | null, readonly dirty: boolean | null }
+
+/** `matches` (same commit, both clean), `other` (different commits), `unknown` (a commit or a clean tree cannot be told), `missing` (no such piece). */
+export type Verdict = 'matches' | 'other' | 'unknown' | 'missing'
+
+/** LayerFS's rule (`home get` `matches`): false when the commits differ, true when equal and both clean, else unknown. */
+export function verdictOf(cli: BuildStamp | null, piece: BuildStamp | null): Verdict {
+  if (!piece) return 'missing'
+  if (!cli?.commit || !piece.commit) return 'unknown'
+  if (cli.commit !== piece.commit) return 'other'
+  return cli.dirty === false && piece.dirty === false ? 'matches' : 'unknown'
+}
+
+/** A Linux bundle's build from its bundle.json (`source.head`, `source.dirty`), or null when unreadable. */
+export function bundleStamp(dir: string | null | undefined): BuildStamp | null {
+  if (!dir) return null
+  try {
+    const b = JSON.parse(readFileSync(join(dir, 'bundle.json'), 'utf8'))
+    const head = typeof b?.source?.head === 'string' && /^[0-9a-f]{40}$/.test(b.source.head) ? b.source.head : null
+    return { commit: head, dirty: typeof b?.source?.dirty === 'boolean' ? b.source.dirty : null }
+  } catch { return null }
+}
+
+const stamps = new Map<string, { key: string, stamp: BuildStamp }>()
+const MARK = Buffer.from('layerfs-build-identity:')
+
+/**
+ * A `layerfs-daemon`'s build from the identity LayerFS stamps into it
+ * (`layerfs-build-identity:<commit>:clean|dirty`), read from the file, never
+ * by running it; kept by path, size and modification time. A daemon from
+ * before the stamp answers `{ commit: null, dirty: null }`; a missing file null.
+ */
+export function daemonStamp(path: string | null | undefined): BuildStamp | null {
+  if (!path) return null
+  let st
+  try { st = statSync(path) } catch { return null }
+  const key = `${st.size}:${st.mtimeMs}`
+  const kept = stamps.get(path)
+  if (kept?.key === key) return kept.stamp
+  let stamp: BuildStamp = { commit: null, dirty: null }
+  try {
+    const data = readFileSync(path)
+    for (let at = data.indexOf(MARK); at >= 0; at = data.indexOf(MARK, at + 1)) {
+      const m = /^([0-9a-f]{40}):(clean|dirty)/.exec(data.subarray(at + MARK.length, at + MARK.length + 48).toString('latin1'))
+      if (m) { stamp = { commit: m[1]!, dirty: m[2] === 'dirty' }; break }
+    }
+  } catch { /* unreadable: unknown */ }
+  stamps.set(path, { key, stamp })
+  return stamp
 }
 
 // ---------------------------------------------------------------- cleanup
@@ -149,6 +255,8 @@ export type KeptWhy =
   | 'process'
   /** It has a Linux bundle and a worker machine is not stopped: its worker may have the bundle mounted. */
   | 'worker'
+  /** A host's pin lease names it (`pins/<host id>`): another host sharing this home pins it. */
+  | 'lease'
   /** A fact could not be read (machines, processes) or the folder is not a plain folder here: kept. */
   | 'unknown'
 
@@ -213,6 +321,7 @@ export function planRuntimeCleanup(runtimes: readonly InstalledRuntime[], facts:
     const dirs = [r.dir, real(r.dir)]
     const holds = (paths: readonly string[]) => paths.some((p) => dirs.some((d) => within(d, p)))
     const why: KeptWhy | null = holds(pinned) ? 'pinned'
+      : leased(r.dir) ? 'lease'
       : index < newest ? 'newest'
       : !known ? 'unknown'
       : holds(named) ? 'machine'

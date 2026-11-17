@@ -2,11 +2,13 @@
  * Buttons for a doctor finding's fixes (fixes.ts): Start a machine's worker,
  * Stop a machine, or Close a Sandbox, through the machines controller. Stop
  * and Close ask first; Close is forced, since a Sandbox with a dead daemon
- * cannot close cleanly. After a fix the page reads the findings again.
+ * cannot close cleanly. After a fix the page reads the findings again. A
+ * setup finding's fix opens the Set up LayerFS modal at its section.
  */
 import { useState, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useMachinesContext } from '../machines/context.tsx'
+import { setupDialog } from '../setup/store.ts'
 import { Refusal } from '../ui/index.tsx'
 import type { FindingFix } from './fixes.ts'
 import type { DoctorT } from './locale.ts'
@@ -22,6 +24,7 @@ export function FindingActions({ fixes, t, onDone }: { fixes: readonly FindingFi
   if (!shown.length) return null
   const keyOf = (f: FindingFix) => `${f.kind}:${f.name}`
   const run = async (f: FindingFix) => {
+    if (f.kind === 'setup') { setupDialog.open(f.name); return }
     setBusy(keyOf(f)); setError(null)
     try {
       if (f.kind === 'start') await mc.act({ kind: 'start', name: f.name, platform: machines!.find((m) => m.name === f.name)!.platform })
@@ -31,12 +34,13 @@ export function FindingActions({ fixes, t, onDone }: { fixes: readonly FindingFi
       onDone()
     } catch (e) { setError(e) } finally { setBusy(null) }
   }
-  const label = (f: FindingFix) => t(f.kind === 'start' ? 'healthFixStart' : f.kind === 'stop' ? 'healthFixStop' : 'healthFixClose', { name: f.name })
+  const label = (f: FindingFix) => (f.kind === 'setup' ? t(f.name === 'runtime' ? 'healthFixSetup' : 'healthOpenSetup')
+    : t(f.kind === 'start' ? 'healthFixStart' : f.kind === 'stop' ? 'healthFixStop' : 'healthFixClose', { name: f.name }))
   return (
     <div className={css.fixActions}>
       {shown.map((f) => (
         <Button key={keyOf(f)} size="sm" variant={f.kind === 'start' ? 'primary' : 'outline'} disabled={busy !== null}
-          onClick={() => (f.kind === 'start' ? void run(f) : setAsking(f))}>
+          onClick={() => (f.kind === 'start' || f.kind === 'setup' ? void run(f) : setAsking(f))}>
           {busy === keyOf(f) ? t('healthFixRunning') : label(f)}
         </Button>
       ))}

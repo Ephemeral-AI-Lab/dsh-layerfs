@@ -15,12 +15,15 @@
  *   bucket                   its connection
  *
  * Doctor results come from `GET /api/doctor-jobs` with the host's summary; a
- * doctor pill opens the Doctor panel on that report. A row's Check and Check
+ * doctor pill opens the Doctor panel on that report. The setup check's
+ * warnings (`setup.status`, LayerFS's `home get`) are findings too, each with
+ * a button into the Set up LayerFS modal, the only place that fixes them; a
+ * folder others can read is a note. A row's Check and Check
  * all queue the cheap diagnoses; full integrity only runs from the panel.
  * Opening the page reads results and launches nothing.
  */
 import { useMemo, useState, type ReactNode } from 'react'
-import { Button, IconRefreshOutlineRegular, IconShieldOutlineRegular, IconWarningOutlineRegular, IconWarningTriangleOutlineRegular, StateDot, Tag, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconInfoOutlineRegular, IconRefreshOutlineRegular, IconShieldOutlineRegular, IconWarningOutlineRegular, IconWarningTriangleOutlineRegular, StateDot, Tag, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { busyState, DoctorPanel, type DoctorJob, type DoctorRequest, type DoctorTarget } from './Doctor.tsx'
 import type { DoctorT } from './locale.ts'
@@ -36,7 +39,8 @@ import { BucketGlyph } from '../storage/parts.tsx'
 import { CopyLine } from '../ui/index.tsx'
 import { FindingActions } from './FindingActions.tsx'
 import { Leftovers } from './Leftovers.tsx'
-import { findingFixes } from './fixes.ts'
+import { findingFixes, setupFindings, type FindingFix, type SetupFinding } from './fixes.ts'
+import { useSetupStatus } from '../setup/store.ts'
 import css from './Health.module.css'
 
 type Group = 'host' | 'machines' | 'sandboxes' | 'stores' | 'buckets'
@@ -135,11 +139,17 @@ function useMachineRows(): { machines: MachineRow[], sandboxes: { name: string, 
 }
 
 /** The rows: the host, then what the machines view and Storage record, each with only its own checks. */
-function rowsOf(t: DoctorT, home: string, machines: ReturnType<typeof useMachineRows>, storage: StorageView | undefined): Row[] {
+function rowsOf(t: DoctorT, home: string, machines: ReturnType<typeof useMachineRows>, storage: StorageView | undefined, setup: readonly SetupFinding[] | null): Row[] {
   const place = (m: string | null | undefined) => (m === 'native' ? home : m ?? '—')
+  // the setup check (`home get`), read on its own: a pill on the host row, its warnings listed under Needs attention
+  const warned = setup?.filter((f) => f.severity === 'warning').length ?? 0
+  const setupItem: Item[] = setup ? [{
+    key: 'host:setup', label: t('healthItemSetup'), sweep: true,
+    live: warned ? { state: 'warning', words: warned === 1 ? t('healthCellWarning') : t('healthCellWarnings', { n: warned }), job: null } : { state: 'done', words: t('healthCellOk'), job: null },
+  }] : []
   const rows: Row[] = [{
     key: 'host', group: 'host', label: t('healthHomeRow'), name: '', sub: t('healthSubHost'), kind: 'host',
-    items: [{ key: 'host', label: t('healthItemHost'), probe: { target: 'host' } }], checks: [{ target: 'host' }],
+    items: [{ key: 'host', label: t('healthItemHost'), probe: { target: 'host' } }, ...setupItem], checks: [{ target: 'host' }],
   }]
   for (const m of [...machines.machines].sort((a, b) => Number(b.name === 'native') - Number(a.name === 'native'))) {
     rows.push({
@@ -201,7 +211,10 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
   const jobs = useQuery(() => api.call<DoctorJob[]>('GET', '/api/doctor-jobs'), [api], { refresh: [tick] })
   useHostEvents(api, ['doctor'], () => setTick((n) => n + 1))
   const machines = useMachineRows()
-  const base = useMemo(() => rowsOf(t, ts('groupHome'), machines, storage), [t, ts, machines, storage])
+  // `home get` warnings (setup.status): absent from an older host, which then shows none
+  const setupStatus = useSetupStatus(api)
+  const setup = useMemo(() => (setupStatus.data ? setupFindings(setupStatus.data.warnings) : null), [setupStatus.data])
+  const base = useMemo(() => rowsOf(t, ts('groupHome'), machines, storage, setup), [t, ts, machines, storage, setup])
   // The home sweep's findings land on the rows they name, so the ring, the
   // group cards and each row agree with the verdict above them.
   const rows = useMemo(() => withSweep(base, sweep.data, t), [base, sweep.data, t])
@@ -238,14 +251,17 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
   const liveProblems = counted.filter((c) => !('probe' in c.item) && !c.item.sweep && c.cell.state === 'error')
   const sweepFindings = sweep.data?.findings ?? []
   const errors = sweepFindings.filter((f) => f.severity === 'error').length + done.reduce((n, r) => n + r.cell.job!.summary!.errors, 0) + liveProblems.length
-  const warnings = sweepFindings.filter((f) => f.severity === 'warning').length + done.reduce((n, r) => n + r.cell.job!.summary!.warnings, 0)
+  const setupWarnings = (setup ?? []).filter((f) => f.severity === 'warning')
+  const warnings = sweepFindings.filter((f) => f.severity === 'warning').length + done.reduce((n, r) => n + r.cell.job!.summary!.warnings, 0) + setupWarnings.length
   const incomplete = done.filter((r) => !r.cell.job!.summary!.complete).length
   const unfinished = reports.filter((r) => r.cell.job && (r.cell.job.state === 'failed' || r.cell.job.state === 'interrupted')).length
   const quick = done.filter((r) => 'probe' in r.item && r.item.probe.target === 'store.integrity' && r.cell.job!.summary!.mode === 'quick').length
   const last = Math.max(sweep.data?.at ?? 0, ...reports.map((r) => r.cell.job?.ended ?? 0))
   const never = done.length === 0 && reports.every((r) => !r.cell.job) && !sweep.data
   const sweepFailed = sweep.error !== undefined && !sweep.data
-  const tone: StateDotState = running ? 'ongoing' : errors || sweepFailed ? 'error' : warnings || incomplete || unfinished ? 'warning' : never ? 'idle' : 'done'
+  // the home sweep runs as the page opens: until it answers the page is checking, not "not checked yet"
+  const sweeping = sweep.loading && !sweep.data
+  const tone: StateDotState = running || sweeping ? 'ongoing' : errors || sweepFailed ? 'error' : warnings || incomplete || unfinished ? 'warning' : never ? 'idle' : 'done'
   const headline = [errors ? (errors === 1 ? t('healthCountError') : t('healthCountErrors', { n: errors })) : null, warnings ? (warnings === 1 ? t('healthCountWarning') : t('healthCountWarnings', { n: warnings })) : null].filter(Boolean).join(', ')
 
   const ring = { done: 0, warning: 0, error: 0, ongoing: 0, idle: 0 }
@@ -259,13 +275,14 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
     sweepFailed ? t('healthNoteSweepFailed') : null,
   ].filter((x): x is string => !!x)
   if (ring.idle && (errors || warnings || unfinished || incomplete || sweepFailed) && !never) details.push(t('healthGroupNone', { n: ring.idle }))
-  const heroTitle = running ? t('healthHeroChecking')
+  const heroTitle = running || sweeping ? t('healthHeroChecking')
     : errors ? (errors === 1 ? t('healthHeroError') : t('healthHeroErrors', { n: errors }))
-      : never ? t('healthHeroNever')
+      : never ? t('healthNever')
         : warnings || unfinished || incomplete || sweepFailed ? t('healthHeroMostly')
           : ring.idle ? t('healthHeroSoFar') : t('healthHeroHealthy')
   const heroLine = running ? t('healthChecking', { n: running })
-    : never ? t('healthNeverNote')
+    : sweeping ? t('healthSweeping')
+      : never ? t('healthNeverNote')
       : errors || warnings ? headline
         : unfinished || incomplete || sweepFailed ? t('healthCleanPartial')
           : ring.idle ? (ring.idle === 1 ? t('healthHeroSoFarLineOne') : t('healthHeroSoFarLine', { n: ring.idle })) : t('healthHeroHealthyLine')
@@ -280,11 +297,13 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
 
   // Findings: errors first; the home sweep's, each report's and the host's own PostgreSQL facts, in LayerFS's words.
   // A leftover (layerfs-project#180) is listed below with its size, age and command, not here, so each keeps its own row.
-  const findings = [
+  const findings: Finding[] = [
     ...sweepFindings.filter((f) => !f.leftover).map((f) => ({ severity: f.severity, entity: f.entity ? `${f.entity.kind} · ${f.entity.name}` : null, target: f.entity ?? null, message: f.message, fix: f.fix, source: t('healthSourceSweep') as string | null })),
     ...done.flatMap((r) => r.cell.job!.summary!.findings.map((f) => ({ ...f, entity: `${r.row.kind} · ${r.row.label}`, target: { kind: r.row.kind, name: r.row.name }, source: 'probe' in r.item && r.item.probe.target.includes('.') ? r.item.probe.target : null }))),
     ...liveProblems.map((c) => ({ severity: 'error' as const, entity: `${c.row.kind} · ${c.row.label}`, target: { kind: c.row.kind, name: c.row.name }, message: 'problem' in c.item && c.item.problem ? c.item.problem.message : c.cell.words, fix: 'problem' in c.item && c.item.problem ? c.item.problem.fix : null, source: c.item.label })),
-  ].sort((a, b) => Number(a.severity !== 'error') - Number(b.severity !== 'error'))
+    // the setup check's: fixed only in the Set up LayerFS modal
+    ...(setup ?? []).map((f): Finding => ({ severity: f.severity, entity: t('healthSetupEntity'), target: null, message: f.message, fix: null, source: f.code, fixes: [{ kind: 'setup', name: f.section }] })),
+  ].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity])
   const grouped = groupFindings(findings)
 
   const all = rows.flatMap((r) => r.checks)
@@ -361,11 +380,11 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
             {grouped.map(({ first: f, also }, i) => (
               <li key={i} className={css.finding} data-severity={f.severity}>
                 <span className={css.findingIcon} aria-hidden="true">
-                  {f.severity === 'error' ? <IconWarningOutlineRegular size={16} /> : <IconWarningTriangleOutlineRegular size={16} />}
+                  {f.severity === 'error' ? <IconWarningOutlineRegular size={16} /> : f.severity === 'note' ? <IconInfoOutlineRegular size={16} /> : <IconWarningTriangleOutlineRegular size={16} />}
                 </span>
                 <div className={css.findingBody}>
                   <span className={css.findingTop}>
-                    <Tag tone={f.severity === 'error' ? 'danger' : 'warning'}>{f.severity === 'error' ? t('healthSeverityError') : t('healthSeverityWarning')}</Tag>
+                    <Tag tone={f.severity === 'error' ? 'danger' : f.severity === 'note' ? 'neutral' : 'warning'}>{f.severity === 'error' ? t('healthSeverityError') : f.severity === 'note' ? t('healthSeverityNote') : t('healthSeverityWarning')}</Tag>
                     {f.entity ? <span className={css.entity}>{f.entity}</span> : null}
                     {f.source ? <span className={css.source}>{f.source}</span> : null}
                   </span>
@@ -373,7 +392,7 @@ function Health({ api, t, ts, storage, sweep, onSweep, now }: HealthProps): Reac
                   {f.fix ? (/^layerfs\s/.test(f.fix)
                     ? <CopyLine text={f.fix} copyLabel={t('healthCopy')} copiedLabel={t('healthCopied')} />
                     : <span className={css.fix}><Inline text={f.fix} /></span>) : null}
-                  <FindingActions fixes={findingFixes(f)} t={t} onDone={onSweep} />
+                  <FindingActions fixes={f.fixes ?? findingFixes(f)} t={t} onDone={onSweep} />
                   {also.length ? (
                     <details className={css.also}>
                       <summary>{t('healthAlsoAffects', { n: also.length })}</summary>
@@ -503,7 +522,14 @@ function withSweep(rows: Row[], sweep: DoctorReport | undefined, t: DoctorT): Ro
   })
 }
 
-interface Finding { severity: 'error' | 'warning', entity: string | null, target?: { kind: string, name: string } | null, message: string, fix: string | null, source: string | null }
+interface Finding {
+  severity: 'error' | 'warning' | 'note', entity: string | null, target?: { kind: string, name: string } | null, message: string, fix: string | null, source: string | null
+  /** Its buttons when they are not read from `fix` (a setup finding's: into the setup modal). */
+  fixes?: FindingFix[]
+}
+
+/** Errors first, then warnings, then notes. */
+const SEVERITY_RANK: Record<Finding['severity'], number> = { error: 0, warning: 1, note: 2 }
 
 /**
  * Findings that say the same thing about different resources become one

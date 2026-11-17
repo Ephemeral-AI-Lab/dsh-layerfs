@@ -221,8 +221,11 @@ export const platformOf = (p: any) => ({
   ready: p.ready === true,
   missing: list(p.missing).map(String),
   version: text(p.version),
-  options: list(p.options).map((o: any) => ({ name: String(o.name), kind: String(o.kind) })),
+  options: list(p.options).map((o: any) => ({ name: String(o.name), kind: String(o.kind), ...(o.default !== undefined && o.default !== null ? { default: o.default } : {}) })),
   description: String(p.description ?? ''),
+  // docker's socket and the ones it could use (LayerFS with the setup fields; absent before)
+  ...(p.socket && typeof p.socket === 'object' ? { socket: { path: text(p.socket.path), source: text(p.socket.source), state: text(p.socket.state) } } : {}),
+  ...(Array.isArray(p.candidates) ? { candidates: p.candidates.map((c: any) => ({ path: text(c?.path), source: text(c?.source), ...(text(c?.host) ? { host: text(c.host) } : {}), ...(c?.usable === false ? { usable: false } : {}) })) } : {}),
 })
 
 /** An SDK `op` ({ id, name, phase, started, uncertain }), or null. */
@@ -706,7 +709,7 @@ export class Machines {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to start')
     const report = this.progress(name, 'start')
     await this.engineFirst(name, report)
-    try { return await this.lfs.machine.start(name, { on_progress: report }) } finally { this.metrics.relist() }
+    try { return await this.lfs.machine.start(name, { on_progress: report }) } finally { this.platformsChanged(); this.metrics.relist() }
   }
 
   /** The Docker Engine launch in flight, shared by concurrent starts. */
@@ -726,7 +729,7 @@ export class Machines {
     this.engine ??= startEngine(socket, this.engineDeps(), report).finally(() => {
       this.engine = null
       // the platform row said the socket did not answer: probe it again now, and the page reads anew
-      this.platformAnswer = null
+      this.platformsChanged()
       this.changed()
     })
     await this.engine
@@ -757,7 +760,7 @@ export class Machines {
   async stop(name: string, { force = false } = {}) {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to stop')
     if (force && !(await cliFeatures(this.host)).forceStop) throw refuse(501, 'Unsupported', 'The pinned LayerFS CLI has no forced stop (machine.stop takes no force option). Stop the machine normally, or pin a CLI that has it.')
-    const result = force ? await this.lfs.machine.stop(name, { force: true }) : await this.lfs.machine.stop(name)
+    const result = await (force ? this.lfs.machine.stop(name, { force: true }) : this.lfs.machine.stop(name)).finally(() => this.platformsChanged())
     this.metrics.relist()
     await this.host.machinesStopped?.([name])
     return result
@@ -779,7 +782,7 @@ export class Machines {
     const given = pick(rest, Object.keys(rest))
     const extra = Object.keys(given).filter((k) => !declared.includes(k))
     if (extra.length) throw refuse(null, 'InvalidInput', `${platform} takes no ${extra.join(', ')} (its options: ${declared.join(', ') || 'none'})`)
-    try { return await this.lfs.machine.create(name, platform, { ...given, on_progress: this.progress(name, 'create') }) } finally { this.metrics.relist() }
+    try { return await this.lfs.machine.create(name, platform, { ...given, on_progress: this.progress(name, 'create') }) } finally { this.platformsChanged(); this.metrics.relist() }
   }
 
   /** Removes a VM; LayerFS refuses InUse while it holds Stores or running Sandboxes. */
@@ -788,14 +791,19 @@ export class Machines {
     if (BUILT_IN.has(name)) throw refuse(null, 'InvalidInput', `${name} is built in and can't be removed`)
     const m = list((await lfs.machine.list()).machines).find((x) => x.name === name)
     if (!m) throw refuse(null, 'NotFound', `no machine named ${name}`)
-    try { return await lfs.machine.remove(name) } finally { this.metrics.relist() }
+    try { return await lfs.machine.remove(name) } finally { this.platformsChanged(); this.metrics.relist() }
   }
 
   /** A built-in's settings ({ image, docker, wsl }) or a VM's size ({ cpus, memory }). */
   async update(name: string, body: any) {
     const changes = pick(body ?? {}, ['cpus', 'memory', 'image', 'docker', 'wsl'])
-    return this.lfs.machine.update(name, changes)
+    // `docker: ""` clears docker's recorded socket (automatic until its next start records one)
+    if (body?.docker === '') changes.docker = ''
+    try { return await this.lfs.machine.update(name, changes) } finally { this.platformsChanged() }
   }
+
+  /** A machine write or an Engine start: the platforms (docker's socket, a VM tool) are probed again on the next read. */
+  platformsChanged(): void { this.platformAnswer = null }
 
   /** Puts a sqlite Store on `machine`: a job in the host's table (its progress shows on Storage). */
   async moveStore(store: string, machine: string) {

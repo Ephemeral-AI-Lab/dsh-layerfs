@@ -22,6 +22,7 @@ import { registerPicker } from './picker/index.tsx'
 import { registerHero } from './hero/index.tsx'
 import { registerSimulation } from './simulation/index.tsx'
 import { registerViews } from './views/index.tsx'
+import { registerSetup } from './setup/index.tsx'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 
@@ -52,6 +53,7 @@ export function apply(ctx: any): void {
   }
   const machines = registerMachines(ctx, api, [STORAGE_PANEL])
   registerStorage(ctx, api, machines)
+  registerSetup(ctx, api, machines.t)
   registerPresets(ctx)
   registerLogs(ctx)
   registerSettings(ctx)

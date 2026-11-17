@@ -1,0 +1,181 @@
+// The setup check's host pieces (docs/specs/layerfs-setup.md §3): build
+// verdicts from stamps, pin leases, bundle replacement while no worker runs,
+// and the home gate with a CLI that has `home get` / `home init` and one that
+// has not.
+//   node --test test/setup.test.mjs
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { build } from 'esbuild'
+
+const root = new URL('..', import.meta.url).pathname
+mkdirSync(join(root, 'lib'), { recursive: true })
+const out = mkdtempSync(join(root, 'lib', '.test-setup-'))
+await build({
+  stdin: {
+    contents: "export * from './src/host/layerfs/runtime-home.ts'\nexport { LayerfsService } from './src/host/service.ts'\nexport { client } from './src/host/layerfs/cli.ts'\nexport { Context } from '@deepseek-ai/cordis'\n",
+    resolveDir: root,
+    loader: 'ts',
+  },
+  bundle: true, platform: 'node', format: 'esm', external: ['@deepseek-ai/*'],
+  outfile: join(out, 'setup.mjs'), absWorkingDir: root, target: 'node24', logLevel: 'warning',
+})
+const H = await import(pathToFileURL(join(out, 'setup.mjs')).href)
+process.on('exit', () => rmSync(out, { recursive: true, force: true }))
+
+const A = 'a'.repeat(40), B = 'b'.repeat(40)
+
+test('verdicts follow LayerFS `matches`: other commit, same and both clean, else unknown; no piece is missing', () => {
+  assert.equal(H.verdictOf({ commit: A, dirty: false }, { commit: B, dirty: false }), 'other')
+  assert.equal(H.verdictOf({ commit: A, dirty: false }, { commit: A, dirty: false }), 'matches')
+  assert.equal(H.verdictOf({ commit: A, dirty: true }, { commit: A, dirty: false }), 'unknown')
+  assert.equal(H.verdictOf({ commit: A, dirty: false }, { commit: A, dirty: null }), 'unknown')
+  assert.equal(H.verdictOf({ commit: A, dirty: false }, { commit: null, dirty: null }), 'unknown')
+  assert.equal(H.verdictOf({ commit: A, dirty: false }, null), 'missing')
+})
+
+test('stamps: bundle.json source.head/dirty, the daemon build identity read from the file, none for older pieces', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-'))
+  try {
+    mkdirSync(join(dir, 'bundle'))
+    writeFileSync(join(dir, 'bundle', 'bundle.json'), JSON.stringify({ source: { head: A, dirty: false } }))
+    assert.deepEqual(H.bundleStamp(join(dir, 'bundle')), { commit: A, dirty: false })
+    writeFileSync(join(dir, 'bundle', 'bundle.json'), JSON.stringify({ source: { head: A } }))
+    assert.deepEqual(H.bundleStamp(join(dir, 'bundle')), { commit: A, dirty: null })
+    assert.equal(H.bundleStamp(join(dir, 'nope')), null)
+    writeFileSync(join(dir, 'daemon'), Buffer.concat([Buffer.alloc(4096, 1), Buffer.from(`layerfs-build-identity:${B}:dirty\0`), Buffer.alloc(64)]))
+    assert.deepEqual(H.daemonStamp(join(dir, 'daemon')), { commit: B, dirty: true })
+    writeFileSync(join(dir, 'old-daemon'), Buffer.alloc(1024, 2))
+    assert.deepEqual(H.daemonStamp(join(dir, 'old-daemon')), { commit: null, dirty: null })
+    assert.equal(H.daemonStamp(join(dir, 'missing')), null)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+function runtimeFixture() {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-'))
+  const src = join(dir, 'src')
+  mkdirSync(join(src, 'bundle', 'linux-aarch64'), { recursive: true })
+  writeFileSync(join(src, 'layerfs'), '#!/bin/sh\necho cli\n', { mode: 0o755 })
+  writeFileSync(join(src, 'bundle', 'linux-aarch64', 'bundle.json'), JSON.stringify({ hash: 'h1' }))
+  return { dir, src, home: join(dir, 'home'), done: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+test('a different bundle for the same CLI replaces the old one only when no worker runs', () => {
+  const f = runtimeFixture()
+  try {
+    const given = { cli: join(f.src, 'layerfs'), daemon: null, bundle: join(f.src, 'bundle', 'linux-aarch64') }
+    const a = H.installRuntime(f.home, '2.0.0', given)
+    writeFileSync(join(f.src, 'bundle', 'linux-aarch64', 'bundle.json'), JSON.stringify({ hash: 'h2' }))
+    assert.throws(() => H.installRuntime(f.home, '2.0.0', given), /different Linux bundle/)
+    const b = H.installRuntime(f.home, '2.0.0', given, { replaceBundle: true })
+    assert.equal(b.bundle, a.bundle)
+    assert.equal(JSON.parse(readFileSync(join(b.bundle, 'bundle.json'), 'utf8')).hash, 'h2')
+    assert.deepEqual(readdirSync(join(b.bundle, '..')), ['linux-aarch64'])
+  } finally { f.done() }
+})
+
+test('a pin lease keeps a runtime from another host\'s cleanup and moves with the pin', () => {
+  const f = runtimeFixture()
+  try {
+    const one = H.installRuntime(f.home, '1.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
+    writeFileSync(join(f.src, 'layerfs'), '#!/bin/sh\necho cli-2\n', { mode: 0o755 })
+    const two = H.installRuntime(f.home, '2.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
+    H.leasePin(f.home, '/host/a', one.cli)
+    const id = H.hostId('/host/a')
+    assert.ok(existsSync(join(f.home, 'runtime', one.id, 'pins', id)))
+    const plan = H.planRuntimeCleanup(H.installedRuntimes(f.home), { pinned: [], machines: { machines: [] }, processes: [], newest: 0 })
+    assert.equal(plan.keep.get(one.id), 'lease')
+    assert.deepEqual(plan.remove.map((r) => r.id), [two.id])
+    H.leasePin(f.home, '/host/a', two.cli)
+    assert.ok(!existsSync(join(f.home, 'runtime', one.id, 'pins', id)))
+    assert.ok(existsSync(join(f.home, 'runtime', two.id, 'pins', id)))
+  } finally { f.done() }
+})
+
+/** A fake LayerFS CLI (node script) logging its argv; `homeCalls` adds the home family. */
+function fakeCli(dir, { homeCalls, state }) {
+  const log = join(dir, 'calls.log')
+  const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
+    'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close',
+    'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec',
+    'machine.list', 'machine.platforms', 'store.list', 'store.create', 'machine.get', 'machine.update', ...(homeCalls ? ['home.get', 'home.init'] : [])]
+  const calls = required.map((n) => ({ family: n.split('.')[0], call: n.split('.')[1], args: n === 'machine.get' || n === 'machine.update' ? [{ name: 'name', kind: 'text' }] : [], options: [] }))
+  const cli = join(dir, 'layerfs')
+  writeFileSync(cli, `#!/usr/bin/env node
+const fs = require('fs'), path = require('path')
+const argv = process.argv.slice(2), home = process.env.LAYERFS_HOME
+fs.appendFileSync(${JSON.stringify(log)}, argv.filter((a) => a !== '--').join(' ') + '\\n')
+const say = (v) => { process.stdout.write(JSON.stringify(v) + '\\n'); process.exit(0) }
+if (argv[0] === '--version') say({ version: '9.9.9', commit: '${A}', dirty: false, features: [] })
+if (argv[0] === 'help') say({ calls: ${JSON.stringify(calls)}, commands: [], switches: [] })
+const file = path.join(home, 'layerfs.json')
+const st = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')).layout === 2 ? 'needs_conversion' : 'current') : 'missing'
+const create = () => { fs.mkdirSync(home, { recursive: true }); fs.writeFileSync(file, JSON.stringify({ layout: 3 })) }
+if (argv[0] === 'home' && argv[1] === 'get') say({ home: { path: home, state: st, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', mode_ok: true }, bundle: null, daemon: null, cache: { path: '/c' }, warnings: [] })
+if (argv[0] === 'home' && argv[1] === 'init') { const was = st; create(); say({ home, created: was === 'missing', converted: was === 'needs_conversion', layout: 3 }) }
+// every other call opens the home as LayerFS does (creates or converts it)
+create()
+if (argv[0] === 'machine' && argv[1] === 'list') say({ machines: [] })
+say({})
+`, { mode: 0o755 })
+  return { cli, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : []) }
+}
+
+async function withService(opts, run) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-gate-'))
+  const keys = ['DSH_HOME', 'DSH_LAYERFS_HOME', 'LAYERFS_HOME', 'DSH_LAYERFS_CLI', 'DSH_LAYERFS_DAEMON', 'DSH_LAYERFS_BUNDLE', 'LAYERFS_BUNDLE']
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+  try {
+    for (const k of keys) delete process.env[k]
+    process.env.DSH_HOME = join(dir, 'dsh')
+    const home = join(dir, 'home')
+    if (opts.layout2) { mkdirSync(home, { recursive: true, mode: 0o700 }); writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 2 })) }
+    const fake = fakeCli(dir, opts)
+    const s = new H.LayerfsService(new H.Context(), { cli: fake.cli, home })
+    await run({ s, home, fake })
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+test('setup check, new CLI: a missing folder is created with home init; a read waits for it', async () => {
+  await withService({ homeCalls: true }, async ({ s, home, fake }) => {
+    await s.lfs.store.list()
+    assert.ok(existsSync(join(home, 'layerfs.json')))
+    assert.ok(fake.calls().includes('home init'), fake.calls().join('\n'))
+    const status = await s.setup()
+    assert.equal(status.folder.state, 'current')
+    assert.equal(status.homeCalls, true)
+    assert.deepEqual(status.needs, [])
+  })
+})
+
+test('setup check, new CLI: a folder that needs converting refuses every call Uninitialized until Convert', async () => {
+  await withService({ homeCalls: true, layout2: true }, async ({ s, home, fake }) => {
+    await assert.rejects(() => s.lfs.store.list(), (e) => e.code === 'Uninitialized')
+    await assert.rejects(() => s.lfs.machine.update('native', {}), (e) => e.code === 'Uninitialized')
+    assert.equal(JSON.parse(readFileSync(join(home, 'layerfs.json'), 'utf8')).layout, 2, 'nothing converted it')
+    assert.ok(!fake.calls().some((c) => c.startsWith('store ') || c.startsWith('machine ')), fake.calls().join('\n'))
+    const status = await s.setup()
+    assert.equal(status.folder.state, 'needs_conversion')
+    assert.deepEqual(status.needs, ['folder'])
+    const after = await s.convertHome()
+    assert.equal(after.folder.state, 'current')
+    assert.equal(after.folder.did.converted, true)
+    await s.lfs.store.list()
+  })
+})
+
+test('setup check, older CLI: one machine list creates a missing folder (today\'s behaviour)', async () => {
+  await withService({ homeCalls: false }, async ({ s, home, fake }) => {
+    const status = await s.setup()
+    assert.equal(status.homeCalls, false)
+    assert.equal(status.folder.state, 'current')
+    assert.ok(existsSync(join(home, 'layerfs.json')))
+    assert.deepEqual(fake.calls().filter((c) => !c.startsWith('--version') && !c.startsWith('help')), ['machine list'])
+  })
+})

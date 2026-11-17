@@ -26,7 +26,10 @@ import type { Query } from '../files/use-query.ts'
 import { useMachinesContext } from '../machines/context.tsx'
 import { downReason, machineOrder, machineState, workerDown, type AvailableView } from '../machines/model.ts'
 import { machineBlock, stepReasons } from '../machines/needs.ts'
-import { RuntimeCard } from '../machines/Runtime.tsx'
+import type { SetupModalT } from '../setup/locale.ts'
+import { SetupCard, unset } from '../setup/SetupCard.tsx'
+import { missingWords } from '../setup/SetupDialog.tsx'
+import { setupDialog, useSetupStatus } from '../setup/store.ts'
 import { EmptyState } from '../files/States.tsx'
 import { Card, LoadError, Loading, MoreMenu, Refusal } from '../ui/index.tsx'
 import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
@@ -55,6 +58,8 @@ export interface HomeOverviewProps {
   view: StorageView | undefined
   error: unknown
   t: StorageT
+  /** The setup modal's copy (the setup cards Center shows). */
+  setup: SetupModalT
   now: number
   doctor: Query<DoctorReport>
   jobs: readonly StorageJob[]
@@ -142,7 +147,8 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const runtime = mc.useRuntime((s) => s)
   const startups = mc.useStartups((s) => s)
   const fleet: AvailableView | null = fleetRead.data?.available ? fleetRead.data : null
-  const [runtimeOpen, setRuntimeOpen] = useState(false)
+  const setupRead = useSetupStatus(mc.api)
+  const setup = setupRead.data
   const [diagnosing, setDiagnosing] = useState(false)
   const tab = props.tab
   const setTab = (key: string) => { if (isOverviewTab(key)) props.onTab(key) }
@@ -153,7 +159,9 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   if (!view) {
     return (
       <div className={css.page}>
-        {error
+        {setup && unset(setup)
+          ? <SetupCard s={setup} t={props.setup} first />
+          : error
           ? <LoadError title={t('storageFailed')} error={error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={onRefresh} />
           : <Loading label={t('readingStores')} />}
       </div>
@@ -258,6 +266,14 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   // them (red when one refuses calls) and opens the Health page that lists them.
   const findings = doctor.data?.findings ?? []
   const findingErrors = findings.some((f) => f.severity === 'error')
+  // Setup still missing something required (after Later): the head's first need, with Set up LayerFS… (one place, no second card).
+  const setupLeft = setup && setup.needs.length ? missingWords(setup, props.setup) : null
+  if (setupLeft) {
+    needs.push({
+      key: 'setup', tone: 'warning', rank: -1, title: props.setup('cardFinishTitle'), detail: setupLeft,
+      action: { label: props.setup('openSetup'), run: () => setupDialog.open(setup!.needs.includes('folder') && setup!.runtime.ok ? 'folder' : 'runtime') },
+    })
+  }
   // A Store never backed up is not a problem: its card says so quietly.
   needs.sort((a, b) => a.rank - b.rank)
 
@@ -324,8 +340,8 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         identity={(
           <>
             <span className={heroCss.name} title={[rt?.home, rt?.preparedImages != null ? t('ovPreparedImages', { n: rt.preparedImages }) : null].filter(Boolean).join(' · ')}><BrandLockup /></span>
-            <button type="button" className={heroCss.runtime} data-tone={runtimeTone} aria-expanded={runtimeOpen} aria-label={runtimeWords} title={t('ovRuntimeToggle')}
-              onClick={() => setRuntimeOpen((o) => !o)}>
+            <button type="button" className={heroCss.runtime} data-tone={runtimeTone} aria-label={runtimeWords} title={t('ovRuntimeToggle')}
+              onClick={() => props.onOpen('settings')}>
               {!rt ? <StateDot state="ongoing" size={9} /> : rt.ok ? null : <StateDot state="error" size={6} />}
               <span>{rt?.ok && rt.version ? rt.version : runtimeWords}</span>
               {rt?.commit ? <span>· {rt.commit.slice(0, 8)}</span> : null}
@@ -352,11 +368,6 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
             <Button variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={15} />} onClick={() => props.onOpen('settings')} aria-label={t('navSettings')} title={t('navSettings')} />
             <Button variant="ghost" size="sm" icon={doctor.loading ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />}
               disabled={doctor.loading} onClick={refreshAll} aria-label={t('refresh')} title={[t('ovRefreshTitle'), checked].filter(Boolean).join(' · ')} />
-          </>
-        )}
-        banner={(
-          <>
-            {runtimeOpen ? <RuntimeCard /> : null}
           </>
         )}
         tabs={[

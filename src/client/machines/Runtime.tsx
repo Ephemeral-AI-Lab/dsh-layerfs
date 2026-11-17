@@ -5,20 +5,21 @@
  * pin moves). Storage's home overview reveals the same card.
  */
 import { useState, type ReactNode } from 'react'
-import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Card, Fact, Facts, Field, Refusal, StateChip } from '../ui/index.tsx'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SetupModalT } from '../setup/locale.ts'
+import { RuntimePicker } from '../setup/RuntimePicker.tsx'
+import { Card, Fact, Facts, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext, type MachinesContext } from './context.tsx'
 import type { RuntimeStatus } from './model.ts'
 import css from './machines.module.css'
 
-const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
 
 const sourceKey = (source: string) =>
   source === 'settings' ? 'sourceSettings' as const : source === 'env' ? 'sourceEnv' as const : source === 'config' ? 'sourceConfig' as const : source === 'home' ? 'sourceHome' as const
     : source === 'inherited' ? 'sourceInherited' as const : source === 'default' ? 'sourceDefault' as const : 'sourceNone' as const
 
 /** The whole runtime: its version and state, Change…, and every fact. */
-export function RuntimeCard(): ReactNode {
+export function RuntimeCard({ ts }: { ts: SetupModalT }): ReactNode {
   const { t, useRuntime, useConnected, refusal } = useMachinesContext()
   const read = useRuntime((s) => s)
   const connected = useConnected((s) => s)
@@ -43,7 +44,7 @@ export function RuntimeCard(): ReactNode {
         {read.status === 'error' && !r && <Refusal error={read.error} labels={refusal} />}
         {r && <RuntimeFacts r={r} t={t} />}
       </div>
-      {changing && r && <RuntimeDialog current={r} onClose={() => setChanging(false)} />}
+      {changing && r && <RuntimeDialog current={r} ts={ts} onClose={() => setChanging(false)} />}
     </Card>
   )
 }
@@ -66,52 +67,14 @@ function RuntimeFacts({ r, t }: { r: RuntimeStatus, t: MachinesContext['t'] }): 
   )
 }
 
-/** Pin another CLI (and daemon); LayerFS discovers the CLI first and refuses one it cannot use. */
-function RuntimeDialog({ current, onClose }: { current: RuntimeStatus, onClose: () => void }): ReactNode {
-  const { t, saveRuntime, refusal } = useMachinesContext()
-  const [cli, setCli] = useState(current.cli ?? '')
-  const [daemon, setDaemon] = useState(current.daemon ?? '')
-  const [bundle, setBundle] = useState(current.bundle ?? '')
-  // only a cache chosen on this page is editable here; an inherited one shows as the placeholder
-  const [cacheHome, setCacheHome] = useState(current.cacheHomeSource === 'settings' ? current.cacheHome ?? '' : '')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<unknown>(null)
-  const cliBad = cli.trim() !== '' && !isAbsolute(cli.trim())
-  const daemonBad = daemon.trim() !== '' && !isAbsolute(daemon.trim())
-  const bundleBad = bundle.trim() !== '' && !isAbsolute(bundle.trim())
-  const cacheBad = cacheHome.trim() !== '' && !isAbsolute(cacheHome.trim())
-  const bad = cliBad || daemonBad || bundleBad || cacheBad
-  const pin = () => ({ cli: cli.trim(), daemon: daemon.trim() || null, bundle: bundle.trim() || null, cacheHome: cacheHome.trim() || null })
-  const save = async (pin: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null }) => {
-    setBusy(true)
-    setError(null)
-    try { await saveRuntime(pin); onClose() } catch (e) { setError(e) } finally { setBusy(false) }
-  }
+/** Change…: the shared runtime picker (setup/RuntimePicker.tsx) in a modal; Other build… holds the path fields. */
+function RuntimeDialog({ current, ts, onClose }: { current: RuntimeStatus, ts: SetupModalT, onClose: () => void }): ReactNode {
+  const { t, api } = useMachinesContext()
+  const [other, setOther] = useState(false)
   return (
-    <Modal open onClose={() => { if (!busy) onClose() }} title={t('runtimeChangeTitle')} description={t('runtimeChangeBody')} closeLabel={t('close')} className={css.dialog}
-      footer={(
-        <>
-          <Button variant="ghost" disabled={busy || current.source !== 'settings'} onClick={() => void save({ cli: null, daemon: null })} title={t('runtimeResetTitle')}>{t('runtimeReset')}</Button>
-          <span className={css.footerSpacer} />
-          <Button variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" disabled={busy || !cli.trim() || bad} onClick={() => void save(pin())}>{busy ? t('saving') : t('save')}</Button>
-        </>
-      )}>
-      <form className={css.form} onSubmit={(e) => { e.preventDefault(); if (cli.trim() && !bad) void save(pin()) }}>
-        <Field label={t('runtimeCli')} error={cliBad ? t('errAbsolute') : null}>
-          <Input value={cli} onChange={(e) => setCli(e.target.value)} placeholder="/path/to/layerfs" spellCheck={false} disabled={busy} autoFocus />
-        </Field>
-        <Field label={t('runtimeDaemon')} error={daemonBad ? t('errAbsolute') : null} hint={t('runtimeDaemonHint')}>
-          <Input value={daemon} onChange={(e) => setDaemon(e.target.value)} placeholder="/path/to/layerfs-daemon" spellCheck={false} disabled={busy} />
-        </Field>
-        <Field label={t('runtimeBundle')} error={bundleBad ? t('errAbsolute') : null} hint={t('runtimeBundleHint')}>
-          <Input value={bundle} onChange={(e) => setBundle(e.target.value)} placeholder="/path/to/bundle/2.0.0/linux-aarch64" spellCheck={false} disabled={busy} />
-        </Field>
-        <Field label={t('runtimeImages')} error={cacheBad ? t('errAbsolute') : null} hint={t('runtimeImagesHint')}>
-          <Input value={cacheHome} onChange={(e) => setCacheHome(e.target.value)} placeholder={current.cacheHomeSource !== 'settings' && current.cacheHome ? current.cacheHome : '/path/to/cache'} spellCheck={false} disabled={busy} />
-        </Field>
-        {error != null && <Refusal error={error} labels={refusal} className={css.errorText} />}
-      </form>
+    <Modal open onClose={onClose} title={ts('pickerTitle')} closeLabel={t('close')} className={css.dialog}>
+      <RuntimePicker api={api} t={ts} other={other} onOther={() => setOther(true)} onDone={onClose} cancellable
+        current={{ cli: current.cli ?? null, daemon: current.daemon ?? null, bundle: current.bundle ?? null, cacheHome: current.cacheHome ?? null, cacheHomeSource: current.cacheHomeSource, source: current.source }} />
     </Modal>
   )
 }

@@ -26,7 +26,8 @@ import { useProjectData, useRecent, type ProjectItem } from '../ProjectList.tsx'
 import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
 import type { SetupT } from './locale.ts'
-import { attachedMachines, createSteps, defaultMachine, freeStoreName, isRunning, machinesFor, type CreatePlan, type Step, type StoreKind } from './model.ts'
+import type { MachinePlatformInfo } from '../../machines/model.ts'
+import { attachedMachines, createSteps, defaultMachine, freeStoreName, isRunning, machinesFor, pickable, tileBlocks, type CreatePlan, type Step, type StoreKind } from './model.ts'
 import { LocationPicker, machineNote, MachineTile, placeName, stoppedPicked, Tick, type LocationWords } from './MachineTiles.tsx'
 import { attachStore, detachStore, placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
@@ -40,6 +41,17 @@ export function useStorage(api: LayerfsApi) {
   const read = useQuery(() => api.call<StorageView>('GET', '/api/storage'), [api], { cache: 'GET /api/storage' })
   useHostEvents(api, ['storage', 'storage-job', 'machine-progress', 'connection', 'layerfs-availability'], read.reload)
   return read
+}
+
+/**
+ * `GET /api/platforms`: whether each platform can run here now, so a machine
+ * whose platform is not ready (Docker not answering) shows blocked. Refused
+ * or absent (an older host): nothing is blocked, as before.
+ */
+export function usePlatforms(api: LayerfsApi) {
+  const read = useQuery(() => api.call<{ host: string, platforms: MachinePlatformInfo[] }>('GET', '/api/platforms').then((v) => v.platforms, () => undefined), [api], { cache: 'GET /api/platforms' })
+  useHostEvents(api, ['machine-progress', 'connection', 'layerfs-availability'], read.reload)
+  return read.data
 }
 
 /** Render one dialog request (set as the dialog renderer by the projects area). */
@@ -118,7 +130,7 @@ function KindCard({ kind, selected, t, onSelect }: { kind: StoreKind, selected: 
 
 /** The tiles' words from this dialog's locale. */
 /** The tiles' words; `os` names the native machine (This Mac, unisolated; This computer, sandboxed; This PC). */
-const wordsOf = (t: SetupT, os?: string): LocationWords => ({ home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here') })
+const wordsOf = (t: SetupT, os?: string): LocationWords => ({ home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown') })
 
 function NewMachineTile({ api, t }: { api: LayerfsApi, t: SetupT }): ReactNode {
   return <button type="button" className={clsx(css.machine, css.newMachine)} onClick={() => { projectDialog.close(); openStorage(api, 'machines:new') }}>
@@ -233,8 +245,11 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const scratchStore = scratch.data?.scratchKey?.split('/')[0]
 
   const data = view.data
+  const platforms = usePlatforms(api)
   const machines = machinesFor(data, kind)
-  const fallback = defaultMachine(machines)
+  // a machine whose platform is not ready here shows blocked; the default is native when docker cannot run now
+  const blocks = useMemo(() => tileBlocks(data?.machines ?? [], platforms, data?.computer?.os), [data, platforms])
+  const fallback = defaultMachine(machines, blocks)
   const stores = (data?.stores ?? []).filter((s) => s.kind === kind && s.name !== scratchStore)
   const existing = mode === 'existing' ? stores.find((s) => s.name === picked) ?? null : null
   const slug = slugify(name)
@@ -273,7 +288,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
     1: mode === 'existing' ? !!existing : NAME.test(newStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !!password.trim())),
-    2: chosen.length > 0 && chosen.every((m) => machines.some((x) => x.name === m)),
+    2: chosen.length > 0 && chosen.every((m) => machines.some((x) => x.name === m) && pickable(m, blocks)),
   }
   const valid = !!data && parts.every((i) => ok[i])
 
@@ -439,13 +454,14 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
           {kind === 'sqlite'
             ? <Group label={t('machines')} hint={t('locationHint')}>
               <LocationPicker machines={machines} value={chosenSqlite} onChange={setSqliteMachine} words={words} label={t('stepMachine')}
-                current={existing ? existing.machine ?? 'native' : null} fallback={fallback}>
+                current={existing ? existing.machine ?? 'native' : null} fallback={fallback} blocks={blocks}>
                 <NewMachineTile api={api} t={t} />
               </LocationPicker>
             </Group>
             : <Group label={t('machines')} hint={t('runsOnMany')}>
               <div className={css.machines} role="group" aria-label={t('runsOn')}>
-                {machines.map((m) => <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={chosenPg.includes(m.name)} note={machineNote(m, words)}
+                {machines.map((m) => <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={chosenPg.includes(m.name)} note={machineNote(m, words, blocks.get(m.name))}
+                  blocked={blocks.has(m.name)} disabled={!pickable(m.name, blocks) && !chosenPg.includes(m.name)}
                   badge={!existing && m.name === fallback ? t('default') : null}
                   onSelect={() => setPgMachines(chosenPg.includes(m.name) ? chosenPg.filter((x) => x !== m.name) : [...chosenPg, m.name])} />)}
                 <NewMachineTile api={api} t={t} />
@@ -475,6 +491,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
 /** Configure: the Store, where it runs (move, or attach / detach), and Hide from sidebar. */
 function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: SetupT, project: ProjectRef, back?: DialogRequest | undefined, onBusy: (busy: boolean) => void }): ReactNode {
   const view = useStorage(api)
+  const platforms = usePlatforms(api)
   const [target, setTarget] = useState<string | null>(null)
   const [busy, setBusyState] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -503,6 +520,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
   const others = Math.max(0, store.projects.length - 1)
   const pg = store.kind === 'postgresql'
   const machines = machinesFor(view.data, pg ? 'postgresql' : 'sqlite')
+  const blocks = tileBlocks(view.data.machines, platforms, view.data.computer?.os)
   const state = (n: string) => view.data!.machines.find((m) => m.name === n)
   const ensure = async (n: string) => { if (!isRunning(state(n))) await startMachine(api, n) }
   const kindWords = pg ? t('kindPg') : t('kindSqlite')
@@ -524,7 +542,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
       <div className={css.body}><div className={css.fields}>
         {storeCard}
         <Group label={t('stepMachine')} hint={t('locationHint')}>
-          <LocationPicker machines={machines} value={chosen} onChange={setTarget} words={words} label={t('stepMachine')} current={current} disabled={!!busy}>
+          <LocationPicker machines={machines} value={chosen} onChange={setTarget} words={words} label={t('stepMachine')} current={current} disabled={!!busy} blocks={blocks}>
             <NewMachineTile api={api} t={t} />
           </LocationPicker>
         </Group>
@@ -556,8 +574,9 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
         <div className={css.machines} role="group" aria-label={t('runsOn')}>
           {machines.map((m) => {
             const a = attached.get(m.name)
-            const note = busy === m.name ? t('working') : a ? (a.checked ? t('attachedChecked') : t('attachedUnchecked')) : t('notAttached')
-            return <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={!!a} disabled={!!busy} working={busy === m.name} workingMark={<StateDot state="ongoing" size={11} />} note={note}
+            const block = blocks.get(m.name)
+            const note = busy === m.name ? t('working') : a ? (a.checked ? t('attachedChecked') : t('attachedUnchecked')) : block ? machineNote(m, words, block) : t('notAttached')
+            return <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={!!a} disabled={!!busy || (!a && !pickable(m.name, blocks))} blocked={!!block} working={busy === m.name} workingMark={<StateDot state="ongoing" size={11} />} note={note}
               onSelect={() => void run(m.name, async () => { if (!a) { await ensure(m.name); await attachStore(api, store.name, m.name) } else await detachStore(api, store.name, m.name) })} />
           })}
           <NewMachineTile api={api} t={t} />

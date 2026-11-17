@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { machineState, workerDown, powerOf } from '../src/client/machines/model.ts'
-import { findingFixes } from '../src/client/doctor/fixes.ts'
+import { findingFixes, setupFindings } from '../src/client/doctor/fixes.ts'
 
 const vm = (state, extra = {}) => ({ name: 'demo-build', platform: 'lima', state, stores: ['demo-build-cache'], sandboxes: [], ...extra })
 const live = (down) => ({ name: 'demo-build', state: 'stopped', freeDisk: null, toolVersion: null, down })
@@ -39,4 +39,25 @@ test('an error about a Sandbox with no command offers Close; other findings offe
   assert.deepEqual(findingFixes({ severity: 'warning', fix: null, target: { kind: 'sandbox', name: 'x' } }), [])
   assert.deepEqual(findingFixes({ severity: 'error', fix: 'layerfs doctor --fix', target: { kind: 'store', name: 's' } }), [])
   assert.deepEqual(findingFixes({ severity: 'warning', fix: 'layerfs sandbox get box shows it' }), [])
+})
+
+test('a never-started machine is a warning with Start (doctor machine.provider)', () => {
+  const message = 'docker was never started; Start creates its worker container'
+  assert.deepEqual(findingFixes({ severity: 'warning', fix: null, message, target: { kind: 'machine', name: 'docker' } }), [{ kind: 'start', name: 'docker' }])
+  // a machine that ran and lost its container stays an error, with no Start offered for it here
+  assert.deepEqual(findingFixes({ severity: 'error', fix: null, message: 'provider holds no runtime with the recorded machine identity', target: { kind: 'machine', name: 'docker' } }), [])
+  // a command in the fix wins
+  assert.deepEqual(findingFixes({ severity: 'warning', fix: 'layerfs machine start docker', message, target: { kind: 'machine', name: 'docker' } }), [{ kind: 'start', name: 'docker' }])
+})
+
+test('home get warnings open the setup section that fixes them; HomeMode is a note', () => {
+  const found = setupFindings([
+    { code: 'HomeNeedsConversion', message: 'a' }, { code: 'HomeMode', message: 'b' }, { code: 'BundleMismatch', message: 'c' },
+    { code: 'DaemonMissing', message: 'd' }, { code: 'SomethingNew', message: 'e' },
+  ])
+  assert.deepEqual(found.map((f) => [f.code, f.severity, f.section]), [
+    ['HomeNeedsConversion', 'warning', 'folder'], ['HomeMode', 'note', 'folder'], ['BundleMismatch', 'warning', 'runtime'],
+    ['DaemonMissing', 'warning', 'runtime'], ['SomethingNew', 'warning', 'runtime'],
+  ])
+  assert.deepEqual(setupFindings(undefined), [])
 })

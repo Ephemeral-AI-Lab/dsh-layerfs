@@ -1,0 +1,169 @@
+/**
+ * The setup check's state in the browser (docs/specs/layerfs-setup.md §3-§4):
+ * the host's `setup.status` answer, read on `setup-changed` / `runtime-changed`
+ * events, and the Set up LayerFS modal's open state. Any view opens the modal
+ * with `setupDialog.open(section)`; Later is remembered per viewer.
+ */
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import type { LayerfsApi } from '../api.ts'
+import { useQuery } from '../ui/use-query.ts'
+
+/** A piece's verdict against the CLI's build. */
+export type Verdict = 'matches' | 'other' | 'unknown' | 'missing'
+
+export interface Piece {
+  readonly path: string | null
+  readonly commit: string | null
+  readonly dirty: boolean | null
+  readonly verdict: Verdict
+}
+
+export type HomeState = 'missing' | 'current' | 'needs_conversion' | 'unknown'
+export type SetupNeed = 'runtime' | 'folder' | 'build'
+
+/** `setup.status` (host service.ts `SetupStatus`). */
+export interface SetupStatus {
+  readonly at: number
+  readonly runtime: {
+    readonly ok: boolean
+    readonly cli: string | null
+    readonly daemon: string | null
+    readonly bundle: string | null
+    readonly home: string
+    readonly source: 'config' | 'settings' | 'env' | 'home' | 'none'
+    readonly version: string | null
+    readonly commit: string | null
+    readonly sdk: { readonly dir: string, readonly commit: string } | null
+    readonly sdkDir: string | null
+    readonly error: { readonly code: string, readonly message: string } | null
+  }
+  readonly homeCalls: boolean
+  readonly folder: {
+    readonly path: string
+    readonly state: HomeState
+    readonly layout: number | null
+    readonly mode: string | null
+    readonly modeOk: boolean | null
+    readonly did: { readonly created: boolean, readonly converted: boolean, readonly at: number } | null
+  }
+  readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
+  readonly warnings: readonly { readonly code: string, readonly message: string }[]
+  readonly needs: readonly SetupNeed[]
+  readonly mixedAllowed: boolean
+  readonly error: { readonly code: string, readonly message: string } | null
+}
+
+/** `runtime.installed` (host service.ts `InstalledView`). */
+export interface InstalledRuntime {
+  readonly id: string
+  readonly cli: string
+  readonly daemon: string | null
+  readonly bundle: string | null
+  readonly at: number
+  readonly version: string | null
+  readonly commit: string | null
+  readonly dirty: boolean | null
+  readonly homeCalls: boolean
+  readonly pieces: { readonly daemon: Piece | null, readonly bundle: Piece | null }
+  readonly sdk: boolean
+  readonly active: boolean
+  readonly error: string | null
+}
+
+/** How long the folder reads "created / converted just now" after the setup check did it. */
+export const JUST_NOW_MS = 10 * 60_000
+
+/** What the setup check did to the folder lately (created or converted), else null. */
+export const lately = (s: SetupStatus): 'created' | 'converted' | null => {
+  const did = s.folder.did
+  if (!did || Date.now() - did.at > JUST_NOW_MS) return null
+  return did.converted ? 'converted' : did.created ? 'created' : null
+}
+
+/** The modal's sections, top to bottom (the rail). */
+export type SetupSection = 'runtime' | 'folder' | 'machines'
+
+let open: SetupSection | null = null
+let laterShown = false
+const listeners = new Set<() => void>()
+const notify = () => { for (const l of listeners) l() }
+const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l) } }
+
+const LATER_KEY = 'dsh-layerfs:setup-later'
+
+/** Opening, closing and Later of the Set up LayerFS modal. */
+export const setupDialog = {
+  /** Open the modal at a section (Runtime when none is named). */
+  open(section: SetupSection = 'runtime'): void { open = section; notify() },
+  close(): void { if (open) { open = null; notify() } },
+  get: (): SetupSection | null => open,
+  subscribe,
+  /** Later: closes the modal and remembers it for this viewer (Center keeps a "Finish setting up" card). */
+  later(): void {
+    try { window.localStorage?.setItem(LATER_KEY, String(Date.now())) } catch { /* per-viewer convenience only */ }
+    open = null
+    notify()
+  },
+  /** Whether this viewer chose Later (the modal does not open by itself). */
+  deferred(): boolean {
+    try { return !!window.localStorage?.getItem(LATER_KEY) } catch { return false }
+  },
+  /** Done: forget Later. */
+  done(): void {
+    try { window.localStorage?.removeItem(LATER_KEY) } catch { /* per-viewer convenience only */ }
+    open = null
+    notify()
+  },
+  /** Opens by itself at most once per page load, and only when something required is missing. */
+  autoOpen(status: SetupStatus | null): void {
+    if (laterShown || !status || status.needs.length === 0 || this.deferred()) return
+    laterShown = true
+    const first: SetupSection = status.needs.includes('runtime') || status.needs.includes('build') ? 'runtime' : 'folder'
+    if (!open) { open = first; notify() }
+  },
+}
+
+/** The modal's open section, or null. */
+export function useSetupDialog(): SetupSection | null {
+  return useSyncExternalStore(subscribe, () => open)
+}
+
+const EVENTS = ['setup-changed', 'runtime-changed', 'connection']
+
+/**
+ * `setup.status`, kept across remounts and reread on setup events; `visible`
+ * also rereads every 5 s while the page is visible (the modal, Settings).
+ */
+export function useSetupStatus(api: LayerfsApi, visible = false) {
+  const [tick, bump] = useTick()
+  const read = useQuery(() => api.op<SetupStatus>('setup.status'), [api], { refresh: [tick], cache: 'op setup.status' })
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // coalesced: a save emits runtime-changed and setup-changed together
+    const offs = EVENTS.map((type) => api.onEvent(type, () => { clearTimeout(timer); timer = setTimeout(bump, 500) }))
+    return () => { clearTimeout(timer); for (const off of offs) off() }
+  }, [api])
+  useEffect(() => {
+    if (!visible) return
+    const id = setInterval(() => { if (document.visibilityState === 'visible') bump() }, 5000)
+    return () => clearInterval(id)
+  }, [visible])
+  return { ...read, check: bump }
+}
+
+/** `runtime.installed`, reread on setup events. */
+export function useInstalled(api: LayerfsApi) {
+  const [tick, bump] = useTick()
+  const read = useQuery(() => api.op<{ runtimes: InstalledRuntime[], pinned: string | null, source: string, root: string }>('runtime.installed'), [api], { refresh: [tick], cache: 'op runtime.installed' })
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const offs = ['setup-changed', 'runtime-changed'].map((type) => api.onEvent(type, () => { clearTimeout(timer); timer = setTimeout(bump, 500) }))
+    return () => { clearTimeout(timer); for (const off of offs) off() }
+  }, [api])
+  return { ...read, check: bump }
+}
+
+function useTick(): [number, () => void] {
+  const [n, set] = useState(0)
+  return [n, () => set((x) => x + 1)]
+}
