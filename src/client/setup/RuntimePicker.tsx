@@ -27,8 +27,6 @@ export function problems(r: InstalledRuntime, t: SetupModalT): string[] {
   else if (!b || b.verdict === 'missing') out.push(t('rowBundleMissing'))
   if (d?.verdict === 'other') out.push(t('rowDaemonOther'))
   else if (d && d.verdict === 'missing') out.push(t('rowDaemonMissing'))
-  if (!r.homeCalls) out.push(t('rowNoHome'))
-  if (!r.sdk) out.push(t('rowNoSdk'))
   return out
 }
 
@@ -68,7 +66,7 @@ export function RuntimePicker({ api, t, other, onOther, onDone, cancellable, cur
               <li key={r.id} className={clsx(css.runtime, r.active && css.runtimeActive)} data-runtime={r.id}>
                 <span className={css.lineText}>
                   <span className={css.lineTitle}>{r.version ?? r.id}<span className={css.commit}>{r.commit ? r.commit.slice(0, 8) : '—'}</span>{r.dirty ? <span className={css.commit}>{t('dirtyTree')}</span> : null}</span>
-                  <span className={css.lineSub} data-blocked={blocking || undefined}>{[wrong.length ? wrong.join(' · ') : t('rowOk'), new Date(r.at).toLocaleDateString()].join(' · ')}</span>
+                  <span className={css.lineSub} data-blocked={blocking || undefined}>{[...wrong, new Date(r.at).toLocaleDateString()].join(' · ')}</span>
                 </span>
                 <span className={css.lineActions}>
                   {r.active
