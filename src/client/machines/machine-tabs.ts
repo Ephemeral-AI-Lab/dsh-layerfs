@@ -99,44 +99,6 @@ export function sandboxAttention(records: readonly MachineSandbox[], space: read
 
 // ---------------------------------------------------------------- Overview
 
-/** One sampled value (metrics.ts `Sample`): `v` null is a gap. */
-export interface SparkSample { t: number, v: number | null }
-
-/**
- * An hour of samples as sparkline paths in a `w` × `h` box: one line (and
- * the area under it) per run of read values, so a gap breaks the line and is
- * never drawn as 0. Values are scaled to `max` and clamped; samples before
- * `from` are left out. A run of one sample is a dot-length line; a run
- * shorter than a twelfth of the box (five minutes of an hour) has no area,
- * which would draw as a thin bar.
- */
-export function sparkPaths(samples: readonly SparkSample[], from: number, to: number, max: number, w: number, h: number): { line: string, area: string | null }[] {
-  const span = Math.max(1, to - from), top = max > 0 ? max : 1
-  const x = (t: number) => (((t - from) / span) * w).toFixed(1)
-  const y = (v: number) => (h - 1 - Math.max(0, Math.min(1, v / top)) * (h - 2)).toFixed(1)
-  const runs: { t: number, v: number }[][] = []
-  let run: { t: number, v: number }[] = []
-  for (const s of samples) {
-    if (s.t < from || s.t > to) continue
-    if (s.v == null || !Number.isFinite(s.v)) { if (run.length) runs.push(run); run = []; continue }
-    run.push({ t: s.t, v: s.v })
-  }
-  if (run.length) runs.push(run)
-  return runs.map((r) => {
-    const line = r.map((s, i) => `${i ? 'L' : 'M'}${x(s.t)} ${y(s.v)}`).join(' ')
-    if (r.length === 1) return { line: `${line} h0.1`, area: null }
-    if (((r.at(-1)!.t - r[0]!.t) / span) * w < w / 12) return { line, area: null }
-    return { line, area: `${line} L${x(r.at(-1)!.t)} ${h} L${x(r[0]!.t)} ${h} Z` }
-  })
-}
-
-/** The highest read value since `from`, or null when none was read. */
-export function peakSince(samples: readonly SparkSample[], from: number): number | null {
-  let peak: number | null = null
-  for (const s of samples) if (s.t >= from && s.v != null && Number.isFinite(s.v) && (peak == null || s.v > peak)) peak = s.v
-  return peak
-}
-
 /** What the Overview needs of one sampler row (metrics.ts `sandboxTable`). */
 export interface MemoryRowLike { gap: string | null, row: { live: boolean | null, usage: { memoryCurrent: number | null } | null } | null }
 
@@ -161,11 +123,4 @@ export function cpuShare(share: number): string {
   if (pct < 0.1) return '<0.1'
   if (pct < 10) return pct.toFixed(1)
   return String(Math.round(Math.min(pct, 100)))
-}
-
-const SCALES = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1]
-
-/** The top of the processor chart: the smallest of 1, 2, 5, 10, 20, 50, 100 % at or above the hour's peak, so a quiet machine's line is not flat on the floor. */
-export function cpuScale(peak: number | null): number {
-  return SCALES.find((s) => (peak ?? 0) <= s) ?? 1
 }

@@ -1,8 +1,7 @@
 // Machine and Sandbox metrics (layerfs-project#182 D1–D3): the host's sampler
 // (src/host/routes/metrics.ts), GET /api/metrics and the caches beside it, the
-// page's poller and rate rules (src/client/machines/metrics.ts), and the
-// LineArea chart (src/client/ui/LineArea.tsx). Fake LayerFS answers and a
-// hand-moved clock; no CLI is run.
+// page's poller and rate rules (src/client/machines/metrics.ts). Fake
+// LayerFS answers and a hand-moved clock; no CLI is run.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -23,7 +22,6 @@ const bundle = async (name, contents) => {
 }
 const H = await bundle('sampler', "export * from './src/host/routes/metrics.ts'")
 const C = await bundle('client-metrics', "export * from './src/client/machines/metrics.ts'")
-const U = await bundle('line-area', "export * from './src/client/ui/LineArea.tsx'\nexport { createElement } from 'react'\nexport { renderToStaticMarkup } from 'react-dom/server'")
 const R = await loadRoutes()
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
@@ -410,42 +408,6 @@ test('the Sandbox list by memory; a gap or unknown memory goes last; figures rea
   const read = C.statsReadOf(snap, 'vm')
   assert.equal(read.stale.code, 'Busy', 'the newest point is a gap: the last values, marked stale')
   assert.equal(C.statsReadOf({ ...snap, loaded: false }, 'vm'), undefined)
-})
-
-// ---------------------------------------------------------------- D3: LineArea
-
-const render = (props, readout) => {
-  const chart = U.createElement(U.LineArea, { from: 0, to: 60_000, max: 1, format: (v) => `${Math.round(v * 100)} %`, gapText: (r) => `Not read: ${r}`, timeText: (t) => `t${t / 1000}`, empty: 'No samples yet', label: 'Processor', ...props })
-  return U.renderToStaticMarkup(readout ? U.createElement(U.ChartReadout, { value: { t: readout, set: () => {} } }, chart) : chart)
-}
-const count = (html, attr) => html.split(attr).length - 1
-
-test('LineArea: the line breaks at each gap, a mark per kill, the peak line, the current value at the end, and the shared readout', () => {
-  const samples = [{ t: 0, v: 0.1 }, { t: 10_000, v: 0.2 }, { t: 20_000, v: null, reason: 'Busy' }, { t: 30_000, v: 0.4 }, { t: 40_000, v: 0.5 }, { t: 50_000, v: null, reason: 'first_sample' }, { t: 60_000, v: 0.6 }]
-  const html = render({ samples, marks: [{ t: 30_000, label: '1 out-of-memory kill' }], peak: { v: 0.9, label: 'peak 90 %' } })
-  assert.equal(count(html, 'data-chart-line'), 3, 'three runs between two gaps')
-  assert.equal(count(html, 'data-chart-mark'), 1)
-  assert.equal(count(html, 'data-chart-peak'), 1); assert.ok(html.includes('peak 90 %'))
-  assert.ok(html.includes('data-chart-current="value"') && html.includes('>60 %<'), 'the current value')
-  assert.ok(!html.includes('animate') && !html.includes('transition'), 'no animation')
-  // the readout another chart of the group set: this chart's own value at that moment, or why it has none
-  assert.ok(render({ samples }, 20_000).includes('t20 · Not read: Busy'))
-  assert.ok(render({ samples, marks: [{ t: 30_000, label: '1 out-of-memory kill' }] }, 31_000).includes('t30 · 40 % · 1 out-of-memory kill'))
-  // the newest sample a gap: the end says why
-  assert.ok(render({ samples: [{ t: 0, v: null, reason: 'machine_stopped' }] }).includes('data-chart-current="gap"'))
-  assert.ok(render({ samples: [] }).includes('No samples yet'))
-  assert.ok(html.includes('tabindex="0"') && html.includes('role="group"') && html.includes('aria-label="Processor"'), 'the plot takes keyboard focus')
-})
-
-test('LineArea keyboard: arrows move the readout one sample, Home/End to the ends, Escape clears', () => {
-  assert.equal(U.stepReadout(5, -1, 'ArrowLeft'), 4, 'with no readout yet: the newest')
-  assert.equal(U.stepReadout(5, 4, 'ArrowLeft'), 3)
-  assert.equal(U.stepReadout(5, 4, 'ArrowRight'), 4, 'stays at the end')
-  assert.equal(U.stepReadout(5, 0, 'ArrowLeft'), 0)
-  assert.equal(U.stepReadout(5, 2, 'Home'), 0); assert.equal(U.stepReadout(5, 2, 'End'), 4)
-  assert.equal(U.stepReadout(5, 2, 'Escape'), null)
-  assert.equal(U.stepReadout(5, 2, 'a'), undefined)
-  assert.equal(U.stepReadout(0, -1, 'ArrowLeft'), undefined)
 })
 
 test('page poller: a machine watched while a poll runs is read as soon as it ends', async () => {

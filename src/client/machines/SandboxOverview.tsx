@@ -6,8 +6,8 @@
  *   Refresh and its menu: project, machine, image, Workspaces mounted of capacity,
  *   runtime, route, created, up time and id. Drawn from the `sandbox.list`
  *   row until sandbox.get answers.
- * - Usage, from the sampler (machine.stats): processor and memory with
- *   their last hour, processes and out-of-memory kills. A Sandbox with no
+ * - Usage, from the sampler's last read (machine.stats): processor, memory,
+ *   processes and out-of-memory kills as they are now, no history. A Sandbox with no
  *   cgroup of its own (a host process) says so once, and shows its whole
  *   machine in muted figures instead of four dashes. Without machine.stats
  *   the caller's `fallback` (sandbox.get's usage line) stands in.
@@ -17,13 +17,13 @@
  *   pid and start, and the retained failures behind "View".
  */
 import { useMemo, useState, type ReactNode } from 'react'
-import { Card, LinkButton, Loading } from '../ui/index.tsx'
+import { Card, LinkButton, Loading, Meter } from '../ui/index.tsx'
 import { cachedAnswer } from '../ui/use-query.ts'
 import { useMachinesContext } from './context.tsx'
 import { displayRef } from './images.ts'
 import { useMetrics } from './MachineStats.tsx'
-import { cpuScale, cpuShare, peakSince, sparkPaths, type SparkSample } from './machine-tabs.ts'
-import { HOUR_MS, latest, machineCpu, machineMemory, processors, sandboxFigures, upTime } from './metrics.ts'
+import { cpuShare } from './machine-tabs.ts'
+import { latest, machineCpu, processors, sandboxFigures, upTime } from './metrics.ts'
 import { useWords } from './MetricsViews.tsx'
 import { daemonLook, daemonSlots, gib, type SandboxImagesView, type SandboxInfo } from './model.ts'
 import { sandboxSpaceReason, spaceSize } from './space.ts'
@@ -132,28 +132,6 @@ function ImageName({ info, machine }: { info: SandboxInfo, machine: string }): R
 
 // ---------------------------------------------------------------- usage
 
-const CHART_W = 200
-const CHART_H = 48
-
-function HourChart({ samples, max, maxText, from, to, label, muted }: { samples: readonly SparkSample[], max: number, maxText?: string | undefined, from: number, to: number, label: string, muted?: boolean }): ReactNode {
-  const paths = sparkPaths(samples, from, to, max, CHART_W, CHART_H)
-  if (!paths.length) return <div className={css.sbovChartRoom} />
-  return (
-    <div className={css.ovSparkBox} data-muted={muted || undefined}>
-      {maxText && <span className={css.ovSparkMax}>{maxText}</span>}
-      <svg className={css.sbovChart} viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" role="img" aria-label={label}>
-        <line className={css.ovSparkTop} x1={0} x2={CHART_W} y1={0.5} y2={0.5} />
-        {paths.map((x, i) => (
-          <g key={i}>
-            {x.area && <path className={css.ovSparkArea} d={x.area} />}
-            <path className={css.ovSparkLine} d={x.line} />
-          </g>
-        ))}
-      </svg>
-    </div>
-  )
-}
-
 function Column({ label, children, ...data }: { label: string, children: ReactNode } & Record<`data-${string}`, string | undefined>): ReactNode {
   return (
     <div className={css.ovCol} {...data}>
@@ -178,14 +156,12 @@ function UsageCard({ name, machine }: { name: string, machine: string }): ReactN
   const f = useMemo(() => sandboxFigures(snapshot, name), [snapshot, name])
   const entry = snapshot.machines[machine]
   const machineCpuSamples = useMemo(() => (entry ? machineCpu(entry.points, snapshot.tick) : []), [entry, snapshot.tick])
-  const machineMemorySamples = useMemo(() => (entry ? machineMemory(entry.points) : []), [entry])
   if (!offered || !snapshot.loaded) return null
   if (!f) {
     if (entry?.latest && !entry.latest.stats.sandboxes.items) return <p className={css.muted} data-mx-older>{t('mxOlderWorker')}</p>
     return null
   }
   const row = f.row, u = f.gap ? null : row?.usage ?? null
-  const to = snapshot.now ?? Date.now(), from = to - HOUR_MS
   const why = f.gap ?? row?.usageReason ?? row?.liveReason
   // no cgroup of its own: one note, and the whole machine instead
   const unmeasured = !f.gap && !!row && !row.usage && UNMEASURED.has(row.usageReason ?? '')
@@ -193,7 +169,6 @@ function UsageCard({ name, machine }: { name: string, machine: string }): ReactN
   const head = (
     <header className={css.ovUsageHead}>
       <h3 className={css.columnTitle}>{t('ovUsage')}</h3>
-      <span className={css.columnCount} title={t('mxHistoryNote', { time: snapshot.epoch ? new Date(snapshot.epoch).toLocaleString() : '—' })}>{t('ovHourNote')}</span>
       <span className={css.columnSpacer} />
       {at != null && <span className={css.columnCount}>{t('ovReadAt', { time: new Date(at).toLocaleTimeString() })}</span>}
     </header>
@@ -201,7 +176,6 @@ function UsageCard({ name, machine }: { name: string, machine: string }): ReactN
   if (unmeasured) {
     const r = entry?.latest?.stats.resources
     const cpuNow = latest(machineCpuSamples)
-    const cpuTop = cpuScale(peakSince(machineCpuSamples, from))
     return (
       <Card className={css.ovUsage} data-ov-usage={name} data-sandbox-usage="none" data-usage-reason={row?.usageReason ?? ''}>
         {head}
@@ -209,11 +183,9 @@ function UsageCard({ name, machine }: { name: string, machine: string }): ReactN
         <div className={css.ovCols} data-cols="4" data-muted>
           <Column label={t('mxProcessor')} data-ov-tile="cpu">
             <NotRead word="—" why={cpuNow?.v != null ? t('sbovMachineCpu', { share: `${cpuShare(cpuNow.v)} %`, n: r?.cpus != null ? String(r.cpus) : '—' }) : t('sbovMachineCpuNotRead')} />
-            <HourChart samples={machineCpuSamples} max={cpuTop} from={from} to={to} label={t('mxProcessor')} muted />
           </Column>
           <Column label={t('memory')} data-ov-tile="memory">
             <NotRead word="—" why={r?.memoryUsed != null && r.memoryTotal != null ? t('sbovMachineMemory', { used: gib(r.memoryUsed), total: gib(r.memoryTotal) }) : null} />
-            <HourChart samples={machineMemorySamples} max={r?.memoryTotal ?? 1} from={from} to={to} label={t('memory')} muted />
           </Column>
           <Column label={t('mxProcesses')} data-ov-tile="pids"><NotRead word="—" why={t('sbovNotCounted')} /></Column>
           <Column label={t('mxOomKills')} data-ov-tile="oom"><NotRead word="—" why={t('sbovNotCounted')} /></Column>
@@ -222,10 +194,7 @@ function UsageCard({ name, machine }: { name: string, machine: string }): ReactN
     )
   }
   const cpuNow = latest(f.cpu)
-  const cpuTop = f.cpus ?? Math.max(1, ...f.cpu.map((s) => s.v ?? 0))
   const peak = u?.memoryPeak ?? null
-  const memTop = Math.max(1, peak ?? 0, ...f.memory.map((s) => s.v ?? 0)) * 1.25
-  const memoryRead = peak != null || f.memory.some((s) => s.v != null)
   const kills = u?.oomKills ?? null
   const reason = w.reason(why)
   return (
@@ -236,13 +205,12 @@ function UsageCard({ name, machine }: { name: string, machine: string }): ReactN
           {cpuNow?.v != null
             ? <div className={css.ovValue} data-mx-figure="cpu">{processors(cpuNow.v)}{f.cpus != null && <span className={css.ovValueOf}>{t('sbovOfProcessors', { n: String(f.cpus) })}</span>}</div>
             : <NotRead why={w.gap(cpuNow?.reason ?? why)} />}
-          <HourChart samples={f.cpu} max={cpuTop} maxText={f.cpus != null ? t('mxProcessorsMax', { n: String(f.cpus) }) : processors(cpuTop)} from={from} to={to} label={t('mxProcessor')} />
+          {cpuNow?.v != null && f.cpus != null && f.cpus > 0 && <Meter share={cpuNow.v / f.cpus} label={t('mxProcessor')} tone="neutral" className={css.ovBar} />}
         </Column>
         <Column label={t('memory')} data-ov-tile="memory">
           {u?.memoryCurrent != null
             ? <div className={css.ovValue} data-mx-figure="memory">{gib(u.memoryCurrent)}{peak != null && <span className={css.ovValueOf}>{t('mxPeak', { size: gib(peak) })}</span>}</div>
             : <NotRead why={reason} />}
-          <HourChart samples={f.memory} max={memTop} maxText={memoryRead ? gib(memTop) : undefined} from={from} to={to} label={t('mxMemoryChart')} />
           {u?.memoryCurrent != null && u.memoryFile != null && <div className={css.ovFoot}><span>{t('mxFileShare', { size: gib(u.memoryFile) })}</span></div>}
         </Column>
         <Column label={t('mxProcesses')} data-ov-tile="pids">
