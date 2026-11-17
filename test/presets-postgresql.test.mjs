@@ -111,6 +111,7 @@ test('server: one 127.0.0.1-only container on a fixed port, password kept 0600, 
   const run = runs.find((a) => a[0] === 'run')
   assert.equal(run.at(-1), 'postgres:17')
   assert.equal(run[run.indexOf('-p') + 1], `127.0.0.1:${port}:5432`)
+  assert.equal(run[run.indexOf('--restart') + 1], 'unless-stopped', 'back after Docker restarts')
   assert.ok(run.includes('--env-file') && !run.some((a) => a.includes('POSTGRES_PASSWORD=')))
   assert.equal(statSync(pg.passwordFile).mode & 0o777, 0o600)
   assert.ok(readFileSync(pg.passwordFile, 'utf8').length >= 20)
@@ -120,6 +121,28 @@ test('server: one 127.0.0.1-only container on a fixed port, password kept 0600, 
   assert.deepEqual(psql.slice(-4), ['-c', 'DROP DATABASE IF EXISTS "demo_services" WITH (FORCE)', '-c', 'CREATE DATABASE "demo_services"'])
   await assert.rejects(pg.freshDatabase('x"; DROP'), (e) => e.code === 'InvalidInput')
   assert.equal(JSON.parse(readFileSync(join(state, 'postgresql', 'server.json'), 'utf8')).port, port)
+  rmSync(state, { recursive: true, force: true })
+})
+
+test('server: an existing stopped container without a restart policy gains it, then starts on its own port', async () => {
+  const state = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-restart-'))
+  const runs = []
+  const exec = async (file, args) => {
+    runs.push(args)
+    if (args[0] === 'inspect') return 'exited no\n'
+    if (args[0] === 'port') return '127.0.0.1:60506\n'
+    return ''
+  }
+  const pg = new PresetPostgres({ state, docker: '/fake/docker', exec, sleep: async () => {} })
+  assert.deepEqual(await pg.ensure(), { container: pg.container, port: 60506 })
+  const verbs = runs.map((a) => a[0])
+  assert.ok(!verbs.includes('run'), 'the container and its data are kept')
+  assert.deepEqual(runs.find((a) => a[0] === 'update'), ['update', '--restart', 'unless-stopped', pg.container])
+  assert.ok(verbs.indexOf('update') < verbs.indexOf('start'))
+  runs.length = 0
+  const kept = new PresetPostgres({ state, docker: '/fake/docker', exec: async (file, args) => { runs.push(args); return args[0] === 'inspect' ? 'running unless-stopped\n' : args[0] === 'port' ? '127.0.0.1:60506\n' : '' }, sleep: async () => {} })
+  await kept.ensure()
+  assert.ok(!runs.some((a) => a[0] === 'update' || a[0] === 'start'), 'a running container with the policy is left alone')
   rmSync(state, { recursive: true, force: true })
 })
 

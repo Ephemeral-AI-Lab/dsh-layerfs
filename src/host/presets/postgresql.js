@@ -1,7 +1,8 @@
 /*
  * The PostgreSQL server a preset's PostgreSQL Stores live on: one Docker
  * container the preset owns (`postgres:17`, published on 127.0.0.1 only, on a
- * port fixed when it is created), with a generated password kept in the
+ * port fixed when it is created, restarted with Docker unless someone stops it
+ * by hand), with a generated password kept in the
  * presets state folder (`<state>/postgresql/password`, 0600) and handed to
  * LayerFS as a `file:` reference. Each PostgreSQL Store gets a fresh database
  * right before `store connect`; machines then dial it through
@@ -16,6 +17,8 @@ import { createServer } from 'node:net'
 import { join } from 'node:path'
 
 export const POSTGRES_IMAGE = 'postgres:17'
+/** Docker brings the server back after Docker Desktop or the host restarts; a hand `docker stop` holds. */
+export const RESTART_POLICY = 'unless-stopped'
 
 export const isPostgresql = store => store?.kind === 'postgresql'
 /** The machines a preset Store is placed on (a SQLite Store) or attached to (a PostgreSQL Store). */
@@ -74,14 +77,18 @@ export class PresetPostgres {
     mkdirSync(this.dir, { recursive: true, mode: 0o700 })
     if (!existsSync(this.passwordFile)) writeFileSync(this.passwordFile, randomBytes(18).toString('base64url'), { mode: 0o600 })
     const password = readFileSync(this.passwordFile, 'utf8').trim()
-    let state = null
-    try { state = (await this.dockerRun(['inspect', '--format', '{{.State.Status}}', this.container])).trim() } catch { state = null }
+    let state = null, policy = null
+    try { [state = null, policy = null] = (await this.dockerRun(['inspect', '--format', '{{.State.Status}} {{.HostConfig.RestartPolicy.Name}}', this.container])).trim().split(/\s+/) } catch { state = null }
     if (state === null) {
       const envFile = join(this.dir, 'container.env')
       writeFileSync(envFile, `POSTGRES_PASSWORD=${password}\n`, { mode: 0o600 })
       const port = await freePort()
-      await this.dockerRun(['run', '-d', '--name', this.container, '--label', 'dsh-layerfs.preset=postgresql', '--env-file', envFile, '-p', `127.0.0.1:${port}:5432`, POSTGRES_IMAGE], { timeout: 600_000 })
-    } else if (state !== 'running') await this.dockerRun(['start', this.container])
+      await this.dockerRun(['run', '-d', '--name', this.container, '--label', 'dsh-layerfs.preset=postgresql', '--env-file', envFile, '--restart', RESTART_POLICY, '-p', `127.0.0.1:${port}:5432`, POSTGRES_IMAGE], { timeout: 600_000 })
+    } else {
+      // a container made before the policy existed: give it the policy (it keeps its data and port)
+      if (policy !== RESTART_POLICY) await this.dockerRun(['update', '--restart', RESTART_POLICY, this.container])
+      if (state !== 'running') await this.dockerRun(['start', this.container])
+    }
     const published = (await this.dockerRun(['port', this.container, '5432/tcp'])).split('\n').map(line => /127\.0\.0\.1:(\d+)/.exec(line)?.[1]).find(Boolean)
     if (!published) fail(`PostgreSQL container ${this.container} publishes no 127.0.0.1 port. Remove it and build again.`)
     const port = Number(published)
