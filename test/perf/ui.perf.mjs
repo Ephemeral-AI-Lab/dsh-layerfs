@@ -93,8 +93,8 @@ const PAGES = [
   ...(sandboxShort ? [{ id: 'sandbox', title: `Sandbox page (${sandboxShort})`, pre: [resources], action: click(tree(new RegExp(`^${sandboxShort}`))), ready: selected(sandboxShort) }] : []),
   { id: 'project.files', title: `Project ${projectName}: Files`, pre: [resources], action: click(openProject), ready: visible((p) => p.getByRole('tab', { name: 'Files', exact: true, selected: true })) },
   ...['History', 'Sandboxes', 'Sessions', 'Stats'].map((name) => ({ id: `project.${name.toLowerCase()}`, title: `Project ${projectName}: ${name}`, pre: toProject, action: click(tab(name)), ready: visible((p) => p.getByRole('tab', { name, exact: true, selected: true }).first()) })),
-  // Health, Logs and Settings are pages behind the buttons on Home's head card.
-  ...['Health', 'Logs', 'Settings'].map((name) => ({ id: name.toLowerCase(), title: name, pre: [resources], action: click((p) => p.getByRole('navigation', { name: 'Health, Logs and Settings' }).getByRole('button', { name: new RegExp(`^${name}\\b`) }).first()) })),
+  // Health and Logs are pages behind the buttons on Home's head card (Settings opens the setup modal).
+  ...['Health', 'Logs'].map((name) => ({ id: name.toLowerCase(), title: name, pre: [resources], action: click((p) => p.getByRole('navigation', { name: 'Health, Logs and Settings' }).getByRole('button', { name: new RegExp(`^${name}\\b`) }).first()) })),
   { id: 'session.chat', title: 'Project session: open (Chat)', action: toSession[0], ready: visible((p) => p.getByRole('tab', { name: 'Trajectory', exact: true })) },
   ...['Trajectory', 'Files', 'History', 'Sandbox'].map((name) => ({ id: `session.${name.toLowerCase()}`, title: `Project session: ${name}`, pre: toSession, action: click(tab(name)), ready: visible((p) => p.getByRole('tab', { name, exact: true, selected: true }).first()) })),
 ].filter((p) => !only || only.includes(p.id))

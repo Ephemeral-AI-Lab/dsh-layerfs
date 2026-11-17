@@ -234,12 +234,6 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.summary {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 .warnings {
   display: flex;
   flex-direction: column;

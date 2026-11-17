@@ -2,7 +2,7 @@
  * The Storage page's navigation, in one bar over the page: Back and Forward
  * through the pages visited, a breadcrumb from Home (the Overview) down to
  * the page, Jump to (⌘K / Ctrl+K), the running transfers, Refresh and Add.
- * Health, Logs and Settings open from Home's head card (and Jump to).
+ * Health and Logs open from Home's head card (and Jump to); its Settings button opens the setup modal.
  *
  * A crumb with siblings carries a switcher: the current page's crumb opens a
  * menu of the pages beside it (the other Stores, machines, projects in the
@@ -107,7 +107,7 @@ export interface AddItem {
   run: () => void
 }
 
-/** A page of its own under Home (Health, Logs, Settings), opened from Home's head card. */
+/** A page of its own under Home (Health, Logs), opened from Home's head card. */
 export interface NavPage {
   id: TabId
   label: string

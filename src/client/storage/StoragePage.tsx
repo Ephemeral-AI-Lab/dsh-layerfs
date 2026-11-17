@@ -27,8 +27,6 @@ import { SandboxDetail } from '../machines/SandboxDetail.tsx'
 import { PresetsDialog, type PresetsT } from '../presets/index.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
-import { SettingsView } from '../settings/index.tsx'
-import type { SettingsT } from '../settings/locale.ts'
 import type { SetupModalT } from '../setup/locale.ts'
 import { Loading, Page, Refusal } from '../ui/index.tsx'
 import { BackupFilePage, BucketPage, providerWords } from './BucketPage.tsx'
@@ -57,14 +55,13 @@ export interface StorageMainProps extends Omit<MachinesPageProps, 't'> {
   tm: MachinesT
   /** What a project's Sandboxes map needs of the conversation views. */
   map: ProjectMapShare
-  /** The copy of the Logs and Settings pages (Settings holds Presets). */
+  /** The copy of the pages Center hosts from other areas (Logs, Presets, the setup modal). */
   more: MoreT
 }
 
 /** The `t`s of the pages Center hosts from other areas. */
 export interface MoreT {
   logs: LogsT
-  settings: SettingsT
   presets: PresetsT
   setup: SetupModalT
 }
@@ -225,11 +222,10 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const machineSiblings: Sibling[] = places.map((p) => ({ id: `machine:${p.name}`, label: machineWord(p.name), meta: mc.kind(p.platform) }))
   const storeSiblings: Sibling[] = stores.map((s) => ({ id: `store:${s.name}`, label: s.name, meta: `${kindWord(s)} · ${storeWhere(s)}`, group: s.kind }))
   const bucketSiblings: Sibling[] = (view?.buckets ?? []).map((b) => ({ id: `bucket:${b.name}`, label: b.name, meta: providerWords(b.provider, t) }))
-  // Health, Logs and Settings: pages under Home, opened from its head card (and Jump to).
+  // Health and Logs: pages under Home, opened from its head card (and Jump to); Settings is the Set up LayerFS modal.
   const pages: NavPage[] = [
     { id: 'health', label: t('navHealth') },
     { id: 'logs', label: t('navLogs') },
-    { id: 'settings', label: t('navSettings') },
   ]
   const crumbsOf = (id: TabId): Crumb[] => {
     if (id === 'overview') return [{ key: 'root', label: t('title') }]
@@ -306,7 +302,6 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const pageOf = (id: TabId): ReactNode => {
     if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} />
     if (id === 'logs') return <LogsPage api={api} t={more.logs} />
-    if (id === 'settings') return <SettingsView t={more.settings} ts={more.setup} />
     if (id.startsWith('machine:')) {
       return (
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}

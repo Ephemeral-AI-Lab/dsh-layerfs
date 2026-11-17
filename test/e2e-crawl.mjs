@@ -480,10 +480,8 @@ view('logs', 'Logs reads', async () => {
 })
 view('logs', 'Logs Refused', async () => { await centerPage('Logs'); await page.getByRole('tablist', { name: 'Outcome' }).getByRole('tab', { name: 'Refused' }).click() })
 view('logs', 'Logs operation menu', async () => { await centerPage('Logs'); await page.getByRole('tablist', { name: 'Outcome' }).getByRole('tab', { name: 'All' }).click(); await openAndDismiss(btn(page, 'Operation'), 'menu') })
-view('settings', 'Settings', async () => { await centerPage('Settings'); await page.getByRole('heading', { name: 'LayerFS settings' }).waitFor() })
-view('settings', 'Settings runtime dialog', async () => { await centerPage('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Runtime' }), 'Change…')) })
-view('settings', 'Settings presets script', async () => { await centerPage('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Presets' }), 'View script')) })
-view('settings', 'Settings presets menu', async () => { await centerPage('Settings'); await openAndDismiss(btn(page.getByRole('region', { name: 'Presets' }), 'More actions'), 'menu') })
+view('settings', 'Settings opens the setup modal', async () => { await centerPage('Settings'); await page.locator('[data-setup-modal]').waitFor(); await page.keyboard.press('Escape'); await page.locator('[data-setup-modal]').waitFor({ state: 'detached' }) })
+view('settings', 'Setup modal runtime picker', async () => { await centerPage('Settings'); const m = page.locator('[data-setup-modal]'); await m.waitFor(); await m.getByRole('button', { name: 'Change…' }).first().click(); await m.getByText('Runtimes the LayerFS app installed', { exact: false }).waitFor(); await page.keyboard.press('Escape') })
 
 // The sidebar's LayerFS projects view and a project's Set up dialog (v3: no Projects page).
 /** The full sidebar (Resources folds it to its rail on purpose: src/client/storage/index.tsx). */

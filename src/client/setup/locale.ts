@@ -66,7 +66,7 @@ const en = {
   cardSetupTitle: 'LayerFS isn’t set up yet', cardSetupBody: 'Choose a runtime and check the LayerFS folder to start using projects and machines.',
   cardFinishTitle: 'Finish setting up LayerFS', cardFinishBody: '{what}', openSetup: 'Set up LayerFS…', checkSetup: 'Check setup…',
   // settings summary
-  summaryTitle: 'Setup', terminal: 'Use in a terminal', warnings: 'Notes from LayerFS',
+  terminal: 'Use in a terminal', warnings: 'Notes from LayerFS',
   copy: 'Copy', copied: 'Copied',
 }
 
@@ -126,7 +126,7 @@ const zh: typeof en = {
   errAbsolute: '请使用绝对路径。', save: '使用此构建', saving: '正在保存…', reset: '恢复自动', resetTitle: '忘记所选运行时：使用 LayerFS 文件夹中最新的运行时',
   cardSetupTitle: 'LayerFS 尚未设置', cardSetupBody: '选择运行时并检查 LayerFS 文件夹，即可开始使用项目和机器。',
   cardFinishTitle: '完成 LayerFS 设置', cardFinishBody: '{what}', openSetup: '设置 LayerFS…', checkSetup: '检查设置…',
-  summaryTitle: '设置', terminal: '在终端中使用', warnings: 'LayerFS 的提示',
+  terminal: '在终端中使用', warnings: 'LayerFS 的提示',
   copy: '复制', copied: '已复制',
 }
 

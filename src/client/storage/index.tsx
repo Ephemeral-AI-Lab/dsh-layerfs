@@ -1,7 +1,7 @@
 /**
  * Center area of dsh-layerfs: the sidebar's one LayerFS row and the Center
  * page it opens in the main column. The Overview is home; a machine, Sandbox,
- * Store, project, bucket, or the Health, Logs and Settings pages open in its
+ * Store, project, bucket, or the Health and Logs pages open in its
  * place under the page's navigation bar (Back/Forward, breadcrumb with
  * switchers, Jump to, transfers, Health/Logs/Settings, Refresh, Add).
  */
@@ -13,7 +13,6 @@ import type { MachinesShare } from '../machines/index.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { createSidebarRail } from '../overview/rail.tsx'
 import { PRESETS_NS } from '../presets/index.tsx'
-import { SETTINGS_NS } from '../settings/index.tsx'
 import { SETUP_MODAL_NS } from '../setup/index.tsx'
 import { NS as VIEWS_NS } from '../views/locale.ts'
 import { sessionsSource } from '../views/index.tsx'
@@ -47,7 +46,7 @@ export function registerStorage(ctx: any, api: LayerfsApi, machines: MachinesSha
     locale: NS,
     inject: () => ({
       ...machines.face, tm: machines.t, api, doctorT, map: { t: ctx.locale.bind(VIEWS_NS), sessions: sessionsSource(ctx) },
-      more: { logs: ctx.locale.bind(LOGS_NS), settings: ctx.locale.bind(SETTINGS_NS), presets: ctx.locale.bind(PRESETS_NS), setup: ctx.locale.bind(SETUP_MODAL_NS) },
+      more: { logs: ctx.locale.bind(LOGS_NS), presets: ctx.locale.bind(PRESETS_NS), setup: ctx.locale.bind(SETUP_MODAL_NS) },
     }),
   }, StorageMain)), 'dsh-layerfs: storage page')
   // Opening Center folds the sidebar to its icon rail so the page keeps the
@@ -85,7 +84,7 @@ export function registerStorage(ctx: any, api: LayerfsApi, machines: MachinesSha
     document.addEventListener('click', onClick)
     return () => document.removeEventListener('click', onClick)
   }, 'dsh-layerfs: storage row fold')
-  // The sidebar's one LayerFS row: it opens Center (Health, Logs and Settings are Center pages).
+  // The sidebar's one LayerFS row: it opens Center (Health and Logs are Center pages; Settings opens the setup modal).
   ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',
     id: PANEL_ID,

@@ -217,9 +217,10 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
 const sourceKey = (source: SetupStatus['runtime']['source']) =>
   source === 'config' ? 'sourceConfig' as const : source === 'settings' ? 'sourceSettings' as const : source === 'env' ? 'sourceEnv' as const : source === 'home' ? 'sourceHome' as const : 'sourceNone' as const
 
-/** Details: where the runtime comes from, and each piece's path and verdict. */
+/** Details: where the runtime comes from, each piece's path and verdict, LayerFS's notes, and the terminal line. */
 function Pieces({ s, t }: { s: SetupStatus, t: SetupModalT }): ReactNode {
   const r = s.runtime, p = s.pieces
+  const terminal = r.cli ? [`LAYERFS_HOME='${s.folder.path}'`, ...(r.bundle ? [`LAYERFS_BUNDLE='${r.bundle}'`] : []), `'${r.cli}'`].join(' ') : null
   return (
     <div className={css.detailsBody}>
       <span className={css.note}>{t('runtimeFrom', { source: t(sourceKey(r.source)) })}</span>
@@ -231,6 +232,17 @@ function Pieces({ s, t }: { s: SetupStatus, t: SetupModalT }): ReactNode {
           <PieceRow label={t('pieceBundle')} path={p.bundle?.path ?? null} value={<VerdictWord piece={p.bundle} cli={r.commit} t={t} />} note={pieceNote(p.bundle, r.commit, t('bundleMissingNote'), t)} />
           <PieceRow label={t('pieceSdk')} path={r.sdk?.dir ?? null} value={<span className={css.verdict} data-verdict={r.sdk ? 'matches' : 'note'}>{r.sdk ? t('sdkPresent') : t('sdkMissing')}</span>} note={r.sdk ? null : t('sdkNote')} />
         </dl>
+      ) : null}
+      {s.warnings.length ? (
+        <ul className={css.warnings} aria-label={t('warnings')}>
+          {s.warnings.map((w) => <li key={w.code} className={css.warning} data-tone={w.code === 'HomeMode' ? 'note' : 'warning'}>{w.message}</li>)}
+        </ul>
+      ) : null}
+      {terminal ? (
+        <div className={css.noteBlock}>
+          <span className={css.note}>{t('terminal')}</span>
+          <CopyLine text={terminal} copyLabel={t('copy')} copiedLabel={t('copied')} />
+        </div>
       ) : null}
     </div>
   )

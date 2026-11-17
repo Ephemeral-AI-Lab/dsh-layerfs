@@ -1,7 +1,7 @@
 /**
  * The Storage page's Overview tab: this LayerFS home at a glance, the global
  * Home page. Top to bottom: the head, one row (the pinned runtime, what needs
- * you most with its fix, and the Health, Logs and Settings pages with Refresh
+ * you most with its fix, the Health and Logs pages and Settings (the Set up LayerFS modal) with Refresh
  * as icon buttons; anything else that needs you is only counted there), then
  * three card sections
  * (`HomeCards.tsx`): the projects in their Stores with each Store's backup,
@@ -341,7 +341,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           <>
             <span className={heroCss.name} title={[rt?.home, rt?.preparedImages != null ? t('ovPreparedImages', { n: rt.preparedImages }) : null].filter(Boolean).join(' · ')}><BrandLockup /></span>
             <button type="button" className={heroCss.runtime} data-tone={runtimeTone} aria-label={runtimeWords} title={t('ovRuntimeToggle')}
-              onClick={() => props.onOpen('settings')}>
+              onClick={() => setupDialog.open()}>
               {!rt ? <StateDot state="ongoing" size={9} /> : rt.ok ? null : <StateDot state="error" size={6} />}
               <span>{rt?.ok && rt.version ? rt.version : runtimeWords}</span>
               {rt?.commit ? <span>· {rt.commit.slice(0, 8)}</span> : null}
@@ -365,7 +365,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
             </Button>
             <Button variant="ghost" size="sm" icon={<LogsPanelIcon size={15} />} onClick={() => props.onOpen('logs')} aria-label={t('navLogs')} title={t('navLogs')} />
             <Button variant="ghost" size="sm" icon={<IconAgentPresetOutlineRegular size={15} />} onClick={props.onPresets} aria-label={props.presetsLabel} title={props.presetsLabel} />
-            <Button variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={15} />} onClick={() => props.onOpen('settings')} aria-label={t('navSettings')} title={t('navSettings')} />
+            <Button variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={15} />} onClick={() => setupDialog.open()} aria-label={t('navSettings')} title={t('navSettings')} />
             <Button variant="ghost" size="sm" icon={doctor.loading ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />}
               disabled={doctor.loading} onClick={refreshAll} aria-label={t('refresh')} title={[t('ovRefreshTitle'), checked].filter(Boolean).join(' · ')} />
           </>
