@@ -19,7 +19,7 @@ export class MachineStop extends CliInventory {
     const discovery = await this.driver.discover()
     const stop = discovery?.calls?.find(call => call.family === 'machine' && call.call === 'stop')
     if (!stop?.options?.some(option => option.name === 'force' && option.kind === 'bool')) {
-      throw Object.assign(new Error('Reset requires machine.stop with the force option, which the selected LayerFS CLI does not advertise. Choose a compatible CLI and matching daemon in Machines → LayerFS runtime → Change, then review Reset again. No machines were stopped.'), {
+      throw Object.assign(new Error('Reset requires machine.stop with the force option, which the selected LayerFS CLI does not advertise. Choose a compatible CLI and matching daemon in Center → Settings → Change…, then review Reset again. No machines were stopped.'), {
         code: 'CliIncompatible', status: 409,
       })
     }

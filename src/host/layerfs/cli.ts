@@ -61,6 +61,14 @@ export interface CliSpec {
   readonly callLog?: string | null
   /** Whether the CLI has the native `logs` family; undefined: detect from its call table. */
   readonly nativeLogs?: boolean
+  /**
+   * The home gate, awaited before every call but discovery and the `home`
+   * family (and an `execute` given `gated`): it may set the home up first (a
+   * read on a missing home) or refuse `Uninitialized` (a home that needs
+   * converting). Unset: a read on a home without `layerfs.json` is refused
+   * `Uninitialized`, so reads never create a home.
+   */
+  readonly gate?: (call: { readonly family: string, readonly call: string, readonly read: boolean }) => Promise<void>
 }
 
 /** One `help --json` call table row. */
@@ -146,6 +154,8 @@ function outcome(o: { code: number | null, signal: NodeJS.Signals | null, result
 interface ExecuteOptions {
   input?: string | Buffer
   read?: boolean
+  /** The home gate already ran, or must not (the service's own set up of a missing home). */
+  gated?: boolean
   storeRead?: string
   events?: boolean
   discovery?: boolean
@@ -391,9 +401,25 @@ async function logged(spec: CliSpec, argv: readonly string[], options: ExecuteOp
   }
 }
 
+/** `Uninitialized`: the home is not set up (missing, or it needs converting); answered 503, expected. */
+export const uninitialized = (home: string, message?: string): CliError => new CliError('Uninitialized',
+  message ?? `The LayerFS folder ${home} is not set up yet; open Set up LayerFS (Center) to create it`, { missing: [`home:${home}`] })
+
+/**
+ * The home gate a call waits on before it is admitted, or null when it has
+ * none: discovery, the `home` family and a call already gated pass; a spec without a gate refuses reads on a home without
+ * `layerfs.json` (reads never create a home).
+ */
+function gateOf(spec: CliSpec, argv: readonly string[], options: ExecuteOptions): Promise<void> | null {
+  if (options.gated || options.discovery || !spec.home || argv[0] === 'home') return null
+  if (spec.gate) return spec.gate({ family: argv[0] ?? '', call: argv[1] ?? '', read: !!options.read })
+  if (options.read && !existsSync(join(spec.home, 'layerfs.json'))) return Promise.reject(uninitialized(spec.home))
+  return null
+}
+
 function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOptions): Promise<any> {
   if (!spec.cli || !isAbsolute(spec.cli) || !existsSync(spec.cli)) {
-    return Promise.reject(new CliError('CliUnavailable', 'Pin an absolute LayerFS CLI (Settings → LayerFS or DSH_LAYERFS_CLI)', null, 'unavailable'))
+    return Promise.reject(new CliError('CliUnavailable', 'No LayerFS runtime is chosen yet. Open Set up LayerFS in Center, or set DSH_LAYERFS_CLI', null, 'unavailable'))
   }
   const own = laneOf(argv)
   // exec-cancel and monitoring reads keep their own lane whatever the caller names
@@ -404,9 +430,10 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     full: () => new CliError('Busy', `${chosen.limit} ${chosen.name} reads are running and ${chosen.queue} are waiting on this host; read again in a moment`, { lane: chosen.name, running: chosen.limit, queued: chosen.queue }),
   }
   const cancelled = () => new CliError('Cancelled', 'The read was dropped: nobody waits for its answer')
+  const gated = gateOf(spec, argv, options)
+  if (gated) return gated.then(() => executeRaw(spec, argv, { ...options, gated: true }))
   const launch = () => admit(`${spec.cli}:${chosen.name}`, chosen.limit, () => new Promise<unknown>((resolve, reject) => {
     if (!options.discovery && !spec.home) return reject(new CliError('InvalidInput', 'LayerFS requires an explicit home'))
-    if (options.read && !existsSync(join(spec.home, 'layerfs.json'))) return reject(new CliError('Unavailable', 'LayerFS home is not initialized; reads will not create it'))
     let result: unknown, refusal: any, spawnError: unknown, malformed = false, finals = 0
     const events = options.events || argv.includes('--events')
     const capture = options.capture

@@ -362,6 +362,11 @@
   opacity: 0.6;
 }
 
+/* its platform is not ready here (Docker not answering, a tool removed): the note says why */
+.machine[data-blocked] .machineNote {
+  color: var(--dsw-alias-state-warn-label);
+}
+
 @media (hover: hover) {
   .kind:hover:not(:disabled),
   .machine:hover:not(:disabled) {

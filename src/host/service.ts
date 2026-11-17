@@ -4,10 +4,10 @@
  * and the plugin's own durable state file.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, watch, writeFileSync, type FSWatcher } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
-import { boolOptions, CliError, client, discover, hasNativeLogs, knownIdentity, knownNativeLogs, plain, type Discovery, type Lfs } from './layerfs/cli.ts'
+import { boolOptions, CliError, client, discover, execute, hasNativeLogs, knownIdentity, knownNativeLogs, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
 import { managedCli } from './layerfs/tracing.ts'
 import { findSdk, managedSdk } from './layerfs/agent-sdk.ts'
 import { fileURLToPath } from 'node:url'
@@ -22,7 +22,7 @@ function packageRoot(): string {
     dir = up
   }
 }
-import { cleanRuntimes, installRuntime, installedRuntimes, runningCommands, type RuntimeCleanup } from './layerfs/runtime-home.ts'
+import { bundleStamp, cleanRuntimes, daemonStamp, installRuntime, installedRuntimes, leasePin, runningCommands, runtimeRoot, verdictOf, type BuildStamp, type RuntimeCleanup, type Verdict } from './layerfs/runtime-home.ts'
 import type { LayerfsRemote } from './remote.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -98,6 +98,92 @@ export interface RuntimeStatus {
   readonly error: { readonly code: string, readonly message: string } | null
 }
 
+/** `layerfs home get` (LayerFS ≥ the `home` family), as LayerFS answers it. */
+export interface HomeGet {
+  readonly home: { readonly path: string, readonly state: HomeState, readonly layout: number | null, readonly mode: string | null, readonly mode_ok: boolean | null }
+  readonly bundle: { readonly dir: string, readonly source: string, readonly present: boolean, readonly commit: string | null, readonly dirty: boolean | null, readonly matches: boolean | null } | null
+  readonly daemon: { readonly path: string, readonly source: string, readonly present?: boolean, readonly commit: string | null, readonly dirty?: boolean | null, readonly matches: boolean | null } | null
+  readonly cache: { readonly path: string } | null
+  readonly warnings: readonly { readonly code: string, readonly message: string }[]
+}
+
+/** The LayerFS folder's state (`home get` `home.state`; without it: `layerfs.json` present or not). */
+export type HomeState = 'missing' | 'current' | 'needs_conversion' | 'unknown'
+
+/** One piece of a runtime (CLI, daemon, Linux bundle) and whether it is from the CLI's build. */
+export interface Piece {
+  readonly path: string | null
+  readonly commit: string | null
+  readonly dirty: boolean | null
+  /** Against the CLI's build (LayerFS's `matches` rule); the CLI itself is `matches` when its tree is clean. */
+  readonly verdict: Verdict
+}
+
+/** What is still required before LayerFS can be used here (the setup modal's Done). */
+export type SetupNeed = 'runtime' | 'folder' | 'build'
+
+/** The setup check (docs/specs/layerfs-setup.md §3): the runtime, the LayerFS folder, and whether the pieces are one build. */
+export interface SetupStatus {
+  readonly at: number
+  readonly runtime: RuntimeStatus
+  /** The pinned CLI has `home init` and `home get`; false: an older runtime (today's behaviour). */
+  readonly homeCalls: boolean
+  readonly folder: {
+    readonly path: string
+    readonly state: HomeState
+    readonly layout: number | null
+    readonly mode: string | null
+    /** No group or world access (null: unknown). A wrong mode is a note, never required. */
+    readonly modeOk: boolean | null
+    /** What the setup check did to it while this host runs (created or converted), or null. */
+    readonly did: { readonly created: boolean, readonly converted: boolean, readonly at: number } | null
+  }
+  readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
+  /** `home get`'s warnings in LayerFS's words (none for an older runtime). */
+  readonly warnings: readonly { readonly code: string, readonly message: string }[]
+  /** What blocks Done: no runtime, a folder that is not current, pieces from another build. */
+  readonly needs: readonly SetupNeed[]
+  /** Mixed builds may be saved (DSH_LAYERFS_ALLOW_MIXED=1, development): a piece from another build is a note, not a need. */
+  readonly mixedAllowed: boolean
+  /** The native machine records another daemon than this runtime's, and this runtime's is from its build: the modal offers to record it. */
+  readonly daemonRecordable: boolean
+  /** The setup check could not finish (the CLI failed): its refusal. */
+  readonly error: { readonly code: string, readonly message: string } | null
+}
+
+/** One runtime installed in the LayerFS home, for the runtime picker (`runtime.installed`). */
+export interface InstalledView {
+  readonly id: string
+  readonly cli: string
+  readonly daemon: string | null
+  readonly bundle: string | null
+  readonly at: number
+  readonly version: string | null
+  readonly commit: string | null
+  readonly dirty: boolean | null
+  /** Its CLI has `home init` / `home get`. */
+  readonly homeCalls: boolean
+  readonly pieces: { readonly daemon: Piece | null, readonly bundle: Piece | null }
+  /** An SDK built from its commit is installed (scripts/install-sdk.mjs). */
+  readonly sdk: boolean
+  /** This host's pin. */
+  readonly active: boolean
+  /** Its CLI could not be discovered: why. */
+  readonly error: string | null
+}
+
+/** Installed runtimes whose CLI failed discovery, by path and modification time, with why. */
+const failedDiscovery = new Map<string, string>()
+
+const mixedAllowed = (): boolean => process.env.DSH_LAYERFS_ALLOW_MIXED === '1'
+const hasCall = (d: Discovery, name: string): boolean => d.calls.some((c) => `${c.family}.${c.call}` === name)
+
+/** A piece of the runtime at `path` with its build `stamp`, judged against the CLI's build. */
+function pieceOf(path: string | null, stamp: BuildStamp | null, cli: BuildStamp | null): Piece | null {
+  if (!path) return null
+  return { path, commit: stamp?.commit ?? null, dirty: stamp?.dirty ?? null, verdict: verdictOf(cli, stamp) }
+}
+
 /** A small JSON document in the plugin root, written atomically. */
 export class JsonFile<T> {
   private value: T | undefined
@@ -150,6 +236,23 @@ export class LayerfsService extends Service {
   private nativeRecorded: Promise<unknown> | undefined
   /** Set while an operation holds the whole home (a preset build or reset): why new Sandboxes must wait, or null. */
   exclusive: (() => string | null) | undefined
+  /** The LayerFS folder's last known state (the setup check); `needs_conversion` closes the home gate. */
+  private homeState: HomeState | null = null
+  /** Goes up when the folder changes under a running check (set up, converted) or the pin moves: older answers are stale. */
+  private homeGeneration = 0
+  /** The background parts run (startSetup): lease, watch, first check. */
+  private started = false
+  private watcher: FSWatcher | undefined
+  private watchTimer: NodeJS.Timeout | undefined
+  /** The `home get` in flight that tells the gate the folder's state. */
+  private homeLearn: Promise<void> | null = null
+  /** The home set up in flight (one `home init`, or one `machine list` for an older CLI). */
+  private homeInit: Promise<void> | null = null
+  /** What the setup check did to the folder while this host runs. */
+  private homeDid: SetupStatus['folder']['did'] = null
+  /** The setup check in flight, shared by concurrent callers. */
+  private setupRead: Promise<SetupStatus> | null = null
+  private lastSetup: SetupStatus | null = null
 
   constructor(ctx: Context, private readonly config: LayerfsConfig = {}) {
     super(ctx, 'layerfs')
@@ -171,6 +274,56 @@ export class LayerfsService extends Service {
     this.resolvePin()
   }
 
+  /**
+   * Starts the setup check's background parts (index.ts, once the plugin
+   * runs; a service built in a test starts none of them): this host's pin
+   * lease, the watch on `<home>/runtime`, and the first setup check, which
+   * creates a missing LayerFS folder without asking.
+   */
+  startSetup(): void {
+    if (this.started) return
+    this.started = true
+    leasePin(this.home, this.root, this.pin.cli)
+    this.ctx.effect(() => () => { clearTimeout(this.watchTimer); this.watcher?.close(); this.watcher = undefined }, 'dsh-layerfs: runtime watch')
+    this.armWatch()
+    const first = setTimeout(() => { void this.setup().catch(() => {}) }, 0)
+    first.unref()
+    this.ctx.effect(() => () => clearTimeout(first), 'dsh-layerfs: first setup check')
+  }
+
+  /**
+   * Watches `<home>/runtime`, so a runtime the LayerFS app installs later is
+   * picked up without a restart (when nothing else is pinned). Until that
+   * folder exists (a first run) the setup check arms it again each time.
+   */
+  private armWatch(): void {
+    if (!this.started || this.watcher) return
+    try {
+      const watcher = watch(runtimeRoot(this.home), () => {
+        clearTimeout(this.watchTimer)
+        this.watchTimer = setTimeout(() => { if (this.rescan()) void this.setup().catch(() => {}) }, 1000)
+        this.watchTimer.unref()
+      })
+      watcher.unref()
+      watcher.on('error', () => { watcher.close(); if (this.watcher === watcher) this.watcher = undefined })
+      this.watcher = watcher
+    } catch { /* no runtime folder yet: armed again by the next setup check */ }
+  }
+
+  /**
+   * When nothing pins a runtime but the home (or nothing at all), take the
+   * newest runtime installed in the home now. Answers whether the pin moved.
+   */
+  private rescan(): boolean {
+    if (this.pin.source !== 'home' && this.pin.source !== 'none') return false
+    const newest = installedRuntimes(this.home)[0]?.cli ?? null
+    if (newest === this.pin.cli) return false
+    this.resolvePin()
+    this.emit('runtime-changed')
+    this.emit('setup-changed')
+    return true
+  }
+
   private resolvePin(): void {
     const saved = this.settings.read()
     const c = abs(this.config.cli), s = abs(saved.cli), e = abs(process.env.DSH_LAYERFS_CLI)
@@ -186,15 +339,236 @@ export class LayerfsService extends Service {
     const cacheHomeSource = cc ? 'config' : cs ? 'settings' : ce ? 'env' : abs(process.env.XDG_CACHE_HOME) ? 'inherited' : 'default'
     this.pin = { cli, daemon, bundle, cacheHome, cacheHomeSource, source }
     this.sdk = undefined
+    this.homeState = null
+    // a pin change makes a running check's answer stale
+    this.homeGeneration = (this.homeGeneration ?? 0) + 1
     this.nativeRecorded = undefined
+    // this host's lease on the runtime folder it pins, so no host's cleanup removes it (only once the plugin runs: never from a test)
+    if (this.started) leasePin(this.home, this.root, cli)
     // Discover the CLI (identity, call log kind) now, so the first agent shell already gets $DSH_LAYERFS_SDK.
     if (cli) void hasNativeLogs(cli)
   }
 
   /** The SDK over the pinned CLI. Throws `CliUnavailable` when nothing is pinned. */
   get lfs(): Lfs {
-    if (!this.pin.cli) throw new CliError('CliUnavailable', 'No LayerFS CLI is pinned. Set it in Machines → LayerFS runtime, or DSH_LAYERFS_CLI.', null, 'unavailable')
-    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog })
+    if (!this.pin.cli) throw new CliError('CliUnavailable', 'No LayerFS runtime is chosen yet. Open Set up LayerFS in Center, or set DSH_LAYERFS_CLI.', null, 'unavailable')
+    return this.sdk ??= client({ cli: this.pin.cli, home: this.home, bundle: this.pin.bundle, cacheHome: this.pin.cacheHome, callLog: this.callLog, gate: (call) => this.gate(call) })
+  }
+
+  /** The gate's refusal for a folder this LayerFS can't use as it is. */
+  private closed(): CliError | null {
+    if (this.homeState === 'needs_conversion') return uninitialized(this.home, `The LayerFS folder ${this.home} was made by an older LayerFS and needs converting. Open Set up LayerFS in Center to convert it.`)
+    if (this.homeState === 'unknown') return uninitialized(this.home, `This LayerFS can't read the folder ${this.home}. Open Set up LayerFS in Center.`)
+    return null
+  }
+
+  /**
+   * The home gate (cli.ts `CliSpec.gate`): a folder that needs converting
+   * (or that `home get` could not read) refuses every call `Uninitialized`
+   * until the user converts it; a read on a missing folder sets it up first
+   * (`home init`, or one `machine list` for an older CLI) and is refused
+   * `Uninitialized` if it is still missing.
+   */
+  private async gate(call: { family: string, call: string, read: boolean }): Promise<void> {
+    // not known yet (the first call after start or a runtime change): ask `home get` once, so nothing converts by accident
+    if (this.homeState === null) await this.learnHome()
+    const refused = this.closed()
+    if (refused) { this.recheck(); throw refused }
+    if (!call.read || existsSync(join(this.home, 'layerfs.json'))) return
+    try { await this.ensureHome() } catch { /* answered below */ }
+    if (!existsSync(join(this.home, 'layerfs.json'))) {
+      this.recheck()
+      throw this.closed() ?? uninitialized(this.home)
+    }
+  }
+
+  /** After an `Uninitialized` refusal: the setup check again, at most every 2 s (the folder may have been converted elsewhere). */
+  private recheck(): void {
+    if (this.setupRead || (this.lastSetup && Date.now() - this.lastSetup.at < 2000)) return
+    void this.setup().catch(() => {})
+  }
+
+  /**
+   * The folder's state from `home get` (one read shared by every caller).
+   * A CLI with the home family whose `home get` fails leaves it `unknown`
+   * (the gate refuses; nothing converts it by accident); an older CLI says
+   * only whether `layerfs.json` is there. Never throws.
+   */
+  private learnHome(): Promise<void> {
+    return this.homeLearn ??= (async () => {
+      const generation = this.homeGeneration
+      let state: HomeState | null = null
+      try {
+        if (await this.homeCalls()) {
+          try { state = ((await this.lfs.home.get()) as HomeGet).home?.state ?? 'unknown' } catch { state = 'unknown' }
+        } else state = existsSync(join(this.home, 'layerfs.json')) ? 'current' : 'missing'
+      } catch { /* discovery failed: no call can run anyway */ } finally { this.homeLearn = null }
+      if (generation === this.homeGeneration && this.homeState === null) this.homeState = state
+    })()
+  }
+
+  /** Whether the pinned CLI has `home init` and `home get`. */
+  private async homeCalls(): Promise<boolean> {
+    const d = await this.discovery()
+    return hasCall(d, 'home.get') && hasCall(d, 'home.init')
+  }
+
+  /**
+   * Sets a missing LayerFS folder up, once at a time: `home get` first (a
+   * folder that needs converting waits for the user), then `home init`; an
+   * older CLI runs one `machine list` (outside the SDK's shared and kept
+   * reads, which a gated poll may hold), which creates it as before.
+   */
+  private ensureHome(): Promise<void> {
+    return this.homeInit ??= (async () => {
+      try {
+        if (await this.homeCalls()) {
+          const got: HomeGet = await this.lfs.home.get()
+          this.homeState = got.home?.state ?? 'unknown'
+          if (got.home?.state !== 'missing') return
+          const did = await this.lfs.home.init()
+          this.homeDid = { created: did?.created === true, converted: did?.converted === true, at: Date.now() }
+        } else if (!existsSync(join(this.home, 'layerfs.json'))) {
+          await execute(this.lfs.spec, ['machine', 'list', '--'], { read: true, gated: true, timeout: 30_000 })
+          this.homeDid = { created: existsSync(join(this.home, 'layerfs.json')), converted: false, at: Date.now() }
+        } else return
+        this.homeGeneration++
+        this.homeState = existsSync(join(this.home, 'layerfs.json')) ? 'current' : this.homeState
+        this.ctx.logger('layerfs').info('LayerFS folder %s set up', this.home)
+        this.emit('setup-changed')
+      } finally { this.homeInit = null }
+    })()
+  }
+
+  /**
+   * Converts a LayerFS folder made by an older LayerFS (`home init`), which
+   * the setup check never does without asking: afterwards older LayerFS
+   * builds refuse the folder. Refused `InUse` while Sandboxes run. A check
+   * already running read the folder before it was converted: it is waited
+   * for and a fresh one answers.
+   */
+  async convertHome(): Promise<SetupStatus> {
+    if (!(await this.homeCalls())) throw new CliError('Unsupported', 'This LayerFS runtime has no `home init`; choose a newer runtime to convert the folder')
+    const did = await this.lfs.home.init()
+    this.homeDid = { created: did?.created === true, converted: did?.converted === true, at: Date.now() }
+    this.homeGeneration++
+    this.homeState = null
+    await this.setupRead?.catch(() => {})
+    this.emit('setup-changed')
+    return await this.setup()
+  }
+
+  /** Re-records this runtime's daemon on the native machine (the setup modal's fix for a daemon from another build). */
+  async recordDaemon(): Promise<SetupStatus> {
+    if (!this.pin.daemon) throw new CliError('InvalidInput', 'This runtime has no native daemon to record')
+    this.nativeRecorded = undefined
+    await this.ensureNative(true)
+    this.emit('setup-changed')
+    return await this.setup()
+  }
+
+  /**
+   * The setup check (docs/specs/layerfs-setup.md §3): rescans the home's
+   * runtimes, reads `home get` (creating a missing folder without asking),
+   * and judges the pinned pieces against the CLI's build. Concurrent callers
+   * share one check; a check that raced a conversion, a set up or a pin
+   * change reads again. Never throws.
+   */
+  setup(): Promise<SetupStatus> {
+    return this.setupRead ??= (async () => {
+      for (let attempt = 0; ; attempt++) {
+        const generation = this.homeGeneration
+        const answer = await this.readSetup(generation)
+        if (generation === this.homeGeneration || attempt >= 2) return answer
+      }
+    })().finally(() => { this.setupRead = null })
+  }
+
+  /** The last setup check's answer, if any (no CLI call). */
+  get lastSetupStatus(): SetupStatus | null { return this.lastSetup }
+
+  private async readSetup(generation: number): Promise<SetupStatus> {
+    this.rescan()
+    this.armWatch()
+    const runtime = await this.status()
+    let homeCalls = false, got: HomeGet | null = null, error: SetupStatus['error'] = null
+    if (runtime.ok) {
+      try {
+        homeCalls = await this.homeCalls()
+        if (homeCalls) {
+          got = await this.lfs.home.get()
+          if (got!.home?.state === 'missing') { await this.ensureHome(); got = await this.lfs.home.get() }
+        } else if (!existsSync(join(this.home, 'layerfs.json'))) await this.ensureHome()
+      } catch (e: any) { error = { code: e?.code ?? 'Failed', message: String(e?.message ?? e) } }
+    }
+    // never `current` from layerfs.json alone when the CLI could have said: a failed `home get` is unknown
+    const state: HomeState = got?.home?.state ?? (homeCalls || (runtime.ok && error) ? 'unknown' : existsSync(join(this.home, 'layerfs.json')) ? 'current' : 'missing')
+    // a conversion, set up or pin change meanwhile: this answer is stale (setup() reads again)
+    if (generation === this.homeGeneration) this.homeState = runtime.ok ? state : null
+    const identity = runtime.ok && this.pin.cli ? knownIdentity(this.pin.cli) : null
+    const cliStamp: BuildStamp | null = identity ? { commit: identity.commit, dirty: identity.dirty } : null
+    const cli: Piece | null = this.pin.cli ? { path: this.pin.cli, commit: cliStamp?.commit ?? null, dirty: cliStamp?.dirty ?? null, verdict: !cliStamp ? 'unknown' : cliStamp.dirty === false ? 'matches' : 'unknown' } : null
+    const judged = (matches: boolean | null | undefined): Verdict => (matches === true ? 'matches' : matches === false ? 'other' : 'unknown')
+    // the bundle LayerFS resolved (LAYERFS_BUNDLE, else its cache) when it says; else the pinned folder
+    const bundle: Piece | null = got?.bundle
+      ? (got.bundle.present ? { path: got.bundle.dir, commit: got.bundle.commit, dirty: got.bundle.dirty, verdict: judged(got.bundle.matches) } : { path: got.bundle.dir, commit: null, dirty: null, verdict: 'missing' })
+      : pieceOf(this.pin.bundle, bundleStamp(this.pin.bundle), cliStamp)
+    // the daemon the native machine has recorded when LayerFS says (what its DaemonMismatch is about); else the pinned one
+    const daemon: Piece | null = process.platform !== 'darwin' ? null
+      : got?.daemon
+        ? (got.daemon.present === false ? { path: got.daemon.path, commit: null, dirty: null, verdict: 'missing' } : { path: got.daemon.path, commit: got.daemon.commit, dirty: got.daemon.dirty ?? null, verdict: judged(got.daemon.matches) })
+        : this.pin.daemon ? pieceOf(this.pin.daemon, daemonStamp(this.pin.daemon), cliStamp) : { path: null, commit: null, dirty: null, verdict: 'missing' }
+    const needs: SetupNeed[] = []
+    if (!runtime.ok) needs.push('runtime')
+    else if (state !== 'current') needs.push('folder')
+    // development may run mixed builds on purpose: then it is a note, not a need
+    if (runtime.ok && !mixedAllowed() && [bundle, daemon].some((p) => p?.verdict === 'other')) needs.push('build')
+    const answer: SetupStatus = {
+      at: Date.now(), runtime, homeCalls,
+      folder: { path: this.home, state, layout: got?.home?.layout ?? null, mode: got?.home?.mode ?? null, modeOk: got?.home?.mode_ok ?? null, did: this.homeDid },
+      pieces: { cli, daemon, bundle },
+      warnings: got?.warnings ?? [],
+      needs, mixedAllowed: mixedAllowed(), error,
+      daemonRecordable: process.platform === 'darwin' && !!this.pin.daemon && !!daemon?.path && daemon.path !== this.pin.daemon && verdictOf(cliStamp, daemonStamp(this.pin.daemon)) !== 'other',
+    }
+    this.lastSetup = answer
+    return answer
+  }
+
+  /** The runtimes installed in the LayerFS home, newest first, each judged (`runtime.installed`). */
+  async installed(): Promise<{ runtimes: InstalledView[], pinned: string | null, source: RuntimeStatus['source'], root: string }> {
+    const sdkDir = this.sdkDir()
+    const runtimes = await Promise.all(installedRuntimes(this.home).map(async (r): Promise<InstalledView> => {
+      let d: Discovery | null = null, error: string | null = null
+      // a CLI that failed discovery is not asked again until its file changes (runtime folders are filled once)
+      const failedKey = `${r.cli}:${r.at}`
+      if (failedDiscovery.has(failedKey)) error = failedDiscovery.get(failedKey)!
+      else try { d = await discover({ cli: r.cli }) } catch (e: any) { error = String(e?.message ?? e); failedDiscovery.set(failedKey, error) }
+      const stamp: BuildStamp | null = d ? { commit: d.identity.commit, dirty: d.identity.dirty } : null
+      return {
+        id: r.id, cli: r.cli, daemon: r.daemon, bundle: r.bundle, at: r.at,
+        version: d?.identity.version ?? null, commit: stamp?.commit ?? null, dirty: stamp?.dirty ?? null,
+        homeCalls: !!d && hasCall(d, 'home.get') && hasCall(d, 'home.init'),
+        pieces: {
+          daemon: process.platform === 'darwin' ? (pieceOf(r.daemon, daemonStamp(r.daemon), stamp) ?? { path: null, commit: null, dirty: null, verdict: 'missing' }) : null,
+          bundle: pieceOf(r.bundle, bundleStamp(r.bundle), stamp) ?? { path: null, commit: null, dirty: null, verdict: 'missing' },
+        },
+        sdk: !!(stamp?.commit && findSdk(sdkDir, stamp.commit)),
+        active: r.cli === this.pin.cli,
+        error,
+      }
+    }))
+    return { runtimes, pinned: this.pin.cli, source: this.pin.source, root: runtimeRoot(this.home) }
+  }
+
+  /** Whether every worker machine (docker, Lima, Apple Container) is stopped, so none has a bundle mounted; false when unknown. */
+  private async workersIdle(): Promise<boolean> {
+    try {
+      if (!this.pin.cli || !existsSync(join(this.home, 'layerfs.json'))) return true
+      const listed = await this.lfs.machine.list({ timeout_ms: 15000 })
+      // a built-in docker that never started reads `ready` with no op (LayerFS's fallback): it has no worker yet
+      return (listed?.machines ?? []).every((m: any) => m?.platform === 'native' || m?.state === 'stopped' || (m?.platform === 'docker' && m?.state === 'ready' && !m?.op))
+    } catch { return false }
   }
 
   /**
@@ -330,7 +704,14 @@ export class LayerfsService extends Service {
    * `cacheHome` (the prepared machine image cache) is saved as given; left out,
    * the saved one is kept, except when the pin is cleared.
    */
-  async savePin(next: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null }): Promise<RuntimeStatus> {
+  async savePin(given: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null, runtime?: string | null }): Promise<RuntimeStatus> {
+    let next = given
+    if (given.runtime) {
+      // an installed runtime by its folder name: its own CLI, daemon and bundle
+      const r = installedRuntimes(this.home).find((x) => x.id === given.runtime)
+      if (!r) throw new CliError('InvalidInput', `No runtime ${given.runtime} is installed in ${runtimeRoot(this.home)}`)
+      next = { cli: r.cli, daemon: r.daemon, bundle: r.bundle, ...(given.cacheHome !== undefined ? { cacheHome: given.cacheHome } : {}) }
+    }
     if (next.cacheHome && (!abs(next.cacheHome) || !existsSync(next.cacheHome) || !statSync(next.cacheHome).isDirectory())) throw new CliError('InvalidInput', 'The machine image cache must be an absolute path to an existing folder')
     const cacheHome = next.cacheHome !== undefined ? next.cacheHome : next.cli === null ? null : this.settings.read().cacheHome ?? null
     let pin: { cli: string | null, daemon: string | null, bundle?: string | null } = next
@@ -339,8 +720,17 @@ export class LayerfsService extends Service {
       if (next.daemon !== null && (!abs(next.daemon) || !existsSync(next.daemon))) throw new CliError('InvalidInput', 'The daemon must be an absolute path to an existing file')
       if (next.bundle && (!abs(next.bundle) || !existsSync(join(next.bundle, 'bundle.json')))) throw new CliError('InvalidInput', 'The Linux bundle must be an absolute folder holding bundle.json')
       const found = await discover({ cli: next.cli }, true)
+      // one build: a daemon or bundle from another commit is refused (development may allow it)
+      const stamp: BuildStamp = { commit: found.identity.commit, dirty: found.identity.dirty }
+      const other = [
+        ...(next.daemon && verdictOf(stamp, daemonStamp(next.daemon)) === 'other' ? [`the daemon (${daemonStamp(next.daemon)?.commit?.slice(0, 8)})`] : []),
+        ...(next.bundle && verdictOf(stamp, bundleStamp(next.bundle)) === 'other' ? [`the Linux bundle (${bundleStamp(next.bundle)?.commit?.slice(0, 8)})`] : []),
+      ]
+      if (other.length && !mixedAllowed()) {
+        throw new CliError('MixedBuild', `The CLI was built from ${found.identity.commit.slice(0, 8)}, but ${other.join(' and ')} from another commit. Choose pieces from one build (DSH_LAYERFS_ALLOW_MIXED=1 allows this in development).`, { cli: found.identity.commit, other })
+      }
       try {
-        pin = installRuntime(this.home, found.identity.version, { cli: next.cli, daemon: next.daemon, bundle: next.bundle ?? null })
+        pin = installRuntime(this.home, found.identity.version, { cli: next.cli, daemon: next.daemon, bundle: next.bundle ?? null }, { replaceBundle: !!next.bundle && await this.workersIdle() })
       } catch (error: any) {
         throw new CliError(error?.code === 'InvalidInput' ? 'InvalidInput' : 'Failed', `Could not install the runtime into the LayerFS home: ${error?.message ?? error}`)
       }
@@ -350,6 +740,7 @@ export class LayerfsService extends Service {
     // the native machine follows the new daemon (the installed copy in the home)
     if (pin.daemon) await this.ensureNative(true)
     this.emit('runtime-changed')
+    this.emit('setup-changed')
     // a new runtime folder was installed: remove the ones nothing uses any more (never fails the save)
     if (pin.cli !== null) void this.cleanRuntimes()
     return await this.status()

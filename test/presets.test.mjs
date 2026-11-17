@@ -342,7 +342,7 @@ test('Reset rejects a CLI without force-stop support before confirmation or any 
       assert.equal(error.code, 'CliIncompatible')
       assert.equal(error.status, 409)
       assert.match(error.message, /machine.stop.*force/)
-      assert.match(error.message, /Machines.*LayerFS runtime/)
+      assert.match(error.message, /Center → Settings → Change…/)
       return true
     })
     assert.equal(existsSync(fixture.commands), false, 'capability discovery must not execute inventory or stop commands')

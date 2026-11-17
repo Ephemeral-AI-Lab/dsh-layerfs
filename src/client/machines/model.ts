@@ -36,6 +36,25 @@ export interface MachineSupports {
 export interface PlatformOption {
   name: string
   kind: string
+  /** What machine.create takes when it is not given (cpus 2; memory and disk in bytes, or a LayerFS size such as `4GiB`); absent from an older CLI. */
+  default?: number | string | null
+}
+
+/** docker's socket as LayerFS reports it (machine.platforms, docs/specs/layerfs-setup.md §2.3); absent from an older CLI. */
+export interface DockerSocket {
+  path: string | null
+  /** `recorded` (the machine's own), `env:DOCKER_HOST`, `context:<name>`, `desktop`, `colima`, `orbstack` or `default`. */
+  source: string | null
+  state: 'answering' | 'absent' | 'denied' | 'silent' | string | null
+}
+
+/** One Docker endpoint the host names; `usable: false` for one that is not a `unix://` socket. */
+export interface DockerCandidate {
+  path: string | null
+  source: string | null
+  /** A non-unix endpoint (`tcp://…`), listed but never followed. */
+  host?: string
+  usable?: false
 }
 
 /** One machine.platforms row: readiness and create options. */
@@ -51,6 +70,10 @@ export interface MachinePlatformInfo {
   version: string | null
   options: PlatformOption[]
   description: string
+  /** docker only, from a CLI with the setup fields: the socket in use and what it does. */
+  socket?: DockerSocket
+  /** docker only: every endpoint the host names (the Settings dialog's choices). */
+  candidates?: DockerCandidate[]
 }
 
 /** One machine.list() entry. */
@@ -189,6 +212,8 @@ export interface NewMachine {
   memory?: number
   disk?: number
   image?: string
+  /** `stock`: the provider's stock OS image even when a prepared one exists (only when the platform declares `os_image`). */
+  os_image?: string
 }
 
 export interface WorkspaceInfo {
@@ -669,7 +694,63 @@ export function freeMachineName(kind: string, machines: MachineInfo[]): string {
 export interface VmForm { name: string, cpus: string, memory: string, disk: string }
 export type FormErrors = Partial<Record<keyof VmForm, Words>>
 
-export const emptyVm = (): VmForm => ({ name: '', cpus: String(VM_DEFAULTS.cpus), memory: '4G', disk: '20G' })
+/** A size LayerFS gave (bytes, or a size such as `4GiB`) as the form writes it (`4G`, `512M`); null when unreadable. */
+export function sizeText(v: number | string | null | undefined): string | null {
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+    if (v % GIB === 0) return `${v / GIB}G`
+    if (v % 2 ** 20 === 0) return `${v / 2 ** 20}M`
+    return `${Number((v / GIB).toFixed(2))}G`
+  }
+  if (typeof v === 'string' && parseSize(v) !== null) return v.trim()
+  return null
+}
+
+/** An option's default as `platforms` reports it (`options[].default`), or undefined. */
+const optionDefault = (platform: Pick<MachinePlatformInfo, 'options'> | undefined, name: string) => platform?.options.find((o) => o.name === name)?.default
+
+/**
+ * A new VM's form: CPUs, memory and disk from the platform's `options[].default`
+ * when LayerFS reports them, else LayerFS's defaults as this page knew them.
+ */
+export function emptyVm(platform?: Pick<MachinePlatformInfo, 'options'>): VmForm {
+  const cpus = optionDefault(platform, 'cpus')
+  const cpuText = typeof cpus === 'number' && Number.isInteger(cpus) && cpus > 0 ? String(cpus)
+    : typeof cpus === 'string' && /^\d+$/.test(cpus.trim()) ? cpus.trim() : String(VM_DEFAULTS.cpus)
+  return {
+    name: '',
+    cpus: cpuText,
+    memory: sizeText(optionDefault(platform, 'memory')) ?? sizeText(VM_DEFAULTS.memory)!,
+    disk: sizeText(optionDefault(platform, 'disk')) ?? sizeText(VM_DEFAULTS.disk)!,
+  }
+}
+
+/** What this computer has for VMs, as `machine stats native` observed it (null: not observed). */
+export interface HostRoom { cpus: number | null, memory: number | null, diskFree: number | null }
+
+/** The room line's facts: this computer, the other VMs' recorded sizes, and what the new one would overcommit. */
+export interface Room {
+  host: HostRoom
+  /** The VMs already made (not native or docker), their recorded sizes summed. */
+  others: { count: number, cpus: number, memory: number }
+  /** Where the new VM with the others asks for more than this computer has: a warning, never a refusal. */
+  over: ('cpus' | 'memory' | 'disk')[]
+}
+
+/**
+ * The room a new VM has: `host` from `machine stats native`, the other VMs'
+ * recorded CPUs and memory, and which of `ask` (the form's values; null when
+ * unreadable) would go past this computer's: CPUs and memory with the others
+ * counted, the disk against the free space on the LayerFS folder's disk.
+ */
+export function roomOf(host: HostRoom, machines: readonly Pick<MachineInfo, 'platform' | 'cpus' | 'memory'>[], ask: { cpus: number | null, memory: number | null, disk: number | null }): Room {
+  const vms = machines.filter((m) => !BUILT_IN.has(m.platform))
+  const others = { count: vms.length, cpus: vms.reduce((n, m) => n + (m.cpus ?? 0), 0), memory: vms.reduce((n, m) => n + (m.memory ?? 0), 0) }
+  const over: Room['over'] = []
+  if (host.cpus != null && ask.cpus != null && others.cpus + ask.cpus > host.cpus) over.push('cpus')
+  if (host.memory != null && ask.memory != null && others.memory + ask.memory > host.memory) over.push('memory')
+  if (host.diskFree != null && ask.disk != null && ask.disk > host.diskFree) over.push('disk')
+  return { host, others, over }
+}
 
 export function vmErrors(f: VmForm, machines: MachineInfo[]): FormErrors {
   const e: FormErrors = {}

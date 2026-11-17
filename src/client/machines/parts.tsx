@@ -6,11 +6,13 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Field, MoreMenu, Refusal, StateChip } from '../ui/index.tsx'
+import { CopyLine, Field, MoreMenu, Refusal, StateChip } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
+import type { MachinesKey } from './locale.ts'
 import { BUILT_IN, duration, forceStopOf, machineState, opWords, powerOf, stageWords, workerDown, type MachineInfo, type MachineLive } from './model.ts'
+import { socketSetting, socketSourceWords, type SocketChoice, type SocketSetting } from './socket.ts'
 import css from './machines.module.css'
 
 /**
@@ -202,17 +204,29 @@ function ForceStopDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose
   )
 }
 
-/** The docker machine's settings (machine.update): its Docker socket and WSL distribution. */
+/**
+ * The docker machine's settings (machine.update): its Docker socket and WSL
+ * distribution. With a CLI that lists the sockets it found (`candidates`), the
+ * socket is chosen from them or left Automatic (`docker: ''` clears a recorded
+ * one: LayerFS chooses again at the next start); an older CLI keeps the path
+ * field.
+ */
 function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose: () => void, pending: string | null, run: Run }): ReactNode {
-  const { t, refusal } = useMachinesContext()
+  const { t, refusal, useMachines } = useMachinesContext()
+  const row = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.platforms.find((p) => p.platform === m.platform) : undefined))
+  const setting = useMemo(() => socketSetting(row, m.docker), [row, m.docker])
   const [socket, setSocket] = useState(m.docker ?? '')
+  const [choice, setChoice] = useState<string | null>(null)
   const [wsl, setWsl] = useState(m.wsl ?? '')
   const [error, setError] = useState<unknown>(null)
+  const chosen = choice ?? setting?.current ?? ''
   const save = async () => {
     if (pending !== null) return
     setError(null)
+    // the choice list sends a change only when it moved ('' clears the recorded socket); the path field as before
+    const docker = setting ? (chosen !== setting.current ? chosen : undefined) : socket || undefined
     try {
-      const ok = await run('update', { kind: 'update', name: m.name, changes: { docker: socket || undefined, wsl: wsl || undefined } }, { rethrow: true })
+      const ok = await run('update', { kind: 'update', name: m.name, changes: { docker, wsl: wsl || undefined } }, { rethrow: true })
       if (ok) onClose()
     } catch (e) { setError(e) }
   }
@@ -225,9 +239,13 @@ function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose:
         </>
       )}>
       <form className={css.form} onSubmit={(e) => { e.preventDefault(); void save() }}>
-        <Field label={t('dockerSocket')}>
-          <Input value={socket} onChange={(e) => setSocket(e.target.value)} placeholder="/var/run/docker.sock" spellCheck={false} />
-        </Field>
+        {setting
+          ? <SocketChoices setting={setting} value={chosen} onChange={setChoice} disabled={pending !== null} />
+          : (
+            <Field label={t('dockerSocket')}>
+              <Input value={socket} onChange={(e) => setSocket(e.target.value)} placeholder="/var/run/docker.sock" spellCheck={false} />
+            </Field>
+          )}
         {m.wsl !== undefined && (
           <Field label={t('wslDistribution')}>
             <Input value={wsl} onChange={(e) => setWsl(e.target.value)} placeholder="Ubuntu-24.04" spellCheck={false} />
@@ -236,6 +254,53 @@ function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose:
         {error != null && <Refusal error={error} labels={refusal} className={css.errorText} />}
       </form>
     </Modal>
+  )
+}
+
+const SOCKET_STATE: Record<string, MachinesKey> = { answering: 'socketAnswering', absent: 'socketAbsent', denied: 'socketDenied', silent: 'socketSilent' }
+
+/**
+ * docker's socket: Automatic (naming the socket in use while none is
+ * recorded) or one of the sockets LayerFS found; one that is not a local
+ * socket is shown, disabled, with why. A socket this user may not open gets
+ * the docker group fix.
+ */
+function SocketChoices({ setting, value, onChange, disabled }: { setting: SocketSetting, value: string, onChange: (value: string) => void, disabled: boolean }): ReactNode {
+  const { t, tw } = useMachinesContext()
+  const source = (s: string | null | undefined) => { const words = socketSourceWords(s); return words ? tw(words) : null }
+  const inUse = setting.inUse
+  const stateOf = (path: string | null) => (inUse?.path && path === inUse.path && inUse.state && SOCKET_STATE[inUse.state] ? t(SOCKET_STATE[inUse.state]!) : null)
+  const automaticMeta = !setting.recorded && inUse?.path
+    ? [t('socketAutomaticUses', { path: inUse.path }), source(inUse.source), stateOf(inUse.path)].filter(Boolean).join(' · ')
+    : t('socketAutomaticNext')
+  const row = (key: string, c: Pick<SocketChoice, 'value' | 'usable'>, main: ReactNode, meta: string | null) => (
+    <button key={key} type="button" role="radio" aria-checked={value === c.value && c.usable} disabled={disabled || !c.usable}
+      className={css.socketRow} onClick={() => onChange(c.value)}>
+      <span className={css.socketRadio} aria-hidden="true" />
+      <span className={css.socketText}>
+        {main}
+        {meta ? <span className={css.socketMeta}>{meta}</span> : null}
+      </span>
+    </button>
+  )
+  return (
+    <Field label={t('dockerSocket')} group>
+      <div className={css.socketList} role="radiogroup" aria-label={t('dockerSocket')}>
+        {row('automatic', { value: '', usable: true }, <span>{t('socketAutomatic')}</span>, automaticMeta)}
+        {setting.choices.map((c, i) => row(`${i}:${c.path ?? c.source ?? ''}`, c, <span className={css.socketPath} title={c.path ?? undefined}>{c.path ?? c.host ?? t('socketNotLocal')}</span>,
+          [source(c.source), c.usable ? stateOf(c.path) : t('socketNotUsable')].filter(Boolean).join(' · ') || null))}
+      </div>
+      <div className={css.socketNote}>
+        {inUse?.state === 'denied' && (
+          <>
+            <p>{t('socketDeniedFix', { path: inUse.path ?? '' })}</p>
+            <CopyLine text="sudo usermod -aG docker $USER" copyLabel={t('copy')} copiedLabel={t('copied')} />
+            <p>{t('socketDeniedThen')}</p>
+          </>
+        )}
+        {setting.recorded && <p className={css.muted}>{t('socketMoveNote')}</p>}
+      </div>
+    </Field>
   )
 }
 

@@ -10,7 +10,7 @@
  * Worker log (LogPane.tsx) only with logs.machine and a machine LayerFS says
  * has a worker log (`supports.log`).
  */
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconSettingsOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
@@ -28,6 +28,7 @@ import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandb
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
+import { onSocketRequest, takeSocketRequest } from './socket.ts'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { MachineOverview } from './Overview.tsx'
 import { ObservedCpuMemory, useMachineStats, workerLine } from './MachineStats.tsx'
@@ -82,6 +83,13 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const { run, pending: localPending, error } = useMachineRun()
   const pending = localPending ?? (startup?.status === 'running' ? startup.kind : null)
   const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
+  // "Choose another socket" elsewhere (Docker isn't answering): docker's page opens its socket setting
+  useEffect(() => {
+    if (!hasSettings(m)) return undefined
+    const take = () => { if (takeSocketRequest()) setDialog('settings') }
+    take()
+    return onSocketRequest(take)
+  }, [m.platform])
   const [creating, setCreating] = useState(false)
   const [spaceOpen, setSpaceOpen] = useState(false)
   const live = view.status[m.name]

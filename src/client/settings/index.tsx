@@ -9,6 +9,9 @@ import { useEffect, type ReactNode } from 'react'
 import { IconSettingsOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useMachinesContext } from '../machines/context.tsx'
 import { RuntimeCard } from '../machines/Runtime.tsx'
+import type { SetupModalT } from '../setup/locale.ts'
+import { SetupSummary } from '../setup/SetupCard.tsx'
+import { useSetupStatus } from '../setup/store.ts'
 import { Page, PageHead, Section } from '../ui/index.tsx'
 import { NS, locales, type SettingsT } from './locale.ts'
 
@@ -18,14 +21,21 @@ export { NS as SETTINGS_NS } from './locale.ts'
  * The Settings page's body, shown as a Center page (`settings`). It reads the
  * runtime through the Machines context the Center page provides.
  */
-export function SettingsView({ t }: { t: SettingsT }): ReactNode {
-  const { activate } = useMachinesContext()
+export function SettingsView({ t, ts }: { t: SettingsT, ts: SetupModalT }): ReactNode {
+  const { activate, api } = useMachinesContext()
   useEffect(() => activate(), [activate])
+  // while Settings shows: the setup check is read again (debounced, page visible)
+  const setup = useSetupStatus(api, true)
   return (
     <Page label={t('title')}>
       <PageHead title={t('title')} icon={<IconSettingsOutlineRegular size={22} />} />
+      {setup.data ? (
+        <Section title={ts('summaryTitle')}>
+          <SetupSummary s={setup.data} t={ts} />
+        </Section>
+      ) : null}
       <Section title={t('runtime')}>
-        <RuntimeCard />
+        <RuntimeCard ts={ts} />
       </Section>
     </Page>
   )

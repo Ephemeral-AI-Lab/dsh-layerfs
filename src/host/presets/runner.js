@@ -207,7 +207,7 @@ export class DemoRunner extends CliInventory {
     if (this.preset.stores.some(isPostgresql)) {
       // `machine platforms` lists PostgreSQL support even in a build without the engine; the CLI's own features say.
       const features = (await this.driver.discover?.())?.identity?.features
-      if (Array.isArray(features) && !features.includes('postgresql')) fail(`This preset has PostgreSQL Stores, and the pinned LayerFS CLI was built without PostgreSQL (features: ${features.join(', ') || 'none'}). Pin a runtime built with the postgresql feature (CLI and Linux bundle) in Machines → LayerFS runtime, then build again.`)
+      if (Array.isArray(features) && !features.includes('postgresql')) fail(`This preset has PostgreSQL Stores, and the pinned LayerFS CLI was built without PostgreSQL (features: ${features.join(', ') || 'none'}). Pin a runtime built with the postgresql feature (CLI and Linux bundle) in Center → Settings → Change…, then build again.`)
     }
     const supported = rows(await this.query(['machine', 'platforms']), 'platforms')
     for (const machine of this.preset.machines) {
@@ -224,7 +224,7 @@ export class DemoRunner extends CliInventory {
       const problem = await this.postgres.available()
       if (problem) fail(`This preset's PostgreSQL Stores live on a PostgreSQL server it runs in Docker, and Docker is not available: ${problem}`)
     }
-    if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === 'native') && !this.driver.spec.daemon) fail('Native sandboxes need a matching layerfs-daemon. Pin it in Machines → LayerFS runtime (or DSH_LAYERFS_DAEMON), or use Filesystem mode.')
+    if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === 'native') && !this.driver.spec.daemon) fail('Native sandboxes need a matching layerfs-daemon. Choose it in Center → Settings → Change… (or DSH_LAYERFS_DAEMON), or use Filesystem mode.')
   }
   async startMachine(name) {
     const current = await this.query(['machine', 'get', name])

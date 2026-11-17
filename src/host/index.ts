@@ -29,9 +29,16 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.plugin(LayerfsService, config)
   ctx.effect(() => () => { for (const child of children) child.kill('SIGTERM') }, 'dsh-layerfs: cli children')
   ctx.inject(['layerfsRemote', 'layerfs'], (ctx) => {
+    // the setup check's background parts: pin lease, runtime watch, the first check (creates a missing folder)
+    ctx.layerfs.startSetup()
     ctx.layerfsRemote.operate(ctx, {
       'runtime.status': () => ctx.layerfs.status(),
-      'runtime.save': (args: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null }) => ctx.layerfs.savePin({ cli: args?.cli ?? null, daemon: args?.daemon ?? null, bundle: args?.bundle ?? null, ...(args && 'cacheHome' in args ? { cacheHome: args.cacheHome ?? null } : {}) }),
+      'runtime.save': (args: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null, runtime?: string | null }) => ctx.layerfs.savePin({ cli: args?.cli ?? null, daemon: args?.daemon ?? null, bundle: args?.bundle ?? null, ...(args?.runtime ? { runtime: args.runtime } : {}), ...(args && 'cacheHome' in args ? { cacheHome: args.cacheHome ?? null } : {}) }),
+      // the setup check (docs/specs/layerfs-setup.md §3): runtime, LayerFS folder, one build
+      'setup.status': () => ctx.layerfs.setup(),
+      'setup.convert': () => ctx.layerfs.convertHome(),
+      'setup.recordDaemon': () => ctx.layerfs.recordDaemon(),
+      'runtime.installed': () => ctx.layerfs.installed(),
     })
     ctx.plugin(routes)
     ctx.plugin(sessions)

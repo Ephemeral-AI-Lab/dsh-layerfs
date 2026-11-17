@@ -234,6 +234,8 @@ const GATED = [
   { site: /^sandbox\.list option live$/, file: 'src/host/routes/machines.ts', gate: /features\.sandboxLive\b/, lines: 3 },
   // doctor.fix (layerfs-project#180) has no entry: this host never calls it (the Doctor page shows the command as text);
   // `featuresOf(...).leftovers` reads the call table for it, checked below
+  // the home family (layerfs-setup.md §3): the setup check uses home.get / home.init only when the call table has both (else one machine.list)
+  { site: /^home\.(get|init)$/, file: 'src/host/service.ts', gate: /this\.homeCalls\(\)/, lines: 8 },
   // the preset Reset's force-close refuses up front (preflight) when machine.stop lacks the bool force option
   { site: /^machine\.stop --force$/, file: 'src/host/presets/machine-stop.js', gate: /option\.name === 'force' && option\.kind === 'bool'/, lines: 45 },
 ]
@@ -293,7 +295,8 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   const expected = [lacks('machine', 'stop', 'force') && 'machine.stop option force',
     lacks('logs', 'list') && 'logs.list', lacks('logs', 'reset') && 'logs.reset',
     lacks('logs', 'machine') && 'logs.machine', lacks('logs', 'sandbox') && 'logs.sandbox',
-    lacks('sandbox', 'files') && 'sandbox.files', lacks('machine', 'stats') && 'machine.stats', lacks('machine', 'space') && 'machine.space', lacks('sandbox', 'list', 'live') && 'sandbox.list option live'].filter(Boolean)
+    lacks('sandbox', 'files') && 'sandbox.files', lacks('machine', 'stats') && 'machine.stats', lacks('machine', 'space') && 'machine.space', lacks('sandbox', 'list', 'live') && 'sandbox.list option live',
+    lacks('home', 'get') && 'home.get', lacks('home', 'init') && 'home.init'].filter(Boolean)
   for (const site of expected) assert.ok(result.gated.some((g) => g.site === site), `the scan no longer sees the gated ${site} call site`)
   // any SDK translation a rule relies on is still there
   const sdk = readFileSync(join(root, 'src/host/layerfs/cli.ts'), 'utf8')

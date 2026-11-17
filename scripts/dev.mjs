@@ -26,12 +26,18 @@ if (args.includes('--fresh')) rmSync(dev, { recursive: true, force: true })
 mkdirSync(join(dev, 'state'), { recursive: true })
 
 const env = { ...process.env, DSH_HOME: join(dev, 'state') }
-const pin = runtimePin(env)
-if (!pin) { console.error('dev.mjs: no LayerFS CLI. Set DSH_LAYERFS_CLI (and _DAEMON, _BUNDLE) or install a runtime from the app.'); process.exit(1) }
-env.DSH_LAYERFS_CLI = pin.cli
-if (pin.daemon) env.DSH_LAYERFS_DAEMON = pin.daemon
-if (pin.bundle) env.DSH_LAYERFS_BUNDLE = pin.bundle
-console.log(`dev.mjs: LayerFS CLI ${pin.cli}`)
+// DSH_LAYERFS_DEV_NO_RUNTIME=1: pin nothing (the setup modal's "no runtime" state)
+const pin = process.env.DSH_LAYERFS_DEV_NO_RUNTIME === '1' ? null : runtimePin(env)
+if (!pin && process.env.DSH_LAYERFS_DEV_NO_RUNTIME !== '1') { console.error('dev.mjs: no LayerFS CLI. Set DSH_LAYERFS_CLI (and _DAEMON, _BUNDLE) or install a runtime from the app.'); process.exit(1) }
+if (pin) {
+  env.DSH_LAYERFS_CLI = pin.cli
+  if (pin.daemon) env.DSH_LAYERFS_DAEMON = pin.daemon
+  if (pin.bundle) env.DSH_LAYERFS_BUNDLE = pin.bundle
+  console.log(`dev.mjs: LayerFS CLI ${pin.cli}`)
+} else {
+  delete env.DSH_LAYERFS_CLI; delete env.DSH_LAYERFS_DAEMON; delete env.DSH_LAYERFS_BUNDLE
+  console.log('dev.mjs: no LayerFS CLI pinned (DSH_LAYERFS_DEV_NO_RUNTIME=1)')
+}
 env.DSH_LAYERFS_HOME ??= join(dev, 'layerfs-home')
 env.DSH_LAYERFS_SESSION_HOME ??= join(dev, 'project-sessions')
 

@@ -14,6 +14,7 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { createSidebarRail } from '../overview/rail.tsx'
 import { PRESETS_NS } from '../presets/index.tsx'
 import { SETTINGS_NS } from '../settings/index.tsx'
+import { SETUP_MODAL_NS } from '../setup/index.tsx'
 import { NS as VIEWS_NS } from '../views/locale.ts'
 import { sessionsSource } from '../views/index.tsx'
 import { locales, NS } from './locale.ts'
@@ -46,7 +47,7 @@ export function registerStorage(ctx: any, api: LayerfsApi, machines: MachinesSha
     locale: NS,
     inject: () => ({
       ...machines.face, tm: machines.t, api, doctorT, map: { t: ctx.locale.bind(VIEWS_NS), sessions: sessionsSource(ctx) },
-      more: { logs: ctx.locale.bind(LOGS_NS), settings: ctx.locale.bind(SETTINGS_NS), presets: ctx.locale.bind(PRESETS_NS) },
+      more: { logs: ctx.locale.bind(LOGS_NS), settings: ctx.locale.bind(SETTINGS_NS), presets: ctx.locale.bind(PRESETS_NS), setup: ctx.locale.bind(SETUP_MODAL_NS) },
     }),
   }, StorageMain)), 'dsh-layerfs: storage page')
   // Opening Center folds the sidebar to its icon rail so the page keeps the

@@ -16,7 +16,7 @@ await build({
   absWorkingDir: root, entryPoints: { needs: 'src/client/machines/needs.ts', computer: 'src/host/routes/computer.ts' }, outdir: out,
   bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning', outExtension: { '.js': '.mjs' },
 })
-const { readinessOf, blockOf, fixOf, shortVersion, nativeGlyphOs, nativeNameKey } = await import(pathToFileURL(join(out, 'needs.mjs')).href)
+const { readinessOf, blockOf, fixOf, setupOf, machineBlock, engineStart, shortVersion, nativeGlyphOs, nativeNameKey } = await import(pathToFileURL(join(out, 'needs.mjs')).href)
 const { osOf, prettyName } = await import(pathToFileURL(join(out, 'computer.mjs')).href)
 process.on('exit', () => rmSync(out, { recursive: true, force: true }))
 
@@ -65,9 +65,45 @@ test('Docker’s socket that does not answer is a start step, per OS', () => {
 })
 
 test('steps order the fixes: install before start before runtime', () => {
+  // `bundle:` from an older CLI names a platform, not a folder
   const r = readinessOf(row('docker', ['bundle:linux-arm64', 'host:/var/run/docker.sock', 'tool:docker']), 'macos')
   assert.equal(r.step, 'install')
   assert.deepEqual(r.fixes.map((f) => f.step), ['install', 'start', 'runtime'])
+})
+
+test('the Linux bundle is fixed in setup, in the folder LayerFS named', () => {
+  const r = readinessOf(row('lima', ['bundle:/Users/me/.cache/layerfs/bundle/2.0.0/linux-aarch64']), 'macos')
+  assert.equal(r.step, 'runtime')
+  assert.equal(setupOf(r), 'runtime', 'its button opens the setup modal at Runtime')
+  assert.deepEqual(r.fixes[0].how, { key: 'fixBundleIn', values: { folder: '/Users/me/.cache/layerfs/bundle/2.0.0/linux-aarch64' } })
+  assert.deepEqual(r.fixes[0].commands, [], 'no dev commands: the setup modal is the fix')
+  // an older CLI names no folder: the one setup.status resolved, else none (never a guessed bundle/<version>/)
+  assert.deepEqual(readinessOf(row('lima', ['bundle:linux-arm64']), 'macos', '2.0.0', { bundleDir: '/opt/bundle' }).fixes[0].how, { key: 'fixBundleIn', values: { folder: '/opt/bundle' } })
+  assert.deepEqual(fixOf('bundle:linux-arm64', 'lima', 'macos').how, { key: 'fixBundle' })
+  // a harder step leads: the bundle fix stays in the panel, the row's button is not the setup modal's
+  assert.equal(setupOf(readinessOf(row('lima', ['tool:limactl', 'bundle:/b']), 'macos')), null)
+})
+
+test('docker’s socket: denied is the docker group, not Start; other sockets link to Settings', () => {
+  const socket = { path: '/var/run/docker.sock', source: 'default', state: 'denied' }
+  const denied = row('docker', ['host:/var/run/docker.sock'], { socket, candidates: [{ path: '/var/run/docker.sock', source: 'default' }] })
+  const linux = readinessOf(denied, 'linux')
+  assert.equal(linux.step, 'setup')
+  assert.deepEqual(linux.fixes[0].why, { key: 'needDockerDenied', values: { socket: '/var/run/docker.sock' } })
+  assert.deepEqual(linux.fixes[0].commands, ['sudo usermod -aG docker $USER'])
+  assert.equal(linux.fixes[0].socket, true)
+  assert.equal(engineStart({ platform: 'docker' }, readinessOf(denied, 'macos'), 'macos'), false, 'Start cannot open a socket this user may not open')
+  const silent = readinessOf({ ...denied, socket: { ...socket, state: 'silent' } }, 'macos')
+  assert.equal(silent.step, 'start')
+  assert.equal(silent.fixes[0].socket, true)
+  // an older CLI: no candidates, no link
+  assert.equal(readinessOf(row('docker', ['host:/var/run/docker.sock']), 'macos').fixes[0].socket, undefined)
+})
+
+test('machineBlock reads a view without a LayerFS version (New project’s tiles)', () => {
+  const view = { platforms: [row('docker', ['host:/var/run/docker.sock'])], computer: { os: 'linux', name: null, arch: 'x86_64' } }
+  assert.equal(machineBlock({ platform: 'docker' }, view).step, 'start')
+  assert.equal(machineBlock({ platform: 'native' }, view), null)
 })
 
 test('an unknown need stays in view in LayerFS’s words', () => {

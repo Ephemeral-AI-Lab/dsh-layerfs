@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createSteps, defaultMachine, freeStoreName, machinesFor, passwordBody, pgMachine, primaryMachine, runsOn } from '../src/client/projects/setup/model.ts'
+import { createSteps, defaultMachine, freeStoreName, machinesFor, passwordBody, pgMachine, pickable, primaryMachine, runsOn, tileBlocks } from '../src/client/projects/setup/model.ts'
 
 const view = {
   machines: [
@@ -19,6 +19,26 @@ test('machines: docker first, then native, then by name; unsupported ones out', 
   assert.deepEqual(machinesFor(view, 'postgresql').map((m) => m.name), ['docker', 'native', 'dev'])
   assert.equal(defaultMachine(machinesFor(view, 'sqlite')), 'docker')
   assert.equal(defaultMachine(machinesFor({ machines: view.machines.filter((m) => m.name !== 'docker') }, 'sqlite')), 'native')
+})
+
+test('a blocked docker is not the default: native is', () => {
+  const row = (platform, missing = [], extra = {}) => ({ platform, ready: missing.length === 0, missing, ...extra })
+  const machines = machinesFor(view, 'sqlite')
+  // Docker's Engine does not answer on Linux: blocked, not pickable
+  const linux = tileBlocks(view.machines, [row('native'), row('docker', ['host:/var/run/docker.sock']), row('lima')], 'linux')
+  assert.deepEqual([...linux.keys()], ['docker'])
+  assert.equal(pickable('docker', linux), false)
+  assert.equal(defaultMachine(machines, linux), 'native')
+  // on macOS Start launches the Engine first: pickable (Create starts it), but still not the default
+  const mac = tileBlocks(view.machines, [row('native'), row('docker', ['host:/var/run/docker.sock']), row('lima')], 'macos')
+  assert.equal(pickable('docker', mac), true)
+  assert.equal(defaultMachine(machines, mac), 'native')
+  // the docker group fix is not something Start does
+  const denied = tileBlocks(view.machines, [row('docker', ['host:/var/run/docker.sock'], { socket: { path: '/var/run/docker.sock', source: 'default', state: 'denied' } })], 'macos')
+  assert.equal(pickable('docker', denied), false)
+  // ready, or platforms not read (an older host): docker stays the default
+  assert.equal(defaultMachine(machines, tileBlocks(view.machines, [row('docker'), row('native')], 'macos')), 'docker')
+  assert.equal(tileBlocks(view.machines, undefined, 'macos').size, 0)
 })
 
 test('where a project runs: SQLite its Store machine, PostgreSQL its attachments', () => {

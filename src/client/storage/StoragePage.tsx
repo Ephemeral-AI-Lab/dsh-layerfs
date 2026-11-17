@@ -29,6 +29,7 @@ import { projectDialog } from '../projects/dialog.ts'
 import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
 import { SettingsView } from '../settings/index.tsx'
 import type { SettingsT } from '../settings/locale.ts'
+import type { SetupModalT } from '../setup/locale.ts'
 import { Loading, Page, Refusal } from '../ui/index.tsx'
 import { BackupFilePage, BucketPage, providerWords } from './BucketPage.tsx'
 import { StorageDialogs, type StorageDialog } from './dialogs.tsx'
@@ -65,6 +66,7 @@ export interface MoreT {
   logs: LogsT
   settings: SettingsT
   presets: PresetsT
+  setup: SetupModalT
 }
 
 export function StoragePage(props: StorageMainProps): ReactNode {
@@ -304,7 +306,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const pageOf = (id: TabId): ReactNode => {
     if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} />
     if (id === 'logs') return <LogsPage api={api} t={more.logs} />
-    if (id === 'settings') return <SettingsView t={more.settings} />
+    if (id === 'settings') return <SettingsView t={more.settings} ts={more.setup} />
     if (id.startsWith('machine:')) {
       return (
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
@@ -322,7 +324,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     if (id === 'overview') {
       return (
         <Page wide label={t('title')}>
-          <HomeOverview view={view} error={storage.error} t={t} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed}
+          <HomeOverview view={view} error={storage.error} t={t} setup={more.setup} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed}
             onOpen={open} onRefresh={refresh} onCheckAgain={() => setChecks((n) => n + 1)}
             onNewStore={() => setDialog({ kind: 'new-store' })} onConnect={() => setDialog({ kind: 'new-store', postgresql: true })}
             onBackups={(store) => setDialog({ kind: 'backups', store })} onNewMachine={() => setNewMachine(true)} onPresets={() => setPresetsOpen(true)} presetsLabel={more.presets('openTitle')}
