@@ -214,35 +214,26 @@ function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupMod
   )
 }
 
-const sourceKey = (source: SetupStatus['runtime']['source']) =>
-  source === 'config' ? 'sourceConfig' as const : source === 'settings' ? 'sourceSettings' as const : source === 'env' ? 'sourceEnv' as const : source === 'home' ? 'sourceHome' as const : 'sourceNone' as const
-
-/** Details: where the runtime comes from, each piece's path and verdict, LayerFS's notes, and the terminal line. */
+/** Details: one table, a piece per row (its word and path), then the terminal line; LayerFS's notes when it has any. */
 function Pieces({ s, t }: { s: SetupStatus, t: SetupModalT }): ReactNode {
   const r = s.runtime, p = s.pieces
   const terminal = r.cli ? [`LAYERFS_HOME='${s.folder.path}'`, ...(r.bundle ? [`LAYERFS_BUNDLE='${r.bundle}'`] : []), `'${r.cli}'`].join(' ') : null
   return (
     <div className={css.detailsBody}>
-      <span className={css.note}>{t('runtimeFrom', { source: t(sourceKey(r.source)) })}</span>
       {r.error ? <p className={dialog.error} role="alert">{t('runtimeError', { code: r.error.code, message: r.error.message })}</p> : null}
-      {r.ok ? (
-        <dl className={css.pieces}>
+      <dl className={css.pieces}>
+        {r.ok ? <>
           <PieceRow label={t('pieceCli')} path={p.cli?.path ?? r.cli} value={<span className={css.verdict} data-verdict="matches">{t('vCli')}</span>} />
-          {p.daemon ? <PieceRow label={t('pieceDaemon')} path={p.daemon.path} value={<VerdictWord piece={p.daemon} cli={r.commit} t={t} />} note={pieceNote(p.daemon, r.commit, t('daemonMissingNote'), t)} /> : null}
-          <PieceRow label={t('pieceBundle')} path={p.bundle?.path ?? null} value={<VerdictWord piece={p.bundle} cli={r.commit} t={t} />} note={pieceNote(p.bundle, r.commit, t('bundleMissingNote'), t)} />
-          <PieceRow label={t('pieceSdk')} path={r.sdk?.dir ?? null} value={<span className={css.verdict} data-verdict={r.sdk ? 'matches' : 'note'}>{r.sdk ? t('sdkPresent') : t('sdkMissing')}</span>} note={r.sdk ? null : t('sdkNote')} />
-        </dl>
-      ) : null}
+          {p.daemon ? <PieceRow label={t('pieceDaemon')} path={p.daemon.path} value={<VerdictWord piece={p.daemon} cli={r.commit} t={t} />} /> : null}
+          <PieceRow label={t('pieceBundle')} path={p.bundle?.path ?? null} value={<VerdictWord piece={p.bundle} cli={r.commit} t={t} />} />
+          <PieceRow label={t('pieceSdk')} path={r.sdk?.dir ?? null} value={<span className={css.verdict} data-verdict={r.sdk ? 'matches' : 'note'}>{r.sdk ? t('sdkPresent') : t('sdkMissing')}</span>} />
+        </> : null}
+        {terminal ? <PieceRow label={t('terminal')} path={null} value={<CopyLine text={terminal} copyLabel={t('copy')} copiedLabel={t('copied')} />} /> : null}
+      </dl>
       {s.warnings.length ? (
         <ul className={css.warnings} aria-label={t('warnings')}>
           {s.warnings.map((w) => <li key={w.code} className={css.warning} data-tone={w.code === 'HomeMode' ? 'note' : 'warning'}>{w.message}</li>)}
         </ul>
-      ) : null}
-      {terminal ? (
-        <div className={css.noteBlock}>
-          <span className={css.note}>{t('terminal')}</span>
-          <CopyLine text={terminal} copyLabel={t('copy')} copiedLabel={t('copied')} />
-        </div>
       ) : null}
     </div>
   )
@@ -254,21 +245,13 @@ function VerdictWord({ piece, cli, t }: { piece: Piece | null, cli: string | nul
   return <span className={css.verdict} data-verdict={w.tone}>{t(w.key)}</span>
 }
 
-/** A piece's note: missing, or built before LayerFS stamped its builds. */
-function pieceNote(piece: Piece | null, cli: string | null, missing: string, t: SetupModalT): string | null {
-  if (!piece || piece.verdict === 'missing') return missing
-  const note = verdictWords(piece, cli).note
-  return note ? t(note) : null
-}
-
-function PieceRow({ label, path, value, note }: { label: string, path: string | null, value: ReactNode, note?: string | null }): ReactNode {
+function PieceRow({ label, path, value }: { label: string, path: string | null, value: ReactNode }): ReactNode {
   return (
     <div className={css.piece}>
       <dt className={css.pieceLabel}>{label}</dt>
       <dd className={css.pieceValue}>
         {value}
         {path ? <span className={css.path} title={path}>{path}</span> : null}
-        {note ? <span className={css.note}>{note}</span> : null}
       </dd>
     </div>
   )

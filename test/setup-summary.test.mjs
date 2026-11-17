@@ -84,6 +84,6 @@ test('machines: not ready with nothing reported offers Check, not an empty how-t
 })
 
 test('every key the sections name exists in en and zh', () => {
-  const keys = ['sectionLayerfs', 'toFix', 'canRunCount', 'folderTitle', 'runtimeTitle', 'runtimeUnnamed', 'choose', 'details', 'buildMixedOne', 'buildMixedBoth', 'buildNoBundle', 'buildNoDaemon', 'buildIncomplete', 'buildFailed', 'daemonRecordShort', 'stateReady', 'stateAvailable', 'stateNotInstalled', 'stateNotRunning', 'stateNeedsSetup', 'stateNeedsBundle', 'check', 'install', 'setUp', 'machinesNone', 'sumMixed', 'sumNoRuntime', 'sumRuntimeFailed', 'bundleMissingNote', 'daemonMissingNote', 'runtimeNone']
+  const keys = ['sectionLayerfs', 'toFix', 'canRunCount', 'folderTitle', 'runtimeTitle', 'runtimeUnnamed', 'choose', 'details', 'buildMixedOne', 'buildMixedBoth', 'buildNoBundle', 'buildNoDaemon', 'buildIncomplete', 'buildFailed', 'daemonRecordShort', 'stateReady', 'stateAvailable', 'stateNotInstalled', 'stateNotRunning', 'stateNeedsSetup', 'stateNeedsBundle', 'check', 'install', 'setUp', 'machinesNone', 'sumMixed', 'sumNoRuntime', 'sumRuntimeFailed', 'terminal']
   for (const lang of ['en', 'zh']) for (const k of keys) assert.ok(typeof locales[lang][k] === 'string' && locales[lang][k].length > 0, `${lang}.${k}`)
 })

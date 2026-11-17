@@ -56,12 +56,9 @@ export function RuntimePicker({ api, t, other, onOther, onDone, cancellable, cur
   const runtimes = read.data?.runtimes ?? []
   return (
     <div className={css.picker} data-runtime-picker="">
-      <div className={css.pickerHead}>
-        <span className={css.lineSub}>{t('pickerSub')}</span>
-      </div>
       {!read.data && !read.error ? <p className={css.note}>{t('pickerReading')}</p> : null}
       {read.error && !read.data ? <p className={css.errorText} role="alert">{messageOf(read.error)}</p> : null}
-      {read.data && runtimes.length === 0 ? <p className={css.note}>{t('pickerEmpty', { path: read.data.root ?? '' })}</p> : null}
+      {read.data && runtimes.length === 0 ? <p className={css.note}>{t('pickerEmpty')}</p> : null}
       {runtimes.length ? (
         <ul className={css.runtimes}>
           {runtimes.map((r) => {
@@ -71,8 +68,7 @@ export function RuntimePicker({ api, t, other, onOther, onDone, cancellable, cur
               <li key={r.id} className={clsx(css.runtime, r.active && css.runtimeActive)} data-runtime={r.id}>
                 <span className={css.lineText}>
                   <span className={css.lineTitle}>{r.version ?? r.id}<span className={css.commit}>{r.commit ? r.commit.slice(0, 8) : '—'}</span>{r.dirty ? <span className={css.commit}>{t('dirtyTree')}</span> : null}</span>
-                  <span className={css.lineSub}>{new Date(r.at).toLocaleString()}</span>
-                  <span className={css.lineSub} data-blocked={blocking || undefined}>{wrong.length ? wrong.join(' · ') : t('rowOk')}</span>
+                  <span className={css.lineSub} data-blocked={blocking || undefined}>{[wrong.length ? wrong.join(' · ') : t('rowOk'), new Date(r.at).toLocaleDateString()].join(' · ')}</span>
                 </span>
                 <span className={css.lineActions}>
                   {r.active
@@ -107,17 +103,16 @@ function OtherBuild({ t, current, busy, onSave }: { t: SetupModalT, current: Par
   return (
     <form className={css.other} onSubmit={(e) => { e.preventDefault(); submit() }} aria-label={t('otherTitle')}>
       <span className={css.lineTitle}>{t('otherTitle')}</span>
-      <span className={css.lineSub}>{t('otherSub')}</span>
       <Field label={t('fieldCli')} error={bad(cli) ? t('errAbsolute') : null}>
         <Input value={cli} onChange={(e) => setCli(e.target.value)} placeholder="/path/to/layerfs" spellCheck={false} disabled={busy} />
       </Field>
-      <Field label={t('fieldDaemon')} error={bad(daemon) ? t('errAbsolute') : null} hint={t('hintDaemon')}>
+      <Field label={t('fieldDaemon')} error={bad(daemon) ? t('errAbsolute') : null}>
         <Input value={daemon} onChange={(e) => setDaemon(e.target.value)} placeholder="/path/to/layerfs-daemon" spellCheck={false} disabled={busy} />
       </Field>
-      <Field label={t('fieldBundle')} error={bad(bundle) ? t('errAbsolute') : null} hint={t('hintBundle')}>
+      <Field label={t('fieldBundle')} error={bad(bundle) ? t('errAbsolute') : null}>
         <Input value={bundle} onChange={(e) => setBundle(e.target.value)} placeholder="/path/to/bundle/2.0.0/linux-aarch64" spellCheck={false} disabled={busy} />
       </Field>
-      <Field label={t('fieldImages')} error={bad(cache) ? t('errAbsolute') : null} hint={t('hintImages')}>
+      <Field label={t('fieldImages')} error={bad(cache) ? t('errAbsolute') : null}>
         <Input value={cache} onChange={(e) => setCache(e.target.value)} placeholder={current?.cacheHome ?? '/path/to/cache'} spellCheck={false} disabled={busy} />
       </Field>
       <div className={css.pickerFoot}>

@@ -23,25 +23,25 @@ rmSync(out, { recursive: true, force: true })
 const CLI = 'dd4a2cc40f5c5c23c903fcd8b1de90575663d71d'
 const OTHER = '095f5887d9000000000000000000000000000000'
 
-test('known verdicts keep their words and no note', () => {
-  assert.deepEqual(verdictWords({ verdict: 'matches', commit: CLI }, CLI), { tone: 'matches', key: 'vMatches', note: null })
-  assert.deepEqual(verdictWords({ verdict: 'other', commit: OTHER }, CLI), { tone: 'other', key: 'vOther', note: null })
-  assert.deepEqual(verdictWords({ verdict: 'missing', commit: null }, CLI), { tone: 'missing', key: 'vMissing', note: null })
-  assert.deepEqual(verdictWords(null, CLI), { tone: 'missing', key: 'vMissing', note: null })
+test('known verdicts keep their words', () => {
+  assert.deepEqual(verdictWords({ verdict: 'matches', commit: CLI }, CLI), { tone: 'matches', key: 'vMatches' })
+  assert.deepEqual(verdictWords({ verdict: 'other', commit: OTHER }, CLI), { tone: 'other', key: 'vOther' })
+  assert.deepEqual(verdictWords({ verdict: 'missing', commit: null }, CLI), { tone: 'missing', key: 'vMissing' })
+  assert.deepEqual(verdictWords(null, CLI), { tone: 'missing', key: 'vMissing' })
 })
 
 test('an unknown verdict says what the old-build piece records', () => {
   // the bundle: the CLI's commit, but no source.dirty
-  assert.deepEqual(verdictWords({ verdict: 'unknown', commit: CLI }, CLI), { tone: 'unknown', key: 'vSameCommit', note: 'vSameCommitNote' })
+  assert.deepEqual(verdictWords({ verdict: 'unknown', commit: CLI }, CLI), { tone: 'unknown', key: 'vSameCommit' })
   // the daemon: no build stamp at all
-  assert.deepEqual(verdictWords({ verdict: 'unknown', commit: null }, CLI), { tone: 'unknown', key: 'vNoStamp', note: 'vNoStampNote' })
+  assert.deepEqual(verdictWords({ verdict: 'unknown', commit: null }, CLI), { tone: 'unknown', key: 'vNoStamp' })
   // the CLI's own commit unknown: nothing to compare with
-  assert.deepEqual(verdictWords({ verdict: 'unknown', commit: CLI }, null), { tone: 'unknown', key: 'vUnknown', note: null })
+  assert.deepEqual(verdictWords({ verdict: 'unknown', commit: CLI }, null), { tone: 'unknown', key: 'vUnknown' })
 })
 
 test('both dictionaries carry every verdict key', () => {
   for (const lang of ['en', 'zh']) {
-    for (const key of ['vMatches', 'vOther', 'vUnknown', 'vMissing', 'vSameCommit', 'vNoStamp', 'vSameCommitNote', 'vNoStampNote']) {
+    for (const key of ['vMatches', 'vOther', 'vUnknown', 'vMissing', 'vSameCommit', 'vNoStamp']) {
       assert.equal(typeof locales[lang][key], 'string', `${lang}.${key}`)
       assert.ok(locales[lang][key].length > 0, `${lang}.${key}`)
     }
