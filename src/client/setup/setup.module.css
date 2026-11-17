@@ -4,7 +4,6 @@
    One 4px scale: 4 / 8 / 12 / 16 / 20 / 24. */
 
 .line,
-.machine,
 .runtime {
   display: flex;
   align-items: flex-start;
@@ -135,36 +134,6 @@
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-state-error-primary);
-}
-
-/* ---------- machines ---------- */
-.machines {
-  display: flex;
-  flex-direction: column;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-md);
-  overflow: hidden;
-}
-
-.machine {
-  padding: 12px;
-  align-items: center;
-}
-
-.machine + .machine {
-  border-top: 0.5px solid var(--dsw-alias-border-l2);
-}
-
-.machineTile {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--dsw-radius-md);
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-1);
 }
 
 /* ---------- the runtime picker ---------- */
@@ -338,92 +307,180 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-/* ---------- machine cards ---------- */
-.machineGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.machineCard {
+/* ---------- rows: one per folder, build or platform ---------- */
+.rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  padding: 14px 14px 12px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-layer-1);
+  gap: 8px;
 }
 
-.machineHead {
+.row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
-  margin-bottom: 2px;
+  padding: 8px 0;
 }
 
-.machineName {
+.row + .row {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+  padding-top: 12px;
+}
+
+.rowTile {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--dsw-radius-md);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
+}
+
+.rowTitle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
   font-size: 13px;
   line-height: 20px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
+}
+
+.rowLine {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.machineState {
-  flex: none;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  font-size: 11px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
+.rowLine[data-warn] {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
-.machineState[data-blocked] {
+.rowState {
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.rowState[data-warn] {
   color: var(--dsw-alias-state-warn-label);
 }
 
-.machineRole,
-.machineFacts {
-  margin: 0;
+.rowAction {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.rowNote {
+  margin: 0 0 0 44px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.rowNote[data-warn] {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+/* a line under a row, aligned with its text, with one action */
+.rowFollow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-left: 44px;
+}
+
+.rowFollowText {
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
 }
 
-.machineFacts {
-  color: var(--dsw-alias-label-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.machineFacts[data-blocked] {
-  white-space: normal;
-  color: var(--dsw-alias-state-warn-label);
-}
-
-.machineActions {
+/* Details: the build's pieces, folded away by default */
+.details {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  margin-top: auto;
-  padding-top: 6px;
+  margin-left: 44px;
 }
 
-.vmRow {
+.detailsToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .detailsToggle:hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.detailsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Install… / Set up…: what to do, commands to copy, then Check */
+.howto {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 44px;
+  padding: 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.howtoStep {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.howtoLink {
+  color: var(--dsw-alias-link);
+  overflow-wrap: anywhere;
+}
+
+.howtoFoot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
-  padding: 10px 12px;
-  border: 0.5px dashed var(--dsw-alias-border-l4);
-  border-radius: var(--dsw-radius-md);
 }
