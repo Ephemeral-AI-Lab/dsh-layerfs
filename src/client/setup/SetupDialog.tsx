@@ -23,7 +23,7 @@ import type { LayerfsApi } from '../api.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import type { MachinesKey } from '../machines/locale.ts'
 import { kindKey, type AvailableView, type MachinesView, type Words } from '../machines/model.ts'
-import { nativeGlyphOs, nativeNameKey, osOfView, shortVersion, stepReasons, type HostOs } from '../machines/needs.ts'
+import { nativeGlyphOs, nativeNameKey, osOfView, stepReasons, type HostOs } from '../machines/needs.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { CopyLine } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
@@ -78,7 +78,9 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
   const rows = view ? platformRows(view.platforms, os, { bundleDir: s?.pieces.bundle?.path ?? null }) : []
   const count = canRun(rows)
   const missing = missingWords(s, t)
-  const layerfsState = !s ? '…' : s.needs.length === 0 ? t('stateReady') : t('toFix', { n: s.needs.length })
+  // the head counts the rows that warn (the folder, the build), so it never says Ready beside an Incomplete build
+  const toFix = !s ? 0 : (s.folder.state === 'current' ? 0 : 1) + (buildWords(s, (k) => t(k)).state === 'ready' ? 0 : 1)
+  const layerfsState = !s ? '…' : toFix === 0 ? t('stateReady') : t('toFix', { n: toFix })
   const machinesState = !usable ? t(s?.runtime.ok ? 'sumMachinesWaitFolder' : 'sumMachinesWait') : !view ? t('sumMachinesReading') : t('canRunCount', { n: count.n, total: count.total })
   // Check again says "Checking…" for its own read, not for the background rereads
   const [manual, setManual] = useState(false)
@@ -96,7 +98,6 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
             <span className={dialog.headTile} aria-hidden="true"><LayerfsGlyph size={20} /></span>
             <span className={dialog.headText}>
               <h2 className={dialog.title}>{t('title')}</h2>
-              <span className={dialog.sub}>{t('sub')}</span>
             </span>
             <Button variant="ghost" size="sm" className={dialog.close} icon={<IconCloseOutlineRegular size={16} />} aria-label={t('close')} title={t('close')} onClick={close} />
           </div>
@@ -108,7 +109,7 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
             <section className={css.section} data-section="layerfs" aria-labelledby={`${id}-layerfs`}>
               <div className={css.sectionHead}>
                 <h3 id={`${id}-layerfs`} className={dialog.partTitle}>{t('sectionLayerfs')}</h3>
-                <span className={css.sectionState} data-ready={s.needs.length === 0 || undefined}>{layerfsState}</span>
+                <span className={css.sectionState} data-ready={toFix === 0 || undefined}>{layerfsState}</span>
               </div>
               <LayerfsSection api={api} s={s} t={t} />
             </section>
@@ -122,7 +123,7 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
           </> : null}
         </div>
         <footer className={dialog.foot}>
-          <span className={dialog.footNote}>{s ? missing ?? t('allSet') : null}</span>
+          <span className={dialog.footNote}>{missing}</span>
           <div className={dialog.footActions}>
             <Button variant="ghost" size="sm" disabled={checking} onClick={() => { setManual(true); status.check(); void recheck() }}>{checking ? t('checking') : t('checkAgain')}</Button>
             {missing ? <Button variant="outline" size="sm" onClick={() => setupDialog.later()}>{t('later')}</Button> : null}
@@ -136,14 +137,14 @@ export function SetupDialog({ api, t, tm, section }: { api: LayerfsApi, t: Setup
 
 /** One row of a section: a tile, a title and a line, a state word, and at most one action. */
 function Row({ tile, title, line, lineMono, lineWarn, state, warn, action, data }: {
-  tile: ReactNode, title: ReactNode, line: ReactNode, lineMono?: boolean, lineWarn?: boolean, state: string, warn: boolean, action?: ReactNode, data?: string
+  tile: ReactNode, title: ReactNode, line?: ReactNode, lineMono?: boolean, lineWarn?: boolean, state: string, warn: boolean, action?: ReactNode, data?: string
 }): ReactNode {
   return (
     <div className={css.row} data-row={data}>
       <span className={css.rowTile} aria-hidden="true">{tile}</span>
       <span className={css.rowText}>
         <span className={css.rowTitle}>{title}</span>
-        <span className={clsx(css.rowLine, lineMono && css.mono)} data-warn={lineWarn || undefined} title={typeof line === 'string' ? line : undefined}>{line}</span>
+        {line ? <span className={clsx(css.rowLine, lineMono && css.mono)} data-warn={lineWarn || undefined} title={typeof line === 'string' ? line : undefined}>{line}</span> : null}
       </span>
       <span className={css.rowState} data-warn={warn || undefined}>{state}</span>
       {action ? <span className={css.rowAction}>{action}</span> : null}
@@ -156,8 +157,7 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
   const [changing, setChanging] = useState<'pick' | 'other' | null>(!r.cli ? 'pick' : null)
   const [details, setDetails] = useState(false)
   const b = buildWords(s, (k) => t(k))
-  const sdk = r.ok ? (r.sdk ? t('sdkShort') : t('noSdkShort')) : null
-  const line = [t(b.line, b.values), b.state === 'ready' ? sdk : null].filter(Boolean).join(' · ')
+  const line = b.line ? t(b.line, b.values) : null
   const title = r.cli
     ? <>{r.version ? t('runtimeLine', { version: r.version }) : t('runtimeUnnamed')}{r.commit ? <span className={css.commit}>{short(r.commit)}</span> : null}</>
     : t('runtimeTitle')
@@ -166,9 +166,9 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
       <FolderRow api={api} s={s} t={t} />
       <Row data="build" tile={<LayerfsGlyph size={16} />} title={title} line={line} lineWarn={b.state !== 'ready'} state={t(b.word)} warn={b.state !== 'ready'}
         action={changing ? null : <Button variant="outline" size="sm" onClick={() => setChanging('pick')}>{r.cli ? t('change') : t('choose')}</Button>} />
-      {s.daemonRecordable ? <RecordDaemon api={api} t={t} missing={s.pieces.daemon?.verdict === 'missing'} /> : null}
+      {s.daemonRecordable ? <RecordDaemon api={api} t={t} /> : null}
       {b.state === 'mixed' && s.mixedAllowed ? <p className={css.rowNote}>{t('mixedAllowedNote')}</p> : null}
-      {changing ? <RuntimePicker api={api} t={t} other={changing === 'other'} onOther={() => setChanging('other')} onDone={() => setChanging(r.cli ? null : 'pick')} cancellable={!!r.cli} /> : null}
+      {changing ? <RuntimePicker api={api} t={t} other={changing === 'other'} onOther={() => setChanging('other')} onDone={() => setChanging(null)} cancellable={!!r.cli} /> : null}
       {r.cli ? (
         <div className={css.details}>
           <button type="button" className={css.detailsToggle} aria-expanded={details} onClick={() => setDetails(!details)}>
@@ -263,13 +263,13 @@ function PieceRow({ label, path, value, note }: { label: string, path: string | 
 }
 
 /** The native machine records another build's daemon: record this runtime's (never automatic: hosts sharing a home would flip it). */
-function RecordDaemon({ api, t, missing }: { api: LayerfsApi, t: SetupModalT, missing: boolean }): ReactNode {
+function RecordDaemon({ api, t }: { api: LayerfsApi, t: SetupModalT }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const run = async () => { setBusy(true); setError(null); try { await api.op('setup.recordDaemon') } catch (e) { setError(e) } finally { setBusy(false) } }
   return (
     <div className={css.rowFollow}>
-      <span className={css.rowFollowText}>{missing ? t('daemonRecordMissing') : t('daemonRecordedOther')}</span>
+      <span className={css.rowFollowText}>{t('daemonRecordShort')}</span>
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void run()}>{busy ? t('saving') : t('recordDaemon')}</Button>
       {error != null ? <p className={dialog.error} role="alert">{messageOf(error)}</p> : null}
     </div>
@@ -289,14 +289,13 @@ function MachinesSection({ usable, view, rows, os, error, t, tm, tw, recheck }: 
   if (rows.length === 0) return <p className={dialog.notice}>{t('machinesNone')}</p>
   return (
     <div className={css.rows}>
-      {rows.map((row) => <PlatformLine key={row.platform} row={row} view={view} os={os} open={open === row.platform} onOpen={(on) => setOpen(on ? row.platform : null)} t={t} tm={tm} tw={tw} recheck={recheck} />)}
-      <p className={css.rowNote}>{t('machinesFoot')}</p>
+      {rows.map((row) => <PlatformLine key={row.platform} row={row} os={os} open={open === row.platform} onOpen={(on) => setOpen(on ? row.platform : null)} t={t} tm={tm} tw={tw} recheck={recheck} />)}
     </div>
   )
 }
 
-function PlatformLine({ row, view, os, open, onOpen, t, tm, tw, recheck }: {
-  row: PlatformRow, view: AvailableView, os: HostOs, open: boolean, onOpen: (open: boolean) => void, t: SetupModalT, tm: MachinesT, tw: (w: Words) => string, recheck: () => Promise<void>
+function PlatformLine({ row, os, open, onOpen, t, tm, tw, recheck }: {
+  row: PlatformRow, os: HostOs, open: boolean, onOpen: (open: boolean) => void, t: SetupModalT, tm: MachinesT, tw: (w: Words) => string, recheck: () => Promise<void>
 }): ReactNode {
   const [checking, setChecking] = useState(false)
   const check = () => { setChecking(true); void recheck().finally(() => setChecking(false)) }
@@ -304,12 +303,8 @@ function PlatformLine({ row, view, os, open, onOpen, t, tm, tw, recheck }: {
   const key = kindKey(row.platform)
   const name = native ? tm(nativeNameKey(os)) : key ? tm(key) : row.platform
   const blocked = row.state !== 'ready' && row.state !== 'available'
-  const socket = row.info.socket?.path ?? null
-  const version = shortVersion(row.info.version)
-  const line = blocked ? stepReasons(row.readiness, tw)
-    : native ? [t('nativeRequired'), view.computer?.name, view.computer?.arch].filter(Boolean).join(' · ')
-      : row.platform === 'docker' && socket ? socket
-        : version ? t('toolVersion', { version }) : t('availableLine')
+  // the state word says it (Not installed, Not running, Needs the Linux bundle); only a host fact to set up needs its reason
+  const line = row.state === 'needsSetup' ? stepReasons(row.readiness, tw) : null
   const checkButton = <Button variant="outline" size="sm" disabled={checking} onClick={check}>{checking ? t('checking') : t('check')}</Button>
   const action = row.action === 'check' ? checkButton
     : row.action === 'install' || row.action === 'setup'
@@ -318,7 +313,7 @@ function PlatformLine({ row, view, os, open, onOpen, t, tm, tw, recheck }: {
   return (
     <>
       <Row data={row.platform} tile={<MachineGlyph platform={row.platform} os={native ? nativeGlyphOs(os) : undefined} size={16} />} title={name}
-        line={line} lineMono={!blocked && row.platform === 'docker' && !!socket} lineWarn={blocked} state={t(STATE_KEY[row.state])} warn={blocked} action={action} />
+        line={line} lineWarn={blocked} state={t(STATE_KEY[row.state])} warn={blocked} action={action} />
       {open && (row.action === 'install' || row.action === 'setup') ? (
         <div className={css.howto}>
           {row.readiness.fixes.filter((f) => f.step === row.readiness.step).map((f) => (
@@ -329,7 +324,7 @@ function PlatformLine({ row, view, os, open, onOpen, t, tm, tw, recheck }: {
                 : <CopyLine key={c} text={c} copyLabel={t('copy')} copiedLabel={t('copied')} />)}
             </div>
           ))}
-          <span className={css.howtoFoot}><span className={css.note}>{t('installThenCheck')}</span>{checkButton}</span>
+          <span className={css.howtoFoot}>{checkButton}</span>
         </div>
       ) : null}
     </>

@@ -28,27 +28,28 @@ const status = (over = {}) => ({
   pieces: { cli: piece('matches'), daemon: piece('matches'), bundle: piece('matches'), ...over.pieces },
 })
 
-test('the build row: one build, with or without a daemon', () => {
-  assert.deepEqual(buildWords(status(), name), { state: 'ready', word: 'stateReady', line: 'buildOne', values: {} })
-  assert.equal(buildWords(status({ pieces: { daemon: null } }), name).line, 'buildOneNoDaemon')
+test('the build row: one build is Ready with no line, with or without a daemon', () => {
+  assert.deepEqual(buildWords(status(), name), { state: 'ready', word: 'stateReady', line: null, values: {} })
+  assert.equal(buildWords(status({ pieces: { daemon: null } }), name).line, null)
 })
 
-test('pieces built before build stamps pass, but the line does not claim one build', () => {
+test('pieces built before build stamps pass with no line (Details says what they record)', () => {
   const b = buildWords(status({ pieces: { daemon: piece('unknown', null), bundle: piece('unknown') } }), name)
-  assert.deepEqual([b.state, b.line], ['ready', 'buildUnstamped'])
+  assert.deepEqual([b.state, b.line], ['ready', null])
 })
 
 test('a piece from another build is named with both commits; two are summed up', () => {
   const one = buildWords(status({ pieces: { bundle: piece('other', OTHER) } }), name)
-  assert.deepEqual(one, { state: 'mixed', word: 'sumMixed', line: 'buildMixedOne', values: { piece: 'Linux bundle', theirs: '095f5887', ours: 'dd4a2cc4' } })
+  assert.deepEqual(one, { state: 'mixed', word: 'sumMixed', line: 'buildMixedOne', values: { piece: 'Linux bundle', theirs: '095f5887' } })
+  assert.equal(locales.en.buildMixedOne.replace('{piece}', one.values.piece).replace('{theirs}', one.values.theirs), 'Linux bundle from 095f5887')
   const both = buildWords(status({ pieces: { daemon: piece('other', OTHER), bundle: piece('other', OTHER) } }), name)
-  assert.deepEqual([both.state, both.line, both.values], ['mixed', 'buildMixedBoth', { ours: 'dd4a2cc4' }])
+  assert.deepEqual([both.state, both.line, both.values], ['mixed', 'buildMixedBoth', {}])
 })
 
 test('a missing bundle or daemon is incomplete; no runtime, or a broken one, says so', () => {
-  assert.deepEqual([buildWords(status({ pieces: { bundle: null } }), name).state, buildWords(status({ pieces: { bundle: null } }), name).line], ['incomplete', 'bundleMissingNote'])
-  assert.equal(buildWords(status({ pieces: { daemon: piece('missing', null) } }), name).line, 'daemonMissingNote')
-  assert.equal(buildWords(status({ runtime: { cli: null, ok: false } }), name).state, 'none')
+  assert.deepEqual([buildWords(status({ pieces: { bundle: null } }), name).state, buildWords(status({ pieces: { bundle: null } }), name).line], ['incomplete', 'buildNoBundle'])
+  assert.equal(buildWords(status({ pieces: { daemon: piece('missing', null) } }), name).line, 'buildNoDaemon')
+  assert.deepEqual([buildWords(status({ runtime: { cli: null, ok: false } }), name).state, buildWords(status({ runtime: { cli: null, ok: false } }), name).line], ['none', null])
   const failed = buildWords(status({ runtime: { ok: false, error: { code: 'X', message: 'boom' } } }), name)
   assert.deepEqual([failed.state, failed.values], ['failed', { message: 'boom' }])
 })
@@ -77,7 +78,12 @@ test('machines: a host fact to set up offers Set up; a missing bundle offers not
   assert.deepEqual(rows.map((r) => [r.platform, r.state, r.action]), [['native', 'ready', null], ['docker', 'needsBundle', null], ['lima', 'needsSetup', 'setup']])
 })
 
+test('machines: not ready with nothing reported offers Check, not an empty how-to', () => {
+  const [row] = platformRows([platform('lima', { ready: false, missing: [] })], 'macos')
+  assert.deepEqual([row.state, row.action], ['needsSetup', 'check'])
+})
+
 test('every key the sections name exists in en and zh', () => {
-  const keys = ['sectionLayerfs', 'toFix', 'canRunCount', 'folderTitle', 'runtimeTitle', 'runtimeUnnamed', 'choose', 'details', 'buildOne', 'buildOneNoDaemon', 'buildUnstamped', 'buildMixedOne', 'buildMixedBoth', 'buildIncomplete', 'buildFailed', 'sdkShort', 'noSdkShort', 'stateReady', 'stateAvailable', 'stateNotInstalled', 'stateNotRunning', 'stateNeedsSetup', 'stateNeedsBundle', 'nativeRequired', 'toolVersion', 'availableLine', 'check', 'install', 'setUp', 'installThenCheck', 'machinesNone', 'machinesFoot', 'sumMixed', 'sumNoRuntime', 'sumRuntimeFailed', 'bundleMissingNote', 'daemonMissingNote', 'runtimeNone']
+  const keys = ['sectionLayerfs', 'toFix', 'canRunCount', 'folderTitle', 'runtimeTitle', 'runtimeUnnamed', 'choose', 'details', 'buildMixedOne', 'buildMixedBoth', 'buildNoBundle', 'buildNoDaemon', 'buildIncomplete', 'buildFailed', 'daemonRecordShort', 'stateReady', 'stateAvailable', 'stateNotInstalled', 'stateNotRunning', 'stateNeedsSetup', 'stateNeedsBundle', 'check', 'install', 'setUp', 'machinesNone', 'sumMixed', 'sumNoRuntime', 'sumRuntimeFailed', 'bundleMissingNote', 'daemonMissingNote', 'runtimeNone']
   for (const lang of ['en', 'zh']) for (const k of keys) assert.ok(typeof locales[lang][k] === 'string' && locales[lang][k].length > 0, `${lang}.${k}`)
 })

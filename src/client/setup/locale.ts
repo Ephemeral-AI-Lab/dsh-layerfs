@@ -3,7 +3,6 @@ export const NS = 'layerfsSetupModal'
 
 const en = {
   title: 'Set up LayerFS',
-  sub: 'LayerFS keeps your projects’ files and runs the machines their sessions use.',
   close: 'Close', later: 'Later', done: 'Done', checkAgain: 'Check again', checking: 'Checking…',
   readFailed: 'Could not check the setup: {message}',
   // rail
@@ -27,12 +26,11 @@ const en = {
   sdkPresent: 'Installed', sdkMissing: 'None for this build', sdkNote: 'Agents can’t import the LayerFS SDK until one is installed from this build (scripts/install-sdk.mjs). It never blocks setup.',
   mixedAllowedNote: 'The pieces come from different builds; DSH_LAYERFS_ALLOW_MIXED=1 lets you go on (development).',
   daemonRecordedOther: 'The native machine uses a daemon from another build. Record this runtime’s daemon on it?', recordDaemon: 'Use this daemon',
-  daemonRecordMissing: 'The native machine has no daemon from this build. Record this runtime’s daemon on it?',
   runtimeError: '{code}: {message}',
   // folder section
-  folderMissingNoRuntime: 'Created as soon as a runtime is chosen.',
+  folderMissingNoRuntime: 'Created once a runtime is chosen.',
 
-  folderOldWarn: 'After converting, older LayerFS builds refuse this folder.',
+  folderOldWarn: 'Older LayerFS builds can’t open it after converting.',
   folderUnknown: 'This LayerFS can’t read the folder (it may be from a newer LayerFS).',
   folderOldCli: 'This runtime can’t convert folders; choose a newer one.',
   convert: 'Convert', converting: 'Converting…',
@@ -44,20 +42,16 @@ const en = {
   stateReady: 'Ready',
 
   // the two sections (summary.ts)
-  sectionLayerfs: 'LayerFS', toFix: '{n} to fix', canRunCount: '{n} of {total} can run here',
+  sectionLayerfs: 'LayerFS', toFix: '{n} to fix', canRunCount: '{n} of {total} available',
   folderTitle: 'Folder', runtimeTitle: 'Runtime', runtimeUnnamed: 'LayerFS', choose: 'Choose…', details: 'Details',
-  buildOne: 'CLI, daemon and Linux bundle from one build', buildOneNoDaemon: 'CLI and Linux bundle from one build',
-  buildUnstamped: 'Built before build stamps, so one build can’t be confirmed',
-  buildMixedOne: '{piece} is from {theirs}; the CLI from {ours}', buildMixedBoth: 'Daemon and Linux bundle are from other builds than the CLI ({ours})',
+
+  buildMixedOne: '{piece} from {theirs}', buildMixedBoth: 'Daemon and bundle from other builds', buildNoBundle: 'No Linux bundle', buildNoDaemon: 'No native daemon', daemonRecordShort: 'Record this runtime’s daemon on the native machine.',
   buildIncomplete: 'Incomplete', buildFailed: 'This runtime can’t be used: {message}',
-  sdkShort: 'SDK installed', noSdkShort: 'no SDK for this build',
   stateAvailable: 'Available', stateNotInstalled: 'Not installed', stateNotRunning: 'Not running', stateNeedsSetup: 'Needs setup', stateNeedsBundle: 'Needs the Linux bundle',
-  nativeRequired: 'Required', toolVersion: 'Version {version}', availableLine: 'Ready to add from Machines',
-  check: 'Check', install: 'Install…', setUp: 'Set up…', installThenCheck: 'Then press Check.',
+  check: 'Check', install: 'Install…', setUp: 'Set up…',
   machinesNone: 'LayerFS reports no machine kinds this computer can run.',
-  machinesFoot: 'Machines are made and started on the Machines page.',
   // foot
-  missingRuntime: 'Choose a runtime to finish.', missingFolder: 'The LayerFS folder isn’t ready.', missingBuild: 'The runtime’s pieces are from different builds.', allSet: 'Everything required is ready.',
+  missingRuntime: 'Choose a runtime to finish.', missingFolder: 'The LayerFS folder isn’t ready.', missingBuild: 'The runtime’s pieces are from different builds.',
   // picker
   pickerTitle: 'Choose a runtime', pickerSub: 'Runtimes the LayerFS app installed in the LayerFS folder, newest first.',
   pickerEmpty: 'No runtimes are installed in {path}. Install the LayerFS app, or use another build.',
@@ -78,7 +72,6 @@ const en = {
 
 const zh: typeof en = {
   title: '设置 LayerFS',
-  sub: 'LayerFS 保存项目文件，并运行会话所用的机器。',
   close: '关闭', later: '稍后', done: '完成', checkAgain: '重新检查', checking: '正在检查…',
   readFailed: '无法检查设置：{message}',
   railFolder: 'LayerFS 文件夹', railMachines: '机器',
@@ -100,7 +93,6 @@ const zh: typeof en = {
   sdkPresent: '已安装', sdkMissing: '本构建没有 SDK', sdkNote: '在从本构建安装 SDK（scripts/install-sdk.mjs）之前，智能体无法导入 LayerFS SDK。它不会阻止完成设置。',
   mixedAllowedNote: '各部分来自不同构建；DSH_LAYERFS_ALLOW_MIXED=1 允许继续（开发用）。',
   daemonRecordedOther: '本机记录的守护进程来自其他构建。要改用此运行时的守护进程吗？', recordDaemon: '使用此守护进程',
-  daemonRecordMissing: '本机没有本构建的守护进程。要记录此运行时的守护进程吗？',
   runtimeError: '{code}：{message}',
   folderMissingNoRuntime: '选择运行时后即创建。',
 
@@ -114,19 +106,15 @@ const zh: typeof en = {
   machinesFailed: '无法读取机器：{message}',
   stateReady: '就绪',
 
-  sectionLayerfs: 'LayerFS', toFix: '{n} 项待处理', canRunCount: '{total} 种中有 {n} 种可在此运行',
+  sectionLayerfs: 'LayerFS', toFix: '{n} 项待处理', canRunCount: '{n}/{total} 可用',
   folderTitle: '文件夹', runtimeTitle: '运行时', runtimeUnnamed: 'LayerFS', choose: '选择…', details: '详情',
-  buildOne: 'CLI、守护进程和 Linux 包来自同一构建', buildOneNoDaemon: 'CLI 和 Linux 包来自同一构建',
-  buildUnstamped: '构建于加入构建标记之前，无法确认来自同一构建',
-  buildMixedOne: '{piece} 来自 {theirs}；CLI 来自 {ours}', buildMixedBoth: '守护进程和 Linux 包来自与 CLI（{ours}）不同的构建',
+
+  buildMixedOne: '{piece} 来自 {theirs}', buildMixedBoth: '守护进程和 Linux 包来自其他构建', buildNoBundle: '没有 Linux 包', buildNoDaemon: '没有本机守护进程', daemonRecordShort: '在本机记录此运行时的守护进程。',
   buildIncomplete: '不完整', buildFailed: '此运行时无法使用：{message}',
-  sdkShort: '已安装 SDK', noSdkShort: '本构建没有 SDK',
   stateAvailable: '可用', stateNotInstalled: '未安装', stateNotRunning: '未运行', stateNeedsSetup: '需要设置', stateNeedsBundle: '需要 Linux 包',
-  nativeRequired: '必需', toolVersion: '版本 {version}', availableLine: '可在“机器”中添加',
-  check: '检查', install: '安装…', setUp: '设置…', installThenCheck: '完成后点“检查”。',
+  check: '检查', install: '安装…', setUp: '设置…',
   machinesNone: 'LayerFS 没有报告此电脑可运行的机器类型。',
-  machinesFoot: '在“机器”页面创建和启动机器。',
-  missingRuntime: '选择运行时以完成设置。', missingFolder: 'LayerFS 文件夹尚未就绪。', missingBuild: '运行时的各部分来自不同构建。', allSet: '所有必需项已就绪。',
+  missingRuntime: '选择运行时以完成设置。', missingFolder: 'LayerFS 文件夹尚未就绪。', missingBuild: '运行时的各部分来自不同构建。',
   pickerTitle: '选择运行时', pickerSub: 'LayerFS 应用安装在 LayerFS 文件夹中的运行时，最新的在前。',
   pickerEmpty: '{path} 中没有已安装的运行时。请安装 LayerFS 应用，或使用其他构建。',
   pickerReading: '正在读取已安装的运行时…', inUse: '使用中', dirtyTree: '含未提交的修改', use: '使用', using: '正在切换…',

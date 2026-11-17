@@ -27,36 +27,34 @@ export interface BuildWords {
   readonly state: BuildState
   /** The row's state word. */
   readonly word: SetupKey
-  /** The row's line under the title, with its values. */
-  readonly line: SetupKey
+  /** The row's line under the title, only when something is wrong (null: the state word says it all). */
+  readonly line: SetupKey | null
   readonly values: Record<string, string>
 }
 
 const pieceKey = { daemon: 'pieceDaemon', bundle: 'pieceBundle' } as const
 
 /**
- * The build row. `pieceName` names a piece for the line ("Linux bundle"), so
- * the caller's dictionary decides the words. Mixed and missing pieces are named;
- * pieces built before build stamps (an unknown verdict) pass, as Done does,
- * but the line says one build can't be confirmed rather than claiming it.
+ * The build row: a state word, and a few words only when something is wrong.
+ * `pieceName` names a piece ("Linux bundle"), so the caller's dictionary
+ * decides the words. Pieces built before build stamps (an unknown verdict)
+ * pass, as Done does; Details says what each of them records.
  */
 export function buildWords(s: SetupStatus, pieceName: (key: 'pieceDaemon' | 'pieceBundle') => string): BuildWords {
   const r = s.runtime, p = s.pieces
-  if (!r.cli) return { state: 'none', word: 'sumNoRuntime', line: 'runtimeNone', values: {} }
+  if (!r.cli) return { state: 'none', word: 'sumNoRuntime', line: null, values: {} }
   if (!r.ok) return { state: 'failed', word: 'sumRuntimeFailed', line: 'buildFailed', values: { message: r.error?.message ?? '' } }
   const pieces: ['daemon' | 'bundle', Piece | null][] = [['daemon', p.daemon], ['bundle', p.bundle]]
   const other = pieces.filter(([, x]) => x?.verdict === 'other')
   if (other.length === 1) {
     const [name, piece] = other[0]!
-    return { state: 'mixed', word: 'sumMixed', line: 'buildMixedOne', values: { piece: pieceName(pieceKey[name]), theirs: short(piece!.commit), ours: short(r.commit) } }
+    return { state: 'mixed', word: 'sumMixed', line: 'buildMixedOne', values: { piece: pieceName(pieceKey[name]), theirs: short(piece!.commit) } }
   }
-  if (other.length > 1) return { state: 'mixed', word: 'sumMixed', line: 'buildMixedBoth', values: { ours: short(r.commit) } }
+  if (other.length > 1) return { state: 'mixed', word: 'sumMixed', line: 'buildMixedBoth', values: {} }
   // the bundle is always a piece (null = none found); the daemon only where a native daemon applies (macOS)
-  if (!p.bundle || p.bundle.verdict === 'missing') return { state: 'incomplete', word: 'buildIncomplete', line: 'bundleMissingNote', values: {} }
-  if (p.daemon && p.daemon.verdict === 'missing') return { state: 'incomplete', word: 'buildIncomplete', line: 'daemonMissingNote', values: {} }
-  const unknown = pieces.some(([, x]) => x?.verdict === 'unknown')
-  if (unknown) return { state: 'ready', word: 'stateReady', line: 'buildUnstamped', values: {} }
-  return { state: 'ready', word: 'stateReady', line: p.daemon ? 'buildOne' : 'buildOneNoDaemon', values: {} }
+  if (!p.bundle || p.bundle.verdict === 'missing') return { state: 'incomplete', word: 'buildIncomplete', line: 'buildNoBundle', values: {} }
+  if (p.daemon && p.daemon.verdict === 'missing') return { state: 'incomplete', word: 'buildIncomplete', line: 'buildNoDaemon', values: {} }
+  return { state: 'ready', word: 'stateReady', line: null, values: {} }
 }
 
 /** A platform row's state word. */
@@ -97,7 +95,8 @@ export function platformRows(platforms: readonly MachinePlatformInfo[], os: Host
     .map(({ info, readiness }) => ({
       platform: info.platform,
       state: readiness.step === 'ready' && info.platform === 'native' ? 'ready' : STATE[readiness.step],
-      action: ACTION[readiness.step],
+      // not ready with nothing reported (LayerFS knows why): no empty how-to, Check alone
+      action: readiness.step === 'setup' && readiness.fixes.length === 0 ? 'check' : ACTION[readiness.step],
       readiness,
       info,
     }))
