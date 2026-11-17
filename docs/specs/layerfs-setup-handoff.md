@@ -24,6 +24,10 @@ Worktree `../layerfs/.claude/worktrees/home-setup-a1` (registered with
 - `095f5887d9` C: doctor §2.6 (never-started docker is a warning;
   `host.native_daemon` checks the recorded daemon, else the default, and its
   commit, in the `DaemonMismatch` wording).
+- `41a96bad2c` tests only: two call-table tests named the quiet calls
+  without `home.get` (A1) and the machine family without `space` (#724,
+  already stale on the parent). Production LOC unchanged, so the builds below
+  (of `095f5887d9`) stand.
 
 Builds of clean `095f5887d9`, release profile:
 - sealed macOS bundle (CLI, daemon, `layerfs.node`, `api/`):
@@ -54,12 +58,12 @@ Builds of clean `095f5887d9`, release profile:
 - `ba73da7` "Use this daemon" only when the recorded daemon is gone or from
   another build (it showed for a same-commit daemon recorded from another
   folder, found on the B/C build); a test pins the cases.
-- Merged into the 3080 checkout (`dsh-layerfs-integrate`) as `8ea64d6`, then
-  the later commits on top (see Checks).
+- Merged into the 3080 checkout (`dsh-layerfs-integrate`) as `8ea64d6`, again
+  after `ba73da7` (3080 restarted a second time for that host fix), and last
+  with this handoff (docs only, no restart).
   Its untracked draft `docs/specs/layerfs-setup.md` (my branch's base text,
   without my edits) was moved aside before the merge; nothing else there
   was touched.
-<!-- DSH -->
 
 ## Checks
 
@@ -87,7 +91,21 @@ Builds of clean `095f5887d9`, release profile:
 - 3080 restarted (other sessions told first) exactly as AGENTS.md says;
   the setup modal and Center checked there with the user's home: "Everything
   required is ready", nothing converted.
-<!-- CHECKS -->
+- LayerFS, release, macOS, through `tools/worktree.py cargo`, every test
+  target of each touched package (platform, machine, sandbox,
+  sandbox-backend, control, api, cli, daemon, python; 267 targets): all pass
+  after `41a96bad2c` (before it, the two stale table tests above failed).
+  Linux-only targets (FUSE, Store execution, namespaces) compile and run
+  nothing on macOS. `cargo +1.85.1 fmt --all --check` clean; clippy
+  `--all-targets -D warnings` clean on all of them (with and without
+  `--features machine`). `tools/test_linux_bundle.py`, `tools/test_worktree.py`
+  34/34. Node SDK (15 files) and Python (66 OK, 3 skipped) against the sealed
+  bundle (B/C agent).
+- LayerFS MCP tests against the sealed bundle: 8 pass, 8 fail, all from one
+  **pre-existing** cause: `sandbox.create`'s `image` option kind (#682,
+  before the parent `dd4a2cc40f`) has no schema in `api/mcp/src/tools.js`, so
+  the server stops at launch. The profile tests A1 changed pass. Not fixed
+  here (outside B/C).
 
 ## Decisions
 
@@ -136,14 +154,13 @@ Builds of clean `095f5887d9`, release profile:
   The socket is pinned before the start once the Engine answers and recorded
   again after the provider starts. `stock` is a reserved `os_image` value.
   Doctor messages add a CLI hint. Spec §2.3/§2.6 updated to what was built.
-<!-- DECISIONS -->
 
 ## Left
 
 - **A2** (§2.7, reads never change the home): needs the LayerFS
   maintainers' agreement.
-- **Pushing the LayerFS branch** `claude/home-setup-a1` (A1, B, C): needs
-  the user's OK.
+- **Pushing the LayerFS branch** `claude/home-setup-a1` (A1, B, C and the
+  test fix, four commits on `dd4a2cc40f`): needs the user's OK.
 - Docker machines converted from 1.1.0 records that already ran but have no
   `lasting` state and no `vm_name` are `legacy` for the socket, yet doctor may
   call them "never started" (B/C agent's note).
@@ -155,4 +172,6 @@ Builds of clean `095f5887d9`, release profile:
 - Follow-up (older code, not this task): Center's head line clips a long need
   (a docker socket path) without an ellipsis; Health shows a raw warning code;
   ProjectDialog's `useStorage` machine-progress listener is not coalesced.
-<!-- LEFT -->
+- LayerFS follow-up: the MCP server has no schema for the `image` kind
+  (`api/mcp/src/tools.js` `COMMON`), so `layerfs-mcp` fails at launch on
+  this branch and on its parent.
