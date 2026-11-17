@@ -20,7 +20,7 @@ import {
   RANK, downReason, gib, machineOrder, machineState, runtimeOf, sandboxesOn,
   type AvailableView, type MachineInfo,
 } from './model.ts'
-import { machineBlock, nativeGlyphOs, nativeNameKey, osOfView, type Readiness } from './needs.ts'
+import { engineStart, machineBlock, nativeGlyphOs, nativeNameKey, osOfView, stepReasons, type Readiness } from './needs.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, useMachineRun } from './parts.tsx'
 import { ObservedDisk, useMachineStats } from './MachineStats.tsx'
 import { MemoryCell } from './MetricsViews.tsx'
@@ -217,6 +217,8 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
   const reason = startingNow ? null : downReason(m, live)
   const attention = startingNow ? null : attentionOf(m, view)
   const block = startingNow ? null : blockedOf(m, view)
+  // only the Docker Engine is not running: Start launches it, then the machine
+  const engine = engineStart(m, block, osOfView(view))
   const { run, pending: localPending, error } = useMachineRun()
   const pending = localPending ?? (startingNow ? startup.kind : null)
   const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
@@ -248,18 +250,21 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
             <span className={css.blockSub} title={sub}>{sub}</span>
           </span>
         </span>
-        <span role="cell" className={css.fleetState}><MachineStateChip m={m} live={live} pending={pending} blocked={!!block} /></span>
+        <span role="cell" className={css.fleetState}><MachineStateChip m={m} live={live} pending={pending} blocked={engine ? 'engine' : !!block} /></span>
         <span role="cell" className={css.fleetMemory}><MemoryCell m={m} /></span>
-        <span role="cell" className={css.fleetDisk}><DiskCell m={m} view={view} /></span>
+        <span role="cell" className={css.fleetDisk}>
+          {/* a blocked machine reports no disk: why it cannot run shows here, without opening the row */}
+          {block ? <span className={css.cellStack}><span className={css.cellText} title={stepReasons(block, tw)}>{stepReasons(block, tw)}</span></span> : <DiskCell m={m} view={view} />}
+        </span>
         <span role="cell" className={css.fleetHolds}><HoldsCell m={m} view={view} /></span>
         <span role="cell" className={css.fleetActions}>
-          {m.platform === 'native' || block ? null : <PowerButton m={m} pending={pending} run={run} compact />}
+          {m.platform === 'native' || (block && !engine) ? null : <PowerButton m={m} pending={pending} run={run} compact engine={engine} />}
           <MachineMenu m={m} pending={pending} run={run} onOpen={onOpen} onDialog={setDialog} />
         </span>
       </div>
       {open && (
         <div className={css.fleetDetail} id={detailId}>
-          {block && <Blocked m={m} block={block} />}
+          {block && <Blocked m={m} block={block} action={engine ? <PowerButton m={m} pending={pending} run={run} engine /> : undefined} />}
           {!block && (reason || attention === 'danger') && (
             <div className={css.blockReason}>
               <span className={css.blockReasonText} title={reason ?? undefined}>{reason ?? t('needsInspect', { state: t(machineState(m, live).label ?? 'stateUnknown') })}</span>

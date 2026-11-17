@@ -26,7 +26,7 @@ import type { View } from './context.tsx'
 import { useMachineTitle } from './Inventory.tsx'
 import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
-import { stepReasons } from './needs.ts'
+import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { MachineOverview } from './Overview.tsx'
@@ -89,6 +89,9 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const reason = startup?.status === 'running' ? null : downReason(m, live)
   const attention = startup?.status === 'running' ? null : attentionOf(m, view)
   const block = startup?.status === 'running' ? null : blockedOf(m, view)
+  // only the Docker Engine is not running: Start launches it, then the machine (needs.ts engineStart)
+  const engine = engineStart(m, block, osOfView(view))
+  const power = !block || engine ? <PowerButton m={m} pending={pending} run={run} engine={engine} /> : undefined
   const calls = clearingCall('machine', m.name, state.op)
   // New Sandbox also works on a stopped machine (Start and create); it waits only while a power action runs
   const canSandbox = pending === null
@@ -120,6 +123,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
       {block && (
         <Notice tone="warning">
           <p>{t('unavailableWhy', { kind: kind(m.platform), reason: stepReasons(block, tw) })}</p>
+          {engine && <p>{t('engineStartHint')}</p>}
           {m.stores.length > 0 && <p>{t(m.stores.length === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(m.stores.length) })}</p>}
           <FixPanel fixes={block.fixes} className={css.blockedHelp} />
         </Notice>
@@ -149,13 +153,13 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
               const sandbox = sandboxOfRunFolder(folder)
               return sandbox && sandboxesOn(view, m).some((sb) => sb.name === sandbox) ? () => go({ kind: 'sandbox', machine: m.name, name: sandbox, tab: 'log' }) : null
             } : undefined}
-            unavailableAction={state.state === 'stopped' && !block ? <PowerButton m={m} pending={pending} run={run} /> : undefined} />
+            unavailableAction={state.state === 'stopped' || engine ? power : undefined} />
         </div>
       ) : tab === 'log' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
           {notices}
           <LogPane kind="machine" name={m.name} label={t('workerLogOf', { name })}
-            unavailable={state.state === 'stopped' ? { message: t('logMachineStopped'), action: block ? undefined : <PowerButton m={m} pending={pending} run={run} /> } : null} />
+            unavailable={state.state === 'stopped' ? { message: t('logMachineStopped'), action: power } : null} />
         </div>
       ) : tab !== 'overview' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
@@ -171,11 +175,11 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
           <PageHead
             icon={<MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={22} />}
             title={name}
-            badge={<MachineStateChip m={m} live={live} pending={pending} blocked={!!block} />}
+            badge={<MachineStateChip m={m} live={live} pending={pending} blocked={engine ? 'engine' : !!block} />}
             intro={`${kind(m.platform)} · ${tw(runtimeOf(m))}`}
             actions={(
               <>
-                {!block && <PowerButton m={m} pending={pending} run={run} />}
+                {power}
                 <MachineMenu m={m} pending={pending} run={run} onDialog={setDialog} />
               </>
             )}

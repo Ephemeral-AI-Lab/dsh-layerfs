@@ -731,6 +731,8 @@ export function mergeStage(stages: StartupStage[], progress: { stage?: unknown, 
 
 const STAGE: Record<string, MachinesKey> = {
   'bundle-validation': 'stageBundle',
+  // the host launches the Docker Engine before a docker machine's start (host docker-engine.ts)
+  'docker-engine': 'stageDockerEngine',
   'sandbox-image': 'stageImage',
   'worker-compatibility': 'stageWorker',
 }

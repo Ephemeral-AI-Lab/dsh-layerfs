@@ -29,6 +29,7 @@ import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type Mac
 import { Answer, cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
+import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
 /** Platforms LayerFS has that are turned off here: not offered, not created or connected. */
@@ -703,7 +704,44 @@ export class Machines {
   /** machine.start(name): a stopped machine and its worker, waited for; native and a running one answer at once. */
   async start(name: string) {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to start')
-    try { return await this.lfs.machine.start(name, { on_progress: this.progress(name, 'start') }) } finally { this.metrics.relist() }
+    const report = this.progress(name, 'start')
+    await this.engineFirst(name, report)
+    try { return await this.lfs.machine.start(name, { on_progress: report }) } finally { this.metrics.relist() }
+  }
+
+  /** The Docker Engine launch in flight, shared by concurrent starts. */
+  private engine: Promise<unknown> | null = null
+  /** What the Engine launch reaches outside (fakes in tests). */
+  engineDeps: () => EngineDeps = realEngineDeps
+
+  /**
+   * A docker machine on macOS whose platform is not ready only because the
+   * Docker Engine does not answer at its socket: launch the Engine and wait
+   * for it (docker-engine.ts), then read the platforms anew. Any other machine,
+   * OS or missing need goes straight to machine.start, which refuses as before.
+   */
+  private async engineFirst(name: string, report: (progress: any) => void): Promise<void> {
+    const socket = await this.engineSocketOf(name)
+    if (!socket) return
+    this.engine ??= startEngine(socket, this.engineDeps(), report).finally(() => {
+      this.engine = null
+      // the platform row said the socket did not answer: probe it again now, and the page reads anew
+      this.platformAnswer = null
+      this.changed()
+    })
+    await this.engine
+  }
+
+  /** The socket whose Engine must be started before `name` can start, or null; a read that fails is null (machine.start answers as before). */
+  private async engineSocketOf(name: string): Promise<string | null> {
+    try {
+      const known = Array.isArray(this.lastView?.machines) ? this.lastView.machines.find((m: any) => m.name === name) : undefined
+      const platform = known?.platform ?? list((await this.lfs.machine.list()).machines).find((m: any) => m?.name === name)?.platform
+      if (platform !== 'docker') return null
+      const view = await this.platforms()
+      if (computer(view.host).os !== 'macos') return null
+      return engineSocket(view.platforms.find((p) => p.platform === 'docker'))
+    } catch { return null }
   }
 
   /** Startup phases as `machine-progress` events (the Machines page shows them live). */

@@ -42,10 +42,14 @@ export function useMachineRun(): { run: Run, pending: string | null, error: unkn
 }
 
 /** The machine's state as the SDK gives it, or `Starting…` while a start runs here. */
-/** `blocked`: its platform is not ready here (needs.ts blockOf), so it cannot run whatever its record says. */
-export function MachineStateChip({ m, live, pending, blocked }: { m: MachineInfo, live?: MachineLive | undefined, pending: string | null, blocked?: boolean | undefined }): ReactNode {
+/**
+ * `blocked`: its platform is not ready here (needs.ts blockOf), so it cannot run whatever its record says;
+ * `'engine'` when only the Docker Engine is not running, which Start launches (needs.ts engineStart).
+ */
+export function MachineStateChip({ m, live, pending, blocked }: { m: MachineInfo, live?: MachineLive | undefined, pending: string | null, blocked?: boolean | 'engine' | undefined }): ReactNode {
   const { t, stateWord } = useMachinesContext()
   if (pending === 'start') return <StateChip tone="warning" live label={t(m.platform === 'docker' ? 'startingWorker' : 'starting')} />
+  if (blocked === 'engine') return <StateChip tone="neutral" dashed label={t('stateEngineDown')} />
   if (blocked) return <StateChip tone="warning" label={t('stateUnavailable')} />
   const look = machineState(m, live)
   const op = opWords(look.op)
@@ -55,21 +59,23 @@ export function MachineStateChip({ m, live, pending, blocked }: { m: MachineInfo
   )
 }
 
-/** The power words for a machine. */
-function powerKey(m: MachineInfo, power: 'start' | 'stop') {
+/** The power words for a machine; `engine`: its Start launches the Docker Engine first. */
+function powerKey(m: MachineInfo, power: 'start' | 'stop', engine = false) {
+  if (engine && power === 'start') return 'startEngine'
   return m.platform === 'docker' ? (power === 'stop' ? 'stopWorker' : 'startWorker') : (power === 'stop' ? 'stop' : 'start')
 }
 
 /** Start or Stop, when the machine is non-native and running or stopped. */
 /** `compact`: an icon button (the board's rows) while nothing runs; the words come back for a start, a stop or a worker to restart. */
-export function PowerButton({ m, pending, run, size = 'sm', compact }: { m: MachineInfo, pending: string | null, run: Run, size?: 'sm' | 'md', compact?: boolean }): ReactNode {
+/** `engine`: the Docker Engine is not running and this Start launches it first (needs.ts engineStart). */
+export function PowerButton({ m, pending, run, size = 'sm', compact, engine = false }: { m: MachineInfo, pending: string | null, run: Run, size?: 'sm' | 'md', compact?: boolean, engine?: boolean }): ReactNode {
   const { t, useMachines } = useMachinesContext()
   const live = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.status[m.name] : undefined))
-  const power = powerOf(m)
+  const power = engine ? 'start' : powerOf(m)
   const elapsed = useElapsed(pending === 'stop')
   if (!power) return null
   // a worker that does not answer: Start brings it back (Stop is in the menu)
-  if (workerDown(m, live)) {
+  if (!engine && workerDown(m, live)) {
     return (
       <Button size={size} variant="primary" disabled={pending !== null} icon={<PowerGlyph size={14} />} title={t('restartWorkerTitle', { name: m.name })}
         onClick={(e) => { e.stopPropagation(); void run('start', { kind: 'start', name: m.name, platform: m.platform }) }}>
@@ -78,18 +84,18 @@ export function PowerButton({ m, pending, run, size = 'sm', compact }: { m: Mach
     )
   }
   if (compact && pending === null) {
-    const words = t(powerKey(m, power))
+    const words = t(powerKey(m, power, engine))
     return (
       <Button size={size} variant="ghost" icon={<PowerGlyph size={14} />} aria-label={words}
-        title={`${words} · ${t(power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}`}
+        title={`${words} · ${t(engine ? 'engineStartTitle' : power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}`}
         onClick={(e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }} />
     )
   }
   return (
     <Button size={size} variant={power === 'stop' ? 'outline' : 'primary'} disabled={pending !== null} icon={<PowerGlyph size={14} />}
-      title={t(power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}
+      title={t(engine ? 'engineStartTitle' : power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}
       onClick={(e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }}>
-      {pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t(powerKey(m, power))}
+      {pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t(powerKey(m, power, engine))}
     </Button>
   )
 }

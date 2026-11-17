@@ -128,6 +128,16 @@ export function machineBlock(m: Pick<MachineInfo, 'platform'>, view: Pick<Availa
   return blockOf(view.platforms, m.platform, osOfView(view), view.layerfs)
 }
 
+/**
+ * Whether Start clears `block` by itself: a docker machine on macOS whose
+ * every need is the Docker Engine not answering (the `start` step). The host
+ * launches Docker Desktop, OrbStack or colima first, then starts the machine
+ * (host docker-engine.ts); anything else keeps Start hidden.
+ */
+export function engineStart(m: Pick<MachineInfo, 'platform'>, block: Readiness | null, os: HostOs): boolean {
+  return !!block && m.platform === 'docker' && os === 'macos' && block.fixes.length > 0 && block.fixes.every((f) => f.step === 'start')
+}
+
 /** The reasons of a readiness's own step, joined (its hardest needs). */
 export const stepReasons = (r: Readiness, tw: (words: Words) => string): string => r.fixes.filter((f) => f.step === r.step).map((f) => tw(f.why)).join(' · ')
 
