@@ -95,7 +95,7 @@ export function StoreSub({ store: s, t, now, onMachine }: { store: StoreRow, t: 
       {!pg ? (
         <>
           <span className={css.dotSep} aria-hidden="true">·</span>
-          <span title={s.size ? `${bytes(s.size.file)} + WAL ${bytes(s.size.wal)}` : undefined}>{s.size ? bytes(s.size.bytes) : t('sizeUnavailable')}</span>
+          <span title={s.size ? `${bytes(s.size.file)} + WAL ${bytes(s.size.wal)}` : undefined}>{s.size ? (s.size.stale && s.size.seen ? `${bytes(s.size.bytes)} (${t('msSizeSeen', { when: ago(s.size.seen, now, t as Translate) })})` : bytes(s.size.bytes)) : t('sizeUnavailable')}</span>
           <span className={css.dotSep} aria-hidden="true">·</span>
           <span>{!s.links.length ? t('noBackup') : [s.links.length === 1 ? t('backupOne') : t('backups', { n: s.links.length }), latest !== null && ago(latest, now, t as Translate)].filter(Boolean).join(' · ')}</span>
         </>

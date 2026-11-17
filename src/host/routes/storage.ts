@@ -46,6 +46,7 @@ import { JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob 
 import { computer } from './computer.ts'
 import { cliFeatures, refuse, wire, type RouteHost } from './util.ts'
 import { leftoverOf, walksOf } from './observed.ts'
+import { StoreSizes } from './store-sizes.ts'
 
 /** Finished jobs kept in the table. */
 const KEEP_JOBS = 30
@@ -240,6 +241,8 @@ export class Storage {
   private generation = 0
   /** What this host knew of a Store on another machine when it backed it up (see backup-heads.ts). */
   readonly marks: BackupMarks
+  /** The last size each Store was read at: a Store on a machine that does not answer shows it (store-sizes.ts). */
+  readonly sizes: StoreSizes
   readonly reconciled: Promise<void>
   private readonly doctorCall: () => Promise<any>
 
@@ -259,6 +262,7 @@ export class Storage {
       chmodSync(dir, 0o700)
     }
     this.marks = new BackupMarks(host.stats)
+    this.sizes = new StoreSizes(host.stats)
     this.jobStore = new JobStore(host.jobs)
     this.jobs = this.jobStore.jobs
     this.reconciled = Promise.resolve().then(async () => {
@@ -350,6 +354,9 @@ export class Storage {
     const statuses = await Promise.all(items.map((s) => this.lfs.store.status(s.name).catch((error: any) => (this.log(`[storage] store.status ${s.name}: ${error?.message ?? error}`), null))))
     const jobs = this.jobList()
     const stores = items.map((s, i) => storeRow(s, statuses[i], jobs, this.attachErrors, this.host.secrets))
+    // a Store whose machine does not answer keeps its last read size, marked stale
+    const sizes = this.sizes.answer(stores.filter((s) => s.kind === 'sqlite'))
+    stores.filter((s) => s.kind === 'sqlite').forEach((s, i) => { s.size = sizes[i] ?? null })
     const names = new Set([...this.knownBuckets(), ...stores.flatMap((s) => s.links.map((l) => l.bucket))])
     const records = this.bucketRecords()
     const buckets = [...names].sort().map((name) => {

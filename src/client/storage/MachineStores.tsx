@@ -278,10 +278,11 @@ function Head({ s, on, t, machine, onOpenStore }: { s: StoreRow, on: StoreAction
 }
 
 /** The card's figure and the small words beside it (where the file is, last write; or the server). */
-function Figure({ big, meta, title }: { big: ReactNode, meta: ReactNode, title?: string | undefined }): ReactNode {
+/** `tone`: `stale` a last-seen figure, `none` no figure (said in words, small). */
+function Figure({ big, meta, title, tone }: { big: ReactNode, meta: ReactNode, title?: string | undefined, tone?: 'stale' | 'none' | undefined }): ReactNode {
   return (
     <div className={css.figure} title={title}>
-      <span className={css.big}>{big}</span>
+      <span className={css.big} data-tone={tone}>{big}</span>
       {meta ? <span className={css.meta}>{meta}</span> : null}
     </div>
   )
@@ -421,6 +422,18 @@ function FootActions({ main, rest, label }: { main: Act, rest: Act[], label: str
   )
 }
 
+/** A sqlite Store's size: as read now, else the last size read (its machine did not answer), else "Size unknown". */
+function SizeFigure({ s, t, now, last }: { s: StoreRow, t: StorageT, now: number, last: string | null }): ReactNode {
+  const size = s.size
+  const seen = size?.stale && size.seen ? ago(size.seen, now, t as Translate) : null
+  const words = [seen ? t('msSizeSeen', { when: seen }) : null, last ? t('msLastWrite', { when: last }) : null].filter(Boolean).join(' · ')
+  const meta = words ? <span className={css.metaText}>{words}</span> : null
+  if (!size) return <Figure big={t('msSizeUnknown')} tone="none" title={s.down ?? undefined} meta={meta} />
+  const parts = `${bytes(size.file)} + WAL ${bytes(size.wal)}`
+  return <Figure big={bytes(size.bytes)} tone={size.stale ? 'stale' : undefined} meta={meta}
+    title={size.stale ? t('msSizeStaleTitle', { parts, when: seen ?? '?' }) : parts} />
+}
+
 function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, onOpenStore, onOpenProject, onBackups }: CardProps & { s: StoreRow }): ReactNode {
   const on = actionsFor(s)
   const job = cardJob(jobs, s.name, dismissed, now)
@@ -438,8 +451,7 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">
       <Head s={s} on={on} t={t} onOpenStore={onOpenStore} />
-      <Figure big={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} title={s.size ? `${bytes(s.size.file)} + WAL ${bytes(s.size.wal)}` : undefined}
-        meta={last ? <span className={css.metaText}>{t('msLastWrite', { when: last })}</span> : null} />
+      <SizeFigure s={s} t={t} now={now} last={last} />
       {machine === null ? <MachineLine s={s} view={view} t={t} on={on} onOpenStore={onOpenStore} /> : null}
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />
       <div className={css.foot}>

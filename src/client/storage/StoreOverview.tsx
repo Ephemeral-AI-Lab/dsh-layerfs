@@ -54,7 +54,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           <Tile label={t('spServer')} value={s.postgresql?.reachable == null ? t('unknown') : s.postgresql.reachable ? t('spReachable') : t('spUnreachable')}
             tone={s.postgresql?.reachable === false ? 'danger' : undefined} sub={s.postgresql?.version ? t('spVersion', { version: s.postgresql.version }) : undefined} />
         ) : (
-          <Tile label={t('spDatabaseFile')} value={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} sub={s.size ? t('spWalPart', { wal: bytes(s.size.wal) }) : undefined} />
+          <Tile label={t('spDatabaseFile')} value={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} sub={s.size ? (s.size.stale && s.size.seen ? t('msSizeSeen', { when: ago(s.size.seen, now, tt) }) : t('spWalPart', { wal: bytes(s.size.wal) })) : undefined} />
         )}
         <Tile label={t('tabProjects')} value={String(s.projects.length)} onOpen={() => onTab('projects')}
           sub={commits ? (commits.refused && !commits.commits ? t('spCommitsUnread') : t(commits.complete || commits.refused ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() })) : undefined} />

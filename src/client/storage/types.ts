@@ -36,7 +36,8 @@ export interface StoreRow {
   machine: string | null
   projects: string[]
   created: number | null
-  size: { bytes: number, file: number, wal: number } | null
+  /** The file's size; `stale` with `seen` when the machine did not answer and this is the last size read. */
+  size: { bytes: number, file: number, wal: number, seen?: number, stale?: true } | null
   state: string
   op?: SdkOperation | null
   refusal?: SdkRefusal | null

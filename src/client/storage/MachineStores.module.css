@@ -195,11 +195,19 @@
 .big {
   flex: none;
   color: var(--dsw-alias-label-primary);
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  line-height: 24px;
+  line-height: 20px;
   white-space: nowrap;
+}
+.big[data-tone='stale'] {
+  color: var(--dsw-alias-label-secondary);
+}
+.big[data-tone='none'] {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  font-weight: 400;
 }
 .meta {
   display: inline-flex;
