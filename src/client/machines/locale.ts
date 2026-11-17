@@ -162,6 +162,9 @@ const en = {
   forceStopAction: 'Force stop',
   forceStopping: 'Force stopping…',
   startWorker: 'Start worker',
+  startEngine: 'Start Docker and worker',
+  engineStartTitle: 'Docker is not running: Start opens it, waits for the Docker Engine, then starts {name}’s worker.',
+  engineStartHint: 'Start opens Docker and waits for its Engine before starting the worker.',
   stopWorker: 'Stop worker',
   starting: 'Starting…',
   startingWorker: 'Starting worker…',
@@ -213,6 +216,7 @@ const en = {
   stepsOne: '1 step completed',
   stepsMany: '{n} steps completed',
   stageBundle: 'Checking runtime compatibility',
+  stageDockerEngine: 'Starting the Docker Engine',
   stageImage: 'Preparing sandbox image',
   stageWorker: 'Verifying worker connection',
   stageDockerWorker: 'Starting LayerFS worker',
@@ -705,6 +709,7 @@ const en = {
   noneHereOtherBody: 'LayerFS runs projects on macOS and Linux.',
   wslGuide: 'WSL install guide',
   stateUnavailable: 'Unavailable',
+  stateEngineDown: 'Docker not running',
   unavailableWhy: '{kind} can’t run here now: {reason}',
 
   // tabs inside a machine page and a Sandbox page; the log pane (LogPane.tsx)
@@ -1225,6 +1230,9 @@ const zh: typeof en = {
   forceStopAction: '强制停止',
   forceStopping: '正在强制停止…',
   startWorker: '启动 worker',
+  startEngine: '启动 Docker 和 worker',
+  engineStartTitle: 'Docker 未运行：启动会先打开 Docker、等待 Docker 引擎就绪，再启动 {name} 的 worker。',
+  engineStartHint: '启动会先打开 Docker，等待其引擎就绪后再启动 worker。',
   stopWorker: '停止 worker',
   starting: '正在启动…',
   startingWorker: '正在启动 worker…',
@@ -1274,6 +1282,7 @@ const zh: typeof en = {
   stepsOne: '已完成 1 步',
   stepsMany: '已完成 {n} 步',
   stageBundle: '检查运行时兼容性',
+  stageDockerEngine: '启动 Docker 引擎',
   stageImage: '准备 Sandbox 镜像',
   stageWorker: '验证 worker 连接',
   stageDockerWorker: '启动 LayerFS worker',
@@ -1757,6 +1766,7 @@ const zh: typeof en = {
   noneHereOtherBody: 'LayerFS 在 macOS 和 Linux 上运行项目。',
   wslGuide: 'WSL 安装指南',
   stateUnavailable: '不可用',
+  stateEngineDown: 'Docker 未运行',
   unavailableWhy: '{kind} 现在无法在此运行：{reason}',
 
   // tabs inside a machine page and a Sandbox page; the log pane (LogPane.tsx)

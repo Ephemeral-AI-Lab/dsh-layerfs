@@ -37,8 +37,11 @@ export function FixPanel({ fixes, className }: { fixes: Fix[], className?: strin
   )
 }
 
-/** Why `m` cannot run now (its platform is not ready here) and the step that fixes it. */
-export function Blocked({ m, block }: { m: MachineInfo, block: Readiness }): ReactNode {
+/**
+ * Why `m` cannot run now (its platform is not ready here) and the step that fixes it.
+ * `action`: a control that fixes it by itself (Start that launches the Docker Engine first), shown in place of the step's how-to.
+ */
+export function Blocked({ m, block, action }: { m: MachineInfo, block: Readiness, action?: ReactNode }): ReactNode {
   const { t, tw, kind } = useMachinesContext()
   const [open, setOpen] = useState(false)
   const step = block.step === 'ready' || block.step === 'unsupported' ? null : STEP_WORDS[block.step]
@@ -47,7 +50,8 @@ export function Blocked({ m, block }: { m: MachineInfo, block: Readiness }): Rea
     <div className={css.blocked} data-step={block.step}>
       <div className={css.blockedLine}>
         <span className={css.blockReasonText} title={reason}>{t('unavailableWhy', { kind: kind(m.platform), reason })}</span>
-        {step && (
+        {action}
+        {step && !action && (
           <Button size="sm" variant="outline" aria-expanded={open} onClick={() => setOpen(!open)}>
             {t(step.button)}<IconChevronDownOutlineRegular size={12} className={open ? css.flip : undefined} />
           </Button>
