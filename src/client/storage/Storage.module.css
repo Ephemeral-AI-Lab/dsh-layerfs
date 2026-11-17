@@ -561,6 +561,21 @@
   gap: 8px;
 }
 
+/* the password row: the input beside the how-toggle, which wraps under it
+   when the two do not fit */
+.passwordRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.passwordInput {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(var(--tile-count, 2), minmax(0, 1fr));

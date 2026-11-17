@@ -1,7 +1,9 @@
 /**
  * The PostgreSQL password field Storage's dialogs share: typed (the host
  * writes it to an owner-only file), a reference, or (`same`, a Store on the
- * same server) that Store's. One row: the input beside the how-toggle.
+ * same server) that Store's. One row: the input beside the how-toggle,
+ * which drops under the input when the row is too narrow for both. The
+ * toggle's segments are equally wide, so no label carries a Store's name.
  */
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -33,21 +35,19 @@ export function usePgPassword(initial: 'entered' | 'reference' = 'entered', refe
 }
 
 export function PgPasswordFields({ id, pw, t }: { id: string, pw: ReturnType<typeof usePgPassword>, t: StorageT }): ReactNode {
-  const hint = pw.how === 'same' ? undefined : pw.how === 'entered' ? t('pgPasswordNote') : t('pgEnvHint')
+  const hint = pw.how === 'same' ? t('pgPasswordSameNote', { store: pw.same ?? '' }) : pw.how === 'entered' ? t('pgPasswordNote') : t('pgEnvHint')
   return (
     <Field label={t('pgPasswordHow')} hint={hint} error={pw.error(t)}>
-      <div className={css.inline}>
-        {pw.how === 'same' ? (
-          <span className={clsx(css.grow, css.formNote)}>{t('pgPasswordSameNote', { store: pw.same ?? '' })}</span>
-        ) : pw.how === 'entered' ? (
-          <Input key="entered" className={clsx(css.monoInput, css.grow)} value={pw.value} onChange={(e) => pw.setValue(e.target.value)} type="password" autoComplete="off" spellCheck={false} />
+      <div className={css.passwordRow}>
+        {pw.how === 'same' ? null : pw.how === 'entered' ? (
+          <Input key="entered" className={clsx(css.monoInput, css.passwordInput)} value={pw.value} onChange={(e) => pw.setValue(e.target.value)} type="password" autoComplete="off" spellCheck={false} />
         ) : (
-          <Input key="reference" className={clsx(css.monoInput, css.grow)} value={pw.ref} onChange={(e) => pw.setRef(e.target.value)} placeholder="env:LAYERFS_PG_PASSWORD"
+          <Input key="reference" className={clsx(css.monoInput, css.passwordInput)} value={pw.ref} onChange={(e) => pw.setRef(e.target.value)} placeholder="env:LAYERFS_PG_PASSWORD"
             aria-label={t('pgPasswordReferenceLabel')} autoComplete="off" spellCheck={false} />
         )}
         <SegmentedControl<How> id={id} className={css.noShrink} value={pw.how} onChange={pw.setHow} label={t('pgPasswordHow')}
           options={[
-            ...(pw.same ? [{ value: 'same' as const, label: t('pgPasswordSame', { store: pw.same }) }] : []),
+            ...(pw.same ? [{ value: 'same' as const, label: t('pgPasswordSame') }] : []),
             { value: 'entered' as const, label: t('pgPasswordEntered') }, { value: 'reference' as const, label: t('pgPasswordReference') },
           ]} />
       </div>
