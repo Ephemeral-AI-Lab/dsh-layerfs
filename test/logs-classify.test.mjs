@@ -11,13 +11,13 @@ import { join } from 'node:path'
 
 /** Calls of the pinned CLI that change state (or may: `workspace.exec` runs a command). */
 const WRITES = new Set([
-  'project.init', 'project.export', 'project.remove',
-  'branch.fork', 'branch.merge', 'branch.publish',
+  'project.init', 'project.export', 'project.remove', 'project.delete', 'project.remove_file',
+  'branch.fork', 'branch.merge', 'branch.publish', 'branch.remove',
   'file.write', 'file.edit', 'file.rm', 'file.mkdir', 'file.mv', 'file.cp', 'file.apply',
   'sandbox.create', 'sandbox.close',
   'workspace.mount', 'workspace.exec', 'workspace.exec_cancel', 'workspace.commit', 'workspace.unmount',
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load', 'machine.prune',
-  'store.create', 'store.connect', 'store.update', 'store.push', 'store.pull', 'store.remove', 'store.disconnect',
+  'store.create', 'store.connect', 'store.update', 'store.push', 'store.pull', 'store.remove', 'store.compact', 'store.disconnect',
   'backup.connect', 'backup.disconnect', 'backup.create', 'backup.restore',
   'doctor.fix',
 ])

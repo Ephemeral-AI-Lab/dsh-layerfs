@@ -36,7 +36,7 @@ LAYERFS_HOME  (default ~/.layerfs)       LayerFS's
     bucket-<name>.key
     pg-<store>--<random>.pw  pg-<store>--<machine>--<random>.pw
   job/                                   (0700) storage jobs about this home (§5)
-    storage-jobs.json                    push, pull, move, backup and restore jobs
+    storage-jobs.json                    push, pull, move, backup, restore and compact jobs
     doctor-jobs.json                     home check reports
   stat/                                  (0700) storage statistics about this home (§5)
     storage-observations/                Store statistics journals

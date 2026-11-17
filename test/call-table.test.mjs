@@ -236,6 +236,8 @@ const GATED = [
   // `featuresOf(...).leftovers` reads the call table for it, checked below
   // the home family (layerfs-setup.md §3): the setup check uses home.get / home.init only when the call table has both (else one machine.list)
   { site: /^home\.(get|init)$/, file: 'src/host/service.ts', gate: /this\.homeCalls\(\)/, lines: 8 },
+  // GC (layerfs-project#41): the route refuses `Unsupported` when the call table has no store.compact, and the view hides the menu row
+  { site: /^store\.compact$/, file: 'src/host/routes/storage.ts', gate: /const call = await this\.compactCall\(\)\n\s+if \(!call\) throw refuse\(409, 'Unsupported'/, lines: 6 },
   // the preset Reset's force-close refuses up front (preflight) when machine.stop lacks the bool force option
   { site: /^machine\.stop --force$/, file: 'src/host/presets/machine-stop.js', gate: /option\.name === 'force' && option\.kind === 'bool'/, lines: 45 },
 ]

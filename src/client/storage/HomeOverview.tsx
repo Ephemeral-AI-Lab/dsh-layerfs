@@ -184,7 +184,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     if (!j.error && j.outcome !== 'failed' && j.outcome !== 'interrupted' && j.outcome !== 'unknown') continue
     needs.push({
       key: `job:${j.id}`, tone: 'danger', rank: 0,
-      title: <StoreLink name={j.store} onOpen={props.onOpen}>{endedWords(j, t)}</StoreLink>,
+      title: <StoreLink name={j.store} onOpen={props.onOpen}>{endedWords(j, t, bytes)}</StoreLink>,
       detail: j.error ? <>{j.error.message} · {ago(j.ended, now, t as Translate)}</> : ago(j.ended, now, t as Translate),
       action: { label: t('jobRetry'), run: () => props.onRetry(j) },
       extra: <Button variant="ghost" size="sm" onClick={() => props.onDismiss(j)}>{t('dismiss')}</Button>,

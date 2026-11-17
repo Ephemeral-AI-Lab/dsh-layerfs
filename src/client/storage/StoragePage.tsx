@@ -150,6 +150,8 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     if (j.kind === 'pull') return api.call('POST', `/api/stores/${enc(j.store)}/pull`)
     if (j.kind === 'move') return api.call('POST', `/api/stores/${enc(j.store)}/move`, { machine: j.target })
     if (j.kind === 'backup') return api.call('POST', `/api/stores/${enc(j.store)}/backup`, { bucket: j.target, ...(j.file ? { file: j.file } : {}) })
+    // a new run: it settles what the failed one left before it marks again
+    if (j.kind === 'compact') return api.call('POST', `/api/stores/${enc(j.store)}/compact`)
     return api.call('POST', `/api/buckets/${enc(j.target)}/restore`, { store: j.store, ...(j.file ? { file: j.file } : {}) })
   }
   const openMachine = (name: string) => open(`machine:${name}`)
@@ -162,6 +164,13 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     backup: () => setDialog(view && view.buckets.length === 0 ? { kind: 'bucket', then: { kind: 'backup', store: s, known: [] } } : { kind: 'backup', store: s }),
     backupTo: (l) => act(() => api.call('POST', `/api/stores/${enc(s.name)}/backup`, { bucket: l.bucket, file: l.file })),
     restore: (bucket, file) => setDialog({ kind: 'restore', bucket, file, store: s.name }),
+    // only a runtime that has store.compact gets the menu row
+    ...(view?.compact ? {
+      compact: () => setDialog({
+        kind: 'confirm', title: t('confirmTitleCompact', { name: s.name }), body: t('confirmCompactBody'), action: t('compactAction'), plain: true,
+        run: () => api.call('POST', `/api/stores/${enc(s.name)}/compact`).then((job) => { if (job && typeof job === 'object' && 'id' in job && 'kind' in job) take([job as StorageJob]) }),
+      }),
+    } : {}),
     remove: () => setDialog({
       kind: 'confirm', title: t('confirmTitleRemove', { name: s.name }), body: t('confirmRemoveBody', { n: s.projects.length }), action: t('removeAction'), name: s.name,
       run: () => api.call('DELETE', `/api/stores/${enc(s.name)}?confirm=${enc(s.name)}`).then(() => closeStore(s.name)),

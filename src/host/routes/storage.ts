@@ -27,6 +27,7 @@
  *                     (#537 U5); a push that fails leaves the Store on native
  *   place             the one of push, pull or move that puts a Store on a machine
  *   backup/restore    backup.create / backup.restore as jobs
+ *   compact           store.compact as a job, its phases from on_progress
  *
  * Buckets and PostgreSQL Stores take env:/file: references, which LayerFS
  * resolves; a key or password entered in the panel is written by the host to
@@ -44,7 +45,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync
 import { basename, dirname, join } from 'node:path'
 import { execute } from '../layerfs/cli.ts'
 import { BackupMarks, historyFingerprint, remoteOnly, settleRemote } from './backup-heads.ts'
-import { JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
+import { COMPACT_STEPS, JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
 import { computer } from './computer.ts'
 import { cliFeatures, refuse, wire, type RouteHost } from './util.ts'
 import { leftoverOf, walksOf } from './observed.ts'
@@ -374,6 +375,8 @@ export class Storage {
       stores,
       buckets,
       jobs,
+      // whether the selected runtime has store.compact (older ones do not)
+      compact: (await this.compactCall()) !== null,
       at: Date.now(),
     }
     // a write while this read ran: answer it, but do not keep it for the join
@@ -686,9 +689,9 @@ export class Storage {
    * `run(on_progress, step, on_spawn)` may make more than one call: `step(half)`
    * marks the half a move is in.
    */
-  start(kind: StorageJob['kind'], store: string, target: string, file: string | null | undefined, run: (on_progress: (p: any) => void, step: (half: 'pull' | 'push', from?: string | null) => void, on_spawn: (pid: number) => void) => Promise<unknown>, from: string | null = null) {
+  start(kind: StorageJob['kind'], store: string, target: string, file: string | null | undefined, run: (on_progress: (p: any) => void, step: (half: 'pull' | 'push', from?: string | null) => void, on_spawn: (pid: number) => void) => Promise<unknown>, from: string | null = null, steps?: readonly string[]) {
     if ([...this.jobs.values()].some((j) => j.store === store && !j.ended)) throw refuse(409, 'ConnectBusy', `this host is already running a job on ${store}; wait for it to end`)
-    const job: StorageJob = { id: randomUUID(), kind, store, target, from, file: file ?? null, started: Date.now(), ended: null, half: null, phase: null, phases: [], outcome: null, pid: null, observation: null, summary: null, done: null, total: null, error: null, result: null }
+    const job: StorageJob = { id: randomUUID(), kind, store, target, from, file: file ?? null, started: Date.now(), ended: null, half: null, phase: null, phases: [], outcome: null, pid: null, observation: null, summary: null, done: null, total: null, error: null, result: null, ...(steps ? { steps } : {}) }
     this.jobs.set(job.id, job)
     while (this.jobs.size > KEEP_JOBS) {
       const oldest = [...this.jobs.values()].find((j) => j.ended)
@@ -724,7 +727,8 @@ export class Storage {
         (error: any) => {
           // the SDK's refusal as it came: its code and text, the phase it stopped in, and its detail (entity, op, related)
           job.phase = error?.detail?.phase ?? job.phase
-          job.outcome = failureOutcome(error, job.phase)
+          // a transfer that stops in install or record is unknown; a compaction's refusal says so itself (`Unknown`)
+          job.outcome = failureOutcome(error, kind === 'compact' ? null : job.phase)
           job.error = { transport: error?.transport ?? null, code: error?.code ?? 'Failed', message: error?.message ?? String(error), phase: error?.detail?.phase ?? job.phase, detail: error?.detail ?? null, ...(error?.note ? { note: error.note } : {}) }
           this.log(`[storage] ${kind} ${store}: ${error?.code ?? ''} ${error?.message ?? error}`)
         },
@@ -821,6 +825,28 @@ export class Storage {
     checkName(store, 'A restore')
     checkName(bucket, 'A restore')
     return this.start('restore', store, bucket, file, (on_progress, _step, on_spawn) => this.lfs.backup.restore(store, bucket, file || undefined, { on_progress, on_spawn }))
+  }
+
+  /** The selected runtime's store.compact: null when it has none, and whether it reports phases. */
+  private async compactCall(): Promise<{ progress: boolean } | null> {
+    const found = await this.host.discover().catch(() => null)
+    const entry = found?.calls.find((c) => c.family === 'store' && c.call === 'compact')
+    return entry ? { progress: entry.options.some((o) => o.name === 'on_progress') } : null
+  }
+
+  /**
+   * store.compact(store): rebuild a Store from its live history, where it is
+   * (a sqlite file in the home, or its PostgreSQL server). LayerFS refuses a
+   * sqlite Store on another machine, a Store with mounts, and a busy one; the
+   * job carries that refusal. One attempt: nothing here runs it again.
+   */
+  async compact(store: unknown) {
+    checkName(store, 'A compaction')
+    const call = await this.compactCall()
+    if (!call) throw refuse(409, 'Unsupported', 'The selected LayerFS runtime has no store.compact; choose a newer one in Set up LayerFS')
+    const family = (await this.lfs.store.get(store))?.kind === 'postgresql' ? 'postgresql' : 'sqlite'
+    // a runtime whose store.compact takes no on_progress runs without steps
+    return this.start('compact', store, store, null, (on_progress, _step, on_spawn) => this.lfs.store.compact(store, call.progress ? { on_progress, on_spawn } : { on_spawn }), null, COMPACT_STEPS[family])
   }
 
   async inspect(id: string) {

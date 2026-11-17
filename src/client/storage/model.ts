@@ -6,6 +6,17 @@ import type { StorageT } from './locale.ts'
 /** A sqlite Store saved under the LayerFS home (`native`). */
 export const inHome = (s: StoreRow): boolean => s.kind === 'sqlite' && s.machine === 'native'
 
+/**
+ * Why store.compact cannot start on a Store now, or null. LayerFS compacts a
+ * sqlite Store only where its file is, and the home is the one place this app
+ * runs it; a PostgreSQL Store is compacted on its server.
+ */
+export function compactBlock(s: StoreRow, t: StorageT): string | null {
+  if (s.kind === 'sqlite' && !inHome(s)) return t('compactNeedsHome')
+  if (s.state !== 'idle') return t('compactNeedsIdle')
+  return null
+}
+
 /** project.init goes into a Store on any machine, not while it is down or busy. */
 export const canAddProject = (s: StoreRow): boolean => s.kind === 'postgresql' || (s.state !== 'down' && s.state !== 'busy')
 
@@ -159,6 +170,8 @@ export const STEPS: Record<JobKind, readonly string[]> = {
   move: ['check', 'snapshot', 'send', 'verify', 'install', 'record', 'retire'],
   backup: ['check', 'snapshot', 'send', 'check', 'hash', 'upload'],
   restore: ['check', 'download', 'verify', 'install'],
+  // a sqlite Store's; the host names a PostgreSQL Store's own (`steps`)
+  compact: ['mark', 'build', 'verify', 'install'],
 }
 
 export type StepState = 'done' | 'now' | 'failed' | 'todo'
@@ -166,7 +179,9 @@ export type StepState = 'done' | 'now' | 'failed' | 'todo'
 /** One run of a call's steps with each step's state. */
 export function stepsOf(j: StorageJob): { step: string, state: StepState }[] {
   const seen = j.phases?.filter((p) => p.half === (j.half ?? null)).map((p) => p.phase)
-  const steps = seen?.length ? seen : [...STEPS[j.kind], ...(!STEPS[j.kind].includes(j.phase ?? '') && j.phase ? [j.phase] : [])]
+  // a job that names its steps keeps them in that order from the start, plus any phase it did not name
+  const named = j.steps?.length ? [...j.steps, ...(seen ?? []).filter((p) => !j.steps!.includes(p))] : null
+  const steps = named ?? (seen?.length ? seen : [...STEPS[j.kind], ...(!STEPS[j.kind].includes(j.phase ?? '') && j.phase ? [j.phase] : [])])
   const ok = j.ended !== null && j.error === null
   const at = j.error ? steps.lastIndexOf(j.error.phase ?? '') : j.phase ? steps.lastIndexOf(j.phase) : j.ended ? -1 : 0
   return steps.map((step, i) => ({ step, state: ok || i < at ? 'done' : i === at ? (j.error ? 'failed' : 'now') : 'todo' }))
@@ -196,6 +211,10 @@ export function stepWords(step: string | null, t: StorageT): string {
     case 'upload': return t('stepUpload')
     case 'download': return t('stepDownload')
     case 'hash': return t('stepHash')
+    case 'mark': return t('stepMark')
+    case 'build': return t('stepBuild')
+    case 'swap': return t('stepSwap')
+    case 'cleanup': return t('stepCleanup')
     case null: return t('stepStarting')
     default: return step
   }
@@ -209,15 +228,16 @@ export function doingWords(j: StorageJob, t: StorageT): string {
     case 'move': return t('jobMoving', { place: placeWords(j.target, t) })
     case 'backup': return t('jobBackingUp', { place: j.target })
     case 'restore': return t('jobRestoring', { place: j.file ? `${j.target}/${j.file}` : j.target })
+    case 'compact': return t('jobCompacting', { place: j.store })
   }
 }
 
-/** How a job ended, in words. */
-export function endedWords(j: StorageJob, t: StorageT): string {
+/** How a job ended, in words. `size` writes a byte count (a compaction's freed space); without it the count is left out. */
+export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
   if (j.summary) return j.summary
   if (j.outcome === 'unknown') return t('jobUnknown')
   if (j.outcome === 'interrupted') return t('jobInterrupted')
-  const place = j.kind === 'pull' ? placeWords(j.from, t) : j.kind === 'backup' || j.kind === 'restore' ? j.target : placeWords(j.target, t)
+  const place = j.kind === 'pull' ? placeWords(j.from, t) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target, t)
   if (j.error) return t('jobFailed', { what: kindWords(j.kind, t), place, phase: j.error.phase ?? '—' })
   switch (j.kind) {
     case 'push': return t('jobPushed', { place })
@@ -225,6 +245,12 @@ export function endedWords(j: StorageJob, t: StorageT): string {
     case 'move': return t('jobMoved', { place })
     case 'backup': return t('jobBackedUp', { place })
     case 'restore': return t('jobRestored', { place })
+    case 'compact': {
+      // the report's own words: nothing was worth rebuilding, or what the Store shrank by
+      if (j.result?.path === 'none') return t('jobCompactedNone', { place })
+      const freed = j.result?.physical_shrink
+      return size && typeof freed === 'number' && freed > 0 ? t('jobCompactedFreed', { place, freed: size(freed) }) : t('jobCompacted', { place })
+    }
   }
 }
 
@@ -236,6 +262,7 @@ export function kindWords(kind: JobKind, t: StorageT): string {
     case 'move': return t('kindMove')
     case 'backup': return t('kindBackup')
     case 'restore': return t('kindRestore')
+    case 'compact': return t('kindCompact')
   }
 }
 
