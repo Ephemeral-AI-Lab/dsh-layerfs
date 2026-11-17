@@ -1,7 +1,8 @@
 /**
  * Machines as tiles, shared by the project dialog and Storage's New Store:
  * one tile per machine (its mark, name, state, a badge), and the Location
- * picker a SQLite Store is placed with. `native` is shown as the LayerFS Home.
+ * picker: where a SQLite Store is placed, or where a PostgreSQL Store's
+ * sessions run. `native` is shown as the LayerFS Home.
  * A machine whose platform is not ready here (`blocks`, model.ts tileBlocks)
  * shows so and cannot be picked, except a docker machine whose Docker Engine
  * its Start launches (Create starts it).
@@ -101,9 +102,9 @@ export function MachineTile({ m, label, selected, multi, note, badge, onSelect, 
 }
 
 /**
- * Where a SQLite Store lives: one machine, the LayerFS Home among them.
- * `current` marks the Store's machine (Here now); without it `fallback` is
- * marked Default. `children` follow the tiles (a New machine tile).
+ * One machine, the LayerFS Home among them: where a SQLite Store lives, or
+ * where a PostgreSQL Store's sessions run. `current` marks the Store's
+ * machine (Here now); without it `fallback` is marked Default. `children` follow the tiles (a New machine tile).
  */
 export function LocationPicker({ machines, value, onChange, words, label, current, fallback, disabled, compact, blocks = NO_BLOCKS, children }: {
   machines: readonly Machine[], value: string, onChange: (machine: string) => void, words: LocationWords, label: string
@@ -120,26 +121,6 @@ export function LocationPicker({ machines, value, onChange, words, label, curren
         disabled={disabled || (!!block && !block.startable && value !== m.name)} blocked={!!block}
         note={machineNote(m, words, block)} badge={badge} compact={compact} onSelect={() => onChange(m.name)} />
     })}
-    {children}
-  </div>
-}
-
-/**
- * The machines a PostgreSQL Store is attached to: any number, none included.
- * `fallback` is marked Default; `notes` overrides a tile's note (Attached…).
- */
-export function AttachPicker({ machines, value, onChange, words, label, fallback, disabled, notes, compact, blocks = NO_BLOCKS, children }: {
-  machines: readonly Machine[], value: readonly string[], onChange: (machines: string[]) => void, words: LocationWords, label: string
-  fallback?: string | undefined, disabled?: boolean | undefined, notes?: Record<string, string> | undefined, compact?: boolean | undefined
-  /** Machines that cannot run here now (model.ts tileBlocks). */
-  blocks?: ReadonlyMap<string, TileBlock> | undefined
-  children?: ReactNode
-}): ReactNode {
-  return <div className={clsx(css.machines, compact && css.machinesCompact)} role="group" aria-label={label}>
-    {machines.map((m) => <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi selected={value.includes(m.name)}
-      disabled={disabled || (!!blocks.get(m.name) && !blocks.get(m.name)!.startable && !value.includes(m.name))} blocked={blocks.has(m.name)}
-      note={notes?.[m.name] ?? machineNote(m, words, blocks.get(m.name))} badge={m.name === fallback ? words.default : null} compact={compact}
-      onSelect={() => onChange(value.includes(m.name) ? value.filter((x) => x !== m.name) : [...value, m.name])} />)}
     {children}
   </div>
 }

@@ -122,10 +122,7 @@ export function PresetTopology({ preset, t, onCommands }: { preset: DemoPreset, 
               <span className={css.rowIcon} aria-hidden="true"><MachinesGlyph size={14} /></span>
               <span className={css.groupName}>{machineLabel(machine)}</span>
               <span className={css.groupSub}>{machineSub(machine)}</span>
-              <span className={css.groupStore}>{stores.map((g) => [
-                t(g.kind === 'postgresql' ? 'pgStoreLabel' : 'storeLabel', { store: g.store }),
-                ...(g.attach?.length ? [t('pgAlsoAttached', { machines: g.attach.map(machineLabel).join(', ') })] : []),
-              ].join(' · ')).join(' · ')}</span>
+              <span className={css.groupStore}>{stores.map((g) => t(g.kind === 'postgresql' ? 'pgStoreLabel' : 'storeLabel', { store: g.store })).join(' · ')}</span>
             </div>
             <ul className={css.tree}>
               {stores.flatMap((g) => g.projects.map((p) => (

@@ -12,10 +12,12 @@
  *   connectPostgresql store.connect(name, url, { password, synchronous_commit }):
  *                     the URL holds no password; `password` is a reference, or
  *                     `passwordValue`, written to an owner-only file
- *   attachStore       store.attach(name, machine, { url, password }): the
- *                     machine's own connection or the Store's, checked from
- *                     that machine; a refusal is kept for the view
- *   detachStore       store.detach(name, machine)
+ *   updateStore       store.update(name, { machine, url, password,
+ *                     synchronous_commit, clear }): the Store's connection, or
+ *                     one machine's own (checked from that machine first)
+ *   checkStore        store.status(name, { machine }): the check from a machine
+ *   setRunsOn         the machine a PostgreSQL Store's sessions run on by
+ *                     default: this install's choice (store-machines.ts)
  *   disconnectStore   store.disconnect(name): a PostgreSQL Store
  *   connectBucket     backup.connect(name, url, { key, region }): `key` is a
  *                     reference (env:LAYERFS_… or file:/absolute/path)
@@ -47,11 +49,14 @@ import { computer } from './computer.ts'
 import { cliFeatures, refuse, wire, type RouteHost } from './util.ts'
 import { leftoverOf, walksOf } from './observed.ts'
 import { StoreSizes } from './store-sizes.ts'
+import { pgMachineOf, StoreMachines, type PgMachine } from '../store-machines.ts'
 
 /** Finished jobs kept in the table. */
 const KEEP_JOBS = 30
 /** A project list joins a view this recent instead of reading one. */
 const JOIN_MS = 15_000
+/** The most a check from a machine may take. */
+const CHECK_TIMEOUT_MS = 30_000
 
 /** A reference LayerFS resolves: env:LAYERFS_… or file:/absolute/path. */
 const REFERENCE = /^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/
@@ -117,7 +122,8 @@ export function pgWhere(url: unknown): { server: string, database: string | null
 }
 
 /** A PostgreSQL Store's server: its record's URL (no password) and what store.status's `server` answered. */
-function pgServer(s: any, server: any) {
+function pgServer(s: any, server: any, secrets?: string) {
+  const saved = savedFile(s.password, secrets, 'pg-')
   const reached = typeof server?.reachable === 'boolean' ? server.reachable : null
   const where = pgWhere(s.url)
   return {
@@ -131,10 +137,12 @@ function pgServer(s: any, server: any) {
     version: reached ? (server.server_version ?? null) : null,
     latencyMs: reached ? (server.latency_ms ?? null) : null,
     error: server?.unavailable ?? server?.error?.message ?? null,
+    // the password's reference (never a secret); `saved` when it names a file this host wrote
+    password: typeof s.password === 'string' && !saved ? s.password : null,
+    saved,
+    synchronousCommit: typeof s.synchronous_commit === 'string' ? s.synchronous_commit : null,
   }
 }
-
-type AttachError = { code: string, message: string, at: number }
 
 /** Whether `reference` is `file:` naming a file the host wrote: `<secrets>/<prefix>…`. */
 function savedFile(reference: unknown, secrets: string | undefined, prefix: string): boolean {
@@ -144,26 +152,19 @@ function savedFile(reference: unknown, secrets: string | undefined, prefix: stri
 }
 
 /**
- * A PostgreSQL Store's machines (`store.attach`): `{ machine, own, target,
- * checked, lastError }`, `own` when the machine dials its own URL or
- * password. Null from a CLI before attachments (no `machines` field).
+ * The machines that dial a PostgreSQL Store with a connection of their own
+ * (`store.update --machine`): `{ machine, url, target, password, saved }`.
+ * Every other machine dials the Store's connection and is not listed.
  */
-export function attachmentsOf(s: any, errors: Map<string, AttachError> = new Map(), secrets?: string) {
-  if (s.kind !== 'postgresql' || !s.machines || typeof s.machines !== 'object') return null
-  return Object.entries(s.machines).map(([machine, a]: [string, any]) => {
-    const checked = a?.checked && typeof a.checked === 'object' ? a.checked : null
-    return {
-      machine,
-      own: typeof a?.url === 'string' || typeof a?.password === 'string',
-      // the machine's own URL (LayerFS keeps no password in it), or null (the Store's)
-      url: typeof a?.url === 'string' ? a.url : null,
-      target: typeof a?.url === 'string' ? pgTarget(a.url) : (typeof s.url === 'string' ? pgTarget(s.url) : null),
-      // a reference (never a secret); `saved` when it names a file this host wrote
-      password: typeof a?.password === 'string' ? a.password : null,
-      saved: savedFile(a?.password, secrets, 'pg-'),
-      checked: checked ? { at: checked.at ?? null, version: checked.server_version ?? null, latencyMs: checked.latency_ms ?? null } : null,
-      lastError: errors.get(`${s.name}/${machine}`) ?? null,
-    }
+export function ownConnectionsOf(s: any, secrets?: string) {
+  if (s.kind !== 'postgresql' || !s.machines || typeof s.machines !== 'object') return []
+  return Object.entries(s.machines).flatMap(([machine, a]: [string, any]) => {
+    const url = typeof a?.url === 'string' ? a.url : null
+    const password = typeof a?.password === 'string' ? a.password : null
+    if (url === null && password === null) return []
+    const saved = savedFile(password, secrets, 'pg-')
+    // the machine's own URL (LayerFS keeps no password in it); its password reference, unless it names a file this host wrote
+    return [{ machine, url, target: pgTarget(url ?? (typeof s.url === 'string' ? s.url : '')), password: saved ? null : password, saved }]
   })
 }
 
@@ -190,7 +191,7 @@ export function moveLegacyStorageState(home: string, jobDir: string, statDir: st
 }
 
 /** A store.list item and its store.status -> StoreRow. */
-export function storeRow(s: any, status: any, jobs: StorageJob[], errors?: Map<string, AttachError>, secrets?: string) {
+export function storeRow(s: any, status: any, jobs: StorageJob[], secrets?: string, runsOn: string | null = null) {
   const op = s.op ?? status?.op ?? null
   const file = status?.file
   return {
@@ -207,10 +208,10 @@ export function storeRow(s: any, status: any, jobs: StorageJob[], errors?: Map<s
     down: status?.down_reason ?? (status ? null : 'store.status did not answer'),
     links: Object.entries(s.backups ?? {}).map(([bucket, link]: [string, any]) => ({ bucket, file: link.file ?? s.name, last: link.last ? { op: link.last.op, at: link.last.at ?? null, bytes: link.last.bytes ?? null } : null })),
     job: jobs.find((j) => j.store === s.name && !j.ended)?.id ?? null,
-    postgresql: s.kind === 'postgresql' ? pgServer(s, status?.server) : null,
-    attachments: attachmentsOf(s, errors, secrets),
-    // refused attaches (from this host) to machines the Store is not attached to
-    attachRefusals: s.kind === 'postgresql' ? [...(errors ?? new Map()).entries()].filter(([key]) => key.startsWith(`${s.name}/`) && !(s.machines && key.slice(s.name.length + 1) in s.machines)).map(([key, e]) => ({ machine: key.slice(s.name.length + 1), ...e })) : [],
+    postgresql: s.kind === 'postgresql' ? pgServer(s, status?.server, secrets) : null,
+    // PostgreSQL: the machine its sessions run on by default (this install's choice), and the machines with a connection of their own
+    runsOn: s.kind === 'postgresql' ? runsOn : null,
+    ownConnections: ownConnectionsOf(s, secrets),
   }
 }
 
@@ -233,8 +234,8 @@ export class Storage {
   readonly jobs: Map<string, StorageJob>
   /** bucket name -> its last backup.list */
   readonly listings = new Map<string, Listing>()
-  /** `<store>/<machine>` -> the last refused store.attach from this host, until one passes */
-  readonly attachErrors = new Map<string, AttachError>()
+  /** Where each PostgreSQL Store's sessions run by default (this install's choice). */
+  readonly storeMachines: StoreMachines
   lastView: any = null
   /** The StorageView read in flight, shared by concurrent callers; a write (`changed`) bumps `generation` so later callers read anew. */
   private viewing: { promise: ReturnType<Storage['readView']>, generation: number } | null = null
@@ -263,6 +264,7 @@ export class Storage {
     }
     this.marks = new BackupMarks(host.stats)
     this.sizes = new StoreSizes(host.stats)
+    this.storeMachines = new StoreMachines(host.root)
     this.jobStore = new JobStore(host.jobs)
     this.jobs = this.jobStore.jobs
     this.reconciled = Promise.resolve().then(async () => {
@@ -353,7 +355,8 @@ export class Storage {
     const items: any[] = listed.items ?? []
     const statuses = await Promise.all(items.map((s) => this.lfs.store.status(s.name).catch((error: any) => (this.log(`[storage] store.status ${s.name}: ${error?.message ?? error}`), null))))
     const jobs = this.jobList()
-    const stores = items.map((s, i) => storeRow(s, statuses[i], jobs, this.attachErrors, this.host.secrets))
+    const fleet: PgMachine[] = machines.machines ?? []
+    const stores = items.map((s, i) => storeRow(s, statuses[i], jobs, this.host.secrets, s.kind === 'postgresql' ? pgMachineOf(this.storeMachines.get(s.name), fleet) : null))
     // a Store whose machine does not answer keeps its last read size, marked stale
     const sizes = this.sizes.answer(stores.filter((s) => s.kind === 'sqlite'))
     stores.filter((s) => s.kind === 'sqlite').forEach((s, i) => { s.size = sizes[i] ?? null })
@@ -369,8 +372,6 @@ export class Storage {
       // this computer (the native machine): its OS names it
       computer: computer(),
       stores,
-      // store.attach in the pinned CLI: without it a PostgreSQL Store runs on native only
-      features: { attach: await this.attachSupported() },
       buckets,
       jobs,
       at: Date.now(),
@@ -400,15 +401,6 @@ export class Storage {
     await this.lfs.store.remove(name)
     this.changed()
     return this.view()
-  }
-
-  /** Whether the pinned CLI has store.attach (false when discovery fails). */
-  async attachSupported(): Promise<boolean> {
-    try {
-      return (await this.host.discover()).calls.some((c: any) => c.family === 'store' && c.call === 'attach')
-    } catch {
-      return false
-    }
   }
 
   /** The prefix of the password files the host writes for PostgreSQL Store `store` (and `machine`). */
@@ -454,8 +446,8 @@ export class Storage {
 
   /**
    * A PostgreSQL database as a Store: { name, url (no password), password (a
-   * reference) | passwordValue, synchronousCommit? }. LayerFS attaches it to
-   * native.
+   * reference) | passwordValue, synchronousCommit?, runsOn? }. `runsOn`
+   * saves the machine its sessions run on by default.
    */
   async connectPostgresql(input: any = {}) {
     const { name, url, synchronousCommit } = input
@@ -470,6 +462,7 @@ export class Storage {
       if (written) rmSync(written, { force: true })
       throw error
     }
+    if (typeof input.runsOn === 'string' && input.runsOn) this.storeMachines.set(name, input.runsOn)
     this.changed()
     return this.view()
   }
@@ -500,48 +493,77 @@ export class Storage {
   }
 
   /**
-   * store.attach(name, machine, { url, password }): `{ machine, url?,
-   * password? | passwordValue? }`; no url and no password reuse the Store's.
-   * A refusal is kept for the view (`lastError`) and thrown as LayerFS gave it.
+   * store.update: `{ machine?, url?, password? | passwordValue?,
+   * synchronousCommit?, clear? }`. Without `machine` it edits the Store's own
+   * connection; with one, that machine's own (LayerFS checks it from the
+   * machine before it saves anything), and `clear` removes it. A typed
+   * password goes to a new owner-only file; the files it replaces are removed
+   * once LayerFS took the new one.
    */
-  async attachStore(name: string, input: any = {}) {
+  async updateStore(name: string, input: any = {}) {
     checkName(name, 'A PostgreSQL Store')
-    const { machine } = input
-    checkName(machine, 'A machine')
-    if (!(await this.attachSupported())) throw refuse(400, 'Unsupported', 'The pinned LayerFS CLI has no store attach; update it to attach PostgreSQL Stores to machines')
-    if (input.url) checkUrl(input.url, 'The database URL', { user: false })
-    const { password, written } = this.pgPassword(input, name, machine)
-    const key = `${name}/${machine}`
-    try {
-      await this.lfs.store.attach(name, machine, { ...(input.url ? { url: input.url } : {}), ...(password ? { password } : {}) })
-    } catch (error: any) {
-      if (written) rmSync(written, { force: true })
-      this.attachErrors.set(key, { code: error?.code ?? 'Failed', message: error?.message ?? String(error), at: Date.now() })
+    const machine: string | undefined = input.machine === undefined || input.machine === null || input.machine === '' ? undefined : input.machine
+    if (machine !== undefined) checkName(machine, 'A machine')
+    if (input.clear === true) {
+      if (machine === undefined) throw refuse(400, 'InvalidInput', 'Name the machine whose own connection to remove')
+      await this.lfs.store.update(name, { machine, clear: true })
+      this.dropPgSecrets(name, machine)
       this.changed()
+      return this.view()
+    }
+    if (input.url) checkUrl(input.url, 'The database URL', { user: false })
+    const { password, written } = this.pgPassword(input, name, machine ?? '')
+    const sync = typeof input.synchronousCommit === 'string' && input.synchronousCommit ? input.synchronousCommit : undefined
+    if (!input.url && !password && !sync) throw refuse(400, 'InvalidInput', 'Give a URL, a password or synchronous_commit to change')
+    try {
+      await this.lfs.store.update(name, { ...(machine ? { machine } : {}), ...(input.url ? { url: input.url } : {}), ...(password ? { password } : {}), ...(sync ? { synchronous_commit: sync } : {}) })
+    } catch (error) {
+      if (written) rmSync(written, { force: true })
       throw error
     }
-    this.attachErrors.delete(key)
-    // the files an earlier attach of this machine recorded
-    this.dropPgSecrets(name, machine, written ?? (password?.startsWith('file:') ? password.slice(5) : null))
+    // the files an earlier connect or update recorded for this connection
+    if (password) this.dropPgSecrets(name, machine ?? '', written ?? (password.startsWith('file:') ? password.slice(5) : null))
     this.changed()
     return this.view()
   }
 
-  /** store.detach(name, machine): `{ machine }`; removes that machine's password files. */
-  async detachStore(name: string, input: any = {}) {
+  /**
+   * The check from `machine` (store.status --machine): `{ machine, host, ok,
+   * at, version, latencyMs } | { machine, host, ok: false, error }`. Nothing
+   * is kept: the caller shows it. A bad input (no such machine, a sqlite
+   * Store, a platform that runs none) is LayerFS's refusal.
+   */
+  async checkStore(name: string, machine: unknown) {
+    checkName(name, 'A PostgreSQL Store')
+    checkName(machine, 'A machine')
+    // its own budget: a check always asks LayerFS, never a kept status
+    const status: any = await this.lfs.store.status(name, { machine, timeout_ms: CHECK_TIMEOUT_MS })
+    const check = status?.check
+    if (!check || typeof check !== 'object') throw refuse(502, 'Failed', `store.status answered no check from machine ${machine}`)
+    const host = typeof check.host === 'string' ? check.host : null
+    if (check.ok === true) return { machine, host, ok: true as const, at: check.at ?? Date.now(), version: check.server_version ?? null, latencyMs: check.latency_ms ?? null }
+    return { machine, host, ok: false as const, error: { code: String(check.error?.code ?? 'Failed'), message: String(check.error?.message ?? 'the check failed') } }
+  }
+
+  /** `{ machine }`: the machine PostgreSQL Store `name`'s sessions run on by default (this install's choice). */
+  async setRunsOn(name: string, input: any = {}) {
     checkName(name, 'A PostgreSQL Store')
     checkName(input.machine, 'A machine')
-    await this.lfs.store.detach(name, input.machine)
-    this.attachErrors.delete(`${name}/${input.machine}`)
-    this.dropPgSecrets(name, input.machine)
+    const record: any = await this.lfs.store.get(name)
+    if (record?.kind !== 'postgresql') throw refuse(400, 'InvalidInput', `${name} is a SQLite Store; it runs on the machine that holds its file`)
+    const listed: any[] = (await this.lfs.machine.list())?.machines ?? []
+    const target = listed.find((m) => m?.name === input.machine)
+    if (!target) throw refuse(404, 'NotFound', `no machine named ${input.machine}`)
+    if (target.supports && target.supports.postgresql_sandbox === false) throw refuse(400, 'Unsupported', target.supports.reason ?? `machine ${input.machine} runs no PostgreSQL Sandboxes`)
+    this.storeMachines.set(name, input.machine)
     this.changed()
     return this.view()
   }
 
   async disconnectStore(name: string) {
     await this.lfs.store.disconnect(name)
-    for (const key of this.attachErrors.keys()) if (key.startsWith(`${name}/`)) this.attachErrors.delete(key)
     this.dropPgSecrets(name, undefined)
+    this.storeMachines.drop(name)
     this.changed()
     return this.view()
   }

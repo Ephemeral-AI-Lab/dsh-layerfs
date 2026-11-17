@@ -6,19 +6,19 @@
  */
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, Checkbox, IconChevronRightOutlineRegular, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { attachRefusal, attachmentsOf, canMove, inHome, loopbackAlias } from './model.ts'
+import { canMove, inHome, runsOnOf } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
-import { AttachPicker, LocationPicker, placeName, stoppedPicked, type LocationWords } from '../projects/setup/MachineTiles.tsx'
-import { attachedMachines, defaultMachine, isRunning, machinesFor } from '../projects/setup/model.ts'
-import { attachStore, detachStore, placeStore, startMachine, waitJob } from '../projects/setup/run.ts'
-import { FormModal, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
-import type { BackupState, MachinesView, PgAttachment, ProjectInitJob, ServerPrefill, StorageJob, StorageView, StoreRow } from './types.ts'
+import { LocationPicker, placeName, stoppedPicked } from '../projects/setup/MachineTiles.tsx'
+import { defaultMachine, isRunning, machinesFor } from '../projects/setup/model.ts'
+import { placeStore, startMachine, waitJob } from '../projects/setup/run.ts'
+import { FormModal, locationWords, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
+import type { BackupState, MachinesView, ProjectInitJob, StorageJob, StorageView, StoreRow } from './types.ts'
 import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
 import { PG_URL_PASSWORD, PgPasswordFields, usePgPassword } from './pg-fields.tsx'
 import { BackUpDialog, BackupsDialog } from './BackupDialogs.tsx'
@@ -29,13 +29,20 @@ const REFERENCE = /^(env:LAYERFS_[A-Z0-9_]+|file:\/.+)$/
 
 /** Which dialog is open, and on what. */
 export type StorageDialog =
-  | { kind: 'new-store', postgresql?: boolean, server?: ServerPrefill }
-  | { kind: 'attach', store: string, machine?: string, edit?: PgAttachment }
+  | { kind: 'new-store' }
+  /**
+   * Connect a database (ConnectDatabase.tsx), the one PostgreSQL connect dialog. `machine`: a machine page's
+   * (new databases run on it); `server`: open on a new database on that server (`host:port`); `check`: open
+   * on the check of a Store from a machine (where it runs unless named).
+   */
+  | { kind: 'connect', machine?: string, server?: string, check?: { store: string, machine?: string } }
+  /** Edit a PostgreSQL Store's connection, or (`machine`) that machine's own. */
+  | { kind: 'pg-edit', store: string, machine?: string }
+  /** Choose the machine a PostgreSQL Store's sessions run on. */
+  | { kind: 'pg-runs-on', store: string }
   | { kind: 'add-project', store: string }
   | { kind: 'push', store: StoreRow }
   | { kind: 'to-machine', machine: string }
-  /** Connect a database to a machine: attach a connected one, or connect a new one and attach it. */
-  | { kind: 'pg-to-machine', machine: string }
   | { kind: 'move', store: StoreRow }
   /** `known`: the buckets when Add a bucket left Back up, so it comes back on the new one; `pick`: the bucket it starts on. */
   | { kind: 'backup', store: StoreRow, known?: string[], pick?: string }
@@ -56,23 +63,22 @@ interface DialogsProps {
   onClose: () => void
   /** The view changed: read it again. */
   done: () => void
-  /** Opens a Store's page (after a PostgreSQL connect). */
-  onOpenStore?: (name: string) => void
-  /** Swaps this dialog for another (Add Store's attach and New Store). */
+  /** Swaps this dialog for another (Add Store's New Store and Connect a database). */
   onDialog?: (dialog: StorageDialog) => void
 }
 
 /** The open dialog, if any. */
-export function StorageDialogs({ api, t, dialog, view, onClose, done, onOpenStore, onDialog }: DialogsProps): ReactNode {
+export function StorageDialogs({ api, t, dialog, view, onClose, done, onDialog }: DialogsProps): ReactNode {
   if (!dialog) return null
   const after = <T,>(p: Promise<T>) => p.then((v) => { done(); return v })
   switch (dialog.kind) {
-    case 'new-store': return <NewStoreDialog api={api} t={t} view={view} postgresql={dialog.postgresql === true} server={dialog.server} onClose={onClose} done={done} onOpenStore={onOpenStore} />
-    case 'attach': return <AttachDialog api={api} t={t} view={view} store={dialog.store} machine={dialog.machine} edit={dialog.edit} onClose={onClose} done={done} />
+    case 'new-store': return <NewStoreDialog api={api} t={t} view={view} onClose={onClose} done={done} onDialog={onDialog} />
+    case 'connect': return <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} server={dialog.server} check={dialog.check} onClose={onClose} done={done} />
+    case 'pg-edit': return <EditConnectionDialog api={api} t={t} view={view} store={dialog.store} machine={dialog.machine} onClose={onClose} done={done} />
+    case 'pg-runs-on': return <RunsOnDialog api={api} t={t} view={view} store={dialog.store} onClose={onClose} done={done} />
     case 'add-project': return <NewProjectDialog api={api} t={t} store={dialog.store} onClose={onClose} done={done} />
     case 'push':
     case 'move': return <PlaceDialog api={api} t={t} kind={dialog.kind} store={dialog.store} onClose={onClose} done={done} />
-    case 'pg-to-machine': return <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} onClose={onClose} done={done} />
     case 'to-machine': return <ToMachineDialog api={api} t={t} view={view} machine={dialog.machine} onClose={onClose} done={done} onDialog={onDialog} />
     case 'backup': return <BackUpDialog api={api} t={t} store={dialog.store} known={dialog.known} pick={dialog.pick} view={view} onClose={onClose} done={done} onDialog={onDialog} />
     case 'backups': return <BackupsDialog api={api} t={t} store={dialog.store} view={view} onClose={onClose} done={done} onDialog={onDialog} />
@@ -84,42 +90,28 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done, onOpenStor
 
 // ---------- New Store ----------
 
-type NewPane = 'empty' | 'restore' | 'postgresql'
+type NewPane = 'empty' | 'restore'
 
-function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpenStore }: {
-  api: LayerfsApi, t: StorageT, view: StorageView | undefined, postgresql: boolean, onClose: () => void, done: () => void, onOpenStore?: ((name: string) => void) | undefined
-  /** A server of this home's Stores: its user and password are given, only the database is asked for. */
-  server?: ServerPrefill | undefined
+/** A new SQLite Store, empty or restored from a bucket. PostgreSQL goes on to Connect a database. */
+function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined, onClose: () => void, done: () => void
+  onDialog?: ((dialog: StorageDialog) => void) | undefined
 }): ReactNode {
-  const [pane, setPane] = useState<NewPane>(postgresql || server ? 'postgresql' : 'empty')
+  const [pane, setPane] = useState<NewPane>('empty')
   const [name, setName] = useState('')
-  const [typedUrl, setUrl] = useState('')
-  // On a known server: the database (it follows the Store name until typed) and the URL made from the server's.
-  const [typedDb, setDb] = useState<string | null>(null)
-  const database = typedDb ?? name.trim().replace(/[-.]/g, '_')
-  const url = server ? withDatabase(server.url, database.trim()) : typedUrl
-  const dbTaken = server && database.trim() ? view?.stores.find((s) => s.kind === 'postgresql' && s.postgresql?.server === server.server && s.postgresql?.database === database.trim()) : undefined
-  const pw = usePgPassword('entered', '', server?.from ?? null)
-  const [sync, setSync] = useState<string>('')
   const buckets = view?.buckets ?? []
   const [bucket, setBucket] = useState(buckets[0]?.name ?? '')
   const [file, setFile] = useState('')
   const [listing, setListing] = useState(false)
   const [listError, setListError] = useState<unknown>(undefined)
-  const family = pane === 'postgresql' ? 'postgresql' : 'sqlite'
-  // SQLite: where the new Store lives. LayerFS makes it in the home; another machine is a move after.
+  // Where the new Store lives. LayerFS makes it in the home; another machine is a move after.
   const machines = machinesFor(view, 'sqlite')
   const fallback = defaultMachine(machines)
   const [placeChoice, setPlace] = useState<string | null>(null)
   const place = placeChoice ?? fallback
-  const words: LocationWords = { home: t('layerfsHome'), thisMac: t(view?.computer?.os === 'linux' ? 'nsThisLinux' : view?.computer?.os === 'windows' ? 'nsThisPc' : 'nsThisMac'), running: t('nsRunning'), stopped: t('nsStopped'), default: t('nsDefault'), here: t('nsHere'), nativeOs: view?.computer?.os === 'linux' ? 'linux' : view?.computer?.os === 'windows' || view?.computer?.os === 'other' ? 'pc' : 'mac' }
+  const words = locationWords(t, view)
   const where = placeName(place, words)
-  // PostgreSQL: the machines to attach, any number (none is fine). store.connect attaches native.
-  const pgMachines = machinesFor(view, 'postgresql')
-  const pgFallback = pgMachines.length ? defaultMachine(pgMachines) : undefined
-  const [pgChoice, setPgChoice] = useState<string[] | null>(null)
-  const pgPicked = pgChoice ?? (pgFallback ? [pgFallback] : [])
-  /** A Store this dialog made whose move or attach failed: a retry only finishes that. */
+  /** A Store this dialog made whose move failed: a retry only finishes that. */
   const [made, setMade] = useState<string | null>(null)
   const [stage, setStage] = useState<string | undefined>(undefined)
   const chosen = buckets.find((b) => b.name === bucket)
@@ -140,12 +132,8 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
     !name.trim() && t('name'),
     pane === 'restore' && !bucket && t('bucket'),
     pane === 'restore' && !file && t('storeFile'),
-    pane === 'postgresql' && (server ? !database.trim() && t('pgDatabase') : !url.trim() && t('pgUrl')),
-    pane === 'postgresql' && pw.missing && t('pgPasswordHow'),
   ].filter(Boolean) as string[]
-  const urlError = pane === 'postgresql' && PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
-  const passwordError = pane === 'postgresql' ? pw.error(t) : null
-  /** Make the SQLite Store in the home, then (another machine) start it if stopped and move the Store there. */
+  /** Make the Store in the home, then (another machine) start it if stopped and move the Store there. */
   const placed = async (make: () => Promise<unknown>, making: string) => {
     const store = name.trim()
     if (made !== store) {
@@ -165,38 +153,7 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
     await placeStore(api, store, place)
     setMade(null)
   }
-  /** Connect, then attach each ticked machine (started first when stopped) and detach native when it is not ticked. */
-  const connected = async () => {
-    const store = name.trim()
-    let attached: string[]
-    if (made !== store) {
-      setStage(t('nsConnecting', { store }))
-      await api.call('POST', '/api/stores/postgresql', { name: store, url: url.trim(), ...pw.body(), ...(sync ? { synchronousCommit: sync } : {}) })
-      setMade(store)
-      done()
-      attached = ['native']
-    } else {
-      const row = view?.stores.find((s) => s.name === store)
-      attached = row ? attachedMachines(row) : ['native']
-    }
-    for (const m of pgPicked) {
-      if (attached.includes(m)) continue
-      if (!isRunning(view?.machines.find((x) => x.name === m))) {
-        setStage(t('nsStarting', { machine: placeName(m, words) }))
-        await startMachine(api, m)
-      }
-      setStage(t('nsAttaching', { store, machine: placeName(m, words) }))
-      await attachStore(api, store, m)
-    }
-    if (attached.includes('native') && !pgPicked.includes('native')) {
-      setStage(t('nsDetaching', { store, machine: words.home }))
-      await detachStore(api, store, 'native')
-    }
-    setMade(null)
-    onOpenStore?.(store)
-  }
-  const moveOnly = family === 'sqlite' && made !== null && made === name.trim() && place !== 'native'
-  const attachOnly = family === 'postgresql' && made !== null && made === name.trim()
+  const moveOnly = made !== null && made === name.trim() && place !== 'native'
   const form = {
     empty: {
       action: moveOnly ? t('nsMoveTo', { machine: where }) : t('createStore'), description: t('newStoreEmptyBody'),
@@ -206,27 +163,21 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
       action: moveOnly ? t('nsMoveTo', { machine: where }) : t('restoreStore'), description: t('newStoreRestoreBody'),
       submit: () => placed(() => api.call('POST', `/api/buckets/${enc(bucket)}/restore`, { store: name.trim(), file }), t('nsRestoring', { store: name.trim() })),
     },
-    postgresql: { action: attachOnly ? t('nsFinishAttach') : t('connect'), description: t('newStorePgBody'), submit: connected },
   }[pane]
   // The name's rule shows only once a typed name breaks it.
   const nameError = taken ? t('nameTaken') : name.trim() && !NAME.test(name.trim()) ? t('storeNameHint') : null
-  const nameField = (
-    <TextField label={pane === 'restore' ? t('newStoreName') : t('name')} value={name} onChange={setName} mono autoFocus={pane !== 'restore'}
-      placeholder={pane === 'postgresql' ? 'team' : 'work'} error={nameError} />
-  )
   return (
-    <FormModal open onClose={onClose} t={t} title={server ? t('newStoreOnServer', { server: server.server }) : postgresql ? t('connectDatabase') : t('newStore')} description={form.description} action={form.action}
-      valid={!missing.length && nameOk && !passwordError && !urlError && !dbTaken} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
+    <FormModal open onClose={onClose} t={t} title={t('newStore')} description={form.description} action={form.action}
+      valid={!missing.length && nameOk} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
       busyHint={stage}
       submit={() => form.submit().then(done)}>
-      {server ? null : (
-        <TileChoice label={t('kindOfStore')} value={family} onChange={(v) => setPane(v === 'sqlite' ? 'empty' : 'postgresql')}
+      {/* a PostgreSQL Store is connected, not made: its tile opens Connect a database */}
+      {onDialog ? (
+        <TileChoice label={t('kindOfStore')} value="sqlite" onChange={(v) => { if (v === 'postgresql') { onClose(); onDialog({ kind: 'connect' }) } }}
           options={[{ value: 'sqlite', label: t('sqlite'), icon: <StoreGlyph kind="sqlite" /> }, { value: 'postgresql', label: t('postgresql'), icon: <StoreGlyph kind="postgresql" /> }]} />
-      )}
-      {family === 'sqlite' ? (
-        <SegmentedControl<'empty' | 'restore'> id="lfs-new-store-sqlite" className={css.selfStart} value={pane as 'empty' | 'restore'} onChange={setPane} label={t('sqlite')}
-          options={[{ value: 'empty', label: t('storeEmpty') }, { value: 'restore', label: t('storeRestore') }]} />
       ) : null}
+      <SegmentedControl<NewPane> id="lfs-new-store-sqlite" className={css.selfStart} value={pane} onChange={setPane} label={t('sqlite')}
+        options={[{ value: 'empty', label: t('storeEmpty') }, { value: 'restore', label: t('storeRestore') }]} />
       {pane === 'restore' ? (
         buckets.length === 0 ? <Notice tone="warning">{t('noBucketForRestore')}</Notice> : (
           <>
@@ -252,152 +203,86 @@ function NewStoreDialog({ api, t, view, postgresql, server, onClose, done, onOpe
           </>
         )
       ) : null}
-      {pane === 'postgresql' && !server ? null : nameField}
-      {family === 'sqlite' ? (
-        <>
-          <Field label={t('nsLocation')} hint={t('nsLocationHint')} group>
-            <LocationPicker machines={machines} value={place} onChange={setPlace} words={words} label={t('nsLocation')} fallback={fallback} compact />
-          </Field>
-          {stoppedPicked([place], machines).map((m) => <p key={m} className={css.formNote}>{t('nsStartsOnCreate', { machine: m })}</p>)}
-          {moveOnly ? <p className={css.formNote}>{t('nsMade', { store: made, machine: where })}</p> : null}
-        </>
-      ) : null}
-      {pane === 'postgresql' ? (
-        <>
-          {server ? (
-            <>
-              <Field label={t('pgServerLabel')}><span className={css.mono}>{serverWords(server.url)}</span></Field>
-              <TextField label={t('pgDatabase')} value={database} onChange={setDb} mono placeholder="team" hint={t('pgDatabaseHint')}
-                error={dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null} />
-            </>
-          ) : (
-            <div className={css.nameUrlRow}>
-              {nameField}
-              <TextField label={t('pgUrl')} value={typedUrl} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db" error={urlError} />
-            </div>
-          )}
-          <PgPasswordFields id="lfs-pg-connect" pw={pw} t={t} />
-          <Field label={t('nsAttachTo')} hint={t('nsAttachHint')} group>
-            <AttachPicker machines={pgMachines} value={pgPicked} onChange={setPgChoice} words={words} label={t('nsAttachTo')} fallback={pgFallback} compact />
-          </Field>
-          {stoppedPicked(pgPicked, pgMachines).map((m) => <p key={m} className={css.formNote}>{t('nsStartsOnConnect', { machine: m })}</p>)}
-          {attachOnly ? <p className={css.formNote}>{t('nsConnected', { store: made })}</p> : null}
-          <details className={css.storeDetails}>
-            <summary className={css.storeDetailsSummary}>
-              <IconChevronRightOutlineRegular size={12} className={css.storeDetailsChevron} />
-              <span>{sync ? t('nsMoreOptionsSet', { value: sync }) : t('nsMoreOptions')}</span>
-            </summary>
-            <Field label={t('syncCommit')}>
-              <MenuSelect value={sync} label={t('syncCommit')} placeholder={t('syncCommitDefault')}
-                options={[{ value: '', label: t('syncCommitDefault') }, ...['off', 'local', 'remote_write', 'on', 'remote_apply'].map((v) => ({ value: v, label: v }))]} onChange={setSync} />
-            </Field>
-          </details>
-        </>
-      ) : null}
+      <TextField label={pane === 'restore' ? t('newStoreName') : t('name')} value={name} onChange={setName} mono autoFocus={pane !== 'restore'} placeholder="work" error={nameError} />
+      <Field label={t('nsLocation')} hint={t('nsLocationHint')} group>
+        <LocationPicker machines={machines} value={place} onChange={setPlace} words={words} label={t('nsLocation')} fallback={fallback} compact />
+      </Field>
+      {stoppedPicked([place], machines).map((m) => <p key={m} className={css.formNote}>{t('nsStartsOnCreate', { machine: m })}</p>)}
+      {moveOnly ? <p className={css.formNote}>{t('nsMade', { store: made, machine: where })}</p> : null}
     </FormModal>
   )
 }
 
-// ---------- PostgreSQL password and Attach ----------
-
-/** `url` (a Store's, no password) naming `database` instead, its parameters kept. */
-function withDatabase(url: string, database: string): string {
-  try {
-    const u = new URL(url)
-    u.pathname = `/${encodeURIComponent(database)}`
-    return u.toString()
-  } catch {
-    return url
-  }
-}
-
-/** A server as `user@host:port`, from a Store's URL. */
-function serverWords(url: string): string {
-  try {
-    const u = new URL(url)
-    return `${u.username ? `${decodeURIComponent(u.username)}@` : ''}${u.host}`
-  } catch {
-    return url
-  }
-}
-
-/** Is the URL's host this host's loopback? */
-const loopback = (target: string | null | undefined) => /@?(localhost|127\.[0-9.]+|\[::1\])(:|\/|$)/.test(target ?? '')
+// ---------- PostgreSQL: edit a connection, choose where it runs ----------
 
 /**
- * Attach a PostgreSQL Store to a machine (store.attach): with the Store's
- * connection, or one of the machine's own. LayerFS checks it from the
- * machine before it records anything; a refusal stays under the form.
+ * Edit a PostgreSQL Store's connection (store.update): its URL, its password
+ * and its synchronous_commit. With `machine`, that machine's own connection
+ * instead (a URL, a password, or both), which LayerFS checks from the machine
+ * before it saves anything. Only what changed is sent; a password not given
+ * again stays as it is. A refusal stays under the form.
  */
-function AttachDialog({ api, t, view, store, machine: fixed, edit, onClose, done }: {
-  api: LayerfsApi, t: StorageT, view: StorageView | undefined, store: string, machine?: string | undefined, edit?: PgAttachment | undefined
-  onClose: () => void, done: () => void
+function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined, store: string, machine?: string | undefined, onClose: () => void, done: () => void
 }): ReactNode {
   const s = view?.stores.find((x) => x.name === store)
-  const [machine, setMachine] = useState(fixed ?? edit?.machine ?? '')
-  const [mode, setMode] = useState<'host' | 'own'>(edit?.own ? 'own' : 'host')
-  const [url, setUrl] = useState(edit?.url ?? '')
+  const own = machine ? s?.ownConnections?.find((c) => c.machine === machine) : undefined
+  const before = machine ? own?.url ?? '' : s?.postgresql?.url ?? ''
+  const [url, setUrl] = useState(before)
   // a reference given before is shown again; a typed one stays in its file unless a new one is typed
-  const givenRef = edit?.password && !edit.saved ? edit.password : ''
+  const givenRef = (machine ? own?.password : s?.postgresql?.password) ?? ''
   const pw = usePgPassword(givenRef ? 'reference' : 'entered', givenRef)
+  const syncBefore = s?.postgresql?.synchronousCommit ?? ''
+  const [sync, setSync] = useState(syncBefore)
   if (!s || !view) return null
-  // a machine fixed by the caller (a drop, Edit or Re-check) is not chosen again
-  const machines = [...view.machines].sort((a, b) => (a.name === 'native' ? -1 : b.name === 'native' ? 1 : a.name.localeCompare(b.name)))
-  const chosen = view.machines.find((m) => m.name === machine)
-  const alias = chosen ? loopbackAlias(chosen.platform) : null
-  const urlError = mode === 'own' && PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
-  // an own connection keeps the password it has (Edit) unless another is given
-  const keeps = mode === 'own' && !!edit?.password && pw.missing
-  const missing = [
-    !machine && t('machine'),
-    // an own connection names its URL, its password, or both
-    mode === 'own' && !url.trim() && pw.missing && !keeps && t('pgUrl'),
-  ].filter(Boolean) as string[]
-  const placeName = (m: string) => (m === 'native' ? t('layerfsHome') : m)
+  const place = machine === 'native' ? t('layerfsHome') : machine
+  const urlChanged = url.trim() !== before && !!url.trim()
+  const pwChanged = !pw.missing && !(pw.how === 'reference' && pw.ref.trim() === givenRef)
+  const syncChanged = !machine && !!sync && sync !== syncBefore
+  const urlError = PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
   const body = () => ({
-    machine,
-    ...(mode === 'own' ? { ...(url.trim() ? { url: url.trim() } : {}), ...(keeps ? { password: edit!.password! } : pw.missing ? {} : pw.body()) } : {}),
+    ...(machine ? { machine } : {}), ...(urlChanged ? { url: url.trim() } : {}), ...(pwChanged ? pw.body() : {}), ...(syncChanged ? { synchronousCommit: sync } : {}),
   })
   return (
-    <FormModal open onClose={onClose} t={t} title={t('attachTitle', { store })} description={t('attachBody')} action={t('attachAndCheck')}
-      valid={!missing.length && !urlError && !(mode === 'own' && pw.error(t))}
-      hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
-      busyHint={machine ? t('checkingFrom', { machine: placeName(machine) }) : undefined}
-      submit={() => api.call('POST', `/api/stores/${enc(store)}/attach`, body()).then(done)}>
-      {fixed || edit ? (
-        <Field label={t('machine')}><span className={css.mono}>{placeName(machine)}</span></Field>
-      ) : (
-        <Field label={t('machine')}>
-          <div className={css.choiceList} role="radiogroup" aria-label={t('machine')}>
-            {machines.map((m) => {
-              const why = attachRefusal(view, s, m.name, t)
-              return (
-                <button key={m.name} type="button" role="radio" aria-checked={machine === m.name} disabled={!!why} className={css.choiceRow}
-                  data-checked={machine === m.name || undefined} onClick={() => setMachine(m.name)}>
-                  <span className={css.radio} aria-hidden="true" />
-                  <span className={css.choiceMain}>{placeName(m.name)}</span>
-                  <span className={css.choiceMeta}>{why ?? m.platform}</span>
-                </button>
-              )
-            })}
-          </div>
+    <FormModal open onClose={onClose} t={t} title={machine ? t('pgEditOwnTitle', { store, machine: place ?? '' }) : t('pgEditTitle', { store })}
+      description={machine ? t('pgEditOwnBody', { machine: place ?? '' }) : t('pgEditBody')} action={machine ? t('cdSaveAndCheck') : t('save')}
+      valid={(urlChanged || pwChanged || syncChanged) && !urlError && !pw.error(t) && (!!machine || !!url.trim())}
+      hint={!urlChanged && !pwChanged && !syncChanged ? t('pgEditNothing') : undefined}
+      busyHint={machine ? t('checkingFrom', { machine: place ?? '' }) : undefined}
+      submit={() => api.call('POST', `/api/stores/${enc(store)}/connection`, body()).then(done)}>
+      {machine ? <p className={css.formNote}>{t('pgOwnNote', { machine: place ?? '', target: s.postgresql?.target ?? '' })}</p> : null}
+      <TextField label={machine ? t('cdOwnUrl', { machine: place ?? '' }) : t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db"
+        hint={machine ? t('pgUrlHint') : undefined} error={urlError} autoFocus />
+      <PgPasswordFields id="lfs-pg-edit-password" pw={pw} t={t} />
+      {(machine ? own?.saved : s.postgresql?.saved) && pw.missing ? <p className={css.formNote}>{t('pgPasswordKept')}</p> : null}
+      {machine ? null : (
+        <Field label={t('syncCommit')}>
+          <MenuSelect value={sync} label={t('syncCommit')} placeholder={t('syncCommitDefault')}
+            options={['off', 'local', 'remote_write', 'on', 'remote_apply'].map((v) => ({ value: v, label: v }))} onChange={setSync} />
         </Field>
       )}
-      <Field label={t('connection')}>
-        <SegmentedControl<'host' | 'own'> id="lfs-pg-attach-mode" className={css.selfStart} value={mode} onChange={setMode} label={t('connection')}
-          options={[{ value: 'host', label: t('sameAsHost') }, { value: 'own', label: t('ownConnection') }]} />
+    </FormModal>
+  )
+}
+
+/** Where a PostgreSQL Store's sessions run: one machine, the plugin's own choice (LayerFS records none). */
+function RunsOnDialog({ api, t, view, store, onClose, done }: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined, store: string, onClose: () => void, done: () => void
+}): ReactNode {
+  const s = view?.stores.find((x) => x.name === store)
+  const current = s ? runsOnOf(s) : 'native'
+  const [picked, setPicked] = useState<string | null>(null)
+  if (!s || !view) return null
+  const machines = machinesFor(view, 'postgresql')
+  const chosen = picked ?? current
+  const words = locationWords(t, view)
+  return (
+    <FormModal open onClose={onClose} t={t} title={t('pgRunsOnTitle', { store })} description={t('pgRunsOnBody')}
+      action={t('pgRunsOnSave', { machine: placeName(chosen, words) })} valid={chosen !== current}
+      submit={() => api.call('POST', `/api/stores/${enc(store)}/runs-on`, { machine: chosen }).then(done)}>
+      <Field label={t('pgRunsOnLabel')} hint={t('pgRunsOnHint')} group>
+        <LocationPicker machines={machines} value={chosen} onChange={setPicked} words={words} label={t('pgRunsOnLabel')} current={current} compact />
       </Field>
-      {mode === 'host' ? (
-        <p className={css.formNote}>
-          {alias && loopback(s.postgresql?.target) ? t('sameAsHostNote', { alias }) : t('sameAsHostNoteRemote')}
-          {s.postgresql?.target ? <> <span className={css.mono}>{s.postgresql.target}</span></> : null}
-        </p>
-      ) : (
-        <>
-          <TextField label={t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db" hint={t('pgUrlHint')} error={urlError} autoFocus />
-          <PgPasswordFields id="lfs-pg-attach-password" pw={pw} t={t} />
-        </>
-      )}
     </FormModal>
   )
 }
@@ -488,11 +373,11 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
 // ---------- Add a Store to a machine ----------
 
 /**
- * A machine's Add Store, by kind. SQLite: a Store lives on one machine, so
- * adding one here moves it from where it is (the host's place: push, pull or
- * move, as a drop on the machine does); the home also offers a new one.
- * PostgreSQL: the Store stays on its server and is attached here, on to
- * Attach with the machine fixed; every machine also offers a new database.
+ * A machine's Add Store. A SQLite Store lives on one machine, so adding one
+ * here moves it from where it is (the host's place: push, pull or move, as a
+ * drop on the machine does); the home also offers a new one. A PostgreSQL
+ * Store is on no machine: its tile goes on to Connect a database, where one
+ * is connected, or one already connected is set to run here.
  */
 function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
   api: LayerfsApi, t: StorageT, view: StorageView | undefined, machine: string
@@ -501,55 +386,45 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
   const m = view?.machines.find((x) => x.name === machine)
   const noSqlite = m?.supports && m.supports.sqlite === false ? m.supports.reason || t('noStoresHere') : null
   const noPg = m?.supports && !m.supports.postgresql_sandbox ? m.supports.reason || t('postgresql') : null
-  const [family, setFamily] = useState<'sqlite' | 'postgresql'>(noSqlite && !noPg ? 'postgresql' : 'sqlite')
   const [chosen, setChosen] = useState('')
-  // A PostgreSQL Store chosen goes on to Attach, the machine fixed.
-  const [attaching, setAttaching] = useState<string | null>(null)
   if (!view) return null
-  if (attaching) return <AttachDialog api={api} t={t} view={view} store={attaching} machine={machine} onClose={onClose} done={done} />
   const placeName = (name: string | null) => (name === 'native' ? t('layerfsHome') : name ?? '')
-  const attachable = view.features?.attach === true
   const rows = view.stores
-    .filter((s) => s.kind === family && (family === 'sqlite' ? s.machine !== machine : attachable && !attachmentsOf(s).some((a) => a.machine === machine)))
-    .map((s) => ({ s, why: family === 'postgresql' ? attachRefusal(view, s, machine, t) : noSqlite ?? (canMove(s) ? null : t('storeBusyNow')) }))
+    .filter((s) => s.kind === 'sqlite' && s.machine !== machine)
+    .map((s) => ({ s, why: noSqlite ?? (canMove(s) ? null : t('storeBusyNow')) }))
     .sort((a, b) => Number(!!a.why) - Number(!!b.why) || a.s.name.localeCompare(b.s.name))
   const pick = rows.find((r) => r.s.name === chosen && !r.why)
-  const sqlite = family === 'sqlite'
   const swap = (next: StorageDialog) => { onClose(); onDialog?.(next) }
   return (
     <FormModal open onClose={onClose} t={t} title={t('addStoreTitle', { machine: placeName(machine) })}
-      description={sqlite ? t('addSqliteBody') : t('addPgBody')}
-      action={sqlite ? t('moveHere') : t('attachHere')} valid={!!pick} keepOpen={!sqlite}
-      busyHint={sqlite && pick ? t('movingFrom', { store: pick.s.name, from: placeName(pick.s.machine) }) : undefined}
+      description={t('addSqliteBody')} action={t('moveHere')} valid={!!pick}
+      busyHint={pick ? t('movingFrom', { store: pick.s.name, from: placeName(pick.s.machine) }) : undefined}
       submit={async () => {
         if (!pick) return
-        if (!sqlite) { setAttaching(pick.s.name); return }
         await api.call('POST', `/api/machines/${enc(machine)}/stores`, { store: pick.s.name })
         done()
       }}>
-      <TileChoice label={t('kindOfStore')} value={family} onChange={(v) => { setFamily(v); setChosen('') }}
-        options={[
-          { value: 'sqlite', label: t('sqlite'), body: t('addSqliteTile'), icon: <StoreGlyph kind="sqlite" />, disabled: noSqlite },
-          { value: 'postgresql', label: t('postgresql'), body: t('addPgTile'), icon: <StoreGlyph kind="postgresql" />, disabled: noPg },
-        ]} />
-      <div className={css.choiceList} role="radiogroup" aria-label={sqlite ? t('sqlite') : t('postgresql')}>
+      {onDialog ? (
+        <TileChoice label={t('kindOfStore')} value="sqlite" onChange={(v) => { if (v === 'postgresql') swap({ kind: 'connect', machine }) }}
+          options={[
+            { value: 'sqlite', label: t('sqlite'), body: t('addSqliteTile'), icon: <StoreGlyph kind="sqlite" />, disabled: noSqlite },
+            { value: 'postgresql', label: t('postgresql'), body: t('addPgTile'), icon: <StoreGlyph kind="postgresql" />, disabled: noPg },
+          ]} />
+      ) : null}
+      <div className={css.choiceList} role="radiogroup" aria-label={t('sqlite')}>
         {rows.length ? rows.map(({ s, why }) => (
           <button key={s.name} type="button" role="radio" aria-checked={chosen === s.name} disabled={!!why} className={css.choiceRow}
             data-checked={chosen === s.name || undefined} onClick={() => setChosen(s.name)} title={why ?? undefined}>
             <span className={css.radio} aria-hidden="true" />
             <span className={css.choiceMain}>{s.name}</span>
-            <span className={css.choiceMeta}>
-              {why ?? (sqlite ? t('fromPlace', { place: placeName(s.machine) }) : s.postgresql?.target ?? '')}
-            </span>
+            <span className={css.choiceMeta}>{why ?? t('fromPlace', { place: placeName(s.machine) })}</span>
           </button>
-        )) : <p className={css.choiceEmpty}>{sqlite ? t('addSqliteNone', { machine: placeName(machine) }) : t('addPgNone', { machine: placeName(machine) })}</p>}
+        )) : <p className={css.choiceEmpty}>{t('addSqliteNone', { machine: placeName(machine) })}</p>}
       </div>
-      {sqlite && pick && m?.state && m.state !== 'running' ? <p className={css.formNote}>{t('notRunning', { machine: placeName(machine), state: m.state })}</p> : null}
-      {onDialog && (!sqlite || machine === 'native') ? (
+      {pick && m?.state && m.state !== 'running' ? <p className={css.formNote}>{t('notRunning', { machine: placeName(machine), state: m.state })}</p> : null}
+      {onDialog && machine === 'native' ? (
         <p className={css.formNote}>
-          <button type="button" className={css.textLink} onClick={() => swap(sqlite ? { kind: 'new-store' } : { kind: 'new-store', postgresql: true })}>
-            {sqlite ? t('newStore') : t('connectDatabase')}
-          </button>
+          <button type="button" className={css.textLink} onClick={() => swap({ kind: 'new-store' })}>{t('newStore')}</button>
         </p>
       ) : null}
     </FormModal>

@@ -1,7 +1,7 @@
 /**
  * Running the Setup card's steps over the host API (docs/specs/layerfs-workspaces.md §3):
- * folder check, machine start, Store create / connect, Init, place (push, pull or move),
- * attach and detach. Each waits for its job; a refusal throws.
+ * folder check, machine start, Store create / connect, Init, place (push, pull or move)
+ * and a PostgreSQL Store's "runs on" choice. Each waits for its job; a refusal throws.
  */
 import { enc, type LayerfsApi } from '../../api.ts'
 import { waitProject, type ProjectInitJob } from '../../picker/NewProjectForm.tsx'
@@ -31,8 +31,8 @@ export async function placeStore(api: LayerfsApi, store: string, machine: string
   if (job && typeof job === 'object' && 'id' in job && 'ended' in job) await waitJob(api, job)
 }
 
-export const attachStore = (api: LayerfsApi, store: string, machine: string) => api.call('POST', `/api/stores/${enc(store)}/attach`, { machine })
-export const detachStore = (api: LayerfsApi, store: string, machine: string) => api.call('POST', `/api/stores/${enc(store)}/detach`, { machine })
+/** The machine a PostgreSQL Store's sessions run on by default (the plugin's own choice; LayerFS records none). */
+export const setRunsOn = (api: LayerfsApi, store: string, machine: string) => api.call('POST', `/api/stores/${enc(store)}/runs-on`, { machine })
 
 /** The Store a plan creates in or uses. */
 export const storeOfPlan = (plan: CreatePlan): string => plan.store?.name ?? plan.newStore?.name ?? ''
@@ -51,7 +51,7 @@ export async function runStep(api: LayerfsApi, plan: CreatePlan, step: Step, onJ
       await api.call('POST', '/api/stores', { name: store })
       return
     case step.id === 'connect':
-      await api.call('POST', '/api/stores/postgresql', { name: store, url: plan.newStore?.url ?? '', ...passwordBody(plan.newStore?.password ?? '') })
+      await api.call('POST', '/api/stores/postgresql', { name: store, url: plan.newStore?.url ?? '', ...passwordBody(plan.newStore?.password ?? ''), ...(step.machine ? { runsOn: step.machine } : {}) })
       return
     case step.id === 'start-store':
     case step.id.startsWith('start:'):
@@ -65,11 +65,8 @@ export async function runStep(api: LayerfsApi, plan: CreatePlan, step: Step, onJ
     case step.id.startsWith('place:'):
       await placeStore(api, store, step.machine!)
       return
-    case step.id.startsWith('attach:'):
-      await attachStore(api, store, step.machine!)
-      return
-    case step.id === 'detach:native':
-      await detachStore(api, store, 'native')
+    case step.id.startsWith('runs-on:'):
+      await setRunsOn(api, store, step.machine!)
       return
     default:
   }

@@ -169,10 +169,12 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'projects' && method === 'GET') return projects.storeProjects(id)
     if (id && !sub && method === 'DELETE') return storage.removeStore(id, { confirm: query.get('confirm') })
     if (id && sub === 'disconnect' && method === 'POST') return storage.disconnectStore(id)
-    // a PostgreSQL Store on a machine: { machine, url?, password? | passwordValue? }, checked from the machine
-    if (id && sub === 'attach' && method === 'POST') return storage.attachStore(id, body ?? {})
-    // { machine }
-    if (id && sub === 'detach' && method === 'POST') return storage.detachStore(id, body ?? {})
+    // a PostgreSQL Store's connection, or one machine's own: { machine?, url?, password? | passwordValue?, synchronousCommit?, clear? }
+    if (id && sub === 'connection' && method === 'POST') return storage.updateStore(id, body ?? {})
+    // the check from a machine: ?machine=<name>
+    if (id && sub === 'check' && method === 'GET') return storage.checkStore(id, query.get('machine'))
+    // the machine a PostgreSQL Store's sessions run on by default: { machine }
+    if (id && sub === 'runs-on' && method === 'POST') return storage.setRunsOn(id, body ?? {})
     // a sqlite Store on native to a machine: { machine }
     if (id && sub === 'push' && method === 'POST') return storage.push(id, body?.machine)
     // a sqlite Store on a machine back to native

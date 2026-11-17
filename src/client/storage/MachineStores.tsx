@@ -1,27 +1,32 @@
 /**
  * The Stores boards: a machine page's Stores tab (`MachineStores`) and Home ›
  * Stores (`HomeStores`) draw the same tiles and cards (machine-stores.ts
- * holds a machine's data). On Home the tiles hold every Store: a SQLite card
- * says which machine holds its file, a PostgreSQL card the host's check and
- * the machines attached to it.
+ * holds their data).
  *
- * Two tiles at the top switch between the machine's SQLite Stores (the file
- * lives on its disk: push and pull move it) and the PostgreSQL Stores
- * attached to it (the data stays on its server: attach and detach change
- * which machines dial it). The choice is remembered per viewer and machine.
+ * Two tiles at the top switch between SQLite Stores (the file lives on a
+ * machine's disk: push and pull move it) and PostgreSQL Stores (the data
+ * stays on its server; a Store is on no machine, it only has a machine its
+ * sessions run on). The choice is remembered per viewer and machine. A
+ * machine page lists the PostgreSQL Stores that run there.
  *
  * Both kinds draw the same card, split by the Store's projects:
  *
  *   head      name (opens the Store) · ⋯
  *   figure    one large figure: the file's size (SQLite), else the projects'
  *             packed bytes, else their count (PostgreSQL); small words beside
- *             it (projects, last write; or version and the server dialled)
+ *             it (last write; or the database)
+ *   where     Stored on its machine (SQLite, Home only); Runs on a machine,
+ *             with Change (PostgreSQL)
  *   rows      up to three projects (the LayerFS mark), each with its bytes and
  *             its own bar: its share of the file, or of the projects
  *   status    only when something is happening: a transfer, in use, down
- *   foot      the backups badge (SQLite) or the last check (PostgreSQL) on
- *             the left; one action on the right (PostgreSQL: and a ⋯ with
- *             the other of Check again and Edit; the head's ⋯ has the rest)
+ *   foot      the backups badge and one action (SQLite); a PostgreSQL card
+ *             has a foot only for "+N projects" or a status its server's
+ *             header does not already say
+ *
+ * PostgreSQL cards sit under a thin header per server: its address, the
+ * host's own check (reachable, latency), the user, the version, and Add
+ * database. There is one view of them: no server cards, no second view.
  *
  * The backups badge counts the Store's bucket copies, marks their providers
  * and dots the worst state; it opens Backups (BackupDialogs.tsx).
@@ -29,22 +34,22 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
-import { ago, bytes, when } from '../files/format.ts'
+import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { Card, LinkButton, MoreMenu } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
 import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { failedStep, machineStores, projectSplit, routedServer, startKind, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { attachmentsOf, cardJob, loopbackAlias } from './model.ts'
+import { machineStores, projectSplit, serverGroups, startKind, storeOffServer, type PgServerGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
+import { cardJob, runsOnOf } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
 import type { StoreProjectsView } from './store-page.ts'
-import { HOME_SCOPE, readStoreKind, readStoresAlt, STORES_ALT_DEFAULT, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
-import type { PgAttachment, StorageJob, StorageView, StoreRow } from './types.ts'
+import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
+import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './MachineStores.module.css'
 
 const COUNTING_POLL_MS = 2000
@@ -61,8 +66,10 @@ export interface MachineStoresProps {
   actionsFor: (s: StoreRow) => StoreActions
   /** Add Store's SQLite side: push a Store to this machine. */
   onPushHere: (machine: string) => void
-  /** Connect a database: attach a connected one, or connect a new one and attach it. */
+  /** Connect a database: a new one that runs here, or one already connected set to run here. */
   onConnect: (machine: string) => void
+  /** The PostgreSQL Stores with a Sandbox on this machine now (the Machines view knows): listed beside those that run here by default. */
+  busy?: ReadonlySet<string> | undefined
   onOpenStore: (name: string) => void
   /** Opens a project, by `store/project`. */
   onOpenProject: (key: string) => void
@@ -91,18 +98,17 @@ interface BoardProps extends CardProps {
   scope: string
   sqlite: StoreRow[]
   sqliteBytes: number | null
-  /** PostgreSQL Stores, with this machine's attachment (null on Home). */
-  postgresql: { store: StoreRow, attachment: PgAttachment | null }[]
+  postgresql: StoreRow[]
   noSqlite: string | null
   noPostgresql: string | null
   /** Per kind: the tile's small role word, the panel's note, its add button and its empty line. */
   words: Record<StoreKind, { role: string, note: string, add: ReactNode, empty: string }>
   /**
-   * Home only: per kind, a second view the bar's small switch swaps in for the
-   * Store cards (SQLite: the backup buckets; PostgreSQL: the servers), with
-   * the switch's two labels and counts and the view's own actions.
+   * Home only, SQLite only: a second view the bar's small switch swaps in for
+   * the Store cards (the backup buckets), with the switch's two labels and
+   * counts and the view's own actions.
    */
-  alt?: Record<StoreKind, AltView> | undefined
+  alt?: AltView | undefined
 }
 
 export interface AltView {
@@ -118,15 +124,15 @@ function StoresBoard(props: BoardProps): ReactNode {
   const { scope, t, words } = props
   const [kind, setKindState] = useState<StoreKind>(() => startKind(props, readStoreKind(scope)))
   const setKind = (k: StoreKind) => { setKindState(k); writeStoreKind(scope, k) }
-  const [alts, setAlts] = useState(() => ({ sqlite: readStoresAlt('sqlite'), postgresql: readStoresAlt('postgresql') }))
-  const setAlt = (k: StoreKind, on: boolean) => { setAlts((a) => ({ ...a, [k]: on })); writeStoresAlt(k, on) }
+  const [buckets, setBucketsState] = useState(() => readStoresAlt())
+  const setBuckets = (on: boolean) => { setBucketsState(on); writeStoresAlt(on) }
   // a link elsewhere (a bucket page's crumb, an old Backups link) points Home's board at a kind and view
   useEffect(() => (scope !== HOME_SCOPE ? undefined : watchHomeStores(() => {
     setKindState(readStoreKind(HOME_SCOPE) ?? 'sqlite')
-    setAlts({ sqlite: readStoresAlt('sqlite'), postgresql: readStoresAlt('postgresql') })
+    setBucketsState(readStoresAlt())
   })), [scope])
-  const alt = props.alt?.[kind]
-  const showAlt = !!alt && alts[kind]
+  const alt = kind === 'sqlite' ? props.alt : undefined
+  const showAlt = !!alt && buckets
   const tiles: { kind: StoreKind, label: string, figure: string, why: string | null }[] = [
     {
       kind: 'sqlite', label: t('sqlite'),
@@ -164,12 +170,11 @@ function StoresBoard(props: BoardProps): ReactNode {
         </div>
         {alt ? (
           <div className={css.views} role="tablist" aria-label={t('hsViewLabel')}>
-            {/* the kind's default view first (PostgreSQL: Servers) */}
-            {(STORES_ALT_DEFAULT[kind] ? [true, false] as const : [false, true] as const).map((on) => {
+            {([false, true] as const).map((on) => {
               const v = on ? alt.other : alt.main
               return (
                 <button key={String(on)} type="button" role="tab" className={css.view} aria-selected={showAlt === on}
-                  aria-controls={`lfs-ms-${scope}-panel`} onClick={() => setAlt(kind, on)} data-stores-view={on ? 'alt' : 'stores'}>
+                  aria-controls={`lfs-ms-${scope}-panel`} onClick={() => setBuckets(on)} data-stores-view={on ? 'alt' : 'stores'}>
                   {v.label}<span className={css.viewCount}>{v.count}</span>
                 </button>
               )
@@ -185,7 +190,7 @@ function StoresBoard(props: BoardProps): ReactNode {
             ? <div className={css.grid}>{props.sqlite.map((s) => <SqliteCard key={s.name} s={s} {...props} />)}</div>
             : <p className={css.empty}>{words.sqlite.empty}</p>
           : props.postgresql.length
-            ? <div className={css.grid}>{props.postgresql.map(({ store, attachment }) => <PgCard key={store.name} s={store} a={attachment} {...props} />)}</div>
+            ? <PgGroups {...props} stores={props.postgresql} />
             : <p className={css.empty}>{words.postgresql.empty}</p>}
       </section>
     </div>
@@ -194,7 +199,7 @@ function StoresBoard(props: BoardProps): ReactNode {
 
 export function MachineStores(props: MachineStoresProps): ReactNode {
   const { machine, view, t } = props
-  const stores = machineStores(view, machine, t)
+  const stores = machineStores(view, machine, t, props.busy)
   const place = machine === 'native' ? t('layerfsHome') : machine
   const plus = <IconPlusOutlineRegular size={12} />
   return (
@@ -207,10 +212,9 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
         empty: stores.noSqlite ?? t('msSqliteEmpty', { machine: place }),
       },
       postgresql: {
-        role: t('msAttached'),
+        role: t('msRunsHere'),
         note: t('msPgBody', { machine: place }),
-        add: <Button variant="outline" size="sm" icon={plus} disabled={!!stores.noPostgresql || view.features?.attach !== true}
-          title={stores.noPostgresql ?? (view.features?.attach !== true ? t('attachUnsupported') : undefined)}
+        add: <Button variant="outline" size="sm" icon={plus} disabled={!!stores.noPostgresql} title={stores.noPostgresql ?? undefined}
           onClick={() => props.onConnect(machine)}>{t('connectDatabase')}</Button>,
         empty: stores.noPostgresql ?? t('msPgEmpty', { machine: place }),
       },
@@ -224,8 +228,8 @@ export interface HomeStoresProps extends Omit<CardProps, 'machine'> {
   onNewStore: () => void
   /** Connect a database (a new PostgreSQL Store). */
   onConnect: () => void
-  /** The second view per kind: SQLite's backup buckets, PostgreSQL's servers. */
-  alt: Record<StoreKind, AltView>
+  /** SQLite's second view: the backup buckets. */
+  alt: AltView
 }
 
 /** Home › Stores: every Store, on the machine page's tiles and cards. */
@@ -236,7 +240,7 @@ export function HomeStores(props: HomeStoresProps): ReactNode {
   const plus = <IconPlusOutlineRegular size={12} />
   return (
     <StoresBoard {...props} machine={null} scope={HOME_SCOPE} sqlite={sqlite} sqliteBytes={sizes.length ? sizes.reduce((a, n) => a + n, 0) : null}
-      postgresql={props.stores.filter((s) => s.kind === 'postgresql').map((store) => ({ store, attachment: null }))}
+      postgresql={props.stores.filter((s) => s.kind === 'postgresql')}
       noSqlite={null} noPostgresql={null} words={{
         sqlite: {
           role: t('hsSqliteRole'), note: t('hsSqliteBody'), empty: t('hsSqliteEmpty'),
@@ -288,10 +292,7 @@ function Figure({ big, meta, title, tone }: { big: ReactNode, meta: ReactNode, t
   )
 }
 
-/** Machine chips a PostgreSQL card shows before "+N". */
-const CHIPS = 2
-
-/** A machine as a chip: its mark, its name and a dot (running, or its last check); it opens the machine. */
+/** A machine as a chip: its mark, its name and a dot (running or not); it opens the machine. */
 function MachineChip({ name, view, t, health, title, onOpen }: {
   name: string | null, view: StorageView, t: StorageT, health: 'current' | 'problem' | 'unknown' | null, title?: string | undefined, onOpen: (name: string) => void
 }): ReactNode {
@@ -307,42 +308,22 @@ function MachineChip({ name, view, t, health, title, onOpen }: {
 }
 
 /**
- * Home only: where a Store lives, on one line in the same place on both
- * kinds. SQLite: "Stored on" its one machine (the dot: running or not).
- * PostgreSQL: "Attached" machines, failing first, each dotted by its last
- * check, then "+N" and Attach.
+ * Where a Store is, on one line in the same place on both kinds. SQLite:
+ * "Stored on" its one machine. PostgreSQL: "Runs on" the machine its sessions
+ * start on (the plugin's choice; the Store itself is on no machine), then
+ * Change. The dot says whether the machine runs.
  */
-export function MachineLine({ s, view, t, on, onOpenStore }: { s: StoreRow, view: StorageView, t: StorageT, on: StoreActions, onOpenStore: (name: string) => void }): ReactNode {
-  if (s.kind === 'sqlite') {
-    const state = view.machines.find((m) => m.name === s.machine)?.state ?? null
-    const health = s.machine === 'native' || state === 'running' ? 'current' : state ? 'unknown' : null
-    return (
-      <div className={css.machines}>
-        <span className={css.machinesLabel}>{t('hsStoredOn')}</span>
-        <MachineChip name={s.machine} view={view} t={t} health={health} onOpen={on.openMachine}
-          title={[s.machine === 'native' ? t('layerfsHome') : s.machine ?? '?', state].filter(Boolean).join(' · ')} />
-      </div>
-    )
-  }
-  const list = [...attachmentsOf(s)].sort((a, b) => Number(!!b.lastError) - Number(!!a.lastError) || a.machine.localeCompare(b.machine))
-  const shown = list.slice(0, CHIPS)
-  const rest = list.slice(CHIPS)
-  const name = (m: string) => (m === 'native' ? t('layerfsHome') : m)
+export function MachineLine({ s, view, t, on }: { s: StoreRow, view: StorageView, t: StorageT, on: StoreActions }): ReactNode {
+  const pg = s.kind === 'postgresql'
+  const machine = pg ? runsOnOf(s) : s.machine
+  const state = view.machines.find((m) => m.name === machine)?.state ?? null
+  const health = machine === 'native' || state === 'running' ? 'current' : state ? 'unknown' : null
   return (
     <div className={css.machines}>
-      <span className={css.machinesLabel}>{t('hsAttachedLabel')}</span>
-      {list.length === 0 ? <span className={css.machinesNone}>{t('hsNoMachine')}</span> : null}
-      {shown.map((a) => (
-        <MachineChip key={a.machine} name={a.machine} view={view} t={t} onOpen={on.openMachine}
-          health={a.lastError ? 'problem' : a.checked ? 'current' : 'unknown'}
-          title={[name(a.machine), a.lastError ? `${failWords(a.lastError, t)}: ${a.lastError.message}` : a.checked ? t('msReachableMs', { latency: a.checked.latencyMs ?? '—' }) : t('msNotCheckedShort')].join(' · ')} />
-      ))}
-      {rest.length ? (
-        <button type="button" className={css.chip} onClick={() => onOpenStore(s.name)} title={rest.map((a) => name(a.machine)).join(', ')}>
-          +{rest.length}{rest.some((a) => a.lastError) ? <span className={css.dot} data-health="problem" /> : null}
-        </button>
-      ) : null}
-      {view.features?.attach === true ? <button type="button" className={css.chip} data-add onClick={() => on.attach()}>{t('hsAttach')}</button> : null}
+      <span className={css.machinesLabel}>{pg ? t('pgRunsOnLabel') : t('hsStoredOn')}</span>
+      <MachineChip name={machine} view={view} t={t} health={health} onOpen={on.openMachine}
+        title={[machine === 'native' ? t('layerfsHome') : machine ?? '?', state].filter(Boolean).join(' · ')} />
+      {pg ? <button type="button" className={css.chip} data-add onClick={on.changeRunsOn} title={t('pgRunsOnHint')}>{t('pgRunsOnChange')}</button> : null}
     </div>
   )
 }
@@ -452,7 +433,7 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
     <Card className={css.card} data-store={s.name} data-kind="sqlite">
       <Head s={s} on={on} t={t} onOpenStore={onOpenStore} />
       <SizeFigure s={s} t={t} now={now} last={last} />
-      {machine === null ? <MachineLine s={s} view={view} t={t} on={on} onOpenStore={onOpenStore} /> : null}
+      {machine === null ? <MachineLine s={s} view={view} t={t} on={on} /> : null}
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />
       <div className={css.foot}>
         <BackupsBadge s={s} view={view} t={t} onBackups={() => onBackups(s.name)} onBackup={on.backup} />
@@ -466,67 +447,61 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   )
 }
 
-/** A failed check in a few words: the step LayerFS names (machine-stores.ts `failedStep`), else its code. */
-function failWords(e: { code: string, message: string }, t: StorageT): string {
-  switch (failedStep(e.code, e.message)) {
-    case 'server': return t('msFailServer')
-    case 'store': return t('msFailStore')
-    case 'write': return t('msFailWrite')
-    default: return e.code
-  }
+/**
+ * PostgreSQL: the cards under one thin header per server. The header says
+ * what the host's own check of the server found, once for all its
+ * databases, and adds another database on it.
+ */
+function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
+  const { t, actionsFor } = props
+  return (
+    <div className={css.pgGroups}>
+      {serverGroups(props.stores).map((g) => {
+        const version = g.version ? t('msPgShort', { version: g.version.split(' ')[0]! }) : null
+        const check = g.state === 'failed' ? t('hsUnreachable') : g.state === 'ok' ? t('msReachableMs', { latency: g.latencyMs ?? '—' }) : t('msNotCheckedShort')
+        return (
+          <section key={g.server} className={css.pgGroup} data-pg-server={g.server} aria-label={g.server}>
+            <header className={css.pgServer}>
+              <StoreGlyph kind="postgresql" size={14} />
+              <span className={css.pgServerName} title={g.server}>{g.server}</span>
+              <span className={css.check} data-state={g.state === 'failed' ? 'failed' : undefined} title={g.error ?? undefined}>
+                <span className={css.dot} data-health={g.state === 'ok' ? 'current' : g.state === 'failed' ? 'problem' : 'unknown'} />{check}
+              </span>
+              <span className={css.pgServerFacts}>{[g.user, version].filter(Boolean).join(' · ')}</span>
+              <span className={css.pgServerAdd}>
+                <Button size="sm" variant="ghost" icon={<IconPlusOutlineRegular size={12} />} onClick={() => actionsFor(g.stores[0]!).newOnServer()}>{t('ovConnectHere')}</Button>
+              </span>
+            </header>
+            <div className={css.grid}>{g.stores.map((s) => <PgCard key={s.name} s={s} group={g} {...props} />)}</div>
+          </section>
+        )
+      })}
+    </div>
+  )
 }
 
-/** A PostgreSQL target's server: `user@host:port/db` gives `host:port`. */
-function serverOf(target: string | null | undefined): string | null {
-  if (!target) return null
-  const rest = target.slice(target.indexOf('@') + 1)
-  const slash = rest.indexOf('/')
-  return slash >= 0 ? rest.slice(0, slash) : rest
-}
-
-/** The server `machine` dials: its own connection's, else the Store's with a loopback host renamed for the machine (host.docker.internal…). */
-function dialedServer(s: StoreRow, a: PgAttachment, platform: string | undefined): string | null {
-  if (a.own && a.target) return serverOf(a.target)
-  const server = serverOf(s.postgresql?.target)
-  return server ? routedServer(server, platform ? loopbackAlias(platform) : null) : null
-}
-
-function PgCard({ s, a, api, machine, t, view, now, actionsFor, onOpenStore, onOpenProject }: CardProps & { s: StoreRow, a: PgAttachment | null }): ReactNode {
+function PgCard({ s, group, api, machine, t, view, now, actionsFor, onOpenStore, onOpenProject }: CardProps & { s: StoreRow, group: PgServerGroup }): ReactNode {
   const on = actionsFor(s)
   const split = useSplit(api, s, null)
-  const tt = t as Translate
   const pg = s.postgresql
-  // On a machine page: this machine's attachment and its check. On Home: the host's own check and the machines attached.
-  const here = a !== null && machine !== null
-  const failed = here ? !!a.lastError : pg?.reachable === false
-  const target = here && a.own && a.target ? a.target : pg?.target ?? null
-  const server = here ? dialedServer(s, a, view.machines.find((m) => m.name === machine)?.platform) : pg?.server ?? serverOf(pg?.target)
-  const checked = here ? a.checked : pg && pg.reachable === true ? { at: null, version: pg.version, latencyMs: pg.latencyMs } : null
   const counted = split?.rows.filter((r) => r.bytes !== null) ?? []
   const total = counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null
-  const versionText = checked?.version ?? pg?.version ?? null
-  const version = versionText ? t('msPgShort', { version: versionText.split(' ')[0]! }) : null
-  const recheckHere: Act | null = here ? { label: t('msCheckAgain'), run: () => on.recheck(a) } : null
-  const editHere: Act | null = here ? { label: t('msEditConnection'), run: () => on.attach(machine, a) } : null
+  // said only when it is not what the server's header says: this database fails while its server answers
+  const off = storeOffServer(s, group)
+  const more = s.projects.length > ROWS
   return (
-    <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={failed ? 'danger' : undefined}>
+    <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={off !== null ? 'danger' : undefined}>
       <Head s={s} on={on} t={t} machine={machine ?? undefined} onOpenStore={onOpenStore} />
-      <Figure big={total !== null ? bytes(total) : projectsWords(s.projects.length, t)} title={target ?? undefined}
-        meta={version || server ? <span className={css.metaText}>{[version, server].filter(Boolean).join(' · ')}</span> : null} />
-      {machine === null ? <MachineLine s={s} view={view} t={t} on={on} onOpenStore={onOpenStore} /> : null}
+      <Figure big={total !== null ? bytes(total) : projectsWords(s.projects.length, t)} title={pg?.target ?? undefined}
+        meta={pg?.database ? <span className={css.metaText}>{pg.database}</span> : null} />
+      <MachineLine s={s} view={view} t={t} on={on} />
       <Slot s={s} split={split} t={t} now={now} onAdd={on.addProject} onOpenProject={onOpenProject} />
-      <div className={css.foot}>
-        {here && a.lastError
-          ? <span className={css.check} data-state="failed" title={`${a.lastError.code}: ${a.lastError.message} · ${when(a.lastError.at)}`}><span className={css.dot} data-health="problem" />{failWords(a.lastError, t)} · {ago(a.lastError.at, now, tt)}</span>
-          : failed
-            ? <span className={css.check} data-state="failed" title={pg?.error ?? t('unreachable')}><span className={css.dot} data-health="problem" />{here ? t('hsUnreachable') : t('hsHomeUnreachable')}</span>
-            : checked
-              ? <span className={css.check} title={[checked.version, checked.at ? when(checked.at) : null].filter(Boolean).join(' · ')}><span className={css.dot} data-health="current" />{here ? t('msReachableMs', { latency: checked.latencyMs ?? '—' }) : t('hsHomeReaches', { latency: checked.latencyMs ?? '—' })}</span>
-              : <span className={css.check}><span className={css.dot} data-health="unknown" />{t('msNotCheckedShort')}</span>}
-        <More s={s} shown={ROWS} t={t} onOpenStore={onOpenStore} />
-        {/* on Home, Attach is the machine line's last chip */}
-        {recheckHere && editHere ? <FootActions label={t('msMoreActions', { name: s.name })} main={failed ? editHere : recheckHere} rest={[failed ? recheckHere : editHere]} /> : null}
-      </div>
+      {off !== null || more ? (
+        <div className={css.foot}>
+          {off !== null ? <span className={css.check} data-state="failed" title={off || t('unreachable')}><span className={css.dot} data-health="problem" />{t('hsUnreachable')}</span> : null}
+          <More s={s} shown={ROWS} t={t} onOpenStore={onOpenStore} />
+        </div>
+      ) : null}
     </Card>
   )
 }

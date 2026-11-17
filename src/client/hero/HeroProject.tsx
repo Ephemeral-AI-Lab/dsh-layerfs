@@ -95,7 +95,7 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
   const loadProjects = () => {
     setLoadError(false)
     listProjects(api).then(({ rows: list, scratchKey: key }) => { setRows(list); setScratchKey(key) }, () => setLoadError(true))
-    // Where each project runs (its SQLite Store's machine, or its PostgreSQL Store's attached machines).
+    // Where each project runs (its SQLite Store's machine, or the machine its PostgreSQL Store's sessions run on).
     api.call<StorageView>('GET', '/api/storage').then(setStorage, () => {})
   }
   useEffect(loadProjects, [api])

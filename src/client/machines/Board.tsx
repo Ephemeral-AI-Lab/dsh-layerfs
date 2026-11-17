@@ -31,7 +31,7 @@ import css from './machines.module.css'
 
 /**
  * `onAddStore`: Storage's Add Store dialog for a machine (move a SQLite Store
- * there, or attach a PostgreSQL one); `storeMenu`: a Store row's menu for a
+ * there, or connect a PostgreSQL one); `storeMenu`: a Store row's menu for a
  * machine (Storage's Store actions). Without them the Stores column has
  * neither.
  */

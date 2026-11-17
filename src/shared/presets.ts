@@ -161,8 +161,8 @@ export interface DemoPreset {
   contentReady: boolean
   projectDefinitions: PresetProjectDefinition[]
   machineDefinitions: { name: string, platform: string, cpus?: number, memory?: string, disk?: string }[]
-  /** `machine` holds a SQLite Store, or is the first machine a PostgreSQL Store is attached to (`attach` lists the others). */
-  projectGroups: { store: string, kind?: 'sqlite' | 'postgresql', machine: string, attach?: string[], projects: string[] }[]
+  /** `machine` holds a SQLite Store, or is where a PostgreSQL Store's sessions run by default. */
+  projectGroups: { store: string, kind?: 'sqlite' | 'postgresql', machine: string, projects: string[] }[]
   machines: string[]
   stores: number
   projects: number

@@ -10,7 +10,7 @@
  */
 export type StoreTab = 'overview' | 'projects' | 'backups' | 'connections'
 
-/** The third tab follows the Store's family: a SQLite Store has backups, a PostgreSQL Store has machine connections. */
+/** The third tab follows the Store's family: a SQLite Store has backups, a PostgreSQL Store has its connection. */
 export function storeTabs(kind: string): StoreTab[] {
   return ['overview', 'projects', kind === 'postgresql' ? 'connections' : 'backups']
 }

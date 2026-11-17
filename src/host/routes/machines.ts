@@ -29,6 +29,7 @@ import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type Mac
 import { Answer, cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
+import { pgMachineOf, StoreMachines } from '../store-machines.ts'
 import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -200,8 +201,6 @@ export function machineOf(m: any) {
     memory: num(m.memory),
     disk: num(m.disk),
     stores: list(m.stores).map(String),
-    // the PostgreSQL Stores attached to it (store.attach); absent from a CLI before attachments
-    ...(Array.isArray(m.postgresql) ? { postgresql: m.postgresql.map(String) } : {}),
     sandboxes: list(m.sandboxes).map(String),
     ...(text(m.image) ? { image: m.image } : {}),
     ...(text(m.docker) ? { docker: m.docker } : {}),
@@ -238,10 +237,14 @@ export function storeOf(s: any) {
   return { name: String(s.name), machine, projects: count(s.projects), names: Array.isArray(s.projects) ? s.projects.map(String) : [], size: null, state: text(s.state) ?? 'unknown', op: opOf(s.op) }
 }
 
-/** One store.list() item, when it is a PostgreSQL Store (on no machine: Sandboxes reach its database). */
-export function pgStoreOf(s: any) {
+/**
+ * One store.list() item, when it is a PostgreSQL Store (on no machine: Sandboxes
+ * reach its database). `runsOn`: the machine its sessions run on by default,
+ * this DSH install's own choice (store-machines.ts).
+ */
+export function pgStoreOf(s: any, runsOn: string | null = null) {
   if (s.kind !== 'postgresql') return null
-  return { name: String(s.name), projects: count(s.projects), names: Array.isArray(s.projects) ? s.projects.map(String) : [], state: text(s.state) ?? 'unknown', op: opOf(s.op), machines: s.machines && typeof s.machines === 'object' ? Object.entries(s.machines).map(([machine, a]: [string, any]) => ({ machine, checked: !!a?.checked })) : null }
+  return { name: String(s.name), projects: count(s.projects), names: Array.isArray(s.projects) ? s.projects.map(String) : [], state: text(s.state) ?? 'unknown', op: opOf(s.op), runsOn }
 }
 
 /** One sandbox.list() item; `live` (and `liveReason`) only when LayerFS answered it (the `live` option, layerfs-project#164). */
@@ -357,7 +360,8 @@ export class Machines {
       Promise.all(machines.filter((m) => m.platform !== 'native' && ASK_STATUS.has(m.state)).map((m) => lfs.machine.status(m.name).then(statusOf, (e: any) => ({ name: m.name, state: null, freeDisk: null, toolVersion: null, down: e?.message ?? String(e), op: null })))),
     ])
     const stores = listedStores.map(storeOf).filter(Boolean)
-    const postgresql = listedStores.map(pgStoreOf).filter(Boolean)
+    const saved = new StoreMachines(this.host.root)
+    const postgresql = listedStores.map((s: any) => pgStoreOf(s, s.kind === 'postgresql' ? pgMachineOf(saved.get(String(s.name)), listed.machines ?? []) : null)).filter(Boolean)
     // features: what the pinned CLI can do (force stop, the image stage and its parts); the page offers only those
     const answer: any = { available: true, readErrors, layerfs: version, features, computer: computer(host), machines, platforms, stores, postgresql, sandboxes, status: Object.fromEntries(statuses.map((s: any) => [s.name, s])) }
     for (const [part, fields] of Object.entries({ stores: ['stores', 'postgresql'], sandboxes: ['sandboxes'], platforms: ['platforms'] })) {

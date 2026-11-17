@@ -3,7 +3,9 @@ import { useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, Input, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { StoreKindGlyph } from '../machines/icons.tsx'
 import { Field, Refusal, type RefusalLabels } from '../ui/index.tsx'
+import type { LocationWords } from '../projects/setup/MachineTiles.tsx'
 import type { StorageT } from './locale.ts'
+import type { StorageView } from './types.ts'
 import css from './Storage.module.css'
 
 /** The words a LayerFS refusal needs, from Storage's dictionary. */
@@ -194,4 +196,14 @@ export function FileGlyph({ size = 14 }: { size?: number }): ReactNode {
       <path d="M8.75 1.75V6.25h4.5" />
     </svg>
   )
+}
+
+/** A machine picker's words (projects/setup MachineTiles), for this computer's OS. */
+export function locationWords(t: StorageT, view: Pick<StorageView, 'computer'> | undefined): LocationWords {
+  const os = view?.computer?.os
+  return {
+    home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'nsThisLinux' : os === 'windows' ? 'nsThisPc' : 'nsThisMac'),
+    running: t('nsRunning'), stopped: t('nsStopped'), default: t('nsDefault'), here: t('nsHere'),
+    nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac',
+  }
 }

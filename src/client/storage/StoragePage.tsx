@@ -35,7 +35,8 @@ import { HomeOverview } from './HomeOverview.tsx'
 import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { MachineStores } from './MachineStores.tsx'
-import { attachmentsOf, bucketFiles, cardJob, inHome, orderStores } from './model.ts'
+import { serverKey } from './machine-stores.ts'
+import { bucketFiles, cardJob, inHome, orderStores, runsOnOf } from './model.ts'
 import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
@@ -171,17 +172,15 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
     }),
     start: () => act(() => api.call('POST', `/api/machines/${enc(s.machine ?? '')}/start`)),
     addProject: () => setDialog({ kind: 'add-project', store: s.name }),
-    attach: (machine, edit) => setDialog({ kind: 'attach', store: s.name, ...(machine ? { machine } : {}), ...(edit ? { edit } : {}) }),
-    recheck: (a) => act(() => api.call('POST', `/api/stores/${enc(s.name)}/attach`, { machine: a.machine, ...(a.url ? { url: a.url } : {}), ...(a.password ? { password: a.password } : {}) })),
-    detach: (machine) => setDialog({
-      kind: 'confirm', title: t('detachTitle', { store: s.name, machine: machine === 'native' ? t('layerfsHome') : machine }),
-      body: t('detachBody', { machine: machine === 'native' ? t('layerfsHome') : machine }), action: t('detach'),
-      run: () => api.call('POST', `/api/stores/${enc(s.name)}/detach`, { machine }),
+    editConnection: (machine) => setDialog({ kind: 'pg-edit', store: s.name, ...(machine ? { machine } : {}) }),
+    check: (machine) => setDialog({ kind: 'connect', check: { store: s.name, ...(machine ? { machine } : {}) } }),
+    changeRunsOn: () => setDialog({ kind: 'pg-runs-on', store: s.name }),
+    removeOwn: (machine) => setDialog({
+      kind: 'confirm', title: t('pgRemoveOwnTitle', { store: s.name, machine: machine === 'native' ? t('layerfsHome') : machine }),
+      body: t('pgRemoveOwnBody', { machine: machine === 'native' ? t('layerfsHome') : machine }), action: t('pgRemoveOwn'),
+      run: () => api.call('POST', `/api/stores/${enc(s.name)}/connection`, { machine, clear: true }),
     }),
-    newOnServer: () => {
-      const pg = s.postgresql
-      if (pg?.url && pg.server) setDialog({ kind: 'new-store', postgresql: true, server: { server: pg.server, url: pg.url, from: s.name } })
-    },
+    newOnServer: () => setDialog({ kind: 'connect', server: serverKey(s) }),
     retry: (j) => { dismiss(j.id); act(() => retry(j)) },
     dismiss: (j) => dismiss(j.id),
     openMachine,
@@ -208,9 +207,9 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
       .sort((a, b) => rank(a.name, a.platform) - rank(b.name, b.platform) || a.name.localeCompare(b.name))
   }, [view?.machines, fleet?.machines])
   const kindWord = (s: StoreRow) => (s.kind === 'postgresql' ? 'PostgreSQL' : 'SQLite')
-  /** Where a Store lives: its machine (SQLite), or the machines it is attached to (PostgreSQL). */
+  /** Where a Store is: its machine (SQLite), or the machine its sessions run on (PostgreSQL). */
   const storeWhere = (s: StoreRow): string => s.kind === 'postgresql'
-    ? t('jumpAttached', { machines: attachmentsOf(s).map((a) => machineWord(a.machine)).join(', ') })
+    ? t('pgRunsOn', { machine: machineWord(runsOnOf(s)) })
     : machineWord(inHome(s) ? 'native' : s.machine ?? '')
   const stores = orderStores(view?.stores ?? [])
   const sandboxes = fleet?.sandboxes ?? []
@@ -277,7 +276,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const add: AddItem[] = [
     { id: 'project', label: t('newProject'), run: () => projectDialog.open({ mode: 'new' }) },
     { id: 'store', label: t('newStore'), run: () => setDialog({ kind: 'new-store' }) },
-    { id: 'database', label: t('connectDatabaseRow'), run: () => setDialog({ kind: 'new-store', postgresql: true }) },
+    { id: 'database', label: t('connectDatabaseRow'), run: () => setDialog({ kind: 'connect' }) },
     ...(canCreate ? [{ id: 'machine', label: t('newMachine'), run: () => setNewMachine(true) }] : []),
     { id: 'bucket', label: t('addBucket'), run: () => setDialog({ kind: 'bucket' }) },
     { id: 'presets', label: more.presets('openTitle'), run: () => setPresetsOpen(true) },
@@ -286,7 +285,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const dialogs = (
     <>
       <PresetsDialog api={api} t={more.presets} open={presetsOpen} onClose={() => setPresetsOpen(false)} />
-      <StorageDialogs api={api} t={t} dialog={dialog} view={view} onClose={() => setDialog(null)} done={refresh} onOpenStore={(name) => open(`store:${name}`)} onDialog={setDialog} />
+      <StorageDialogs api={api} t={t} dialog={dialog} view={view} onClose={() => setDialog(null)} done={refresh} onDialog={setDialog} />
       {newMachine && fleet ? (
         <AddMachineDialog view={fleet} platforms={fleet.platforms} onClose={() => setNewMachine(false)} onMade={(name) => { setNewMachine(false); open(`machine:${name}`) }} />
       ) : null}
@@ -307,7 +306,8 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
           storesTab={view ? (machine) => (
             <MachineStores api={api} machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor}
-              onPushHere={(m) => setDialog({ kind: 'to-machine', machine: m })} onConnect={(m) => setDialog({ kind: 'pg-to-machine', machine: m })}
+              busy={new Set(sandboxes.filter((b) => b.machine === machine && b.project).map((b) => b.project!.split('/')[0]!))}
+              onPushHere={(m) => setDialog({ kind: 'to-machine', machine: m })} onConnect={(m) => setDialog({ kind: 'connect', machine: m })}
               onOpenStore={(name) => open(`store:${name}`)} onOpenProject={(key) => open(`project:${key}`)} onBackups={(store) => setDialog({ kind: 'backups', store })} />
           ) : undefined} />
       )
@@ -321,7 +321,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
         <Page wide label={t('title')}>
           <HomeOverview view={view} error={storage.error} t={t} setup={more.setup} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed}
             onOpen={open} onRefresh={refresh} onCheckAgain={() => setChecks((n) => n + 1)}
-            onNewStore={() => setDialog({ kind: 'new-store' })} onConnect={() => setDialog({ kind: 'new-store', postgresql: true })}
+            onNewStore={() => setDialog({ kind: 'new-store' })} onConnect={() => setDialog({ kind: 'connect' })}
             onBackups={(store) => setDialog({ kind: 'backups', store })} onNewMachine={() => setNewMachine(true)} onPresets={() => setPresetsOpen(true)} presetsLabel={more.presets('openTitle')}
             onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
             onRemoveProject={(store, project) => setDialog({
@@ -330,7 +330,6 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
             })}
             onRetry={(j) => { dismiss(j.id); act(() => retry(j)) }} onDismiss={(j) => dismiss(j.id)}
             onBackup={(name) => { const s = storeNamed(name); if (s) setDialog({ kind: 'backup', store: s }) }}
-            onRecheck={(name, a) => { const s = storeNamed(name); if (s) actionsFor(s).recheck(a) }}
             actionsFor={actionsFor} onAddBucket={() => setDialog({ kind: 'bucket' })} onListBucket={listBucket} onRestore={(bucket, file) => setDialog({ kind: 'restore', bucket, file, store: null })} refreshKey={checks}
             tab={section} onTab={setSection} onListAll={listAll} listingAll={listingAll} />
         </Page>

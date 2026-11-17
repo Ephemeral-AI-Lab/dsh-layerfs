@@ -131,13 +131,13 @@ export class PresetManager {
     return {
       id: name, description: preset.description, executionMode, contentVersion: CONTENT_VERSION, contentReady, projectDefinitions,
       machineDefinitions: preset.machines.map((m: any) => typeof m === 'string' ? { name: m, platform: m } : m),
-      projectGroups: preset.stores.map((s: any) => ({ store: s.name, kind: s.kind === 'postgresql' ? 'postgresql' : 'sqlite', machine: s.machine, attach: s.attach ?? [], projects: s.projects })),
+      projectGroups: preset.stores.map((s: any) => ({ store: s.name, kind: s.kind === 'postgresql' ? 'postgresql' : 'sqlite', machine: s.machine, projects: s.projects })),
       machines: preset.machines.map((m: any) => typeof m === 'string' ? m : m.name),
       stores, projects,
       sandboxes: executionMode === 'mixed' ? projects : preset.sandboxes === false ? 0 : stores,
       workspaces: executionMode === 'mixed' ? 0 : preset.sandboxes === false ? 0 : stores * 2,
       requirements: [
-        ...(preset.stores.some((s: any) => s.machine === 'docker' || s.kind === 'postgresql' || s.attach?.includes('docker')) ? ['docker'] : []),
+        ...(preset.stores.some((s: any) => s.machine === 'docker' || s.kind === 'postgresql') ? ['docker'] : []),
         ...(preset.machines.some((m: any) => typeof m !== 'string') ? ['lima'] : []),
         ...((executionMode === 'mixed' || (stores && preset.sandboxes !== false)) ? ['daemon'] : []),
       ],

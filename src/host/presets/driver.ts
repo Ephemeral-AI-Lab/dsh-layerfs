@@ -19,6 +19,8 @@ export interface PresetSpec extends CliSpec {
   readonly state: string
   /** The matching native daemon, if pinned. */
   readonly daemon: string | null
+  /** Saves the machine a PostgreSQL Store's sessions run on by default (store-machines.ts). */
+  readonly runsOn?: (store: string, machine: string) => void
 }
 
 export class CliDriver {

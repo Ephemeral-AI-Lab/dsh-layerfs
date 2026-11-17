@@ -1,21 +1,22 @@
 /**
- * The machine page's Stores tab, as data (MachineStores.tsx draws it):
+ * The Stores boards, as data (MachineStores.tsx draws them):
  *
  * - `machineStores`: a machine's SQLite Stores (the file lives on its disk)
- *   and the PostgreSQL Stores attached to it (the data stays on its server),
+ *   and the PostgreSQL Stores that run here (their sessions run on it by
+ *   default, or one has a Sandbox on it now; the data stays on its server),
  *   with why the machine takes neither kind when it cannot;
- * - `pgServers`: the PostgreSQL Stores connected anywhere, grouped by server,
- *   for Connect a database: each says whether it is on this machine already
- *   and, when it cannot be attached here, why;
+ * - `serverGroups`: PostgreSQL Stores under their server, with what the
+ *   host's own check of that server found, for the board's thin server
+ *   header and for Connect a database;
  * - `parsePgUrl` / `pgUrl`: a connection URL from and to its parts (never a
  *   password: the host takes it apart from the URL);
  * - `projectSplit`: a Store card's project rows, by the bytes their Commits
  *   packed, each with its share.
  */
 import type { StorageT } from './locale.ts'
-import { attachmentsOf, attachRefusal } from './model.ts'
+import { pgStoresOn } from './model.ts'
 import { hueOf, type StoreProject } from './store-page.ts'
-import type { PgAttachment, StorageView, StoreRow } from './types.ts'
+import type { PgServer, StorageView, StoreRow } from './types.ts'
 
 export type StoreKind = 'sqlite' | 'postgresql'
 
@@ -23,25 +24,22 @@ export interface MachineStores {
   sqlite: StoreRow[]
   /** Their total size; null when no size is known. */
   sqliteBytes: number | null
-  postgresql: { store: StoreRow, attachment: PgAttachment }[]
+  postgresql: StoreRow[]
   /** Why the machine holds no SQLite Store, or null when it can. */
   noSqlite: string | null
   /** Why the machine runs no PostgreSQL Sandbox, or null when it can. */
   noPostgresql: string | null
 }
 
-export function machineStores(view: StorageView, machine: string, t: StorageT): MachineStores {
+/** `busy`: the PostgreSQL Stores with a Sandbox on `machine` now (the Machines view knows; absent, only the defaults show). */
+export function machineStores(view: StorageView, machine: string, t: StorageT, busy?: ReadonlySet<string>): MachineStores {
   const m = view.machines.find((x) => x.name === machine)
   const sqlite = view.stores.filter((s) => s.kind === 'sqlite' && s.machine === machine).sort((a, b) => a.name.localeCompare(b.name))
   const sizes = sqlite.map((s) => s.size?.bytes ?? null).filter((n): n is number => n != null)
-  const postgresql = view.stores.filter((s) => s.kind === 'postgresql').flatMap((store) => {
-    const attachment = attachmentsOf(store).find((a) => a.machine === machine)
-    return attachment ? [{ store, attachment }] : []
-  }).sort((a, b) => a.store.name.localeCompare(b.store.name))
   return {
     sqlite,
     sqliteBytes: sizes.length ? sizes.reduce((a, n) => a + n, 0) : null,
-    postgresql,
+    postgresql: pgStoresOn(view, machine, busy),
     noSqlite: m?.supports && m.supports.sqlite === false ? m.supports.reason || t('noStoresHere') : null,
     noPostgresql: m?.supports && !m.supports.postgresql_sandbox ? m.supports.reason || t('postgresql') : null,
   }
@@ -78,50 +76,77 @@ export function pgUrl(p: PgParts): string {
   return `postgresql://${p.user ? `${encodeURIComponent(p.user)}@` : ''}${p.host}/${encodeURIComponent(p.database)}`
 }
 
+/** A PostgreSQL Store's server (`host:port`): the key its card is grouped by. */
+export function serverKey(s: Pick<StoreRow, 'name' | 'postgresql'>): string {
+  const pg = s.postgresql
+  if (pg?.server) return pg.server
+  return parsePgUrl(pg?.target)?.host ?? pg?.target ?? s.name
+}
+
 export interface PgServerGroup {
   /** `host:port`, or the whole target when it cannot be read. */
   server: string
+  /** The user its Stores log in as (the first that names one). */
   user: string
-  stores: { store: StoreRow, database: string, here: boolean, why: string | null }[]
+  /** By name. */
+  stores: StoreRow[]
+  /**
+   * The host's own check of the server (store.status): `ok` when any of its
+   * Stores reached it, `failed` when none did and one was refused, `unknown`
+   * while no status answered.
+   */
+  state: 'ok' | 'failed' | 'unknown'
+  version: string | null
+  latencyMs: number | null
+  error: string | null
+}
+
+/** PostgreSQL Stores under their server, servers by address, Stores by name. */
+export function serverGroups(stores: readonly StoreRow[]): PgServerGroup[] {
+  const by = new Map<string, StoreRow[]>()
+  for (const s of stores) {
+    if (s.kind !== 'postgresql') continue
+    by.set(serverKey(s), [...(by.get(serverKey(s)) ?? []), s])
+  }
+  return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([server, list]) => {
+    const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name))
+    const reached: PgServer | null = sorted.find((s) => s.postgresql?.reachable === true)?.postgresql ?? null
+    const failing: PgServer | null = sorted.find((s) => s.postgresql?.reachable === false)?.postgresql ?? null
+    return {
+      server,
+      user: sorted.map((s) => s.postgresql?.user ?? parsePgUrl(s.postgresql?.target)?.user ?? '').find(Boolean) ?? '',
+      stores: sorted,
+      state: reached ? 'ok' : failing ? 'failed' : 'unknown',
+      version: reached?.version ?? null,
+      latencyMs: reached?.latencyMs ?? null,
+      error: reached ? null : failing?.error ?? null,
+    }
+  })
 }
 
 /**
- * Every PostgreSQL Store by its server (host and user), servers by name, the
- * Stores under each by name. `here`: attached to `machine` already; `why`:
- * why it cannot be attached to `machine` now (never "already attached",
- * which `here` says).
+ * A Store's own trouble, when it is not its server's: the server answers
+ * (another of its Stores reached it) but this database did not. Null when
+ * the Store says what its server's header already says.
  */
-export function pgServers(view: StorageView, machine: string, t: StorageT): PgServerGroup[] {
-  const groups = new Map<string, PgServerGroup>()
-  for (const store of view.stores) {
-    if (store.kind !== 'postgresql') continue
-    const parts = parsePgUrl(store.postgresql?.target)
-    const server = parts?.host ?? store.postgresql?.target ?? '?'
-    const user = parts?.user ?? ''
-    const key = `${user}@${server}`
-    const group = groups.get(key) ?? { server, user, stores: [] }
-    const here = attachmentsOf(store).some((a) => a.machine === machine)
-    group.stores.push({ store, database: parts?.database ?? store.name, here, why: here ? null : attachRefusal(view, store, machine, t) })
-    groups.set(key, group)
-  }
-  return [...groups.values()]
-    .map((g) => ({ ...g, stores: g.stores.sort((a, b) => a.store.name.localeCompare(b.store.name)) }))
-    .sort((a, b) => a.server.localeCompare(b.server) || a.user.localeCompare(b.user))
+export function storeOffServer(s: StoreRow, group: Pick<PgServerGroup, 'state'> | undefined): string | null {
+  if (s.postgresql?.reachable !== false) return null
+  return group && group.state === 'failed' ? null : s.postgresql.error ?? ''
 }
 
-/** The address `machine` dials for a host-route attach: a loopback server becomes the machine's alias for the host. */
+/** The address `machine` dials for a server on this host: a loopback server becomes the machine's alias for the host. */
 export function routedServer(server: string, alias: string | null): string {
   if (!alias) return server
   return server.replace(/^(localhost|127\.[0-9.]+|\[::1\])(?=:|$)/, alias)
 }
 
-/** The three things store.attach checks from the machine, in order. */
+/** The three things a check from a machine tries, in order (store.status --machine, store.update --machine). */
 export type CheckStep = 'server' | 'store' | 'write'
 export const CHECK_STEPS: readonly CheckStep[] = ['server', 'store', 'write']
 
 /**
- * Which check a store.attach refusal failed, by LayerFS's documented
- * refusals (layerfs-store postgresql/attach.rs `check`): the server not
+ * Which step a failed check stopped at, by LayerFS's documented refusals
+ * (layerfs-store postgresql/check.rs): the server not
  * reached is `Unavailable`; another Store's schema is `Unavailable` naming
  * "holds another Store than"; a login refused is `Denied`; a privilege
  * missing is `Denied` "lacks …", on the schema (its Store cannot be read)

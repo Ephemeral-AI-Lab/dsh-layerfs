@@ -325,7 +325,7 @@ export function laneOf(argv: readonly string[]): Lane {
 const LONG_CALLS = new Set([
   'project.init', 'project.export',
   'machine.create', 'machine.start', 'machine.stop', 'machine.update', 'machine.remove', 'machine.load', 'machine.prune',
-  'store.push', 'store.pull', 'store.connect', 'store.attach',
+  'store.push', 'store.pull', 'store.connect', 'store.update',
   'backup.connect', 'backup.create', 'backup.restore',
   'sandbox.create',
 ])

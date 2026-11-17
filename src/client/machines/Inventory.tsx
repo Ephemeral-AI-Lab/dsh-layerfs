@@ -40,12 +40,12 @@ export function sandboxNeedsYou(b: MachineSandbox): boolean {
   return !!look.attention || look.tone === 'danger'
 }
 
-/** One Store row: what the machine's Sandboxes can use, sqlite on its disk or PostgreSQL attached to it. */
+/** One Store row: what the machine's Sandboxes can use, sqlite on its disk, or PostgreSQL that runs its Sandboxes here. */
 interface StoreLine { name: string, family: 'sqlite' | 'postgresql', projects: string[], count: number, size: number | null, state?: string | undefined, op?: MachineSandbox['op'] }
 
 export function storeLines(view: AvailableView, m: MachineInfo): StoreLine[] {
   const sqlite = storesOn(view, m).map((s): StoreLine => ({ name: s.name, family: 'sqlite', projects: s.names ?? [], count: s.projects, size: s.size, state: s.state, op: s.op ?? null }))
-  const pg = pgUsable(m, view.postgresql ?? []).map((s): StoreLine => ({ name: s.name, family: 'postgresql', projects: s.names ?? [], count: s.projects, size: null, state: s.state, op: s.op ?? null }))
+  const pg = pgUsable(view, m).map((s): StoreLine => ({ name: s.name, family: 'postgresql', projects: s.names ?? [], count: s.projects, size: null, state: s.state, op: s.op ?? null }))
   return [...sqlite, ...pg]
 }
 

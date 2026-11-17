@@ -1,104 +1,137 @@
 /**
- * Connect a database to a machine (the Stores tab's PostgreSQL side). One
- * dialog, three screens:
+ * Connect a database: the one dialog a PostgreSQL Store is connected and
+ * checked with. A PostgreSQL Store is on no machine; "Runs on" is only the
+ * machine its sessions start on (the plugin's own choice), and any machine
+ * that runs PostgreSQL Sandboxes reaches the Store with the Store's own
+ * connection. Three screens:
  *
- * - pick: every connected PostgreSQL Store, grouped by server (host and
- *   user). One already on the machine says so; another has Attach, or why it
- *   cannot be attached here. Each server ends with "New database on this
- *   server" (its host and user filled in) and the list with "New server".
- * - new: the database, its Store name (the database's by default), and for a
- *   new server its host, user and password; a pasted connection URL fills
- *   them. store.connect, then store.attach to this machine (store.connect
- *   attaches the LayerFS Home itself).
+ * - pick: every connected PostgreSQL Store under its server, each with where
+ *   it runs and one button (Check; on a machine page, Run here for a Store
+ *   that runs elsewhere). Each server ends with "New database on this
+ *   server" (its host and user filled in, its password reused) and the list
+ *   with "New server".
+ * - new: the database, its Store name (the database's by default), for a new
+ *   server its host, user and password (a pasted connection URL fills them),
+ *   and Runs on. store.connect, then the check from that machine.
  * - check: the path the machine dials (machine, server, Store) and the three
- *   things store.attach checks from there. The call answers once, so the path
- *   runs as one until it does; a refusal marks the step LayerFS names
- *   (machine-stores.ts `failedStep`), else shows as it came. A server not
- *   reached offers the machine its own address, a new attempt the person
- *   starts. A database connected whose attach failed says so: it stays
- *   connected on the LayerFS Home.
+ *   things the check tries from there (store.status --machine). It answers
+ *   once, so the path runs as one until it does; a failure marks the step
+ *   LayerFS names (machine-stores.ts `failedStep`), else shows as it came.
+ *   Only then, and only for a server not reached, the machine can be given
+ *   an address of its own (store.update --machine, which LayerFS checks
+ *   from the machine before it saves anything).
  */
-import { useState, type ReactNode } from 'react'
-import { Button, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Button, IconChevronRightOutlineRegular, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
-import { Refusal, refusalOf } from '../ui/index.tsx'
+import { LocationPicker } from '../projects/setup/MachineTiles.tsx'
+import { defaultMachine, machinesFor } from '../projects/setup/model.ts'
+import { Field, MenuSelect, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { CHECK_STEPS, failedStep, parsePgUrl, pgServers, pgUrl, routedServer, type CheckStep, type PgServerGroup } from './machine-stores.ts'
-import { loopbackAlias } from './model.ts'
-import { refusalLabels, StoreGlyph, TextField } from './parts.tsx'
+import { CHECK_STEPS, failedStep, parsePgUrl, pgUrl, routedServer, serverGroups, serverKey, type CheckStep, type PgServerGroup } from './machine-stores.ts'
+import { loopbackAlias, runsOnOf } from './model.ts'
+import { locationWords, refusalLabels, StoreGlyph, TextField } from './parts.tsx'
 import { PG_URL_PASSWORD, PgPasswordFields, usePgPassword } from './pg-fields.tsx'
-import type { StorageView } from './types.ts'
+import type { PgCheck, StorageView, StoreRow } from './types.ts'
 import css from './MachineStores.module.css'
 import scss from './Storage.module.css'
 
 const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
+const SYNC = ['off', 'local', 'remote_write', 'on', 'remote_apply'] as const
 
 type Screen = { kind: 'pick' } | { kind: 'new', server: PgServerGroup | null } | { kind: 'check', check: Check }
 
 interface Check {
   store: string
-  /** The address the machine dials, as shown on the path. */
-  server: string
+  machine: string
   state: 'running' | 'ok' | 'failed'
+  /** What the machine answered. */
+  result?: PgCheck
+  /** A refusal of the call itself, or the check's own error. */
   error?: unknown
-  /** A new database: connected, then its attach failed. */
+  /** This dialog connected the Store just before. */
   connected?: boolean
 }
 
-export function ConnectDatabaseDialog({ api, t, view, machine, onClose, done }: {
-  api: LayerfsApi, t: StorageT, view: StorageView | undefined, machine: string, onClose: () => void, done: () => void
+/** The address `machine` dials for `store`: its own connection's, else the Store's with a loopback host renamed for the machine. */
+export function dialedServer(s: StoreRow | undefined, machine: string, platform: string | undefined): string {
+  const own = s?.ownConnections?.find((c) => c.machine === machine)
+  const ownHost = own?.url ? parsePgUrl(own.url)?.host : null
+  if (ownHost) return ownHost
+  return s ? routedServer(serverKey(s), platform ? loopbackAlias(platform) : null) : ''
+}
+
+export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, check: startCheck, onClose, done }: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined
+  /** A machine page's dialog: new databases run on it, and a Store that runs elsewhere can be moved here. */
+  machine?: string | undefined
+  /** Open on a new database on this server (`host:port`). */
+  server?: string | undefined
+  /** Open on the check of a Store, from `machine` (else where it runs). */
+  check?: { store: string, machine?: string | undefined } | undefined
+  onClose: () => void, done: () => void
 }): ReactNode {
-  const [screen, setScreen] = useState<Screen>({ kind: 'pick' })
+  const groups = serverGroups(view?.stores ?? [])
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (startCheck) {
+      const s = view?.stores.find((x) => x.name === startCheck.store)
+      return { kind: 'check', check: { store: startCheck.store, machine: startCheck.machine ?? fixed ?? (s ? runsOnOf(s) : 'native'), state: 'running' } }
+    }
+    if (server) return { kind: 'new', server: groups.find((g) => g.server === server) ?? null }
+    return groups.length ? { kind: 'pick' } : { kind: 'new', server: null }
+  })
   const [own, setOwn] = useState(false)
   const [ownUrl, setOwnUrl] = useState('')
   const ownPw = usePgPassword()
-  if (!view) return null
-  const place = machine === 'native' ? t('layerfsHome') : machine
-  const platform = view.machines.find((m) => m.name === machine)?.platform
-  const alias = platform ? loopbackAlias(platform) : null
-  const groups = pgServers(view, machine, t)
-  const running = screen.kind === 'check' && screen.check.state === 'running'
+  // one call at a time: a newer check wins, an older answer is dropped
+  const turn = useRef(0)
 
-  /** store.attach from the machine, with its own connection when one is given. */
-  const attach = async (store: string, server: string, extra: { connected?: boolean } = {}, ownBody: Record<string, string> = {}) => {
-    setScreen({ kind: 'check', check: { store, server, state: 'running', ...extra } })
+  /** The check from `machine` (GET …/check); `via` runs first (a new connection of the machine's own). */
+  const check = async (store: string, machine: string, extra: { connected?: boolean } = {}, via?: () => Promise<unknown>) => {
+    const mine = ++turn.current
+    setScreen({ kind: 'check', check: { store, machine, state: 'running', ...extra } })
     try {
-      await api.call('POST', `/api/stores/${enc(store)}/attach`, { machine, ...ownBody })
-      setScreen({ kind: 'check', check: { store, server, state: 'ok', ...extra } })
+      if (via) { await via(); done() }
+      const result = await api.call<PgCheck>('GET', `/api/stores/${enc(store)}/check?machine=${enc(machine)}`)
+      if (mine !== turn.current) return
+      setScreen({ kind: 'check', check: { store, machine, state: result.ok ? 'ok' : 'failed', result, ...(result.ok ? {} : { error: result.error }), ...extra } })
     } catch (error) {
-      setScreen({ kind: 'check', check: { store, server, state: 'failed', error, ...extra } })
-    } finally {
-      done()
+      if (mine === turn.current) setScreen({ kind: 'check', check: { store, machine, state: 'failed', error, ...extra } })
     }
   }
-
-  const title = t('cdTitle', { machine: place })
-  const back = screen.kind === 'pick' || running ? null : () => { setOwn(false); setScreen({ kind: 'pick' }) }
+  // opened on a check: run it once
+  useEffect(() => { if (screen.kind === 'check' && screen.check.state === 'running') void check(screen.check.store, screen.check.machine) }, [])
+  if (!view) return null
+  const place = (m: string) => (m === 'native' ? t('layerfsHome') : m)
+  const running = screen.kind === 'check' && screen.check.state === 'running'
+  const runHere = async (store: string, machine: string) => {
+    await check(store, machine, {}, () => api.call('POST', `/api/stores/${enc(store)}/runs-on`, { machine }))
+  }
+  const title = screen.kind === 'check' ? t('cdCheckTitle', { store: screen.check.store }) : fixed ? t('cdTitle', { machine: place(fixed) }) : t('connectDatabase')
+  // a dialog opened on one screen has no list to go back to
+  const back = startCheck || running || screen.kind === 'pick' || (screen.kind === 'new' && (server || !groups.length)) ? null : () => { setOwn(false); setScreen({ kind: 'pick' }) }
   return (
     <Modal open onClose={() => { if (!running) onClose() }} title={title} closeLabel={t('close')} className={scss.modal}
       footer={<Footer t={t} screen={screen} back={back} onClose={onClose} />}>
       <div className={scss.form}>
         {screen.kind === 'pick' ? (
-          <Pick t={t} groups={groups} place={place} alias={alias}
-            onAttach={(store, server) => void attach(store, server)}
-            onNew={(server) => setScreen({ kind: 'new', server })} />
+          <Pick t={t} groups={groups} fixed={fixed} place={place}
+            onCheck={(s) => void check(s.name, runsOnOf(s))}
+            onRunHere={(s) => void runHere(s.name, fixed!)}
+            onNew={(g) => setScreen({ kind: 'new', server: g })} />
         ) : screen.kind === 'new' ? (
-          <NewDatabase api={api} t={t} view={view} machine={machine} server={screen.server} alias={alias}
-            onConnected={(store, server) => {
-              done()
-              if (machine === 'native') setScreen({ kind: 'check', check: { store, server, state: 'ok' } })
-              else void attach(store, server, { connected: true })
-            }} />
+          <NewDatabase api={api} t={t} view={view} fixed={fixed} server={screen.server} place={place}
+            onConnected={(store, machine) => { done(); void check(store, machine, { connected: true }) }} />
         ) : (
-          <CheckView t={t} check={screen.check} machine={machine} place={place} platform={platform}
-            own={own} ownUrl={ownUrl} setOwnUrl={setOwnUrl} ownPw={ownPw}
+          <CheckView t={t} view={view} check={screen.check} place={place} own={own} ownUrl={ownUrl} setOwnUrl={setOwnUrl} ownPw={ownPw}
+            onFrom={(machine) => { setOwn(false); void check(screen.check.store, machine, { connected: screen.check.connected }) }}
             onOwn={() => setOwn(true)}
             onRetryOwn={() => {
-              const target = parsePgUrl(ownUrl)
-              void attach(screen.check.store, target?.host ?? ownUrl, { connected: screen.check.connected }, {
-                ...(ownUrl.trim() ? { url: ownUrl.trim() } : {}), ...(ownPw.missing ? {} : ownPw.body()),
-              })
+              const { store, machine, connected } = screen.check
+              void check(store, machine, { connected }, () => api.call('POST', `/api/stores/${enc(store)}/connection`, {
+                machine, ...(ownUrl.trim() ? { url: ownUrl.trim() } : {}), ...(ownPw.missing ? {} : ownPw.body()),
+              }))
             }} />
         )}
       </div>
@@ -116,39 +149,42 @@ function Footer({ t, screen, back, onClose }: { t: StorageT, screen: Screen, bac
         {check?.state === 'ok'
           ? <Button variant="primary" onClick={onClose}>{t('cdDone')}</Button>
           : screen.kind === 'new'
-            ? <Button variant="primary" type="submit" form="lfs-cd-new">{t('cdConnectAttach')}</Button>
+            ? <Button variant="primary" type="submit" form="lfs-cd-new">{t('connect')}</Button>
             : <Button variant="outline" disabled={check?.state === 'running'} onClick={onClose}>{check ? t('close') : t('cancel')}</Button>}
       </div>
     </div>
   )
 }
 
-function Pick({ t, groups, place, alias, onAttach, onNew }: {
-  t: StorageT, groups: PgServerGroup[], place: string, alias: string | null
-  onAttach: (store: string, server: string) => void, onNew: (server: PgServerGroup | null) => void
+function Pick({ t, groups, fixed, place, onCheck, onRunHere, onNew }: {
+  t: StorageT, groups: PgServerGroup[], fixed: string | undefined, place: (m: string) => string
+  onCheck: (s: StoreRow) => void, onRunHere: (s: StoreRow) => void, onNew: (server: PgServerGroup | null) => void
 }): ReactNode {
   return (
     <div className={css.servers}>
-      {groups.length === 0 ? <p className={css.serverGiven}>{t('cdNoneYet')}</p> : null}
       {groups.map((g) => (
-        <div key={`${g.user}@${g.server}`} className={css.server} data-pg-server={g.server}>
+        <div key={g.server} className={css.server} data-pg-server={g.server}>
           <div className={css.serverHead}>
             <StoreGlyph kind="postgresql" size={14} />
             <span className={`${css.serverName} ${css.mono}`}>{g.server}</span>
             {g.user ? <span>{t('cdUser', { user: g.user })}</span> : null}
           </div>
-          {g.stores.map(({ store, database, here, why }) => (
-            <div key={store.name} className={css.db} data-pg-store={store.name}>
-              <StateDot state={here ? 'done' : 'idle'} size={8} />
-              <span className={css.dbMain}>
-                <span className={css.dbName}>{store.name}</span>
-                <span className={css.dbSub}>{[database !== store.name ? database : null, store.projects.join(', ') || t('msNoProjects')].filter(Boolean).join(' · ')}</span>
-              </span>
-              {here ? <span className={css.muted}>{t('cdOnMachine', { machine: place })}</span>
-                : why ? <span className={css.muted} title={why}>{why}</span>
-                  : <Button size="sm" variant="outline" onClick={() => onAttach(store.name, routedServer(g.server, alias))}>{t('cdAttach')}</Button>}
-            </div>
-          ))}
+          {g.stores.map((s) => {
+            const on = runsOnOf(s)
+            const database = s.postgresql?.database
+            return (
+              <div key={s.name} className={css.db} data-pg-store={s.name}>
+                <StateDot state={s.postgresql?.reachable === false ? 'error' : s.postgresql?.reachable ? 'done' : 'idle'} size={8} />
+                <span className={css.dbMain}>
+                  <span className={css.dbName}>{s.name}</span>
+                  <span className={css.dbSub}>{[database && database !== s.name ? database : null, t('pgRunsOn', { machine: place(on) }), s.projects.join(', ') || t('msNoProjects')].filter(Boolean).join(' · ')}</span>
+                </span>
+                {fixed && on !== fixed
+                  ? <Button size="sm" variant="outline" onClick={() => onRunHere(s)}>{t('cdRunHere')}</Button>
+                  : <Button size="sm" variant="ghost" onClick={() => onCheck(s)}>{t('cdCheck')}</Button>}
+              </div>
+            )
+          })}
           <button type="button" className={css.addRow} onClick={() => onNew(g)}>{t('cdNewOnServer')}</button>
         </div>
       ))}
@@ -157,9 +193,9 @@ function Pick({ t, groups, place, alias, onAttach, onNew }: {
   )
 }
 
-function NewDatabase({ api, t, view, machine, server, alias, onConnected }: {
-  api: LayerfsApi, t: StorageT, view: StorageView, machine: string, server: PgServerGroup | null, alias: string | null
-  onConnected: (store: string, server: string) => void
+function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
+  api: LayerfsApi, t: StorageT, view: StorageView, fixed: string | undefined, server: PgServerGroup | null, place: (m: string) => string
+  onConnected: (store: string, machine: string) => void
 }): ReactNode {
   const [url, setUrl] = useState('')
   const [host, setHost] = useState(server?.server ?? '')
@@ -167,7 +203,13 @@ function NewDatabase({ api, t, view, machine, server, alias, onConnected }: {
   const [database, setDatabase] = useState('')
   const [name, setName] = useState('')
   const [named, setNamed] = useState(false)
-  const pw = usePgPassword()
+  const [sync, setSync] = useState('')
+  // a database on a known server takes that server's password unless another is given
+  const pw = usePgPassword('entered', '', server?.stores[0]?.name ?? null)
+  const machines = machinesFor(view, 'postgresql')
+  const fallback = defaultMachine(machines)
+  const [picked, setPicked] = useState<string | null>(null)
+  const runsOn = fixed ?? picked ?? fallback
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(undefined)
   const [tried, setTried] = useState(false)
@@ -180,17 +222,20 @@ function NewDatabase({ api, t, view, machine, server, alias, onConnected }: {
   }
   const storeName = (named ? name : name || database.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')).trim()
   const taken = view.stores.some((s) => s.name === storeName)
+  const dbTaken = server && database.trim() ? server.stores.find((s) => s.postgresql?.database === database.trim()) : undefined
   const urlError = PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
   const missing = [!database.trim() && t('cdDatabase'), !host.trim() && t('cdHost'), !storeName && t('cdStoreName'), pw.missing && (pw.how === 'entered' ? t('pgPasswordValue') : t('pgPasswordReferenceLabel'))].filter(Boolean) as string[]
   const nameError = storeName && !NAME.test(storeName) ? t('projectNameHint') : taken ? t('nameTaken') : null
-  const valid = !missing.length && !nameError && !urlError && !pw.error(t)
+  const valid = !missing.length && !nameError && !urlError && !pw.error(t) && !dbTaken
   const submit = async () => {
     setTried(true)
     if (!valid || busy) return
     setBusy(true); setError(undefined)
     try {
-      await api.call('POST', '/api/stores/postgresql', { name: storeName, url: pgUrl({ user: user.trim(), host: host.trim(), database: database.trim() }), ...pw.body() })
-      onConnected(storeName, routedServer(host.trim(), alias))
+      await api.call('POST', '/api/stores/postgresql', {
+        name: storeName, url: pgUrl({ user: user.trim(), host: host.trim(), database: database.trim() }), ...pw.body(), runsOn, ...(sync ? { synchronousCommit: sync } : {}),
+      })
+      onConnected(storeName, runsOn)
     } catch (e) {
       setError(e)
     } finally {
@@ -201,7 +246,8 @@ function NewDatabase({ api, t, view, machine, server, alias, onConnected }: {
     <form id="lfs-cd-new" className={scss.form} onSubmit={(e) => { e.preventDefault(); void submit() }} aria-busy={busy}>
       <p className={css.serverGiven}>{server ? t('cdOnServer', { server: server.server, user: server.user || '—' }) : t('cdNewServerBody')}</p>
       {server ? null : <TextField label={t('cdUrl')} value={url} onChange={fill} mono placeholder="postgresql://app@db.internal:5432/orders" hint={t('cdUrlHint')} error={urlError} autoFocus />}
-      <TextField label={t('cdDatabase')} value={database} onChange={setDatabase} mono placeholder="orders" autoFocus={!!server} />
+      <TextField label={t('cdDatabase')} value={database} onChange={setDatabase} mono placeholder="orders" autoFocus={!!server} hint={server ? t('pgDatabaseHint') : undefined}
+        error={dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null} />
       <TextField label={t('cdStoreName')} value={named ? name : storeName} onChange={(v) => { setNamed(true); setName(v) }} mono hint={t('cdStoreNameHint')} error={nameError} />
       {server ? null : (
         <div className={scss.inline}>
@@ -210,7 +256,21 @@ function NewDatabase({ api, t, view, machine, server, alias, onConnected }: {
         </div>
       )}
       <PgPasswordFields id="lfs-cd-password" pw={pw} t={t} />
-      {machine !== 'native' ? <p className={scss.formNote}>{t('cdThenAttach', { machine })}</p> : null}
+      {fixed ? <p className={scss.formNote}>{t('cdRunsOnFixed', { machine: place(fixed) })}</p> : (
+        <Field label={t('pgRunsOnLabel')} hint={t('pgRunsOnHint')} group>
+          <LocationPicker machines={machines} value={runsOn} onChange={setPicked} words={locationWords(t, view)} label={t('pgRunsOnLabel')} fallback={fallback} compact />
+        </Field>
+      )}
+      <details className={scss.storeDetails}>
+        <summary className={scss.storeDetailsSummary}>
+          <IconChevronRightOutlineRegular size={12} className={scss.storeDetailsChevron} />
+          <span>{sync ? t('nsMoreOptionsSet', { value: sync }) : t('nsMoreOptions')}</span>
+        </summary>
+        <Field label={t('syncCommit')}>
+          <MenuSelect value={sync} label={t('syncCommit')} placeholder={t('syncCommitDefault')}
+            options={[{ value: '', label: t('syncCommitDefault') }, ...SYNC.map((v) => ({ value: v, label: v }))]} onChange={setSync} />
+        </Field>
+      </details>
       {busy ? <p className={scss.formNote} role="status">{t('cdConnecting')}</p> : null}
       {missing.length && tried ? <p className={scss.formNote} role="alert">{t('stillNeeded', { what: missing.join(', ') })}</p> : null}
       {error !== undefined ? <Refusal error={error} labels={refusalLabels(t)} /> : null}
@@ -219,13 +279,20 @@ function NewDatabase({ api, t, view, machine, server, alias, onConnected }: {
   )
 }
 
-function CheckView({ t, check, machine, place, platform, own, ownUrl, setOwnUrl, ownPw, onOwn, onRetryOwn }: {
-  t: StorageT, check: Check, machine: string, place: string, platform: string | undefined
+function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, ownPw, onFrom, onOwn, onRetryOwn }: {
+  t: StorageT, view: StorageView, check: Check, place: (m: string) => string
   own: boolean, ownUrl: string, setOwnUrl: (v: string) => void, ownPw: ReturnType<typeof usePgPassword>
-  onOwn: () => void, onRetryOwn: () => void
+  onFrom: (machine: string) => void, onOwn: () => void, onRetryOwn: () => void
 }): ReactNode {
-  const refusal = check.error !== undefined ? refusalOf(check.error) : null
-  const at = refusal ? failedStep(refusal.code, refusal.message) : null
+  const machine = check.machine
+  const from_ = view.machines.find((m) => m.name === machine)
+  const platform = from_?.platform
+  // a stopped machine answers no check: say so, and offer no address of its own
+  const stopped = machine !== 'native' && from_?.state != null && from_.state !== 'running'
+  const s = view.stores.find((x) => x.name === check.store)
+  const server = check.result?.host ?? dialedServer(s, machine, platform)
+  const failure = check.state === 'failed' ? (check.error as { code?: string, message?: string } | undefined) : undefined
+  const at = failure ? failedStep(failure.code, failure.message) : null
   const stepState = (step: CheckStep): 'pending' | 'running' | 'ok' | 'failed' | 'unknown' => {
     if (check.state === 'running') return 'running'
     if (check.state === 'ok') return 'ok'
@@ -234,45 +301,56 @@ function CheckView({ t, check, machine, place, platform, own, ownUrl, setOwnUrl,
     return i < f ? 'ok' : i === f ? 'failed' : 'pending'
   }
   const wire = (after: CheckStep): string => {
-    const s = stepState(after)
-    return s === 'unknown' ? 'failed' : s
+    const state = stepState(after)
+    return state === 'unknown' ? 'failed' : state
   }
   const words: Record<CheckStep, string> = { server: t('cdStepServer'), store: t('cdStepStore'), write: t('cdStepWrite') }
+  const from = machinesFor(view, 'postgresql')
+  const ok = check.result?.ok ? check.result : null
   return (
     <>
+      <Field label={t('cdFrom')}>
+        <MenuSelect value={machine} label={t('cdFrom')} disabled={check.state === 'running'} className={scss.selfStart}
+          options={(from.some((m) => m.name === machine) ? from.map((m) => m.name) : [machine, ...from.map((m) => m.name)]).map((m) => ({ value: m, label: place(m) }))} onChange={onFrom} />
+      </Field>
       <div className={css.path} aria-hidden="true">
-        <span className={css.hop}><span className={css.node}><MachineGlyph platform={platform ?? 'native'} size={18} /></span><span className={css.hopLabel}>{place}</span></span>
+        <span className={css.hop}><span className={css.node}><MachineGlyph platform={platform ?? 'native'} size={18} /></span><span className={css.hopLabel}>{place(machine)}</span></span>
         <span className={css.wire} data-state={wire('server')} />
-        <span className={css.hop}><span className={css.node}><StoreGlyph kind="postgresql" size={18} /></span><span className={`${css.hopLabel} ${css.mono}`}>{check.server}</span></span>
+        <span className={css.hop}><span className={css.node}><StoreGlyph kind="postgresql" size={18} /></span><span className={`${css.hopLabel} ${css.mono}`}>{server}</span></span>
         <span className={css.wire} data-state={check.state === 'failed' && at === 'server' ? 'pending' : wire('store')} />
         <span className={css.hop}><span className={css.node}><StoreGlyph kind="postgresql" size={18} mono /></span><span className={css.hopLabel}>{check.store}</span></span>
       </div>
-      <ul className={css.steps} aria-label={t('cdCheckFrom', { machine: place })}>
+      <ul className={css.steps} aria-label={t('cdCheckFrom', { machine: place(machine) })}>
         {CHECK_STEPS.map((step) => {
-          const s = stepState(step)
+          const state = stepState(step)
           return (
-            <li key={step} className={css.step} data-state={s} data-step={step}>
-              <span className={css.stepMark}>{s === 'running' ? <StateDot state="ongoing" size={12} /> : s === 'ok' ? <StateDot state="done" size={9} /> : s === 'failed' ? <StateDot state="error" size={9} /> : <StateDot state="idle" size={9} />}</span>
+            <li key={step} className={css.step} data-state={state} data-step={step}>
+              <span className={css.stepMark}>{state === 'running' ? <StateDot state="ongoing" size={12} /> : state === 'ok' ? <StateDot state="done" size={9} /> : state === 'failed' ? <StateDot state="error" size={9} /> : <StateDot state="idle" size={9} />}</span>
               {words[step]}
             </li>
           )
         })}
       </ul>
-      {check.state === 'ok' ? <p className={css.result} role="status">{machine === 'native' ? t('cdConnectedHome', { store: check.store }) : t('cdAttached', { store: check.store, machine: place })}</p> : null}
+      {ok ? (
+        <p className={css.result} role="status">
+          {[t('cdReached', { store: check.store, machine: place(machine) }), ok.version ? t('msPgShort', { version: ok.version.split(' ')[0]! }) : null, ok.latencyMs != null ? `${ok.latencyMs} ms` : null].filter(Boolean).join(' · ')}
+        </p>
+      ) : null}
       {check.state === 'failed' ? (
         <>
-          {check.connected ? <p className={scss.formNote}>{t('cdConnectedNotAttached', { store: check.store, machine: place })}</p> : null}
+          {check.connected ? <p className={scss.formNote}>{t('cdConnectedNotReached', { store: check.store, machine: place(machine) })}</p> : null}
+          {stopped ? <p className={scss.formNote} role="status">{t('cdMachineStopped', { machine: place(machine) })}</p> : null}
           <Refusal error={check.error} labels={refusalLabels(t)} />
-          {at === 'server' && machine !== 'native' && !own ? (
-            <Button variant="outline" size="sm" className={scss.selfStart} onClick={onOwn}>{t('cdOwnAddress', { machine: place })}</Button>
+          {at === 'server' && machine !== 'native' && !own && !stopped ? (
+            <Button variant="outline" size="sm" className={scss.selfStart} onClick={onOwn}>{t('cdOwnAddress', { machine: place(machine) })}</Button>
           ) : null}
           {own ? (
             <>
-              <TextField label={t('cdOwnUrl', { machine: place })} value={ownUrl} onChange={setOwnUrl} mono placeholder="postgresql://app@10.0.0.12:5432/orders" hint={t('pgUrlHint')}
+              <TextField label={t('cdOwnUrl', { machine: place(machine) })} value={ownUrl} onChange={setOwnUrl} mono placeholder="postgresql://app@10.0.0.12:5432/orders" hint={t('pgUrlHint')}
                 error={PG_URL_PASSWORD.test(ownUrl.trim()) ? t('pgPasswordInUrl') : null} autoFocus />
               <PgPasswordFields id="lfs-cd-own-password" pw={ownPw} t={t} />
               <Button variant="primary" size="sm" className={scss.selfStart} disabled={(!ownUrl.trim() && ownPw.missing) || PG_URL_PASSWORD.test(ownUrl.trim()) || !!ownPw.error(t)}
-                onClick={onRetryOwn}>{t('attachAndCheck')}</Button>
+                onClick={onRetryOwn}>{t('cdSaveAndCheck')}</Button>
             </>
           ) : null}
         </>

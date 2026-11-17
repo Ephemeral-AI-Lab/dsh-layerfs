@@ -25,7 +25,8 @@ import { JsonFile } from '../service.ts'
 import { initialState, type Binding, type Checkpoint, type SessionsState, type SimulationBinding, type SimulationTarget } from './state.ts'
 import type { SessionStore } from './store.ts'
 import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
-import { classifyStore, pgMachineOf, storeOf, type StoreHealth } from './availability.ts'
+import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
+import { pgMachineOf, StoreMachines } from '../store-machines.ts'
 
 /** How long a passed identity and readiness check stands for pre-step checks. */
 const IDENTITY_FRESH_MS = 15_000
@@ -445,16 +446,16 @@ export class LayerfsSessions extends Service {
 
   /**
    * The machine a project's Sandboxes run on: a sqlite Store's machine; for a
-   * PostgreSQL Store `preferred` when the Store is attached to it, else the
-   * default of {@link pgMachineOf}.
+   * PostgreSQL Store `preferred` (the session's own machine) when it has one,
+   * else the Store's default (store-machines.ts: this install's saved choice,
+   * else docker, else native).
    */
   private async machineFor(project: string, preferred?: string | null): Promise<string> {
     const info = await this.lfs.project.get(project)
     if (info.kind !== 'postgresql') return info.machine ?? 'native'
-    const store = storeOf(project)!
-    const machine = pgMachineOf(await this.lfs.store.get(store), preferred)
-    if (!machine) throw new CliError('Unsupported', `Attach ${store} to a machine to run its projects.`)
-    return machine
+    if (preferred) return preferred
+    const machines = (await this.lfs.machine.list())?.machines ?? []
+    return pgMachineOf(new StoreMachines(this.ctx.layerfs.root).get(storeOf(project)!), machines)
   }
 
   /**

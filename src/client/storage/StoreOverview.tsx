@@ -13,7 +13,7 @@ import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { attachmentsOf, attachmentSignal, latestBackup } from './model.ts'
+import { latestBackup, runsOnOf } from './model.ts'
 import { commitTotal, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
@@ -44,8 +44,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
   const sandboxes = [...running.values()].reduce((a, n) => a + n, 0)
   const commits = projects ? commitTotal(projects) : null
   const latest = latestBackup(s)
-  const attached = attachmentsOf(s)
-  const connecting = attached.filter((a) => !a.lastError && a.checked).length
+  const runsOn = runsOnOf(s)
 
   return (
     <div className={css.stack}>
@@ -60,8 +59,8 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           sub={commits ? (commits.refused && !commits.commits ? t('spCommitsUnread') : t(commits.complete || commits.refused ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() })) : undefined} />
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} sub={t('spHolders', { n: String(s.holders) })} />
         {pg ? (
-          <Tile label={t('spMachines')} value={t('spConnectOf', { n: String(connecting), total: String(attached.length) })} onOpen={() => onTab('connections')}
-            tone={attached.some((a) => a.lastError) ? 'danger' : undefined} />
+          <Tile label={t('pgRunsOnLabel')} value={runsOn === 'native' ? t('layerfsHome') : runsOn} onOpen={() => onTab('connections')}
+            sub={view.machines.find((m) => m.name === runsOn)?.state ?? undefined} />
         ) : (
           <Tile label={t('factLastBackup')} value={latest !== null ? ago(latest, now, tt) : t('noBackup')} title={latest !== null ? when(latest) : undefined}
             onOpen={() => onTab('backups')} tone={latest === null ? 'warning' : undefined} sub={s.links[0] ? s.links[0].bucket : undefined} />
@@ -236,10 +235,6 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
   if (s.kind === 'postgresql') {
     const r = s.postgresql?.reachable
     rows.push({ key: 'server', tone: r === false ? 'danger' : r ? 'ok' : 'info', label: t('spServer'), text: r === false ? (s.postgresql?.error ?? t('unreachable')) : r ? t('spServerOk', { version: s.postgresql?.version ?? '?' }) : t('unknown') })
-    for (const a of attachmentsOf(s)) {
-      const signal = attachmentSignal(a, t)
-      rows.push({ key: `m:${a.machine}`, tone: signal ? (signal.state === 'error' ? 'danger' : 'warning') : 'ok', label: a.machine === 'native' ? t('layerfsHome') : a.machine, text: signal ? signal.reason : t('spConnects') })
-    }
     rows.push({ key: 'backups', tone: 'info', label: t('backupsSection'), text: t('spPgBackups') })
   } else {
     const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')

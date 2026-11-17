@@ -31,7 +31,7 @@ class Refusal extends Error {
 const MUTATING = new Set([
   'branch.fork', 'branch.merge', 'branch.publish', 'branch.delete',
   'file.write', 'file.edit', 'file.rm', 'file.mkdir', 'file.mv', 'file.cp', 'file.apply',
-  'store.create', 'store.remove', 'store.connect', 'store.attach', 'store.detach', 'store.push', 'store.pull', 'store.disconnect',
+  'store.create', 'store.remove', 'store.connect', 'store.update', 'store.push', 'store.pull', 'store.disconnect',
   'sandbox.create', 'sandbox.close',
   'workspace.mount', 'workspace.unmount', 'workspace.commit', 'workspace.exec', 'workspace.exec_cancel',
   'project.init', 'project.remove', 'project.export',
@@ -474,6 +474,7 @@ const GETS = [
   ['stores/:id/stats', '/api/stores/s1/stats'],
   ['stores/:id/observations', '/api/stores/s1/observations'],
   ['stores/:id/projects', '/api/stores/s1/projects'],
+  ['stores/:id/check', '/api/stores/s1/check?machine=native'],
   ['buckets/:id/files', '/api/buckets/b1/files'],
   ['storage-jobs/:id', '/api/storage-jobs/job-x'],
   ['doctor', '/api/doctor'],
@@ -529,7 +530,7 @@ const GETS = [
 /** The presets manager's GET routes (manager.ts `route`), dispatched by router.ts under /api/demo-presets. */
 const PRESET_GETS = ['', '/requests/r1', '/jobs/j1', '/studio', '/studio/environment-plan', '/studio/build-plan', '/studio/build-plan-no-sandboxes', '/studio/script', '/studio/script-no-sandboxes']
 /** Routes whose 2xx needs more than the fake has: they may answer 4xx/5xx, but still must not write. */
-const MAY_FAIL = new Set(['/api/doctor-jobs/job-x', '/api/storage-jobs/job-x', '/api/project-inits/init-x'])
+const MAY_FAIL = new Set(['/api/doctor-jobs/job-x', '/api/storage-jobs/job-x', '/api/project-inits/init-x', '/api/stores/s1/check?machine=native'])
 
 // Guards the GETS table: it names every GET route router.ts has.
 test('the no-writes table covers every GET route in router.ts', () => {

@@ -531,20 +531,12 @@
   min-width: 0;
 }
 
-/* New Store (PostgreSQL): the short name beside the long URL. */
-.nameUrlRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 12px;
-}
-
 .noShrink {
   flex: none;
 }
 
 @media (max-width: 560px) {
-  .fieldRow,
-  .nameUrlRow {
+  .fieldRow {
     grid-template-columns: minmax(0, 1fr);
   }
 }
