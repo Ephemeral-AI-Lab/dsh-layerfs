@@ -81,9 +81,10 @@ reports what LayerFS resolved, so no client re-derives the rules.
 
 ### 2.3 `machine platforms`
 
-- `missing` gains `bundle:<dir>` for platforms that run a worker (docker on
-  macOS, Lima, Apple Container) when the bundle is absent or has an
-  incompatible protocol. A bundle from another commit is not a need: it is the
+- `missing` gains `bundle:<dir>` for every platform that runs a worker
+  (`sqlite: "worker"`: docker on macOS and Linux, Lima, Apple Container) when
+  the bundle is absent or has an incompatible protocol; `<dir>` is the folder
+  LayerFS would use (`LAYERFS_BUNDLE`, else the cache). A bundle from another commit is not a need: it is the
   `BundleMismatch` warning in `home get` (§2.5).
 - `options` entries gain `default` (`cpus` 2, `memory` 4 GiB, `disk` 20 GiB for
   the VMs), so clients stop hard-coding them.
@@ -92,11 +93,19 @@ reports what LayerFS resolved, so no client re-derives the rules.
   "socket": {"path":"/Users/me/.docker/run/docker.sock","source":"context:desktop-linux",
              "state":"silent"},          // answering | absent | denied | silent
   "candidates": [
-    {"path":"/Users/me/.docker/run/docker.sock","source":"context:desktop-linux"},
-    {"path":"/Users/me/.colima/default/docker.sock","source":"context:colima"},
-    {"path":"/var/run/docker.sock","source":"default"}
+    {"path":"/Users/me/.docker/run/docker.sock","host":"unix:///Users/me/.docker/run/docker.sock",
+     "source":"context:desktop-linux","usable":true},
+    {"path":"/Users/me/.colima/default/docker.sock","host":"unix:///Users/me/.colima/default/docker.sock",
+     "source":"context:colima","usable":true},
+    {"path":"/var/run/docker.sock","host":"unix:///var/run/docker.sock","source":"default","usable":true}
   ]
   ```
+  `host` is the endpoint as Docker writes it; a non-`unix://` one has
+  `path: null`, `usable: false`. `socket.source` is `recorded`, `legacy` (a
+  machine that ran before sockets were recorded keeps `/var/run/docker.sock`
+  until its next start records it), or the automatic choice named as the
+  candidates name it. `absent` is ENOENT/ENOTDIR, `denied` EACCES/EPERM,
+  `silent` anything else (one ping, 2 s per read and write).
   `denied` (EACCES) gets its own state, so a client offers the docker group fix
   instead of Start. Candidates come from `~/.docker` files (contexts,
   `DOCKER_CONTEXT`), `DOCKER_HOST` and the default; non-unix endpoints are
@@ -128,7 +137,7 @@ Needs: `source.dirty` in `bundle.json`, a commit stamped into
 | Check | Change |
 |---|---|
 | `machine.provider` | A built-in machine never started (provider `missing`, no recorded state) is a warning: "docker was never started; Start creates its worker container". A machine that ran and lost its container stays an error |
-| `host.native_daemon` | Checks the recorded daemon and its commit, not `<cache>/…/macos-<arch>/layerfs-daemon`, and reuses the `DaemonMismatch` wording |
+| `host.native_daemon` | Checks the recorded daemon, else the default daemon the native launch uses, and its commit (not `<cache>/…/macos-<arch>/layerfs-daemon` alone), reusing the `DaemonMismatch` wording. A missing or non-executable recorded daemon is an error, the default one a warning; "commit unknown or tree dirty" passes as not comparable. Not run on Linux yet |
 
 ### 2.7 Reads never change the home (needs agreement)
 
