@@ -394,11 +394,11 @@ export function managedCli(options: ManagedCliOptions): string {
     `   if(argv.includes('--events')){const finals=frames.filter(frame=>frame&&(Object.hasOwn(frame,'result')||Object.hasOwn(frame,'refusal')));if(finals.length===1){result=finals[0].result;refusal=finals[0].refusal;valid=!refusal}}`,
     `   else if(frames.length===1){result=frames[0];valid=true}`,
     `  }catch{}`,
-    `  if(!refusal)for(const line of stderr.trim().split('\\n').reverse()){try{const frame=JSON.parse(line);if(frame&&typeof frame.code==='string'){refusal=frame;break}}catch{}}`,
+    `  if(!refusal)for(const line of stderr.trim().split('\\n').reverse()){try{const frame=JSON.parse(line);if(frame&&typeof frame.error==='string'){refusal=frame;break}}catch{}}`,
     // The output first, so a page reloading on the new line already sees it.
     `  if(capture)writeOutput(fs,config.outputs,outputName(createHash,receipt.tag),outputRecord({tag:receipt.tag,exit:signal?null:code,stdout:sinks.stdout,stderr:sinks.stderr,refusal,max:config.max}),config.bounds);`,
     `  if(config.callLog){`,
-    `   const outcome=signal?'Unknown':code===125?(refusal&&typeof refusal.code==='string'&&refusal.code.length<=64?refusal.code:'Failed'):code===0||streamedExec?'ok':'Unknown';`,
+    `   const outcome=signal?'Unknown':code===125?((c=>typeof c==='string'&&c.length<=64?c:'Failed')(refusal&&(typeof refusal.error==='string'?refusal.error:refusal.code))):code===0||streamedExec?'ok':'Unknown';`,
     `   const words=renderCall(argv,piped?inputBytes:null,config.bools);`,
     `   appendCallLine(fs,config.callLog,{v:1,at,ms:Math.max(0,Math.round(performance.now()-started)),client:'cli',argv:words,outcome,...(outcome==='ok'&&streamedExec?{kind:'exit:'+code}:outcome==='ok'&&valid?savedFields(words,result):{}),...(receipt&&receipt.tag?{tag:receipt.tag}:{})},config.rotate);`,
     `  }`,

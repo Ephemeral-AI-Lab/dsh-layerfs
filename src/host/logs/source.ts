@@ -1,9 +1,10 @@
 /**
  * Where call log lines come from (docs/specs/layerfs-logs.md §3): the pinned
- * CLI's own `logs` family when it has one (every client of the LayerFS home),
- * else this plugin's stand-in file. LayerFS's file is only read through the CLI.
+ * CLI's own call log through `home log` / `home clear-log` (LayerFS 2.0; every
+ * client of the LayerFS home) when it has them, else this plugin's stand-in
+ * file. LayerFS's file is only read through the CLI.
  */
-import { isWrite, parseTag, type CallLine, type LogsListArgs, type LogsListAnswer, type LogsResetAnswer } from '../../shared/logs.ts'
+import { isWrite, parseTag, type CallClient, type CallLine, type LogsListArgs, type LogsListAnswer, type LogsResetAnswer } from '../../shared/logs.ts'
 import { listCalls, matches, projectOf, resetCalls as resetStandIn } from '../layerfs/call-log.ts'
 import { clearOutputs, outputsDir } from '../layerfs/call-output.ts'
 import type { LayerfsService } from '../service.ts'
@@ -22,18 +23,40 @@ export function listArgs(raw: any): LogsListArgs {
   return args
 }
 
+/**
+ * One `home log --detail` item as a call log line: `logged_at` (ISO) is `at`,
+ * `duration_ms` is `ms`, and the outcome is `ok`, or the refusal code
+ * (`error`) of a refused call; a result's own word (`committed`, …) is `kind`.
+ */
+export function lineOfItem(item: any): CallLine | null {
+  const at = typeof item?.logged_at === 'string' ? Date.parse(item.logged_at) : NaN
+  if (!Number.isFinite(at) || !Array.isArray(item?.argv)) return null
+  const word = typeof item.outcome === 'string' ? item.outcome : 'ok'
+  const refused = word === 'refused' || (typeof item.error === 'string' && item.error)
+  return {
+    v: 1, at, ms: Number.isFinite(item.duration_ms) ? Number(item.duration_ms) : 0,
+    client: (['cli', 'node', 'python', 'rust'].includes(item.client) ? item.client : 'cli') as CallClient,
+    argv: item.argv.map(String),
+    outcome: refused ? String(item.error ?? 'Failed') : 'ok',
+    ...(!refused && word !== 'ok' ? { kind: word } : {}),
+    ...(typeof item.commit === 'string' && item.commit ? { commit: item.commit } : {}),
+    ...(typeof item.tag === 'string' && item.tag ? { tag: item.tag } : {}),
+  }
+}
+
 /** One page of lines, newest first, from whichever source is active. */
 export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Promise<CallPage> {
   if (!(await layerfs.nativeLogs())) return { ...listCalls(layerfs.callLog, args), source: 'plugin' }
-  const entry = (await layerfs.discovery()).calls.find((c) => c.family === 'logs' && c.call === 'list')
+  const entry = (await layerfs.discovery()).calls.find((c) => c.family === 'home' && c.call === 'log')
   const accepted = new Set(entry?.options.map((o) => o.name) ?? [])
   const limit = args.limit ?? 100
   // LayerFS matches `project` exactly; the page searches by substring, and `writes` is ours (#659 Q1).
   const local: LogsListArgs = { ...(args.project ? { project: args.project } : {}), ...(args.writes ? { writes: true } : {}) }
   const native: Record<string, unknown> = {}
-  for (const key of ['op', 'client', 'tag', 'outcome', 'since'] as const) {
+  // the page's `op` filter is `home log --call` (a family, or family.call)
+  for (const [key, option] of [['op', 'call'], ['client', 'client'], ['tag', 'tag'], ['outcome', 'outcome'], ['since', 'since']] as const) {
     if (args[key] === undefined) continue
-    if (accepted.has(key)) native[key] = args[key]
+    if (accepted.has(option)) native[option] = args[key]
     else (local as any)[key] = args[key]
   }
   const filtered = Object.keys(local).length > 0
@@ -42,31 +65,35 @@ export async function readCalls(layerfs: LayerfsService, args: LogsListArgs): Pr
   for (let round = 0; round < 50; round++) {
     let page: any
     try {
-      page = await layerfs.lfs.logs.list({ ...native, ...(cursor ? { cursor } : {}), limit: limit - lines.length })
+      page = await layerfs.lfs.home.log({ ...native, ...(cursor ? { cursor } : {}), limit: limit - lines.length, detail: true })
     } catch (error: any) {
       // A home that was never initialized (or is not set up yet) has no log yet.
-      if ((error?.code === 'Unavailable' || error?.code === 'Uninitialized') && !cursor) return { lines: [], has_more: false, skipped: 0, source: 'layerfs' }
+      if ((error?.code === 'Unavailable' || error?.code === 'Uninitialized' || error?.code === 'NotFound') && !cursor) return { lines: [], has_more: false, skipped: 0, source: 'layerfs' }
       throw error
     }
     skipped += Number(page?.skipped ?? 0)
-    for (const line of page?.lines ?? []) if (!filtered || matches(line, local)) lines.push(line)
-    has_more = !!page?.has_more && typeof page?.next === 'string'
-    cursor = has_more ? page.next : undefined
+    for (const item of page?.items ?? []) {
+      const line = lineOfItem(item)
+      if (!line) { skipped++; continue }
+      if (!filtered || matches(line, local)) lines.push(line)
+    }
+    has_more = typeof page?.next_cursor === 'string' && !!page.next_cursor
+    cursor = has_more ? page.next_cursor : undefined
     if (!has_more || lines.length >= limit) break
   }
   return { lines, ...(has_more && cursor ? { next: cursor } : {}), has_more, skipped, source: 'layerfs' }
 }
 
-/** `logs.reset` on the active source; the stored outputs (`trace/outputs/`) go too, in both modes. */
+/** Clears the active source (`home clear-log`, else the stand-in); the stored outputs (`trace/outputs/`) go too, in both modes. */
 export async function resetCalls(layerfs: LayerfsService): Promise<LogsResetAnswer> {
   if (!(await layerfs.nativeLogs())) {
     const answer = resetStandIn(layerfs.callLog)
     clearOutputs(outputsDir(layerfs.callLog))
     return answer
   }
-  const answer = await layerfs.lfs.logs.reset()
+  const answer = await layerfs.lfs.home.clear_log({ detail: true })
   clearOutputs(outputsDir(layerfs.callLog))
-  return { removed: Number(answer?.removed ?? 0) }
+  return { removed: Number(answer?.line_count ?? 0) }
 }
 
 /** Every line with a tag under `prefix` (ending in `:`) and `at >= since`, newest first. */

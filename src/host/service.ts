@@ -9,6 +9,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { boolOptions, CliError, client, discover, execute, hasNativeLogs, knownIdentity, knownNativeLogs, plain, uninitialized, type Discovery, type Lfs } from './layerfs/cli.ts'
 import { managedCli } from './layerfs/tracing.ts'
+import { machineRows } from './layerfs/machine-records.ts'
 import { findSdk, managedSdk } from './layerfs/agent-sdk.ts'
 import { fileURLToPath } from 'node:url'
 
@@ -99,16 +100,40 @@ export interface RuntimeStatus {
 }
 
 /** `layerfs home get` (LayerFS ≥ the `home` family), as LayerFS answers it. */
+/** `home get --detail` (LayerFS 2.0, call-surface-2-0 `home.get`): the home's path, its state with `reason`/`fix`/`message`, `generation`, layout, mode and build pieces. */
 export interface HomeGet {
-  readonly home: { readonly path: string, readonly state: HomeState, readonly layout: number | null, readonly mode: string | null, readonly mode_ok: boolean | null }
-  readonly bundle: { readonly dir: string, readonly source: string, readonly present: boolean, readonly commit: string | null, readonly dirty: boolean | null, readonly matches: boolean | null } | null
+  readonly home: string
+  readonly state: string
+  readonly version: string | null
+  readonly generation: number | null
+  readonly reason: string | null
+  readonly fix: string | null
+  readonly message: string | null
+  readonly layout: number | null
+  readonly mode: string | null
+  readonly bundle: { readonly path: string, readonly source: string, readonly present: boolean, readonly commit: string | null, readonly dirty: boolean | null, readonly matches: boolean | null } | null
   readonly daemon: { readonly path: string, readonly source: string, readonly present?: boolean, readonly commit: string | null, readonly dirty?: boolean | null, readonly matches: boolean | null } | null
   readonly cache: { readonly path: string } | null
-  readonly warnings: readonly { readonly code: string, readonly message: string }[]
 }
 
-/** The LayerFS folder's state (`home get` `home.state`; without it: `layerfs.json` present or not). */
+/**
+ * The LayerFS folder as the setup modal words it: `current` (home get `ready`),
+ * `missing` (`broken`, reason `missing`), `needs_conversion` (`broken`, reason
+ * `outdated`), else `unknown`; without the home family, `layerfs.json` present or not.
+ */
 export type HomeState = 'missing' | 'current' | 'needs_conversion' | 'unknown'
+
+/** The setup modal's folder word for a `home get` answer (see {@link HomeState}). */
+export function homeStateOf(got: Pick<HomeGet, 'state' | 'reason'> | null | undefined): HomeState {
+  if (!got) return 'unknown'
+  if (got.state === 'ready') return 'current'
+  if (got.state === 'broken' && got.reason === 'missing') return 'missing'
+  if (got.state === 'broken' && got.reason === 'outdated') return 'needs_conversion'
+  return 'unknown'
+}
+
+/** Whether a mode string (`0700`) lets no group or world in; null when unknown. */
+const modeOk = (mode: string | null | undefined): boolean | null => (typeof mode === 'string' && /^0?[0-7]{3,4}$/.test(mode) ? (parseInt(mode, 8) & 0o077) === 0 : null)
 
 /** One piece of a runtime (CLI, daemon, Linux bundle) and whether it is from the CLI's build. */
 export interface Piece {
@@ -139,7 +164,7 @@ export interface SetupStatus {
     readonly did: { readonly created: boolean, readonly converted: boolean, readonly at: number } | null
   }
   readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
-  /** `home get`'s warnings in LayerFS's words (none for an older runtime). */
+  /** A home that is not ready, in LayerFS's words (`home get` `message` and `fix`). */
   readonly warnings: readonly { readonly code: string, readonly message: string }[]
   /** What blocks Done: no runtime, a folder that is not current, pieces from another build. */
   readonly needs: readonly SetupNeed[]
@@ -400,7 +425,7 @@ export class LayerfsService extends Service {
       let state: HomeState | null = null
       try {
         if (await this.homeCalls()) {
-          try { state = ((await this.lfs.home.get()) as HomeGet).home?.state ?? 'unknown' } catch { state = 'unknown' }
+          try { state = homeStateOf((await this.lfs.home.get({ detail: true })) as HomeGet) } catch { state = 'unknown' }
         } else state = existsSync(join(this.home, 'layerfs.json')) ? 'current' : 'missing'
       } catch { /* discovery failed: no call can run anyway */ } finally { this.homeLearn = null }
       if (generation === this.homeGeneration && this.homeState === null) this.homeState = state
@@ -423,9 +448,10 @@ export class LayerfsService extends Service {
     return this.homeInit ??= (async () => {
       try {
         if (await this.homeCalls()) {
-          const got: HomeGet = await this.lfs.home.get()
-          this.homeState = got.home?.state ?? 'unknown'
-          if (got.home?.state !== 'missing') return
+          const got: HomeGet = await this.lfs.home.get({ detail: true })
+          this.homeState = homeStateOf(got)
+          if (this.homeState !== 'missing') return
+          // cs20: switch when the home.init package merges (today's answer: created, converted)
           const did = await this.lfs.home.init()
           this.homeDid = { created: did?.created === true, converted: did?.converted === true, at: Date.now() }
         } else if (!existsSync(join(this.home, 'layerfs.json'))) {
@@ -449,6 +475,7 @@ export class LayerfsService extends Service {
    */
   async convertHome(): Promise<SetupStatus> {
     if (!(await this.homeCalls())) throw new CliError('Unsupported', 'This LayerFS runtime has no `home init`; choose a newer runtime to convert the folder')
+    // cs20: switch when the home.init package merges (today's answer: created, converted)
     const did = await this.lfs.home.init()
     this.homeDid = { created: did?.created === true, converted: did?.converted === true, at: Date.now() }
     this.homeGeneration++
@@ -496,13 +523,13 @@ export class LayerfsService extends Service {
       try {
         homeCalls = await this.homeCalls()
         if (homeCalls) {
-          got = await this.lfs.home.get()
-          if (got!.home?.state === 'missing') { await this.ensureHome(); got = await this.lfs.home.get() }
+          got = await this.lfs.home.get({ detail: true })
+          if (homeStateOf(got) === 'missing') { await this.ensureHome(); got = await this.lfs.home.get({ detail: true }) }
         } else if (!existsSync(join(this.home, 'layerfs.json'))) await this.ensureHome()
       } catch (e: any) { error = { code: e?.code ?? 'Failed', message: String(e?.message ?? e) } }
     }
     // never `current` from layerfs.json alone when the CLI could have said: a failed `home get` is unknown
-    const state: HomeState = got?.home?.state ?? (homeCalls || (runtime.ok && error) ? 'unknown' : existsSync(join(this.home, 'layerfs.json')) ? 'current' : 'missing')
+    const state: HomeState = got ? homeStateOf(got) : (homeCalls || (runtime.ok && error) ? 'unknown' : existsSync(join(this.home, 'layerfs.json')) ? 'current' : 'missing')
     // a conversion, set up or pin change meanwhile: this answer is stale (setup() reads again)
     if (generation === this.homeGeneration) this.homeState = runtime.ok ? state : null
     const identity = runtime.ok && this.pin.cli ? knownIdentity(this.pin.cli) : null
@@ -511,7 +538,7 @@ export class LayerfsService extends Service {
     const judged = (matches: boolean | null | undefined): Verdict => (matches === true ? 'matches' : matches === false ? 'other' : 'unknown')
     // the bundle LayerFS resolved (LAYERFS_BUNDLE, else its cache) when it says; else the pinned folder
     const bundle: Piece | null = got?.bundle
-      ? (got.bundle.present ? { path: got.bundle.dir, commit: got.bundle.commit, dirty: got.bundle.dirty, verdict: judged(got.bundle.matches) } : { path: got.bundle.dir, commit: null, dirty: null, verdict: 'missing' })
+      ? (got.bundle.present ? { path: got.bundle.path, commit: got.bundle.commit, dirty: got.bundle.dirty, verdict: judged(got.bundle.matches) } : { path: got.bundle.path, commit: null, dirty: null, verdict: 'missing' })
       : pieceOf(this.pin.bundle, bundleStamp(this.pin.bundle), cliStamp)
     // the daemon the native machine has recorded when LayerFS says (what its DaemonMismatch is about); else the pinned one
     const daemon: Piece | null = process.platform !== 'darwin' ? null
@@ -525,9 +552,10 @@ export class LayerfsService extends Service {
     if (runtime.ok && !mixedAllowed() && [bundle, daemon].some((p) => p?.verdict === 'other')) needs.push('build')
     const answer: SetupStatus = {
       at: Date.now(), runtime, homeCalls,
-      folder: { path: this.home, state, layout: got?.home?.layout ?? null, mode: got?.home?.mode ?? null, modeOk: got?.home?.mode_ok ?? null, did: this.homeDid },
+      folder: { path: this.home, state, layout: got?.layout ?? null, mode: got?.mode ?? null, modeOk: modeOk(got?.mode), did: this.homeDid },
       pieces: { cli, daemon, bundle },
-      warnings: got?.warnings ?? [],
+      // a home that is not ready: LayerFS's sentence and its fix (2.0 has no warnings list; `home doctor` reports the rest)
+      warnings: got && got.state !== 'ready' && got.message ? [{ code: got.reason ?? got.state, message: got.fix ? `${got.message} (${got.fix})` : got.message }] : [],
       needs, mixedAllowed: mixedAllowed(), error,
       // only when the recorded one is gone or from another build (a same-build copy elsewhere is fine), and ours is not
       daemonRecordable: process.platform === 'darwin' && !!this.pin.daemon && !!daemon?.path && daemon.path !== this.pin.daemon
@@ -567,9 +595,8 @@ export class LayerfsService extends Service {
   private async workersIdle(): Promise<boolean> {
     try {
       if (!this.pin.cli || !existsSync(join(this.home, 'layerfs.json'))) return true
-      const listed = await this.lfs.machine.list({ timeout_ms: 15000 })
-      // a built-in docker that never started reads `ready` with no op (LayerFS's fallback): it has no worker yet
-      return (listed?.machines ?? []).every((m: any) => m?.platform === 'native' || m?.state === 'stopped' || (m?.platform === 'docker' && m?.state === 'ready' && !m?.op))
+      // records only (2.0): every worker machine stopped; a built-in docker never started reads `stopped`
+      return (await machineRows(this.lfs, { timeout_ms: 15000 })).every((m) => m.platform === 'native' || m.state === 'stopped')
     } catch { return false }
   }
 
@@ -662,7 +689,7 @@ export class LayerfsService extends Service {
     const attempt: Promise<unknown> = (async () => {
       if (process.platform !== 'darwin' || !this.pin.cli || !this.pin.daemon) return
       try {
-        const recorded = existsSync(join(this.home, 'layerfs.json')) ? (await this.lfs.machine.get('native')).daemon ?? null : null
+        const recorded = existsSync(join(this.home, 'layerfs.json')) ? (await this.lfs.machine.get('native', { detail: true })).daemon ?? null : null
         if (recorded && existsSync(recorded) && (!moved || recorded === this.pin.daemon)) return
         await this.lfs.machine.update('native', { daemon: this.pin.daemon })
       } catch (error) {
@@ -764,7 +791,7 @@ export class LayerfsService extends Service {
       process.env.DSH_LAYERFS_CLI, process.env.DSH_LAYERFS_DAEMON, process.env.DSH_LAYERFS_BUNDLE, process.env.LAYERFS_BUNDLE]
     let machines: unknown = null
     // a deliberate probe (its own budget), so the answer is read now, after the native record moved
-    try { if (this.pin.cli && existsSync(join(this.home, 'layerfs.json'))) machines = await this.lfs.machine.list({ timeout_ms: 15000 }) } catch { machines = null }
+    try { if (this.pin.cli && existsSync(join(this.home, 'layerfs.json'))) machines = await this.lfs.machine.list({ timeout_ms: 15000, detail: true }) } catch { machines = null }
     const result = cleanRuntimes(this.home, { pinned, machines, processes: runningCommands() })
     const logger = this.ctx.logger('layerfs')
     if (result.removed.length) logger.info('removed %d unused LayerFS runtime folder(s): %s', result.removed.length, result.removed.join(', '))

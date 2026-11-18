@@ -275,7 +275,7 @@ export type KeptWhy =
 export interface CleanupFacts {
   /** Pinned paths (CLI, daemon, bundle of this host's pin, its saved pin and the environment's). */
   readonly pinned: readonly (string | null | undefined)[]
-  /** `machine.list()`'s answer as LayerFS gave it (`{ machines: [...] }`), or null when it could not be read. */
+  /** `machine list --detail`'s answer as LayerFS gave it (`{ items: [...] }`), or null when it could not be read. */
   readonly machines: unknown | null
   /** The command line of every running process (`ps`), or null when they could not be listed. */
   readonly processes: readonly string[] | null
@@ -321,7 +321,7 @@ function workersMayRun(machines: readonly unknown[]): boolean {
 export function planRuntimeCleanup(runtimes: readonly InstalledRuntime[], facts: CleanupFacts): { keep: Map<string, KeptWhy>, remove: InstalledRuntime[] } {
   const keep = new Map<string, KeptWhy>()
   const remove: InstalledRuntime[] = []
-  const list = (facts.machines as any)?.machines
+  const list = (facts.machines as any)?.items
   const known = Array.isArray(list) && Array.isArray(facts.processes)
   const pinned = facts.pinned.filter((p): p is string => typeof p === 'string' && !!p).flatMap((p) => [p, real(p)])
   const named = known ? strings(list).filter((s) => s.startsWith('/')).flatMap((p) => [p, real(p)]) : []

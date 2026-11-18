@@ -244,6 +244,7 @@ function OutputView({ t, output }: { t: LogsT, output: CallOutput }): ReactNode 
             <Tag tone="danger" className={css.codeTag}>{output.refusal.code}</Tag>
             {output.refusal.message && <span>{output.refusal.message}</span>}
           </span>
+          {output.refusal.fix && <span className={css.muted}>{t('refusalFix')} <code>{output.refusal.fix}</code></span>}
           {output.refusal.detail != null && (
             <details className={css.disclosure}>
               <summary>{t('refusalDetail')}</summary>

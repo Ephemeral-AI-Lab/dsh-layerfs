@@ -155,6 +155,9 @@ export function callLine(o: { at: number, ms: number, argv: readonly string[], i
 export function loggable(argv: readonly string[]): boolean {
   if (!(argv.length >= 2 && /^[a-z][a-z_]*$/.test(argv[0] ?? '') && /^[a-z][a-z_-]*$/.test(argv[1] ?? ''))) return false
   if (argv[0] === 'help' || argv[0] === 'logs') return false
+  // the 2.0 calls LayerFS's own log skips (their rows say `quiet`): the call log's reader and clearer, and the monitoring reads
+  if (argv[0] === 'home' && ['log', 'clear-log', 'clear_log'].includes(argv[1] ?? '')) return false
+  if (argv[0] === 'machine' && ['stats', 'log'].includes(argv[1] ?? '')) return false
   return !((argv[0] === 'sandbox' || argv[0] === 'machine') && argv[1] === 'files')
 }
 

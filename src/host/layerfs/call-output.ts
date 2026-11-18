@@ -80,9 +80,12 @@ export function outputRecord(o: { tag: string, exit: number | null | undefined, 
   } else out = head(out)
   const err = tail(o.stderr.bytes()), errTotal = o.stderr.total()
   const truncated = { ...(out.length < outTotal ? { stdout: true } : {}), ...(err.length < errTotal ? { stderr: true } : {}) }
-  const refusal = o.exit === 125 && o.refusal && typeof o.refusal.code === 'string' ? {
-    code: o.refusal.code.slice(0, 64),
+  // a 2.0 refusal names its code `error`; an `--events` final frame still says `code` (cs20: switch when the Workspace package merges)
+  const code = o.refusal && typeof o.refusal.error === 'string' ? o.refusal.error : o.refusal && typeof o.refusal.code === 'string' ? o.refusal.code : null
+  const refusal = o.exit === 125 && code !== null ? {
+    code: code.slice(0, 64),
     ...(typeof o.refusal.message === 'string' ? { message: o.refusal.message } : {}),
+    ...(typeof o.refusal.fix === 'string' && o.refusal.fix ? { fix: o.refusal.fix } : {}),
     ...(o.refusal.detail !== undefined && o.refusal.detail !== null ? { detail: o.refusal.detail } : {}),
   } : undefined
   return {
@@ -206,7 +209,7 @@ export function readRaw(dir: string, tag: string, max = OUTPUT_MAX): CallOutput 
   const sink = (part: { bytes: Buffer, total: number } | undefined) => ({ push() {}, total: () => part?.total ?? 0, bytes: () => part?.bytes ?? Buffer.alloc(0) })
   let refusal: any
   if (exit === 125 && err) for (const line of err.bytes.toString('utf8').trim().split('\n').reverse()) {
-    try { const frame = JSON.parse(line); if (frame && typeof frame.code === 'string') { refusal = frame; break } } catch { /* not a frame */ }
+    try { const frame = JSON.parse(line); if (frame && typeof frame.error === 'string') { refusal = frame; break } } catch { /* not a frame */ }
   }
   return outputRecord({ tag, exit, stdout: sink(out), stderr: sink(err), refusal, max })
 }
