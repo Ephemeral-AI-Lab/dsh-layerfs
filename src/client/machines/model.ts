@@ -25,22 +25,22 @@ export interface SdkOperation {
   uncertain: boolean
 }
 
-export interface MachineSupports {
-  sqlite: boolean
-  postgresql_sandbox: boolean
-  reason: string | null
-  /** The machine has a worker log to read (logs.machine). Absent from a CLI before the field: then no Worker log tab. */
-  log?: boolean
-}
+/** What a machine supports, as `machine list --detail` lists it: `sqlite`, `postgresql_sandbox`, `log` (it has a worker log). */
+export type MachineSupport = 'sqlite' | 'postgresql_sandbox' | 'log' | (string & {})
+
+/** Whether a machine's `supports` list has `what`; a machine without the list is not ruled out (`unknown` answers undefined). */
+export const supports = (m: { supports?: readonly string[] | null } | null | undefined, what: MachineSupport): boolean | undefined =>
+  (m?.supports ? m.supports.includes(what) : undefined)
 
 export interface PlatformOption {
-  name: string
+  /** The create option's name (`cpus`, `memory`, `disk`, `image`, `os_image`). */
+  option: string
   kind: string
   /** What machine.create takes when it is not given (cpus 2; memory and disk in bytes, or a LayerFS size such as `4GiB`); absent from an older CLI. */
   default?: number | string | null
 }
 
-/** docker's socket as LayerFS reports it (machine.platforms, docs/specs/layerfs-setup.md §2.3); absent from an older CLI. */
+/** docker's socket as LayerFS reports it (`home get --with platforms`, docs/specs/layerfs-setup.md §2.3). */
 export interface DockerSocket {
   path: string | null
   /** `recorded` (the machine's own), `env:DOCKER_HOST`, `context:<name>`, `desktop`, `colima`, `orbstack` or `default`. */
@@ -57,12 +57,13 @@ export interface DockerCandidate {
   usable?: false
 }
 
-/** One machine.platforms row: readiness and create options. */
+/** One `home get --with platforms` item: readiness and create options. */
 export interface MachinePlatformInfo {
   platform: string
   how: string
   backend: string | null
-  kernel: string | null
+  /** How Workspaces are served: `nfs` (native on macOS) or `fuse`. */
+  route: string | null
   sqlite: string | null
   postgresql: { store_calls: string, sandbox: boolean, reason: string | null }
   ready: boolean
@@ -76,23 +77,37 @@ export interface MachinePlatformInfo {
   candidates?: DockerCandidate[]
 }
 
-/** One machine.list() entry. */
+/**
+ * One machine (`machine list --detail`, then `machine get --detail --with
+ * live` for each machine but native). `state` is one of LayerFS 2.0's six:
+ * `ready`, `busy` (with `op`), `stopped`, `broken` (with `reason` and `fix`),
+ * `unknown` (with `observedAt`); a machine is never `blocked`.
+ */
 export interface MachineInfo {
   name: string
   platform: string
   backend: string | null
   state: string
   op?: SdkOperation | null
-  supports?: MachineSupports
+  /** `broken`: why, as a code (`engine_down`, `not_answering`, `outdated`, `unreachable`, `missing`, `failed`, `unresolved`, `lost`, `unsupported`). */
+  reason?: string | null
+  /** `broken`: one runnable shell line that repairs it (two commands joined with `&&`). */
+  fix?: string | null
+  /** The sentence behind a state that is not ready. */
+  message?: string | null
+  /** When LayerFS last knew its state (ISO). */
+  observedAt?: string | null
+  supports?: readonly MachineSupport[]
   cpus: number | null
   memory: number | null
   disk: number | null
   stores: string[]
   sandboxes: string[]
   image?: string
+  osImage?: string
   docker?: string
   wsl?: string
-  error?: string
+  daemon?: string
 }
 
 /** A sqlite Store on a machine. */
@@ -137,14 +152,13 @@ export interface MachineSandbox {
   liveReason?: string
 }
 
-/** machine.status(name). */
+/** A machine's `--with live` section (`machine get`), or why its probe could not be made (`error`). */
 export interface MachineLive {
-  op?: SdkOperation | null
   name: string
-  state: string | null
   freeDisk: number | null
   toolVersion: string | null
-  down: string | null
+  worker: { protocol: string | null, bundle: string | null } | null
+  error?: { code: string, message: string }
 }
 
 /** What the pinned LayerFS CLI can do beyond the calls every CLI has (host `featuresOf`, docs/specs/sandbox-images.md §4.2). */
@@ -153,7 +167,7 @@ export interface CliFeatures {
   forceStop: boolean
   /** machine.images: a machine's cached Sandbox images. */
   images: boolean
-  /** machine.load: copy an image to a machine without a Sandbox. */
+  /** machine.load_image: copy an image to a machine without a Sandbox. */
   imageLoad?: boolean
   /** machine.prune: remove cached images. */
   imagePrune?: boolean
@@ -169,9 +183,7 @@ export interface CliFeatures {
   inspect?: { machineLog: boolean, sandboxLog: boolean, files: boolean, machineFiles: boolean, machineStats?: boolean }
   /** sandbox.list answers `live` per Sandbox (layerfs-project#164). */
   sandboxLive?: boolean
-  /** `layerfs doctor` lists leftovers and `layerfs doctor fix <id>` removes one (layerfs-project#180). */
-  leftovers?: boolean
-  /** `layerfs machine space`: where a machine's data disk goes. */
+  /** `layerfs machine stats --with space`: where a machine's data disk goes. */
   machineSpace?: boolean
 }
 
@@ -196,7 +208,8 @@ export interface AvailableView {
   stores: MachineStore[]
   postgresql: MachinePgStore[]
   sandboxes: MachineSandbox[]
-  status: Record<string, MachineLive>
+  /** Each machine but native: its live probe. */
+  live: Record<string, MachineLive>
 }
 
 /** GET /api/machines. */
@@ -470,15 +483,13 @@ export interface StateLook {
 }
 
 const LOOK: Record<Entity, Record<string, StateLook>> = {
+  // LayerFS 2.0's six states; `busy` and `broken` are worded by their companion (machineState)
   machine: {
-    creating: { tone: 'warning', label: 'stateCreating', live: true },
-    running: { tone: 'success', label: 'stateRunning' },
     ready: { tone: 'success', label: 'stateRunning' },
+    busy: { tone: 'warning', label: 'stateBusy', live: true },
     stopped: { tone: 'neutral', label: 'stateStopped' },
-    removing: { tone: 'warning', label: 'stateRemoving', live: true },
-    failed: { tone: 'danger', label: 'stateFailed', attention: true },
-    missing: { tone: 'danger', label: 'stateMissing', attention: true },
-    unresolved: { tone: 'danger', label: 'stateUnresolved', attention: true },
+    broken: { tone: 'danger', label: 'stateBroken', attention: true },
+    blocked: { tone: 'warning', label: 'stateBlocked' },
     unknown: { tone: 'neutral', label: 'stateUnknown', dashed: true },
   },
   store: {
@@ -516,7 +527,7 @@ export function clearingCall(entity: Entity, name: string, op?: SdkOperation | n
     const clear = op?.name === 'store.remove' ? `layerfs store remove ${name}` : op?.name === 'store.pull' ? `layerfs store pull ${name}` : `layerfs store push ${name} <machine> (or store pull ${name})`
     return { status: `layerfs store status ${name}`, clear }
   }
-  if (entity === 'machine') return { status: `layerfs machine status ${name}`, clear: `layerfs machine remove ${name}` }
+  if (entity === 'machine') return { status: `layerfs machine get ${name} --with live`, clear: `layerfs machine remove ${name}` }
   return { status: `layerfs sandbox get ${name}`, clear: `layerfs sandbox close ${name}` }
 }
 
@@ -554,24 +565,33 @@ export function machineOrder(machines: MachineInfo[]): MachineInfo[] {
   return [...machines].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 }
 
-/** How a machine's state is counted: `needs` is failed, missing or unresolved. */
+/** How a machine's state is counted on the board: `running` is `ready`, `needs` is `broken`. */
 export type MachineKey = 'running' | 'stopped' | 'busy' | 'needs' | 'unknown'
 
-/** A machine's state as the SDK gives it, with the op machine.status shows. */
-export function machineState(m: MachineInfo, live?: MachineLive): StateLook & { key: MachineKey, state: string, op: SdkOperation | null } {
+/** A busy machine's word by its op (`create`, `start`, `stop`, `remove`). */
+const OP_LABEL: Record<string, MachinesKey> = { create: 'stateCreating', start: 'stateStarting', stop: 'stateStopping', remove: 'stateRemoving' }
+/** A broken machine's word by its reason. */
+const REASON_LABEL: Record<string, MachinesKey> = {
+  engine_down: 'stateEngineDown', not_answering: 'stateWorkerDown', outdated: 'stateOutdated', unreachable: 'stateUnreachable',
+  missing: 'stateMissing', failed: 'stateFailed', unresolved: 'stateUnresolved', lost: 'stateLost', unsupported: 'stateUnsupported',
+}
+
+/** A machine's state as LayerFS gives it (one of the six), worded by its companion: a busy op's name, a broken reason. */
+export function machineState(m: MachineInfo, _live?: MachineLive): StateLook & { key: MachineKey, state: string, op: SdkOperation | null } {
   const state = m.state || 'unknown'
-  // stopped or running in LayerFS's records, yet its status says it cannot be reached: it needs you
-  if (workerDown(m, live)) return { tone: 'danger', label: 'stateWorkerDown', attention: true, key: 'needs', state, op: live?.op ?? m.op ?? null }
   const look = stateLook('machine', state)
-  const key: MachineKey = look.attention ? 'needs' : state === 'running' || state === 'ready' ? 'running' : state === 'stopped' ? 'stopped' : state === 'creating' || state === 'removing' ? 'busy' : 'unknown'
-  return { ...look, key, state, op: live?.op ?? m.op ?? null }
+  const op = m.op ?? null
+  if (state === 'busy') return { ...look, label: (op && OP_LABEL[op.name.replace(/^machine\./, '')]) || look.label, key: 'busy', state, op }
+  if (state === 'broken') return { ...look, label: (m.reason && REASON_LABEL[m.reason]) || look.label, key: 'needs', state, op }
+  const key: MachineKey = state === 'ready' ? 'running' : state === 'stopped' ? 'stopped' : 'unknown'
+  return { ...look, key, state, op }
 }
 
 /** The board's order rank. */
 export const RANK: Record<MachineKey, number> = { needs: 0, busy: 1, running: 2, stopped: 3, unknown: 4 }
 
-/** Why a machine needs you or did not answer, in LayerFS's words; a plain stop is not a reason. */
-export const downReason = (m: MachineInfo, live?: MachineLive): string | null => live?.down ?? m.error ?? null
+/** Why a machine needs you or did not answer, in LayerFS's words (its state's `message`, else why its live probe failed); a plain stop is not a reason. */
+export const downReason = (m: MachineInfo, live?: MachineLive): string | null => (m.state === 'stopped' || m.state === 'ready' ? null : m.message ?? live?.error?.message ?? null)
 
 /** Binary sizes as LayerFS gives them (8 GiB, 40 GiB). */
 export function gib(n: number | null | undefined): string {
@@ -610,8 +630,8 @@ export function sandboxesOn(view: AvailableView, m: MachineInfo): MachineSandbox
 /** The facts line's numbers. */
 export function factsOf(view: AvailableView) {
   const n: Record<MachineKey, number> = { running: 0, stopped: 0, busy: 0, needs: 0, unknown: 0 }
-  for (const m of view.machines) n[machineState(m, view.status[m.name]).key]++
-  const ops = [...Object.values(view.status).filter((s) => s.op), ...view.stores.filter((s) => s.op), ...view.sandboxes.filter((b) => b.op)].length
+  for (const m of view.machines) n[machineState(m, view.live[m.name]).key]++
+  const ops = [...view.machines.filter((m) => m.op), ...view.stores.filter((s) => s.op), ...view.sandboxes.filter((b) => b.op)].length
   const workspaces = view.sandboxes.reduce((sum, b) => sum + (b.workspaces ?? 0), 0)
   return { ...n, ops, sandboxes: view.sandboxes.length, workspaces, workspacesKnown: !view.sandboxes.some((b) => b.workspaces == null) }
 }
@@ -627,18 +647,43 @@ export function heldWords(held: { stores: number }): Words {
 }
 
 /**
- * A VM or worker LayerFS cannot reach although its records say stopped or
- * running: `machine.status` gives a reason (e.g. "the machine runs but its worker
- * does not answer", or the status read itself failed). A clean stop has none.
- * Start brings the worker back; Stop shuts it down and records it stopped,
- * which also ends the waits on it.
+ * A VM or worker LayerFS cannot reach: `broken` with a reason a start or a
+ * restart repairs (`not_answering`, `outdated`, `unreachable`, `engine_down`,
+ * `missing`). Its `fix` says how; {@link fixAction} says what the page runs.
  */
-export const workerDown = (m: MachineInfo, live?: MachineLive): boolean =>
-  m.platform !== 'native' && (m.state === 'stopped' || m.state === 'running') && !!live?.down
+export const workerDown = (m: MachineInfo, _live?: MachineLive): boolean =>
+  m.platform !== 'native' && m.state === 'broken' && ['not_answering', 'outdated', 'unreachable', 'engine_down', 'missing'].includes(m.reason ?? '')
 
-/** Start or Stop, when the machine is non-native and running or stopped. */
+/** Start or Stop: Stop when it is ready, Start when it is stopped (never for native). */
 export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>
-  m.platform !== 'native' && (m.state === 'running' || m.state === 'stopped') ? (m.state === 'running' ? 'stop' : 'start') : null
+  m.platform !== 'native' && (m.state === 'ready' || m.state === 'stopped') ? (m.state === 'ready' ? 'stop' : 'start') : null
+
+/**
+ * The one action a machine's state offers (UI rule: dot, word, tip, one
+ * action): from its `fix` line when it is one this page runs (`machine start`,
+ * or `machine stop && machine start` with no Sandbox on it), Start that first
+ * launches Docker for `engine_down`, Check (a live read) for `unresolved` or
+ * `unknown`; a `--force` restart is offered off, with the line to copy.
+ * Null when there is none.
+ */
+export type FixAction =
+  | { kind: 'start' | 'restart' | 'engine' | 'check' }
+  | { kind: 'forced', sandboxes: number, line: string }
+  | { kind: 'copy', line: string }
+export function fixAction(m: MachineInfo): FixAction | null {
+  if (m.platform === 'native') return null
+  if (m.state === 'unknown') return { kind: 'check' }
+  if (m.state !== 'broken') return null
+  if (m.reason === 'engine_down') return { kind: 'engine' }
+  if (m.reason === 'unresolved') return { kind: 'check' }
+  const line = m.fix ?? ''
+  const commands = line.split('&&').map((c) => c.trim()).filter(Boolean)
+  const word = (c: string, verb: string, force = false) => c.split(/\s+/).join(' ') === ['layerfs', 'machine', verb, m.name, ...(force ? ['--force'] : [])].join(' ')
+  if (commands.length === 1 && word(commands[0]!, 'start')) return { kind: 'start' }
+  if (commands.length === 2 && word(commands[0]!, 'stop') && word(commands[1]!, 'start')) return m.sandboxes.length ? { kind: 'forced', sandboxes: m.sandboxes.length, line } : { kind: 'restart' }
+  if (commands.length === 2 && word(commands[0]!, 'stop', true) && word(commands[1]!, 'start')) return { kind: 'forced', sandboxes: m.sandboxes.length, line }
+  return line ? { kind: 'copy', line } : null
+}
 
 /** Force stop remains available for registered runtimes even when the worker
  * is stopped or unavailable; native stops its managed runtimes, not the host. */
@@ -704,7 +749,7 @@ export function sizeText(v: number | string | null | undefined): string | null {
 }
 
 /** An option's default as `platforms` reports it (`options[].default`), or undefined. */
-const optionDefault = (platform: Pick<MachinePlatformInfo, 'options'> | undefined, name: string) => platform?.options.find((o) => o.name === name)?.default
+const optionDefault = (platform: Pick<MachinePlatformInfo, 'options'> | undefined, name: string) => platform?.options.find((o) => o.option === name)?.default
 
 /**
  * A new VM's form: CPUs, memory and disk from the platform's `options[].default`
@@ -771,7 +816,7 @@ export const addable = (platforms: MachinePlatformInfo[]): MachinePlatformInfo[]
 
 /** Whether `platform` declares create option `name`. */
 export const declares = (platforms: MachinePlatformInfo[], platform: string, name: string): boolean =>
-  !!platforms.find((p) => p.platform === platform)?.options.some((o) => o.name === name)
+  !!platforms.find((p) => p.platform === platform)?.options.some((o) => o.option === name)
 
 // ---------- startup progress ----------
 
@@ -796,8 +841,23 @@ export function startupFailure(error: unknown): 'failed' | 'uncertain' {
   return e?.code === 'Unknown' || e?.code === 'no-host' || e?.status === 0 || e?.transport === 'uncertain' || e?.transport === 'transport-unknown' ? 'uncertain' : 'failed'
 }
 
-/** Merge one reported stage; a late `started` never undoes a terminal stage. */
-export function mergeStage(stages: StartupStage[], progress: { stage?: unknown, state?: unknown, elapsed_ms?: unknown }, at: number): StartupStage[] {
+/**
+ * Merge one progress event. LayerFS 2.0's `{ phase, done, total }` (done and
+ * total count phases): the phase it names runs, those before it are done, and
+ * `done === total` ends them all. The host's own Docker Engine launch reports
+ * `{ stage, state }` (started, completed, failed). A late `started` never
+ * undoes a terminal stage.
+ */
+export function mergeStage(stages: StartupStage[], progress: { stage?: unknown, state?: unknown, elapsed_ms?: unknown, phase?: unknown, done?: unknown, total?: unknown }, at: number): StartupStage[] {
+  const elapsedOf = typeof progress.elapsed_ms === 'number' && Number.isFinite(progress.elapsed_ms) && progress.elapsed_ms >= 0 ? { elapsedMs: progress.elapsed_ms } : {}
+  if (typeof progress.phase === 'string' && progress.phase) {
+    const phase = progress.phase
+    const total = typeof progress.total === 'number' ? progress.total : 0, done = typeof progress.done === 'number' ? progress.done : 0
+    const all = total > 0 && done >= total
+    let next = stages.map((s) => (s.state === 'started' && (s.stage !== phase || all) ? { ...s, state: 'completed' as const } : s))
+    if (!next.some((s) => s.stage === phase)) next = [...next, { stage: phase, state: all ? 'completed' : 'started', at, ...elapsedOf }]
+    return next.every((s, i) => s === stages[i]) && next.length === stages.length ? stages : next
+  }
   if (typeof progress.stage !== 'string' || !['started', 'completed', 'failed'].includes(String(progress.state))) return stages
   const state = progress.state as StartupStage['state']
   const previous = stages.find((s) => s.stage === progress.stage)
@@ -809,6 +869,11 @@ export function mergeStage(stages: StartupStage[], progress: { stage?: unknown, 
 }
 
 const STAGE: Record<string, MachinesKey> = {
+  // LayerFS 2.0's phases of a start or create (bundle, image, boot, worker)
+  bundle: 'stageBundle',
+  image: 'stageImage',
+  boot: 'stageBoot',
+  worker: 'stageWorker',
   'bundle-validation': 'stageBundle',
   // the host launches the Docker Engine before a docker machine's start (host docker-engine.ts)
   'docker-engine': 'stageDockerEngine',

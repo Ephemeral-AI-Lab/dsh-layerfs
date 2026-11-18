@@ -221,7 +221,7 @@ function SandboxesBody({ m, view, canCreate, onCreate, onImages, images }: TabPr
   const sortWords: Record<SandboxSort, string> = { listed: t('sbSortListed'), name: t('sbSortName'), disk: t('sbSortDisk'), memory: t('sbSortMemory') }
   const sorts = SANDBOX_SORTS.filter((x) => (x === 'disk' ? space.offered : x === 'memory' ? metrics.offered : true))
   const filters = SANDBOX_FILTERS.filter((f) => f === 'all' || counts[f] > 0 || f === filter)
-  const running = machineState(m, view.status[m.name]).key === 'running'
+  const running = machineState(m, view.live[m.name]).key === 'running'
   const empty = filter !== 'all' ? t('sbFilterEmpty') : view.readErrors?.sandboxes ? t('sandboxesUnread') : running ? t('noSandboxesHere')
     : t(m.platform === 'docker' ? 'sandboxesAfterWorker' : 'sandboxesAfterStart', { name: m.platform === 'native' ? t('homeName') : m.name })
   return (

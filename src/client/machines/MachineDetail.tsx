@@ -24,7 +24,7 @@ import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { useMachineTitle } from './Inventory.tsx'
-import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, type AvailableView, type MachineInfo } from './model.ts'
+import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, supports, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
@@ -92,7 +92,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   }, [m.platform])
   const [creating, setCreating] = useState(false)
   const [spaceOpen, setSpaceOpen] = useState(false)
-  const live = view.status[m.name]
+  const live = view.live[m.name]
   const state = machineState(m, live)
   const reason = startup?.status === 'running' ? null : downReason(m, live)
   const attention = startup?.status === 'running' ? null : attentionOf(m, view)
@@ -105,7 +105,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const canSandbox = pending === null
   const name = title(m)
   // Worker log: the pinned CLI has the call, and LayerFS says this machine has a worker log (no platform test here)
-  const hasLog = view.features?.inspect?.machineLog === true && m.supports?.log === true
+  const hasLog = view.features?.inspect?.machineLog === true && supports(m, 'log') === true
   // Files: the pinned CLI has machine.files (which views it has is LayerFS's answer, never a platform test here)
   const hasFiles = view.features?.inspect?.machineFiles === true
   // observed values (machine.stats), read every 10 s while this page is on screen; without the call the facts are the record's, as before

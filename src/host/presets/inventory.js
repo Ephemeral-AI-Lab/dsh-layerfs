@@ -6,10 +6,12 @@ export class CliInventory {
   async inventory(family) {
     const items = []; let page = 0
     do {
-      const result = await this.query([family, 'list', ...(family === 'sandbox' ? ['--page-size', '1000', '--page-pos', String(page)] : [])])
-      const values = Array.isArray(result) ? result : result?.[family === 'machine' ? 'machines' : 'items']
+      // cs20: switch when the Store and Sandbox packages merge (store/sandbox list still old names and paging).
+      const result = await this.query([family, 'list', ...(family === 'machine' ? ['--detail'] : []), ...(family === 'sandbox' ? ['--page-size', '1000', '--page-pos', String(page)] : [])])
+      const values = Array.isArray(result) ? result : result?.items
       if (!Array.isArray(values)) fail(`Cannot verify cleanup: invalid ${family} inventory.`)
-      items.push(...values)
+      // 2.0 machine rows are keyed `machine`; the presets key every row by `name`.
+      items.push(...(family === 'machine' ? values.map(row => ({ ...row, name: row.machine })) : values))
       const next = result.next_page_pos ?? null
       if (next !== null && (family !== 'sandbox' || !Number.isInteger(next) || next <= page)) fail(`Cannot verify cleanup: invalid ${family} pagination.`)
       page = next

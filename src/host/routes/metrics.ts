@@ -34,8 +34,8 @@ export const TICK_MS = 15_000
 export const RING = 240
 /** How long a Sandbox that went keeps its history. */
 export const CLOSED_KEEP_MS = 10 * 60_000
-/** States whose machine is read; any other state is not asked (`machine_stopped`). */
-export const SAMPLED_STATES = new Set(['running', 'ready'])
+/** States whose machine is read (2.0: `ready`); any other state is not asked (`machine_stopped`). */
+export const SAMPLED_STATES = new Set(['ready'])
 /** The gap code of a machine that is not running. */
 export const STOPPED = 'machine_stopped'
 

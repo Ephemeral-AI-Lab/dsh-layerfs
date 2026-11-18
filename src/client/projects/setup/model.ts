@@ -10,13 +10,14 @@ import type { StorageView, StoreRow } from '../../storage/types.ts'
 export type StoreKind = 'sqlite' | 'postgresql'
 export type Machine = StorageView['machines'][number]
 
-const RUNNING = new Set(['running', 'ready'])
+/** LayerFS 2.0: a machine that runs is `ready`. */
+const RUNNING = new Set(['ready'])
 export const isRunning = (m: Pick<Machine, 'name' | 'state'> | undefined) => !!m && (m.name === 'native' || RUNNING.has(m.state ?? ''))
 
 /** Machines that can run a project of this Store kind: docker first, then native, then the rest by name. */
 export function machinesFor(view: Pick<StorageView, 'machines'> | undefined, kind: StoreKind): Machine[] {
   const can = (m: Machine) => m.state !== 'unsupported'
-    && (kind === 'sqlite' ? m.supports?.sqlite !== false : m.supports?.postgresql_sandbox !== false)
+    && (kind === 'sqlite' ? !m.supports || m.supports.includes('sqlite') : !m.supports || m.supports.includes('postgresql_sandbox'))
   const rank = (m: Machine) => (m.name === 'docker' ? 0 : m.name === 'native' ? 1 : 2)
   return (view?.machines ?? []).filter(can).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 }

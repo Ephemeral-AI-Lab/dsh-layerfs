@@ -29,7 +29,7 @@ export function compileSimulation({ project, machine = 'native', mixed = false, 
   const put = (path, value) => { files[path] = typeof value === 'string' ? value : json(value) }
   for (const [path, content] of Object.entries(history.definition.files)) put(`source/${path}`, content)
   const setup = [
-    { key: 'setup.machine', argv: ['machine', 'get', machine], dependsOn: [] },
+    { key: 'setup.machine', argv: ['machine', 'get', machine, '--detail'], dependsOn: [] },
     { key: 'setup.store', argv: ['store', 'create', store], dependsOn: ['setup.machine'] },
     { key: 'setup.project', argv: ['project', 'init', projectRef, '<source>'], dependsOn: ['setup.store'] },
   ]

@@ -334,9 +334,9 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<unknown>(undefined)
   const view = machines.data?.available ? machines.data : null
-  const targets = (view?.machines ?? []).filter((m) => m.name !== 'native' && m.name !== s.machine && m.supports?.sqlite !== false)
+  const targets = (view?.machines ?? []).filter((m) => m.name !== 'native' && m.name !== s.machine && (!m.supports || m.supports.includes('sqlite')))
   const chosen = targets.find((m) => m.name === target)
-  const free = chosen ? view?.status[chosen.name]?.freeDisk ?? null : null
+  const free = chosen ? view?.live[chosen.name]?.freeDisk ?? null : null
   const sandboxes = (view?.sandboxes ?? []).filter((b) => b.project?.startsWith(`${s.name}/`) && b.state !== 'gone')
   const push = kind === 'push'
   return (
@@ -351,7 +351,7 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
       {chosen ? (
         <p className={css.formNote}>
           {free !== null ? t('freeDisk', { free: bytes(free), machine: chosen.name, size: bytes(s.size?.bytes ?? null) }) : t('freeUnknown', { machine: chosen.name })}
-          {chosen.state !== 'running' ? ` ${t('notRunning', { machine: chosen.name, state: chosen.state })}` : ''}
+          {chosen.state !== 'ready' ? ` ${t('notRunning', { machine: chosen.name, state: chosen.state })}` : ''}
         </p>
       ) : null}
       {chosen?.state === 'stopped' ? (
@@ -385,8 +385,8 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
   onClose: () => void, done: () => void, onDialog?: ((dialog: StorageDialog) => void) | undefined
 }): ReactNode {
   const m = view?.machines.find((x) => x.name === machine)
-  const noSqlite = m?.supports && m.supports.sqlite === false ? m.supports.reason || t('noStoresHere') : null
-  const noPg = m?.supports && !m.supports.postgresql_sandbox ? m.supports.reason || t('postgresql') : null
+  const noSqlite = m?.supports && !m.supports.includes('sqlite') ? t('noStoresHere') : null
+  const noPg = m?.supports && !m.supports.includes('postgresql_sandbox') ? t('postgresql') : null
   const [chosen, setChosen] = useState('')
   if (!view) return null
   const placeName = (name: string | null) => (name === 'native' ? t('layerfsHome') : name ?? '')
@@ -422,7 +422,7 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
           </button>
         )) : <p className={css.choiceEmpty}>{t('addSqliteNone', { machine: placeName(machine) })}</p>}
       </div>
-      {pick && m?.state && m.state !== 'running' ? <p className={css.formNote}>{t('notRunning', { machine: placeName(machine), state: m.state })}</p> : null}
+      {pick && m?.state && m.state !== 'ready' ? <p className={css.formNote}>{t('notRunning', { machine: placeName(machine), state: m.state })}</p> : null}
       {onDialog && machine === 'native' ? (
         <p className={css.formNote}>
           <button type="button" className={css.textLink} onClick={() => swap({ kind: 'new-store' })}>{t('newStore')}</button>

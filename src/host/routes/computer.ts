@@ -1,7 +1,7 @@
 /**
  * The computer this host runs on, as the Machines page names it: the native
  * machine is this computer, so its name, mark and notes follow its OS. `os`
- * is LayerFS's own word for the host when it gave one (machine.platforms
+ * is LayerFS's own word for the host when it gave one (`home get --with platforms`
  * `host`), else Node's; `name` is the OS release in words (macOS 15.4,
  * Ubuntu 24.04.1 LTS, Windows 11 Pro), read once.
  */
@@ -52,7 +52,7 @@ function releaseName(os: HostOs): string | null {
 
 let known: Computer | null = null
 
-/** This computer; `lfsHost` (machine.platforms `host`) wins over Node's platform. */
+/** This computer; `lfsHost` (`home get --with platforms` `host`) wins over Node's platform. */
 export function computer(lfsHost?: string | null): Computer {
   const os = lfsHost ? osOf(lfsHost) : osOf(platform())
   if (!known || known.os !== os) known = { os, name: releaseName(os), arch: arch() }

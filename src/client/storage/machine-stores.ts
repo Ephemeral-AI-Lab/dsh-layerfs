@@ -40,8 +40,8 @@ export function machineStores(view: StorageView, machine: string, t: StorageT, b
     sqlite,
     sqliteBytes: sizes.length ? sizes.reduce((a, n) => a + n, 0) : null,
     postgresql: pgStoresOn(view, machine, busy),
-    noSqlite: m?.supports && m.supports.sqlite === false ? m.supports.reason || t('noStoresHere') : null,
-    noPostgresql: m?.supports && !m.supports.postgresql_sandbox ? m.supports.reason || t('postgresql') : null,
+    noSqlite: m?.supports && !m.supports.includes('sqlite') ? t('noStoresHere') : null,
+    noPostgresql: m?.supports && !m.supports.includes('postgresql_sandbox') ? t('msNoPostgresql') : null,
   }
 }
 

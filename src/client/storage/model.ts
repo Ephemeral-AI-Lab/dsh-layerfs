@@ -38,7 +38,7 @@ export const groupOf = (s: StoreRow): 'home' | 'machines' | 'postgresql' => s.ki
 /** The machines a sqlite Store can live on (native is the home), by name. */
 export function machinePlaces(view: StorageView): StorageView['machines'] {
   return view.machines
-    .filter((m) => m.name !== 'native' && m.supports?.sqlite !== false)
+    .filter((m) => m.name !== 'native' && (!m.supports || m.supports.includes('sqlite')))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 

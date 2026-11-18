@@ -167,7 +167,7 @@ function BuiltInMark({ view, platform }: { view: AvailableView, platform: string
   return (
     <span className={css.platformMark}>
       <span className={css.tag}>{t('howBuiltIn')}</span>
-      {m && <MachineStateChip m={m} live={view.status[m.name]} pending={null} />}
+      {m && <MachineStateChip m={m} live={view.live[m.name]} pending={null} />}
     </span>
   )
 }

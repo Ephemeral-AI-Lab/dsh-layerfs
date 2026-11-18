@@ -48,7 +48,7 @@ export function Board({ go, onAddStore, storeMenu }: {
   const starting = useMemo(() => new Set(Object.values(startups).filter((s) => s.status === 'running').map((s) => s.name)), [startups])
   const machines = useMemo(() => {
     if (!available) return []
-    const rank = (m: MachineInfo) => (starting.has(m.name) ? RANK.busy : RANK[machineState(m, available.status[m.name]).key])
+    const rank = (m: MachineInfo) => (starting.has(m.name) ? RANK.busy : RANK[machineState(m, available.live[m.name]).key])
     return machineOrder(available.machines).sort((a, b) => rank(a) - rank(b))
   }, [available, starting])
   const [choices, choose] = useOpenChoices()
@@ -93,7 +93,7 @@ export function Board({ go, onAddStore, storeMenu }: {
 export function attentionOf(m: MachineInfo, view: AvailableView): 'danger' | 'warning' | null {
   // a machine that cannot run here is a fix to make, not a failure; its record may still say failed or unreachable
   if (blockedOf(m, view)) return 'warning'
-  if (machineState(m, view.status[m.name]).key === 'needs') return 'danger'
+  if (machineState(m, view.live[m.name]).key === 'needs') return 'danger'
   return m.state === 'stopped' && m.stores.length > 0 ? 'warning' : null
 }
 
@@ -123,11 +123,11 @@ export function DiskLine({ m, view }: { m: MachineInfo, view: AvailableView }): 
  */
 function RecordDisk({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
   const { t } = useMachinesContext()
-  const live = view.status[m.name]
+  const live = view.live[m.name]
   const used = m.disk && live?.freeDisk != null ? Math.max(0, m.disk - live.freeDisk) : null
   const share = used !== null && m.disk ? used / m.disk : null
   if (live?.freeDisk == null) {
-    return <span className={css.muted}>{m.disk != null ? t('mxAllocatedDisk', { size: gib(m.disk) }) : t(m.state === 'running' || m.state === 'ready' ? 'diskUnreported' : 'diskWhileStopped')}</span>
+    return <span className={css.muted}>{m.disk != null ? t('mxAllocatedDisk', { size: gib(m.disk) }) : t(m.state === 'ready' ? 'diskUnreported' : 'diskWhileStopped')}</span>
   }
   return (
     <span className={css.diskLine}>
@@ -212,7 +212,7 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
   const { t, tw, kind, api, doctorT, useStartups, refusal } = useMachinesContext()
   const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
-  const live = view.status[m.name]
+  const live = view.live[m.name]
   const startingNow = startup?.status === 'running'
   const reason = startingNow ? null : downReason(m, live)
   const attention = startingNow ? null : attentionOf(m, view)

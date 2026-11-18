@@ -12,7 +12,7 @@ import { SandboxGlyph } from './icons.tsx'
 import { ImageMenu, defaultPick, findPick, imagePlan, useSandboxImages } from './ImageMenu.tsx'
 import { FreeSpaceDialog } from './MachineImages.tsx'
 import {
-  BUILT_IN, SANDBOX_NAME, clearingCall, opWords, projectRef, shortImage, stateLook,
+  BUILT_IN, SANDBOX_NAME, clearingCall, opWords, projectRef, shortImage, stateLook, supports,
   type MachineInfo, type MachineSandbox, type ProjectSummary, type SandboxInfo,
 } from './model.ts'
 import css from './machines.module.css'
@@ -153,7 +153,7 @@ export function NewSandboxDialog({ machine, taken: existing, image, onClose }: {
     readProjects().then((data) => setProjects({ data, error: null, loading: false }), (error) => setProjects({ data: null, error, loading: false }))
   }, [readProjects])
   useEffect(() => { loadProjects() }, [loadProjects])
-  const eligible = (projects.data ?? []).filter((p) => (p.kind === 'sqlite' ? p.machine === machine.name && machine.supports?.sqlite !== false : p.kind === 'postgresql' && machine.supports?.postgresql_sandbox === true))
+  const eligible = (projects.data ?? []).filter((p) => (p.kind === 'sqlite' ? p.machine === machine.name && supports(machine, 'sqlite') !== false : p.kind === 'postgresql' && supports(machine, 'postgresql_sandbox') === true))
   const [project, setProject] = useState('')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)

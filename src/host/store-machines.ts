@@ -14,10 +14,10 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-/** A machine as `machine.list` names it, as far as the choice needs. */
-export interface PgMachine { name: string, supports?: { postgresql_sandbox?: boolean } | null }
+import { runsPostgresql } from './layerfs/machine-records.ts'
 
-const runsPostgresql = (m: PgMachine): boolean => m.supports?.postgresql_sandbox !== false
+/** A machine as `machine list --detail` names it (machine-records.ts), as far as the choice needs. */
+export interface PgMachine { name: string, supports?: readonly string[] | null }
 
 /** The machine a PostgreSQL Store runs on when none was chosen: docker when it can, else native. */
 export function defaultPgMachine(machines: readonly PgMachine[]): string {

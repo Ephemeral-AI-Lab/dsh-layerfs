@@ -43,17 +43,17 @@ export class EnvironmentReset extends CliInventory {
     const workspaces = [], unknownSandboxes = sandboxes.map(box => box.name), workspaceGroups = []
     const remove = { stores: stores.filter(s => s.kind !== 'postgresql').map(s => s.name), sandboxes: sandboxes.map(s => s.name), machines: machines.filter(m => !builtIn(m.name)).map(m => m.name), workspaces: workspaces.sort() }
     const disconnect = stores.filter(s => s.kind === 'postgresql').map(s => s.name)
-    const startMachines = [...new Set([...stores, ...sandboxes].map(r => r.machine).filter(name => name && name !== 'native'))].filter(name => !['running', 'ready'].includes(machines.find(m => m.name === name)?.state)).sort()
+    const startMachines = [...new Set([...stores, ...sandboxes].map(r => r.machine).filter(name => name && name !== 'native'))].filter(name => machines.find(m => m.name === name)?.state !== 'ready').sort()
     const detectedMachines = machines.map(({ name, state, platform }) => ({ name, state, platform }))
     const projectKeys = stores.flatMap(s => (s.projects ?? []).map(p => `${s.name}/${p}`)).sort()
-    const plan = { home: this.spec.home, homeId, remove, disconnect, unknownSandboxes, workspaceGroups, startMachines, detectedMachines, projects: projectKeys.length, projectKeys, stopDocker: machines.some(m => m.name === 'docker' && !['stopped', 'ready'].includes(m.state)), scope: 'environment' }
+    const plan = { home: this.spec.home, homeId, remove, disconnect, unknownSandboxes, workspaceGroups, startMachines, detectedMachines, projects: projectKeys.length, projectKeys, stopDocker: machines.some(m => m.name === 'docker' && m.state !== 'stopped'), scope: 'environment' }
     const identities = [machines, stores, sandboxes].map(rows => rows.map(({ name, id, created, machine, kind, projects }) => ({ name, id, created, machine, kind, projects })))
     const signature = createHash('sha256').update(JSON.stringify({ ...plan, identities })).digest('hex')
     return { ...plan, signature }
   }
   async remaining() {
     const stores = await this.inventory('store'), sandboxes = await this.inventory('sandbox'), machines = await this.inventory('machine')
-    return [...stores.map(r => `store ${r.name}`), ...sandboxes.map(r => `sandbox ${r.name}`), ...machines.filter(m => !builtIn(m.name)).map(r => `machine ${r.name}`), ...machines.filter(m => m.name === 'docker' && !['stopped', 'ready'].includes(m.state)).map(() => 'running Docker worker')]
+    return [...stores.map(r => `store ${r.name}`), ...sandboxes.map(r => `sandbox ${r.name}`), ...machines.filter(m => !builtIn(m.name)).map(r => `machine ${r.name}`), ...machines.filter(m => m.name === 'docker' && m.state !== 'stopped').map(() => 'running Docker worker')]
   }
   async run({ expectedPlan, onReady, assertIdle, beforeRemove, afterCleanup }) {
     mkdirSync(this.spec.state, { recursive: true, mode: 0o700 })
@@ -106,7 +106,7 @@ export class EnvironmentReset extends CliInventory {
         this.report('Removing custom machines and stopping Docker')
         for (const name of plan.remove.machines) await mutate(['machine', 'remove', name])
         const docker = (await this.inventory('machine')).find(m => m.name === 'docker')
-        if (docker && !['stopped', 'ready'].includes(docker.state)) await mutate(['machine', 'stop', 'docker'])
+        if (docker && docker.state !== 'stopped') await mutate(['machine', 'stop', 'docker'])
         this.progress({ stage: 'verifying', completed: 0, total: 1, label: 'Verifying empty environment' })
         this.report('Verifying empty environment against LayerFS inventory')
         if (this.identity() !== plan.homeId) throw new Error('The LayerFS home identity changed during reset.')

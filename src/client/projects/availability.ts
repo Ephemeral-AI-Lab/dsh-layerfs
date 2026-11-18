@@ -23,15 +23,15 @@ export function projectAvailability(project: ProjectRow, view?: MachinesView, er
   if (!view.available) return { ...base, state: 'unavailable', reason: view.reason }
   const machine = view.machines.find((m) => m.name === name)
   if (!machine) return { ...base, state: 'unavailable' }
-  const live = view.status[machine.name]
-  const op = live?.op ?? machine.op
-  if (op || ['creating', 'removing'].includes(machine.state)) {
-    return { ...base, state: op?.name === 'machine.start' || op?.name === 'start' ? 'starting' : 'busy', reason: op ? [op.name, op.phase].filter(Boolean).join(' · ') : undefined }
+  // LayerFS 2.0's six states: busy with its op, broken with its message, ready or stopped
+  const op = machine.op
+  if (machine.state === 'busy' || op) {
+    return { ...base, state: op?.name === 'start' || op?.name === 'machine.start' ? 'starting' : 'busy', reason: op ? [op.name, op.phase].filter(Boolean).join(' · ') : undefined }
   }
-  if (live?.down || machine.error) return { ...base, state: 'unavailable', reason: live?.down ?? machine.error }
-  const state = live?.state ?? machine.state
+  const state = machine.state
+  if (state === 'broken' || state === 'unknown') return { ...base, state: 'unavailable', reason: machine.message ?? view.live[machine.name]?.error?.message ?? machine.reason ?? state }
   if (state === 'stopped') return { ...base, state: 'stopped', canStart: machine.platform !== 'native' }
   if (catalogBlocked) return { ...base, state: 'unavailable', reason: project.catalogError }
-  if (state === 'running' || state === 'ready') return { ...base, state: 'available', canRun: !storageBlocked }
+  if (state === 'ready') return { ...base, state: 'available', canRun: !storageBlocked }
   return { ...base, state: 'unavailable', reason: state }
 }

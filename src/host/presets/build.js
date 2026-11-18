@@ -104,7 +104,7 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
     if (resetPlan.stopDocker || resetPlan.startMachines.includes('docker')) add('reset', ['machine', 'stop', 'docker'])
     for (const family of ['machine', 'store', 'sandbox']) add('reset', [family, 'list', ...(family === 'sandbox' ? ['--page-size', '1000', '--page-pos', '0'] : [])], { note: 'Verify the environment is empty before creating preset resources.' })
   }
-  add('build', ['machine', 'platforms'], { note: 'Prerequisites are checked before cleanup and checked again during setup.' })
+  add('build', ['home', 'get', '--with', 'platforms'], { note: 'Prerequisites are checked before cleanup and checked again during setup.' })
   for (const machine of configuration.machines) {
     const name = typeof machine === 'string' ? machine : machine.name
     if (typeof machine !== 'string') add('build', machineCreateArgs(machine))

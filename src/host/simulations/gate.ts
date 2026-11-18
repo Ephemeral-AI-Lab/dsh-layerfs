@@ -166,7 +166,7 @@ export class SimulationExecution {
           signal.throwIfAborted()
           const receipt = await executor(argv, step, signal)
           if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) throw new Error('Missing structured operation receipt')
-          if (step.key === 'setup.machine' && (receipt.supports?.sqlite === false || !['ready', 'running'].includes(receipt.state))) {
+          if (step.key === 'setup.machine' && (!(receipt.supports ?? []).includes('sqlite') || receipt.state !== 'ready' || receipt.op)) {
             throw Object.assign(new Error(`Machine ${step.argv[2]} is not ready for a SQLite simulation. Start a supported machine and launch a new simulation.`), { code: 'Unavailable' })
           }
           assertProjectStep(step, receipt)

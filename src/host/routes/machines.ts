@@ -4,17 +4,20 @@
  *
  * A LayerFS 2.0 home's compute is a set of machines: `native` and `docker`
  * built in, and VMs it creates (apple-container, microsandbox, lima).
- * LayerFS's ssh hosts and Firecracker machines are turned off (OFF):
- * machine.platforms leaves them out and machine.create refuses them. A
+ * LayerFS's ssh hosts and Firecracker machines are turned off (OFF): the
+ * platforms list leaves them out and machine.create refuses them. A
  * machine holds sqlite Stores; a project's Sandboxes run on its Store's
  * machine. Power is manual (#535 D11): a machine runs between machine.start
  * and machine.stop, and no call starts one on demand.
  *
- * The view (MachinesView) is machine.list() as the SDK answers it (each
- * machine's `state` and `supports`, never guessed here), with store.list()
- * and sandbox.list(), and machine.status() of the machines that run or hold an
- * operation (free disk, `op`): one read for the page, and none of it starts a
- * machine. One answer serves every tab for {@link VIEW_KEEP_MS}. Whether a
+ * The 2.0 machine family (call-surface-2-0 `machine` rows): `machine list
+ * --detail` (records only: each machine's six-state `state` with its
+ * companion `op`, `reason` and `fix`, never guessed here), then `machine get
+ * <m> --detail --with live` for each machine but native (the live probe: the
+ * state it finds, free disk, tool version, worker), with store.list() and
+ * sandbox.list(): one read for the page, and none of it starts a machine.
+ * The platforms come from `home get --with platforms`. One answer serves
+ * every tab for {@link VIEW_KEEP_MS}. Whether a
  * listed Sandbox's daemon runs (`live`, layerfs-project#164) comes from the
  * metrics sampler's newest point (metrics.ts, #182 D2), not from
  * `sandbox.list --live`: the sampler reads each machine once per 15 s,
@@ -30,6 +33,9 @@ import { Answer, cliFeatures, featuresOf, pages, refuse, type CliFeatures, type 
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
+import { machineOf, opOf } from '../layerfs/machine-records.ts'
+
+export { machineOf, opOf, STATES } from '../layerfs/machine-records.ts'
 import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
 
 const BUILT_IN = new Set(['native', 'docker'])
@@ -37,8 +43,6 @@ const BUILT_IN = new Set(['native', 'docker'])
 export const OFF = new Set(['ssh', 'firecracker'])
 /** Create options only Firecracker used (a nested Lima machine hosts it): not offered either. */
 const OFF_OPTIONS = new Set(['nested', 'host'])
-/** States whose machine.status says something the list does not: free disk, or the op that holds it. */
-const ASK_STATUS = new Set(['running', 'stopped', 'creating', 'removing', 'unresolved', 'failed', 'unknown'])
 /** How long one machines view answers every tab (a write reads anew at once). */
 export const VIEW_KEEP_MS = 5000
 
@@ -49,7 +53,7 @@ const BUNDLE_NAME = 'LayerFS default'
 /** LayerFS's own copy of the bundle image in Docker (`layerfs-cache/sandbox:<config digest hex>`): never shown as a name. */
 const CACHE_REF = /^layerfs-cache\//
 /** Refusals of one image in a prune: answered in `refused`, the request goes on. */
-const PRUNE_PER_IMAGE = new Set(['InUse', 'NotFound', 'NoSuchImage', 'InvalidInput'])
+const PRUNE_PER_IMAGE = new Set(['InUse', 'NotFound', 'InvalidInput'])
 
 /** Why a listed image cannot run (docs/specs/sandbox-images.md §4.1). */
 export interface ImageReason { kind: 'arch' | 'os' | ImageProblem, value?: string }
@@ -127,108 +131,97 @@ const isoOf = (value: unknown): string | null => {
   return null
 }
 
-/** One machine.images row as a ready row (Stage 1: all usable); null without an id. */
 /** LayerFS's `Unavailable` for a machine whose worker runs another LayerFS build ("is of another build", "replace its worker"). */
-const WORKER_OUTDATED = /another build|replace its worker/i
+const WORKER_OUTDATED = /another build|replace its worker|outdated/i
 
 /**
  * Why a machine.images read failed, as the answer's `stale` (§4.1): the
- * refusal's code and message; a worker of another LayerFS build is
+ * refusal's code, message and `fix`; a worker of another LayerFS build is
  * `WorkerOutdated` (the machine runs, restarting its worker fixes it),
  * not a stopped machine.
  */
-export function staleOf(error: any, at: number): { at: number, code: string, message: string } {
+export function staleOf(error: any, at: number): { at: number, code: string, message: string, fix?: string } {
   const message = error instanceof Error ? error.message : typeof error?.message === 'string' ? error.message : String(error)
   const code = typeof error?.code === 'string' ? error.code : 'Unknown'
-  return { at, code: code === 'Unavailable' && WORKER_OUTDATED.test(message) ? 'WorkerOutdated' : code, message }
+  const fix = typeof error?.fix === 'string' && error.fix ? error.fix : null
+  return { at, code: code === 'Unavailable' && WORKER_OUTDATED.test(message) ? 'WorkerOutdated' : code, message, ...(fix ? { fix } : {}) }
 }
 
 /** An image's name (§5.1.1): the ref ending `:latest` if it has one (what people pick), else its first ref. */
 export const imageName = (refs: readonly string[]): string | undefined => refs.find((r) => r.endsWith(':latest')) ?? refs[0]
 
+/** One `machine images --detail` item as a ready row (Stage 1: all usable); null without an id. */
 export function readyOf(i: any): ReadyImage | null {
-  const id = text(i?.id)
+  const id = text(i?.image)
   if (!id) return null
   const refs = refsOf(i.refs).filter((r) => !CACHE_REF.test(r))
   const source = i.source === 'bundle' || i.source === 'machine' ? i.source : 'imported'
   return {
     id, name: imageName(refs) ?? (source === 'bundle' ? BUNDLE_NAME : id.replace(/^sha256:/, '').slice(0, 12)),
-    refs, size: num(i.size), source, sandboxes: count(i.sandboxes), lastUsed: isoOf(i.last_used), usable: true,
+    refs, size: num(i.size), source, sandboxes: num(i.sandboxes_count) ?? count(i.sandboxes), lastUsed: isoOf(i.last_used_at), usable: true,
   }
 }
 
 /**
- * machine.images' Docker part as the "From Docker" group (§4.1): LayerFS
- * lists the images of the Docker it copies from (D3), already without the
- * ready ones and the untagged ones, each with `usable`/`reason` and the
- * space a copy needs (`need`, `fits`, D8). Mapped as it comes; null when
- * LayerFS reports no Docker part (macOS native).
+ * `machine images --with docker`'s `docker` section as the "From Docker"
+ * group (§4.1): the host's Docker images the machine does not hold (D3), each
+ * `{image, refs, size, os, architecture, usable, needed_bytes, fits,
+ * unusable}`; `reason` and `message` say why Docker did not answer (then
+ * `images` is empty). Null when LayerFS gives no section (macOS native).
  */
 export function dockerOf(answer: any): SandboxImagesView['docker'] {
   const d = answer?.docker
   if (!d || typeof d !== 'object') return null
-  if (d.available !== true) {
-    const reason = d.reason === 'not-installed' || d.reason === 'not-running' ? d.reason : 'error'
+  if (text(d.reason)) {
+    const reason = d.reason === 'not_installed' ? 'not-installed' : d.reason === 'not_running' || d.reason === 'engine_down' ? 'not-running' : 'error'
     return { available: false, reason, ...(text(d.message) ? { message: d.message } : {}) }
   }
   const images: DockerImage[] = []
-  for (const r of Array.isArray(answer.available) ? answer.available : []) {
-    const id = text(r?.id)
+  for (const r of Array.isArray(d.images) ? d.images : []) {
+    const id = text(r?.image)
     const refs = refsOf(r?.refs)
     if (!id) continue
-    const reason: ImageReason | undefined = r.reason && typeof r.reason === 'object' && typeof r.reason.kind === 'string'
-      ? { kind: r.reason.kind, ...(text(r.reason.value) ? { value: r.reason.value } : {}) } : undefined
+    const u = r.unusable
+    const reason: ImageReason | undefined = u && typeof u === 'object' && typeof u.kind === 'string'
+      ? { kind: u.kind, ...(text(u.value) ? { value: u.value } : {}) } : undefined
     images.push({
       id, name: imageName(refs) ?? id.replace(/^sha256:/, '').slice(0, 12), refs, size: num(r.size) ?? 0,
-      architecture: text(r.architecture) ?? '', os: text(r.os) ?? '', need: num(r.need) ?? 0, fits: r.fits !== false,
+      architecture: text(r.architecture) ?? '', os: text(r.os) ?? '', need: num(r.needed_bytes) ?? 0, fits: r.fits !== false,
       usable: r.usable !== false, ...(reason ? { reason } : {}),
     })
   }
   return { available: true, images }
 }
 
-/** One machine.list() entry, as the page reads it. */
-export function machineOf(m: any) {
+/** A machine's `--with live` section (`machine get`): free disk, the provider tool's version, its worker; or why the probe was not made. */
+export function machineLive(name: string, got: any, error?: any) {
+  const live = got?.live && typeof got.live === 'object' ? got.live : null
   return {
-    name: String(m.name),
-    platform: String(m.platform),
-    backend: text(m.backend),
-    // the SDK's state, as it is (#537 U4)
-    state: text(m.state) ?? 'unknown',
-    // `log` (the machine has a worker log to read, layerfs-project#178) only when LayerFS says so: absent from an older CLI
-    ...(m.supports && typeof m.supports === 'object' ? { supports: { sqlite: m.supports.sqlite !== false, postgresql_sandbox: m.supports.postgresql_sandbox === true, reason: text(m.supports.reason), ...(typeof m.supports.log === 'boolean' ? { log: m.supports.log } : {}) } } : {}),
-    cpus: num(m.cpus),
-    memory: num(m.memory),
-    disk: num(m.disk),
-    stores: list(m.stores).map(String),
-    sandboxes: list(m.sandboxes).map(String),
-    ...(text(m.image) ? { image: m.image } : {}),
-    ...(text(m.docker) ? { docker: m.docker } : {}),
-    ...(text(m.wsl) ? { wsl: m.wsl } : {}),
-    ...(text(m.error) ? { error: m.error } : {}),
+    name,
+    freeDisk: num(live?.disk_free_bytes),
+    toolVersion: text(live?.tool_version),
+    worker: live?.worker && typeof live.worker === 'object' ? { protocol: live.worker.protocol == null ? null : String(live.worker.protocol), bundle: text(live.worker.bundle) } : null,
+    ...(error ? { error: { code: typeof error?.code === 'string' ? error.code : 'Unknown', message: String(error?.message ?? error) } } : {}),
   }
 }
 
-/** One machine.platforms row, as the SDK answers it. */
+/** One `home get --with platforms` item (`platforms.items`), as the SDK answers it. */
 export const platformOf = (p: any) => ({
   platform: String(p.platform),
   how: String(p.how ?? ''),
   backend: text(p.backend),
-  kernel: text(p.kernel),
+  route: text(p.route),
   sqlite: text(p.sqlite),
   postgresql: { store_calls: String(p.postgresql?.store_calls ?? ''), sandbox: p.postgresql?.sandbox === true, reason: text(p.postgresql?.reason) },
   ready: p.ready === true,
   missing: list(p.missing).map(String),
   version: text(p.version),
-  options: list(p.options).map((o: any) => ({ name: String(o.name), kind: String(o.kind), ...(o.default !== undefined && o.default !== null ? { default: o.default } : {}) })),
+  options: list(p.options).map((o: any) => ({ option: String(o.option), kind: String(o.kind), ...(o.default !== undefined && o.default !== null ? { default: o.default } : {}) })),
   description: String(p.description ?? ''),
-  // docker's socket and the ones it could use (LayerFS with the setup fields; absent before)
+  // docker's socket and the ones it could use
   ...(p.socket && typeof p.socket === 'object' ? { socket: { path: text(p.socket.path), source: text(p.socket.source), state: text(p.socket.state) } } : {}),
   ...(Array.isArray(p.candidates) ? { candidates: p.candidates.map((c: any) => ({ path: text(c?.path), source: text(c?.source), ...(text(c?.host) ? { host: text(c.host) } : {}), ...(c?.usable === false ? { usable: false } : {}) })) } : {}),
 })
-
-/** An SDK `op` ({ id, name, phase, started, uncertain }), or null. */
-export const opOf = (o: any) => (o && typeof o === 'object' && typeof o.name === 'string' ? { id: String(o.id ?? ''), name: o.name as string, phase: text(o.phase) ?? '', started: num(o.started), uncertain: o.uncertain === true } : null)
 
 /** One store.list() item, when it is a sqlite Store on a machine. */
 export function storeOf(s: any) {
@@ -252,11 +245,7 @@ export function sandboxOf(b: any) {
   return { name: String(b.name ?? b.sandbox), machine: text(b.machine), project: text(b.project), workspaces: b.workspaces === undefined ? null : count(b.workspaces), state: text(b.state) ?? 'unknown', op: opOf(b.op), backend: text(b.backend), route: text(b.route), image: text(b.image), ...liveOf(b) }
 }
 
-/** One machine.status() answer (the reason is `down_reason`). */
-export const statusOf = (s: any) => ({ name: String(s.name), state: text(s.state), freeDisk: num(s.free_disk), toolVersion: text(s.tool_version), down: /^the machine is stopped\.?$/i.test(String(s.down_reason ?? s.why_down ?? '')) ? null : text(s.down_reason ?? s.why_down), op: opOf(s.op) })
-
-/** 501: the pinned CLI's call table has no such monitoring call. */
-/** How long a `machine.space` answer (or refusal) stands before a page's read asks LayerFS again. */
+/** How long a `machine stats --with space` answer (or refusal) stands before a page's read asks LayerFS again. */
 export const SPACE_KEEP_MS = 60_000
 
 const noCall = (call: string, what: string) => Object.assign(refuse(501, 'Unsupported', `The pinned LayerFS CLI cannot read ${what} (it has no ${call}).`), { detail: { need: call } })
@@ -311,10 +300,10 @@ export class Machines {
     // the native daemon is recorded once before the first call, as the router does before every route
     list: async () => {
       await this.host.ensureNative()
-      return list((await this.lfs.machine.list()).machines).map((m: any) => ({ name: String(m?.name ?? ''), state: text(m?.state) ?? 'unknown' }))
+      return list((await this.lfs.machine.list({ detail: true })).items).map((m: any) => ({ name: String(m?.machine ?? ''), state: text(m?.state) ?? 'ready' }))
     },
     // the abort signal is an SDK-side option of monitoring reads (cli.ts), never a CLI flag
-    stats: (name, signal) => { const options = { signal }; return this.lfs.machine.stats(name, options) },
+    stats: (name, signal) => { const options = { signal, detail: true }; return this.lfs.machine.stats(name, options) },
     offered: async () => (await cliFeatures(this.host)).inspect.machineStats,
   })
 
@@ -343,27 +332,33 @@ export class Machines {
 
   private async readView() {
     const lfs = this.lfs
-    const listed = await lfs.machine.list()
-    const machines = list(listed.machines).map(machineOf)
+    const rows = list((await lfs.machine.list({ detail: true })).items)
     const readErrors: Record<string, unknown> = {}
     const failed = (name: string) => (e: any) => { readErrors[name] = { error: { code: e?.code ?? 'Unknown', message: e?.message ?? String(e) }, at: Date.now() }; return [] as any[] }
     let host: string | null = null
     const { version, features } = await this.identity()
     // never `live`: whether each daemon runs is the metrics sampler's (withLive), one machine.stats per machine per 15 s
     const listSandboxes = (p: { page_size: number, page_pos: number }) => lfs.sandbox.list(p)
-    const [platforms, listedStores, sandboxes, statuses] = await Promise.all([
+    const [platforms, listedStores, sandboxes, probes] = await Promise.all([
       this.platforms().then((p) => { host = p.host || null; return p.platforms }, failed('platforms')),
+      // cs20: switch when the Store package merges (today's store.list)
       lfs.store.list().then(list, failed('stores')),
       // sandbox.list items carry no Workspaces: each one's count is its sandbox.get (a record read; null when refused)
+      // cs20: switch when the Sandbox package merges (today's sandbox.list paging)
       pages(listSandboxes).then((rows) => rows.map(sandboxOf), failed('sandboxes')),
-      // Starts nothing; stopped machines can carry provider/socket diagnostics too.
-      Promise.all(machines.filter((m) => m.platform !== 'native' && ASK_STATUS.has(m.state)).map((m) => lfs.machine.status(m.name).then(statusOf, (e: any) => ({ name: m.name, state: null, freeDisk: null, toolVersion: null, down: e?.message ?? String(e), op: null })))),
+      // the live probe of each machine but native (it has none): starts nothing; its answer is the machine's current state
+      Promise.all(rows.filter((m: any) => m?.platform !== 'native').map((m: any) => lfs.machine.get(String(m.machine), { detail: true, with: ['live'] })
+        .then((got: any) => ({ name: String(m.machine), got }), (error: any) => ({ name: String(m.machine), error })))),
     ])
+    const probed = new Map<string, { got?: any, error?: any }>(probes.map((p: any) => [p.name, p]))
+    // a probe that answered is the newer word on the machine; one that failed leaves its record's
+    const machines = rows.map((m: any) => machineOf(probed.get(String(m.machine))?.got ? { ...m, ...probed.get(String(m.machine))!.got, machine: m.machine } : m))
+    const live = Object.fromEntries([...probed].map(([name, p]) => [name, machineLive(name, p.got, p.error)]))
     const stores = listedStores.map(storeOf).filter(Boolean)
     const saved = new StoreMachines(this.host.root)
-    const postgresql = listedStores.map((s: any) => pgStoreOf(s, s.kind === 'postgresql' ? pgMachineOf(saved.get(String(s.name)), listed.machines ?? []) : null)).filter(Boolean)
+    const postgresql = listedStores.map((s: any) => pgStoreOf(s, s.kind === 'postgresql' ? pgMachineOf(saved.get(String(s.name)), machines) : null)).filter(Boolean)
     // features: what the pinned CLI can do (force stop, the image stage and its parts); the page offers only those
-    const answer: any = { available: true, readErrors, layerfs: version, features, computer: computer(host), machines, platforms, stores, postgresql, sandboxes, status: Object.fromEntries(statuses.map((s: any) => [s.name, s])) }
+    const answer: any = { available: true, readErrors, layerfs: version, features, computer: computer(host), machines, platforms, stores, postgresql, sandboxes, live }
     for (const [part, fields] of Object.entries({ stores: ['stores', 'postgresql'], sandboxes: ['sandboxes'], platforms: ['platforms'] })) {
       if (readErrors[part] && this.lastView) for (const field of fields) answer[field] = this.lastView[field]
     }
@@ -371,7 +366,7 @@ export class Machines {
     return answer
   }
 
-  /** machine.platforms(): each platform on this host but the ones turned off; starts nothing (PlatformsView). */
+  /** `home get --with platforms`: each platform on this host but the ones turned off; starts nothing (PlatformsView). */
   async platforms(): Promise<PlatformsView> {
     const now = Date.now()
     if (this.platformAnswer && now - this.platformAnswer.at < 30000) return this.platformAnswer.value
@@ -381,31 +376,37 @@ export class Machines {
   }
 
   private async readPlatforms(): Promise<PlatformsView> {
-    const answer = await this.lfs.machine.platforms()
-    const rows = list(answer.platforms).map(platformOf).filter((p) => !OFF.has(p.platform))
-    return { host: String(answer.host ?? ''), platforms: rows.map((p) => ({ ...p, options: p.options.filter((o: any) => !OFF_OPTIONS.has(o.name)) })) }
+    const answer = (await this.lfs.home.get({ detail: true, with: ['platforms'] }))?.platforms ?? {}
+    const rows = list(answer.items).map(platformOf).filter((p) => !OFF.has(p.platform))
+    return { host: String(answer.host ?? ''), platforms: rows.map((p) => ({ ...p, options: p.options.filter((o: any) => !OFF_OPTIONS.has(o.option)) })) }
   }
 
-  async inspect(name: string) { return { ...(await this.lfs.machine.get(name)), ...(await this.lfs.machine.status(name)), observedAt: Date.now() } }
+  /** `machine get <m> --detail --with live`, as LayerFS answers it. */
+  async inspect(name: string) { return { ...(await this.lfs.machine.get(name, { detail: true, with: ['live'] })), observedAt: Date.now() } }
 
   /** The monitoring reads' shared state: one read per key, last good answers, page requests that can be cancelled. */
   readonly reads = new InspectReads()
 
   /**
-   * `GET /api/machines/:id/log?cursor=&before=&limit=&rid=`: the machine's
-   * worker log (logs.machine), a tail without a cursor. Its own read: never
-   * part of the machines view. A refusal (a stopped machine `Unavailable`, a
-   * machine without a worker `Unsupported`, a replaced log's cursor
-   * `InvalidInput`, a full inspect lane `Busy`, no answer in time `Timeout`)
-   * is answered as `stale` with the last good tail, not as an error. 501
-   * while the pinned CLI has no logs.machine (the page hides the tab).
+   * `GET /api/machines/:id/log?before=&limit=&rid=`: the machine's worker log
+   * (`machine log`), its last lines without `before`. A 2.0 log pages
+   * backwards only (`next_cursor` is `before`): a page that follows it reads
+   * the tail again, so a forward `cursor` is refused here. Its own read:
+   * never part of the machines view. A refusal (a stopped machine
+   * `Unavailable`, a machine without a worker `Unsupported`, a replaced log's
+   * cursor `InvalidInput`, a full inspect lane `Busy`, no answer in time
+   * `Timeout`) is answered as `stale` with the last good tail, not as an
+   * error. 501 while the pinned CLI has no machine.log (the page hides the tab).
    */
   async machineLog(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<LogView> {
     if (!name) throw refuse(400, 'InvalidInput', 'name the machine')
-    if (!(await cliFeatures(this.host)).inspect.machineLog) throw noCall('logs.machine', 'a machine\'s worker log')
+    if (!(await cliFeatures(this.host)).inspect.machineLog) throw noCall('machine.log', 'a machine\'s worker log')
+    if (query.get('cursor')) throw refuse(400, 'InvalidInput', 'A machine\'s log pages backwards only: read its tail again, or earlier lines with before.')
     const lfs = this.lfs
     const request = this.reads.request(query.get('rid'), outer)
-    try { return await this.reads.log(`machine:${name}`, logQuery(query), (options) => lfs.logs.machine(name, options), request.signal) } finally { request.done() }
+    try {
+      return await this.reads.log(`machine:${name}`, logQuery(query), (o) => lfs.machine.log(name, { ...(o.before ? { cursor: o.before } : {}), ...(o.limit ? { limit: o.limit } : {}), signal: o.signal, detail: true }), request.signal)
+    } finally { request.done() }
   }
 
   /**
@@ -419,6 +420,7 @@ export class Machines {
     if (!(await cliFeatures(this.host)).inspect.sandboxLog) throw noCall('logs.sandbox', 'a Sandbox\'s daemon log')
     const lfs = this.lfs
     const request = this.reads.request(query.get('rid'), outer)
+    // cs20: switch when the Sandbox package merges (`sandbox.log` replaces `logs.sandbox`)
     try { return await this.reads.log(`sandbox:${name}`, logQuery(query), (options) => lfs.logs.sandbox(name, options), request.signal) } finally { request.done() }
   }
 
@@ -437,7 +439,9 @@ export class Machines {
     if (!(await cliFeatures(this.host)).inspect.machineFiles) throw noCall('machine.files', 'a machine\'s files')
     const lfs = this.lfs
     const request = this.reads.request(query.get('rid'), outer)
-    try { return await this.reads.files(`machine:${name}`, filesQuery(query), (path, options) => lfs.machine.files(name, path, options), request.signal) } finally { request.done() }
+    // 2.0: a file window is `byte_offset` / `byte_length`, and the answer is read in the long form
+    const call = (path: string | undefined, { offset, length, ...o }: Record<string, unknown>) => lfs.machine.files(name, path, { ...o, ...(offset != null ? { byte_offset: offset } : {}), ...(length != null ? { byte_length: length } : {}), detail: true })
+    try { return await this.reads.files(`machine:${name}`, filesQuery(query), call, request.signal) } finally { request.done() }
   }
 
   /**
@@ -448,6 +452,7 @@ export class Machines {
    */
   async sandboxFiles(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<FilesView> {
     if (!name) throw refuse(400, 'InvalidInput', 'name the Sandbox')
+    // cs20: switch when the Sandbox package merges (today's sandbox.files answer)
     if (!(await cliFeatures(this.host)).inspect.files) throw noCall('sandbox.files', 'a Sandbox\'s files')
     const lfs = this.lfs
     const request = this.reads.request(query.get('rid'), outer)
@@ -483,17 +488,17 @@ export class Machines {
 
   /**
    * `GET /api/machines/:id/space?fresh=1`: where the machine's data disk goes
-   * (machine.space): LayerFS's parts, each Sandbox's run folder and what the
+   * (`machine stats --with space`): LayerFS's parts, each Sandbox's run folder and what the
    * disk holds that is not LayerFS's. One bounded walk where the machine's
    * data is, so it is read at most once per {@link SPACE_KEEP_MS} per machine
    * (concurrent callers share one read) unless `fresh=1` (the page's Refresh).
    * A refusal (a stopped machine `Unavailable`, an older worker
    * `InvalidInput`, a full lane `Busy`) is answered as `stale` with the last
-   * good answer. 501 while the pinned CLI has no machine.space.
+   * good answer. 501 while the pinned CLI's machine.stats has no `--with space`.
    */
   async machineSpace(name: string, query: URLSearchParams = new URLSearchParams()): Promise<MachineSpaceView> {
     if (!name) throw refuse(400, 'InvalidInput', 'name the machine')
-    if (!(await cliFeatures(this.host)).machineSpace) throw noCall('machine.space', 'where a machine\'s disk goes')
+    if (!(await cliFeatures(this.host)).machineSpace) throw noCall('machine.stats --with space', 'where a machine\'s disk goes')
     const tried = this.spaceTried.get(name)
     const answer = (): MachineSpaceView => {
       const kept = this.spaceKept.get(name)
@@ -503,7 +508,7 @@ export class Machines {
     if (tried && query.get('fresh') !== '1' && Date.now() - tried.at < SPACE_KEEP_MS) return answer()
     const lfs = this.lfs
     try {
-      const raw = await this.reads.read(`space:${name}`, (signal) => { const options = { signal }; return lfs.machine.space(name, options) })
+      const raw = await this.reads.read(`space:${name}`, (signal) => { const options = { signal, detail: true, with: ['space'] }; return lfs.machine.stats(name, options) })
       const at = Date.now()
       this.spaceKept.set(name, { at, space: spaceAnswer(raw) })
       this.spaceTried.set(name, { at, stale: false })
@@ -526,11 +531,8 @@ export class Machines {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine')
     const lfs = this.lfs
     let record: any = null
-    try { record = await lfs.machine.get(name) } catch (error: any) { if (error?.code === 'NotFound' || error?.code === 'NoSuchMachine') throw error }
-    let state = text(record?.state)
-    if (!state) {
-      try { state = text(list((await lfs.machine.list()).machines).find((m: any) => m.name === name)?.state) } catch {}
-    }
+    try { record = await lfs.machine.get(name, { detail: true }) } catch (error: any) { if (error?.code === 'NotFound') throw error }
+    const state = text(record?.state)
     const platform = text(record?.platform) ?? (BUILT_IN.has(name) ? name : null)
     const stage = (await cliFeatures(this.host)).imageStage
     const base = { machine: name, platform, state: state ?? 'unknown', stage: 0 as const, free: null, docker: null, observedAt: Date.now() }
@@ -578,16 +580,17 @@ export class Machines {
     let architecture = linuxArchitecture()
     let stale: SandboxImagesView['stale'] = false
     try {
-      const answer = await this.lfs.machine.images(name)
+      const answer = await this.lfs.machine.images(name, { detail: true, with: ['docker'] })
       if (answer?.mode === 'host') return { ...base, stage: 1, free: null, docker: null, mode: 'host', architecture: null, default: null, stale: false, ready: [] }
-      ready = (Array.isArray(answer?.images) ? answer.images : []).map(readyOf).filter((r: ReadyImage | null): r is ReadyImage => !!r)
-      free = num(answer?.free)
-      own = text(answer?.default)
+      const items = Array.isArray(answer?.items) ? answer.items : []
+      ready = items.map(readyOf).filter((r: ReadyImage | null): r is ReadyImage => !!r)
+      free = num(answer?.disk_free_bytes)
+      own = text(items.find((i: any) => i?.default === true)?.image)
       docker = dockerOf(answer)
       architecture = text(answer?.architecture) ?? architecture
       this.keptImages.set(name, { at: base.observedAt, ready, free, default: own, docker })
     } catch (error: any) {
-      if (error?.code === 'NotFound' || error?.code === 'NoSuchMachine') throw error
+      if (error?.code === 'NotFound') throw error
       const kept = this.keptImages.get(name)
       stale = staleOf(error, kept?.at ?? base.observedAt)
       ready = kept?.ready ?? []
@@ -656,9 +659,10 @@ export class Machines {
 
   /**
    * `POST /api/machines/:id/prune-images { images?: id[], unused?: boolean }`
-   * (§4.1): machine.prune once per id, or once with `unused`. An image LayerFS
-   * keeps (InUse, gone) is listed in `refused`, not an error of the request.
-   * 501 while the pinned CLI has no machine.prune.
+   * (§4.1): `machine prune` once per id, or once with `--unused`, in the long
+   * form (`removed`, `freed_bytes`). An image LayerFS keeps (InUse, gone) is
+   * listed in `refused`, not an error of the request. 501 while the pinned
+   * CLI has no machine.prune.
    */
   async pruneImages(name: string, body: any): Promise<PruneAnswer> {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine')
@@ -671,11 +675,11 @@ export class Machines {
     const answer: PruneAnswer = { removed: [], freed: 0, refused: [] }
     const take = (r: any) => {
       for (const id of refsOf(r?.removed)) if (!answer.removed.includes(id)) answer.removed.push(id)
-      answer.freed += num(r?.freed) ?? 0
+      answer.freed += num(r?.freed_bytes) ?? 0
     }
-    if (unused) take(await this.lfs.machine.prune(name, { unused: true }))
+    if (unused) take(await this.lfs.machine.prune(name, { unused: true, detail: true }))
     for (const id of ids) {
-      try { take(await this.lfs.machine.prune(name, id)) } catch (error: any) {
+      try { take(await this.lfs.machine.prune(name, id, { detail: true })) } catch (error: any) {
         if (!PRUNE_PER_IMAGE.has(error?.code)) throw error
         answer.refused.push({ id, code: error.code, message: error?.message ?? String(error) })
       }
@@ -688,11 +692,12 @@ export class Machines {
 
   /**
    * `POST /api/machines/:id/load-image { image }`: copies one image of this
-   * computer's Docker (its Id or a ref) to the machine with machine.load,
-   * without creating a Sandbox, in the background: `202 { load }` at once,
-   * then `image-load` events. A copy of the same image already running is
-   * answered instead of a second one. 501 while the pinned CLI has no
-   * machine.load. Never starts the machine (a stopped one is refused by LayerFS).
+   * computer's Docker (its Id or a ref) to the machine with `machine
+   * load-image`, without creating a Sandbox, in the background: `202 { load }`
+   * at once, then `image-load` events (its `{ phase, done, total }` progress:
+   * inspect, export, send, unpack). A copy of the same image already running
+   * is answered instead of a second one. 501 while the pinned CLI has no
+   * machine.load_image. Never starts the machine (a stopped one is refused by LayerFS).
    */
   async loadImage(name: string, body: any): Promise<Answer> {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine')
@@ -700,20 +705,39 @@ export class Machines {
     if (!image || image.includes('\0')) throw refuse(400, 'InvalidInput', 'name the Docker image to copy (its Id or a ref)')
     const features = await cliFeatures(this.host)
     if (!features.imageLoad) {
-      throw Object.assign(refuse(501, 'Unsupported', 'The pinned LayerFS CLI cannot copy an image to a machine (it has no machine.load).'), { detail: { need: 'image-load' } })
+      throw Object.assign(refuse(501, 'Unsupported', 'The pinned LayerFS CLI cannot copy an image to a machine (it has no machine.load_image).'), { detail: { need: 'image-load' } })
     }
     const running = this.loads.running(name, image)
     if (running) return new Answer(202, { load: running })
-    const run = (report: LoadReport) => this.lfs.machine.load(name, image, { on_progress: (p: unknown) => { const u = createPhase(p); if (u && u.phase !== 'start') report(u as Parameters<LoadReport>[0]) } })
+    const run = (report: LoadReport) => this.lfs.machine.load_image(name, image, { detail: true, on_progress: (p: unknown) => { const u = createPhase(p); if (u && u.phase !== 'start') report(u as Parameters<LoadReport>[0]) } })
     return new Answer(202, { load: this.loads.admit(name, image, run) })
   }
 
-  /** machine.start(name): a stopped machine and its worker, waited for; native and a running one answer at once. */
+  /**
+   * `machine start <m> --progress`: a stopped machine and its worker, waited
+   * for (phases bundle, image, boot, worker); a running one answers
+   * `{ unchanged: true }` at once. A lost reply leaves it `broken`,
+   * `unresolved`, which the next view's live read settles.
+   */
   async start(name: string) {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to start')
     const report = this.progress(name, 'start')
     await this.engineFirst(name, report)
-    try { return await this.lfs.machine.start(name, { on_progress: report }) } finally { this.platformsChanged(); this.metrics.relist() }
+    try { return await this.lfs.machine.start(name, { on_progress: report, detail: true }) } finally { this.platformsChanged(); this.metrics.relist() }
+  }
+
+  /**
+   * An outdated worker's fix (R2, review fix 5): `machine stop <m>` then
+   * `machine start <m>`, one attempt each; refused before anything runs while
+   * Sandboxes are on the machine (their stop needs `--force`, which this host
+   * never sends for a fix).
+   */
+  async restart(name: string) {
+    if (!name) throw refuse(null, 'InvalidInput', 'name the machine to restart')
+    const m = machineOf(await this.lfs.machine.get(name, { detail: true }))
+    if (m.sandboxes.length) throw refuse(409, 'InUse', `${m.sandboxes.length} Sandbox${m.sandboxes.length === 1 ? ' is' : 'es are'} on ${name}; copy the fix to stop it anyway`)
+    await this.stop(name)
+    return this.start(name)
   }
 
   /** The Docker Engine launch in flight, shared by concurrent starts. */
@@ -743,7 +767,7 @@ export class Machines {
   private async engineSocketOf(name: string): Promise<string | null> {
     try {
       const known = Array.isArray(this.lastView?.machines) ? this.lastView.machines.find((m: any) => m.name === name) : undefined
-      const platform = known?.platform ?? list((await this.lfs.machine.list()).machines).find((m: any) => m?.name === name)?.platform
+      const platform = known?.platform ?? text((await this.lfs.machine.get(name, { detail: true }))?.platform)
       if (platform !== 'docker') return null
       const view = await this.platforms()
       if (computer(view.host).os !== 'macos') return null
@@ -751,8 +775,8 @@ export class Machines {
     } catch { return null }
   }
 
-  /** Startup phases as `machine-progress` events (the Machines page shows them live). */
-  private progress(name: string, kind: 'start' | 'create') {
+  /** Phases (`{ phase, done, total }`) as `machine-progress` events (the Machines page shows them live). */
+  private progress(name: string, kind: 'start' | 'create' | 'stop' | 'remove') {
     const started = Date.now()
     return (progress: any) => this.host.emit('machine-progress', {
       type: 'machine-progress', name, kind,
@@ -764,16 +788,16 @@ export class Machines {
   async stop(name: string, { force = false } = {}) {
     if (!name) throw refuse(null, 'InvalidInput', 'name the machine to stop')
     if (force && !(await cliFeatures(this.host)).forceStop) throw refuse(501, 'Unsupported', 'The pinned LayerFS CLI has no forced stop (machine.stop takes no force option). Stop the machine normally, or pin a CLI that has it.')
-    const result = await (force ? this.lfs.machine.stop(name, { force: true }) : this.lfs.machine.stop(name)).finally(() => this.platformsChanged())
+    const result = await this.lfs.machine.stop(name, { ...(force ? { force: true } : {}), on_progress: this.progress(name, 'stop'), detail: true }).finally(() => this.platformsChanged())
     this.metrics.relist()
     await this.host.machinesStopped?.([name])
     return result
   }
 
-  /** The options `platform` declares for machine.create (machine.platforms), or null when unknown. */
+  /** The options `platform` declares for machine.create (`home get --with platforms`), or null when unknown. */
   async declared(platform: string): Promise<string[] | null> {
     const row = (await this.platforms().catch(() => null))?.platforms.find((p) => p.platform === platform)
-    return row ? row.options.map((o) => o.name) : null
+    return row ? row.options.map((o) => o.option) : null
   }
 
   /** A VM: { name, platform, cpus?, memory?, disk?, image? (its Sandbox image), os_image? }. */
@@ -781,29 +805,28 @@ export class Machines {
     const { name, platform, ...rest } = body ?? {}
     if (!name || !platform) throw refuse(null, 'InvalidInput', 'a machine needs a name and a platform')
     if (OFF.has(platform)) throw refuse(null, 'Unsupported', `${platform} machines are turned off`)
-    // the options this platform declares (machine.platforms); one it does not take is refused here, not sent
+    // the options this platform declares (its platforms row); one it does not take is refused here, not sent
     const declared = (await this.declared(platform)) ?? ['cpus', 'memory', 'disk', 'image']
     const given = pick(rest, Object.keys(rest))
     const extra = Object.keys(given).filter((k) => !declared.includes(k))
     if (extra.length) throw refuse(null, 'InvalidInput', `${platform} takes no ${extra.join(', ')} (its options: ${declared.join(', ') || 'none'})`)
-    try { return await this.lfs.machine.create(name, platform, { ...given, on_progress: this.progress(name, 'create') }) } finally { this.platformsChanged(); this.metrics.relist() }
+    try { return await this.lfs.machine.create(name, platform, { ...given, on_progress: this.progress(name, 'create'), detail: true }) } finally { this.platformsChanged(); this.metrics.relist() }
   }
 
   /** Removes a VM; LayerFS refuses InUse while it holds Stores or running Sandboxes. */
   async remove(name: string) {
     const lfs = this.lfs
     if (BUILT_IN.has(name)) throw refuse(null, 'InvalidInput', `${name} is built in and can't be removed`)
-    const m = list((await lfs.machine.list()).machines).find((x) => x.name === name)
-    if (!m) throw refuse(null, 'NotFound', `no machine named ${name}`)
-    try { return await lfs.machine.remove(name) } finally { this.platformsChanged(); this.metrics.relist() }
+    try { return await lfs.machine.remove(name, { on_progress: this.progress(name, 'remove'), detail: true }) } finally { this.platformsChanged(); this.metrics.relist() }
   }
 
-  /** A built-in's settings ({ image, docker, wsl }) or a VM's size ({ cpus, memory }). */
+  /** A built-in's settings ({ image, docker, wsl }); a VM's `cpus`/`memory` are refused `Unsupported` by LayerFS 2.0 (no resizing; there is no `disk`). */
   async update(name: string, body: any) {
     const changes = pick(body ?? {}, ['cpus', 'memory', 'image', 'docker', 'wsl'])
+    if (body?.disk != null) throw refuse(400, 'InvalidInput', 'A machine\'s disk cannot be changed (LayerFS 2.0 resizes nothing).')
     // `docker: ""` clears docker's recorded socket (automatic until its next start records one)
     if (body?.docker === '') changes.docker = ''
-    try { return await this.lfs.machine.update(name, changes) } finally { this.platformsChanged() }
+    try { return await this.lfs.machine.update(name, { ...changes, detail: true }) } finally { this.platformsChanged() }
   }
 
   /** A machine write or an Engine start: the platforms (docker's socket, a VM tool) are probed again on the next read. */

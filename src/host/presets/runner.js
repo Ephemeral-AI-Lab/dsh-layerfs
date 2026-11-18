@@ -129,14 +129,15 @@ export class DemoRunner extends CliInventory {
     if (call === 'get' && ['machine', 'store', 'sandbox', 'project'].includes(family)) {
       let page = 0, found = false
       do {
+        // cs20: switch when the Store, Sandbox and project packages merge (their list calls keep old names and paging).
         const list = await this.query([family, 'list', ...(family === 'project' ? [name.split('/')[0]] : []), ...(['sandbox', 'project'].includes(family) ? ['--page-size', '1000', '--page-pos', String(page)] : [])])
-        found = rows(list, family === 'machine' ? 'machines' : 'items').some(row => family === 'project' ? (row.project ?? row.key ?? `${row.store}/${row.name}`) === name : row.name === name)
+        found = rows(list, 'items').some(row => family === 'project' ? (row.project ?? row.key ?? `${row.store}/${row.name}`) === name : (family === 'machine' ? row.machine : row.name) === name)
         if (found) break
         page = list.next_page_pos ?? null
       } while (page !== null)
       if (!found) return null
     }
-    try { return await this.query(argv) } catch (error) { if (missing(error)) return null; throw error }
+    try { return await this.query(family === 'machine' && call === 'get' ? [...argv, '--detail'] : argv) } catch (error) { if (missing(error)) return null; throw error }
   }
   recordStep(key, step) {
     this.journal ??= new StepJournal(this.journalFile)
@@ -196,8 +197,8 @@ export class DemoRunner extends CliInventory {
       throw error
     }
     this.manifest.resources[family][name] = { owned: true, created: null, status: 'ready' }; this.save()
-    const made = await this.query([family, 'get', name])
-    this.manifest.resources[family][name] = { owned: true, created: made.created ?? null, status: 'ready' }; this.save()
+    const made = await this.query([family, 'get', name, ...(family === 'machine' ? ['--detail'] : [])])
+    this.manifest.resources[family][name] = { owned: true, created: made.created_at ?? made.created ?? null, status: 'ready' }; this.save()
     return made
   }
   async initialize() {
@@ -207,11 +208,11 @@ export class DemoRunner extends CliInventory {
   }
   async preflight() {
     if (this.preset.stores.some(isPostgresql)) {
-      // `machine platforms` lists PostgreSQL support even in a build without the engine; the CLI's own features say.
+      // `home get --with platforms` lists PostgreSQL support even in a build without the engine; the CLI's own features say.
       const features = (await this.driver.discover?.())?.identity?.features
       if (Array.isArray(features) && !features.includes('postgresql')) fail(`This preset has PostgreSQL Stores, and the pinned LayerFS CLI was built without PostgreSQL (features: ${features.join(', ') || 'none'}). Pin a runtime built with the postgresql feature (CLI and Linux bundle) in Center → Settings → Change…, then build again.`)
     }
-    const supported = rows(await this.query(['machine', 'platforms']), 'platforms')
+    const supported = rows((await this.query(['home', 'get', '--detail', '--with', 'platforms']))?.platforms, 'items')
     for (const machine of this.preset.machines) {
       const name = typeof machine === 'string' ? machine : machine.name
       if (!this.preset.stores.some(store => usesMachine(store, name))) continue
@@ -229,9 +230,9 @@ export class DemoRunner extends CliInventory {
     if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === 'native') && !this.driver.spec.daemon) fail('Native sandboxes need a matching layerfs-daemon. Choose it in Center → Settings → Change… (or DSH_LAYERFS_DAEMON), or use Filesystem mode.')
   }
   async startMachine(name) {
-    const current = await this.query(['machine', 'get', name])
-    if (current.op || current.state === 'unresolved') fail(`Machine ${name} has an operation in flight or unresolved. Inspect it first.`)
-    if (['running', 'ready'].includes(current.state)) return
+    const current = await this.query(['machine', 'get', name, '--detail'])
+    if (current.op || current.state === 'busy' || (current.state === 'broken' && current.reason === 'unresolved')) fail(`Machine ${name} has an operation in flight or unresolved. Inspect it first.`)
+    if (current.state === 'ready') return
     if (name === 'docker' && !this.manifest.borrowed.docker) { this.manifest.borrowed.docker = { initially: current.state, started: true }; this.save() }
     await this.once(`machine.start:${name}:${this.commandId}`, ['machine', 'start', name])
   }
@@ -455,7 +456,7 @@ export class DemoRunner extends CliInventory {
       advance(`Machine ${name} ready`)
     }
     if ((this.sandboxes || this.executionMode === 'mixed') && this.preset.stores.some(store => store.machine === 'native')) {
-      const native = await this.query(['machine', 'get', 'native'])
+      const native = await this.query(['machine', 'get', 'native', '--detail'])
       if (native.daemon !== this.driver.spec.daemon) await this.once(`native.daemon:${this.driver.spec.daemon}`, ['machine', 'update', 'native', '--daemon', this.driver.spec.daemon])
     }
     if (this.preset.concurrentHistory) {

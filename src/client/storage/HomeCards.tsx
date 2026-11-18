@@ -57,8 +57,8 @@ export function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place:
   const host = s.kind === 'sqlite' ? fleet?.machines.find((m) => m.name === s.machine) : undefined
   // its machine cannot run here at all (Docker quit, Lima removed): say so; a restart would only fail
   if (host && fleet && machineBlock(host, fleet)) return { state: 'warning', reason: t('machineUnavailable', { machine: place(host.name) }) }
-  if (host && workerDown(host, fleet?.status[host.name])) {
-    return { state: 'error', reason: t('ovStoreWorkerDown', { machine: place(host.name) }), detail: s.down ?? downReason(host, fleet?.status[host.name]) ?? undefined, restart: host }
+  if (host && workerDown(host, fleet?.live[host.name])) {
+    return { state: 'error', reason: t('ovStoreWorkerDown', { machine: place(host.name) }), detail: s.down ?? downReason(host, fleet?.live[host.name]) ?? undefined, restart: host }
   }
   if (s.state === 'down') return { state: 'error', reason: t('stateDown'), detail: s.down ?? undefined }
   if (s.state === 'unresolved') return { state: 'error', reason: t('unresolved') }

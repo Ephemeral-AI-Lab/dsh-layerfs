@@ -12,7 +12,7 @@ import { Card, LinkButton } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachinesKey } from './locale.ts'
 import { storeLines } from './Inventory.tsx'
-import { BUILT_IN, heldWords, inUse, machineState, sandboxesOn, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, heldWords, inUse, machineState, sandboxesOn, supports, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
 import { useMachineStats } from './MachineStats.tsx'
 import { upTime } from './metrics.ts'
 import { liveCounts } from './stats.ts'
@@ -82,22 +82,23 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
               ? <><LinkButton onClick={() => onTab('sandboxes')}>{sandboxWords}</LinkButton>{' · '}<LinkButton onClick={() => onTab('stores')}>{storeWords}</LinkButton></>
               : `${sandboxWords} · ${storeWords}`}
           </Item>
-          {live?.down && <Item label={t('downBecause')} tone="danger">{live.down}</Item>}
+          {m.message && m.state !== 'ready' && m.state !== 'stopped' && <Item label={t('downBecause')} tone="danger">{m.message}</Item>}
+          {!m.message && live?.error && <Item label={t('downBecause')} tone="danger">{live.error.message}</Item>}
           {state.op && <Item label={t('operation')} mono>{`${state.op.name} · ${state.op.phase}`}</Item>}
-          {m.error && <Item label={t('error')} tone="danger">{m.error}</Item>}
+          {m.fix && <Item label={t('fix')} mono>{m.fix}</Item>}
         </Group>
         <Group title={t('sandboxes')}>
           <Item label={t('ovSandboxesRun')}>{pick(RUNS_AS, m.backend) ?? t('runsUnknown')}</Item>
-          {p?.kernel && <Item label={t('filesOver')}>{pick(KERNEL, p.kernel)}</Item>}
+          {p?.route && <Item label={t('filesOver')}>{pick(KERNEL, p.route)}</Item>}
           {worker && (
             <Item label={t('worker')}>
               {[worker.version ? t('workerVersion', { version: worker.version }) : null, worker.startedAt != null ? t('mxUpFor', { time: upTime(worker.startedAt, Date.now()) }) : null].filter(Boolean).join(' · ') || null}
             </Item>
           )}
-          <Item label={t('pgSandboxes')} tone={m.supports?.postgresql_sandbox === false ? 'muted' : undefined}>
-            {m.supports?.postgresql_sandbox
+          <Item label={t('pgSandboxes')} tone={supports(m, 'postgresql_sandbox') === false ? 'muted' : undefined}>
+            {supports(m, 'postgresql_sandbox')
               ? t(postgresql === 1 ? 'pgSupportedOne' : 'pgSupported', { n: String(postgresql) })
-              : m.supports?.postgresql_sandbox === false ? (m.supports.reason ?? t('no')) : t('notSaid')}
+              : supports(m, 'postgresql_sandbox') === false ? t('no') : t('notSaid')}
           </Item>
         </Group>
         <Group title={t('ovGroupCalls')}>

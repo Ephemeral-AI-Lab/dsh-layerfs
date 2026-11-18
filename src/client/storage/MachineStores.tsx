@@ -317,7 +317,7 @@ export function MachineLine({ s, view, t, on }: { s: StoreRow, view: StorageView
   const pg = s.kind === 'postgresql'
   const machine = pg ? runsOnOf(s) : s.machine
   const state = view.machines.find((m) => m.name === machine)?.state ?? null
-  const health = machine === 'native' || state === 'running' ? 'current' : state ? 'unknown' : null
+  const health = machine === 'native' || state === 'ready' ? 'current' : state ? 'unknown' : null
   return (
     <div className={css.machines}>
       <span className={css.machinesLabel}>{pg ? t('pgRunsOnLabel') : t('hsStoredOn')}</span>

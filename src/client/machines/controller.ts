@@ -54,6 +54,8 @@ export type MachineAction =
   | { kind: 'create', input: NewMachine }
   | { kind: 'remove', name: string }
   | { kind: 'start', name: string, platform: string }
+  /** A broken machine's fix `machine stop <m> && machine start <m>` (no Sandbox on it). */
+  | { kind: 'restart', name: string, platform: string }
   | { kind: 'stop', name: string, force?: boolean }
   | { kind: 'update', name: string, changes: { image?: string, docker?: string, wsl?: string } }
 
@@ -276,6 +278,9 @@ export class MachinesController {
         case 'start':
           await this.startup({ kind: 'start', name: action.name, platform: action.platform }, () => api.call('POST', `/api/machines/${enc(action.name)}/start`))
           break
+        case 'restart':
+          await this.startup({ kind: 'start', name: action.name, platform: action.platform }, () => api.call('POST', `/api/machines/${enc(action.name)}/restart`))
+          break
         case 'stop':
           await api.call('POST', `/api/machines/${enc(action.name)}/stop`, action.force ? { force: true } : undefined)
           this.clearStartup(action.name)
@@ -326,7 +331,8 @@ export class MachinesController {
   }
 
   /**
-   * A `machine-progress` host event: `{ name, kind?, progress: { stage, state, elapsed_ms } }`
+   * A `machine-progress` host event: `{ name, kind?, progress }`, LayerFS 2.0's `{ phase, done, total }`
+   * (or the host's own Docker Engine launch, `{ stage, state }`), with `elapsed_ms`
    * (or the progress fields at the top level). It updates the running startup of that machine.
    */
   private progress(event: HostEvent): void {
@@ -335,7 +341,8 @@ export class MachinesController {
     if (!name) return
     const current = this.startups.getSnapshot()[name]
     if (!current || current.status !== 'running') return
-    if (typeof data.kind === 'string' && data.kind !== current.kind) return
+    // a restart's stop phases (check, stop) belong to its start's progress; any other kind's do not
+    if (typeof data.kind === 'string' && data.kind !== current.kind && !(data.kind === 'stop' && current.kind === 'start')) return
     const progress = data.progress && typeof data.progress === 'object' ? data.progress : data
     const at = typeof data.at === 'number' ? data.at : Date.now()
     const stages = mergeStage(current.stages, progress, at)

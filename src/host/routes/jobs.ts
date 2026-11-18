@@ -70,8 +70,9 @@ export async function inspectJob(lfs: Lfs, job: StorageJob) {
   if (status.state === 'idle' && job.outcome === 'failed' && job.phase !== 'retire') action = 'retry'
   const oldOp = job.observation?.value?.op ?? job.error?.detail?.op
   if (status.state === 'unresolved' && oldOp?.id && status.op?.id === oldOp.id && status.op?.name === oldOp.name && status.op?.name === expected) {
-    const target = await lfs.machine.status(machine)
-    if (target.state === 'running' || (machine === 'native' && target.state === 'ready')) action = 'resolve'
+    // the machine's live state (2.0 `machine get --with live`): a resolve needs it ready
+    const target = await lfs.machine.get(machine, { detail: true, with: ['live'] })
+    if ((target?.state ?? 'ready') === 'ready' && !target?.op) action = 'resolve'
   }
   return { at, kind: 'transfer', value: status, direction, action }
 }

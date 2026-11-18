@@ -284,7 +284,7 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, ownPw, onFro
   const from_ = view.machines.find((m) => m.name === machine)
   const platform = from_?.platform
   // a stopped machine answers no check: say so, and offer no address of its own
-  const stopped = machine !== 'native' && from_?.state != null && from_.state !== 'running'
+  const stopped = machine !== 'native' && from_?.state != null && from_.state !== 'ready'
   const s = view.stores.find((x) => x.name === check.store)
   const server = check.result?.host ?? dialedServer(s, machine, platform)
   const failure = check.state === 'failed' ? (check.error as { code?: string, message?: string } | undefined) : undefined

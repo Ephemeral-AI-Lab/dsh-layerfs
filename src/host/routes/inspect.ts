@@ -67,9 +67,20 @@ export function logQuery(query: URLSearchParams): LogQuery {
   return { cursor, before, limit }
 }
 
-/** A `logs.machine` / `logs.sandbox` answer as the page reads it. */
+/**
+ * A log answer as the page reads it. 2.0's `machine log`: `items` (oldest
+ * first) and `next_cursor`, the lines before them (a 2.0 log pages backwards
+ * only: it is `before`, and there is no forward cursor). Today's
+ * `logs.sandbox`: `lines`, `cursor`, `before`, `has_more` (cs20: switch when
+ * the Sandbox package merges).
+ */
 export function logAnswer(answer: any): Omit<LogView, 'observedAt' | 'stale'> {
   const lines: LogLine[] = []
+  if (Array.isArray(answer?.items)) {
+    for (const line of answer.items) if (line && typeof line.text === 'string') lines.push(line.continued === true ? { text: line.text, continued: true } : { text: line.text })
+    const before = text(answer.next_cursor)
+    return { lines, cursor: null, before, hasMore: !!before }
+  }
   for (const line of Array.isArray(answer?.lines) ? answer.lines : []) {
     if (typeof line === 'string') lines.push({ text: line })
     else if (line && typeof line.text === 'string') lines.push(line.continued === true ? { text: line.text, continued: true } : { text: line.text })
@@ -181,8 +192,47 @@ export function filesQuery(query: URLSearchParams): FilesQuery {
 
 const count = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null)
 
-/** A `sandbox.files` / `machine.files` answer as the page reads it. */
-export function filesAnswer(answer: any, path: string | null): Omit<FolderView, 'observedAt' | 'stale'> | Omit<FileWindowView, 'observedAt' | 'stale'> {
+/** A file mode as LayerFS 2.0 spells it (`"0644"`), or today's number. */
+const modeOf = (value: unknown): number | null => (typeof value === 'string' && /^[0-7]{3,6}$/.test(value) ? parseInt(value, 8) : count(value))
+/** An ISO time (2.0 `modified_at`) as epoch ms. */
+const msOf = (value: unknown): number | null => { const at = typeof value === 'string' ? Date.parse(value) : NaN; return Number.isFinite(at) ? at : null }
+
+/**
+ * A 2.0 `machine files --detail` entry's kind as the page acts on it: what
+ * LayerFS lists and does not read (`not_read`: system, mount, unreadable,
+ * restricted) by that word, else its `type` (`dir` is a folder).
+ */
+export const entryKind = (type: unknown, notRead: unknown): string =>
+  text(notRead) ?? (type === 'dir' ? 'folder' : type === 'file' || type === 'symlink' ? type : 'other')
+
+/**
+ * A 2.0 `machine files --detail` answer: a folder (`items`, `next_cursor`,
+ * `type: dir`) or a file window (`text` with `next_byte_offset` while more
+ * remains, or `binary: true` with its `size`). `offset` is the window asked for.
+ */
+export function machineFilesAnswer(answer: any, path: string | null, offset: number | null): Omit<FolderView, 'observedAt' | 'stale'> | Omit<FileWindowView, 'observedAt' | 'stale'> {
+  if (answer?.type === 'file' || typeof answer?.text === 'string' || answer?.binary === true) {
+    const next = count(answer.next_byte_offset)
+    return { kind: 'file', path: path ?? '', size: count(answer.size) ?? 0, offset: offset ?? 0, content: typeof answer.text === 'string' ? answer.text : '', binary: answer.binary === true, next: next !== null && Number.isSafeInteger(next) ? next : null }
+  }
+  if (!Array.isArray(answer?.items)) throw refuse(null, 'Unknown', 'LayerFS answered neither a folder nor a file.')
+  const entries: FileEntry[] = []
+  for (const e of answer.items) {
+    if (!e || typeof e.path !== 'string' || !e.path) continue
+    entries.push({
+      path: e.path, depth: Number.isSafeInteger(e.depth) && e.depth > 0 ? e.depth : 1, kind: entryKind(e.type, e.not_read),
+      size: count(e.size), mode: modeOf(e.mode), mtime: msOf(e.modified_at),
+      ...(text(e.role) ? { role: e.role } : {}), ...(text(e.target) ? { target: e.target } : {}), ...(text(e.workspace) ? { workspace: e.workspace } : {}), ...(text(e.fs) ? { fs: e.fs } : {}),
+      ...(count(e.disk_free_bytes) !== null ? { free_bytes: count(e.disk_free_bytes)! } : {}),
+    })
+  }
+  const next = text(answer.next_cursor)
+  return { kind: 'folder', path, entries, next, hasMore: !!next, reason: null }
+}
+
+/** A `sandbox.files` answer (today's shape; cs20: switch when the Sandbox package merges), or a 2.0 `machine.files` one, as the page reads it. */
+export function filesAnswer(answer: any, path: string | null, offset: number | null = null): Omit<FolderView, 'observedAt' | 'stale'> | Omit<FileWindowView, 'observedAt' | 'stale'> {
+  if (answer && typeof answer === 'object' && answer.kind === undefined) return machineFilesAnswer(answer, path, offset)
   if (answer?.kind === 'file') {
     const next = typeof answer.next === 'number' ? answer.next : typeof answer.next === 'string' && /^\d+$/.test(answer.next) ? Number(answer.next) : null
     return {
@@ -353,7 +403,7 @@ export class InspectReads {
       return { kind: 'refused', path: query.path, observedAt, stale }
     }
     let view: ReturnType<typeof filesAnswer>
-    try { view = filesAnswer(answer, query.path) } catch (error) { return { kind: 'refused', path: query.path, observedAt, stale: refusalOf(error, null) } }
+    try { view = filesAnswer(answer, query.path, query.offset) } catch (error) { return { kind: 'refused', path: query.path, observedAt, stale: refusalOf(error, null) } }
     if (view.kind === 'folder' && first) {
       this.keptFolders.delete(keptKey)
       if (this.keptFolders.size >= KEEP_FOLDERS) this.keptFolders.delete(this.keptFolders.keys().next().value!)

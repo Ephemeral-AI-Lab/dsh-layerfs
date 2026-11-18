@@ -80,7 +80,7 @@ export function Inventory({ m, view, storeAction, sandboxAction, storeMenu, sand
   const creations = useCreations((all) => all)
   const creating = creatingOn(creations, m.name, sandboxes)
   const rows = besideCreating(sandboxes, creating)
-  const running = machineState(m, view.status[m.name]).key === 'running'
+  const running = machineState(m, view.live[m.name]).key === 'running'
   const storesEmpty = view.readErrors?.stores ? t('storesUnread') : t('noStoresHere')
   const sandboxesEmpty = view.readErrors?.sandboxes ? t('sandboxesUnread') : running ? t('noSandboxesHere')
     : t(m.platform === 'docker' ? 'sandboxesAfterWorker' : 'sandboxesAfterStart', { name: m.platform === 'native' ? t('homeName') : m.name })

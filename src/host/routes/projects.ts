@@ -29,6 +29,7 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
+import { machineRows } from '../layerfs/machine-records.ts'
 import { Answer, PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 import { processOf, usageOf, type Usage } from './observed.ts'
 import { SandboxCreates, type Report } from './sandbox-creates.ts'
@@ -317,11 +318,11 @@ export class Projects {
       settings: { state: this.host.root, home: this.host.home, cli: this.host.cli() },
       runtime,
     }
-    const [machines, stores] = await Promise.all([this.lfs.machine.list(), this.lfs.store.list()])
+    const [machines, stores] = await Promise.all([machineRows(this.lfs), this.lfs.store.list()])
     return {
       ...base,
       daemon: await this.daemonStatus(),
-      machines: (machines.machines ?? []).map((m: any) => ({ name: m.name, platform: m.platform, state: m.state ?? null })),
+      machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state })),
       stores: (stores.items ?? []).length,
     }
   }
@@ -330,7 +331,7 @@ export class Projects {
   private async daemonStatus(): Promise<{ recorded: boolean, why: string | null } | null> {
     if (process.platform !== 'darwin') return null
     try {
-      const recorded = (await this.lfs.machine.get('native'))?.daemon ?? null
+      const recorded = (await this.lfs.machine.get('native', { detail: true }))?.daemon ?? null
       return recorded ? { recorded: true, why: null } : { recorded: false, why: this.host.daemon() ? 'the native daemon was not recorded' : 'no configured CLI or daemon' }
     } catch (error: any) {
       return { recorded: false, why: `the native daemon was not recorded: ${error?.message ?? error}` }
@@ -529,7 +530,7 @@ export class Projects {
     if (record.kind === 'postgresql') {
       const store = String(record.store ?? keyOf(record).split('/')[0])
       const named = typeof body.machine === 'string' && body.machine ? body.machine : null
-      machine = named ?? pgMachineOf(new StoreMachines(this.host.root).get(store), (await this.lfs.machine.list())?.machines ?? [])
+      machine = named ?? pgMachineOf(new StoreMachines(this.host.root).get(store), await machineRows(this.lfs))
     }
     if (image !== undefined && image !== null && image !== '' && typeof image !== 'string') throw refuse(400, 'InvalidInput', 'Name the image as a string: its id (a sha256 digest) or a reference.')
     const picked = typeof image === 'string' && image ? image : undefined

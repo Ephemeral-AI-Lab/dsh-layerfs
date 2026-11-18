@@ -11,7 +11,7 @@ import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
 import type { MachinesKey } from './locale.ts'
-import { BUILT_IN, duration, forceStopOf, machineState, opWords, powerOf, stageWords, workerDown, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, duration, fixAction, forceStopOf, machineState, opWords, powerOf, stageWords, workerDown, type MachineInfo, type MachineLive } from './model.ts'
 import { socketSetting, socketSourceWords, type SocketChoice, type SocketSetting } from './socket.ts'
 import css from './machines.module.css'
 
@@ -71,20 +71,30 @@ function powerKey(m: MachineInfo, power: 'start' | 'stop', engine = false) {
 /** `compact`: an icon button (the board's rows) while nothing runs; the words come back for a start, a stop or a worker to restart. */
 /** `engine`: the Docker Engine is not running and this Start launches it first (needs.ts engineStart). */
 export function PowerButton({ m, pending, run, size = 'sm', compact, engine = false }: { m: MachineInfo, pending: string | null, run: Run, size?: 'sm' | 'md', compact?: boolean, engine?: boolean }): ReactNode {
-  const { t, useMachines } = useMachinesContext()
-  const live = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.status[m.name] : undefined))
-  const power = engine ? 'start' : powerOf(m)
+  const { t, recheck } = useMachinesContext()
+  const fix = engine ? null : fixAction(m)
+  const power = engine || fix?.kind === 'engine' ? 'start' : powerOf(m)
   const elapsed = useElapsed(pending === 'stop')
-  if (!power) return null
-  // a worker that does not answer: Start brings it back (Stop is in the menu)
-  if (!engine && workerDown(m, live)) {
+  // a broken or unknown machine: its one action, from its `fix` (UI rule: one action; a line the page does not run stays to copy in its detail)
+  if (fix && fix.kind !== 'engine' && fix.kind !== 'copy') {
+    const busy = pending !== null
+    const words = pending === 'start' || pending === 'restart' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : fix.kind === 'check' ? t('fixCheck') : t('restartWorker')
+    const title = fix.kind === 'forced' ? t(fix.sandboxes === 1 ? 'fixForcedOneTip' : 'fixForcedTip', { n: String(fix.sandboxes) })
+      : fix.kind === 'check' ? t('fixCheckTitle', { name: m.name }) : m.fix ? t('fixCopyTitle', { fix: m.fix }) : t('restartWorkerTitle', { name: m.name })
+    const act = () => {
+      if (fix.kind === 'check') { void recheck(); return }
+      if (fix.kind === 'restart') void run('restart', { kind: 'restart', name: m.name, platform: m.platform })
+      else if (fix.kind === 'start') void run('start', { kind: 'start', name: m.name, platform: m.platform })
+    }
     return (
-      <Button size={size} variant="primary" disabled={pending !== null} icon={<PowerGlyph size={14} />} title={t('restartWorkerTitle', { name: m.name })}
-        onClick={(e) => { e.stopPropagation(); void run('start', { kind: 'start', name: m.name, platform: m.platform }) }}>
-        {pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t('restartWorker')}
+      <Button size={size} variant={fix.kind === 'check' ? 'outline' : 'primary'} disabled={busy || fix.kind === 'forced'} icon={<PowerGlyph size={14} />} title={title}
+        onClick={(e) => { e.stopPropagation(); act() }}>
+        {words}
       </Button>
     )
   }
+  if (!power) return null
+  if (fix?.kind === 'engine') engine = true
   if (compact && pending === null) {
     const words = t(powerKey(m, power, engine))
     return (
@@ -121,10 +131,10 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
   const hasSandboxes = useMachines((snapshot) => m.sandboxes.length > 0 || !!(snapshot.data?.available && snapshot.data.sandboxes.some((sandbox) => sandbox.machine === m.name)))
   // only a CLI whose machine.stop takes force offers Force stop
   const features = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.features : undefined))
-  const live = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.status[m.name] : undefined))
   const power = powerOf(m)
   const builtIn = BUILT_IN.has(m.platform)
-  const down = workerDown(m, live)
+  const down = workerDown(m)
+  const fix = fixAction(m)
   return (
     <MoreMenu label={t('moreFor', { name: m.name })}>
       {(close) => (
@@ -132,8 +142,9 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
           {onOpen && <MenuItemButton icon={<IconChevronRightOutlineRegular size={14} />} onSelect={() => { close(); onOpen() }}>{t('open')}</MenuItemButton>}
           {down ? (
             <>
-              <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
-                onSelect={() => { close(); void run('start', { kind: 'start', name: m.name, platform: m.platform }) }}>
+              <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null || fix?.kind === 'forced'}
+                disabledReason={fix?.kind === 'forced' ? t(fix.sandboxes === 1 ? 'fixForcedOneTip' : 'fixForcedTip', { n: String(fix.sandboxes) }) : undefined}
+                onSelect={() => { close(); void run(fix?.kind === 'restart' ? 'restart' : 'start', { kind: fix?.kind === 'restart' ? 'restart' : 'start', name: m.name, platform: m.platform }) }}>
                 {t('restartWorker')}
               </MenuItemButton>
               <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}

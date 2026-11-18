@@ -6,7 +6,8 @@ import { CliInventory } from './inventory.js'
 import { fixtureBusy, liveReceipt } from './environment-reset.js'
 
 const save = (file, value) => { const temporary = `${file}.${process.pid}.tmp`; writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 }); renameSync(temporary, file) }
-const terminal = machine => !machine.op && (machine.name === 'native' ? ['ready', 'stopped'].includes(machine.state) : ['stopped', 'down'].includes(machine.state))
+// 2.0 six states: native has no worker to stop, so ready counts as closed there.
+const terminal = machine => !machine.op && (machine.name === 'native' ? ['ready', 'stopped'].includes(machine.state) : machine.state === 'stopped')
 
 export class MachineStop extends CliInventory {
   constructor({ spec, driver, report = () => {}, progress = () => {} }) { super(driver); this.spec = spec; this.report = report; this.progress = progress; this.lock = join(spec.state, 'demo-fixtures.lock') }
@@ -27,7 +28,7 @@ export class MachineStop extends CliInventory {
     const machines = (await this.inventory('machine')).sort((a, b) => a.name.localeCompare(b.name))
     const detectedMachines = machines.map(({ name, state, platform }) => ({ name, state, platform }))
     const plan = { home: this.spec.home, homeId, scope: 'machines', stopMachines: machines.map(machine => machine.name), detectedMachines }
-    const identities = machines.map(({ name, id, created, platform }) => ({ name, id, created, platform }))
+    const identities = machines.map(({ name, created_at, platform }) => ({ name, created: created_at ?? null, platform }))
     const signature = createHash('sha256').update(JSON.stringify({ ...plan, identities })).digest('hex')
     return { ...plan, signature }
   }
@@ -53,15 +54,16 @@ export class MachineStop extends CliInventory {
       await onReady?.(action)
       const failures = []
       for (const [index, name] of plan.stopMachines.entries()) {
-        const argv = ['machine', 'stop', name, '--force']
+        const argv = ['machine', 'stop', name, '--force', '--detail']
         this.progress({ stage: 'resetting', completed: index, total: plan.stopMachines.length, label: `layerfs ${argv.join(' ')}` })
         this.report(`Force-closing machine ${name}`)
         try {
           const result = await this.driver.invoke(argv)
-          if (result?.forced !== true || result?.name !== name || !terminal(result)) throw new Error(`Force-stop outcome could not be confirmed for ${name}`)
+          // 2.0 long form: { ok, unchanged, outcome, machine, forced, stopped_sandboxes, unknown_workspaces }; the state is verified after the loop.
+          if (result?.ok !== true || result?.machine !== name || (result.forced !== true && result.unchanged !== true)) throw new Error(`Force-stop outcome could not be confirmed for ${name}`)
           receipt.completed.push(argv)
-          receipt.results.push({ machine: name, state: result.state, forced: true, stoppedSandboxes: result.stopped_sandboxes ?? [], unknown: result.unknown ?? [] })
-          for (const workspace of result.unknown ?? []) receipt.warnings.push(`Uncommitted workspace state may be lost or unknown: ${workspace}`)
+          receipt.results.push({ machine: name, forced: result.forced === true, unchanged: result.unchanged === true, stoppedSandboxes: result.stopped_sandboxes ?? [], unknown: result.unknown_workspaces ?? [] })
+          for (const workspace of result.unknown_workspaces ?? []) receipt.warnings.push(`Uncommitted workspace state may be lost or unknown: ${workspace}`)
           save(file, receipt)
           await onStopped?.(name)
         } catch (error) {

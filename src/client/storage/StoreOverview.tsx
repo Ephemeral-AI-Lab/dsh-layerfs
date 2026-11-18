@@ -238,7 +238,7 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
     rows.push({ key: 'backups', tone: 'info', label: t('backupsSection'), text: t('spPgBackups') })
   } else {
     const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')
-    rows.push({ key: 'machine', tone: machineState === 'stopped' ? 'danger' : machineState === 'running' || machineState === 'ready' ? 'ok' : 'info', label: t('spMachine'), text: t(machineState === 'stopped' ? 'spMachineStopped' : 'spMachineRunning', { machine: place }) })
+    rows.push({ key: 'machine', tone: machineState === 'stopped' ? 'danger' : machineState === 'ready' ? 'ok' : 'info', label: t('spMachine'), text: t(machineState === 'stopped' ? 'spMachineStopped' : 'spMachineRunning', { machine: place }) })
     const latest = latestBackup(s)
     const states = s.links.map((link) => view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name)?.state).filter(Boolean)
     const behind = states.some((x) => x === 'store_changed' || x === 'both_changed')

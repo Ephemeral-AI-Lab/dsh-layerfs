@@ -27,6 +27,7 @@ import type { SessionStore } from './store.ts'
 import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
 import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
+import { machineRows } from '../layerfs/machine-records.ts'
 
 /** How long a passed identity and readiness check stands for pre-step checks. */
 const IDENTITY_FRESH_MS = 15_000
@@ -454,8 +455,7 @@ export class LayerfsSessions extends Service {
     const info = await this.lfs.project.get(project)
     if (info.kind !== 'postgresql') return info.machine ?? 'native'
     if (preferred) return preferred
-    const machines = (await this.lfs.machine.list())?.machines ?? []
-    return pgMachineOf(new StoreMachines(this.ctx.layerfs.root).get(storeOf(project)!), machines)
+    return pgMachineOf(new StoreMachines(this.ctx.layerfs.root).get(storeOf(project)!), await machineRows(this.lfs))
   }
 
   /**
@@ -1136,8 +1136,11 @@ export class LayerfsSessions extends Service {
   /** The machine and Store a project executes on must be ready now (read-only; starts nothing). */
   private async assertReady(row: { kind?: string | null, machine?: string | null, store: string }, placed?: string | null): Promise<void> {
     const machine = row.kind === 'postgresql' ? (placed ?? 'native') : (row.machine ?? 'native')
-    const status = await this.lfs.machine.get(machine)
-    if (!['ready', 'running'].includes(status?.state) || status?.op) throw new CliError('Unavailable', `Machine ${machine} is not ready. Start or repair it, then send the message again.`)
+    // records only (the 2.0 six states): `ready` with no op is ready; anything else is named with its fix
+    const status = await this.lfs.machine.get(machine, { detail: true })
+    if ((status?.state ?? 'ready') !== 'ready' || status?.op) {
+      throw new CliError('Unavailable', `Machine ${machine} is not ready (${status?.state ?? 'unknown'}${status?.reason ? `: ${status.reason}` : ''}). Start or repair it, then send the message again.`, null, 'refusal', typeof status?.fix === 'string' ? status.fix : null)
+    }
     const store = await this.lfs.store.status(row.store)
     const health = classifyStore({ name: row.store, kind: row.kind ?? store?.kind }, store)
     this.storeHealth.set(row.store, health)
