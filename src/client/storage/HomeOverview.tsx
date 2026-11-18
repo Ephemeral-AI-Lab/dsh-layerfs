@@ -39,7 +39,7 @@ import { ProjectTable } from './ProjectTable.tsx'
 import { ProjectFinderBar, useProjectFinder } from './ProjectFinder.tsx'
 import { projectMatches } from './project-list.ts'
 import { Board } from '../machines/Board.tsx'
-import { DoctorPanel } from '../doctor/Doctor.tsx'
+import { useStartDoctor } from '../doctor/Doctor.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { LogsPanelIcon } from '../logs/index.tsx'
@@ -49,7 +49,8 @@ import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
 import { bucketFiles, doingWords, endedWords, orderStores, shareOf } from './model.ts'
 import { refusalLabels, StoreGlyph } from './parts.tsx'
-import type { DoctorReport, StorageJob, StorageView, StoreRow } from './types.ts'
+import type { StorageJob, StorageView, StoreRow } from './types.ts'
+import type { DoctorCount } from '../../shared/doctor.ts'
 import css from './HomeOverview.module.css'
 import heroCss from './HomeHero.module.css'
 
@@ -60,7 +61,7 @@ export interface HomeOverviewProps {
   /** The setup modal's copy (the setup cards Center shows). */
   setup: SetupModalT
   now: number
-  doctor: Query<DoctorReport>
+  doctor: Query<DoctorCount>
   jobs: readonly StorageJob[]
   dismissed: ReadonlySet<string>
   onOpen: (id: TabId) => void
@@ -147,7 +148,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const fleet: AvailableView | null = fleetRead.data?.available ? fleetRead.data : null
   const setupRead = useSetupStatus(mc.api)
   const setup = setupRead.data
-  const [diagnosing, setDiagnosing] = useState(false)
+  const startDoctor = useStartDoctor(mc.api)
   const tab = props.tab
   const setTab = (key: string) => { if (isOverviewTab(key)) props.onTab(key) }
   const pgNames = (view?.stores ?? []).filter((s) => s.kind === 'postgresql').map((s) => s.name).sort()
@@ -193,9 +194,9 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   // Machines whose worker does not answer: one need each, with the fix, standing in for their Stores' "down".
   // A machine whose platform is not ready here (Docker quit, Lima removed): its fix, not a worker restart that would fail.
   const blocked = new Map(fleet ? machines.flatMap((m) => { const b = machineBlock(m, fleet); return b ? [[m.name, b] as const] : [] }) : [])
-  const unreachable = new Set(machines.filter((m) => !blocked.has(m.name) && workerDown(m, fleet?.status[m.name])).map((m) => m.name))
+  const unreachable = new Set(machines.filter((m) => !blocked.has(m.name) && workerDown(m, fleet?.live[m.name])).map((m) => m.name))
   for (const m of machines) {
-    const look = machineState(m, fleet?.status[m.name])
+    const look = machineState(m, fleet?.live[m.name])
     const block = blocked.get(m.name)
     if (block) {
       needs.push({
@@ -210,7 +211,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{m.stores.length
           ? t('ovWorkerDownStores', { machine: place(m.name), stores: m.stores.join(', ') })
           : t('ovWorkerDown', { machine: place(m.name) })}</Link>,
-        detail: downReason(m, fleet?.status[m.name]) ?? undefined,
+        detail: downReason(m, fleet?.live[m.name]) ?? undefined,
         action: { label: t('ovRestartWorker'), run: () => mc.act({ kind: 'start', name: m.name, platform: m.platform }) },
         secondary: { label: t('ovStopUnreachable'), title: t('ovStopUnreachableTitle', { machine: place(m.name) }), run: () => mc.act({ kind: 'stop', name: m.name }) },
       })
@@ -218,7 +219,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       needs.push({
         key: `needs:${m.name}`, tone: 'danger', rank: 1,
         title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{t('ovMachineNeeds', { machine: place(m.name) })}</Link>,
-        detail: downReason(m, fleet?.status[m.name]) ?? mc.stateWord(look),
+        detail: downReason(m, fleet?.live[m.name]) ?? mc.stateWord(look),
         action: { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
       })
     } else if (look.key === 'stopped' && m.stores.length > 0 && startups[m.name]?.status !== 'running') {
@@ -248,8 +249,8 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       })
     }
   }
-  // The doctor's findings are not a row here: the head's Health button counts
-  // them (red when one refuses calls) and opens the Health page that lists them.
+  // The doctors' open findings are not a row here: the head's Doctor button counts
+  // them (red when one is an error) and opens the Doctor page that lists them.
   const findings = doctor.data?.findings ?? []
   const findingErrors = findings.some((f) => f.severity === 'error')
   // Setup still missing something required (after Later): the head's first need, with Set up LayerFS… (one place, no second card).
@@ -273,9 +274,9 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   // A tab's dot: the worst state among what it shows.
   const storeTrouble = stores.some((x) => x.state === 'down' || x.state === 'unresolved' || x.postgresql?.reachable === false)
   const storeTone = storeTrouble ? 'danger' : undefined
-  const machineTone = machines.some((m) => !blocked.has(m.name) && machineState(m, fleet?.status[m.name]).key === 'needs') ? 'danger'
+  const machineTone = machines.some((m) => !blocked.has(m.name) && machineState(m, fleet?.live[m.name]).key === 'needs') ? 'danger'
     : blocked.size > 0 ? 'warning'
-    : machines.some((m) => machineState(m, fleet?.status[m.name]).key === 'stopped' && m.stores.length > 0) ? 'warning' : undefined
+    : machines.some((m) => machineState(m, fleet?.live[m.name]).key === 'stopped' && m.stores.length > 0) ? 'warning' : undefined
   const refreshAll = () => { onRefresh(); props.onCheckAgain() }
   const newProject = () => projectDialog.open({ mode: 'new' })
   // The selected tab's actions, at the right end of the tab bar (an empty tab carries its own call to action instead).
@@ -286,10 +287,9 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         {fleet?.platforms.some((p) => p.how === 'created') ? <Button variant="outline" size="sm" icon={plus} onClick={props.onNewMachine}>{t('newMachine')}</Button> : null}
         <MoreMenu label={mc.t('moreMachines')}>
           {(close) => (
-            <MenuItemButton icon={<IconInspectOutlineRegular size={14} />} onSelect={() => { close(); setDiagnosing(true) }}>{mc.doctorT('diagnoseHost')}</MenuItemButton>
+            <MenuItemButton icon={<IconInspectOutlineRegular size={14} />} onSelect={() => { close(); void startDoctor('host').catch(() => props.onOpen('health')) }}>{mc.doctorT('diagnoseHost')}</MenuItemButton>
           )}
         </MoreMenu>
-        {diagnosing ? <DoctorPanel api={mc.api} t={mc.doctorT} target="host" onClose={() => setDiagnosing(false)} /> : null}
       </>
     )
     : null

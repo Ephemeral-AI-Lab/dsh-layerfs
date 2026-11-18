@@ -68,7 +68,7 @@ const en = {
   // ---- the Doctor page (`dp…`): tree rows, five status words, tips, fixes. A finding's own word is `chk_<check id>`
   // (every character outside letters and digits as `_`); a check without one is spelled from its id.
   // the Center's page that shows it is still named Health (its tab and its region)
-  healthTitle: 'Health',
+  healthTitle: 'Doctor',
   dpTitle: 'Doctor',
   dpHomeName: 'LayerFS {version}',
   dpWordOk: 'OK',
@@ -297,7 +297,7 @@ const zh: typeof en = {
   modeWriteTest: '写入测试',
 
   // ---- the Doctor page
-  healthTitle: '健康',
+  healthTitle: '诊断',
   dpTitle: '医生',
   dpHomeName: 'LayerFS {version}',
   dpWordOk: '正常',

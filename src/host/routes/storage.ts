@@ -48,9 +48,9 @@ import { BackupMarks, historyFingerprint, remoteOnly, settleRemote } from './bac
 import { COMPACT_STEPS, JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
 import { computer } from './computer.ts'
 import { cliFeatures, refuse, wire, type RouteHost } from './util.ts'
-import { leftoverOf, walksOf } from './observed.ts'
 import { StoreSizes } from './store-sizes.ts'
 import { pgMachineOf, StoreMachines, type PgMachine } from '../store-machines.ts'
+import { machineRows, runsPostgresql } from '../layerfs/machine-records.ts'
 
 /** Finished jobs kept in the table. */
 const KEEP_JOBS = 30
@@ -246,17 +246,9 @@ export class Storage {
   /** The last size each Store was read at: a Store on a machine that does not answer shows it (store-sizes.ts). */
   readonly sizes: StoreSizes
   readonly reconciled: Promise<void>
-  private readonly doctorCall: () => Promise<any>
 
-  /**
-   * @param host - the route dependencies.
-   * @param doctor - the `layerfs doctor` report reader (tests pass a stand-in).
-   */
-  constructor(private readonly host: RouteHost, doctor: (() => Promise<any>) | null = null) {
-    this.doctorCall = doctor ?? (async () => {
-      await this.host.discover()
-      return execute(this.lfs.spec, ['doctor'], { read: true })
-    })
+  /** @param host - the route dependencies. */
+  constructor(private readonly host: RouteHost) {
     // the job and stat folders in the LayerFS home, all owner-only (LayerFS requires 0700; a home made here is too)
     moveLegacyStorageState(host.home, host.jobs, host.stats)
     for (const dir of [host.jobs, host.stats, join(host.stats, 'storage-observations'), join(host.stats, 'project-storage')]) {
@@ -283,33 +275,7 @@ export class Storage {
 
   private log(line: string): void { this.host.log(line) }
 
-  /**
-   * What `layerfs doctor` finds in the home (#537 §5 "Needs attention"):
-   * `{ ok, findings: [{ severity, entity: { kind, name }, message, fix, leftover? }], leftovers?, at }`.
-   * Report-only; read when the Storage page asks, never on a timer.
-   *
-   * With a CLI that has `doctor.fix` (layerfs-project#180) a finding of
-   * something an interrupted operation left carries `leftover` (its machine,
-   * kind, path, size, age and the id `layerfs doctor fix <id>` takes), and
-   * `leftovers` lists each machine walked with what LayerFS only counts
-   * (image lock files, unmount markers). This host never runs `doctor fix`:
-   * the page shows the command. Without that call the answer is as before.
-   */
-  async doctor() {
-    const report = await this.doctorCall()
-    const leftovers = (await cliFeatures(this.host)).leftovers
-    const findings = (report?.findings ?? []).map((f: any) => {
-      const leftover = leftovers ? leftoverOf(f) : null
-      return {
-        severity: f?.severity === 'error' ? 'error' : 'warning',
-        entity: f?.entity && typeof f.entity === 'object' ? { kind: String(f.entity.kind ?? ''), name: String(f.entity.name ?? '') } : null,
-        message: String(f?.message ?? ''),
-        fix: typeof f?.fix === 'string' && f.fix ? f.fix : null,
-        ...(leftover ? { leftover } : {}),
-      }
-    })
-    return { ok: report?.ok !== false && !findings.some((f: any) => f.severity === 'error'), findings, ...(leftovers && Array.isArray(report?.leftovers) ? { leftovers: walksOf(report) } : {}), at: Date.now() }
-  }
+
 
   changed(): void {
     this.lastView = null
@@ -352,11 +318,11 @@ export class Storage {
   }
 
   private async readView(generation: number) {
-    const [listed, machines] = await Promise.all([this.lfs.store.list(), this.lfs.machine.list()])
+    const [listed, machines] = await Promise.all([this.lfs.store.list(), machineRows(this.lfs)])
     const items: any[] = listed.items ?? []
     const statuses = await Promise.all(items.map((s) => this.lfs.store.status(s.name).catch((error: any) => (this.log(`[storage] store.status ${s.name}: ${error?.message ?? error}`), null))))
     const jobs = this.jobList()
-    const fleet: PgMachine[] = machines.machines ?? []
+    const fleet: PgMachine[] = machines
     const stores = items.map((s, i) => storeRow(s, statuses[i], jobs, this.host.secrets, s.kind === 'postgresql' ? pgMachineOf(this.storeMachines.get(s.name), fleet) : null))
     // a Store whose machine does not answer keeps its last read size, marked stale
     const sizes = this.sizes.answer(stores.filter((s) => s.kind === 'sqlite'))
@@ -369,7 +335,7 @@ export class Storage {
       return { name, keys: record?.keys ?? null, key: record?.key ?? null, url: record?.url ?? null, region: record?.region ?? null, provider: record?.provider ?? null, listed: listing?.at ?? null, files: listing?.items ?? null, error: listing?.error ?? null, stores: stores.filter((s) => s.links.some((l) => l.bucket === name)).map((s) => s.name) }
     })
     const view = {
-      machines: (machines.machines ?? []).map((m: any) => ({ name: m.name, platform: m.platform, state: m.state ?? null, supports: m.supports ?? null })),
+      machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state, supports: m.supports })),
       // this computer (the native machine): its OS names it
       computer: computer(),
       stores,
@@ -554,10 +520,9 @@ export class Storage {
     checkName(input.machine, 'A machine')
     const record: any = await this.lfs.store.get(name)
     if (record?.kind !== 'postgresql') throw refuse(400, 'InvalidInput', `${name} is a SQLite Store; it runs on the machine that holds its file`)
-    const listed: any[] = (await this.lfs.machine.list())?.machines ?? []
-    const target = listed.find((m) => m?.name === input.machine)
+    const target = (await machineRows(this.lfs)).find((m) => m.name === input.machine)
     if (!target) throw refuse(404, 'NotFound', `no machine named ${input.machine}`)
-    if (target.supports && target.supports.postgresql_sandbox === false) throw refuse(400, 'Unsupported', target.supports.reason ?? `machine ${input.machine} runs no PostgreSQL Sandboxes`)
+    if (!runsPostgresql(target)) throw refuse(400, 'Unsupported', `machine ${input.machine} runs no PostgreSQL Sandboxes`)
     this.storeMachines.set(name, input.machine)
     this.changed()
     return this.view()

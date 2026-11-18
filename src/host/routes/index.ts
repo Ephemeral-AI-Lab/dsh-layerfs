@@ -103,7 +103,7 @@ export function apply(ctx: Context): void {
     busy: () => [
       ...(groups.storage.busy() ? ['a storage job'] : []),
       ...(groups.projects.busy() ? ['a project import'] : []),
-      ...(groups.doctor.busy() || groups.checks.busy() ? ['a doctor run'] : []),
+      ...(groups.checks.busy() ? ['a doctor run'] : []),
       ...(groups.commands.busy() ? ['a Sandbox command'] : []),
     ],
     boundSessions: () => Object.values((sessions()?.state.read().sessions ?? {}) as Record<string, any>)

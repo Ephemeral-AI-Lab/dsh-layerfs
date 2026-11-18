@@ -6,7 +6,6 @@
  */
 import { SandboxCommands, sandboxOfWs } from './commands.ts'
 import { DoctorChecks } from './doctor.ts'
-import { DoctorManager } from './doctor-jobs.ts'
 import { Machines } from './machines.ts'
 import { Projects } from './projects.ts'
 import { Storage } from './storage.ts'
@@ -103,7 +102,6 @@ export interface Groups {
   readonly machines: Machines
   readonly storage: Storage
   readonly projects: Projects
-  readonly doctor: DoctorManager
   /** The Doctor page: the home's tree, the 2.0 doctors and their fixes (doctor.ts). */
   readonly checks: DoctorChecks
   /** Commands a Sandbox page runs in its Workspaces, and their log (commands.ts). */
@@ -131,7 +129,6 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   projects.storeJoin = () => storage.projectJoin()
   // Compute's "Move to…" starts a job in Storage's table, so its progress shows there
   const machines = new Machines(host, (store, machine) => storage.place(store, machine))
-  const doctor = new DoctorManager(host)
   // a fix the Doctor page runs goes the way the Machines and Projects pages' own buttons go
   const checks = new DoctorChecks(host, undefined, { actions: { machineStart: (name) => machines.start(name), machineStop: (name) => machines.stop(name), projectDelete: (key) => projects.remove(key) } })
   const commands = new SandboxCommands(host)
@@ -145,24 +142,19 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   projects.spaceFor = (machine, image) => machines.spaceFor(machine, image)
   // a background create that ends changes the machines view: later GETs read anew
   projects.sandboxCreates.settled = () => machines.changed()
-  return { host, machines, storage, projects, doctor, checks, commands, sandboxCreates: projects.sandboxCreates, runtime }
+  return { host, machines, storage, projects, checks, commands, sandboxCreates: projects.sandboxCreates, runtime }
 }
 
 /** method + path segments -> the answer, or undefined when no route matches. */
 export async function route(g: Groups, method: string, parts: string[], query: URLSearchParams, body: any, signal?: AbortSignal): Promise<unknown> {
-  const { machines, storage, projects, doctor } = g
+  const { machines, storage, projects } = g
   const [api, group, id, sub, ...rest] = parts
   // any write may change the machines view: a GET after it must not join a read started before
   if (method !== 'GET') machines.changed()
   if (api === 'api' && group === 'demo-presets') return g.presets?.route(method, parts.slice(2), body, query)
-  // the Doctor page: /api/doctor/tree, /results, /runs, /runs/:id/stop, /fixes (GET /api/doctor itself stays the home sweep below)
+  // the Doctor page: /api/doctor/tree, /results, /runs, /runs/:id/stop, /fixes 
   if (api === 'api' && group === 'doctor' && id) return g.checks.route(method, parts.slice(2), body)
   if (api !== 'api' || rest.length) return undefined
-  if (group === 'doctor-jobs' && !sub) {
-    if (!id && method === 'POST') return doctor.launch(body ?? {})
-    if (!id && method === 'GET') return doctor.list()
-    if (id && method === 'GET') return doctor.get(id)
-  }
   // Stores, buckets and the moves, backups and restores this host started
   if (group === 'storage' && !id && method === 'GET') return storage.view()
   // lists the buckets' files again (backup.list, one call per bucket): { bucket? }, empty for all
@@ -207,8 +199,6 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'storage-jobs' && id && !sub && method === 'GET') return storage.job(id)
   if (group === 'storage-jobs' && id && sub === 'inspect' && method === 'POST') return storage.inspect(id)
   if (group === 'storage-jobs' && id && sub === 'retry' && method === 'POST') return storage.retry(id)
-  // layerfs doctor: report-only, starts nothing (#537 §8.7)
-  if (group === 'doctor' && !id && method === 'GET') return storage.doctor()
   // Compute's machines. Power is manual (#535 D11): start and stop are their own calls, and no read starts one
   if (group === 'platforms' && !id && method === 'GET') return machines.platforms()
   // machine and Sandbox metrics: ?machines=a,b&since=<seq>, answered from the sampler's memory (no LayerFS call, layerfs-project#182 D2)
@@ -226,7 +216,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'machines') {
     if (!id && !sub && method === 'GET') return machines.view(query.get('fresh') === '1')
     if (id && sub === 'inspect' && method === 'GET') return machines.inspect(id)
-    // the machine's worker log (logs.machine): ?cursor= | ?before=, ?limit=, ?rid= (a request the page can cancel); refusals answer as `stale`
+    // the machine's worker log (machine.log): ?before=, ?limit=, ?rid= (a request the page can cancel); refusals answer as `stale`
     if (id && sub === 'log' && method === 'GET') return machines.machineLog(id, query, signal)
     // the machine's files (machine.files): its roots without ?path=; a folder page (?cursor=, ?depth=, ?limit=) or a file window (?offset=, ?length=); ?rid= as the log
     if (id && sub === 'files' && method === 'GET') return machines.machineFiles(id, query, signal)
@@ -241,6 +231,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     // { image } -> 202 { load }: machine.load in the background (`image-load` events); 501 while the pinned CLI has no machine.load
     if (id && sub === 'load-image' && method === 'POST') return machines.loadImage(id, body ?? {})
     if (id && sub === 'start' && method === 'POST') return machines.start(id)
+    // an outdated worker's fix: machine stop then machine start, refused InUse while Sandboxes are on it
+    if (id && sub === 'restart' && method === 'POST') return machines.restart(id)
     if (id && sub === 'stop' && method === 'POST') return machines.stop(id, { force: body?.force === true })
     if (!id && !sub && method === 'POST') return machines.create(body)
     if (id && !sub && method === 'DELETE') return machines.remove(id)

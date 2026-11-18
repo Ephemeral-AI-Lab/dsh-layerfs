@@ -3,7 +3,7 @@
  * group receives (`RouteHost`), refusals, project keys and the per-Sandbox
  * observation reader (Connect `host/config.js` and `host/layerfs.js`).
  */
-import { PAGE, pages, type Discovery, type Lfs } from '../layerfs/cli.ts'
+import { PAGE, pages, withValues, type Discovery, type Lfs } from '../layerfs/cli.ts'
 import type { CallLabel } from '../../shared/logs.ts'
 
 export { PAGE, pages }
@@ -104,7 +104,7 @@ export interface CliFeatures {
   readonly imageStage: 0 | 1
   /**
    * Monitoring reads (layerfs-project#178), one per call: a page shows a part
-   * only when its call is in the table. `machineLog`: logs.machine (a machine's
+   * only when its call is in the table. `machineLog`: machine.log (a machine's
    * worker log); `sandboxLog`: logs.sandbox (a Sandbox's daemon log); `files`:
    * sandbox.files; `machineFiles`: machine.files; `machineStats`: machine.stats
    * (a machine's observed resources, data disk, Store sizes and live Sandbox
@@ -113,9 +113,7 @@ export interface CliFeatures {
   readonly inspect: { readonly machineLog: boolean, readonly sandboxLog: boolean, readonly files: boolean, readonly machineFiles: boolean, readonly machineStats: boolean }
   /** sandbox.list takes `live`: each Sandbox says whether its daemon process runs now (layerfs-project#164). */
   readonly sandboxLive: boolean
-  /** doctor.fix exists: `layerfs doctor` lists what interrupted operations left, each with the id `layerfs doctor fix <id>` takes (layerfs-project#180). */
-  readonly leftovers: boolean
-  /** machine.space exists: where a machine's data disk goes, by part, and what of it is not LayerFS's. */
+  /** machine.stats takes `--with space`: where a machine's data disk goes, by part, and what of it is not LayerFS's. */
   readonly machineSpace: boolean
 }
 
@@ -126,7 +124,7 @@ export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identit
   const call = (family: string, name: string) => table.find((c) => c.family === family && c.call === name)
   const optionOf = (family: string, name: string, opt: string) => call(family, name)?.options?.find((o: { name: string }) => o.name === opt)
   const option = (family: string, name: string, opt: string) => !!optionOf(family, name, opt)
-  const images = !!call('machine', 'images'), imageLoad = !!call('machine', 'load'), imagePrune = !!call('machine', 'prune')
+  const images = !!call('machine', 'images'), imageLoad = !!call('machine', 'load_image'), imagePrune = !!call('machine', 'prune')
   const imageRefs = optionOf('sandbox', 'create', 'image')?.kind === 'image'
   const sandboxRuntime = tokens.includes('sandbox-runtime')
   return {
@@ -135,10 +133,10 @@ export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identit
     createProgress: option('sandbox', 'create', 'on_progress'),
     sandboxRuntime,
     imageStage: images && imageLoad && imagePrune && imageRefs && sandboxRuntime ? 1 : 0,
-    inspect: { machineLog: !!call('logs', 'machine'), sandboxLog: !!call('logs', 'sandbox'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files'), machineStats: !!call('machine', 'stats') },
+    // cs20: switch when the Sandbox package merges (`sandbox.log` replaces `logs.sandbox`)
+    inspect: { machineLog: !!call('machine', 'log'), sandboxLog: !!call('logs', 'sandbox'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files'), machineStats: !!call('machine', 'stats') },
     sandboxLive: option('sandbox', 'list', 'live'),
-    leftovers: !!call('doctor', 'fix'),
-    machineSpace: !!call('machine', 'space'),
+    machineSpace: withValues(call('machine', 'stats')).includes('space'),
   }
 }
 

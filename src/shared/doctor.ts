@@ -100,17 +100,13 @@ const PROGRESS: readonly ThingKind[] = ['home', 'machine', 'store', 'project', '
 
 /**
  * Whether a call table (`help --json`) has the records tree, `home get --with
- * tree`. The 2.0 call surface lists a call's `--with` values under `with`
- * (keyed by value); a table that lists them as a list, or `with` as an
- * option, is read the same way. Today's builds have neither.
+ * tree`. The 2.0 table lists a call's `--with` values under `form.with`, keyed
+ * by value (`{ platforms: {...}, tree: {...} }`). A 1.x table has no form.
  */
 export function hasTreeRead(calls: readonly unknown[] | null | undefined): boolean {
   const get = (calls ?? []).find((c): c is Record<string, unknown> => !!c && typeof c === 'object' && (c as { family?: unknown }).family === 'home' && (c as { call?: unknown }).call === 'get')
-  if (!get) return false
-  const values = get.with
-  if (Array.isArray(values)) return values.includes('tree')
-  if (values && typeof values === 'object') return 'tree' in values
-  return Array.isArray(get.options) && get.options.some((o) => !!o && typeof o === 'object' && (o as { name?: unknown }).name === 'with')
+  const values = (get?.form as { with?: unknown } | undefined)?.with
+  return !!values && typeof values === 'object' && !Array.isArray(values) && 'tree' in values
 }
 
 /**
@@ -292,4 +288,51 @@ export interface DoctorResults {
   last: DoctorRun[]
   running: DoctorRun[]
   fixes: DoctorFixRun[]
+}
+
+// ---------------------------------------------------------------- the Overview's count
+
+/** What the Overview's Doctor button counts: the doctors' open findings, and when the newest of them answered. */
+export interface DoctorCount {
+  findings: DoctorFinding[]
+  /** Epoch ms of the newest report counted; null before any doctor answered. */
+  at: number | null
+}
+
+/** Every thing a report's tree checked (coverage other than `none`), by key. */
+function coveredBy(node: unknown, into: Set<string>): void {
+  if (!node || typeof node !== 'object') return
+  const thing = thingOf(node)
+  if (thing && (node as { coverage?: unknown }).coverage !== 'none') into.add(thingKey(thing.kind, thing.name))
+  for (const list of Object.keys(CHILD_LISTS)) {
+    const children = (node as Record<string, unknown>)[list]
+    if (Array.isArray(children)) for (const child of children) coveredBy(child, into)
+  }
+}
+
+/**
+ * The open findings across the doctors' last reports (`GET /api/doctor/results`
+ * `last`): newest first, a thing's findings come from the newest report that
+ * checked it, so an older report cannot bring back what a newer one cleared.
+ * Notices are left out: they are not problems.
+ */
+export function openFindings(last: readonly DoctorRun[]): DoctorCount {
+  const done = last.filter((r) => r.state === 'done' && r.report && typeof r.ended === 'number').sort((a, b) => b.ended! - a.ended!)
+  const covered = new Set<string>()
+  const seen = new Set<string>()
+  const findings: DoctorFinding[] = []
+  for (const run of done) {
+    const report = run.report!
+    for (const f of Array.isArray(report.findings) ? report.findings : []) {
+      const thing = thingOf(f)
+      const key = thing ? thingKey(thing.kind, thing.name) : ''
+      if (f.severity === 'notice' || (key && covered.has(key)) || seen.has(`${key}|${f.check}`)) continue
+      seen.add(`${key}|${f.check}`)
+      findings.push(f)
+    }
+    const mine = new Set<string>()
+    coveredBy(report.tree, mine)
+    for (const key of mine) covered.add(key)
+  }
+  return { findings, at: done.length ? done[0].ended : null }
 }

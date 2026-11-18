@@ -44,7 +44,8 @@ import type { ProjectMapShare } from './ProjectSandboxes.tsx'
 import type { StoreActions } from './StoreCard.tsx'
 import { StorePage } from './StorePage.tsx'
 import { isTabId, openHomeStores, readOverviewTab, writeOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
-import type { DoctorReport, ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
+import type { ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
+import { useDoctorCount } from '../doctor/use-doctor-count.ts'
 import css from './Storage.module.css'
 
 const POLL_MS = 15_000
@@ -91,7 +92,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const reload = () => setTick((n) => n + 1)
   const storage = useQuery(() => api.call<StorageView>('GET', '/api/storage'), [api], { refresh: [tick], cache: 'GET /api/storage' })
   const catalogRead = useQuery(() => api.call<ProjectSummary[]>('GET', '/api/projects'), [api], { refresh: [tick], cache: 'GET /api/projects' })
-  const doctor = useQuery(() => api.call<DoctorReport>('GET', '/api/doctor'), [api, checks])
+  const doctor = useDoctorCount(api, checks)
   const { jobs, dismissed, dismiss, take } = useStorageJobs(api, storage.data?.jobs)
   const now = useNow(10_000)
   const [dialog, setDialog] = useState<StorageDialog | null>(null)

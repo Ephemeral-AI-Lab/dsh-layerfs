@@ -1,8 +1,7 @@
 /**
  * Observed values as the pages read them (layerfs-project#164, #180): a
  * machine's `machine.stats` answer, a Sandbox's `live` in `sandbox.list`, its
- * `daemon` and `usage` in `sandbox.get`, and the leftovers in `layerfs
- * doctor`'s report. Everything is read by presence: a field LayerFS did not
+ * `daemon` and `usage` in `sandbox.get`. Everything is read by presence: a field LayerFS did not
  * send stays absent, and a `null` it sent stays `null` (not observed), never
  * zero. No value here is derived from a record.
  */
@@ -83,9 +82,30 @@ export interface SandboxRow {
   usageReason?: string
 }
 
-/** A `usage` object by presence: the newer values only when LayerFS sent them. */
+/** An ISO time (2.0) or epoch seconds/ms (today) as epoch ms; null when there is none. */
+const msOf = (value: unknown): number | null => {
+  if (typeof value === 'string') { const at = Date.parse(value); return Number.isFinite(at) ? at : null }
+  return count(value)
+}
+
+/**
+ * A `usage` object by presence: the newer values only when LayerFS sent them.
+ * 2.0 (`machine stats` rows): `cpu_ms`, `memory_bytes`, `memory_peak_bytes`,
+ * `memory_file_bytes`, `pid_count`, `oom_kill_count`; the page keeps processor
+ * time in microseconds, so `cpu_ms` is read times 1000. Today's (`sandbox.get`;
+ * cs20: switch when the Sandbox package merges): `cpu_usec`, `memory_current`, ….
+ */
 export function usageOf(u: any): Usage | null {
   if (!u || typeof u !== 'object') return null
+  if ('cpu_ms' in u || 'memory_bytes' in u || 'pid_count' in u) {
+    const ms = count(u.cpu_ms)
+    return {
+      cpuUsec: ms === null ? null : ms * 1000, memoryCurrent: count(u.memory_bytes), memoryPeak: count(u.memory_peak_bytes),
+      ...('memory_file_bytes' in u ? { memoryFile: count(u.memory_file_bytes) } : {}),
+      pids: count(u.pid_count),
+      ...('oom_kill_count' in u ? { oomKills: count(u.oom_kill_count) } : {}),
+    }
+  }
   return {
     cpuUsec: count(u.cpu_usec), memoryCurrent: count(u.memory_current), memoryPeak: count(u.memory_peak),
     ...('memory_file' in u ? { memoryFile: count(u.memory_file) } : {}),
@@ -96,12 +116,12 @@ export function usageOf(u: any): Usage | null {
 
 /** One `sandboxes.items` row; null without a name. */
 export function sandboxRowOf(row: any): SandboxRow | null {
-  const name = text(row?.name)
+  const name = text(row?.sandbox) ?? text(row?.name)
   if (!name) return null
   const live = row.live === true ? true : row.live === false ? false : null
   const liveReason = text(row.live_reason), usageReason = text(row.usage_reason)
   return {
-    name, live, ...(liveReason ? { liveReason } : {}), startedAt: count(row.started_at),
+    name, live, ...(liveReason ? { liveReason } : {}), startedAt: msOf(row.started_at),
     usage: usageOf(row.usage), ...(usageReason ? { usageReason } : {}),
   }
 }
@@ -119,36 +139,43 @@ export interface MachineStatsView {
   stale: false | Stale
 }
 
-/** A `machine.stats` answer as the page reads it. */
+/**
+ * A `machine stats --detail` answer (LayerFS 2.0) as the page reads it: flat
+ * resource keys in bytes (`memory_total_bytes`, `disk_free_bytes`, …), `reasons`
+ * for what was not read, processor time in milliseconds (kept here in
+ * microseconds, so read times 1000), `stores` as `{store, size,
+ * allocated_bytes}`, `sandboxes` as one row per recorded Sandbox, and
+ * `incomplete` with its reasons.
+ */
 export function statsAnswer(answer: any): MachineStats {
-  const w = answer?.worker, r = answer?.resources ?? {}, d = answer?.data_disk ?? {}, b = answer?.sandboxes ?? {}
+  const w = answer?.worker, d = answer?.data_disk ?? {}
+  const reasons: string[] = Array.isArray(answer?.reasons) ? answer.reasons.filter((r: unknown): r is string => typeof r === 'string') : []
+  const rows: SandboxRow[] = (Array.isArray(answer?.sandboxes) ? answer.sandboxes : []).map(sandboxRowOf).filter((x: SandboxRow | null): x is SandboxRow => !!x)
+  const usec = (ms: unknown) => { const n = count(ms); return n === null ? null : n * 1000 }
   return {
     platform: text(answer?.platform),
-    observedAt: count(answer?.observed_at),
+    observedAt: msOf(answer?.observed_at),
     worker: w && typeof w === 'object'
-      ? { version: text(w.version), pid: count(w.pid), startedAt: count(w.started_at), protocol: w.protocol == null ? null : String(w.protocol), bundle: text(w.bundle) }
+      ? { version: text(w.version), pid: count(w.pid), startedAt: msOf(w.started_at), protocol: w.protocol == null ? null : String(w.protocol), bundle: text(w.bundle) }
       : null,
     resources: {
-      cpus: count(r.cpus), memoryTotal: count(r.memory_total), memoryUsed: count(r.memory_used),
-      diskTotal: count(r.disk_total), diskUsed: count(r.disk_used), diskFree: count(r.disk_free),
-      scope: text(r.scope), reason: text(r.reason),
-      ...('cpu_busy_usec' in r ? { cpuBusyUsec: count(r.cpu_busy_usec) } : {}),
-      ...('cpu_total_usec' in r ? { cpuTotalUsec: count(r.cpu_total_usec) } : {}),
+      cpus: count(answer?.cpus), memoryTotal: count(answer?.memory_total_bytes), memoryUsed: count(answer?.memory_used_bytes),
+      diskTotal: count(answer?.disk_total_bytes), diskUsed: count(answer?.disk_used_bytes), diskFree: count(answer?.disk_free_bytes),
+      scope: text(answer?.scope), reason: reasons.filter((r) => r !== 'deadline').join(',') || null,
+      ...(answer && 'cpu_busy_ms' in answer ? { cpuBusyUsec: usec(answer.cpu_busy_ms) } : {}),
+      ...(answer && 'cpu_total_ms' in answer ? { cpuTotalUsec: usec(answer.cpu_total_ms) } : {}),
     },
     dataDisk: { path: text(d.path), fs: text(d.fs), scope: text(d.scope), volume: text(d.volume), inodesFree: count(d.inodes_free) },
     stores: (Array.isArray(answer?.stores) ? answer.stores : [])
-      .filter((s: any) => s && typeof s.name === 'string' && s.name)
-      .map((s: any) => ({ name: s.name as string, bytes: count(s.bytes), allocated: count(s.allocated) })),
-    sandboxes: {
-      recorded: count(b.recorded), live: count(b.live),
-      ...(Array.isArray(b.items) ? { items: b.items.map(sandboxRowOf).filter((x: SandboxRow | null): x is SandboxRow => !!x) } : {}),
-    },
-    complete: answer?.complete !== false,
-    reason: text(answer?.reason),
+      .filter((s: any) => s && typeof s.store === 'string' && s.store)
+      .map((s: any) => ({ name: s.store as string, bytes: count(s.size), allocated: count(s.allocated_bytes) })),
+    sandboxes: { recorded: Array.isArray(answer?.sandboxes) ? rows.length : null, live: Array.isArray(answer?.sandboxes) ? rows.filter((r) => r.live === true).length : null, items: rows },
+    complete: answer?.incomplete !== true,
+    reason: answer?.incomplete === true ? (reasons.includes('deadline') ? 'deadline' : reasons.join(',') || null) : null,
   }
 }
 
-// ---------------------------------------------------------------- machine.space
+// ------------------------------------------------- machine.stats --with space
 
 /** The parts of LayerFS's own data on a machine's data disk, each the blocks it takes; `null`: the walk did not reach it. */
 export interface SpaceParts {
@@ -178,7 +205,7 @@ export interface SandboxSpace {
   reason?: string
 }
 
-/** What `machine.space` answered. Every number is LayerFS's own; `null` is "not read". */
+/** What `machine.stats --with space` answered. Every number is LayerFS's own; `null` is "not read". */
 export interface MachineSpace {
   platform: string | null
   observedAt: number | null
@@ -209,34 +236,40 @@ export interface MachineSpaceView {
   stale: false | Stale
 }
 
-/** One `sandboxes` row; null without a name. */
+/** One `space.sandboxes` row (2.0: `{sandbox, allocated_bytes, overlays_bytes, writes_bytes, home_bytes, log_bytes, runtime_bytes, reason}`); null without a name. */
 function sandboxSpaceOf(row: any): SandboxSpace | null {
-  const name = text(row?.name)
+  const name = text(row?.sandbox)
   if (!name) return null
   const reason = text(row.reason)
   return {
-    name, bytes: count(row.bytes), overlays: count(row.overlays), writes: count(row.writes), home: count(row.home),
-    log: count(row.log), runtime: count(row.runtime), ...(reason ? { reason } : {}),
+    name, bytes: count(row.allocated_bytes), overlays: count(row.overlays_bytes), writes: count(row.writes_bytes), home: count(row.home_bytes),
+    log: count(row.log_bytes), runtime: count(row.runtime_bytes), ...(reason ? { reason } : {}),
   }
 }
 
-/** A `machine.space` answer as the page reads it. */
+/**
+ * A `machine stats --detail --with space` answer as the page reads it: the
+ * disk from the stats keys, and the `space` section's parts (`[{part,
+ * bytes}]`), Stores, Sandbox run folders and what is not LayerFS's.
+ */
 export function spaceAnswer(answer: any): MachineSpace {
-  const d = answer?.disk ?? {}, p = answer?.parts ?? {}
+  const sp = answer?.space ?? {}, d = answer?.data_disk ?? {}
+  const part = (name: string): number | null => { const p = (Array.isArray(sp.parts) ? sp.parts : []).find((x: any) => x?.part === name); return p ? count(p.bytes) : null }
+  const reasons: string[] = Array.isArray(sp.reasons) ? sp.reasons.filter((r: unknown): r is string => typeof r === 'string') : []
   return {
     platform: text(answer?.platform),
-    observedAt: count(answer?.observed_at),
-    disk: { total: count(d.total), used: count(d.used), free: count(d.free), path: text(d.path), fs: text(d.fs), scope: text(d.scope) },
-    layerfs: count(answer?.layerfs),
-    outside: count(answer?.outside),
-    parts: { stores: count(p.stores), sandboxes: count(p.sandboxes), images: count(p.images), otherRuns: count(p.other_runs), logs: count(p.logs), other: count(p.other) },
-    stores: (Array.isArray(answer?.stores) ? answer.stores : [])
-      .filter((s: any) => s && typeof s.name === 'string' && s.name)
-      .map((s: any) => ({ name: s.name as string, bytes: count(s.bytes) })),
-    sandboxes: (Array.isArray(answer?.sandboxes) ? answer.sandboxes : []).map(sandboxSpaceOf).filter((x: SandboxSpace | null): x is SandboxSpace => !!x),
-    unreadable: count(answer?.unreadable) ?? 0,
-    complete: answer?.complete !== false,
-    reason: text(answer?.reason),
+    observedAt: msOf(sp.observed_at ?? answer?.observed_at),
+    disk: { total: count(answer?.disk_total_bytes), used: count(answer?.disk_used_bytes), free: count(answer?.disk_free_bytes), path: text(d.path), fs: text(d.fs), scope: text(d.scope) },
+    layerfs: count(sp.layerfs_bytes),
+    outside: count(sp.outside_bytes),
+    parts: { stores: part('stores'), sandboxes: part('sandboxes'), images: part('images'), otherRuns: part('other_runs'), logs: part('logs'), other: part('other') },
+    stores: (Array.isArray(sp.stores) ? sp.stores : [])
+      .filter((s: any) => s && typeof s.store === 'string' && s.store)
+      .map((s: any) => ({ name: s.store as string, bytes: count(s.allocated_bytes) })),
+    sandboxes: (Array.isArray(sp.sandboxes) ? sp.sandboxes : []).map(sandboxSpaceOf).filter((x: SandboxSpace | null): x is SandboxSpace => !!x),
+    unreadable: count(sp.unreadable_count) ?? 0,
+    complete: sp.incomplete !== true,
+    reason: reasons.join(',') || null,
   }
 }
 
@@ -280,45 +313,3 @@ export function processOf(record: any): {
   return out
 }
 
-// ---------------------------------------------------------------- doctor leftovers
-
-/** One thing an interrupted operation left on a machine (`layerfs doctor`, a finding's `leftover`). */
-export interface Leftover {
-  machine: string
-  /** `run-folder`, `empty-root`, `init-copy`, `backup-staging`, `image-tmp`, `image-part`; another word as it came. */
-  kind: string
-  path: string
-  /** Its size; null when the walk's bound ended before it was measured. */
-  bytes: number | null
-  /** Seconds since it last changed. */
-  age: number | null
-  /** What `layerfs doctor fix <id>` takes. */
-  id: string
-  /** False for an entry LayerFS only reports (`doctor fix` refuses it). */
-  fixable: boolean
-  /** `doctor fix` is refused before this time (epoch ms), when LayerFS says one. */
-  notBefore?: number
-}
-
-/** One machine `layerfs doctor` walked for leftovers, with what it only counts (LayerFS keeps them). */
-export interface LeftoverWalk { machine: string, complete: boolean, imageLocks: number, unmountMarkers: number }
-
-/** A finding's `leftover`, or null when it has none or it names no id. */
-export function leftoverOf(finding: any): Leftover | null {
-  const l = finding?.leftover
-  if (!l || typeof l !== 'object') return null
-  const id = text(l.id), path = text(l.path), kind = text(l.kind)
-  if (!id || !path || !kind) return null
-  const notBefore = count(l.not_before)
-  return {
-    machine: text(l.machine) ?? id.split(':')[0]!, kind, path, bytes: count(l.bytes), age: count(l.age), id,
-    fixable: l.fixable !== false, ...(notBefore !== null ? { notBefore } : {}),
-  }
-}
-
-/** The report's `leftovers`: one row per machine walked. */
-export function walksOf(report: any): LeftoverWalk[] {
-  return (Array.isArray(report?.leftovers) ? report.leftovers : [])
-    .filter((row: any) => row && typeof row.machine === 'string' && row.machine)
-    .map((row: any) => ({ machine: row.machine as string, complete: row.complete !== false, imageLocks: count(row.image_locks) ?? 0, unmountMarkers: count(row.unmount_markers) ?? 0 }))
-}
