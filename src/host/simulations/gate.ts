@@ -191,7 +191,7 @@ export class SimulationExecution {
         try { return await this.globalBudget.run(admitted, signal) } finally { if (entry) entry.admitted = false; this.notify() }
       })
       return this.agents.run(expectedAgent, true, signal, () =>
-        argv[0] === 'workspace' && !['exec-cancel', 'exec-kill'].includes(argv[1])
+        argv[0] === 'workspace' && argv[1] !== 'cancel'
           ? this.lifecycle.run(argv[2].split(':')[0], ['mount', 'unmount'].includes(argv[1]), signal, capacity)
           : capacity())
     })()

@@ -4,46 +4,61 @@ const fail = message => { throw Object.assign(new Error(message), { code: 'Prese
 const PAGE_SIZE = 20
 const idOf = value => typeof value === 'string' ? value : value?.id
 
-/** Fully read one immutable saved history. Small pages preserve complete activity output. */
+/**
+ * Fully read one immutable saved history (2.0 `commit list --detail`, newest
+ * first, by cursor: the cursor pins the Commit the first page read). Small
+ * pages preserve complete activity output.
+ */
 export async function savedHistory(query, project, branch) {
-  const items = [], ids = new Set(); let page = 1, anchor = null
-  while (true) {
-    const argv = ['branch', 'commits', project, branch, '--page', String(page), '--page-size', String(PAGE_SIZE)]
-    if (anchor) argv.push('--at-commit', anchor)
-    const result = await query(argv)
-    if (!Array.isArray(result?.items) || result.scan?.complete === false) fail(`${project}/${branch}: incomplete saved history page`)
-    const returnedAnchor = idOf(result.at_commit)
-    if (anchor && returnedAnchor && returnedAnchor !== anchor) fail(`${project}/${branch}: saved history anchor moved`)
-    anchor ??= returnedAnchor
+  const items = [], ids = new Set(); let cursor = null
+  do {
+    const result = await query(['commit', 'list', project, branch, '--detail', '--limit', String(PAGE_SIZE), ...(cursor ? ['--cursor', cursor] : [])])
+    if (!Array.isArray(result?.items)) fail(`${project}/${branch}: incomplete saved history page`)
     for (const item of result.items) {
-      const id = idOf(item.ref) ?? item.id
+      const id = item.commit
       if (!id || ids.has(id)) fail(`${project}/${branch}: duplicate or missing saved history ID`)
       ids.add(id); items.push({ ...item, id })
     }
-    if (!result.has_more) break
-    if (!anchor || !result.items.length) fail(`${project}/${branch}: saved history continuation is missing its immutable anchor`)
-    page++
-  }
+    const next = result.next_cursor ?? null
+    if (next !== null && (next === cursor || !result.items.length)) fail(`${project}/${branch}: saved history pagination did not advance`)
+    cursor = next
+  } while (cursor !== null)
   return items
+}
+
+/** A history step's Branch and its sources: a 2.0 merge is `branch merge <p> <left> <right> --into <branch>`. */
+function stepBranches(argv) {
+  const [, call, , a, b] = argv
+  if (call === 'merge') return { branch: argv[argv.indexOf('--into') + 1], left: a, right: b }
+  return { branch: a, left: b, right: argv[5] }
 }
 
 /** Read actual saved files and graph records. Does not execute application code. */
 export async function verifyProject(query, store, name, receipt, options = {}) {
   const project = `${store}/${name}`, plan = projectHistoryPlan(name, options), receipts = receipt?.steps ?? receipt
+  // a 2.0 list read whole by cursor (the cursor pins the Commit the first page read)
   const list = async argv => {
-    const items = []; let position = 0
+    const items = []; let cursor = null
     do {
-      const result = await query([...argv, '--page-size', String(PAGE_SIZE), '--page-pos', String(position)])
+      const result = await query([...argv, '--limit', String(PAGE_SIZE), ...(cursor ? ['--cursor', cursor] : [])])
       if (!Array.isArray(result?.items)) fail(`${project}: invalid list response for ${argv.join(' ')}`)
       items.push(...result.items)
-      const next = result.next_page_pos
-      if (result.has_more && next == null) fail(`${project}: incomplete resource page`)
-      if (next != null && (next === position || !result.items.length)) fail(`${project}: resource pagination did not advance`)
-      position = next ?? null
-    } while (position !== null)
+      const next = result.next_cursor ?? null
+      if (next !== null && (next === cursor || !result.items.length)) fail(`${project}: resource pagination did not advance`)
+      cursor = next
+    } while (cursor !== null)
     return items
   }
-  const branches = await list(['branch', 'list', project]), byName = new Map(branches.map(branch => [branch.name, branch]))
+  const branches = []
+  for (let cursor = null, first = true; first || cursor !== null; first = false) {
+    const result = await query(['branch', 'list', project, '--limit', String(PAGE_SIZE), ...(cursor ? ['--cursor', cursor] : [])])
+    if (!Array.isArray(result?.items)) fail(`${project}: invalid list response for branch list`)
+    branches.push(...result.items)
+    const next = result.next_cursor ?? null
+    if (next !== null && (next === cursor || !result.items.length)) fail(`${project}: resource pagination did not advance`)
+    cursor = next
+  }
+  const byName = new Map(branches.map(branch => [branch.branch, branch]))
   const expectedNames = ['main', ...plan.branches]
   if (branches.length !== expectedNames.length || byName.size !== expectedNames.length || expectedNames.some(branch => !byName.has(branch))) fail(`${project}: expected ${expectedNames.length} retained branches`)
   const histories = new Map(), unique = new Map()
@@ -51,7 +66,7 @@ export async function verifyProject(query, store, name, receipt, options = {}) {
     const commits = await savedHistory(query, project, branch)
     histories.set(branch, commits)
     for (const commit of commits) unique.set(commit.id, commit)
-    if (commits[0]?.id !== idOf(byName.get(branch).head)) fail(`${project}/${branch}: saved head does not match history`)
+    if (commits[0]?.id !== byName.get(branch).commit) fail(`${project}/${branch}: saved head does not match history`)
   }
   if (unique.size !== plan.commits) fail(`${project}: expected ${plan.commits} distinct Commits, found ${unique.size}`)
   const main = await savedHistory(query, project, 'main')
@@ -59,7 +74,7 @@ export async function verifyProject(query, store, name, receipt, options = {}) {
 
   // Assign each recipe mutation to its persisted own-branch Commit. Do not sum shared ancestry.
   const steps = projectHistorySteps(store, name, options).map(step => step.historyArgv ? { ...step, argv: step.historyArgv } : step), ownCounts = new Map()
-  for (const step of steps) if (step.argv[1] === 'write' || step.argv[1] === 'merge') ownCounts.set(step.argv[3], (ownCounts.get(step.argv[3]) ?? 0) + 1)
+  for (const step of steps) if (step.argv[1] === 'write' || step.argv[1] === 'merge') { const { branch } = stepBranches(step.argv); ownCounts.set(branch, (ownCounts.get(branch) ?? 0) + 1) }
   const own = new Map(), assignedIds = new Set()
   for (const [branch, count] of ownCounts) {
     const history = histories.get(branch)
@@ -76,7 +91,7 @@ export async function verifyProject(query, store, name, receipt, options = {}) {
   let mainLayer = publicationRows.shift()?.id, publications = 0, merges = 0, writes = 0
   const receiptIds = new Set()
   for (const step of steps) {
-    const [, call, , branch, left, right] = step.argv, result = receipts?.[step.key]
+    const call = step.argv[1], { branch, left, right } = stepBranches(step.argv), result = receipts?.[step.key]
     if (receipts) assertProjectStep(step, result)
     if (call === 'fork') {
       heads.set(branch, left === 'main' ? null : heads.get(left))
@@ -90,14 +105,6 @@ export async function verifyProject(query, store, name, receipt, options = {}) {
         const expectedParent = left === 'main' ? null : heads.get(left)
         if ((idOf(record.parent) ?? null) !== (expectedParent ?? null) || idOf(record.second_parent) !== heads.get(right)) fail(`${project}/${branch}: merge did not preserve both expected parents`)
         bases.set(branch, left === 'main' ? mainLayer : bases.get(left))
-        if (receipts) {
-          const sources = result.sources ?? []
-          if (sources.length !== 2 || sources[0].ref !== left || sources[1].ref !== right) fail(`${project}/${branch}: merge receipt sources do not match the recipe`)
-          for (const [index, ref] of [[0, left], [1, right]]) {
-            const expected = ref === 'main' ? mainLayer : heads.get(ref)
-            if (sources[index].node && idOf(sources[index].node) !== expected) fail(`${project}/${branch}: merge receipt source node does not match saved history`)
-          }
-        }
       } else {
         writes++
         if ((idOf(record.parent) ?? null) !== (heads.get(branch) ?? null) || record.second_parent != null) fail(`${project}/${branch}: write Commit has unexpected ancestry`)
@@ -105,18 +112,17 @@ export async function verifyProject(query, store, name, receipt, options = {}) {
       if (record.base && idOf(record.base) !== bases.get(branch)) fail(`${project}/${branch}: saved Commit has an unexpected base Layer`)
       heads.set(branch, record.id)
       if (receipts) {
-        if (result.head !== record.id) fail(`${project}/${branch}: successful mutation receipt does not match saved Commit history`)
-        receiptIds.add(result.head)
+        if (result.commit !== record.id) fail(`${project}/${branch}: successful mutation receipt does not match saved Commit history`)
+        receiptIds.add(result.commit)
       }
       continue
     }
     if (call === 'publish') {
       const layer = publicationRows.shift(), source = heads.get(branch)
       if (!layer || layer.source_branch !== branch || layer.source_commit !== source) fail(`${project}/${branch}: publication provenance does not match the recipe`)
-      if (layer.overwrote_count != null && layer.overwrote_count !== 0) fail(`${project}/${branch}: publication overwrote main Layers`)
       if (layer.parent != null && idOf(layer.parent) !== mainLayer) fail(`${project}: main publication Layer chain is broken`)
-      if (receipts && (result.source?.branch !== branch || result.source?.commit !== source)) fail(`${project}/${branch}: publication receipt does not match saved Layer provenance`)
-      if (receipts && result.published_layer?.id && result.published_layer.id !== layer.id) fail(`${project}/${branch}: publication receipt has a different Layer ID`)
+      // the receipt is main's new head (2.0 `branch publish` answers `commit`)
+      if (receipts && result.commit !== layer.id) fail(`${project}/${branch}: publication receipt has a different main Commit`)
       mainLayer = layer.id; publications++
     }
   }
@@ -124,13 +130,14 @@ export async function verifyProject(query, store, name, receipt, options = {}) {
   if (receipts && receiptIds.size !== unique.size) fail(`${project}: successful mutation receipts do not match all saved Commits`)
 
   let files = 0
+  // 2.0 `file read --detail` (an empty file's short form is `{}`): the whole text, no next_line, no cut line
   const readExact = async (branch, path, content) => {
-    const result = await query(['file', 'read', project, branch, `/${path}`])
-    if (result.text !== content || result.truncated || result.line_truncated) fail(`${project}/${branch}/${path}: saved content does not match the recipe`)
+    const result = await query(['file', 'read', project, branch, `/${path}`, '--detail'])
+    if (result.text !== content || result.next_line != null || result.line_truncated) fail(`${project}/${branch}/${path}: saved content does not match the recipe`)
     files++
   }
   for (const [path, content] of Object.entries(plan.expectedMain)) await readExact('main', path, content)
-  const mainPaths = new Set((await list(['file', 'glob', project, 'main', '/', '**'])).map(path => path.replace(/^\//, '')))
+  const mainPaths = new Set((await list(['file', 'glob', project, 'main', '**', '/'])).map(path => String(path).replace(/^\//, '')))
   const expectedPaths = new Set(Object.keys(plan.expectedMain))
   for (const path of Object.keys(plan.expectedMain)) {
     const parts = path.split('/')
@@ -149,10 +156,10 @@ export async function verifyProject(query, store, name, receipt, options = {}) {
 export function projectVerificationSteps(store, name, options = {}) {
   const project = `${store}/${name}`, plan = projectHistoryPlan(name, options), commands = []
   const add = argv => commands.push({ argv })
-  add(['branch', 'list', project, '--page-size', String(PAGE_SIZE), '--page-pos', '0'])
-  for (const branch of [...plan.branches, 'main']) add(['branch', 'commits', project, branch, '--page', '1', '--page-size', String(PAGE_SIZE)])
-  for (const path of Object.keys(plan.expectedMain)) add(['file', 'read', project, 'main', `/${path}`])
-  add(['file', 'glob', project, 'main', '/', '**', '--page-size', String(PAGE_SIZE), '--page-pos', '0'])
-  for (const item of plan.definition.explorations) for (const path of new Set(item.commits.map(commit => commit.path))) add(['file', 'read', project, item.name, `/${path}`])
+  add(['branch', 'list', project, '--limit', String(PAGE_SIZE)])
+  for (const branch of [...plan.branches, 'main']) add(['commit', 'list', project, branch, '--detail', '--limit', String(PAGE_SIZE)])
+  for (const path of Object.keys(plan.expectedMain)) add(['file', 'read', project, 'main', `/${path}`, '--detail'])
+  add(['file', 'glob', project, 'main', '**', '/', '--limit', String(PAGE_SIZE)])
+  for (const item of plan.definition.explorations) for (const path of new Set(item.commits.map(commit => commit.path))) add(['file', 'read', project, item.name, `/${path}`, '--detail'])
   return commands
 }

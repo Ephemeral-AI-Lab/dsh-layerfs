@@ -33,7 +33,7 @@ export function compileSimulation({ project, machine = 'native', mixed = false, 
     { key: 'setup.store', argv: ['store', 'create', store], dependsOn: ['setup.machine'] },
     { key: 'setup.project', argv: ['project', 'init', projectRef, '<source>'], dependsOn: ['setup.store'] },
   ]
-  if (machine !== 'native') setup.push({ key: 'setup.push', argv: ['store', 'push', store, machine], dependsOn: ['setup.project'] })
+  if (machine !== 'native') setup.push({ key: 'setup.push', argv: ['store', 'move', store, machine], dependsOn: ['setup.project'] })
   for (const step of setup) steps.push({ ...step, phase: 'setup' })
   const conversations = Array.from({ length: Math.min(profile.conversations, history.cycles) }, (_, index) => {
     const topic = DENSE_TIERS[project].topics[index % 3], id = `c${String(index + 1).padStart(2, '0')}-${topic}`
@@ -48,7 +48,7 @@ export function compileSimulation({ project, machine = 'native', mixed = false, 
   for (const step of raw) {
     step.argv = step.argv.map(word => typeof word === 'string' ? word.replaceAll(originalSandbox, sandbox).replaceAll(`${store}/${project}`, projectRef) : word)
     if (step.argv[0] === 'sandbox' && step.argv[1] === 'create') {
-      step.argv.push(machine)
+      // 2.0: a sqlite Store's Sandbox runs on its Store's machine (no machine word)
       step.resource = { family: 'sandbox', name: sandbox }
     }
     if (step.argv[0] === 'workspace' && step.argv[1] === 'mount') wsMounts.set(`${sandbox}:${step.argv.at(-1)}`, step.key)
@@ -56,9 +56,11 @@ export function compileSimulation({ project, machine = 'native', mixed = false, 
     if (step.argv[0] === 'branch' && step.argv[1] === 'publish' && !step.commitFrom) {
       step.commitFrom = branchHeads.get(step.argv[3])
       if (!step.commitFrom) throw new Error(`Missing branch head source for ${step.key}`)
-      step.argv.push(`<commit:${step.commitFrom}>`)
+      step.argv.push('--at', `<commit:${step.commitFrom}>`)
     }
-    if (step.argv[0] === 'file' && step.argv[1] === 'write' || step.argv[0] === 'branch' && step.argv[1] === 'merge') branchHeads.set(step.argv[3], step.key)
+    if (step.argv[0] === 'file' && step.argv[1] === 'write') branchHeads.set(step.argv[3], step.key)
+    // 2.0 `branch merge <p> <branch> <from> --into NEW`: the new Branch is NEW
+    if (step.argv[0] === 'branch' && step.argv[1] === 'merge') branchHeads.set(step.argv[step.argv.indexOf('--into') + 1], step.key)
     if (!step.dependsOn.length) step.dependsOn = [setup.at(-1).key]
   }
   const taskGroups = new Map()
@@ -210,7 +212,8 @@ export function resolveSimulationStep(step, receipts, runDirectory) {
     }
     const match = typeof word === 'string' && word.match(/^<ws:(.+)>$/)
     if (!match) return word
-    const ws = receipts[match[1]]?.ws
+    // 2.0 `workspace mount` answers the handle as `workspace`
+    const ws = receipts[match[1]]?.workspace
     if (typeof ws !== 'string' || !ws) throw new Error(`Missing confirmed workspace receipt for ${step.key}`)
     return ws
   })

@@ -15,23 +15,22 @@ export function simulationVerificationQuery(manifest: any, journal: Pick<Simulat
   let inventory: Promise<any[]> | undefined
   async function branches(): Promise<any[]> {
     const items: any[] = []
-    const positions = new Set<number>()
-    let position: number | null = 0
-    while (position !== null) {
-      if (positions.has(position)) throw new Error('Simulation branch pagination did not advance')
-      positions.add(position)
-      const result = await query(['branch', 'list', manifest.projectRef, '--page-size', '20', '--page-pos', String(position)])
+    const cursors = new Set<string>()
+    let cursor: string | null = null, first = true
+    while (first || cursor !== null) {
+      first = false
+      const result = await query(['branch', 'list', manifest.projectRef, '--limit', '100', ...(cursor ? ['--cursor', cursor] : [])])
       if (!Array.isArray(result?.items)) throw new Error('Invalid simulation branch inventory')
       items.push(...result.items)
-      if (result.has_more && result.next_page_pos == null) throw new Error('Incomplete simulation branch inventory')
-      const next = result.next_page_pos ?? null
-      if (next !== null && (!Number.isInteger(next) || !result.items.length)) throw new Error('Invalid simulation branch pagination')
-      position = next
+      const next: string | null = result.next_cursor ?? null
+      if (next !== null && (cursors.has(next) || !result.items.length)) throw new Error('Simulation branch pagination did not advance')
+      if (next !== null) cursors.add(next)
+      cursor = next
     }
     // The project's identity branch (`dsh.project.<uuid>`, minted when sessions
     // claim the project) is internal, like session archives.
-    const identity = uuidOfBranches(items.map(branch => branch.name))
-    return items.filter(branch => !excluded.has(branch.name) && !(identity && branch.name === identityBranch(identity)))
+    const identity = uuidOfBranches(items.map(branch => branch.branch))
+    return items.filter(branch => !excluded.has(branch.branch) && !(identity && branch.branch === identityBranch(identity)))
   }
   return async (argv: string[]): Promise<any> => {
     const resolved = argv.map(word => word === recipeProject ? manifest.projectRef : word)
@@ -44,10 +43,13 @@ export function simulationVerificationQuery(manifest: any, journal: Pick<Simulat
       if (!Number.isInteger(value) || value < 0) throw new Error('Invalid verification pagination')
       return value
     }
-    const start = option('--page-pos', 0), size = option('--page-size', 20)
+    // the verifier's pages over the filtered inventory: its cursor is the next row's index
+    const at = resolved.indexOf('--cursor'), start = at === -1 ? 0 : Number(resolved[at + 1])
+    if (!Number.isInteger(start) || start < 0) throw new Error('Invalid verification pagination')
+    const size = option('--limit', 100)
     if (!size) throw new Error('Invalid verification page size')
     const next = start + size < all.length ? start + size : null
-    return { items: all.slice(start, start + size), has_more: next !== null, next_page_pos: next }
+    return { items: all.slice(start, start + size), ...(next !== null ? { next_cursor: String(next) } : {}) }
   }
 }
 

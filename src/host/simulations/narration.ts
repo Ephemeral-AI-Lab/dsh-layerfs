@@ -22,6 +22,8 @@ export function list(items, max = 3, noun = ['other', 'others']) {
 const BRANCHES = ['more branch', 'more branches']
 
 const workspaceName = handle => String(handle).split(':').slice(1).join(':') || String(handle)
+/** A 2.0 merge (`branch merge <p> <branch> <from> --into NEW`): the Branch it makes and the two it merges. */
+const mergeOf = argv => ({ target: argv[argv.indexOf('--into') + 1], sources: [argv[3], argv[4]] })
 const written = command => String(command).match(/>\s*'?([^'\s>]+)'?\s*$/)?.[1]
 
 /** A short bash description from the resolved argv: "Fork feature-x from main". */
@@ -30,8 +32,8 @@ export function describeCommand(argv) {
   if (family === 'branch' && verb === 'fork') return `Fork ${argv[3]} from ${argv[4]}`
   if (family === 'branch' && verb === 'publish') return `Publish ${argv[3]} to main`
   if (family === 'branch' && verb === 'merge') {
-    const sources = argv.slice(4).filter((word, index, all) => !String(word).startsWith('--') && !String(all[index - 1] ?? '').startsWith('--'))
-    return `Merge ${list(sources, 4)} into ${argv[3]}`
+    const { target, sources } = mergeOf(argv)
+    return `Merge ${list(sources, 4)} into ${target}`
   }
   if (family === 'file' && verb === 'write') return `Write ${path(argv[4])} on ${argv[3]}`
   if (family === 'sandbox' && verb === 'create') return `Create sandbox ${argv[3]}${argv[4] ? ` on ${argv[4]}` : ''}`
@@ -56,6 +58,7 @@ function branchOf(step, steps) {
     const mount = String(step.argv[2]).match(/^<ws:(.+)>$/)?.[1]
     return mount ? steps.get(mount)?.argv[3] : undefined
   }
+  if (family === 'branch' && verb === 'merge') return mergeOf(step.argv).target
   return step.argv[3]
 }
 
@@ -89,7 +92,7 @@ function facts(task, plan) {
     const branch = branchOf(step, steps)
     if (family === 'branch' && verb === 'fork') forks.set(step.argv[4], [...(forks.get(step.argv[4]) ?? []), step.argv[3]])
     else if (family === 'branch' && verb === 'publish') publishes.push(step.argv[3])
-    else if (family === 'branch' && verb === 'merge') merges.push({ target: step.argv[3], sources: step.argv.slice(4).filter((word, index, all) => !String(word).startsWith('--') && !String(all[index - 1] ?? '').startsWith('--')), key: step.key })
+    else if (family === 'branch' && verb === 'merge') merges.push({ ...mergeOf(step.argv), key: step.key })
     else if (family === 'file' && verb === 'write') writes.set(branch, [...(writes.get(branch) ?? []), path(step.argv[4])])
     else if (family === 'workspace' && verb === 'mount') mounted.add(branch)
     else if (family === 'workspace' && verb === 'exec' && written(step.argv[3])) writes.set(branch, [...(writes.get(branch) ?? []), path(written(step.argv[3]))])
@@ -131,8 +134,8 @@ function confirmed(tasks, plan, receipts) {
     if (family === 'branch' && verb === 'fork') forked.push(step.argv[3])
     else if (family === 'branch' && verb === 'publish') { if (version) published.set(step.argv[3], version) }
     else if (family === 'branch' && verb === 'merge') {
-      const sources = step.argv.slice(4).filter((word, index, all) => !String(word).startsWith('--') && !String(all[index - 1] ?? '').startsWith('--'))
-      merged.set(`${step.argv[3]}|${sources.join('|')}`, { target: step.argv[3], sources, version })
+      const { target, sources } = mergeOf(step.argv)
+      merged.set(`${target}|${sources.join('|')}`, { target, sources, version })
     }
     else if (family === 'file' && verb === 'write' || family === 'workspace' && verb === 'commit') {
       const entry = changed.get(branch) ?? { files: new Set(), version: undefined }

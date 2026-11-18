@@ -126,11 +126,12 @@ test('bash descriptions come from argv', () => {
   const ws = 'sim-1:a-001-001'
   assert.equal(describeCommand(['branch', 'fork', 'p/q', 'feat-x', 'main']), 'Fork feat-x from main')
   assert.equal(describeCommand(['file', 'write', 'p/q', 'feat-x', '/docs/spec.md', '--message', 'm']), 'Write docs/spec.md on feat-x')
-  assert.equal(describeCommand(['branch', 'publish', 'p/q', 'release-3', '02' + 'a'.repeat(64)]), 'Publish release-3 to main')
-  assert.equal(describeCommand(['branch', 'merge', 'p/q', 'release-3', 'a', 'b', '--message', 'm']), 'Merge a and b into release-3')
-  assert.equal(describeCommand(['sandbox', 'create', 'p/q', 'sim-1', 'native']), 'Create sandbox sim-1 on native')
+  // 2.0 words: `branch publish <p> <branch> --at <commit>`, `branch merge <p> <branch> <from> --into NEW`, `sandbox create <p> <sandbox>`
+  assert.equal(describeCommand(['branch', 'publish', 'p/q', 'release-3', '--at', '02' + 'a'.repeat(64)]), 'Publish release-3 to main')
+  assert.equal(describeCommand(['branch', 'merge', 'p/q', 'a', 'b', '--into', 'release-3', '--message', 'm']), 'Merge a and b into release-3')
+  assert.equal(describeCommand(['sandbox', 'create', 'p/q', 'sim-1']), 'Create sandbox sim-1')
   assert.equal(describeCommand(['workspace', 'mount', 'sim-1', 'tokens-001', '--name', 'a-001-001']), 'Mount tokens-001 in sim-1 as a-001-001')
-  assert.equal(describeCommand(['workspace', 'exec', ws, "printf '%s' 'x' > 'docs/revision.json'", '--exec-id', 'e', '--events']), 'Write docs/revision.json in workspace a-001-001')
+  assert.equal(describeCommand(['workspace', 'exec', ws, "printf '%s' 'x' > 'docs/revision.json'"]), 'Write docs/revision.json in workspace a-001-001')
   assert.equal(describeCommand(['workspace', 'commit', ws, '--message', 'm']), 'Commit workspace a-001-001')
   assert.equal(describeCommand(['workspace', 'unmount', ws]), 'Unmount workspace a-001-001')
 })
@@ -140,7 +141,7 @@ function fixture({ receipts = {}, actions, tasks, agents, agentId = null, waitTa
   const steps = [
     { key: 'fork', argv: ['branch', 'fork', 'p/q', 'release-1', 'main'], dependsOn: [] },
     { key: 'write', argv: ['file', 'write', 'p/q', 'release-1', '/docs/spec.md', '--message', 'Spec'], input: 'x\n', dependsOn: ['fork'] },
-    { key: 'publish', argv: ['branch', 'publish', 'p/q', 'release-1', '<commit:write>'], commitFrom: 'write', dependsOn: ['write'] },
+    { key: 'publish', argv: ['branch', 'publish', 'p/q', 'release-1', '--at', '<commit:write>'], commitFrom: 'write', dependsOn: ['write'] },
   ]
   const script = { scriptId: 'main-script', agentKey: 'c-main', conversationId: 'c', agentId, turns: [{ id: 'turn-01', taskIds: (tasks ?? []).map(task => task.id), actions }] }
   const plan = { steps, tasks: tasks ?? [], agents: [script, ...(agents ?? [])] }
@@ -174,7 +175,8 @@ test('a task narrates its intent in the message that issues its first tool, and 
 })
 
 test('the final reply is built from confirmed receipts, not a fixed sentence', async () => {
-  const receipts = { fork: { kind: 'Forked', base: layer }, write: { kind: 'Committed', head: commit }, publish: { kind: 'Added', published_layer: { id: layer } } }
+  // 2.0 answers: every saving call answers `commit`
+  const receipts = { fork: { commit: layer }, write: { commit }, publish: { commit: layer } }
   const f = fixture({ receipts, tasks: [releaseTask], actions: [{ type: 'assignment', taskId: 'release' }, { type: 'wait', tasks: [] }, ...['fork', 'write', 'publish'].map(stepKey => ({ type: 'tool', stepKey, taskId: 'release' })), { type: 'report', taskId: 'release' }] })
   f.binding.script.turns.push({ id: 'turn-02', taskIds: [], actions: [] }) // not the last turn: no final verification
   const reply = await f.runtime.next(f.options)

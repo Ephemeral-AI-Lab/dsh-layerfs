@@ -39,7 +39,7 @@ test('confirmed references resolve before CLI rendering and shell data stays quo
   const step = { key: 'x', argv: ['workspace', 'commit', '<ws:mount>', "x'$(echo wrong)"] }
   assert.throws(() => renderSimulationCommand(step), /Resolve confirmed/)
   assert.throws(() => resolveSimulationStep(step, {}, '/tmp/run'), /Missing confirmed workspace/)
-  const argv = resolveSimulationStep(step, { mount: { ws: 'box:work' } }, '/tmp/run')
+  const argv = resolveSimulationStep(step, { mount: { workspace: 'box:work' } }, '/tmp/run')
   assert.equal(argv[2], 'box:work')
   const command = renderSimulationCommand(step, argv, '/tmp/cli')
   assert.ok(command.includes("'x'\\''$(echo wrong)'"))

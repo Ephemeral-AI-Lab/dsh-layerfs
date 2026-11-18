@@ -56,10 +56,10 @@ export function denseHistoryExtension(name, definition, { cycles } = {}) {
 
 export function denseHistorySteps(store, name, definition, { cycles = TIERS[name].cycles } = {}) {
   const steps = [], project = `${store}/${name}`
-  const fork = (key, branch) => steps.push({ key, argv: ['branch', 'fork', project, branch, 'main'], expect: { kind: 'Forked' } })
-  const write = (key, branch, change) => steps.push({ key, argv: ['file', 'write', project, branch, `/${change.path}`, '--message', change.message], input: change.content, expect: { kind: 'Committed' } })
-  const merge = (key, branch, left, right) => steps.push({ key, argv: ['branch', 'merge', project, branch, left, right, '--message', `Integrate ${left} and ${right}`], expect: { kind: 'Merged', divergent: true } })
-  const publish = (key, branch) => steps.push({ key, argv: ['branch', 'publish', project, branch], expect: { kind: 'Added', overwroteCount: 0 } })
+  const fork = (key, branch) => steps.push({ key, argv: ['branch', 'fork', project, branch, 'main'], expect: { commit: true } })
+  const write = (key, branch, change) => steps.push({ key, argv: ['file', 'write', project, branch, `/${change.path}`, '--message', change.message], input: change.content, expect: { commit: true } })
+  const merge = (key, branch, left, right) => steps.push({ key, argv: ['branch', 'merge', project, left, right, '--into', branch, '--message', `Integrate ${left} and ${right}`], expect: { commit: true, divergent: true } })
+  const publish = (key, branch) => steps.push({ key, argv: ['branch', 'publish', project, branch], expect: { commit: true, notForced: true } })
   for (let cycle = 1; cycle <= cycles; cycle++) {
     const key = `dense.${padded(cycle)}`, branch = denseCycleBranches(name, cycle)
     for (const lane of ['a', 'b', 'maintenance']) fork(`${key}.${lane}.fork`, branch[lane])
@@ -96,7 +96,8 @@ export function denseHistorySteps(store, name, definition, { cycles = TIERS[name
     } else if (operation === 'publish') {
       step.commitFrom = index === 0 ? `${key}.${lane}.merge` : `${key}.${lane}.write.${index}`
       step.dependsOn = [step.commitFrom, ...(index > 0 ? [`${key}.${lane}.publish.${index - 1}`] : [])]
-      step.argv.push(`<commit:${step.commitFrom}>`)
+      // 2.0 `branch publish … --at C`: the Commit the receipt confirmed (resolveHistoryStep fills the last word)
+      step.argv.push('--at', `<commit:${step.commitFrom}>`)
     }
   }
   return steps

@@ -89,20 +89,20 @@ export function presetScript({ preset, spec, sandboxes = true, resetPlan, resetN
 function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNote }) {
   const commands = [], add = (phase, argv, extra = {}) => commands.push({ phase, argv, ...extra })
   add('reset', ['machine', 'list'], { note: resetNote || 'Read the environment inventory. Cleanup targets are rechecked when Build starts.' })
-  add('reset', ['store', 'list'])
-  add('reset', ['sandbox', 'list', '--page-size', '1000', '--page-pos', '0'], { note: 'Additional pages are read when present.' })
+  add('reset', ['store', 'list', '--detail'])
+  add('reset', ['sandbox', 'list', '--detail', '--limit', '1000'], { note: 'Further pages are read by cursor when present.' })
   if (resetPlan) {
     for (const name of resetPlan.startMachines) add('reset', ['machine', 'start', name])
     for (const name of resetPlan.remove.sandboxes) {
-      add('reset', ['sandbox', 'get', name, '--page-size', '1000', '--page-pos', '0'], { note: resetPlan.unknownSandboxes.includes(name) ? 'Workspace targets will be discovered after its machine starts.' : undefined })
+      add('reset', ['sandbox', 'get', name, '--detail'], { note: resetPlan.unknownSandboxes.includes(name) ? 'Workspace targets will be discovered after its machine starts.' : undefined })
       for (const ws of resetPlan.workspaceGroups?.find(group => group.sandbox === name)?.workspaces ?? []) add('reset', ['workspace', 'unmount', ws, '--discard'])
-      add('reset', ['sandbox', 'close', name])
+      add('reset', ['sandbox', 'remove', name])
     }
     for (const name of resetPlan.remove.stores) add('reset', ['store', 'remove', name])
     for (const name of resetPlan.disconnect) add('reset', ['store', 'disconnect', name])
     for (const name of resetPlan.remove.machines) add('reset', ['machine', 'remove', name])
     if (resetPlan.stopDocker || resetPlan.startMachines.includes('docker')) add('reset', ['machine', 'stop', 'docker'])
-    for (const family of ['machine', 'store', 'sandbox']) add('reset', [family, 'list', ...(family === 'sandbox' ? ['--page-size', '1000', '--page-pos', '0'] : [])], { note: 'Verify the environment is empty before creating preset resources.' })
+    for (const family of ['machine', 'store', 'sandbox']) add('reset', [family, 'list', '--detail', ...(family === 'sandbox' ? ['--limit', '1000'] : [])], { note: 'Verify the environment is empty before creating preset resources.' })
   }
   add('build', ['home', 'get', '--with', 'platforms'], { note: 'Prerequisites are checked before cleanup and checked again during setup.' })
   for (const machine of configuration.machines) {
@@ -114,10 +114,12 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
   // A PostgreSQL Store: a fresh database on the preset's own server, then connect; it is placed on no machine.
   const postgres = new PresetPostgres({ state: spec.state })
   const port = postgres.recorded()?.port ?? '<port>'
+  // 2.0: the login is saved first (`store save-auth`, the password on stdin), then the address without a user is connected with it
   const createStore = (store, note) => isPostgresql(store)
-    ? add('build', ['store', 'connect', store.name, `postgresql://postgres@127.0.0.1:${port}/${store.database}`, '--password', postgres.passwordRef()], { note: `The preset runs its own PostgreSQL server (Docker container ${postgres.container}, ${POSTGRES_IMAGE}, on 127.0.0.1) and creates an empty database ${store.database} first; the password stays in the presets state folder. ${note}` })
+    ? (add('build', ['store', 'save-auth', postgres.authName, '--user', 'postgres', '--password-stdin'], { note: `The preset runs its own PostgreSQL server (Docker container ${postgres.container}, ${POSTGRES_IMAGE}, on 127.0.0.1); its password stays in the presets state folder and goes to LayerFS on stdin. ` }),
+      add('build', ['store', 'connect', store.name, `postgresql://127.0.0.1:${port}/${store.database}`, '--auth', postgres.authName], { note: `An empty database ${store.database} is created first. ${note}` }))
     : add('build', ['store', 'create', store.name], { note })
-  const placeStore = store => !isPostgresql(store) && store.machine !== 'native' && add('build', ['store', 'push', store.name, store.machine, '--progress'])
+  const placeStore = store => !isPostgresql(store) && store.machine !== 'native' && add('build', ['store', 'move', store.name, store.machine, '--progress'])
   if (configuration.concurrentHistory) {
     for (const store of configuration.stores) {
       createStore(store, 'Preparation only: project imports are serial within this store; independent stores can prepare concurrently.')
@@ -140,7 +142,7 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
     placeStore(store)
     if (sandboxes) {
       const name = `demo-${store.projects[0]}`
-      add('build', ['sandbox', 'create', `${store.name}/${store.projects[0]}`, name, store.machine])
+      add('build', ['sandbox', 'create', `${store.name}/${store.projects[0]}`, name])
       add('build', ['workspace', 'mount', name, projectHistoryPlan(store.projects[0]).definition.features[0].name, '--name', 'feature'])
       add('build', ['workspace', 'mount', name, projectHistoryPlan(store.projects[0]).definition.features[1].name, '--name', 'fix'])
     }
@@ -154,7 +156,7 @@ function presetCommandPlan({ configuration, spec, sandboxes, resetPlan, resetNot
       add('verify', ['project', 'get', project])
       for (const step of projectVerificationSteps(store.name, name, { density: configuration.historyDensity, executionMode: configuration.executionMode })) add('verify', step.argv)
     }
-    if (sandboxes) add('verify', ['sandbox', 'get', `demo-${store.projects[0]}`, '--page-size', '1000', '--page-pos', '0'])
+    if (sandboxes) add('verify', ['sandbox', 'get', `demo-${store.projects[0]}`, '--detail'])
   }
   return commands
 }

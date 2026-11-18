@@ -32,45 +32,50 @@ test('studio: half its Stores are PostgreSQL, each with the one machine its sess
   assert.ok(pg.every((s) => /^[a-z_]+$/.test(s.database)))
 })
 
-test('script: PostgreSQL Stores connect and nothing more: never attach, create or push', () => {
+test('script: PostgreSQL Stores save the preset\'s login and connect, nothing more: never create or move', () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-state-'))
   const { commands, configuration } = presetScript({ preset: 'studio', spec: { state, home: join(state, 'home') }, sandboxes: false })
   assert.equal(configuration.historyLimits.perStore, 1) // one writer per Store
   const lines = commands.filter((c) => c.phase === 'build').map((c) => c.argv.join(' '))
-  assert.ok(lines.some((l) => /^store connect demo-services postgresql:\/\/postgres@127\.0\.0\.1:<port>\/demo_services --password file:.*\/postgresql\/password$/.test(l)))
+  // 2.0: the login is saved with the password on stdin; the Store's address carries no user and names the login
+  assert.ok(lines.includes('store save-auth dsh-preset-postgres --user postgres --password-stdin'))
+  assert.ok(lines.includes('store connect demo-services postgresql://127.0.0.1:<port>/demo_services --auth dsh-preset-postgres'))
+  assert.ok(!lines.some((l) => /password|file:/.test(l.replace('--password-stdin', ''))), 'no password or reference on any argv')
   assert.ok(!lines.some((l) => /^store (attach|detach|update)\b/.test(l)), 'a PostgreSQL Store is on no machine: LayerFS is told nothing about where it runs')
-  assert.ok(!lines.some((l) => /store (create|push) demo-(services|experiments)\b/.test(l)))
-  assert.ok(lines.includes('store create demo-studio') && lines.includes('store push demo-build-cache demo-build --progress'))
+  assert.ok(!lines.some((l) => /store (create|move) demo-(services|experiments)\b/.test(l)))
+  assert.ok(lines.includes('store create demo-studio') && lines.includes('store move demo-build-cache demo-build --progress'))
   // every machine a Store uses is started, the ones PostgreSQL Stores run on included
   assert.ok(['docker', 'demo-research'].every((m) => lines.includes(`machine start ${m}`)))
   rmSync(state, { recursive: true, force: true })
 })
 
-/** A CLI that keeps Stores, recording every mutation. */
+/** A 2.0 CLI that keeps Stores (long forms keyed by `store`), recording every mutation and the input it got. */
 function fakeDriver() {
-  const stores = new Map(), calls = []
+  const stores = new Map(), calls = [], inputs = []
   const invoke = async (argv, options = {}) => {
     const [family, call, name, ...rest] = argv
-    if (!options.read) calls.push(argv.join(' '))
+    if (!options.read) { calls.push(argv.join(' ')); inputs.push(options.input ?? null) }
     if (family === 'store' && call === 'list') return { items: [...stores.values()] }
-    if (family === 'store' && call === 'get') { if (!stores.has(name)) throw Object.assign(new Error('no'), { code: 'NoSuchStore' }); return stores.get(name) }
-    if (family === 'store' && call === 'connect') { stores.set(name, { name, kind: 'postgresql', created: 1, url: rest[0] }); return stores.get(name) }
-    if (family === 'store' && call === 'create') { stores.set(name, { name, kind: 'sqlite', created: 2, machine: 'native' }); return stores.get(name) }
-    if (family === 'store' && call === 'push') { stores.get(name).machine = rest[0]; return stores.get(name) }
+    if (family === 'store' && call === 'get') { if (!stores.has(name)) throw Object.assign(new Error('no'), { code: 'NotFound' }); return stores.get(name) }
+    if (family === 'store' && call === 'save-auth') return { ok: true }
+    if (family === 'store' && call === 'connect') { stores.set(name, { store: name, engine: 'postgresql', created_at: '2026-11-19T00:00:01Z', url: rest[0] }); return { ok: true } }
+    if (family === 'store' && call === 'create') { stores.set(name, { store: name, engine: 'sqlite', created_at: '2026-11-19T00:00:02Z', machine: 'native' }); return { ok: true } }
+    if (family === 'store' && call === 'move') { stores.get(name).machine = rest[0]; return { ok: true } }
     throw new Error(`unexpected ${argv.join(' ')}`)
   }
-  return { stores, calls, driver: { invoke, spec: {} } }
+  return { stores, calls, inputs, driver: { invoke, spec: {} } }
 }
 
 test('runner: a fresh database, then connect; where it runs goes to the plugin, never to LayerFS', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-runner-'))
-  const { calls, driver } = fakeDriver()
+  const { calls, inputs, driver } = fakeDriver()
   const log = []
   const postgres = {
     ensure: async () => { log.push('ensure'); return { container: 'c', port: 54999 } },
     freshDatabase: async (db) => { log.push(`fresh ${db}`) },
-    url: (port, db) => `postgresql://postgres@127.0.0.1:${port}/${db}`,
-    passwordRef: () => 'file:/state/postgresql/password',
+    url: (port, db) => `postgresql://127.0.0.1:${port}/${db}`,
+    authName: 'dsh-preset-postgres',
+    password: () => 'pw-from-state',
   }
   const runsOn = []
   const runner = new DemoRunner({ state, home: join(state, 'home'), adoptHome: true, preset: 'studio', driver, postgres, report: () => {}, runsOn: (store, machine) => { runsOn.push(`${store} ${machine}`) } })
@@ -80,14 +85,16 @@ test('runner: a fresh database, then connect; where it runs goes to the plugin, 
   await runner.placeStore(services)
   assert.deepEqual(log, ['ensure', 'fresh demo_services'])
   assert.deepEqual(calls, [
-    'store connect demo-services postgresql://postgres@127.0.0.1:54999/demo_services --password file:/state/postgresql/password',
+    'store save-auth dsh-preset-postgres --user postgres --password-stdin',
+    'store connect demo-services postgresql://127.0.0.1:54999/demo_services --auth dsh-preset-postgres',
   ], 'placing a PostgreSQL Store makes no LayerFS call')
+  assert.deepEqual(inputs, ['pw-from-state', null], 'the password goes on stdin, once')
   assert.deepEqual(runsOn, ['demo-services docker'], 'the plugin is told the machine its sessions run on')
   assert.equal(runner.manifest.resources.store['demo-services'].owned, true)
   // a second ensure finds the owned Store and neither drops nor reconnects it
   await runner.ensureStore(services)
   assert.deepEqual(log, ['ensure', 'fresh demo_services'])
-  assert.equal(calls.length, 1)
+  assert.equal(calls.length, 2)
   rmSync(state, { recursive: true, force: true })
 })
 
@@ -111,7 +118,9 @@ test('server: one 127.0.0.1-only container on a fixed port, password kept 0600, 
   assert.ok(run.includes('--env-file') && !run.some((a) => a.includes('POSTGRES_PASSWORD=')))
   assert.equal(statSync(pg.passwordFile).mode & 0o777, 0o600)
   assert.ok(readFileSync(pg.passwordFile, 'utf8').length >= 20)
-  assert.equal(pg.passwordRef(), `file:${pg.passwordFile}`)
+  assert.equal(pg.password(), readFileSync(pg.passwordFile, 'utf8').trim(), 'the password LayerFS gets on stdin')
+  assert.equal(pg.authName, 'dsh-preset-postgres')
+  assert.equal(pg.url(port, 'demo_services'), `postgresql://127.0.0.1:${port}/demo_services`, 'no user in the address')
   await pg.freshDatabase('demo_services')
   const psql = runs.at(-1)
   assert.deepEqual(psql.slice(-4), ['-c', 'DROP DATABASE IF EXISTS "demo_services" WITH (FORCE)', '-c', 'CREATE DATABASE "demo_services"'])
@@ -152,23 +161,18 @@ test('preflight: a CLI built without PostgreSQL is refused before anything is re
   rmSync(state, { recursive: true, force: true })
 })
 
-test('runner: a History(Busy) refusal is retried; other failures are not', async () => {
+test('runner: every step is one attempt: a History(Busy) refusal is not run again', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-presets-busy-'))
   let calls = 0
   const busy = () => Object.assign(new Error('Service(History(Busy))'), { code: 'Unknown', transport: 'refusal' })
-  const driver = { spec: {}, invoke: async (argv) => { calls++; if (argv[1] === 'write' && calls < 3) throw busy(); if (argv[1] === 'fail') throw Object.assign(new Error('x'), { code: 'Unknown', transport: 'refusal' }); return { kind: 'Committed', head: 'h' } } }
+  const driver = { spec: {}, invoke: async (argv) => { calls++; if (argv[1] === 'write') throw busy(); return { commit: 'h' } } }
   const runner = new DemoRunner({ state, home: join(state, 'home'), adoptHome: true, preset: 'studio', driver, report: () => {} })
-  runner.backoff = async () => {}
   runner.load(true)
-  assert.deepEqual(await runner.once('w', ['file', 'write', 'a/b', 'x', '/f']), { kind: 'Committed', head: 'h' })
-  assert.equal(calls, 3)
-  assert.equal(runner.manifest.steps.w.status, 'done')
-  calls = 0
-  await assert.rejects(runner.once('f', ['file', 'fail']))
-  assert.equal(calls, 1)
-  assert.equal(runner.manifest.steps.f.status, 'uncertain')
-  // a refusal that keeps coming back stops after the bounded attempts
-  calls = -100
-  await assert.rejects(runner.once('w2', ['file', 'write', 'a/b', 'y', '/g']), /History\(Busy\)/)
+  await assert.rejects(runner.once('w', ['file', 'write', 'a/b', 'x', '/f']), /History\(Busy\)/)
+  assert.equal(calls, 1, 'never run again')
+  assert.equal(runner.manifest.steps.w.status, 'uncertain')
+  assert.equal(runner.backoff, undefined, 'no backoff remains')
+  assert.deepEqual(await runner.once('r', ['file', 'other', 'a/b']), { commit: 'h' })
+  assert.equal(calls, 2)
   rmSync(state, { recursive: true, force: true })
 })

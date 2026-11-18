@@ -18,10 +18,11 @@ function fixture() {
   const simulations = { isActive: (id) => active.has(id) }
   const persistence = { migrateProject: async () => {}, updateSidecar: async (id, fn) => { const v = sidecars.get(id) ?? { sessionId: id }; fn(v); sidecars.set(id, v) } }
   const lfs = {
-    project: { get: async () => ({ machine: 'native' }) },
-    branch: { fork: async (...args) => { calls.push(['fork', ...args]); return {} } },
-    sandbox: { get: async () => { const e = new Error('absent'); e.code = 'NoSuchSandbox'; throw e }, create: async (...args) => { calls.push(['sandbox', ...args]); return {} }, close: async () => {} },
-    workspace: { mount: async (...args) => { calls.push(['mount', ...args]); return { path: dir, ws: 'sandbox:main', base_layer: 'a'.repeat(66) } }, status: async () => { throw new Error('automatic status must not run') } },
+    // 2.0 long forms: project get, NotFound for no Sandbox, `sandbox remove`, `workspace mount` answering `workspace` and `commit`
+    project: { get: async () => ({ store: 'store', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    branch: { fork: async (...args) => { calls.push(['fork', ...args]); return { commit: 'b'.repeat(66) } } },
+    sandbox: { get: async () => { const e = new Error('absent'); e.code = 'NotFound'; throw e }, create: async (...args) => { calls.push(['sandbox', ...args]); return { ok: true } }, remove: async () => ({ ok: true }) },
+    workspace: { mount: async (...args) => { calls.push(['mount', ...args]); return { path: dir, workspace: 'sandbox:main', commit: 'a'.repeat(66) } }, status: async () => { throw new Error('automatic status must not run') } },
   }
   const ctx = { layerfs: { root: dir, lfs, emit() {}, ensureNative: async () => {} },
     sessions: { get: (id) => agents.get(id)?.session }, workspaceRegistry: { list: () => [] },
@@ -75,7 +76,8 @@ test('handoff mounts a new ordinary context from the immutable receipt rather th
     assert.deepEqual(f.calls, [], 'completion does not alter the graph before verifier')
     await f.service.ensureBound(parent)
     const fork = f.calls.find((call) => call[0] === 'fork')
-    assert.deepEqual(fork.slice(-2), ['main', target.id])
+    // 2.0 `branch fork <p> <name> main --at <commit>`
+    assert.deepEqual(fork.slice(-2), ['main', { at: target.id }])
     assert.equal(f.calls.filter((call) => call[0] === 'mount').length, 1)
     assert.equal(f.service.binding('parent').simulation.continuation.id, target.id)
     assert.equal(f.sidecars.get('parent').simulation.handoffReady, true)

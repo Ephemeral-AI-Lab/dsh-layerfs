@@ -19,7 +19,7 @@ import { verifyProject } from './recipe/project-verification.js'
 import { runBounded } from './recipe/scheduler.js'
 import { DEFAULT_HISTORY_LIMITS, runHistoryDAG } from './recipe/history-scheduler.js'
 import { StepJournal } from './recipe/step-journal.js'
-import { projectHistorySteps, projectHistoryPlan, assertProjectStep, resolveHistoryStep, machineCreateArgs } from './recipe/recipe.js'
+import { projectHistorySteps, projectHistoryPlan, assertProjectStep, resolveHistoryStep, machineCreateArgs, stepEffect } from './recipe/recipe.js'
 import { CliInventory } from './inventory.js'
 import { PresetPostgres, isPostgresql, storeMachines, usesMachine } from './postgresql.js'
 
@@ -30,11 +30,6 @@ const missing = error => ['NotFound', 'NoSuchProject', 'NoSuchStore', 'NoSuchBra
 const rows = (value, field = 'items') => Array.isArray(value) ? value : value?.[field] ?? []
 const fail = message => { throw new Error(message) }
 const uncertain = error => error.code === 'Unknown' || error.transport === 'transport-unknown' || error.detail?.attempted === true
-// LayerFS refused admission because another writer held the Store's history
-// ("caller may retry later"): nothing changed, so the same step may run again.
-// The CLI reports it with code Unknown, so it is matched by its refusal text.
-export const historyBusy = error => error?.transport !== 'transport-unknown' && (error?.code === 'Busy' || /\bHistory\(Busy\)/.test(error?.message ?? ''))
-export const BUSY_ATTEMPTS = 7
 // One history writer per Store: concurrent writers in one Store intermittently fail on
 // LayerFS 2.0 (History(Busy), or a refused fork on a worker). Stores still run in parallel.
 export const PRESET_HISTORY_LIMITS = Object.freeze({ ...DEFAULT_HISTORY_LIMITS, perStore: 1 })
@@ -126,15 +121,19 @@ export class DemoRunner extends CliInventory {
   async maybe(argv) {
     const [family, call, name] = argv
     // Inventory first: an expected absence is not a failed CLI invocation.
-    if (call === 'get' && ['machine', 'store', 'sandbox', 'project'].includes(family)) {
-      let page = 0, found = false
+    if (call === 'get' && ['machine', 'store', 'sandbox'].includes(family)) {
+      // 2.0 rows are keyed by their family; only sandbox list is paged (by cursor)
+      if (!(await new CliInventory({ invoke: argv => this.query(argv) }).inventory(family)).some(row => row.name === name)) return null
+    } else if (call === 'get' && family === 'project') {
+      let cursor = null, found = false
       do {
-        // cs20: switch when the Store, Sandbox and project packages merge (their list calls keep old names and paging).
-        const list = await this.query([family, 'list', ...(family === 'project' ? [name.split('/')[0]] : []), ...(['sandbox', 'project'].includes(family) ? ['--page-size', '1000', '--page-pos', String(page)] : [])])
-        found = rows(list, 'items').some(row => family === 'project' ? (row.project ?? row.key ?? `${row.store}/${row.name}`) === name : (family === 'machine' ? row.machine : row.name) === name)
+        const list = await this.query(['project', 'list', '--store', name.split('/')[0], '--limit', '1000', ...(cursor ? ['--cursor', cursor] : [])])
+        found = rows(list, 'items').some(row => row.project === name)
         if (found) break
-        page = list.next_page_pos ?? null
-      } while (page !== null)
+        const next = list.next_cursor ?? null
+        if (next !== null && next === cursor) fail('Cannot read projects: pagination did not advance.')
+        cursor = next
+      } while (cursor !== null)
       if (!found) return null
     }
     try { return await this.query(family === 'machine' && call === 'get' ? [...argv, '--detail'] : argv) } catch (error) { if (missing(error)) return null; throw error }
@@ -153,18 +152,10 @@ export class DemoRunner extends CliInventory {
     if (previous && ['running', 'uncertain'].includes(previous.status)) fail(`Step ${key} has no certain final result. Run status and inspect LayerFS; reset/teardown perform cleanup rather than replaying this step.`)
     this.recordStep(key, { status: 'running', argv, ...(options?.dependencies ? { dependencies: options.dependencies } : {}), at: Date.now(), actionId: this.action?.id })
     try {
-      let result
-      for (let attempt = 1; ; attempt++) {
-        try {
-          result = await this.driver.invoke(argv, { ...options, onInvocation: identity => {
-            this.recordStep(key, { ...this.manifest.steps[key], invocationId: identity.id, actionId: identity.actionId })
-          } })
-          break
-        } catch (error) {
-          if (!historyBusy(error) || attempt >= BUSY_ATTEMPTS) throw error
-          await this.backoff(attempt)
-        }
-      }
+      // one attempt: LayerFS 2.0 queues writers to one Store (no Busy to wait out); a refusal passes through
+      const result = await this.driver.invoke(argv, { ...options, onInvocation: identity => {
+        this.recordStep(key, { ...this.manifest.steps[key], invocationId: identity.id, actionId: identity.actionId })
+      } })
       this.recordStep(key, { ...this.manifest.steps[key], status: 'done', ended: Date.now(), result })
       return result
     } catch (error) {
@@ -172,8 +163,6 @@ export class DemoRunner extends CliInventory {
       throw error
     }
   }
-  /** Wait before retrying a History(Busy) refusal: 0.2 s doubling, with jitter. */
-  backoff(attempt) { return new Promise(resolve => setTimeout(resolve, 200 * 2 ** (attempt - 1) + Math.random() * 200)) }
   assertSetupSettled() {
     const pending = Object.entries(this.manifest.steps).find(([, s]) => ['running', 'uncertain'].includes(s.status))
     if (pending) fail(`Setup cannot replay ${pending[0]} after an interrupted/uncertain outcome. Run status, inspect the named resource, then use reset or teardown for owned cleanup.`)
@@ -183,8 +172,10 @@ export class DemoRunner extends CliInventory {
     const owned = this.manifest.resources[family][name]
     if (current) {
       if (!owned?.owned) fail(`${family} ${name} already exists but is not confirmed as created by this fixture. It will not be adopted or removed.`)
-      if (owned.created != null && current.created != null && owned.created !== current.created) fail(`${family} ${name} was replaced outside the fixture. Cleanup authority is no longer certain.`)
-      if (current.op?.uncertain || ['unresolved', 'creating', 'removing', 'closing'].includes(current.state)) fail(`${family} ${name} needs inspection (${current.state}); no operation will be replayed.`)
+      const created = current.created_at ?? current.created ?? null
+      if (owned.created != null && created != null && owned.created !== created) fail(`${family} ${name} was replaced outside the fixture. Cleanup authority is no longer certain.`)
+      // 2.0: an outcome not known is broken/unresolved; a create or removal in flight is busy
+      if (current.state === 'broken' || current.state === 'busy') fail(`${family} ${name} needs inspection (${current.state}${current.reason ? `: ${current.reason}` : current.op?.name ? `: ${current.op.name}` : ''}); no operation will be replayed.`)
       return current
     }
     if (owned?.owned) fail(`Owned ${family} ${name} is missing. Run reset to rebuild the fixture.`)
@@ -241,15 +232,17 @@ export class DemoRunner extends CliInventory {
     if (!isPostgresql(store)) return this.ensureResource('store', store.name, ['store', 'create', store.name])
     if (!this.manifest.resources.store[store.name]?.owned) {
       const { port } = await this.postgres.ensure()
-      const argv = ['store', 'connect', store.name, this.postgres.url(port, store.database), '--password', this.postgres.passwordRef()]
+      // the preset's login, saved once per build (the password on stdin; saving it again rotates nothing: it is the same)
+      await this.once(`store.save-auth:${this.postgres.authName}:${this.commandId}`, ['store', 'save-auth', this.postgres.authName, '--user', 'postgres', '--password-stdin'], { input: this.postgres.password() })
+      const argv = ['store', 'connect', store.name, this.postgres.url(port, store.database), '--auth', this.postgres.authName]
       return this.ensureResource('store', store.name, argv, { before: () => this.postgres.freshDatabase(store.database) })
     }
     return this.ensureResource('store', store.name, null)
   }
   /** A SQLite Store pushed to its machine; a PostgreSQL Store is on none: its machine is saved as where its sessions run. */
   async placeStore(store, reportProgress = () => {}) {
-    const placed = await this.query(['store', 'get', store.name])
-    if (placed.op || placed.state === 'unresolved') fail(`Store ${store.name} has an operation that needs inspection.`)
+    const placed = await this.query(['store', 'get', store.name, '--detail'])
+    if (placed.op || placed.state === 'busy' || placed.state === 'broken') fail(`Store ${store.name} has an operation that needs inspection.`)
     if (isPostgresql(store)) {
       await this.runsOn?.(store.name, store.machine)
       return
@@ -257,7 +250,7 @@ export class DemoRunner extends CliInventory {
     if (placed.machine !== store.machine) {
       if (placed.machine !== 'native') fail(`Store ${store.name} moved outside the fixture plan. Inspect it or reset.`)
       reportProgress(`Moving ${store.name} to ${store.machine}`)
-      await this.once(`store.push:${store.name}`, ['store', 'push', store.name, store.machine, '--progress'])
+      await this.once(`store.move:${store.name}`, ['store', 'move', store.name, store.machine, '--progress'])
     }
   }
   source(store, name) {
@@ -285,7 +278,7 @@ export class DemoRunner extends CliInventory {
   historyArgv(step, project) {
     if (!step.commitFrom) return step.argv
     const dependency = this.manifest.steps[`${step.commitFrom}:${project}`]
-    if (dependency?.status !== 'done' || typeof dependency.result?.head !== 'string' || !dependency.result.head) fail(`Missing immutable Commit receipt for ${step.key}; no publication was attempted.`)
+    if (dependency?.status !== 'done' || typeof dependency.result?.commit !== 'string' || !dependency.result.commit) fail(`Missing immutable Commit receipt for ${step.key}; no publication was attempted.`)
     return resolveHistoryStep(step, { [step.commitFrom]: dependency.result })
   }
   async executeHistoryStep(project, step) {
@@ -385,11 +378,12 @@ export class DemoRunner extends CliInventory {
                 result = receipt.result; assertProjectStep(step, result)
               } else result = await this.executeHistoryStep(task.project, step)
               task.completed++
-              if (step.workspaceRevision && result?.kind === 'Committed') workspaceCompleted++
-              if (['Committed', 'Merged'].includes(result?.kind) && result.head) item.commitIds.add(result.head)
+              const made = stepEffect(step, result)
+              if (made.workspaceRevision) workspaceCompleted++
+              if (made.commit) item.commitIds.add(made.commit)
               task.commits = item.commitIds.size
-              if (['Forked', 'Merged'].includes(result?.kind)) task.branches++
-              if (result?.kind === 'Added') task.layers++
+              if (made.branch) task.branches++
+              if (made.layer) task.layers++
               if (task.completed === task.total) {
                 this.manifest.projects[task.project].seeded = true; this.save()
                 task.ended = Date.now(); task.state = 'completed'
@@ -414,12 +408,13 @@ export class DemoRunner extends CliInventory {
         try {
           await this.seedProjectHistory(task.store, task.name, (completed, step, result) => {
             task.completed = completed
-            if (step?.workspaceRevision && result?.kind === 'Committed') workspaceCompleted++
             if (step && result) {
-              if (['Committed', 'Merged'].includes(result.kind) && result.head) commitIds.add(result.head)
+              const made = stepEffect(step, result)
+              if (made.workspaceRevision) workspaceCompleted++
+              if (made.commit) commitIds.add(made.commit)
               task.commits = commitIds.size
-              if (['Forked', 'Merged'].includes(result.kind)) task.branches++
-              if (result.kind === 'Added') task.layers++
+              if (made.branch) task.branches++
+              if (made.layer) task.layers++
             }
             publish(`Building ${task.project} on ${task.machine}`)
           }, shouldStop)
@@ -472,9 +467,9 @@ export class DemoRunner extends CliInventory {
       await this.placeStore(store)
       if (!this.sandboxes) { advance(`Store ${store.name} ready`); return }
       const sandbox = `demo-${store.projects[0]}`, project = `${store.name}/${store.projects[0]}`
-      await this.ensureResource('sandbox', sandbox, ['sandbox', 'create', project, sandbox, store.machine])
-      const detail = await this.query(['sandbox', 'get', sandbox])
-      if (detail.down_reason) fail(`Sandbox ${sandbox} cannot be reached: ${detail.down_reason}`)
+      // a sqlite Store's Sandbox runs on its Store's machine; a PostgreSQL Store's on the machine named
+      await this.ensureResource('sandbox', sandbox, ['sandbox', 'create', project, sandbox, ...(isPostgresql(store) ? ['--machine', store.machine] : [])])
+      const detail = await new CliInventory({ invoke: argv => this.query(argv) }).sandboxDetails(sandbox)
       for (const [name, branch] of [['feature', projectHistoryPlan(store.projects[0], this.historyOptions).definition.features[0].name], ['fix', projectHistoryPlan(store.projects[0], this.historyOptions).definition.features[1].name]]) {
         if (!detail.workspaces?.some(ws => ws.name === name)) await this.once(`workspace.mount:${sandbox}:${name}`, ['workspace', 'mount', sandbox, branch, '--name', name])
       }
@@ -496,7 +491,7 @@ export class DemoRunner extends CliInventory {
         return this.query(argv)
       }
       const current = await query(['store', 'get', store.name])
-      const placedRight = isPostgresql(store) ? current.kind === 'postgresql' : current.machine === store.machine
+      const placedRight = isPostgresql(store) ? current.engine === 'postgresql' : current.machine === store.machine
       if (!placedRight || current.op) fail(`Store ${store.name} does not match its intended placement or has an operation in flight.`)
       for (const name of store.projects) {
         const key = `${store.name}/${name}`
@@ -504,10 +499,10 @@ export class DemoRunner extends CliInventory {
         const receipt = { steps: Object.fromEntries(projectHistorySteps(store.name, name, this.historyOptions).map(step => [step.key, this.manifest.steps[`${step.key}:${key}`]?.result])) }
         const verified = await verifyProject(query, store.name, name, receipt, this.historyOptions)
         if (this.executionMode === 'mixed') {
-          const box = await query(['sandbox', 'get', mixedSandboxName(name), '--page-size', '16', '--page-pos', '0'])
-          if (box.project !== key || !storeMachines(store).includes(box.machine) || box.state !== 'running' || box.op || box.down_reason || !Array.isArray(box.workspaces) || box.workspaces.length || box.next_page_pos != null) fail(`Mixed sandbox for ${key} is unreachable, misplaced or still mounted.`)
+          const box = await query(['sandbox', 'get', mixedSandboxName(name), '--detail'])
+          if (box.project !== key || !storeMachines(store).includes(box.machine) || (box.state ?? 'ready') !== 'ready' || box.op || !Array.isArray(box.workspaces) || box.workspaces.length) fail(`Mixed sandbox for ${key} is unreachable, misplaced or still mounted.`)
           const plan = projectHistoryPlan(name, this.historyOptions)
-          const completed = projectHistorySteps(store.name, name, this.historyOptions).filter(step => step.workspaceRevision && this.manifest.steps[`${step.key}:${key}`]?.result?.kind === 'Committed').length
+          const completed = projectHistorySteps(store.name, name, this.historyOptions).filter(step => step.workspaceRevision && stepEffect(step, this.manifest.steps[`${step.key}:${key}`]?.result).workspaceRevision).length
           if (completed !== plan.workspaceRevisions || completed / plan.authoredRevisions < 0.3) fail(`Mixed workspace coverage is incomplete for ${key}.`)
           verified.workspaceRevisions = completed; verified.authoredRevisions = plan.authoredRevisions
         }
@@ -518,7 +513,7 @@ export class DemoRunner extends CliInventory {
       if (this.sandboxes) {
         const inspector = new CliInventory({ invoke: query })
         const box = await inspector.sandboxDetails(`demo-${store.projects[0]}`)
-        if (box.down_reason || !['feature', 'fix'].every(name => box.workspaces?.some(ws => ws.name === name))) fail(`Sandbox ${box.name} is missing its workspaces or is unreachable.`)
+        if (!['feature', 'fix'].every(name => box.workspaces?.some(ws => ws.name === name))) fail(`Sandbox ${box.sandbox} is missing its workspaces or is unreachable.`)
       }
     })
     const journal = this.journalSummary()

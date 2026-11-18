@@ -78,7 +78,7 @@ test('a failed native tool result cannot become a successful summary', async () 
 test('continuation reads a typed confirmed publication, never a bare current head', () => {
   const runtime = new SimulationRuntime({})
   const id = 'ab'.repeat(33)
-  const binding = { script: { conversationId: 'c' }, run: { plan: { agents: [], continuationTargets: { c: { receipt: 'publish', type: 'Layer', branch: 'main' } } }, journal: { records: [], receipts: { publish: { kind: 'Added', published_layer: { id } } } } } }
+  const binding = { script: { conversationId: 'c' }, run: { plan: { agents: [], continuationTargets: { c: { receipt: 'publish', type: 'Layer', branch: 'main' } } }, journal: { records: [], receipts: { publish: { commit: id } } } } }
   assert.deepEqual(runtime.target(binding), { kind: 'Layer', id, branch: 'main' })
   binding.run.journal.receipts.publish = { head: id }
   assert.equal(runtime.target(binding), undefined)
@@ -89,7 +89,7 @@ test('stop closes admission before cancellation and restores only native session
   const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async (...args) => calls.push(['persist', ...args]) } })
   const id = 'ab'.repeat(33), ordinaryModel = { provider: 'real', model: 'model', reasoningEffort: 'high' }
   const script = { agentKey: 'c-main', conversationId: 'c', agentId: null, turns: [{ request: 'Prepared request' }] }
-  const run = { plan: { agents: [script], continuationTargets: { c: { receipt: 'publish', type: 'Layer', branch: 'main' } } }, journal: { records: [], receipts: { publish: { kind: 'Added', published_layer: { id } } }, append: async record => calls.push(['journal', record]) }, bindings: new Map(), execution: { stop: async () => calls.push(['gate-stopped']) } }
+  const run = { plan: { agents: [script], continuationTargets: { c: { receipt: 'publish', type: 'Layer', branch: 'main' } } }, journal: { records: [], receipts: { publish: { commit: id } }, append: async record => calls.push(['journal', record]) }, bindings: new Map(), execution: { stop: async () => calls.push(['gate-stopped']) } }
   const binding = { run, script, sessionId: 'parent', rootSessionId: 'parent', ordinaryModel, scriptRequests: new Set(['script']), state: 'running', controller: new AbortController() }
   const followup = { id: 'human', content: [{ type: 'text', text: 'Human followup' }] }
   const scripted = { id: 'script', content: [{ type: 'text', text: 'Prepared request' }] }
@@ -218,7 +218,7 @@ test('Stop closes every descendant gate before waiting for parent human-input du
   const ordinaryModel = { provider: 'real', model: 'model' }
   const rootScript = { agentKey: 'c-main', conversationId: 'c', turns: [] }
   const childScript = { agentKey: 'c-child', conversationId: 'c', agentId: 'worker', turns: [] }
-  const journal = { records: [], receipts: { publish: { kind: 'Added', published_layer: { id } } }, append: async event => { if (event.type === 'human-deferred') await durable } }
+  const journal = { records: [], receipts: { publish: { commit: id } }, append: async event => { if (event.type === 'human-deferred') await durable } }
   const run = { plan: { agents: [rootScript, childScript], continuationTargets: { c: { receipt: 'publish', branch: 'main', type: 'Layer' } } }, bindings: new Map(), journal, execution: { stop: async () => {} } }
   const human = { id: 'human', source: { kind: 'user' }, content: [{ type: 'text', text: 'Continue afterward' }] }
   const makeAgent = (id, pending) => ({ id, inbox: { nextTurn: pending, nextStep: [], remove: () => {} }, cancel: () => {}, whenIdle: async () => {}, model: { select: () => {} }, send: () => {} })
@@ -237,7 +237,7 @@ test('handoff writer failure settles the whole family as failed with unready pin
   const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async (id, target, state, error) => sidecars.set(id, { target, state, error }) }, logger: () => ({ warn() {} }) })
   const version = 'ab'.repeat(33), ordinaryModel = { provider: 'real', model: 'model' }
   const rootScript = { agentKey: 'c-main', conversationId: 'c', turns: [] }, childScript = { agentKey: 'c-worker', conversationId: 'c', agentId: 'worker', turns: [] }
-  const run = { plan: { agents: [rootScript, childScript], continuationTargets: { c: { receipt: 'publish', type: 'Layer', branch: 'main' } } }, journal: { records, receipts: { publish: { kind: 'Added', published_layer: { id: version } } }, append: async event => records.push(event) }, bindings: new Map(), execution: { stop: async () => {} } }
+  const run = { plan: { agents: [rootScript, childScript], continuationTargets: { c: { receipt: 'publish', type: 'Layer', branch: 'main' } } }, journal: { records, receipts: { publish: { commit: version } }, append: async event => records.push(event) }, bindings: new Map(), execution: { stop: async () => {} } }
   const make = (script, sessionId, throws) => ({ run, script, sessionId, rootSessionId: 'parent', ordinaryModel, ordinaryRestored: !!script.agentId, state: 'running', controller: new AbortController(), agent: { id: sessionId, inbox: { nextTurn: [], nextStep: [], remove() {} }, cancel() {}, whenIdle: async () => {}, model: { select() { if (throws) throw new Error('native writer unavailable') } } } })
   const rootBinding = make(rootScript, 'parent', true), childBinding = make(childScript, 'child', false)
   for (const binding of [rootBinding, childBinding]) { runtime.bindings.set(binding.sessionId, binding); run.bindings.set(binding.script.agentKey, binding) }
@@ -278,7 +278,7 @@ const actualNativeActionEvents = (name, failed = false) => [
 ]
 
 test('surface compaction cannot reemit a write already confirmed in the native log and receipt journal', async () => {
-  const f = compactedSessionRuntime({ type: 'tool', stepKey: 'saved-write', tool: 'bash' }, actualNativeActionEvents('bash'), { 'saved-write': { kind: 'Committed', head: '02' + 'a'.repeat(64) } })
+  const f = compactedSessionRuntime({ type: 'tool', stepKey: 'saved-write', tool: 'bash' }, actualNativeActionEvents('bash'), { 'saved-write': { commit: '02' + 'a'.repeat(64) } })
   const reply = await f.runtime.next(f.options)
   assert.equal('text' in reply, true)
   assert.equal(f.runtime.calls.size, 0, 'no new tool call or attempt is created for a compacted result')
@@ -359,7 +359,7 @@ test('stop mid-command ends without a pin, restores the real model and releases 
   const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async (...args) => persisted.push(args) } })
   const script = { agentKey: 'c-main', conversationId: 'c', agentId: null, turns: [{ request: 'Work' }] }
   const records = [{ type: 'intent', stepKey: 'write', agentKey: 'c-main' }]
-  const run = { plan: { agents: [script], steps: [], continuationTargets: { c: { receipt: 'publish', branch: 'main', fallbacks: [{ receipt: 'publish', branch: 'main' }] } } }, journal: { records, receipts: { publish: { kind: 'Added', published_layer: { id: layer } } }, append: async record => records.push(record) }, bindings: new Map(), execution: { stop: async () => {} } }
+  const run = { plan: { agents: [script], steps: [], continuationTargets: { c: { receipt: 'publish', branch: 'main', fallbacks: [{ receipt: 'publish', branch: 'main' }] } } }, journal: { records, receipts: { publish: { commit: layer } }, append: async record => records.push(record) }, bindings: new Map(), execution: { stop: async () => {} } }
   const agent = modelAgent('parent', { provider: 'simulation', model: 'script' })
   const sent = []
   agent.send = (...args) => sent.push(args)
@@ -385,7 +385,7 @@ function twoConversationRun(runtime) {
   const tasks = [{ id: 'ta', conversationId: 'a', stepKeys: ['a1'], dependsOn: [] }, { id: 'tb', conversationId: 'b', stepKeys: ['b1'], dependsOn: [] }, { id: 'tc', conversationId: 'c', stepKeys: ['c1'], dependsOn: ['ta'] }]
   const agents = ['a', 'b', 'c'].map(id => ({ agentKey: `${id}-main`, scriptId: `run-${id}-main`, conversationId: id, agentId: null, turns: [{ request: 'Work' }] }))
   const target = { receipt: 'setup.project', branch: 'main', initial: true }
-  const journal = { records: [], receipts: { 'setup.project': { layer }, b1: { kind: 'Committed' } }, append: async record => journal.records.push(record) }
+  const journal = { records: [], receipts: { 'setup.project': { commit: layer }, b1: { commit: '02' + 'f'.repeat(64) } }, append: async record => journal.records.push(record) }
   const plan = { steps, tasks, agents, continuationTargets: Object.fromEntries(['a', 'b', 'c'].map(id => [id, { ...target, fallbacks: [target] }])) }
   const run = { manifest: { runId: 'run' }, plan, journal, bindings: new Map(), execution: new SimulationExecution(plan, journal, { directory: '/unused' }) }
   runtime.runs.set('run', run)
@@ -424,7 +424,7 @@ test('stopping a child ends its root family as stopped', async () => {
   const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async (id, target, state) => persisted.set(id, state) } })
   const rootScript = { agentKey: 'c-main', conversationId: 'c', agentId: null, turns: [] }, childScript = { agentKey: 'c-worker', conversationId: 'c', agentId: 'worker', turns: [] }
   const target = { receipt: 'setup.project', branch: 'main', initial: true }
-  const run = { plan: { agents: [rootScript, childScript], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
+  const run = { plan: { agents: [rootScript, childScript], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { commit: layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
   const make = (script, sessionId) => ({ run, script, sessionId, rootSessionId: 'parent', ordinaryModel: realModel, state: 'running', controller: new AbortController(), agent: modelAgent(sessionId, { provider: 'simulation', model: sessionId }) })
   const root = make(rootScript, 'parent'), child = make(childScript, 'child')
   for (const binding of [root, child]) { runtime.bindings.set(binding.sessionId, binding); run.bindings.set(binding.script.agentKey, binding) }
@@ -540,7 +540,7 @@ test('a finished run releases its calls and bindings, except a dormant child sti
   const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async () => {} } })
   const rootScript = { agentKey: 'c-main', scriptId: 'root', conversationId: 'c', agentId: null, turns: [] }, childScript = { agentKey: 'c-worker', scriptId: 'worker', conversationId: 'c', agentId: 'worker', turns: [] }
   const target = { receipt: 'setup.project', branch: 'main', initial: true }
-  const run = { manifest: { runId: 'run' }, plan: { agents: [rootScript, childScript], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
+  const run = { manifest: { runId: 'run' }, plan: { agents: [rootScript, childScript], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { commit: layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
   const make = (script, sessionId) => ({ run, script, sessionId, rootSessionId: 'parent', ordinaryModel: realModel, state: 'running', controller: new AbortController(), agent: modelAgent(sessionId, { provider: 'simulation', model: sessionId }) })
   const root = make(rootScript, 'parent'), child = make(childScript, 'child')
   for (const binding of [root, child]) { runtime.bindings.set(binding.sessionId, binding); run.bindings.set(binding.script.agentKey, binding) }
@@ -594,7 +594,7 @@ test('Stop takes a settlement notice already queued for the next turn, then hand
   const runtime = new SimulationRuntime({ layerfsSessions: { completeSimulation: async () => {} } })
   const script = { agentKey: 'c-main', scriptId: 'root', conversationId: 'c', agentId: null, turns: [] }
   const target = { receipt: 'setup.project', branch: 'main', initial: true }
-  const run = { manifest: { runId: 'run' }, plan: { agents: [script], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
+  const run = { manifest: { runId: 'run' }, plan: { agents: [script], steps: [], continuationTargets: { c: { ...target, fallbacks: [target] } } }, journal: { records: [], receipts: { 'setup.project': { commit: layer } }, append: async () => {} }, bindings: new Map(), execution: { stop: async () => {} } }
   const agent = inboxAgent('parent')
   const sent = []
   agent.send = (...args) => sent.push(args)

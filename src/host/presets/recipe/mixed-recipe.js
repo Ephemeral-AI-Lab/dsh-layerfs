@@ -1,5 +1,5 @@
 /** Resource ceilings are independent of the selected CLI process concurrency. */
-export const MIXED_RECIPE_VERSION = 2
+export const MIXED_RECIPE_VERSION = 3
 export const MIXED_REVISIONS_PER_SESSION = 2
 export const MIXED_CAPACITY = Object.freeze({ sandboxLimit: 3, workspaceLimit: 16 })
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`
@@ -28,11 +28,12 @@ export function mixedHistorySteps(steps, name) {
     }
     const execKey = `${step.key}.exec`
     const body = `printf '%s' ${quote(step.input)} > ${quote(step.argv[4].replace(/^\//, ''))}`
-    result.push({ key: execKey, argv: ['workspace', 'exec', ws, body, '--exec-id', `${name}-${cycle}-${lane}-${index}`, '--events'], lane, dependsOn: (index - 1) % MIXED_REVISIONS_PER_SESSION === 0 ? [sessions.get(session)] : step.dependsOn, expect: { kind: 'exit:0', exitCode: 0 } })
+    // 2.0: one result JSON ({exit_code, …}); there is no caller-chosen exec id or event stream
+    result.push({ key: execKey, argv: ['workspace', 'exec', ws, body], lane, dependsOn: (index - 1) % MIXED_REVISIONS_PER_SESSION === 0 ? [sessions.get(session)] : step.dependsOn, expect: { exitCode: 0 } })
     result.push({ ...step, argv: ['workspace', 'commit', ws, '--message', step.argv[step.argv.indexOf('--message') + 1]], input: undefined, historyArgv: step.argv, workspaceRevision: true, dependsOn: [execKey] })
     if (index % MIXED_REVISIONS_PER_SESSION === 0) {
       const unmount = `${session}.unmount`
-      result.push({ key: unmount, argv: ['workspace', 'unmount', ws], lane, dependsOn: [step.key], expect: { kind: 'Unmounted' } })
+      result.push({ key: unmount, argv: ['workspace', 'unmount', ws], lane, dependsOn: [step.key], expect: { ok: true } })
       unmounts.set(step.key, unmount)
     }
   }

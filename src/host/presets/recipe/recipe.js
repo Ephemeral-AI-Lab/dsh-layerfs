@@ -54,10 +54,11 @@ export function projectHistorySteps(store, name, { density = 'dense', cycles, ex
 export function baseProjectHistorySteps(store, name) {
   const { definition } = baseProjectHistoryPlan(name)
   const project = `${store}/${name}`, steps = []
-  const fork = (key, branch, from = 'main') => steps.push({ key, argv: ['branch', 'fork', project, branch, from], expect: { kind: 'Forked' } })
-  const writes = (key, branch, changes) => changes.forEach((change, index) => steps.push({ key: `${key}.${index + 1}`, argv: ['file', 'write', project, branch, `/${change.path}`, '--message', change.message], input: change.content, expect: { kind: 'Committed' } }))
-  const merge = (key, branch, left, right, message) => steps.push({ key, argv: ['branch', 'merge', project, branch, left, right, '--message', message], expect: { kind: 'Merged', divergent: true } })
-  const publish = (key, branch) => steps.push({ key, argv: ['branch', 'publish', project, branch], expect: { kind: 'Added', overwroteCount: 0 } })
+  const fork = (key, branch, from = 'main') => steps.push({ key, argv: ['branch', 'fork', project, branch, from], expect: { commit: true } })
+  const writes = (key, branch, changes) => changes.forEach((change, index) => steps.push({ key: `${key}.${index + 1}`, argv: ['file', 'write', project, branch, `/${change.path}`, '--message', change.message], input: change.content, expect: { commit: true } }))
+  // 2.0: `branch merge <project> <branch> <from> --into NEW` makes Branch NEW from merging `from` into `branch`
+  const merge = (key, branch, left, right, message) => steps.push({ key, argv: ['branch', 'merge', project, left, right, '--into', branch, '--message', message], expect: { commit: true, divergent: true } })
+  const publish = (key, branch) => steps.push({ key, argv: ['branch', 'publish', project, branch], expect: { commit: true, notForced: true } })
   const [a, b, c] = definition.features
   fork('foundation.fork', 'release-0.1')
   writes('foundation.write', 'release-0.1', definition.foundation)
@@ -87,15 +88,33 @@ export function baseProjectHistorySteps(store, name) {
   return steps
 }
 
-/** Reject a successful transport result that did not make the intended history. */
+/**
+ * Reject a successful transport result that did not make the intended history
+ * (2.0 short forms: a Commit-making call answers `commit`, an unmount `ok`, an
+ * exec `exit_code`; `unchanged` means nothing was made).
+ */
 export function assertProjectStep(step, result) {
   const expected = step.expect
   if (!expected) return
   const fail = reason => { throw Object.assign(new Error(`Preset step ${step.key}: ${reason}`), { code: 'PresetVerificationFailed' }) }
   if (expected.exitCode !== undefined && result?.exit_code !== expected.exitCode) fail(`expected exit code ${expected.exitCode}, received ${result?.exit_code}`)
-  if (result?.kind !== expected.kind) fail(`expected ${expected.kind}, received ${result?.kind ?? 'no result kind'}`)
-  if (expected.divergent && result.fast_forward !== false) fail('expected a divergent merge with a new Commit')
-  if (expected.overwroteCount !== undefined && result.overwrote_count !== expected.overwroteCount) fail('publication overwrote newer main Layers')
+  if (expected.commit && (typeof result?.commit !== 'string' || !result.commit)) fail('expected a Commit, LayerFS answered none')
+  if (expected.commit && result.unchanged === true) fail('expected a new Commit, LayerFS answered unchanged')
+  if (expected.ok && result?.ok !== true) fail('expected ok')
+  if (expected.divergent && result.fast_forward === true) fail('expected a divergent merge with a new Commit')
+  if (expected.notForced && result.previous != null) fail('publication replaced a newer main head')
+}
+
+/** What a confirmed history step made, from its call and its 2.0 answer: the Commit, and whether it added a Branch or a publication. */
+export function stepEffect(step, result) {
+  const call = `${step.argv[0]}.${step.argv[1]}`
+  const commit = typeof result?.commit === 'string' && result.commit && result.unchanged !== true ? result.commit : null
+  return {
+    commit: ['file.write', 'workspace.commit', 'branch.merge'].includes(call) ? commit : null,
+    branch: !!commit && ['branch.fork', 'branch.merge'].includes(call),
+    layer: !!commit && call === 'branch.publish',
+    workspaceRevision: !!step.workspaceRevision && call === 'workspace.commit' && !!commit,
+  }
 }
 
 export function machineCreateArgs(machine) {
@@ -105,7 +124,7 @@ export function machineCreateArgs(machine) {
 /** Resolve preview receipt references only from confirmed immutable results. */
 export function resolveHistoryStep(step, receipts) {
   if (!step.commitFrom) return step.argv
-  const head = receipts[step.commitFrom]?.head
+  const head = receipts[step.commitFrom]?.commit
   if (typeof head !== 'string' || !head) throw new Error(`Missing immutable Commit receipt for ${step.key}; no publication was attempted.`)
   return [...step.argv.slice(0, -1), head]
 }

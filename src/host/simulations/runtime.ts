@@ -501,11 +501,10 @@ export class SimulationRuntime {
       let cancellation
       const cancel = () => {
         if (argv[0] !== 'workspace' || argv[1] !== 'exec' || cancellation) return
-        const position = argv.indexOf('--exec-id')
         cancellation = (async () => {
-          if (position < 0 || !argv[position + 1]) throw new Error('Remote execution cancellation has no confirmed execution identity.')
-          const receipt = await execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }, ['workspace', 'exec-cancel', argv[2], argv[position + 1]], { timeout: 30000 })
-          if (!['cancelled', 'ended'].includes(receipt?.outcome) || receipt.outcome === 'cancelled' && !['SIGTERM', 'SIGKILL'].includes(receipt.signal)) throw new Error(`Execution cancellation was not confirmed: ${receipt?.outcome ?? 'missing outcome'}`)
+          // 2.0 `workspace cancel <ws>`: every command in the Workspace (a simulation runs one exec per Workspace at a time)
+          const receipt = await execute({ cli: this.ctx.layerfs.cli, home: this.ctx.layerfs.home, bundle: this.ctx.layerfs.bundle, cacheHome: this.ctx.layerfs.cacheHome, callLog: this.ctx.layerfs.callLog, gate: this.ctx.layerfs.lfs.spec.gate }, ['workspace', 'cancel', argv[2], '--detail'], { timeout: 30000 })
+          if (receipt?.unknown === true || !(receipt?.already_ended === true || ['SIGTERM', 'SIGKILL'].includes(receipt?.signal))) throw new Error(`Execution cancellation was not confirmed: ${receipt?.outcome ?? 'missing outcome'}`)
           await binding.run.journal.append({ type: 'execution.cancelled', stepKey: step.key, agentKey: binding.script.agentKey, origin: 'host', receipt })
         })().catch(async error => {
           await binding.run.journal.append({ type: 'execution.cancel-uncertain', stepKey: step.key, agentKey: binding.script.agentKey, origin: 'host', error: String(error) })
@@ -518,7 +517,7 @@ export class SimulationRuntime {
       try {
         signal.throwIfAborted()
         result = await next()
-        return parseSimulationBashReceipt(result, { events: step.argv.includes('--events') })
+        return parseSimulationBashReceipt(result, { exec: argv[0] === 'workspace' && argv[1] === 'exec' })
       } finally {
         signal.removeEventListener('abort', cancel)
         await cancellation
@@ -555,15 +554,16 @@ export class SimulationRuntime {
       // An open workload workspace may contain unsaved changes; never hide it behind an older saved pin.
       const mounts = binding.run.plan.steps?.filter(step => step.conversationId === binding.script.conversationId && step.argv[0] === 'workspace' && step.argv[1] === 'mount' && binding.run.journal.receipts[step.key]) ?? []
       for (const mount of mounts) {
-        const ws = binding.run.journal.receipts[mount.key].ws
+        const ws = binding.run.journal.receipts[mount.key].workspace
         if (!binding.run.plan.steps.some(step => step.argv[0] === 'workspace' && step.argv[1] === 'unmount' && binding.run.journal.receipts[step.key] && resolveSimulationStep(step, binding.run.journal.receipts, binding.run.directory)[2] === ws)) return undefined
       }
     }
     const candidates = allowFallback ? (target?.fallbacks ?? [target]) : [target]
     for (const candidate of candidates) {
       const receipt = candidate?.receipt && binding.run.journal.receipts[candidate.receipt]
-      const version = candidate.initial === true && candidate.receipt === 'setup.project' && typeof receipt?.layer === 'string' && /^[a-f0-9]{66}$/.test(receipt.layer)
-        ? { kind: 'Layer', id: receipt.layer }
+      // 2.0 `project init` answers main's first Commit as `commit`
+      const version = candidate.initial === true && candidate.receipt === 'setup.project' && typeof receipt?.commit === 'string' && /^[a-f0-9]{66}$/.test(receipt.commit)
+        ? { kind: 'Layer', id: receipt.commit }
         : savedVersions('branch.publish', receipt).find(version => version.kind === 'Layer')
       if (version) return { kind: version.kind, id: version.id, branch: candidate.branch }
     }

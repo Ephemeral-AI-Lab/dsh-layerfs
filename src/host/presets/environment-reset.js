@@ -36,7 +36,7 @@ export class EnvironmentReset extends CliInventory {
   async plan() {
     const homeId = this.identity()
     const [machines, stores, sandboxes] = (await Promise.all(['machine', 'store', 'sandbox'].map(family => this.inventory(family)))).map(sorted)
-    for (const row of [...machines, ...stores, ...sandboxes]) if (row.op) throw fixtureBusy(`${row.name} has an active or unresolved operation. Inspect its status before resetting.`)
+    for (const row of [...machines, ...stores, ...sandboxes]) if (row.op || row.reason === 'unresolved') throw fixtureBusy(`${row.name} has an active or unresolved operation. Inspect its status before resetting.`)
     // This is a whole-home reset: every workspace in every listed Sandbox is
     // included. Confirmation must not depend on reaching any worker. Inspect
     // exact workspace targets during the job, after starting its machines.
@@ -47,7 +47,7 @@ export class EnvironmentReset extends CliInventory {
     const detectedMachines = machines.map(({ name, state, platform }) => ({ name, state, platform }))
     const projectKeys = stores.flatMap(s => (s.projects ?? []).map(p => `${s.name}/${p}`)).sort()
     const plan = { home: this.spec.home, homeId, remove, disconnect, unknownSandboxes, workspaceGroups, startMachines, detectedMachines, projects: projectKeys.length, projectKeys, stopDocker: machines.some(m => m.name === 'docker' && m.state !== 'stopped'), scope: 'environment' }
-    const identities = [machines, stores, sandboxes].map(rows => rows.map(({ name, id, created, machine, kind, projects }) => ({ name, id, created, machine, kind, projects })))
+    const identities = [machines, stores, sandboxes].map(rows => rows.map(({ name, id, created_at, machine, kind, projects }) => ({ name, id, created_at, machine, kind, projects })))
     const signature = createHash('sha256').update(JSON.stringify({ ...plan, identities })).digest('hex')
     return { ...plan, signature }
   }
@@ -92,12 +92,12 @@ export class EnvironmentReset extends CliInventory {
         }
         this.report('Starting machines needed to reach their resources')
         for (const machine of plan.startMachines) await mutate(['machine', 'start', machine])
-        this.report('Unmounting workspaces and closing sandboxes')
+        this.report('Unmounting workspaces and removing sandboxes')
         const workspaces = []
         for (const name of plan.remove.sandboxes) {
           const box = await this.sandboxDetails(name)
           for (const workspace of box.workspaces) { workspaces.push(workspace.ws); await mutate(['workspace', 'unmount', workspace.ws, '--discard']) }
-          await mutate(['sandbox', 'close', name])
+          await mutate(['sandbox', 'remove', name])
         }
         receipt.remove.workspaces = workspaces
         this.report('Removing stores and disconnecting PostgreSQL stores')
