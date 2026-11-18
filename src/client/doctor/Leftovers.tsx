@@ -12,7 +12,7 @@ import type { LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import type { DoctorKey, DoctorT } from './locale.ts'
 import { Btn } from './Row.tsx'
-import { Mark } from './tips.tsx'
+import { markDot } from './tips.tsx'
 import css from './DoctorPage.module.css'
 
 interface Leftover { leftover: string, modified_at?: string, size?: number | null, report_only?: boolean, removable_at?: string | null, kind?: string, machine?: string, path?: string }
@@ -48,8 +48,8 @@ export function Leftovers({ api, t }: { api: LayerfsApi, t: DoctorT }): ReactNod
         <h2 className={css.leftoversTitle}>{t('loTitle')}{listing ? ` · ${listing.items.length}` : ''}</h2>
         <Btn fid="leftovers-look" busy={looking} onPress={look} tip={{ title: t('loLook'), lines: [t('loLookTip')], cmds: ['layerfs home leftovers'] }}>{t('loLook')}</Btn>
       </div>
-      {error ? <p className={css.none} role="alert"><Mark s="bad" /> {t('loRefused', { code: error })}</p> : null}
-      {listing && !listing.items.length && !listing.notListed.length ? <p className={css.none}><Mark s="ok" /> {t('loNone')}</p> : null}
+      {error ? <p className={css.none} role="alert">{markDot('bad')} {t('loRefused', { code: error })}</p> : null}
+      {listing && !listing.items.length && !listing.notListed.length ? <p className={css.none}>{markDot('ok')} {t('loNone')}</p> : null}
       {listing?.items.length ? (
         <ul className={css.leftoverList}>
           {listing.items.map((l) => {
@@ -62,7 +62,7 @@ export function Leftovers({ api, t }: { api: LayerfsApi, t: DoctorT }): ReactNod
             const why = l.report_only ? t('loReportOnly') : waits ? t('loWaits', { time: new Date(until!).toLocaleString() }) : t('loRemoveTip')
             return (
               <li key={l.leftover} className={css.leftoverRow} data-leftover={l.leftover} title={why}>
-                <Mark s={l.report_only ? 'nc' : 'warn'} />
+                {markDot(l.report_only ? 'nc' : 'warn')}
                 <span className={css.leftoverWord}>{word}</span>
                 <span className={css.leftoverFacts}>{facts}</span>
                 {l.path ? <code className={css.leftoverPath}>{l.path}</code> : null}
@@ -76,7 +76,7 @@ export function Leftovers({ api, t }: { api: LayerfsApi, t: DoctorT }): ReactNod
         </ul>
       ) : null}
       {listing?.notListed.map((n) => (
-        <p key={n.machine} className={css.none} data-leftover-unlisted={n.machine}><Mark s="nc" /> {t('loNotWalked', { machine: place(n.machine), reason: (n.blocked_by?.reason ?? n.reason ?? '').replace(/_/g, ' ') })}</p>
+        <p key={n.machine} className={css.none} data-leftover-unlisted={n.machine}>{markDot('nc')} {t('loNotWalked', { machine: place(n.machine), reason: (n.blocked_by?.reason ?? n.reason ?? '').replace(/_/g, ' ') })}</p>
       ))}
     </section>
   )

@@ -1,8 +1,7 @@
 /**
- * The Doctor page's marks, tips and toasts.
- *
- * A mark has one shape per result, so colour is never the only carrier: ok a
- * filled disc, bad a cross, warn a diamond, nc a hollow ring, run a spinner.
+ * The Doctor page's tips and toasts, and its marks: the plugin's StateDot
+ * (ok done, bad error, warn warning, nc idle, run ongoing), always beside
+ * the words that say the same, so colour is never the only carrier.
  *
  * A tip hangs off a signal, a mark group or a button, never a whole row. It
  * opens 120 ms after the pointer or the keyboard arrives and at once on a tap,
@@ -13,17 +12,32 @@
  */
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type PointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './DoctorPage.module.css'
 
 export type MarkKind = 'ok' | 'bad' | 'warn' | 'nc' | 'run'
 
-export function Mark({ s }: { s: MarkKind }): ReactNode {
-  return <span className={css.mk} data-s={s} />
-}
+/** A check's or a row's result as the plugin's state dot. */
+export const MARK_DOT: Record<MarkKind, StateDotState> = { ok: 'done', bad: 'error', warn: 'warning', nc: 'idle', run: 'ongoing' }
 
-/** The 14px signal slot; empty when `s` is null, so what follows never moves. */
-export function Dot({ s }: { s: MarkKind | null }): ReactNode {
-  return <span className={css.dot}>{s ? <Mark s={s} /> : null}</span>
+/** A result's StateDot at check-mark size (a spinner a little larger). */
+export const markDot = (s: MarkKind): ReactNode => <StateDot state={MARK_DOT[s]} size={s === 'run' ? 10 : 7} className={css.mk} />
+
+/** What a tip says (its lines, checks and commands), in the tip layer or in a Signal's card. */
+export function TipBody({ tip }: { tip: TipData }): ReactNode {
+  return (
+    <>
+      {(tip.lines ?? []).filter(Boolean).map((line, i) => <span key={i} className={css.tipLine}>{line}</span>)}
+      {tip.checks?.length ? (
+        <ul>{tip.checks.map((c, i) => <li key={i}>{markDot(c.r)}<code>{c.name}</code><i>{c.text}</i></li>)}</ul>
+      ) : null}
+      {tip.cmds?.length ? (
+        <pre>{tip.cmds.map((line, i) => (
+          <span key={i}>{i > 0 ? '\n' : ''}{line.startsWith('#') ? <i>{line}</i> : <><i>$ </i>{line}</>}</span>
+        ))}</pre>
+      ) : null}
+    </>
+  )
 }
 
 export interface TipCheck { r: MarkKind, name: string, text: string }
@@ -141,16 +155,8 @@ export function TipLayer({ children }: { children: ReactNode }): ReactNode {
           <div ref={tipRef} id={TIP_ID} role="tooltip" className={css.tip} data-on={tip ? '' : undefined} data-wide={wide || undefined}>
             {tip ? (
               <>
-                <b>{tip.mark ? <Mark s={tip.mark} /> : null}{tip.title}</b>
-                {(tip.lines ?? []).filter(Boolean).map((line, i) => <span key={i} className={css.tipLine}>{line}</span>)}
-                {tip.checks?.length ? (
-                  <ul>{tip.checks.map((c, i) => <li key={i}><Mark s={c.r} /><code>{c.name}</code><i>{c.text}</i></li>)}</ul>
-                ) : null}
-                {tip.cmds?.length ? (
-                  <pre>{tip.cmds.map((line, i) => (
-                    <span key={i}>{i > 0 ? '\n' : ''}{line.startsWith('#') ? <i>{line}</i> : <><i>$ </i>{line}</>}</span>
-                  ))}</pre>
-                ) : null}
+                <b>{tip.mark ? markDot(tip.mark) : null}{tip.title}</b>
+                <TipBody tip={tip} />
               </>
             ) : null}
           </div>

@@ -9,7 +9,7 @@
  * until Check, Full check or Check all has run. The model is `model.ts`, the
  * calls are `use-doctor.ts`, the words are `words.ts`.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostError, LayerfsApi } from '../api.ts'
 import { MachinesGlyph, SandboxesGlyph, StoreGlyph } from '../machines/icons.tsx'
@@ -17,17 +17,17 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { StorageT } from '../storage/locale.ts'
 import { BucketGlyph, refusalLabels } from '../storage/parts.tsx'
 import { Empty, LoadError, Loading, Page } from '../ui/index.tsx'
+import { TabBar } from '../ui/TabBar.tsx'
 import type { DoctorT } from './locale.ts'
-import { allOffWhy, allPlan, headOf, tabOf, tabsOf, viewOf, TABS, type RowFix, type TabKey, type TabView, type Thing } from './model.ts'
-import { Btn, Detail, Node, Row, Sig, type RowContext } from './Row.tsx'
-import { Dot, TipLayer, useTip, useToast, type MarkKind } from './tips.tsx'
+import { allOffWhy, allPlan, headOf, tabOf, tabsOf, viewOf, TABS, type RowFix, type TabKey, type Thing } from './model.ts'
+import { Btn, Detail, Node, Row, StatusSignal, type RowContext } from './Row.tsx'
+import { TipLayer, useToast } from './tips.tsx'
 import { useDoctor } from './use-doctor.ts'
 import { wordsOf, type Words } from './words.ts'
 import { Leftovers } from './Leftovers.tsx'
 import css from './DoctorPage.module.css'
 
 const TAB_LABEL: Record<TabKey, string> = { machines: 'dpTabMachines', stores: 'dpTabStores', projects: 'dpTabProjects', sandboxes: 'dpTabSandboxes', backups: 'dpTabBackups' }
-const HEAD_DOT = { ok: 'ok', run: 'run', nc: 'nc', notice: 'warn', problem: 'bad' } as const
 
 function TabIcon({ tab }: { tab: TabKey }): ReactNode {
   if (tab === 'machines') return <MachinesGlyph size={15} />
@@ -37,75 +37,8 @@ function TabIcon({ tab }: { tab: TabKey }): ReactNode {
   return <BucketGlyph size={15} />
 }
 
-function Tab({ tab, on, panel, w, onSelect, onKey }: { tab: TabView, on: boolean, panel: string, w: Words, onSelect(): void, onKey(e: KeyboardEvent<HTMLButtonElement>): void }): ReactNode {
-  const label = w.t(TAB_LABEL[tab.key])
-  const said = w.tabSaid(tab)
-  const { props, hide } = useTip(said.length ? { title: label, lines: [said.join(' · ')] } : null)
-  return (
-    <button type="button" className={css.tab} role="tab" id={`${panel}-tab-${tab.key}`} data-tab={tab.key} data-fid={`tab:${tab.key}`} aria-selected={on} aria-controls={panel} tabIndex={on ? 0 : -1}
-      {...props} onClick={() => { hide(); onSelect() }} onKeyDown={onKey}>
-      <span className={css.ico}><TabIcon tab={tab.key} /></span>
-      <span className={css.tabLabel} data-text={label}><span>{label}</span></span>
-      <span className={css.tabCount}>{tab.count}</span>
-      {/* the mark's slot is always there, filled or not */}
-      <Dot s={tab.mark as MarkKind | null} />
-      {said.length ? <span className={css.sr}>, {said.join(', ')}</span> : null}
-    </button>
-  )
-}
-
-/** The tab bar scrolls sideways when the tabs do not fit; a fade marks each edge that cuts tabs off. */
-function TabBar({ tabs, tab, panel, w, onSelect }: { tabs: readonly TabView[], tab: TabKey, panel: string, w: Words, onSelect(tab: TabKey): void }): ReactNode {
-  const scroll = useRef<HTMLDivElement | null>(null)
-  const fades = useCallback(() => {
-    const bar = scroll.current
-    if (!bar) return
-    const max = bar.scrollWidth - bar.clientWidth
-    bar.toggleAttribute('data-fade-l', bar.scrollLeft > 6)
-    bar.toggleAttribute('data-fade-r', bar.scrollLeft < max - 6)
-  }, [])
-  useLayoutEffect(() => {
-    fades()
-    window.addEventListener('resize', fades)
-    return () => window.removeEventListener('resize', fades)
-  }, [fades])
-  const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {
-    const order = TABS.map(([key]) => key)
-    let i = order.indexOf(tab)
-    if (e.key === 'ArrowRight') i = (i + 1) % order.length
-    else if (e.key === 'ArrowLeft') i = (i + order.length - 1) % order.length
-    else if (e.key === 'Home') i = 0
-    else if (e.key === 'End') i = order.length - 1
-    else return
-    e.preventDefault()
-    if (order[i] === tab) return
-    moved.current = true
-    onSelect(order[i]!)
-  }
-  // a tab selected with the keys takes the focus and comes into view (once it is the selected one: no timer, no frame)
-  const moved = useRef(false)
-  useLayoutEffect(() => {
-    if (!moved.current) return
-    moved.current = false
-    const bar = scroll.current
-    const el = bar?.querySelector<HTMLElement>(`[data-tab="${tab}"]`)
-    el?.focus()
-    el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    const i = TABS.findIndex(([key]) => key === tab)
-    if (bar && i === 0) bar.scrollLeft = 0
-    else if (bar && i === TABS.length - 1) bar.scrollLeft = bar.scrollWidth
-    fades()
-  }, [tab, fades])
-  return (
-    <div className={css.tabBar}>
-      <div className={css.tabScroll} ref={scroll} onScroll={fades} data-tip-keep="">
-        <div className={css.tabs} role="tablist" aria-label={w.t('dpTabsLabel')}>
-          {tabs.map((x) => <Tab key={x.key} tab={x} on={x.key === tab} panel={panel} w={w} onSelect={() => onSelect(x.key)} onKey={onKey} />)}
-        </div>
-      </div>
-    </div>
-  )
-}
+/** A tab's dot: what starts in it at its worst (a stopped machine marks its tab; a check that runs spins). */
+const TAB_TONE = { bad: 'danger', warn: 'warning', nc: 'idle', run: 'ongoing' } as const
 
 function Body({ api, t, ts }: { api: LayerfsApi, t: DoctorT, ts: StorageT }): ReactNode {
   const w = useMemo(() => wordsOf(t), [t])
@@ -220,7 +153,7 @@ function Body({ api, t, ts }: { api: LayerfsApi, t: DoctorT, ts: StorageT }): Re
           <div>
             <h1 className={css.title}>
               <span className={css.sr}>{w.t('dpTitle')}: </span>
-              <Sig fid="head" st={head.state} mark={HEAD_DOT[head.state]} className={css.headSig} tip={{ title: headline, lines: [w.t('dpHeadTip')], cmds: ['layerfs home get --with tree'] }}>{headline}</Sig>
+              <StatusSignal fid="head" st={head.state} size={10} className={css.headSig} tip={{ title: headline, lines: [w.t('dpHeadTip')], cmds: ['layerfs home get --with tree'] }}>{headline}</StatusSignal>
             </h1>
             <p className={css.intro}>{counts}</p>
           </div>
@@ -238,7 +171,15 @@ function Body({ api, t, ts }: { api: LayerfsApi, t: DoctorT, ts: StorageT }): Re
         </div>
       </header>
 
-      <TabBar tabs={tabs} tab={tab} panel={panel} w={w} onSelect={setTab} />
+      <TabBar label={w.t('dpTabsLabel')} active={tab} onSelect={(key) => setTab(key as TabKey)}
+        tabs={tabs.map((x) => {
+          const said = w.tabSaid(x)
+          return {
+            key: x.key, label: w.t(TAB_LABEL[x.key]), count: x.count, icon: <TabIcon tab={x.key} />,
+            tone: x.mark ? TAB_TONE[x.mark] : undefined, hint: said.length ? said.join(' · ') : undefined,
+            id: `${panel}-tab-${x.key}`, controls: panel, fid: `tab:${x.key}`,
+          }
+        })} />
       <div className={css.card} role="tabpanel" id={panel} aria-labelledby={`${panel}-tab-${tab}`} data-rows="">
         {rows.length ? rows.map((x) => <div key={x.key} className={css.group}><Node thing={x} depth={0} ctx={ctx} /></div>) : <p className={css.none}>{w.t('dpTabEmpty')}</p>}
       </div>

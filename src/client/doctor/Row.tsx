@@ -1,8 +1,9 @@
 /**
  * One row of the Doctor page, and what opens under it.
  *
- * A row is: its name (the button that opens it), its signal (one of five
- * status words, with the reason in a tip), then the finding's own word, the
+ * A row is: its name (the button that opens it), its signal (the plugin's
+ * Signal: a dot with the reason in its hover card, then one of five status
+ * words), then the finding's own word, the
  * root cause it waits on, its fix, facts from its tree node, one mark per
  * check, and its Check buttons. A button that cannot be pressed now keeps
  * `aria-disabled`, not `disabled`: it stays in the tab order, keeps focus and
@@ -14,8 +15,9 @@ import clsx from 'clsx'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { quickChecks, whatOf } from './checks.ts'
 import { kidsOf, offWhy, running, stateOf, viewOf, type DoctorState, type Mark as CheckMark, type RowFix, type RowView, type Thing } from './model.ts'
-import { Dot, Mark, useTip, type MarkKind, type TipData } from './tips.tsx'
+import { markDot, TipBody, useTip, type MarkKind, type TipData } from './tips.tsx'
 import { DOT, mmss, type Words } from './words.ts'
+import { Signal, type SignalState } from '../storage/Signal.tsx'
 import { BucketProviderGlyph, MachineGlyph, SandboxGlyph, StoreKindGlyph } from '../machines/icons.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { BucketGlyph } from '../storage/parts.tsx'
@@ -88,13 +90,19 @@ export function Btn({ fid, tip, onPress, off, busy, variant = 'outline', width, 
   )
 }
 
-/** A signal: the dot and its status word, one focusable thing with a tip. */
-export function Sig({ fid, st, mark, tip, said, className, children }: { fid: string, st: string, mark: MarkKind, tip: TipData, said?: string, className?: string, children: ReactNode }): ReactNode {
-  const { props, showNow } = useTip(tip)
+/** A row's state (and the page's headline) as the plugin's Signal. */
+export const SIGNAL: Record<string, SignalState> = { ok: 'ok', run: 'ongoing', nc: 'idle', notice: 'warning', problem: 'error' }
+
+/**
+ * A status: the plugin's Signal (its dot; the reason, checks and commands in
+ * its hover card, opened by pointer or keyboard focus) and the status word.
+ */
+export function StatusSignal({ fid, st, tip, said, className, size, children }: { fid: string, st: string, tip: TipData, said?: string | undefined, className?: string, size?: number, children: ReactNode }): ReactNode {
   return (
-    <button type="button" className={clsx(css.sig, className)} data-st={st} data-fid={fid} {...props} onClick={(e) => { e.stopPropagation(); showNow(e.currentTarget) }}>
-      <Dot s={mark} />{children}{said ? <span className={css.sr}>: {said}</span> : null}
-    </button>
+    <span className={clsx(css.sig, className)} data-st={st}>
+      <Signal state={SIGNAL[st] ?? 'idle'} size={size} fid={fid} title={tip.title} label={said ? `${tip.title}: ${said}` : tip.title} detail={<span className={css.sigCard}><TipBody tip={tip} /></span>} />
+      <span className={css.sigWord}>{children}</span>
+    </span>
   )
 }
 
@@ -106,7 +114,7 @@ function Marks({ fid, room, marks, w }: { fid: string, room: number, marks: read
   const label = `${w.n('dpChecks', marks.length)}: ${marks.map((c) => `${w.checkName(c)} ${w.checkText(c)}`).join(', ')}`
   return (
     <button type="button" className={css.marks} style={style} data-fid={fid} aria-label={label} {...props} onClick={(e) => { e.stopPropagation(); showNow(e.currentTarget) }}>
-      {marks.map((c, i) => <Mark key={i} s={c.r} />)}
+      {marks.map((c, i) => <span key={i} className={css.mkSlot}>{markDot(c.r)}</span>)}
     </button>
   )
 }
@@ -134,7 +142,7 @@ function CheckLine({ fid, c, w }: { fid: string, c: CheckMark, w: Words }): Reac
   return (
     <li>
       <button type="button" className={css.chk} data-fid={fid} {...props} onClick={(e) => { e.stopPropagation(); showNow(e.currentTarget) }}>
-        <Mark s={c.r} /><code>{w.checkName(c)}</code>
+        {markDot(c.r)}<code>{w.checkName(c)}</code>
       </button>
       <span className={css.res}>{w.checkText(c)}</span>
     </li>
@@ -178,7 +186,7 @@ function Cause({ fid, by, ctx }: { fid: string, by: Thing, ctx: RowContext }): R
   const name = w.nameOf(by)
   return (
     <a className={css.cause} href="#" data-fid={fid} aria-label={w.t('dpGoTo', { name })} onClick={(e) => { e.preventDefault(); e.stopPropagation(); ctx.on.goTo(by.key) }}>
-      <Dot s={DOT[stateOf(ctx.state, by).st]} /><span className={css.causeName}>{name}</span>
+      <span className={css.dot}>{markDot(DOT[stateOf(ctx.state, by).st])}</span><span className={css.causeName}>{name}</span>
     </a>
   )
 }
@@ -220,9 +228,9 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
     const title = w.t('dpRefusedTitle', { fix: fixLabel || w.t('dpDetailFix') })
     const said = [refusal.code, refusal.message].filter(Boolean).join(': ')
     more.push(
-      <Sig key="refused" fid={`refused:${key}`} st="notice" mark="warn" said={said} tip={{ title, mark: 'warn', lines: [said, w.t('dpRefusedNothing', { fix: fixLabel || w.t('dpDetailFix') })] }}>
+      <StatusSignal key="refused" fid={`refused:${key}`} st="notice" said={said} tip={{ title, lines: [said, w.t('dpRefusedNothing', { fix: fixLabel || w.t('dpDetailFix') })] }}>
         {w.t('dpRefused')}
-      </Sig>,
+      </StatusSignal>,
     )
   }
   if (full) {
@@ -235,7 +243,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
   }
   const thin = more.length === 0 && !inside
   if (fact) more.push(<span key="fact" className={css.fact}>{fact}</span>)
-  if (inside) more.push(<span key="inside" className={css.inside}><Mark s={v.inside.bad ? 'bad' : 'warn'} />{inside}</span>)
+  if (inside) more.push(<span key="inside" className={css.inside}>{markDot(v.inside.bad ? 'bad' : 'warn')}{inside}</span>)
 
   const acts: ReactNode[] = []
   if (v.canFull) {
@@ -290,7 +298,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
         <span className={css.chev} aria-hidden="true" /><span className={css.ico}><KindGlyph thing={x} /></span>
         <span className={css.name}>{name}</span><span className={css.sr}>, {w.said(v, phase)}</span>
       </button>
-      <Sig fid={`sig:${key}`} st={o.st} mark={DOT[o.st]} tip={sigTip} said={(sigTip.lines ?? []).filter(Boolean).join(' ')}>{w.word(o.st)}</Sig>
+      <StatusSignal fid={`sig:${key}`} st={o.st} tip={sigTip} said={(sigTip.lines ?? []).filter(Boolean).join(' ')}>{w.word(o.st)}</StatusSignal>
       <span className={css.more} data-thin={thin ? '' : undefined}>{more}</span>
       <Marks fid={`marks:${key}`} room={room} marks={v.marks} w={w} />
       <span className={css.acts}>{acts}</span>

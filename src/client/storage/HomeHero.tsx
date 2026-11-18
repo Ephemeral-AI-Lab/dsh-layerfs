@@ -7,11 +7,12 @@
  * The tab bar (Projects, Stores, Machines, Backups) shows each tab's count
  * and a dot when something in it needs you, with the selected tab's actions
  * at its right end; it stays at the top of the scroll while the selected
- * tab's cards scroll under it.
+ * tab's cards scroll under it (the shared ui/TabBar.tsx, as the Doctor page's).
  */
-import type { KeyboardEvent, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
+import { TabBar } from '../ui/TabBar.tsx'
 import css from './HomeHero.module.css'
 
 export interface HeroTab {
@@ -59,16 +60,6 @@ export function HomeHero({ identity, signal, headline, actions, tools, toolsLabe
   /** The runtime card when open, between the header and the tabs. */
   banner?: ReactNode
 }): ReactNode {
-  /** Arrow keys, Home and End move between the tabs, as a tablist does. */
-  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const at = tabs.findIndex((x) => x.key === active)
-    const to = e.key === 'ArrowRight' ? at + 1 : e.key === 'ArrowLeft' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null
-    if (to === null) return
-    e.preventDefault()
-    const next = tabs[(to + tabs.length) % tabs.length]!
-    onSelect(next.key)
-    e.currentTarget.querySelector<HTMLElement>(`[data-key="${next.key}"]`)?.focus()
-  }
   return (
     <>
       <header className={css.hero}>
@@ -82,22 +73,8 @@ export function HomeHero({ identity, signal, headline, actions, tools, toolsLabe
         <nav className={css.tools} aria-label={toolsLabel}>{tools}</nav>
       </header>
       {banner}
-      <div className={css.tabBar}>
-        <div className={css.tabs} role="tablist" aria-label={tabsLabel} onKeyDown={onKey}>
-          {tabs.map((x) => {
-            const on = x.key === active
-            return (
-              <button type="button" key={x.key} data-key={x.key} className={css.tab} data-active={on || undefined}
-                role="tab" aria-selected={on} aria-controls={panelId(x.key)} tabIndex={on ? 0 : -1} onClick={() => onSelect(x.key)}>
-                <span>{x.label}</span>
-                <span className={css.count}>{x.count}</span>
-                {x.tone ? <span className={css.dot} data-tone={x.tone} aria-hidden="true" /> : null}
-              </button>
-            )
-          })}
-        </div>
-        {tabActions ? <div className={css.tabActions}>{tabActions}</div> : null}
-      </div>
+      <TabBar tabs={tabs.map((x) => ({ key: x.key, label: x.label, count: x.count, tone: x.tone, controls: panelId(x.key) }))}
+        active={active} onSelect={onSelect} label={tabsLabel} actions={tabActions} />
     </>
   )
 }

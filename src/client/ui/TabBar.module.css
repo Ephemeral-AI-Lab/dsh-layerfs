@@ -1,0 +1,136 @@
+/* The plugin's tab bar (TabBar.tsx): DSH tokens only, so light and dark follow the theme. */
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+}
+
+/* the tabs scroll sideways when they do not fit; a fade marks each edge that cuts tabs off */
+.scroll {
+  --fl: 0px;
+  --fr: 0px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+}
+
+.scroll::-webkit-scrollbar { display: none; }
+.scroll[data-fade-l] { --fl: 28px; }
+.scroll[data-fade-r] { --fr: 28px; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  width: max-content;
+}
+
+.actions {
+  display: inline-flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab[data-active] {
+  color: var(--dsw-alias-label-primary);
+}
+
+.tab[data-active]::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -0.5px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+/* the label keeps the bold width whether or not it is selected, so selecting never shifts the bar */
+.label { display: inline-grid; }
+.label::after { content: attr(data-text); grid-area: 1 / 1; height: 0; visibility: hidden; font-weight: 500; }
+.label > span { grid-area: 1 / 1; }
+.tab[data-active] .label > span { font-weight: 500; }
+
+.icon {
+  display: inline-flex;
+  color: inherit;
+}
+
+@media (hover: hover) {
+  .tab:not([data-active]):hover {
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.tab:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -4px;
+  border-radius: 6px;
+}
+
+.count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-size: 11.5px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  display: inline-flex;
+  align-items: center;
+  margin-left: -2px;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* a phone: the actions take their own line under the tabs */
+@media (max-width: 480px) {
+  .bar { flex-wrap: wrap; row-gap: 0; }
+  .scroll { flex-basis: 100%; }
+  .actions { padding-bottom: 6px; }
+}

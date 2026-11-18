@@ -233,36 +233,19 @@
   to { transform: rotate(360deg); }
 }
 
-/* ---------- marks: one shape per result, so colour is never the only carrier ----------
-   ok = filled disc, bad = cross, warn = diamond, nc = hollow ring (the one hollow
-   style), run = spinner. .dot is the 14px signal slot; a bare .mk is a check mark. */
+/* ---------- marks: the plugin's StateDot, always beside words that say the same ----------
+   .dot is the 14px signal slot; .mk a StateDot at check-mark size. */
 .mk {
-  display: inline-block;
   flex: none;
-  width: var(--sz, 7px);
-  height: var(--sz, 7px);
 }
 
-.mk[data-s='ok'] { border-radius: 50%; background: var(--doc-ok); }
-.mk[data-s='nc'] { border: 1.5px solid var(--doc-hollow); border-radius: 50%; }
-.mk[data-s='warn'] { border-radius: 1px; background: var(--doc-warn); transform: rotate(45deg) scale(0.88); }
-
-.mk[data-s='bad'] {
-  background:
-    linear-gradient(var(--doc-bad), var(--doc-bad)) center / 100% 2px no-repeat,
-    linear-gradient(var(--doc-bad), var(--doc-bad)) center / 2px 100% no-repeat;
-  transform: rotate(45deg) scale(1.25);
-}
-
-.mk[data-s='run'] {
-  border: 1.5px solid var(--doc-run);
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: doc-spin 900ms linear infinite;
+.mkSlot {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
 }
 
 .dot {
-  --sz: 9px;
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -271,23 +254,15 @@
   height: 14px;
 }
 
-.dot .mk[data-s='run'] { --sz: 11px; }
-
-/* ---------- signal: the dot and its status word, one focusable thing with a tip ---------- */
+/* ---------- status: the plugin's Signal (dot and hover card), then the status word ---------- */
 .sig {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   height: 24px;
-  padding: 0 6px 0 3px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  font: inherit;
-  color: inherit;
+  padding: 0 6px 0 2px;
   white-space: nowrap;
-  cursor: default;
 }
 
 .sig[data-st='problem'],
@@ -298,17 +273,44 @@
 
 .headSig {
   height: 28px;
-  gap: 8px;
-  padding: 0 6px 0 0;
+  gap: 10px;
+  padding: 0 6px 0 2px;
   font-size: 20px;
   font-weight: 500;
   line-height: 28px;
   font-variant-numeric: tabular-nums;
 }
 
-@media (hover: hover) {
-  .sig:hover { background: var(--dsw-alias-interactive-bg-hover); }
+/* what a status says, in its Signal's hover card (the DSH card surface: DSH tokens) */
+.sigCard {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  max-width: min(360px, calc(100vw - 48px));
+  white-space: normal;
 }
+
+.sigCard .tipLine { color: var(--dsw-alias-label-secondary); }
+.sigCard ul { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 0; padding: 0; list-style: none; }
+.sigCard li { display: flex; align-items: center; gap: 7px; }
+.sigCard li i { font-style: normal; color: var(--dsw-alias-label-secondary); }
+.sigCard li code { font-size: 11.5px; }
+
+.sigCard pre {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  font-family: var(--ds-font-family-code);
+  font-size: 11.5px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sigCard pre i { font-style: normal; color: var(--dsw-alias-label-secondary); }
 
 /* ---------- this install ---------- */
 .homeBox {
@@ -318,86 +320,7 @@
   background: var(--dsw-alias-bg-layer-2);
 }
 
-/* ---------- tabs (as storage HomeHero's tab bar) ---------- */
-.tabBar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  margin: 0 -4px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-base);
-}
-
-/* the bar scrolls sideways when the tabs do not fit; a fade marks each edge that cuts tabs off */
-.tabScroll {
-  --fl: 0px;
-  --fr: 0px;
-  padding: 0 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
-  mask-image: linear-gradient(to right, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
-}
-
-.tabScroll::-webkit-scrollbar { display: none; }
-.tabScroll[data-fade-l] { --fl: 28px; }
-.tabScroll[data-fade-r] { --fr: 28px; }
-
-.tabs {
-  display: flex;
-  gap: 4px;
-  width: max-content;
-}
-
-.tab {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 7px;
-  height: 40px;
-  padding: 0 10px 0 12px;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 13.5px;
-  color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
-}
-
-.tab[aria-selected='true'] { color: var(--dsw-alias-label-primary); }
-
-.tab[aria-selected='true']::after {
-  content: '';
-  position: absolute;
-  right: 8px;
-  bottom: -0.5px;
-  left: 8px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--doc-run);
-}
-
-/* the label keeps the bold width whether or not it is selected, so selecting never shifts the bar */
-.tabLabel { display: inline-grid; }
-.tabLabel::after { content: attr(data-text); grid-area: 1 / 1; height: 0; visibility: hidden; font-weight: 500; }
-.tabLabel > span { grid-area: 1 / 1; }
-.tab[aria-selected='true'] .tabLabel > span { font-weight: 500; }
-.root .tab:focus-visible { outline-offset: -4px; border-radius: 6px; }
-
-.tabCount {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--dsw-alias-label-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.tab .dot { margin-left: -2px; }
-.tab .ico { color: inherit; }
-
-@media (hover: hover) {
-  .tab:hover { color: var(--dsw-alias-label-primary); }
-}
+/* ---------- tabs: the shared tab bar (ui/TabBar.tsx) ---------- */
 
 /* ---------- list card and rows ---------- */
 .card {
@@ -778,7 +701,6 @@ span.marks { visibility: hidden; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mk[data-s='run'] { animation: none; border-style: dotted; border-right-color: var(--doc-run); }
   .btn[aria-busy='true']::after { animation: none; border-style: dotted; }
   .chev,
   .btn { transition: none; }

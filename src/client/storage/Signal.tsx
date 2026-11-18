@@ -12,10 +12,14 @@ export type SignalState = 'ok' | 'warning' | 'error' | 'idle' | 'ongoing'
 
 const DOT = { ok: 'done', warning: 'warning', error: 'error', idle: 'idle', ongoing: 'ongoing' } as const
 
-export function Signal({ state, title, detail, action, size = 8 }: {
+export function Signal({ state, title, detail, action, size = 8, label, fid }: {
   state: SignalState
-  /** The state in a few words (also the dot's accessible name). */
+  /** The state in a few words (also the dot's accessible name unless `label` names it). */
   title: string
+  /** The dot's accessible name when it says more than `title` (the reason read after the word). */
+  label?: string | undefined
+  /** A focus key the page restores focus by (`data-fid`). */
+  fid?: string | undefined
   /** The longer reason, usually LayerFS's own words. */
   detail?: ReactNode
   /** The fix, as a button inside the hover card. */
@@ -26,7 +30,7 @@ export function Signal({ state, title, detail, action, size = 8 }: {
     <span className={css.root} onClick={(e) => e.stopPropagation()}>
       <HoverCard inline fitContent openDelayMs={120}
         anchor={(
-          <button type="button" className={css.signal} data-state={state} aria-label={title}>
+          <button type="button" className={css.signal} data-state={state} aria-label={label ?? title} data-fid={fid}>
             <StateDot state={DOT[state]} size={state === 'ongoing' ? size + 3 : size} />
           </button>
         )}
