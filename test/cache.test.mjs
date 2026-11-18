@@ -34,7 +34,7 @@ const MUTATING = new Set([
   'store.create', 'store.remove', 'store.connect', 'store.update', 'store.push', 'store.pull', 'store.disconnect',
   'sandbox.create', 'sandbox.close',
   'workspace.mount', 'workspace.unmount', 'workspace.commit', 'workspace.exec', 'workspace.exec_cancel',
-  'project.init', 'project.remove', 'project.export',
+  'project.init', 'project.remove', 'project.delete', 'project.export',
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load', 'machine.prune',
   'backup.create', 'backup.restore', 'backup.connect', 'backup.disconnect',
   'logs.reset',

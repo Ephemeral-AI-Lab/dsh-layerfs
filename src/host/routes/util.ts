@@ -44,9 +44,9 @@ export interface RouteHost {
   closeSessionSandbox?(name: string): Promise<boolean>
   /** Guard a name-based route against a permanent project identity. */
   assertProjectIdentity?(project: string, projectId: string): Promise<unknown>
-  /** Before project.remove: close the project's session Sandboxes. */
+  /** Before project.delete: close the project's session Sandboxes. */
   projectRemoving?(project: string): Promise<void>
-  /** After project.remove: retain history and invalidate execution bindings. */
+  /** After project.delete: retain history and invalidate execution bindings. */
   projectRemoved?(project: string): Promise<void>
   /** A confirmed machine stop invalidates local mounts without deleting history. */
   machinesStopped?(machines: string[]): Promise<void>

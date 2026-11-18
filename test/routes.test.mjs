@@ -555,6 +555,21 @@ test('storage jobs: push runs as a job with storage-job events; one job per Stor
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('project removal sends project.delete when the runtime has it, and project.remove on one from before', async () => {
+  const table = (call) => async () => ({ ...(await discovery()), calls: [{ family: 'project', call, args: [{ name: 'project', kind: 'project' }], options: [] }] })
+  for (const call of ['delete', 'remove']) {
+    const sent = []
+    const project = { delete: async (key) => { sent.push(['delete', key]); return { kind: 'Removed' } }, remove: async (key) => { sent.push(['remove', key]); return {} } }
+    const { http, root } = fakeGroups({ ...base, project }, table(call))
+    try {
+      const r = await http('DELETE', '/api/projects/s1%2Fp')
+      assert.equal(r.status, 200)
+      assert.deepEqual(r.body, { removed: true })
+      assert.deepEqual(sent, [[call, 's1/p']])
+    } finally { rmSync(root, { recursive: true, force: true }) }
+  }
+})
+
 test('storage jobs: compact runs as a job with its steps, phases and report; an older runtime has none', async () => {
   const compactCall = (options) => async () => ({ ...(await discovery()), calls: [{ family: 'store', call: 'compact', args: [{ name: 'name', kind: 'name' }], options }] })
   let finish, given

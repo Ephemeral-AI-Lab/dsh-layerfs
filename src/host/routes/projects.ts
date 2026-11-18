@@ -18,7 +18,7 @@
  *   commits       commit.list, newest first, each Commit's changed paths from
  *                 commit.diff against its parent
  *   listDir/file  file.list, file.stat and file.read
- *   remove        project.remove (InUse while any Sandbox record exists)
+ *   remove        project.delete, or project.remove on an older runtime
  * Every LayerFS call is made once; a refusal passes through with its code.
  * Saved reads are pinned and paged. Store allocation and project tree
  * statistics are independent queries with separate scopes.
@@ -645,12 +645,18 @@ export class Projects {
     return out
   }
 
-  /** project.remove: refused InUse while any of its Sandbox records exists, Unsupported for a PostgreSQL project. */
+  /**
+   * project.delete: refused MountsActive while a mount of the project is live; the project's data stays in its Store until
+   * store.compact collects it. A runtime from before layerfs-project#41 has project.remove instead (InUse while any Sandbox
+   * record exists, Unsupported for a PostgreSQL project).
+   */
   async remove(key: string) {
     const { key: project } = projectRef(key)
-    // DSH sessions of the project hold Sandboxes (InUse): save and close them first.
+    // DSH sessions of the project hold Sandboxes and mounts: save and close them first.
     await this.host.projectRemoving?.(project)
-    await this.lfs.project.remove(project)
+    const hasDelete = (await this.host.discover()).calls.some((c) => c.family === 'project' && c.call === 'delete')
+    if (hasDelete) await this.lfs.project.delete(project)
+    else await this.lfs.project.remove(project)
     await this.host.projectRemoved?.(project)
     return { removed: true }
   }
