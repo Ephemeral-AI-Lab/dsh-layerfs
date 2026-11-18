@@ -12,9 +12,9 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { Card } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { runsOnOf } from './model.ts'
+import { backupStateOf, runsOnOf, storeStateWords, type BackupState } from './model.ts'
 import type { StoreActions } from './StoreCard.tsx'
-import type { BackupState, StorageView, StoreRow } from './types.ts'
+import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
 
 const STATE_TONE: Partial<Record<BackupState, 'ok' | 'warning' | 'danger'>> = {
@@ -23,7 +23,7 @@ const STATE_TONE: Partial<Record<BackupState, 'ok' | 'warning' | 'danger'>> = {
 
 export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, view: StorageView, t: StorageT, now: number, on: StoreActions }): ReactNode {
   const tt = t as Translate
-  const blocked = s.state === 'down' || s.state === 'busy'
+  const blocked = s.state !== 'ready'
   return (
     <div className={css.stack}>
       <div className={css.toolbar}>
@@ -36,14 +36,15 @@ export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, 
         const file = bucket?.files?.find((f) => f.file === link.file && f.store === s.name)
         const at = file?.modified ?? link.last?.at
         const size = file?.bytes ?? link.last?.bytes
-        const tone = file ? STATE_TONE[file.state] : undefined
+        const state = backupStateOf(file)
+        const tone = state ? STATE_TONE[state] : undefined
         return (
           <Card key={link.bucket} className={css.linkCard} data-backup-link={link.bucket}>
             <div className={css.linkHead}>
               <span className={css.linkName}>{link.bucket}</span>
               <span className={css.mono}>{link.file}</span>
               <span className={css.spacer} />
-              {file ? <span className={css.statePill} data-tone={tone}>{t(`spBackupState_${file.state}` as Parameters<StorageT>[0])}</span> : null}
+              {state ? <span className={css.statePill} data-tone={tone} title={file?.message ?? undefined}>{t(`spBackupState_${state}` as Parameters<StorageT>[0])}</span> : null}
             </div>
             <dl className={css.linkFacts}>
               <div><dt>{t('spLastSaved')}</dt><dd title={when(at)}>{at ? ago(at, now, tt) : t('noBackupTime')}</dd></div>
@@ -63,7 +64,7 @@ export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, 
 
 /**
  * A PostgreSQL Store's Connection: the one connection every machine dials
- * (URL, password reference, synchronous_commit) with Edit and Check from a
+ * (URL, saved login, synchronous_commit) with Edit and Check from a
  * machine, and where its sessions run. A machine is listed only when it
  * dials a connection of its own, with Check, Edit and Remove.
  */
@@ -74,8 +75,8 @@ export function StoreConnection({ store: s, view, t, on }: { store: StoreRow, vi
   const place = (m: string) => (m === 'native' ? t('layerfsHome') : m)
   const platformOf = (m: string) => view.machines.find((x) => x.name === m)?.platform ?? (m === 'native' ? 'native' : 'unknown')
   const mark = (m: string) => <span className={css.linkMark} aria-hidden="true">{m === 'native' ? <HomeGlyph size={16} /> : <MachineGlyph platform={platformOf(m)} size={16} />}</span>
-  const password = (reference: string | null | undefined, saved: boolean | undefined) => (saved ? t('pgPasswordSaved') : reference ?? '—')
-  const reached = pg?.reachable
+  // 2.0: a ready Store reached its server; broken with a reason did not (the state word and reason; its fix is the tip)
+  const reached = s.state === 'ready' ? true : s.state === 'broken' ? false : null
   return (
     <div className={css.stack}>
       <Card className={css.linkCard} data-tone={reached === false ? 'danger' : undefined} data-connection={s.name}>
@@ -86,13 +87,13 @@ export function StoreConnection({ store: s, view, t, on }: { store: StoreRow, vi
         </div>
         <dl className={css.linkFacts}>
           <div><dt>{t('pgUrl')}</dt><dd className={css.mono}>{pg?.url ?? '—'}</dd></div>
-          <div><dt>{t('pgPasswordHow')}</dt><dd className={pg?.saved ? undefined : css.mono}>{password(pg?.password, pg?.saved)}</dd></div>
+          <div><dt>{t('pgPasswordHow')}</dt><dd className={css.mono}>{pg?.auth ? t('pgPasswordSaved', { auth: pg.auth }) : '—'}</dd></div>
           <div><dt>{t('syncCommit')}</dt><dd>{pg?.synchronousCommit ?? t('syncCommitDefault')}</dd></div>
           <div>
             <dt>{t('spServer')}</dt>
-            <dd title={reached === false ? pg?.error ?? undefined : pg?.version ?? undefined}>
-              {reached === false ? <span className={css.dangerText}>{pg?.error ?? t('unreachable')}</span>
-                : reached ? [t('msReachableMs', { latency: pg?.latencyMs ?? '—' }), pg?.version ? t('msPgShort', { version: pg.version.split(' ')[0]! }) : null].filter(Boolean).join(' · ')
+            <dd title={reached === false ? s.fix ?? undefined : undefined}>
+              {reached === false ? <span className={css.dangerText}>{storeStateWords(s.state, t, s.reason)}</span>
+                : reached ? storeStateWords(s.state, t)
                   : t('unknown')}
             </dd>
           </div>
@@ -120,7 +121,7 @@ export function StoreConnection({ store: s, view, t, on }: { store: StoreRow, vi
             <span className={css.mono}>{c.url ? c.target ?? c.url : t('pgOwnPasswordOnly')}</span>
           </div>
           <dl className={css.linkFacts}>
-            <div><dt>{t('pgPasswordHow')}</dt><dd className={c.saved ? undefined : css.mono}>{c.password || c.saved ? password(c.password, c.saved) : t('pgOwnStorePassword')}</dd></div>
+            <div><dt>{t('pgPasswordHow')}</dt><dd>{t('pgOwnStorePassword')}</dd></div>
           </dl>
           <div className={css.linkActions}>
             <Button variant="outline" size="sm" onClick={() => on.check(c.machine)}>{t('cdCheck')}</Button>

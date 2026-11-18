@@ -24,19 +24,19 @@ test('the third tab follows the Store family', () => {
   assert.deepEqual(P.storeTabs('postgresql'), ['overview', 'projects', 'connections'])
 })
 
-test('file parts are shares of what LayerFS reported; unknown parts are left out', () => {
-  const parts = P.fileParts({ stored: 2001045, metadata: 227705, free: 0, file: 2228224 })
+test('file parts are shares of what LayerFS reported (2.0 `stats` bytes); unknown parts are left out', () => {
+  const parts = P.fileParts({ stored_bytes: 2001045, metadata_bytes: 227705, reusable_bytes: 0, file_bytes: 2228224 })
   assert.deepEqual(parts.map((p) => p.key), ['stored', 'metadata', 'free'])
   assert.ok(Math.abs(parts.reduce((a, p) => a + p.share, 0) - 1) < 1e-9)
-  assert.deepEqual(P.fileParts({ stored: 10, metadata: 5, free: null }).map((p) => p.key), ['stored', 'metadata'])
-  assert.equal(P.fileParts({ stored: null, metadata: null, free: null }), null)
+  assert.deepEqual(P.fileParts({ stored_bytes: 10, metadata_bytes: 5, reusable_bytes: null }).map((p) => p.key), ['stored', 'metadata'])
+  assert.equal(P.fileParts({ stored_bytes: null, metadata_bytes: null, reusable_bytes: null }), null)
   assert.equal(P.fileParts(undefined), null)
-  assert.equal(P.compressionOf({ canonical: 500, stored: 100 }), 5)
-  assert.equal(P.compressionOf({ canonical: 500, stored: 0 }), null)
+  assert.equal(P.compressionOf({ canonical_bytes: 500, stored_bytes: 100 }), 5)
+  assert.equal(P.compressionOf({ canonical_bytes: 500, stored_bytes: 0 }), null)
 })
 
 test('growth uses the newest series and breaks at gaps over the journal gap', () => {
-  const pt = (observedAt, file) => ({ observedAt, stats: { file, stored: file / 2, metadata: 1 } })
+  const pt = (observedAt, file) => ({ observedAt, stats: { file_bytes: file, stored_bytes: file / 2, metadata_bytes: 1 } })
   const journal = { gapAfterMs: 100, series: [
     { identity: 'old', startedAt: 0, points: [pt(1, 9)] },
     { identity: 'new', startedAt: 10, points: [pt(30, 3), pt(10, 1), pt(50, 4), pt(300, 8), pt(350, 9)] },

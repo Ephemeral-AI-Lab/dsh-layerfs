@@ -1,24 +1,29 @@
 /** Storage's pure rules: placement, attention, backup coverage and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
-import type { BackupState, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
+import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import type { StorageT } from './locale.ts'
 
 /** A sqlite Store saved under the LayerFS home (`native`). */
 export const inHome = (s: StoreRow): boolean => s.kind === 'sqlite' && s.machine === 'native'
 
-/**
- * Why store.compact cannot start on a Store now, or null. LayerFS compacts a
- * sqlite Store only where its file is, and the home is the one place this app
- * runs it; a PostgreSQL Store is compacted on its server.
- */
-export function compactBlock(s: StoreRow, t: StorageT): string | null {
-  if (s.kind === 'sqlite' && !inHome(s)) return t('compactNeedsHome')
-  if (s.state !== 'idle') return t('compactNeedsIdle')
-  return null
-}
+/** project.init goes into a ready Store (LayerFS refuses a busy, blocked or broken one). */
+export const canAddProject = (s: StoreRow): boolean => s.state === 'ready'
 
-/** project.init goes into a Store on any machine, not while it is down or busy. */
-export const canAddProject = (s: StoreRow): boolean => s.kind === 'postgresql' || (s.state !== 'down' && s.state !== 'busy')
+/**
+ * A backup file's state, from 2.0's `behind` (the Store changed since its last
+ * backup), `changed` (the bucket's copy is not the one the link last moved)
+ * and `missing`; `unknown` when LayerFS could not read them (`message`),
+ * `unlinked` when no Store of this home links the file.
+ */
+export type BackupState = 'current' | 'store_changed' | 'bucket_changed' | 'both_changed' | 'unlinked' | 'missing' | 'unknown'
+
+export function backupStateOf(f: Pick<BackupFile, 'store' | 'behind' | 'changed' | 'missing'> | null | undefined): BackupState | null {
+  if (!f) return null
+  if (f.missing) return 'missing'
+  if (!f.store) return 'unlinked'
+  if (f.behind == null || f.changed == null) return 'unknown'
+  return f.behind ? (f.changed ? 'both_changed' : 'store_changed') : f.changed ? 'bucket_changed' : 'current'
+}
 
 const byName = (a: StoreRow, b: StoreRow) => a.name.localeCompare(b.name)
 
@@ -44,14 +49,14 @@ export function machinePlaces(view: StorageView): StorageView['machines'] {
 
 /** A Store the explorer lets you drag to another place (the Store menu's move gating). */
 export const canMove = (s: StoreRow): boolean =>
-  s.kind === 'sqlite' && !s.job && (inHome(s) ? s.state === 'idle' : s.state !== 'busy')
+  s.kind === 'sqlite' && !s.job && s.state === 'ready'
 
 /** A link's file as its bucket's last listing has it. */
 export const listedOf = (s: StoreRow, bucket: string, file: string, buckets: readonly BucketRow[]) =>
   buckets.find((b) => b.name === bucket)?.files?.find((f) => f.file === file && f.store === s.name)
 
 /** A link's last listed state, when its bucket was listed. */
-export const linkState = (s: StoreRow, bucket: string, file: string, buckets: readonly BucketRow[]): BackupState | undefined => listedOf(s, bucket, file, buckets)?.state
+export const linkState = (s: StoreRow, bucket: string, file: string, buckets: readonly BucketRow[]): BackupState | undefined => backupStateOf(listedOf(s, bucket, file, buckets)) ?? undefined
 
 /** A tree row's status dot and the words that explain it. */
 export interface RowSignal { state: 'error' | 'warning' | 'ongoing', reason: string }
@@ -67,9 +72,10 @@ export function worstSignal(signals: readonly (RowSignal | null | undefined)[]):
 export function storeSignal(s: StoreRow, job: StorageJob | undefined, machineState: string | null | undefined, buckets: readonly BucketRow[], t: StorageT): RowSignal | null {
   if (job && !job.ended) return { state: 'ongoing', reason: doingWords(job, t) }
   if (job?.error) return { state: 'error', reason: endedWords(job, t) }
-  if (s.state === 'down') return { state: 'error', reason: s.down ? `${t('stateDown')}: ${s.down}` : t('stateDown') }
-  if (s.state === 'unresolved') return { state: 'error', reason: t('unresolved') }
-  if (s.postgresql?.reachable === false) return { state: 'error', reason: s.postgresql.error ?? t('unreachable') }
+  // the state's word and its reason; the fix is the card's one action
+  if (s.state === 'broken') return { state: 'error', reason: s.reason === 'unresolved' ? t('unresolved') : storeStateWords(s.state, t, s.reason) }
+  if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? t('machineStopped', { machine: s.blockedBy.machine }) : storeStateWords(s.state, t, s.blockedBy?.reason) }
+  if (s.state === 'unknown') return { state: 'warning', reason: storeStateWords(s.state, t) }
   const links = s.links.map((l) => ({ l, state: linkState(s, l.bucket, l.file, buckets) }))
   const linkReason = (x: typeof links[number]) => `${x.l.bucket}/${x.l.file}: ${backupChip(x.state, t).label}`
   const broken = links.find((x) => x.state === 'both_changed' || x.state === 'missing')
@@ -89,26 +95,32 @@ export function bucketSignal(rows: readonly BucketFileRow[], t: StorageT): RowSi
   }))
 }
 
-/** A Store's SDK state as a chip tone. */
+/** A Store's 2.0 state as a chip tone. */
 export function storeTone(state: string): Tone {
-  if (state === 'idle') return 'success'
-  if (state === 'in_use') return 'info'
-  if (state === 'busy') return 'warning'
-  if (state === 'down' || state === 'unresolved') return 'danger'
+  if (state === 'ready') return 'success'
+  if (state === 'busy') return 'info'
+  if (state === 'blocked' || state === 'stopped') return 'warning'
+  if (state === 'broken') return 'danger'
   return 'neutral'
 }
 
-/** A Store's state in words. */
-export function storeStateWords(state: string, t: StorageT): string {
-  switch (state) {
-    case 'idle': return t('stateIdle')
-    case 'in_use': return t('stateInUse')
-    case 'busy': return t('stateBusy')
-    case 'down': return t('stateDown')
-    case 'unresolved': return t('stateUnresolved')
-    default: return state
-  }
+/** A Store's state in words (one of the six), with its reason code when given: `Broken · unresolved`. */
+export function storeStateWords(state: string, t: StorageT, reason?: string | null): string {
+  const word = (() => {
+    switch (state) {
+      case 'ready': return t('stateReady')
+      case 'busy': return t('stateBusy')
+      case 'stopped': return t('stateStopped')
+      case 'blocked': return t('stateBlocked')
+      case 'broken': return t('stateBroken')
+      default: return t('stateUnknown')
+    }
+  })()
+  return reason ? `${word} · ${reason.replace(/_/g, ' ')}` : word
 }
+
+/** A Store's one action from its `fix`, when the line is a layerfs call the page can name (the card shows it as the tip's action). */
+export const storeFix = (s: Pick<StoreRow, 'fix'>): string | null => (typeof s.fix === 'string' && s.fix.startsWith('layerfs ') ? s.fix : null)
 
 /** A backup file's state: its tone and words. */
 export function backupChip(state: BackupState | null | undefined, t: StorageT): { tone: Tone, label: string, dashed?: boolean } {
@@ -156,7 +168,7 @@ export function bucketFiles(b: BucketRow, stores: readonly StoreRow[]): BucketFi
   const byName = new Map(stores.map((s) => [s.name, s]))
   const linkOf = (s: StoreRow | undefined, file: string) => s?.links.find((l) => l.bucket === b.name && l.file === file) ?? null
   const rows: BucketFileRow[] = b.files
-    ? b.files.map((f) => ({ file: f.file, store: (f.store && byName.get(f.store)) || null, storeName: f.store, state: f.state, bytes: f.bytes, modified: f.modified, reason: f.reason, link: linkOf(f.store ? byName.get(f.store) : undefined, f.file) }))
+    ? b.files.map((f) => ({ file: f.file, store: (f.store && byName.get(f.store)) || null, storeName: f.store, state: backupStateOf(f), bytes: f.bytes, modified: f.modified, reason: f.message, link: linkOf(f.store ? byName.get(f.store) : undefined, f.file) }))
     : stores.flatMap((s) => s.links.filter((l) => l.bucket === b.name).map((l) => ({ file: l.file, store: s, storeName: s.name, state: null, bytes: l.last?.bytes ?? null, modified: null, reason: null, link: l })))
   return rows.sort((x, y) => x.file.localeCompare(y.file) || (x.storeName ?? '').localeCompare(y.storeName ?? ''))
 }
@@ -247,8 +259,8 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
     case 'restore': return t('jobRestored', { place })
     case 'compact': {
       // the report's own words: nothing was worth rebuilding, or what the Store shrank by
-      if (j.result?.path === 'none') return t('jobCompactedNone', { place })
-      const freed = j.result?.physical_shrink
+      if (j.result?.outcome === 'unchanged') return t('jobCompactedNone', { place })
+      const freed = j.result?.freed_bytes
       return size && typeof freed === 'number' && freed > 0 ? t('jobCompactedFreed', { place, freed: size(freed) }) : t('jobCompacted', { place })
     }
   }

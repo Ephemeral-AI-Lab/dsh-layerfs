@@ -1,6 +1,6 @@
 /**
- * The last size each Store's file was read at. store.status measures a
- * sqlite Store's file through its machine's worker, so a Store on a stopped
+ * The last size each Store's file was read at. `store list --with stats`
+ * stats a sqlite Store's file through its machine, so a Store on a stopped
  * machine (or one whose worker does not answer) has no size to read. Its
  * card then shows the last size this home saw, marked with when it was seen,
  * instead of "Size unavailable". Kept in `<home>/stat/store-sizes.json` so a
@@ -9,7 +9,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export interface StoreSize { bytes: number, file: number, wal: number }
+/** A sqlite Store's size: its file with its write-ahead log (2.0 `size`). */
+export interface StoreSize { bytes: number }
 /** A size as the Storage view answers it: `seen` (and `stale`) only for a kept size. */
 export type SizeAnswer = StoreSize & { seen?: number, stale?: true }
 
@@ -36,7 +37,7 @@ export class StoreSizes {
 
   /**
    * Each listed Store's size: the one read now (kept), else the last kept one
-   * marked stale. `read` holds null where store.status had no size.
+   * marked stale. `read` holds null where the list had no size.
    */
   answer(rows: { name: string, size: StoreSize | null }[]): (SizeAnswer | null)[] {
     const kept = this.load()
@@ -47,11 +48,11 @@ export class StoreSizes {
     const out = rows.map(({ name, size }) => {
       if (size) {
         const old = kept[name]
-        if (!old || old.bytes !== size.bytes || old.file !== size.file || old.wal !== size.wal || at - old.at > 60_000) { kept[name] = { ...size, at }; changed = true }
+        if (!old || old.bytes !== size.bytes || at - old.at > 60_000) { kept[name] = { ...size, at }; changed = true }
         return size
       }
       const old = kept[name]
-      return old ? { bytes: old.bytes, file: old.file, wal: old.wal, seen: old.at, stale: true as const } : null
+      return old ? { bytes: old.bytes, seen: old.at, stale: true as const } : null
     })
     if (changed) this.save()
     return out

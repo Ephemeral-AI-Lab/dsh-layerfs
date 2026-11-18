@@ -41,10 +41,9 @@ const providerRank = (p: string | null) => { const i = PROVIDER_ORDER.indexOf(p 
 
 const shortDate = (at: number) => new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
-/** A self-hosted bucket's endpoint host (R2's names only an account id, so R2 keeps its provider name). */
+/** Where a bucket is: its provider (2.0's home tree names a bucket and its provider, not its address). */
 function whereOf(b: BucketRow, t: StorageT): string {
-  if (b.provider !== 'r2' && b.url) { try { return new URL(b.url).host } catch { return b.url } }
-  return b.region && b.provider !== 'r2' ? b.region : providerWords(b.provider, t)
+  return providerWords(b.provider, t)
 }
 
 export function BucketCards({ view, t, now, jobs, onOpen, onAddBucket, onList, onRestore }: {

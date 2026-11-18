@@ -8,7 +8,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { LinkButton, MoreMenu } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { compactBlock, inHome, latestBackup } from './model.ts'
+import { inHome, latestBackup, storeStateWords } from './model.ts'
 import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
@@ -54,7 +54,8 @@ export function Location({ store: s, t, onMachine }: { store: StoreRow, t: Stora
  */
 export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined }): ReactNode {
   const pg = s.kind === 'postgresql'
-  const blocked = compactBlock(s, t)
+  // LayerFS compacts a ready Store where it lives (a machine's sqlite Store on its worker); it refuses any other
+  const blocked = s.state === 'ready' ? null : t('compactNeedsIdle')
   return (
     <MoreMenu label={t('storeActions', { name: s.name })}>
       {(close) => {
@@ -70,16 +71,16 @@ export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: S
         ) : (
           <>
             {inHome(s)
-              ? <MenuItemButton disabled={s.state !== 'idle'} onSelect={run(on.push)}>{t('pushTo')}</MenuItemButton>
+              ? <MenuItemButton disabled={s.state !== 'ready'} onSelect={run(on.push)}>{t('pushTo')}</MenuItemButton>
               : (
                 <>
-                  <MenuItemButton disabled={s.state === 'busy'} onSelect={run(on.pull)}>{t('pullHome')}</MenuItemButton>
-                  <MenuItemButton disabled={s.state === 'busy'} onSelect={run(on.move)}>{t('moveTo')}</MenuItemButton>
+                  <MenuItemButton disabled={s.state !== 'ready'} onSelect={run(on.pull)}>{t('pullHome')}</MenuItemButton>
+                  <MenuItemButton disabled={s.state !== 'ready'} onSelect={run(on.move)}>{t('moveTo')}</MenuItemButton>
                 </>
               )}
-            <MenuItemButton disabled={s.state === 'down' || s.state === 'busy'} onSelect={run(on.backup)}>{t('backupTo')}</MenuItemButton>
+            <MenuItemButton disabled={s.state !== 'ready'} onSelect={run(on.backup)}>{t('backupTo')}</MenuItemButton>
             {s.links.map((l) => (
-              <MenuItemButton key={l.bucket} disabled={s.state === 'down' || s.state === 'busy'} onSelect={run(() => on.backupTo(l))}>
+              <MenuItemButton key={l.bucket} disabled={s.state !== 'ready'} onSelect={run(() => on.backupTo(l))}>
                 {`${t('backupNow')} · ${l.bucket}/${l.file}`}
               </MenuItemButton>
             ))}
@@ -104,7 +105,7 @@ export function StoreSub({ store: s, t, now, onMachine }: { store: StoreRow, t: 
       {!pg ? (
         <>
           <span className={css.dotSep} aria-hidden="true">·</span>
-          <span title={s.size ? `${bytes(s.size.file)} + WAL ${bytes(s.size.wal)}` : undefined}>{s.size ? (s.size.stale && s.size.seen ? `${bytes(s.size.bytes)} (${t('msSizeSeen', { when: ago(s.size.seen, now, t as Translate) })})` : bytes(s.size.bytes)) : t('sizeUnavailable')}</span>
+          <span>{s.size ? (s.size.stale && s.size.seen ? `${bytes(s.size.bytes)} (${t('msSizeSeen', { when: ago(s.size.seen, now, t as Translate) })})` : bytes(s.size.bytes)) : t('sizeUnavailable')}</span>
           <span className={css.dotSep} aria-hidden="true">·</span>
           <span>{!s.links.length ? t('noBackup') : [s.links.length === 1 ? t('backupOne') : t('backups', { n: s.links.length }), latest !== null && ago(latest, now, t as Translate)].filter(Boolean).join(' · ')}</span>
         </>
@@ -113,11 +114,11 @@ export function StoreSub({ store: s, t, now, onMachine }: { store: StoreRow, t: 
   )
 }
 
-/** Why a Store needs you now, if it does. */
+/** Why a Store needs you now, if it does: its state word and reason (the fix is the one action beside it). */
 export function storeNotice(s: StoreRow, machineState: string | null | undefined, t: StorageT): string | null {
-  if (s.down) return s.down
-  if (s.state === 'unresolved') return t('unresolved')
+  if (s.state === 'broken' && s.reason === 'unresolved') return t('unresolved')
+  if (s.state === 'blocked' && s.blockedBy?.machine) return t('machineStopped', { machine: s.blockedBy.machine })
+  if (s.state === 'broken' || s.state === 'blocked' || s.state === 'unknown') return storeStateWords(s.state, t, s.reason ?? s.blockedBy?.reason)
   if (s.kind === 'sqlite' && machineState === 'stopped') return t('machineStopped', { machine: s.machine ?? '?' })
-  if (s.kind === 'postgresql' && s.postgresql?.reachable === false) return s.postgresql.error ?? t('unreachable')
   return null
 }

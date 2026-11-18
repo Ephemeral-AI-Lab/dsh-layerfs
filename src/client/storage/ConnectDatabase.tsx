@@ -14,11 +14,11 @@
  *   server its host, user and password (a pasted connection URL fills them),
  *   and Runs on. store.connect, then the check from that machine.
  * - check: the path the machine dials (machine, server, Store) and the three
- *   things the check tries from there (store.status --machine). It answers
+ *   things the check tries from there (store doctor --machine). It answers
  *   once, so the path runs as one until it does; a failure marks the step
  *   LayerFS names (machine-stores.ts `failedStep`), else shows as it came.
  *   Only then, and only for a server not reached, the machine can be given
- *   an address of its own (store.update --machine, which LayerFS checks
+ *   an address of its own (store connect --machine, which LayerFS checks
  *   from the machine before it saves anything).
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
@@ -32,7 +32,7 @@ import type { StorageT } from './locale.ts'
 import { CHECK_STEPS, failedStep, parsePgUrl, pgUrl, routedServer, serverGroups, serverKey, type CheckStep, type PgServerGroup } from './machine-stores.ts'
 import { loopbackAlias, runsOnOf } from './model.ts'
 import { locationWords, refusalLabels, StoreGlyph, TextField } from './parts.tsx'
-import { PG_URL_PASSWORD, PgPasswordFields, usePgPassword } from './pg-fields.tsx'
+import { PG_URL_LOGIN, PG_URL_PASSWORD, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
 import type { PgCheck, StorageView, StoreRow } from './types.ts'
 import css from './MachineStores.module.css'
 import scss from './Storage.module.css'
@@ -83,7 +83,6 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
   })
   const [own, setOwn] = useState(false)
   const [ownUrl, setOwnUrl] = useState('')
-  const ownPw = usePgPassword()
   // one call at a time: a newer check wins, an older answer is dropped
   const turn = useRef(0)
 
@@ -124,14 +123,13 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
           <NewDatabase api={api} t={t} view={view} fixed={fixed} server={screen.server} place={place}
             onConnected={(store, machine) => { done(); void check(store, machine, { connected: true }) }} />
         ) : (
-          <CheckView t={t} view={view} check={screen.check} place={place} own={own} ownUrl={ownUrl} setOwnUrl={setOwnUrl} ownPw={ownPw}
+          <CheckView t={t} view={view} check={screen.check} place={place} own={own} ownUrl={ownUrl} setOwnUrl={setOwnUrl}
             onFrom={(machine) => { setOwn(false); void check(screen.check.store, machine, { connected: screen.check.connected }) }}
             onOwn={() => setOwn(true)}
             onRetryOwn={() => {
               const { store, machine, connected } = screen.check
-              void check(store, machine, { connected }, () => api.call('POST', `/api/stores/${enc(store)}/connection`, {
-                machine, ...(ownUrl.trim() ? { url: ownUrl.trim() } : {}), ...(ownPw.missing ? {} : ownPw.body()),
-              }))
+              // a machine's own address only: the Store's saved login goes with it (store connect --machine)
+              void check(store, machine, { connected }, () => api.call('POST', `/api/stores/${enc(store)}/connection`, { machine, url: ownUrl.trim() }))
             }} />
         )}
       </div>
@@ -174,7 +172,7 @@ function Pick({ t, groups, fixed, place, onCheck, onRunHere, onNew }: {
             const database = s.postgresql?.database
             return (
               <div key={s.name} className={css.db} data-pg-store={s.name}>
-                <StateDot state={s.postgresql?.reachable === false ? 'error' : s.postgresql?.reachable ? 'done' : 'idle'} size={8} />
+                <StateDot state={s.state === 'broken' ? 'error' : s.state === 'ready' ? 'done' : 'idle'} size={8} />
                 <span className={css.dbMain}>
                   <span className={css.dbName}>{s.name}</span>
                   <span className={css.dbSub}>{[database && database !== s.name ? database : null, t('pgRunsOn', { machine: place(on) }), s.projects.join(', ') || t('msNoProjects')].filter(Boolean).join(' · ')}</span>
@@ -210,8 +208,10 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
   const [name, setName] = useState('')
   const [named, setNamed] = useState(false)
   const [sync, setSync] = useState('')
-  // a database on a known server takes that server's password unless another is given
+  // a database on a known server takes that server's saved login unless another is given; a pasted URL's user fills the login's
   const pw = usePgPassword('entered', '', server?.stores[0]?.name ?? null)
+  const auths = usePgAuths(api)
+  const loginUser = pw.user.trim() || user
   const machines = machinesFor(view, 'postgresql')
   const fallback = defaultMachine(machines)
   const [picked, setPicked] = useState<string | null>(null)
@@ -225,7 +225,8 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
   // a URL that names no server or no database is said so once Connect was tried, not while it is typed
   const urlShort = !server && !!url.trim() && !(host && database)
   const urlError = PG_URL_PASSWORD.test(withScheme(url)) ? t('pgPasswordInUrl') : tried && urlShort ? t('cdUrlInvalid') : null
-  const missing = [server ? !database && t('cdDatabase') : !url.trim() && t('cdUrl'), !storeName && t('cdStoreName'), pw.missing && (pw.how === 'entered' ? t('pgPasswordValue') : t('pgPasswordReferenceLabel'))].filter(Boolean) as string[]
+  const loginMissing = pw.how === 'entered' ? (!loginUser ? t('pgUser') : !pw.value ? t('pgPasswordValue') : null) : pw.missing ? t('pgPasswordReferenceLabel') : null
+  const missing = [server ? !database && t('cdDatabase') : !url.trim() && t('cdUrl'), !storeName && t('cdStoreName'), loginMissing].filter(Boolean) as string[]
   const nameError = storeName && !NAME.test(storeName) ? t('projectNameHint') : taken ? t('nameTaken') : null
   const valid = !missing.length && !urlShort && !nameError && !urlError && !pw.error(t) && !dbTaken
   const submit = async () => {
@@ -234,7 +235,8 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
     setBusy(true); setError(undefined)
     try {
       await api.call('POST', '/api/stores/postgresql', {
-        name: storeName, url: pgUrl({ user, host, database }), ...pw.body(), runsOn, ...(sync ? { synchronousCommit: sync } : {}),
+        // the address has no user: the login (saved now, reused, or named) carries it
+        name: storeName, url: pgUrl({ user: '', host, database }), ...(pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body()), runsOn, ...(sync ? { synchronousCommit: sync } : {}),
       })
       onConnected(storeName, runsOn)
     } catch (e) {
@@ -251,7 +253,7 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
             error={dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null} />
         : <TextField label={t('cdUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://app@db.internal:5432/orders" hint={t('cdUrlHint')} error={urlError} autoFocus />}
       <TextField label={t('cdStoreName')} value={named ? name : storeName} onChange={(v) => { setNamed(true); setName(v) }} mono error={nameError} />
-      <PgPasswordFields id="lfs-cd-password" pw={pw} t={t} />
+      <PgPasswordFields id="lfs-cd-password" pw={pw} t={t} auths={auths} />
       {fixed ? <p className={scss.formNote}>{t('cdRunsOnFixed', { machine: place(fixed) })}</p> : (
         <Field label={t('pgRunsOnLabel')} hint={t('cdRunsOnHint')} group>
           <LocationPicker machines={machines} value={runsOn} onChange={setPicked} words={locationWords(t, view)} label={t('pgRunsOnLabel')} fallback={fallback} compact />
@@ -275,9 +277,9 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
   )
 }
 
-function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, ownPw, onFrom, onOwn, onRetryOwn }: {
+function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOwn, onRetryOwn }: {
   t: StorageT, view: StorageView, check: Check, place: (m: string) => string
-  own: boolean, ownUrl: string, setOwnUrl: (v: string) => void, ownPw: ReturnType<typeof usePgPassword>
+  own: boolean, ownUrl: string, setOwnUrl: (v: string) => void
   onFrom: (machine: string) => void, onOwn: () => void, onRetryOwn: () => void
 }): ReactNode {
   const machine = check.machine
@@ -342,10 +344,9 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, ownPw, onFro
           ) : null}
           {own ? (
             <>
-              <TextField label={t('cdOwnUrl', { machine: place(machine) })} value={ownUrl} onChange={setOwnUrl} mono placeholder="postgresql://app@10.0.0.12:5432/orders" hint={t('pgUrlHint')}
-                error={PG_URL_PASSWORD.test(ownUrl.trim()) ? t('pgPasswordInUrl') : null} autoFocus />
-              <PgPasswordFields id="lfs-cd-own-password" pw={ownPw} t={t} />
-              <Button variant="primary" size="sm" className={scss.selfStart} disabled={(!ownUrl.trim() && ownPw.missing) || PG_URL_PASSWORD.test(ownUrl.trim()) || !!ownPw.error(t)}
+              <TextField label={t('cdOwnUrl', { machine: place(machine) })} value={ownUrl} onChange={setOwnUrl} mono placeholder="postgresql://10.0.0.12:5432/orders" hint={t('pgUrlHint')}
+                error={PG_URL_LOGIN.test(ownUrl.trim()) ? t('pgPasswordInUrl') : null} autoFocus />
+              <Button variant="primary" size="sm" className={scss.selfStart} disabled={!ownUrl.trim() || PG_URL_LOGIN.test(ownUrl.trim())}
                 onClick={onRetryOwn}>{t('cdSaveAndCheck')}</Button>
             </>
           ) : null}

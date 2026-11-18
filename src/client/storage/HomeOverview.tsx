@@ -232,19 +232,13 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     }
   }
   for (const s of stores) {
-    if (s.kind === 'postgresql' && s.postgresql?.reachable === false) {
+    // a broken Store (2.0): its word, its fix line as the detail; a machine already listed above is not repeated
+    if (s.state === 'broken' && !(s.kind === 'sqlite' && unreachable.has(s.machine ?? ''))) {
+      const pgDown = s.kind === 'postgresql' && s.reason === 'unreachable'
       needs.push({
-        key: `pg:${s.name}`, tone: 'danger', rank: 2,
-        title: <Link onClick={() => props.onOpen(`store:${s.name}`)}>{t('ovPgUnreachable', { store: s.name })}</Link>,
-        detail: s.postgresql.error ?? s.postgresql.target ?? undefined,
-        action: { label: t('ovOpen'), run: () => props.onOpen(`store:${s.name}`) },
-      })
-    }
-    if (s.kind === 'sqlite' && s.state === 'down' && !unreachable.has(s.machine ?? '')) {
-      needs.push({
-        key: `down:${s.name}`, tone: 'danger', rank: 2,
-        title: <Link onClick={() => props.onOpen(`store:${s.name}`)}>{t('ovStoreDown', { store: s.name })}</Link>,
-        detail: s.down ?? undefined,
+        key: `${pgDown ? 'pg' : 'down'}:${s.name}`, tone: 'danger', rank: 2,
+        title: <Link onClick={() => props.onOpen(`store:${s.name}`)}>{t(pgDown ? 'ovPgUnreachable' : 'ovStoreDown', { store: s.name })}</Link>,
+        detail: s.fix ?? (pgDown ? s.postgresql?.target ?? undefined : undefined),
         action: { label: t('ovOpen'), run: () => props.onOpen(`store:${s.name}`) },
       })
     }
@@ -272,7 +266,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const top = needs[0]
   const rest = needs.slice(1)
   // A tab's dot: the worst state among what it shows.
-  const storeTrouble = stores.some((x) => x.state === 'down' || x.state === 'unresolved' || x.postgresql?.reachable === false)
+  const storeTrouble = stores.some((x) => x.state === 'broken')
   const storeTone = storeTrouble ? 'danger' : undefined
   const machineTone = machines.some((m) => !blocked.has(m.name) && machineState(m, fleet?.live[m.name]).key === 'needs') ? 'danger'
     : blocked.size > 0 ? 'warning'

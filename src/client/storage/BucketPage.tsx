@@ -79,7 +79,6 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
         )}>
         {[
           providerWords(b.provider, t),
-          b.url ?? t('bucketOutside'),
           listed ? (b.files!.length === 1 ? t('bucketFile', { size: bytes(total) }) : t('bucketFiles', { n: b.files!.length, size: bytes(total) })) : t('bucketNotListed'),
           linked === 1 ? t('bucketLinkedOne') : t('bucketLinked', { n: linked }),
           listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : null,
@@ -128,11 +127,9 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
   )
 }
 
-/** The object a file names: `<prefix>/<file>/store.sqlite`, the prefix read from the bucket's URL. */
-export function objectOf(b: BucketRow, file: string): string {
-  const path = (b.url ?? '').replace(/^[a-z0-9]+:\/\/[^/]+\/?/i, '').replace(/\?.*$/, '')
-  const prefix = path.split('/').slice(1).filter(Boolean).join('/')
-  return `${prefix ? `${prefix}/` : ''}${file}/store.sqlite`
+/** The object a file names under the bucket's prefix: `<file>/store.sqlite` (2.0's home tree does not give the bucket's address or prefix). */
+export function objectOf(_b: BucketRow, file: string): string {
+  return `${file}/store.sqlite`
 }
 
 export interface BackupFilePageProps {

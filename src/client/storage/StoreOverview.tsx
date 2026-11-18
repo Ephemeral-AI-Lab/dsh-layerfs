@@ -13,7 +13,7 @@ import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { latestBackup, runsOnOf } from './model.ts'
+import { backupStateOf, latestBackup, runsOnOf, storeStateWords } from './model.ts'
 import { commitTotal, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
@@ -50,14 +50,14 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
     <div className={css.stack}>
       <dl className={css.tiles} aria-label={t('storeFacts')}>
         {pg ? (
-          <Tile label={t('spServer')} value={s.postgresql?.reachable == null ? t('unknown') : s.postgresql.reachable ? t('spReachable') : t('spUnreachable')}
-            tone={s.postgresql?.reachable === false ? 'danger' : undefined} sub={s.postgresql?.version ? t('spVersion', { version: s.postgresql.version }) : undefined} />
+          <Tile label={t('spServer')} value={s.state === 'ready' ? t('spReachable') : s.state === 'broken' ? t('spUnreachable') : t('unknown')}
+            tone={s.state === 'broken' ? 'danger' : undefined} sub={s.state === 'broken' ? storeStateWords(s.state, t, s.reason) : undefined} title={s.fix ?? undefined} />
         ) : (
-          <Tile label={t('spDatabaseFile')} value={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} sub={s.size ? (s.size.stale && s.size.seen ? t('msSizeSeen', { when: ago(s.size.seen, now, tt) }) : t('spWalPart', { wal: bytes(s.size.wal) })) : undefined} />
+          <Tile label={t('spDatabaseFile')} value={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} sub={s.size?.stale && s.size.seen ? t('msSizeSeen', { when: ago(s.size.seen, now, tt) }) : undefined} />
         )}
-        <Tile label={t('tabProjects')} value={String(s.projects.length)} onOpen={() => onTab('projects')}
+        <Tile label={t('tabProjects')} value={String(s.projectsCount ?? s.projects.length)} onOpen={() => onTab('projects')}
           sub={commits ? (commits.refused && !commits.commits ? t('spCommitsUnread') : t(commits.complete || commits.refused ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() })) : undefined} />
-        <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} sub={t('spHolders', { n: String(s.holders) })} />
+        <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} />
         {pg ? (
           <Tile label={t('pgRunsOnLabel')} value={runsOn === 'native' ? t('layerfsHome') : runsOn} onOpen={() => onTab('connections')}
             sub={view.machines.find((m) => m.name === runsOn)?.state ?? undefined} />
@@ -83,8 +83,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           <Card>
             <Facts>
               {s.created != null ? <Fact label={t('factCreated')}>{when(s.created)}</Fact> : null}
-              {!pg ? <Fact label={t('factFile')}>{s.size ? bytes(s.size.file) : null}</Fact> : null}
-              {!pg ? <Fact label={t('factWal')}>{s.size ? bytes(s.size.wal) : null}</Fact> : null}
+              {!pg ? <Fact label={t('factFile')}>{s.size ? bytes(s.size.bytes) : null}</Fact> : null}
               {pg ? <Fact label={t('factServer')} mono>{s.postgresql?.target}</Fact> : null}
             </Facts>
           </Card>
@@ -123,7 +122,7 @@ function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, erro
     <Card className={css.panel} data-store-file>
       <header className={css.panelHead}>
         <h2 className={css.panelTitle}>{pg ? t('spFileTitlePg') : t('spFileTitle')}</h2>
-        {stats?.file != null ? <span className={css.panelFigure}>{bytes(stats.file)}</span> : null}
+        {stats?.file_bytes != null ? <span className={css.panelFigure}>{bytes(stats.file_bytes)}</span> : null}
       </header>
       {parts ? (
         <>
@@ -138,9 +137,9 @@ function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, erro
               </li>
             ))}
           </ul>
-          {ratio !== null && stats?.canonical != null && stats.stored != null ? (
+          {ratio !== null && stats?.canonical_bytes != null && stats.stored_bytes != null ? (
             <p className={css.ratioLine}>
-              <span>{t('spCompression', { canonical: bytes(stats.canonical), stored: bytes(stats.stored) })}</span>
+              <span>{t('spCompression', { canonical: bytes(stats.canonical_bytes), stored: bytes(stats.stored_bytes) })}</span>
               <strong>{t('spRatio', { n: ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1) })}</strong>
             </p>
           ) : null}
@@ -200,7 +199,7 @@ function GrowthCard({ journal, t, now }: { journal: ObservationJournal | undefin
 function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[] | undefined, stats: StoreStats | undefined, t: StorageT }): ReactNode {
   const shares = projects ? projectShares(projects) : []
   const counted = shares.reduce((a, p) => a + p.bytes, 0)
-  const stored = typeof stats?.stored === 'number' ? stats.stored : null
+  const stored = typeof stats?.stored_bytes === 'number' ? stats.stored_bytes : null
   const rest = stored !== null && stored > counted ? stored - counted : 0
   const whole = counted + rest
   const refused = projects ? commitTotal(projects).refused : null
@@ -233,19 +232,18 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
   const tt = t as Translate
   const rows: { key: string, tone: HealthTone, label: string, text: string }[] = []
   if (s.kind === 'postgresql') {
-    const r = s.postgresql?.reachable
-    rows.push({ key: 'server', tone: r === false ? 'danger' : r ? 'ok' : 'info', label: t('spServer'), text: r === false ? (s.postgresql?.error ?? t('unreachable')) : r ? t('spServerOk', { version: s.postgresql?.version ?? '?' }) : t('unknown') })
+    const r = s.state === 'ready' ? true : s.state === 'broken' ? false : null
+    rows.push({ key: 'server', tone: r === false ? 'danger' : r ? 'ok' : 'info', label: t('spServer'), text: r === false ? storeStateWords(s.state, t, s.reason) : r ? storeStateWords(s.state, t) : t('unknown') })
     rows.push({ key: 'backups', tone: 'info', label: t('backupsSection'), text: t('spPgBackups') })
   } else {
     const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')
     rows.push({ key: 'machine', tone: machineState === 'stopped' ? 'danger' : machineState === 'ready' ? 'ok' : 'info', label: t('spMachine'), text: t(machineState === 'stopped' ? 'spMachineStopped' : 'spMachineRunning', { machine: place }) })
     const latest = latestBackup(s)
-    const states = s.links.map((link) => view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name)?.state).filter(Boolean)
+    const states = s.links.map((link) => backupStateOf(view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name))).filter(Boolean)
     const behind = states.some((x) => x === 'store_changed' || x === 'both_changed')
     rows.push({ key: 'backup', tone: latest === null ? 'warning' : behind ? 'warning' : 'ok', label: t('backupsSection'),
       text: latest === null ? t('noBackup') : behind ? t('spBackupBehind', { ago: ago(latest, now, tt) }) : t('spBackupOk', { ago: ago(latest, now, tt) }) })
-    if (stats?.free != null && stats.file) rows.push({ key: 'free', tone: 'ok', label: t('spPartFree'), text: t('spFreeText', { free: bytes(stats.free), n: String(Math.round(stats.free / stats.file * 100)) }) })
-    if (s.size) rows.push({ key: 'wal', tone: 'ok', label: t('factWal'), text: bytes(s.size.wal) })
+    if (stats?.reusable_bytes != null && stats.file_bytes) rows.push({ key: 'free', tone: 'ok', label: t('spPartFree'), text: t('spFreeText', { free: bytes(stats.reusable_bytes), n: String(Math.round(stats.reusable_bytes / stats.file_bytes * 100)) }) })
   }
   return (
     <Card className={css.panel} data-store-health>

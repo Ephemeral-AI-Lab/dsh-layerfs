@@ -12,20 +12,19 @@ import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { canMove, inHome, runsOnOf } from './model.ts'
+import { backupStateOf, canMove, inHome, runsOnOf, type BackupState } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { LocationPicker, placeName, stoppedPicked } from '../projects/setup/MachineTiles.tsx'
 import { defaultMachine, isRunning, machinesFor } from '../projects/setup/model.ts'
 import { placeStore, startMachine, waitJob } from '../projects/setup/run.ts'
 import { FormModal, locationWords, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
-import type { BackupState, MachinesView, ProjectInitJob, StorageJob, StorageView, StoreRow } from './types.ts'
+import type { MachinesView, ProjectInitJob, StorageJob, StorageView, StoreRow } from './types.ts'
 import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
-import { PG_URL_PASSWORD, PgPasswordFields, usePgPassword } from './pg-fields.tsx'
+import { PG_URL_LOGIN, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
 import { BackUpDialog, BackupsDialog } from './BackupDialogs.tsx'
 import css from './Storage.module.css'
 
 const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
-const REFERENCE = /^(env:LAYERFS_[A-Z0-9_]+|file:\/.+)$/
 
 /** Which dialog is open, and on what. */
 export type StorageDialog =
@@ -217,11 +216,12 @@ function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
 // ---------- PostgreSQL: edit a connection, choose where it runs ----------
 
 /**
- * Edit a PostgreSQL Store's connection (store.update): its URL, its password
- * and its synchronous_commit. With `machine`, that machine's own connection
- * instead (a URL, a password, or both), which LayerFS checks from the machine
- * before it saves anything. Only what changed is sent; a password not given
- * again stays as it is. A refusal stays under the form.
+ * Edit a PostgreSQL Store's connection: its address (store.connect), its
+ * login (another saved login, or a new password for the current one:
+ * store.update / store.save-auth) and its synchronous_commit. With
+ * `machine`, that machine's own address instead (store.connect --machine),
+ * which LayerFS checks from the machine before it saves anything. Only what
+ * changed is sent. A refusal stays under the form.
  */
 function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
   api: LayerfsApi, t: StorageT, view: StorageView | undefined, store: string, machine?: string | undefined, onClose: () => void, done: () => void
@@ -230,19 +230,22 @@ function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
   const own = machine ? s?.ownConnections?.find((c) => c.machine === machine) : undefined
   const before = machine ? own?.url ?? '' : s?.postgresql?.url ?? ''
   const [url, setUrl] = useState(before)
-  // a reference given before is shown again; a typed one stays in its file unless a new one is typed
-  const givenRef = (machine ? own?.password : s?.postgresql?.password) ?? ''
-  const pw = usePgPassword(givenRef ? 'reference' : 'entered', givenRef)
+  // the current login is shown picked; a new password rotates it (its user is the login's), another login replaces it
+  const authBefore = s?.postgresql?.auth ?? ''
+  const auths = usePgAuths(api)
+  const pw = usePgPassword(authBefore ? 'saved' : 'entered', authBefore)
   const syncBefore = s?.postgresql?.synchronousCommit ?? ''
   const [sync, setSync] = useState(syncBefore)
   if (!s || !view) return null
   const place = machine === 'native' ? t('layerfsHome') : machine
   const urlChanged = url.trim() !== before && !!url.trim()
-  const pwChanged = !pw.missing && !(pw.how === 'reference' && pw.ref.trim() === givenRef)
+  const loginUser = pw.user.trim() || auths.find((a) => a.auth === authBefore)?.user || ''
+  const pwChanged = !machine && (pw.how === 'entered' ? !!pw.value && !!loginUser : !pw.missing && !(pw.how === 'saved' && pw.auth === authBefore))
   const syncChanged = !machine && !!sync && sync !== syncBefore
-  const urlError = PG_URL_PASSWORD.test(url.trim()) ? t('pgPasswordInUrl') : null
+  const urlError = PG_URL_LOGIN.test(url.trim()) ? t('pgPasswordInUrl') : null
+  const login = () => (pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body())
   const body = () => ({
-    ...(machine ? { machine } : {}), ...(urlChanged ? { url: url.trim() } : {}), ...(pwChanged ? pw.body() : {}), ...(syncChanged ? { synchronousCommit: sync } : {}),
+    ...(machine ? { machine } : {}), ...(urlChanged ? { url: url.trim() } : {}), ...(pwChanged ? login() : {}), ...(syncChanged ? { synchronousCommit: sync } : {}),
   })
   return (
     <FormModal open onClose={onClose} t={t} title={machine ? t('pgEditOwnTitle', { store, machine: place ?? '' }) : t('pgEditTitle', { store })}
@@ -254,8 +257,8 @@ function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
       {machine ? <p className={css.formNote}>{t('pgOwnNote', { machine: place ?? '', target: s.postgresql?.target ?? '' })}</p> : null}
       <TextField label={machine ? t('cdOwnUrl', { machine: place ?? '' }) : t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db"
         hint={machine ? t('pgUrlHint') : undefined} error={urlError} autoFocus />
-      <PgPasswordFields id="lfs-pg-edit-password" pw={pw} t={t} />
-      {(machine ? own?.saved : s.postgresql?.saved) && pw.missing ? <p className={css.formNote}>{t('pgPasswordKept')}</p> : null}
+      {machine ? null : <PgPasswordFields id="lfs-pg-edit-password" pw={pw} t={t} auths={auths} />}
+      {!machine && authBefore && !pwChanged ? <p className={css.formNote}>{t('pgPasswordKept')}</p> : null}
       {machine ? null : (
         <Field label={t('syncCommit')}>
           <MenuSelect value={sync} label={t('syncCommit')} placeholder={t('syncCommitDefault')}
@@ -361,10 +364,10 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
         </Button>
       ) : null}
       {startError !== undefined ? <Refusal error={startError} labels={refusalLabels(t)} compact /> : null}
-      {s.holders > 0 || sandboxes.length > 0 ? (
+      {sandboxes.length > 0 ? (
         <Notice tone="warning">
           <strong>{t('heldNow')}</strong>
-          <span>{[s.holders > 0 && t('heldProcesses', { n: s.holders }), ...sandboxes.map((b) => t('heldSandbox', { name: b.name }))].filter(Boolean).join(' · ')}</span>
+          <span>{sandboxes.map((b) => t('heldSandbox', { name: b.name })).join(' · ')}</span>
         </Notice>
       ) : null}
     </FormModal>
@@ -437,8 +440,7 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
 /** Why backup.restore would refuse replacing `s` with the bucket's file, or null. */
 function replaceRefusal(s: StoreRow, state: BackupState | undefined, bucket: string, t: StorageT): string | null {
   if (!inHome(s)) return t('replaceNotHome', { store: s.name, machine: s.machine ?? '?' })
-  if (s.state !== 'idle' || s.job) return t('replaceNotIdle', { store: s.name })
-  if (s.holders > 0) return t('replaceHeld', { store: s.name })
+  if (s.state !== 'ready' || s.job) return t('replaceNotIdle', { store: s.name })
   if (!s.links.some((l) => l.bucket === bucket)) return t('replaceNoLink', { store: s.name, bucket })
   if (state === 'store_changed' || state === 'both_changed') return t('replaceChanged', { store: s.name, bucket })
   return null
@@ -446,7 +448,7 @@ function replaceRefusal(s: StoreRow, state: BackupState | undefined, bucket: str
 
 function RestoreDialog({ api, t, dialog, view, onClose, done }: { api: LayerfsApi, t: StorageT, dialog: Extract<StorageDialog, { kind: 'restore' }>, view: StorageView | undefined, onClose: () => void, done: () => void }): ReactNode {
   const linked = dialog.store ? view?.stores.find((s) => s.name === dialog.store && s.kind === 'sqlite') : undefined
-  const state = view?.buckets.find((b) => b.name === dialog.bucket)?.files?.find((f) => f.file === dialog.file && f.store === dialog.store)?.state
+  const state = backupStateOf(view?.buckets.find((b) => b.name === dialog.bucket)?.files?.find((f) => f.file === dialog.file && f.store === dialog.store)) ?? undefined
   const refusal = linked ? replaceRefusal(linked, state, dialog.bucket, t) : null
   const [mode, setMode] = useState<'new' | 'replace'>(linked && !refusal && state === 'bucket_changed' ? 'replace' : 'new')
   const [name, setName] = useState('')
@@ -477,18 +479,15 @@ const ACCOUNT = /^[0-9a-f]{32}$/
 function BucketDialog({ api, t, onClose, done }: { api: LayerfsApi, t: StorageT, onClose: () => void, done: () => void }): ReactNode {
   const [provider, setProvider] = useState<'minio' | 'r2'>('minio')
   const [v, setV] = useState<Record<string, string>>({ endpoint: 'http://localhost:9000', prefix: 'layerfs', jurisdiction: '' })
-  const [keys, setKeys] = useState<'entered' | 'reference'>('entered')
   const set = (k: string) => (value: string) => setV((x) => ({ ...x, [k]: value }))
   const accountError = provider === 'r2' && v.account && !ACCOUNT.test(v.account.trim().toLowerCase()) ? t('accountInvalid') : null
-  const keyError = keys === 'reference' && v.key && !REFERENCE.test(v.key.trim()) ? t('passwordInvalid') : null
   const missing = [
     !v.name?.trim() && t('name'),
     provider === 'minio' && !v.endpoint?.trim() && t('endpoint'),
     provider === 'r2' && !v.account?.trim() && t('account'),
     !v.bucket?.trim() && t('bucketName'),
-    keys === 'reference' && !v.key?.trim() && t('keyReference'),
-    keys === 'entered' && !v.accessKey?.trim() && t('accessKey'),
-    keys === 'entered' && !v.secretKey && t('secretKey'),
+    !v.accessKey?.trim() && t('accessKey'),
+    !v.secretKey && t('secretKey'),
   ].filter(Boolean) as string[]
   const body = () => ({
     name: v.name!.trim(),
@@ -496,12 +495,11 @@ function BucketDialog({ api, t, onClose, done }: { api: LayerfsApi, t: StorageT,
     ...(provider === 'minio' ? { endpoint: v.endpoint!.trim() } : { account: v.account!.trim().toLowerCase(), ...(v.jurisdiction ? { jurisdiction: v.jurisdiction } : {}) }),
     bucket: v.bucket!.trim(),
     ...(v.prefix?.trim() ? { prefix: v.prefix.trim() } : {}),
-    ...(v.region?.trim() ? { region: v.region.trim() } : {}),
-    ...(keys === 'reference' ? { key: v.key!.trim() } : { accessKey: v.accessKey!.trim(), secretKey: v.secretKey! }),
+    accessKey: v.accessKey!.trim(), secretKey: v.secretKey!,
   })
   return (
     <FormModal open onClose={onClose} t={t} title={t('bucketTitle')} description={t('bucketBody')} action={t('connectBucket')}
-      valid={!missing.length && !accountError && !keyError} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
+      valid={!missing.length && !accountError} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
       submit={() => api.call('POST', '/api/buckets', body()).then(done)}>
       <TileChoice label={t('provider')} value={provider} onChange={setProvider}
         options={[{ value: 'minio', label: t('minio'), icon: <BucketProviderGlyph provider="minio" size={18} /> }, { value: 'r2', label: t('r2'), icon: <BucketProviderGlyph provider="r2" size={18} /> }]} />
@@ -520,25 +518,12 @@ function BucketDialog({ api, t, onClose, done }: { api: LayerfsApi, t: StorageT,
             </Field>
           </div>
         )}
+      <TextField label={t('prefix')} value={v.prefix ?? ''} onChange={set('prefix')} mono hint={t('objectNote', { prefix: v.prefix ? `${v.prefix}/` : '' })} />
       <div className={css.fieldRow}>
-        <TextField label={t('prefix')} value={v.prefix ?? ''} onChange={set('prefix')} mono hint={t('objectNote', { prefix: v.prefix ? `${v.prefix}/` : '' })} />
-        <TextField label={t('region')} value={v.region ?? ''} onChange={set('region')} mono />
+        <TextField label={t('accessKey')} value={v.accessKey ?? ''} onChange={set('accessKey')} mono />
+        <TextField label={t('secretKey')} value={v.secretKey ?? ''} onChange={set('secretKey')} mono type="password" />
       </div>
-      <Field label={t('keysHow')}>
-        <SegmentedControl<'entered' | 'reference'> id="lfs-bucket-keys" className={css.selfStart} value={keys} onChange={setKeys} label={t('keysHow')}
-          options={[{ value: 'entered', label: t('keysEntered') }, { value: 'reference', label: t('keysReference') }]} />
-      </Field>
-      {keys === 'reference'
-        ? <TextField label={t('keyReference')} value={v.key ?? ''} onChange={set('key')} mono placeholder="file:/Users/me/.config/layerfs/backups.keys" hint={t('keyReferenceHint')} error={keyError} />
-        : (
-          <>
-            <div className={css.fieldRow}>
-              <TextField label={t('accessKey')} value={v.accessKey ?? ''} onChange={set('accessKey')} mono />
-              <TextField label={t('secretKey')} value={v.secretKey ?? ''} onChange={set('secretKey')} mono type="password" />
-            </div>
-            <p className={css.formNote}>{t('keysNote')}</p>
-          </>
-        )}
+      <p className={css.formNote}>{t('keysNote')}</p>
     </FormModal>
   )
 }

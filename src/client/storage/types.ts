@@ -8,84 +8,92 @@ export interface SdkOperation { id: string, name: string, phase: string, started
 export interface SdkRefusal { code: string, message: string, detail?: any }
 
 export type StoreFamily = 'sqlite' | 'postgresql'
-export type BackupState = 'current' | 'store_changed' | 'bucket_changed' | 'both_changed' | 'unknown' | 'unlinked' | 'missing'
 
+/** One Store's link to a bucket (2.0 `backups` rows): its last transfer that worked, and one that did not. */
 export interface StoreBackupLink {
   bucket: string
   file: string
   last: { op: string, at: number | null, bytes: number | null } | null
+  attempt?: { op: string, at: number | null, error: unknown } | null
 }
 
+/** A PostgreSQL Store's login and the home's address for it (no user or password: the login is saved apart). */
 export interface PgServer {
-  target: string | null, reachable: boolean | null, version: string | null, latencyMs: number | null, error: string | null
-  /** The Store's URL (LayerFS keeps no password in it). */
-  url?: string | null
+  /** The saved login's name (`store auths`). */
+  auth: string | null
+  /** The address every machine dials, `host:port/db` as `target`. */
+  url: string | null
+  target: string | null
   /** The server as `host:port` (host in lower case, port 5432 by default). */
-  server?: string | null
-  database?: string | null
-  user?: string | null
-  /** The password's reference (`env:…`, `file:…`), or null when it names a file the host wrote (`saved`). */
-  password?: string | null
-  saved?: boolean
+  server: string | null
+  database: string | null
   /** The Store's synchronous_commit, or null (LayerFS's default). */
-  synchronousCommit?: string | null
+  synchronousCommit: string | null
 }
 
-/** One Store: store.list with its store.status. */
-export interface StoreRow {
+/** A 2.0 thing's state companions. */
+export interface StateCompanions {
+  blockedBy?: { machine?: string, reason: string }
+  reason?: string
+  fix?: string
+  message?: string
+  observedAt?: number
+}
+
+/** One Store: a `store list --detail --with stats` item, in LayerFS 2.0's six states. */
+export interface StoreRow extends StateCompanions {
   name: string
   kind: StoreFamily
   machine: string | null
+  /** The first 20 project names; `projectsCount` is all of them. */
   projects: string[]
+  projectsCount?: number
   created: number | null
-  /** The file's size; `stale` with `seen` when the machine did not answer and this is the last size read. */
-  size: { bytes: number, file: number, wal: number, seen?: number, stale?: true } | null
+  /** The file with its write-ahead log; `stale` with `seen` when the machine did not answer and this is the last size read. */
+  size: { bytes: number, seen?: number, stale?: true } | null
+  /** ready, busy (op), blocked (blockedBy), broken (reason, fix), unknown (observedAt). */
   state: string
   op?: SdkOperation | null
   refusal?: SdkRefusal | null
-  holders: number
-  down: string | null
   links: StoreBackupLink[]
   job: string | null
   postgresql?: PgServer | null
   /** PostgreSQL: the machine its sessions run on by default (this DSH install's choice, never a LayerFS record). */
   runsOn?: string | null
-  /** PostgreSQL: the machines that dial it with a connection of their own (store.update --machine). */
+  /** PostgreSQL: the machines with an address of their own (store connect --machine). */
   ownConnections?: PgOwnConnection[]
 }
 
-/** A machine's own connection to a PostgreSQL Store; every other machine dials the Store's. */
+/** A machine's own address for a PostgreSQL Store; every other machine dials the Store's. */
 export interface PgOwnConnection {
   machine: string
-  /** Its own URL (no password), or null (the Store's URL, its own password). */
-  url: string | null
+  url: string
   target: string | null
-  /** Its own password reference, or null (the Store's, or a file the host wrote: `saved`). */
-  password: string | null
-  /** The reference names a file the host wrote from a typed password. */
-  saved: boolean
 }
 
-/** GET /api/stores/:s/check?machine=: what `machine` found when it dialled the Store (store.status --machine). Nothing keeps it. */
+/** GET /api/stores/:s/check?machine=: what `machine` found (store doctor --machine: its store.connection check). Nothing keeps it. */
 export type PgCheck =
   | { machine: string, host: string | null, ok: true, at: number, version: string | null, latencyMs: number | null }
   | { machine: string, host: string | null, ok: false, error: { code: string, message: string } }
 
+/** GET /api/store-auths: one saved PostgreSQL login (never its password). */
+export interface PgAuth { auth: string, user: string | null, stores: string[] }
+
+/**
+ * One file in a bucket (2.0 `backup list --detail`): its Store link, whether
+ * the Store changed since its last backup (`behind`), whether the bucket's
+ * copy is not the one the link last moved (`changed`), whether the linked
+ * file is gone (`missing`); `behind`/`changed` null with `message` when
+ * LayerFS could not read them.
+ */
 export interface BackupFile {
-  file: string, store: string | null, state: BackupState, bytes: number | null, modified: number | null, reason: string | null
-  /** The state was settled by this host (its Store is on another machine, which LayerFS does not read). */
-  checked?: 'host'
-  /** Unknown because its Store is on another machine and no backup from this host marked it. */
-  untracked?: boolean
+  file: string, store: string | null, bytes: number | null, modified: number | null
+  behind: boolean | null, changed: boolean | null, missing: boolean, message: string | null
 }
 
 export interface BucketRow {
   name: string
   provider: string | null
-  url?: string | null
-  region?: string | null
-  keys?: 'saved' | 'reference' | null
-  key?: string | null
   listed: number | null
   files: BackupFile[] | null
   error: { code: string, message: string } | null
@@ -113,8 +121,8 @@ export interface StorageJob {
   phases?: { phase: string, half: string | null, at: number }[]
   /** The call's phases in order, when the host knows them before the run (a compaction). */
   steps?: readonly string[]
-  /** A finished compaction's report (store.compact): the path it took and what the Store shrank by. */
-  result?: { path?: string | null, physical_shrink?: number | null } | null
+  /** A finished compaction's report (store.compact): `compacted` or `unchanged`, and what the Store's file or database shrank by. */
+  result?: { outcome?: string | null, freed_bytes?: number | null } | null
   summary?: string | null
 }
 
@@ -144,7 +152,9 @@ export interface ProjectSummary {
   machine: string | null
   created: number | null
   storeState?: string | null
-  storeDown?: string | null
+  storeBlockedBy?: { machine?: string, reason: string } | null
+  storeReason?: string | null
+  storeFix?: string | null
   refusal?: SdkRefusal | null
 }
 

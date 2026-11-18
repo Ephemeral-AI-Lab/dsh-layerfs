@@ -17,7 +17,6 @@ const M = await import(pathToFileURL(join(out, 'model.mjs')).href)
 
 const t = (key, vars = {}) => `${key}${Object.keys(vars).length ? ' ' + JSON.stringify(vars) : ''}`
 const job = (over = {}) => ({ id: 'j', kind: 'compact', store: 's1', target: 's1', file: null, started: 1, ended: null, phase: null, done: null, total: null, error: null, phases: [], steps: ['mark', 'build', 'verify', 'install'], ...over })
-const store = (over = {}) => ({ name: 's1', kind: 'sqlite', machine: 'native', state: 'idle', ...over })
 
 test('a compaction shows its named steps from the start and moves through them', () => {
   assert.deepEqual(M.stepsOf(job()).map((s) => s.state), ['now', 'todo', 'todo', 'todo'])
@@ -35,21 +34,13 @@ test('a compaction shows its named steps from the start and moves through them',
   assert.deepEqual(M.stepsOf(push).map((s) => s.step), ['check', 'send'])
 })
 
-test('a compaction ends in the words of its report', () => {
+test('a compaction ends in the words of its 2.0 report (`outcome`, `freed_bytes`)', () => {
   assert.equal(M.doingWords(job(), t), 'jobCompacting {"place":"s1"}')
-  assert.equal(M.endedWords(job({ ended: 9, result: { path: 'none' } }), t), 'jobCompactedNone {"place":"s1"}')
+  assert.equal(M.endedWords(job({ ended: 9, result: { outcome: 'unchanged', freed_bytes: 0 } }), t), 'jobCompactedNone {"place":"s1"}')
   const size = (n) => `${n} B`
-  assert.equal(M.endedWords(job({ ended: 9, result: { path: 'rebuild', physical_shrink: 4096 } }), t, size), 'jobCompactedFreed {"place":"s1","freed":"4096 B"}')
-  // no shrink reported, or no way to write a size: the plain words
-  assert.equal(M.endedWords(job({ ended: 9, result: { path: 'rebuild', physical_shrink: 0 } }), t, size), 'jobCompacted {"place":"s1"}')
-  assert.equal(M.endedWords(job({ ended: 9, result: { path: 'rebuild', physical_shrink: 4096 } }), t), 'jobCompacted {"place":"s1"}')
+  assert.equal(M.endedWords(job({ ended: 9, result: { outcome: 'compacted', freed_bytes: 4096 } }), t, size), 'jobCompactedFreed {"place":"s1","freed":"4096 B"}')
+  // nothing freed, or no way to write a size: the plain words
+  assert.equal(M.endedWords(job({ ended: 9, result: { outcome: 'compacted', freed_bytes: 0 } }), t, size), 'jobCompacted {"place":"s1"}')
+  assert.equal(M.endedWords(job({ ended: 9, result: { outcome: 'compacted', freed_bytes: 4096 } }), t), 'jobCompacted {"place":"s1"}')
   assert.match(M.endedWords(job({ ended: 9, phase: 'build', error: { code: 'Capacity', message: 'no space', phase: 'build' } }), t), /^jobFailed .*"phase":"build"/)
-})
-
-test('compaction starts only where LayerFS runs it', () => {
-  assert.equal(M.compactBlock(store(), t), null)
-  assert.equal(M.compactBlock(store({ kind: 'postgresql', machine: null }), t), null)
-  assert.equal(M.compactBlock(store({ machine: 'lima1' }), t), 'compactNeedsHome')
-  assert.equal(M.compactBlock(store({ state: 'busy' }), t), 'compactNeedsIdle')
-  assert.equal(M.compactBlock(store({ kind: 'postgresql', machine: null, state: 'unresolved' }), t), 'compactNeedsIdle')
 })

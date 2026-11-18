@@ -71,7 +71,7 @@ export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: 
   const now = Date.now()
   const backups = storeBackups(s, view.buckets)
   const groups = backupGroups(backups)
-  const blocked = s.state === 'down' || s.state === 'busy' || !!s.job
+  const blocked = s.state !== 'ready' || !!s.job
   const sub = [
     s.size ? bytes(s.size.bytes) : null,
     backups.length === 1 ? t('bkCountOne') : t('bkCount', { n: backups.length }),

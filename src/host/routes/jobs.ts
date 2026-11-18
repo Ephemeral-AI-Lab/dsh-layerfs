@@ -1,9 +1,9 @@
 /**
  * Storage transfer jobs: their persisted records, failure outcomes, summaries
  * and the fresh observations that gate recovery. Port of Connect `host/jobs/`.
- *
- * cs20: switch when the Store and backup packages merge (store.get/status,
- * backup.list keep today's names and shapes).
+ * Push, pull and move are the host's words for `store move` to a machine, to
+ * native, and through native; their phases are check, snapshot, send, verify,
+ * install, record, retire.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -58,21 +58,26 @@ export function transferSummary(job: StorageJob): string | null {
   return null
 }
 
-/** Fresh observations gate explicit recovery. They never turn a missing reply into success. */
+/**
+ * Fresh observations gate explicit recovery. They never turn a missing reply
+ * into success. A Store's is `store get --with live` (it settles a backup or
+ * restore whose owner is gone); a transfer may be retried when the Store is
+ * ready again after a certain failure, and resolved (the same `store move`,
+ * LayerFS's own `fix`) when it is broken `unresolved` and the machine is ready.
+ */
 export async function inspectJob(lfs: Lfs, job: StorageJob) {
   const at = Date.now()
-  if (job.kind === 'backup') return { at, kind: 'backup', value: await lfs.backup.list(job.target), action: null }
-  if (job.kind === 'restore') return { at, kind: 'restore', value: await lfs.store.get(job.store), action: null }
-  // a compaction is never resolved from here: the next store.compact judges what a run left
-  if (job.kind === 'compact') return { at, kind: 'compact', value: await lfs.store.status(job.store), action: null }
-  const status = await lfs.store.status(job.store)
+  const live = () => lfs.store.get(job.store, { detail: true, with: ['live'] })
+  if (job.kind === 'backup') return { at, kind: 'backup', value: await lfs.backup.list({ bucket: job.target, detail: true }), action: null }
+  if (job.kind === 'restore') return { at, kind: 'restore', value: await live(), action: null }
+  // a compaction is never resolved from here: the next store.compact adopts and settles what a run left
+  if (job.kind === 'compact') return { at, kind: 'compact', value: await live(), action: null }
+  const status = await live()
   const direction = job.kind === 'move' ? job.half ?? 'pull' : job.kind
-  const expected = `store.${direction}`
   const machine = direction === 'pull' ? job.from : job.target
   let action: string | null = null
-  if (status.state === 'idle' && job.outcome === 'failed' && job.phase !== 'retire') action = 'retry'
-  const oldOp = job.observation?.value?.op ?? job.error?.detail?.op
-  if (status.state === 'unresolved' && oldOp?.id && status.op?.id === oldOp.id && status.op?.name === oldOp.name && status.op?.name === expected) {
+  if (status?.state === 'ready' && job.outcome === 'failed' && job.phase !== 'retire') action = 'retry'
+  if (status?.state === 'broken' && status?.reason === 'unresolved' && typeof status?.fix === 'string' && /^layerfs store move /.test(status.fix) && machine) {
     // the machine's live state (2.0 `machine get --with live`): a resolve needs it ready
     const target = await lfs.machine.get(machine, { detail: true, with: ['live'] })
     if ((target?.state ?? 'ready') === 'ready' && !target?.op) action = 'resolve'

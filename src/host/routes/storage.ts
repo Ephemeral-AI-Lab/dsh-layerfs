@@ -1,59 +1,58 @@
 /**
- * Storage on LayerFS 2.0: the home's Stores by machine, PostgreSQL Stores,
- * buckets and their backups, and the pushes, pulls, backups and restores this
- * host started. Port of Connect `host/storage.js`.
+ * Storage on LayerFS 2.0: the home's Stores by machine, PostgreSQL Stores and
+ * their saved logins, buckets and their backups, and the moves, backups,
+ * restores and compactions this host started. Port of Connect `host/storage.js`.
  *
- *   view              StorageView: store.list, store.status per Store (it
- *                     starts no machine: a Store on a stopped one is `down`),
- *                     machine.list for the groups, the buckets and their last
+ *   view              StorageView: `store list --detail --with stats` (records,
+ *                     and each sqlite file's size from one stat on its machine;
+ *                     it starts nothing), machine.list for the groups, the
+ *                     buckets from `home get --with tree` and their last
  *                     listing, and the job table
  *   createStore       store.create(name): a sqlite Store on native
  *   removeStore       store.remove(name), `confirm` naming it
- *   connectPostgresql store.connect(name, url, { password, synchronous_commit }):
- *                     the URL holds no password; `password` is a reference, or
- *                     `passwordValue`, written to an owner-only file
- *   updateStore       store.update(name, { machine, url, password,
- *                     synchronous_commit, clear }): the Store's connection, or
- *                     one machine's own (checked from that machine first)
- *   checkStore        store.status(name, { machine }): the check from a machine
+ *   connectPostgresql store.connect(name, url, { auth, synchronous_commit }):
+ *                     the URL holds no user or password; the login is a saved
+ *                     auth (`auth`), one saved now from `user` + `passwordValue`
+ *                     (store.save_auth, the password on stdin), or the one of
+ *                     the Store named by `passwordFrom`
+ *   updateStore       the Store's address (store.connect), one machine's own
+ *                     address (store.connect --machine; `clear`: store.disconnect
+ *                     --machine), another saved login or synchronous_commit
+ *                     (store.update), or a new password for its login
+ *                     (store.save_auth under the same name rotates it)
+ *   checkStore        store.doctor(name, { machine }): the connection check from a machine
  *   setRunsOn         the machine a PostgreSQL Store's sessions run on by
  *                     default: this install's choice (store-machines.ts)
  *   disconnectStore   store.disconnect(name): a PostgreSQL Store
- *   connectBucket     backup.connect(name, url, { key, region }): `key` is a
- *                     reference (env:LAYERFS_… or file:/absolute/path)
+ *   auths             store.auths: the saved logins (never a password)
+ *   connectBucket     backup.connect(name, url, { access_key, secret_key }):
+ *                     the secret on stdin; LayerFS keeps it in the home
  *   disconnectBucket  backup.disconnect(name): every Store's link to it goes
- *   listBucket        backup.list(bucket): one call per bucket, its seven states
- *   push/pull/move    store.push / store.pull as jobs; a move is pull then push
- *                     (#537 U5); a push that fails leaves the Store on native
+ *   listBucket        backup.list({ bucket }): its files, `behind`, `changed`,
+ *                     `missing`; a bucket that cannot be listed is `not_listed`
+ *   push/pull/move    store.move as jobs: to a machine from native, to native,
+ *                     or between two machines through native (two moves, #537 U5)
  *   place             the one of push, pull or move that puts a Store on a machine
  *   backup/restore    backup.create / backup.restore as jobs
- *   compact           store.compact as a job, its phases from on_progress
+ *   compact           store.compact as a job, its phases from on_progress (a
+ *                     remote sqlite Store is compacted by its machine's worker)
  *
- * Buckets and PostgreSQL Stores take env:/file: references, which LayerFS
- * resolves; a key or password entered in the panel is written by the host to
- * an owner-only file in the secrets folder (`host.secrets`: config `secrets`,
- * DSH_LAYERFS_SECRETS, default `<home>/secret`, docs/specs/homes.md) and
- * passed as its `file:` reference (never logged, recorded or answered back).
- * Storage state lives in the LayerFS home (docs/specs/homes.md §5): the
- * connected buckets are read from LayerFS's own records
- * (`<home>/backup/<name>/record.json`; 2.0 has no call that lists them without
- * contacting each one, §9 Q7), and the job table is in `host.jobs` (`<home>/job`). Events: `storage-job`
- * `{ type, job }` as a job moves, `storage` `{ type }` when the view changed.
- *
- * cs20: switch when the Store, backup and PostgreSQL logins packages merge
- * (every store.* and backup.* call here keeps today's names and shapes).
+ * Secrets (a PostgreSQL password, a bucket's secret key) go to LayerFS on
+ * stdin and are kept by the home (its secret folder); the host never writes,
+ * keeps, logs or answers one. Storage state lives in the LayerFS home
+ * (docs/specs/homes.md §5): the job table is in `host.jobs` (`<home>/job`).
+ * Events: `storage-job` `{ type, job }` as a job moves, `storage` `{ type }`
+ * when the view changed.
  */
 import { randomUUID } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
-import { execute } from '../layerfs/cli.ts'
-import { BackupMarks, historyFingerprint, remoteOnly, settleRemote } from './backup-heads.ts'
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, rmdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { COMPACT_STEPS, JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
 import { computer } from './computer.ts'
-import { cliFeatures, refuse, wire, type RouteHost } from './util.ts'
+import { refuse, wire, type RouteHost } from './util.ts'
 import { StoreSizes } from './store-sizes.ts'
 import { pgMachineOf, StoreMachines, type PgMachine } from '../store-machines.ts'
-import { machineRows, runsPostgresql } from '../layerfs/machine-records.ts'
+import { companionsOf, machineRows, msAt, opOf, runsPostgresql } from '../layerfs/machine-records.ts'
 
 /** Finished jobs kept in the table. */
 const KEEP_JOBS = 30
@@ -62,25 +61,19 @@ const JOIN_MS = 15_000
 /** The most a check from a machine may take. */
 const CHECK_TIMEOUT_MS = 30_000
 
-/** A reference LayerFS resolves: env:LAYERFS_… or file:/absolute/path. */
-const REFERENCE = /^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/
-
-function checkReference(value: unknown, what: string): void {
-  if (typeof value !== 'string' || !REFERENCE.test(value)) throw refuse(400, 'InvalidInput', `${what} must be a reference: env:LAYERFS_<NAME> or file:/absolute/path (the host never takes the secret itself)`)
-}
 function checkName(value: unknown, what: string): asserts value is string {
   if (typeof value !== 'string' || !/^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(value)) throw refuse(400, 'InvalidInput', `${what} needs a lowercase name (maximum 63 characters), starting and ending with a letter or number`)
 }
 
-/** A URL with no password in it (and, for a bucket, no user either). */
-function checkUrl(value: unknown, what: string, { user = true } = {}): void {
+/** A URL with no user or password in it (LayerFS refuses one: logins are saved apart). */
+function checkUrl(value: unknown, what: string): void {
   let url: URL
   try {
     url = new URL(String(value))
   } catch {
     throw refuse(400, 'InvalidInput', `${what} is not a URL`)
   }
-  if (url.password || (user && url.username)) throw refuse(400, 'InvalidInput', `${what} must not hold a ${user ? 'user or ' : ''}password: give the secret as a reference`)
+  if (url.password || url.username) throw refuse(400, 'InvalidInput', `${what} must not hold a user or password: they are given apart`)
 }
 
 /** A bucket URL from its parts: MinIO `<endpoint>/<bucket>/<prefix>`, R2 `r2://<account>/<bucket>/<prefix>[?jurisdiction=…]`. */
@@ -125,53 +118,6 @@ export function pgWhere(url: unknown): { server: string, database: string | null
   }
 }
 
-/** A PostgreSQL Store's server: its record's URL (no password) and what store.status's `server` answered. */
-function pgServer(s: any, server: any, secrets?: string) {
-  const saved = savedFile(s.password, secrets, 'pg-')
-  const reached = typeof server?.reachable === 'boolean' ? server.reachable : null
-  const where = pgWhere(s.url)
-  return {
-    target: typeof s.url === 'string' ? pgTarget(s.url) : null,
-    // LayerFS keeps no password in a Store's URL (store.connect refuses one)
-    url: typeof s.url === 'string' ? s.url : null,
-    server: where?.server ?? null,
-    database: where?.database ?? null,
-    user: where?.user ?? null,
-    reachable: reached,
-    version: reached ? (server.server_version ?? null) : null,
-    latencyMs: reached ? (server.latency_ms ?? null) : null,
-    error: server?.unavailable ?? server?.error?.message ?? null,
-    // the password's reference (never a secret); `saved` when it names a file this host wrote
-    password: typeof s.password === 'string' && !saved ? s.password : null,
-    saved,
-    synchronousCommit: typeof s.synchronous_commit === 'string' ? s.synchronous_commit : null,
-  }
-}
-
-/** Whether `reference` is `file:` naming a file the host wrote: `<secrets>/<prefix>…`. */
-function savedFile(reference: unknown, secrets: string | undefined, prefix: string): boolean {
-  if (typeof reference !== 'string' || !reference.startsWith('file:')) return false
-  const path = reference.slice('file:'.length)
-  return secrets ? dirname(path) === secrets && basename(path).startsWith(prefix) : new RegExp(`/secrets/${prefix}`).test(path)
-}
-
-/**
- * The machines that dial a PostgreSQL Store with a connection of their own
- * (`store.update --machine`): `{ machine, url, target, password, saved }`.
- * Every other machine dials the Store's connection and is not listed.
- */
-export function ownConnectionsOf(s: any, secrets?: string) {
-  if (s.kind !== 'postgresql' || !s.machines || typeof s.machines !== 'object') return []
-  return Object.entries(s.machines).flatMap(([machine, a]: [string, any]) => {
-    const url = typeof a?.url === 'string' ? a.url : null
-    const password = typeof a?.password === 'string' ? a.password : null
-    if (url === null && password === null) return []
-    const saved = savedFile(password, secrets, 'pg-')
-    // the machine's own URL (LayerFS keeps no password in it); its password reference, unless it names a file this host wrote
-    return [{ machine, url, target: pgTarget(url ?? (typeof s.url === 'string' ? s.url : '')), password: saved ? null : password, saved }]
-  })
-}
-
 /**
  * An earlier build kept storage state in `<home>/dsh-layerfs/`, named after this
  * plugin. Move it to the client-neutral folders (`job/`, `stat/`) once: what
@@ -194,43 +140,51 @@ export function moveLegacyStorageState(home: string, jobDir: string, statDir: st
   try { rmdirSync(legacy) } catch {}
 }
 
-/** A store.list item and its store.status -> StoreRow. */
-export function storeRow(s: any, status: any, jobs: StorageJob[], secrets?: string, runsOn: string | null = null) {
-  const op = s.op ?? status?.op ?? null
-  const file = status?.file
+/**
+ * One `store list --detail --with stats` item -> StoreRow: the six-state
+ * `state` with its companions, its projects (the first 20 names and the
+ * count), its size, its backup links, and (PostgreSQL) its login and
+ * addresses: the home's own (`machine: null`, every machine dials it) and
+ * each machine's own.
+ */
+export function storeRow(s: any, jobs: StorageJob[], runsOn: string | null = null) {
+  const kind: 'sqlite' | 'postgresql' = s.engine === 'postgresql' ? 'postgresql' : 'sqlite'
+  const connections: { machine: string | null, url: string }[] = (Array.isArray(s.connections) ? s.connections : [])
+    .filter((c: any) => typeof c?.url === 'string').map((c: any) => ({ machine: typeof c.machine === 'string' ? c.machine : null, url: c.url }))
+  const home = connections.find((c) => c.machine === null)?.url ?? null
+  const where = pgWhere(home)
+  const names = (Array.isArray(s.projects) ? s.projects : []).map(String)
   return {
-    name: s.name,
-    kind: s.kind ?? 'sqlite',
-    machine: s.machine ?? null,
-    projects: (s.projects ?? []).map(String),
-    created: s.created ?? null,
-    size: file?.exists ? { bytes: (file.bytes ?? 0) + (file.wal_bytes ?? 0), file: file.bytes ?? 0, wal: file.wal_bytes ?? 0 } : null,
-    // the SDK's state: store.list's item, derived as store.status derives it (#537 U4)
-    state: s.state ?? status?.state ?? 'unknown',
-    op: op && typeof op === 'object' ? { id: String(op.id ?? ''), name: String(op.name ?? ''), phase: op.phase ?? '', started: op.started ?? null, uncertain: op.uncertain === true } : null,
-    holders: (status?.holders ?? []).length,
-    down: status?.down_reason ?? (status ? null : 'store.status did not answer'),
-    links: Object.entries(s.backups ?? {}).map(([bucket, link]: [string, any]) => ({ bucket, file: link.file ?? s.name, last: link.last ? { op: link.last.op, at: link.last.at ?? null, bytes: link.last.bytes ?? null } : null })),
-    job: jobs.find((j) => j.store === s.name && !j.ended)?.id ?? null,
-    postgresql: s.kind === 'postgresql' ? pgServer(s, status?.server, secrets) : null,
-    // PostgreSQL: the machine its sessions run on by default (this install's choice), and the machines with a connection of their own
-    runsOn: s.kind === 'postgresql' ? runsOn : null,
-    ownConnections: ownConnectionsOf(s, secrets),
+    name: String(s.store),
+    kind,
+    machine: typeof s.machine === 'string' ? s.machine : null,
+    projects: names,
+    projectsCount: typeof s.projects_count === 'number' ? s.projects_count : names.length,
+    created: msAt(s.created_at),
+    size: typeof s.size === 'number' ? { bytes: s.size } as { bytes: number, seen?: number, stale?: true } : null,
+    state: typeof s.state === 'string' ? s.state : 'ready',
+    op: opOf(s.op),
+    ...companionsOf(s),
+    links: (Array.isArray(s.backups) ? s.backups : []).filter((b: any) => typeof b?.bucket === 'string').map((b: any) => ({
+      bucket: b.bucket, file: typeof b.file === 'string' ? b.file : String(s.store),
+      last: b.last && typeof b.last === 'object' ? { op: String(b.last.call ?? ''), at: msAt(b.last.ended_at), bytes: typeof b.last.size === 'number' ? b.last.size : null } : null,
+      attempt: b.attempt && typeof b.attempt === 'object' ? { op: String(b.attempt.call ?? ''), at: msAt(b.attempt.ended_at), error: b.attempt.error ?? null } : null,
+    })),
+    job: jobs.find((j) => j.store === s.store && !j.ended)?.id ?? null,
+    postgresql: kind === 'postgresql' ? {
+      auth: typeof s.auth === 'string' ? s.auth : null,
+      url: home, target: home ? pgTarget(home) : null, server: where?.server ?? null, database: where?.database ?? null,
+      synchronousCommit: typeof s.synchronous_commit === 'string' ? s.synchronous_commit : null,
+    } : null,
+    // PostgreSQL: the machine its sessions run on by default (this install's choice), and the machines with an address of their own
+    runsOn: kind === 'postgresql' ? runsOn : null,
+    ownConnections: connections.filter((c) => c.machine !== null).map((c) => ({ machine: c.machine as string, url: c.url, target: pgTarget(c.url) })),
   }
 }
 
-type BucketRecord = { name: string, provider: string | null, keys?: 'saved' | 'reference', key?: string | null, /** the key file the host wrote (keys: saved) */ file?: string | null, url?: string | null, region?: string | null }
+/** The not_listed entry for a bucket as the page shows it. */
+const notListedError = (n: any) => ({ code: String(n?.reason ?? 'lost'), message: String(n?.message ?? 'the bucket could not be listed') })
 
-/** A bucket's URL from its LayerFS record: MinIO `<endpoint>/<bucket>/<prefix>`, R2 `r2://<account>/<bucket>/<prefix>`. */
-export function recordUrl(r: any): string | null {
-  if (typeof r?.url === 'string') return r.url
-  const path = [r?.bucket, r?.prefix].filter((p) => typeof p === 'string' && p).join('/')
-  const r2Host = typeof r?.endpoint === 'string' ? /^https:\/\/([0-9a-f]{32})\.(?:[a-z]+\.)?r2\.cloudflarestorage\.com/.exec(r.endpoint) : null
-  const account = typeof r?.account === 'string' ? r.account : r2Host?.[1]
-  if (r?.provider === 'r2' && account) return `r2://${account}/${path}${r.jurisdiction ? `?jurisdiction=${r.jurisdiction}` : ''}`
-  if (typeof r?.endpoint === 'string') return `${r.endpoint.replace(/\/+$/, '')}/${path}`
-  return null
-}
 type Listing = { at: number, items: any[] | null, error: { code: string, message: string } | null }
 
 export class Storage {
@@ -244,8 +198,6 @@ export class Storage {
   /** The StorageView read in flight, shared by concurrent callers; a write (`changed`) bumps `generation` so later callers read anew. */
   private viewing: { promise: ReturnType<Storage['readView']>, generation: number } | null = null
   private generation = 0
-  /** What this host knew of a Store on another machine when it backed it up (see backup-heads.ts). */
-  readonly marks: BackupMarks
   /** The last size each Store was read at: a Store on a machine that does not answer shows it (store-sizes.ts). */
   readonly sizes: StoreSizes
   readonly reconciled: Promise<void>
@@ -258,7 +210,6 @@ export class Storage {
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       chmodSync(dir, 0o700)
     }
-    this.marks = new BackupMarks(host.stats)
     this.sizes = new StoreSizes(host.stats)
     this.storeMachines = new StoreMachines(host.root)
     this.jobStore = new JobStore(host.jobs)
@@ -278,37 +229,17 @@ export class Storage {
 
   private log(line: string): void { this.host.log(line) }
 
-
-
   changed(): void {
     this.lastView = null
     this.generation++
     this.event({ type: 'storage' })
   }
 
-  /**
-   * The buckets connected to this LayerFS home, by any client: LayerFS's own
-   * records (`<home>/backup/<name>/record.json`, read only, never written here).
-   * `keys` is `saved` when the key reference names a file in the secrets folder.
-   */
-  bucketRecords(): BucketRecord[] {
-    const dir = join(this.host.home, 'backup')
-    let names: string[]
-    try { names = readdirSync(dir) } catch { return [] }
-    const records: BucketRecord[] = []
-    for (const name of names.sort()) {
-      let r: any
-      try { r = JSON.parse(readFileSync(join(dir, name, 'record.json'), 'utf8')) } catch { continue }
-      if (!r || typeof r !== 'object') continue
-      const key = typeof r.key === 'string' ? r.key : null
-      const saved = savedFile(key, this.host.secrets, 'bucket-')
-      records.push({ name: typeof r.name === 'string' ? r.name : name, provider: typeof r.provider === 'string' ? r.provider : null, keys: key ? (saved ? 'saved' : 'reference') : undefined, key: saved ? null : key, file: saved ? key!.slice('file:'.length) : null, url: recordUrl(r), region: typeof r.region === 'string' ? r.region : null })
-    }
-    return records
-  }
-
-  knownBuckets(): string[] {
-    return this.bucketRecords().map((b) => b.name)
+  /** The buckets connected to this LayerFS home, by any client: `home get --with tree` (records only). */
+  private async bucketRows(): Promise<{ name: string, provider: string | null }[]> {
+    const tree = (await this.lfs.home.get({ with: ['tree'] }))?.tree
+    return (Array.isArray(tree?.buckets) ? tree.buckets : []).filter((b: any) => typeof b?.bucket === 'string')
+      .map((b: any) => ({ name: b.bucket as string, provider: typeof b.provider === 'string' ? b.provider : null }))
   }
 
   /** StorageView: concurrent reads (the project list's join, the Storage page) share one. */
@@ -321,21 +252,24 @@ export class Storage {
   }
 
   private async readView(generation: number) {
-    const [listed, machines] = await Promise.all([this.lfs.store.list(), machineRows(this.lfs)])
-    const items: any[] = listed.items ?? []
-    const statuses = await Promise.all(items.map((s) => this.lfs.store.status(s.name).catch((error: any) => (this.log(`[storage] store.status ${s.name}: ${error?.message ?? error}`), null))))
+    const [listed, machines, recorded] = await Promise.all([
+      this.lfs.store.list({ detail: true, with: ['stats'] }),
+      machineRows(this.lfs),
+      this.bucketRows().catch((error: any) => (this.log(`[storage] home get --with tree: ${error?.message ?? error}`), [] as { name: string, provider: string | null }[])),
+    ])
+    const items: any[] = listed?.items ?? []
     const jobs = this.jobList()
     const fleet: PgMachine[] = machines
-    const stores = items.map((s, i) => storeRow(s, statuses[i], jobs, this.host.secrets, s.kind === 'postgresql' ? pgMachineOf(this.storeMachines.get(s.name), fleet) : null))
+    const stores = items.map((s) => storeRow(s, jobs, s.engine === 'postgresql' ? pgMachineOf(this.storeMachines.get(String(s.store)), fleet) : null))
     // a Store whose machine does not answer keeps its last read size, marked stale
-    const sizes = this.sizes.answer(stores.filter((s) => s.kind === 'sqlite'))
-    stores.filter((s) => s.kind === 'sqlite').forEach((s, i) => { s.size = sizes[i] ?? null })
-    const names = new Set([...this.knownBuckets(), ...stores.flatMap((s) => s.links.map((l) => l.bucket))])
-    const records = this.bucketRecords()
+    const sqlite = stores.filter((s) => s.kind === 'sqlite')
+    const sizes = this.sizes.answer(sqlite.map((s) => ({ name: s.name, size: s.size ? { bytes: s.size.bytes } : null })))
+    sqlite.forEach((s, i) => { s.size = sizes[i] ?? null })
+    const names = new Set([...recorded.map((b) => b.name), ...stores.flatMap((s) => s.links.map((l: { bucket: string }) => l.bucket))])
     const buckets = [...names].sort().map((name) => {
       const listing = this.listings.get(name)
-      const record = records.find((b) => b.name === name)
-      return { name, keys: record?.keys ?? null, key: record?.key ?? null, url: record?.url ?? null, region: record?.region ?? null, provider: record?.provider ?? null, listed: listing?.at ?? null, files: listing?.items ?? null, error: listing?.error ?? null, stores: stores.filter((s) => s.links.some((l) => l.bucket === name)).map((s) => s.name) }
+      const record = recorded.find((b) => b.name === name)
+      return { name, provider: record?.provider ?? null, listed: listing?.at ?? null, files: listing?.items ?? null, error: listing?.error ?? null, stores: stores.filter((s) => s.links.some((l: { bucket: string }) => l.bucket === name)).map((s) => s.name) }
     })
     const view = {
       machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state, supports: m.supports })),
@@ -344,8 +278,7 @@ export class Storage {
       stores,
       buckets,
       jobs,
-      // whether the selected runtime has store.compact (older ones do not)
-      compact: (await this.compactCall()) !== null,
+      compact: true,
       at: Date.now(),
     }
     // a write while this read ran: answer it, but do not keep it for the join
@@ -353,10 +286,10 @@ export class Storage {
     return view
   }
 
-  /** Store name -> { state, op, machine, down } for the project list: a recent view, else a new one. */
-  async projectJoin(): Promise<Map<string, { state: string, op: unknown, machine: string | null, down: string | null }>> {
+  /** Store name -> { state, op, machine, reason } for the project list: a recent view, else a new one. */
+  async projectJoin(): Promise<Map<string, { state: string, op: unknown, machine: string | null, reason: string | null }>> {
     const view = this.lastView && Date.now() - this.lastView.at < JOIN_MS ? this.lastView : await this.view()
-    return new Map(view.stores.map((s: any) => [s.name, { state: s.state, op: s.op, machine: s.machine, down: s.down }]))
+    return new Map(view.stores.map((s: any) => [s.name, { state: s.state, op: s.op, machine: s.machine, reason: s.reason ?? null }]))
   }
 
   // ---------- Stores ----------
@@ -375,146 +308,106 @@ export class Storage {
     return this.view()
   }
 
-  /** The prefix of the password files the host writes for PostgreSQL Store `store` (and `machine`). */
-  private pgSecretPrefix(store: string, machine?: string): string {
-    return `pg-${store}${machine ? `--${machine}` : ''}--`
-  }
-
-  /** The host's password files for `store` (and `machine`; `''` the Store's own). */
-  private pgSecretFiles(store: string, machine?: string): string[] {
-    const dir = this.host.secrets
-    const prefix = machine === undefined ? `pg-${store}--` : this.pgSecretPrefix(store, machine || undefined)
-    try {
-      return readdirSync(dir).filter((f) => f.startsWith(prefix) && f.endsWith('.pw') && (machine !== '' || !f.slice(prefix.length).includes('--'))).map((f) => join(dir, f))
-    } catch {
-      return []
-    }
-  }
-
   /**
-   * `{ password }` (a reference) or `{ passwordValue }` (written to a new
-   * owner-only file, answered as its `file:` reference and path). Each write
-   * gets a new file, so a refused call never breaks the file an earlier
-   * call recorded.
+   * The saved login a PostgreSQL call names: `auth` (an existing one), the
+   * login of Store `passwordFrom` (its server must be the URL's), or a new one
+   * saved now from `user` + `passwordValue` under `authName` (default: the
+   * Store's name). Saving under a name that exists rotates its password.
    */
-  private pgPassword(input: any, store: string, machine?: string): { password?: string, written: string | null } {
-    if (typeof input?.passwordValue === 'string' && input.passwordValue !== '') {
-      if (input.password !== undefined && input.password !== null && input.password !== '') throw refuse(400, 'InvalidInput', 'Give the password or a reference, not both')
-      const dir = this.secretsDir()
-      const written = join(dir, `${this.pgSecretPrefix(store, machine)}${randomUUID().slice(0, 8)}.pw`)
-      writeFileSync(written, input.passwordValue, { mode: 0o600 })
-      chmodSync(written, 0o600)
-      return { password: `file:${written}`, written }
+  private async loginOf(input: any, store: string, url: string | null): Promise<string | undefined> {
+    if (typeof input?.auth === 'string' && input.auth) { checkName(input.auth, 'A saved login'); return input.auth }
+    if (input?.passwordFrom !== undefined && input.passwordFrom !== null && input.passwordFrom !== '') {
+      checkName(input.passwordFrom, 'The Store to take the login from')
+      const source: any = await this.lfs.store.get(input.passwordFrom, { detail: true })
+      if (source?.engine !== 'postgresql' || typeof source.auth !== 'string') throw refuse(400, 'InvalidInput', `Store ${input.passwordFrom} is not a PostgreSQL Store with a saved login`)
+      const there = pgWhere((Array.isArray(source.connections) ? source.connections : []).find((c: any) => !c?.machine)?.url)
+      const here = pgWhere(url)
+      if (url && (!here || !there || here.server !== there.server)) throw refuse(400, 'InvalidInput', `Store ${input.passwordFrom} is on another server (${there?.server ?? 'unknown'}); give this connection its own login`)
+      return source.auth
     }
-    if (input?.password === undefined || input?.password === null || input?.password === '') return { written: null }
-    checkReference(input.password, 'The password')
-    return { password: input.password, written: null }
-  }
-
-  /** Removes the host's password files of `store`/`machine` other than `keep`. */
-  private dropPgSecrets(store: string, machine: string | undefined, keep: string | null = null): void {
-    for (const file of this.pgSecretFiles(store, machine)) if (file !== keep) rmSync(file, { force: true })
+    if (typeof input?.passwordValue === 'string' && input.passwordValue !== '') {
+      const user = typeof input.user === 'string' ? input.user.trim() : ''
+      if (!user) throw refuse(400, 'InvalidInput', 'Give the database user with the password')
+      const auth = typeof input.authName === 'string' && input.authName ? input.authName : store
+      checkName(auth, 'A saved login')
+      await this.lfs.store.save_auth(auth, { user, password: input.passwordValue })
+      return auth
+    }
+    return undefined
   }
 
   /**
-   * A PostgreSQL database as a Store: { name, url (no password), password (a
-   * reference) | passwordValue, synchronousCommit?, runsOn? }. `runsOn`
-   * saves the machine its sessions run on by default.
+   * A PostgreSQL database as a Store: { name, url (no user or password), auth
+   * | passwordFrom | user + passwordValue, synchronousCommit?, runsOn? }.
+   * `runsOn` saves the machine its sessions run on by default.
    */
   async connectPostgresql(input: any = {}) {
     const { name, url, synchronousCommit } = input
     checkName(name, 'A PostgreSQL Store')
-    checkUrl(url, 'The database URL', { user: false })
-    if (input.passwordFrom !== undefined && input.passwordFrom !== null && input.passwordFrom !== '') input = { ...input, password: undefined, passwordValue: undefined, ...(await this.passwordOf(input.passwordFrom, url)) }
-    else if (!input.passwordValue) checkReference(input.password, 'The password')
-    const { password, written } = this.pgPassword(input, name, '')
-    try {
-      await this.lfs.store.connect(name, url, { password, ...(synchronousCommit ? { synchronous_commit: synchronousCommit } : {}) })
-    } catch (error) {
-      if (written) rmSync(written, { force: true })
-      throw error
-    }
+    checkUrl(url, 'The database URL')
+    const auth = await this.loginOf(input, name, url)
+    if (!auth) throw refuse(400, 'InvalidInput', 'Choose a saved login, or give the user and password')
+    await this.lfs.store.connect(name, url, { auth, ...(synchronousCommit ? { synchronous_commit: synchronousCommit } : {}) })
     if (typeof input.runsOn === 'string' && input.runsOn) this.storeMachines.set(name, input.runsOn)
     this.changed()
     return this.view()
   }
 
   /**
-   * The password of PostgreSQL Store `from` for a new Store on the same
-   * server (`passwordFrom`): a file this host wrote is copied into the new
-   * Store's own file (`passwordValue`), so disconnecting either Store never
-   * takes the other's password; any other reference (env:, a file of the
-   * user's) is shared as it is. Refused when `from` is not a PostgreSQL Store
-   * of this home or its server is not the URL's.
-   */
-  private async passwordOf(from: unknown, url: string): Promise<{ password: string } | { passwordValue: string }> {
-    checkName(from, 'The Store to take the password from')
-    const source: any = await this.lfs.store.get(from)
-    if (source?.kind !== 'postgresql') throw refuse(400, 'InvalidInput', `Store ${from} is not a PostgreSQL Store`)
-    const here = pgWhere(url)
-    const there = pgWhere(source.url)
-    if (!here || !there || here.server !== there.server) throw refuse(400, 'InvalidInput', `Store ${from} is on another server (${there?.server ?? 'unknown'}); give this connection its own password`)
-    const reference = source.password
-    if (typeof reference !== 'string' || !REFERENCE.test(reference)) throw refuse(400, 'InvalidInput', `Store ${from} keeps no password to reuse; give this connection its own password`)
-    if (!savedFile(reference, this.host.secrets, 'pg-')) return { password: reference }
-    try {
-      return { passwordValue: readFileSync(reference.slice('file:'.length), 'utf8') }
-    } catch {
-      throw refuse(400, 'InvalidInput', `The password file of Store ${from} is gone; give this connection its own password`)
-    }
-  }
-
-  /**
-   * store.update: `{ machine?, url?, password? | passwordValue?,
-   * synchronousCommit?, clear? }`. Without `machine` it edits the Store's own
-   * connection; with one, that machine's own (LayerFS checks it from the
-   * machine before it saves anything), and `clear` removes it. A typed
-   * password goes to a new owner-only file; the files it replaces are removed
-   * once LayerFS took the new one.
+   * A PostgreSQL Store's connection: `{ machine?, url?, clear?, auth?,
+   * passwordFrom?, user? + passwordValue?, synchronousCommit? }`. With a
+   * `url`: the Store's address, or with `machine` that machine's own (proven
+   * from it; store.connect). `clear` with `machine`: that machine's own
+   * address goes (store.disconnect --machine). `auth`/`passwordFrom` or
+   * `synchronousCommit`: store.update. A typed password: saved under the
+   * Store's current login (store.save_auth rotates it).
    */
   async updateStore(name: string, input: any = {}) {
     checkName(name, 'A PostgreSQL Store')
     const machine: string | undefined = input.machine === undefined || input.machine === null || input.machine === '' ? undefined : input.machine
     if (machine !== undefined) checkName(machine, 'A machine')
     if (input.clear === true) {
-      if (machine === undefined) throw refuse(400, 'InvalidInput', 'Name the machine whose own connection to remove')
-      await this.lfs.store.update(name, { machine, clear: true })
-      this.dropPgSecrets(name, machine)
+      if (machine === undefined) throw refuse(400, 'InvalidInput', 'Name the machine whose own address to remove')
+      await this.lfs.store.disconnect(name, { machine })
       this.changed()
       return this.view()
     }
-    if (input.url) checkUrl(input.url, 'The database URL', { user: false })
-    const { password, written } = this.pgPassword(input, name, machine ?? '')
-    const sync = typeof input.synchronousCommit === 'string' && input.synchronousCommit ? input.synchronousCommit : undefined
-    if (!input.url && !password && !sync) throw refuse(400, 'InvalidInput', 'Give a URL, a password or synchronous_commit to change')
-    try {
-      await this.lfs.store.update(name, { ...(machine ? { machine } : {}), ...(input.url ? { url: input.url } : {}), ...(password ? { password } : {}), ...(sync ? { synchronous_commit: sync } : {}) })
-    } catch (error) {
-      if (written) rmSync(written, { force: true })
-      throw error
+    if (input.url) {
+      checkUrl(input.url, 'The database URL')
+      await this.lfs.store.connect(name, input.url, machine ? { machine } : {})
     }
-    // the files an earlier connect or update recorded for this connection
-    if (password) this.dropPgSecrets(name, machine ?? '', written ?? (password.startsWith('file:') ? password.slice(5) : null))
+    const sync = typeof input.synchronousCommit === 'string' && input.synchronousCommit ? input.synchronousCommit : undefined
+    let rotated = false
+    if (typeof input.passwordValue === 'string' && input.passwordValue !== '' && !input.auth) {
+      const record: any = await this.lfs.store.get(name, { detail: true })
+      if (typeof record?.auth !== 'string') throw refuse(400, 'InvalidInput', `Store ${name} has no saved login to change`)
+      await this.loginOf({ ...input, authName: record.auth }, name, null)
+      rotated = true
+    }
+    const auth = rotated ? undefined : await this.loginOf({ auth: input.auth, passwordFrom: input.passwordFrom }, name, null)
+    if (auth || sync) await this.lfs.store.update(name, { ...(auth ? { auth } : {}), ...(sync ? { synchronous_commit: sync } : {}) })
+    if (!input.url && !auth && !sync && !rotated) throw refuse(400, 'InvalidInput', 'Give an address, a login, a password or synchronous_commit to change')
     this.changed()
     return this.view()
   }
 
   /**
-   * The check from `machine` (store.status --machine): `{ machine, host, ok,
-   * at, version, latencyMs } | { machine, host, ok: false, error }`. Nothing
-   * is kept: the caller shows it. A bad input (no such machine, a sqlite
-   * Store, a platform that runs none) is LayerFS's refusal.
+   * The connection check from `machine` (`store doctor <store> --machine M`):
+   * `{ machine, host, ok, at }` or `{ machine, host, ok: false, error }` from
+   * its `store.connection` check from that machine. Nothing is kept: the
+   * caller shows it. A bad input (no such machine, a sqlite Store) is
+   * LayerFS's refusal.
    */
   async checkStore(name: string, machine: unknown) {
     checkName(name, 'A PostgreSQL Store')
     checkName(machine, 'A machine')
-    // its own budget: a check always asks LayerFS, never a kept status
-    const status: any = await this.lfs.store.status(name, { machine, timeout_ms: CHECK_TIMEOUT_MS })
-    const check = status?.check
-    if (!check || typeof check !== 'object') throw refuse(502, 'Failed', `store.status answered no check from machine ${machine}`)
-    const host = typeof check.host === 'string' ? check.host : null
-    if (check.ok === true) return { machine, host, ok: true as const, at: check.at ?? Date.now(), version: check.server_version ?? null, latencyMs: check.latency_ms ?? null }
-    return { machine, host, ok: false as const, error: { code: String(check.error?.code ?? 'Failed'), message: String(check.error?.message ?? 'the check failed') } }
+    const report: any = await this.lfs.store.doctor(name, { machine, detail: true, timeout_ms: CHECK_TIMEOUT_MS })
+    const finding = (Array.isArray(report?.findings) ? report.findings : []).find((f: any) => f?.check === 'store.connection' && f?.from === machine)
+    const skipped = (Array.isArray(report?.not_checked) ? report.not_checked : []).find((n: any) => (n?.check === 'store.connection' || !n?.check) && (n?.from === machine || !n?.from))
+    const at = msAt(report?.observed_at) ?? Date.now()
+    if (finding) return { machine, host: null, ok: false as const, error: { code: finding.severity === 'error' ? 'Unavailable' : 'Failed', message: String(finding.message ?? 'the check failed') } }
+    if (skipped) return { machine, host: null, ok: false as const, error: { code: String(skipped.reason ?? skipped.blocked_by?.reason ?? 'Unknown'), message: String(skipped.message ?? `machine ${machine} was not checked`) } }
+    return { machine, host: null, ok: true as const, at, version: null, latencyMs: null }
   }
 
   /** `{ machine }`: the machine PostgreSQL Store `name`'s sessions run on by default (this install's choice). */
@@ -522,7 +415,7 @@ export class Storage {
     checkName(name, 'A PostgreSQL Store')
     checkName(input.machine, 'A machine')
     const record: any = await this.lfs.store.get(name)
-    if (record?.kind !== 'postgresql') throw refuse(400, 'InvalidInput', `${name} is a SQLite Store; it runs on the machine that holds its file`)
+    if (record?.engine !== 'postgresql') throw refuse(400, 'InvalidInput', `${name} is a SQLite Store; it runs on the machine that holds its file`)
     const target = (await machineRows(this.lfs)).find((m) => m.name === input.machine)
     if (!target) throw refuse(404, 'NotFound', `no machine named ${input.machine}`)
     if (!runsPostgresql(target)) throw refuse(400, 'Unsupported', `machine ${input.machine} runs no PostgreSQL Sandboxes`)
@@ -533,95 +426,67 @@ export class Storage {
 
   async disconnectStore(name: string) {
     await this.lfs.store.disconnect(name)
-    this.dropPgSecrets(name, undefined)
     this.storeMachines.drop(name)
     this.changed()
     return this.view()
   }
 
+  /** The home's saved PostgreSQL logins (`store auths --detail`): name, user, the Stores naming it; never a password. */
+  async auths() {
+    const listed = await this.lfs.store.auths({ detail: true })
+    return { items: (Array.isArray(listed?.items) ? listed.items : []).map((a: any) => ({ auth: String(a.auth), user: typeof a.user === 'string' ? a.user : null, stores: Array.isArray(a.stores) ? a.stores.map(String) : [] })) }
+  }
+
   // ---------- buckets ----------
-
-  /** The secrets folder, created owner-only. */
-  private secretsDir(): string {
-    // by default it is <home>/secret: a home made here is owner-only, as LayerFS requires
-    if (this.host.secrets.startsWith(`${this.host.home}/`) && !existsSync(this.host.home)) mkdirSync(this.host.home, { recursive: true, mode: 0o700 })
-    mkdirSync(this.host.secrets, { recursive: true, mode: 0o700 })
-    chmodSync(this.host.secrets, 0o700)
-    return this.host.secrets
-  }
-
-  /** The owner-only key file the host writes for bucket `name` (LayerFS gets its file: reference). */
-  keyFile(name: string): string {
-    return join(this.host.secrets, `bucket-${String(name).replace(/[^a-z0-9_.-]/gi, '-')}.key`)
-  }
-
-  /** The key file a saved bucket uses: the one recorded at connect (the secrets folder may have moved since). */
-  private savedKeyFile(name: string): string {
-    return this.bucketRecords().find((b) => b.name === name)?.file ?? this.keyFile(name)
-  }
 
   /**
    * An r2 or MinIO bucket. The URL is given whole ({ url }) or built from its
    * parts: MinIO { provider: 'minio', endpoint, bucket, prefix? }, R2
-   * { provider: 'r2', account, jurisdiction?, bucket, prefix? }. The key is
-   * a reference ({ key: env:LAYERFS_… or file:/abs }) or the two keys
-   * ({ accessKey, secretKey }), which the host writes to an owner-only file
-   * in the secrets folder and passes as that file's reference: the keys
-   * never go into the URL, storage records or the home.
+   * { provider: 'r2', account, jurisdiction?, bucket, prefix? }, with
+   * { accessKey, secretKey }. The secret goes to LayerFS on stdin
+   * (`--key-stdin`); the home keeps it. To change a key: disconnect and
+   * connect again.
    */
   async connectBucket(input: any = {}) {
-    const { name, region } = input
+    const { name } = input
     checkName(name, 'A bucket')
     const url = input.url ?? bucketUrl(input)
     if (typeof url !== 'string' || !/^(https?:\/\/|r2:\/\/)/.test(url)) throw refuse(400, 'InvalidInput', 'A bucket URL is http(s)://<host>/<bucket>/<prefix> (MinIO) or r2://<account>/<bucket>/<prefix>')
     if (!url.startsWith('r2://')) checkUrl(url, 'The bucket URL')
-    let key = input.key
-    let written: string | null = null
-    if (input.accessKey !== undefined || input.secretKey !== undefined) {
-      const [access, secret] = [input.accessKey, input.secretKey].map((v) => (typeof v === 'string' ? v.trim() : ''))
-      if (!access || !secret || /\s/.test(access + secret)) throw refuse(400, 'InvalidInput', 'Give both the access key and the secret key (no spaces)')
-      written = this.keyFile(name)
-      if (existsSync(written)) throw refuse(409, 'Exists', 'Saved keys already exist for this bucket; use Replace keys')
-      this.secretsDir()
-      writeFileSync(written, `access_key=${access}\nsecret_key=${secret}\n`, { mode: 0o600 })
-      chmodSync(written, 0o600)
-      key = `file:${written}`
-    }
-    checkReference(key, 'The key')
-    try {
-      // LayerFS records the bucket in the home (backup/<name>/record.json); the view reads it from there
-      await this.lfs.backup.connect(name, url, { key, ...(region ? { region } : {}) })
-    } catch (error) {
-      if (written) rmSync(written, { force: true })
-      throw error
-    }
+    const [access, secret] = [input.accessKey, input.secretKey].map((v) => (typeof v === 'string' ? v.trim() : ''))
+    if (!access || !secret || /\s/.test(access + secret)) throw refuse(400, 'InvalidInput', 'Give both the access key and the secret key (no spaces)')
+    await this.lfs.backup.connect(name, url, { access_key: access, secret_key: secret })
     this.changed()
     return this.view()
   }
 
-  /** Drops the bucket; LayerFS drops every Store's link to it too. Answers which Stores lost theirs. */
+  /** Drops the bucket and its key; LayerFS drops every Store's link to it too. Answers which Stores lost theirs. */
   async disconnectBucket(name: string) {
-    const file = this.savedKeyFile(name)
-    const done = await this.lfs.backup.disconnect(name)
-    // the key file the host wrote for it, if any
-    rmSync(file, { force: true })
+    const done = await this.lfs.backup.disconnect(name, { detail: true })
     this.listings.delete(name)
     this.changed()
     return { unlinked: done?.unlinked ?? [], view: await this.view() }
   }
 
-  /** backup.list(bucket): its files with their states, kept as the bucket's last listing. */
+  /**
+   * `backup list --bucket <name> --detail`: its files, kept as the bucket's
+   * last listing. A file: its Store link (`store`), `behind` (the Store
+   * changed since its last backup), `changed` (the bucket's copy is not the
+   * one the link last moved), `missing` (linked, not in the bucket); null
+   * with a `message` where LayerFS could not read it. A bucket that could not
+   * be listed comes back in `not_listed`: its reason and message.
+   */
   async listBucket(name: string): Promise<Listing> {
     checkName(name, 'A bucket')
     try {
-      const listed = await this.lfs.backup.list(name)
-      let items = (listed.items ?? []).map((i: any) => ({ file: i.file, store: i.store ?? null, state: i.state, bytes: i.bytes ?? null, modified: i.modified ?? null, reason: i.reason ?? null, heads: i.heads ?? null }))
-      // a Store on another machine lists as unknown: settle it from this host's marks (backup-heads.ts)
-      if (items.some(remoteOnly)) {
-        const stores = (await this.lfs.store.list().catch(() => null))?.items ?? []
-        items = await settleRemote(items, name, stores, this.marks, (store) => historyFingerprint(this.lfs, store))
-      }
-      this.listings.set(name, { at: Date.now(), items, error: null })
+      const listed = await this.lfs.backup.list({ bucket: name, detail: true })
+      const failed = (Array.isArray(listed?.not_listed) ? listed.not_listed : []).find((n: any) => n?.bucket === name)
+      const items = (Array.isArray(listed?.items) ? listed.items : []).filter((i: any) => i?.bucket === name).map((i: any) => ({
+        file: String(i.file), store: typeof i.store === 'string' ? i.store : null, bytes: typeof i.size === 'number' ? i.size : null, modified: msAt(i.modified_at),
+        behind: typeof i.behind === 'boolean' ? i.behind : null, changed: typeof i.changed === 'boolean' ? i.changed : null, missing: i.missing === true,
+        message: typeof i.message === 'string' ? i.message : null,
+      }))
+      this.listings.set(name, failed ? { at: Date.now(), items: this.listings.get(name)?.items ?? null, error: notListedError(failed) } : { at: Date.now(), items, error: null })
     } catch (error: any) {
       this.listings.set(name, { at: Date.now(), items: this.listings.get(name)?.items ?? null, error: { code: error?.code ?? 'Failed', message: error?.message ?? String(error) } })
     }
@@ -714,31 +579,31 @@ export class Storage {
     return { ...job }
   }
 
-  /** store.push(store, machine): a sqlite Store on native to `machine`. */
+  /** store.move(store, machine): a sqlite Store on native to `machine`. */
   push(store: unknown, machine: unknown) {
-    checkName(store, 'A push')
-    checkName(machine, 'A push')
+    checkName(store, 'A move')
+    checkName(machine, 'A move')
     return this.start('push', store, machine, null, async (on_progress, _step, on_spawn) => {
       await this.host.ensureNative()
-      return this.lfs.store.push(store, machine, { on_progress, on_spawn })
+      return this.lfs.store.move(store, machine, { on_progress, on_spawn, detail: true })
     })
   }
 
-  /** store.pull(store): a sqlite Store on a machine back to native. */
+  /** store.move(store, native): a sqlite Store on a machine back to this computer. */
   async pull(store: unknown) {
-    checkName(store, 'A pull')
+    checkName(store, 'A move')
     // the machine it comes from (store.get reads the record; it starts nothing): the job row reads "<store> ← <machine>"
     const from = (await this.lfs.store.get(store))?.machine ?? null
     return this.start('pull', store, 'native', null, async (on_progress, _step, on_spawn) => {
       await this.host.ensureNative()
-      return this.lfs.store.pull(store, { on_progress, on_spawn })
+      return this.lfs.store.move(store, 'native', { on_progress, on_spawn, detail: true })
     }, from)
   }
 
   /**
-   * A Store on one machine to another: pull, then push, two operations (U5).
-   * When the push half fails the Store stays on native; the error's `note`
-   * says so (`pulled`).
+   * A Store on one machine to another: to native, then to the target, two
+   * moves (a sqlite Store goes to or from this computer only; U5). When the
+   * second fails the Store stays on native; the error's `note` says so (`pulled`).
    */
   move(store: unknown, machine: unknown) {
     checkName(store, 'A move')
@@ -747,10 +612,10 @@ export class Storage {
       await this.host.ensureNative()
       const source = await this.lfs.store.get(store)
       step('pull', source.machine ?? null)
-      await this.lfs.store.pull(store, { on_progress, on_spawn })
+      await this.lfs.store.move(store, 'native', { on_progress, on_spawn, detail: true })
       step('push')
       try {
-        return await this.lfs.store.push(store, machine, { on_progress, on_spawn })
+        return await this.lfs.store.move(store, machine, { on_progress, on_spawn, detail: true })
       } catch (error: any) {
         if (failureOutcome(error, error?.detail?.phase) === 'failed' && error?.detail?.phase !== 'retire') error.note = 'pulled'
         throw error
@@ -758,71 +623,52 @@ export class Storage {
     })
   }
 
-  /** Puts sqlite Store `store` on `machine`: a push from native, a pull to native, else a move. */
+  /** Puts sqlite Store `store` on `machine`: a move from native, to native, else two moves through native. */
   async place(store: unknown, machine: unknown) {
     checkName(store, 'A Store')
     checkName(machine, 'A machine')
     const record = await this.lfs.store.get(store)
-    if (record.kind && record.kind !== 'sqlite') throw refuse(400, 'InvalidInput', `${store} is a PostgreSQL Store; it is never pushed or pulled`)
+    if (record.engine && record.engine !== 'sqlite') throw refuse(400, 'InvalidInput', `${store} is a PostgreSQL Store; it is never moved`)
     if (record.machine === machine) throw refuse(400, 'InvalidInput', `${store} is on ${machine} already`)
     if (machine === 'native') return this.pull(store)
     if (record.machine === 'native') return this.push(store, machine)
     return this.move(store, machine)
   }
 
-  /** backup.create(store, bucket, file?). */
+  /** backup.create(store, bucket, { file? }): a sqlite Store's snapshot to a bucket. */
   backup(store: unknown, { bucket, file }: any = {}) {
     checkName(store, 'A backup')
     checkName(bucket, 'A backup')
-    return this.start('backup', store, bucket, file, async (on_progress, _step, on_spawn) => {
-      // LayerFS cannot tell later whether a Store on another machine changed since this backup:
-      // the host fingerprints its history first and keeps it with the sha256 the backup moved
-      const record = ((await this.lfs.store.list().catch(() => null))?.items ?? []).find((s: any) => s.name === store)
-      const remote = record && (record.kind ?? 'sqlite') === 'sqlite' && record.machine && record.machine !== 'native'
-      const fingerprint = remote ? await historyFingerprint(this.lfs, store).catch((error: any) => (this.log(`[storage] fingerprint ${store}: ${error?.message ?? error}`), null)) : null
-      const result = await this.lfs.backup.create(store, bucket, file || undefined, { on_progress, on_spawn })
-      if (fingerprint && typeof result?.sha256 === 'string') {
-        try { this.marks.set(store, bucket, String(result.file ?? (file || store)), { sha256: result.sha256, fingerprint, at: Date.now() }) } catch (error: any) { this.log(`[storage] backup mark ${store}: ${error?.message ?? error}`) }
-      }
-      return result
-    })
+    return this.start('backup', store, bucket, file, (on_progress, _step, on_spawn) => this.lfs.backup.create(store, bucket, { ...(file ? { file } : {}), on_progress, on_spawn, detail: true }))
   }
 
-  /** backup.restore(store, bucket, file?): a new Store `store` on native. */
+  /** backup.restore(bucket, file, store): a Store on native from a bucket's file (default: the file named after the Store). */
   restore({ store, bucket, file }: any = {}) {
     checkName(store, 'A restore')
     checkName(bucket, 'A restore')
-    return this.start('restore', store, bucket, file, (on_progress, _step, on_spawn) => this.lfs.backup.restore(store, bucket, file || undefined, { on_progress, on_spawn }))
-  }
-
-  /** The selected runtime's store.compact: null when it has none, and whether it reports phases. */
-  private async compactCall(): Promise<{ progress: boolean } | null> {
-    const found = await this.host.discover().catch(() => null)
-    const entry = found?.calls.find((c) => c.family === 'store' && c.call === 'compact')
-    return entry ? { progress: entry.options.some((o) => o.name === 'on_progress') } : null
+    return this.start('restore', store, bucket, file, (on_progress, _step, on_spawn) => this.lfs.backup.restore(bucket, file || store, store, { on_progress, on_spawn, detail: true }))
   }
 
   /**
-   * store.compact(store): rebuild a Store from its live history, where it is
-   * (a sqlite file in the home, or its PostgreSQL server). LayerFS refuses a
-   * sqlite Store on another machine, a Store with mounts, and a busy one; the
-   * job carries that refusal. One attempt: nothing here runs it again.
+   * store.compact(store): rebuild a Store from its live history where it is
+   * (a sqlite file in the home or on its machine, compacted by that
+   * machine's worker; or its PostgreSQL server). LayerFS refuses a Store
+   * with mounts and a busy one; the job carries that refusal. One attempt:
+   * nothing here runs it again. Its result is `{ freed_bytes, outcome, … }`.
    */
   async compact(store: unknown) {
     checkName(store, 'A compaction')
-    const call = await this.compactCall()
-    if (!call) throw refuse(409, 'Unsupported', 'The selected LayerFS runtime has no store.compact; choose a newer one in Set up LayerFS')
-    const family = (await this.lfs.store.get(store))?.kind === 'postgresql' ? 'postgresql' : 'sqlite'
-    // a runtime whose store.compact takes no on_progress runs without steps
-    return this.start('compact', store, store, null, (on_progress, _step, on_spawn) => this.lfs.store.compact(store, call.progress ? { on_progress, on_spawn } : { on_spawn }), null, COMPACT_STEPS[family])
+    const family = (await this.lfs.store.get(store))?.engine === 'postgresql' ? 'postgresql' : 'sqlite'
+    return this.start('compact', store, store, null, (on_progress, _step, on_spawn) => this.lfs.store.compact(store, { on_progress, on_spawn, detail: true }), null, COMPACT_STEPS[family])
   }
 
   async inspect(id: string) {
     const job = this.jobs.get(id)
     if (!job || !job.ended) throw refuse(409, 'ConnectBusy', 'Wait for a completed job before inspecting recovery')
     job.observation = await inspectJob(this.lfs, job)
-    if (job.observation.value?.state === 'unresolved') job.outcome = 'unknown'
-    else if (job.observation.value?.state === 'idle' && job.error?.transport === 'transport-unknown' && !['install', 'record'].includes(job.phase ?? '')) job.outcome = 'interrupted'
+    const value = job.observation.value
+    if (value?.state === 'broken' && value?.reason === 'unresolved') job.outcome = 'unknown'
+    else if (value?.state === 'ready' && job.error?.transport === 'transport-unknown' && !['install', 'record'].includes(job.phase ?? '')) job.outcome = 'interrupted'
     job.summary = transferSummary(job)
     this.jobStore.save()
     return { ...job }
@@ -835,21 +681,6 @@ export class Storage {
     if (!job.observation.action) throw refuse(409, 'RecoveryUnavailable', 'The fresh observation does not permit this recovery')
     if (job.observation.direction === 'pull') return this.pull(job.store)
     return this.push(job.store, job.target)
-  }
-
-  async replaceBucketKeys(name: string, input: any) {
-    const record = this.bucketRecords().find((b) => b.name === name)
-    if (!record) throw refuse(404, 'NotFound', 'No saved bucket with this name')
-    if (record.keys !== 'saved') throw refuse(400, 'InvalidInput', 'This bucket uses an external secret reference; update that reference instead')
-    const access = input?.accessKey?.trim(), secret = input?.secretKey?.trim()
-    if (!access || !secret || /\s/.test(access + secret)) throw refuse(400, 'InvalidInput', 'Give both keys without spaces')
-    // where LayerFS reads it: the file recorded at connect
-    const file = record.file ?? this.keyFile(name)
-    mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
-    writeFileSync(file, `access_key=${access}\nsecret_key=${secret}\n`, { mode: 0o600 })
-    chmodSync(file, 0o600)
-    await this.listBucket(name)
-    return this.view()
   }
 
   close(): void { this.jobStore.save() }

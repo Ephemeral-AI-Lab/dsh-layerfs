@@ -1,55 +1,82 @@
 /**
- * The PostgreSQL password field Storage's dialogs share: typed (the host
- * writes it to an owner-only file), a reference, or (`same`, a Store on the
- * same server) that Store's. One row: the input beside the how-toggle,
- * which drops under the input when the row is too narrow for both. The
- * toggle's segments are equally wide, so no label carries a Store's name.
+ * The PostgreSQL login field Storage's dialogs share (LayerFS 2.0 saved
+ * logins, `store save-auth` / `store auths`): a user and password typed now
+ * (the host saves them as a login; the password goes to LayerFS on stdin),
+ * a login saved before, or (`same`, a Store on the same server) that Store's
+ * login. One row: the inputs beside the how-toggle, which drops under them
+ * when the row is too narrow. The toggle's segments are equally wide, so no
+ * label carries a Store's name.
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Input, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Field } from '../ui/index.tsx'
+import type { LayerfsApi } from '../api.ts'
+import { Field, MenuSelect } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
+import type { PgAuth } from './types.ts'
 import css from './Storage.module.css'
 
-/** A PostgreSQL password reference: any env: name (the server's environment) or a file. */
-const PG_REFERENCE = /^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/
 /** A PostgreSQL URL that holds a password (user:password@, or a password parameter). */
 export const PG_URL_PASSWORD = /^postgres(?:ql)?:\/\/[^/@?]*:[^/@?]*@|[?&][^=&]*password=/i
+/** A PostgreSQL URL that holds a user or a password: a Store's address carries neither in 2.0 (the saved login does). */
+export const PG_URL_LOGIN = /^postgres(?:ql)?:\/\/[^/@?]*@|[?&][^=&]*(password|user)=/i
 
-type How = 'same' | 'entered' | 'reference'
+type How = 'same' | 'entered' | 'saved'
 
-export function usePgPassword(initial: 'entered' | 'reference' = 'entered', reference = '', same: string | null = null) {
+/** GET /api/store-auths once: the saved logins (never a password); empty when the read failed. */
+export function usePgAuths(api: LayerfsApi): PgAuth[] {
+  const [auths, setAuths] = useState<PgAuth[]>([])
+  useEffect(() => {
+    let live = true
+    api.call<{ items: PgAuth[] }>('GET', '/api/store-auths').then((r) => { if (live) setAuths(Array.isArray(r?.items) ? r.items : []) }, () => {})
+    return () => { live = false }
+  }, [api])
+  return auths
+}
+
+/**
+ * The login state: `same` (a Store on the same server, its login reused),
+ * `entered` (user + password, saved now) or `saved` (a login by name).
+ * `user` starts as the one given (a pasted URL's, a known server's).
+ */
+export function usePgPassword(initial: 'entered' | 'saved' = 'entered', savedAuth = '', same: string | null = null, givenUser = '') {
   const [how, setHow] = useState<How>(same ? 'same' : initial)
   const [value, setValue] = useState('')
-  const [ref, setRef] = useState(reference)
+  const [user, setUser] = useState(givenUser)
+  const [auth, setAuth] = useState(savedAuth)
   return {
-    how, setHow, value, setValue, ref, setRef, same,
+    how, setHow, value, setValue, user, setUser, auth, setAuth, same,
     /** Nothing given yet. */
-    missing: how === 'same' ? false : how === 'entered' ? !value : !ref.trim(),
-    error: (t: StorageT) => (how === 'reference' && ref.trim() && !PG_REFERENCE.test(ref.trim()) ? t('passwordInvalid') : null),
+    missing: how === 'same' ? false : how === 'entered' ? !value || !user.trim() : !auth,
+    error: (_t: StorageT): string | null => null,
     /** The route's body fields. */
-    body: (): { passwordValue: string } | { password: string } | { passwordFrom: string } =>
-      (how === 'same' && same ? { passwordFrom: same } : how === 'entered' ? { passwordValue: value } : { password: ref.trim() }),
+    body: (): { passwordFrom: string } | { user: string, passwordValue: string } | { auth: string } =>
+      (how === 'same' && same ? { passwordFrom: same } : how === 'entered' ? { user: user.trim(), passwordValue: value } : { auth }),
   }
 }
 
-export function PgPasswordFields({ id, pw, t }: { id: string, pw: ReturnType<typeof usePgPassword>, t: StorageT }): ReactNode {
-  const hint = pw.how === 'same' ? t('pgPasswordSameNote', { store: pw.same ?? '' }) : pw.how === 'entered' ? t('pgPasswordNote') : t('pgEnvHint')
+export function PgPasswordFields({ id, pw, t, auths = [] }: { id: string, pw: ReturnType<typeof usePgPassword>, t: StorageT, auths?: readonly PgAuth[] }): ReactNode {
+  const hint = pw.how === 'same' ? t('pgPasswordSameNote', { store: pw.same ?? '' }) : pw.how === 'entered' ? t('pgPasswordNote') : t('pgAuthHint')
+  const options: { value: How, label: string }[] = [
+    ...(pw.same ? [{ value: 'same' as const, label: t('pgPasswordSame') }] : []),
+    { value: 'entered' as const, label: t('pgPasswordEntered') },
+    ...(auths.length ? [{ value: 'saved' as const, label: t('pgPasswordReference') }] : []),
+  ]
   return (
     <Field label={t('pgPasswordHow')} hint={hint} error={pw.error(t)}>
       <div className={css.passwordRow}>
         {pw.how === 'same' ? null : pw.how === 'entered' ? (
-          <Input key="entered" className={clsx(css.monoInput, css.passwordInput)} value={pw.value} onChange={(e) => pw.setValue(e.target.value)} type="password" autoComplete="off" spellCheck={false} />
+          <>
+            <Input key="user" className={clsx(css.monoInput, css.passwordInput)} value={pw.user} onChange={(e) => pw.setUser(e.target.value)} placeholder={t('pgUser')}
+              aria-label={t('pgUser')} autoComplete="off" spellCheck={false} />
+            <Input key="entered" className={clsx(css.monoInput, css.passwordInput)} value={pw.value} onChange={(e) => pw.setValue(e.target.value)} type="password"
+              aria-label={t('pgPasswordValue')} autoComplete="off" spellCheck={false} />
+          </>
         ) : (
-          <Input key="reference" className={clsx(css.monoInput, css.passwordInput)} value={pw.ref} onChange={(e) => pw.setRef(e.target.value)} placeholder="env:LAYERFS_PG_PASSWORD"
-            aria-label={t('pgPasswordReferenceLabel')} autoComplete="off" spellCheck={false} />
+          <MenuSelect value={pw.auth} label={t('pgPasswordReferenceLabel')} placeholder={t('pgPasswordReferenceLabel')}
+            options={auths.map((a) => ({ value: a.auth, label: a.user ? `${a.auth} (${a.user})` : a.auth }))} onChange={pw.setAuth} />
         )}
-        <SegmentedControl<How> id={id} className={css.noShrink} value={pw.how} onChange={pw.setHow} label={t('pgPasswordHow')}
-          options={[
-            ...(pw.same ? [{ value: 'same' as const, label: t('pgPasswordSame') }] : []),
-            { value: 'entered' as const, label: t('pgPasswordEntered') }, { value: 'reference' as const, label: t('pgPasswordReference') },
-          ]} />
+        {options.length > 1 ? <SegmentedControl<How> id={id} className={css.noShrink} value={pw.how} onChange={pw.setHow} label={t('pgPasswordHow')} options={options} /> : null}
       </div>
     </Field>
   )

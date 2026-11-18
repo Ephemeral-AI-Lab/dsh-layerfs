@@ -18,11 +18,12 @@ const M = await import(pathToFileURL(join(out, 'ms.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
 const t = (key, params) => (params ? `${key} ${JSON.stringify(params)}` : key)
-const sqlite = (name, machine, bytes) => ({ name, kind: 'sqlite', machine, projects: [name], size: bytes == null ? null : { bytes, file: bytes, wal: 0 }, state: 'idle', holders: 0, down: null, links: [], job: null })
-const pg = (name, target, runsOn, server = {}) => ({
-  name, kind: 'postgresql', machine: null, projects: ['p'], size: null, state: 'idle', holders: 0, down: null, links: [], job: null,
-  postgresql: { target, reachable: true, version: '16.4 (Debian)', latencyMs: 2, error: null, ...server },
-  runsOn, ownConnections: [],
+// the host's 2.0 StoreRow: the six-state `state` with its companions; a PostgreSQL Store's saved login is `postgresql.auth`
+const sqlite = (name, machine, bytes) => ({ name, kind: 'sqlite', machine, projects: [name], projectsCount: 1, size: bytes == null ? null : { bytes }, state: 'ready', links: [], job: null })
+const pg = (name, target, runsOn, more = {}) => ({
+  name, kind: 'postgresql', machine: null, projects: ['p'], projectsCount: 1, size: null, state: 'ready', links: [], job: null,
+  postgresql: { auth: 'layerfs', url: `postgresql://${target}`, target, server: null, database: target.split('/').at(-1), synchronousCommit: null },
+  runsOn, ownConnections: [], ...more,
 })
 // 2.0 `machine list --detail`: `supports` lists what the machine takes
 const machine = (name, platform, supports = ['sqlite', 'postgresql_sandbox'], state = 'ready') => ({ name, platform, state, supports })
@@ -66,24 +67,24 @@ test('a machine that takes neither kind says why; the tab opens on the kind aske
   assert.equal(M.startKind(pgOnly, null), 'postgresql', 'with nothing asked, the kind that has Stores here')
 })
 
-test('PostgreSQL Stores sit under their server: its address, user and the host\'s check, said once for all its databases', () => {
+test('PostgreSQL Stores sit under their server: its address, saved login and state, said once for all its databases', () => {
   const groups = M.serverGroups([
     sqlite('file', 'native', 1),
-    pg('demo-services', 'layerfs@localhost:5432/demo_services', 'docker'),
-    pg('demo-experiments', 'layerfs@localhost:5432/demo_experiments', 'native', { reachable: false, version: null, latencyMs: null, error: 'database "demo_experiments" does not exist' }),
-    pg('analytics', 'ro_user@warehouse.lan:5432/analytics', 'native', { reachable: false, version: null, latencyMs: null, error: 'connection refused' }),
-    pg('later', 'app@new.lan:5432/later', 'native', { reachable: null, version: null, latencyMs: null }),
+    pg('demo-services', 'localhost:5432/demo_services', 'docker'),
+    pg('demo-experiments', 'localhost:5432/demo_experiments', 'native', { state: 'broken', reason: 'no_database', fix: 'layerfs store connect demo-experiments …' }),
+    pg('analytics', 'warehouse.lan:5432/analytics', 'native', { state: 'broken', reason: 'unreachable', postgresql: { auth: 'ro_user', url: null, target: 'warehouse.lan:5432/analytics', server: null, database: 'analytics', synchronousCommit: null } }),
+    pg('later', 'new.lan:5432/later', 'native', { state: 'unknown', postgresql: { auth: 'app', url: null, target: 'new.lan:5432/later', server: null, database: 'later', synchronousCommit: null } }),
   ])
   assert.deepEqual(groups.map((g) => [g.server, g.user, g.state, g.stores.map((s) => s.name)]), [
     ['localhost:5432', 'layerfs', 'ok', ['demo-experiments', 'demo-services']],
     ['new.lan:5432', 'app', 'unknown', ['later']],
     ['warehouse.lan:5432', 'ro_user', 'failed', ['analytics']],
   ], 'servers by address, Stores by name, SQLite Stores left out')
-  assert.deepEqual([groups[0].version, groups[0].latencyMs, groups[0].error], ['16.4 (Debian)', 2, null], 'a server one Store reached is reachable')
-  assert.equal(groups[2].error, 'connection refused')
+  assert.deepEqual([groups[0].version, groups[0].latencyMs, groups[0].error], [null, null, null], 'a server one Store reached is reachable; a 2.0 list row carries no version or latency')
+  assert.equal(groups[2].error, 'unreachable')
   // a card says its own status only when it is not its server's
-  assert.equal(M.storeOffServer(groups[0].stores[0], groups[0]), 'database "demo_experiments" does not exist', 'this database fails while its server answers')
-  assert.equal(M.storeOffServer(groups[0].stores[1], groups[0]), null, 'a reachable Store says nothing')
+  assert.equal(M.storeOffServer(groups[0].stores[0], groups[0]), 'no_database', 'this database fails while its server answers')
+  assert.equal(M.storeOffServer(groups[0].stores[1], groups[0]), null, 'a ready Store says nothing')
   assert.equal(M.storeOffServer(groups[2].stores[0], groups[2]), null, 'an unreachable server is said once, in its header')
   assert.equal(M.serverKey({ name: 's', postgresql: { server: 'db:6000', target: 'u@other:1/x' } }), 'db:6000', 'the host\'s own reading of the URL first')
   assert.equal(M.serverKey({ name: 's', postgresql: null }), 's')
@@ -127,7 +128,9 @@ test('a card\'s projects: shares of the file, of their sum without a file size, 
 
 const bucket = (name, provider, files = null) => ({ name, provider, listed: files ? 1 : null, files, error: null, stores: [] })
 const linked = (name, links) => ({ ...sqlite(name, 'docker', 10), links: links.map(([b, at]) => ({ bucket: b, file: name, last: at == null ? null : { op: 'backup', at, bytes: 10 } })) })
-const listed = (store, state, modified = 1) => ({ file: store, store, state, bytes: 10, modified, reason: null })
+// a 2.0 `backup list --detail` file as the host answers it: `behind` / `changed` / `missing` (the client derives the state)
+const STATES = { current: [false, false, false], missing: [null, null, true], store_changed: [true, false, false], both_changed: [true, true, false], bucket_changed: [false, true, false] }
+const listed = (store, state, modified = 1) => { const [behind, changed, missing] = STATES[state]; return { file: store, store, bytes: 10, modified, behind, changed, missing, message: null } }
 
 test('a Store\'s backups: most urgent first, grouped by provider with the urgent group first, and the action each state offers', () => {
   const buckets = [bucket('m1', 'minio', [listed('s', 'current', 50)]), bucket('m2', 'minio', [listed('s', 'missing')]), bucket('r1', 'r2', [listed('s', 'store_changed', 20)]), bucket('x', null)]

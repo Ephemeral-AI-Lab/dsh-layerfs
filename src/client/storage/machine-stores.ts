@@ -91,7 +91,7 @@ export interface PgServerGroup {
   /** By name. */
   stores: StoreRow[]
   /**
-   * The host's own check of the server (store.status): `ok` when any of its
+   * The host's own check of the server (store.get): `ok` when any of its
    * Stores reached it, `failed` when none did and one was refused, `unknown`
    * while no status answered.
    */
@@ -110,16 +110,18 @@ export function serverGroups(stores: readonly StoreRow[]): PgServerGroup[] {
   }
   return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([server, list]) => {
     const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name))
-    const reached: PgServer | null = sorted.find((s) => s.postgresql?.reachable === true)?.postgresql ?? null
-    const failing: PgServer | null = sorted.find((s) => s.postgresql?.reachable === false)?.postgresql ?? null
+    // 2.0: a ready Store reached its server; a broken one with reason `unreachable` did not (no version or latency on a list row)
+    const reached = sorted.find((s) => s.state === 'ready')
+    const failing = sorted.find((s) => s.state === 'broken' && s.reason === 'unreachable')
     return {
       server,
-      user: sorted.map((s) => s.postgresql?.user ?? parsePgUrl(s.postgresql?.target)?.user ?? '').find(Boolean) ?? '',
+      // the saved login's name (2.0 keeps no user beside the Store)
+      user: sorted.map((s) => s.postgresql?.auth ?? '').find(Boolean) ?? '',
       stores: sorted,
       state: reached ? 'ok' : failing ? 'failed' : 'unknown',
-      version: reached?.version ?? null,
-      latencyMs: reached?.latencyMs ?? null,
-      error: reached ? null : failing?.error ?? null,
+      version: null,
+      latencyMs: null,
+      error: reached ? null : failing?.reason ?? null,
     }
   })
 }
@@ -130,8 +132,8 @@ export function serverGroups(stores: readonly StoreRow[]): PgServerGroup[] {
  * the Store says what its server's header already says.
  */
 export function storeOffServer(s: StoreRow, group: Pick<PgServerGroup, 'state'> | undefined): string | null {
-  if (s.postgresql?.reachable !== false) return null
-  return group && group.state === 'failed' ? null : s.postgresql.error ?? ''
+  if (s.kind !== 'postgresql' || s.state !== 'broken') return null
+  return group && group.state === 'failed' && s.reason === 'unreachable' ? null : s.reason ?? ''
 }
 
 /** The address `machine` dials for a server on this host: a loopback server becomes the machine's alias for the host. */
@@ -140,7 +142,7 @@ export function routedServer(server: string, alias: string | null): string {
   return server.replace(/^(localhost|127\.[0-9.]+|\[::1\])(?=:|$)/, alias)
 }
 
-/** The three things a check from a machine tries, in order (store.status --machine, store.update --machine). */
+/** The three things a check from a machine tries, in order (store.get --machine, store.update --machine). */
 export type CheckStep = 'server' | 'store' | 'write'
 export const CHECK_STEPS: readonly CheckStep[] = ['server', 'store', 'write']
 

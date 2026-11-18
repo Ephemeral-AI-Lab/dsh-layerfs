@@ -28,7 +28,7 @@ export function StorageDetails({ view, t, now, onOpenStore, onOpenMachine }: { v
         <Card className={css.tableCard}>
           {sized.length ? (
             <table className={css.table}>
-              <thead><tr><th>{t('colStore')}</th><th>{t('colPlace')}</th><th className={css.wide}>{' '}</th><th className={css.num}>{t('colSize')}</th><th className={`${css.num} ${css.wide}`}>{t('colFileWal')}</th></tr></thead>
+              <thead><tr><th>{t('colStore')}</th><th>{t('colPlace')}</th><th className={css.wide}>{' '}</th><th className={css.num}>{t('colSize')}</th></tr></thead>
               <tbody>
                 {sized.map((s) => (
                   <tr key={s.name}>
@@ -36,7 +36,6 @@ export function StorageDetails({ view, t, now, onOpenStore, onOpenMachine }: { v
                     <td className={css.muted}>{inHome(s) ? t('layerfsHome') : s.machine}</td>
                     <td className={css.wide}>{s.size ? <span className={css.bar}><span className={css.barFill} style={{ width: `${(s.size.bytes / largest) * 100}%` }} /></span> : null}</td>
                     <td className={css.num}>{s.size ? bytes(s.size.bytes) : <span className={css.muted}>{t('unavailable')}</span>}</td>
-                    <td className={`${css.num} ${css.wide} ${css.muted}`}>{s.size ? `${bytes(s.size.file)} · ${bytes(s.size.wal)}` : '—'}</td>
                   </tr>
                 ))}
               </tbody>

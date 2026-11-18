@@ -25,7 +25,7 @@ import { enc, type LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { TabId } from './tabs.ts'
 import type { StorageT } from './locale.ts'
-import { doingWords, shareOf, type RowSignal } from './model.ts'
+import { doingWords, shareOf, storeStateWords, type RowSignal } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
@@ -58,11 +58,12 @@ export function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place:
   // its machine cannot run here at all (Docker quit, Lima removed): say so; a restart would only fail
   if (host && fleet && machineBlock(host, fleet)) return { state: 'warning', reason: t('machineUnavailable', { machine: place(host.name) }) }
   if (host && workerDown(host, fleet?.live[host.name])) {
-    return { state: 'error', reason: t('ovStoreWorkerDown', { machine: place(host.name) }), detail: s.down ?? downReason(host, fleet?.live[host.name]) ?? undefined, restart: host }
+    return { state: 'error', reason: t('ovStoreWorkerDown', { machine: place(host.name) }), detail: downReason(host, fleet?.live[host.name]) ?? undefined, restart: host }
   }
-  if (s.state === 'down') return { state: 'error', reason: t('stateDown'), detail: s.down ?? undefined }
-  if (s.state === 'unresolved') return { state: 'error', reason: t('unresolved') }
-  if (s.postgresql?.reachable === false) return { state: 'error', reason: s.postgresql.error ?? t('unreachable') }
+  // the six-state word and its reason code; `detail` is LayerFS's fix line (the tip's one action), never a raw error
+  if (s.state === 'broken') return { state: 'error', reason: s.reason === 'unresolved' ? t('unresolved') : storeStateWords(s.state, t, s.reason), ...(s.fix ? { detail: s.fix } : {}) }
+  if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? t('machineStopped', { machine: place(s.blockedBy.machine) }) : storeStateWords(s.state, t, s.blockedBy?.reason) }
+  if (s.state === 'unknown') return { state: 'warning', reason: storeStateWords(s.state, t) }
   if (s.kind === 'sqlite' && view.machines.find((m) => m.name === s.machine)?.state === 'stopped') return { state: 'warning', reason: t('machineStopped', { machine: place(s.machine) }) }
   return null
 }

@@ -3,7 +3,7 @@
  * they are unit tested (test/store-page.test.mjs).
  *
  * - Tabs: Overview, Projects, and Backups (SQLite) or Connections (PostgreSQL).
- * - The database file's parts (`store.stats`: stored content, metadata, free pages).
+ * - The database file's parts (`store get --with stats`: stored content, metadata, reusable pages).
  * - The Store's growth from the host's observation journal of `store.stats` reads.
  * - Each project's share of the Store's packed bytes, from the project ledgers.
  * - The project cards: order, search and the Sandboxes running per project.
@@ -15,16 +15,21 @@ export function storeTabs(kind: string): StoreTab[] {
   return ['overview', 'projects', kind === 'postgresql' ? 'connections' : 'backups']
 }
 
-/** `GET /api/stores/<name>/stats`: `store.stats`, plus the file's own measurement on SQLite. */
+/** `GET /api/stores/<name>/stats`: the Store's engine and its `store get --with stats` section (LayerFS 2.0). */
 export interface StoreStats {
-  kind?: string
-  history_logical?: number | null
-  canonical?: number | null
-  stored?: number | null
-  metadata?: number | null
-  file?: number | null
-  free?: number | null
-  fileMeasurements?: { observedAt: number, bytes: number | null, walBytes: number | null } | null
+  engine?: string
+  /** The file with its write-ahead log (sqlite), the schema (PostgreSQL). */
+  size?: number | null
+  logical_bytes?: number | null
+  canonical_bytes?: number | null
+  stored_bytes?: number | null
+  metadata_bytes?: number | null
+  /** The database's pages. */
+  file_bytes?: number | null
+  /** Reusable (free) pages; null for PostgreSQL. */
+  reusable_bytes?: number | null
+  dedupe?: string | null
+  compression?: string | null
 }
 
 export interface FilePart { key: 'stored' | 'metadata' | 'free', bytes: number, share: number }
@@ -36,8 +41,9 @@ export interface FilePart { key: 'stored' | 'metadata' | 'free', bytes: number, 
  */
 export function fileParts(stats: StoreStats | null | undefined): FilePart[] | null {
   if (!stats) return null
+  const field = { stored: 'stored_bytes', metadata: 'metadata_bytes', free: 'reusable_bytes' } as const
   const parts = (['stored', 'metadata', 'free'] as const)
-    .map((key) => ({ key, bytes: num(stats[key]) }))
+    .map((key) => ({ key, bytes: num(stats[field[key]]) }))
     .filter((p): p is { key: FilePart['key'], bytes: number } => p.bytes !== null)
   const sum = parts.reduce((a, p) => a + p.bytes, 0)
   if (!parts.length || sum <= 0) return null
@@ -46,7 +52,7 @@ export function fileParts(stats: StoreStats | null | undefined): FilePart[] | nu
 
 /** Unique content over its packed bytes (`canonical / stored`), when both are known and nonzero. */
 export function compressionOf(stats: StoreStats | null | undefined): number | null {
-  const canonical = num(stats?.canonical), stored = num(stats?.stored)
+  const canonical = num(stats?.canonical_bytes), stored = num(stats?.stored_bytes)
   return canonical && stored && canonical > 0 && stored > 0 ? canonical / stored : null
 }
 
@@ -70,7 +76,7 @@ export function growthRuns(journal: ObservationJournal | null | undefined): Grow
   const runs: GrowthPoint[][] = []
   let last: number | null = null
   for (const p of [...series.points].sort((a, b) => a.observedAt - b.observedAt)) {
-    const point = { at: p.observedAt, file: num(p.stats?.file), stored: num(p.stats?.stored), metadata: num(p.stats?.metadata) }
+    const point = { at: p.observedAt, file: num(p.stats?.file_bytes), stored: num(p.stats?.stored_bytes), metadata: num(p.stats?.metadata_bytes) }
     if (last === null || p.observedAt - last > gap) runs.push([point])
     else runs[runs.length - 1]!.push(point)
     last = p.observedAt

@@ -12,7 +12,8 @@ import { stringify } from './util.ts'
 export const OBSERVATION_GAP_MS = 30 * 60 * 1000
 const MAX_POINTS = 1000, MAX_SERIES = 8, RETAIN_MS = 90 * 86400000
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
-const fields = ['kind', 'accounting_version', 'history_logical', 'canonical', 'stored', 'metadata', 'file', 'free', 'data_pack_bytes', 'metadata_pack_bytes', 'database_overhead_bytes', 'free_page_bytes', 'database_page_bytes', 'composition_complete', 'composition_reason', 'fileMeasurements', 'fileMeasurementError']
+// the 2.0 `store get --with stats` section, with the Store's engine
+const fields = ['engine', 'size', 'logical_bytes', 'canonical_bytes', 'stored_bytes', 'metadata_bytes', 'file_bytes', 'reusable_bytes', 'dedupe', 'compression']
 
 type Journal = { version: 1, scope: 'store', store: string, gapAfterMs: number, retentionDays: number, maxPoints: number, series: { identity: string, startedAt: number, points: { observedAt: number, stats: any }[] }[] }
 
@@ -50,7 +51,7 @@ export class StorageObservations {
     if (typeof stats.store_id !== 'string' || !stats.store_id) throw new Error('This LayerFS build does not expose Store identity; disk observations are unavailable')
     const generation = stats.store_generation
     if (generation == null) throw new Error('This LayerFS build does not expose Store generation; disk observations are unavailable')
-    const identity = digest(stringify([this.home, store, stats.store_id, generation, stats.kind, record?.machine ?? null]))
+    const identity = digest(stringify([this.home, store, stats.store_id, generation, stats.engine, record?.machine ?? null]))
     const now = this.now(), journal = await this.read(store)
     journal.series = journal.series.map((series) => ({ ...series, points: series.points.filter((p) => p.observedAt >= now - RETAIN_MS) })).filter((series) => series.points.length)
     let series = journal.series.at(-1)

@@ -10,7 +10,8 @@ test('a Store whose machine does not answer keeps its last read size, marked sta
   try {
     let now = 1000
     const sizes = new StoreSizes(dir, () => now)
-    const size = { bytes: 300, file: 200, wal: 100 }
+    // 2.0 `size`: the file with its write-ahead log, one number
+    const size = { bytes: 300 }
     assert.deepEqual(sizes.answer([{ name: 'a', size }, { name: 'b', size: null }]), [size, null])
     now = 5000
     assert.deepEqual(sizes.answer([{ name: 'a', size: null }]), [{ ...size, seen: 1000, stale: true }])

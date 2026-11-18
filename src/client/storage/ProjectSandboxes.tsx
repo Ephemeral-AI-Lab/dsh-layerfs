@@ -32,7 +32,7 @@ const LIMIT = 500
 const HOST = '#host'
 const OTHER = '#other'
 /** Calls that change what is open: when one appears, the Sandbox list is reread. */
-const SHAPE = new Set(['sandbox.create', 'sandbox.close', 'workspace.mount', 'workspace.unmount'])
+const SHAPE = new Set(['sandbox.create', 'sandbox.remove', 'workspace.mount', 'workspace.unmount'])
 
 const keyOf = (line: LabeledLine) => `${line.at}|${line.tag ?? ''}|${line.argv.join('\u0000')}`
 const agentOf = (line: LabeledLine) => parseTag(line.tag)?.sessionId ?? (line.tag?.startsWith('dsh:') ? HOST : OTHER)

@@ -45,7 +45,7 @@ import { machineStores, projectSplit, serverGroups, startKind, storeOffServer, t
 import { cardJob, runsOnOf } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
-import { StoreMenu, type StoreActions } from './StoreCard.tsx'
+import { StoreMenu, storeNotice, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
 import type { StoreProjectsView } from './store-page.ts'
 import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
@@ -409,26 +409,25 @@ function SizeFigure({ s, t, now, last }: { s: StoreRow, t: StorageT, now: number
   const seen = size?.stale && size.seen ? ago(size.seen, now, t as Translate) : null
   const words = [seen ? t('msSizeSeen', { when: seen }) : null, last ? t('msLastWrite', { when: last }) : null].filter(Boolean).join(' · ')
   const meta = words ? <span className={css.metaText}>{words}</span> : null
-  if (!size) return <Figure big={t('msSizeUnknown')} tone="none" title={s.down ?? undefined} meta={meta} />
-  const parts = `${bytes(size.file)} + WAL ${bytes(size.wal)}`
+  if (!size) return <Figure big={t('msSizeUnknown')} tone="none" meta={meta} />
+  const parts = bytes(size.bytes)
   return <Figure big={bytes(size.bytes)} tone={size.stale ? 'stale' : undefined} meta={meta}
-    title={size.stale ? t('msSizeStaleTitle', { parts, when: seen ?? '?' }) : parts} />
+    title={size.stale ? t('msSizeStaleTitle', { parts, when: seen ?? '?' }) : undefined} />
 }
 
 function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, onOpenStore, onOpenProject, onBackups }: CardProps & { s: StoreRow }): ReactNode {
   const on = actionsFor(s)
   const job = cardJob(jobs, s.name, dismissed, now)
   const split = useSplit(api, s, s.size?.bytes ?? null)
-  const busy = s.state === 'busy' || s.state === 'down' || !!job && !job.ended
+  const busy = s.state !== 'ready' || !!job && !job.ended
   const running = !!job && !job.ended
   const last = split?.lastWrite ? ago(split.lastWrite, now, t as Translate) : null
-  // Shown only when something is happening: idle says nothing.
+  // Shown only when something is happening: ready says nothing. A state word with its reason; the fix line is the tip (the one action).
+  const notice = storeNotice(s, null, t)
   const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
     : s.op ? <OpPanel store={s} t={t} />
-      : s.down ? <p className={css.status} data-tone="danger" title={s.down}>{s.down}</p>
-        : s.state === 'in_use' ? <p className={css.status} data-tone="warning">{s.holders > 0 ? t('msInUseHolders', { n: s.holders }) : t('msInUse')}</p>
-          : s.state === 'unresolved' ? <p className={css.status} data-tone="warning">{t('unresolved')}</p>
-            : null
+      : notice ? <p className={css.status} data-tone={s.state === 'broken' ? 'danger' : 'warning'} title={s.fix ?? undefined}>{notice}</p>
+        : null
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">
       <Head s={s} on={on} t={t} onOpenStore={onOpenStore} />
@@ -440,7 +439,7 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
         <More s={s} shown={status ? 1 : ROWS} t={t} onOpenStore={onOpenStore} />
         {/* the head's ⋯ holds Move, Back up and Remove */}
         {running ? null : s.machine === 'native'
-          ? <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('pushTo'), run: on.push, disabled: s.state !== 'idle' }} rest={[]} />
+          ? <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('pushTo'), run: on.push, disabled: s.state !== 'ready' }} rest={[]} />
           : <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('msPull'), run: on.pull, disabled: busy }} rest={[]} />}
       </div>
     </Card>

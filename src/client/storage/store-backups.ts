@@ -7,8 +7,8 @@
  * until listed). Backups and buckets are grouped by provider so that a new
  * provider is one more group, not a new layout.
  */
-import { listedOf } from './model.ts'
-import type { BackupState, BucketRow, StorageView, StoreBackupLink, StoreRow } from './types.ts'
+import { backupStateOf, listedOf, type BackupState } from './model.ts'
+import type { BucketRow, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 
 /** What a backup needs: a missing or diverged copy first, then out of date, then fine. */
 export type BackupHealth = 'problem' | 'stale' | 'current' | 'unknown'
@@ -70,7 +70,7 @@ function byProvider<T>(items: readonly T[], provider: (x: T) => string | null, r
 export function storeBackups(s: StoreRow, buckets: readonly BucketRow[]): StoreBackup[] {
   return s.links.map((link) => {
     const listed = listedOf(s, link.bucket, link.file, buckets)
-    const state = listed?.state ?? null
+    const state = backupStateOf(listed)
     return {
       link, state, health: healthOf(state),
       provider: buckets.find((b) => b.name === link.bucket)?.provider ?? null,

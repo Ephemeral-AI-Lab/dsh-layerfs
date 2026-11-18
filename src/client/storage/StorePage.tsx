@@ -81,7 +81,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
   return (
     <>
       <PageHead title={s.name} icon={<StoreGlyph kind={s.kind} size={22} />}
-        badge={s.state !== 'idle' ? <StateChip tone={storeTone(s.state)} label={storeStateWords(s.state, t)} live={s.state === 'busy'} /> : undefined}
+        badge={s.state !== 'ready' ? <StateChip tone={storeTone(s.state)} label={storeStateWords(s.state, t)} live={s.state === 'busy'} /> : undefined}
         intro={(
           <span className={css.cardSub}>
             <span>{pg ? t('postgresql') : t('sqlite')}</span>
@@ -110,7 +110,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
 
       <div className={tabCss.panelArea} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
         {tab === 'projects' ? (
-          <StoreProjects api={api} store={{ name: s.name, kind: s.kind }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored === 'number' ? stats.data.stored : null}
+          <StoreProjects api={api} store={{ name: s.name, kind: s.kind }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored_bytes === 'number' ? stats.data.stored_bytes : null}
             stores={view.stores} fleet={machines.data?.available ? machines.data : null} t={t} now={now} tick={tick}
             canAdd={canAddProject(s)} onAdd={on.addProject} onOpen={(id) => (onOpen ? onOpen(id) : id.startsWith('project:') ? onOpenProject(id.slice('project:'.length)) : undefined)} />
         ) : tab === 'backups' ? (
