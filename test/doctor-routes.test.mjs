@@ -17,7 +17,7 @@ const root = new URL('..', import.meta.url).pathname
 const out = mkdtempSync(join(tmpdir(), 'dsh-doctor-routes-'))
 await build({
   absWorkingDir: root,
-  stdin: { contents: "export * from './src/host/routes/doctor.ts'\nexport * from './src/host/routes/router.ts'\nexport * as cli from './src/host/layerfs/cli.ts'\n", resolveDir: root, loader: 'ts' },
+  stdin: { contents: "export * from './src/host/routes/doctor.ts'\nexport * from './src/host/routes/router.ts'\nexport * as cli from './src/host/layerfs/cli.ts'\nexport { hasTreeRead } from './src/shared/doctor.ts'\n", resolveDir: root, loader: 'ts' },
   outfile: join(out, 'routes.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
 })
 const R = await import(pathToFileURL(join(out, 'routes.mjs')).href)
@@ -37,6 +37,8 @@ async function until(read, what, ms = 15_000) {
   }
 }
 
+/** A 2.0 call table as far as these routes read it: `home get` lists `tree` among its `--with` values. */
+const TABLE_2_0 = async () => ({ identity: {}, calls: [{ family: 'home', call: 'get', args: [], options: [], with: { platforms: {}, tree: {} } }] })
 let n = 0
 const id = () => `run-${String(++n).padStart(6, '0')}`
 
@@ -59,7 +61,7 @@ function fixture(scenario, { timing = {}, state = null, options = {} } = {}) {
     projectDelete: (project) => call('project', 'delete', '--', project),
     backupCreate: (store, bucket) => call('backup', 'create', '--', store, bucket),
   }
-  const t = testHost({ lfs, root: dir, home: spec.home })
+  const t = testHost({ lfs, root: dir, home: spec.home, discovery: TABLE_2_0 })
   const checks = new R.DoctorChecks(t.host, run, { budgetMs: 20_000, treeKeepMs: 0, actions, ...options })
   const spawns = (...words) => (existsSync(join(dir, 'spawns.log')) ? readFileSync(join(dir, 'spawns.log'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l.slice(l.indexOf(' ') + 1))) : [])
     .filter((argv) => words.every((w, i) => argv[i] === w))
@@ -86,7 +88,21 @@ test('the tree is one records read: no doctor runs, concurrent readers share it'
 })
 
 test('a runtime without the tree is Unsupported, not an empty page', async () => {
-  const host = testHost({ lfs: { spec: { cli: '/nonexistent', home: '/nonexistent' } }, root: out, home: out }).host
+  // today's call table (`home get` with no `--with`): the call is never sent
+  let sent = 0
+  const today = testHost({ lfs: { spec: { cli: '/nonexistent', home: '/nonexistent' } }, root: out, home: out, discovery: async () => ({ identity: {}, calls: [{ family: 'home', call: 'get', args: [], options: [] }] }) }).host
+  const gated = new R.DoctorChecks(today, async () => { sent += 1; return {} })
+  const g = await refusal(gated.route('GET', ['tree']))
+  assert.deepEqual([g.status, g.code, sent], [501, 'Unsupported', 0])
+  // the three ways a table may list the value
+  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', with: { platforms: {}, tree: {} } }]), true)
+  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', with: ['platforms', 'tree'] }]), true)
+  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', options: [{ name: 'with', kind: 'list' }] }]), true)
+  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', with: { platforms: {} }, options: [] }]), false)
+  assert.equal(R.hasTreeRead([{ family: 'machine', call: 'get', with: { tree: {} } }]), false)
+  assert.equal(R.hasTreeRead(null), false)
+  // a table that has it over a CLI that refuses the words, or answers without a tree
+  const host = testHost({ lfs: { spec: { cli: '/nonexistent', home: '/nonexistent' } }, root: out, home: out, discovery: TABLE_2_0 }).host
   const old = new R.DoctorChecks(host, async () => { throw Object.assign(new Error('usage'), { code: 'CliIncompatible', transport: 'usage-incompatible' }) })
   const a = await refusal(old.route('GET', ['tree']))
   assert.equal(a.status, 501); assert.equal(a.code, 'Unsupported')
@@ -308,7 +324,7 @@ test('a fix LayerFS refuses is reported with its code and sentence, and is not t
 })
 
 test('a fix whose reply is lost is reported lost, never run again', async () => {
-  const host = testHost({ lfs: { spec: { cli: '/nonexistent', home: '/nonexistent' } }, root: out, home: out })
+  const host = testHost({ lfs: { spec: { cli: '/nonexistent', home: '/nonexistent' } }, root: out, home: out, discovery: TABLE_2_0 })
   let starts = 0
   const fake = async () => ({ home: '/h', state: 'ready', tree: { machines: [{ machine: 'docker', platform: 'docker', state: 'stopped' }], stores: [], buckets: [] } })
   const checks = new R.DoctorChecks(host.host, fake, { actions: { machineStart: async () => { starts += 1; throw Object.assign(new Error('socket closed'), { code: 'Unknown', transport: 'transport-unknown' }) } } })

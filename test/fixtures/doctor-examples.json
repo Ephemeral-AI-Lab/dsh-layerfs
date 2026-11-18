@@ -1,5 +1,5 @@
 {
- "_": "The long-form examples (`examples.long`, and home.get `with.tree.example`) of the calls the Doctor page uses, copied from the frozen LayerFS 2.0 call surface (core/docs/issues/call-surface-2-0/calls.json). Fixtures are built from these so they cannot drift from the spec; test/doctor-model.test.mjs compares this file with calls.json when LAYERFS_CALLS_JSON names it.",
+ "_": "The long-form examples (`examples.long`, and home.get `with.tree.example`) of the calls the Doctor page uses, and the `doctor` section with its closed check lists (`doctor.checks`), copied from the frozen LayerFS 2.0 call surface (calls.json, with the exit review's fixes). Fixtures are built from these so they cannot drift from the spec; test/doctor-model.test.mjs compares this file with calls.json when LAYERFS_CALLS_JSON names it.",
  "version": 18,
  "frozen": "2026-11-18",
  "base": "caff58a43b",
@@ -12,6 +12,311 @@
    "store.doctor",
    "backup.doctor"
   ],
+  "checks": {
+   "home": [
+    {
+     "check": "home.build",
+     "what": "the calling program exists and can run",
+     "full_only": false
+    },
+    {
+     "check": "home.prerequisites",
+     "what": "what a Sandbox on this computer needs is installed",
+     "full_only": false
+    },
+    {
+     "check": "home.layout",
+     "what": "the home folder is a current-layout home this build reads",
+     "full_only": false
+    },
+    {
+     "check": "home.records",
+     "what": "every record in the home: references between records, file modes, leases and half-finished operations",
+     "full_only": false
+    },
+    {
+     "check": "home.bundle",
+     "what": "the Linux bundle is present and complete, where a recorded machine needs it",
+     "full_only": false
+    },
+    {
+     "check": "home.native_daemon",
+     "what": "the daemon for this computer is present and from this build",
+     "full_only": false
+    },
+    {
+     "check": "home.artifacts",
+     "what": "each machine's configured daemon file is present and can run",
+     "full_only": false
+    },
+    {
+     "check": "home.capacity",
+     "what": "free space on the disk that holds the home can be measured",
+     "full_only": false
+    }
+   ],
+   "machine": [
+    {
+     "check": "machine.record",
+     "what": "its record is valid and names a platform this build runs",
+     "full_only": false
+    },
+    {
+     "check": "machine.operation",
+     "what": "no operation on it is half-finished or left with its outcome not known",
+     "full_only": false
+    },
+    {
+     "check": "machine.configuration",
+     "what": "its record makes a valid request to its provider",
+     "full_only": false
+    },
+    {
+     "check": "machine.provider",
+     "what": "its provider answers and its VM or container runs",
+     "full_only": false
+    },
+    {
+     "check": "machine.state",
+     "what": "the recorded state agrees with what the provider reports",
+     "full_only": false
+    },
+    {
+     "check": "machine.worker.endpoint",
+     "what": "a worker endpoint and secret are saved for it",
+     "full_only": false
+    },
+    {
+     "check": "machine.worker.auth",
+     "what": "the worker accepts the secret and answers hello",
+     "full_only": false
+    },
+    {
+     "check": "machine.worker.compatibility",
+     "what": "the worker is from this build",
+     "full_only": false
+    },
+    {
+     "check": "machine.worker.ping",
+     "what": "the worker answers a request",
+     "full_only": false
+    },
+    {
+     "check": "machine.capacity",
+     "what": "its data disk has room",
+     "full_only": false
+    }
+   ],
+   "store": [
+    {
+     "check": "store.record",
+     "what": "its record is valid: name, engine and the saved id",
+     "full_only": false
+    },
+    {
+     "check": "store.operation",
+     "what": "no operation on it is half-finished or left with its outcome not known, and no lease is stale",
+     "full_only": false
+    },
+    {
+     "check": "store.connection",
+     "what": "it is reached where it lives: a sqlite Store through its machine; a PostgreSQL Store from this computer, and once more from each machine that has a Sandbox of it, with `from` naming that machine",
+     "full_only": false
+    },
+    {
+     "check": "store.identity",
+     "what": "the id in its data is the id in its record",
+     "full_only": false
+    },
+    {
+     "check": "store.schema",
+     "what": "its schema is the one this build reads",
+     "full_only": false
+    },
+    {
+     "check": "store.backups",
+     "what": "no backup of it is behind: its heads against each bucket link (sqlite; a notice per bucket)",
+     "full_only": false
+    }
+   ],
+   "project": [
+    {
+     "check": "project.record",
+     "full_only": false,
+     "what": "the home's record of the project and its folder read, and the Store the record sits under is on record"
+    },
+    {
+     "check": "project.listed",
+     "full_only": false,
+     "what": "the Store's own list holds the project the record names, by its stack id, or by its name for a record without one"
+    },
+    {
+     "check": "project.data",
+     "full_only": true,
+     "what": "everything reachable from main's head and from each Branch's head is read and checked"
+    }
+   ],
+   "sandbox": [
+    {
+     "check": "sandbox.record",
+     "what": "its record exists, parses and has a supported version",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.machine_reference",
+     "what": "the machine its record names has a record",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.store_reference",
+     "what": "the Store of its project has a readable record",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.project_reference",
+     "what": "its project has a record",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.store_placement",
+     "what": "a sqlite Store and the Sandbox are on the same machine",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.operation",
+     "what": "no operation of an ended owner is left on its record",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.runtime",
+     "what": "its recorded runtime process runs, by id, start time and boot",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.route",
+     "what": "the saved route to its daemon can be used: its machine's worker, or its forward",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.forward_process",
+     "what": "the forward's process runs, where the route has one",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.worker_compatibility",
+     "what": "its machine's worker is from this build, where the worker makes the report",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.daemon_keys",
+     "what": "the saved daemon endpoint and identities are readable and match the route",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.daemon_connect",
+     "what": "the daemon accepts a connection",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.daemon_auth",
+     "what": "the daemon accepts the saved identities",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.daemon_instance",
+     "what": "the daemon is the instance the Sandbox was started with",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.daemon_ready",
+     "what": "the daemon reports that it is ready for calls",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.session",
+     "what": "the doctor's own session with the daemon ended cleanly",
+     "full_only": false
+    },
+    {
+     "check": "sandbox.observation",
+     "what": "the daemon's record did not change while it was read",
+     "full_only": false
+    }
+   ],
+   "workspace": [
+    {
+     "check": "workspace.mounted",
+     "what": "the daemon reports its mount as present",
+     "full_only": false
+    },
+    {
+     "check": "workspace.activity",
+     "what": "no failed or uncertain operation is kept on it",
+     "full_only": false
+    }
+   ],
+   "bucket": [
+    {
+     "check": "bucket.configuration",
+     "what": "its record is valid: provider, address, bucket, prefix and key",
+     "full_only": false
+    },
+    {
+     "check": "bucket.credentials",
+     "what": "its key can be read from the home",
+     "full_only": false
+    },
+    {
+     "check": "bucket.transport",
+     "what": "its address answers",
+     "full_only": false
+    },
+    {
+     "check": "bucket.list",
+     "what": "one listing page under its prefix succeeds with its key",
+     "full_only": false
+    },
+    {
+     "check": "bucket.write_capability",
+     "what": "the bucket keeps object versions, so a test object can be removed again",
+     "full_only": true
+    },
+    {
+     "check": "bucket.put",
+     "what": "one small test object is written",
+     "full_only": true
+    },
+    {
+     "check": "bucket.get",
+     "what": "the test object is read back",
+     "full_only": true
+    },
+    {
+     "check": "bucket.delete",
+     "what": "the test object's version is deleted",
+     "full_only": true
+    },
+    {
+     "check": "bucket.reconcile",
+     "what": "after a put whose reply was lost: the test object is found and owned, without a second put",
+     "full_only": true
+    }
+   ]
+  },
+  "check_entry": [
+   "check",
+   "what",
+   "full_only"
+  ],
+  "check_owner": {
+   "home": "home.doctor",
+   "machine": "machine.doctor",
+   "store": "store.doctor",
+   "project": "project.doctor",
+   "sandbox": "sandbox.doctor",
+   "workspace": "sandbox.doctor",
+   "bucket": "backup.doctor"
+  },
   "things": [
    "home",
    "machine",
@@ -122,6 +427,7 @@
    "busy",
    "lost"
   ],
+  "not_checked_reason_is": "why a check that was tried gave no verdict; a separate list from a state's reason codes",
   "blocked_by": [
    "<thing>",
    "reason"
@@ -146,6 +452,7 @@
    "error",
    "not_checked"
   ],
+  "counts_is": "a map from each status to a number of things: the one plural key that is not a list",
   "check": [
    "check",
    "outcome",
@@ -276,17 +583,22 @@
        "from": null
       },
       {
+       "check": "sandbox.route",
+       "outcome": "pass",
+       "from": null
+      },
+      {
        "check": "sandbox.daemon_connect",
        "outcome": "pass",
        "from": null
       },
       {
-       "check": "sandbox.daemon_ready",
+       "check": "sandbox.daemon_auth",
        "outcome": "pass",
        "from": null
       },
       {
-       "check": "sandbox.filesystem_serving",
+       "check": "sandbox.daemon_ready",
        "outcome": "pass",
        "from": null
       }
@@ -355,6 +667,8 @@
      {
       "machine": "native",
       "platform": "native",
+      "cpus": null,
+      "memory_bytes": null,
       "state": "ready",
       "op": null,
       "reason": null,
@@ -363,36 +677,43 @@
        {
         "store": "qv2-store",
         "engine": "sqlite",
+        "projects": [
+         "qv2-strata",
+         "qv2-probe"
+        ],
+        "connections": null,
         "state": "ready",
         "op": null,
         "blocked_by": null,
         "reason": null,
-        "fix": null,
-        "projects": [
-         "qv2-strata",
-         "qv2-probe"
-        ]
+        "fix": null
        }
       ],
       "sandboxes": [
        {
         "sandbox": "tests",
         "project": "qv2-store/qv2-strata",
+        "image": "node:22",
+        "workspaces": [
+         {
+          "workspace": "tests:agent",
+          "branch": "agent"
+         }
+        ],
+        "workspaces_not_listed": false,
         "state": "ready",
         "op": null,
         "blocked_by": null,
         "reason": null,
-        "fix": null,
-        "workspaces": [
-         "tests:agent"
-        ],
-        "workspaces_not_listed": false
+        "fix": null
        }
       ]
      },
      {
       "machine": "docker",
       "platform": "docker",
+      "cpus": null,
+      "memory_bytes": null,
       "state": "stopped",
       "op": null,
       "reason": null,
@@ -401,6 +722,10 @@
        {
         "store": "sim-website",
         "engine": "sqlite",
+        "projects": [
+         "website"
+        ],
+        "connections": null,
         "state": "blocked",
         "op": null,
         "blocked_by": {
@@ -408,16 +733,16 @@
          "reason": "stopped"
         },
         "reason": null,
-        "fix": null,
-        "projects": [
-         "website"
-        ]
+        "fix": null
        }
       ],
       "sandboxes": [
        {
         "sandbox": "sim-1",
         "project": "sim-website/website",
+        "image": "node:22",
+        "workspaces": null,
+        "workspaces_not_listed": false,
         "state": "blocked",
         "op": null,
         "blocked_by": {
@@ -425,9 +750,7 @@
          "reason": "stopped"
         },
         "reason": null,
-        "fix": null,
-        "workspaces": null,
-        "workspaces_not_listed": false
+        "fix": null
        }
       ]
      }
@@ -436,14 +759,20 @@
      {
       "store": "demo-experiments",
       "engine": "postgresql",
+      "projects": [
+       "abc"
+      ],
+      "connections": [
+       {
+        "machine": null,
+        "url": "postgres://db.internal:5432/experiments"
+       }
+      ],
       "state": "ready",
       "op": null,
       "blocked_by": null,
       "reason": null,
-      "fix": null,
-      "projects": [
-       "abc"
-      ]
+      "fix": null
      }
     ],
     "buckets": [
@@ -486,17 +815,22 @@
        "from": null
       },
       {
-       "check": "home.bundle",
-       "outcome": "pass",
-       "from": null
-      },
-      {
        "check": "home.layout",
        "outcome": "pass",
        "from": null
       },
       {
        "check": "home.records",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "home.bundle",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "home.native_daemon",
        "outcome": "pass",
        "from": null
       },
@@ -521,11 +855,6 @@
         },
         {
          "check": "machine.state",
-         "outcome": "pass",
-         "from": null
-        },
-        {
-         "check": "machine.capacity",
          "outcome": "pass",
          "from": null
         }
@@ -618,9 +947,9 @@
    "progress": true,
    "long": {
     "ok": true,
+    "unchanged": false,
     "outcome": "started",
-    "machine": "dev",
-    "state": "ready"
+    "machine": "dev"
    }
   },
   "machine.stop": {
@@ -628,13 +957,13 @@
    "progress": true,
    "long": {
     "ok": true,
+    "unchanged": false,
     "stopped_sandboxes": [],
     "stopped_sandboxes_count": 0,
     "unknown_workspaces": [],
     "unknown_workspaces_count": 0,
     "outcome": "stopped",
     "machine": "dev",
-    "state": "stopped",
     "forced": false
    }
   },
@@ -648,8 +977,8 @@
       "machine": "demo-build",
       "check": "machine.worker.compatibility",
       "severity": "error",
-      "message": "worker is from another build",
-      "fix": "layerfs machine stop demo-build && layerfs machine start demo-build",
+      "message": "worker is from another build; 1 Sandbox is on it",
+      "fix": "layerfs machine stop demo-build --force && layerfs machine start demo-build",
       "from": null,
       "evidence": {
        "protocol": 3
@@ -696,7 +1025,12 @@
        "from": null
       },
       {
-       "check": "machine.state",
+       "check": "machine.operation",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "machine.configuration",
        "outcome": "pass",
        "from": null
       },
@@ -706,7 +1040,17 @@
        "from": null
       },
       {
-       "check": "machine.worker.ping",
+       "check": "machine.state",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "machine.worker.endpoint",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "machine.worker.auth",
        "outcome": "pass",
        "from": null
       },
@@ -816,6 +1160,11 @@
        "coverage": "shallow",
        "checks": [
         {
+         "check": "project.record",
+         "outcome": "pass",
+         "from": null
+        },
+        {
          "check": "project.listed",
          "outcome": "pass",
          "from": null
@@ -829,6 +1178,11 @@
        "status": "notice",
        "coverage": "shallow",
        "checks": [
+        {
+         "check": "project.record",
+         "outcome": "pass",
+         "from": null
+        },
         {
          "check": "project.listed",
          "outcome": "notice",

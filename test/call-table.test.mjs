@@ -240,6 +240,8 @@ const GATED = [
   { site: /^store\.compact$/, file: 'src/host/routes/storage.ts', gate: /const call = await this\.compactCall\(\)\n\s+if \(!call\) throw refuse\(409, 'Unsupported'/, lines: 6 },
   // GC (layerfs-project#41): project.delete replaced project.remove; Projects.remove sends the one the call table has
   { site: /^project\.(delete|remove)$/, file: 'src/host/routes/projects.ts', gate: /const hasDelete = \(await this\.host\.discover\(\)\)\.calls\.some\(/, lines: 3 },
+  // the Doctor page (call surface 2.0): the records tree is read only when the call table lists `tree` among `home get`'s --with values; else the route refuses `Unsupported`
+  { site: /^home\.get --(with|detail)$/, file: 'src/host/routes/doctor.ts', gate: /const hasTree = hasTreeRead\(\(await this\.host\.discover\(\)\)\.calls\)\n\s+if \(!hasTree\) throw refuse\(501, 'Unsupported'/, lines: 6 },
   // the preset Reset's force-close refuses up front (preflight) when machine.stop lacks the bool force option
   { site: /^machine\.stop --force$/, file: 'src/host/presets/machine-stop.js', gate: /option\.name === 'force' && option\.kind === 'bool'/, lines: 45 },
 ]

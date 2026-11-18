@@ -99,6 +99,21 @@ const FAMILY: Partial<Record<ThingKind, string>> = { home: 'home', machine: 'mac
 const PROGRESS: readonly ThingKind[] = ['home', 'machine', 'store', 'project', 'sandbox']
 
 /**
+ * Whether a call table (`help --json`) has the records tree, `home get --with
+ * tree`. The 2.0 call surface lists a call's `--with` values under `with`
+ * (keyed by value); a table that lists them as a list, or `with` as an
+ * option, is read the same way. Today's builds have neither.
+ */
+export function hasTreeRead(calls: readonly unknown[] | null | undefined): boolean {
+  const get = (calls ?? []).find((c): c is Record<string, unknown> => !!c && typeof c === 'object' && (c as { family?: unknown }).family === 'home' && (c as { call?: unknown }).call === 'get')
+  if (!get) return false
+  const values = get.with
+  if (Array.isArray(values)) return values.includes('tree')
+  if (values && typeof values === 'object') return 'tree' in values
+  return Array.isArray(get.options) && get.options.some((o) => !!o && typeof o === 'object' && (o as { name?: unknown }).name === 'with')
+}
+
+/**
  * The CLI words of a doctor call, always in the long form (`--detail`), with
  * `--progress` where the call reports it and `--full` on a Full check.
  * @returns null for a kind without a doctor, a missing handle, or `full` on a kind that has none.
@@ -209,8 +224,8 @@ export interface TreeNode {
   cpus?: number | null
   memory_bytes?: number | null
   engine?: string | null
-  /** A PostgreSQL Store: the machines that have their own address for it. */
-  connections?: string[] | null
+  /** A PostgreSQL Store: its connections, `{ machine, url }` each (`machine` null is the home's own); null on a sqlite Store. */
+  connections?: unknown[] | null
   provider?: string | null
   project?: string | null
   image?: string | null

@@ -7,11 +7,12 @@
 // sets, check ids, messages and fix lines come from the spec's own long
 // examples (doctor-examples.json, copied from calls.json), so a fixture cannot
 // drift from the spec. The freeze's exit review (REVIEW-FIXES.md items 5, 7, 13,
-// 14, 15) is applied: one closed check list per kind, run wherever that kind is
-// checked (`project.data` only by a Full check); "Backup behind" is the Store's
-// `store.backups` notice; an outdated worker's fix stops by force when Sandboxes
-// are on the machine; tree nodes carry only what records hold, with a Sandbox's
-// Workspaces as `{ workspace, branch }`.
+// 14, 15) is in them: one closed check list per kind (`doctor.checks`), run
+// wherever that kind is checked, a check that does not apply left out and a
+// `full_only` one in a report only after a Full check; "Backup behind" is the
+// Store's `store.backups` notice; an outdated worker's fix stops by force when
+// Sandboxes are on the machine; tree nodes carry only what records hold, with
+// a Sandbox's Workspaces as `{ workspace, branch }`.
 //
 // Pure: `treeAnswer`, `doctorAnswer` and `fixAnswer` take the scenario and a
 // small mutable `state` (what fixes changed, which one-time failures were
@@ -22,16 +23,23 @@ export const EXAMPLES = JSON.parse(readFileSync(new URL('./doctor-examples.json'
 
 const GB = 1024 ** 3
 const ws = (sandbox, branch) => ({ workspace: `${sandbox}:${branch}`, branch })
+const box = (sandbox, project, image, ...branches) => ({ sandbox, project, image, workspaces: branches.map((b) => ws(sandbox, b)) })
 const MACHINES = [
   { machine: 'native', platform: 'native', cpus: null, memory_bytes: null, stores: ['2026-08-16', 'demo-studio', 'qv2-store', 'sim-website-c69'],
-    sandboxes: [{ sandbox: 'tests', project: 'demo-studio/website', workspaces: [ws('tests', 'agent'), ws('tests', 'main')] }, { sandbox: 'metrics', project: 'analytics/events', workspaces: [ws('metrics', 'main')] }] },
+    sandboxes: [box('tests', 'demo-studio/website', 'node:22', 'agent', 'main'), box('metrics', 'analytics/events', 'python:3.13', 'main')] },
   { machine: 'demo-build', platform: 'lima', cpus: 4, memory_bytes: 8 * GB, stores: ['demo-build-cache'],
-    sandboxes: [{ sandbox: 'build-1', project: 'demo-build-cache/compiler', workspaces: [ws('build-1', 'main')] }, { sandbox: 'build-2', project: 'demo-build-cache/sdk', workspaces: [] }] },
+    sandboxes: [box('build-1', 'demo-build-cache/compiler', 'rust:1.85', 'main'), box('build-2', 'demo-build-cache/sdk', 'node:22')] },
   { machine: 'docker', platform: 'docker', cpus: 4, memory_bytes: 8 * GB, stores: ['sim-website-0ce'], sandboxes: [] },
   { machine: 'dev', platform: 'lima', cpus: 4, memory_bytes: 8 * GB, stores: ['shop'],
-    sandboxes: [{ sandbox: 'sdk-1', project: 'shop/api', workspaces: [ws('sdk-1', 'agent')] }, { sandbox: 'exp-1', project: 'demo-experiments/abc', workspaces: [ws('exp-1', 'agent')] }, { sandbox: 'funnels', project: 'analytics/funnels', workspaces: [ws('funnels', 'main')] }] },
+    sandboxes: [box('sdk-1', 'shop/api', 'node:22', 'agent'), box('exp-1', 'demo-experiments/abc', 'python:3.13', 'agent'), box('funnels', 'analytics/funnels', 'python:3.13', 'main')] },
 ]
-const IMAGE = 'ubuntu:24.04'
+/** A PostgreSQL Store's connections, as its record holds them: the home's own, and one per machine with its own address. */
+const CONNECTIONS = {
+  'demo-experiments': [{ machine: null, url: 'postgres://db.example:5432/experiments' }],
+  analytics: [{ machine: null, url: 'postgres://db.example:5432/analytics' }, { machine: 'dev', url: 'postgres://10.0.2.2:5432/analytics' }],
+}
+/** Which sqlite Stores have a bucket link. The tree does not carry this; it decides whether `store.backups` is in a Store's report. */
+const LINKS = { 'demo-studio': ['r2-main'], 'qv2-store': ['r2-main'], 'sim-website-c69': ['minio-local'], shop: ['r2-main', 'r2-old'] }
 const PG_STORES = ['demo-experiments', 'analytics']
 const PROJECTS = {
   '2026-08-16': ['2026-08-16'], 'demo-studio': ['website', 'design'], 'qv2-store': ['qv2-strata', 'qv2-probe'], 'sim-website-c69': ['website-c69'],
@@ -77,7 +85,7 @@ export function treeAnswer(state) {
   const storeNode = (store, machine) => {
     // records know a stopped machine; an outdated worker is only found by a doctor
     const block = machine && state.stopped.includes(machine) ? { machine, reason: 'stopped' } : null
-    return { store, engine: machine ? 'sqlite' : 'postgresql', ...(machine ? {} : { connections: [] }), state: block ? 'blocked' : 'ready', op: null, blocked_by: block, reason: null, fix: null, projects: projectsOf(state, store).map((p) => p.slice(p.indexOf('/') + 1)) }
+    return { store, engine: machine ? 'sqlite' : 'postgresql', projects: projectsOf(state, store).map((p) => p.slice(p.indexOf('/') + 1)), connections: machine ? null : CONNECTIONS[store], state: block ? 'blocked' : 'ready', op: null, blocked_by: block, reason: null, fix: null }
   }
   return {
     ...long, home: HOME,
@@ -88,9 +96,9 @@ export function treeAnswer(state) {
           machine: m.machine, platform: m.platform, cpus: m.cpus, memory_bytes: m.memory_bytes, state: stopped ? 'stopped' : 'ready', op: null, reason: null, fix: null,
           stores: m.stores.map((s) => storeNode(s, m.machine)),
           sandboxes: m.sandboxes.map((b) => ({
-            sandbox: b.sandbox, project: b.project, image: IMAGE, state: stopped ? 'blocked' : 'ready', op: null, blocked_by: stopped ? { machine: m.machine, reason: 'stopped' } : null, reason: null, fix: null,
-            // the home records Workspaces only on native; elsewhere the machine's worker keeps them (C10)
-            workspaces: m.machine === 'native' ? b.workspaces : null, workspaces_not_listed: m.machine !== 'native' && !stopped,
+            // a Sandbox whose machine is stopped: its Workspaces are not read
+            sandbox: b.sandbox, project: b.project, image: b.image, workspaces: stopped ? null : b.workspaces, workspaces_not_listed: false,
+            state: stopped ? 'blocked' : 'ready', op: null, blocked_by: stopped ? { machine: m.machine, reason: 'stopped' } : null, reason: null, fix: null,
           })),
         }
       }),
@@ -111,18 +119,26 @@ const blocked = (kind, name, by) => ({ [kind]: name, status: 'not_checked', cove
 /** A thing whose check was tried and gave no verdict (R3): every check not checked, with the reason. */
 const could = (kind, name, checks, reason) => ({ [kind]: name, status: 'not_checked', coverage: 'none', checks: checks.map((c) => ({ ...c, outcome: 'not_checked' })), blocked_by: null, reason })
 
-// One closed, ordered check list per kind, run wherever a thing of that kind is checked (its own doctor or a
-// parent's shallow check); the ids are the spec examples', plus the review's `store.backups` and `project.data`.
-export const CHECKS = {
-  home: EXAMPLES.calls['home.doctor'].long.tree.checks.map((c) => c.check),
-  machine: EXAMPLES.calls['machine.doctor'].long.tree.checks.map((c) => c.check),
-  store: [...EXAMPLES.calls['store.doctor'].long.tree.checks.map((c) => c.check), 'store.backups'],
-  project: EXAMPLES.calls['project.doctor'].long.tree.checks.map((c) => c.check),
-  projectFull: [...EXAMPLES.calls['project.doctor'].long.tree.checks.map((c) => c.check), 'project.data'],
-  sandbox: EXAMPLES.calls['sandbox.doctor'].long.tree.checks.map((c) => c.check),
-  workspace: EXAMPLES.calls['sandbox.doctor'].long.tree.workspaces[0].checks.map((c) => c.check),
-  bucket: EXAMPLES.calls['home.doctor'].long.tree.buckets[0].checks.map((c) => c.check),
-  bucketFull: EXAMPLES.calls['backup.doctor'].long.tree.checks.map((c) => c.check),
+/** The frozen, closed check lists (calls.json `doctor.checks`): kind -> ordered `{ check, what, full_only }`. */
+export const CHECK_TABLE = EXAMPLES.doctor.checks
+
+/**
+ * The checks a report holds for one thing: its kind's frozen list, in order,
+ * without the ones that do not apply (left out, never listed as skipped):
+ * native has no provider, worker or data disk; a stopped machine's worker and
+ * disk are not asked; `store.backups` is left out for a PostgreSQL Store and a
+ * Store with no bucket link; `full_only` checks are in only after a Full
+ * check; `bucket.reconcile` runs only after a put whose reply was lost.
+ */
+export function checksFor(state, kind, name, { full = false } = {}) {
+  let list = CHECK_TABLE[kind].filter((c) => full || !c.full_only).map((c) => c.check)
+  const drop = (re) => { list = list.filter((c) => !re.test(c)) }
+  if (kind === 'machine' && name === 'native') drop(/^machine\.(provider|worker\.|capacity)/)
+  else if (kind === 'machine' && state.stopped.includes(name)) drop(/^machine\.(worker\.|capacity)/)
+  if (kind === 'sandbox' && MACHINES.find((m) => m.sandboxes.some((b) => b.sandbox === name))?.machine === 'native') drop(/^sandbox\.worker_compatibility$/)
+  if (kind === 'store' && (PG_STORES.includes(name) || !LINKS[name])) drop(/^store\.backups$/)
+  if (kind === 'bucket') drop(/^bucket\.reconcile$/)
+  return list
 }
 const OUTDATED = EXAMPLES.calls['machine.doctor'].long.findings[0]
 const UNLISTED = EXAMPLES.calls['store.doctor'].long.findings[0]
@@ -138,65 +154,70 @@ function builder(state) {
     /** A thing that lives on a machine that is not ready: one not_checked entry, never a finding. */
     blockedNode(kind, name, by) { b.miss(kind, name, { blocked_by: by }); return blocked(kind, name, by) },
     couldNode(kind, name, checks, reason) { b.miss(kind, name, { reason }); return could(kind, name, checks.map((c) => pass(c)), reason) },
+    /** A thing with one failed check: the finding, and the checks after it that need it come back not checked. */
+    failing(kind, name, ids, check, finding, reason) {
+      findings.push({ [kind]: name, check, from: null, evidence: null, ...finding })
+      const at = ids.indexOf(check)
+      for (const c of ids.slice(at + 1)) notChecked.push({ [kind]: name, check: c, blocked_by: { [kind]: name, reason }, reason: null })
+      return node(kind, name, ids.map((c, i) => (i < at ? pass(c) : { check: c, outcome: i === at ? finding.severity : 'not_checked', from: null })))
+    },
     machine(m) {
       const name = m.machine
-      // a machine stopped on purpose: its record and state are read, its worker is not asked
-      if (state.stopped.includes(name)) return node('machine', name, ['machine.record', 'machine.state'].map((c) => pass(c)))
-      if (!state.outdated.includes(name)) return node('machine', name, CHECKS.machine.map((c) => pass(c)))
+      const ids = checksFor(state, 'machine', name)
+      // a machine stopped on purpose is not a finding: the checks that apply to it pass
+      if (state.stopped.includes(name) || !state.outdated.includes(name)) return node('machine', name, ids.map((c) => pass(c)))
       // review item 5: with Sandboxes on the machine the fix stops it by force, and the message names the count
       const n = m.sandboxes.length
-      findings.push({
-        ...OUTDATED, machine: name,
-        message: n ? `${OUTDATED.message}; ${n} ${n === 1 ? 'Sandbox is' : 'Sandboxes are'} on it` : OUTDATED.message,
+      return b.failing('machine', name, ids, 'machine.worker.compatibility', {
+        severity: 'error', evidence: OUTDATED.evidence ?? null,
+        message: `worker is from another build${n ? `; ${n} ${n === 1 ? 'Sandbox is' : 'Sandboxes are'} on it` : ''}`,
         fix: `layerfs machine stop ${name}${n ? ' --force' : ''} && layerfs machine start ${name}`,
-      })
-      return node('machine', name, CHECKS.machine.map((c) => (c === 'machine.worker.compatibility' ? { check: c, outcome: 'error', from: null } : pass(c))))
+      }, 'outdated')
     },
     store(store, machine) {
       const by = machine ? blockOf(state, machine) : null
       if (by) return b.blockedNode('store', store, by)
-      const ids = CHECKS.store
+      const ids = checksFor(state, 'store', store)
       const reason = takeFail(`store:${store}`)
       if (reason) return b.couldNode('store', store, ids, reason)
       let checks = ids.map((c) => pass(c))
       if (!machine) {
-        // R9: a PostgreSQL Store is probed from each machine that has a Sandbox of it; each probe is one check with `from`
+        // R9: a PostgreSQL Store is reached from this computer, and once more from each machine that has a Sandbox of it, with `from`
         const from = machines(state).filter((m) => m.sandboxes.some((x) => x.project.startsWith(`${store}/`)))
-        checks = checks.filter((c) => c.check !== 'store.connection').concat(from.length ? from.map((m) => {
+        checks = checks.flatMap((c) => (c.check !== 'store.connection' ? [c] : [c, ...from.map((m) => {
           const block = blockOf(state, m.machine)
           if (block) notChecked.push({ store, check: 'store.connection', blocked_by: block, reason: null })
           return { check: 'store.connection', outcome: block ? 'not_checked' : 'pass', from: m.machine }
-        }) : [pass('store.connection')])
+        })]))
       }
       // review item 13: "Backup behind" is the Store's own notice, naming the bucket in its message and fix
       if (sc(state).notices && store === 'shop' && !state.backedUp.includes('shop')) {
-        findings.push({ store, check: 'store.backups', severity: 'notice', message: '2 Commits are newer than its backup in r2-old', fix: 'layerfs backup create shop r2-old', from: null, evidence: null })
+        findings.push({ store, check: 'store.backups', severity: 'notice', message: 'r2-old is 2 Commits behind', fix: 'layerfs backup create shop r2-old', from: null, evidence: null })
         checks = checks.map((c) => (c.check === 'store.backups' ? { ...c, outcome: 'notice' } : c))
       }
       return node('store', store, checks)
     },
     project(project, full = false) {
-      const ids = full ? CHECKS.projectFull : CHECKS.project
+      const ids = checksFor(state, 'project', project, { full })
       if (sc(state).notices && project === 'qv2-store/qv2-probe') {
         findings.push({ ...UNLISTED, project, fix: `layerfs project delete ${project}` })
-        return node('project', project, ids.map((c) => (c === 'project.listed' ? { check: c, outcome: 'notice', from: null } : pass(c))))
+        // a project its Store does not list has no data to read
+        if (full) notChecked.push({ project, check: 'project.data', blocked_by: { project, reason: 'not_listed' }, reason: null })
+        return node('project', project, ids.map((c) => (c === 'project.listed' ? { check: c, outcome: 'notice', from: null } : c === 'project.data' ? { check: c, outcome: 'not_checked', from: null } : pass(c))))
       }
       return node('project', project, ids.map((c) => pass(c)), full ? { coverage: 'full' } : {})
     },
     sandbox(x, machine) {
       const by = blockOf(state, machine)
       if (by) return b.blockedNode('sandbox', x.sandbox, by)
-      const ids = CHECKS.sandbox
+      const ids = checksFor(state, 'sandbox', x.sandbox)
       const reason = takeFail(`sandbox:${x.sandbox}`)
       if (reason) return b.couldNode('sandbox', x.sandbox, ids, reason)
       if (!state.lost.includes(x.sandbox)) return node('sandbox', x.sandbox, ids.map((c) => pass(c)))
-      findings.push({ sandbox: x.sandbox, check: 'sandbox.daemon_connect', severity: 'error', message: 'its daemon does not answer', fix: `layerfs sandbox remove ${x.sandbox}`, from: null, evidence: null })
-      const at = ids.indexOf('sandbox.daemon_connect')
-      for (const c of ids.slice(at + 1)) notChecked.push({ sandbox: x.sandbox, check: c, blocked_by: { sandbox: x.sandbox, reason: 'not_answering' }, reason: null })
-      return node('sandbox', x.sandbox, ids.map((c, i) => (i < at ? pass(c) : { check: c, outcome: i === at ? 'error' : 'not_checked', from: null })))
+      return b.failing('sandbox', x.sandbox, ids, 'sandbox.daemon_connect', { severity: 'error', message: 'its daemon does not answer', fix: `layerfs sandbox remove ${x.sandbox}` }, 'not_answering')
     },
     bucket(x, full) {
-      const ids = full ? CHECKS.bucketFull : CHECKS.bucket
+      const ids = checksFor(state, 'bucket', x.bucket, { full })
       const reason = takeFail(`bucket:${x.bucket}`)
       if (reason) return b.couldNode('bucket', x.bucket, ids, reason)
       return node('bucket', x.bucket, ids.map((c) => pass(c)), full ? { coverage: 'full' } : {})
@@ -224,7 +245,7 @@ export function doctorAnswer(state, kind, name, { full = false } = {}) {
   let tree
   const kids = []
   if (kind === 'home') {
-    tree = node('home', HOME, CHECKS.home.map((c) => pass(c)))
+    tree = node('home', HOME, checksFor(state, 'home', HOME).map((c) => pass(c)))
     tree.machines = all.map((m) => b.machine(m))
     tree.stores = PG_STORES.map((s) => b.store(s, null))
     tree.buckets = BUCKETS.map((x) => b.bucket(x, false))
@@ -256,7 +277,7 @@ export function doctorAnswer(state, kind, name, { full = false } = {}) {
     const x = m.sandboxes.find((s) => s.sandbox === name)
     tree = b.sandbox(x, m.machine)
     const by = blockOf(state, m.machine) ?? (state.lost.includes(name) ? { sandbox: name, reason: 'not_answering' } : null)
-    tree.workspaces = tree.reason ? [] : x.workspaces.map((w) => (by ? b.blockedNode('workspace', w.workspace, by) : node('workspace', w.workspace, CHECKS.workspace.map((c) => pass(c)))))
+    tree.workspaces = tree.reason ? [] : x.workspaces.map((w) => (by ? b.blockedNode('workspace', w.workspace, by) : node('workspace', w.workspace, checksFor(state, 'workspace', w.workspace).map((c) => pass(c)))))
     kids.push(...tree.workspaces)
   } else if (kind === 'bucket') {
     const x = BUCKETS.find((k) => k.bucket === name)

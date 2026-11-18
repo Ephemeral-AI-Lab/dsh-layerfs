@@ -27,7 +27,7 @@
  */
 import { execute, type CliSpec, type Lane } from '../layerfs/cli.ts'
 import {
-  CHILD_LISTS, DOCTOR_KINDS, doctorArgv, isReport, parseFix, startLine, thingKey, thingOf,
+  CHILD_LISTS, DOCTOR_KINDS, doctorArgv, hasTreeRead, isReport, parseFix, startLine, thingKey, thingOf,
   type CouldNotReason, type DoctorFixRun, type DoctorProgress, type DoctorReport, type DoctorResults, type DoctorRun, type Fix, type FixStep, type RunFailure, type ThingKind, type TreeAnswer, type TreeNode,
 } from '../../shared/doctor.ts'
 import { Answer, refuse, wire, type RouteHost } from './util.ts'
@@ -127,6 +127,9 @@ export class DoctorChecks {
     if (this.tree.pending) return this.tree.pending
     const pending = (async () => {
       let answer: any
+      // asked of the call table first: a runtime before 2.0 is never sent a call it does not have
+      const hasTree = hasTreeRead((await this.host.discover()).calls)
+      if (!hasTree) throw refuse(501, 'Unsupported', 'This LayerFS runtime has no `home get --with tree`; the Doctor page needs a 2.0 runtime.')
       try {
         answer = await this.run(this.host.lfs().spec, ['home', 'get', '--with', 'tree', '--detail'], { read: true, timeout: TREE_TIMEOUT_MS })
       } catch (error: any) {

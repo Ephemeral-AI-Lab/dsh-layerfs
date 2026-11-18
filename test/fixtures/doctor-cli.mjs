@@ -87,18 +87,20 @@ const withValue = () => { const i = args.indexOf('--with'); return i >= 0 ? Stri
 /** The calls the host's SDK client needs in the table before it sends them. */
 const entry = (name, argNames = [], options = []) => { const [f, c] = name.split('.'); return { family: f, call: c, args: argNames.map((n) => ({ name: n, kind: 'name' })), options: options.map((n) => ({ name: n, kind: n === 'on_progress' ? 'function' : 'bool' })) } }
 const FIX_CALLS = [entry('machine.start', ['machine'], ['on_progress']), entry('machine.stop', ['machine'], ['force']), entry('project.delete', ['project']), entry('backup.create', ['store', 'bucket'], ['on_progress'])]
+/** `home get` as the 2.0 table lists it: its `--with` values keyed by value. */
+const HOME_GET = { ...entry('home.get'), with: { platforms: {}, tree: {} } }
 const REQUIRED = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff', 'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close', 'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'machine.list', 'machine.platforms', 'store.list', 'store.create']
 
 if (family === '--version' || family === 'help') {
   if (!real) {
     if (family === '--version') answer({ version: '2.0.0-doctor-standin', commit: '0'.repeat(40), dirty: false, features: [] })
-    answer({ calls: [...REQUIRED.map((n) => entry(n)), entry('home.get'), ...FIX_CALLS], commands: [], switches: [] })
+    answer({ calls: [...REQUIRED.map((n) => entry(n)), HOME_GET, ...FIX_CALLS], commands: [], switches: [] })
   } else if (family === 'help') {
-    // the real table, plus the fix calls it may not have yet
+    // the real table, plus the 2.0 calls it may not have yet: the fix calls, and `home get` with its `--with` values
     const { spawnSync } = await import('node:child_process')
     const r = spawnSync(real, args, { encoding: 'utf8', maxBuffer: 1 << 28 })
     let out = r.stdout ?? ''
-    if (r.status === 0) { try { const help = JSON.parse(out); out = `${JSON.stringify({ ...help, calls: [...help.calls, ...FIX_CALLS.filter((f) => !help.calls.some((c) => c.family === f.family && c.call === f.call))] })}\n` } catch { /* as it came */ } }
+    if (r.status === 0) { try { const help = JSON.parse(out); out = `${JSON.stringify({ ...help, calls: [...help.calls.map((c) => (c.family === 'home' && c.call === 'get' ? { ...c, with: HOME_GET.with } : c)), ...[HOME_GET, ...FIX_CALLS].filter((f) => !help.calls.some((c) => c.family === f.family && c.call === f.call))] })}\n` } catch { /* as it came */ } }
     emit(1, out); emit(2, r.stderr ?? ''); process.exit(r.status ?? 1)
   } else pass()
 } else if (family === 'home' && call === 'get' && withValue().includes('tree')) {
