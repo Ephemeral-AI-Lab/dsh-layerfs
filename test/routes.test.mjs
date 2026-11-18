@@ -246,6 +246,7 @@ test('postgresql: logins are saved in LayerFS (password on stdin, never a file o
       list: async () => ({ items: [record] }),
       get: async () => record,
       save_auth: async (auth, options) => { seen.push(['save_auth', auth, options]); return { ok: true } },
+      auths: async () => ({ items: [{ auth: 'pg', user: 'saved-user', stores: ['pg'] }] }),
       connect: async (name, url, options) => {
         seen.push(['connect', name, url, options])
         if (url.includes('bad')) throw new Refusal('Denied', 'password authentication failed for user "lfs"')
@@ -286,6 +287,10 @@ test('postgresql: logins are saved in LayerFS (password on stdin, never a file o
     seen.length = 0
     assert.equal((await http('POST', '/api/stores/pg/connection', { user: 'lfs', passwordValue: 'newpw' })).status, 200)
     assert.deepEqual(seen, [['save_auth', 'pg', { user: 'lfs', password: 'newpw' }]])
+    // a password alone: `store save-auth` always gets the user (required in 2.0): the saved login's own
+    seen.length = 0
+    assert.equal((await http('POST', '/api/stores/pg/connection', { passwordValue: 'newpw2' })).status, 200)
+    assert.deepEqual(seen, [['save_auth', 'pg', { user: 'saved-user', password: 'newpw2' }]])
     // a machine's own address: URL only, proven from it (store connect --machine)
     const vm = await http('POST', '/api/stores/pg/connection', { machine: 'vm1', url: 'postgresql://10.0.0.5/team' })
     assert.equal(vm.status, 200)

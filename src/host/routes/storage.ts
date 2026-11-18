@@ -386,7 +386,9 @@ export class Storage {
     if (typeof input.passwordValue === 'string' && input.passwordValue !== '' && !input.auth) {
       const record: any = await this.lfs.store.get(name, { detail: true })
       if (typeof record?.auth !== 'string') throw refuse(400, 'InvalidInput', `Store ${name} has no saved login to change`)
-      await this.loginOf({ ...input, authName: record.auth }, name, null)
+      // `store save-auth` needs the user with the password: the saved login's own unless one was typed
+      const user = typeof input.user === 'string' && input.user.trim() ? input.user : (await this.auths()).items.find((a: { auth: string }) => a.auth === record.auth)?.user ?? undefined
+      await this.loginOf({ ...input, user, authName: record.auth }, name, null)
       rotated = true
     }
     const auth = rotated ? undefined : await this.loginOf({ auth: input.auth, passwordFrom: input.passwordFrom }, name, null)

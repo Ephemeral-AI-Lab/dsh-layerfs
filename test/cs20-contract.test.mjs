@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
 const root = new URL('..', import.meta.url).pathname
-const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? '/Users/yifanxu/.cache/cs20-pins/c20b3394b2/layerfs'
+const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? '/Users/yifanxu/.cache/cs20-pins/9aa73af987/layerfs'
 const skip = existsSync(CLI) ? false : `no 2.0 CLI at ${CLI}`
 
 /** The pinned table, read once in a home of its own. */
@@ -273,4 +273,24 @@ test('the Doctor page\'s argv is a 2.0 call: six doctors, --progress only where 
     // the tree read gate: home.get's `with` declares `tree`
     assert.equal(D.hasTreeRead(help.calls), true)
   } finally { rmSync(out, { recursive: true, force: true }) }
+})
+
+// Coming in LayerFS (package FX): `store save-auth` without `--user` or the
+// password, `backup connect` without both keys and `file edit` without the old
+// and new strings are usage errors. Every call site sends them.
+test('options 2.0 makes required are always sent: save-auth user + password, backup connect keys, file edit strings', () => {
+  const src = sources()
+  const sites = (re) => src.flatMap((f) => [...f.text.matchAll(re)].map((m) => ({ path: f.path.slice(root.length), call: m[0] })))
+  const saveAuth = sites(/\.store\.save_auth\([^)]*\)/g)
+  assert.ok(saveAuth.length > 0)
+  for (const s of saveAuth) assert.match(s.call, /\buser\b/, `${s.path}: ${s.call}`), assert.match(s.call, /\bpassword\b/, `${s.path}: ${s.call}`)
+  const connect = sites(/\.backup\.connect\([^)]*\)/g)
+  assert.ok(connect.length > 0)
+  for (const s of connect) assert.match(s.call, /access_key/, `${s.path}: ${s.call}`), assert.match(s.call, /secret_key/, `${s.path}: ${s.call}`)
+  const argv = sites(/\['store', 'save-auth'[^\]]*\]/g)
+  assert.ok(argv.length > 0)
+  for (const s of argv) assert.ok(s.call.includes("'--user'") && s.call.includes("'--password-stdin'"), `${s.path}: ${s.call}`)
+  // the plugin itself makes no file edit (agents do, through the CLI): none to check, and none may appear without its strings
+  for (const s of sites(/\.file\.edit\([^)]*\)/g)) assert.ok(/old_string/.test(s.call) && /new_string/.test(s.call), `${s.path}: ${s.call}`)
+  for (const s of sites(/\['file', 'edit'[^\]]*\]/g)) assert.ok(s.call.includes("'--old-string'") && s.call.includes("'--new-string'"), `${s.path}: ${s.call}`)
 })
