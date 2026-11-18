@@ -142,7 +142,7 @@ export function routedServer(server: string, alias: string | null): string {
   return server.replace(/^(localhost|127\.[0-9.]+|\[::1\])(?=:|$)/, alias)
 }
 
-/** The three things a check from a machine tries, in order (store.get --machine, store.update --machine). */
+/** The three things a check from a machine tries, in order (`store doctor <s> --machine M`). */
 export type CheckStep = 'server' | 'store' | 'write'
 export const CHECK_STEPS: readonly CheckStep[] = ['server', 'store', 'write']
 

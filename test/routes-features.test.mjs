@@ -38,12 +38,13 @@ const viewLfs = (extra = {}, sandboxes = []) => ({
   machine: { ...machineBase, ...extra },
   home: homeBase,
   store: { list: async () => ({ items: [] }) },
-  sandbox: { list: async () => ({ items: sandboxes, next_page_pos: null }) },
+  // 2.0 `sandbox list [--machine M] [--detail]`: `machine` and `image` are long-only
+  sandbox: { list: async (o = {}) => ({ items: sandboxes.filter((b) => !o.machine || b.machine === o.machine).map((b) => (o.detail ? { sandbox: b.name, project: 'p', ...b } : { sandbox: b.name, project: 'p' })), next_cursor: null }) },
 })
 
 const NO_INSPECT = { machineLog: false, sandboxLog: false, files: false, machineFiles: false, machineStats: false }
 /** The features read from one call or option each (layerfs-project#164, #180): absent from this table's CLIs. */
-const NO_OBSERVE = { sandboxLive: false, machineSpace: false }
+const NO_OBSERVE = { machineSpace: false }
 const NONE = { forceStop: false, images: false, imageLoad: false, imagePrune: false, imageRefs: false, createProgress: false, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT, ...NO_OBSERVE }
 
 test('features: the machines view says what the pinned CLI has, Stage 1 only with every piece', async () => {

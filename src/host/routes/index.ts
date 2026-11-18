@@ -12,9 +12,8 @@
  *   machines.ts             /api/machines…, /api/platforms
  *   metrics.ts              the metrics sampler (one machine.stats at a time, an hour in memory) behind /api/metrics
  *   inspect.ts              monitoring reads: /api/machines/:id/log and /files, /api/sandboxes/:name/log and /files (one read per key, last good answer kept)
- *   storage.ts, jobs.ts     /api/storage…, /api/stores…, /api/buckets…, /api/storage-jobs…, /api/doctor
+ *   storage.ts, jobs.ts     /api/storage…, /api/stores…, /api/buckets…, /api/storage-jobs…
  *   doctor.ts               /api/doctor/… (the Doctor page: tree, runs, fixes)
- *   doctor-jobs.ts          /api/doctor-jobs… (the targeted Diagnose panel)
  *   projects.ts             /api/status, /api/projects…, /api/sandboxes…, /api/workspaces…, /api/project-inits…
  *   storage-observations.ts Store statistics journals
  *   ../presets/manager.ts   /api/demo-presets… (Presets: build the Studio library, reset the home)

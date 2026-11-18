@@ -6,7 +6,7 @@
  * - a line of what it is: project, its own image, up time, mounted Workspaces;
  * - three figures, each with a bar: processor (machine.stats), memory
  *   (machine.stats) and space on disk split into Workspace changes, own files
- *   and runtime and log (machine.space);
+ *   and runtime and log (machine stats --with space);
  * - Terminals and Files, which open the Sandbox page on that tab.
  *
  * Each Sandbox may run a different image: its card names it, linking to the

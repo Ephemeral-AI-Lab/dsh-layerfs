@@ -1071,7 +1071,7 @@
   margin: 0;
 }
 
-/* the disk bar split by machine.space: LayerFS's data, what is not LayerFS's, used space not split */
+/* the disk bar split by machine.stats --with space: LayerFS's data, what is not LayerFS's, used space not split */
 .diskRow .bar[data-split] {
   display: flex;
 }

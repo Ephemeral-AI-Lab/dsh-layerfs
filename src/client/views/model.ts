@@ -275,7 +275,7 @@ export function replayClock(calls: readonly { at: number, ms: number }[]): (time
 const methodOf = (argv: readonly string[]) => `${argv[0] ?? '?'}.${String(argv[1] ?? '?').replaceAll('_', '-')}`
 
 /** Reads that only poll state (this plugin's own pages and checks among them); kept out of the map so the wires show work. */
-const QUIET = new Set(['project.get', 'branch.get', 'file.list', 'file.stat', 'workspace.list', 'workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.status', 'machine.get', 'store.get', 'store.auths', 'store.list', 'project.list', 'branch.list'])
+const QUIET = new Set(['project.get', 'branch.get', 'file.list', 'file.stat', 'workspace.list', 'workspace.status', 'sandbox.list', 'sandbox.get', 'machine.list', 'machine.get', 'store.get', 'store.auths', 'store.list', 'project.list', 'branch.list'])
 
 /** True for a call the map leaves out (a state poll), so the page need not keep it. */
 export const isQuietCall = (line: Pick<CallLine, 'argv'>): boolean => QUIET.has(methodOf(line.argv))
@@ -376,7 +376,7 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
       const ws = sandboxes.get(target.ws.split(':')[0])?.workspaces.find((w) => w.id === target.ws)
       if (ws?.branch) target.branch = ws.branch
     }
-    if (line.outcome === 'ok' && target.sandbox && (method === 'sandbox.close' || method === 'sandbox.create')) sandbox(target.sandbox).closed = method === 'sandbox.close'
+    if (line.outcome === 'ok' && target.sandbox && (method === 'sandbox.remove' || method === 'sandbox.close' || method === 'sandbox.create')) sandbox(target.sandbox).closed = method !== 'sandbox.create'
     const ms = Math.max(0, line.ms)
     let start = clock(line.at) + shift
     const prev = lastOf.get(agent)
@@ -536,7 +536,7 @@ export function indexEvents(events: readonly MapEvent[]): EventIndex {
     if (e.outcome === 'ok' && e.ws && (e.method === 'workspace.mount' || e.method === 'workspace.unmount')) push(mounts, e.ws, e)
     if (e.ws) { let u = users.get(e.ws); if (!u) users.set(e.ws, u = new Map()); if (!u.has(e.agent)) u.set(e.agent, e.start) }
     if (e.sandbox && e.method === 'sandbox.create' && !createBySandbox.has(e.sandbox)) createBySandbox.set(e.sandbox, e)
-    if (e.sandbox && e.method === 'sandbox.close' && e.outcome === 'ok' && !closeBySandbox.has(e.sandbox)) closeBySandbox.set(e.sandbox, e)
+    if (e.sandbox && (e.method === 'sandbox.remove' || e.method === 'sandbox.close') && e.outcome === 'ok' && !closeBySandbox.has(e.sandbox)) closeBySandbox.set(e.sandbox, e)
   }
   const ended = (m: Map<string, MapEvent[]>) => new Map([...m].map(([k, a]) => [k, { items: [...a].sort((x, y) => x.end - y.end) }]))
   return {

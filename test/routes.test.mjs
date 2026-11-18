@@ -143,14 +143,66 @@ test('stores: create emits storage, answers the view; bigints are tagged i64-v1'
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('storage view: a Store with more than 20 projects lists every name by project list --store (its `projects` is cut at 20)', async () => {
+  const names = Array.from({ length: 25 }, (_, i) => `p${String(i).padStart(2, '0')}`)
+  const asked = []
+  const { http, root } = fakeGroups({
+    ...base,
+    store: { ...base.store, list: async () => ({ items: [{ store: 's1', machine: 'native', engine: 'sqlite', projects: names.slice(0, 20), projects_count: 25, state: 'ready', size: 1 }, { store: 's2', machine: 'native', engine: 'sqlite', projects: ['a'], state: 'ready', size: 1 }] }) },
+    project: {
+      list: async (o) => {
+        asked.push(o.store)
+        const from = o.cursor ? Number(o.cursor) : 0
+        return { items: names.slice(from, from + 10).map((n) => ({ project: `s1/${n}` })), next_cursor: from + 10 < names.length ? String(from + 10) : null }
+      },
+    },
+  })
+  try {
+    const view = await http('GET', '/api/storage')
+    assert.equal(view.status, 200, JSON.stringify(view.body))
+    const s1 = view.body.stores.find((s) => s.name === 's1'), s2 = view.body.stores.find((s) => s.name === 's2')
+    assert.deepEqual(s1.projects, names)
+    assert.equal(s1.projectsCount, 25)
+    assert.deepEqual(s2.projects, ['a'], 'a whole list is not read again')
+    assert.deepEqual(asked, ['s1', 's1', 's1'], 'only the cut Store, three pages')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('the Doctor page\'s backup fix runs as a Storage job (job row, storage-job events, one job per Store) and waits for its end (review UR M7)', async () => {
+  let finish
+  const { groups, events, root } = fakeGroups({
+    ...base,
+    backup: { create: (store, bucket) => new Promise((resolve, reject) => { finish = { resolve, reject } }) },
+  })
+  try {
+    // the Doctor's fix action as createGroups wires it
+    const run = groups.checks.actions.backupCreate('s1', 'r2')
+    let settled = false
+    void run.then(() => { settled = true }, () => { settled = true })
+    await new Promise((r) => setTimeout(r, 10))
+    assert.equal(settled, false, 'it waits for the backup to end')
+    const jobs = events.filter((e) => e.type === 'storage-job').map((e) => e.data.job)
+    assert.ok(jobs.some((j) => j.kind === 'backup' && j.store === 's1' && j.target === 'r2' && !j.ended), 'a running backup job on the Storage page')
+    await assert.rejects(groups.checks.actions.backupCreate('s1', 'r2'), (e) => e.code === 'ConnectBusy', 'one job per Store')
+    finish.resolve({ store: 's1', bucket: 'r2' })
+    assert.deepEqual(await run, { store: 's1', bucket: 'r2' })
+    await new Promise((r) => setTimeout(r, 10))
+    assert.ok(events.some((e) => e.type === 'storage-job' && e.data.job.kind === 'backup' && e.data.job.outcome === 'succeeded'))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('store projects: every project with its ledger, newest Commit and main files; one tree walk per main head', async () => {
   let head = 'h1'
   const { http, calls, groups, root } = fakeGroups({
     ...base,
-    // 2.0 long forms: `store get`'s projects, `project get`'s created_at, `project stats` file_count/partial, `branch get` commit
-    store: { ...base.store, get: async () => ({ store: 's1', projects: ['web', 'docs', 'web'] }) },
+    // 2.0 long forms: `project list --store` by cursor (every project, not `store get`'s first 20), `project stats` file_count/partial, `branch get` commit
+    store: { ...base.store, get: async () => ({ store: 's1', projects: ['web'], projects_count: 2 }) },
     project: {
-      get: async (key) => ({ project: key, store: 's1', created_at: new Date(1000).toISOString() }),
+      list: async (o) => {
+        assert.equal(o.store, 's1')
+        const all = [{ project: 's1/web', store: 's1', created_at: new Date(1000).toISOString() }, { project: 's1/docs', store: 's1', created_at: new Date(1000).toISOString() }]
+        return o.cursor ? { items: [all[1]], next_cursor: null } : { items: [all[0]], next_cursor: 'c1' }
+      },
       stats: async (key) => ({ file_count: key === 's1/web' ? 40 : 10001, partial: key !== 's1/web' }),
     },
     branch: {
@@ -163,7 +215,7 @@ test('store projects: every project with its ledger, newest Commit and main file
     const a = await http('GET', '/api/stores/s1/projects')
     assert.equal(a.status, 200)
     assert.equal(a.body.store, 's1')
-    assert.deepEqual(a.body.projects.map((p) => p.name), ['docs', 'web'], 'deduplicated and sorted')
+    assert.deepEqual(a.body.projects.map((p) => p.name), ['docs', 'web'], 'both pages, sorted')
     assert.deepEqual(a.body.projects.map((p) => p.files), [{ files: 10001, complete: false }, { files: 40, complete: true }])
     assert.equal(a.body.projects[0].created, 1000)
     await http('GET', '/api/stores/s1/projects')

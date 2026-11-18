@@ -1,7 +1,7 @@
 /**
  * The Docker Engine behind the built-in `docker` machine, started on demand.
  *
- * LayerFS's machine.platforms reports docker not ready with a need
+ * LayerFS's `home get --with platforms` reports docker not ready with a need
  * `host:<socket>` when the Engine is installed but does not answer there
  * (Docker Desktop quit, colima stopped). On macOS that is one click away: the
  * Start of the docker machine launches the Engine that owns the socket, waits

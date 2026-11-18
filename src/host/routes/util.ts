@@ -90,7 +90,7 @@ export interface CliFeatures {
   readonly forceStop: boolean
   /** machine.images exists (a machine's cached Sandbox images). */
   readonly images: boolean
-  /** machine.load exists (copy an image to a machine without a Sandbox). */
+  /** machine.load_image exists (copy an image to a machine without a Sandbox). */
   readonly imageLoad: boolean
   /** machine.prune exists (remove a machine's cached images). */
   readonly imagePrune: boolean
@@ -111,8 +111,6 @@ export interface CliFeatures {
    * count, layerfs-project#164).
    */
   readonly inspect: { readonly machineLog: boolean, readonly sandboxLog: boolean, readonly files: boolean, readonly machineFiles: boolean, readonly machineStats: boolean }
-  /** sandbox.list takes `live`: each Sandbox says whether its daemon process runs now (layerfs-project#164). */
-  readonly sandboxLive: boolean
   /** machine.stats takes `--with space`: where a machine's data disk goes, by part, and what of it is not LayerFS's. */
   readonly machineSpace: boolean
 }
@@ -134,7 +132,6 @@ export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identit
     sandboxRuntime,
     imageStage: images && imageLoad && imagePrune && imageRefs && sandboxRuntime ? 1 : 0,
     inspect: { machineLog: !!call('machine', 'log'), sandboxLog: !!call('sandbox', 'log'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files'), machineStats: !!call('machine', 'stats') },
-    sandboxLive: option('sandbox', 'list', 'live'),
     machineSpace: withValues(call('machine', 'stats')).includes('space'),
   }
 }

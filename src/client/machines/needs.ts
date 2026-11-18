@@ -1,6 +1,6 @@
 /**
  * What a platform needs before it can run here, as one ladder. LayerFS's
- * machine.platforms reports each platform's `missing` needs (`tool:<cli>`,
+ * home get --with platforms reports each platform's `missing` needs (`tool:<cli>`,
  * `host:<fact>`, `bundle:<…>`); this sorts each need into the step that
  * fixes it and says how, for this computer's OS:
  *
@@ -32,7 +32,7 @@ export interface Fix {
   socket?: true
 }
 
-/** What else the ladder reads: docker's socket (machine.platforms) and the bundle folder LayerFS resolved (setup.status). */
+/** What else the ladder reads: docker's socket (home get --with platforms) and the bundle folder LayerFS resolved (setup.status). */
 export interface NeedContext {
   /** docker's socket as LayerFS reports it; `denied` gets the docker group fix instead of Start. */
   socket?: DockerSocket | null | undefined

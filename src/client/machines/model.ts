@@ -8,7 +8,7 @@
  * Connect never derives a state: it shows the SDK's `state`, and an `op` in
  * flight adds its name and phase. Power is manual: a machine runs between
  * Start and Stop and no read starts one. ssh and Firecracker machines are
- * turned off: the host leaves them out of machine.platforms.
+ * turned off: the host leaves them out of home get --with platforms.
  */
 import type { Tone } from '../ui/index.tsx'
 import { parseTag, type CallLabel } from '../../shared/logs.ts'
@@ -101,8 +101,11 @@ export interface MachineInfo {
   cpus: number | null
   memory: number | null
   disk: number | null
+  /** The first 20 names (`storesCount` / `sandboxesCount` are all of them). */
   stores: string[]
   sandboxes: string[]
+  storesCount?: number
+  sandboxesCount?: number
   image?: string
   osImage?: string
   docker?: string
@@ -190,8 +193,6 @@ export interface CliFeatures {
   imageStage?: 0 | 1
   /** Monitoring reads the pinned CLI has (layerfs-project#178, #164): a part shows only when its call is there. Absent from an older host. */
   inspect?: { machineLog: boolean, sandboxLog: boolean, files: boolean, machineFiles: boolean, machineStats?: boolean }
-  /** sandbox.list answers `live` per Sandbox (layerfs-project#164). */
-  sandboxLive?: boolean
   /** `layerfs machine stats --with space`: where a machine's data disk goes. */
   machineSpace?: boolean
 }
@@ -538,7 +539,7 @@ export function stateLook(entity: Entity, state: string | null | undefined): Sta
   return LOOK[entity][state || 'unknown'] ?? { tone: 'neutral', label: null, raw: state || '', dashed: !state }
 }
 
-/** An operation in words: `store.push · send`. */
+/** An operation in words: `store.move · send`. */
 export function opWords(op: SdkOperation | null | undefined): string | null {
   if (!op) return null
   return [op.name, op.phase].filter(Boolean).join(' · ')
@@ -667,14 +668,19 @@ export function bytes(n: number | null | undefined): string {
 export const shortImage = (ref: string | null | undefined): string =>
   !ref ? '—' : ref.startsWith('/') ? ref.slice(ref.lastIndexOf('/') + 1) : ref.replace(/^(sha256:)?([0-9a-f]{12})[0-9a-f]+$/, (_, p: string | undefined, h: string) => `${p ?? ''}${h}…`)
 
-/** The sqlite Stores a machine holds; one store.list() omits still shows by name. */
+/**
+ * The sqlite Stores a machine holds: every store.list row on it (the record's
+ * `stores` names only the first 20), and one store.list omits still by name.
+ */
 export function storesOn(view: AvailableView, m: MachineInfo): MachineStore[] {
-  return m.stores.map((name) => view.stores.find((s) => s.name === name && s.machine === m.name) ?? { name, machine: m.name, projects: 0, size: null })
+  const listed = view.stores.filter((s) => s.machine === m.name)
+  return [...listed, ...m.stores.filter((name) => !listed.some((s) => s.name === name)).map((name) => ({ name, machine: m.name, projects: 0, size: null }))]
 }
 
-/** A machine's Sandboxes from sandbox.list(), by project then name; one it omits still shows by name. */
+/** A machine's Sandboxes from sandbox.list() (all of them; the record names 20), by project then name; one it omits still shows by name. */
 export function sandboxesOn(view: AvailableView, m: MachineInfo): MachineSandbox[] {
-  const rows = m.sandboxes.map((b) => view.sandboxes.find((x) => x.name === b) ?? { name: b, machine: m.name, project: null, workspaces: null })
+  const listed = view.sandboxes.filter((x) => x.machine === m.name)
+  const rows = [...listed, ...m.sandboxes.filter((b) => !listed.some((x) => x.name === b)).map((b) => ({ name: b, machine: m.name, project: null, workspaces: null }))]
   return rows.sort((a, b) => Number(!a.project) - Number(!b.project) || (a.project ?? '').localeCompare(b.project ?? '') || a.name.localeCompare(b.name, undefined, { numeric: true }))
 }
 
@@ -687,9 +693,14 @@ export function factsOf(view: AvailableView) {
   return { ...n, ops, sandboxes: view.sandboxes.length, workspaces, workspacesKnown: !view.sandboxes.some((b) => b.workspaces == null) }
 }
 
+/** How many Stores and Sandboxes a machine holds: the record's counts (its name lists stop at 20). */
+export const heldStores = (m: Pick<MachineInfo, 'stores' | 'storesCount'>): number => m.storesCount ?? m.stores.length
+export const heldSandboxes = (m: Pick<MachineInfo, 'sandboxes' | 'sandboxesCount'>): number => m.sandboxesCount ?? m.sandboxes.length
+
 /** Remove refuses while a machine holds Stores or Sandboxes (InUse): the reason, or null. */
 export function inUse(m: MachineInfo): { stores: number, sandboxes: number } | null {
-  return m.stores.length || m.sandboxes.length ? { stores: m.stores.length, sandboxes: m.sandboxes.length } : null
+  const stores = heldStores(m), sandboxes = heldSandboxes(m)
+  return stores || sandboxes ? { stores, sandboxes } : null
 }
 
 /** Why Remove is refused before it is asked. */
@@ -731,14 +742,14 @@ export function fixAction(m: MachineInfo): FixAction | null {
   const commands = line.split('&&').map((c) => c.trim()).filter(Boolean)
   const word = (c: string, verb: string, force = false) => c.split(/\s+/).join(' ') === ['layerfs', 'machine', verb, m.name, ...(force ? ['--force'] : [])].join(' ')
   if (commands.length === 1 && word(commands[0]!, 'start')) return { kind: 'start' }
-  if (commands.length === 2 && word(commands[0]!, 'stop') && word(commands[1]!, 'start')) return m.sandboxes.length ? { kind: 'forced', sandboxes: m.sandboxes.length, line } : { kind: 'restart' }
-  if (commands.length === 2 && word(commands[0]!, 'stop', true) && word(commands[1]!, 'start')) return { kind: 'forced', sandboxes: m.sandboxes.length, line }
+  if (commands.length === 2 && word(commands[0]!, 'stop') && word(commands[1]!, 'start')) return heldSandboxes(m) ? { kind: 'forced', sandboxes: heldSandboxes(m), line } : { kind: 'restart' }
+  if (commands.length === 2 && word(commands[0]!, 'stop', true) && word(commands[1]!, 'start')) return { kind: 'forced', sandboxes: heldSandboxes(m), line }
   return line ? { kind: 'copy', line } : null
 }
 
 /** Force stop remains available for registered runtimes even when the worker
  * is stopped or unavailable; native stops its managed runtimes, not the host. */
-export const forceStopOf = (m: MachineInfo, hasSandboxes = m.sandboxes.length > 0, features?: CliFeatures): boolean =>
+export const forceStopOf = (m: MachineInfo, hasSandboxes = heldSandboxes(m) > 0, features?: CliFeatures): boolean =>
   features?.forceStop !== false && m.platform !== 'ssh' && m.platform !== 'firecracker' && (powerOf(m) === 'stop' || hasSandboxes)
 
 /**
@@ -862,7 +873,7 @@ export function vmErrors(f: VmForm, machines: MachineInfo[]): FormErrors {
   return e
 }
 
-/** The platforms a machine is created on (not the built-ins), in machine.platforms order. */
+/** The platforms a machine is created on (not the built-ins), in home get --with platforms order. */
 export const addable = (platforms: MachinePlatformInfo[]): MachinePlatformInfo[] => platforms.filter((p) => p.how === 'created')
 
 /** Whether `platform` declares create option `name`. */

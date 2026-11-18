@@ -729,12 +729,13 @@ export class Projects {
    * walks no tree again.
    */
   async storeProjects(name: string) {
-    const store = await this.lfs.store.get(name)
-    const names = [...new Set((Array.isArray(store?.projects) ? store.projects : []).map(String))].sort()
+    // every project of the Store, page by page (`store get`'s `projects` is cut at 20)
+    const records = await pages((p) => this.lfs.project.list({ store: name, ...p, detail: true }))
+    const rows = [...new Map(records.map((r: any) => [keyOf(r), r])).entries()]
+      .map(([project, record]) => ({ short: project.slice(project.indexOf('/') + 1), record }))
+      .sort((a, b) => (a.short < b.short ? -1 : a.short > b.short ? 1 : 0))
     const projects = []
-    for (const short of names) {
-      const record = await this.record(`${name}/${short}`).catch(() => null)
-      if (!record) { projects.push({ name: short, created: null, totals: null, last: null, files: null, partial: true, building: null, error: null }); continue }
+    for (const { short, record } of rows) {
       const project = keyOf(record), created = msAt(record.created_at)
       const view = await this.storageLedgers.view(project, created)
       const last = view.recent.length ? view.recent[view.recent.length - 1] : null
@@ -772,7 +773,8 @@ export class Projects {
       this.lfs.store.get(record.store).catch(() => null),
       this.lfs.project.stats(project).catch(() => null),
     ])
-    const projects = Array.isArray(storeRecord?.projects) ? new Set(storeRecord.projects).size : null
+    // `projects_count` sits beside a list cut at 20
+    const projects = typeof storeRecord?.projects_count === 'number' ? storeRecord.projects_count : Array.isArray(storeRecord?.projects) ? new Set(storeRecord.projects).size : null
     return {
       ...view,
       store: { name: record.store, projects, ...('refusal' in store ? { refusal: store.refusal } : { historyLogical: store.logical_bytes ?? null, canonical: store.canonical_bytes ?? null, stored: store.stored_bytes ?? null, metadata: store.metadata_bytes ?? null, file: store.file_bytes ?? null }) },

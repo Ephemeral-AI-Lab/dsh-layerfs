@@ -921,7 +921,7 @@ const en = {
   addMenu: 'Add',
   jobsMore: '{n} transfers',
   ovListBuckets: 'List bucket files',
-  // PostgreSQL: one connection, where it runs, the check from a machine (store.update, store.get --machine)
+  // PostgreSQL: one connection, where it runs, the check from a machine (store.update, store doctor --machine)
   cdCheckTitle: 'Check {store}',
   pgRunsOn: 'Runs on {machine}',
   pgRunsOnLabel: 'Runs on',
@@ -1862,7 +1862,7 @@ const zh: typeof en = {
   addMenu: '添加',
   jobsMore: '{n} 个传输',
   ovListBuckets: '列出存储桶文件',
-  // PostgreSQL：一个连接、运行位置、从机器检查（store.update、store.get --machine）
+  // PostgreSQL：一个连接、运行位置、从机器检查（store.update、store doctor --machine）
   cdCheckTitle: '检查 {store}',
   pgRunsOn: '运行于 {machine}',
   pgRunsOnLabel: '运行于',

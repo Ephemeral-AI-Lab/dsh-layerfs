@@ -166,9 +166,7 @@ export interface Discovery {
 
 /**
  * The calls dsh-layerfs relies on, by their LayerFS 2.0 names; a CLI missing
- * one is refused at discovery (`home.get` with `--with platforms` replaced
- * `machine.platforms`, `sandbox.remove` `sandbox.close`, `commit.list`
- * `branch.commits`, `workspace.cancel` `workspace.exec_cancel`).
+ * one is refused at discovery (the platforms come from `home.get --with platforms`).
  */
 export const REQUIRED_CALLS = [
   'project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',

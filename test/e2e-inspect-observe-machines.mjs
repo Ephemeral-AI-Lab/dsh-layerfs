@@ -6,8 +6,7 @@
 //   O2  the Machines board: every running machine's card has the observed disk; a stopped machine
 //       shows its record with "Not observed (machine stopped)" and is never asked
 //   O3  a value LayerFS did not observe reads "not observed" with its reason, never 0
-//   O4  a Sandbox recorded running whose daemon is dead is not shown or counted as running; one that
-//       could not be observed keeps its state, unconfirmed, with the reason
+//   (O4, a dead daemon from `sandbox list --live`, was removed: 2.0 has no `live` option)
 //   O5  the Sandbox page shows the daemon's pid and start time and its usage, or why there is none
 //
 // The rows compare the page with what the CLI answers on the same home.
@@ -94,7 +93,6 @@ await main('e2e-inspect-observe-machines', async ({ run, page }) => {
   setupObserve()
   const has = await features(page)
   const needStats = () => { if (!has.inspect?.machineStats) throw new NotRun('the pinned CLI has no machine.stats (e2e-inspect-observe-absent.mjs checks that case)') }
-  const needLive = () => { if (!has.sandboxLive) throw new NotRun('the pinned CLI\'s sandbox.list has no `live` option') }
 
   await run.row('O1', 'a machine\'s page shows what `machine stats` observed, per scope, with whose disk it is', async (t) => {
     needStats()
@@ -184,69 +182,6 @@ await main('e2e-inspect-observe-machines', async ({ run, page }) => {
     }
     const back = await waitObserved(page, (s) => s.card.notObserved.length === 0 && !!s.card.memory, { timeout: 25000 })
     t.check(back.ok, `once LayerFS observes them again the values are back ("${back.state?.card.memory}")`)
-  })
-
-  await run.row('O4', 'a Sandbox whose daemon is dead is not shown or counted as running; one not observed is unconfirmed, with the reason', async (t) => {
-    needLive()
-    const listed = cli('sandbox', 'list', '--page-size', '100', '--page-pos', '0', '--live').items ?? []
-    const of = (b) => listed.find((x) => x.name === b.name)
-    const dead = of(needO(O.dead))
-    if (!dead || dead.live !== false) throw new NotRun(`sandbox.list --live does not say ${O.dead.name}'s daemon is dead (${JSON.stringify(dead?.live)})`)
-    t.check(dead.state === 'running', `${dead.name} is recorded running, and LayerFS says its daemon is not (live false)`)
-    // its machine's page
-    const view = has.view
-    const title = (name) => (name === 'native' ? 'LayerFS Home' : name === 'docker' ? 'Docker' : name)
-    await jump(page, title(dead.machine))
-    const got = await waitObserved(page, (s) => s.sandboxRows.some((r) => r.name === dead.name && r.live === 'false'), { timeout: 20000 })
-    const row = got.state?.sandboxRows.find((r) => r.name === dead.name)
-    t.check(row?.live === 'false' && row.text.includes('Daemon not running') && !/Running$/.test(row.text) && row.tone === 'danger', `its row reads "Daemon not running", not "Running" ("${row?.text}", tone ${row?.tone})`)
-    const here = listed.filter((b) => b.machine === dead.machine)
-    const runs = here.filter((b) => b.state === 'running' && b.live === true).length
-    t.check(got.state.card.hereNow?.startsWith(`${runs} of ${here.length} running`), `the machine counts ${runs} of ${here.length} running: the dead one is not among them ("${got.state.card.hereNow}")`)
-    t.check(/recorded as running ha(s|ve) no daemon/.test(got.state.card.hereDown ?? ''), `…and says how many have no daemon ("${got.state.card.hereDown}")`)
-    await shot(page, 'observe-machine-dead-daemon')
-    // the board
-    await openBoard(page)
-    const board = await waitObserved(page, (s) => s.sandboxRows.some((r) => r.name === dead.name), { timeout: 15000 })
-    t.check(board.state.sandboxRows.find((r) => r.name === dead.name)?.text.includes('Daemon not running'), 'the board\'s row says the same')
-    // its own page
-    await jump(page, dead.name)
-    const sb = await waitSandbox(page, (s) => /Daemon not running/.test(s.head ?? ''))
-    t.check(/Daemon not running/.test(sb?.head ?? '') && !/\bRunning\b/.test((sb?.head ?? '').replace('Daemon not running', '')), `the Sandbox page's head reads "Daemon not running" ("${(sb?.head ?? '').replace(/\n/g, ' | ')}")`)
-    await shot(page, 'observe-sandbox-dead')
-    // a live one, for contrast
-    const up = O.up.name ? of(O.up) : null
-    if (up?.live === true) {
-      await jump(page, title(up.machine))
-      const g = await waitObserved(page, (s) => s.sandboxRows.some((r) => r.name === up.name), { timeout: 15000 })
-      const r = g.state?.sandboxRows.find((x) => x.name === up.name)
-      t.check(r?.live === 'true' && /Running$/.test(r.text), `${up.name}, whose daemon runs, reads "Running" ("${r?.text}")`)
-    } else t.note('no Sandbox with a running daemon was named (INSPECT_SANDBOX): the contrast was not checked')
-    // not observed
-    const unseen = O.unseen.name ? of(O.unseen) : null
-    if (unseen && unseen.live === null) {
-      await jump(page, title(unseen.machine))
-      const g = await waitObserved(page, (s) => s.sandboxRows.some((r) => r.name === unseen.name), { timeout: 15000 })
-      const r = g.state?.sandboxRows.find((x) => x.name === unseen.name)
-      const tip = await editor(page).locator(`[data-sandbox-row=${JSON.stringify(unseen.name)}]`).getAttribute('title')
-      const why = REASON[unseen.live_reason] ?? String(unseen.live_reason ?? '').replaceAll('_', ' ')
-      t.check(r?.live === 'null' && !r.text.includes('Daemon not running'), `${unseen.name} (live null) keeps its recorded state ("${r?.text}")`)
-      const dashed = await editor(page).locator(`[data-sandbox-row=${JSON.stringify(unseen.name)}] [data-dashed]`).count()
-      const mine = listed.filter((b) => b.machine === unseen.machine)
-      const counted = g.state.card.hereNow?.startsWith(`${mine.filter((b) => b.state === 'running' && b.live === true).length} of ${mine.length} running`)
-      if (unseen.state === 'running') {
-        t.check((tip ?? '').includes(`its daemon was not observed (${why})`), `…with the reason in its tooltip (${unseen.live_reason}: "${tip}")`)
-        t.check(dashed === 1, 'its chip is dashed: recorded, not confirmed')
-        t.check(counted && /recorded as running (was|were) not observed/.test(g.state.card.hereUnknown ?? ''), `it is not counted as running, and the count says it was not observed ("${g.state.card.hereNow}")`)
-      } else {
-        // the record itself no longer says running (a machine stopped by force marks its Sandboxes): nothing is claimed
-        // that needs confirming, so the row is its recorded state, plain, and it is not counted
-        t.check(!/Running$/.test(r?.text ?? '') && dashed === 0, `recorded \`${unseen.state}\` (${unseen.live_reason}): the row shows that state, with no unconfirmed mark ("${r?.text}")`)
-        t.check(counted && !g.state.card.hereUnknown, `it is not counted as running ("${g.state.card.hereNow}")`)
-        t.note(`${unseen.name}: LayerFS lists it \`${unseen.state}\` with live null (${unseen.live_reason}); the "recorded running, not observed" look needs a Sandbox listed \`running\` with live null`)
-      }
-    } else t.note(`no Sandbox with live null was named (INSPECT_UNSEEN_SANDBOX${unseen ? `: ${unseen.name} is live ${unseen.live}` : ''}): that part was not checked`)
-    void view
   })
 
   await run.row('O5', 'the Sandbox page shows the daemon\'s pid and start time and its usage, or why there is none', async (t) => {

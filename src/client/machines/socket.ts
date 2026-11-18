@@ -3,7 +3,7 @@
  * that chooses which Docker Engine the docker machine uses. Automatic leaves
  * it to LayerFS (DOCKER_HOST, the current Docker context, else
  * /var/run/docker.sock; the first start records it) and names the socket in
- * use; otherwise one of the sockets LayerFS found (`machine.platforms`
+ * use; otherwise one of the sockets LayerFS found (`home get --with platforms`
  * `candidates`). Pure, plus a one-shot request other views use to open the
  * setting on docker's page ("Docker isn't answering" → choose another
  * socket).

@@ -130,7 +130,7 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   // Compute's "Move to…" starts a job in Storage's table, so its progress shows there
   const machines = new Machines(host, (store, machine) => storage.place(store, machine))
   // a fix the Doctor page runs goes the way the Machines and Projects pages' own buttons go
-  const checks = new DoctorChecks(host, undefined, { actions: { machineStart: (name) => machines.start(name), machineStop: (name) => machines.stop(name), projectDelete: (key) => projects.remove(key) } })
+  const checks = new DoctorChecks(host, undefined, { actions: { machineStart: (name) => machines.start(name), machineStop: (name) => machines.stop(name), projectDelete: (key) => projects.remove(key), backupCreate: (store, bucket) => storage.backupAndWait(store, bucket) } })
   const commands = new SandboxCommands(host)
   // a closed Sandbox's command logs go with it (its Workspace paths restart with a new daemon)
   projects.sandboxClosedHook = (name) => commands.closed(name)
@@ -223,13 +223,13 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'files' && method === 'GET') return machines.machineFiles(id, query, signal)
     // what the machine has and uses now, as the metrics sampler last read it (no LayerFS call); a gap answers as `stale`
     if (id && sub === 'stats' && method === 'GET') return machines.machineStats(id)
-    // where its data disk goes (machine.space): kept a minute per machine, ?fresh=1 reads now; a refusal answers as `stale`
+    // where its data disk goes (machine.stats --with space): kept a minute per machine, ?fresh=1 reads now; a refusal answers as `stale`
     if (id && sub === 'space' && method === 'GET') return machines.machineSpace(id, query)
     // what a Sandbox on it can run (the New Sandbox menu, the Images section); never starts it
     if (id && sub === 'sandbox-images' && method === 'GET') return machines.sandboxImages(id)
     // { images?: id[], unused?: boolean } -> { removed, freed, refused }: 501 while the pinned CLI has no machine.prune
     if (id && sub === 'prune-images' && method === 'POST') return machines.pruneImages(id, body ?? {})
-    // { image } -> 202 { load }: machine.load in the background (`image-load` events); 501 while the pinned CLI has no machine.load
+    // { image } -> 202 { load }: machine.load_image in the background (`image-load` events); 501 while the pinned CLI has no machine.load_image
     if (id && sub === 'load-image' && method === 'POST') return machines.loadImage(id, body ?? {})
     if (id && sub === 'start' && method === 'POST') return machines.start(id)
     // an outdated worker's fix: machine stop then machine start, refused InUse while Sandboxes are on it

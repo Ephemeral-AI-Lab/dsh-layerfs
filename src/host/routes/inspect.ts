@@ -317,7 +317,7 @@ export class InspectReads {
    * its start is cut, its `before` is gone). A refused read answers `stale`:
    * with the kept tail for a tail read, else with no lines and the cursors it
    * was asked with, so the page keeps what it already shows.
-   * @param call - the LayerFS call: `(options) => lfs.logs.machine(name, options)`.
+   * @param call - the LayerFS call: `(options) => lfs.machine.log(name, options)`.
    */
   async log(target: string, query: LogQuery, call: (options: Record<string, unknown>) => Promise<unknown>, signal?: AbortSignal): Promise<LogView> {
     const tail = !query.cursor && !query.before

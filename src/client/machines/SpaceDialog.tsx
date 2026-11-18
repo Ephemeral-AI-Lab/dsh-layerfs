@@ -6,7 +6,7 @@
  * warning starts, then the largest Stores and Sandboxes, each list leading to
  * its tab.
  *
- * Read with the machine's `machine.space` (space.ts; refreshed every minute
+ * Read with the machine's `machine stats --with space` (space.ts; refreshed every minute
  * while open, now on Refresh). A machine that is not running is not asked; a
  * refused read keeps the last answer with the refusal; a part LayerFS did not
  * read shows as not read, never as zero. What is not LayerFS's is only ever

@@ -5,7 +5,7 @@
  *   LayerFS   the folder, and the build: one row saying whether the CLI,
  *             daemon and Linux bundle come from one build (the per-piece
  *             table is behind Details)
- *   Machines  one row per platform this computer can run (machine.platforms):
+ *   Machines  one row per platform this computer can run (home get --with platforms):
  *             Ready / Available, or why not and the one thing to do, Install…
  *             (or Set up…) for a missing tool or host fact, Check for an
  *             installed tool that does not answer. No Add here: making a

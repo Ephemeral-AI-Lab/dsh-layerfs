@@ -37,7 +37,7 @@ export const CHECKS: Readonly<Record<string, readonly CheckEntry[]>> = {
   ],
   store: [
     { check: 'store.record', what: 'its record is valid: name, engine and the saved id', full_only: false },
-    { check: 'store.operation', what: 'no operation on it is half-finished or left with its outcome not known, and no lease is stale', full_only: false },
+    { check: 'store.operation', what: "no operation on it is half-finished or left with its outcome not known, in the home's record or, for a sqlite Store, beside its file on its machine; and no lease is stale", full_only: false },
     { check: 'store.connection', what: 'it is reached where it lives: a sqlite Store through its machine; a PostgreSQL Store from this computer, and once more from each machine that has a Sandbox of it, with `from` naming that machine', full_only: false },
     { check: 'store.identity', what: 'the id in its data is the id in its record', full_only: false },
     { check: 'store.schema', what: 'its schema is the one this build reads', full_only: false },

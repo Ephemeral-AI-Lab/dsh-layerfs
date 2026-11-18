@@ -1,7 +1,6 @@
 /**
- * Doctor copy (`layerfsDoctor` namespace): the targeted-diagnosis panel every
- * area shares (`POST /api/doctor-jobs`), and the Doctor page (`dp…` keys,
- * `DoctorPage.tsx`). LayerFS's own words — check ids, outcomes, messages,
+ * Doctor copy (`layerfsDoctor` namespace): the Doctor page (`dp…` keys,
+ * `DoctorPage.tsx`) and the Diagnose words other areas share. LayerFS's own words — check ids, outcomes, messages,
  * fixes and counts — are shown as they came.
  */
 export const NS = 'layerfsDoctor'

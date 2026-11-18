@@ -6,8 +6,8 @@
  * memory and disk tiles with their hour, what is on the machine and its
  * Details. Sandboxes and Stores list them all, with New Sandbox
  * and Add Store; where the disk goes is a dialog from the Overview
- * (SpaceDialog.tsx, only with machine.space), Files (InspectFiles.tsx) only with machine.files, and
- * Worker log (LogPane.tsx) only with logs.machine and a machine LayerFS says
+ * (SpaceDialog.tsx, only with machine stats --with space), Files (InspectFiles.tsx) only with machine.files, and
+ * Worker log (LogPane.tsx) only with machine.log and a machine LayerFS says
  * has a worker log (`supports.log`).
  */
 import { useEffect, useId, useState, type ReactNode } from 'react'
@@ -24,7 +24,7 @@ import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { useMachineTitle } from './Inventory.tsx'
-import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, supports, type AvailableView, type MachineInfo } from './model.ts'
+import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, heldStores, supports, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
@@ -132,7 +132,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
         <Notice tone="warning">
           <p>{t('unavailableWhy', { kind: kind(m.platform), reason: stepReasons(block, tw) })}</p>
           {engine && <p>{t('engineStartHint')}</p>}
-          {m.stores.length > 0 && <p>{t(m.stores.length === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(m.stores.length) })}</p>}
+          {heldStores(m) > 0 && <p>{t(heldStores(m) === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(heldStores(m)) })}</p>}
           <FixPanel fixes={block.fixes} className={css.blockedHelp} />
         </Notice>
       )}
@@ -140,7 +140,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
         <Notice tone={attention === 'danger' || error !== null ? 'danger' : undefined}>
           {reason && <p>{reason}</p>}
           {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
-          {m.stores.length > 0 && attention === 'danger' && <p>{t(m.stores.length === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(m.stores.length) })}</p>}
+          {heldStores(m) > 0 && attention === 'danger' && <p>{t(heldStores(m) === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(heldStores(m)) })}</p>}
           {error !== null && <Refusal error={error} labels={refusal} />}
           {logLink && (reason || state.state === 'unresolved') ? <p>{logLink}</p> : null}
         </Notice>

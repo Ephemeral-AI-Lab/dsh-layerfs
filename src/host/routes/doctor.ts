@@ -19,9 +19,8 @@
  * `fix`, a broken record's `fix`, or Start for a machine the records say is
  * stopped), parsed by `parseFix` onto the allow list; it is never a shell line.
  *
- * Results are kept per target, one for each thing a doctor was run on (not in
- * the targeted panel's list of 40 jobs, `doctor-jobs.ts`), so a Check all on a
- * large home loses none; each also reaches the page in its `doctor-run` event.
+ * Results are kept per target, one for each thing a doctor was run on, so a
+ * Check all on a large home loses none; each also reaches the page in its `doctor-run` event.
  * They live in memory: after a host restart the page reads Not checked, which
  * is what opening the page means anyway.
  */

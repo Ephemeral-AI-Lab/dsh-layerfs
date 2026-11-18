@@ -1,6 +1,6 @@
 /**
  * Image copies the host runs in the background: `POST /api/machines/:id/load-image
- * { image }` answers `202 { load }` at once and `machine.load` (copy an image
+ * { image }` answers `202 { load }` at once and `machine.load_image` (copy an image
  * from this computer's Docker to the machine without creating a Sandbox) runs
  * here, in memory. Every phase change is an `image-load { load }` event at
  * once; byte updates within the copy are coalesced to one event every 500 ms,
@@ -30,10 +30,10 @@ export interface ImageLoad {
   total?: number
   /** Phase `done`: LayerFS already had it (`reused`). */
   reused?: boolean
-  /** Phase `done`: how many stale partial copies LayerFS dropped first (`dropped`, the first 20, or `dropped_count` when cut). */
+  /** Phase `done`: how many FIFO and device paths the copy left out (`dropped`, the first 20, or `dropped_count` beside a cut list). */
   dropped?: number
   /** Phase `failed`: the refusal. */
-  error?: { code: string, message: string, detail?: unknown }
+  error?: { code: string, message: string, detail?: unknown, fix?: string }
   startedAt: number
   updatedAt: number
 }

@@ -52,16 +52,15 @@ const NATIVE = { machine: 'native', platform: 'native', observed_at: 17947767078
 
 // ---------------------------------------------------------------- host: features and the lane
 
-test('features: machine.stats, its --with space and sandbox.list live are each read from the call table', () => {
+test('features: machine.stats and its --with space are each read from the call table (2.0 has no sandbox list live)', () => {
   const { featuresOf } = R.util
   const none = featuresOf({ calls: BASE })
-  assert.equal(none.inspect.machineStats, false); assert.equal(none.sandboxLive, false); assert.equal(none.machineSpace, false)
+  assert.equal(none.inspect.machineStats, false); assert.equal(none.machineSpace, false)
   const all = featuresOf({ calls: OBSERVE })
-  assert.equal(all.inspect.machineStats, true); assert.equal(all.sandboxLive, true); assert.equal(all.machineSpace, false)
+  assert.equal(all.inspect.machineStats, true); assert.equal(all.machineSpace, false); assert.equal(all.sandboxLive, undefined)
   // `--with space` is a value of machine.stats' 2.0 `form.with`
   assert.equal(featuresOf({ calls: [{ ...entry('machine', 'stats'), form: { with: { space: {} } } }] }).machineSpace, true)
   // an option of another call, or the call without the option, is not the feature
-  assert.equal(featuresOf({ calls: [entry('sandbox', 'get', ['live'])] }).sandboxLive, false)
   assert.equal(featuresOf(null).inspect.machineStats, false)
   assert.ok(!R.cli.REQUIRED_CALLS.includes('machine.stats'), 'machine.stats is optional')
 })

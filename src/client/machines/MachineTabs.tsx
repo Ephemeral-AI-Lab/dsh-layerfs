@@ -26,7 +26,7 @@ import { DiskNotice, useMachineSpace } from './SpaceViews.tsx'
 /**
  * The Overview's notices past the machine's own: the disk getting full
  * (machine.stats), gone Sandboxes still on disk with what they hold
- * (machine.space, when offered), and Sandboxes that need you, each linking to
+ * (machine stats --with space, when offered), and Sandboxes that need you, each linking to
  * the tab that shows them; the disk notice opens where the disk goes
  * (`onDisk`). Nothing when nothing needs you.
  */

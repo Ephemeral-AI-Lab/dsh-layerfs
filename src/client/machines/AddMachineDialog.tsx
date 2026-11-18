@@ -1,6 +1,6 @@
 /**
  * Add a machine: one row per platform LayerFS knows on this computer
- * (machine.platforms, ssh and Firecracker left out by the host), each at its
+ * (home get --with platforms, ssh and Firecracker left out by the host), each at its
  * step of the readiness ladder (needs.ts). Ready: a built-in (native, docker)
  * shows "Built in" with its machine's state, a VM shows Create and opens its
  * form in its row. Not ready: the step's tag and one button (Install, Set up,

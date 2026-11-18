@@ -311,7 +311,7 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   assert.doesNotMatch(util, /image_archive/)
   assert.match(util, /machineLog: !!call\('machine', 'log'\), sandboxLog: !!call\('sandbox', 'log'\)/)
   assert.match(util, /files: !!call\('sandbox', 'files'\), machineFiles: !!call\('machine', 'files'\), machineStats: !!call\('machine', 'stats'\)/)
-  assert.match(util, /sandboxLive: option\('sandbox', 'list', 'live'\)/)
+  assert.doesNotMatch(util, /sandboxLive/, '2.0 sandbox list has no `live` option')
   assert.match(util, /machineSpace: withValues\(call\('machine', 'stats'\)\)\.includes\('space'\)/)
   // doctor.fix is never called from this host: the page shows the command, the person runs it
   for (const f of files) assert.doesNotMatch(stripComments(f.text), /\.doctor\??\.fix\s*\(|\[\s*'doctor'\s*,\s*'fix'/, `${f.file} calls doctor.fix`)

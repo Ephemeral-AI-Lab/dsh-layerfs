@@ -1,5 +1,5 @@
 /**
- * Where a machine's data disk goes (`machine.space`): how full it is, how
+ * Where a machine's data disk goes (`machine stats --with space`): how full it is, how
  * much of it is LayerFS's own data by part, and how much is not LayerFS's.
  * Pure: no React, no host calls. The answer comes from the host's
  * `GET /api/machines/:id/space` (one bounded walk where the machine's data
@@ -28,7 +28,7 @@ export interface SandboxSpace {
   reason?: string
 }
 
-/** What `machine.space` answered (host `MachineSpace`). */
+/** What `machine stats --with space` answered (host `MachineSpace`). */
 export interface MachineSpace {
   platform: string | null
   observedAt: number | null

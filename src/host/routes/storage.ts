@@ -49,7 +49,7 @@ import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, rmdirSync } from 
 import { join } from 'node:path'
 import { COMPACT_STEPS, JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
 import { computer } from './computer.ts'
-import { fixOf, refuse, wire, type RouteHost } from './util.ts'
+import { fixOf, pages, refuse, wire, type RouteHost } from './util.ts'
 import { StoreSizes } from './store-sizes.ts'
 import { pgMachineOf, StoreMachines, type PgMachine } from '../store-machines.ts'
 import { companionsOf, machineRows, msAt, opOf, runsPostgresql } from '../layerfs/machine-records.ts'
@@ -261,6 +261,11 @@ export class Storage {
     const jobs = this.jobList()
     const fleet: PgMachine[] = machines
     const stores = items.map((s) => storeRow(s, jobs, s.engine === 'postgresql' ? pgMachineOf(this.storeMachines.get(String(s.store)), fleet) : null))
+    // a Store with more than 20 projects: `projects` is cut at 20 beside `projects_count`, so its names come page by page
+    await Promise.all(stores.filter((s) => s.projectsCount > s.projects.length).map(async (s) => {
+      const all = await pages((p) => this.lfs.project.list({ store: s.name, ...p })).catch((error: any) => (this.log(`[storage] project list --store ${s.name}: ${error?.message ?? error}`), null))
+      if (all) s.projects = all.map((r: any) => String(r?.project ?? '')).filter(Boolean).map((key) => key.slice(key.indexOf('/') + 1))
+    }))
     // a Store whose machine does not answer keeps its last read size, marked stale
     const sqlite = stores.filter((s) => s.kind === 'sqlite')
     const sizes = this.sizes.answer(sqlite.map((s) => ({ name: s.name, size: s.size ? { bytes: s.size.bytes } : null })))
@@ -406,7 +411,8 @@ export class Storage {
     const skipped = (Array.isArray(report?.not_checked) ? report.not_checked : []).find((n: any) => (n?.check === 'store.connection' || !n?.check) && (n?.from === machine || !n?.from))
     const at = msAt(report?.observed_at) ?? Date.now()
     if (finding) return { machine, host: null, ok: false as const, error: { code: finding.severity === 'error' ? 'Unavailable' : 'Failed', message: String(finding.message ?? 'the check failed') } }
-    if (skipped) return { machine, host: null, ok: false as const, error: { code: String(skipped.reason ?? skipped.blocked_by?.reason ?? 'Unknown'), message: String(skipped.message ?? `machine ${machine} was not checked`) } }
+    // a not_checked entry is `{ check, blocked_by, reason }`: no message of its own
+    if (skipped) return { machine, host: null, ok: false as const, error: { code: String(skipped.reason ?? skipped.blocked_by?.reason ?? 'Unknown'), message: `machine ${machine} was not checked` } }
     return { machine, host: null, ok: true as const, at, version: null, latencyMs: null }
   }
 
@@ -553,8 +559,9 @@ export class Storage {
     }
     this.jobStore.save()
     let running: Promise<unknown>
-    try { running = run(on_progress, step, (pid) => { job.pid = pid; emit() }) } catch (error) { running = Promise.reject(error) }
-    Promise.resolve(running)
+    try { running = Promise.resolve(run(on_progress, step, (pid) => { job.pid = pid; emit() })) } catch (error) { running = Promise.reject(error) }
+    this.running.set(job.id, running)
+    running
       .then(
         (result) => { job.result = result ?? null; job.outcome = 'succeeded' },
         (error: any) => {
@@ -567,6 +574,7 @@ export class Storage {
         },
       )
       .finally(() => {
+        this.running.delete(job.id)
         job.ended = Date.now()
         job.summary = transferSummary(job)
         emit()
@@ -633,6 +641,18 @@ export class Storage {
     if (machine === 'native') return this.pull(store)
     if (record.machine === 'native') return this.push(store, machine)
     return this.move(store, machine)
+  }
+
+  /** A started job's LayerFS work while it runs (its result, or its refusal as it came). */
+  private readonly running = new Map<string, Promise<unknown>>()
+
+  /**
+   * The Doctor page's backup fix: the same Storage job as the Backups page's
+   * (its job row, `storage-job` events, one job per Store), awaited to its end.
+   */
+  async backupAndWait(store: string, bucket: string): Promise<unknown> {
+    const job = this.backup(store, { bucket })
+    return await (this.running.get(job.id) ?? Promise.resolve(null))
   }
 
   /** backup.create(store, bucket, { file? }): a sqlite Store's snapshot to a bucket. */

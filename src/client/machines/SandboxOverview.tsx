@@ -11,7 +11,7 @@
  *   cgroup of its own (a host process) says so once, and shows its whole
  *   machine in muted figures instead of four dashes. Without machine.stats
  *   the caller's `fallback` (sandbox.get's usage line) stands in.
- * - On disk (machine.space): the run folder split into Workspace changes,
+ * - On disk (machine stats --with space): the run folder split into Workspace changes,
  *   own files, and runtime and log.
  * - Daemon (sandbox.get): reachable or not, its control slots as squares,
  *   pid and start, and the retained failures behind "View".

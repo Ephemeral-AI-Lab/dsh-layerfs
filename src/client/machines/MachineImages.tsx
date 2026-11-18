@@ -37,7 +37,7 @@ function Refused({ refused, names }: { refused: PruneAnswer['refused'], names: M
 /**
  * The machine page's Images tab, read while it is open: a disk bar (each
  * stored image, everything else, free), the images stored on the machine as
- * cards, and the Docker images not on it yet, each with Copy (machine.load in
+ * cards, and the Docker images not on it yet, each with Copy (machine.load_image in
  * the background).
  */
 export function ImagesTab({ m, taken = [], canCreate = false }: { m: MachineInfo, /** The machine's Sandbox names (New Sandbox suggests a free one). */ taken?: string[], canCreate?: boolean }): ReactNode {

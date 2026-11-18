@@ -1,11 +1,11 @@
 /**
- * Where a machine's data disk goes, on the Machines pages (`machine.space`;
+ * Where a machine's data disk goes, on the Machines pages (`machine stats --with space`;
  * space.ts): a warning when the disk is getting full (from `machine.stats`,
  * which the page already polls), a bar that splits the used space into
  * LayerFS's data and what is not LayerFS's, and each Sandbox's run folder on
  * disk. The breakdown by part is the "Where it goes" dialog (SpaceDialog.tsx).
  *
- * Shown only when the pinned CLI has machine.space (the warning only needs
+ * Shown only when the pinned CLI has machine.stats --with space (the warning only needs
  * machine.stats). A machine that is not running is not asked. A refused read
  * keeps the last answer on screen with the refusal; a part LayerFS did not
  * read shows as not read, never as zero. What is not LayerFS's is only ever
@@ -33,14 +33,14 @@ const enc = encodeURIComponent
 /** A size in the disk views (space.ts `spaceSize`); also what the Center cards import. */
 export const size = spaceSize
 
-/** The pinned CLI has machine.space. */
+/** The pinned CLI has machine.stats --with space. */
 export function useSpaceOffered(): boolean {
   const { useMachines } = useMachinesContext()
   return useMachines((s) => (s.data?.available ? s.data.features?.machineSpace === true : false))
 }
 
 /**
- * One machine's `machine.space` while this component is mounted: read at
+ * One machine's `machine stats --with space` while this component is mounted: read at
  * once, again every minute while the page is visible, and now on `refresh`.
  * @returns `offered`: the CLI has the call; `askable`: the machine runs; `read`: the host's answer so far; `refresh`: read now, past the host's minute.
  */
@@ -112,7 +112,7 @@ function legend(space: MachineSpace, t: ReturnType<typeof useMachinesContext>['t
 
 /**
  * A machine card's space line: the bar and its legend, and the warning chip
- * when the disk is getting full. Without machine.space only the chip (from
+ * when the disk is getting full. Without machine.stats --with space only the chip (from
  * machine.stats) shows; without either, nothing.
  */
 export function CardSpace({ m }: { m: MachineInfo }): ReactNode {
@@ -136,7 +136,7 @@ export function CardSpace({ m }: { m: MachineInfo }): ReactNode {
 /**
  * A machine row's disk: the space bar and "4.6 GiB LayerFS · 292 GiB free",
  * in the warning or danger tone when the disk is getting full, the full
- * split and the warning on hover. `fallback` when machine.space has no
+ * split and the warning on hover. `fallback` when machine.stats --with space has no
  * answer for this machine (not offered, not running, not read yet).
  */
 export function SpaceCell({ m, fallback }: { m: MachineInfo, fallback: ReactNode }): ReactNode {
@@ -181,8 +181,8 @@ export function DiskNotice({ m, action }: { m: MachineInfo, action?: ReactNode }
 }
 
 /**
- * A Sandbox page's disk line from its machine's `machine.space` row: its run
- * folder in all, and by part. Nothing without machine.space or before the
+ * A Sandbox page's disk line from its machine's `machine stats --with space` row: its run
+ * folder in all, and by part. Nothing without machine.stats --with space or before the
  * machine's space was read; why, when its row was not measured.
  */
 export function SandboxDisk({ name, machine }: { name: string, machine: string }): ReactNode {

@@ -25,8 +25,8 @@ await main('e2e-inspect-observe-absent', async ({ run, page }) => {
     const view = await probe(page, 'GET', '/api/machines?fresh=1')
     if (!view.ok) throw new Error(`GET /api/machines: ${view.status} ${view.code}`)
     const f = view.body.features ?? {}
-    if (f.inspect?.machineStats || f.sandboxLive || f.leftovers) throw new NotRun(`this server's CLI has some of the calls (${JSON.stringify({ machineStats: f.inspect?.machineStats, sandboxLive: f.sandboxLive, leftovers: f.leftovers })}): run the row on a server pinned to a CLI without them`)
-    t.check(f.inspect?.machineStats === false && f.sandboxLive === false && f.leftovers === false, `the machines view says the CLI has none of them (${JSON.stringify({ machineStats: f.inspect?.machineStats, sandboxLive: f.sandboxLive, leftovers: f.leftovers })})`)
+    if (f.inspect?.machineStats || f.leftovers) throw new NotRun(`this server's CLI has some of the calls (${JSON.stringify({ machineStats: f.inspect?.machineStats, leftovers: f.leftovers })}): run the row on a server pinned to a CLI without them`)
+    t.check(f.inspect?.machineStats === false && f.leftovers === false, `the machines view says the CLI has none of them (${JSON.stringify({ machineStats: f.inspect?.machineStats, leftovers: f.leftovers })})`)
     t.check((view.body.sandboxes ?? []).every((b) => !('live' in b) && !('liveReason' in b)), `no Sandbox of the view carries \`live\` (${(view.body.sandboxes ?? []).length} Sandboxes)`)
     const before = callLines().length
 

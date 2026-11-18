@@ -66,8 +66,11 @@ export function machineOf(m: any) {
     cpus: num(m.cpus),
     memory: num(m.memory_bytes),
     disk: num(m.disk_bytes),
+    // the first 20 names; `stores_count` / `sandboxes_count` sit beside a cut list
     stores: list(m.stores).map(String),
     sandboxes: list(m.sandboxes).map(String),
+    storesCount: num(m.stores_count) ?? list(m.stores).length,
+    sandboxesCount: num(m.sandboxes_count) ?? list(m.sandboxes).length,
     ...(text(m.image) ? { image: m.image } : {}),
     ...(text(m.os_image) ? { osImage: m.os_image } : {}),
     ...(text(m.docker) ? { docker: m.docker } : {}),

@@ -12,7 +12,7 @@ export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'images' | 'files
 /**
  * The tabs a machine page has, in order: Images needs a machine that keeps
  * Sandbox image copies (Stage 1, not macOS native), Files machine.files,
- * Worker log logs.machine and a worker log. The hour of processor and memory
+ * Worker log machine.log and a worker log. The hour of processor and memory
  * is on the Overview, where the disk goes a dialog from it (no Usage or Disk
  * tab).
  */

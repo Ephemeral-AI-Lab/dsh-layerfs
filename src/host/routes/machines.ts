@@ -19,9 +19,8 @@
  * The platforms come from `home get --with platforms`. One answer serves
  * every tab for {@link VIEW_KEEP_MS}. Whether a
  * listed Sandbox's daemon runs (`live`, layerfs-project#164) comes from the
- * metrics sampler's newest point (metrics.ts, #182 D2), not from
- * `sandbox.list --live`: the sampler reads each machine once per 15 s,
- * whoever looks.
+ * metrics sampler's newest point (metrics.ts, #182 D2): the sampler reads
+ * each machine once per 15 s, whoever looks.
  */
 import { join } from 'node:path'
 import { computer } from './computer.ts'
@@ -507,9 +506,9 @@ export class Machines {
     return { machine: name, readAt: now, at, stats, stale: false }
   }
 
-  /** Each machine's last good `machine.space` answer and when it was read (this host's clock). */
+  /** Each machine's last good `machine stats --with space` answer and when it was read (this host's clock). */
   private readonly spaceKept = new Map<string, { at: number, space: MachineSpace }>()
-  /** Each machine's last `machine.space` attempt, good or refused: one read per {@link SPACE_KEEP_MS} unless asked `fresh`. */
+  /** Each machine's last `machine stats --with space` attempt, good or refused: one read per {@link SPACE_KEEP_MS} unless asked `fresh`. */
   private readonly spaceTried = new Map<string, { at: number, stale: false | { at: number | null, code: string, message: string } }>()
 
   /**
@@ -643,11 +642,11 @@ export class Machines {
     } catch { return null }
   }
 
-  /** Sandboxes on `machine` per recorded image id (sandbox.list; 0 each when it cannot be read). */
+  /** Sandboxes on `machine` per recorded image id (`sandbox list --machine --detail`: `machine` and `image` are long-only; 0 each when it cannot be read). */
   private async sandboxCounts(machine: string): Promise<Map<string, number>> {
     const counts = new Map<string, number>()
     try {
-      for (const b of (await pages((p) => this.lfs.sandbox.list(p))).map(sandboxOf)) {
+      for (const b of (await pages((p) => this.lfs.sandbox.list({ machine, ...p, detail: true }))).map(sandboxOf)) {
         if (b.machine === machine && b.image) counts.set(b.image, (counts.get(b.image) ?? 0) + 1)
       }
     } catch {}

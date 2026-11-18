@@ -1,7 +1,7 @@
 {
  "_": "The long-form examples (`examples.long`, and home.get `with.tree.example`) of the calls the Doctor page uses, and the `doctor` section with its closed check lists (`doctor.checks`), copied from the frozen LayerFS 2.0 call surface (calls.json, with the exit review's fixes). Fixtures are built from these so they cannot drift from the spec; test/doctor-model.test.mjs compares this file with calls.json when LAYERFS_CALLS_JSON names it.",
- "version": 18,
- "frozen": "2026-11-18",
+ "version": 19,
+ "frozen": "2026-11-19",
  "base": "caff58a43b",
  "doctor": {
   "calls": [
@@ -115,7 +115,7 @@
     },
     {
      "check": "store.operation",
-     "what": "no operation on it is half-finished or left with its outcome not known, and no lease is stale",
+     "what": "no operation on it is half-finished or left with its outcome not known, in the home's record or, for a sqlite Store, beside its file on its machine; and no lease is stale",
      "full_only": false
     },
     {
@@ -443,7 +443,8 @@
    "failed",
    "unresolved",
    "lost",
-   "unsupported"
+   "unsupported",
+   "partial"
   ],
   "counts": [
    "ok",

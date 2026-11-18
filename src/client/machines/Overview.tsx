@@ -6,7 +6,7 @@
  * - Usage, from the sampler's last read (machine.stats): processor, memory
  *   and data disk as they are now, each a figure over one bar, no history.
  *   The data disk's bar is split into LayerFS, not LayerFS and free
- *   (machine.space, when offered). A processor LayerFS cannot read on this
+ *   (machine stats --with space, when offered). A processor LayerFS cannot read on this
  *   system (`cpu_unsupported`, macOS) has no column. Its head says "Healthy" while nothing needs you; otherwise the
  *   notices that say what does stand above it, each linking to the tab that
  *   fixes it. A value LayerFS did not read says "Not read" and why;

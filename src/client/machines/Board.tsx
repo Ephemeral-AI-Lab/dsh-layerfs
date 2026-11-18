@@ -107,7 +107,7 @@ export const glyphOs = (m: MachineInfo, view: AvailableView) => (m.platform === 
  * A machine's disk in words, with a meter. With a CLI that has machine.stats
  * it is the observed data disk (used, total, free and what that filesystem
  * is; MachineStats.tsx), read every `every` ms while this line is on screen.
- * Without it, the line is what it was: free space from machine.status against
+ * Without it, the line is what it was: free space from machine get --with live against
  * the record's requested size.
  */
 export function DiskLine({ m, view }: { m: MachineInfo, view: AvailableView }): ReactNode {
@@ -139,7 +139,7 @@ function RecordDisk({ m, view }: { m: MachineInfo, view: AvailableView }): React
 
 
 /**
- * A machine's disk in its row: with machine.space, LayerFS's data, what is
+ * A machine's disk in its row: with machine stats --with space, LayerFS's data, what is
  * not LayerFS's and free space as one bar (SpaceViews.tsx SpaceCell); else the
  * observed data disk from machine.stats; else what the record says.
  */
