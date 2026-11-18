@@ -18,6 +18,16 @@ export function compactBlock(s: StoreRow, t: StorageT): string | null {
   return null
 }
 
+/**
+ * A PostgreSQL Store's size as LayerFS measures it (`store.stats`): stored pack
+ * bodies plus metadata, or null when neither was reported. Unlike the projects'
+ * Commit counters it includes what Init saved.
+ */
+export function pgStoreBytes(st: { stored?: number | null, metadata?: number | null } | null | undefined): number | null {
+  const stored = st?.stored ?? null, metadata = st?.metadata ?? null
+  return stored === null && metadata === null ? null : (stored ?? 0) + (metadata ?? 0)
+}
+
 /** project.init goes into a Store on any machine, not while it is down or busy. */
 export const canAddProject = (s: StoreRow): boolean => s.kind === 'postgresql' || (s.state !== 'down' && s.state !== 'busy')
 

@@ -46,6 +46,14 @@ test('a compaction ends in the words of its report', () => {
   assert.match(M.endedWords(job({ ended: 9, phase: 'build', error: { code: 'Capacity', message: 'no space', phase: 'build' } }), t), /^jobFailed .*"phase":"build"/)
 })
 
+test('a PostgreSQL Store measures stored pack bodies plus metadata', () => {
+  assert.equal(M.pgStoreBytes({ stored: 22356665, metadata: 3243233 }), 25599898)
+  assert.equal(M.pgStoreBytes({ stored: 4096, metadata: null }), 4096)
+  // nothing reported: unknown, not 0 B
+  assert.equal(M.pgStoreBytes({ stored: null, metadata: null }), null)
+  assert.equal(M.pgStoreBytes(undefined), null)
+})
+
 test('compaction starts on an idle Store, a machine Store only while its machine runs', () => {
   assert.equal(M.compactBlock(store(), t), null)
   assert.equal(M.compactBlock(store({ kind: 'postgresql', machine: null }), t), null)

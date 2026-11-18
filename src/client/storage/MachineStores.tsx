@@ -42,12 +42,12 @@ import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { machineStores, projectSplit, serverGroups, startKind, storeOffServer, type PgServerGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { cardJob, runsOnOf } from './model.ts'
+import { cardJob, pgStoreBytes, runsOnOf } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
-import type { StoreProjectsView } from './store-page.ts'
+import type { StoreProjectsView, StoreStats } from './store-page.ts'
 import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './MachineStores.module.css'
@@ -482,14 +482,19 @@ function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
 
 function PgCard({ s, group, api, machine, t, view, jobs, dismissed, now, actionsFor, onOpenStore, onOpenProject }: CardProps & { s: StoreRow, group: PgServerGroup }): ReactNode {
   const on = actionsFor(s)
-  const split = useSplit(api, s, null)
   // A compaction on this database shows its steps and result here, as on a sqlite card.
   const job = cardJob(jobs, s.name, dismissed, now)
   const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
     : s.op ? <OpPanel store={s} t={t} /> : null
+  // The database's size as LayerFS measures it (store.stats), read again when its projects change or a job ends.
+  const stats = useQuery(() => api.call<StoreStats>('GET', `/api/stores/${enc(s.name)}/stats`), [api, s.name],
+    { refresh: [s.projects.length, job?.ended], cache: `store-stats:${s.name}` })
+  const size = pgStoreBytes(stats.data)
+  const split = useSplit(api, s, size)
   const pg = s.postgresql
+  // Until the size is read: the projects' Commit counters, which leave out what Init saved.
   const counted = split?.rows.filter((r) => r.bytes !== null) ?? []
-  const total = counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null
+  const total = size ?? (counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null)
   // said only when it is not what the server's header says: this database fails while its server answers
   const off = storeOffServer(s, group)
   const more = s.projects.length > ROWS
