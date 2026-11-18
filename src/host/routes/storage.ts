@@ -836,9 +836,10 @@ export class Storage {
 
   /**
    * store.compact(store): rebuild a Store from its live history, where it is
-   * (a sqlite file in the home, or its PostgreSQL server). LayerFS refuses a
-   * sqlite Store on another machine, a Store with mounts, and a busy one; the
-   * job carries that refusal. One attempt: nothing here runs it again.
+   * (a sqlite file in the home or on a machine, through that machine's worker,
+   * or its PostgreSQL server). LayerFS refuses a Store with mounts, a busy one
+   * and one whose machine is not running (`Unavailable`); the job carries that
+   * refusal. One attempt: nothing here runs it again.
    */
   async compact(store: unknown) {
     checkName(store, 'A compaction')

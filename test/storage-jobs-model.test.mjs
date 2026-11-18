@@ -46,10 +46,12 @@ test('a compaction ends in the words of its report', () => {
   assert.match(M.endedWords(job({ ended: 9, phase: 'build', error: { code: 'Capacity', message: 'no space', phase: 'build' } }), t), /^jobFailed .*"phase":"build"/)
 })
 
-test('compaction starts only where LayerFS runs it', () => {
+test('compaction starts on an idle Store, a machine Store only while its machine runs', () => {
   assert.equal(M.compactBlock(store(), t), null)
   assert.equal(M.compactBlock(store({ kind: 'postgresql', machine: null }), t), null)
-  assert.equal(M.compactBlock(store({ machine: 'lima1' }), t), 'compactNeedsHome')
+  // LayerFS compacts a Store on a machine in that machine's worker (GC decision D5)
+  assert.equal(M.compactBlock(store({ machine: 'lima1' }), t), null)
+  assert.equal(M.compactBlock(store({ machine: 'lima1', state: 'down' }), t), 'compactNeedsMachine {"machine":"lima1"}')
   assert.equal(M.compactBlock(store({ state: 'busy' }), t), 'compactNeedsIdle')
   assert.equal(M.compactBlock(store({ kind: 'postgresql', machine: null, state: 'unresolved' }), t), 'compactNeedsIdle')
 })

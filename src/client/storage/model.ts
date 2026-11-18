@@ -8,11 +8,12 @@ export const inHome = (s: StoreRow): boolean => s.kind === 'sqlite' && s.machine
 
 /**
  * Why store.compact cannot start on a Store now, or null. LayerFS compacts a
- * sqlite Store only where its file is, and the home is the one place this app
- * runs it; a PostgreSQL Store is compacted on its server.
+ * sqlite Store where its file is: the home's in this process, one on a machine
+ * in that machine's worker (LayerFS 7d2ac982c3, GC decision D5), so the
+ * machine must be running. A PostgreSQL Store is compacted on its server.
  */
 export function compactBlock(s: StoreRow, t: StorageT): string | null {
-  if (s.kind === 'sqlite' && !inHome(s)) return t('compactNeedsHome')
+  if (s.kind === 'sqlite' && !inHome(s) && s.state === 'down') return t('compactNeedsMachine', { machine: s.machine ?? '?' })
   if (s.state !== 'idle') return t('compactNeedsIdle')
   return null
 }
