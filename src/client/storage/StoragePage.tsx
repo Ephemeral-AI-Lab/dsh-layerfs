@@ -28,7 +28,9 @@ import { PresetsDialog, type PresetsT } from '../presets/index.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
 import type { SetupModalT } from '../setup/locale.ts'
-import { Loading, Page, Refusal } from '../ui/index.tsx'
+import { FixContext, Loading, Page, Refusal, type FixRunner } from '../ui/index.tsx'
+import type { RunnableFix } from '../../shared/doctor.ts'
+import { fixCall } from './fix-call.ts'
 import { BackupFilePage, BucketPage, providerWords } from './BucketPage.tsx'
 import { StorageDialogs, type StorageDialog } from './dialogs.tsx'
 import { HomeOverview } from './HomeOverview.tsx'
@@ -77,9 +79,38 @@ export function StoragePage(props: StorageMainProps): ReactNode {
   }), [props])
   return (
     <MachinesProvider props={machines}>
-      <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} map={map} more={more} />
+      <CenterFixes api={api} t={t}>
+        <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} map={map} more={more} />
+      </CenterFixes>
     </MachinesProvider>
   )
+}
+
+/** Every refusal under Center offers its fix line as its one action ({@link FixContext}). */
+function CenterFixes({ api, t, children }: { api: LayerfsApi, t: StorageT, children: ReactNode }): ReactNode {
+  const { recheck } = useMachinesContext()
+  const runner = useMemo<FixRunner>(() => {
+    const name = (fix: RunnableFix) => ('machine' in fix ? fix.machine : 'store' in fix ? fix.store : 'project' in fix ? fix.project : '')
+    return {
+      run: async (fix) => { try { return await fixCall(api, fix) } finally { if ('machine' in fix) void recheck() } },
+      label: (fix) => {
+        switch (fix.kind) {
+          case 'start': return t('fixRunStart', { name: fix.machine })
+          case 'stop': return t('fixRunStop', { name: fix.machine })
+          case 'restart': return t('fixRunRestart', { name: fix.machine })
+          case 'prune': return t('fixRunPrune')
+          case 'compact': return t('fixRunCompact', { name: fix.store })
+          case 'delete': return t('fixRunDelete', { name: fix.project })
+          case 'backup': return t('fixRunBackup', { bucket: fix.bucket })
+          case 'homeInit': return t('fixRunHomeInit')
+        }
+      },
+      confirm: (fix) => t(fix.kind === 'delete' ? 'fixConfirmDelete' : 'fixConfirmPrune', { name: name(fix) }),
+      tip: (line) => t('fixTip', { line }),
+      done: t('fixDone'),
+    }
+  }, [api, t, recheck])
+  return <FixContext.Provider value={runner}>{children}</FixContext.Provider>
 }
 
 function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {

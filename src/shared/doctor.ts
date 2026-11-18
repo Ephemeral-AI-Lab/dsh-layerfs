@@ -179,6 +179,43 @@ export function parseFix(line: string | null | undefined): Fix | null {
 }
 
 /**
+ * A refusal's `fix` line the plugin can run behind one button (UI rule: the fix
+ * line becomes the one action), or null when it stays a tip to copy. Exactly
+ * these lines, nothing in part:
+ *   start / stop / restart  `layerfs machine start M`, `… stop M`, `… stop M && … start M`
+ *   prune     `layerfs machine prune M --unused`
+ *   compact   `layerfs store compact S`
+ *   delete    `layerfs project delete S/P`
+ *   backup    `layerfs backup create S B`
+ *   homeInit  `layerfs home init`
+ * Any other option (`--force`, `--mount …`) or command keeps it a tip.
+ */
+export type RunnableFix =
+  | { kind: 'start' | 'stop' | 'restart' | 'prune', machine: string }
+  | { kind: 'compact', store: string }
+  | { kind: 'delete', project: string }
+  | { kind: 'backup', store: string, bucket: string }
+  | { kind: 'homeInit' }
+export function runnableFix(line: string | null | undefined): RunnableFix | null {
+  if (typeof line !== 'string' || !line.trim() || line.length > 512) return null
+  const fix = parseFix(line)
+  if (fix) {
+    const [a] = fix.steps as [FixStep]
+    if (fix.kind === 'delete') return { kind: 'delete', project: a.args[0]! }
+    if (fix.kind === 'backup') return { kind: 'backup', store: a.args[0]!, bucket: a.args[1]! }
+    return { kind: fix.kind, machine: a.args[0]! }
+  }
+  const words = line.trim().split(/\s+/)
+  const plain = (n: number) => words.length === n && words.slice(3).every((w) => WORD.test(w) && !w.startsWith('-'))
+  if (words.join(' ') === 'layerfs home init') return { kind: 'homeInit' }
+  if (words[0] !== 'layerfs') return null
+  if (words[1] === 'machine' && words[2] === 'stop' && plain(4)) return { kind: 'stop', machine: words[3]! }
+  if (words[1] === 'store' && words[2] === 'compact' && plain(4)) return { kind: 'compact', store: words[3]! }
+  if (words[1] === 'machine' && words[2] === 'prune' && words.length === 5 && words[4] === '--unused' && WORD.test(words[3]!)) return { kind: 'prune', machine: words[3]! }
+  return null
+}
+
+/**
  * The machine a fix line would stop by force and start again (`layerfs machine
  * stop M --force && layerfs machine start M`: an outdated worker with Sandboxes
  * on it), or null. The page shows its button off and the line to copy; nothing runs it.

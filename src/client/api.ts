@@ -6,7 +6,7 @@
  * their slot `inject`; nothing here is a module-level singleton.
  */
 
-/** A refused call: LayerFS's code, its message and detail, and the HTTP-like status. */
+/** A refused call: LayerFS's code, its message, detail and `fix` line, and the HTTP-like status. */
 export class HostError extends Error {
   constructor(
     readonly code: string,
@@ -15,6 +15,8 @@ export class HostError extends Error {
     readonly detail: any = null,
     readonly conversion = false,
     readonly transport?: string,
+    /** LayerFS's one runnable line that clears the refusal, when it gave one. */
+    readonly fix?: string,
   ) {
     super(message)
     this.name = 'HostError'
@@ -118,7 +120,7 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
 
   const fail = (r: Extract<RemoteResult, { ok: false }>): never => {
     const d = r.error.details ?? {}
-    throw new HostError(d.code ?? r.error.code, r.error.message, 500, d.detail ?? null)
+    throw new HostError(d.code ?? r.error.code, r.error.message, 500, d.detail ?? null, false, undefined, typeof d.fix === 'string' && d.fix ? d.fix : undefined)
   }
 
   const namespace = async (): Promise<any> => {
@@ -189,7 +191,7 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     }
     const value = reply?.body ?? {}
     if (!reply || reply.status < 200 || reply.status >= 300) {
-      throw new HostError(value.code ?? 'failed', value.message ?? `${method} ${path}: ${reply?.status}`, reply?.status ?? 0, value.detail ?? null, value.conversion === true, value.transport)
+      throw new HostError(value.code ?? 'failed', value.message ?? `${method} ${path}: ${reply?.status}`, reply?.status ?? 0, value.detail ?? null, value.conversion === true, value.transport, typeof value.fix === 'string' && value.fix ? value.fix : undefined)
     }
     return value as T
   }

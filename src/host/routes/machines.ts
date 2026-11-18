@@ -29,7 +29,7 @@ import { readArchive, type ImageProblem } from '../images/archive.ts'
 import { InspectReads, filesQuery, logQuery, refusalOf, type FilesView, type LogView } from './inspect.ts'
 import { MetricsSampler, STOPPED } from './metrics.ts'
 import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type MachineStatsView } from './observed.ts'
-import { Answer, cliFeatures, featuresOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
+import { Answer, cliFeatures, featuresOf, fixOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
@@ -221,7 +221,7 @@ export function machineLive(name: string, got: any, error?: any) {
     freeDisk: num(live?.disk_free_bytes),
     toolVersion: text(live?.tool_version),
     worker: live?.worker && typeof live.worker === 'object' ? { protocol: live.worker.protocol == null ? null : String(live.worker.protocol), bundle: text(live.worker.bundle) } : null,
-    ...(error ? { error: { code: typeof error?.code === 'string' ? error.code : 'Unknown', message: String(error?.message ?? error) } } : {}),
+    ...(error ? { error: { code: typeof error?.code === 'string' ? error.code : 'Unknown', message: String(error?.message ?? error), ...fixOf(error) } } : {}),
   }
 }
 
@@ -361,7 +361,7 @@ export class Machines {
     const lfs = this.lfs
     const rows = list((await lfs.machine.list({ detail: true })).items)
     const readErrors: Record<string, unknown> = {}
-    const failed = (name: string) => (e: any) => { readErrors[name] = { error: { code: e?.code ?? 'Unknown', message: e?.message ?? String(e) }, at: Date.now() }; return [] as any[] }
+    const failed = (name: string) => (e: any) => { readErrors[name] = { error: { code: e?.code ?? 'Unknown', message: e?.message ?? String(e), ...fixOf(e) }, at: Date.now() }; return [] as any[] }
     let host: string | null = null
     const { version, features } = await this.identity()
     // whether each daemon runs is the metrics sampler's (withLive), one machine.stats per machine per 15 s
@@ -709,7 +709,7 @@ export class Machines {
     for (const id of ids) {
       try { take(await this.lfs.machine.prune(name, id, { detail: true })) } catch (error: any) {
         if (!PRUNE_PER_IMAGE.has(error?.code)) throw error
-        answer.refused.push({ id, code: error.code, message: error?.message ?? String(error) })
+        answer.refused.push({ id, code: error.code, message: error?.message ?? String(error), ...fixOf(error) })
       }
     }
     return answer

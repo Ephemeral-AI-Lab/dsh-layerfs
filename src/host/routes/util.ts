@@ -3,10 +3,10 @@
  * group receives (`RouteHost`), refusals, project keys and the per-Sandbox
  * observation reader (Connect `host/config.js` and `host/layerfs.js`).
  */
-import { PAGE, pages, withValues, type Discovery, type Lfs } from '../layerfs/cli.ts'
+import { PAGE, fixOf, pages, withValues, type Discovery, type Lfs } from '../layerfs/cli.ts'
 import type { CallLabel } from '../../shared/logs.ts'
 
-export { PAGE, pages }
+export { PAGE, fixOf, pages }
 
 /** What the route groups need from `ctx.layerfs` (tests pass a stand-in). */
 export interface RouteHost {

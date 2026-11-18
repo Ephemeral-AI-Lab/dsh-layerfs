@@ -14,7 +14,7 @@
  */
 import { randomBytes } from 'node:crypto'
 import { bytesAfter, BYTES_EVERY_MS, FAILED_KEEP_MS, type CreationPhase } from './sandbox-creates.ts'
-import { refuse } from './util.ts'
+import { fixOf, refuse } from './util.ts'
 
 export type LoadPhase = 'queued' | 'inspect' | 'lock' | 'export' | 'send' | 'unpack' | 'done' | 'failed'
 
@@ -75,7 +75,7 @@ export class ImageLoads {
         this.finish(job.id, { reused: answer?.reused === true, dropped })
       } catch (error: any) {
         const detail = error?.detail && typeof error.detail === 'object' ? error.detail : undefined
-        this.finish(job.id, { error: { code: typeof error?.code === 'string' ? error.code : 'Unknown', message: error?.message ?? String(error), ...(detail ? { detail } : {}) } })
+        this.finish(job.id, { error: { code: typeof error?.code === 'string' ? error.code : 'Unknown', message: error?.message ?? String(error), ...(detail ? { detail } : {}), ...fixOf(error) } })
       }
     })()
     return admitted

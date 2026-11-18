@@ -259,9 +259,9 @@ export function failureWords(error: Creation['error'] | null | undefined, machin
     case 'Capacity':
       return typeof d.needed_bytes === 'number' && typeof d.free_bytes === 'number' ? words('imageNoSpace', { machine, need: bytes(d.needed_bytes), free: bytes(d.free_bytes) }) : null
     case 'Unsupported':
-      if (d.reason === 'arch') return words('imageWrongArch', { arch: String(d.value ?? '') })
-      if (d.reason === 'host') return words('imageHostOnly')
-      if (d.need === 'image-refs') return words('imageNeedsNewerLayerfs')
+      // 2.0 (V19-6): `{architecture}` or `{os}`; macOS native runs no image
+      if (typeof d.architecture === 'string') return words('imageWrongArch', { arch: d.architecture })
+      if (typeof d.os === 'string') return /^(macos|darwin)$/i.test(d.os) ? words('imageHostOnly') : words('imageWrongOs', { os: d.os })
       break
     case 'Unavailable':
       return d.what === 'docker' ? words('dockerNotRunning') : words('machineStopped', { machine })

@@ -3,13 +3,14 @@
  * share so they read as native DSH pages. Every visible word arrives as a
  * prop from the caller's locale `t`; nothing here owns copy.
  */
-import { useState, type HTMLAttributes, type ReactNode } from 'react'
+import { createContext, useContext, useState, type HTMLAttributes, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconEllipsisOutlineRegular,
   IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, StateDot,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { runnableFix, type RunnableFix } from '../../shared/doctor.ts'
 import css from './ui.module.css'
 
 export { css as uiCss }
@@ -186,12 +187,53 @@ export function Notice({ tone, children, className, role }: { tone?: 'danger' | 
 
 // ---------- refusal ----------
 
-/** A refusal: LayerFS's code, its own words, and what is in the way. */
+/** A refusal: LayerFS's code, its own words, what is in the way, and its `fix` line. */
 export interface RefusalShape {
   readonly code: string
   readonly message: string
   readonly detail?: any
   readonly transport?: string | undefined
+  readonly fix?: string | undefined
+}
+
+/**
+ * Runs a refusal's fix line for the page (UI rule: the fix line becomes the one
+ * action where the plugin can run it): the Center page provides it with its
+ * host API and words. Without one a fix stays the hover tip.
+ */
+export interface FixRunner {
+  run(fix: RunnableFix): Promise<unknown>
+  /** The button's words (`Start machine`). */
+  label(fix: RunnableFix): string
+  /** The second press of a fix that removes something (`delete`, `prune`). */
+  confirm(fix: RunnableFix): string
+  /** The tip on the button and on a fix it cannot run: the line it runs or that clears the refusal. */
+  tip(line: string): string
+  /** After a fix ran. */
+  done: string
+}
+export const FixContext = createContext<FixRunner | null>(null)
+
+/** One refusal's fix as its one action: a removal asks a second press; a refused fix shows its own refusal (without an action). */
+function FixAction({ line, fix, runner, labels }: { line: string, fix: RunnableFix, runner: FixRunner, labels: RefusalLabels }): ReactNode {
+  const [step, setStep] = useState<'idle' | 'confirm' | 'busy' | 'done'>('idle')
+  const [failed, setFailed] = useState<unknown>(null)
+  const removes = fix.kind === 'delete' || fix.kind === 'prune'
+  const press = async () => {
+    if (removes && step === 'idle') { setStep('confirm'); return }
+    setStep('busy'); setFailed(null)
+    try { await runner.run(fix); setStep('done') } catch (error) { setFailed(error); setStep('idle') }
+  }
+  if (step === 'done') return <p className={css.refusalFix} role="status"><StateDot state="done" />{runner.done}</p>
+  return (
+    <div className={css.refusalFix}>
+      <Button size="sm" variant={step === 'confirm' ? 'primary' : 'outline'} disabled={step === 'busy'} title={runner.tip(line)} data-fid="refusal-fix"
+        onClick={(e) => { e.stopPropagation(); void press() }}>
+        {step === 'confirm' ? runner.confirm(fix) : runner.label(fix)}
+      </Button>
+      {failed != null && <Refusal error={failed} labels={labels} compact noFix />}
+    </div>
+  )
 }
 
 /** The words a refusal needs; the caller's locale supplies them. */
@@ -208,17 +250,23 @@ export interface RefusalLabels {
 /** The refusal an error carries, or a plain error's words. */
 export function refusalOf(error: unknown): RefusalShape {
   if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
-    const e = error as { code: unknown, message: unknown, detail?: unknown, transport?: unknown }
-    return { code: String(e.code), message: String(e.message), detail: e.detail ?? null, transport: typeof e.transport === 'string' ? e.transport : undefined }
+    const e = error as { code: unknown, message: unknown, detail?: unknown, transport?: unknown, fix?: unknown }
+    return { code: String(e.code), message: String(e.message), detail: e.detail ?? null, transport: typeof e.transport === 'string' ? e.transport : undefined, fix: typeof e.fix === 'string' && e.fix ? e.fix : undefined }
   }
   return { code: 'Failed', message: error instanceof Error ? error.message : String(error), detail: null }
 }
 
 const EXTRA = ['authority', 'source', 'retired', 'needed', 'free', 'missing', 'vm_exists', 'execs']
 
-/** A LayerFS refusal as it came: nothing is reworded. */
-export function Refusal({ error, labels, compact, className }: { error: unknown, labels: RefusalLabels, compact?: boolean, className?: string }): ReactNode {
+/**
+ * A LayerFS refusal as it came: nothing is reworded. Its `fix` line is the one
+ * action where the Center page can run it ({@link FixContext}), else the tip on its code.
+ */
+export function Refusal({ error, labels, compact, className, noFix }: { error: unknown, labels: RefusalLabels, compact?: boolean, className?: string, noFix?: boolean }): ReactNode {
   const r = refusalOf(error)
+  const runner = useContext(FixContext)
+  const fix = !noFix && r.fix ? r.fix : null
+  const runnable = fix && runner ? runnableFix(fix) : null
   const d = r.detail && typeof r.detail === 'object' ? r.detail : null
   const related: { kind: string, name: string, why?: string }[] = Array.isArray(d?.related) ? d.related : []
   const category = r.transport === 'usage-incompatible' ? 'usage' : r.transport === 'unavailable' ? 'unavailable' : r.transport === 'transport-unknown' ? 'unknown' : 'refusal'
@@ -231,7 +279,7 @@ export function Refusal({ error, labels, compact, className }: { error: unknown,
   return (
     <div role="alert" className={clsx(css.refusal, className)}>
       {!compact && <p className={css.refusalCategory}>{labels.category(category)}</p>}
-      <p><span className={css.refusalCode}>{r.code}</span>: {r.message}</p>
+      <p><span className={css.refusalCode} data-fix={fix && !runnable ? true : undefined} title={fix && !runnable ? (runner ? runner.tip(fix) : fix) : undefined}>{r.code}</span>: {r.message}</p>
       {!compact && where.length > 0 && <p className={css.refusalWhere}>{where.join(' · ')}</p>}
       {!compact && extra.map(([key, value]) => <p key={key} className={css.refusalExtra}>{key}: {typeof value === 'object' ? JSON.stringify(value) : String(value)}</p>)}
       {related.length > 0 && (
@@ -242,6 +290,7 @@ export function Refusal({ error, labels, compact, className }: { error: unknown,
           </ul>
         </>
       )}
+      {fix && runnable && runner && <FixAction line={fix} fix={runnable} runner={runner} labels={labels} />}
     </div>
   )
 }

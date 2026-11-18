@@ -32,7 +32,7 @@ import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
 import { companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
-import { Answer, PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
+import { Answer, PAGE, cliFeatures, fixOf, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 import { processOf, usageOf, type Usage } from './observed.ts'
 import { SandboxCreates, type Report } from './sandbox-creates.ts'
 
@@ -135,7 +135,7 @@ const changeKind = (change: unknown): string => { const c = String(change ?? '')
 export { companionsOf, msAt, opOf }
 
 /** A LayerFS refusal as the UI shows it: code, the SDK's text, and its detail (entity, phase, op, related). */
-export const refusalOf = (error: any) => ({ code: error?.code ?? 'Failed', message: error?.message ?? String(error), detail: error?.detail ?? null })
+export const refusalOf = (error: any) => ({ code: error?.code ?? 'Failed', message: error?.message ?? String(error), detail: error?.detail ?? null, ...fixOf(error) })
 
 /** Refusals a Store's operation gives every Store call: the page still renders what the home's records say. */
 export const STORE_REFUSALS = new Set(['Busy', 'Unresolved', 'Unavailable'])

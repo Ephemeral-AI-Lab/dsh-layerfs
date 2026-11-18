@@ -17,7 +17,7 @@
  * the tab opens and again on Refresh, since `GET /api/storage` sizes only
  * SQLite files.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useState, type ReactNode } from 'react'
 import { Button, IconAgentPresetOutlineRegular, IconInspectOutlineRegular, IconPlusOutlineRegular, MenuItemButton, IconRefreshOutlineRegular, IconSettingsOutlineRegular, IconShieldOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
@@ -31,7 +31,7 @@ import { SetupCard, unset } from '../setup/SetupCard.tsx'
 import { missingWords } from '../setup/SetupDialog.tsx'
 import { setupDialog, useSetupStatus } from '../setup/store.ts'
 import { EmptyState } from '../files/States.tsx'
-import { Card, LoadError, Loading, MoreMenu, Refusal } from '../ui/index.tsx'
+import { Card, FixContext, LoadError, Loading, MoreMenu, Refusal } from '../ui/index.tsx'
 import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import { BucketCards } from './BucketCards.tsx'
 import { HomeStores } from './MachineStores.tsx'
@@ -50,7 +50,7 @@ import type { StorageT } from './locale.ts'
 import { bucketFiles, doingWords, endedWords, orderStores, shareOf } from './model.ts'
 import { refusalLabels, StoreGlyph } from './parts.tsx'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
-import type { DoctorCount } from '../../shared/doctor.ts'
+import { runnableFix, type DoctorCount } from '../../shared/doctor.ts'
 import css from './HomeOverview.module.css'
 import heroCss from './HomeHero.module.css'
 
@@ -141,6 +141,7 @@ interface Need {
 
 export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const { view, error, t, now, doctor, onRefresh } = props
+  const fixes = useContext(FixContext)
   const mc = useMachinesContext()
   const fleetRead = mc.useMachines((s) => s)
   const runtime = mc.useRuntime((s) => s)
@@ -183,11 +184,14 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   for (const j of props.jobs) {
     if (!j.ended || props.dismissed.has(j.id)) continue
     if (!j.error && j.outcome !== 'failed' && j.outcome !== 'interrupted' && j.outcome !== 'unknown') continue
+    // the card's word is how the job ended; LayerFS's own words are the tip (UI rule: no raw errors on cards);
+    // its fix line, where the page runs it, is the one action, else Retry
+    const fix = fixes && typeof j.error?.fix === 'string' ? runnableFix(j.error.fix) : null
     needs.push({
       key: `job:${j.id}`, tone: 'danger', rank: 0,
       title: <StoreLink name={j.store} onOpen={props.onOpen}>{endedWords(j, t, bytes)}</StoreLink>,
-      detail: j.error ? <>{j.error.message} · {ago(j.ended, now, t as Translate)}</> : ago(j.ended, now, t as Translate),
-      action: { label: t('jobRetry'), run: () => props.onRetry(j) },
+      detail: <span title={j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [fixes ? fixes.tip(j.error.fix) : j.error.fix] : [])].join('\n') : undefined}>{ago(j.ended, now, t as Translate)}</span>,
+      action: fix && fixes ? { label: fixes.label(fix), run: () => fixes.run(fix) } : { label: t('jobRetry'), run: () => props.onRetry(j) },
       extra: <Button variant="ghost" size="sm" onClick={() => props.onDismiss(j)}>{t('dismiss')}</Button>,
     })
   }

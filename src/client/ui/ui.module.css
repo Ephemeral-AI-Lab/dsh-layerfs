@@ -399,6 +399,22 @@
   font-weight: 500;
 }
 
+/* a fix line the page cannot run: the tip on the code */
+.refusalCode[data-fix] {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+/* a fix line the page runs: its one action */
+.refusalFix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .refusalWhere,
 .refusalExtra {
   font-size: 12px;

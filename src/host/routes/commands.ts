@@ -32,7 +32,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { invalidateSandbox, refuse, type RouteHost } from './util.ts'
+import { fixOf, invalidateSandbox, refuse, type RouteHost } from './util.ts'
 
 /** Commands kept per Workspace (and listed per Sandbox). */
 export const KEEP = 50
@@ -62,7 +62,7 @@ export interface CommandEntry {
   stdoutBinary: boolean
   stderrBinary: boolean
   /** The refusal when `workspace.exec` itself failed. */
-  error: { code: string, message: string } | null
+  error: { code: string, message: string, fix?: string } | null
   /** LayerFS's exec id (`exec-…`) from the start event; null until it came. */
   execId?: string | null
 }
@@ -338,7 +338,7 @@ export class SandboxCommands {
       // a lost reply is `Unknown` with the exec id: the command may still run, nothing runs it again
       (error: any) => {
         if (typeof error?.detail?.exec === 'string') entry.execId = error.detail.exec
-        finish({ state: error?.code === 'Unknown' ? 'unknown' : 'failed', error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } })
+        finish({ state: error?.code === 'Unknown' ? 'unknown' : 'failed', error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error), ...fixOf(error) } })
       },
     )
     return { ...entry }

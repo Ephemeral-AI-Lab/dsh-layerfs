@@ -5,7 +5,8 @@
 import type { BranchInfo, CommitInfo } from '../files/types.ts'
 
 export interface SdkOperation { id: string, name: string, phase: string, started: number | null, uncertain: boolean }
-export interface SdkRefusal { code: string, message: string, detail?: any }
+/** A refusal as the host answers it; `fix` is LayerFS's one runnable line, when it gave one. */
+export interface SdkRefusal { code: string, message: string, detail?: any, fix?: string }
 
 export type StoreFamily = 'sqlite' | 'postgresql'
 

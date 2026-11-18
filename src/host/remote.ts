@@ -79,6 +79,7 @@ export class LayerfsRemote extends TypertRemoteService {
         op: request.op,
         ...(typeof error?.code === 'string' ? { code: error.code } : {}),
         ...(error?.detail !== undefined ? { detail: error.detail } : {}),
+        ...(typeof error?.fix === 'string' && error.fix ? { fix: error.fix } : {}),
       }, { cause: error })
     }
   }

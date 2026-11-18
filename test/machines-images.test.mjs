@@ -272,9 +272,9 @@ test('a failed create says why in this locale (§4.4); Capacity offers Free spac
   // 2.0 `Capacity`: detail { needed_bytes, free_bytes, path }
   assert.deepEqual(failureWords({ code: 'Capacity', message: 'x', detail: { needed_bytes: 865e6, free_bytes: 4e8, path: '/var/lib/layerfs' } }, 'lima1'), { key: 'imageNoSpace', values: { machine: 'lima1', need: '865 MB', free: '400 MB' } })
   assert.equal(failureWords({ code: 'Capacity', message: 'x' }, 'lima1'), null, 'no numbers: LayerFS\'s message')
-  assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { reason: 'arch', value: 'amd64' } }, 'm'), { key: 'imageWrongArch', values: { arch: 'amd64' } })
-  assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { reason: 'host' } }, 'm'), { key: 'imageHostOnly' })
-  assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { need: 'image-refs' } }, 'm'), { key: 'imageNeedsNewerLayerfs' })
+  assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { architecture: 'amd64' } }, 'm'), { key: 'imageWrongArch', values: { arch: 'amd64' } })
+  assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { os: 'macos' } }, 'm'), { key: 'imageHostOnly' })
+  assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { os: 'windows' } }, 'm'), { key: 'imageWrongOs', values: { os: 'windows' } })
   assert.deepEqual(failureWords({ code: 'Unavailable', message: 'x', detail: { what: 'docker' } }, 'm'), { key: 'dockerNotRunning' })
   assert.deepEqual(failureWords({ code: 'Unavailable', message: 'x' }, 'lima1'), { key: 'machineStopped', values: { machine: 'lima1' } })
   assert.deepEqual(failureWords({ code: 'InvalidInput', message: 'no such image: nope:1' }, 'm'), { key: 'imageUnknown' })

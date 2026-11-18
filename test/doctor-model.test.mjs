@@ -434,6 +434,23 @@ test('a Store some of whose probes could not be made reads Not checked with the 
   assert.deepEqual(v.marks.map((m) => [m.check, m.from, m.r, m.reason]), [['store.record', null, 'ok', null], ['store.connection', 'native', 'ok', null], ['store.connection', 'dev', 'nc', 'stopped']])
 })
 
+test('a refusal\'s fix line the page runs: exactly the listed lines, any other option or command stays a tip', () => {
+  const { runnableFix } = M.wire
+  assert.deepEqual(runnableFix('layerfs machine start dev'), { kind: 'start', machine: 'dev' })
+  assert.deepEqual(runnableFix('layerfs machine stop dev'), { kind: 'stop', machine: 'dev' })
+  assert.deepEqual(runnableFix('layerfs machine stop dev && layerfs machine start dev'), { kind: 'restart', machine: 'dev' })
+  assert.deepEqual(runnableFix('layerfs machine prune dev --unused'), { kind: 'prune', machine: 'dev' })
+  assert.deepEqual(runnableFix('layerfs store compact shop'), { kind: 'compact', store: 'shop' })
+  assert.deepEqual(runnableFix('layerfs project delete shop/web'), { kind: 'delete', project: 'shop/web' })
+  assert.deepEqual(runnableFix('layerfs backup create shop r2'), { kind: 'backup', store: 'shop', bucket: 'r2' })
+  assert.deepEqual(runnableFix('layerfs  home   init'), { kind: 'homeInit' })
+  for (const line of [
+    'layerfs machine stop dev --force', 'layerfs machine prune dev', 'layerfs machine prune dev --unused --all', 'layerfs machine prune dev sha256:aa',
+    'layerfs store compact shop --full', 'layerfs workspace mount s1 --branch b', 'layerfs sandbox create p s2', 'layerfs home init --force',
+    'layerfs store compact shop && rm -rf ~', 'layerfs machine stop dev --force && layerfs machine start dev', 'sudo layerfs home init', '', null,
+  ]) assert.equal(runnableFix(line), null, String(line))
+})
+
 test('a fix line is run only when the whole line is on the allow list', () => {
   const { parseFix, forcedRestart, fixCommands } = M.wire
   assert.deepEqual(parseFix('layerfs machine stop dev && layerfs machine start dev').kind, 'restart')

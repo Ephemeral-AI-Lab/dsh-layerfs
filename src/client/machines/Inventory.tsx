@@ -6,10 +6,11 @@
  * opens the Store's or the Sandbox's own tab; its menu (shown on hover or
  * focus) holds what can be done to it, and each column's head its add verb.
  */
-import { useState, type ReactNode } from 'react'
+import { useContext, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Meter, StateChip, refusalOf } from '../ui/index.tsx'
+import { FixContext, Meter, StateChip, refusalOf } from '../ui/index.tsx'
+import { runnableFix } from '../../shared/doctor.ts'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph, StoreKindGlyph } from './icons.tsx'
 import { besideCreating, creatingOn, creationStore, needsSpace, phaseShare, phaseWords } from './images.ts'
@@ -143,9 +144,13 @@ export function CreatingRow({ c, showProject, bare }: { c: Creation, showProject
   const [freeing, setFreeing] = useState(false)
   const failed = c.phase === 'failed'
   const space = needsSpace(c)
-  const need = space && c.error?.detail && typeof (c.error.detail as { need?: unknown }).need === 'number' ? (c.error.detail as { need: number }).need : null
+  const need = space && c.error?.detail && typeof (c.error.detail as { needed_bytes?: unknown }).needed_bytes === 'number' ? (c.error.detail as { needed_bytes: number }).needed_bytes : null
   const share = phaseShare(c)
   const words = tw(phaseWords(c))
+  // LayerFS's fix line: the one action where Center runs it (instead of Retry), else part of the tip
+  const fixes = useContext(FixContext)
+  const fixLine = c.error?.fix ?? null
+  const fix = fixes && fixLine ? runnableFix(fixLine) : null
   const act = async (run: () => Promise<unknown>) => {
     setBusy(true); setError(null)
     try { await run() } catch (e) { setError(e) } finally { setBusy(false) }
@@ -162,13 +167,15 @@ export function CreatingRow({ c, showProject, bare }: { c: Creation, showProject
         {failed
           ? (
             <>
-              <span className={css.creatingFailed} role="alert" title={error != null ? refusalOf(error).message : c.error?.message}>
+              <span className={css.creatingFailed} role="alert" title={[error != null ? refusalOf(error).message : c.error?.message, fixLine && !fix ? (fixes ? fixes.tip(fixLine) : fixLine) : null].filter(Boolean).join('\n')}>
                 {error != null ? t('createFailedRow', { reason: refusalOf(error).message }) : words}
               </span>
               <span className={css.creatingActions}>
                 {space
                   ? <Button size="sm" variant="outline" disabled={busy} onClick={() => setFreeing(true)}>{t('freeSpace')}</Button>
-                  : <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => retryCreation(c))}>{t('retryCreate')}</Button>}
+                  : fix && fixes
+                    ? <Button size="sm" variant="outline" disabled={busy} title={fixes.tip(fixLine!)} onClick={() => void act(() => fixes.run(fix))}>{fixes.label(fix)}</Button>
+                    : <Button size="sm" variant="outline" disabled={busy} onClick={() => void act(() => retryCreation(c))}>{t('retryCreate')}</Button>}
                 <Button size="sm" variant="ghost" disabled={busy} aria-label={t('dismiss')} title={t('dismiss')}
                   icon={<IconCloseOutlineRegular size={12} />} onClick={() => void act(() => dismissCreation(c.id))} />
               </span>

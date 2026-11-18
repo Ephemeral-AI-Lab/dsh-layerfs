@@ -339,7 +339,7 @@ export class DoctorChecks {
       // a refusal is certain: nothing changed in that step. Anything else may have worked: never run again from here.
       const refused = typeof error?.code === 'string' && (error.transport ?? 'refusal') === 'refusal'
       fix.state = refused ? 'refused' : 'lost'
-      if (refused) fix.refusal = { code: error.code, message: String(error.message ?? error.code) }
+      if (refused) fix.refusal = { code: error.code, message: String(error.message ?? error.code), ...(typeof error.fix === 'string' && error.fix ? { fix: error.fix } : {}) }
     } finally {
       this.tree = { at: 0 }
       this.emitFix(fix)

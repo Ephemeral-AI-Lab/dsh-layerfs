@@ -49,7 +49,7 @@ import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, rmdirSync } from 
 import { join } from 'node:path'
 import { COMPACT_STEPS, JobStore, failureOutcome, inspectJob, transferSummary, type StorageJob } from './jobs.ts'
 import { computer } from './computer.ts'
-import { refuse, wire, type RouteHost } from './util.ts'
+import { fixOf, refuse, wire, type RouteHost } from './util.ts'
 import { StoreSizes } from './store-sizes.ts'
 import { pgMachineOf, StoreMachines, type PgMachine } from '../store-machines.ts'
 import { companionsOf, machineRows, msAt, opOf, runsPostgresql } from '../layerfs/machine-records.ts'
@@ -562,7 +562,7 @@ export class Storage {
           job.phase = error?.detail?.phase ?? job.phase
           // a transfer that stops in install or record is unknown; a compaction's refusal says so itself (`Unknown`)
           job.outcome = failureOutcome(error, kind === 'compact' ? null : job.phase)
-          job.error = { transport: error?.transport ?? null, code: error?.code ?? 'Failed', message: error?.message ?? String(error), phase: error?.detail?.phase ?? job.phase, detail: error?.detail ?? null, ...(error?.note ? { note: error.note } : {}) }
+          job.error = { transport: error?.transport ?? null, code: error?.code ?? 'Failed', message: error?.message ?? String(error), phase: error?.detail?.phase ?? job.phase, detail: error?.detail ?? null, ...fixOf(error), ...(error?.note ? { note: error.note } : {}) }
           this.log(`[storage] ${kind} ${store}: ${error?.code ?? ''} ${error?.message ?? error}`)
         },
       )

@@ -433,7 +433,7 @@ export interface ImageLoad {
   done?: number
   total?: number
   reused?: boolean
-  error?: { code: string, message: string, detail?: unknown }
+  error?: { code: string, message: string, detail?: unknown, fix?: string }
   startedAt: number
   updatedAt: number
 }
@@ -448,7 +448,7 @@ export interface Creation {
   phase: CreationPhase
   done?: number
   total?: number
-  error?: { code: string, message: string, detail?: unknown }
+  error?: { code: string, message: string, detail?: unknown, fix?: string }
   startedAt: number
   updatedAt: number
 }

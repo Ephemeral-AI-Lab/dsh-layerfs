@@ -260,6 +260,10 @@ test('status map: LayerFS and host refusals that are not server faults', async (
 
 test('errors: Capacity is 507 with its detail; Unavailable, Capacity and Unsupported log no stack, Unknown and Timeout do', async () => {
   assert.deepEqual(R.errorAnswer(new Refusal('Capacity', 'need more', { needed_bytes: 10, free_bytes: 1, path: '/d' })), { status: 507, body: { code: 'Capacity', transport: 'refusal', message: 'need more', detail: { needed_bytes: 10, free_bytes: 1, path: '/d' } } })
+  // a refusal's fix line reaches the client beside its code
+  assert.deepEqual(R.errorAnswer(Object.assign(new Refusal('Exists', 'taken'), { fix: 'layerfs sandbox create p s2' })).body, { code: 'Exists', transport: 'refusal', message: 'taken', fix: 'layerfs sandbox create p s2' })
+  const answered = await (async () => { const f = fixture({ sandbox: { get: async () => { throw Object.assign(new Refusal('Unavailable', 'stopped'), { fix: 'layerfs machine start dev' }) } } }); try { return await f.http('GET', '/api/sandboxes/b1') } finally { f.close() } })()
+  assert.equal(answered.body.fix, 'layerfs machine start dev')
   for (const [code, status, logged] of [['Unavailable', 502, false], ['Capacity', 507, false], ['Unsupported', 501, false], ['MountsActive', 409, false], ['Unknown', 500, true], ['Timeout', 504, true]]) {
     const f = fixture({ sandbox: { get: async () => { throw new Refusal(code, code) } } })
     try {
@@ -623,7 +627,8 @@ test('create Stage 1: the CLI\'s phases become the job\'s (bytes coalesced), unk
   const f = stage1Fixture({
     create: async (project, name, { on_progress }) => {
       for (const p of [{ phase: 'inspect' }, { phase: 'export' }, { phase: 'send', done: 0, total: 412 }, { phase: 'send', done: 100, total: 412 }, { stage: 'other' }, { phase: 'unpack' }, { phase: 'start' }]) on_progress(p)
-      if (name === 'bad') throw new Refusal('Unsupported', 'arm64 machine, amd64 image', { reason: 'arch', value: 'amd64' })
+      if (name === 'bad') throw new Refusal('Unsupported', 'arm64 machine, amd64 image', { architecture: 'amd64' })
+      if (name === 'full') throw Object.assign(new Refusal('Capacity', 'no room', { needed_bytes: 10, free_bytes: 1, path: '/d' }), { fix: 'layerfs machine prune dev --unused' })
       return { sandbox: name }
     },
   })
@@ -637,7 +642,12 @@ test('create Stage 1: the CLI\'s phases become the job\'s (bytes coalesced), unk
     const bad = (await f.http('POST', `/api/projects/${key}/sandboxes`, { name: 'bad', image: PG, background: true })).body.creation
     await settle()
     const failed = (await f.http('GET', '/api/sandbox-creates')).body.creations.find((c) => c.id === bad.id)
-    assert.deepEqual(failed.error, { code: 'Unsupported', message: 'arm64 machine, amd64 image', detail: { reason: 'arch', value: 'amd64' } })
+    assert.deepEqual(failed.error, { code: 'Unsupported', message: 'arm64 machine, amd64 image', detail: { architecture: 'amd64' } })
+    // the refusal's fix line stays on the job's error record (the page offers it as the one action)
+    const full = (await f.http('POST', `/api/projects/${key}/sandboxes`, { name: 'full', image: PG, background: true })).body.creation
+    await settle()
+    const kept = (await f.http('GET', '/api/sandbox-creates')).body.creations.find((c) => c.id === full.id)
+    assert.equal(kept.error.fix, 'layerfs machine prune dev --unused')
   } finally { f.close() }
 })
 

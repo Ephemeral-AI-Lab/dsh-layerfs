@@ -72,6 +72,12 @@ export function refusalOf(frame: unknown): { error: string, message: string, fix
   return { error: error as string, message: message as string, fix: typeof fix === 'string' && fix ? fix : null, detail: merged }
 }
 
+/** A refusal's `fix` line as a spread for an answer or a job's error record (`{}` without one). */
+export const fixOf = (error: unknown): { fix?: string } => {
+  const fix = (error as { fix?: unknown } | null)?.fix
+  return typeof fix === 'string' && fix ? { fix } : {}
+}
+
 /** One progress event (`{ phase, done, total }`, a doctor's with `node`), or null. */
 export interface ProgressEvent { phase: string, done: number, total: number, node?: unknown, exec?: string }
 export function progressOf(frame: unknown): ProgressEvent | null {

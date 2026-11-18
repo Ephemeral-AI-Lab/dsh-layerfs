@@ -9,7 +9,7 @@ import { DoctorChecks } from './doctor.ts'
 import { Machines } from './machines.ts'
 import { Projects } from './projects.ts'
 import { Storage } from './storage.ts'
-import { Answer, invalidateSandbox, wire, type RouteHost } from './util.ts'
+import { Answer, fixOf, invalidateSandbox, wire, type RouteHost } from './util.ts'
 import type { SandboxCreates } from './sandbox-creates.ts'
 
 /** LayerFS refusal codes and the HTTP status each answers. Anything else is 500. */
@@ -83,16 +83,17 @@ export const httpError = (status: number, code: string, message: string) => Obje
 export const isConversion = (code: string, detail: any) => code === 'InUse' && Array.isArray(detail?.related) && detail.related.some((r: any) => typeof r?.why === 'string')
 
 /**
- * The status and body an error answers: { code, message, detail? } with the
- * SDK's refusal as it came (its text names any status or clearing call;
- * `detail` holds entity, phase, op and related), and `conversion: true` for
+ * The status and body an error answers: { code, message, detail?, fix? } with
+ * the SDK's refusal as it came (its text names any status or clearing call;
+ * `detail` holds entity, phase, op and related; `fix` is LayerFS's one
+ * runnable line, which the page offers as its action), and `conversion: true` for
  * a layout 2 home's conversion refusal.
  */
 export function errorAnswer(error: any): { status: number, body: Record<string, unknown> } {
   const code = typeof error?.code === 'string' ? error.code : 'failed'
   const status = Number.isInteger(error?.status) ? error.status : (STATUS[code] ?? 500)
   const detail = error?.detail && typeof error.detail === 'object' ? error.detail : null
-  return { status, body: wire({ code, ...(error?.transport ? { transport: error.transport } : {}), message: error?.message ?? String(error), ...(detail ? { detail } : {}), ...(isConversion(code, detail) ? { conversion: true } : {}) }) }
+  return { status, body: wire({ code, ...(error?.transport ? { transport: error.transport } : {}), message: error?.message ?? String(error), ...(detail ? { detail } : {}), ...fixOf(error), ...(isConversion(code, detail) ? { conversion: true } : {}) }) }
 }
 
 /** The route groups behind the table. */

@@ -14,7 +14,7 @@
  * dialog cancels nothing: the job belongs to the host.
  */
 import { randomBytes } from 'node:crypto'
-import { refuse } from './util.ts'
+import { fixOf, refuse } from './util.ts'
 
 export type CreationPhase = 'queued' | 'machine' | 'inspect' | 'lock' | 'export' | 'send' | 'unpack' | 'start' | 'mount' | 'done' | 'failed'
 
@@ -28,7 +28,7 @@ export interface Creation {
   done?: number
   total?: number
   /** Phase `failed`: the refusal. */
-  error?: { code: string, message: string, detail?: unknown }
+  error?: { code: string, message: string, detail?: unknown, fix?: string }
   startedAt: number
   updatedAt: number
 }
@@ -91,7 +91,7 @@ export class SandboxCreates {
         this.finish(job.id, 'done')
       } catch (error: any) {
         const detail = error?.detail && typeof error.detail === 'object' ? error.detail : undefined
-        this.finish(job.id, 'failed', { code: typeof error?.code === 'string' ? error.code : 'Unknown', message: error?.message ?? String(error), ...(detail ? { detail } : {}) })
+        this.finish(job.id, 'failed', { code: typeof error?.code === 'string' ? error.code : 'Unknown', message: error?.message ?? String(error), ...(detail ? { detail } : {}), ...fixOf(error) })
       }
     })()
     return admitted

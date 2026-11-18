@@ -6,6 +6,8 @@ import type { Translate } from '../files/types.ts'
 import type { StorageT } from './locale.ts'
 import { doingWords, endedWords, kindWords, shareOf, stepsOf, stepWords } from './model.ts'
 import type { StorageJob, StoreRow } from './types.ts'
+import { Refusal } from '../ui/index.tsx'
+import { refusalLabels } from './parts.tsx'
 import css from './Storage.module.css'
 
 export function JobPanel({ job: j, t, onRetry, onDismiss }: { job: StorageJob, t: StorageT, onRetry?: (() => void) | undefined, onDismiss?: (() => void) | undefined }): ReactNode {
@@ -26,7 +28,7 @@ export function JobPanel({ job: j, t, onRetry, onDismiss }: { job: StorageJob, t
         </span>
       </div>
       {running ? <span className={css.jobBar}><span className={css.jobFill} style={{ width: `${Math.round(shareOf(j) * 100)}%` }} /></span> : null}
-      {j.error ? <p className={css.jobError}><code>{j.error.code}</code> {j.error.message}</p> : null}
+      {j.error ? <Refusal error={j.error} labels={refusalLabels(t)} compact className={css.jobError} /> : null}
     </div>
   )
 }
