@@ -38,7 +38,7 @@ async function until(read, what, ms = 15_000) {
 }
 
 /** A 2.0 call table as far as these routes read it: `home get` lists `tree` among its `--with` values. */
-const TABLE_2_0 = async () => ({ identity: {}, calls: [{ family: 'home', call: 'get', args: [], options: [], with: { platforms: {}, tree: {} } }] })
+const TABLE_2_0 = async () => ({ identity: {}, calls: [{ family: 'home', call: 'get', args: [], options: [], form: { with: { platforms: {}, tree: {} } } }] })
 let n = 0
 const id = () => `run-${String(++n).padStart(6, '0')}`
 
@@ -94,10 +94,11 @@ test('a runtime without the tree is Unsupported, not an empty page', async () =>
   const gated = new R.DoctorChecks(today, async () => { sent += 1; return {} })
   const g = await refusal(gated.route('GET', ['tree']))
   assert.deepEqual([g.status, g.code, sent], [501, 'Unsupported', 0])
-  // the three ways a table may list the value
-  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', with: { platforms: {}, tree: {} } }]), true)
-  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', with: ['platforms', 'tree'] }]), true)
-  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', options: [{ name: 'with', kind: 'list' }] }]), true)
+  // the 2.0 table lists the value under `form.with`, keyed by value; nothing else counts
+  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', form: { with: { platforms: {}, tree: {} } } }]), true)
+  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', form: { with: { platforms: {} } } }]), false)
+  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', with: { tree: {} } }]), false)
+  assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', options: [{ name: 'with', kind: 'list' }] }]), false)
   assert.equal(R.hasTreeRead([{ family: 'home', call: 'get', with: { platforms: {} }, options: [] }]), false)
   assert.equal(R.hasTreeRead([{ family: 'machine', call: 'get', with: { tree: {} } }]), false)
   assert.equal(R.hasTreeRead(null), false)

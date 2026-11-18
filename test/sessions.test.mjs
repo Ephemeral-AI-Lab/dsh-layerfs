@@ -344,7 +344,8 @@ test('ensureBound runs a PostgreSQL project on its Store\'s saved machine, else 
     const lfs = {
       // a PostgreSQL Store is on no machine: project.get names none
       project: { get: async () => ({ kind: 'postgresql' }) },
-      machine: { list: async () => ({ machines }) },
+      // `machine list --detail` (2.0): rows keyed `machine`, `supports` a list
+      machine: { list: async () => ({ items: machines.map(({ name, ...rest }) => ({ machine: name, ...rest })) }) },
       branch: { fork: async () => {} },
       sandbox: { get: async () => { throw new Refusal('NoSuchSandbox') }, create: async (project, name, machine) => calls.push(`sandbox ${project} ${name} ${machine}`) },
       workspace: { mount: async (sandbox, branch, options) => ({ path: '/mnt/inside', ws: `${sandbox}:${options.name}`, base: 'base-1' }) },
@@ -360,7 +361,7 @@ test('ensureBound runs a PostgreSQL project on its Store\'s saved machine, else 
       return state().sessions.n1.machine
     } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
   }
-  const m = (name, postgresql_sandbox = true) => ({ name, supports: { postgresql_sandbox } })
+  const m = (name, postgresql_sandbox = true) => ({ name, supports: postgresql_sandbox ? ['sqlite', 'postgresql_sandbox'] : ['sqlite'] })
   assert.equal(await bind([m('native'), m('docker'), m('vm1')], 'vm1'), 'vm1', 'the saved choice')
   assert.equal(await bind([m('native'), m('docker'), m('vm1')], null), 'docker', 'none saved: docker')
   assert.equal(await bind([m('native'), m('vm1')], null), 'native', 'no docker: native')
@@ -572,7 +573,7 @@ test('polling detects lost access and restored availability without replaying ex
   state.sessions.history = { sessionId: 'history', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', branch: 'retained' }
   state.checkpoints.history = [{ commit: 'saved' }]
   const f = sessions({ state, lfs: {
-    machine: { get: async () => ({ state: online ? 'running' : 'stopped' }) },
+    machine: { get: async () => ({ state: online ? 'ready' : 'stopped' }) },
     store: { status: async () => ({ state: online ? 'idle' : 'down' }) },
     workspace: { status: async () => ({}), mount: async () => { mounts++; return {} } },
   } })
@@ -597,7 +598,7 @@ test('a missing saved checkpoint blocks activation without falling back to proje
   state.checkpoints.history = [{ commit: 'missing-checkpoint', branch: 'retained' }]
   const calls = []
   const f = sessions({ state, lfs: {
-    machine: { get: async () => ({ state: 'running' }) }, store: { status: async () => ({ state: 'idle' }) },
+    machine: { get: async () => ({ state: 'ready' }) }, store: { status: async () => ({ state: 'idle' }) },
     file: { list: async () => { throw new Refusal('NotFound') } },
     branch: { fork: async () => { calls.push('fork') } }, sandbox: { create: async () => { calls.push('sandbox') } },
   } })
@@ -708,7 +709,7 @@ test('a tool call never re-activates an interrupted context mid-turn; only a new
 })
 
 test('pgMachineOf: the machine asked for, else the saved choice while it still runs PostgreSQL Sandboxes, else docker, else native', () => {
-  const m = (name, postgresql_sandbox = true) => ({ name, supports: { postgresql_sandbox } })
+  const m = (name, postgresql_sandbox = true) => ({ name, supports: postgresql_sandbox ? ['sqlite', 'postgresql_sandbox'] : ['sqlite'] })
   const both = [m('native'), m('docker'), m('vm1')]
   // a session's own machine, or one named in the request, always wins: LayerFS reaches the Store from any machine
   assert.equal(S.pgMachineOf('vm1', both, 'docker'), 'docker')

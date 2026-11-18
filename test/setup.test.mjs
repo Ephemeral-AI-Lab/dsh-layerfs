@@ -1,7 +1,7 @@
 // The setup check's host pieces (docs/specs/layerfs-setup.md §3): build
 // verdicts from stamps, pin leases, bundle replacement while no worker runs,
-// and the home gate with a CLI that has `home get` / `home init` and one that
-// has not.
+// and the home gate over a 2.0 CLI's `home get` (ready, or broken with reason
+// missing / outdated) and `home init`.
 //   node --test test/setup.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -86,7 +86,7 @@ test('a pin lease keeps a runtime from another host\'s cleanup and moves with th
     H.leasePin(f.home, f.dir, one.cli)
     const id = H.hostId(f.dir)
     assert.ok(existsSync(join(f.home, 'runtime', one.id, 'pins', id)))
-    const plan = H.planRuntimeCleanup(H.installedRuntimes(f.home), { pinned: [], machines: { machines: [] }, processes: [], newest: 0 })
+    const plan = H.planRuntimeCleanup(H.installedRuntimes(f.home), { pinned: [], machines: { items: [] }, processes: [], newest: 0 })
     assert.equal(plan.keep.get(one.id), 'lease')
     assert.deepEqual(plan.remove.map((r) => r.id), [two.id])
     H.leasePin(f.home, f.dir, two.cli)
@@ -95,14 +95,14 @@ test('a pin lease keeps a runtime from another host\'s cleanup and moves with th
   } finally { f.done() }
 })
 
-/** A fake LayerFS CLI (node script) logging its argv; `homeCalls` adds the home family. */
-function fakeCli(dir, { homeCalls, homeGetFails = false, slowGetMs = 0, recorded = null }) {
+/** A fake 2.0 LayerFS CLI (node script) logging its argv: `home get` answers the 2.0 shape, `home init` makes or converts the folder. */
+function fakeCli(dir, { homeGetFails = false, slowGetMs = 0, recorded = null }) {
   const log = join(dir, 'calls.log')
   const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
     'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close',
     'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec',
-    'machine.list', 'machine.platforms', 'store.list', 'store.create', 'machine.get', 'machine.update', ...(homeCalls ? ['home.get', 'home.init'] : [])]
-  const calls = required.map((n) => ({ family: n.split('.')[0], call: n.split('.')[1], args: n === 'machine.get' || n === 'machine.update' ? [{ name: 'name', kind: 'text' }] : [], options: [] }))
+    'machine.list', 'store.list', 'store.create', 'machine.get', 'machine.update', 'home.get', 'home.init']
+  const calls = required.map((n) => ({ family: n.split('.')[0], call: n.split('.')[1], args: n === 'machine.get' || n === 'machine.update' ? [{ name: 'name', kind: 'text' }] : [], options: [], ...(n === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) }))
   const cli = join(dir, 'layerfs')
   writeFileSync(cli, `#!/usr/bin/env node
 const fs = require('fs'), path = require('path')
@@ -117,11 +117,11 @@ const st = st0
 const create = () => { fs.mkdirSync(home, { recursive: true }); fs.writeFileSync(file, JSON.stringify({ layout: 3 })) }
 if (argv[0] === 'home' && argv[1] === 'get' && ${homeGetFails}) { process.stderr.write('boom\\n'); process.exit(1) }
 if (argv[0] === 'home' && argv[1] === 'get' && ${slowGetMs}) { const until = Date.now() + ${slowGetMs}; while (Date.now() < until) {} }
-if (argv[0] === 'home' && argv[1] === 'get') say({ home: { path: home, state: st, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', mode_ok: true }, bundle: null, daemon: ${JSON.stringify(recorded)}, cache: { path: '/c' }, warnings: [] })
+if (argv[0] === 'home' && argv[1] === 'get') say({ home, state: st === 'current' ? 'ready' : 'broken', version: '2.0.0', generation: 1, reason: st === 'current' ? null : st === 'missing' ? 'missing' : 'outdated', fix: st === 'current' ? null : 'layerfs home init', message: null, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', bundle: null, daemon: ${JSON.stringify(recorded)}, cache: { path: '/c' } })
 if (argv[0] === 'home' && argv[1] === 'init') { const was = st; create(); say({ home, created: was === 'missing', converted: was === 'needs_conversion', layout: 3 }) }
 // every other call opens the home as LayerFS does (creates or converts it)
 create()
-if (argv[0] === 'machine' && argv[1] === 'list') say({ machines: [] })
+if (argv[0] === 'machine' && argv[1] === 'list') say({ items: [] })
 say({})
 `, { mode: 0o755 })
   return { cli, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : []) }
@@ -145,8 +145,8 @@ async function withService(opts, run) {
   }
 }
 
-test('setup check, new CLI: a missing folder is created with home init; a read waits for it', async () => {
-  await withService({ homeCalls: true }, async ({ s, home, fake }) => {
+test('setup check: a missing folder is created with home init; a read waits for it', async () => {
+  await withService({}, async ({ s, home, fake }) => {
     await s.lfs.store.list()
     assert.ok(existsSync(join(home, 'layerfs.json')))
     assert.ok(fake.calls().includes('home init'), fake.calls().join('\n'))
@@ -157,8 +157,8 @@ test('setup check, new CLI: a missing folder is created with home init; a read w
   })
 })
 
-test('setup check, new CLI: a folder that needs converting refuses every call Uninitialized until Convert', async () => {
-  await withService({ homeCalls: true, layout2: true }, async ({ s, home, fake }) => {
+test('setup check: a folder that needs converting refuses every call Uninitialized until Convert', async () => {
+  await withService({ layout2: true }, async ({ s, home, fake }) => {
     await assert.rejects(() => s.lfs.store.list(), (e) => e.code === 'Uninitialized')
     await assert.rejects(() => s.lfs.machine.update('native', {}), (e) => e.code === 'Uninitialized')
     assert.equal(JSON.parse(readFileSync(join(home, 'layerfs.json'), 'utf8')).layout, 2, 'nothing converted it')
@@ -173,28 +173,8 @@ test('setup check, new CLI: a folder that needs converting refuses every call Un
   })
 })
 
-test('setup check, older CLI: one machine list creates a missing folder (today\'s behaviour)', async () => {
-  await withService({ homeCalls: false }, async ({ s, home, fake }) => {
-    const status = await s.setup()
-    assert.equal(status.homeCalls, false)
-    assert.equal(status.folder.state, 'current')
-    assert.ok(existsSync(join(home, 'layerfs.json')))
-    assert.deepEqual(fake.calls().filter((c) => !c.startsWith('--version') && !c.startsWith('help')), ['machine list'])
-  })
-})
-
-test('setup check, older CLI: a polled machine.list on a missing folder creates it and answers (no deadlock with the gate)', async () => {
-  await withService({ homeCalls: false }, async ({ s, home, fake }) => {
-    const answer = await Promise.race([s.lfs.machine.list(), new Promise((_, reject) => setTimeout(() => reject(new Error('machine.list hung')), 8000))])
-    assert.deepEqual(answer, { machines: [] })
-    assert.ok(existsSync(join(home, 'layerfs.json')))
-    const status = await s.setup()
-    assert.equal(status.folder.state, 'current')
-  })
-})
-
-test('setup check, new CLI: a failing home get is unknown, never current, and the gate converts nothing', async () => {
-  await withService({ homeCalls: true, homeGetFails: true, layout2: true }, async ({ s, home }) => {
+test('setup check: a failing home get is unknown, never current, and the gate converts nothing', async () => {
+  await withService({ homeGetFails: true, layout2: true }, async ({ s, home }) => {
     const status = await s.setup()
     assert.equal(status.folder.state, 'unknown')
     assert.deepEqual(status.needs, ['folder'])
@@ -204,7 +184,7 @@ test('setup check, new CLI: a failing home get is unknown, never current, and th
 })
 
 test('Convert while a setup check reads the old folder answers the converted folder and opens the gate', async () => {
-  await withService({ homeCalls: true, layout2: true, slowGetMs: 700 }, async ({ s }) => {
+  await withService({ layout2: true, slowGetMs: 700 }, async ({ s }) => {
     const running = s.setup()
     await new Promise((r) => setTimeout(r, 150))
     const after = await s.convertHome()
@@ -214,13 +194,16 @@ test('Convert while a setup check reads the old folder answers the converted fol
   })
 })
 
-test('a never-started docker (ready, no op) counts as idle for replacing a bundle; a running one does not', async () => {
-  await withService({ homeCalls: true }, async ({ s, home }) => {
+test('a stopped docker counts as idle for replacing a bundle; a ready (running) one does not', async () => {
+  await withService({}, async ({ s, home }) => {
     mkdirSync(home, { recursive: true })
     writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 3 }))
-    s.sdk = { machine: { list: async () => ({ machines: [{ name: 'native', platform: 'native', state: 'running' }, { name: 'docker', platform: 'docker', state: 'ready' }] }) } }
+    // 2.0 records: native is always ready (no worker); a worker machine runs when ready or busy
+    s.sdk = { machine: { list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready' }, { machine: 'docker', platform: 'docker', state: 'stopped' }] }) } }
     assert.equal(await s.workersIdle(), true)
-    s.sdk = { machine: { list: async () => ({ machines: [{ name: 'docker', platform: 'docker', state: 'running' }] }) } }
+    s.sdk = { machine: { list: async () => ({ items: [{ machine: 'docker', platform: 'docker', state: 'ready' }] }) } }
+    assert.equal(await s.workersIdle(), false)
+    s.sdk = { machine: { list: async () => ({ items: [{ machine: 'docker', platform: 'docker', state: 'busy', op: { name: 'machine.stop', phase: null, started_at: '2026-11-18T09:00:00Z' } }] }) } }
     assert.equal(await s.workersIdle(), false)
   })
 })
@@ -239,14 +222,20 @@ test('a lease whose host root is gone holds nothing', () => {
 
 test('a service built in a test writes no pin lease until the plugin starts it', () => {
   const f = runtimeFixture()
-  const saved = process.env.DSH_HOME
+  const saved = process.env.DSH_HOME, pinned = process.env.DSH_LAYERFS_CLI
   try {
     process.env.DSH_HOME = join(f.dir, 'dsh')
+    // the newest runtime in the home is the pin only when no CLI is named (a test run may name the pinned one)
+    delete process.env.DSH_LAYERFS_CLI
     const one = H.installRuntime(f.home, '1.0.0', { cli: join(f.src, 'layerfs'), daemon: null, bundle: null })
     const s = new H.LayerfsService(new H.Context(), { home: f.home })
     assert.equal(s.cli, one.cli)
     assert.ok(!existsSync(join(f.home, 'runtime', one.id, 'pins')), 'no lease before startSetup')
-  } finally { if (saved === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = saved; f.done() }
+  } finally {
+    if (saved === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = saved
+    if (pinned !== undefined) process.env.DSH_LAYERFS_CLI = pinned
+    f.done()
+  }
 })
 
 test('Use this daemon is offered only when the recorded daemon is gone or from another build, not for a same-build copy elsewhere', { skip: process.platform !== 'darwin' }, async () => {
@@ -263,7 +252,7 @@ test('Use this daemon is offered only when the recorded daemon is gone or from a
       [{ path: ours, source: 'recorded', present: true, commit: A, dirty: false, matches: true }, false],
     ]
     for (const [recorded, offered] of cases) {
-      await withService({ homeCalls: true, recorded, daemon: ours }, async ({ s }) => {
+      await withService({ recorded, daemon: ours }, async ({ s }) => {
         const status = await s.setup()
         assert.equal(status.daemonRecordable, offered, JSON.stringify(recorded))
       })

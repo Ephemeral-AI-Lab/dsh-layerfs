@@ -24,7 +24,8 @@ const pg = (name, target, runsOn, server = {}) => ({
   postgresql: { target, reachable: true, version: '16.4 (Debian)', latencyMs: 2, error: null, ...server },
   runsOn, ownConnections: [],
 })
-const machine = (name, platform, supports = { sqlite: true, postgresql_sandbox: true, reason: null }, state = 'running') => ({ name, platform, state, supports })
+// 2.0 `machine list --detail`: `supports` lists what the machine takes
+const machine = (name, platform, supports = ['sqlite', 'postgresql_sandbox'], state = 'ready') => ({ name, platform, state, supports })
 const view = (stores, machines = [machine('native', 'native'), machine('docker', 'docker')]) => ({ stores, machines, buckets: [], jobs: [], at: 0 })
 
 test('a machine\'s Stores: its SQLite files with their total size, and the PostgreSQL Stores that run there, by name', () => {
@@ -54,9 +55,9 @@ test('the Machines board lists a PostgreSQL Store on the machine it runs on, and
 })
 
 test('a machine that takes neither kind says why; the tab opens on the kind asked for when the machine takes it, else the kind with Stores', () => {
-  const v = view([pg('z', 'u@db:5432/z', 'native')], [machine('lima', 'lima', { sqlite: true, postgresql_sandbox: false, reason: 'no route to the host' })])
+  const v = view([pg('z', 'u@db:5432/z', 'native')], [machine('lima', 'lima', ['sqlite'])])
   const s = M.machineStores(v, 'lima', t)
-  assert.equal(s.noPostgresql, 'no route to the host')
+  assert.equal(s.noPostgresql, 'msNoPostgresql')
   assert.equal(M.startKind(s, 'postgresql'), 'sqlite', 'a kind the machine cannot run, with nothing running there, is not opened')
   const both = M.machineStores(view([sqlite('a', 'docker', 1), pg('z', 'u@db:5432/z', 'docker')]), 'docker', t)
   assert.equal(M.startKind(both, 'postgresql'), 'postgresql')

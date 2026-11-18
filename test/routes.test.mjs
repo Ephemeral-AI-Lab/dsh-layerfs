@@ -5,6 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
@@ -47,10 +48,13 @@ function fakeGroups(impl, discover = discovery, secrets = undefined) {
 }
 
 const base = {
+  // the 2.0 machine family (long forms): records from machine.list, the live probe from machine.get --with live
   machine: {
-    list: async () => ({ machines: [{ name: 'native', platform: 'native', state: 'ready', stores: ['s1'] }, { name: 'lima1', platform: 'lima', state: 'stopped' }] }),
-    platforms: async () => ({ host: 'macos', platforms: [{ platform: 'lima', ready: true, options: [{ name: 'cpus', kind: 'int' }, { name: 'nested', kind: 'bool' }] }, { platform: 'ssh', ready: true }] }),
-    status: async (name) => ({ name, state: 'stopped', free_disk: 10 }),
+    list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', stores: ['s1'], sandboxes: [], supports: ['sqlite'] }, { machine: 'lima1', platform: 'lima', state: 'stopped', stores: [], sandboxes: [], supports: ['sqlite'] }] }),
+    get: async (name) => ({ machine: name, platform: name === 'native' ? 'native' : 'lima', state: name === 'native' ? 'ready' : 'stopped', live: { disk_free_bytes: 10, tool_version: null, worker: null } }),
+  },
+  home: {
+    get: async () => ({ state: 'ready', version: '2.0.0', platforms: { host: 'macos', items: [{ platform: 'lima', how: 'created', ready: true, options: [{ option: 'cpus', kind: 'int' }, { option: 'nested', kind: 'bool' }] }, { platform: 'ssh', how: 'created', ready: true, options: [] }] } }),
   },
   store: {
     list: async () => ({ items: [{ name: 's1', machine: 'native', projects: ['p'], state: 'idle' }] }),
@@ -67,11 +71,11 @@ test('dispatch: machines view, platforms filter, unknown route 404', async () =>
     assert.equal(m.status, 200)
     assert.deepEqual(m.body.machines.map((x) => x.name), ['native', 'lima1'])
     assert.equal(m.body.layerfs, '2.0.0-test')
-    assert.equal(m.body.status.lima1.freeDisk, 10)
+    assert.equal(m.body.live.lima1.freeDisk, 10)
     assert.deepEqual(m.body.stores.map((s) => s.name), ['s1'])
     const p = await http('GET', '/api/platforms')
     assert.deepEqual(p.body.platforms.map((x) => x.platform), ['lima'])
-    assert.deepEqual(p.body.platforms[0].options.map((o) => o.name), ['cpus'])
+    assert.deepEqual(p.body.platforms[0].options.map((o) => o.option), ['cpus'])
     const nf = await http('GET', '/api/demos')
     assert.equal(nf.status, 404)
     assert.equal(nf.body.code, 'NotFound')
@@ -166,11 +170,11 @@ test('store projects: every project with its ledger, newest Commit and main file
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-const pgMachines = async () => ({ machines: [
-  { name: 'native', platform: 'native', state: 'ready', supports: { sqlite: true, postgresql_sandbox: true } },
-  { name: 'docker', platform: 'docker', state: 'running', supports: { sqlite: true, postgresql_sandbox: true } },
-  { name: 'vm1', platform: 'lima', state: 'stopped', supports: { sqlite: true, postgresql_sandbox: true } },
-  { name: 'nopg', platform: 'x', state: 'running', supports: { sqlite: true, postgresql_sandbox: false, reason: 'no route to the host' } },
+const pgMachines = async () => ({ items: [
+  { machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+  { machine: 'docker', platform: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+  { machine: 'vm1', platform: 'lima', state: 'stopped', supports: ['sqlite', 'postgresql_sandbox'] },
+  { machine: 'nopg', platform: 'x', state: 'ready', supports: ['sqlite'] },
 ] })
 
 test('postgresql: an entered password goes to an owner-only file; store.update edits the Store\'s connection or a machine\'s own; refusals never echo it', async () => {
@@ -301,7 +305,7 @@ test('postgresql: where a Store runs is the plugin\'s own choice: docker by defa
     assert.ok(!calls.slice(before).some((c) => /^store\.(update|attach|connect)$/.test(c)), 'LayerFS records no machine for a PostgreSQL Store')
     // refusals: a machine that runs none, no such machine, a SQLite Store
     const none = await http('POST', '/api/stores/pg/runs-on', { machine: 'nopg' })
-    assert.deepEqual([none.status, none.body.code, none.body.message], [400, 'Unsupported', 'no route to the host'])
+    assert.deepEqual([none.status, none.body.code, none.body.message], [400, 'Unsupported', 'machine nopg runs no PostgreSQL Sandboxes'])
     assert.equal((await http('POST', '/api/stores/pg/runs-on', { machine: 'ghost' })).status, 404)
     assert.equal((await http('POST', '/api/stores/s1/runs-on', { machine: 'docker' })).status, 400)
     assert.deepEqual(saved(), { pg: 'vm1' })
@@ -310,10 +314,10 @@ test('postgresql: where a Store runs is the plugin\'s own choice: docker by defa
     assert.deepEqual(saved(), { pg: 'vm1', pg2: 'native' })
     assert.equal(await runsOn('pg2'), 'native')
     // a saved machine that is gone falls back to the default; with no docker, native
-    machines = async () => ({ machines: (await pgMachines()).machines.filter((m) => m.name === 'native' || m.name === 'docker') })
+    machines = async () => ({ items: (await pgMachines()).items.filter((m) => m.machine === 'native' || m.machine === 'docker') })
     await http('POST', '/api/stores', { name: 'bump' }) // any write: the view is read anew
     assert.equal(await runsOn('pg'), 'docker')
-    machines = async () => ({ machines: (await pgMachines()).machines.filter((m) => m.name === 'native') })
+    machines = async () => ({ items: (await pgMachines()).items.filter((m) => m.machine === 'native') })
     await http('POST', '/api/stores', { name: 'bump' })
     assert.equal(await runsOn('pg'), 'native')
     // disconnect forgets the choice
@@ -675,7 +679,8 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
   // a short path: the native daemon's sockets live in the home
   const root = mkdtempSync('/tmp/dshrt-')
   const home = join(root, 'home')
-  mkdirSync(home, { mode: 0o700 })
+  // a 2.0 CLI makes no home on a read: `home init` first, as Set up LayerFS does
+  execFileSync(pin.cli, ['home', 'init'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
   const src = join(root, 'src')
   mkdirSync(join(src, 'lib'), { recursive: true })
   writeFileSync(join(src, 'README.md'), '# hello\nworld\n')

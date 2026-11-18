@@ -52,8 +52,8 @@ export function emit(fd, text) {
     }
   }
 }
-/** Refuse as LayerFS does: one JSON line on stderr, exit 125. */
-export const refuse = (code, message, detail = null) => { emit(2, `${JSON.stringify({ code, message, detail })}\n`); process.exit(125) }
+/** Refuse as LayerFS 2.0 does: one JSON line `{ error, message, fix?, detail? }` on stderr, exit 125. */
+export const refuse = (code, message, detail = null, fix = null) => { emit(2, `${JSON.stringify({ error: code, message, ...(fix ? { fix } : {}), ...(detail != null ? { detail } : {}) })}\n`); process.exit(125) }
 export const answer = (value) => { emit(1, `${JSON.stringify(value)}\n`); process.exit(0) }
 
 /** A JSON file of the fixture folder, read on every call; `{}` when absent or torn. */

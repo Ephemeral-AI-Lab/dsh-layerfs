@@ -53,14 +53,16 @@ function fakeClock(start = 1_000_000) {
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve() }
 
-const usage = (cpu, mem, more = {}) => ({ cpu_usec: cpu, memory_current: mem, memory_peak: mem * 2, memory_file: Math.round(mem / 4), pids: 3, oom_kills: 0, ...more })
+// `machine stats --detail` (2.0): flat *_bytes and *_ms keys, `sandboxes` as rows keyed `sandbox`, times as ISO
+const iso = (ms) => new Date(ms).toISOString()
+const usage = (cpuMs, mem, more = {}) => ({ cpu_ms: cpuMs, memory_bytes: mem, memory_peak_bytes: mem * 2, memory_file_bytes: Math.round(mem / 4), pid_count: 3, oom_kill_count: 0, ...more })
 const statsOf = (name, n, items, more = {}) => ({
-  machine: name, platform: 'lima', observed_at: 1_800_000_000_000 + n * 15_000, worker: null,
-  resources: { cpus: 4, memory_total: 8e9, memory_used: 2e9 + n, disk_total: 1e11, disk_used: 4e10, disk_free: 6e10, cpu_busy_usec: n * 3_000_000, cpu_total_usec: n * 60_000_000, scope: 'vm' },
+  cpus: 4, memory_used_bytes: 2e9 + n, memory_total_bytes: 8e9, disk_free_bytes: 6e10, disk_total_bytes: 1e11, incomplete: false, disk_used_bytes: 4e10, reasons: [],
+  machine: name, platform: 'lima', observed_at: iso(1_800_000_000_000 + n * 15_000), scope: 'vm', cpu_busy_ms: n * 3_000, cpu_total_ms: n * 60_000, worker: null,
   data_disk: { path: '/layerfs/data', fs: 'ext4', scope: 'volume', volume: 'v', inodes_free: 100 }, stores: [],
-  sandboxes: { recorded: items?.length ?? 0, live: items?.length ?? 0, ...(items ? { items } : {}) }, complete: true, ...more,
+  ...(items ? { sandboxes: items } : {}), ...more,
 })
-const row = (name, n, more = {}) => ({ name, live: true, started_at: 1_799_000_000_000, usage: usage(n * 1_500_000, 1e8 + n), ...more })
+const row = (name, n, more = {}) => ({ sandbox: name, live: true, live_reason: null, started_at: iso(1_799_000_000_000), usage: usage(n * 1_500, 1e8 + n), usage_reason: null, ...more })
 
 /** A sampler over fake machines; `answers[name]` is called per read (may return a Promise). */
 function sampler(machines, answers, clock = fakeClock()) {
@@ -79,7 +81,7 @@ function sampler(machines, answers, clock = fakeClock()) {
 test('sampler: one read at a time across machines, in turn; each machine 15 s after its last read ended', async () => {
   const gates = []
   const open = (name) => (n) => new Promise((resolve) => gates.push(() => resolve(statsOf(name, n, []))))
-  const { s, log, clock } = sampler(() => [{ name: 'a', state: 'running' }, { name: 'b', state: 'ready' }, { name: 'off', state: 'stopped' }], { a: open('a'), b: open('b') })
+  const { s, log, clock } = sampler(() => [{ name: 'a', state: 'ready' }, { name: 'b', state: 'ready' }, { name: 'off', state: 'stopped' }], { a: open('a'), b: open('b') })
   s.start()
   await clock.advance(0)
   assert.deepEqual(log.reads.map((r) => r[0]), ['a'], 'b waits for a: one read in flight')
@@ -106,7 +108,7 @@ test('sampler: one read at a time across machines, in turn; each machine 15 s af
 
 test('sampler: a refused read is a gap with its code, never retried; a timed-out machine skips its next turn', async () => {
   let mode = 'ok'
-  const { s, log, clock } = sampler(() => [{ name: 'a', state: 'running' }], {
+  const { s, log, clock } = sampler(() => [{ name: 'a', state: 'ready' }], {
     a: async (n) => { if (mode === 'ok') return statsOf('a', n, [row('x', n)]); throw new Refusal(mode, `${mode} from LayerFS`) },
   })
   s.start(); await clock.advance(0)
@@ -142,7 +144,7 @@ test('sampler: a stopped machine gets machine_stopped gaps and is read at its ne
   const v = s.view(new URLSearchParams())
   assert.deepEqual(v.machines.vm.points.map((p) => [p.values, p.code]), [[null, 'machine_stopped'], [null, 'machine_stopped'], [null, 'machine_stopped'], [null, 'machine_stopped']])
   assert.equal(v.machines.vm.latest, null)
-  state = 'running'; s.relist()
+  state = 'ready'; s.relist()
   await clock.advance(H.TICK_MS)
   assert.equal(log.reads.length, 1)
   state = 'stopped'; s.relist()
@@ -155,7 +157,7 @@ test('sampler: a stopped machine gets machine_stopped gaps and is read at its ne
 
 test('sampler: 240 points per machine and per Sandbox; a closed Sandbox is kept 10 minutes, then dropped', async () => {
   let rows = (n) => [row('keep', n), row('goes', n)]
-  const { s, clock } = sampler(() => [{ name: 'a', state: 'running' }], { a: async (n) => statsOf('a', n, rows(n)) })
+  const { s, clock } = sampler(() => [{ name: 'a', state: 'ready' }], { a: async (n) => statsOf('a', n, rows(n)) })
   s.start(); await clock.advance(0)
   await clock.advance(300 * H.TICK_MS)
   let v = s.view(new URLSearchParams())
@@ -174,13 +176,13 @@ test('sampler: 240 points per machine and per Sandbox; a closed Sandbox is kept 
   s.stop()
 })
 
-test('sampler: a worker of an older build (no items) gives no Sandbox points; the view filters by machine and since', async () => {
-  const { s, clock } = sampler(() => [{ name: 'old', state: 'running' }, { name: 'new', state: 'running' }], {
+test('sampler: an answer without its Sandbox rows gives no Sandbox points; the view filters by machine and since', async () => {
+  const { s, clock } = sampler(() => [{ name: 'old', state: 'ready' }, { name: 'new', state: 'ready' }], {
     old: async (n) => statsOf('old', n, undefined), new: async (n) => statsOf('new', n, [row('sb', n)]),
   })
   s.start(); await clock.advance(0); await clock.advance(0)
   let v = s.view(new URLSearchParams())
-  assert.equal(v.machines.old.latest.stats.sandboxes.items, undefined, 'absent stays absent')
+  assert.deepEqual(v.machines.old.latest.stats.sandboxes, { recorded: null, live: null, items: [] }, 'not read: no count, no rows')
   assert.deepEqual(v.machines.new.latest.stats.sandboxes.items.map((r) => r.name), ['sb'])
   assert.deepEqual(Object.keys(v.sandboxes), ['sb'])
   assert.deepEqual(s.liveOf('nothing'), {}, 'no point: no live')
@@ -215,7 +217,7 @@ const until = async (check, ms = 2000) => { const end = Date.now() + ms; while (
 
 test('/api/metrics answers from memory with no LayerFS call; the stats route answers the sampler\'s values', async () => {
   const f = fixture({
-    'machine.list': async () => ({ machines: [{ name: 'vm', platform: 'lima', state: 'running' }] }),
+    'machine.list': async () => ({ items: [{ machine: 'vm', platform: 'lima', state: 'ready' }] }),
     'machine.stats': async () => statsOf('vm', 1, [row('sb', 1)]),
   })
   try {
@@ -239,9 +241,9 @@ test('/api/metrics answers from memory with no LayerFS call; the stats route ans
 test('machines view: one answer serves every tab for 5 s, a write reads anew; sandbox.list is never asked with live, live comes from the sampler', async () => {
   const asked = []
   const f = fixture({
-    'machine.list': async () => ({ machines: [{ name: 'vm', platform: 'lima', state: 'running' }] }),
+    'machine.list': async () => ({ items: [{ machine: 'vm', platform: 'lima', state: 'ready' }] }),
     'machine.stats': async () => statsOf('vm', 1, [row('up', 1), row('dead', 1, { live: false, usage: null, usage_reason: 'not_observed' })]),
-    'sandbox.list': async (options) => { asked.push(options); return { items: [{ name: 'up', machine: 'vm', state: 'running' }, { name: 'dead', machine: 'vm', state: 'running' }, { name: 'new', machine: 'vm', state: 'running' }], next_page_pos: null } },
+    'sandbox.list': async (options) => { asked.push(options); return { items: [{ name: 'up', machine: 'vm', state: 'ready' }, { name: 'dead', machine: 'vm', state: 'ready' }, { name: 'new', machine: 'vm', state: 'ready' }], next_page_pos: null } },
   })
   const realNow = Date.now
   try {

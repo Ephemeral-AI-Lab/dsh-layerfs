@@ -4,11 +4,12 @@ import { createSteps, defaultMachine, freeStoreName, machinesFor, passwordBody, 
 
 const view = {
   machines: [
-    { name: 'native', platform: 'native', state: 'running', supports: { sqlite: true, postgresql_sandbox: true, reason: null } },
-    { name: 'dev', platform: 'lima', state: 'running', supports: { sqlite: true, postgresql_sandbox: true, reason: null } },
-    { name: 'docker', platform: 'docker', state: 'stopped', supports: { sqlite: true, postgresql_sandbox: true, reason: null } },
-    { name: 'old', platform: 'ssh', state: 'unsupported', supports: null },
-    { name: 'nopg', platform: 'x', state: 'running', supports: { sqlite: true, postgresql_sandbox: false, reason: 'no' } },
+    // 2.0 records: six states, `supports` a list
+    { name: 'native', platform: 'native', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+    { name: 'dev', platform: 'lima', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+    { name: 'docker', platform: 'docker', state: 'stopped', supports: ['sqlite', 'postgresql_sandbox'] },
+    { name: 'old', platform: 'ssh', state: 'broken', reason: 'unsupported', supports: [] },
+    { name: 'nopg', platform: 'x', state: 'ready', supports: ['sqlite'] },
   ],
   stores: [{ name: 'website' }, { name: 'website-2' }],
 }

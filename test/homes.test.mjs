@@ -132,7 +132,8 @@ function runtimes(home, n, { bare = [] } = {}) {
   }
   return made
 }
-const stopped = (extra = {}) => ({ machines: [{ name: 'native', platform: 'native', state: 'ready', ...extra }, { name: 'docker', platform: 'docker', state: 'stopped' }] })
+// `machine list --detail` (2.0): rows keyed `machine`, the native record's `daemon` path in the long form
+const stopped = (extra = {}) => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', ...extra }, { machine: 'docker', platform: 'docker', state: 'stopped' }] })
 const left = (home) => readdirSync(join(home, 'runtime')).sort()
 const whys = (result) => Object.fromEntries(result.kept.map((k) => [k.id.slice(-1), k.why]))
 
@@ -160,16 +161,16 @@ test('runtime cleanup: a worker machine that is not stopped keeps every runtime 
   const f = fixture()
   try {
     const r = runtimes(f.home, 6, { bare: [1] })
-    for (const state of ['ready', 'running', 'starting', 'unknown', undefined]) {
-      const machines = { machines: [{ name: 'native', platform: 'native', state: 'ready' }, { name: 'docker', platform: 'docker', state }] }
+    for (const state of ['ready', 'busy', 'broken', 'blocked', 'unknown', undefined]) {
+      const machines = { items: [{ machine: 'native', platform: 'native', state: 'ready' }, { machine: 'docker', platform: 'docker', state }] }
       const plan = H.planRuntimeCleanup(H.installedRuntimes(f.home), { pinned: [], machines, processes: ['x'] })
       assert.deepEqual(plan.remove.map((x) => x.id), [r[1].id], `state ${state}: only the runtime without a bundle may go`)
       assert.equal(plan.keep.get(r[0].id), 'worker')
     }
     // a machine with no readable platform counts as a worker that may run
-    const odd = H.planRuntimeCleanup(H.installedRuntimes(f.home), { pinned: [], machines: { machines: [null, { name: 'x' }] }, processes: ['x'] })
+    const odd = H.planRuntimeCleanup(H.installedRuntimes(f.home), { pinned: [], machines: { items: [null, { machine: 'x' }] }, processes: ['x'] })
     assert.deepEqual(odd.remove.map((x) => x.id), [r[1].id])
-    const result = H.cleanRuntimes(f.home, { pinned: [], machines: { machines: [{ name: 'vm', platform: 'lima', state: 'running' }] }, processes: ['x'] })
+    const result = H.cleanRuntimes(f.home, { pinned: [], machines: { items: [{ machine: 'vm', platform: 'lima', state: 'ready' }] }, processes: ['x'] })
     assert.deepEqual(result.removed, [r[1].id])
     assert.deepEqual(left(f.home), [r[0], r[2], r[3], r[4], r[5]].map((x) => x.id))
     // all workers stopped: the old ones with a bundle go too
@@ -185,7 +186,7 @@ test('runtime cleanup: removes nothing when a fact is missing, and never a symli
     for (const facts of [
       { pinned: [], machines: null, processes: ['x'] },
       { pinned: [], machines: stopped(), processes: null },
-      { pinned: [], machines: { items: [] }, processes: ['x'] },
+      { pinned: [], machines: { machines: [] }, processes: ['x'] },
       { pinned: [], machines: 'nope', processes: ['x'] },
     ]) {
       const result = H.cleanRuntimes(f.home, facts)

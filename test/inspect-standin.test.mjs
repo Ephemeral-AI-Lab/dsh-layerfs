@@ -26,7 +26,7 @@ appendFileSync(${JSON.stringify(join(dir, 'last.log'))}, JSON.stringify({ argv: 
 if (a[0] === 'help') console.log(JSON.stringify({ calls: [{ family: 'sandbox', call: 'get' }] }))
 else if (a[0] === 'sandbox' && a[1] === 'get') console.log(JSON.stringify({ name: a.at(-1), state: 'running', workspaces: [{ ws: a.at(-1) + ':one', name: 'one', directory: ${JSON.stringify(join(dir, 'run', 'workspaces', '1'))} }, { ws: a.at(-1) + ':two', name: 'two', directory: ${JSON.stringify(join(dir, 'run', 'workspaces', '2'))} }] }))
 else if (a[0] === 'workspace' && a[1] === 'exec') { await new Promise((r) => setTimeout(r, Number(process.env.LAST_SLEEP ?? 0))); console.log('ran'); }
-else { console.error(JSON.stringify({ code: 'Unsupported', message: 'no such call', detail: null })); process.exit(125) }
+else { console.error(JSON.stringify({ error: 'Unsupported', message: 'no such call' })); process.exit(125) }
 `)
   chmodSync(last, 0o755)
   const write = (config) => writeFileSync(join(dir, 'files.json'), JSON.stringify(config))
@@ -57,8 +57,8 @@ test('files: the roots answer: roles in the declared order, only roots that exis
     assert.deepEqual([roots.entries[2].workspace, roots.entries[2].fs, roots.entries[2].size], ['w1', 'nfs', null])
     f.write({ machine: { m: { root: f.root, roots: [{ role: 'stores', path: '/layerfs/data/store' }] } } })
     assert.deepEqual(f.files().out.entries.map((e) => e.path), ['/layerfs/data/store'], 'without `whole` no / is offered')
-    assert.equal(f.run(filesShim, ['machine', 'files', '--', 'other']).err.code, 'NotFound')
-    assert.equal(f.run(filesShim, ['sandbox', 'files', '--', 'sb']).err.code, 'NoSuchSandbox')
+    assert.equal(f.run(filesShim, ['machine', 'files', '--', 'other']).err.error, 'NotFound')
+    assert.equal(f.run(filesShim, ['sandbox', 'files', '--', 'sb']).err.error, 'NoSuchSandbox')
   } finally { f.done() }
 })
 
@@ -94,7 +94,7 @@ test('files: a LayerFS folder met in a listing carries its role; from / it is no
       [['file', 'log'], ['file', 'log'], ['file', undefined], ['file', 'log'], ['file', undefined]])
     for (const path of ['/layerfs/data/log/worker.log', `${run}/rf/daemon.log`]) {
       const r = f.files(path)
-      assert.deepEqual([r.status, r.err.code], [125, 'InvalidInput'], path)
+      assert.deepEqual([r.status, r.err.error], [125, 'InvalidInput'], path)
       assert.match(r.err.message, /is a log; read it with the `logs` calls/)
     }
     assert.equal(f.files('/layerfs/data/log/other.txt').out.content, 'other.txt')
@@ -103,7 +103,7 @@ test('files: a LayerFS folder met in a listing carries its role; from / it is no
     assert.equal(data['/layerfs/data/store/s/open/42'], undefined, 'a restricted folder is not entered')
     assert.equal(by(f.files('/layerfs/state').out)['/layerfs/state/secret'].kind, 'restricted')
     // a missing path, in LayerFS's words
-    assert.deepEqual([f.files('/layerfs/data/nope').err.code, f.files('/layerfs/data/nope').err.message], ['NotFound', 'machine.files: nothing is at /layerfs/data/nope'])
+    assert.deepEqual([f.files('/layerfs/data/nope').err.error, f.files('/layerfs/data/nope').err.message], ['NotFound', 'machine.files: nothing is at /layerfs/data/nope'])
   } finally { f.done() }
 })
 
@@ -133,7 +133,7 @@ test('files: a folder lists in byte order, pages by limit and cursor, goes deepe
     assert.deepEqual([names(cut).length, cut.has_more, cut.reason, cut.next], [3, true, 'deadline', '/d/b'])
     assert.deepEqual(names(f.files('/d', '--cursor', cut.next).out), ['/d/c'])
     // bad options
-    for (const bad of [['--limit', '0'], ['--limit', '1001'], ['--depth', '0'], ['--depth', '33'], ['--depth', 'x']]) assert.equal(f.files('/d', ...bad).err.code, 'InvalidInput', bad.join(' '))
+    for (const bad of [['--limit', '0'], ['--limit', '1001'], ['--depth', '0'], ['--depth', '33'], ['--depth', 'x']]) assert.equal(f.files('/d', ...bad).err.error, 'InvalidInput', bad.join(' '))
   } finally { f.done() }
 })
 
@@ -154,7 +154,7 @@ test('files: a file is read by window; a binary file has no content', () => {
     assert.deepEqual([f.files('/empty').out.size, f.files('/empty').out.content, f.files('/empty').out.next], [0, '', null])
     const bin = f.files('/bin').out
     assert.deepEqual([bin.binary, bin.content, bin.size], [true, '', 4])
-    assert.equal(f.files('/t.txt', '--length', String((1 << 20) + 1)).err.code, 'InvalidInput', 'a window is at most 1 MiB')
+    assert.equal(f.files('/t.txt', '--length', String((1 << 20) + 1)).err.error, 'InvalidInput', 'a window is at most 1 MiB')
   } finally { f.done() }
 })
 
@@ -184,9 +184,9 @@ test('files: kinds that are listed and never opened, and the refusals for their 
     // their paths are refused
     for (const path of ['/etc/shadow', '/etc/link', '/etc/pipe', '/proc', '/proc/1', '/mnt/share', '/layerfs/data/sandbox/s/control.json', '/layerfs/data/machine/native/run/rf/config', '/layerfs/data/machine/native/run/rf/config/key', '/layerfs/data/machine/native/run/rf/workspaces/1', '/etc/../etc/hosts', '/etc//hosts', 'etc/hosts']) {
       const r = f.files(path)
-      assert.deepEqual([r.status, r.err?.code], [125, 'InvalidInput'], path)
+      assert.deepEqual([r.status, r.err?.error], [125, 'InvalidInput'], path)
     }
-    assert.equal(f.files('/etc/nope').err.code, 'NotFound')
+    assert.equal(f.files('/etc/nope').err.error, 'NotFound')
     assert.equal(f.files('/etc/hosts').out.content, 'x')
   } finally { f.done() }
 })
@@ -197,26 +197,26 @@ test('files: confines, a stopped target, hangs and refusals from the control fil
     f.put('layerfs/store/a', '1')
     f.put('etc/hosts', 'x')
     assert.deepEqual(names(f.files('/layerfs/store').out), ['/layerfs/store/a'])
-    assert.equal(f.files('/etc/hosts').err.code, 'InvalidInput', 'outside the confines')
-    assert.equal(f.files('/').err.code, 'InvalidInput')
+    assert.equal(f.files('/etc/hosts').err.error, 'InvalidInput', 'outside the confines')
+    assert.equal(f.files('/').err.error, 'InvalidInput')
     // stopped
     f.write({ machine: { m: { root: f.root, state: 'stopped' } }, sandbox: { sb: { root: f.root, whole: 'root', home: '/home', state: 'stopped', roots: [{ role: 'home', path: '/home' }] } } })
     f.put('home/x', '1')
-    assert.equal(f.files().err.code, 'Unavailable', 'a stopped machine reads nothing')
+    assert.equal(f.files().err.error, 'Unavailable', 'a stopped machine reads nothing')
     const sb = (...args) => f.run(filesShim, ['sandbox', 'files', '--', 'sb', ...args])
     assert.deepEqual(names(sb('/home').out), ['/home/x'], 'a stopped Sandbox\'s home is read')
-    assert.equal(sb('/etc').err.code, 'Unavailable', 'the rest of it is not')
+    assert.equal(sb('/etc').err.error, 'Unavailable', 'the rest of it is not')
     assert.ok(sb().out.entries.some((e) => e.role === 'home'))
     // the control file: per path, per target, for every target
     f.write({ machine: { m: { root: f.root, whole: 'machine' } } })
     f.control({ refuse: { 'files-machine:m:/etc': { code: 'Busy', message: 'two reads are running' } }, delay_ms: { 'files-machine:m:/layerfs': 700 } })
-    assert.deepEqual([f.files('/etc').status, f.files('/etc').err], [125, { code: 'Busy', message: 'two reads are running', detail: null }])
+    assert.deepEqual([f.files('/etc').status, f.files('/etc').err], [125, { error: 'Busy', message: 'two reads are running' }])
     assert.equal(f.files('/etc/hosts').out.content, 'x', 'another path is not refused')
     const t0 = Date.now()
     assert.ok(f.files('/layerfs').out.entries.length === 1 && Date.now() - t0 >= 650, 'a hang delays the answer')
     f.control({ refuse: { 'files-machine:m:': { code: 'Unavailable', message: 'roots' }, 'files-sandbox:*': { code: 'NoSuchSandbox', message: 'lost' } } })
-    assert.equal(f.files().err.code, 'Unavailable', 'the empty path is the roots read')
-    assert.equal(f.run(filesShim, ['sandbox', 'files', '--', 'any']).err.code, 'NoSuchSandbox')
+    assert.equal(f.files().err.error, 'Unavailable', 'the empty path is the roots read')
+    assert.equal(f.run(filesShim, ['sandbox', 'files', '--', 'any']).err.error, 'NoSuchSandbox')
     f.control({})
     // every files call is one line in spawns.log; calls passed on are not
     const before = readFileSync(join(f.dir, 'spawns.log'), 'utf8').split('\n').filter(Boolean).length
@@ -238,7 +238,7 @@ test('files: help --json gains the calls it answers; the rest goes down the chai
     const some = f.run(filesShim, ['help', '--json']).out
     assert.ok(some.calls.some((c) => c.family === 'sandbox' && c.call === 'files') && !some.calls.some((c) => c.family === 'machine' && c.call === 'files'))
     const refused = f.run(filesShim, ['machine', 'files', '--', 'm'])
-    assert.deepEqual([refused.status, refused.err.code], [125, 'Unsupported'], 'a call it does not answer is the next CLI\'s to refuse')
+    assert.deepEqual([refused.status, refused.err.error], [125, 'Unsupported'], 'a call it does not answer is the next CLI\'s to refuse')
     // files -> fields -> last: each hands the next the rest of the chain
     writeFileSync(join(f.dir, 'last.log'), '')
     const got = f.run(filesShim, ['sandbox', 'get', 'sb'], [fieldsShim, f.last])
@@ -248,7 +248,7 @@ test('files: help --json gains the calls it answers; the rest goes down the chai
     assert.deepEqual(seen.map((s) => s.argv), [['sandbox', 'get', 'sb']])
     assert.equal(seen[0].rest, '', 'the last CLI is handed an empty rest')
     const unknown = f.run(filesShim, ['store', 'list'], [fieldsShim, f.last])
-    assert.deepEqual([unknown.status, unknown.err.code], [125, 'Unsupported'], 'exit code and stderr come back up the chain')
+    assert.deepEqual([unknown.status, unknown.err.error], [125, 'Unsupported'], 'exit code and stderr come back up the chain')
   } finally { f.done() }
 })
 

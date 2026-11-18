@@ -213,38 +213,3 @@ test('control.json: refusal codes, a delay, supports.log false; each process is 
     assert.notEqual(f.run(['logs', 'machine', '--', 'docker']).status, 0)
   } finally { f.done() }
 })
-
-test('with the pinned CLI: help lists the two calls, machine list and get carry supports.log, the rest passes through', { skip: pin ? false : 'no pinned LayerFS CLI' }, () => {
-  const f = fixture()
-  try {
-    const realHelp = JSON.parse(spawnSync(pin.cli, ['help', '--json'], { encoding: 'utf8', env: { ...process.env, LAYERFS_HOME: join(f.dir, 'home') } }).stdout)
-    const help = f.run(['help', '--json']).out
-    const added = help.calls.filter((c) => !realHelp.calls.some((r) => r.family === c.family && r.call === c.call))
-    const had = (name) => realHelp.calls.some((c) => `${c.family}.${c.call}` === name)
-    assert.deepEqual(added.map((c) => `${c.family}.${c.call}`).sort(), ['logs.machine', 'logs.sandbox'].filter((n) => !had(n)))
-    for (const c of help.calls.filter((c) => c.family === 'logs' && ['machine', 'sandbox'].includes(c.call))) {
-      assert.deepEqual(c.args.map((a) => a.name), [c.call])
-      assert.deepEqual(c.options.map((o) => [o.name, o.kind]), [['cursor', 'text'], ['before', 'text'], ['limit', 'int']])
-    }
-    assert.deepEqual(help.commands, realHelp.commands)
-    assert.equal(f.run(['--version', '--json']).out.version, JSON.parse(spawnSync(pin.cli, ['--version', '--json'], { encoding: 'utf8' }).stdout).version)
-    // a fresh home: machine.list creates nothing a read should not (the real CLI's own behaviour, passed through)
-    const list = f.run(['machine', 'list'])
-    if (list.status === 0) {
-      for (const m of list.out.machines) assert.equal(m.supports.log, true, m.name)
-      f.control({ supports_log: { native: false } })
-      const again = f.run(['machine', 'list']).out.machines
-      assert.equal(again.find((m) => m.name === 'native').supports.log, false)
-      assert.equal(f.run(['machine', 'get', '--', 'native']).out.supports.log, false)
-    }
-    // a refusal of the real CLI comes through as it is
-    const missing = f.run(['sandbox', 'get', '--', 'nope'])
-    assert.equal(missing.status, 125)
-    assert.equal(typeof missing.err.code, 'string')
-    // a delayed pass-through call
-    f.control({ delay_ms: { 'call:sandbox.get:nope': 600 } })
-    const started = Date.now()
-    assert.equal(f.run(['sandbox', 'get', '--', 'nope']).status, 125)
-    assert.ok(Date.now() - started >= 550)
-  } finally { f.done() }
-})

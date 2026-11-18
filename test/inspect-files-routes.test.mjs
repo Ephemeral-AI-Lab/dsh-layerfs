@@ -79,21 +79,22 @@ test('files routes: the roots, a folder page and a file window as the page reads
   const lfs = base()
   lfs.machine.files = async (name, path, options) => {
     seen.push(['machine', name, path, { ...options, signal: options.signal instanceof AbortSignal }])
-    if (path === undefined) return { kind: 'folder', entries: [
-      { path: '/layerfs/data', depth: 1, kind: 'folder', size: 4096, mode: 0o40700, mtime: 1763290000, role: 'data', free_bytes: 123456789 },
-      { path: '/layerfs/data/store', depth: 1, kind: 'folder', size: 96, mode: 0o40700, mtime: 1763290001, role: 'stores' },
-      { path: '/', depth: 1, kind: 'folder', size: 4096, mode: 0o40755, mtime: 1, role: 'machine' },
-    ], next: null, has_more: false }
-    if (path === '/etc') return { kind: 'folder', entries: [
-      { path: '/etc/hosts', depth: 1, kind: 'file', size: 180, mode: 0o100644, mtime: 1763290000 },
-      { path: '/etc/shadow', depth: 1, kind: 'unreadable', size: 900, mode: 0o100640, mtime: 1763290000 },
-      { path: '/etc/mtab', depth: 1, kind: 'symlink', size: 19, mode: 0o120777, mtime: 1, target: '../proc/self/mounts' },
-      { path: '/etc/future', depth: 1, kind: 'door', size: 0, mode: 0, mtime: 0 },
-      { path: '/etc/ws', depth: 1, kind: 'mount', size: null, mode: null, mtime: null, workspace: 'sb:w1', fs: 'fuse.layerfs' },
-      { path: '', kind: 'file' }, null, 'bare',
-    ], next: '/etc/ws', has_more: true, reason: 'deadline' }
-    if (path === '/etc/hosts') return { kind: 'file', size: 300000, offset: options.offset ?? 0, content: 'x'.repeat(8), binary: false, next: 262144 }
-    return { kind: 'something else' }
+    // the 2.0 long form (`machine files --detail`): `items` with `type` / `not_read`, `next_cursor`, byte windows
+    if (path === undefined) return { type: 'dir', next_cursor: null, items: [
+      { path: '/layerfs/data', type: 'dir', depth: 1, size: 4096, mode: '0700', modified_at: '2025-11-16T10:46:40Z', role: 'data', disk_free_bytes: 123456789 },
+      { path: '/layerfs/data/store', type: 'dir', depth: 1, size: 96, mode: '0700', modified_at: '2025-11-16T10:46:41Z', role: 'stores', disk_free_bytes: null },
+      { path: '/', type: 'dir', depth: 1, size: 4096, mode: '0755', modified_at: '1970-01-01T00:00:01Z', role: 'machine' },
+    ] }
+    if (path === '/etc') return { type: 'dir', next_cursor: '/etc/ws', items: [
+      { path: '/etc/hosts', depth: 1, type: 'file', size: 180, mode: '0644', modified_at: '2025-11-16T10:46:40Z', not_read: null },
+      { path: '/etc/shadow', depth: 1, type: 'file', size: 900, mode: '0640', modified_at: '2025-11-16T10:46:40Z', not_read: 'unreadable' },
+      { path: '/etc/mtab', depth: 1, type: 'symlink', size: 19, mode: '0777', modified_at: '1970-01-01T00:00:01Z', target: '../proc/self/mounts' },
+      { path: '/etc/future', depth: 1, type: 'other', size: 0, mode: '0000', modified_at: null },
+      { path: '/etc/ws', depth: 1, type: 'dir', size: null, mode: null, modified_at: null, not_read: 'mount', workspace: 'sb:w1', fs: 'fuse.layerfs' },
+      { path: '', type: 'file' }, null, 'bare',
+    ] }
+    if (path === '/etc/hosts') return { type: 'file', size: 300000, text: 'x'.repeat(8), binary: false, next_byte_offset: 262144 }
+    return {}
   }
   lfs.sandbox.files = async (name, path, options) => { seen.push(['sandbox', name, path, { ...options, signal: options.signal instanceof AbortSignal }]); return { kind: 'file', size: 4, offset: 0, content: '\u0000\u0001', binary: true, next: null } }
   const f = fixture(lfs)
@@ -107,11 +108,11 @@ test('files routes: the roots, a folder page and a file window as the page reads
     assert.equal(typeof roots.observedAt, 'number')
 
     const etc = (await f.http('GET', '/api/machines/vm/files?path=/etc&depth=1&limit=500')).body
-    assert.deepEqual(etc.entries.map((e) => e.kind), ['file', 'unreadable', 'symlink', 'door', 'mount'], 'entries without a path are dropped; an unknown kind is passed as it came')
-    assert.deepEqual(etc.entries[0], { path: '/etc/hosts', depth: 1, kind: 'file', size: 180, mode: 0o100644, mtime: 1763290000 })
+    assert.deepEqual(etc.entries.map((e) => e.kind), ['file', 'unreadable', 'symlink', 'other', 'mount'], 'entries without a path are dropped; not_read names what is listed and not read')
+    assert.deepEqual(etc.entries[0], { path: '/etc/hosts', depth: 1, kind: 'file', size: 180, mode: 0o644, mtime: Date.parse('2025-11-16T10:46:40Z') })
     assert.equal(etc.entries[2].target, '../proc/self/mounts')
     assert.deepEqual([etc.entries[4].workspace, etc.entries[4].fs, etc.entries[4].size], ['sb:w1', 'fuse.layerfs', null])
-    assert.deepEqual([etc.path, etc.next, etc.hasMore, etc.reason], ['/etc', '/etc/ws', true, 'deadline'])
+    assert.deepEqual([etc.path, etc.next, etc.hasMore, etc.reason], ['/etc', '/etc/ws', true, null])
 
     const file = (await f.http('GET', '/api/machines/vm/files?path=/etc/hosts&offset=262144&length=1048576')).body
     assert.deepEqual({ ...file, observedAt: 0 }, { kind: 'file', path: '/etc/hosts', size: 300000, offset: 262144, content: 'xxxxxxxx', binary: false, next: 262144, observedAt: 0, stale: false })
@@ -125,12 +126,12 @@ test('files routes: the roots, a folder page and a file window as the page reads
 
     await f.http('GET', '/api/machines/vm/files?path=/etc&cursor=/etc/ws')
     assert.deepEqual(seen, [
-      ['machine', 'vm', undefined, { signal: true }],
-      ['machine', 'vm', '/etc', { depth: 1, limit: 500, signal: true }],
-      ['machine', 'vm', '/etc/hosts', { offset: 262144, length: 1048576, signal: true }],
+      ['machine', 'vm', undefined, { detail: true, signal: true }],
+      ['machine', 'vm', '/etc', { depth: 1, limit: 500, detail: true, signal: true }],
+      ['machine', 'vm', '/etc/hosts', { byte_offset: 262144, byte_length: 1048576, detail: true, signal: true }],
       ['sandbox', 'sb', '/home/a.bin', { signal: true }],
-      ['machine', 'vm', '/odd', { signal: true }],
-      ['machine', 'vm', '/etc', { cursor: '/etc/ws', signal: true }],
+      ['machine', 'vm', '/odd', { detail: true, signal: true }],
+      ['machine', 'vm', '/etc', { cursor: '/etc/ws', detail: true, signal: true }],
     ])
   } finally { f.close() }
 })

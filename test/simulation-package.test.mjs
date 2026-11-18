@@ -95,8 +95,10 @@ test('a workspace lifecycle waiter consumes no shared command slot', async t => 
 
 test('selected stopped or SQLite-incompatible machines fail before any dependent store mutation', async t => {
   for (const [index, receipt] of [
-    { state: 'stopped', supports: { sqlite: true } },
-    { state: 'running', supports: { sqlite: false } },
+    // `machine get --detail` (2.0): six states, `supports` a list
+    { state: 'stopped', supports: ['sqlite'] },
+    { state: 'ready', supports: ['postgresql_sandbox'] },
+    { state: 'busy', op: { name: 'machine.start', phase: 'boot', started_at: '2026-11-18T09:00:00Z' }, supports: ['sqlite'] },
   ].entries()) {
     const root = await mkdtemp(join(tmpdir(), 'dsh-simulation-machine-'))
     t.after(() => rm(root, { recursive: true, force: true }))
@@ -111,13 +113,13 @@ test('selected stopped or SQLite-incompatible machines fail before any dependent
     assert.equal(journal.records.some(record => record.type === 'intent' && record.stepKey === 'setup.store'), false)
   }
 })
-test('the recorded native ready machine shape and running workers pass setup readiness', async t => {
-  for (const [index, state] of ['ready', 'running'].entries()) {
+test('the recorded native ready machine shape and ready workers pass setup readiness', async t => {
+  for (const [index, platform] of ['native', 'lima'].entries()) {
     const root = await mkdtemp(join(tmpdir(), 'dsh-simulation-ready-'))
     t.after(() => rm(root, { recursive: true, force: true }))
     const run = compileSimulation({ project, runId: `ready-${index}`, cycles: 1 })
     const directory = await writeSimulationPackage(root, run)
-    const receipt = { name: 'native', platform: 'native', backend: 'native', supports: { sqlite: true, postgresql_sandbox: true, reason: null }, state }
+    const receipt = { machine: platform, platform, backend: platform === 'native' ? 'native' : 'namespaces', supports: ['sqlite', 'postgresql_sandbox'], state: 'ready', op: null }
     assert.deepEqual(await new SimulationExecution(run.plan, await SimulationJournal.open(directory)).execute('setup.machine', { origin: 'host' }, async () => receipt), receipt)
   }
 })

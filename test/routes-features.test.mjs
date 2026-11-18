@@ -20,7 +20,7 @@ const entry = (family, call, options = [], kind = 'text') => ({ family, call, ar
 /** The pinned 2.0 table: no machine.images/load/prune, no force, `image` a text option (digests only). */
 const PINNED = [entry('machine', 'list'), entry('machine', 'stop'), entry('sandbox', 'create', ['image'])]
 /** Stage 1's table: images, load, prune, `image` of kind `image`, progress (plus the identity's `sandbox-runtime`). */
-const STAGE1 = [entry('machine', 'list'), entry('machine', 'images'), entry('machine', 'load'), entry('machine', 'prune'), entry('machine', 'stop', ['force']), entry('sandbox', 'create', ['image', 'on_progress'], 'image')]
+const STAGE1 = [entry('machine', 'list'), entry('machine', 'images'), entry('machine', 'load_image'), entry('machine', 'prune'), entry('machine', 'stop', ['force']), entry('sandbox', 'create', ['image', 'on_progress'], 'image')]
 
 function fixture(lfs, calls = PINNED, features = []) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-routes-features-'))
@@ -29,19 +29,21 @@ function fixture(lfs, calls = PINNED, features = []) {
   return { groups, host: t.host, events: t.events, logs: t.logs, http: (method, path, body) => R.handle(groups, { method, path, body }), close: () => rmSync(root, { recursive: true, force: true }) }
 }
 
+// the 2.0 machine family: rows keyed `machine`; platforms from home.get --with platforms
 const machineBase = {
-  list: async () => ({ machines: [{ name: 'native', platform: 'native', state: 'ready' }] }),
-  platforms: async () => ({ host: 'macos', platforms: [] }),
+  list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite'], stores: [], sandboxes: [] }] }),
 }
+const homeBase = { get: async () => ({ state: 'ready', platforms: { host: 'macos', items: [] } }) }
 const viewLfs = (extra = {}, sandboxes = []) => ({
   machine: { ...machineBase, ...extra },
+  home: homeBase,
   store: { list: async () => ({ items: [] }) },
   sandbox: { list: async () => ({ items: sandboxes, next_page_pos: null }) },
 })
 
 const NO_INSPECT = { machineLog: false, sandboxLog: false, files: false, machineFiles: false, machineStats: false }
 /** The features read from one call or option each (layerfs-project#164, #180): absent from this table's CLIs. */
-const NO_OBSERVE = { sandboxLive: false, leftovers: false, machineSpace: false }
+const NO_OBSERVE = { sandboxLive: false, machineSpace: false }
 const NONE = { forceStop: false, images: false, imageLoad: false, imagePrune: false, imageRefs: false, createProgress: false, sandboxRuntime: false, imageStage: 0, inspect: NO_INSPECT, ...NO_OBSERVE }
 
 test('features: the machines view says what the pinned CLI has, Stage 1 only with every piece', async () => {
@@ -60,7 +62,7 @@ test('features: featuresOf reads the call table and identity; `image` of kind te
   const { featuresOf } = R.util
   assert.deepEqual(featuresOf(null), NONE)
   assert.deepEqual(featuresOf({ calls: PINNED, identity: { features: ['sandbox-runtime'] } }), { ...NONE, sandboxRuntime: true })
-  const json = [entry('machine', 'images'), entry('machine', 'load'), entry('machine', 'prune'), entry('sandbox', 'create', ['image'], 'json')]
+  const json = [entry('machine', 'images'), entry('machine', 'load_image'), entry('machine', 'prune'), entry('sandbox', 'create', ['image'], 'json')]
   assert.equal(featuresOf({ calls: json, identity: { features: ['sandbox-runtime'] } }).imageStage, 0, 'the feature branch\'s json `image` is no reference support')
   assert.equal(featuresOf({ calls: STAGE1, identity: { features: ['sandbox-runtime'] } }).imageStage, 1)
 })
@@ -441,18 +443,18 @@ test('client api: a GET that never answers fails after its budget', async (t) =>
 // ---------------------------------------------------------------- Stage 1 (docs/specs/sandbox-images.md §4.1)
 
 const PG = `sha256:${hex('d')}`, BUNDLE = `sha256:${hex('b')}`, UB = `sha256:${hex('c')}`
-/** machine.images as LayerFS answers it at Stage 1 (§3 R2 plus the Docker part LayerFS lists, dedupes and sizes). */
+/** `machine images --detail --with docker` (2.0): `items` keyed `image` with `default`, `disk_free_bytes`, and the `docker` section LayerFS lists, dedupes and sizes. */
+const dockerImages = () => [
+  { image: PG, refs: ['postgres:17-bookworm'], size: 412e6, os: 'linux', architecture: arch, usable: true, unusable: null, needed_bytes: 865_200_000, fits: true },
+  { image: `sha256:${hex('e')}`, refs: ['mssql:2022'], size: 1.5e9, os: 'linux', architecture: other, usable: false, unusable: { kind: 'arch', value: other }, needed_bytes: 3_150_000_000, fits: true },
+]
 const imagesAnswer = (extra = {}) => ({
-  machine: 'lima1', mode: 'images', default: BUNDLE, free: 5e9,
-  images: [
-    { id: BUNDLE, refs: [`layerfs-cache/sandbox:${hex('b')}`], size: 310e6, architecture: arch, source: 'bundle', sandboxes: 1, last_used: null },
-    { id: UB, refs: ['ubuntu:24.04'], size: 780e6, architecture: arch, source: 'imported', sandboxes: 2, last_used: '2026-11-13T10:00:00Z' },
+  items: [
+    { image: BUNDLE, refs: [`layerfs-cache/sandbox:${hex('b')}`], size: 310e6, default: true, architecture: arch, source: 'bundle', sandboxes: ['b0'], sandboxes_count: 1, last_used_at: null },
+    { image: UB, refs: ['ubuntu:24.04'], size: 780e6, default: false, architecture: arch, source: 'imported', sandboxes: ['b1', 'b2'], sandboxes_count: 2, last_used_at: '2026-11-13T10:00:00Z' },
   ],
-  docker: { available: true },
-  available: [
-    { id: PG, refs: ['postgres:17-bookworm'], size: 412e6, os: 'linux', architecture: arch, usable: true, need: 865_200_000, fits: true },
-    { id: `sha256:${hex('e')}`, refs: ['mssql:2022'], size: 1.5e9, os: 'linux', architecture: other, usable: false, reason: { kind: 'arch', value: other }, need: 3_150_000_000, fits: true },
-  ],
+  machine: 'lima1', mode: 'images', architecture: arch, disk_free_bytes: 5e9,
+  docker: { images: dockerImages(), reason: null, message: null },
   ...extra,
 })
 function stage1Fixture({ images = async () => imagesAnswer(), prune, create } = {}) {
@@ -461,7 +463,7 @@ function stage1Fixture({ images = async () => imagesAnswer(), prune, create } = 
     project: { get: async (key) => ({ project: key, store: 's1', machine: 'lima1', kind: 'sqlite' }) },
     machine: {
       ...machineBase,
-      get: async (name) => ({ name, platform: name === 'docker' ? 'docker' : 'lima', state: 'running' }),
+      get: async (name) => ({ machine: name, platform: name === 'docker' ? 'docker' : 'lima', state: 'ready' }),
       images: async (...args) => { calls.push(['images', ...args]); return images(...args) },
       prune: async (...args) => { calls.push(['prune', ...args]); return prune(...args) },
     },
@@ -476,7 +478,7 @@ test('sandbox-images Stage 1: ready rows, free, default and the Docker group com
   try {
     const answer = (await f.http('GET', '/api/machines/lima1/sandbox-images')).body
     assert.deepEqual({ ...answer, observedAt: 0 }, {
-      machine: 'lima1', platform: 'lima', state: 'running', stage: 1, mode: 'images', architecture: arch, free: 5e9,
+      machine: 'lima1', platform: 'lima', state: 'ready', stage: 1, mode: 'images', architecture: arch, free: 5e9,
       // D7: the newest last_used wins over LayerFS's default
       default: UB, observedAt: 0, stale: false,
       ready: [
@@ -488,27 +490,25 @@ test('sandbox-images Stage 1: ready rows, free, default and the Docker group com
         { id: `sha256:${hex('e')}`, name: 'mssql:2022', refs: ['mssql:2022'], size: 1.5e9, architecture: other, os: 'linux', need: 3_150_000_000, fits: true, usable: false, reason: { kind: 'arch', value: other } },
       ] },
     })
-    assert.deepEqual(f.calls.filter(([c]) => c === 'images'), [['images', 'lima1']], 'one machine.images read; the plugin never reads Docker')
+    assert.deepEqual(f.calls.filter(([c]) => c === 'images'), [['images', 'lima1', { detail: true, with: ['docker'] }]], 'one machine.images --with docker read; the plugin never reads Docker')
   } finally { f.close() }
 })
 
-test('sandbox-images Stage 1: Docker off, LayerFS default without last_used, epoch last_used, macOS native host mode', async () => {
-  let answer = imagesAnswer({ docker: { available: false, reason: 'not-running', message: 'Cannot connect to the Docker daemon' }, available: [] })
-  answer.images[1].last_used = null
+test('sandbox-images Stage 1: Docker off, LayerFS default without last_used, macOS native host mode', async () => {
+  let answer = imagesAnswer({ docker: { images: [], reason: 'not_running', message: 'Cannot connect to the Docker daemon' } })
+  answer.items[1].last_used_at = null
   const f = stage1Fixture({ images: async () => answer })
   try {
     const off = (await f.http('GET', '/api/machines/lima1/sandbox-images')).body
     assert.deepEqual(off.docker, { available: false, reason: 'not-running', message: 'Cannot connect to the Docker daemon' })
     assert.equal(off.default, BUNDLE, 'never used: LayerFS\'s own default')
-    answer = imagesAnswer({ docker: { available: false, reason: 'weird' } })
-    answer.images[1].last_used = 1_700_000_000
+    answer = imagesAnswer({ docker: { images: [], reason: 'weird', message: null } })
     const odd = (await f.http('GET', '/api/machines/lima1/sandbox-images')).body
     assert.deepEqual(odd.docker, { available: false, reason: 'error' })
-    assert.equal(odd.ready[1].lastUsed, new Date(1_700_000_000_000).toISOString(), 'epoch seconds as ISO')
-    answer = { machine: 'lima1', mode: 'host', images: [], docker: null, available: [] }
+    answer = { items: [], machine: 'lima1', mode: 'host', architecture: null, disk_free_bytes: null, docker: null }
     const host = (await f.http('GET', '/api/machines/lima1/sandbox-images')).body
     assert.deepEqual([host.mode, host.stage, host.ready, host.docker, host.default], ['host', 1, [], null, null])
-    answer = imagesAnswer({ docker: null, available: [] })
+    answer = imagesAnswer({ docker: null })
     assert.equal((await f.http('GET', '/api/machines/lima1/sandbox-images')).body.docker, null, 'no Docker part: no group')
   } finally { f.close() }
 })
@@ -537,7 +537,7 @@ test('sandbox-images Stage 1: a worker of another LayerFS build is WorkerOutdate
   try {
     refuse = true
     const none = (await f.http('GET', '/api/machines/lima1/sandbox-images')).body
-    assert.equal(none.state, 'running')
+    assert.equal(none.state, 'ready')
     assert.deepEqual([none.ready, none.stale.code, none.stale.message], [[], 'WorkerOutdated', message])
     refuse = false
     const good = (await f.http('GET', '/api/machines/lima1/sandbox-images')).body
@@ -553,9 +553,9 @@ test('sandbox-images Stage 1: a worker of another LayerFS build is WorkerOutdate
 
 test('sandbox-images Stage 1: an image is named by its :latest ref, else its first; every ref listed', async () => {
   const answer = imagesAnswer()
-  answer.images[1].refs = ['alpine:3', 'alpine:latest']
-  answer.available[0].refs = ['postgres:17', 'postgres:latest', 'postgres:17-bookworm']
-  answer.available[1].refs = ['mssql:2022', 'mssql:2022-cu1']
+  answer.items[1].refs = ['alpine:3', 'alpine:latest']
+  answer.docker.images[0].refs = ['postgres:17', 'postgres:latest', 'postgres:17-bookworm']
+  answer.docker.images[1].refs = ['mssql:2022', 'mssql:2022-cu1']
   const f = stage1Fixture({ images: async () => answer })
   try {
     const got = (await f.http('GET', '/api/machines/lima1/sandbox-images')).body
@@ -568,18 +568,19 @@ test('sandbox-images Stage 1: an image is named by its :latest ref, else its fir
 test('prune-images Stage 1: per id, a refused image listed (InUse) without failing the rest; unused; nothing named is refused', async () => {
   const f = stage1Fixture({
     prune: async (name, image) => {
-      if (typeof image === 'object') return { removed: [PG, UB], freed: 900 }
+      // the 2.0 long form of machine.prune
+      if (typeof image === 'object') return { freed_bytes: 900, outcome: 'removed', machine: name, removed: [PG, UB], removed_count: 2 }
       if (image === UB) throw new Refusal('InUse', 'ubuntu:24.04 is used by 2 Sandboxes')
-      return { removed: [image], freed: 400 }
+      return { freed_bytes: 400, outcome: 'removed', machine: name, removed: [image], removed_count: 1 }
     },
   })
   try {
     const answer = await f.http('POST', '/api/machines/lima1/prune-images', { images: [PG, UB, PG] })
     assert.equal(answer.status, 200)
     assert.deepEqual(answer.body, { removed: [PG], freed: 400, refused: [{ id: UB, code: 'InUse', message: 'ubuntu:24.04 is used by 2 Sandboxes' }] })
-    assert.deepEqual(f.calls.filter(([c]) => c === 'prune'), [['prune', 'lima1', PG], ['prune', 'lima1', UB]], 'once per id')
+    assert.deepEqual(f.calls.filter(([c]) => c === 'prune'), [['prune', 'lima1', PG, { detail: true }], ['prune', 'lima1', UB, { detail: true }]], 'once per id, in the long form')
     assert.deepEqual((await f.http('POST', '/api/machines/lima1/prune-images', { unused: true })).body, { removed: [PG, UB], freed: 900, refused: [] })
-    assert.deepEqual(f.calls.at(-1), ['prune', 'lima1', { unused: true }])
+    assert.deepEqual(f.calls.at(-1), ['prune', 'lima1', { unused: true, detail: true }])
     assert.equal((await f.http('POST', '/api/machines/lima1/prune-images', {})).status, 400)
   } finally { f.close() }
   const g = stage1Fixture({ prune: async () => { throw new Refusal('Unavailable', 'machine lima1 is stopped') } })
@@ -590,7 +591,7 @@ test('prune-images Stage 1: per id, a refused image listed (InUse) without faili
 })
 
 test('create Stage 1: NoSpace precheck (507, before any create or job) only for a Docker image that does not fit', async () => {
-  let answer = imagesAnswer({ free: 5e8 })
+  let answer = imagesAnswer({ disk_free_bytes: 5e8 })
   const f = stage1Fixture({ images: async () => answer })
   const key = encodeURIComponent('s1/p')
   try {
@@ -606,9 +607,9 @@ test('create Stage 1: NoSpace precheck (507, before any create or job) only for 
     assert.deepEqual(f.logs, [], 'an expected refusal logs no stack')
     // a ready image needs no copy; an unknown name is LayerFS's to judge
     for (const image of [UB, 'ubuntu:24.04', 'nothing:here']) assert.equal((await f.http('POST', `/api/projects/${key}/sandboxes`, { name: `r${image.length}`, image })).status, 200, image)
-    answer = imagesAnswer({ free: 5e9 })
+    answer = imagesAnswer({ disk_free_bytes: 5e9 })
     assert.equal((await f.http('POST', `/api/projects/${key}/sandboxes`, { name: 'fits', image: PG })).status, 200, 'fits')
-    answer = imagesAnswer({ free: null })
+    answer = imagesAnswer({ disk_free_bytes: null })
     assert.equal((await f.http('POST', `/api/projects/${key}/sandboxes`, { name: 'unknown', image: PG })).status, 200, 'free unknown: no precheck')
   } finally { f.close() }
 })
@@ -650,7 +651,8 @@ test('create: no on_progress option when the CLI declares none (Stage 0 sends ex
 
 // ---------------------------------------------------------------- monitoring reads (layerfs-project#178 "Host side")
 
-const LOGS = [...PINNED, entry('logs', 'machine', ['cursor', 'before', 'limit']), entry('logs', 'sandbox', ['cursor', 'before', 'limit'])]
+// machine.log (2.0: pages backwards, `--cursor` is a page's next_cursor); logs.sandbox keeps today's name (cs20: the Sandbox package)
+const LOGS = [...PINNED, entry('machine', 'log', ['limit', 'cursor']), entry('logs', 'sandbox', ['cursor', 'before', 'limit'])]
 const tailOf = (n, from = 0) => ({ lines: Array.from({ length: n }, (_, i) => ({ text: `line ${from + i}` })), cursor: `c${from + n}`, before: from > 0 ? `b${from}` : undefined, has_more: false })
 const refusal = (code, message = code) => new Refusal(code, message)
 const tick = () => new Promise((r) => setTimeout(r, 10))
@@ -659,25 +661,23 @@ test('features: each monitoring call is its own feature, read from the call tabl
   const { featuresOf } = R.util
   assert.deepEqual(featuresOf({ calls: LOGS }).inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false, machineStats: false })
   assert.deepEqual(featuresOf({ calls: [entry('logs', 'list'), entry('logs', 'sandbox'), entry('sandbox', 'files')] }).inspect, { machineLog: false, sandboxLog: true, files: true, machineFiles: false, machineStats: false })
-  assert.deepEqual(featuresOf({ calls: [entry('machine', 'files'), entry('logs', 'machine')] }).inspect, { machineLog: true, sandboxLog: false, files: false, machineFiles: true, machineStats: false })
-  for (const name of ['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files']) assert.ok(!R.cli.REQUIRED_CALLS.includes(name), `${name} is optional`)
-  // the machines view carries them, and a machine's supports.log only when LayerFS answers it
-  const f = fixture(viewLfs({ list: async () => ({ machines: [
-    { name: 'native', platform: 'native', state: 'ready', supports: { sqlite: true, postgresql_sandbox: true, reason: null, log: false } },
-    { name: 'docker', platform: 'docker', state: 'running', supports: { sqlite: true, postgresql_sandbox: true, reason: null, log: true } },
-    { name: 'old', platform: 'lima', state: 'stopped', supports: { sqlite: true, postgresql_sandbox: true, reason: null } },
-  ] }), status: async (name) => ({ name, state: 'running' }) }), LOGS)
+  assert.deepEqual(featuresOf({ calls: [entry('machine', 'files'), entry('machine', 'log')] }).inspect, { machineLog: true, sandboxLog: false, files: false, machineFiles: true, machineStats: false })
+  for (const name of ['machine.log', 'logs.sandbox', 'sandbox.files', 'machine.files']) assert.ok(!R.cli.REQUIRED_CALLS.includes(name), `${name} is optional`)
+  // the machines view carries them, and a machine's `supports` list says whether it has a log (2.0: `log` in the list)
+  const f = fixture(viewLfs({ list: async () => ({ items: [
+    { machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite', 'postgresql_sandbox'] },
+    { machine: 'docker', platform: 'docker', state: 'ready', supports: ['sqlite', 'postgresql_sandbox', 'log'] },
+  ] }), get: async (name) => ({ machine: name, platform: name, state: 'ready', live: {} }) }), LOGS)
   try {
     const view = (await f.http('GET', '/api/machines')).body
     assert.deepEqual(view.features.inspect, { machineLog: true, sandboxLog: true, files: false, machineFiles: false, machineStats: false })
-    assert.deepEqual(view.machines.map((m) => [m.name, m.supports.log]), [['native', false], ['docker', true], ['old', undefined]])
-    assert.ok(!('log' in view.machines[2].supports), 'absent stays absent')
+    assert.deepEqual(view.machines.map((m) => [m.name, m.supports.includes('log')]), [['native', false], ['docker', true]])
   } finally { f.close() }
 })
 
 test('log routes: a CLI without the call answers 501 and makes no call; bad queries are refused before any call', async () => {
   let calls = 0
-  const lfs = { ...viewLfs(), logs: { machine: async () => { calls++; return tailOf(1) }, sandbox: async () => { calls++; return tailOf(1) } } }
+  const lfs = { ...viewLfs({ log: async () => { calls++; return { items: [{ text: 'a' }], next_cursor: null } } }), logs: { sandbox: async () => { calls++; return tailOf(1) } } }
   const without = fixture(lfs)
   const withLogs = fixture(lfs, LOGS)
   try {
@@ -685,11 +685,12 @@ test('log routes: a CLI without the call answers 501 and makes no call; bad quer
       const r = await without.http('GET', path)
       assert.equal(r.status, 501)
       assert.equal(r.body.code, 'Unsupported')
-      assert.match(r.body.detail.need, /^logs\.(machine|sandbox)$/)
+      assert.match(r.body.detail.need, /^(machine\.log|logs\.sandbox)$/)
     }
     assert.equal(calls, 0)
     assert.deepEqual(without.logs, [], 'an expected refusal logs no stack')
-    for (const query of ['cursor=a&before=b', 'limit=0', 'limit=1001', 'limit=abc', 'limit=1.5', `cursor=${'x'.repeat(1025)}`]) {
+    // a machine's log pages backwards only: a forward cursor is refused too
+    for (const query of ['cursor=a', 'cursor=a&before=b', 'limit=0', 'limit=1001', 'limit=abc', 'limit=1.5', `before=${'x'.repeat(1025)}`]) {
       const r = await withLogs.http('GET', `/api/machines/docker/log?${query}`)
       assert.equal(r.status, 400, query)
       assert.equal(r.body.code, 'InvalidInput', query)
@@ -702,29 +703,30 @@ test('log routes: a CLI without the call answers 501 and makes no call; bad quer
 
 test('log routes: the answer as the page reads it, with the options LayerFS takes; never part of the machines view', async () => {
   const seen = []
-  const lfs = { ...viewLfs(), logs: {
-    machine: async (name, options) => { seen.push(['machine', name, { ...options, signal: options.signal instanceof AbortSignal }]); return { lines: [{ text: 'a' }, { text: 'b'.repeat(8), continued: true }, { text: 'c' }, 'bare', { nope: 1 }], cursor: 'c3', before: 'b0', has_more: true } },
+  const lfs = { ...viewLfs({
+    log: async (name, options) => { seen.push(['machine', name, { ...options, signal: options.signal instanceof AbortSignal }]); return { items: [{ text: 'a', continued: false }, { text: 'b'.repeat(8), continued: true }, { text: 'c' }, 'bare', { nope: 1 }], next_cursor: 'b0' } },
+  }), logs: {
     sandbox: async (name, options) => { seen.push(['sandbox', name, { ...options, signal: options.signal instanceof AbortSignal }]); return { lines: [], cursor: 'c0', has_more: false } },
   } }
   const f = fixture(lfs, LOGS)
   try {
     const m = await f.http('GET', '/api/machines/docker/log?limit=50')
     assert.equal(m.status, 200)
-    assert.deepEqual(m.body.lines, [{ text: 'a' }, { text: 'bbbbbbbb', continued: true }, { text: 'c' }, { text: 'bare' }])
-    assert.deepEqual([m.body.cursor, m.body.before, m.body.hasMore, m.body.stale], ['c3', 'b0', true, false])
+    assert.deepEqual(m.body.lines, [{ text: 'a' }, { text: 'bbbbbbbb', continued: true }, { text: 'c' }], 'a row that is not `{ text }` is dropped')
+    assert.deepEqual([m.body.cursor, m.body.before, m.body.hasMore, m.body.stale], [null, 'b0', true, false])
     assert.equal(typeof m.body.observedAt, 'number')
     const s = await f.http('GET', '/api/sandboxes/sb/log?cursor=c9')
     assert.deepEqual([s.body.lines, s.body.cursor, s.body.before, s.body.hasMore, s.body.stale], [[], 'c0', null, false, false])
     await f.http('GET', '/api/machines/docker/log?before=b0&limit=1000')
     assert.deepEqual(seen, [
-      ['machine', 'docker', { limit: 50, signal: true }],
+      ['machine', 'docker', { limit: 50, detail: true, signal: true }],
       ['sandbox', 'sb', { cursor: 'c9', signal: true }],
-      ['machine', 'docker', { before: 'b0', limit: 1000, signal: true }],
+      ['machine', 'docker', { cursor: 'b0', limit: 1000, detail: true, signal: true }],
     ])
     // the machines view makes no log call, and a log GET does not make the view read again
     seen.length = 0
     let lists = 0
-    lfs.machine.list = async () => { lists++; return { machines: [{ name: 'native', platform: 'native', state: 'ready' }] } }
+    lfs.machine.list = async () => { lists++; return { items: [{ machine: 'native', platform: 'native', state: 'ready' }] } }
     const first = f.http('GET', '/api/machines')
     await f.http('GET', '/api/machines/docker/log')
     await Promise.all([first, f.http('GET', '/api/machines')])
@@ -732,26 +734,26 @@ test('log routes: the answer as the page reads it, with the options LayerFS take
   } finally { f.close() }
 })
 
-test('log routes: one read per key at a time; different cursors are different reads', async () => {
+test('log routes (a Sandbox\'s, which still follows forward): one read per key at a time; different cursors are different reads', async () => {
   let running = 0, most = 0, calls = 0
   const gates = []
-  const lfs = { ...viewLfs(), logs: { machine: async (_name, options) => { calls++; running++; most = Math.max(most, running); await new Promise((r) => gates.push(r)); running--; return tailOf(2, options.cursor ? 10 : 0) } } }
+  const lfs = { ...viewLfs(), logs: { sandbox: async (_name, options) => { calls++; running++; most = Math.max(most, running); await new Promise((r) => gates.push(r)); running--; return tailOf(2, options.cursor ? 10 : 0) } } }
   const f = fixture(lfs, LOGS)
   try {
-    const same = [1, 2, 3].map(() => f.http('GET', '/api/machines/docker/log'))
+    const same = [1, 2, 3].map(() => f.http('GET', '/api/sandboxes/sb/log'))
     await tick()
     assert.equal(calls, 1, 'three GETs of the same tail share one read')
-    const other = f.http('GET', '/api/machines/docker/log?cursor=c2')
-    const elsewhere = f.http('GET', '/api/machines/lima/log')
+    const other = f.http('GET', '/api/sandboxes/sb/log?cursor=c2')
+    const elsewhere = f.http('GET', '/api/sandboxes/sb2/log')
     await tick()
-    assert.equal(calls, 3, 'another cursor and another machine read on their own')
+    assert.equal(calls, 3, 'another cursor and another Sandbox read on their own')
     for (const g of gates.splice(0)) g()
     const answers = await Promise.all(same)
     assert.deepEqual(answers.map((a) => a.body.cursor), ['c2', 'c2', 'c2'])
     assert.equal((await other).body.cursor, 'c12')
     await elsewhere
     // settled: the next GET reads again
-    const again = f.http('GET', '/api/machines/docker/log')
+    const again = f.http('GET', '/api/sandboxes/sb/log')
     await tick()
     assert.equal(calls, 4)
     for (const g of gates.splice(0)) g()
@@ -760,28 +762,31 @@ test('log routes: one read per key at a time; different cursors are different re
   } finally { f.close() }
 })
 
-test('log routes: a refused read answers the last good tail marked stale; a cursor read keeps the page\'s cursor', async () => {
+test('log routes (a Sandbox\'s): a refused read answers the last good tail marked stale; a cursor read keeps the page\'s cursor', async () => {
   let fail = null
   const lfs = { ...viewLfs(), logs: {
-    machine: async (_name, options) => { if (fail) throw fail; return options.cursor ? { lines: [{ text: 'new 1' }, { text: 'new 2' }], cursor: 'c5', has_more: false } : tailOf(3, 4) },
-    sandbox: async () => { throw refusal('NoSuchSandbox', 'no Sandbox named gone') },
+    sandbox: async (name, options) => {
+      if (name === 'gone') throw refusal('NoSuchSandbox', 'no Sandbox named gone')
+      if (fail) throw fail
+      return options.cursor ? { lines: [{ text: 'new 1' }, { text: 'new 2' }], cursor: 'c5', has_more: false } : tailOf(3, 4)
+    },
   } }
   const f = fixture(lfs, LOGS)
   try {
     // never read: stale with no lines and no time
-    fail = refusal('Unavailable', 'machine docker is stopped')
-    const cold = (await f.http('GET', '/api/machines/docker/log')).body
-    assert.deepEqual([cold.lines, cold.cursor, cold.before, cold.stale], [[], null, null, { at: null, code: 'Unavailable', message: 'machine docker is stopped' }])
+    fail = refusal('Unavailable', 'Sandbox sb is lost')
+    const cold = (await f.http('GET', '/api/sandboxes/sb/log')).body
+    assert.deepEqual([cold.lines, cold.cursor, cold.before, cold.stale], [[], null, null, { at: null, code: 'Unavailable', message: 'Sandbox sb is lost' }])
     fail = null
-    const good = (await f.http('GET', '/api/machines/docker/log')).body
+    const good = (await f.http('GET', '/api/sandboxes/sb/log')).body
     assert.equal(good.stale, false)
     assert.deepEqual(good.lines.map((l) => l.text), ['line 4', 'line 5', 'line 6'])
     // a forward read from the kept cursor extends what is kept
-    const more = (await f.http('GET', `/api/machines/docker/log?cursor=${good.cursor}`)).body
+    const more = (await f.http('GET', `/api/sandboxes/sb/log?cursor=${good.cursor}`)).body
     assert.deepEqual([more.lines.map((l) => l.text), more.cursor, more.stale], [['new 1', 'new 2'], 'c5', false])
     for (const [code, status] of [['Unavailable', 502], ['Busy', 409], ['Timeout', 504], ['Unknown', 500], ['Unsupported', 501]]) {
       fail = refusal(code, `${code} now`)
-      const r = await f.http('GET', '/api/machines/docker/log')
+      const r = await f.http('GET', '/api/sandboxes/sb/log')
       assert.equal(r.status, 200, `${code} would be ${status} as an error; here it is an answer`)
       assert.deepEqual(r.body.lines.map((l) => l.text), ['line 4', 'line 5', 'line 6', 'new 1', 'new 2'], code)
       assert.deepEqual([r.body.cursor, r.body.before, r.body.stale.code, r.body.stale.message], ['c5', 'b4', code, `${code} now`])
@@ -789,17 +794,17 @@ test('log routes: a refused read answers the last good tail marked stale; a curs
     }
     // a refused forward or earlier read: no lines, the cursors it was asked with, so the page keeps what it shows
     fail = refusal('InvalidInput', 'the log was replaced; read the tail again')
-    const stale = (await f.http('GET', '/api/machines/docker/log?cursor=c5&limit=10')).body
+    const stale = (await f.http('GET', '/api/sandboxes/sb/log?cursor=c5&limit=10')).body
     assert.deepEqual([stale.lines, stale.cursor, stale.before, stale.hasMore, stale.stale.code], [[], 'c5', null, false, 'InvalidInput'])
-    const earlier = (await f.http('GET', '/api/machines/docker/log?before=b4')).body
+    const earlier = (await f.http('GET', '/api/sandboxes/sb/log?before=b4')).body
     assert.deepEqual([earlier.lines, earlier.cursor, earlier.before, earlier.stale.code], [[], null, 'b4', 'InvalidInput'])
     // a lost Sandbox: its refusal, as an answer
     const lost = await f.http('GET', '/api/sandboxes/gone/log')
     assert.equal(lost.status, 200)
     assert.deepEqual(lost.body.stale, { at: null, code: 'NoSuchSandbox', message: 'no Sandbox named gone' })
-    // another machine keeps its own answer
+    // another Sandbox keeps its own answer
     fail = null
-    assert.equal((await f.http('GET', '/api/machines/lima/log')).body.stale, false)
+    assert.equal((await f.http('GET', '/api/sandboxes/sb2/log')).body.stale, false)
     assert.deepEqual(f.logs, [], 'no refusal was logged as a host error')
   } finally { f.close() }
 })

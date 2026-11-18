@@ -1,10 +1,8 @@
-// Observed values (layerfs-project#164) and Doctor leftovers (#180), host and
-// page side, over a fake `lfs` with the answer shapes of the merged LayerFS
-// build (machine.stats, sandbox.list --live, sandbox.get daemon and usage,
-// `layerfs doctor` leftovers):
+// Observed values (layerfs-project#164), host and page side, over a fake `lfs`
+// (machine.stats, machine.log, sandbox.list --live, sandbox.get daemon and usage):
 //   host    featuresOf, the inspect lane, GET /api/machines/:id/stats (single
 //           flight, one answer for 5 s, stale answers, 501 without the call),
-//           the machines view's `live`, sandbox.get's fields, GET /api/doctor
+//           the machines view's `live`, sandbox.get's fields, the machine log route
 //   page    the stats poller (src/client/machines/stats.ts), what a stopped
 //           machine and a null value read as, live counts, usage words
 //           (leftovers are no longer on a page: `home leftovers` lists them)
@@ -34,7 +32,7 @@ class Refusal extends Error {
 const entry = (family, call, options = [], kind = 'text') => ({ family, call, args: [], options: options.map((name) => ({ name, kind })) })
 const BASE = [entry('machine', 'list'), entry('sandbox', 'list', ['page_size', 'page_pos'])]
 /** The merged build's table, as far as these routes read it. */
-const OBSERVE = [entry('machine', 'list'), entry('machine', 'stats'), entry('sandbox', 'list', ['page_size', 'page_pos', 'live'], 'bool'), entry('doctor', 'fix')]
+const OBSERVE = [entry('machine', 'list'), entry('machine', 'stats'), entry('sandbox', 'list', ['page_size', 'page_pos', 'live'], 'bool')]
 
 function fixture(lfs, calls = OBSERVE) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-observe-'))
@@ -43,7 +41,8 @@ function fixture(lfs, calls = OBSERVE) {
   return { groups, logs: t.logs, http: (method, path, body) => R.handle(groups, { method, path, body }), close: () => rmSync(dir, { recursive: true, force: true }) }
 }
 const viewLfs = (machine = {}, sandbox = {}) => ({
-  machine: { list: async () => ({ machines: [{ name: 'native', platform: 'native', state: 'ready' }] }), platforms: async () => ({ host: 'macos', platforms: [] }), ...machine },
+  machine: { list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite'], stores: [], sandboxes: [] }] }), ...machine },
+  home: { get: async () => ({ state: 'ready', platforms: { host: 'macos', items: [] } }) },
   store: { list: async () => ({ items: [] }) },
   sandbox: { list: async () => ({ items: [], next_page_pos: null }), ...sandbox },
 })
@@ -53,25 +52,26 @@ const NATIVE = { machine: 'native', platform: 'native', observed_at: 17947767078
 
 // ---------------------------------------------------------------- host: features and the lane
 
-test('features: machine.stats, sandbox.list live and doctor.fix are each read from the call table', () => {
+test('features: machine.stats, its --with space and sandbox.list live are each read from the call table', () => {
   const { featuresOf } = R.util
   const none = featuresOf({ calls: BASE })
-  assert.equal(none.inspect.machineStats, false); assert.equal(none.sandboxLive, false); assert.equal(none.leftovers, false)
+  assert.equal(none.inspect.machineStats, false); assert.equal(none.sandboxLive, false); assert.equal(none.machineSpace, false)
   const all = featuresOf({ calls: OBSERVE })
-  assert.equal(all.inspect.machineStats, true); assert.equal(all.sandboxLive, true); assert.equal(all.leftovers, true)
+  assert.equal(all.inspect.machineStats, true); assert.equal(all.sandboxLive, true); assert.equal(all.machineSpace, false)
+  // `--with space` is a value of machine.stats' 2.0 `form.with`
+  assert.equal(featuresOf({ calls: [{ ...entry('machine', 'stats'), form: { with: { space: {} } } }] }).machineSpace, true)
   // an option of another call, or the call without the option, is not the feature
   assert.equal(featuresOf({ calls: [entry('sandbox', 'get', ['live'])] }).sandboxLive, false)
-  assert.equal(featuresOf({ calls: [entry('doctor', 'host')] }).leftovers, false)
   assert.equal(featuresOf(null).inspect.machineStats, false)
-  for (const name of ['machine.stats', 'doctor.fix']) assert.ok(!R.cli.REQUIRED_CALLS.includes(name), `${name} is optional`)
+  assert.ok(!R.cli.REQUIRED_CALLS.includes('machine.stats'), 'machine.stats is optional')
 })
 
 test('machine.stats is a monitoring read: the inspect lane, whatever lane the caller names', () => {
   assert.ok(R.cli.INSPECT_CALLS.has('machine.stats'))
   assert.deepEqual(R.cli.laneOf(['machine', 'stats', '--', 'docker']), R.cli.INSPECT_LANE)
-  // store.stats and machine.status stay where they were
+  // store.stats and machine.get stay where they were
   assert.equal(R.cli.laneOf(['store', 'stats', '--', 's']).name, 'calls')
-  assert.equal(R.cli.laneOf(['machine', 'status', '--', 'docker']).name, 'probes')
+  assert.equal(R.cli.laneOf(['machine', 'get', '--', 'docker']).name, 'probes')
   assert.ok(!R.cli.KEPT_READS.has('machine.stats'), 'the SDK keeps no monitoring answer: the route does, per machine')
 })
 
@@ -111,65 +111,26 @@ test('sandbox.get: daemon, usage and usage_reason by presence', async () => {
   assert.equal(unseen.daemon, null); assert.equal(unseen.usageReason, 'not_observed')
 })
 
-const LEFT = (kind, name, more = {}) => ({ machine: 'native', kind, path: `/h/machine/native/run/${name}`, bytes: 4096, age: 7200, id: `native:${kind}:${name}`, fixable: true, ...more })
-const REPORT = {
-  ok: true,
-  findings: [
-    { severity: 'warning', entity: { kind: 'store', name: 'shop' }, message: 'a partial copy', fix: 'layerfs store pull shop' },
-    { severity: 'warning', entity: { kind: 'machine', name: 'native' }, message: '/h/machine/native/run/lfs-1-sb1 on machine native is a Sandbox run folder no Sandbox record names (4096 bytes, last changed 7200 s ago)', fix: '`layerfs doctor fix native:run-folder:lfs-1-sb1` removes it when it has its `owner` marker', leftover: LEFT('run-folder', 'lfs-1-sb1') },
-    { severity: 'warning', entity: { kind: 'machine', name: 'docker' }, message: 'a folder copy', fix: 'report-only', leftover: { machine: 'docker', kind: 'init-copy', path: '/layerfs/data/incoming/init-00112233aabbccdd', bytes: null, age: 60, id: 'docker:init-copy:00112233aabbccdd', fixable: false } },
-    { severity: 'warning', entity: { kind: 'machine', name: 'docker' }, message: 'a named copy', fix: '`layerfs doctor fix docker:init-copy:ffeeddccbbaa0099` removes it an hour after that Init\'s deadline', leftover: { machine: 'docker', kind: 'init-copy', path: '/layerfs/data/incoming/init-ffeeddccbbaa0099', bytes: 12, age: 90, id: 'docker:init-copy:ffeeddccbbaa0099', fixable: true, not_before: 1794780000000 } },
-  ],
-  leftovers: [{ machine: 'native', complete: true, image_locks: 3, unmount_markers: 0 }, { machine: 'docker', complete: false, image_locks: 0, unmount_markers: 2 }],
-}
-
-test('doctor route: leftovers pass through with a CLI that has doctor.fix, and the page is as before without it', async () => {
-  const run = async (calls, report) => {
-    const f = fixture(viewLfs(), calls)
-    f.groups.storage.doctorCall = async () => report
-    try { return (await f.http('GET', '/api/doctor')).body } finally { f.close() }
-  }
-  const got = await run(OBSERVE, REPORT)
-  assert.equal(got.ok, true); assert.equal(got.findings.length, 4)
-  assert.ok(!('leftover' in got.findings[0]), 'an ordinary finding has none')
-  assert.deepEqual(got.findings[1].leftover, { machine: 'native', kind: 'run-folder', path: '/h/machine/native/run/lfs-1-sb1', bytes: 4096, age: 7200, id: 'native:run-folder:lfs-1-sb1', fixable: true })
-  assert.deepEqual(got.findings[2].leftover, { machine: 'docker', kind: 'init-copy', path: '/layerfs/data/incoming/init-00112233aabbccdd', bytes: null, age: 60, id: 'docker:init-copy:00112233aabbccdd', fixable: false }, 'a size that was not measured stays null')
-  assert.equal(got.findings[3].leftover.notBefore, 1794780000000)
-  assert.deepEqual(got.leftovers, [{ machine: 'native', complete: true, imageLocks: 3, unmountMarkers: 0 }, { machine: 'docker', complete: false, imageLocks: 0, unmountMarkers: 2 }])
-  assert.equal(got.findings[1].fix, REPORT.findings[1].fix, 'LayerFS\'s words are kept')
-  // a CLI without doctor.fix: today's answer, whatever the report holds
-  const old = await run(BASE, REPORT)
-  assert.deepEqual(Object.keys(old).sort(), ['at', 'findings', 'ok'])
-  for (const finding of old.findings) assert.deepEqual(Object.keys(finding).sort(), ['entity', 'fix', 'message', 'severity'])
-  // a report that walked no machine has no `leftovers`
-  const empty = await run(OBSERVE, { ok: true, findings: [] })
-  assert.ok(!('leftovers' in empty))
-  // a leftover without an id is dropped (a row without a command would be a dead end)
-  const bad = await run(OBSERVE, { ok: true, findings: [{ severity: 'warning', entity: { kind: 'machine', name: 'native' }, message: 'm', fix: 'f', leftover: { kind: 'run-folder', path: '/x' } }], leftovers: [] })
-  assert.ok(!('leftover' in bad.findings[0]))
-})
-
-test('log route: a log that does not exist yet answers a cursor (c1.0.0.0.0), and reads from it follow the file once it is there', async () => {
-  const LOGS = [...OBSERVE, entry('logs', 'machine', ['cursor', 'before', 'limit'])]
+test('log route: machine.log pages backwards only (2.0): the tail, then the lines before its next_cursor; a forward cursor is refused', async () => {
+  const LOGS = [...OBSERVE, entry('machine', 'log', ['limit', 'cursor'])]
   const asked = []
-  let lines = []
-  const f = fixture({ ...viewLfs(), logs: { machine: async (_name, options) => {
-    asked.push({ cursor: options.cursor ?? null })
-    if (!options.cursor) return { lines: [], cursor: 'c1.0.0.0.0', has_more: false }
-    if (options.cursor === 'c1.0.0.0.0') return lines.length ? { lines, cursor: 'c1.0.2a.9f.40', has_more: false } : { lines: [], cursor: 'c1.0.0.0.0', has_more: false }
-    return { lines: [], cursor: options.cursor, has_more: false }
-  } } }, LOGS)
+  const f = fixture({ ...viewLfs({ log: async (_name, options) => {
+    asked.push({ cursor: options.cursor ?? null, detail: options.detail === true })
+    if (!options.cursor) return { items: [{ text: 'worker started', continued: false }, { text: 'ready', continued: false }], next_cursor: 'c1.0.2a.9f.40' }
+    return { items: [{ text: 'boot' }], next_cursor: null }
+  } }) }, LOGS)
   try {
     const tail = (await f.http('GET', '/api/machines/docker/log')).body
-    assert.deepEqual([tail.lines, tail.cursor, tail.before, tail.stale], [[], 'c1.0.0.0.0', null, false])
-    const still = (await f.http('GET', '/api/machines/docker/log?cursor=c1.0.0.0.0')).body
-    assert.deepEqual([still.lines, still.cursor, still.stale], [[], 'c1.0.0.0.0', false])
-    lines = [{ text: 'worker started' }, { text: 'ready' }]
-    const first = (await f.http('GET', '/api/machines/docker/log?cursor=c1.0.0.0.0')).body
-    assert.deepEqual(first.lines.map((l) => l.text), ['worker started', 'ready']); assert.equal(first.cursor, 'c1.0.2a.9f.40'); assert.equal(first.stale, false)
-    assert.deepEqual(asked.map((a) => a.cursor), [null, 'c1.0.0.0.0', 'c1.0.0.0.0'])
-    // the kept tail followed the cursor: a later refused tail read answers those lines
+    assert.deepEqual([tail.lines.map((l) => l.text), tail.cursor, tail.before, tail.hasMore, tail.stale], [['worker started', 'ready'], null, 'c1.0.2a.9f.40', true, false])
+    const earlier = (await f.http('GET', '/api/machines/docker/log?before=c1.0.2a.9f.40')).body
+    assert.deepEqual([earlier.lines.map((l) => l.text), earlier.before, earlier.hasMore], [['boot'], null, false])
+    assert.deepEqual(asked, [{ cursor: null, detail: true }, { cursor: 'c1.0.2a.9f.40', detail: true }])
+    // the kept tail is the tail read
     assert.deepEqual(f.groups.machines.reads.last('log:machine:docker').value.lines.map((l) => l.text), ['worker started', 'ready'])
+    // today's forward cursor is gone: refused, and nothing is asked
+    const forward = await f.http('GET', '/api/machines/docker/log?cursor=c1.0.2a.9f.40')
+    assert.equal(forward.status, 400)
+    assert.equal(asked.length, 2)
   } finally { f.close() }
 })
 
@@ -181,13 +142,13 @@ test('a stopped machine is never asked and reads "not observed (machine stopped)
   const stopped = { name: 'dev', platform: 'lima', state: 'stopped' }
   assert.equal(S.statsAskable(stopped), false)
   assert.equal(S.statsAskable({ platform: 'native', state: 'ready' }), true, 'native answers in the caller\'s process')
-  assert.equal(S.statsAskable({ platform: 'docker', state: 'running' }), true)
-  assert.equal(S.statsAskable({ platform: 'docker', state: 'failed' }), false)
+  assert.equal(S.statsAskable({ platform: 'docker', state: 'ready' }), true)
+  assert.equal(S.statsAskable({ platform: 'docker', state: 'broken' }), false)
   assert.deepEqual(S.notObserved(stopped, undefined), { key: 'notObservedStopped' })
   // even with values kept from before it stopped
   assert.deepEqual(S.notObserved(stopped, { stats: stats(1), at: 1, stale: null, reading: false, loaded: true }), { key: 'notObservedStopped' })
-  assert.deepEqual(S.notObserved({ platform: 'lima', state: 'creating' }, undefined), { key: 'notObservedState', values: { state: 'creating' } })
-  const running = { platform: 'docker', state: 'running' }
+  assert.deepEqual(S.notObserved({ platform: 'lima', state: 'busy' }, undefined), { key: 'notObservedState', values: { state: 'busy' } })
+  const running = { platform: 'docker', state: 'ready' }
   assert.deepEqual(S.notObserved(running, undefined), { key: 'notObservedYet' })
   assert.equal(S.notObserved(running, { stats: stats(1), at: 1, stale: { at: 1, code: 'Busy', message: 'm' }, reading: false, loaded: true }), null, 'values with a refusal are still values')
   assert.deepEqual(S.notObserved(running, { stats: null, at: null, stale: { at: null, code: 'Unavailable', message: 'm' }, reading: false, loaded: true }), { key: 'notObservedUnavailable' })

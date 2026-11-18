@@ -35,14 +35,14 @@ const MUTATING = new Set([
   'sandbox.create', 'sandbox.close',
   'workspace.mount', 'workspace.unmount', 'workspace.commit', 'workspace.exec', 'workspace.exec_cancel',
   'project.init', 'project.remove', 'project.delete', 'project.export',
-  'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load', 'machine.prune',
+  'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load_image', 'machine.prune',
   'backup.create', 'backup.restore', 'backup.connect', 'backup.disconnect',
-  'logs.reset',
+  'home.clear_log', 'home.init', 'home.prune', 'doctor.fix',
 ])
-/** The read calls (cli.ts READS plus workspace.status and logs.list): anything else a GET makes is suspect too. */
-const READS = new Set(['list', 'get', 'status', 'platforms', 'images', 'stats', 'storage_report', 'commits', 'get_commit', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'revision'])
-/** Monitoring reads, named with their family (cli.ts INSPECT_CALLS): `logs.machine` is no bare read name. */
-const INSPECT = new Set(['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files', 'machine.stats', 'machine.space'])
+/** The read calls (cli.ts READS plus workspace.status and home.log): anything else a GET makes is suspect too. */
+const READS = new Set(['list', 'get', 'status', 'log', 'images', 'stats', 'storage_report', 'commits', 'get_commit', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'revision', 'doctor'])
+/** Monitoring reads, named with their family (cli.ts INSPECT_CALLS): `logs.sandbox` is no bare read name. */
+const INSPECT = new Set(['machine.log', 'logs.sandbox', 'sandbox.files', 'machine.files', 'machine.stats'])
 const isRead = (call) => (READS.has(call.split('.')[1]) || INSPECT.has(call)) && !MUTATING.has(call)
 
 const L = `32${'a'.repeat(64)}`
@@ -100,13 +100,16 @@ function fakeLayerfs() {
       get: async (name) => ({ ...(state.stores.find((s) => s.name === name) ?? { name }) }),
       create: async (name) => { state.stores.push({ name, machine: 'native', kind: 'sqlite', projects: [], state: 'idle' }); return {} },
     },
+    // the 2.0 machine family (long forms); platforms come from home.get --with platforms
     machine: {
-      list: async () => ({ machines: [{ name: 'native', platform: 'native', state: 'ready' }, { name: 'lima1', platform: 'lima', state: 'stopped' }] }),
-      platforms: async () => ({ host: 'macos', platforms: [{ platform: 'lima', ready: true, options: [] }] }),
-      status: async (name) => ({ name, state: 'stopped', free_disk: 10 }),
-      get: async (name) => ({ name, platform: name === 'native' ? 'native' : 'lima', state: 'ready', daemon: '/fake/daemon' }),
-      images: async (name) => ({ machine: name, mode: 'cached', default_digest: null, images: [] }),
-      files: async () => ({ kind: 'folder', entries: [], next: null, has_more: false }),
+      list: async () => ({ items: [{ machine: 'native', platform: 'native', state: 'ready', supports: ['sqlite'], sandboxes: [], stores: [] }, { machine: 'lima1', platform: 'lima', state: 'stopped', supports: ['sqlite'], sandboxes: [], stores: [] }] }),
+      get: async (name) => ({ machine: name, platform: name === 'native' ? 'native' : 'lima', state: name === 'native' ? 'ready' : 'stopped', daemon: '/fake/daemon', supports: ['sqlite'], sandboxes: [], stores: [] }),
+      images: async (name) => ({ machine: name, mode: 'cached', items: [], disk_free_bytes: null }),
+      files: async () => ({ type: 'dir', items: [], next_cursor: null }),
+      log: async () => ({ items: [{ text: 'worker up' }], next_cursor: null }),
+    },
+    home: {
+      get: async () => ({ home: '/fake/home', state: 'ready', version: '2.0.0', generation: 2, platforms: { host: 'macos', items: [{ platform: 'lima', ready: true, options: [] }] } }),
     },
     sandbox: {
       files: async () => ({ kind: 'folder', entries: [], next: null, has_more: false }),
@@ -126,7 +129,6 @@ function fakeLayerfs() {
     },
     backup: { list: async () => ({ items: [] }) },
     logs: {
-      machine: async () => ({ lines: [{ text: 'worker up' }], cursor: 'c1', has_more: false }),
       sandbox: async () => ({ lines: [{ text: 'daemon up' }], cursor: 'c1', has_more: false }),
     },
   }
@@ -183,8 +185,8 @@ test('two project lists within 15 s read the Store join once', async (t) => {
   assert.equal(f.count('store.status'), 1)
 })
 
-// §4.1 Hits: machine.platforms is answered from a 30 s cache.
-test('two platform reads within 30 s make one machine.platforms', async (t) => {
+// §4.1 Hits: the platforms (home.get --with platforms) are answered from a 30 s cache.
+test('two platform reads within 30 s make one home.get --with platforms', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   const f = setup(t)
   assert.equal((await f.http('GET', '/api/platforms')).status, 200)
@@ -193,7 +195,7 @@ test('two platform reads within 30 s make one machine.platforms', async (t) => {
   assert.deepEqual(again.body.platforms.map((p) => p.platform), ['lima'])
   // the machines view reads platforms through the same cache
   await f.http('GET', '/api/machines')
-  assert.equal(f.count('machine.platforms'), 1)
+  assert.equal(f.state.calls.filter((c) => c.call === 'home.get' && c.args[0]?.with?.includes('platforms')).length, 1)
 })
 
 // §4.1 Hits: parallel reads of one Sandbox share the sandbox.get in flight.
@@ -404,7 +406,7 @@ test('TTL bounds: cached at TTL − 1 ms, read again at TTL', async (t) => {
     assert.equal(f.count(call), start + 2, `${call}: read again at ${ttl} ms`)
   }
   await bound(() => f.http('GET', '/api/projects'), 'store.list', 15_000)
-  await bound(() => f.http('GET', '/api/platforms'), 'machine.platforms', 30_000)
+  await bound(() => f.http('GET', '/api/platforms'), 'home.get', 30_000)
   f.state.sandboxBusy = true
   await bound(() => f.http('GET', '/api/sandboxes/box1'), 'sandbox.get', 30_000)
 })
@@ -416,8 +418,9 @@ function fakeCli(dir) {
   const cli = join(dir, 'fake-layerfs.cjs'), log = join(dir, 'fake-layerfs.log')
   const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
     'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close', 'workspace.mount', 'workspace.commit', 'workspace.status',
-    'workspace.unmount', 'workspace.exec', 'machine.list', 'machine.platforms', 'machine.get', 'store.list', 'store.create', 'store.get']
-  const help = { calls: required.map((k) => ({ family: k.split('.')[0], call: k.split('.')[1], args: [], options: [] })), commands: [{ name: 'doctor', args: [], options: [] }], switches: [] }
+    'workspace.unmount', 'workspace.exec', 'machine.list', 'machine.get', 'store.list', 'store.create', 'store.get', 'home.get', 'home.doctor']
+  const entry = (k) => ({ family: k.split('.')[0], call: k.split('.')[1], args: [], options: [], ...(k === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) })
+  const help = { calls: required.map(entry), commands: [], switches: [] }
   writeFileSync(cli, `#!${process.execPath}
 const { appendFileSync, existsSync, writeFileSync } = require('node:fs')
 const argv = process.argv.slice(2)
@@ -425,10 +428,10 @@ appendFileSync(${JSON.stringify(log)}, JSON.stringify(argv) + '\\n')
 const out = (v) => process.stdout.write(JSON.stringify(v) + '\\n')
 if (argv[0] === '--version') out({ version: '2.0.0-test', commit: '${'b'.repeat(40)}', dirty: false, features: ['machine'] })
 else if (argv[0] === 'help') out(${JSON.stringify(help)})
-else if (argv[0] === 'doctor') out({ ok: true, findings: [] })
-else if (argv[1] === 'list') out({ items: [], machines: [], next_page_pos: null })
-else if (argv[1] === 'platforms') out({ host: 'macos', platforms: [] })
-else if (argv[1] === 'get') out({ name: argv[argv.indexOf('--') + 1] ?? argv[2], state: 'ready' })
+else if (argv[1] === 'doctor') out({ ok: true, findings: [], not_checked: [], status: 'ok', counts: {}, observed_at: '2026-11-19T00:00:00Z', tree: { home: '/fake', status: 'ok', coverage: 'shallow', checks: [], blocked_by: null, reason: null } })
+else if (argv[1] === 'list') out({ items: [], next_page_pos: null })
+else if (argv[0] === 'home' && argv[1] === 'get') out({ home: '/fake', state: 'ready', version: '2.0.0', platforms: { host: 'macos', items: [] }, tree: { machines: [], stores: [], buckets: [] } })
+else if (argv[1] === 'get') out({ machine: argv[argv.indexOf('--') + 1] ?? argv[2], platform: 'native', state: 'ready' })
 else out({})
 `, { mode: 0o700 })
   return { cli, log }
@@ -468,8 +471,6 @@ function routerGets() {
 
 /** One or more plausible requests per GET route (keep in sync: the test fails when router.ts gains a GET route). */
 const GETS = [
-  ['doctor-jobs', '/api/doctor-jobs'],
-  ['doctor-jobs/:id', '/api/doctor-jobs/job-x'],
   ['storage', '/api/storage'],
   ['stores/:id/stats', '/api/stores/s1/stats'],
   ['stores/:id/observations', '/api/stores/s1/observations'],
@@ -477,13 +478,12 @@ const GETS = [
   ['stores/:id/check', '/api/stores/s1/check?machine=native'],
   ['buckets/:id/files', '/api/buckets/b1/files'],
   ['storage-jobs/:id', '/api/storage-jobs/job-x'],
-  ['doctor', '/api/doctor'],
   ['platforms', '/api/platforms'],
   ['machines', '/api/machines'],
   ['machines/:id/inspect', '/api/machines/lima1/inspect'],
   ['machines/:id/sandbox-images', '/api/machines/lima1/sandbox-images'],
   ['machines/:id/log', '/api/machines/lima1/log'],
-  ['machines/:id/log', '/api/machines/lima1/log?cursor=c1&limit=50'],
+  ['machines/:id/log', '/api/machines/lima1/log?before=c1&limit=50'],
   ['machines/:id/files', '/api/machines/lima1/files'],
   ['machines/:id/files', '/api/machines/lima1/files?path=%2Fetc&depth=1&limit=200'],
   ['machines/:id/files', '/api/machines/lima1/files?path=%2Fetc%2Fhosts&offset=0&length=4096'],
@@ -530,7 +530,7 @@ const GETS = [
 /** The presets manager's GET routes (manager.ts `route`), dispatched by router.ts under /api/demo-presets. */
 const PRESET_GETS = ['', '/requests/r1', '/jobs/j1', '/studio', '/studio/environment-plan', '/studio/build-plan', '/studio/build-plan-no-sandboxes', '/studio/script', '/studio/script-no-sandboxes']
 /** Routes whose 2xx needs more than the fake has: they may answer 4xx/5xx, but still must not write. */
-const MAY_FAIL = new Set(['/api/doctor-jobs/job-x', '/api/storage-jobs/job-x', '/api/project-inits/init-x', '/api/stores/s1/check?machine=native'])
+const MAY_FAIL = new Set(['/api/storage-jobs/job-x', '/api/project-inits/init-x', '/api/stores/s1/check?machine=native'])
 
 // Guards the GETS table: it names every GET route router.ts has.
 test('the no-writes table covers every GET route in router.ts', () => {
@@ -541,7 +541,7 @@ test('the no-writes table covers every GET route in router.ts', () => {
 
 // C1 (finding: GETs with an `unclaimed:` projectId forked dsh.project.<uuid>): no GET route makes a mutating LayerFS call.
 test('no GET route makes a mutating LayerFS call, with or without a projectId', { timeout: 30_000 }, async (t) => {
-  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'logs', call: 'machine', args: [], options: [] }, { family: 'logs', call: 'sandbox', args: [], options: [] }, { family: 'machine', call: 'files', args: [], options: [] }, { family: 'sandbox', call: 'files', args: [], options: [] }, { family: 'machine', call: 'stats', args: [], options: [] }, { family: 'machine', call: 'space', args: [], options: [] }, { family: 'doctor', call: 'fix', args: [], options: [] }, { family: 'sandbox', call: 'list', args: [], options: [{ name: 'live', kind: 'bool' }] }]) })
+  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'machine', call: 'log', args: [], options: [] }, { family: 'logs', call: 'sandbox', args: [], options: [] }, { family: 'machine', call: 'files', args: [], options: [] }, { family: 'sandbox', call: 'files', args: [], options: [] }, { family: 'machine', call: 'stats', args: [], options: [], form: { with: { space: {} } } }, { family: 'home', call: 'get', args: [], options: [], form: { with: { platforms: {}, tree: {} } } }, { family: 'sandbox', call: 'list', args: [], options: [{ name: 'live', kind: 'bool' }] }]) })
   // the real identity check, wired as routes/index.ts wires it: reads never claim
   const catalog = new ProjectCatalog(() => f.lfs, join(f.dir, 'root'))
   f.host.host.assertProjectIdentity = (project, projectId) => catalog.assert(project, projectId, { claim: false })
@@ -594,9 +594,8 @@ test('no GET route makes a mutating LayerFS call, with or without a projectId', 
   for (const [path, status] of Object.entries(statuses)) if (path.includes('00000000-0000-4000')) assert.equal(status, 409, path)
   assert.equal(statuses['/api/demo-presets'], 200)
   assert.equal(f.count('branch.fork'), 0, 'an unclaimed projectId never claims (C1)')
-  assert.ok(readLog(log).some((argv) => argv[0] === 'doctor'), 'GET /api/doctor ran the doctor report through the CLI')
   // the log reads made their calls, and nothing else: no sandbox.get, no machine probe
-  assert.equal(f.count('logs.machine'), 2)
+  assert.equal(f.count('machine.log'), 2)
   assert.equal(f.count('logs.sandbox'), 2)
   // Stage 0: the ready images come from the archive on this host, never from a machine call
   assert.equal(statuses['/api/machines/lima1/sandbox-images'], 200)

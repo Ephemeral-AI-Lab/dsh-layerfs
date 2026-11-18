@@ -3,8 +3,8 @@
 // uses on the stand-in world of doctor-scenarios.mjs, while no runtime has them:
 //
 //   home get --with tree --detail                     the records tree
-//   home|machine|store|project|sandbox|backup doctor  the long form, with one `{"progress":…}` line
-//                                                     on stderr per finished thing when asked (--progress)
+//   home|machine|store|project|sandbox|backup doctor  the long form, with one `{phase, done, total, node}`
+//                                                     line on stderr per finished thing when asked (--progress)
 //   machine start|stop, project delete, backup create the calls behind the fix buttons (on the stand-in's things)
 //
 // Everything else goes to $LFS_REAL_CLI unchanged when it is set (a private dev
@@ -21,8 +21,7 @@
 // state.json there holds what fixes changed and which one-time failures were used.
 // Every process adds `<epoch ms> <argv JSON>` to spawns.log.
 //
-// Refusals are printed with both `error` (2.0) and `code` (today's key), so the
-// host reads them before and after its CLI client moves to the 2.0 shape.
+// Refusals are the 2.0 shape: `{ error, message, fix? }` on stderr, exit 125.
 import { spawn } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, rmdirSync, writeFileSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
@@ -45,7 +44,7 @@ function emit(fd, text) {
   }
 }
 const answer = (value) => { emit(1, `${JSON.stringify(value)}\n`); process.exit(0) }
-const refuse = (code, message) => { emit(2, `${JSON.stringify({ error: code, code, message, fix: null, detail: null })}\n`); process.exit(125) }
+const refuse = (code, message) => { emit(2, `${JSON.stringify({ error: code, message })}\n`); process.exit(125) }
 const json = (name) => { try { return JSON.parse(readFileSync(join(dir, name), 'utf8')) } catch { return {} } }
 
 /** Read the scenario's state, let `change` use and alter it, and save it: one process at a time. */
@@ -87,9 +86,10 @@ const withValue = () => { const i = args.indexOf('--with'); return i >= 0 ? Stri
 /** The calls the host's SDK client needs in the table before it sends them. */
 const entry = (name, argNames = [], options = []) => { const [f, c] = name.split('.'); return { family: f, call: c, args: argNames.map((n) => ({ name: n, kind: 'name' })), options: options.map((n) => ({ name: n, kind: n === 'on_progress' ? 'function' : 'bool' })) } }
 const FIX_CALLS = [entry('machine.start', ['machine'], ['on_progress']), entry('machine.stop', ['machine'], ['force']), entry('project.delete', ['project']), entry('backup.create', ['store', 'bucket'], ['on_progress'])]
-/** `home get` as the 2.0 table lists it: its `--with` values keyed by value. */
-const HOME_GET = { ...entry('home.get'), with: { platforms: {}, tree: {} } }
-const REQUIRED = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff', 'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close', 'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'machine.list', 'machine.platforms', 'store.list', 'store.create']
+/** `home get` as the 2.0 table lists it: its `--with` values keyed by value under `form.with`. */
+const HOME_FORM = { with: { platforms: { where: 'own', keys: ['host', 'items'] }, tree: { where: 'own', keys: ['machines', 'stores', 'buckets'] } } }
+const HOME_GET = { ...entry('home.get'), form: HOME_FORM }
+const REQUIRED = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff', 'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close', 'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'machine.list', 'machine.get', 'store.list', 'store.create']
 
 if (family === '--version' || family === 'help') {
   if (!real) {
@@ -100,7 +100,7 @@ if (family === '--version' || family === 'help') {
     const { spawnSync } = await import('node:child_process')
     const r = spawnSync(real, args, { encoding: 'utf8', maxBuffer: 1 << 28 })
     let out = r.stdout ?? ''
-    if (r.status === 0) { try { const help = JSON.parse(out); out = `${JSON.stringify({ ...help, calls: [...help.calls.map((c) => (c.family === 'home' && c.call === 'get' ? { ...c, with: HOME_GET.with } : c)), ...[HOME_GET, ...FIX_CALLS].filter((f) => !help.calls.some((c) => c.family === f.family && c.call === f.call))] })}\n` } catch { /* as it came */ } }
+    if (r.status === 0) { try { const help = JSON.parse(out); out = `${JSON.stringify({ ...help, calls: [...help.calls.map((c) => (c.family === 'home' && c.call === 'get' ? { ...c, form: { ...c.form, with: { ...c.form?.with, ...HOME_FORM.with } } } : c)), ...[HOME_GET, ...FIX_CALLS].filter((f) => !help.calls.some((c) => c.family === f.family && c.call === f.call))] })}\n` } catch { /* as it came */ } }
     emit(1, out); emit(2, r.stderr ?? ''); process.exit(r.status ?? 1)
   } else pass()
 } else if (family === 'home' && call === 'get' && withValue().includes('tree')) {
@@ -116,7 +116,7 @@ if (family === '--version' || family === 'help') {
   if (full) await sleep(result.slow ? t.slow : t.full)
   for (const [i, event] of result.events.entries()) {
     await sleep(i === 0 ? t.self : t.kid)
-    if (flag('progress')) emit(2, `${JSON.stringify({ progress: event })}\n`)
+    if (flag('progress')) emit(2, `${JSON.stringify(event)}\n`)
   }
   if (flag('detail')) answer(result.report)
   const { findings, not_checked: missed } = result.report

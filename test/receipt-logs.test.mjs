@@ -30,7 +30,7 @@ function fakeCli(dir) {
   writeFileSync(cli, `#!${process.execPath}
 const argv = process.argv.slice(2)
 let input = ''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => {
-  if (argv.includes('fail')) { process.stderr.write(JSON.stringify({ code: 'Conflict', message: 'moved' }) + '\\n'); process.exitCode = 125; return }
+  if (argv.includes('fail')) { process.stderr.write(JSON.stringify({ error: 'Conflict', message: 'moved' }) + '\\n'); process.exitCode = 125; return }
   if (argv.includes('--events')) { console.log(JSON.stringify({ stream: 'stdout', bytes: 'hi\\n' })); console.log(JSON.stringify({ result: { kind: 'Exited', exit_code: 3 } })); return }
   console.log(JSON.stringify({ kind: 'Committed', commit: { id: '${id}' } }))
 })

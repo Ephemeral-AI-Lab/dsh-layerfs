@@ -219,7 +219,8 @@ test('live: Build cleanup still removes data from a private home', { skip: !pin 
   const env = { ...process.env, LAYERFS_HOME: home }
   const cli = (...argv) => JSON.parse(execFileSync(pin.cli, argv, { env, encoding: 'utf8' }))
   try {
-    cli('machine', 'list'); cli('store', 'create', '--', 'ps')
+    // a 2.0 CLI makes no home on a read: `home init` first
+    cli('home', 'init'); cli('store', 'create', '--', 'ps')
     const src = join(base, 'src'); mkdirSync(src); writeFileSync(join(src, 'a.txt'), 'a\n')
     cli('project', 'init', '--', 'ps/p1', src)
     const { CliDriver } = await import(pathToFileURL(join(out, 'driver.mjs')).href)
@@ -243,7 +244,8 @@ function stoppingFixture({ fail = null, forceSupport = true } = {}) {
   const home = join(base, 'home'), state = join(base, 'presets')
   mkdirSync(home); mkdirSync(state)
   writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ id: 'stop-test-home' }))
-  const machines = [{ name: 'native', state: 'ready', id: 'native' }, { name: 'docker', state: 'running', id: 'docker' }, { name: 'vm', state: 'stopped', id: 'vm' }]
+  // `machine list --detail` rows (2.0): keyed `machine`, six states
+  const machines = [{ machine: 'native', state: 'ready', created_at: '2026-11-01T00:00:00Z' }, { machine: 'docker', state: 'ready', created_at: '2026-11-01T00:00:00Z' }, { machine: 'vm', state: 'stopped', created_at: '2026-11-02T00:00:00Z' }]
   const inventory = join(base, 'machines.json'), commands = join(base, 'commands.jsonl'), cli = join(base, 'layerfs.mjs')
   writeFileSync(inventory, JSON.stringify(machines))
   writeFileSync(cli, `#!${process.execPath}
@@ -251,16 +253,16 @@ import fs from 'node:fs'
 const args = process.argv.slice(2)
 const inventory = ${JSON.stringify(inventory)}, commands = ${JSON.stringify(commands)}, fail = ${JSON.stringify(fail)}
 if (args[0] === '--version') console.log(JSON.stringify({commit:'a'.repeat(40)}))
-else if (args[0] === 'help') console.log(JSON.stringify({calls:${JSON.stringify([...REQUIRED_CALLS.map(name => { const [family, call] = name.split('.'); return { family, call } }), { family: 'machine', call: 'stop', options: forceSupport ? [{ name: 'force', kind: 'bool' }] : [] }])}}))
+else if (args[0] === 'help') console.log(JSON.stringify({calls:${JSON.stringify([...REQUIRED_CALLS.map(name => { const [family, call] = name.split('.'); return { family, call, ...(name === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) } }), { family: 'machine', call: 'stop', options: forceSupport ? [{ name: 'force', kind: 'bool' }] : [] }])}}))
 else {
   fs.appendFileSync(commands, JSON.stringify(args)+'\\n')
   const machines = JSON.parse(fs.readFileSync(inventory))
-  if (args.join(' ') === 'machine list') console.log(JSON.stringify({machines}))
-  else if (args[0] === 'machine' && args[1] === 'stop' && args[3] === '--force') {
-    if (args[2] === fail) { console.error(JSON.stringify({code:'Failed',message:'stop failed'})); process.exit(1) }
-    const machine = machines.find(row => row.name === args[2]); machine.state = machine.name === 'native' ? 'ready' : 'stopped'
-    fs.writeFileSync(inventory, JSON.stringify(machines)); console.log(JSON.stringify({name:machine.name,state:machine.state,forced:true,stopped_sandboxes:[],unknown:[]}))
-  } else { console.error(JSON.stringify({code:'Unexpected',message:args.join(' ')})); process.exit(1) }
+  if (args.join(' ') === 'machine list --detail') console.log(JSON.stringify({items: machines}))
+  else if (args[0] === 'machine' && args[1] === 'stop' && args[3] === '--force' && args[4] === '--detail') {
+    if (args[2] === fail) { console.error(JSON.stringify({error:'Failed',message:'stop failed'})); process.exit(125) }
+    const machine = machines.find(row => row.machine === args[2]); machine.state = machine.machine === 'native' ? 'ready' : 'stopped'
+    fs.writeFileSync(inventory, JSON.stringify(machines)); console.log(JSON.stringify({ok:true,unchanged:false,stopped_sandboxes:[],stopped_sandboxes_count:0,unknown_workspaces:[],unknown_workspaces_count:0,outcome:'stopped',machine:machine.machine,forced:true}))
+  } else { console.error(JSON.stringify({error:'InvalidInput',message:args.join(' ')})); process.exit(125) }
 }
 `)
   chmodSync(cli, 0o700)
@@ -291,7 +293,7 @@ test('Reset only force-stops registered machines, preserves content/manifest/jou
     assert.equal(job.state, 'completed', job.error?.message)
     assert.equal(job.command, 'machine-stop')
     assert.equal(job.cleanup.verified, true)
-    assert.deepEqual(job.cleanup.completed, ['docker', 'native', 'vm'].map(name => ['machine', 'stop', name, '--force']))
+    assert.deepEqual(job.cleanup.completed, ['docker', 'native', 'vm'].map(name => ['machine', 'stop', name, '--force', '--detail']))
     assert.deepEqual(fake.stopped, ['docker', 'native', 'vm'])
     assert.deepEqual(fake.forgotten, [])
     assert.deepEqual(job.deletedSessions, ['session-active', 'session-old'])
@@ -316,8 +318,8 @@ test('a partial stop failure still invalidates successful machines and attempts 
     assert.deepEqual(fake.stopped, ['docker', 'vm'])
     assert.deepEqual(fake.deleted, [], 'a failed stop deletes no session')
     assert.equal(job.cleanup.verified, false)
-    assert.deepEqual(job.cleanup.completed, ['docker', 'vm'].map(name => ['machine', 'stop', name, '--force']))
-    assert.deepEqual(JSON.parse(readFileSync(fixture.inventory)).map(row => row.name).sort(), ['docker', 'native', 'vm'])
+    assert.deepEqual(job.cleanup.completed, ['docker', 'vm'].map(name => ['machine', 'stop', name, '--force', '--detail']))
+    assert.deepEqual(JSON.parse(readFileSync(fixture.inventory)).map(row => row.machine).sort(), ['docker', 'native', 'vm'])
   } finally { rmSync(fixture.base, { recursive: true, force: true }) }
 })
 

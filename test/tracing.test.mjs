@@ -105,7 +105,7 @@ function receiptsOf(callLog, identity) {
 test('managed CLI preserves stdin, exact streams and exit status; one tagged line and receipt per invocation', async () => {
   const dir = mkdtempSync(join(root, 'wrap-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake-cli.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nlet input='';for await(const chunk of process.stdin)input+=chunk;process.stderr.write('diagnostic\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({code:'Conflict',message:'no'})+'\\n');process.exitCode=125}else console.log(JSON.stringify({kind:'Committed',head:'${id}',echo:input,tag:process.env.LAYERFS_LOGS_TAG}));`, { mode: 0o700 })
+  writeFileSync(cli, `#!${process.execPath}\nlet input='';for await(const chunk of process.stdin)input+=chunk;process.stderr.write('diagnostic\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({error:'Conflict',message:'no'})+'\\n');process.exitCode=125}else console.log(JSON.stringify({kind:'Committed',head:'${id}',echo:input,tag:process.env.LAYERFS_LOGS_TAG}));`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'private-home'), callLog })
   const identity = { origin: 'tool', sessionId: 's', project: 'p', turn: 2, toolCallId: 'bash-a', scope: toolScope('s', 'bash-a') }
   const env = { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment(identity), LAYERFS_LOGS_TAG: 'inherited' }
@@ -136,7 +136,7 @@ test('managed CLI preserves stdin, exact streams and exit status; one tagged lin
 test('managed CLI: a streamed exec exiting non-zero is the command\'s result, not Unknown (F13)', async () => {
   const dir = mkdtempSync(join(root, 'exit-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake-exit.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nconst code=Number(process.argv.at(-1).match(/exit (\\d+)/)?.[1]??0);if(code===125)process.stderr.write(JSON.stringify({code:'Busy',message:'no'})+'\\n');else process.stdout.write('raw output\\n');process.exitCode=code`, { mode: 0o700 })
+  writeFileSync(cli, `#!${process.execPath}\nconst code=Number(process.argv.at(-1).match(/exit (\\d+)/)?.[1]??0);if(code===125)process.stderr.write(JSON.stringify({error:'Busy',message:'no'})+'\\n');else process.stdout.write('raw output\\n');process.exitCode=code`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog })
   const identity = { origin: 'tool', sessionId: 's', project: 'p', turn: 1, toolCallId: 'bash-x', scope: toolScope('s', 'bash-x') }
   const env = { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment(identity) }
@@ -154,7 +154,7 @@ test('managed CLI with the native call log is a bash script: tag, stdin, streams
   const dir = mkdtempSync(join(root, 'native-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake.mjs')
   // Echo stdin and the tag; `fail` refuses (125 + a refusal frame on stderr), `exit3` exits 3 (a streamed command's code).
-  writeFileSync(cli, `#!${process.execPath}\nlet input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({kind:'Committed',head:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null,input,home:process.env.LAYERFS_HOME}));process.stderr.write('note\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({code:'Busy',message:'busy'})+'\\n');process.exitCode=125}else if(process.argv.includes('exit3'))process.exitCode=3})`, { mode: 0o700 })
+  writeFileSync(cli, `#!${process.execPath}\nlet input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({kind:'Committed',head:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null,input,home:process.env.LAYERFS_HOME}));process.stderr.write('note\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({error:'Busy',message:'busy'})+'\\n');process.exitCode=125}else if(process.argv.includes('exit3'))process.exitCode=3})`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog, native: true })
   assert.match(readFileSync(command, 'utf8'), /^#!\/bin\/bash\n/, 'no node per call')
   assert.doesNotMatch(readFileSync(command, 'utf8'), />\(|<\(|\/dev\/fd/, "no process substitution: DSH's command sandbox denies /dev/fd")

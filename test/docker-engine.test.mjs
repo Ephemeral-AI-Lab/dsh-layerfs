@@ -115,10 +115,14 @@ function machinesOn(host, { missing = ['host:/var/run/docker.sock'] } = {}) {
   const log = []
   const events = []
   const lfs = {
+    // the 2.0 calls: machine.get --detail names the platform; home.get --with platforms the host and its rows
     machine: {
-      list: async () => ({ machines: [{ name: 'docker', platform: 'docker', state: 'stopped' }, { name: 'vm', platform: 'lima', state: 'stopped' }] }),
-      platforms: async () => ({ host, platforms: [{ platform: 'docker', ready: missing.length === 0, missing }] }),
-      start: async (name) => { log.push(`machine.start ${name}`); return { name, state: 'running' } },
+      list: async () => ({ items: [{ machine: 'docker', platform: 'docker', state: 'stopped' }, { machine: 'vm', platform: 'lima', state: 'stopped' }] }),
+      get: async (name) => ({ machine: name, platform: name === 'docker' ? 'docker' : 'lima', state: 'stopped' }),
+      start: async (name) => { log.push(`machine.start ${name}`); return { ok: true, machine: name } },
+    },
+    home: {
+      get: async () => ({ state: 'ready', platforms: { host, items: [{ platform: 'docker', ready: missing.length === 0, missing }] } }),
     },
   }
   const machines = new Machines({ lfs: () => lfs, emit: (type, data) => events.push(data), discover: async () => ({}) })

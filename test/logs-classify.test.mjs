@@ -16,7 +16,8 @@ const WRITES = new Set([
   'file.write', 'file.edit', 'file.rm', 'file.mkdir', 'file.mv', 'file.cp', 'file.apply',
   'sandbox.create', 'sandbox.close',
   'workspace.mount', 'workspace.exec', 'workspace.exec_cancel', 'workspace.commit', 'workspace.unmount',
-  'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load', 'machine.prune',
+  'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load_image', 'machine.prune',
+  'home.init', 'home.clear_log', 'home.prune',
   'store.create', 'store.connect', 'store.update', 'store.push', 'store.pull', 'store.remove', 'store.compact', 'store.disconnect',
   'backup.connect', 'backup.disconnect', 'backup.create', 'backup.restore',
   'doctor.fix',
@@ -25,7 +26,7 @@ const WRITES = new Set([
 test('family-only reads are not writes', () => {
   for (const argv of [['doctor'], ['doctor', 'machine', 'docker'], ['help', '--json'], ['logs', 'list'], ['--version', '--json']]) assert.equal(isWrite(argv), false, argv.join(' '))
   // the monitoring reads (they write no call-log line, and a line of one would be a read)
-  for (const argv of [['machine', 'files', 'docker', '/etc'], ['sandbox', 'files', 'sb'], ['machine', 'stats', 'docker'], ['machine', 'space', 'docker'], ['logs', 'machine', 'docker'], ['logs', 'sandbox', 'sb']]) assert.equal(isWrite(argv), false, argv.join(' '))
+  for (const argv of [['machine', 'files', 'docker', '/etc'], ['sandbox', 'files', 'sb'], ['machine', 'stats', 'docker'], ['machine', 'log', 'docker'], ['logs', 'sandbox', 'sb'], ['home', 'log'], ['home', 'doctor'], ['machine', 'doctor', 'docker'], ['home', 'leftovers']]) assert.equal(isWrite(argv), false, argv.join(' '))
   assert.equal(isWrite(['doctor', 'fix', 'native:run-folder:x']), true, 'doctor fix removes a leftover')
 })
 

@@ -23,15 +23,17 @@ function fixture(lfs) {
 
 test('machine Stop keeps normal SDK call; Force stop forwards force and invalidates only after success', async () => {
   const calls = []
-  const receipt = { kind: 'Stopped', machine: 'machine-a' }
-  const f = fixture({ machine: { stop: async (...args) => { calls.push(['stop', ...args]); return receipt } } })
+  // the 2.0 long form of machine.stop; the SDK options are the long form, the progress callback and (Force stop) force
+  const receipt = { ok: true, outcome: 'stopped', machine: 'machine-a', forced: false }
+  const opts = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'function' ? 'fn' : v]))
+  const f = fixture({ machine: { stop: async (name, o) => { calls.push(['stop', name, opts(o)]); return receipt } } })
   f.host.machinesStopped = async (names) => { calls.push(['invalidate', names]) }
   try {
     assert.deepEqual((await R.handle(f.groups, { method: 'POST', path: '/api/machines/machine-a/stop' })).body, receipt)
-    assert.deepEqual(calls, [['stop', 'machine-a'], ['invalidate', ['machine-a']]])
+    assert.deepEqual(calls, [['stop', 'machine-a', { detail: true, on_progress: 'fn' }], ['invalidate', ['machine-a']]])
     calls.length = 0
     assert.deepEqual((await R.handle(f.groups, { method: 'POST', path: '/api/machines/machine-a/stop', body: { force: true } })).body, receipt)
-    assert.deepEqual(calls, [['stop', 'machine-a', { force: true }], ['invalidate', ['machine-a']]])
+    assert.deepEqual(calls, [['stop', 'machine-a', { force: true, detail: true, on_progress: 'fn' }], ['invalidate', ['machine-a']]])
     calls.length = 0
     f.host.lfs = () => ({ machine: { stop: async () => { throw Object.assign(new Error('still running'), { code: 'InUse' }) } } })
     const refused = await R.handle(f.groups, { method: 'POST', path: '/api/machines/machine-a/stop', body: { force: true } })
@@ -94,9 +96,9 @@ test('Force stop remains accessible for native and stopped machines with registe
   assert.equal(forceStopOf(machine('native', 'ready', ['local-runtime'])), true)
   assert.equal(forceStopOf(machine('lima', 'stopped', ['stale-runtime'])), true)
   assert.equal(forceStopOf(machine('docker', 'unknown'), true), true, 'global inventory may identify a registered runtime absent from machine.list')
-  assert.equal(forceStopOf(machine('lima', 'running')), true)
+  assert.equal(forceStopOf(machine('lima', 'ready')), true)
   assert.equal(forceStopOf(machine('lima', 'stopped')), false)
-  assert.equal(forceStopOf(machine('ssh', 'running', ['unsupported'])), false)
-  assert.equal(forceStopOf(machine('lima', 'running'), true, { forceStop: false, images: false, imageArchive: false }), false, 'a CLI without force hides it')
-  assert.equal(forceStopOf(machine('lima', 'running'), true, { forceStop: true, images: false, imageArchive: false }), true)
+  assert.equal(forceStopOf(machine('ssh', 'ready', ['unsupported'])), false)
+  assert.equal(forceStopOf(machine('lima', 'ready'), true, { forceStop: false, images: false, imageArchive: false }), false, 'a CLI without force hides it')
+  assert.equal(forceStopOf(machine('lima', 'ready'), true, { forceStop: true, images: false, imageArchive: false }), true)
 })

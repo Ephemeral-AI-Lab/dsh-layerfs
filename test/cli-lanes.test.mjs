@@ -40,14 +40,17 @@ const CALLS = {
   'machine.prune': [[a('name', 'name'), a('image', 'text', true)], [o('unused', 'bool')]],
   'sandbox.create': [[a('project', 'project'), a('name', 'name'), a('machine', 'name', true)], [o('image', 'image'), o('on_progress', 'function')]],
   // monitoring reads (layerfs-project#178)
-  'logs.machine': [[a('machine', 'name')], [o('cursor', 'text'), o('before', 'text'), o('limit', 'int')]],
+  'machine.log': [[a('machine', 'name')], [o('limit', 'int'), o('cursor', 'text')]],
+  'machine.stats': [[a('machine', 'name')], []],
   'logs.sandbox': [[a('sandbox', 'name')], [o('cursor', 'text'), o('before', 'text'), o('limit', 'int')]],
   'sandbox.files': [[a('sandbox', 'name'), a('path', 'text', true)], [o('depth', 'int'), o('cursor', 'text'), o('limit', 'int'), o('offset', 'int'), o('length', 'int')]],
-  'machine.files': [[a('machine', 'name'), a('path', 'text', true)], [o('depth', 'int'), o('cursor', 'text'), o('limit', 'int'), o('offset', 'int'), o('length', 'int')]],
+  'machine.files': [[a('machine', 'name'), a('path', 'text', true)], [o('depth', 'int'), o('cursor', 'text'), o('limit', 'int'), o('byte_offset', 'int'), o('byte_length', 'int')]],
 }
+/** The 2.0 `--with` values a row lists (`form.with`, keyed by value). */
+const FORMS = { 'home.get': { with: { platforms: {}, tree: {} } }, 'machine.get': { with: { live: {} } }, 'machine.stats': { with: { space: {} } } }
 const calls = [...new Set([...C.REQUIRED_CALLS, ...Object.keys(CALLS)])].map((name) => {
   const [family, call] = name.split('.'), [args, options] = CALLS[name] ?? [[], []]
-  return { family, call, args, options }
+  return { family, call, args, options, ...(FORMS[name] ? { form: FORMS[name] } : {}) }
 })
 
 /** A fake pinned CLI: discovery, a call log, held calls released by a file, and scripted refusals. */
@@ -68,16 +71,16 @@ const failing = (counter, env) => {
   writeFileSync(dir + '/' + counter, String(n + 1))
   return n < Number(process.env[env] ?? 0)
 }
-const inspect = ['logs.machine', 'logs.sandbox', 'sandbox.files', 'machine.files'].includes(op)
+const inspect = ['machine.log', 'logs.sandbox', 'sandbox.files', 'machine.files'].includes(op)
 if (op === 'workspace.exec' || op === 'store.push') setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op }) }, 10)
-else if (inspect && process.env.FAKE_INSPECT_RACE) { process.stderr.write(JSON.stringify({ code: 'Failed', message: 'Os { code: 2, kind: NotFound, message: "No such file or directory" }' }) + '\\n'); process.exit(125) }
+else if (inspect && process.env.FAKE_INSPECT_RACE) { process.stderr.write(JSON.stringify({ error: 'Failed', message: 'Os { code: 2, kind: NotFound, message: "No such file or directory" }' }) + '\\n'); process.exit(125) }
 else if (inspect && existsSync(dir + '/hold-inspect')) { appendFileSync(dir + '/held.pids', process.pid + '\\n'); setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op, argv: a }) }, 10) }
 else if ((op === 'file.list' || op === 'file.write') && failing('race.count', 'FAKE_RACE_FAILS')) {
-  process.stderr.write(JSON.stringify({ code: 'Failed', message: 'Os { code: 2, kind: NotFound, message: "No such file or directory" }' }) + '\\n'); process.exit(125)
+  process.stderr.write(JSON.stringify({ error: 'Failed', message: 'Os { code: 2, kind: NotFound, message: "No such file or directory" }' }) + '\\n'); process.exit(125)
 } else if (op === 'machine.update' && failing('update.count', 'FAKE_UPDATE_FAILS')) {
-  process.stderr.write(JSON.stringify({ code: 'Failed', message: 'daemon not reachable' }) + '\\n'); process.exit(125)
+  process.stderr.write(JSON.stringify({ error: 'Failed', message: 'daemon not reachable' }) + '\\n'); process.exit(125)
 } else if (op === 'machine.get' && process.env.FAKE_SLOW_MS) setTimeout(() => answer({ slow: true }), Number(process.env.FAKE_SLOW_MS))
-else if (op === 'sandbox.create' && a.includes('--progress')) { writeSync(2, JSON.stringify({ progress: { phase: 'send', done: 1, total: 2 } }) + '\\n'); answer({ argv: a }) }
+else if (op === 'sandbox.create' && a.includes('--progress')) { writeSync(2, JSON.stringify({ phase: 'send', done: 1, total: 2 }) + '\\n'); answer({ argv: a }) }
 else if (op === 'machine.list' && process.env.FAKE_SLOW_LIST_MS) setTimeout(() => answer({ items: [] }), Number(process.env.FAKE_SLOW_LIST_MS))
 else answer({ argv: a })
 `, { mode: 0o700 })
@@ -88,7 +91,7 @@ const fresh = () => { const dir = join(root, `t${n++}`); mkdirSync(dir); return 
 
 test('laneOf: short calls, long jobs, Workspace commands and exec-cancel take separate lanes', () => {
   // Machine probes poll an unreachable VM for their whole budget: they never take a page read's slot.
-  for (const argv of [['machine', 'list'], ['machine', 'status', '--', 'vm'], ['machine', 'platforms']]) assert.equal(C.laneOf(argv).name, 'probes', argv.join(' '))
+  for (const argv of [['machine', 'list'], ['machine', 'get', '--', 'vm'], ['machine', 'images', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'probes', argv.join(' '))
   assert.equal(C.laneOf(['store', 'list']).name, 'calls')
   assert.equal(C.laneOf(['file', 'write', '--', 'p/a', 'main', '/x']).name, 'calls')
   for (const argv of [['store', 'push'], ['store', 'pull'], ['backup', 'create'], ['backup', 'restore'], ['project', 'init'], ['project', 'export'], ['machine', 'create'], ['machine', 'start'], ['machine', 'stop'], ['machine', 'update'], ['sandbox', 'create'], ['doctor', 'store', 'integrity']]) {
@@ -140,9 +143,9 @@ test('machine probes default to the short budget: a dead VM answers unreachable 
   const f = fresh()
   const lfs = C.client({ cli: f.cli, home: f.home })
   assert.ok(C.PROBE_TIMEOUT_MS < C.READ_TIMEOUT_MS)
-  assert.deepEqual([...C.PROBES].sort(), ['machine.images', 'machine.list', 'machine.platforms', 'machine.status'])
-  // sandbox-images.md §4.1: machine.load and machine.prune run as long as their copy, in the jobs lane
-  for (const call of ['load', 'prune']) assert.equal(C.laneOf(['machine', call]).name, 'jobs', call)
+  assert.deepEqual([...C.PROBES].sort(), ['machine.get', 'machine.images', 'machine.list'])
+  // sandbox-images.md §4.1: machine.load_image and machine.prune run as long as their copy, in the jobs lane
+  for (const call of ['load_image', 'prune']) assert.equal(C.laneOf(['machine', call]).name, 'jobs', call)
   t.after(() => { delete process.env.FAKE_SLOW_LIST_MS })
   await lfs.machine.get('vm') // discovery first, so the clock times only the probe
   process.env.FAKE_SLOW_LIST_MS = String(C.PROBE_TIMEOUT_MS + 20000)
@@ -287,12 +290,13 @@ const inspectSpawns = (f) => f.log().filter((argv) => C.INSPECT_CALLS.has(`${arg
 const until = async (check, ms = 6000) => { for (let i = 0; i < ms / 20 && !check(); i++) await new Promise((r) => setTimeout(r, 20)); return check() }
 
 test('monitoring reads are named with their family and take the inspect lane', () => {
-  assert.deepEqual([...C.INSPECT_CALLS].sort(), ['logs.machine', 'logs.sandbox', 'machine.files', 'machine.space', 'machine.stats', 'sandbox.files'])
+  assert.deepEqual([...C.INSPECT_CALLS].sort(), ['logs.sandbox', 'machine.files', 'machine.log', 'machine.stats', 'sandbox.files'])
   assert.deepEqual(C.INSPECT_LANE, { name: 'inspect', limit: 2, queue: 4 })
   assert.ok(C.INSPECT_TIMEOUT_MS <= 15_000)
-  for (const argv of [['logs', 'machine', '--', 'vm'], ['logs', 'sandbox', '--', 'sb'], ['sandbox', 'files', '--', 'sb'], ['machine', 'files', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'inspect', argv.join(' '))
-  // the neighbours stay where they were: the call log's own reads, sandbox.get, machine.get
-  for (const argv of [['logs', 'list'], ['logs', 'reset'], ['sandbox', 'get', '--', 'sb'], ['machine', 'get', '--', 'vm'], ['sandbox', 'list']]) assert.equal(C.laneOf(argv).name, 'calls', argv.join(' '))
+  for (const argv of [['machine', 'log', '--', 'vm'], ['logs', 'sandbox', '--', 'sb'], ['sandbox', 'files', '--', 'sb'], ['machine', 'files', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'inspect', argv.join(' '))
+  // the neighbours stay where they were: the call log's own reads, sandbox.get; machine.get is a probe (`--with live`)
+  for (const argv of [['home', 'log'], ['home', 'clear-log'], ['sandbox', 'get', '--', 'sb'], ['sandbox', 'list']]) assert.equal(C.laneOf(argv).name, 'calls', argv.join(' '))
+  assert.equal(C.laneOf(['machine', 'get', '--', 'vm']).name, 'probes')
 })
 
 test('the inspect lane runs 2 and queues 4; a 7th read is Busy at once; a dropped queued read never starts a process; a dropped running one is ended', { timeout: 40000 }, async (t) => {
@@ -304,7 +308,7 @@ test('the inspect lane runs 2 and queues 4; a 7th read is Busy at once; a droppe
   const signals = Array.from({ length: 6 }, () => new AbortController())
   const settled = []
   const reads = signals.map((c, i) => {
-    const read = (i % 2 ? lfs.logs.machine(`vm${i}`, { signal: c.signal }) : lfs.sandbox.files(`sb${i}`, { signal: c.signal }))
+    const read = (i % 2 ? lfs.machine.log(`vm${i}`, { signal: c.signal }) : lfs.sandbox.files(`sb${i}`, { signal: c.signal }))
     return read.then((value) => { settled[i] = { value }; return value }, (error) => { settled[i] = { error } })
   })
   assert.ok(await until(() => inspectSpawns(f).length === 2), 'two reads run')
@@ -354,7 +358,7 @@ test('monitoring reads run once (no Store-race retry), keep nothing, clear nothi
   // a kept read, then monitoring reads, then the kept read again: still the kept answer
   await lfs.machine.images('vm')
   await lfs.machine.list()
-  assert.deepEqual((await lfs.logs.machine('vm', { cursor: 'c1', limit: 50 })).argv, ['logs', 'machine', '--cursor', 'c1', '--limit', '50', '--', 'vm'])
+  assert.deepEqual((await lfs.machine.log('vm', { cursor: 'c1', limit: 50, detail: true })).argv, ['machine', 'log', '--cursor', 'c1', '--limit', '50', '--detail', '--', 'vm'])
   assert.deepEqual((await lfs.logs.sandbox('sb', { before: 'b1' })).argv, ['logs', 'sandbox', '--before', 'b1', '--', 'sb'])
   assert.deepEqual((await lfs.sandbox.files('sb', '/home', { depth: 1 })).argv, ['sandbox', 'files', '--depth', '1', '--', 'sb', '/home'])
   assert.deepEqual((await lfs.machine.files('vm')).argv, ['machine', 'files', '--', 'vm'])
@@ -366,8 +370,8 @@ test('monitoring reads run once (no Store-race retry), keep nothing, clear nothi
   assert.equal(count('machine', 'images'), 1, 'a monitoring read cleared no kept answer')
   assert.equal(count('machine', 'list'), 1)
   // the same read twice is two processes (routes share reads, not the SDK), and nothing is kept
-  await Promise.all([lfs.logs.machine('vm'), lfs.logs.machine('vm')])
-  assert.equal(count('logs', 'machine'), 3)
+  await Promise.all([lfs.machine.log('vm'), lfs.machine.log('vm')])
+  assert.equal(count('machine', 'log'), 3)
   // LayerFS's Store-race refusal: any other read is run again; a monitoring read is not
   process.env.FAKE_INSPECT_RACE = '1'
   const before = inspectSpawns(f).length
@@ -375,7 +379,7 @@ test('monitoring reads run once (no Store-race retry), keep nothing, clear nothi
   await assert.rejects(lfs.machine.files('vm', '/etc'), (error) => error.code === 'Failed')
   assert.equal(inspectSpawns(f).length, before + 2, 'one process each: never retryRace')
   // option checks: a signal must be one, and only monitoring reads take it
-  await assert.rejects(lfs.logs.machine('vm', { signal: {} }), (error) => error.code === 'InvalidInput' && /AbortSignal/.test(error.message))
+  await assert.rejects(lfs.machine.log('vm', { signal: {} }), (error) => error.code === 'InvalidInput' && /AbortSignal/.test(error.message))
   await assert.rejects(lfs.machine.get('vm', { signal: new AbortController().signal }), (error) => error.code === 'InvalidInput' && /unknown option signal/.test(error.message))
 })
 
@@ -383,7 +387,7 @@ test('monitoring reads write no call log line and keep no output, in stand-in mo
   const f = fresh()
   const callLog = join(f.dir, 'trace', 'calls.jsonl')
   const lfs = C.client({ cli: f.cli, home: f.home, callLog, nativeLogs: false })
-  await lfs.logs.machine('vm')
+  await lfs.machine.log('vm')
   await lfs.logs.sandbox('sb', { cursor: 'c' })
   await lfs.sandbox.files('sb')
   await lfs.machine.files('vm', '/layerfs')
@@ -403,7 +407,7 @@ test('a monitoring read has at most 15 s: a longer budget is cut to it, and runn
   await lfs.machine.list()
   writeFileSync(join(f.dir, 'hold-inspect'), '')
   let started = Date.now()
-  await assert.rejects(lfs.logs.machine('vm', { timeout_ms: 300 }), (error) => error.code === 'Timeout' && error.transport === 'transport-unknown' && error.detail.timeout === 300)
+  await assert.rejects(lfs.machine.log('vm', { timeout_ms: 300 }), (error) => error.code === 'Timeout' && error.transport === 'transport-unknown' && error.detail.timeout === 300)
   assert.ok(Date.now() - started < 300 + 2 * C.KILL_GRACE_MS + 2000, `settled in ${Date.now() - started} ms`)
   // asked for a minute: stopped at 15 s
   started = Date.now()

@@ -2,7 +2,7 @@
 // Machines.loadImage): `POST /api/machines/:id/load-image { image }` answers 202
 // with the queued copy, `image-load { load }` events through the copy's phases,
 // a copy of the same image already running answered instead of a second one,
-// a failed copy kept with its refusal until dismissed, 501 without machine.load;
+// a failed copy kept with its refusal until dismissed, 501 without machine.load_image;
 // and the Images tab's pure helpers (dockerRows, imageLabel, badgeHue, diskSegments, loadWords).
 //   node --test test/image-loads.test.mjs
 import { test } from 'node:test'
@@ -30,19 +30,19 @@ class Refusal extends Error {
 }
 
 const ID = `sha256:${'b'.repeat(64)}`
-const LOAD = { family: 'machine', call: 'load', args: [], options: [{ name: 'on_progress' }] }
+const LOAD = { family: 'machine', call: 'load_image', args: [], options: [{ name: 'on_progress' }] }
 
-/** A fake home whose machine.load reports a copy and waits for `release()` (or `fail(error)`). */
+/** A fake home whose machine.load_image reports a copy and waits for `release()` (or `fail(error)`). */
 function fixture({ calls = [LOAD] } = {}) {
   const loads = []
   let wait = null
   const lfs = {
     machine: {
-      load: (name, image, { on_progress }) => {
+      load_image: (name, image, { on_progress }) => {
         loads.push([name, image])
         on_progress({ phase: 'inspect' })
         on_progress({ phase: 'send', done: 10, total: 100 })
-        return new Promise((resolve, reject) => { wait = { resolve: () => resolve({ id: image, refs: ['postgres:17'], size: 100, reused: false }), reject } })
+        return new Promise((resolve, reject) => { wait = { resolve: () => resolve({ image, reused: false, outcome: 'created', machine: name, refs: ['postgres:17'], size: 100 }), reject } })
       },
     },
   }
@@ -93,7 +93,7 @@ test('load-image: a failed copy keeps its refusal until dismissed; nothing is se
   } finally { f.close() }
 })
 
-test('load-image: 501 without machine.load, 400 without an image', async () => {
+test('load-image: 501 without machine.load_image, 400 without an image', async () => {
   const f = fixture({ calls: [] })
   try {
     const r = await f.http('POST', '/api/machines/docker/load-image', { image: ID })

@@ -32,8 +32,8 @@ function fakeCli(dir) {
   writeFileSync(cli, `#!${process.execPath}
 const argv = process.argv.slice(2), tag = process.env.LAYERFS_LOGS_TAG ?? null
 let input = ''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => {
-  process.stderr.write(JSON.stringify({ progress: { phase: 'start' } }) + '\\n')
-  if (argv.includes('fail')) { process.stderr.write(JSON.stringify({ code: 'Conflict', message: 'branch moved', detail: { head: 'x' } }) + '\\n'); process.exitCode = 125; return }
+  process.stderr.write(JSON.stringify({ phase: 'start', done: 0, total: 1 }) + '\\n')
+  if (argv.includes('fail')) { process.stderr.write(JSON.stringify({ error: 'Conflict', message: 'branch moved', fix: 'layerfs branch get p b', detail: { head: 'x' } }) + '\\n'); process.exitCode = 125; return }
   if (argv.includes('--events')) {
     console.log(JSON.stringify({ stream: 'stdout', bytes: 'hello ' }))
     console.log(JSON.stringify({ stream: 'stdout', bytes: { base64: Buffer.from('world\\n').toString('base64') } }))
@@ -65,8 +65,8 @@ test('records: stdout keeps its head, stderr its tail, within the cap on charact
   assert.equal(ev.stdout, `${'x'.repeat(6)}\n{"result":1}\n`); assert.equal(Buffer.byteLength(ev.stdout), 20)
   assert.equal(ev.bytes.stdout, 50 + 14); assert.equal(ev.truncated.stdout, true)
   // A refusal is kept only for a refused call.
-  const refusal = { code: 'Conflict', message: 'm', detail: { a: 1 } }
-  assert.deepEqual(L.outputRecord({ tag: 'dsh:-:t', exit: 125, stdout: L.outputSink(1, 'head'), stderr: L.outputSink(1, 'tail'), refusal, max: 1 }).refusal, refusal)
+  const refusal = { error: 'Conflict', message: 'm', detail: { a: 1 } }
+  assert.deepEqual(L.outputRecord({ tag: 'dsh:-:t', exit: 125, stdout: L.outputSink(1, 'head'), stderr: L.outputSink(1, 'tail'), refusal, max: 1 }).refusal, { code: 'Conflict', message: 'm', detail: { a: 1 } })
   assert.equal(L.outputRecord({ tag: 'dsh:-:t', exit: 0, stdout: L.outputSink(1, 'head'), stderr: L.outputSink(1, 'tail'), refusal, max: 1 }).refusal, undefined)
 })
 
@@ -79,7 +79,7 @@ test('execute(): host tags outside sessions, session tags inside, outputs stored
   assert.equal(line.tag, ok.tag)
   const stored = L.readOutput(outputs, ok.tag)
   assert.equal(stored.exit, 0); assert.equal(JSON.parse(stored.stdout).tag, ok.tag)
-  assert.match(stored.stderr, /"progress"/); assert.equal(stored.truncated, undefined); assert.equal(stored.bytes.stdout, Buffer.byteLength(stored.stdout))
+  assert.match(stored.stderr, /"phase"/); assert.equal(stored.truncated, undefined); assert.equal(stored.bytes.stdout, Buffer.byteLength(stored.stdout))
   assert.equal(statSync(outputs).mode & 0o777, 0o700)
   assert.equal(statSync(join(outputs, files(outputs)[0])).mode & 0o777, 0o600)
   // Refused: the line carries the code, the output the parsed refusal; no stdin content is stored.
@@ -87,7 +87,7 @@ test('execute(): host tags outside sessions, session tags inside, outputs stored
   ;[line] = L.listCalls(callLog, {}).lines
   assert.equal(line.outcome, 'Conflict')
   const refused = L.readOutput(outputs, line.tag)
-  assert.equal(refused.exit, 125); assert.deepEqual(refused.refusal, { code: 'Conflict', message: 'branch moved', detail: { head: 'x' } })
+  assert.equal(refused.exit, 125); assert.deepEqual(refused.refusal, { code: 'Conflict', message: 'branch moved', fix: 'layerfs branch get p b', detail: { head: 'x' } })
   assert.ok(!JSON.stringify(refused).includes('secret-content'))
   // Archive writes (no trace context) and session calls.
   const receipts = []

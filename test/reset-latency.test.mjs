@@ -5,12 +5,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EnvironmentReset } from '../src/host/presets/environment-reset.js'
 
-test('reset confirmation does not contact sandbox workers, including machines marked running', async () => {
+test('reset confirmation does not contact sandbox workers, including machines marked ready', async () => {
   const home = mkdtempSync(join(tmpdir(), 'reset-plan-'))
   writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ id: 'private-test-home' }))
   const calls = []
   const inventory = {
-    machine: { machines: [{ name: 'native', state: 'ready' }, { name: 'offline', state: 'stopped' }, { name: 'unresponsive', state: 'running' }] },
+    // `machine list --detail` (2.0): records only, no probe
+    machine: { items: [{ machine: 'native', state: 'ready' }, { machine: 'offline', state: 'stopped' }, { machine: 'unresponsive', state: 'ready' }] },
     store: { items: [{ name: 's', machine: 'offline', projects: ['p'] }] },
     sandbox: { items: [{ name: 'a', machine: 'offline' }, { name: 'b', machine: 'unresponsive' }] },
   }

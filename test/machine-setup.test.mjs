@@ -9,13 +9,14 @@ import { onSocketRequest, requestSocketSetting, socketSetting, socketSourceWords
 const GIB = 2 ** 30
 
 test('a new VM starts from LayerFS’s defaults, else the ones this page knew', () => {
-  const options = [{ name: 'cpus', kind: 'int', default: 4 }, { name: 'memory', kind: 'size', default: 8 * GIB }, { name: 'disk', kind: 'size', default: '40GiB' }]
+  // 2.0 `home get --with platforms`: a platform's options are keyed `option`
+  const options = [{ option: 'cpus', kind: 'int', default: 4 }, { option: 'memory', kind: 'size', default: 8 * GIB }, { option: 'disk', kind: 'size', default: '40GiB' }]
   assert.deepEqual(emptyVm({ options }), { name: '', cpus: '4', memory: '8G', disk: '40GiB' })
   // an older CLI sends no default
-  assert.deepEqual(emptyVm({ options: options.map(({ name, kind }) => ({ name, kind })) }), { name: '', cpus: '2', memory: '4G', disk: '20G' })
+  assert.deepEqual(emptyVm({ options: options.map(({ option, kind }) => ({ option, kind })) }), { name: '', cpus: '2', memory: '4G', disk: '20G' })
   assert.deepEqual(emptyVm(), { name: '', cpus: '2', memory: '4G', disk: '20G' })
   // an unreadable default falls back
-  assert.deepEqual(emptyVm({ options: [{ name: 'cpus', kind: 'int', default: 'many' }, { name: 'memory', kind: 'size', default: null }] }), { name: '', cpus: '2', memory: '4G', disk: '20G' })
+  assert.deepEqual(emptyVm({ options: [{ option: 'cpus', kind: 'int', default: 'many' }, { option: 'memory', kind: 'size', default: null }] }), { name: '', cpus: '2', memory: '4G', disk: '20G' })
   assert.equal(sizeText(512 * 2 ** 20), '512M')
   assert.equal(sizeText(1.5 * GIB), '1536M')
   assert.equal(sizeText(-1), null)

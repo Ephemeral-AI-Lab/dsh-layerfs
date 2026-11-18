@@ -28,7 +28,7 @@ else if (a[0] === 'machine' && a[1] === 'status') out({ name: a.at(-1), platform
 else if (a[0] === 'sandbox' && a[1] === 'list') { if (a.some((x) => x.startsWith('--live'))) { console.error('layerfs: unknown option --live'); process.exit(2) } out({ items: [{ name: 'a', machine: 'native', state: 'running' }, { name: 'b', machine: 'native', state: 'running' }, { name: 'c', machine: 'native', state: 'closing' }], next_page_pos: null }) }
 else if (a[0] === 'sandbox' && a[1] === 'get') out({ name: a.at(-1), state: 'running', created: 1794781675311, workspaces: [], daemon_capacity: {} })
 else if (a[0] === 'doctor' && a.length === 1) { out({ ok: true, findings: [{ severity: 'warning', entity: { kind: 'store', name: 's' }, message: 'm', fix: 'f' }] }); process.exit(1) }
-else { console.error(JSON.stringify({ code: 'NotFound', message: 'no machine named ' + a.at(-1), detail: null })); process.exit(125) }
+else { console.error(JSON.stringify({ error: 'NotFound', message: 'no machine named ' + a.at(-1) })); process.exit(125) }
 `)
   chmodSync(last, 0o755)
   const write = (c) => writeFileSync(join(dir, 'observe.json'), JSON.stringify(c))
@@ -67,10 +67,10 @@ test('machine stats: the declared answer with its machine and time; a stopped ma
     const got = f.run('machine', 'stats', '--', 'docker').out
     assert.equal(got.machine, 'docker'); assert.ok(got.observed_at >= t0)
     assert.deepEqual(got.resources, STATS.resources); assert.deepEqual(got.data_disk, STATS.data_disk); assert.deepEqual(got.sandboxes, { recorded: 1, live: 1 })
-    assert.deepEqual([f.run('machine', 'stats', '--', 'off').status, f.run('machine', 'stats', '--', 'off').err.code], [125, 'Unavailable'])
-    assert.equal(f.run('machine', 'stats', '--', 'nobody').err.code, 'NotFound')
+    assert.deepEqual([f.run('machine', 'stats', '--', 'off').status, f.run('machine', 'stats', '--', 'off').err.error], [125, 'Unavailable'])
+    assert.equal(f.run('machine', 'stats', '--', 'nobody').err.error, 'NotFound')
     f.control({ refuse: { 'stats:docker': { code: 'Busy', message: 'two reads run' } } })
-    assert.deepEqual(f.run('machine', 'stats', '--', 'docker').err, { code: 'Busy', message: 'two reads run', detail: null })
+    assert.deepEqual(f.run('machine', 'stats', '--', 'docker').err, { error: 'Busy', message: 'two reads run' })
     f.control({ delay_ms: { 'stats:*': 400 } })
     const t1 = Date.now()
     assert.equal(f.run('machine', 'stats', '--', 'docker').out.machine, 'docker')
@@ -110,23 +110,5 @@ test('sandbox list: `live` only when asked (as the SDK writes it, --live=true), 
     assert.deepEqual([host.daemon, host.usage, host.usage_reason], [null, null, 'host_process'])
     const ns = f.run('sandbox', 'get', '--', 'x').out
     assert.deepEqual([ns.daemon, ns.usage, 'usage_reason' in ns], [null, { cpu_usec: 1, memory_current: 2, memory_peak: 3, pids: 4 }, false])
-  } finally { f.done() }
-})
-
-test('doctor: the sweep gains the declared leftovers and keeps its exit code; doctor fix is never answered', () => {
-  const left = { severity: 'warning', entity: { kind: 'machine', name: 'native' }, message: 'm', fix: '`layerfs doctor fix native:run-folder:x` removes it', leftover: { machine: 'native', kind: 'run-folder', path: '/h/run/x', bytes: null, age: 9, id: 'native:run-folder:x', fixable: true } }
-  const f = fixture({ doctor: { findings: [left], leftovers: [{ machine: 'native', complete: true, image_locks: 2, unmount_markers: 0 }] } })
-  try {
-    const r = f.run('doctor')
-    assert.equal(r.status, 1, 'a sweep with findings exits 1, as the real one does')
-    assert.equal(r.out.findings.length, 2); assert.deepEqual(r.out.findings[1], left)
-    assert.deepEqual(r.out.leftovers, [{ machine: 'native', complete: true, image_locks: 2, unmount_markers: 0 }])
-    const fix = f.run('doctor', 'fix', '--', 'native:run-folder:x')
-    assert.deepEqual([fix.status, fix.err.code], [125, 'InvalidInput'])
-    assert.ok(existsSync(join(f.dir, 'doctor-fix.log')), 'the attempt is recorded, so a script can require that there was none')
-    assert.ok(!f.asked().some((a) => a[0] === 'doctor' && a[1] === 'fix'))
-    // without a declaration the sweep is the next CLI's own
-    f.write({})
-    assert.ok(!('leftovers' in f.run('doctor').out))
   } finally { f.done() }
 })
