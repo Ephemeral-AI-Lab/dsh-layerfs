@@ -596,6 +596,24 @@ test('polling detects lost access and restored availability without replaying ex
   assert.equal(available.checkpoints[0].commit, 'saved')
 })
 
+test('the session view reads workspace status --detail: its overlay counts are the line\'s unsaved files (review UR bug 2)', async () => {
+  const state = S.initialState()
+  state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', branch: 'retained' }
+  const f = sessions({ state, lfs: {
+    machine: { get: async () => ({ machine: 'vm', state: 'ready' }) },
+    store: { get: async () => ({ store: 'store', engine: 'sqlite', state: 'ready' }) },
+    // the long form carries `overlay`; the short form has none
+    workspace: { status: async (_ws, o) => (o?.detail ? { workspace: 'box:main', overlay: { inode_count: 2, entry_count: 3 } } : { workspace: 'box:main' }) },
+  } })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+    assertSessionIdentity: async () => ({ key: 'store/app', store: 'store', machine: 'vm' }),
+    projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+  } : undefined
+  const view = await f.s.view('live')
+  assert.equal(view.execution.available, true)
+  assert.deepEqual(view.status?.overlay, { inode_count: 2, entry_count: 3 })
+})
+
 test('a missing saved checkpoint blocks activation without falling back to project main', async () => {
   const state = S.initialState()
   state.sessions.history = { sessionId: 'history', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'closed', sandbox: 'box', branch: 'retained' }

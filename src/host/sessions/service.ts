@@ -1292,7 +1292,7 @@ export class LayerfsSessions extends Service {
     } catch (error: any) { available = false; reason = String(error?.message ?? error); refusal = error?.code }
     let status: unknown = null
     if (available && effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {
-      status = await this.lfs.workspace.status(effective.ws).catch((error: any) => { available = false; reason = String(error?.message ?? error); refusal = error?.code; return { error: errorOf(error) } })
+      status = await this.lfs.workspace.status(effective.ws, { detail: true }).catch((error: any) => { available = false; reason = String(error?.message ?? error); refusal = error?.code; return { error: errorOf(error) } })
     }
     const stored = effective ? this.binding(effective.sessionId) : undefined
     if (!available && stored?.state === 'bound') {
