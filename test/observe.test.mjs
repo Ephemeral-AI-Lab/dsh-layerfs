@@ -6,8 +6,8 @@
 //           flight, one answer for 5 s, stale answers, 501 without the call),
 //           the machines view's `live`, sandbox.get's fields, GET /api/doctor
 //   page    the stats poller (src/client/machines/stats.ts), what a stopped
-//           machine and a null value read as, live counts, usage words, and
-//           the leftover rows' model (src/client/doctor/leftover-model.ts)
+//           machine and a null value read as, live counts, usage words
+//           (leftovers are no longer on a page: `home leftovers` lists them)
 //   node --test test/observe.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -25,7 +25,6 @@ const bundle = async (name, contents) => {
   return import(pathToFileURL(join(out, `${name}.mjs`)).href)
 }
 const S = await bundle('stats', "export * from './src/client/machines/stats.ts'")
-const L = await bundle('leftovers', "export * from './src/client/doctor/leftover-model.ts'")
 const R = await loadRoutes()
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
@@ -226,20 +225,4 @@ test('a Sandbox whose daemon is dead is not running; one that was not observed i
 test('CPU time in words', () => {
   assert.deepEqual([0, 250_000, 1_234_567, 42_000_000, 184_000_000, 7_500_000_000].map(S.cpuTime), ['0.00 s', '0.25 s', '1.2 s', '42 s', '3 min 4 s', '2 h 5 min'])
   assert.equal(S.cpuTime(null), '—')
-})
-
-// ---------------------------------------------------------------- page: leftovers
-
-test('leftover rows: the command is the id, never a path; LayerFS\'s condition without the command; counted kinds have no command', () => {
-  const l = { id: 'native:run-folder:lfs-1a2b3c4d-sb1' }
-  assert.equal(L.fixCommand(l), 'layerfs doctor fix native:run-folder:lfs-1a2b3c4d-sb1')
-  assert.equal(L.fixCondition('`layerfs doctor fix native:run-folder:lfs-1a2b3c4d-sb1` removes it when it has its `owner` marker', l), 'Removes it when it has its `owner` marker')
-  assert.equal(L.fixCondition('report-only: `layerfs doctor fix` refuses it', l), 'Report-only: `layerfs doctor fix` refuses it', 'a sentence that does not start with the command is kept whole')
-  assert.equal(L.fixCondition(`\`${L.fixCommand(l)}\``, l), null)
-  assert.equal(L.fixCondition(null, l), null)
-  const findings = [{ severity: 'warning', entity: null, message: 'a', fix: null }, { severity: 'warning', entity: null, message: 'b', fix: null, leftover: { id: 'x' } }, { severity: 'warning', entity: null, message: 'c', fix: null, leftover: { id: 'y' } }]
-  assert.deepEqual(L.leftoverFindings(findings).map((f) => f.leftover.id), ['x', 'y'], 'each leftover is its own row, in LayerFS\'s order')
-  const walks = [{ machine: 'a', complete: true, imageLocks: 0, unmountMarkers: 0 }, { machine: 'b', complete: true, imageLocks: 2, unmountMarkers: 0 }, { machine: 'c', complete: false, imageLocks: 0, unmountMarkers: 0 }, { machine: 'd', complete: true, imageLocks: 0, unmountMarkers: 1 }]
-  assert.deepEqual(L.walksToShow(walks).map((w) => w.machine), ['b', 'c', 'd'])
-  assert.deepEqual(L.walksToShow(undefined), [])
 })

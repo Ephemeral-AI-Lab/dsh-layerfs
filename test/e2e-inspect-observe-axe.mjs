@@ -57,8 +57,9 @@ await main('e2e-inspect-observe-axe', async ({ run, page }) => {
 
     if (has.leftovers) {
       await openHealth(page)
-      await editor(page).locator('[data-leftovers]').first().waitFor({ timeout: 20000 }).catch(() => {})
-      await scan('Health page, leftovers', { parts: (await editor(page).locator('[data-leftovers]').count()) > 0 })
+      // the Health page is the Doctor page now (leftovers are no longer a section of it): its rows are scanned as they open
+      await editor(page).locator('[data-rows]').first().waitFor({ timeout: 20000 }).catch(() => {})
+      await scan('Health page', { parts: false })
       await shot(page, 'observe-axe-health')
     } else t.note('no doctor.fix: the Health page was not scanned')
 
