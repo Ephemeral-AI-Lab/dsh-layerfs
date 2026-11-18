@@ -14,6 +14,9 @@ test('a workspace exec resolves its one result JSON; a non-zero exit is the comm
   assert.throws(() => parseSimulationBashReceipt(failed), /complete successful result/, 'only an exec exits with the command\'s code')
   assert.throws(() => parseSimulationBashReceipt({ value: { ...tool([{ exit_code: 0 }]).value, exitCode: 3 } }, { exec: true }), /complete successful result/)
   assert.throws(() => parseSimulationBashReceipt({ value: { ...tool([{ error: 'Busy' }]).value, exitCode: 125 } }, { exec: true }), /complete successful result/)
+  // the command's own 125: its result says so and carries no refusal
+  assert.equal(parseSimulationBashReceipt({ value: { ...tool([{ exit_code: 125, stdout: '', exec: 'exec-3' }]).value, exitCode: 125 } }, { exec: true }).exit_code, 125)
+  assert.throws(() => parseSimulationBashReceipt({ value: { ...tool([{ error: 'Busy', exit_code: 125 }]).value, exitCode: 125 } }, { exec: true }), /complete successful result/)
 })
 test('ordinary direct-write receipt retains the exact saved-version structure', () => {
   const receipt = { kind: 'Written', head: '02' + 'a'.repeat(64) }

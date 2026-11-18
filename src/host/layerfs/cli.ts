@@ -228,8 +228,10 @@ function outcome(o: { code: number | null, signal: NodeJS.Signals | null, result
   if (o.error) throw new CliError('CliUnavailable', 'The configured LayerFS CLI could not be started', null, 'unavailable')
   if (o.signal || o.malformed) throw new CliError('Unknown', 'LayerFS ended without a complete result; inspect state before another action', { signal: o.signal }, 'transport-unknown')
   if (o.code === 0 && o.result !== undefined && !o.refusal) return o.result
-  // 2.0 `workspace exec` exits with the command's own code beside its one result JSON (125 is LayerFS's refusal)
-  if (o.exec && o.code !== 125 && !o.refusal && (o.result as any)?.exit_code === o.code) return o.result
+  // 2.0 `workspace exec` exits with the command's own code beside its one result JSON. LayerFS's
+  // refusal is exit 125 *with* `{error…}` on stderr and nothing on stdout: a 125 with a result and
+  // no refusal is the command's own 125.
+  if (o.exec && !o.refusal && (o.result as any)?.exit_code === o.code) return o.result
   const refusal = o.code === 125 ? refusalOf(o.refusal) : null
   if (refusal) throw new CliError(refusal.error, refusal.message, refusal.detail, 'refusal', refusal.fix)
   if (o.code === 2) throw new CliError('CliIncompatible', 'LayerFS rejected the command syntax; check the selected binary and capabilities', null, 'usage-incompatible')

@@ -73,6 +73,9 @@ const failing = (counter, env) => {
   return n < Number(process.env[env] ?? 0)
 }
 const inspect = ['machine.log', 'sandbox.log', 'sandbox.files', 'machine.files'].includes(op)
+if (op === 'workspace.exec' && a.at(-1) === 'own 125') { console.log(JSON.stringify({ exit_code: 125, stdout: '', stderr: 'x', exec: 'exec-1' })); process.exit(125) }
+if (op === 'workspace.exec' && a.at(-1) === 'refused 125') { process.stderr.write(JSON.stringify({ error: 'Busy', message: 'a command runs', fix: 'layerfs workspace cancel ws' }) + '\\n'); process.exit(125) }
+if (op === 'workspace.exec' && a.at(-1) === 'lost 125') process.exit(125)
 if (op === 'workspace.exec' || op === 'store.move') setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op }) }, 10)
 else if (inspect && process.env.FAKE_INSPECT_RACE) { process.stderr.write(JSON.stringify({ error: 'Failed', message: 'Os { code: 2, kind: NotFound, message: "No such file or directory" }' }) + '\\n'); process.exit(125) }
 else if (inspect && existsSync(dir + '/hold-inspect')) { appendFileSync(dir + '/held.pids', process.pid + '\\n'); setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op, argv: a }) }, 10) }
@@ -427,4 +430,12 @@ test('a caller-named lane never moves a monitoring read out of the inspect lane'
   assert.equal(inspectSpawns(f).length, 2, 'the third waits in the inspect lane')
   writeFileSync(join(f.dir, 'release'), '')
   assert.equal((await Promise.all(reads)).length, 3)
+})
+
+test('workspace exec: exit 125 with a result and no refusal is the command\'s own; with a refusal it is LayerFS\'s; with neither it is Unknown (review UR bug 3)', async () => {
+  const f = fresh()
+  const lfs = C.client({ cli: f.cli, home: f.home })
+  assert.deepEqual(await lfs.workspace.exec('ws', 'own 125'), { exit_code: 125, stdout: '', stderr: 'x', exec: 'exec-1' })
+  await assert.rejects(lfs.workspace.exec('ws', 'refused 125'), (e) => e.code === 'Busy' && e.transport === 'refusal' && e.fix === 'layerfs workspace cancel ws')
+  await assert.rejects(lfs.workspace.exec('ws', 'lost 125'), (e) => e.code === 'Unknown' && e.transport === 'transport-unknown')
 })

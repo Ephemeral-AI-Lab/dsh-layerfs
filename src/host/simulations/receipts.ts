@@ -1,13 +1,14 @@
 /**
  * Decode the canonical foreground bash value without rewriting its native tool
  * result (2.0: stdout is one result JSON). `workspace exec` (`exec`) exits with
- * the command's own code beside its result: a non-zero exit other than 125 is
- * the command's when the result's `exit_code` says the same.
+ * the command's own code beside its result: a non-zero exit (125 included) is
+ * the command's when the result's `exit_code` says the same; LayerFS's own
+ * refusal (exit 125) prints no result on stdout.
  */
 export function parseSimulationBashReceipt(result: any, { exec = false }: { exec?: boolean } = {}): Record<string, any> {
   const value = result?.value
   const exitCode = value?.exitCode
-  const commandsOwn = exec && Number.isInteger(exitCode) && exitCode !== 0 && exitCode !== 125
+  const commandsOwn = exec && Number.isInteger(exitCode) && exitCode !== 0
   if (result?.isError || value?.kind !== 'foreground' || (exitCode !== 0 && !commandsOwn) || value?.aborted || value?.timedOut || value?.stdout?.truncated || typeof value?.stdout?.text !== 'string') {
     throw new Error('The LayerFS command did not return a complete successful result; inspect its tool result before continuing.')
   }
@@ -22,6 +23,6 @@ export function parseSimulationBashReceipt(result: any, { exec = false }: { exec
     receipt = frame; final = true
   }
   if (!final || !receipt || typeof receipt !== 'object' || Array.isArray(receipt)) throw new Error('Missing complete LayerFS operation receipt')
-  if (commandsOwn && receipt.exit_code !== exitCode) throw new Error('The LayerFS command did not return a complete successful result; inspect its tool result before continuing.')
+  if (commandsOwn && (receipt.exit_code !== exitCode || typeof receipt.error === 'string')) throw new Error('The LayerFS command did not return a complete successful result; inspect its tool result before continuing.')
   return receipt
 }

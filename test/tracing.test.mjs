@@ -70,7 +70,9 @@ test('an exec exit code comes from the 2.0 result JSON, or from a --stream call\
   assert.equal(exitOfOutput(out('raw output\n', 2)), undefined, 'no result: the process exit alone is not trusted')
   assert.equal(exitOfOutput(out('raw output\n', 2), true), 2)
   assert.equal(exitOfOutput(out('', 0), true), 0)
-  assert.equal(exitOfOutput(out('', 125), true), undefined, '125: LayerFS failed, not the command')
+  assert.equal(exitOfOutput({ ...out('', 125), refusal: { code: 'Busy' } }, true), undefined, '125 with a refusal: LayerFS refused, not the command')
+  assert.equal(exitOfOutput(out('raw\n', 125), true), 125, '125 and no refusal: the command\'s own')
+  assert.equal(exitOfOutput(out('{"exit_code":125}', 125)), 125)
   assert.equal(exitOfOutput({ missing: true }, true), undefined)
 })
 test('concurrent SDK calls keep exact tool identity, host origin and failed outcomes in the smaller receipt', async () => {
@@ -138,19 +140,22 @@ test('managed CLI: a streamed exec exiting non-zero is the command\'s result, no
   const dir = mkdtempSync(join(root, 'exit-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake-exit.mjs')
   // 2.0: exec exits with the command's own code, streamed (raw output) or not (one result JSON); 125 is LayerFS's refusal
-  writeFileSync(cli, `#!${process.execPath}\nconst code=Number(process.argv.at(-1).match(/exit (\\d+)/)?.[1]??0);if(code===125)process.stderr.write(JSON.stringify({error:'Busy',message:'no'})+'\\n');else if(process.argv.includes('--stream'))process.stdout.write('raw output\\n');else process.stdout.write(JSON.stringify({exit_code:code,stdout:'raw output\\n',exec:'exec-9'})+'\\n');process.exitCode=code`, { mode: 0o700 })
+  writeFileSync(cli, `#!${process.execPath}\nconst code=Number(process.argv.at(-1).match(/exit (\\d+)/)?.[1]??0);if(code===125&&!process.argv.at(-1).includes('own'))process.stderr.write(JSON.stringify({error:'Busy',message:'no'})+'\\n');else if(process.argv.includes('--stream'))process.stdout.write('raw output\\n');else process.stdout.write(JSON.stringify({exit_code:code,stdout:'raw output\\n',exec:'exec-9'})+'\\n');process.exitCode=code`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog })
   const identity = { origin: 'tool', sessionId: 's', project: 'p', turn: 1, toolCallId: 'bash-x', scope: toolScope('s', 'bash-x') }
   const env = { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment(identity) }
   for (const c of [1, 2, 0]) assert.equal((await run(command, ['workspace', 'exec', 'ws', '--stream', `exit ${c}`], env)).code, c)
   assert.equal((await run(command, ['workspace', 'exec', 'ws', '--stream', 'exit 125'], env)).code, 125)
   assert.equal((await run(command, ['workspace', 'exec', 'ws', 'exit 1'], env)).code, 1, 'unstreamed: exit 1 is the command\'s too (2.0)')
+  // the command's own 125: a result (or raw output) and no refusal on stderr
+  assert.equal((await run(command, ['workspace', 'exec', 'ws', 'exit 125 own'], env)).code, 125)
+  assert.equal((await run(command, ['workspace', 'exec', 'ws', '--stream', 'exit 125 own'], env)).code, 125)
   const lines = listCalls(callLog, {}).lines.reverse()
-  assert.deepEqual(lines.map(line => line.outcome), ['ok', 'ok', 'ok', 'Busy', 'ok'])
-  assert.deepEqual(lines.map(line => line.kind), ['exit:1', 'exit:2', 'exit:0', undefined, 'exit:1'], 'the exit code stays on the line')
-  assert.deepEqual(receiptsOf(callLog, identity).map(row => row.outcome).reverse(), ['success', 'success', 'success', 'refusal', 'success'])
+  assert.deepEqual(lines.map(line => line.outcome), ['ok', 'ok', 'ok', 'Busy', 'ok', 'ok', 'ok'])
+  assert.deepEqual(lines.map(line => line.kind), ['exit:1', 'exit:2', 'exit:0', undefined, 'exit:1', 'exit:125', 'exit:125'], 'the exit code stays on the line')
+  assert.deepEqual(receiptsOf(callLog, identity).map(row => row.outcome).reverse(), ['success', 'success', 'success', 'refusal', 'success', 'success', 'success'])
   const receipts = receiptsOf(callLog, identity).reverse()
-  assert.deepEqual(receipts.map(row => row.kind ?? row.code), ['exit:1', 'exit:2', 'exit:0', 'Busy', 'exit:1'], '125 keeps the stderr refusal code')
+  assert.deepEqual(receipts.map(row => row.kind ?? row.code), ['exit:1', 'exit:2', 'exit:0', 'Busy', 'exit:1', 'exit:125', 'exit:125'], '125 with a refusal keeps the stderr refusal code')
 })
 test('managed CLI with the native call log is a bash script: tag, stdin, streams, exit and raw outputs, no stand-in line', async () => {
   const dir = mkdtempSync(join(root, 'native-')), callLog = join(dir, 'trace', 'calls.jsonl')

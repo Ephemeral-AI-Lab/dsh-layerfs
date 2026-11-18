@@ -165,7 +165,7 @@ function execFacts(operation: string, exit: unknown, execId?: unknown): Pick<Inv
  * The exec exit code from a stored output: the 2.0 result JSON's `exit_code`
  * (stdout is the one result line). A `--stream` call (`streamed`) prints the
  * command's raw output and exits with the command's own code, so its process
- * exit is the answer, except 125 (LayerFS itself refused).
+ * exit is the answer, except a 125 with a refusal (LayerFS itself refused).
  */
 export function exitOfOutput(output: CallOutput | { missing: true } | undefined, streamed = false): number | undefined {
   if (!output || 'missing' in output) return undefined
@@ -173,7 +173,7 @@ export function exitOfOutput(output: CallOutput | { missing: true } | undefined,
     const last = output.stdout.trimEnd().split('\n').at(-1)
     try { const code = JSON.parse(last ?? '')?.exit_code; if (Number.isInteger(code)) return code } catch { /* not the result */ }
   }
-  return streamed && Number.isInteger(output.exit) && output.exit !== 125 ? output.exit as number : undefined
+  return streamed && Number.isInteger(output.exit) && (output.exit !== 125 || !output.refusal) ? output.exit as number : undefined
 }
 
 /**
@@ -364,8 +364,9 @@ export function managedCli(options: ManagedCliOptions): string {
     `const outputName = ${outputName.toString()};`,
     `const writeOutput = ${writeOutput.toString()};`,
     `const operation=(argv[0]??'')+'.'+(argv[1]??'').replaceAll('-','_');`,
-    // 2.0 `workspace exec` exits with the command's own code (125 still means LayerFS
-    // refused, its refusal JSON on stderr): a non-zero exit is the command's result, not an
+    // 2.0 `workspace exec` exits with the command's own code (125 with a refusal JSON on
+    // stderr means LayerFS refused; 125 with a result and no refusal is the command's own):
+    // a non-zero exit is the command's result, not an
     // unknown outcome; the line keeps it as `kind: "exit:<code>"` (FIX-LOG F13). With `--stream`
     // stdout is the command's own output, not the result JSON.
     `const execCall=operation==='workspace.exec',streamedExec=execCall&&argv.includes('--stream');`,
@@ -393,7 +394,8 @@ export function managedCli(options: ManagedCliOptions): string {
     // The output first, so a page reloading on the new line already sees it.
     `  if(capture)writeOutput(fs,config.outputs,outputName(createHash,receipt.tag),outputRecord({tag:receipt.tag,exit:signal?null:code,stdout:sinks.stdout,stderr:sinks.stderr,refusal,max:config.max}),config.bounds);`,
     `  if(config.callLog){`,
-    `   const outcome=signal?'Unknown':code===125?((c=>typeof c==='string'&&c.length<=64?c:'Failed')(refusal&&(typeof refusal.error==='string'?refusal.error:refusal.code))):code===0||execCall?'ok':'Unknown';`,
+    `   const own125=execCall&&code===125&&!refusal&&(streamedExec||(valid&&result&&result.exit_code===125));`,
+    `   const outcome=signal?'Unknown':code===125&&!own125?((c=>typeof c==='string'&&c.length<=64?c:'Failed')(refusal&&(typeof refusal.error==='string'?refusal.error:refusal.code))):code===0||execCall?'ok':'Unknown';`,
     `   const words=renderCall(argv,piped?inputBytes:null,config.bools);`,
     `   appendCallLine(fs,config.callLog,{v:1,at,ms:Math.max(0,Math.round(performance.now()-started)),client:'cli',argv:words,outcome,...(outcome==='ok'&&execCall?{kind:'exit:'+code}:outcome==='ok'&&valid?savedFields(words,result):{}),...(receipt&&receipt.tag?{tag:receipt.tag}:{})},config.rotate);`,
     `  }`,
