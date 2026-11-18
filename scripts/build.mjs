@@ -5,11 +5,14 @@
 import { build, context } from 'esbuild'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const watch = process.argv.includes('--watch')
+// Where every built file goes: `lib` (what the package serves), or DSH_LAYERFS_OUTDIR (absolute, or relative to the
+// package root) to build beside a running server without touching the `lib/` it serves.
+const outdir = resolve(root, process.env.DSH_LAYERFS_OUTDIR || 'lib')
 
 // Shell-seeded platform modules plus runtime rows the client must share (packages/client/web/src/platform.ts).
 const CLIENT_EXTERNALS = [
@@ -24,7 +27,7 @@ const CLIENT_EXTERNALS = [
 const hostOptions = {
   absWorkingDir: root,
   entryPoints: { index: 'src/host/index.ts', 'sandbox-policy': 'src/host/sandbox-policy.ts', 'session-persistence': 'src/host/session-persistence.ts', skills: 'src/host/skills.ts' },
-  outdir: 'lib',
+  outdir,
   bundle: true,
   format: 'esm',
   platform: 'node',
@@ -48,8 +51,8 @@ const wrapClient = {
         ? `(function(){if(typeof document==='undefined')return;var id=${JSON.stringify(pkg.name + '/client.css')};if(document.querySelector('style[data-plugin-css="'+id+'"]'))return;var t=document.createElement('style');t.dataset.plugin=${JSON.stringify(pkg.name)};t.dataset.pluginCss=id;t.textContent=${JSON.stringify(css.text)};document.head.appendChild(t);})();\n`
         : ''
       const out = `window.__ModuleLoader__.load({\n\tid: ${JSON.stringify(pkg.name)},\n\tfactory: (require) => {\n\t\tvar module = { exports: {} };\n\t\tvar exports = module.exports;\n${style}${js.text}\n\t\treturn module.exports;\n\t}\n});\n`
-      await mkdir(join(root, 'lib'), { recursive: true })
-      await writeFile(join(root, 'lib/client.js'), out)
+      await mkdir(outdir, { recursive: true })
+      await writeFile(join(outdir, 'client.js'), out)
     })
   },
 }
@@ -57,7 +60,7 @@ const wrapClient = {
 const clientOptions = {
   absWorkingDir: root,
   entryPoints: { client: 'src/client/index.tsx' },
-  outdir: 'lib',
+  outdir,
   bundle: true,
   write: false,
   format: 'cjs',

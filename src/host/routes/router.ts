@@ -5,7 +5,8 @@
  * operation hands `{ method, path, body }` here and answers `{ status, body }`.
  */
 import { SandboxCommands, sandboxOfWs } from './commands.ts'
-import { DoctorManager } from './doctor.ts'
+import { DoctorChecks } from './doctor.ts'
+import { DoctorManager } from './doctor-jobs.ts'
 import { Machines } from './machines.ts'
 import { Projects } from './projects.ts'
 import { Storage } from './storage.ts'
@@ -103,6 +104,8 @@ export interface Groups {
   readonly storage: Storage
   readonly projects: Projects
   readonly doctor: DoctorManager
+  /** The Doctor page: the home's tree, the 2.0 doctors and their fixes (doctor.ts). */
+  readonly checks: DoctorChecks
   /** Commands a Sandbox page runs in its Workspaces, and their log (commands.ts). */
   readonly commands: SandboxCommands
   /** Sandbox creations run in the background, with their progress (sandbox-creates.ts). */
@@ -129,6 +132,8 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   // Compute's "Move to…" starts a job in Storage's table, so its progress shows there
   const machines = new Machines(host, (store, machine) => storage.place(store, machine))
   const doctor = new DoctorManager(host)
+  // a fix the Doctor page runs goes the way the Machines and Projects pages' own buttons go
+  const checks = new DoctorChecks(host, undefined, { actions: { machineStart: (name) => machines.start(name), machineStop: (name) => machines.stop(name), projectDelete: (key) => projects.remove(key) } })
   const commands = new SandboxCommands(host)
   // a closed Sandbox's command logs go with it (its Workspace paths restart with a new daemon)
   projects.sandboxClosedHook = (name) => commands.closed(name)
@@ -140,7 +145,7 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   projects.spaceFor = (machine, image) => machines.spaceFor(machine, image)
   // a background create that ends changes the machines view: later GETs read anew
   projects.sandboxCreates.settled = () => machines.changed()
-  return { host, machines, storage, projects, doctor, commands, sandboxCreates: projects.sandboxCreates, runtime }
+  return { host, machines, storage, projects, doctor, checks, commands, sandboxCreates: projects.sandboxCreates, runtime }
 }
 
 /** method + path segments -> the answer, or undefined when no route matches. */
@@ -150,6 +155,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   // any write may change the machines view: a GET after it must not join a read started before
   if (method !== 'GET') machines.changed()
   if (api === 'api' && group === 'demo-presets') return g.presets?.route(method, parts.slice(2), body, query)
+  // the Doctor page: /api/doctor/tree, /results, /runs, /runs/:id/stop, /fixes (GET /api/doctor itself stays the home sweep below)
+  if (api === 'api' && group === 'doctor' && id) return g.checks.route(method, parts.slice(2), body)
   if (api !== 'api' || rest.length) return undefined
   if (group === 'doctor-jobs' && !sub) {
     if (!id && method === 'POST') return doctor.launch(body ?? {})

@@ -12,7 +12,7 @@ import { testHost } from './routes-helper.mjs'
 
 const root = new URL('..', import.meta.url).pathname
 const out = mkdtempSync(join(tmpdir(), 'dsh-doctor-summary-'))
-await build({ absWorkingDir: root, entryPoints: ['src/host/routes/doctor.ts'], outfile: join(out, 'doctor.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })
+await build({ absWorkingDir: root, entryPoints: ['src/host/routes/doctor-jobs.ts'], outfile: join(out, 'doctor.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })
 const { DoctorManager, summarize } = await import(pathToFileURL(join(out, 'doctor.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 

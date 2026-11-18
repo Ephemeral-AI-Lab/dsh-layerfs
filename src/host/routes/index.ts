@@ -13,7 +13,8 @@
  *   metrics.ts              the metrics sampler (one machine.stats at a time, an hour in memory) behind /api/metrics
  *   inspect.ts              monitoring reads: /api/machines/:id/log and /files, /api/sandboxes/:name/log and /files (one read per key, last good answer kept)
  *   storage.ts, jobs.ts     /api/storage…, /api/stores…, /api/buckets…, /api/storage-jobs…, /api/doctor
- *   doctor.ts               /api/doctor-jobs…
+ *   doctor.ts               /api/doctor/… (the Doctor page: tree, runs, fixes)
+ *   doctor-jobs.ts          /api/doctor-jobs… (the targeted Diagnose panel)
  *   projects.ts             /api/status, /api/projects…, /api/sandboxes…, /api/workspaces…, /api/project-inits…
  *   storage-observations.ts Store statistics journals
  *   ../presets/manager.ts   /api/demo-presets… (Presets: build the Studio library, reset the home)
@@ -30,6 +31,8 @@
  *   storage-job  { type: 'storage-job', job: StorageJob }  a push/pull/move/backup/restore/compact job moved
  *   storage      { type: 'storage' }                       the Storage view changed (read it again)
  *   doctor       { type: 'doctor', id, state }             a Doctor job changed
+ *   doctor-run   a DoctorRun (shared/doctor.ts)            a doctor call of the Doctor page moved (progress, report, failure)
+ *   doctor-fix   a DoctorFixRun                            a fix of the Doctor page moved
  *   demo-preset  { jobId, preset, state }                  a preset build or reset moved
  * (Connect's projects and machines emitted no events; their pages poll.)
  *
@@ -100,7 +103,7 @@ export function apply(ctx: Context): void {
     busy: () => [
       ...(groups.storage.busy() ? ['a storage job'] : []),
       ...(groups.projects.busy() ? ['a project import'] : []),
-      ...(groups.doctor.busy() ? ['a doctor run'] : []),
+      ...(groups.doctor.busy() || groups.checks.busy() ? ['a doctor run'] : []),
       ...(groups.commands.busy() ? ['a Sandbox command'] : []),
     ],
     boundSessions: () => Object.values((sessions()?.state.read().sessions ?? {}) as Record<string, any>)
@@ -127,6 +130,7 @@ export function apply(ctx: Context): void {
     groups.machines.metrics.stop()
     ctx.layerfs.exclusive = undefined
     groups.storage.close()
+    groups.checks.close()
     void groups.projects.close()
   }, 'dsh-layerfs: routes state')
   ctx.layerfsRemote.operate(ctx, {

@@ -1,0 +1,927 @@
+{
+ "_": "The long-form examples (`examples.long`, and home.get `with.tree.example`) of the calls the Doctor page uses, copied from the frozen LayerFS 2.0 call surface (core/docs/issues/call-surface-2-0/calls.json). Fixtures are built from these so they cannot drift from the spec; test/doctor-model.test.mjs compares this file with calls.json when LAYERFS_CALLS_JSON names it.",
+ "version": 18,
+ "frozen": "2026-11-18",
+ "base": "caff58a43b",
+ "doctor": {
+  "calls": [
+   "project.doctor",
+   "sandbox.doctor",
+   "home.doctor",
+   "machine.doctor",
+   "store.doctor",
+   "backup.doctor"
+  ],
+  "things": [
+   "home",
+   "machine",
+   "store",
+   "project",
+   "sandbox",
+   "workspace",
+   "bucket"
+  ],
+  "short": {
+   "always": [],
+   "sometimes": [
+    "ok",
+    "findings",
+    "not_checked"
+   ]
+  },
+  "ok": "{\"ok\":true} alone, only when every check was made and nothing was found",
+  "long": [
+   "ok",
+   "findings",
+   "not_checked",
+   "status",
+   "counts",
+   "observed_at",
+   "tree"
+  ],
+  "status": [
+   "ok",
+   "notice",
+   "warning",
+   "error",
+   "not_checked"
+  ],
+  "worst_first": [
+   "error",
+   "warning",
+   "not_checked",
+   "notice",
+   "ok"
+  ],
+  "outcomes": [
+   "pass",
+   "notice",
+   "warning",
+   "error",
+   "not_checked"
+  ],
+  "coverage": [
+   "none",
+   "shallow",
+   "full"
+  ],
+  "full": [
+   "project.doctor",
+   "backup.doctor"
+  ],
+  "finding": {
+   "short": {
+    "always": [
+     "<thing>",
+     "check",
+     "severity",
+     "message"
+    ],
+    "sometimes": [
+     "fix",
+     "from"
+    ]
+   },
+   "long": [
+    "<thing>",
+    "check",
+    "severity",
+    "message",
+    "fix",
+    "from",
+    "evidence"
+   ]
+  },
+  "severity": [
+   "error",
+   "warning",
+   "notice"
+  ],
+  "not_checked": {
+   "short": {
+    "always": [
+     "<thing>"
+    ],
+    "one_of": [
+     "blocked_by",
+     "reason"
+    ],
+    "sometimes": [
+     "check"
+    ]
+   },
+   "long": [
+    "<thing>",
+    "check",
+    "blocked_by",
+    "reason"
+   ]
+  },
+  "not_checked_reason": [
+   "timeout",
+   "busy",
+   "lost"
+  ],
+  "blocked_by": [
+   "<thing>",
+   "reason"
+  ],
+  "blocked_by_reason": [
+   "stopped",
+   "busy",
+   "engine_down",
+   "not_answering",
+   "outdated",
+   "unreachable",
+   "missing",
+   "failed",
+   "unresolved",
+   "lost",
+   "unsupported"
+  ],
+  "counts": [
+   "ok",
+   "notice",
+   "warning",
+   "error",
+   "not_checked"
+  ],
+  "check": [
+   "check",
+   "outcome",
+   "from"
+  ],
+  "node": [
+   "<thing>",
+   "status",
+   "coverage",
+   "checks",
+   "blocked_by",
+   "reason",
+   "<child lists>"
+  ],
+  "children": {
+   "home": [
+    "machines",
+    "stores",
+    "buckets"
+   ],
+   "machine": [
+    "stores",
+    "sandboxes"
+   ],
+   "store": [
+    "projects"
+   ],
+   "sandbox": [
+    "workspaces"
+   ],
+   "project": [],
+   "bucket": []
+  },
+  "progress_event": [
+   "phase",
+   "done",
+   "total",
+   "node"
+  ],
+  "phases": [
+   "self",
+   "machines",
+   "stores",
+   "projects",
+   "sandboxes",
+   "workspaces",
+   "buckets"
+  ],
+  "exit": 0
+ },
+ "calls": {
+  "project.delete": {
+   "cli": "layerfs project delete <project>",
+   "progress": false,
+   "long": {
+    "ok": true,
+    "home_entry_kept": false,
+    "outcome": "deleted",
+    "deleted_at": "2026-11-18T09:16:59Z"
+   }
+  },
+  "project.doctor": {
+   "cli": "layerfs project doctor <project> [--full]",
+   "progress": true,
+   "long": {
+    "ok": true,
+    "findings": [],
+    "not_checked": [],
+    "status": "ok",
+    "counts": {
+     "ok": 1,
+     "notice": 0,
+     "warning": 0,
+     "error": 0,
+     "not_checked": 0
+    },
+    "observed_at": "2026-11-18T09:16:59Z",
+    "tree": {
+     "project": "shop/api",
+     "status": "ok",
+     "coverage": "shallow",
+     "checks": [
+      {
+       "check": "project.record",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "project.listed",
+       "outcome": "pass",
+       "from": null
+      }
+     ],
+     "blocked_by": null,
+     "reason": null
+    }
+   }
+  },
+  "sandbox.doctor": {
+   "cli": "layerfs sandbox doctor <sandbox>",
+   "progress": true,
+   "long": {
+    "ok": true,
+    "findings": [],
+    "not_checked": [],
+    "status": "ok",
+    "counts": {
+     "ok": 2,
+     "notice": 0,
+     "warning": 0,
+     "error": 0,
+     "not_checked": 0
+    },
+    "observed_at": "2026-11-18T09:16:59Z",
+    "tree": {
+     "sandbox": "tests",
+     "status": "ok",
+     "coverage": "shallow",
+     "checks": [
+      {
+       "check": "sandbox.record",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "sandbox.runtime",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "sandbox.daemon_connect",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "sandbox.daemon_ready",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "sandbox.filesystem_serving",
+       "outcome": "pass",
+       "from": null
+      }
+     ],
+     "blocked_by": null,
+     "reason": null,
+     "workspaces": [
+      {
+       "workspace": "tests:agent",
+       "status": "ok",
+       "coverage": "shallow",
+       "checks": [
+        {
+         "check": "workspace.mounted",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "workspace.activity",
+         "outcome": "pass",
+         "from": null
+        }
+       ],
+       "blocked_by": null,
+       "reason": null
+      }
+     ]
+    }
+   }
+  },
+  "home.get": {
+   "cli": "layerfs home get [--with platforms,tree]",
+   "progress": false,
+   "long": {
+    "home": "/Users/me/.layerfs",
+    "state": "ready",
+    "version": "2.0.0",
+    "generation": 4182,
+    "reason": null,
+    "fix": null,
+    "message": null,
+    "layout": 3,
+    "mode": "0700",
+    "bundle": {
+     "path": "/Users/me/Library/Caches/layerfs/2.0.0/linux",
+     "source": "cache",
+     "present": true,
+     "commit": "caff58a43b",
+     "dirty": false,
+     "matches": true
+    },
+    "daemon": {
+     "path": "/Users/me/Library/Caches/layerfs/2.0.0/darwin/layerfs-daemon",
+     "source": "default",
+     "present": true,
+     "commit": "caff58a43b",
+     "dirty": false,
+     "matches": true
+    },
+    "cache": {
+     "path": "/Users/me/Library/Caches/layerfs"
+    }
+   },
+   "tree": {
+    "machines": [
+     {
+      "machine": "native",
+      "platform": "native",
+      "state": "ready",
+      "op": null,
+      "reason": null,
+      "fix": null,
+      "stores": [
+       {
+        "store": "qv2-store",
+        "engine": "sqlite",
+        "state": "ready",
+        "op": null,
+        "blocked_by": null,
+        "reason": null,
+        "fix": null,
+        "projects": [
+         "qv2-strata",
+         "qv2-probe"
+        ]
+       }
+      ],
+      "sandboxes": [
+       {
+        "sandbox": "tests",
+        "project": "qv2-store/qv2-strata",
+        "state": "ready",
+        "op": null,
+        "blocked_by": null,
+        "reason": null,
+        "fix": null,
+        "workspaces": [
+         "tests:agent"
+        ],
+        "workspaces_not_listed": false
+       }
+      ]
+     },
+     {
+      "machine": "docker",
+      "platform": "docker",
+      "state": "stopped",
+      "op": null,
+      "reason": null,
+      "fix": null,
+      "stores": [
+       {
+        "store": "sim-website",
+        "engine": "sqlite",
+        "state": "blocked",
+        "op": null,
+        "blocked_by": {
+         "machine": "docker",
+         "reason": "stopped"
+        },
+        "reason": null,
+        "fix": null,
+        "projects": [
+         "website"
+        ]
+       }
+      ],
+      "sandboxes": [
+       {
+        "sandbox": "sim-1",
+        "project": "sim-website/website",
+        "state": "blocked",
+        "op": null,
+        "blocked_by": {
+         "machine": "docker",
+         "reason": "stopped"
+        },
+        "reason": null,
+        "fix": null,
+        "workspaces": null,
+        "workspaces_not_listed": false
+       }
+      ]
+     }
+    ],
+    "stores": [
+     {
+      "store": "demo-experiments",
+      "engine": "postgresql",
+      "state": "ready",
+      "op": null,
+      "blocked_by": null,
+      "reason": null,
+      "fix": null,
+      "projects": [
+       "abc"
+      ]
+     }
+    ],
+    "buckets": [
+     {
+      "bucket": "r2-main",
+      "provider": "r2"
+     }
+    ]
+   }
+  },
+  "home.doctor": {
+   "cli": "layerfs home doctor",
+   "progress": true,
+   "long": {
+    "ok": true,
+    "findings": [],
+    "not_checked": [],
+    "status": "ok",
+    "counts": {
+     "ok": 5,
+     "notice": 0,
+     "warning": 0,
+     "error": 0,
+     "not_checked": 0
+    },
+    "observed_at": "2026-11-18T09:16:59Z",
+    "tree": {
+     "home": "/Users/me/.layerfs",
+     "status": "ok",
+     "coverage": "shallow",
+     "checks": [
+      {
+       "check": "home.build",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "home.prerequisites",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "home.bundle",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "home.layout",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "home.records",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "home.capacity",
+       "outcome": "pass",
+       "from": null
+      }
+     ],
+     "blocked_by": null,
+     "reason": null,
+     "machines": [
+      {
+       "machine": "native",
+       "status": "ok",
+       "coverage": "shallow",
+       "checks": [
+        {
+         "check": "machine.record",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "machine.state",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "machine.capacity",
+         "outcome": "pass",
+         "from": null
+        }
+       ],
+       "blocked_by": null,
+       "reason": null
+      },
+      {
+       "machine": "docker",
+       "status": "ok",
+       "coverage": "shallow",
+       "checks": [
+        {
+         "check": "machine.record",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "machine.state",
+         "outcome": "pass",
+         "from": null
+        }
+       ],
+       "blocked_by": null,
+       "reason": null
+      }
+     ],
+     "stores": [
+      {
+       "store": "demo-experiments",
+       "status": "ok",
+       "coverage": "shallow",
+       "checks": [
+        {
+         "check": "store.record",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "store.schema",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "store.connection",
+         "outcome": "pass",
+         "from": null
+        }
+       ],
+       "blocked_by": null,
+       "reason": null
+      }
+     ],
+     "buckets": [
+      {
+       "bucket": "r2-main",
+       "status": "ok",
+       "coverage": "shallow",
+       "checks": [
+        {
+         "check": "bucket.configuration",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "bucket.credentials",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "bucket.transport",
+         "outcome": "pass",
+         "from": null
+        },
+        {
+         "check": "bucket.list",
+         "outcome": "pass",
+         "from": null
+        }
+       ],
+       "blocked_by": null,
+       "reason": null
+      }
+     ]
+    }
+   }
+  },
+  "machine.start": {
+   "cli": "layerfs machine start <machine>",
+   "progress": true,
+   "long": {
+    "ok": true,
+    "outcome": "started",
+    "machine": "dev",
+    "state": "ready"
+   }
+  },
+  "machine.stop": {
+   "cli": "layerfs machine stop <machine> [--force]",
+   "progress": true,
+   "long": {
+    "ok": true,
+    "stopped_sandboxes": [],
+    "stopped_sandboxes_count": 0,
+    "unknown_workspaces": [],
+    "unknown_workspaces_count": 0,
+    "outcome": "stopped",
+    "machine": "dev",
+    "state": "stopped",
+    "forced": false
+   }
+  },
+  "machine.doctor": {
+   "cli": "layerfs machine doctor <machine>",
+   "progress": true,
+   "long": {
+    "ok": false,
+    "findings": [
+     {
+      "machine": "demo-build",
+      "check": "machine.worker.compatibility",
+      "severity": "error",
+      "message": "worker is from another build",
+      "fix": "layerfs machine stop demo-build && layerfs machine start demo-build",
+      "from": null,
+      "evidence": {
+       "protocol": 3
+      }
+     }
+    ],
+    "not_checked": [
+     {
+      "store": "demo-build-cache",
+      "check": null,
+      "blocked_by": {
+       "machine": "demo-build",
+       "reason": "outdated"
+      },
+      "reason": null
+     },
+     {
+      "sandbox": "build-1",
+      "check": null,
+      "blocked_by": {
+       "machine": "demo-build",
+       "reason": "outdated"
+      },
+      "reason": null
+     }
+    ],
+    "status": "error",
+    "counts": {
+     "ok": 0,
+     "notice": 0,
+     "warning": 0,
+     "error": 1,
+     "not_checked": 2
+    },
+    "observed_at": "2026-11-18T09:16:59Z",
+    "tree": {
+     "machine": "demo-build",
+     "status": "error",
+     "coverage": "shallow",
+     "checks": [
+      {
+       "check": "machine.record",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "machine.state",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "machine.provider",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "machine.worker.ping",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "machine.worker.compatibility",
+       "outcome": "error",
+       "from": null
+      }
+     ],
+     "blocked_by": null,
+     "reason": null,
+     "stores": [
+      {
+       "store": "demo-build-cache",
+       "status": "not_checked",
+       "coverage": "none",
+       "checks": [],
+       "blocked_by": {
+        "machine": "demo-build",
+        "reason": "outdated"
+       },
+       "reason": null
+      }
+     ],
+     "sandboxes": [
+      {
+       "sandbox": "build-1",
+       "status": "not_checked",
+       "coverage": "none",
+       "checks": [],
+       "blocked_by": {
+        "machine": "demo-build",
+        "reason": "outdated"
+       },
+       "reason": null
+      }
+     ]
+    }
+   }
+  },
+  "store.doctor": {
+   "cli": "layerfs store doctor <store> [--machine M]",
+   "progress": true,
+   "long": {
+    "ok": false,
+    "findings": [
+     {
+      "project": "qv2-store/qv2-probe",
+      "check": "project.listed",
+      "severity": "notice",
+      "message": "on record, but the Store does not list it",
+      "fix": "layerfs project delete qv2-store/qv2-probe",
+      "from": null,
+      "evidence": {
+       "recorded": true,
+       "listed": false
+      }
+     }
+    ],
+    "not_checked": [],
+    "status": "notice",
+    "counts": {
+     "ok": 2,
+     "notice": 1,
+     "warning": 0,
+     "error": 0,
+     "not_checked": 0
+    },
+    "observed_at": "2026-11-18T09:16:59Z",
+    "tree": {
+     "store": "qv2-store",
+     "status": "ok",
+     "coverage": "shallow",
+     "checks": [
+      {
+       "check": "store.record",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "store.operation",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "store.connection",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "store.identity",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "store.schema",
+       "outcome": "pass",
+       "from": null
+      }
+     ],
+     "blocked_by": null,
+     "reason": null,
+     "projects": [
+      {
+       "project": "qv2-store/qv2-strata",
+       "status": "ok",
+       "coverage": "shallow",
+       "checks": [
+        {
+         "check": "project.listed",
+         "outcome": "pass",
+         "from": null
+        }
+       ],
+       "blocked_by": null,
+       "reason": null
+      },
+      {
+       "project": "qv2-store/qv2-probe",
+       "status": "notice",
+       "coverage": "shallow",
+       "checks": [
+        {
+         "check": "project.listed",
+         "outcome": "notice",
+         "from": null
+        }
+       ],
+       "blocked_by": null,
+       "reason": null
+      }
+     ]
+    }
+   }
+  },
+  "backup.create": {
+   "cli": "layerfs backup create <store> <bucket> [--file F]",
+   "progress": true,
+   "long": {
+    "file": "shop",
+    "size": 213263952,
+    "outcome": "created",
+    "store": "shop",
+    "bucket": "r2-main",
+    "object": "shop/store.sqlite",
+    "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+    "heads_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+   }
+  },
+  "backup.doctor": {
+   "cli": "layerfs backup doctor <bucket> [--full]",
+   "progress": false,
+   "long": {
+    "ok": true,
+    "findings": [],
+    "not_checked": [],
+    "status": "ok",
+    "counts": {
+     "ok": 1,
+     "notice": 0,
+     "warning": 0,
+     "error": 0,
+     "not_checked": 0
+    },
+    "observed_at": "2026-11-18T09:16:59Z",
+    "tree": {
+     "bucket": "r2-main",
+     "status": "ok",
+     "coverage": "full",
+     "checks": [
+      {
+       "check": "bucket.configuration",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "bucket.credentials",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "bucket.transport",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "bucket.list",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "bucket.write_capability",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "bucket.put",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "bucket.get",
+       "outcome": "pass",
+       "from": null
+      },
+      {
+       "check": "bucket.delete",
+       "outcome": "pass",
+       "from": null
+      }
+     ],
+     "blocked_by": null,
+     "reason": null
+    }
+   }
+  }
+ }
+}
