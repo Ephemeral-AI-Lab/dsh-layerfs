@@ -11,6 +11,9 @@
  * Changed turns save through workspace.commit. Saved-version annotations retain
  * exact tool/host provenance alongside the original native DSH conversation.
  * Branches and sandbox handles are internal implementation details.
+ *
+ * cs20: switch when the Store, project, Sandbox and Workspace packages merge
+ * (their calls here keep today's names and shapes).
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'

@@ -39,6 +39,9 @@
  * (`<home>/backup/<name>/record.json`; 2.0 has no call that lists them without
  * contacting each one, §9 Q7), and the job table is in `host.jobs` (`<home>/job`). Events: `storage-job`
  * `{ type, job }` as a job moves, `storage` `{ type }` when the view changed.
+ *
+ * cs20: switch when the Store, backup and PostgreSQL logins packages merge
+ * (every store.* and backup.* call here keeps today's names and shapes).
  */
 import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'

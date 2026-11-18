@@ -1,6 +1,9 @@
 /**
  * Storage transfer jobs: their persisted records, failure outcomes, summaries
  * and the fresh observations that gate recovery. Port of Connect `host/jobs/`.
+ *
+ * cs20: switch when the Store and backup packages merge (store.get/status,
+ * backup.list keep today's names and shapes).
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'

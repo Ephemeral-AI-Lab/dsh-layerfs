@@ -22,6 +22,9 @@
  * Every LayerFS call is made once; a refusal passes through with its code.
  * Saved reads are pinned and paged. Store allocation and project tree
  * statistics are independent queries with separate scopes.
+ *
+ * cs20: switch when the project, Store and file packages merge (project.*,
+ * store.*, file.* calls here keep today's names and shapes).
  */
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'

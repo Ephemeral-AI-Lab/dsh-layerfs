@@ -97,6 +97,7 @@ export class DoctorChecks {
       machineStop: async (name) => { const result = await lfs().machine.stop(name); await this.host.machinesStopped?.([name]); return result },
       machineStart: (name) => lfs().machine.start(name),
       projectDelete: (project) => lfs().project.delete(project),
+      // cs20: switch when the backup package merges (today's backup.create)
       backupCreate: (store, bucket) => lfs().backup.create(store, bucket),
       ...options.actions,
     }

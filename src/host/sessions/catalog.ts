@@ -1,3 +1,4 @@
+// cs20: switch when the Store package merges (store.status keeps today's name and shape).
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
