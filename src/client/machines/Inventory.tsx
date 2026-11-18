@@ -19,7 +19,7 @@ import { FreeSpaceDialog } from './MachineImages.tsx'
 import { SandboxMenu, useClose } from './Sandboxes.tsx'
 import {
   SANDBOX_CAPACITY, bytes, machineState, opWords, pgUsable, projectRef, sandboxesOn, shortSandbox, stateLook, storesOn,
-  type AvailableView, type Creation, type MachineInfo, type MachineSandbox,
+  type AvailableView, type Creation, type MachineInfo, type MachineSandbox, thingLook,
 } from './model.ts'
 import { storeSizes, useMachineStats } from './MachineStats.tsx'
 import { liveNote, sandboxLook } from './stats.ts'
@@ -32,7 +32,7 @@ export function useMachineTitle(): (m: { name: string, platform: string }) => st
 }
 
 /** A listed Sandbox's look: its record's state, or "Daemon not running" when LayerFS saw its daemon ended (stats.ts). */
-export const lookOf = (b: MachineSandbox) => sandboxLook(b, (state) => stateLook('sandbox', state))
+export const lookOf = (b: MachineSandbox) => sandboxLook(b, (x) => thingLook('sandbox', x))
 
 /** Whether a Sandbox needs you: its state is one LayerFS flags, or it is recorded running and its daemon has ended. */
 export function sandboxNeedsYou(b: MachineSandbox): boolean {
@@ -41,10 +41,10 @@ export function sandboxNeedsYou(b: MachineSandbox): boolean {
 }
 
 /** One Store row: what the machine's Sandboxes can use, sqlite on its disk, or PostgreSQL that runs its Sandboxes here. */
-interface StoreLine { name: string, family: 'sqlite' | 'postgresql', projects: string[], count: number, size: number | null, state?: string | undefined, op?: MachineSandbox['op'] }
+interface StoreLine { name: string, family: 'sqlite' | 'postgresql', projects: string[], count: number, size: number | null, state?: string | undefined, op?: MachineSandbox['op'], reason?: string }
 
 export function storeLines(view: AvailableView, m: MachineInfo): StoreLine[] {
-  const sqlite = storesOn(view, m).map((s): StoreLine => ({ name: s.name, family: 'sqlite', projects: s.names ?? [], count: s.projects, size: s.size, state: s.state, op: s.op ?? null }))
+  const sqlite = storesOn(view, m).map((s): StoreLine => ({ name: s.name, family: 'sqlite', projects: s.names ?? [], count: s.projects, size: s.size, state: s.state, op: s.op ?? null, ...(s.reason ? { reason: s.reason } : {}) }))
   const pg = pgUsable(view, m).map((s): StoreLine => ({ name: s.name, family: 'postgresql', projects: s.names ?? [], count: s.projects, size: null, state: s.state, op: s.op ?? null }))
   return [...sqlite, ...pg]
 }
@@ -206,8 +206,8 @@ function StoreRows({ rows, menu, projects: named = true }: { rows: StoreLine[], 
   return (
     <ul className={css.lines}>
       {rows.map((s) => {
-        const look = stateLook('store', s.state)
-        const busy = !!s.op || (!!s.state && s.state !== 'idle')
+        const look = thingLook('store', s)
+        const busy = !!s.op || s.state === 'busy'
         const projects = !named ? null : s.projects.length ? s.projects.join(', ') : s.count > 0 ? t(s.count === 1 ? 'projectCountOne' : 'projectCount', { n: String(s.count) }) : null
         const actions = menu?.(s) ?? null
         return (
@@ -256,7 +256,7 @@ function SandboxRows({ rows, machine, menus }: { rows: MachineSandbox[], machine
   )
 }
 
-/** A Sandbox row's menu: Open, Delete (sandbox.close, confirmed) and Force delete. */
+/** A Sandbox row's menu: Open, Delete (sandbox.remove, confirmed) and Force delete. */
 function SandboxRowMenu({ b, machine }: { b: MachineSandbox, machine: string }): ReactNode {
   const { go } = useMachinesContext()
   const closing = useClose(b.name)

@@ -23,8 +23,10 @@ const M = await import(pathToFileURL(join(out, 'model.mjs')).href)
 const R = await loadRoutes()
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
-const item = (n, more = {}) => ({ name: `w${n}`, branch: `b${n}`, directory: `/run/workspaces/${n}`, mounted: true, dirty: { inodes: 0, entries: 0 }, ...more })
-const record = (workspaces, more = {}) => ({ name: 'sb', state: 'running', project: 's/p', machine: 'native', workspaces, next_page_pos: null, ...more })
+// 2.0 `sandbox get --detail [--with stats]`: Workspaces `{ workspace, branch, path, commands }`, their overlay and usage in `stats.workspaces`
+const item = (n, more = {}) => ({ workspace: `sb:w${n}`, branch: `b${n}`, path: `/run/workspaces/${n}`, ...more })
+const record = (workspaces, more = {}) => ({ sandbox: 'sb', project: 's/p', machine: 'native', workspaces, ...more })
+const iso = (ms) => new Date(ms).toISOString()
 
 function routes(answer, { labelTags, own = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-fields-'))
@@ -51,15 +53,15 @@ test('host: an older answer has none of the fields (absent stays absent)', async
 test('host: workspace_capacity, running (oldest first, own marked by exact exec id, sessions labelled) and overlay_bytes', async () => {
   const tag = 'dsh:sess-1234abcd:rcpt-1'
   const answer = record([
-    item(1, { overlay_bytes: 81920, running: [
-      { exec_id: 'x-late', started: 1763290000500, tag: null, program: 'npm' },
-      { exec_id: 'dsh-own', started: 1763290000100, tag: 'dsh:-:host-1', program: 'ls' },
-      { exec_id: 'dsh-lookalike', started: 1763290000300, tag, program: 'sleep' },
-      { started: 5, program: 'no-id' },
+    item(1, { commands: [
+      { exec: 'x-late', started_at: iso(1763290000500), tag: null, program: 'npm' },
+      { exec: 'dsh-own', started_at: iso(1763290000100), tag: 'dsh:-:host-1', program: 'ls' },
+      { exec: 'dsh-lookalike', started_at: iso(1763290000300), tag, program: 'sleep' },
+      { started_at: iso(5), program: 'no-id' },
     ] }),
-    item(2, { overlay_bytes: null, running: null }),
+    item(2),
     item(3, { running: [] }),
-  ], { workspace_capacity: 16 })
+  ], { workspace_capacity: 16, stats: { workspaces: [{ workspace: 'sb:w1', overlay_bytes: 81920 }, { workspace: 'sb:w2', overlay_bytes: null }] } })
   const asked = []
   const { groups, done } = routes(answer, { own: ['sb:w1 dsh-own'], labelTags: async (tags) => { asked.push(...tags); return { [tag]: { sessionId: 'sess-1234abcd', match: 'tag', title: 'Build the shop', turn: 3 } } } })
   try {
@@ -73,20 +75,19 @@ test('host: workspace_capacity, running (oldest first, own marked by exact exec 
     assert.equal(a.running[0].session, undefined)
     assert.deepEqual(a.running[2], { execId: 'x-late', started: 1763290000500, tag: null, program: 'npm', own: false })
     assert.equal(a.overlayBytes, 81920)
-    assert.equal(b.running, null)
+    assert.equal('running' in b, false, 'no commands listed: absent')
     assert.equal(b.overlayBytes, null)
     assert.deepEqual(c.running, [])
-    assert.equal('overlayBytes' in c, false)
+    assert.equal(c.overlayBytes, null, 'stats read, the Workspace not in them: not observed')
     assert.deepEqual(asked.sort(), ['dsh:-:host-1', tag].sort())
   } finally { done() }
 })
 
 test('host: a Workspace\'s own usage (its ws-<id> cgroup), by presence', async () => {
-  const answer = record([
-    item(1, { usage: { cpu_usec: 2500000, memory_current: 52428800, memory_peak: 104857600, pids: 3 } }),
-    item(2, { usage: null, usage_reason: 'not_observed' }),
-    item(3, {}),
-  ])
+  const answer = record([item(1), item(2), item(3)], { stats: { workspaces: [
+    { workspace: 'sb:w1', usage: { cpu_ms: 2500, memory_bytes: 52428800, memory_peak_bytes: 104857600, pid_count: 3 } },
+    { workspace: 'sb:w2', usage: null, usage_reason: 'not_observed' },
+  ] } })
   const { groups, done } = routes(answer)
   try {
     const [a, b, c] = (await get(groups)).workspaces
@@ -94,13 +95,14 @@ test('host: a Workspace\'s own usage (its ws-<id> cgroup), by presence', async (
     assert.equal('usageReason' in a, false)
     assert.equal(b.usage, null)
     assert.equal(b.usageReason, 'not_observed')
-    // a worker that does not report usage per Workspace: absent, never a zero
-    assert.equal('usage' in c, false)
+    // a Workspace the stats do not list: null (not observed), never a zero
+    assert.equal(c.usage, null)
+    assert.equal('usageReason' in c, false)
   } finally { done() }
 })
 
 test('host: a label that fails leaves the answer whole', async () => {
-  const { groups, done } = routes(record([item(1, { running: [{ exec_id: 'e1', started: 1, tag: 'dsh:s:r', program: 'sleep' }] })]), { labelTags: async () => { throw new Error('no sessions service') } })
+  const { groups, done } = routes(record([item(1, { commands: [{ exec: 'e1', started_at: iso(1), tag: 'dsh:s:r', program: 'sleep' }] })]), { labelTags: async () => { throw new Error('no sessions service') } })
   try {
     const info = await get(groups)
     assert.equal(info.workspaces[0].running[0].program, 'sleep')
@@ -111,19 +113,20 @@ test('host: a label that fails leaves the answer whole', async () => {
 test('host: commands.started knows the exact ids this host ran in a Workspace', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-fields-'))
   let release
-  const lfs = { workspace: { exec: () => new Promise((resolve) => { release = resolve }) } }
+  // 2.0: the start event (`--progress`) names the LayerFS exec id
+  const lfs = { workspace: { exec: (_ws, _command, o) => { o.on_progress?.({ exec: 'exec-a1' }); return new Promise((resolve) => { release = resolve }) } } }
   const { host, events } = testHost({ lfs, root: dir, home: dir, discovery: async () => ({ identity: {}, calls: [] }) })
   const groups = R.createGroups(host, async () => ({}))
   try {
     const entry = groups.commands.start('sb:w1', { command: 'sleep 5' })
-    assert.equal(groups.commands.started('sb:w1', entry.id), true)
-    assert.equal(groups.commands.started('sb:w2', entry.id), false)
-    assert.equal(groups.commands.started('sb:w1', 'dsh-0000000000000000'), false)
+    assert.equal(groups.commands.started('sb:w1', 'exec-a1'), true)
+    assert.equal(groups.commands.started('sb:w2', 'exec-a1'), false)
+    assert.equal(groups.commands.started('sb:w1', entry.id), false, 'the host\'s own id is not LayerFS\'s exec id')
     // a start is published too, so pages read sandbox.get again
     assert.deepEqual(events.filter((e) => e.type === 'sandbox-command').map((e) => e.data.state), ['running'])
-    release({ kind: 'exited', exit_code: 0 })
+    release({ exit_code: 0, stdout: '', stderr: '', exec: 'exec-a1' })
     await new Promise((r) => setTimeout(r, 20))
-    assert.equal(groups.commands.started('sb:w1', entry.id), true)
+    assert.equal(groups.commands.started('sb:w1', 'exec-a1'), true, 'still known from the kept log')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 

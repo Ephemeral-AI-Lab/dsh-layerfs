@@ -15,8 +15,10 @@ await build({ absWorkingDir: root, stdin: { contents: "export * from './src/clie
 const T = await import(pathToFileURL(join(out, 'tabs.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
-const sb = (name, state, extra = {}) => ({ name, state, machine: 'docker', project: 'qv2-store/qv2-probe', workspaces: 0, ...extra })
-const needsYou = (b) => b.state === 'failed' || b.state === 'gone'
+// 2.0 six states: `ready` runs; `gone` is broken `lost` (its daemon ended), `failed` broken with another reason
+const STATE = { running: { state: 'ready' }, stopped: { state: 'stopped' }, gone: { state: 'broken', reason: 'lost' }, failed: { state: 'broken', reason: 'failed' } }
+const sb = (name, state, extra = {}) => ({ name, ...STATE[state], machine: 'docker', project: 'qv2-store/qv2-probe', workspaces: 0, ...extra })
+const needsYou = (b) => b.state === 'broken'
 
 test('tabs: Overview, Sandboxes and Stores always; Images, Files and Worker log by what the machine and CLI have; no Usage or Disk tab (both live on the Overview)', () => {
   assert.deepEqual(T.machineTabs({ images: false, files: false, log: false }), ['overview', 'sandboxes', 'stores'])

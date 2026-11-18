@@ -16,7 +16,7 @@
 import { randomBytes } from 'node:crypto'
 import { refuse } from './util.ts'
 
-export type CreationPhase = 'queued' | 'machine' | 'inspect' | 'export' | 'send' | 'unpack' | 'start' | 'done' | 'failed'
+export type CreationPhase = 'queued' | 'machine' | 'inspect' | 'lock' | 'export' | 'send' | 'unpack' | 'start' | 'mount' | 'done' | 'failed'
 
 /** One creation job: the admission answer, a list row and the event payload. */
 export interface Creation {
@@ -37,7 +37,7 @@ export interface Creation {
 export type Report = (update: { phase: CreationPhase, done?: number, total?: number }) => void
 
 /** The image copy's phases: bytes reported in one carry over to the next while the copy goes on. */
-const COPY = new Set<CreationPhase>(['inspect', 'export', 'send'])
+const COPY = new Set<CreationPhase>(['inspect', 'lock', 'export', 'send'])
 
 /**
  * A job's bytes after an update (§4.1): what the update reports; within the

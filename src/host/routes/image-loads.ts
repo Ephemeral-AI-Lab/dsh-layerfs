@@ -16,7 +16,7 @@ import { randomBytes } from 'node:crypto'
 import { bytesAfter, BYTES_EVERY_MS, FAILED_KEEP_MS, type CreationPhase } from './sandbox-creates.ts'
 import { refuse } from './util.ts'
 
-export type LoadPhase = 'queued' | 'inspect' | 'export' | 'send' | 'unpack' | 'done' | 'failed'
+export type LoadPhase = 'queued' | 'inspect' | 'lock' | 'export' | 'send' | 'unpack' | 'done' | 'failed'
 
 /** One copy: the admission answer, a list row and the event payload. */
 export interface ImageLoad {
@@ -30,6 +30,8 @@ export interface ImageLoad {
   total?: number
   /** Phase `done`: LayerFS already had it (`reused`). */
   reused?: boolean
+  /** Phase `done`: how many stale partial copies LayerFS dropped first (`dropped`, the first 20, or `dropped_count` when cut). */
+  dropped?: number
   /** Phase `failed`: the refusal. */
   error?: { code: string, message: string, detail?: unknown }
   startedAt: number
@@ -58,7 +60,7 @@ export class ImageLoads {
   }
 
   /** Admits a copy and starts `run` in the background; answers the `queued` entry. A failed copy of the same image to the same machine leaves the list. */
-  admit(machine: string, image: string, run: (report: LoadReport) => Promise<{ reused?: boolean } | unknown>): ImageLoad {
+  admit(machine: string, image: string, run: (report: LoadReport) => Promise<{ reused?: boolean, dropped?: string[], dropped_count?: number } | unknown>): ImageLoad {
     for (const [id, j] of this.jobs) if (j.phase === 'failed' && j.machine === machine && j.image === image) this.jobs.delete(id)
     const now = Date.now()
     const job: ImageLoad = { id: newId(), machine, image, phase: 'queued', startedAt: now, updatedAt: now }
@@ -69,7 +71,8 @@ export class ImageLoads {
       try {
         await Promise.resolve()
         const answer: any = await run((u) => this.update(job.id, u))
-        this.finish(job.id, { reused: answer?.reused === true })
+        const dropped = typeof answer?.dropped_count === 'number' ? answer.dropped_count : Array.isArray(answer?.dropped) ? answer.dropped.length : 0
+        this.finish(job.id, { reused: answer?.reused === true, dropped })
       } catch (error: any) {
         const detail = error?.detail && typeof error.detail === 'object' ? error.detail : undefined
         this.finish(job.id, { error: { code: typeof error?.code === 'string' ? error.code : 'Unknown', message: error?.message ?? String(error), ...(detail ? { detail } : {}) } })
@@ -113,7 +116,7 @@ export class ImageLoads {
     p.timer = setTimeout(() => { p.timer = null; const now = this.jobs.get(id); if (now && now.phase !== 'done' && now.phase !== 'failed') this.send(now) }, wait)
   }
 
-  private finish(id: string, end: { reused?: boolean, error?: ImageLoad['error'] }): void {
+  private finish(id: string, end: { reused?: boolean, dropped?: number, error?: ImageLoad['error'] }): void {
     const job = this.jobs.get(id)
     if (!job) return
     job.phase = end.error ? 'failed' : 'done'
@@ -121,6 +124,7 @@ export class ImageLoads {
     delete job.total
     if (end.error) job.error = end.error
     if (end.reused) job.reused = true
+    if (end.dropped) job.dropped = end.dropped
     job.updatedAt = Date.now()
     this.send(job)
     const p = this.last.get(id)

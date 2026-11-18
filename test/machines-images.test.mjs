@@ -268,9 +268,10 @@ test('Images section and Free space: total and free, removable rows, unused pres
   assert.deepEqual(freesWords(offered, [D(3)], 0.8e9), { key: 'freesSizeNeed', values: { size: '412 MB', need: '800 MB' } })
 })
 
-test('a failed create says why in this locale (§4.4); NoSpace offers Free space', () => {
-  assert.deepEqual(failureWords({ code: 'NoSpace', message: 'x', detail: { need: 865e6, free: 4e8 } }, 'lima1'), { key: 'imageNoSpace', values: { machine: 'lima1', need: '865 MB', free: '400 MB' } })
-  assert.equal(failureWords({ code: 'NoSpace', message: 'x' }, 'lima1'), null, 'no numbers: LayerFS\'s message')
+test('a failed create says why in this locale (§4.4); Capacity offers Free space', () => {
+  // 2.0 `Capacity`: detail { needed_bytes, free_bytes, path }
+  assert.deepEqual(failureWords({ code: 'Capacity', message: 'x', detail: { needed_bytes: 865e6, free_bytes: 4e8, path: '/var/lib/layerfs' } }, 'lima1'), { key: 'imageNoSpace', values: { machine: 'lima1', need: '865 MB', free: '400 MB' } })
+  assert.equal(failureWords({ code: 'Capacity', message: 'x' }, 'lima1'), null, 'no numbers: LayerFS\'s message')
   assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { reason: 'arch', value: 'amd64' } }, 'm'), { key: 'imageWrongArch', values: { arch: 'amd64' } })
   assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { reason: 'host' } }, 'm'), { key: 'imageHostOnly' })
   assert.deepEqual(failureWords({ code: 'Unsupported', message: 'x', detail: { need: 'image-refs' } }, 'm'), { key: 'imageNeedsNewerLayerfs' })
@@ -279,10 +280,10 @@ test('a failed create says why in this locale (§4.4); NoSpace offers Free space
   assert.deepEqual(failureWords({ code: 'InvalidInput', message: 'no such image: nope:1' }, 'm'), { key: 'imageUnknown' })
   assert.equal(failureWords({ code: 'InvalidInput', message: 'bad name' }, 'm'), null)
   assert.deepEqual(failureWords({ code: 'Busy', message: 'x' }, 'lima1'), { key: 'machineBusy', values: { machine: 'lima1' } })
-  assert.deepEqual(failureWords({ code: 'NameTaken', message: 'x' }, 'm'), { key: 'sandboxNameTaken' })
+  assert.deepEqual(failureWords({ code: 'Exists', message: 'x' }, 'm'), { key: 'sandboxNameTaken' }, '2.0 says Exists')
   assert.deepEqual(failureWords({ code: 'Timeout', message: 'x' }, 'm'), { key: 'imageTimeout' })
   assert.equal(failureWords({ code: 'Unknown', message: 'boom' }, 'm'), null)
-  const failed = { phase: 'failed', input: { machine: 'lima1' }, error: { code: 'NoSpace', message: 'x', detail: { need: 2e9, free: 1e9 } } }
+  const failed = { phase: 'failed', input: { machine: 'lima1' }, error: { code: 'Capacity', message: 'x', detail: { needed_bytes: 2e9, free_bytes: 1e9, path: null } } }
   assert.deepEqual(phaseWords(failed), { key: 'imageNoSpace', values: { machine: 'lima1', need: '2.0 GB', free: '1.0 GB' } })
   assert.deepEqual(phaseWords({ phase: 'failed', input: { machine: 'm' }, error: { code: 'Unknown', message: 'boom' } }), { key: 'createFailedRow', values: { reason: 'boom' } })
   assert.equal(needsSpace(failed), true)
@@ -317,11 +318,13 @@ test('pruneImages posts the ids and reads the machines again', async () => {
 test('a create\'s row stands for its Sandbox while LayerFS records it as creating (the image copy shows), then the real row', () => {
   const job = (id, name, phase, startedAt = 1) => ({ id, input: { project: 's/p', name, machine: 'docker' }, phase, startedAt, updatedAt: startedAt })
   const all = { a: job('a', 'p-1', 'send', 2), b: job('b', 'p-2', 'failed', 1), c: job('c', 'p-3', 'done', 3), d: job('d', 'p-4', 'send', 4) }
+  // 2.0: a Sandbox being created is `busy` with op `sandbox.create`; one that runs is `ready`
+  const creatingRow = { state: 'busy', op: { name: 'sandbox.create', phase: 'export', started: 1 } }
   const boxes = [
-    { name: 'p-1', machine: 'docker', state: 'creating' },
-    { name: 'p-2', machine: 'docker', state: 'creating' },
-    { name: 'p-3', machine: 'docker', state: 'running' },
-    { name: 'p-0', machine: 'docker', state: 'running' },
+    { name: 'p-1', machine: 'docker', ...creatingRow },
+    { name: 'p-2', machine: 'docker', ...creatingRow },
+    { name: 'p-3', machine: 'docker', state: 'ready' },
+    { name: 'p-0', machine: 'docker', state: 'ready' },
   ]
   const creating = creatingOn(all, 'docker', boxes)
   assert.deepEqual(creating.map((c) => c.id), ['d', 'a', 'b'], 'running (record creating, or none yet) and failed creates, newest first; a done one whose Sandbox runs leaves')

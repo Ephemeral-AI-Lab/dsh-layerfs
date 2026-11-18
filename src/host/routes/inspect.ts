@@ -68,24 +68,15 @@ export function logQuery(query: URLSearchParams): LogQuery {
 }
 
 /**
- * A log answer as the page reads it. 2.0's `machine log`: `items` (oldest
- * first) and `next_cursor`, the lines before them (a 2.0 log pages backwards
- * only: it is `before`, and there is no forward cursor). Today's
- * `logs.sandbox`: `lines`, `cursor`, `before`, `has_more` (cs20: switch when
- * the Sandbox package merges).
+ * A log answer as the page reads it: 2.0's `machine log` and `sandbox log`,
+ * `items` (oldest first) and `next_cursor`, the lines before them (a 2.0 log
+ * pages backwards only: it is `before`, and there is no forward cursor).
  */
 export function logAnswer(answer: any): Omit<LogView, 'observedAt' | 'stale'> {
   const lines: LogLine[] = []
-  if (Array.isArray(answer?.items)) {
-    for (const line of answer.items) if (line && typeof line.text === 'string') lines.push(line.continued === true ? { text: line.text, continued: true } : { text: line.text })
-    const before = text(answer.next_cursor)
-    return { lines, cursor: null, before, hasMore: !!before }
-  }
-  for (const line of Array.isArray(answer?.lines) ? answer.lines : []) {
-    if (typeof line === 'string') lines.push({ text: line })
-    else if (line && typeof line.text === 'string') lines.push(line.continued === true ? { text: line.text, continued: true } : { text: line.text })
-  }
-  return { lines, cursor: text(answer?.cursor), before: text(answer?.before), hasMore: answer?.has_more === true }
+  for (const line of Array.isArray(answer?.items) ? answer.items : []) if (line && typeof line.text === 'string') lines.push(line.continued === true ? { text: line.text, continued: true } : { text: line.text })
+  const before = text(answer?.next_cursor)
+  return { lines, cursor: null, before, hasMore: !!before }
 }
 
 /** A refusal as `stale`: its code and words, and when the target last answered. */
@@ -230,30 +221,10 @@ export function machineFilesAnswer(answer: any, path: string | null, offset: num
   return { kind: 'folder', path, entries, next, hasMore: !!next, reason: null }
 }
 
-/** A `sandbox.files` answer (today's shape; cs20: switch when the Sandbox package merges), or a 2.0 `machine.files` one, as the page reads it. */
+/** A 2.0 `machine files` or `sandbox files` answer (one shape for both), as the page reads it. */
 export function filesAnswer(answer: any, path: string | null, offset: number | null = null): Omit<FolderView, 'observedAt' | 'stale'> | Omit<FileWindowView, 'observedAt' | 'stale'> {
-  if (answer && typeof answer === 'object' && answer.kind === undefined) return machineFilesAnswer(answer, path, offset)
-  if (answer?.kind === 'file') {
-    const next = typeof answer.next === 'number' ? answer.next : typeof answer.next === 'string' && /^\d+$/.test(answer.next) ? Number(answer.next) : null
-    return {
-      kind: 'file', path: path ?? '', size: count(answer.size) ?? 0, offset: count(answer.offset) ?? 0,
-      content: typeof answer.content === 'string' ? answer.content : '', binary: answer.binary === true, next: next !== null && Number.isSafeInteger(next) && next >= 0 ? next : null,
-    }
-  }
-  if (answer?.kind !== 'folder') throw refuse(null, 'Unknown', 'LayerFS answered neither a folder nor a file.')
-  const entries: FileEntry[] = []
-  for (const e of Array.isArray(answer.entries) ? answer.entries : []) {
-    if (!e || typeof e.path !== 'string' || !e.path) continue
-    entries.push({
-      path: e.path, depth: Number.isSafeInteger(e.depth) && e.depth > 0 ? e.depth : 1, kind: typeof e.kind === 'string' && e.kind ? e.kind : 'other',
-      size: count(e.size), mode: count(e.mode), mtime: count(e.mtime),
-      ...(text(e.role) ? { role: e.role } : {}), ...(text(e.target) ? { target: e.target } : {}), ...(text(e.workspace) ? { workspace: e.workspace } : {}), ...(text(e.fs) ? { fs: e.fs } : {}),
-      ...(count(e.free_bytes) !== null ? { free_bytes: count(e.free_bytes)! } : {}),
-    })
-  }
-  const next = text(answer.next)
-  const hasMore = answer.has_more === true
-  return { kind: 'folder', path, entries, next: hasMore ? next : null, hasMore, reason: hasMore && (answer.reason === 'deadline' || answer.reason === 'limit') ? answer.reason : null }
+  if (!answer || typeof answer !== 'object') throw refuse(null, 'Unknown', 'LayerFS answered neither a folder nor a file.')
+  return machineFilesAnswer(answer, path, offset)
 }
 
 const cancelled = () => refuse(null, 'Cancelled', 'The read was dropped: nobody waits for its answer')

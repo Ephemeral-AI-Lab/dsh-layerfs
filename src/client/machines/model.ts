@@ -114,6 +114,10 @@ export interface MachineInfo {
 export interface MachineStore {
   state?: string
   op?: SdkOperation | null
+  /** 2.0 state companions: `blocked_by` when its machine is not ready, `reason` and `fix` when broken. */
+  blockedBy?: { machine?: string, reason: string }
+  reason?: string
+  fix?: string
   name: string
   machine: string
   projects: number
@@ -136,6 +140,11 @@ export interface MachinePgStore {
 export interface MachineSandbox {
   state?: string
   op?: SdkOperation | null
+  /** 2.0 state companions: `blocked_by` when blocked, `reason` and `fix` when broken. */
+  blockedBy?: { machine?: string, reason: string }
+  reason?: string
+  fix?: string
+  message?: string
   backend?: string | null
   route?: string | null
   image?: string | null
@@ -284,15 +293,20 @@ export interface DaemonCapacity {
   } | null
 }
 
-/** GET /api/workspaces/<ws>/status (workspace.status). */
+/** GET /api/workspaces/<ws>/status (`workspace status --detail`, 2.0). */
 export interface WorkspaceStatus {
-  base: string | null
-  base_layer?: string | null
+  changes: { path: string, change: 'added' | 'modified' | 'removed', type?: string }[]
+  changes_count?: number | null
+  partial?: boolean | null
+  branch_moved?: boolean | null
+  state?: string | null
   branch?: string | null
-  branch_head: string | null
-  head_moved_since_mount: boolean | null
+  commit?: string | null
+  base_layer?: string | null
+  branch_head?: string | null
   activity?: string | null
-  overlay: { inodes: number, entries: number, pending_merge: boolean } | null
+  overlay?: { inode_count: number, entry_count: number } | null
+  pending_merge?: boolean | null
 }
 
 /** One command a Sandbox page ran (host routes/commands.ts). */
@@ -321,20 +335,21 @@ export interface SandboxInfo {
   name: string
   state: string
   op?: SdkOperation | null
+  /** 2.0 state companions: `blocked_by` when blocked, `reason` and `fix` when broken, `observedAt` when unknown. */
+  blockedBy?: { machine?: string, reason: string }
+  reason?: string
+  fix?: string
+  message?: string
+  observedAt?: number
   backend?: string | null
   route?: string | null
   project?: string | null
   refusal?: { code: string, message: string, detail?: unknown } | null
   image: string | null
   machine: string | null
-  runtime?: string | null
   platform?: string
-  runtimeId?: string | null
   created?: number | null
-  downReason?: string | null
   daemonCapacity?: DaemonCapacity | null
-  /** A capacity refusal's counts when the daemon was not reached for want of a control slot. */
-  down?: { code?: string, resource?: string, pool_vacant?: number, reserved_vacant?: number, retained?: number } | null
   workspaces: WorkspaceInfo[]
   /** How many Workspaces one Sandbox holds (sandbox.get `workspace_capacity`); absent from an older CLI. */
   workspaceCapacity?: number
@@ -362,6 +377,12 @@ export interface ReadyImage {
   lastUsed: string | null
   usable: boolean
   reason?: ImageReason
+  /** LayerFS 2.0 spec v19: `busy` while a copy holds it (`op`), `broken` for a partial copy (`fix` resumes it). */
+  state?: 'busy' | 'broken'
+  op?: { name: string, phase: string, started: number | null } | null
+  partial?: boolean
+  staged?: number
+  fix?: string
 }
 
 /** One image of this computer's Docker (Stage 1 only). */
@@ -408,7 +429,7 @@ export interface ImageLoad {
   machine: string
   /** The Docker image's Id, as the client sent it. */
   image: string
-  phase: 'queued' | 'inspect' | 'export' | 'send' | 'unpack' | 'done' | 'failed'
+  phase: 'queued' | 'inspect' | 'lock' | 'export' | 'send' | 'unpack' | 'done' | 'failed'
   done?: number
   total?: number
   reused?: boolean
@@ -418,7 +439,7 @@ export interface ImageLoad {
 }
 
 /** A Sandbox create's phase (host `SandboxCreates`). */
-export type CreationPhase = 'queued' | 'machine' | 'inspect' | 'export' | 'send' | 'unpack' | 'start' | 'done' | 'failed'
+export type CreationPhase = 'queued' | 'machine' | 'inspect' | 'lock' | 'export' | 'send' | 'unpack' | 'start' | 'mount' | 'done' | 'failed'
 
 /** A Sandbox create the host runs in the background: the admission answer, `GET /api/sandbox-creates` and `sandbox-progress`. */
 export interface Creation {
@@ -492,20 +513,22 @@ const LOOK: Record<Entity, Record<string, StateLook>> = {
     blocked: { tone: 'warning', label: 'stateBlocked' },
     unknown: { tone: 'neutral', label: 'stateUnknown', dashed: true },
   },
+  // a Store: ready, busy (move, remove, compact, backup, restore), blocked by its machine, broken (unresolved, missing, unreachable), unknown
   store: {
-    idle: { tone: 'success', label: 'stateIdle' },
-    in_use: { tone: 'info', label: 'stateInUse', live: true },
+    ready: { tone: 'success', label: 'ready' },
     busy: { tone: 'warning', label: 'stateBusy', live: true },
-    down: { tone: 'danger', label: 'stateDown' },
-    unresolved: { tone: 'danger', label: 'stateUnresolved', attention: true },
+    stopped: { tone: 'neutral', label: 'stateStopped' },
+    blocked: { tone: 'warning', label: 'stateBlocked' },
+    broken: { tone: 'danger', label: 'stateBroken', attention: true },
     unknown: { tone: 'neutral', label: 'stateUnknown', dashed: true },
   },
+  // a Sandbox: ready (its daemon runs), busy (create, remove), blocked by its machine, broken (lost, not_answering, missing, unresolved, unsupported), unknown
   sandbox: {
-    creating: { tone: 'warning', label: 'stateCreating', live: true },
-    running: { tone: 'success', label: 'stateRunning' },
-    closing: { tone: 'warning', label: 'stateClosing', live: true },
-    gone: { tone: 'neutral', label: 'stateGone' },
-    unresolved: { tone: 'danger', label: 'stateUnresolved', attention: true },
+    ready: { tone: 'success', label: 'stateRunning' },
+    busy: { tone: 'warning', label: 'stateBusy', live: true },
+    stopped: { tone: 'neutral', label: 'stateStopped' },
+    blocked: { tone: 'warning', label: 'stateBlocked' },
+    broken: { tone: 'danger', label: 'stateBroken', attention: true },
     unknown: { tone: 'neutral', label: 'stateUnknown', dashed: true },
   },
 }
@@ -521,15 +544,43 @@ export function opWords(op: SdkOperation | null | undefined): string | null {
   return [op.name, op.phase].filter(Boolean).join(' · ')
 }
 
-/** The status call that shows an unresolved entity, and the call that clears it. */
-export function clearingCall(entity: Entity, name: string, op?: SdkOperation | null): { status: string, clear: string } {
-  if (entity === 'store') {
-    const clear = op?.name === 'store.remove' ? `layerfs store remove ${name}` : op?.name === 'store.pull' ? `layerfs store pull ${name}` : `layerfs store push ${name} <machine> (or store pull ${name})`
-    return { status: `layerfs store status ${name}`, clear }
-  }
-  if (entity === 'machine') return { status: `layerfs machine get ${name} --with live`, clear: `layerfs machine remove ${name}` }
-  return { status: `layerfs sandbox get ${name}`, clear: `layerfs sandbox close ${name}` }
+/**
+ * The status call that shows an unresolved entity, and the call that clears
+ * it: LayerFS's own `fix` line when it gave one (2.0 names the clearing call
+ * on every `broken`/`unresolved` thing), else the family's remove.
+ */
+export function clearingCall(entity: Entity, name: string, _op?: SdkOperation | null, fix?: string | null): { status: string, clear: string } {
+  if (entity === 'store') return { status: `layerfs store get ${name} --with live`, clear: fix ?? `layerfs store remove ${name}` }
+  if (entity === 'machine') return { status: `layerfs machine get ${name} --with live`, clear: fix ?? `layerfs machine remove ${name}` }
+  return { status: `layerfs sandbox get ${name}`, clear: fix ?? `layerfs sandbox remove ${name}` }
 }
+
+/** A busy thing's word by its op (2.0 `op.name`: a call word, with or without its family). */
+const BUSY_LABEL: Record<string, MachinesKey> = {
+  create: 'stateCreating', start: 'stateStarting', stop: 'stateStopping', remove: 'stateRemoving', move: 'stateMoving', compact: 'stateCompacting',
+  backup: 'stateBackingUp', restore: 'stateRestoring', mount: 'stateMounting', commit: 'stateCommitting', unmount: 'stateUnmounting', load_image: 'stateCopying',
+}
+/** A broken thing's word by its reason (2.0 `state_companions.broken.reason`). */
+const BROKEN_LABEL: Record<string, MachinesKey> = {
+  engine_down: 'stateEngineDown', not_answering: 'stateNotAnswering', outdated: 'stateOutdated', unreachable: 'stateUnreachable',
+  missing: 'stateMissing', failed: 'stateFailed', unresolved: 'stateUnresolved', lost: 'stateLost', unsupported: 'stateUnsupported', partial: 'statePartial',
+}
+
+/** A Store's or Sandbox's look: its 2.0 state, worded by its companion (a busy op's name, a broken reason). */
+export function thingLook(entity: Entity, x: { state?: string | null, op?: SdkOperation | null, reason?: string | null }): StateLook {
+  const state = x.state || 'unknown'
+  const look = stateLook(entity, state)
+  if (state === 'busy' && x.op) return { ...look, label: BUSY_LABEL[x.op.name.replace(/^[a-z]+\./, '')] ?? look.label }
+  if (state === 'broken' && x.reason) return { ...look, label: BROKEN_LABEL[x.reason] ?? look.label }
+  return look
+}
+
+/** A Sandbox whose daemon is gone (broken `lost` or `missing`): its record and run folder stay until removed. */
+export const sandboxGone = (b: { state?: string | null, reason?: string | null }): boolean => b.state === 'broken' && (b.reason === 'lost' || b.reason === 'missing')
+/** A Sandbox LayerFS is creating (busy with op create). */
+export const sandboxCreating = (b: { state?: string | null, op?: SdkOperation | null }): boolean => b.state === 'busy' && !!b.op && /(^|\.)create$/.test(b.op.name)
+/** A thing whose outcome LayerFS does not know (broken `unresolved`). */
+export const unresolvedOf = (x: { state?: string | null, reason?: string | null }): boolean => x.state === 'broken' && x.reason === 'unresolved'
 
 // ---------- machines ----------
 
@@ -974,8 +1025,8 @@ export function pgUsable(view: Pick<AvailableView, 'postgresql' | 'sandboxes'>, 
 
 /** How the Sandbox's daemon answered this read. */
 export function daemonLook(info: SandboxInfo): { key: MachinesKey, tone: 'success' | 'danger' | 'neutral' } {
-  if (info.downReason) return { key: 'sbDaemonDown', tone: 'danger' }
-  if (info.state !== 'running') return { key: 'sbDaemonStopped', tone: 'neutral' }
+  if (info.state === 'broken') return { key: 'sbDaemonDown', tone: 'danger' }
+  if (info.state !== 'ready') return { key: 'sbDaemonStopped', tone: 'neutral' }
   if (info.unread || info.refusal) return { key: 'sbDaemonUnknown', tone: 'neutral' }
   return { key: 'sbDaemonReachable', tone: 'success' }
 }

@@ -201,8 +201,8 @@ export class MachinesController {
       },
       closeSandbox: async (name, force) => {
         try {
-          const done = await api.call<{ unknown?: string[] }>('DELETE', `/api/sandboxes/${enc(name)}${q({ force: force ? '1' : undefined })}`)
-          return done?.unknown ?? []
+          const done = await api.call<{ unmounted?: string[] }>('DELETE', `/api/sandboxes/${enc(name)}${q({ force: force ? '1' : undefined })}`)
+          return done?.unmounted ?? []
         } finally { this.reload() }
       },
       removeStore: async (name) => {

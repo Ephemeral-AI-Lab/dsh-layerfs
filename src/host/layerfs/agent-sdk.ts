@@ -162,15 +162,11 @@ function record(spec, args, options, o) {
   const exec = spec.family === 'workspace' && spec.call === 'exec';
   if (o.tag && config.outputs) {
     const stdout = outputSink(config.max, 'head'), stderr = outputSink(config.max, 'tail');
-    let final;
-    if (o.outcome === 'ok' && exec && o.value && typeof o.value === 'object') {
-      // As the CLI's event stream: the command's output, then its {result} frame.
-      if (typeof o.value.stdout === 'string') stdout.push(o.value.stdout);
-      if (typeof o.value.stderr === 'string') stderr.push(o.value.stderr);
-      final = json({ result: { kind: o.value.kind, exit_code: o.value.exit_code } });
-    } else if (o.outcome === 'ok') stdout.push(json(o.value) + '\n');
+    if (o.outcome === 'ok') stdout.push(json(o.value) + '\n');
     if (o.refusal) stderr.push(json(o.refusal) + '\n');
-    writeOutput(fs, config.outputs, outputName(createHash, o.tag), outputRecord({ tag: o.tag, exit: o.outcome === 'ok' ? 0 : o.refusal ? 125 : null, stdout, stderr, final, refusal: o.refusal, max: config.max }), config.bounds);
+    // As the 2.0 CLI: \`workspace exec\` prints its one result JSON and exits with the command's own code.
+    const code = exec && o.outcome === 'ok' && Number.isInteger(o.value?.exit_code) ? o.value.exit_code : 0;
+    writeOutput(fs, config.outputs, outputName(createHash, o.tag), outputRecord({ tag: o.tag, exit: o.outcome === 'ok' ? code : o.refusal ? 125 : null, stdout, stderr, refusal: o.refusal, max: config.max }), config.bounds);
   }
   if (config.callLog && !o.native) {
     const rendered = renderCall(call.argv, call.input, config.bools);

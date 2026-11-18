@@ -6,9 +6,9 @@
  * Details card, then usage, disk and daemon) is the first tab; Workspaces (the
  * Workspaces as terminals, SandboxTerminals.tsx) waits on sandbox.get. Files (InspectFiles.tsx) and Daemon log (LogPane.tsx) read on
  * their own, and each is there only when the pinned CLI has its call
- * (sandbox.files, logs.sandbox).
+ * (sandbox.files, sandbox.log).
  *
- * Delete is sandbox.close, with an explicit Force delete action. A Sandbox
+ * Delete is sandbox.remove, with an explicit Force delete action. A Sandbox
  * whose machine differs from the one it was opened from is refused here.
  */
 import { useId, type ReactNode } from 'react'
@@ -23,7 +23,7 @@ import { useMachineTitle } from './Inventory.tsx'
 import { InspectFiles } from './InspectFiles.tsx'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
-import { bytes, clearingCall, opWords, stateLook, type SandboxInfo } from './model.ts'
+import { bytes, clearingCall, opWords, sandboxGone, thingLook, unresolvedOf, type SandboxInfo } from './model.ts'
 import { cpuTime, liveNote, reasonWords, sandboxLook } from './stats.ts'
 import { SandboxMenu, useClose, useSandboxRead } from './Sandboxes.tsx'
 import { SandboxTerminals } from './SandboxTerminals.tsx'
@@ -75,26 +75,27 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   const currentOp = info ? info.op ?? null : listed?.op ?? null
   // Whether its daemon runs: what sandbox.get saw of the process (a pid with no start time has ended), else what the list saw.
   const live = info?.daemon ? info.daemon.startedAt != null : listed?.live
-  const seen = { state, live, liveReason: listed?.liveReason }
-  const look = sandboxLook(seen, (s) => stateLook('sandbox', s))
+  const reason = info ? info.reason : listed?.reason
+  const fix = info ? info.fix : listed?.fix
+  const seen = { state, live, liveReason: listed?.liveReason, op: currentOp, reason }
+  const look = sandboxLook(seen, (x) => thingLook('sandbox', x))
   const liveWhy = liveNote(seen, tw)
   const op = opWords(currentOp)
-  const calls = state === 'unresolved' ? clearingCall('sandbox', name, currentOp) : null
+  const calls = unresolvedOf({ state, reason }) ? clearingCall('sandbox', name, currentOp, fix) : null
   const project = info?.project ?? listed?.project ?? null
   const machineWithKind = t('sbovMachineKind', { machine: machineTitle, kind: parent ? kind(parent.platform) : info?.platform ?? '—' })
   const logLink = hasLog && tab !== 'log' ? <LinkButton onClick={() => setTab('log')}>{t('openDaemonLog')}</LinkButton> : null
   // a Sandbox that ended behind LayerFS's back, or whose record has no runtime: a refused log read will not get better by waiting
-  const ended = state === 'lost' || state === 'gone'
+  const ended = sandboxGone({ state, reason })
   return (
     <Page wide label={name}>
       {/* the tabs come first, as on the machine page: the top bar's breadcrumb shows where this is, the name, icon and state are on the Overview tab (its Details card), and the page region carries the name */}
       <SegmentedTabs size="sm" className={clsx(logCss.tabs, logCss.tabsTop)} label={t('machineTabs', { name })} value={tab} onChange={setTab}
         items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
 
-      {((info && (info.refusal || info.downReason)) || calls || closing.error !== null || !!closing.unknown?.length || (info && detail.error != null)) && (
+      {((info && (info.refusal || (info.state !== 'ready' && info.message))) || calls || closing.error !== null || !!closing.unknown?.length || (info && detail.error != null)) && (
         <Notice tone="danger">
-          {info?.downReason && <p>{t('wsUnavailable', { reason: info.downReason })}{logLink ? <> · {logLink}</> : null}</p>}
-          {info?.down && <p>{t('sbCapacityDown', { pool: String(info.down.pool_vacant ?? '—'), reserved: String(info.down.reserved_vacant ?? '—'), retained: String(info.down.retained ?? '—') })}</p>}
+          {info && info.state !== 'ready' && info.message && <p>{t('wsUnavailable', { reason: info.message })}{logLink ? <> · {logLink}</> : null}</p>}
           {info?.refusal && <Refusal error={info.refusal} labels={refusal} compact />}
           {info && detail.error != null && <Refusal error={detail.error} labels={refusal} compact />}
           {calls && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}

@@ -194,7 +194,8 @@ export function violations(files, help) {
       const body = close < 0 ? '' : src.slice(m.index, close + 1)
       for (const f of body.matchAll(/(['"])(--?[a-z][a-z-]*)\1/g)) {
         const flag = f[2]
-        if (entry.options.some((o) => `--${o.name.replaceAll('_', '-')}` === flag) || (switches.get(key) ?? []).includes(flag)) continue
+        // an option by its flag, or a content option by its shell flag (`--password-stdin`, `--key-stdin`)
+        if (entry.options.some((o) => `--${o.name.replaceAll('_', '-')}` === flag || o.shell === flag) || (switches.get(key) ?? []).includes(flag)) continue
         found.push({ site: `${key} ${flag}`, file, line })
       }
     }
@@ -222,14 +223,12 @@ const GATED = [
   { site: /^home\.(log|clear_log)$/, file: 'src/host/logs/source.ts', gate: /await layerfs\.nativeLogs\(\)/, lines: 20 },
   // the worker and daemon logs (layerfs-project#178): Machines.machineLog / sandboxLog refuse 501 without the call
   { site: /^machine\.log$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineLog\b/, lines: 4 },
-  { site: /^logs\.sandbox$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.sandboxLog\b/, lines: 4 },
+  { site: /^sandbox\.log$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.sandboxLog\b/, lines: 4 },
   // the machine's and the Sandbox's files (layerfs-project#178): Machines.machineFiles / sandboxFiles refuse 501 without the call
   { site: /^machine\.files$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineFiles\b/, lines: 4 },
   { site: /^sandbox\.files$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.files\b/, lines: 4 },
   // a machine's observed resources (layerfs-project#164): Machines.machineStats refuses 501 without the call
   { site: /^machine\.stats$/, file: 'src/host/routes/machines.ts', gate: /cliFeatures\(this\.host\)\)\.inspect\.machineStats\b/, lines: 10 },
-  // sandbox.list --live (layerfs-project#164): the machines view passes `live` only when the call table has the option
-  { site: /^sandbox\.list option live$/, file: 'src/host/routes/machines.ts', gate: /features\.sandboxLive\b/, lines: 3 },
   // doctor.fix (layerfs-project#180) has no entry: this host never calls it (the Doctor page shows the command as text)
   // the home family (layerfs-setup.md §3): the setup check uses home.get / home.init only when the call table has both (else one machine.list)
   { site: /^home\.(get|init)$/, file: 'src/host/service.ts', gate: /this\.homeCalls\(\)/, lines: 8 },
@@ -297,8 +296,8 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   const lacks = (family, call, option) => { const c = help.calls.find((x) => x.family === family && x.call === call); return !c || (option && !c.options.some((o) => o.name === option)) }
   const expected = [lacks('machine', 'stop', 'force') && 'machine.stop option force',
     lacks('home', 'log') && 'home.log', lacks('home', 'clear_log') && 'home.clear_log',
-    lacks('machine', 'log') && 'machine.log', lacks('logs', 'sandbox') && 'logs.sandbox',
-    lacks('sandbox', 'files') && 'sandbox.files', lacks('machine', 'stats') && 'machine.stats', lacks('sandbox', 'list', 'live') && 'sandbox.list option live',
+    lacks('machine', 'log') && 'machine.log', lacks('sandbox', 'log') && 'sandbox.log',
+    lacks('sandbox', 'files') && 'sandbox.files', lacks('machine', 'stats') && 'machine.stats',
     lacks('home', 'get') && 'home.get', lacks('home', 'init') && 'home.init'].filter(Boolean)
   for (const site of expected) assert.ok(result.gated.some((g) => g.site === site), `the scan no longer sees the gated ${site} call site`)
   // any SDK translation a rule relies on is still there
@@ -310,7 +309,7 @@ test('calls the pinned CLI may lack stay behind their discovery gates', { skip }
   assert.match(util, /images = !!call\('machine', 'images'\)/)
   assert.match(util, /imageRefs = optionOf\('sandbox', 'create', 'image'\)\?\.kind === 'image'/)
   assert.doesNotMatch(util, /image_archive/)
-  assert.match(util, /machineLog: !!call\('machine', 'log'\), sandboxLog: !!call\('logs', 'sandbox'\)/)
+  assert.match(util, /machineLog: !!call\('machine', 'log'\), sandboxLog: !!call\('sandbox', 'log'\)/)
   assert.match(util, /files: !!call\('sandbox', 'files'\), machineFiles: !!call\('machine', 'files'\), machineStats: !!call\('machine', 'stats'\)/)
   assert.match(util, /sandboxLive: option\('sandbox', 'list', 'live'\)/)
   assert.match(util, /machineSpace: withValues\(call\('machine', 'stats'\)\)\.includes\('space'\)/)

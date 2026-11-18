@@ -47,15 +47,16 @@ test('redaction: free text and credentials as byte counts, other values cut to 2
 })
 test('saved fields follow #659 §4.2 and only name 66-hex ids', () => {
   const at = (argv, result) => L.savedFields(argv, result)
-  assert.deepEqual(at(['workspace', 'commit', 'ws'], { kind: 'Committed', commit: { id } }), { kind: 'Committed', commit: id })
-  assert.deepEqual(at(['file', 'write', 'p', 'b', '/x'], { kind: 'UpToDate', head: null, base }), { kind: 'UpToDate', layer: base })
-  assert.deepEqual(at(['branch', 'fork', 'p', 'n'], { kind: 'Forked', head: id }), { kind: 'Forked', commit: id })
-  assert.deepEqual(at(['branch', 'merge', 'p', 'n', 'a', 'b'], { kind: 'Merged', head: id, fast_forward: false }), { kind: 'Merged', commit: id })
-  assert.deepEqual(at(['branch', 'publish', 'p', 'b'], { kind: 'Added', published_layer: { id: base } }), { kind: 'Added', layer: base })
-  assert.deepEqual(at(['branch', 'publish', 'p', 'b'], { kind: 'NoChanges', head_layer: base }), { kind: 'NoChanges', layer: base })
-  assert.deepEqual(at(['workspace', 'mount', 'p', 'b'], { kind: 'Mounted', head: id }), { kind: 'Mounted' })
-  assert.deepEqual(at(['workspace', 'commit', 'ws'], { kind: 'Committed', head: 'abc' }), { kind: 'Committed' })
-  const ok = L.callLine({ at: 5, ms: 2.4, argv: ['workspace', 'commit', '--', 'ws'], outcome: 'ok', result: { kind: 'Committed', head: id }, tag: 'dsh:s:r' })
+  // 2.0: every saving call answers `commit` (66 hex), with `unchanged` when nothing was made; the kind is this log's own word
+  assert.deepEqual(at(['workspace', 'commit', 'ws'], { commit: id }), { kind: 'Committed', commit: id })
+  assert.deepEqual(at(['file', 'write', 'p', 'b', '/x'], { commit: base, unchanged: true }), { kind: 'UpToDate', commit: base })
+  assert.deepEqual(at(['branch', 'fork', 'p', 'n'], { commit: id }), { kind: 'Forked', commit: id })
+  assert.deepEqual(at(['branch', 'merge', 'p', 'n', 'a', 'b'], { commit: id, fast_forward: false }), { kind: 'Merged', commit: id })
+  assert.deepEqual(at(['branch', 'publish', 'p', 'b'], { commit: base }), { kind: 'Added', layer: base })
+  assert.deepEqual(at(['branch', 'publish', 'p', 'b'], { commit: base, unchanged: true }), { kind: 'UpToDate', layer: base })
+  assert.deepEqual(at(['workspace', 'mount', 'p', 'b'], { workspace: 'p:w' }), {})
+  assert.deepEqual(at(['workspace', 'commit', 'ws'], { commit: 'abc' }), {}, 'only a 66-hex id is named')
+  const ok = L.callLine({ at: 5, ms: 2.4, argv: ['workspace', 'commit', '--', 'ws'], outcome: 'ok', result: { commit: id }, tag: 'dsh:s:r' })
   assert.deepEqual(ok, { v: 1, at: 5, ms: 2, client: 'cli', argv: ['workspace', 'commit', 'ws'], outcome: 'ok', kind: 'Committed', commit: id, tag: 'dsh:s:r' })
   assert.deepEqual(L.callLine({ at: 5, ms: 1, argv: ['branch', 'merge', 'p', 'n', 'a', 'b'], outcome: 'Conflict' }), { v: 1, at: 5, ms: 1, client: 'cli', argv: ['branch', 'merge', 'p', 'n', 'a', 'b'], outcome: 'Conflict' })
 })
@@ -148,7 +149,7 @@ function run(command, argv, env, input = '') {
 test('the wrapper and execute() each write one line carrying the same tag as their receipt', async () => {
   const dir = mkdtempSync(join(root, 'tags-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nlet input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{if(process.argv.includes('bad-usage')){process.exitCode=2;return}console.log(JSON.stringify({kind:'Committed',commit:{id:'${id}'}}))});`, { mode: 0o700 })
+  writeFileSync(cli, `#!${process.execPath}\nlet input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{if(process.argv.includes('bad-usage')){process.exitCode=2;return}console.log(JSON.stringify({commit:'${id}'}))});`, { mode: 0o700 })
   const spec = { cli, home: join(dir, 'home'), callLog, nativeLogs: false }
   const receipts = []
   const identity = { origin: 'tool', sessionId: 'sess', project: 'demo/app', turn: 1, toolCallId: 'call-1', workspace: 'sb:main', scope: L.toolScope('sess', 'call-1') }

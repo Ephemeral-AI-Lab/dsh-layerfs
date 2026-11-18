@@ -71,28 +71,21 @@ export function toolScope(sessionId: string, callId: string): string {
   return createHash('sha256').update(`${sessionId}\0${callId}`).digest('hex').slice(0, 8)
 }
 
-/** Decode verified CLI result shapes only. A bare successful exit or current head is insufficient. */
+/**
+ * Decode 2.0 answers only: every saving call answers `commit` (66 hex), with
+ * `unchanged` when nothing was made and a merge's `fast_forward` when it made
+ * no Commit of its own. A bare successful exit or current head is insufficient.
+ */
 export function savedVersions(operation: string, result: any): VersionLink[] {
   const allowed: readonly string[] = CHECKPOINT_OPERATIONS
   if (!allowed.includes(operation) || !result || typeof result !== 'object') return []
-  const link = (kind: 'Commit' | 'Layer', id: unknown, effect: VersionLink['effect']): VersionLink[] =>
-    typeof id === 'string' && /^[a-f0-9]{66}$/.test(id) ? [{ kind, id, effect }] : []
-  if (operation === 'branch.publish') {
-    if (result.kind === 'Added') return link('Layer', (result.published_layer ?? result.publishedLayer)?.id, 'created')
-    if (result.kind === 'UpToDate') return link('Layer', result.layer, 'unchanged')
-    if (result.kind === 'NoChanges') return link('Layer', result.head_layer ?? result.headLayer, 'unchanged')
-    return []
-  }
-  if (operation === 'branch.fork') return result.kind === 'Forked'
-    ? result.head ? link('Commit', result.head, 'referenced') : link('Layer', result.base, 'referenced') : []
-  if (operation === 'branch.merge') {
-    const fastForward = result.fast_forward ?? result.fastForward
-    return result.kind === 'Merged' && typeof fastForward === 'boolean'
-      ? link('Commit', result.head, fastForward ? 'referenced' : 'created') : []
-  }
-  if (result.kind === 'Committed') return link('Commit', result.commit?.id ?? result.head, 'created')
-  if (result.kind === 'UpToDate') return result.head ? link('Commit', result.head, 'unchanged') : link('Layer', result.base, 'unchanged')
-  return []
+  const id = result.commit
+  if (typeof id !== 'string' || !/^[a-f0-9]{66}$/.test(id)) return []
+  const unchanged = result.unchanged === true
+  if (operation === 'branch.publish') return [{ kind: 'Layer', id, effect: unchanged ? 'unchanged' : 'created' }]
+  if (operation === 'branch.fork') return [{ kind: 'Commit', id, effect: 'referenced' }]
+  if (operation === 'branch.merge') return [{ kind: 'Commit', id, effect: unchanged || result.fast_forward === true ? 'referenced' : 'created' }]
+  return [{ kind: 'Commit', id, effect: unchanged ? 'unchanged' : 'created' }]
 }
 
 /**
@@ -157,27 +150,28 @@ export function portableArgv(words: readonly string[]): string[] {
     : kept.map((word, index) => index < 2 || Array.from(word).length <= 40 ? word : `${Array.from(word).slice(0, 40).join('')}…`)
 }
 
-/** `workspace exec` facts: the `--exec-id` of the words and an exit code, when known. */
-function execFacts(operation: string, words: readonly string[], exit: unknown): Pick<Invocation, 'execId' | 'exit'> {
+const shortText = (value: unknown): string | undefined => typeof value === 'string' && value && value.length <= 64 ? value : undefined
+
+/** `workspace exec` facts: an exit code and LayerFS's exec id, when known (2.0 has no caller-chosen id: it is in the answer). */
+function execFacts(operation: string, exit: unknown, execId?: unknown): Pick<Invocation, 'execId' | 'exit'> {
   if (operation !== 'workspace.exec') return {}
-  const at = words.indexOf('--exec-id'), execId = at >= 0 ? words[at + 1] : undefined
   return {
-    ...(execId && !execId.startsWith('<') && execId.length <= 128 ? { execId } : {}),
     ...(exit === null || (typeof exit === 'number' && Number.isInteger(exit)) ? { exit } : {}),
+    ...(shortText(execId) ? { execId: execId as string } : {}),
   }
 }
 
 /**
- * The exec exit code from a stored output: the final `{result}` frame, the
- * last stdout line (`--events`). A `--stream` call (`streamed`) prints the
+ * The exec exit code from a stored output: the 2.0 result JSON's `exit_code`
+ * (stdout is the one result line). A `--stream` call (`streamed`) prints the
  * command's raw output and exits with the command's own code, so its process
- * exit is the answer, except 125 (LayerFS itself failed).
+ * exit is the answer, except 125 (LayerFS itself refused).
  */
 export function exitOfOutput(output: CallOutput | { missing: true } | undefined, streamed = false): number | undefined {
   if (!output || 'missing' in output) return undefined
-  if (typeof output.stdout === 'string') {
+  if (!streamed && typeof output.stdout === 'string') {
     const last = output.stdout.trimEnd().split('\n').at(-1)
-    try { const code = JSON.parse(last ?? '')?.result?.exit_code; if (Number.isInteger(code)) return code } catch { /* not a frame */ }
+    try { const code = JSON.parse(last ?? '')?.exit_code; if (Number.isInteger(code)) return code } catch { /* not the result */ }
   }
   return streamed && Number.isInteger(output.exit) && output.exit !== 125 ? output.exit as number : undefined
 }
@@ -196,7 +190,6 @@ export function fastForwardOfOutput(output: CallOutput | { missing: true } | und
   return match ? match[1] === 'true' : undefined
 }
 
-const shortText = (value: unknown): string | undefined => typeof value === 'string' && value && value.length <= 64 ? value : undefined
 
 /**
  * A receipt from a call log line made inside `identity`'s trace context.
@@ -219,7 +212,7 @@ export function receiptFromLine(line: CallLine, identity: TraceIdentity, id: str
     ...(captureGap ? { captureGap } : {}),
     at: line.at, ms: line.ms, argv: portableArgv(line.argv),
     ...(line.tag ? { tag: line.tag } : {}), ...(code ? { code } : {}), ...(kind ? { kind } : {}),
-    ...execFacts(operation, line.argv, exit),
+    ...execFacts(operation, exit),
   }
 }
 
@@ -243,7 +236,9 @@ export async function traceInvocation<T>(operation: string, run: (tag?: string) 
       call = describe?.()
       if (call) words = renderCall(call.argv, call.input === undefined || call.input === null ? null : Buffer.byteLength(call.input), call.bools)
     } catch { /* receipt argv is best effort */ }
-    const code = error ? shortText(error.code) ?? 'Failed' : undefined, kind = error ? undefined : shortText((result as any)?.kind)
+    // the kind is this log's own word for a 2.0 answer (as the call log line's), else the answer's own `kind`
+    const code = error ? shortText(error.code) ?? 'Failed' : undefined
+    const kind = error ? undefined : savedFields(words ?? operation.split('.'), result).kind ?? shortText((result as any)?.kind)
     const receipt: Invocation = {
       ...portable(trace, id, !targetKnown ? '' : targetProject ?? trace.project), operation,
       outcome: error ? error.transport === 'refusal' ? 'refusal' : 'unknown' : 'success',
@@ -252,7 +247,7 @@ export async function traceInvocation<T>(operation: string, run: (tag?: string) 
       at: Number.isFinite(call?.at) ? call!.at! : at, ms: Number.isFinite(call?.ms) ? call!.ms! : Math.max(0, Math.round(performance.now() - started)),
       ...(words ? { argv: portableArgv(words) } : {}),
       ...(tag ? { tag } : {}), ...(code ? { code } : {}), ...(kind ? { kind } : {}),
-      ...execFacts(operation, words ?? [], error ? undefined : (result as any)?.exit_code),
+      ...execFacts(operation, error ? undefined : (result as any)?.exit_code, error ? undefined : (result as any)?.exec),
     }
     // The mutation has already run; never retry it. A tool call's receipt is
     // rebuilt from its tagged call log line when this write fails.
@@ -369,10 +364,11 @@ export function managedCli(options: ManagedCliOptions): string {
     `const outputName = ${outputName.toString()};`,
     `const writeOutput = ${writeOutput.toString()};`,
     `const operation=(argv[0]??'')+'.'+(argv[1]??'').replaceAll('-','_');`,
-    // `workspace exec --stream` exits with the command's own code (125 still means
-    // LayerFS refused, its refusal frame on stderr): a non-zero exit is the command's result, not an
-    // unknown outcome; the line keeps it as `kind: "exit:<code>"`, as the JSON answer has it (FIX-LOG F13).
-    `const streamedExec=operation==='workspace.exec'&&argv.includes('--stream');`,
+    // 2.0 `workspace exec` exits with the command's own code (125 still means LayerFS
+    // refused, its refusal JSON on stderr): a non-zero exit is the command's result, not an
+    // unknown outcome; the line keeps it as `kind: "exit:<code>"` (FIX-LOG F13). With `--stream`
+    // stdout is the command's own output, not the result JSON.
+    `const execCall=operation==='workspace.exec',streamedExec=execCall&&argv.includes('--stream');`,
     `const piped=logged&&config.content.includes(operation)&&!argv.some(word=>word==='--from'||word.startsWith('--from='));`,
     `const at=Date.now(),started=performance.now();`,
     `let stdout='',stderr='',overflow=false,spawnError=false,inputBytes=0;`,
@@ -388,19 +384,18 @@ export function managedCli(options: ManagedCliOptions): string {
     `child.on('close',(code,signal)=>{`,
     ` if(piped)process.stdin.destroy();`,
     ` if(spawnError){process.exitCode=127;return}`,
-    ` if(logged&&(code!==2||streamedExec)&&(capture||config.callLog)){`,
+    ` if(logged&&(code!==2||execCall)&&(capture||config.callLog)){`,
     `  let result,valid=false,refusal;`,
     `  if(config.callLog&&!overflow&&!streamedExec)try{const frames=stdout.trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line));`,
-    `   if(argv.includes('--events')){const finals=frames.filter(frame=>frame&&(Object.hasOwn(frame,'result')||Object.hasOwn(frame,'refusal')));if(finals.length===1){result=finals[0].result;refusal=finals[0].refusal;valid=!refusal}}`,
-    `   else if(frames.length===1){result=frames[0];valid=true}`,
+    `   if(frames.length===1){result=frames[0];valid=true}`,
     `  }catch{}`,
     `  if(!refusal)for(const line of stderr.trim().split('\\n').reverse()){try{const frame=JSON.parse(line);if(frame&&typeof frame.error==='string'){refusal=frame;break}}catch{}}`,
     // The output first, so a page reloading on the new line already sees it.
     `  if(capture)writeOutput(fs,config.outputs,outputName(createHash,receipt.tag),outputRecord({tag:receipt.tag,exit:signal?null:code,stdout:sinks.stdout,stderr:sinks.stderr,refusal,max:config.max}),config.bounds);`,
     `  if(config.callLog){`,
-    `   const outcome=signal?'Unknown':code===125?((c=>typeof c==='string'&&c.length<=64?c:'Failed')(refusal&&(typeof refusal.error==='string'?refusal.error:refusal.code))):code===0||streamedExec?'ok':'Unknown';`,
+    `   const outcome=signal?'Unknown':code===125?((c=>typeof c==='string'&&c.length<=64?c:'Failed')(refusal&&(typeof refusal.error==='string'?refusal.error:refusal.code))):code===0||execCall?'ok':'Unknown';`,
     `   const words=renderCall(argv,piped?inputBytes:null,config.bools);`,
-    `   appendCallLine(fs,config.callLog,{v:1,at,ms:Math.max(0,Math.round(performance.now()-started)),client:'cli',argv:words,outcome,...(outcome==='ok'&&streamedExec?{kind:'exit:'+code}:outcome==='ok'&&valid?savedFields(words,result):{}),...(receipt&&receipt.tag?{tag:receipt.tag}:{})},config.rotate);`,
+    `   appendCallLine(fs,config.callLog,{v:1,at,ms:Math.max(0,Math.round(performance.now()-started)),client:'cli',argv:words,outcome,...(outcome==='ok'&&execCall?{kind:'exit:'+code}:outcome==='ok'&&valid?savedFields(words,result):{}),...(receipt&&receipt.tag?{tag:receipt.tag}:{})},config.rotate);`,
     `  }`,
     ` }`,
     ` finish(code,signal);`,

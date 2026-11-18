@@ -313,20 +313,26 @@ export function ImagesSection({ m, images, onCreate }: { m: MachineInfo, images:
                       </span>
                       {answer.default === r.id && <span className={css.imgDefault}>{t('imgDefault')}</span>}
                     </div>
+                    {r.state && (
+                      <p className={css.imgRowSub} data-image-state={r.state}
+                        title={r.state === 'busy' ? t('imgStateBusyTip', { phase: r.op?.phase ?? '…' }) : t('imgStatePartialTip', { size: bytes(r.staged ?? r.size), fix: r.fix ?? '' })}>
+                        <span className={css.imgWarn}>●</span> {t(r.state === 'busy' ? 'imgStateBusy' : 'imgStatePartial')}
+                      </p>
+                    )}
                     <dl className={css.imgFacts}>
                       <div><dt>{t('imgFactDisk')}</dt><dd>{bytes(r.size)}</dd></div>
                       <div><dt>{t('imgFactSandboxes')}</dt><dd>{String(Math.max(0, r.sandboxes))}</dd></div>
                       <div><dt>{t('imgFactLastUsed')}</dt><dd>{ago ? tw(ago) : t('imgNever')}</dd></div>
                     </dl>
-                    {(onCreate || (!stopped && removable(r) && r.sandboxes <= 0)) && (
+                    {((onCreate && r.usable) || (!stopped && removable(r) && r.sandboxes <= 0 && r.state !== 'busy')) && (
                       <div className={css.imgCardActions}>
-                        {onCreate && (
+                        {onCreate && r.usable && (
                           <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={() => onCreate(r.id)} data-new-sandbox-image={names.get(r.id)}>
                             {t('newSandbox')}
                           </Button>
                         )}
                         <span className={css.columnSpacer} />
-                        {!stopped && removable(r) && r.sandboxes <= 0 && (
+                        {!stopped && removable(r) && r.sandboxes <= 0 && r.state !== 'busy' && (
                           <Button variant="ghost" size="sm" icon={<IconTrashOutlineRegular size={12} />} disabled={removing !== null} onClick={() => void remove(r.id)}
                             className={css.imgRemove} data-remove-image={names.get(r.id)}>
                             {removing === r.id ? t('imageRemoving') : t('imageRemove')}
@@ -364,7 +370,7 @@ export function ImagesSection({ m, images, onCreate }: { m: MachineInfo, images:
 /**
  * Free space on a machine: one checkbox per removable image, the unused ones
  * preselected and the ones in use disabled. `need` (from New Sandbox, or a
- * create refused NoSpace) is said beside what the choice frees. `onClose`
+ * create refused Capacity) is said beside what the choice frees. `onClose`
  * says whether anything was removed.
  */
 export function FreeSpaceDialog({ machine, need, onClose }: { machine: MachineRef, need?: number | null | undefined, onClose: (freed: boolean) => void }): ReactNode {

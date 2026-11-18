@@ -18,13 +18,15 @@ test.after(() => rmSync(directory, { recursive: true, force: true }))
 test('storeOfCall names the Store a call opens, in both argv shapes', () => {
   assert.equal(storeOfCall(['file', 'write', 'demo-studio/website', 'b', '/x.md', '--message', 'm']), 'demo-studio')
   assert.equal(storeOfCall(['branch', 'fork', '--', 'demo-build-cache/compiler', 'f', 'main']), 'demo-build-cache')
-  assert.equal(storeOfCall(['branch', 'list', '--page-size', '100', '--', 'rs/a']), 'rs')
-  assert.equal(storeOfCall(['store', 'stats', '--', 'rs']), 'rs')
-  assert.equal(storeOfCall(['store', 'stats', 'rs']), 'rs')
-  assert.equal(storeOfCall(['store', 'status', '--', 'rs']), undefined, 'reads leases only')
+  assert.equal(storeOfCall(['branch', 'list', '--limit', '100', '--', 'rs/a']), 'rs')
+  assert.equal(storeOfCall(['commit', 'list', '--detail', '--', 'rs/a', 'main']), 'rs')
+  // 2.0 `store get --with stats` opens the Store; `store get` alone reads its record
+  assert.equal(storeOfCall(['store', 'get', '--with', 'stats', '--', 'rs']), 'rs')
+  assert.equal(storeOfCall(['store', 'get', 'rs', '--with', 'stats']), 'rs', 'the preset driver\'s shape: positionals first')
+  assert.equal(storeOfCall(['store', 'get', '--detail', '--', 'rs']), undefined, 'reads the record only')
   assert.equal(storeOfCall(['store', 'list']), undefined)
-  assert.equal(storeOfCall(['project', 'list', '--page-size', '1000', '--page-pos', '0']), undefined)
-  assert.equal(storeOfCall(['machine', 'status', 'demo-build']), undefined)
+  assert.equal(storeOfCall(['project', 'list', '--limit', '1000']), undefined)
+  assert.equal(storeOfCall(['machine', 'get', 'demo-build']), undefined)
   assert.equal(storeOfCall(['workspace', 'exec', '--', 'sbx', 'ls']), undefined)
 })
 
@@ -41,7 +43,7 @@ console.log(JSON.stringify({ ok: true }))
   const spec = { cli: binary, home }
   await Promise.all([
     execute(spec, ['file', 'write', 'a/p', 'b', '/x.md'], { input: 'x' }),
-    execute(spec, ['store', 'stats', '--', 'a'], { read: true }),
+    execute(spec, ['store', 'get', '--with', 'stats', '--', 'a'], { read: true }),
     execute(spec, ['branch', 'list', '--', 'a/q'], { read: true }),
     execute(spec, ['file', 'write', 'a/q', 'b', '/y.md'], { input: 'y' }),
     execute(spec, ['file', 'write', 'b/p', 'b', '/x.md'], { input: 'z' }),

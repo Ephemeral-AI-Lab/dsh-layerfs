@@ -451,9 +451,9 @@ export class LayerfsService extends Service {
           const got: HomeGet = await this.lfs.home.get({ detail: true })
           this.homeState = homeStateOf(got)
           if (this.homeState !== 'missing') return
-          // cs20: switch when the home.init package merges (today's answer: created, converted)
-          const did = await this.lfs.home.init()
-          this.homeDid = { created: did?.created === true, converted: did?.converted === true, at: Date.now() }
+          // 2.0 long form: `outcome` created | converted | unchanged
+          const did = await this.lfs.home.init({ detail: true })
+          this.homeDid = { created: did?.outcome === 'created', converted: did?.outcome === 'converted', at: Date.now() }
         } else if (!existsSync(join(this.home, 'layerfs.json'))) {
           await execute(this.lfs.spec, ['machine', 'list', '--'], { read: true, gated: true, timeout: 30_000 })
           this.homeDid = { created: existsSync(join(this.home, 'layerfs.json')), converted: false, at: Date.now() }
@@ -475,9 +475,8 @@ export class LayerfsService extends Service {
    */
   async convertHome(): Promise<SetupStatus> {
     if (!(await this.homeCalls())) throw new CliError('Unsupported', 'This LayerFS runtime has no `home init`; choose a newer runtime to convert the folder')
-    // cs20: switch when the home.init package merges (today's answer: created, converted)
-    const did = await this.lfs.home.init()
-    this.homeDid = { created: did?.created === true, converted: did?.converted === true, at: Date.now() }
+    const did = await this.lfs.home.init({ detail: true })
+    this.homeDid = { created: did?.outcome === 'created', converted: did?.outcome === 'converted', at: Date.now() }
     this.homeGeneration++
     this.homeState = null
     await this.setupRead?.catch(() => {})

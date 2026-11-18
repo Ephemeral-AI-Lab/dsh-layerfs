@@ -1,6 +1,6 @@
 /**
  * What a Sandbox's tab and the machine pages share: reading a Sandbox
- * (sandbox.get), its menu (Delete is sandbox.close; Force delete is a separate
+ * (sandbox.get), its menu (Delete is sandbox.remove; Force delete is a separate
  * explicit action), and the New Sandbox dialog that creates one on a machine
  * from an eligible project.
  */
@@ -48,13 +48,13 @@ export function useSandboxRead(name: string, state: string | undefined, count: n
       if (data?.sandbox !== name || document.visibilityState !== 'visible') return
       clearTimeout(timer)
       // a start is read a moment later, once LayerFS has written the command's record
-      timer = setTimeout(() => void read(), data.state === 'running' ? STARTED_MS : 0)
+      timer = setTimeout(() => void read(), data.state === 'ready' ? STARTED_MS : 0)
     })
     return () => { clearTimeout(timer); off() }
   }, [api, name, read])
   const busy = !!data?.workspaces.some((w) => (w.running?.length ?? 0) > 0)
   useEffect(() => {
-    if (state !== 'running') return
+    if (state !== 'ready') return
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void read() }, busy ? RUNNING_POLL_MS : POLL_MS)
     return () => clearInterval(timer)
   }, [read, state, busy])
@@ -67,7 +67,7 @@ export function useClose(name: string): { busy: boolean, error: unknown, unknown
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [unknown, setUnknown] = useState<string[] | null>(null)
-  const refusal = error as { code?: string, detail?: { execs?: unknown[] } } | null
+  const refusal = error as { code?: string, detail?: { running?: unknown[] } } | null
   const close = async (force: boolean): Promise<boolean> => {
     setBusy(true)
     try {
@@ -82,7 +82,7 @@ export function useClose(name: string): { busy: boolean, error: unknown, unknown
       setBusy(false)
     }
   }
-  const forceAllowed = refusal?.code === 'MountsActive' || (refusal?.code === 'Busy' && !!refusal.detail?.execs?.length)
+  const forceAllowed = refusal?.code === 'InUse' || (refusal?.code === 'Busy' && !!refusal.detail?.running?.length)
   return { busy, error, unknown, close, forceAllowed, uncertain: refusal?.code === 'Unknown' }
 }
 

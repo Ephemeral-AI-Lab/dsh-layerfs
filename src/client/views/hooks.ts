@@ -31,7 +31,7 @@ export interface SessionStateView {
   binding: (MapBinding & { sessionId: string, kind: 'project' | 'shared', mount?: string }) | null
   project: string | null
   scratchProject?: boolean
-  status: { overlay?: { inodes?: number, entries?: number }, error?: { message: string } } | null
+  status: { overlay?: { inode_count?: number, entry_count?: number }, error?: { message: string } } | null
   execution?: { state: string, available: boolean, reason?: string }
 }
 

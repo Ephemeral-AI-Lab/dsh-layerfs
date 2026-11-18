@@ -125,6 +125,61 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* ---------- leftovers (home leftovers / home prune) ---------- */
+.leftovers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.leftoversHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.leftoversTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.leftoverList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leftoverRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  min-width: 0;
+}
+
+.leftoverWord {
+  font-weight: 500;
+}
+
+.leftoverFacts {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.leftoverPath {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 /* ---------- buttons (DSH Button: primary, outline; size sm) ----------
    A button that cannot be pressed keeps aria-disabled, not disabled: it stays
    in the tab order, keeps focus and says why in its tip. */

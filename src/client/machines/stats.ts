@@ -119,7 +119,7 @@ export const staleWords = (stale: StatsStale): Words => (stale.code === 'Timeout
 // ---------------------------------------------------------------- Sandboxes: live
 
 /** A listed Sandbox counts as running: its record says so and LayerFS did not see its daemon ended. */
-export const sandboxRuns = (b: Pick<MachineSandbox, 'state' | 'live'>): boolean => b.state === 'running' && b.live !== false
+export const sandboxRuns = (b: Pick<MachineSandbox, 'state' | 'live'>): boolean => b.state === 'ready' && b.live !== false
 
 /**
  * How a listed Sandbox looks. Its record's state, except: recorded running
@@ -127,9 +127,9 @@ export const sandboxRuns = (b: Pick<MachineSandbox, 'state' | 'live'>): boolean 
  * which needs you; recorded running but not observed (`live: null`) keeps its
  * state with a dashed chip.
  */
-export function sandboxLook(b: Pick<MachineSandbox, 'state' | 'live'>, look: (state: string | null | undefined) => StateLook): StateLook {
-  const base = look(b.state)
-  if (b.state !== 'running' || b.live === undefined || b.live === true) return base
+export function sandboxLook<B extends Pick<MachineSandbox, 'state' | 'live'>>(b: B, look: (b: B) => StateLook): StateLook {
+  const base = look(b)
+  if (b.state !== 'ready' || b.live === undefined || b.live === true) return base
   if (b.live === false) return { tone: 'danger', label: 'stateDaemonDown', attention: true }
   return { ...base, tone: 'neutral', dashed: true }
 }
@@ -139,7 +139,7 @@ export function sandboxLook(b: Pick<MachineSandbox, 'state' | 'live'>, look: (st
  * @param tw - the page's translator (the reason is one of LayerFS's words, said plainly).
  */
 export function liveNote(b: Pick<MachineSandbox, 'state' | 'live' | 'liveReason'>, tw: (words: Words) => string): string | null {
-  if (b.state !== 'running' || b.live === undefined || b.live === true) return null
+  if (b.state !== 'ready' || b.live === undefined || b.live === true) return null
   if (b.live === false) return tw(w('liveDown'))
   return b.liveReason ? tw(w('liveUnknownBecause', { reason: tw(reasonWords(b.liveReason)) })) : tw(w('liveUnknown'))
 }
@@ -153,7 +153,7 @@ export function liveCounts(sandboxes: readonly Pick<MachineSandbox, 'state' | 'l
   let running = 0, down = 0, unknown = 0, observed = false
   for (const b of sandboxes) {
     if (b.live !== undefined) observed = true
-    if (b.state !== 'running') continue
+    if (b.state !== 'ready') continue
     if (b.live === false) down++
     else if (b.live === null) unknown++
     else running++

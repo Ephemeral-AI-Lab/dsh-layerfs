@@ -25,12 +25,15 @@ function fixture() {
   const waits = new Map()
   const order = []
   const lfs = {
-    project: { get: async (key) => ({ project: key, store: 's1', machine: 'lima1', kind: 'sqlite' }) },
+    project: { get: async (key) => ({ project: key, store: 's1', machine: 'lima1', engine: 'sqlite' }) },
+    // a sqlite project's Sandboxes run on its Store's machine (2.0 `store get`)
+    store: { get: async (name) => ({ store: name, engine: 'sqlite', machine: 'lima1', state: 'ready' }) },
     machine: { start: async (name, { on_progress }) => { order.push(`start ${name}`); on_progress({ stage: 'boot' }); return { name } } },
     sandbox: {
-      create: (project, name, machine, options) => {
-        order.push(`create ${name}`)
-        return new Promise((resolve, reject) => waits.set(name, { resolve: () => resolve({ name, machine, options }), reject }))
+      // 2.0 `sandbox create <project> <sandbox>`: the machine is the Store's (no option for a sqlite project)
+      create: (project, name, options) => {
+        order.push(`create ${name}${options.machine ? ` on ${options.machine}` : ''}`)
+        return new Promise((resolve, reject) => waits.set(name, { resolve: () => resolve({ ok: true }), reject }))
       },
     },
   }
@@ -75,9 +78,9 @@ test('background: a failed job keeps its refusal 10 minutes, until dismissed or 
   const f = fixture()
   try {
     const a = (await f.http('POST', `/api/projects/${KEY}/sandboxes`, { name: 'b1', background: true })).body.creation
-    await f.fail('b1', new Refusal('NoSpace', 'not enough space', { need: 10, free: 1 }))
+    await f.fail('b1', new Refusal('Capacity', 'not enough space', { needed_bytes: 10, free_bytes: 1, path: '/var' }))
     const failed = (await f.http('GET', '/api/sandbox-creates')).body.creations
-    assert.deepEqual(failed.map((c) => [c.id, c.phase, c.error]), [[a.id, 'failed', { code: 'NoSpace', message: 'not enough space', detail: { need: 10, free: 1 } }]])
+    assert.deepEqual(failed.map((c) => [c.id, c.phase, c.error]), [[a.id, 'failed', { code: 'Capacity', message: 'not enough space', detail: { needed_bytes: 10, free_bytes: 1, path: '/var' } }]])
     assert.deepEqual(f.progress().at(-1).phase, 'failed')
     // retry: the client re-sends the input as a new job; the failed one leaves the list
     const b = (await f.http('POST', `/api/projects/${KEY}/sandboxes`, { name: 'b1', background: true })).body.creation

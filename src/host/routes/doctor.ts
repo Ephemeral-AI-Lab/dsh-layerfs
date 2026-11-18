@@ -97,7 +97,7 @@ export class DoctorChecks {
       machineStop: async (name) => { const result = await lfs().machine.stop(name); await this.host.machinesStopped?.([name]); return result },
       machineStart: (name) => lfs().machine.start(name),
       projectDelete: (project) => lfs().project.delete(project),
-      // cs20: switch when the backup package merges (today's backup.create)
+      // 2.0 `backup create <store> <bucket>` (a fix with `--file` names an option, so it is never run: parseFix)
       backupCreate: (store, bucket) => lfs().backup.create(store, bucket),
       ...options.actions,
     }
@@ -117,7 +117,30 @@ export class DoctorChecks {
     if (what === 'runs' && !id && method === 'POST') return this.start(body ?? {})
     if (what === 'runs' && id && verb === 'stop' && method === 'POST') return this.stop(id)
     if (what === 'fixes' && !id && method === 'POST') return this.fix(body ?? {})
+    if (what === 'leftovers' && !id && method === 'GET') return this.leftovers()
+    if (what === 'leftovers' && id === 'prune' && method === 'POST') return this.prune(body ?? {})
     return undefined
+  }
+
+  // ---------------------------------------------------------------- leftovers
+
+  /**
+   * What interrupted work left in the home (`home leftovers --detail`): each
+   * `{ leftover, modified_at, size, report_only, removable_at, kind, machine,
+   * path }`, plus `not_listed` machines (blocked or not answering). It walks
+   * every ready machine's folders, so the page asks for it, never on open.
+   */
+  async leftovers(): Promise<unknown> {
+    if (!(await this.host.discover()).calls.some((c) => c.family === 'home' && c.call === 'leftovers')) throw refuse(501, 'Unsupported', 'This LayerFS runtime has no `home leftovers`.')
+    const answer: any = await this.host.lfs().home.leftovers({ detail: true })
+    return { items: Array.isArray(answer?.items) ? answer.items : [], notListed: Array.isArray(answer?.not_listed) ? answer.not_listed : [], at: Date.now() }
+  }
+
+  /** `home prune <leftover>`: one leftover the person chose; LayerFS checks its guard (report-only ones are refused). */
+  async prune(body: any): Promise<unknown> {
+    const leftover = body?.leftover
+    if (typeof leftover !== 'string' || !/^[A-Za-z0-9][\w.-]*:[a-z_]+:[\w.-]+$/.test(leftover)) throw invalid('Name the leftover by its id (<machine>:<kind>:<name>).')
+    return this.host.lfs().home.prune(leftover, { detail: true })
   }
 
   // ---------------------------------------------------------------- the tree

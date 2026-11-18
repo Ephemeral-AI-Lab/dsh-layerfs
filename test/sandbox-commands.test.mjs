@@ -22,28 +22,44 @@ const M = await import(pathToFileURL(join(out, 'commands.mjs')).href)
 const temps = []
 test.after(() => { rmSync(out, { recursive: true, force: true }); for (const t of temps) rmSync(t, { recursive: true, force: true }) })
 
-/** A host whose lfs.workspace.exec is driven by the test. */
+/**
+ * A host whose lfs.workspace.exec is driven by the test, in the 2.0 shape:
+ * the `--progress` start event names the exec id (`exec-N`), and the one
+ * result `{ exit_code, stdout, stderr, exec }` carries the output. The test's
+ * `exec(ws, command, out)` writes output with `out.stdout`/`out.stderr` and
+ * answers `{ exit_code }` (or throws, or never settles).
+ */
 function host(exec, extra = {}) {
   const jobs = mkdtempSync(join(tmpdir(), 'lfs-cmd-'))
   temps.push(jobs)
   const events = []
   const calls = []
+  let n = 0
   const rec = (name, answer) => async (...a) => { calls.push([name, ...a]); return typeof answer === 'function' ? answer(...a) : answer }
   const lfs = {
     workspace: {
-      exec: (...a) => { calls.push(['exec', ...a]); return exec(...a) },
-      exec_cancel: rec('cancel', { kind: 'cancelled' }),
+      exec: async (ws, command, options) => {
+        calls.push(['exec', ws, command, options])
+        const id = `exec-${++n}`
+        options.on_progress?.({ exec: id })
+        const out = [], err = []
+        const result = await exec(ws, command, { stdout: (b) => out.push(Buffer.from(b)), stderr: (b) => err.push(Buffer.from(b)) })
+        // the result is JSON: its text is the bytes decoded as UTF-8; the long form counts the bytes
+        const o = Buffer.concat(out), e = Buffer.concat(err)
+        return { exit_code: 0, stdout: o.toString('utf8'), stderr: e.toString('utf8'), stdout_bytes: o.length, stderr_bytes: e.length, exec: id, ...result }
+      },
+      cancel: rec('cancel', { ok: true }),
       commit: rec('commit', { commit: 'c1' }),
-      unmount: rec('unmount', { kind: 'Unmounted' }),
+      unmount: rec('unmount', { ok: true }),
       ...extra.workspace,
     },
-    sandbox: { close: rec('close', { kind: 'Closed' }), ...extra.sandbox },
+    sandbox: { remove: rec('remove', { ok: true }), ...extra.sandbox },
   }
   return { jobs, events, calls, h: { lfs: () => lfs, jobs, emit: (type, data) => events.push([type, data]), log: () => {} } }
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 10))
-const done = async () => ({ kind: 'exit:0', exit_code: 0 })
+const done = async () => ({ exit_code: 0 })
 const hash = (ws) => createHash('sha1').update(ws).digest('hex').slice(0, 16)
 const wsFile = (jobs, ws) => join(jobs, 'sandbox-commands', ws.split(':')[0], `${hash(ws)}.json`)
 const groups = (h) => M.createGroups({ ...h, home: h.jobs, root: h.jobs, stats: h.jobs, secrets: h.jobs, cli: () => null, daemon: () => null, discover: async () => ({}), ensureNative: async () => {} }, async () => ({}))
@@ -52,11 +68,11 @@ const call = (g, method, path, body = {}) => {
   return M.route(g, method, url.pathname.split('/').filter(Boolean).map(decodeURIComponent), url.searchParams, body)
 }
 
-test('a command runs in the background, streams into its entry and is logged in its Workspace file', async () => {
+test('a command runs in the background, its output arrives with its result and is logged in its Workspace file', async () => {
   let finish
-  const { h, events, jobs } = host((ws, command, opts) => new Promise((resolve) => {
+  const { h, events, jobs, calls } = host((ws, command, opts) => new Promise((resolve) => {
     opts.stdout(Buffer.from('hello\n'))
-    finish = () => { opts.stderr(Buffer.from('warn\n')); resolve({ kind: 'exit:3', exit_code: 3 }) }
+    finish = () => { opts.stderr(Buffer.from('warn\n')); resolve({ exit_code: 3 }) }
   }))
   const c = new M.SandboxCommands(h)
   const started = c.start('sb1:build', { command: '  make  ' })
@@ -64,7 +80,11 @@ test('a command runs in the background, streams into its entry and is logged in 
   assert.match(started.id, /^dsh-[0-9a-f]{16}$/)
   assert.equal(c.busy(), true)
   assert.equal(c.running('sb1:build'), true)
-  assert.equal(c.listWorkspace('sb1:build').items[0].stdout, 'hello\n')
+  // one `workspace exec --progress --detail`: 2.0 streams nothing while it runs; the start event named the exec id
+  assert.deepEqual(calls[0].slice(0, 3), ['exec', 'sb1:build', 'make'])
+  assert.equal(calls[0][3].detail, true)
+  assert.equal(c.listWorkspace('sb1:build').items[0].stdout, '')
+  assert.equal(c.listWorkspace('sb1:build').items[0].execId, 'exec-1')
   finish()
   await settle()
   const [e] = c.listWorkspace('sb1:build').items
@@ -100,7 +120,7 @@ test('per-Workspace files keep 50 each; the Sandbox list merges them newest firs
 })
 
 test('one command per Workspace: a second start is refused 409 CommandRunning', async () => {
-  const { h } = host(async (ws, command) => command === 'hang' ? new Promise(() => {}) : { kind: 'exit:0', exit_code: 0 })
+  const { h } = host(async (ws, command) => command === 'hang' ? new Promise(() => {}) : { exit_code: 0 })
   const c = new M.SandboxCommands(h)
   c.start('sb2:a', { command: 'hang' })
   assert.throws(() => c.start('sb2:a', { command: 'ls' }), { code: 'CommandRunning', status: 409 })
@@ -113,7 +133,7 @@ test('inline answers, refusals, cancels and a host restart', async () => {
   const { h, calls } = host(async (ws, command) => {
     if (command === 'bad') throw Object.assign(new Error('no such ws'), { code: 'NotMounted' })
     if (command === 'hang') return new Promise(() => {})
-    return { kind: 'exit:0', exit_code: 0, stdout: 'inline' }
+    return { exit_code: 0, stdout: 'inline' }
   })
   const c = new M.SandboxCommands(h)
   c.start('sb2:a', { command: 'echo' })
@@ -127,7 +147,8 @@ test('inline answers, refusals, cancels and a host restart', async () => {
   assert.deepEqual([h2.state, h2.error.code], ['failed', 'NotMounted'])
   assert.equal(h3.state, 'running')
   await c.cancel('sb2:a', { id: hang.id })
-  assert.deepEqual(calls.at(-1), ['cancel', 'sb2:a', hang.id, {}])
+  // `workspace cancel <ws> --exec <id>`: only this command, by the id its start event named
+  assert.deepEqual(calls.at(-1), ['cancel', 'sb2:a', { exec: 'exec-3', detail: true }])
   await assert.rejects(c.cancel('sb2:a', { id: 'dsh-nope' }), { code: 'NotFound' })
   await assert.rejects(c.cancel('sb2:other', { id: hang.id }), { code: 'NotFound' })
   // what a restarted host sees: the command it was running has no known outcome
@@ -151,7 +172,7 @@ test('output keeps only its tail, without a split UTF-8 sequence at the cut', as
     if (cmd === 'yes') for (let i = 0; i < 10; i++) opts.stdout(Buffer.alloc(16 * 1024, 97 + i))
     // 3-byte characters whose boundary does not fall on the cut
     else opts.stdout(Buffer.from('€'.repeat(30000) + 'end'))
-    return { kind: 'exit:0', exit_code: 0 }
+    return { exit_code: 0 }
   })
   const c = new M.SandboxCommands(h)
   c.start('sb4:a', { command: 'yes' })
@@ -176,7 +197,7 @@ test('binary output: a NUL or over 10% U+FFFD empties the text but keeps the byt
     if (cmd === 'nul') opts.stdout(Buffer.from('abc\0def'))
     if (cmd === 'junk') opts.stderr(Buffer.from([0xff, 0xfe, 0x41, 0x42, 0xff, 0x43, 0x44, 0x45]))
     if (cmd === 'few') opts.stdout(Buffer.concat([Buffer.from('a'.repeat(100)), Buffer.from([0xff])]))
-    return { kind: 'exit:0', exit_code: 0 }
+    return { exit_code: 0 }
   })
   const c = new M.SandboxCommands(h)
   for (const [ws, cmd] of [['sb6:a', 'nul'], ['sb6:b', 'junk'], ['sb6:c', 'few']]) c.start(ws, { command: cmd })
@@ -212,7 +233,7 @@ test('a v1 Sandbox log is split into Workspace files on first read, then removed
 })
 
 test('routes: start, list both ways, cancel, commit', async () => {
-  const { h, calls } = host(async (ws, command) => command === 'hang' ? new Promise(() => {}) : { kind: 'exit:0', exit_code: 0 })
+  const { h, calls } = host(async (ws, command) => command === 'hang' ? new Promise(() => {}) : { exit_code: 0 })
   const g = groups(h)
   const entry = await call(g, 'POST', '/api/workspaces/sb5:a/commands', { command: 'ls' })
   assert.equal(entry.ws, 'sb5:a')
@@ -224,18 +245,18 @@ test('routes: start, list both ways, cancel, commit', async () => {
   const hang = await call(g, 'POST', '/api/workspaces/sb5:a/commands', { command: 'hang' })
   await assert.rejects(call(g, 'POST', '/api/workspaces/sb5:a/commands', { command: 'ls' }), { code: 'CommandRunning' })
   await call(g, 'POST', '/api/workspaces/sb5:a/cancel', { id: hang.id })
-  assert.deepEqual(calls.at(-1), ['cancel', 'sb5:a', hang.id, {}])
+  assert.deepEqual(calls.at(-1), ['cancel', 'sb5:a', { exec: 'exec-3', detail: true }])
   assert.deepEqual(await call(g, 'POST', '/api/workspaces/sb5:a/commit', { message: ' save ' }), { commit: 'c1' })
-  assert.deepEqual(calls.at(-1), ['commit', 'sb5:a', { message: 'save' }])
+  assert.deepEqual(calls.at(-1), ['commit', 'sb5:a', { detail: true, message: 'save' }])
   await call(g, 'POST', '/api/workspaces/sb5:a/commit', {})
-  assert.deepEqual(calls.at(-1), ['commit', 'sb5:a', {}])
+  assert.deepEqual(calls.at(-1), ['commit', 'sb5:a', { detail: true }])
   await assert.rejects(call(g, 'POST', '/api/workspaces/bad/commit', {}), { code: 'InvalidInput' })
 })
 
 test('routes: unmount refuses a running command unless forced, passes options and LayerFS refusals, and drops the log', async () => {
   let refusal = null
   const { h, calls, jobs, events } = host(
-    async (ws, command) => command === 'hang' ? new Promise(() => {}) : { kind: 'exit:0', exit_code: 0 },
+    async (ws, command) => command === 'hang' ? new Promise(() => {}) : { exit_code: 0 },
     { workspace: { unmount: async (...a) => { calls.push(['unmount', ...a]); if (refusal) throw refusal; return { kind: 'Unmounted' } } } },
   )
   const g = groups(h)
@@ -266,7 +287,7 @@ test('routes: unmount refuses a running command unless forced, passes options an
   assert.deepEqual(calls.at(-1), ['unmount', 'sb8:b', {}])
 })
 
-test('routes: closing a Sandbox removes its command logs, v1 file included', async () => {
+test('routes: removing a Sandbox (sandbox remove) removes its command logs, v1 file included', async () => {
   const { h, calls, jobs } = host(done)
   const g = groups(h)
   await call(g, 'POST', '/api/workspaces/sb9:a/commands', { command: 'ls' })
@@ -275,13 +296,13 @@ test('routes: closing a Sandbox removes its command logs, v1 file included', asy
   writeFileSync(join(jobs, 'sandbox-commands', 'sb9.json'), '{"version":1,"commands":[]}')
   const dir = join(jobs, 'sandbox-commands', 'sb9')
   assert.equal(readdirSync(dir).length, 2)
-  // a refused close keeps them
-  h.lfs().sandbox.close = async () => { throw Object.assign(new Error('in use'), { code: 'InUse' }) }
+  // a refused removal keeps them
+  h.lfs().sandbox.remove = async () => { throw Object.assign(new Error('in use'), { code: 'InUse' }) }
   await assert.rejects(call(g, 'DELETE', '/api/sandboxes/sb9'), { code: 'InUse' })
   assert.equal(existsSync(dir), true)
-  h.lfs().sandbox.close = async (...a) => { calls.push(['close', ...a]); return { kind: 'Closed' } }
-  assert.deepEqual(await call(g, 'DELETE', '/api/sandboxes/sb9?force=1'), { kind: 'Closed' })
-  assert.deepEqual(calls.at(-1), ['close', 'sb9', { force: true }])
+  h.lfs().sandbox.remove = async (...a) => { calls.push(['remove', ...a]); return { ok: true, outcome: 'removed', sandbox: 'sb9', unmounted: [] } }
+  assert.deepEqual(await call(g, 'DELETE', '/api/sandboxes/sb9?force=1'), { ok: true, outcome: 'removed', sandbox: 'sb9', unmounted: [] })
+  assert.deepEqual(calls.at(-1), ['remove', 'sb9', { detail: true, force: true }])
   assert.equal(existsSync(dir), false)
   assert.equal(existsSync(join(jobs, 'sandbox-commands', 'sb9.json')), false)
   assert.deepEqual((await call(g, 'GET', '/api/sandboxes/sb9/commands')).items, [])

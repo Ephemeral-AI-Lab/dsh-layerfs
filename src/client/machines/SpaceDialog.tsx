@@ -19,7 +19,7 @@ import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
 import { useMachineTitle } from './Inventory.tsx'
 import { percent } from './metrics.ts'
-import { gib, shortSandbox, type MachineInfo } from './model.ts'
+import { gib, sandboxGone, shortSandbox, type MachineInfo } from './model.ts'
 import {
   diskSpans, outsideCommand, outsideWords, sandboxSpaceReason, sandboxesBySize, spaceRows, spaceSize as size,
   type MachineSpace, type SpaceRow,
@@ -185,7 +185,8 @@ function SpaceBody({ m, space, onTab }: { m: MachineInfo, space: MachineSpace, o
             <ul className={css.sdRows}>
               {sandboxes.slice(0, LIST_ROWS).map((r) => {
                 const why = r.bytes == null ? sandboxSpaceReason(r.reason) : null
-                const gone = states?.find((b) => b.name === r.name)?.state === 'gone'
+                const found = states?.find((b) => b.name === r.name)
+                const gone = !!found && sandboxGone(found)
                 return (
                   <li key={r.name} className={css.sdRow} data-even data-space-sandbox={r.name}>
                     <button type="button" className={css.sdRowButton} onClick={() => go({ kind: 'sandbox', machine: m.name, name: r.name })} title={r.name}>

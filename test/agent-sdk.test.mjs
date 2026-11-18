@@ -38,8 +38,8 @@ export function client({ home }) {
     const options = given.at(-1) && typeof given.at(-1) === 'object' ? given.at(-1) : {};
     for (const key of Object.keys(options)) if (!['start_line', 'message', 'stream', 'stdout', 'log_tag'].includes(key)) throw new LayerFSError('InvalidInput', spec.family + '.' + spec.call + ': unknown option "' + key + '"', null);
     if (given[2] === '/missing') throw new LayerFSError('NoSuchPath', '/missing does not exist', { path: '/missing' });
-    if (spec.call === 'write') return { kind: 'Committed', branch: given[1], head: '${head}', commit: { id: '${head}' } };
-    if (spec.call === 'exec') return { kind: 'exit:3', exit_code: 3, stdout: 'out', stderr: '' };
+    if (spec.call === 'write') return { commit: '${head}' };
+    if (spec.call === 'exec') return { exit_code: 3, stdout: 'out', stderr: '' };
     return { kind: 'ok', text: 'hi' };
   };
   return made;
@@ -110,7 +110,8 @@ test('stand-in mode writes one tagged node line per call, and the output record'
   const records = outputs.map((f) => JSON.parse(readFileSync(join(base, 'trace', 'outputs', f), 'utf8')))
   const refused = records.find((r) => r.exit === 125)
   assert.ok(refused, 'the refusal has an output record with exit 125')
-  assert.ok(records.some((r) => r.exit === 0 && /Committed/.test(r.stdout)))
+  assert.ok(records.some((r) => r.exit === 0 && r.stdout.includes(head)), 'the write\'s record holds its 2.0 answer')
+  assert.ok(records.some((r) => r.exit === 3), 'the exec\'s record exits with the command\'s code')
 })
 
 test('no trace context: lines are untagged and no output record is written', () => {
@@ -166,14 +167,14 @@ test('an SDK that refuses log_tag falls back to the stand-in line, once', () => 
   assert.deepEqual(lines(callLog).map((l) => l.argv[4]), ['/a.js', '/b.js'])
 })
 
-test('a workspace exec output record carries the exit code frame and the command output', () => {
+test('a workspace exec output record is its one result JSON, exiting with the command\'s code (2.0)', () => {
   const dir = install(mkdtempSync(join(root, 'exec-'))), base = mkdtempSync(join(root, 'r-')), callLog = join(base, 'trace', 'calls.jsonl')
   const file = S.managedSdk({ root: base, sdk: S.findSdk(dir, commit), home: '/h', callLog })
   run(file, `await m.default.workspace.exec('sb:w', 'false'); console.log('null')`, { DSH_LAYERFS_TRACE_CONTEXT: trace() })
   const [name] = readdirSync(join(base, 'trace', 'outputs')).filter((f) => f.endsWith('.json'))
   const record = JSON.parse(readFileSync(join(base, 'trace', 'outputs', name), 'utf8'))
-  assert.match(record.stdout, /^out\n?/)
-  assert.equal(JSON.parse(record.stdout.trimEnd().split('\n').at(-1)).result.exit_code, 3)
+  assert.equal(record.exit, 3)
+  assert.deepEqual(JSON.parse(record.stdout), { exit_code: 3, stdout: 'out', stderr: '' })
 })
 
 test('findSdk takes the folder of installs as well as one install', () => {

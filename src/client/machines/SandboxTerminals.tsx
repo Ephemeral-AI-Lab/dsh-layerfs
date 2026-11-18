@@ -76,7 +76,7 @@ export function SandboxTerminals({ info, onChanged, focus, onOpenFiles }: {
   info: SandboxInfo, onChanged: () => void, focus?: { ws: string, n: number } | null | undefined, onOpenFiles?: (() => void) | undefined
 }): ReactNode {
   const { t } = useMachinesContext()
-  const reachable = info.state === 'running' && !info.downReason && !info.refusal && !info.unread
+  const reachable = info.state === 'ready' && !info.refusal && !info.unread
   const workspaces = useMemo(() => orderWorkspaces(reachable || info.workspaces.length ? info.workspaces : []), [info.workspaces, reachable])
   const allIds = useMemo(() => workspaces.map((w) => w.ws), [workspaces])
   // "n of N": what sandbox.get says a Sandbox holds, else the constant it had before it said
@@ -266,8 +266,8 @@ function useBranches(project: string | null | undefined): { names: string[] | nu
     void (async () => {
       try {
         const all: string[] = []
-        for (let pos: number | null = 0, n = 0; pos !== null && n < 20; n++) {
-          const listed: { items: { name: string }[], next: number | null } = await api.call('GET', `/api/projects/${enc(project)}/branches?pos=${pos}`)
+        for (let pos: string | null = '0', n = 0; pos !== null && n < 20; n++) {
+          const listed: { items: { name: string }[], next: string | null } = await api.call('GET', `/api/projects/${enc(project)}/branches?pos=${enc(pos)}`)
           all.push(...listed.items.map((b: { name: string }) => b.name))
           pos = listed.next ?? null
         }

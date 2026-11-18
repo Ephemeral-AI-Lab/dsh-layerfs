@@ -1,6 +1,6 @@
 // The pinned-CLI SDK under load and failure (src/host/layerfs/cli.ts): admission lanes keep short
 // reads clear of long work and terminals, reads have a default time budget, a timed-out call ends
-// its whole process group and settles, a read meeting another process's Store lease is retried,
+// its whole process group and settles, every call is one attempt (a Store-lease refusal is not run again),
 // argument shapes that would shift or invent CLI words are refused, the native daemon record is
 // retried after a failure (service.ts), and preset long work gets a long budget (presets/driver.ts).
 //   node --test test/cli-lanes.test.mjs
@@ -29,21 +29,22 @@ const CALLS = {
   'machine.list': [[], []],
   'machine.get': [[a('name', 'name')], []],
   'machine.update': [[a('name', 'name')], [o('daemon', 'text'), o('cpus', 'int')]],
-  'workspace.exec': [[a('ws', 'text'), a('command', 'text')], [o('message', 'text'), o('stream', 'bool'), o('stdout', 'function'), o('stderr', 'function'), o('exec_id', 'text'), o('on_progress', 'function')]],
-  'store.push': [[a('name', 'name'), a('machine', 'name')], [o('on_progress', 'function')]],
-  'file.list': [[a('project', 'project'), a('branch', 'name'), a('path', 'text'), a('commit', 'name', true)], [o('page_size', 'int'), o('page_pos', 'int')]],
-  'file.write': [[a('project', 'project'), a('branch', 'name'), a('path', 'text'), a('content', 'content')], [o('message', 'text'), o('mode', 'int')]],
+  'workspace.exec': [[a('workspace', 'text'), a('command', 'text')], [o('cwd', 'text'), o('stream', 'bool'), o('stdout', 'function'), o('stderr', 'function'), o('on_progress', 'function')]],
+  'store.move': [[a('store', 'name'), a('machine', 'name')], [o('on_progress', 'function')]],
+  'file.list': [[a('project', 'project'), a('branch', 'name'), a('path', 'text')], [o('at', 'name'), o('limit', 'int'), o('cursor', 'text')]],
+  'file.write': [[a('project', 'project'), a('branch', 'name'), a('path', 'text'), a('content', 'content')], [o('mode', 'text'), o('expected', 'name'), o('message', 'text')]],
+  // a made-up shape with two optional positionals: the seam's shift check (no 2.0 call has two)
   'project.stats': [[a('project', 'project'), a('branch', 'name', true), a('commit', 'name', true)], []],
-  'branch.diff': [[a('project', 'project'), a('from_branch', 'name'), a('to_branch', 'name')], [o('path_prefix', 'text'), o('paths_only', 'bool')]],
+  'commit.diff': [[a('project', 'project'), a('ref', 'name')], [o('from', 'name'), o('path', 'text'), o('limit', 'int'), o('cursor', 'text')]],
   // Stage 1 (docs/specs/sandbox-images.md §3): images, prune, and create taking an image reference with progress
   'machine.images': [[a('name', 'name')], []],
   'machine.prune': [[a('name', 'name'), a('image', 'text', true)], [o('unused', 'bool')]],
-  'sandbox.create': [[a('project', 'project'), a('name', 'name'), a('machine', 'name', true)], [o('image', 'image'), o('on_progress', 'function')]],
+  'sandbox.create': [[a('project', 'project'), a('name', 'name')], [o('machine', 'name'), o('image', 'image'), o('on_progress', 'function')]],
   // monitoring reads (layerfs-project#178)
   'machine.log': [[a('machine', 'name')], [o('limit', 'int'), o('cursor', 'text')]],
   'machine.stats': [[a('machine', 'name')], []],
-  'logs.sandbox': [[a('sandbox', 'name')], [o('cursor', 'text'), o('before', 'text'), o('limit', 'int')]],
-  'sandbox.files': [[a('sandbox', 'name'), a('path', 'text', true)], [o('depth', 'int'), o('cursor', 'text'), o('limit', 'int'), o('offset', 'int'), o('length', 'int')]],
+  'sandbox.log': [[a('sandbox', 'name')], [o('limit', 'int'), o('cursor', 'text')]],
+  'sandbox.files': [[a('sandbox', 'name'), a('path', 'text', true)], [o('depth', 'int'), o('limit', 'int'), o('cursor', 'text'), o('byte_offset', 'int'), o('byte_length', 'int')]],
   'machine.files': [[a('machine', 'name'), a('path', 'text', true)], [o('depth', 'int'), o('cursor', 'text'), o('limit', 'int'), o('byte_offset', 'int'), o('byte_length', 'int')]],
 }
 /** The 2.0 `--with` values a row lists (`form.with`, keyed by value). */
@@ -65,14 +66,14 @@ const dir = ${JSON.stringify(dir)}, a = process.argv.slice(2), op = a[0] + '.' +
 if (a[0] === '--version') { console.log(JSON.stringify({ version: '2.0.0', commit: 'a'.repeat(40), dirty: false, features: [] })); process.exit(0) }
 if (a[0] === 'help') { process.stdout.write(readFileSync(dir + '/help.json')); process.exit(0) }
 appendFileSync(dir + '/calls.log', JSON.stringify(a) + '\\n')
-const answer = (value) => { console.log(JSON.stringify(a.includes('--events') ? { result: value } : value)); process.exit(0) }
+const answer = (value) => { console.log(JSON.stringify(value)); process.exit(0) }
 const failing = (counter, env) => {
   const n = existsSync(dir + '/' + counter) ? Number(readFileSync(dir + '/' + counter, 'utf8')) : 0
   writeFileSync(dir + '/' + counter, String(n + 1))
   return n < Number(process.env[env] ?? 0)
 }
-const inspect = ['machine.log', 'logs.sandbox', 'sandbox.files', 'machine.files'].includes(op)
-if (op === 'workspace.exec' || op === 'store.push') setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op }) }, 10)
+const inspect = ['machine.log', 'sandbox.log', 'sandbox.files', 'machine.files'].includes(op)
+if (op === 'workspace.exec' || op === 'store.move') setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op }) }, 10)
 else if (inspect && process.env.FAKE_INSPECT_RACE) { process.stderr.write(JSON.stringify({ error: 'Failed', message: 'Os { code: 2, kind: NotFound, message: "No such file or directory" }' }) + '\\n'); process.exit(125) }
 else if (inspect && existsSync(dir + '/hold-inspect')) { appendFileSync(dir + '/held.pids', process.pid + '\\n'); setInterval(() => { if (existsSync(dir + '/release')) answer({ held: op, argv: a }) }, 10) }
 else if ((op === 'file.list' || op === 'file.write') && failing('race.count', 'FAKE_RACE_FAILS')) {
@@ -89,17 +90,16 @@ else answer({ argv: a })
 let n = 0
 const fresh = () => { const dir = join(root, `t${n++}`); mkdirSync(dir); return { dir, ...fakeCli(dir) } }
 
-test('laneOf: short calls, long jobs, Workspace commands and exec-cancel take separate lanes', () => {
+test('laneOf: short calls, long jobs, Workspace commands and cancel take separate lanes', () => {
   // Machine probes poll an unreachable VM for their whole budget: they never take a page read's slot.
   for (const argv of [['machine', 'list'], ['machine', 'get', '--', 'vm'], ['machine', 'images', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'probes', argv.join(' '))
   assert.equal(C.laneOf(['store', 'list']).name, 'calls')
   assert.equal(C.laneOf(['file', 'write', '--', 'p/a', 'main', '/x']).name, 'calls')
-  for (const argv of [['store', 'push'], ['store', 'pull'], ['backup', 'create'], ['backup', 'restore'], ['project', 'init'], ['project', 'export'], ['machine', 'create'], ['machine', 'start'], ['machine', 'stop'], ['machine', 'update'], ['sandbox', 'create'], ['doctor', 'store', 'integrity']]) {
+  for (const argv of [['store', 'move'], ['store', 'compact'], ['backup', 'create'], ['backup', 'restore'], ['project', 'init'], ['project', 'export'], ['machine', 'create'], ['machine', 'start'], ['machine', 'stop'], ['machine', 'update'], ['sandbox', 'create'], ['doctor', 'store', 'integrity']]) {
     assert.equal(C.laneOf(argv).name, 'jobs', argv.join(' '))
   }
   assert.equal(C.laneOf(['workspace', 'exec']).name, 'exec')
-  assert.equal(C.laneOf(['workspace', 'exec-cancel']).name, 'cancel')
-  assert.equal(C.laneOf(['workspace', 'exec_cancel']).name, 'cancel')
+  assert.equal(C.laneOf(['workspace', 'cancel']).name, 'cancel')
 })
 
 test('short reads answer while Workspace commands and long jobs fill their lanes', { timeout: 30000 }, async (t) => {
@@ -109,7 +109,7 @@ test('short reads answer while Workspace commands and long jobs fill their lanes
   await lfs.machine.list()
   const held = []
   for (let i = 0; i < 8; i++) held.push(lfs.workspace.exec(`sb${i}:ws`, 'sleep 600', { stdout: () => {} }))
-  for (let i = 0; i < 4; i++) held.push(lfs.store.push(`s${i}`, 'vm'))
+  for (let i = 0; i < 4; i++) held.push(lfs.store.move(`s${i}`, 'vm'))
   // all 12 are running at once: none queued behind another lane
   for (let i = 0; i < 300 && f.log().length < 13; i++) await new Promise((r) => setTimeout(r, 20))
   assert.equal(f.log().filter((argv) => argv[0] !== 'machine').length, 12, 'eight Workspace commands and four jobs run together')
@@ -207,18 +207,15 @@ test('a CLI that exits while a helper holds its stdout still answers; child.kill
   assert.ok(spawned.pid)
 })
 
-test('a read refused by another process\'s Store lease (Failed/NotFound) is retried, at most twice; writes never', { timeout: 20000 }, async (t) => {
+test('a read refused by another process\'s Store lease (Failed/NotFound) is one attempt, as every call is; writes too', { timeout: 20000 }, async (t) => {
   const f = fresh()
   const lfs = C.client({ cli: f.cli, home: f.home })
   t.after(() => { delete process.env.FAKE_RACE_FAILS })
   const lists = () => f.log().filter((argv) => argv[1] === 'list' && argv[0] === 'file').length
-  process.env.FAKE_RACE_FAILS = '2'
-  assert.deepEqual((await lfs.file.list('demo/app', 'main', '/')).argv.slice(0, 2), ['file', 'list'])
-  assert.equal(lists(), 3)
-  rmSync(join(f.dir, 'race.count'))
-  process.env.FAKE_RACE_FAILS = '3'
+  process.env.FAKE_RACE_FAILS = '1'
   await assert.rejects(lfs.file.list('demo/app', 'main', '/src'), (error) => error.code === 'Failed' && /NotFound/.test(error.message) && C.storeRace(error))
-  assert.equal(lists(), 6, 'one try and two retries')
+  assert.equal(lists(), 1, 'one attempt: never run again')
+  assert.deepEqual((await lfs.file.list('demo/app', 'main', '/')).argv.slice(0, 2), ['file', 'list'], 'the caller\'s next read is its own call')
   rmSync(join(f.dir, 'race.count'))
   process.env.FAKE_RACE_FAILS = '1'
   await assert.rejects(lfs.file.write('demo/app', 'main', '/x', 'body'), (error) => error.code === 'Failed')
@@ -229,8 +226,8 @@ test('a read refused by another process\'s Store lease (Failed/NotFound) is retr
 test('null options are left out; an omitted optional positional followed by a given one is refused', { timeout: 20000 }, async () => {
   const f = fresh()
   const lfs = C.client({ cli: f.cli, home: f.home })
-  const { argv } = await lfs.branch.diff('demo/app', 'a', 'b', { path_prefix: null, paths_only: null })
-  assert.deepEqual(argv, ['branch', 'diff', '--', 'demo/app', 'a', 'b'])
+  const { argv } = await lfs.commit.diff('demo/app', 'b', { from: null, path: null })
+  assert.deepEqual(argv, ['commit', 'diff', '--', 'demo/app', 'b'])
   await assert.rejects(lfs.project.stats('demo/app', undefined, 'c1'), (error) => error.code === 'InvalidInput' && /commit/.test(error.message))
   await assert.rejects(lfs.project.stats('demo/app', null, 'c1'), (error) => error.code === 'InvalidInput')
   assert.deepEqual((await lfs.project.stats('demo/app', 'main', undefined)).argv, ['project', 'stats', '--', 'demo/app', 'main'])
@@ -257,7 +254,7 @@ test('ensureNative retries after a failed record and caches a success', { skip: 
 test('preset calls: reads and short writes keep 2 minutes, long work gets 30 minutes', () => {
   assert.equal(C.presetTimeout(['machine', 'list'], true), C.PRESET_TIMEOUT_MS)
   assert.equal(C.presetTimeout(['file', 'write', 'p/a', 'main', '/x'], false), C.PRESET_TIMEOUT_MS)
-  for (const argv of [['machine', 'create', 'vm', 'lima'], ['machine', 'start', 'vm'], ['store', 'push', 's', 'vm'], ['project', 'init', 'p/a', '/src'], ['sandbox', 'create', 'p/a', 'sb']]) {
+  for (const argv of [['machine', 'create', 'vm', 'lima'], ['machine', 'start', 'vm'], ['store', 'move', 's', 'vm'], ['project', 'init', 'p/a', '/src'], ['sandbox', 'create', 'p/a', 'sb']]) {
     assert.equal(C.presetTimeout(argv, false), C.PRESET_LONG_TIMEOUT_MS, argv.join(' '))
   }
   assert.equal(C.PRESET_LONG_TIMEOUT_MS, 30 * 60_000)
@@ -278,9 +275,9 @@ test('Stage 1 calls: machine.images is kept 5 s and cleared by machine.prune; sa
   await lfs.machine.images('vm')
   assert.equal(images(), 2, 'a prune cleared the kept answer')
   const seen = []
-  await lfs.sandbox.create('s/p', 'b1', 'vm', { image: 'postgres:17-bookworm', on_progress: (p) => seen.push(p) })
+  await lfs.sandbox.create('s/p', 'b1', { machine: 'vm', image: 'postgres:17-bookworm', on_progress: (p) => seen.push(p) })
   const create = f.log().find((argv) => argv[0] === 'sandbox' && argv[1] === 'create')
-  assert.deepEqual(create, ['sandbox', 'create', '--image', 'postgres:17-bookworm', '--progress', '--', 's/p', 'b1', 'vm'])
+  assert.deepEqual(create, ['sandbox', 'create', '--machine', 'vm', '--image', 'postgres:17-bookworm', '--progress', '--', 's/p', 'b1'])
   assert.deepEqual(seen, [{ phase: 'send', done: 1, total: 2 }])
 })
 
@@ -290,10 +287,10 @@ const inspectSpawns = (f) => f.log().filter((argv) => C.INSPECT_CALLS.has(`${arg
 const until = async (check, ms = 6000) => { for (let i = 0; i < ms / 20 && !check(); i++) await new Promise((r) => setTimeout(r, 20)); return check() }
 
 test('monitoring reads are named with their family and take the inspect lane', () => {
-  assert.deepEqual([...C.INSPECT_CALLS].sort(), ['logs.sandbox', 'machine.files', 'machine.log', 'machine.stats', 'sandbox.files'])
+  assert.deepEqual([...C.INSPECT_CALLS].sort(), ['machine.files', 'machine.log', 'machine.stats', 'sandbox.files', 'sandbox.log'])
   assert.deepEqual(C.INSPECT_LANE, { name: 'inspect', limit: 2, queue: 4 })
   assert.ok(C.INSPECT_TIMEOUT_MS <= 15_000)
-  for (const argv of [['machine', 'log', '--', 'vm'], ['logs', 'sandbox', '--', 'sb'], ['sandbox', 'files', '--', 'sb'], ['machine', 'files', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'inspect', argv.join(' '))
+  for (const argv of [['machine', 'log', '--', 'vm'], ['sandbox', 'log', '--', 'sb'], ['sandbox', 'files', '--', 'sb'], ['machine', 'files', '--', 'vm']]) assert.equal(C.laneOf(argv).name, 'inspect', argv.join(' '))
   // the neighbours stay where they were: the call log's own reads, sandbox.get; machine.get is a probe (`--with live`)
   for (const argv of [['home', 'log'], ['home', 'clear-log'], ['sandbox', 'get', '--', 'sb'], ['sandbox', 'list']]) assert.equal(C.laneOf(argv).name, 'calls', argv.join(' '))
   assert.equal(C.laneOf(['machine', 'get', '--', 'vm']).name, 'probes')
@@ -316,7 +313,7 @@ test('the inspect lane runs 2 and queues 4; a 7th read is Busy at once; a droppe
   assert.equal(inspectSpawns(f).length, 2, 'the other four wait: no third process')
   // the 7th: refused now, by this host, without a process
   const started = Date.now()
-  await assert.rejects(lfs.logs.sandbox('sb7'), (error) => error.code === 'Busy' && error.transport === 'refusal' && error.detail.lane === 'inspect' && error.detail.running === 2 && error.detail.queued === 4)
+  await assert.rejects(lfs.sandbox.log('sb7'), (error) => error.code === 'Busy' && error.transport === 'refusal' && error.detail.lane === 'inspect' && error.detail.running === 2 && error.detail.queued === 4)
   assert.ok(Date.now() - started < 1000, `Busy after ${Date.now() - started} ms`)
   assert.equal(inspectSpawns(f).length, 2)
   // the calls and probes lanes are untouched: a page read answers while both inspect slots are held
@@ -350,7 +347,7 @@ test('the inspect lane runs 2 and queues 4; a 7th read is Busy at once; a droppe
   assert.equal(C.children.size, 0)
 })
 
-test('monitoring reads run once (no Store-race retry), keep nothing, clear nothing and are not shared', { timeout: 20000 }, async (t) => {
+test('monitoring reads run once, keep nothing, clear nothing and are not shared', { timeout: 20000 }, async (t) => {
   const f = fresh()
   const lfs = C.client({ cli: f.cli, home: f.home })
   t.after(() => { delete process.env.FAKE_INSPECT_RACE })
@@ -359,12 +356,12 @@ test('monitoring reads run once (no Store-race retry), keep nothing, clear nothi
   await lfs.machine.images('vm')
   await lfs.machine.list()
   assert.deepEqual((await lfs.machine.log('vm', { cursor: 'c1', limit: 50, detail: true })).argv, ['machine', 'log', '--cursor', 'c1', '--limit', '50', '--detail', '--', 'vm'])
-  assert.deepEqual((await lfs.logs.sandbox('sb', { before: 'b1' })).argv, ['logs', 'sandbox', '--before', 'b1', '--', 'sb'])
+  assert.deepEqual((await lfs.sandbox.log('sb', { cursor: 'b1' })).argv, ['sandbox', 'log', '--cursor', 'b1', '--', 'sb'])
   assert.deepEqual((await lfs.sandbox.files('sb', '/home', { depth: 1 })).argv, ['sandbox', 'files', '--depth', '1', '--', 'sb', '/home'])
   assert.deepEqual((await lfs.machine.files('vm')).argv, ['machine', 'files', '--', 'vm'])
   // the files routes' form: no path (the roots) with options, and a file window
   assert.deepEqual((await lfs.machine.files('vm', undefined, { limit: 5, signal: new AbortController().signal })).argv, ['machine', 'files', '--limit', '5', '--', 'vm'])
-  assert.deepEqual((await lfs.sandbox.files('sb', '/-odd name', { offset: 262144, length: 1048576 })).argv, ['sandbox', 'files', '--offset', '262144', '--length', '1048576', '--', 'sb', '/-odd name'])
+  assert.deepEqual((await lfs.sandbox.files('sb', '/-odd name', { byte_offset: 262144, byte_length: 1048576 })).argv, ['sandbox', 'files', '--byte-offset', '262144', '--byte-length', '1048576', '--', 'sb', '/-odd name'])
   await lfs.machine.images('vm')
   await lfs.machine.list()
   assert.equal(count('machine', 'images'), 1, 'a monitoring read cleared no kept answer')
@@ -372,12 +369,12 @@ test('monitoring reads run once (no Store-race retry), keep nothing, clear nothi
   // the same read twice is two processes (routes share reads, not the SDK), and nothing is kept
   await Promise.all([lfs.machine.log('vm'), lfs.machine.log('vm')])
   assert.equal(count('machine', 'log'), 3)
-  // LayerFS's Store-race refusal: any other read is run again; a monitoring read is not
+  // LayerFS's Store-race refusal: one process each, as every call
   process.env.FAKE_INSPECT_RACE = '1'
   const before = inspectSpawns(f).length
-  await assert.rejects(lfs.logs.sandbox('sb'), (error) => error.code === 'Failed' && C.storeRace(error))
+  await assert.rejects(lfs.sandbox.log('sb'), (error) => error.code === 'Failed' && C.storeRace(error))
   await assert.rejects(lfs.machine.files('vm', '/etc'), (error) => error.code === 'Failed')
-  assert.equal(inspectSpawns(f).length, before + 2, 'one process each: never retryRace')
+  assert.equal(inspectSpawns(f).length, before + 2, 'one process each')
   // option checks: a signal must be one, and only monitoring reads take it
   await assert.rejects(lfs.machine.log('vm', { signal: {} }), (error) => error.code === 'InvalidInput' && /AbortSignal/.test(error.message))
   await assert.rejects(lfs.machine.get('vm', { signal: new AbortController().signal }), (error) => error.code === 'InvalidInput' && /unknown option signal/.test(error.message))
@@ -388,7 +385,7 @@ test('monitoring reads write no call log line and keep no output, in stand-in mo
   const callLog = join(f.dir, 'trace', 'calls.jsonl')
   const lfs = C.client({ cli: f.cli, home: f.home, callLog, nativeLogs: false })
   await lfs.machine.log('vm')
-  await lfs.logs.sandbox('sb', { cursor: 'c' })
+  await lfs.sandbox.log('sb', { cursor: 'c' })
   await lfs.sandbox.files('sb')
   await lfs.machine.files('vm', '/layerfs')
   assert.equal(existsSync(callLog), false, 'no call log line')

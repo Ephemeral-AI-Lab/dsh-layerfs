@@ -86,9 +86,9 @@ function DetailsCard({ name, machine, machineTitle, info, listed, onMachine, onW
   const capacity = info?.workspaceCapacity
   const startedAt = snapshot.sandboxes[name] ? sandboxFigures(snapshot, name)?.row?.startedAt ?? null : null
   const started = startedAt ?? info?.daemon?.startedAt ?? null
-  const live = info ? info.state === 'running' : true
+  const live = info ? info.state === 'ready' : true
   const created = info?.created != null ? new Date(info.created < 1e12 ? info.created * 1000 : info.created).toLocaleString() : null
-  const id = info?.runtimeId ?? info?.id ?? null
+  const id = info?.id ?? null
   return (
     <Card className={css.ovDetails} data-sandbox-details={name}>
       <header className={css.sbovHead}>
@@ -110,7 +110,7 @@ function DetailsCard({ name, machine, machineTitle, info, listed, onMachine, onW
             </LinkButton>
           )}
         </Item>
-        <Item label={t('runtime')} data-sbov="runtime">{info ? [...new Set([info.runtime, info.backend].filter(Boolean))].join(' · ') : null}</Item>
+        <Item label={t('runtime')} data-sbov="runtime">{info ? info.backend ?? null : null}</Item>
         <Item label={t('filesystemRoute')} data-sbov="route">{info?.route}</Item>
         <Item label={t('created')} data-sbov="created">{created}</Item>
         <Item label={t('mxUpTime')} data-sbov="up">{live && started != null ? upTime(started, snapshot.now ?? Date.now()) : null}</Item>

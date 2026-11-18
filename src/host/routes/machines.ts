@@ -33,7 +33,7 @@ import { Answer, cliFeatures, featuresOf, pages, refuse, type CliFeatures, type 
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
-import { machineOf, opOf } from '../layerfs/machine-records.ts'
+import { companionsOf, machineOf, opOf } from '../layerfs/machine-records.ts'
 
 export { machineOf, opOf, STATES } from '../layerfs/machine-records.ts'
 import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
@@ -72,6 +72,18 @@ export interface ReadyImage {
   lastUsed: string | null
   usable: boolean
   reason?: ImageReason
+  /**
+   * The item's 2.0 state (spec v19): absent when ready; `busy` while a copy
+   * holds it (`op`: load_image and its phase); `broken` with `reason: partial`
+   * and the `fix` (`layerfs machine load-image …`) that resumes it. Not usable
+   * then.
+   */
+  state?: 'busy' | 'broken'
+  op?: { name: string, phase: string, started: number | null } | null
+  partial?: boolean
+  /** A broken partial copy's bytes staged so far (`staged_bytes`). */
+  staged?: number
+  fix?: string
 }
 
 /** `GET /api/machines/:id/sandbox-images` (§4.1): the New Sandbox menu, the Images section and Free space. */
@@ -150,16 +162,24 @@ export function staleOf(error: any, at: number): { at: number, code: string, mes
 /** An image's name (§5.1.1): the ref ending `:latest` if it has one (what people pick), else its first ref. */
 export const imageName = (refs: readonly string[]): string | undefined => refs.find((r) => r.endsWith(':latest')) ?? refs[0]
 
-/** One `machine images --detail` item as a ready row (Stage 1: all usable); null without an id. */
+/**
+ * One `machine images --detail` item as a row; null without an id. A ready
+ * item (no `state`) is usable. A `busy` one (a copy holds it, `op`) and a
+ * `broken` one (`reason: partial`, a part no copy holds, with the `fix` that
+ * resumes it, and `staged_bytes` copied so far) are listed but not usable (spec v19).
+ */
 export function readyOf(i: any): ReadyImage | null {
   const id = text(i?.image)
   if (!id) return null
   const refs = refsOf(i.refs).filter((r) => !CACHE_REF.test(r))
   const source = i.source === 'bundle' || i.source === 'machine' ? i.source : 'imported'
-  return {
+  const row: ReadyImage = {
     id, name: imageName(refs) ?? (source === 'bundle' ? BUNDLE_NAME : id.replace(/^sha256:/, '').slice(0, 12)),
     refs, size: num(i.size), source, sandboxes: num(i.sandboxes_count) ?? count(i.sandboxes), lastUsed: isoOf(i.last_used_at), usable: true,
   }
+  if (i.state === 'busy') return { ...row, usable: false, state: 'busy', op: opOf(i.op) }
+  if (i.state === 'broken') return { ...row, usable: false, state: 'broken', partial: i.reason === 'partial', ...(text(i.fix) ? { fix: i.fix } : {}), ...(num(i.staged_bytes) !== null ? { staged: num(i.staged_bytes)! } : {}) }
+  return row
 }
 
 /**
@@ -223,11 +243,12 @@ export const platformOf = (p: any) => ({
   ...(Array.isArray(p.candidates) ? { candidates: p.candidates.map((c: any) => ({ path: text(c?.path), source: text(c?.source), ...(text(c?.host) ? { host: text(c.host) } : {}), ...(c?.usable === false ? { usable: false } : {}) })) } : {}),
 })
 
-/** One store.list() item, when it is a sqlite Store on a machine. */
+/** One `store list --detail` item, when it is a sqlite Store on a machine: the six-state `state` with its companions. */
 export function storeOf(s: any) {
   const machine = text(s.machine)
-  if (!machine) return null
-  return { name: String(s.name), machine, projects: count(s.projects), names: Array.isArray(s.projects) ? s.projects.map(String) : [], size: null, state: text(s.state) ?? 'unknown', op: opOf(s.op) }
+  if (!machine || s.engine === 'postgresql') return null
+  const names = Array.isArray(s.projects) ? s.projects.map(String) : []
+  return { name: String(s.store), machine, projects: num(s.projects_count) ?? names.length, names, size: null, state: text(s.state) ?? 'ready', op: opOf(s.op), ...companionsOf(s) }
 }
 
 /**
@@ -236,13 +257,19 @@ export function storeOf(s: any) {
  * this DSH install's own choice (store-machines.ts).
  */
 export function pgStoreOf(s: any, runsOn: string | null = null) {
-  if (s.kind !== 'postgresql') return null
-  return { name: String(s.name), projects: count(s.projects), names: Array.isArray(s.projects) ? s.projects.map(String) : [], state: text(s.state) ?? 'unknown', op: opOf(s.op), runsOn }
+  if (s.engine !== 'postgresql') return null
+  const names = Array.isArray(s.projects) ? s.projects.map(String) : []
+  return { name: String(s.store), projects: num(s.projects_count) ?? names.length, names, state: text(s.state) ?? 'ready', op: opOf(s.op), ...companionsOf(s), runsOn }
 }
 
-/** One sandbox.list() item; `live` (and `liveReason`) only when LayerFS answered it (the `live` option, layerfs-project#164). */
+/**
+ * One `sandbox list --detail` row: the six-state `state` with its companions,
+ * its Workspace count (null where the machine's worker keeps them,
+ * `workspaces_not_listed`, or when blocked). Whether its daemon runs now is
+ * the metrics sampler's `live` (withLive), not a list read.
+ */
 export function sandboxOf(b: any) {
-  return { name: String(b.name ?? b.sandbox), machine: text(b.machine), project: text(b.project), workspaces: b.workspaces === undefined ? null : count(b.workspaces), state: text(b.state) ?? 'unknown', op: opOf(b.op), backend: text(b.backend), route: text(b.route), image: text(b.image), ...liveOf(b) }
+  return { name: String(b.sandbox ?? b.name), machine: text(b.machine), project: text(b.project), workspaces: Array.isArray(b.workspaces) ? b.workspaces.length : null, state: text(b.state) ?? 'ready', op: opOf(b.op), ...companionsOf(b), image: text(b.image), platform: text(b.platform) }
 }
 
 /** How long a `machine stats --with space` answer (or refusal) stands before a page's read asks LayerFS again. */
@@ -337,14 +364,12 @@ export class Machines {
     const failed = (name: string) => (e: any) => { readErrors[name] = { error: { code: e?.code ?? 'Unknown', message: e?.message ?? String(e) }, at: Date.now() }; return [] as any[] }
     let host: string | null = null
     const { version, features } = await this.identity()
-    // never `live`: whether each daemon runs is the metrics sampler's (withLive), one machine.stats per machine per 15 s
-    const listSandboxes = (p: { page_size: number, page_pos: number }) => lfs.sandbox.list(p)
+    // whether each daemon runs is the metrics sampler's (withLive), one machine.stats per machine per 15 s
+    const listSandboxes = (p: { limit: number, cursor?: string }) => lfs.sandbox.list({ ...p, detail: true })
     const [platforms, listedStores, sandboxes, probes] = await Promise.all([
       this.platforms().then((p) => { host = p.host || null; return p.platforms }, failed('platforms')),
-      // cs20: switch when the Store package merges (today's store.list)
-      lfs.store.list().then(list, failed('stores')),
-      // sandbox.list items carry no Workspaces: each one's count is its sandbox.get (a record read; null when refused)
-      // cs20: switch when the Sandbox package merges (today's sandbox.list paging)
+      lfs.store.list({ detail: true }).then((a: any) => list(a?.items), failed('stores')),
+      // records only: a row's Workspaces where the home keeps them
       pages(listSandboxes).then((rows) => rows.map(sandboxOf), failed('sandboxes')),
       // the live probe of each machine but native (it has none): starts nothing; its answer is the machine's current state
       Promise.all(rows.filter((m: any) => m?.platform !== 'native').map((m: any) => lfs.machine.get(String(m.machine), { detail: true, with: ['live'] })
@@ -356,7 +381,7 @@ export class Machines {
     const live = Object.fromEntries([...probed].map(([name, p]) => [name, machineLive(name, p.got, p.error)]))
     const stores = listedStores.map(storeOf).filter(Boolean)
     const saved = new StoreMachines(this.host.root)
-    const postgresql = listedStores.map((s: any) => pgStoreOf(s, s.kind === 'postgresql' ? pgMachineOf(saved.get(String(s.name)), machines) : null)).filter(Boolean)
+    const postgresql = listedStores.map((s: any) => pgStoreOf(s, s.engine === 'postgresql' ? pgMachineOf(saved.get(String(s.store)), machines) : null)).filter(Boolean)
     // features: what the pinned CLI can do (force stop, the image stage and its parts); the page offers only those
     const answer: any = { available: true, readErrors, layerfs: version, features, computer: computer(host), machines, platforms, stores, postgresql, sandboxes, live }
     for (const [part, fields] of Object.entries({ stores: ['stores', 'postgresql'], sandboxes: ['sandboxes'], platforms: ['platforms'] })) {
@@ -410,18 +435,18 @@ export class Machines {
   }
 
   /**
-   * `GET /api/sandboxes/:name/log?cursor=&before=&limit=&rid=`: the Sandbox's
-   * daemon log (logs.sandbox), as {@link machineLog}. It never waits on
+   * `GET /api/sandboxes/:name/log?before=&limit=&rid=`: the Sandbox's
+   * daemon log (`sandbox log`), as {@link machineLog}. It never waits on
    * sandbox.get and never dials the daemon; a lost or unresolved Sandbox's
    * refusal is answered as `stale`.
    */
   async sandboxLog(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<LogView> {
     if (!name) throw refuse(400, 'InvalidInput', 'name the Sandbox')
-    if (!(await cliFeatures(this.host)).inspect.sandboxLog) throw noCall('logs.sandbox', 'a Sandbox\'s daemon log')
+    if (!(await cliFeatures(this.host)).inspect.sandboxLog) throw noCall('sandbox.log', 'a Sandbox\'s daemon log')
+    if (query.get('cursor')) throw refuse(400, 'InvalidInput', 'A Sandbox\'s log pages backwards only: read its tail again, or earlier lines with before.')
     const lfs = this.lfs
     const request = this.reads.request(query.get('rid'), outer)
-    // cs20: switch when the Sandbox package merges (`sandbox.log` replaces `logs.sandbox`)
-    try { return await this.reads.log(`sandbox:${name}`, logQuery(query), (options) => lfs.logs.sandbox(name, options), request.signal) } finally { request.done() }
+    try { return await this.reads.log(`sandbox:${name}`, logQuery(query), (o) => lfs.sandbox.log(name, { ...(o.before ? { cursor: o.before } : {}), ...(o.limit ? { limit: o.limit } : {}), signal: o.signal, detail: true }), request.signal) } finally { request.done() }
   }
 
   /**
@@ -452,11 +477,12 @@ export class Machines {
    */
   async sandboxFiles(name: string, query: URLSearchParams, outer?: AbortSignal): Promise<FilesView> {
     if (!name) throw refuse(400, 'InvalidInput', 'name the Sandbox')
-    // cs20: switch when the Sandbox package merges (today's sandbox.files answer)
     if (!(await cliFeatures(this.host)).inspect.files) throw noCall('sandbox.files', 'a Sandbox\'s files')
     const lfs = this.lfs
     const request = this.reads.request(query.get('rid'), outer)
-    try { return await this.reads.files(`sandbox:${name}`, filesQuery(query), (path, options) => lfs.sandbox.files(name, path, options), request.signal) } finally { request.done() }
+    // the shape of machine files: a file window is `byte_offset` / `byte_length`, read in the long form
+    const call = (path: string | undefined, { offset, length, ...o }: Record<string, unknown>) => lfs.sandbox.files(name, path, { ...o, ...(offset != null ? { byte_offset: offset } : {}), ...(length != null ? { byte_length: length } : {}), detail: true })
+    try { return await this.reads.files(`sandbox:${name}`, filesQuery(query), call, request.signal) } finally { request.done() }
   }
 
   /**
@@ -605,7 +631,7 @@ export class Machines {
    * The Stage-1 disk precheck of a create (§4.1, D8): `{ need, free }` when
    * `image` is a Docker image that is not ready on `machine` and its copy
    * does not fit in the machine's free space; null when it fits, is ready,
-   * or anything is unknown (LayerFS's own NoSpace refusal is the real answer).
+   * or anything is unknown (LayerFS's own Capacity refusal is the real answer).
    */
   async spaceFor(machine: string, image: string): Promise<{ need: number, free: number } | null> {
     try {
@@ -676,6 +702,8 @@ export class Machines {
     const take = (r: any) => {
       for (const id of refsOf(r?.removed)) if (!answer.removed.includes(id)) answer.removed.push(id)
       answer.freed += num(r?.freed_bytes) ?? 0
+      // `--unused` keeps an image a Sandbox uses or a copy holds: `skipped` items `{ image, message }`
+      for (const k of Array.isArray(r?.skipped) ? r.skipped : []) if (text(k?.image)) answer.refused.push({ id: k.image, code: 'Skipped', message: text(k.message) ?? 'kept' })
     }
     if (unused) take(await this.lfs.machine.prune(name, { unused: true, detail: true }))
     for (const id of ids) {
@@ -709,7 +737,8 @@ export class Machines {
     }
     const running = this.loads.running(name, image)
     if (running) return new Answer(202, { load: running })
-    const run = (report: LoadReport) => this.lfs.machine.load_image(name, image, { detail: true, on_progress: (p: unknown) => { const u = createPhase(p); if (u && u.phase !== 'start') report(u as Parameters<LoadReport>[0]) } })
+    // load-image phases: inspect, lock (a plain `{ phase: "lock" }` each second while another copy holds the image), export, send, unpack
+    const run = (report: LoadReport) => this.lfs.machine.load_image(name, image, { detail: true, on_progress: (p: unknown) => { const u = createPhase(p); if (u && u.phase !== 'start' && u.phase !== 'mount') report(u as Parameters<LoadReport>[0]) } })
     return new Answer(202, { load: this.loads.admit(name, image, run) })
   }
 

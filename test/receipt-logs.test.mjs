@@ -31,8 +31,9 @@ function fakeCli(dir) {
 const argv = process.argv.slice(2)
 let input = ''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => {
   if (argv.includes('fail')) { process.stderr.write(JSON.stringify({ error: 'Conflict', message: 'moved' }) + '\\n'); process.exitCode = 125; return }
-  if (argv.includes('--events')) { console.log(JSON.stringify({ stream: 'stdout', bytes: 'hi\\n' })); console.log(JSON.stringify({ result: { kind: 'Exited', exit_code: 3 } })); return }
-  console.log(JSON.stringify({ kind: 'Committed', commit: { id: '${id}' } }))
+  // 2.0: workspace exec prints its one result JSON and exits with the command's own code
+  if (argv[0] === 'workspace' && argv[1] === 'exec') { console.log(JSON.stringify({ exit_code: 3, stdout: 'hi\\n', stderr: '', exec: 'exec-7' })); process.exitCode = 3; return }
+  console.log(JSON.stringify({ commit: '${id}' }))
 })
 `, { mode: 0o700 })
   return cli
@@ -54,7 +55,7 @@ test('SDK receipts carry time, duration, redacted portable argv, tag, outcome co
   const before = Date.now()
   await L.withTraceContext({ origin: 'tool', sessionId: 's', project: 'demo/app', turn: 1, toolCallId: 'c1', scope: L.toolScope('s', 'c1'), step, record: async row => receipts.push(row) }, async () => {
     await L.execute(spec, ['file', 'write', '--message', 'secret words', '--from', join(homedir(), 'notes.txt'), '--', 'demo/app', 'main', '/x'])
-    await L.execute(spec, ['workspace', 'exec', '--events', '--exec-id', 'exec-7', '--', 'sb:main', 'echo hi'])
+    assert.equal((await L.execute(spec, ['workspace', 'exec', '--detail', '--', 'sb:main', 'echo hi'])).exit_code, 3, 'a command\'s own exit is its answer, not a failure')
     await assert.rejects(L.execute(spec, ['file', 'write', '--', 'demo/app', 'main', '/x', 'fail'], { input: 'abc' }))
   })
   const { lines } = L.listCalls(callLog, {})
@@ -65,7 +66,7 @@ test('SDK receipts carry time, duration, redacted portable argv, tag, outcome co
   assert.equal(write.kind, 'Committed'); assert.equal(write.code, undefined)
   assert.deepEqual(write.step, step, 'the scripted step travels with the receipt')
   assert.equal(write.tag, lines.at(-1).tag, 'the receipt names its line')
-  assert.equal(exec.execId, 'exec-7'); assert.equal(exec.exit, 3); assert.deepEqual(exec.argv, ['workspace', 'exec', 'sb:main', '<7 bytes>', '--exec-id', 'exec-7'])
+  assert.equal(exec.execId, 'exec-7', 'LayerFS\'s exec id from the answer'); assert.equal(exec.exit, 3); assert.deepEqual(exec.argv, ['workspace', 'exec', 'sb:main', '<7 bytes>', '--detail'])
   assert.equal(refused.outcome, 'refusal'); assert.equal(refused.code, 'Conflict'); assert.equal(refused.kind, undefined)
   assert.equal(refused.argv.at(-1), '<3 bytes>')
   // The receipt renders as the line it stands for.
@@ -80,12 +81,13 @@ test('receipts from wrapper lines carry the same fields; exit comes from the sto
   const command = L.managedCli({ root: dir, cli, home: join(dir, 'home'), callLog })
   const identity = { origin: 'tool', sessionId: 's', project: 'demo/app', turn: 2, toolCallId: 'bash-1', scope: L.toolScope('s', 'bash-1'), step }
   const env = { DSH_LAYERFS_TRACE_CONTEXT: L.traceEnvironment(identity) }
-  await run(command, ['workspace', 'exec', 'sb:main', 'echo hi', '--exec-id', 'exec-9', '--events'], env)
+  await run(command, ['workspace', 'exec', 'sb:main', 'echo hi'], env)
   await run(command, ['project', 'init', 'demo/app', join(tmpdir(), 'src-folder')], env)
   const [init, exec] = L.listCalls(callLog, {}).lines
   const execReceipt = L.receiptFromLine(exec, identity, L.parseTag(exec.tag).receiptId, L.exitOfOutput(L.readOutput(outputs, exec.tag)))
   assert.equal(execReceipt.at, exec.at); assert.equal(execReceipt.ms, exec.ms); assert.equal(execReceipt.tag, exec.tag)
-  assert.equal(execReceipt.execId, 'exec-9'); assert.equal(execReceipt.exit, 3); assert.equal(execReceipt.kind, 'Exited')
+  // a wrapper line names no exec id (only the answer does); the exit comes from the stored result
+  assert.equal(execReceipt.execId, undefined); assert.equal(execReceipt.exit, 3); assert.equal(execReceipt.kind, 'exit:3')
   assert.deepEqual(execReceipt.step, step); assert.equal(execReceipt.turn, 2)
   const initReceipt = L.receiptFromLine(init, identity, L.parseTag(init.tag).receiptId)
   assert.deepEqual(initReceipt.argv, ['project', 'init', 'demo/app', '<local path>'], 'a project source folder is local')

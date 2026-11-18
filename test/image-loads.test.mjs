@@ -121,7 +121,7 @@ test('loadWords and reasonWords: copy phases, a failure, an image with no OS', (
   assert.deepEqual(loadWords({ phase: 'queued', machine: 'docker' }), { key: 'imgCopyQueued' })
   assert.equal(loadWords({ phase: 'send', done: 1048576, total: 2097152, machine: 'docker' }).key, 'phaseCopyOf')
   assert.equal(loadWords({ phase: 'unpack', machine: 'docker' }).key, 'phaseUnpack')
-  assert.equal(loadWords({ phase: 'failed', error: { code: 'NoSpace', message: 'x', detail: { need: 2, free: 1 } }, machine: 'docker' }).key, 'imageNoSpace')
+  assert.equal(loadWords({ phase: 'failed', error: { code: 'Capacity', message: 'x', detail: { needed_bytes: 2, free_bytes: 1, path: null } }, machine: 'docker' }).key, 'imageNoSpace')
   assert.deepEqual(loadWords({ phase: 'failed', error: { code: 'Weird', message: 'boom' }, machine: 'docker' }), { key: 'imgCopyFailed', values: { reason: 'boom' } })
   assert.deepEqual(reasonWords({ kind: 'os', value: '' }), { key: 'imageNoOs' })
   assert.deepEqual(reasonWords({ kind: 'os', value: 'windows' }), { key: 'imageOnlyOs', values: { os: 'windows' } })

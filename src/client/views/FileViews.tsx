@@ -82,7 +82,8 @@ function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId
   const branch = view.binding?.branch
   // An in-place edit shows as inodes without entries, so count either (Machines' rule).
   const overlay = view.status?.overlay
-  const pending = overlay ? overlayCount({ inodes: Number(overlay.inodes ?? 0), entries: Number(overlay.entries ?? 0) }) : 0
+  // 2.0 `workspace status --detail`: `overlay { inode_count, entry_count }`
+  const pending = overlay ? overlayCount({ inodes: Number(overlay.inode_count ?? 0), entries: Number(overlay.entry_count ?? 0) }) : 0
   const active = view.binding?.state === 'bound'
   return (
     <div className={css.sessionLine}>

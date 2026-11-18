@@ -5,7 +5,7 @@
  * a background create's phase in words (docs/specs/sandbox-images.md §5).
  */
 import type { MachinesKey } from './locale.ts'
-import { bytes, projectRef, type Creation, type DockerImage, type ImageLoad, type ImageReason, type MachineSandbox, type ReadyImage, type SandboxImagesView, type Words } from './model.ts'
+import { bytes, projectRef, sandboxCreating, type Creation, type DockerImage, type ImageLoad, type ImageReason, type MachineSandbox, type ReadyImage, type SandboxImagesView, type Words } from './model.ts'
 
 const words = (key: MachinesKey, values?: Record<string, string>): Words => (values ? { key, values } : { key })
 
@@ -130,7 +130,10 @@ export function phaseWords(c: Pick<Creation, 'phase' | 'done' | 'total' | 'error
     case 'machine': return words('phaseMachine')
     case 'inspect': case 'export': case 'send':
       return c.done != null && c.total ? words('phaseCopyOf', { done: bytes(c.done), total: bytes(c.total) }) : words('phaseCopy')
+    // another copy of the same image holds it: this one waits (spec v19 `lock`)
+    case 'lock': return words('phaseLock')
     case 'unpack': return words('phaseUnpack')
+    case 'mount': return words('phaseMount')
     // done: the row stays until the machines read shows the Sandbox; it is still starting, not "Creating" again
     case 'start': case 'done': return words('phaseSandbox')
     case 'failed': {
@@ -165,14 +168,14 @@ export const creationStore = (c: Pick<Creation, 'input'>): string => projectRef(
  */
 export function creatingOn(all: Readonly<Record<string, Creation>>, machine: string, sandboxes: readonly MachineSandbox[]): Creation[] {
   return Object.values(all)
-    .filter((c) => c.input.machine === machine && (c.phase === 'failed' || !sandboxes.some((b) => b.name === c.input.name && b.state !== 'creating')))
+    .filter((c) => c.input.machine === machine && (c.phase === 'failed' || !sandboxes.some((b) => b.name === c.input.name && !sandboxCreating(b))))
     .sort((a, b) => b.startedAt - a.startedAt)
 }
 
 /** The Sandbox rows to draw beside `creating`: without the `creating` records a running create's row stands for (its phase, copy progress). */
-export function besideCreating<T extends Pick<MachineSandbox, 'name' | 'state'>>(rows: readonly T[], creating: readonly Pick<Creation, 'phase' | 'input'>[]): T[] {
+export function besideCreating<T extends Pick<MachineSandbox, 'name' | 'state' | 'op'>>(rows: readonly T[], creating: readonly Pick<Creation, 'phase' | 'input'>[]): T[] {
   const covered = new Set(creating.filter((c) => c.phase !== 'failed').map((c) => c.input.name))
-  return rows.filter((b) => !(b.state === 'creating' && covered.has(b.name)))
+  return rows.filter((b) => !(sandboxCreating(b) && covered.has(b.name)))
 }
 
 /**
@@ -252,8 +255,9 @@ export function failureWords(error: Creation['error'] | null | undefined, machin
   const d = (error?.detail && typeof error.detail === 'object' ? error.detail : {}) as Record<string, unknown>
   const message = error?.message || ''
   switch (error?.code) {
-    case 'NoSpace':
-      return typeof d.need === 'number' && typeof d.free === 'number' ? words('imageNoSpace', { machine, need: bytes(d.need), free: bytes(d.free) }) : null
+    // 2.0 `Capacity`: detail `{ needed_bytes, free_bytes, path }`, fix `layerfs machine prune <m> --unused`
+    case 'Capacity':
+      return typeof d.needed_bytes === 'number' && typeof d.free_bytes === 'number' ? words('imageNoSpace', { machine, need: bytes(d.needed_bytes), free: bytes(d.free_bytes) }) : null
     case 'Unsupported':
       if (d.reason === 'arch') return words('imageWrongArch', { arch: String(d.value ?? '') })
       if (d.reason === 'host') return words('imageHostOnly')
@@ -265,21 +269,21 @@ export function failureWords(error: Creation['error'] | null | undefined, machin
       if (/image/i.test(message)) return words('imageUnknown')
       break
     case 'Busy': return words('machineBusy', { machine })
-    case 'Exists': case 'NameTaken': return words('sandboxNameTaken')
+    case 'Exists': return words('sandboxNameTaken')
     case 'Timeout': return words('imageTimeout')
   }
   return null
 }
 
 /** A failure Free space can fix (its Retry reads "Free space"). */
-export const needsSpace = (c: Pick<Creation, 'phase' | 'error'>): boolean => c.phase === 'failed' && c.error?.code === 'NoSpace'
+export const needsSpace = (c: Pick<Creation, 'phase' | 'error'>): boolean => c.phase === 'failed' && c.error?.code === 'Capacity'
 
 /**
  * The Images tab's Docker section: the images of this computer's Docker not
  * on the machine yet (LayerFS lists them already without the stored ones),
  * the ones that can run first, each group in LayerFS's order, narrowed by a
  * case-blind match on any ref. `fits` false still lists the image: the copy
- * is LayerFS's to refuse (NoSpace).
+ * is LayerFS's to refuse (Capacity).
  */
 export function dockerRows(answer: SandboxImagesView | null | undefined, query = ''): { usable: DockerImage[], unusable: DockerImage[], total: number } {
   const all = answer?.docker?.available ? answer.docker.images : []

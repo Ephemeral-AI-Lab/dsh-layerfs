@@ -15,7 +15,7 @@ export interface ProjectAvailability {
 export function projectAvailability(project: ProjectRow, view?: MachinesView, error?: unknown): ProjectAvailability {
   const name = project.machine ?? (project.kind === 'postgresql' ? 'native' : null)
   const catalogBlocked = !!project.catalogState && project.catalogState !== 'available'
-  const storageBlocked = catalogBlocked || !['idle', 'in_use'].includes(project.storeState ?? '')
+  const storageBlocked = catalogBlocked || project.storeState !== 'ready'
   const base = { machine: name, canStart: false, canRun: false, storageBlocked }
   if (project.catalogState === 'removed' || project.catalogState === 'identity-mismatch') return { ...base, state: 'unavailable', reason: project.catalogError }
   if (error) return { ...base, state: 'unavailable', reason: String((error as Error)?.message ?? error) }

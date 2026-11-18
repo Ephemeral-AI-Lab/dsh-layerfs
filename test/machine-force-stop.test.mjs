@@ -55,16 +55,17 @@ test('Force stop is refused, not sent, when the pinned CLI has no machine.stop f
   } finally { f.close() }
 })
 
-test('forced Sandbox close bypasses session checkpointing and preserves the actual receipt', async () => {
+test('forced Sandbox removal bypasses session checkpointing and preserves the actual receipt', async () => {
   const calls = []
-  const receipt = { kind: 'Closed', sandbox: 'session-box', unknown: ['workspace-with-lost-reply'] }
-  const f = fixture({ sandbox: { close: async (...args) => { calls.push(['close', ...args]); return receipt } } })
+  // the 2.0 long form of `sandbox remove --force`: `unmounted` names the Workspaces the forced removal ended
+  const receipt = { ok: true, outcome: 'removed', sandbox: 'session-box', unmounted: ['session-box:with-lost-reply'] }
+  const f = fixture({ sandbox: { remove: async (...args) => { calls.push(['remove', ...args]); return receipt } } })
   f.host.closeSessionSandbox = async () => { calls.push(['save-first']); return true }
   f.host.sandboxClosed = async (name) => { calls.push(['invalidate', name]) }
   try {
     const forced = await R.handle(f.groups, { method: 'DELETE', path: '/api/sandboxes/session-box?force=1' })
     assert.deepEqual(forced.body, receipt)
-    assert.deepEqual(calls, [['close', 'session-box', { force: true }], ['invalidate', 'session-box']])
+    assert.deepEqual(calls, [['remove', 'session-box', { detail: true, force: true }], ['invalidate', 'session-box']])
     calls.length = 0
     const normal = await R.handle(f.groups, { method: 'DELETE', path: '/api/sandboxes/session-box' })
     assert.equal(normal.body.session, true)

@@ -92,23 +92,27 @@ test('stats route: 501 without machine.stats, and no call', async () => {
 // ---------------------------------------------------------------- host: the machines view, sandbox.get, doctor
 
 test('sandbox.get: daemon, usage and usage_reason by presence', async () => {
-  const record = (more) => ({ name: 'sb', state: 'running', project: 's/p', machine: 'native', workspaces: [], next_page_pos: null, ...more })
+  // 2.0 `sandbox get --detail --with stats`: the process facts in `stats` (null when nothing was observed); usage in cpu_ms, bytes, pid_count
+  const record = (stats) => ({ sandbox: 'sb', project: 's/p', machine: 'native', workspaces: [], ...(stats === undefined ? {} : { stats }) })
+  const iso = (ms) => new Date(ms).toISOString()
   const get = async (answer) => {
     const f = fixture({ ...viewLfs(), sandbox: { get: async () => answer } })
     try { return (await f.http('GET', '/api/sandboxes/sb')).body } finally { f.close() }
   }
-  const old = await get(record({}))
-  for (const key of ['daemon', 'usage', 'usageReason']) assert.ok(!(key in old), `${key} is absent from an older answer`)
-  const host = await get(record({ daemon: { pid: 4242, started_at: 1794776000000 }, usage: null, usage_reason: 'host_process' }))
+  const old = await get(record(undefined))
+  for (const key of ['daemon', 'usage', 'usageReason']) assert.ok(!(key in old), `${key} is absent without the stats section`)
+  const host = await get(record({ daemon: { pid: 4242, started_at: iso(1794776000000) }, usage: null, usage_reason: 'host_process' }))
   assert.deepEqual(host.daemon, { pid: 4242, startedAt: 1794776000000 }); assert.equal(host.usage, null); assert.equal(host.usageReason, 'host_process')
-  const ns = await get(record({ daemon: { pid: 77, started_at: null }, usage: { cpu_usec: 1234567, memory_current: 34000000, memory_peak: null, pids: 3 } }))
+  const ns = await get(record({ daemon: { pid: 77, started_at: null }, usage: { cpu_ms: 1234, memory_bytes: 34000000, memory_peak_bytes: null, pid_count: 3 } }))
   assert.deepEqual(ns.daemon, { pid: 77, startedAt: null }, 'a process that has ended has no start time')
-  assert.deepEqual(ns.usage, { cpuUsec: 1234567, memoryCurrent: 34000000, memoryPeak: null, pids: 3 }); assert.ok(!('usageReason' in ns))
-  // the build at 73d824ec64: a usage whose memory and process counts are null comes with the reason beside it
-  const bare = await get(record({ daemon: { pid: 7, started_at: 1794776000000 }, usage: { cpu_usec: 205364, memory_current: null, memory_peak: null, pids: null }, usage_reason: 'no_controller' }))
-  assert.deepEqual([bare.usage, bare.usageReason], [{ cpuUsec: 205364, memoryCurrent: null, memoryPeak: null, pids: null }, 'no_controller'])
+  assert.deepEqual(ns.usage, { cpuUsec: 1234000, memoryCurrent: 34000000, memoryPeak: null, pids: 3 }); assert.ok(!('usageReason' in ns))
+  // a usage whose memory and process counts are null comes with the reason beside it
+  const bare = await get(record({ daemon: { pid: 7, started_at: iso(1794776000000) }, usage: { cpu_ms: 205, memory_bytes: null, memory_peak_bytes: null, pid_count: null }, usage_reason: 'no_controller' }))
+  assert.deepEqual([bare.usage, bare.usageReason], [{ cpuUsec: 205000, memoryCurrent: null, memoryPeak: null, pids: null }, 'no_controller'])
   const unseen = await get(record({ daemon: null, usage: null, usage_reason: 'not_observed' }))
   assert.equal(unseen.daemon, null); assert.equal(unseen.usageReason, 'not_observed')
+  const notReady = await get(record(null))
+  assert.deepEqual([notReady.daemon, notReady.usage], [null, null], 'a null section: nothing observed')
 })
 
 test('log route: machine.log pages backwards only (2.0): the tail, then the lines before its next_cursor; a forward cursor is refused', async () => {
@@ -165,21 +169,22 @@ test('a stopped machine is never asked and reads "not observed (machine stopped)
 })
 
 test('a Sandbox whose daemon is dead is not running; one that was not observed is not confirmed', () => {
-  const look = (state) => ({ tone: state === 'running' ? 'success' : 'neutral', label: `state:${state}` })
+  // 2.0: a Sandbox recorded `ready` is judged by its daemon (`live`, the sampler's)
+  const look = (b) => ({ tone: b.state === 'ready' ? 'success' : 'neutral', label: `state:${b.state}` })
   const tw = (words) => `${words.key}${words.values ? `(${Object.values(words.values).join(',')})` : ''}`
-  const up = { state: 'running', live: true }, dead = { state: 'running', live: false }, unseen = { state: 'running', live: null, liveReason: 'machine_stopped' }, old = { state: 'running' }, closing = { state: 'closing', live: false }
+  const up = { state: 'ready', live: true }, dead = { state: 'ready', live: false }, unseen = { state: 'ready', live: null, liveReason: 'machine_stopped' }, old = { state: 'ready' }, closing = { state: 'busy', live: false }
   assert.deepEqual([up, dead, unseen, old, closing].map(S.sandboxRuns), [true, false, true, true, false])
-  assert.deepEqual(S.sandboxLook(up, look), { tone: 'success', label: 'state:running' })
-  assert.deepEqual(S.sandboxLook(old, look), { tone: 'success', label: 'state:running' }, 'without `live` the record\'s state shows, as before')
+  assert.deepEqual(S.sandboxLook(up, look), { tone: 'success', label: 'state:ready' })
+  assert.deepEqual(S.sandboxLook(old, look), { tone: 'success', label: 'state:ready' }, 'without `live` the record\'s state shows, as before')
   assert.deepEqual(S.sandboxLook(dead, look), { tone: 'danger', label: 'stateDaemonDown', attention: true })
-  assert.deepEqual(S.sandboxLook(unseen, look), { tone: 'neutral', label: 'state:running', dashed: true })
-  assert.deepEqual(S.sandboxLook(closing, look), { tone: 'neutral', label: 'state:closing' }, 'only a Sandbox recorded running is judged by its daemon')
+  assert.deepEqual(S.sandboxLook(unseen, look), { tone: 'neutral', label: 'state:ready', dashed: true })
+  assert.deepEqual(S.sandboxLook(closing, look), { tone: 'neutral', label: 'state:busy' }, 'only a Sandbox recorded ready is judged by its daemon')
   assert.equal(S.liveNote(up, tw), null); assert.equal(S.liveNote(old, tw), null)
   assert.equal(S.liveNote(dead, tw), 'liveDown')
   assert.equal(S.liveNote(unseen, tw), 'liveUnknownBecause(reasonMachineStopped)')
-  assert.equal(S.liveNote({ state: 'running', live: null }, tw), 'liveUnknown')
+  assert.equal(S.liveNote({ state: 'ready', live: null }, tw), 'liveUnknown')
   assert.deepEqual(S.liveCounts([up, up, dead, unseen, closing]), { total: 5, running: 2, down: 1, unknown: 1, observed: true })
-  assert.deepEqual(S.liveCounts([old, old, { state: 'gone' }]), { total: 3, running: 2, down: 0, unknown: 0, observed: false }, 'an older CLI: the records\' count, as before')
+  assert.deepEqual(S.liveCounts([old, old, { state: 'broken', reason: 'lost' }]), { total: 3, running: 2, down: 0, unknown: 0, observed: false }, 'an older CLI: the records\' count, as before')
   assert.deepEqual(S.liveCounts([]), { total: 0, running: 0, down: 0, unknown: 0, observed: false })
 })
 

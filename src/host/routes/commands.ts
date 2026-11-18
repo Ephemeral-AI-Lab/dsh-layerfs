@@ -5,12 +5,16 @@
  *
  *   POST   /api/workspaces/<ws>/commands  { command } -> the entry (running); 409 CommandRunning if one runs there
  *   GET    /api/workspaces/<ws>/commands             -> { items } that Workspace's, newest first
- *   POST   /api/workspaces/<ws>/cancel    { id }      -> workspace.exec_cancel
+ *   POST   /api/workspaces/<ws>/cancel    { id }      -> workspace.cancel --exec <its LayerFS exec id>
  *   GET    /api/sandboxes/<name>/commands            -> { items } all its Workspaces', newest first (at most KEEP)
  *
  * A start answers at once; the command runs in the background and its end is
  * published as a `sandbox-command` event `{ type, sandbox, ws, id, state }`
  * (its start too, with state `running`).
+ * A command runs as one `workspace exec --progress --detail`: its start event
+ * names the LayerFS exec id (`exec`, what `workspace cancel --exec` takes) and
+ * its one result carries the output (the last 1 MiB of each stream inline,
+ * the rest in `stdout_file`/`stderr_file`); 2.0 streams nothing while it runs.
  * Only commands started here are listed: an agent's commands go through its
  * own CLI calls, and other clients' through theirs. One command runs per
  * Workspace at a time.
@@ -59,6 +63,8 @@ export interface CommandEntry {
   stderrBinary: boolean
   /** The refusal when `workspace.exec` itself failed. */
   error: { code: string, message: string } | null
+  /** LayerFS's exec id (`exec-…`) from the start event; null until it came. */
+  execId?: string | null
 }
 
 /** `<sandbox>:<name or path>` -> the Sandbox. */
@@ -270,10 +276,10 @@ export class SandboxCommands {
     return false
   }
 
-  /** Whether this host started command `id` in Workspace `ws` (running now, or in its kept log). */
-  started(ws: string, id: string): boolean {
-    if (this.live.get(id)?.entry.ws === ws) return true
-    try { return this.read(ws).some((c) => c.id === id) } catch { return false }
+  /** Whether this host started LayerFS exec `execId` in Workspace `ws` (running now, or in its kept log). */
+  started(ws: string, execId: string): boolean {
+    for (const run of this.live.values()) if (run.entry.ws === ws && run.entry.execId === execId) return true
+    try { return this.read(ws).some((c) => c.execId === execId) } catch { return false }
   }
 
   /** Refuses 409 CommandRunning while this host runs a command in `ws`. */
@@ -292,7 +298,7 @@ export class SandboxCommands {
     const entry: CommandEntry = {
       id: `dsh-${randomBytes(8).toString('hex')}`, ws, sandbox, command, state: 'running',
       startedAt: Date.now(), finishedAt: null, exitCode: null, stdout: '', stderr: '', stdoutBytes: 0, stderrBytes: 0,
-      stdoutBinary: false, stderrBinary: false, error: null,
+      stdoutBinary: false, stderrBinary: false, error: null, execId: null,
     }
     const run: Run = { entry, out: new Tail(), err: new Tail() }
     this.read(ws).unshift(entry)
@@ -313,20 +319,27 @@ export class SandboxCommands {
     let exec: Promise<any>
     try {
       exec = Promise.resolve(this.host.lfs().workspace.exec(ws, command, {
-        exec_id: entry.id,
-        stdout: (c: Buffer | string) => run.out.push(chunk(c)),
-        stderr: (c: Buffer | string) => run.err.push(chunk(c)),
+        detail: true,
+        // the start event names the exec id `workspace cancel --exec` takes
+        on_progress: (p: any) => { if (typeof p?.exec === 'string' && p.exec) { entry.execId = p.exec; this.save(ws) } },
       }))
     } catch (error) { exec = Promise.reject(error) }
     void exec.then(
       (result: any) => {
-        // output the CLI answered inline rather than as events
-        if (!run.out.total && typeof result?.stdout === 'string') run.out.push(Buffer.from(result.stdout))
-        if (!run.err.total && typeof result?.stderr === 'string') run.err.push(Buffer.from(result.stderr))
+        if (typeof result?.stdout === 'string') run.out.push(chunk(result.stdout))
+        if (typeof result?.stderr === 'string') run.err.push(chunk(result.stderr))
+        // the long form counts each whole stream (its inline text is at most the last 1 MiB)
+        if (typeof result?.stdout_bytes === 'number') run.out.total = result.stdout_bytes
+        if (typeof result?.stderr_bytes === 'number') run.err.total = result.stderr_bytes
+        if (typeof result?.exec === 'string' && result.exec) entry.execId = result.exec
         const code = typeof result?.exit_code === 'number' ? result.exit_code : null
-        finish({ state: result?.kind === 'cancelled' ? 'cancelled' : 'exited', exitCode: code })
+        finish({ state: result?.cancelled === true ? 'cancelled' : 'exited', exitCode: code })
       },
-      (error: any) => finish({ state: error?.code === 'Unknown' ? 'unknown' : 'failed', error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } }),
+      // a lost reply is `Unknown` with the exec id: the command may still run, nothing runs it again
+      (error: any) => {
+        if (typeof error?.detail?.exec === 'string') entry.execId = error.detail.exec
+        finish({ state: error?.code === 'Unknown' ? 'unknown' : 'failed', error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } })
+      },
     )
     return { ...entry }
   }
@@ -336,13 +349,18 @@ export class SandboxCommands {
     try { invalidateSandbox(this.host.lfs(), sandbox) } catch { /* no CLI pinned: nothing is kept */ }
   }
 
-  /** workspace.exec_cancel for one of this host's running commands. */
+  /**
+   * `workspace cancel --exec` for one of this host's running commands, by the
+   * exec id its start event named. Before that event there is nothing to name
+   * (cancelling the whole Workspace would end other clients' commands): 409.
+   */
   async cancel(ws: string, body: any): Promise<unknown> {
     sandboxOfWs(ws)
     const id = typeof body?.id === 'string' ? body.id : ''
     const run = this.live.get(id)
     if (!run || run.entry.ws !== ws) throw refuse(404, 'NotFound', 'That command is not running.')
-    return this.host.lfs().workspace.exec_cancel(ws, id, {})
+    if (!run.entry.execId) throw refuse(409, 'Busy', 'The command has not started yet; cancel it again in a moment.')
+    return this.host.lfs().workspace.cancel(ws, { exec: run.entry.execId, detail: true })
   }
 
   /** After a successful unmount: drops the Workspace's log and tells clients to re-read. */

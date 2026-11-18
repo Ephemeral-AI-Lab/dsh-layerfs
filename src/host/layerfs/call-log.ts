@@ -61,28 +61,24 @@ export function renderCall(argv: readonly string[], inputBytes?: number | null, 
   return [family, call, ...words, ...options]
 }
 
-/** `kind` and the saved version a result names (#659 §4.2); only 66-hex ids. */
+/**
+ * The line's `kind` (this log's own word for what the call did) and the saved
+ * version a 2.0 answer names: every saving call answers `commit` (66 hex) and
+ * `unchanged` when nothing was made. A publication's Commit is main's, kept
+ * as `layer`.
+ */
 export function savedFields(argv: readonly string[], result: any): { kind?: string, commit?: string, layer?: string } {
   const out: { kind?: string, commit?: string, layer?: string } = {}
   if (!result || typeof result !== 'object' || Array.isArray(result)) return out
-  if (typeof result.kind === 'string' && result.kind.length <= 64) out.kind = result.kind
-  const id = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{66}$/.test(value) ? value : undefined
+  const id = typeof result.commit === 'string' && /^[a-f0-9]{66}$/.test(result.commit) ? result.commit as string : undefined
+  if (!id) return out
   const operation = `${argv[0] ?? ''}.${String(argv[1] ?? '').replaceAll('-', '_')}`
+  const unchanged = result.unchanged === true
   const saves = ['file.write', 'file.edit', 'file.apply', 'file.rm', 'file.mkdir', 'file.mv', 'file.cp', 'workspace.commit']
-  let commit: string | undefined, layer: string | undefined
-  if (saves.includes(operation)) {
-    if (result.kind === 'Committed') commit = id(result.commit?.id ?? result.head)
-    else if (result.kind === 'UpToDate') { if (result.head) commit = id(result.head); else layer = id(result.base) }
-  } else if (operation === 'branch.fork' && result.kind === 'Forked') {
-    if (result.head) commit = id(result.head); else layer = id(result.base)
-  } else if (operation === 'branch.merge' && result.kind === 'Merged') commit = id(result.head)
-  else if (operation === 'branch.publish') {
-    if (result.kind === 'Added') layer = id((result.published_layer ?? result.publishedLayer)?.id)
-    else if (result.kind === 'UpToDate') layer = id(result.layer)
-    else if (result.kind === 'NoChanges') layer = id(result.head_layer ?? result.headLayer)
-  }
-  if (commit) out.commit = commit
-  if (layer) out.layer = layer
+  if (saves.includes(operation)) return { kind: unchanged ? 'UpToDate' : 'Committed', commit: id }
+  if (operation === 'branch.fork') return { kind: 'Forked', commit: id }
+  if (operation === 'branch.merge') return { kind: unchanged ? 'UpToDate' : 'Merged', commit: id }
+  if (operation === 'branch.publish') return { kind: unchanged ? 'UpToDate' : 'Added', layer: id }
   return out
 }
 

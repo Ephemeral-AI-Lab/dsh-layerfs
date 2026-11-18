@@ -39,9 +39,8 @@ export const STATUS: Record<string, number> = {
   Unresolved: 409,
   // the host's own guards (one job per Store on this host)
   ConnectBusy: 409,
+  // LayerFS's: not enough free disk (detail { needed_bytes, free_bytes, path }, fix)
   Capacity: 507,
-  // LayerFS's: not enough free disk on the machine (detail { need, free })
-  NoSpace: 507,
   Unknown: 500,
   Conflict: 409,
   Exists: 409,
@@ -72,7 +71,7 @@ export const STATUS: Record<string, number> = {
 }
 
 /** Expected refusals answered 5xx (a stopped machine, a full disk, a CLI without the feature): no stack logged. */
-const EXPECTED = new Set(['Unavailable', 'NoSpace', 'Unsupported'])
+const EXPECTED = new Set(['Unavailable', 'Capacity', 'Unsupported'])
 
 /** An error the routes throw: answered as { code, message } with `status`. */
 export const httpError = (status: number, code: string, message: string) => Object.assign(new Error(message), { status, code })
@@ -138,7 +137,7 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   projects.ownExec = (ws, id) => commands.started(ws, id)
   // "Start and create" starts the machine as the Machines page does (machine-progress events)
   projects.startMachine = (name) => machines.start(name)
-  // Stage 1: a Docker image that cannot fit on the machine is refused NoSpace before its copy starts
+  // Stage 1: a Docker image that cannot fit on the machine is refused Capacity before its copy starts
   projects.spaceFor = (machine, image) => machines.spaceFor(machine, image)
   // a background create that ends changes the machines view: later GETs read anew
   projects.sandboxCreates.settled = () => machines.changed()
@@ -161,24 +160,24 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'storage' && id === 'check' && !sub && method === 'POST') return storage.check(body ?? {})
   if (group === 'stores') {
     if (!id && method === 'POST') return storage.createStore(body ?? {})
-    // a PostgreSQL database: { name, url, password (a reference), synchronousCommit? }
+    // a PostgreSQL database: { name, url, auth | passwordFrom | user + passwordValue, synchronousCommit?, runsOn? }
     if (id === 'postgresql' && !sub && method === 'POST') return storage.connectPostgresql(body ?? {})
     if (id && sub === 'stats' && method === 'GET') return projects.storeStats(id)
     if (id && sub === 'observations' && method === 'GET') return projects.storeObservations(id)
     if (id && sub === 'projects' && method === 'GET') return projects.storeProjects(id)
     if (id && !sub && method === 'DELETE') return storage.removeStore(id, { confirm: query.get('confirm') })
     if (id && sub === 'disconnect' && method === 'POST') return storage.disconnectStore(id)
-    // a PostgreSQL Store's connection, or one machine's own: { machine?, url?, password? | passwordValue?, synchronousCommit?, clear? }
+    // a PostgreSQL Store's connection, or one machine's own address: { machine?, url?, clear?, auth? | passwordFrom? | passwordValue?, synchronousCommit? }
     if (id && sub === 'connection' && method === 'POST') return storage.updateStore(id, body ?? {})
-    // the check from a machine: ?machine=<name>
+    // the connection check from a machine (store doctor --machine): ?machine=<name>
     if (id && sub === 'check' && method === 'GET') return storage.checkStore(id, query.get('machine'))
     // the machine a PostgreSQL Store's sessions run on by default: { machine }
     if (id && sub === 'runs-on' && method === 'POST') return storage.setRunsOn(id, body ?? {})
-    // a sqlite Store on native to a machine: { machine }
+    // a sqlite Store on native to a machine (store move): { machine }
     if (id && sub === 'push' && method === 'POST') return storage.push(id, body?.machine)
-    // a sqlite Store on a machine back to native
+    // a sqlite Store on a machine back to native (store move <s> native)
     if (id && sub === 'pull' && method === 'POST') return storage.pull(id)
-    // between two machines, pull then push in one job: { machine }
+    // between two machines, two moves through native in one job: { machine }
     if (id && sub === 'move' && method === 'POST') return storage.move(id, body?.machine)
     // { bucket, file? }
     if (id && sub === 'backup' && method === 'POST') return storage.backup(id, body ?? {})
@@ -187,15 +186,16 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     return undefined
   }
   if (group === 'buckets') {
-    // { name, url, key (a reference), region? }
+    // { name, url | parts, accessKey, secretKey }: the secret goes to LayerFS on stdin
     if (!id && method === 'POST') return storage.connectBucket(body ?? {})
     if (id && !sub && method === 'DELETE') return storage.disconnectBucket(id)
     if (id && sub === 'files' && method === 'GET') return storage.listBucket(id)
-    if (id && sub === 'keys' && method === 'POST') return storage.replaceBucketKeys(id, body)
     // { store (the new Store's name), file? }: installs on native
     if (id && sub === 'restore' && method === 'POST') return storage.restore({ ...(body ?? {}), bucket: id })
     return undefined
   }
+  // the home's saved PostgreSQL logins (store auths): never a password
+  if (group === 'store-auths' && !id && method === 'GET') return storage.auths()
   if (group === 'storage-jobs' && id && !sub && method === 'GET') return storage.job(id)
   if (group === 'storage-jobs' && id && sub === 'inspect' && method === 'POST') return storage.inspect(id)
   if (group === 'storage-jobs' && id && sub === 'retry' && method === 'POST') return storage.retry(id)
@@ -275,9 +275,9 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (sub === 'file') return projects.file(id, branch, query.get('path'), query.get('pin'), query.get('line') ?? 1)
     return undefined
   }
-  // sandbox.close(name, { force }): ?force=1; drops the Sandbox's command logs once closed
+  // sandbox.remove(name, { force }): ?force=1; drops the Sandbox's command logs once removed
   if (group === 'sandboxes' && id && !sub && method === 'DELETE') return projects.closeSandbox(id, { force: query.get('force') === '1' })
-  // the Sandbox's daemon log (logs.sandbox), as the machine's; never waits on sandbox.get
+  // the Sandbox's daemon log (sandbox.log), as the machine's; never waits on sandbox.get
   if (group === 'sandboxes' && id && sub === 'log' && method === 'GET') return machines.sandboxLog(id, query, signal)
   // the Sandbox's files (sandbox.files), as the machine's; never waits on sandbox.get
   if (group === 'sandboxes' && id && sub === 'files' && method === 'GET') return machines.sandboxFiles(id, query, signal)
@@ -289,20 +289,21 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'workspaces' && id && sub === 'commands' && method === 'GET') return g.commands.listWorkspace(id)
   // workspace.exec in the background: { command } -> the running entry; 409 CommandRunning while one runs there
   if (group === 'workspaces' && id && sub === 'commands' && method === 'POST') return g.commands.start(id, body ?? {})
-  // workspace.exec_cancel of a command started here: { id }
+  // workspace.cancel --exec of a command started here: { id }
   if (group === 'workspaces' && id && sub === 'cancel' && method === 'POST') return g.commands.cancel(id, body ?? {})
   // workspace.commit: captures the overlay as a new Commit on the Workspace's Branch: { message? }
   if (group === 'workspaces' && id && sub === 'commit' && method === 'POST') {
     const sandbox = sandboxOfWs(id)
     const message = typeof body?.message === 'string' && body.message.trim() ? body.message.trim().slice(0, 4096) : undefined
     const lfs = projects.lfs
-    try { return await lfs.workspace.commit(id, message ? { message } : {}) } finally { invalidateSandbox(lfs, sandbox) }
+    try { return await lfs.workspace.commit(id, { detail: true, ...(message ? { message } : {}) }) } finally { invalidateSandbox(lfs, sandbox) }
   }
   // a Workspace in it: { branch, fork?, name? } (only side Branches are mounted, D14)
   if (group === 'sandboxes' && id && sub === 'workspaces' && method === 'POST') return projects.mount(id, body ?? {})
-  if (group === 'workspaces' && id && sub === 'status' && method === 'GET') return projects.lfs.workspace.status(id)
+  // workspace.status, the long form: changes, branch_moved, state and companions, overlay counts, pending_merge
+  if (group === 'workspaces' && id && sub === 'status' && method === 'GET') return projects.lfs.workspace.status(id, { detail: true })
   // workspace.unmount: ?discard=1&force=1; without force, 409 CommandRunning while this host runs a command there.
-  // LayerFS's refusals (Dirty, Busy with detail.execs, Unknown) pass through; once unmounted, its command log goes.
+  // LayerFS's refusals (Dirty with detail.changes, Busy with detail.running, Unknown) pass through; once unmounted, its command log goes.
   if (group === 'workspaces' && id && !sub && method === 'DELETE') {
     const force = query.get('force') === '1'
     sandboxOfWs(id)

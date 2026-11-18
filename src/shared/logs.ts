@@ -189,7 +189,7 @@ export function operationOf(argv: readonly string[]): string {
 }
 
 /** Read-only calls hidden by `writes` until LayerFS #659 Q1 adds a read/write bit. */
-const READ_CALLS = new Set(['list', 'get', 'status', 'read', 'stat', 'diff', 'commits', 'blame', 'revision', 'images', 'search', 'glob', 'grep', 'log', 'platforms', 'show', 'tree', 'history', 'stats', 'info', 'check', 'capabilities', 'files', 'space', 'doctor', 'leftovers'])
+const READ_CALLS = new Set(['list', 'get', 'status', 'read', 'stat', 'diff', 'commits', 'blame', 'revision', 'images', 'search', 'glob', 'grep', 'log', 'platforms', 'show', 'tree', 'history', 'stats', 'info', 'check', 'capabilities', 'files', 'space', 'doctor', 'leftovers', 'auths'])
 /** Families that only read and have no call word (`layerfs doctor`, `layerfs help`). */
 const READ_FAMILIES = new Set(['logs', 'doctor', 'help'])
 export function isWrite(argv: readonly string[]): boolean {

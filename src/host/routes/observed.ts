@@ -89,28 +89,19 @@ const msOf = (value: unknown): number | null => {
 }
 
 /**
- * A `usage` object by presence: the newer values only when LayerFS sent them.
- * 2.0 (`machine stats` rows): `cpu_ms`, `memory_bytes`, `memory_peak_bytes`,
- * `memory_file_bytes`, `pid_count`, `oom_kill_count`; the page keeps processor
- * time in microseconds, so `cpu_ms` is read times 1000. Today's (`sandbox.get`;
- * cs20: switch when the Sandbox package merges): `cpu_usec`, `memory_current`, ….
+ * A 2.0 `usage` object (`machine stats` rows, `sandbox get --with stats`):
+ * `cpu_ms`, `memory_bytes`, `memory_peak_bytes`, `memory_file_bytes`,
+ * `pid_count`, `oom_kill_count`; the page keeps processor time in
+ * microseconds, so `cpu_ms` is read times 1000.
  */
 export function usageOf(u: any): Usage | null {
   if (!u || typeof u !== 'object') return null
-  if ('cpu_ms' in u || 'memory_bytes' in u || 'pid_count' in u) {
-    const ms = count(u.cpu_ms)
-    return {
-      cpuUsec: ms === null ? null : ms * 1000, memoryCurrent: count(u.memory_bytes), memoryPeak: count(u.memory_peak_bytes),
-      ...('memory_file_bytes' in u ? { memoryFile: count(u.memory_file_bytes) } : {}),
-      pids: count(u.pid_count),
-      ...('oom_kill_count' in u ? { oomKills: count(u.oom_kill_count) } : {}),
-    }
-  }
+  const ms = count(u.cpu_ms)
   return {
-    cpuUsec: count(u.cpu_usec), memoryCurrent: count(u.memory_current), memoryPeak: count(u.memory_peak),
-    ...('memory_file' in u ? { memoryFile: count(u.memory_file) } : {}),
-    pids: count(u.pids),
-    ...('oom_kills' in u ? { oomKills: count(u.oom_kills) } : {}),
+    cpuUsec: ms === null ? null : ms * 1000, memoryCurrent: count(u.memory_bytes), memoryPeak: count(u.memory_peak_bytes),
+    ...('memory_file_bytes' in u ? { memoryFile: count(u.memory_file_bytes) } : {}),
+    pids: count(u.pid_count),
+    ...('oom_kill_count' in u ? { oomKills: count(u.oom_kill_count) } : {}),
   }
 }
 
@@ -299,17 +290,16 @@ export function processOf(record: any): {
   usageReason?: string
 } {
   const out: ReturnType<typeof processOf> = {}
-  if (record && 'daemon' in record) {
-    const d = record.daemon
-    out.daemon = d && typeof d === 'object' ? { pid: count(d.pid), startedAt: count(d.started_at) } : null
-  }
-  if (record && 'usage' in record) {
-    const u = record.usage
-    out.usage = usageOf(u)
-    // the reason there is no usage, or (`no_controller`) why a usage that is there has no memory or process counts
-    const reason = text(record.usage_reason)
-    if (reason) out.usageReason = reason
-  }
+  // `sandbox get --with stats`: the section is null when the Sandbox is not ready (nothing observed)
+  if (!record || !('stats' in record)) return out
+  const s = record.stats
+  if (!s || typeof s !== 'object') return { daemon: null, usage: null }
+  const d = s.daemon
+  out.daemon = d && typeof d === 'object' ? { pid: count(d.pid), startedAt: msOf(d.started_at) } : null
+  out.usage = usageOf(s.usage)
+  // the reason there is no usage, or (`no_controller`) why a usage that is there has no memory or process counts
+  const reason = text(s.usage_reason)
+  if (reason) out.usageReason = reason
   return out
 }
 

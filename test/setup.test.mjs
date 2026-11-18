@@ -98,10 +98,11 @@ test('a pin lease keeps a runtime from another host\'s cleanup and moves with th
 /** A fake 2.0 LayerFS CLI (node script) logging its argv: `home get` answers the 2.0 shape, `home init` makes or converts the folder. */
 function fakeCli(dir, { homeGetFails = false, slowGetMs = 0, recorded = null }) {
   const log = join(dir, 'calls.log')
-  const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
-    'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close',
-    'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec',
-    'machine.list', 'store.list', 'store.create', 'machine.get', 'machine.update', 'home.get', 'home.init']
+  // the host's REQUIRED_CALLS (2.0 names) and what this test drives
+  const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',
+    'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.list', 'sandbox.get', 'sandbox.remove',
+    'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'workspace.cancel',
+    'machine.list', 'store.list', 'store.get', 'store.create', 'machine.get', 'machine.update', 'home.get', 'home.init']
   const calls = required.map((n) => ({ family: n.split('.')[0], call: n.split('.')[1], args: n === 'machine.get' || n === 'machine.update' ? [{ name: 'name', kind: 'text' }] : [], options: [], ...(n === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) }))
   const cli = join(dir, 'layerfs')
   writeFileSync(cli, `#!/usr/bin/env node
@@ -118,7 +119,7 @@ const create = () => { fs.mkdirSync(home, { recursive: true }); fs.writeFileSync
 if (argv[0] === 'home' && argv[1] === 'get' && ${homeGetFails}) { process.stderr.write('boom\\n'); process.exit(1) }
 if (argv[0] === 'home' && argv[1] === 'get' && ${slowGetMs}) { const until = Date.now() + ${slowGetMs}; while (Date.now() < until) {} }
 if (argv[0] === 'home' && argv[1] === 'get') say({ home, state: st === 'current' ? 'ready' : 'broken', version: '2.0.0', generation: 1, reason: st === 'current' ? null : st === 'missing' ? 'missing' : 'outdated', fix: st === 'current' ? null : 'layerfs home init', message: null, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', bundle: null, daemon: ${JSON.stringify(recorded)}, cache: { path: '/c' } })
-if (argv[0] === 'home' && argv[1] === 'init') { const was = st; create(); say({ home, created: was === 'missing', converted: was === 'needs_conversion', layout: 3 }) }
+if (argv[0] === 'home' && argv[1] === 'init') { const was = st; create(); say({ ok: true, outcome: was === 'missing' ? 'created' : was === 'needs_conversion' ? 'converted' : 'unchanged', home, layout: 3 }) }
 // every other call opens the home as LayerFS does (creates or converts it)
 create()
 if (argv[0] === 'machine' && argv[1] === 'list') say({ items: [] })
@@ -149,7 +150,7 @@ test('setup check: a missing folder is created with home init; a read waits for 
   await withService({}, async ({ s, home, fake }) => {
     await s.lfs.store.list()
     assert.ok(existsSync(join(home, 'layerfs.json')))
-    assert.ok(fake.calls().includes('home init'), fake.calls().join('\n'))
+    assert.ok(fake.calls().includes('home init --detail'), fake.calls().join('\n'))
     const status = await s.setup()
     assert.equal(status.folder.state, 'current')
     assert.equal(status.homeCalls, true)

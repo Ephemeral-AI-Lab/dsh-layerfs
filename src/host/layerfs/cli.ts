@@ -11,7 +11,12 @@
  * - SDK options `detail: true` (`--detail`, the long form) and `with: [...]`
  *   (`--with a,b`, only values the call's row lists under `form.with`);
  * - progress is one JSON line per event on stderr, `{ phase, done, total }`
- *   (a doctor's also carries `node`), handed to `on_progress` as it comes;
+ *   (a doctor's also carries `node`, `workspace exec`'s start event `exec`),
+ *   handed to `on_progress` as it comes;
+ * - a secret option (kind `content` with a `shell` flag, e.g. `store
+ *   save-auth --password-stdin`) goes on stdin under that flag, never in argv;
+ * - `workspace exec` answers one result JSON like every call (no `--events`
+ *   frames): its `stdout`/`stderr` are the command's output;
  * - discovery reads each row's `form` (short and long keys, `with`, paging,
  *   progress) as the table gives it.
  */
@@ -52,20 +57,28 @@ export class CliError extends Error {
 /** The 13 public refusal codes of LayerFS 2.0 (`calls.json` `refusal_codes`). */
 export const REFUSAL_CODES = ['NotFound', 'Exists', 'InUse', 'Busy', 'Unresolved', 'Conflict', 'Dirty', 'Capacity', 'InvalidInput', 'Unsupported', 'Unavailable', 'Failed', 'Unknown'] as const
 
-/** A 2.0 refusal line (`{ error, message, … }`), or null. */
+/**
+ * A 2.0 refusal line (`{ error, message, … }`), or null. The fields the next
+ * call needs stand flat beside `error` (a Busy's `running` and `op`, an InUse's
+ * `workspaces`, a Dirty's `changes`, a Conflict's `commit`): they are kept in
+ * `detail` with the long form's own `detail` object, which wins on a clash.
+ */
 export function refusalOf(frame: unknown): { error: string, message: string, fix: string | null, detail: unknown } | null {
   const r = frame as { error?: unknown, message?: unknown, fix?: unknown, detail?: unknown } | null
   if (!r || typeof r !== 'object' || typeof r.error !== 'string' || typeof r.message !== 'string') return null
-  return { error: r.error, message: r.message, fix: typeof r.fix === 'string' && r.fix ? r.fix : null, detail: r.detail ?? null }
+  const { error, message, fix, detail, ...extra } = r as Record<string, unknown>
+  const own = detail && typeof detail === 'object' && !Array.isArray(detail) ? detail as Record<string, unknown> : null
+  const merged = Object.keys(extra).length ? { ...extra, ...(own ?? (detail != null ? { detail } : {})) } : detail ?? null
+  return { error: error as string, message: message as string, fix: typeof fix === 'string' && fix ? fix : null, detail: merged }
 }
 
 /** One progress event (`{ phase, done, total }`, a doctor's with `node`), or null. */
-export interface ProgressEvent { phase: string, done: number, total: number, node?: unknown }
+export interface ProgressEvent { phase: string, done: number, total: number, node?: unknown, exec?: string }
 export function progressOf(frame: unknown): ProgressEvent | null {
-  const p = frame as { phase?: unknown, done?: unknown, total?: unknown, node?: unknown } | null
+  const p = frame as { phase?: unknown, done?: unknown, total?: unknown, node?: unknown, exec?: unknown } | null
   if (!p || typeof p !== 'object' || typeof p.phase !== 'string' || 'error' in p) return null
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'bigint' ? Number(v) : 0)
-  return { phase: p.phase, done: n(p.done), total: n(p.total), ...(p.node !== undefined ? { node: p.node } : {}) }
+  return { phase: p.phase, done: n(p.done), total: n(p.total), ...(p.node !== undefined ? { node: p.node } : {}), ...(typeof p.exec === 'string' ? { exec: p.exec } : {}) }
 }
 
 /** Where the CLI is and which LayerFS home it serves. */
@@ -128,7 +141,8 @@ export interface CallEntry {
   readonly family: string
   readonly call: string
   readonly args: readonly { readonly name: string, readonly kind: string, readonly optional?: boolean }[]
-  readonly options: readonly { readonly name: string, readonly kind: string }[]
+  /** `shell`: a secret option's stdin flag (`--password-stdin`); `repeat`: given once per value. */
+  readonly options: readonly { readonly name: string, readonly kind: string, readonly shell?: string, readonly repeat?: boolean }[]
   /** The 2.0 answer form; absent from a table before 2.0. */
   readonly form?: CallForm
 }
@@ -145,16 +159,16 @@ export interface Discovery {
 }
 
 /**
- * The calls dsh-layerfs relies on; a CLI missing one is refused at discovery.
- * The home and machine families are the 2.0 ones (`home.get` with
- * `--with platforms` replaced `machine.platforms`).
+ * The calls dsh-layerfs relies on, by their LayerFS 2.0 names; a CLI missing
+ * one is refused at discovery (`home.get` with `--with platforms` replaced
+ * `machine.platforms`, `sandbox.remove` `sandbox.close`, `commit.list`
+ * `branch.commits`, `workspace.cancel` `workspace.exec_cancel`).
  */
 export const REQUIRED_CALLS = [
-  // cs20: switch when the project, branch/commit, file, Sandbox, Workspace and Store packages merge (today's names)
-  'project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
-  'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close',
-  'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec',
-  'store.list', 'store.create',
+  'project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',
+  'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.list', 'sandbox.get', 'sandbox.remove',
+  'workspace.mount', 'workspace.commit', 'workspace.status', 'workspace.unmount', 'workspace.exec', 'workspace.cancel',
+  'store.list', 'store.get', 'store.create',
   'home.get', 'machine.list', 'machine.get',
 ] as const
 
@@ -204,10 +218,12 @@ function lines(onLine: (line: string) => void) {
   }
 }
 
-function outcome(o: { code: number | null, signal: NodeJS.Signals | null, result: unknown, refusal: any, error?: unknown, malformed: boolean }): unknown {
+function outcome(o: { code: number | null, signal: NodeJS.Signals | null, result: unknown, refusal: any, error?: unknown, malformed: boolean, exec?: boolean }): unknown {
   if (o.error) throw new CliError('CliUnavailable', 'The configured LayerFS CLI could not be started', null, 'unavailable')
   if (o.signal || o.malformed) throw new CliError('Unknown', 'LayerFS ended without a complete result; inspect state before another action', { signal: o.signal }, 'transport-unknown')
   if (o.code === 0 && o.result !== undefined && !o.refusal) return o.result
+  // 2.0 `workspace exec` exits with the command's own code beside its one result JSON (125 is LayerFS's refusal)
+  if (o.exec && o.code !== 125 && !o.refusal && (o.result as any)?.exit_code === o.code) return o.result
   const refusal = o.code === 125 ? refusalOf(o.refusal) : null
   if (refusal) throw new CliError(refusal.error, refusal.message, refusal.detail, 'refusal', refusal.fix)
   if (o.code === 2) throw new CliError('CliIncompatible', 'LayerFS rejected the command syntax; check the selected binary and capabilities', null, 'usage-incompatible')
@@ -222,12 +238,10 @@ interface ExecuteOptions {
   /** The home gate already ran, or must not (the service's own set up of a missing home). */
   gated?: boolean
   storeRead?: string
-  events?: boolean
   discovery?: boolean
   timeout?: number
   env?: Record<string, string>
   onProgress?: (progress: unknown) => void
-  onFrame?: (frame: { stream?: 'stdout' | 'stderr', bytes?: unknown }) => void
   onSpawn?: (child: ChildProcess) => void
   /** Recheck cancellation after admission, immediately before starting a process. */
   beforeSpawn?: () => void
@@ -253,8 +267,8 @@ interface ExecuteOptions {
 
 interface Timing { at?: number, ms?: number }
 
-/** One call's output as it arrives: bounded stdout/stderr, the `--events` final frame, the exit. */
-interface Capture { stdout: OutputSink, stderr: OutputSink, final?: string, refusal?: unknown, exit?: number | null }
+/** One call's output as it arrives: bounded stdout/stderr, the refusal, the exit. */
+interface Capture { stdout: OutputSink, stderr: OutputSink, refusal?: unknown, exit?: number | null }
 
 const lanes = new Map<string, { active: number, waiting: (() => void)[] }>()
 /** Exclusive lanes held by the current async chain; a hold ends when its `run` settles.
@@ -304,14 +318,17 @@ export function admitStore<T>(home: string, store: string, run: () => Promise<T>
 
 /**
  * The Store a call opens, or undefined. Calls on a project (`<store>/<project>`)
- * and `store stats` open the Store in their own process and take its lease
- * (`store/<name>/open/<pid>`); `store status`/`list` only read leases.
+ * and `store get --with stats` open the Store in their own process and take its
+ * lease (`store/<name>/open/<pid>`); `store get` without it and `store list`
+ * read records.
  * Accepts both argv shapes: SDK words (`family call [--flags] -- positionals`)
  * and the preset driver's (`family call positionals [--flags]`).
  */
 export function storeOfCall(argv: readonly string[]): string | undefined {
   const [family, call] = argv
-  if (!(['file', 'branch', 'commit', 'project'].includes(family!) || (family === 'store' && call === 'stats'))) return undefined
+  const at = argv.indexOf('--with')
+  const stats = family === 'store' && call === 'get' && at >= 0 && String(argv[at + 1] ?? '').split(',').includes('stats')
+  if (!(['file', 'branch', 'commit', 'project'].includes(family!) || stats)) return undefined
   const dash = argv.indexOf('--')
   const first = dash >= 0 ? argv[dash + 1] : argv[2]
   if (!first || first.startsWith('--')) return undefined
@@ -342,7 +359,7 @@ export const PROBES = new Set(['machine.get', 'machine.list', 'machine.images'])
  * each). A write through the same client clears them all.
  */
 export const KEPT_READS = new Map<string, number>([
-  ['store.status', 2000], ['store.list', 2000], ['project.get', 2000], ['project.list', 2000], ['branch.list', 2000],
+  ['store.get', 2000], ['store.list', 2000], ['project.get', 2000], ['project.list', 2000], ['branch.list', 2000],
   ['machine.get', 2000], ['machine.list', 5000], ['machine.images', 5000], ['home.get', 2000],
 ])
 
@@ -355,14 +372,13 @@ export interface Lane { readonly name: string, readonly limit: number, readonly 
  * machine's observed resources (`machine.stats`: one worker request, polled by
  * the Machines pages; with `--with space` also where its data disk goes, one
  * bounded walk read about once a minute while a page shows it). Named with
- * their family, and checked before {@link READS} and `retryRace`: none of
+ * their family, and checked before {@link READS}: none of
  * them opens a Store. Each is a read in its own {@link INSPECT_LANE}, never in
- * `calls` (mount, Commit, unmount) or `probes`; it runs once (no `retryRace`),
+ * `calls` (mount, Commit, unmount) or `probes`; it runs once,
  * for at most {@link INSPECT_TIMEOUT_MS}; it clears no kept answer, writes no
  * call log line and keeps no output.
  */
-// cs20: switch when the Sandbox package merges (`sandbox.log` replaces `logs.sandbox`)
-export const INSPECT_CALLS = new Set(['machine.log', 'logs.sandbox', 'sandbox.files', 'machine.files', 'machine.stats'])
+export const INSPECT_CALLS = new Set(['machine.log', 'sandbox.log', 'sandbox.files', 'machine.files', 'machine.stats'])
 /** The inspect lane: 2 reads run, 4 wait; one more is refused `Busy` at once (admission, not a retry). */
 export const INSPECT_LANE: Lane = { name: 'inspect', limit: 2, queue: 4 }
 /** The most an inspect read may take (LayerFS's own budget is connect 2 s, hello 2 s, answer 8 s). */
@@ -372,7 +388,7 @@ export const INSPECT_TIMEOUT_MS = 15_000
  * The admission lane a call takes when its caller names none. Short calls share
  * `calls`; calls that run as long as their work (VM create/start, Store
  * push/pull, backups, project init/export, Doctor, connection checks) take
- * `jobs`; Workspace commands (terminals) take `exec`; `exec-cancel` its own;
+ * `jobs`; Workspace commands (terminals) take `exec`; `workspace cancel` its own;
  * machine probes ({@link PROBES}) take `probes`; monitoring reads
  * ({@link INSPECT_CALLS}) take `inspect`. So a page's short reads are
  * never queued behind long work or behind probes of an unreachable machine,
@@ -382,7 +398,7 @@ export const INSPECT_TIMEOUT_MS = 15_000
 export function laneOf(argv: readonly string[]): Lane {
   const family = argv[0] ?? '', call = String(argv[1] ?? '').replaceAll('-', '_')
   if (INSPECT_CALLS.has(`${family}.${call}`)) return INSPECT_LANE
-  if (family === 'workspace' && call === 'exec_cancel') return { name: 'cancel', limit: 4 }
+  if (family === 'workspace' && call === 'cancel') return { name: 'cancel', limit: 4 }
   if (family === 'workspace' && call === 'exec') return { name: 'exec', limit: 8 }
   if (family === 'doctor' || LONG_CALLS.has(`${family}.${call}`)) return { name: 'jobs', limit: 4 }
   if (PROBES.has(`${family}.${call}`)) return { name: 'probes', limit: 4 }
@@ -391,9 +407,9 @@ export function laneOf(argv: readonly string[]): Lane {
 const LONG_CALLS = new Set([
   'project.init', 'project.export',
   'machine.create', 'machine.start', 'machine.stop', 'machine.update', 'machine.remove', 'machine.load_image', 'machine.prune',
-  'store.push', 'store.pull', 'store.connect', 'store.update', 'store.compact',
+  'store.move', 'store.connect', 'store.update', 'store.compact',
   'backup.connect', 'backup.create', 'backup.restore',
-  'sandbox.create',
+  'sandbox.create', 'sandbox.remove',
 ])
 
 /** Signal a CLI's whole process group (it was spawned detached), else the process itself. */
@@ -453,7 +469,7 @@ async function logged(spec: CliSpec, argv: readonly string[], options: ExecuteOp
     const ran = spawned && (!error || !['unavailable', 'usage-incompatible'].includes(error?.transport))
     if (ran) {
       // The output first, so a page reloading on the new line already sees it.
-      try { saveOutput(outputsDir(spec.callLog), outputRecord({ tag, exit: capture.exit, stdout: capture.stdout, stderr: capture.stderr, final: capture.final, refusal: capture.refusal, max: OUTPUT_MAX })) } catch { /* best effort */ }
+      try { saveOutput(outputsDir(spec.callLog), outputRecord({ tag, exit: capture.exit, stdout: capture.stdout, stderr: capture.stderr, refusal: capture.refusal, max: OUTPUT_MAX })) } catch { /* best effort */ }
       const ms = performance.now() - started
       if (options.timing) Object.assign(options.timing, { at, ms: Math.max(0, Math.round(ms)) })
       if (!(spec.nativeLogs ?? await hasNativeLogs(spec.cli))) {
@@ -488,7 +504,7 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     return Promise.reject(new CliError('CliUnavailable', 'No LayerFS runtime is chosen yet. Open Set up LayerFS in Center, or set DSH_LAYERFS_CLI', null, 'unavailable'))
   }
   const own = laneOf(argv)
-  // exec-cancel and monitoring reads keep their own lane whatever the caller names
+  // workspace cancel and monitoring reads keep their own lane whatever the caller names
   const chosen = own.name === 'cancel' || own.name === 'inspect' ? own : options.lane ?? own
   const signal = options.signal
   const full = chosen.queue === undefined ? undefined : {
@@ -501,19 +517,13 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
   const launch = () => admit(`${spec.cli}:${chosen.name}`, chosen.limit, () => new Promise<unknown>((resolve, reject) => {
     if (!options.discovery && !spec.home) return reject(new CliError('InvalidInput', 'LayerFS requires an explicit home'))
     let result: unknown, refusal: any, spawnError: unknown, malformed = false, finals = 0
-    const events = options.events || argv.includes('--events')
     const capture = options.capture
+    // stdout: the one result JSON line
     const stdout = lines((line) => {
       try {
         const frame = parse(line)
-        if (!events) { if (++finals !== 1) throw new Error('Extra result'); result = frame; return }
-        if (finals) throw new Error('Frame after final')
-        // cs20: switch when the Workspace package merges (the `--events` final frame still carries today's refusal)
-        if ('result' in frame || 'refusal' in frame) { finals++; result = frame.result; refusal = eventRefusal(frame.refusal); if (capture) capture.final = line }
-        else if ('progress' in frame) options.onProgress?.(frame.progress)
-        else if (!['stdout', 'stderr'].includes(frame.stream) || !('bytes' in frame)) throw new Error('Unknown event')
-        else capture?.[frame.stream as 'stdout' | 'stderr'].push(bytes(frame.bytes))
-        options.onFrame?.(frame)
+        if (++finals !== 1) throw new Error('Extra result')
+        result = frame
       } catch { malformed = true }
     })
     // stderr: progress events (`{ phase, done, total }`, one per line) and at most one refusal (`{ error, message, … }`)
@@ -522,7 +532,7 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
         const frame = parse(line)
         const progress = progressOf(frame)
         if (progress) options.onProgress?.(progress)
-        else if (refusalOf(frame)) { if (refusal && !events) malformed = true; refusal ??= frame }
+        else if (refusalOf(frame)) { if (refusal) malformed = true; refusal ??= frame }
         else malformed = true
       } catch { /* plain-text usage; exit 2 classifies it */ }
     })
@@ -541,8 +551,7 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
     killOnExit()
     child.once('error', (error) => { spawnError = error })
     child.stdin?.on('error', () => {})
-    // `--events` stdout is frames: the capture keeps their decoded exec bytes and the final frame instead.
-    child.stdout?.on('data', (data: Buffer) => { if (capture && !events) capture.stdout.push(data); stdout.write(data) })
+    child.stdout?.on('data', (data: Buffer) => { capture?.stdout.push(data); stdout.write(data) })
     child.stderr?.on('data', (data: Buffer) => { capture?.stderr.push(data); stderr.write(data) })
     let deadline: NodeJS.Timeout | undefined, exitGrace: NodeJS.Timeout | undefined, giveUp: NodeJS.Timeout | undefined
     let timedOut = false, dropped = false, exited = false, done = false
@@ -569,7 +578,7 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
         reject(new CliError('Unknown', 'LayerFS did not answer in time and was stopped; inspect state before another action', { signal, timeout: options.timeout }, 'transport-unknown'))
         return
       }
-      try { resolve(outcome({ code, signal, result, refusal, error: spawnError, malformed: malformed || (events && finals !== 1 && !(code === 125 && refusal)) })) } catch (error) { reject(error) }
+      try { resolve(outcome({ code, signal, result, refusal, error: spawnError, malformed, exec: argv[0] === 'workspace' && argv[1] === 'exec' })) } catch (error) { reject(error) }
     }
     if (options.timeout) {
       deadline = setTimeout(() => {
@@ -600,12 +609,6 @@ function executeRaw(spec: CliSpec, argv: readonly string[], options: ExecuteOpti
   // second SQLite opener meets `Busy` with no writer lane or busy handler (some after an effect).
   const store = options.storeRead ?? storeOfCall(argv)
   return store ? admit(JSON.stringify(['store', spec.home, store]), 1, launch) : launch()
-}
-
-/** An `--events` final frame's refusal (today's `{ code, message, detail }`) in the 2.0 shape the outcome reads. */
-function eventRefusal(r: any): unknown {
-  if (!r || typeof r !== 'object') return r
-  return typeof r.error === 'string' ? r : typeof r.code === 'string' ? { error: r.code, message: String(r.message ?? r.code), fix: r.fix ?? null, detail: r.detail ?? null } : r
 }
 
 /** The child's environment: inherited, without an inherited log tag, plus the call's own tag. */
@@ -708,12 +711,9 @@ export function inspectRead(spec: CliSpec, argv: readonly string[], options: { t
   })
 }
 
-const READS = new Set(['list', 'get', 'status', 'images', 'stats', 'storage_report', 'commits', 'get_commit', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'revision', 'log'])
+const READS = new Set(['list', 'get', 'status', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'log', 'auths', 'leftovers'])
 const invalid = (message: string) => new CliError('InvalidInput', message)
 const isPlain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v)
-
-/** Retries of a read LayerFS refused because another process held its Store (see {@link storeRace}). */
-export const RACE_RETRIES = 2
 
 /**
  * LayerFS's refusal when two processes open one Store at once: a lease claim
@@ -724,15 +724,6 @@ export const RACE_RETRIES = 2
 export const storeRace = (error: unknown): boolean => error instanceof CliError && error.transport === 'refusal'
   && error.code === 'Failed' && /\bNotFound\b/.test(error.message)
 
-/** Run a read again (at most {@link RACE_RETRIES} times, jittered) while it meets a {@link storeRace}. Never for writes. */
-async function retryRace<T>(read: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try { return await read() } catch (error) {
-      if (attempt >= RACE_RETRIES || !storeRace(error)) throw error
-      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1) + Math.random() * 100))
-    }
-  }
-}
 
 /** `lfs.family.call(...)`; every call answers a Promise. */
 export type Lfs = { readonly spec: CliSpec } & Record<string, Record<string, (...args: any[]) => Promise<any>>>
@@ -797,20 +788,25 @@ export function client(spec: CliSpec): Lfs {
               else if (omitted) throw invalid(`${arg.name} cannot be given without ${omitted}`)
               else positionals.push(String(value))
             }
-            const events = family === 'workspace' && call === 'exec'
             for (const [name, value] of Object.entries(options)) {
-              if (value === undefined || value === null || local.has(name) || typeof value === 'function' || (name === 'stream' && events)) continue
-              if ((name === 'password' || name === 'key') && (typeof value !== 'string' || !/^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/.test(value))) {
-                throw invalid(`${name} requires an env: or file: reference`)
-              }
+              if (value === undefined || value === null || local.has(name) || typeof value === 'function') continue
+              const option = entry.options.find((o) => o.name === name)
               const flag = `--${name.replaceAll('_', '-')}`
-              if (entry.options.find((o) => o.name === name)?.kind === 'bool') words.push(`${flag}=${value}`)
+              // a secret (a password, a bucket's secret key): on stdin under the row's shell flag, never in argv
+              if (option?.kind === 'content') {
+                if (input !== undefined) throw invalid(`${family}.${call}: one stdin input per call`)
+                if (typeof value !== 'string' || !value) throw invalid(`${name} must be a non-empty string`)
+                input = value
+                words.push(option.shell ?? `${flag}-stdin`)
+              } else if (option?.kind === 'bool') words.push(`${flag}=${value}`)
+              // a repeated option (`--env K=V`): an object is one `K=V` per key, a list one value each
+              else if (option?.repeat && isPlain(value)) for (const [k, v] of Object.entries(value)) words.push(flag, `${k}=${v}`)
+              else if (option?.repeat && Array.isArray(value)) for (const v of value) words.push(flag, String(v))
               else words.push(flag, typeof value === 'object' ? JSON.stringify(value) : String(value))
             }
             if (detail) words.push('--detail')
             if (withList.length) words.push('--with', [...new Set(withList)].join(','))
-            if (events) words.push('--events')
-            else if (options.on_progress || (((family === 'machine' && ['start', 'create'].includes(call)) || (family === 'sandbox' && call === 'create')) && entry.options.some((o) => o.name === 'on_progress'))) words.push('--progress')
+            if (options.on_progress || (((family === 'machine' && ['start', 'create'].includes(call)) || (family === 'sandbox' && call === 'create')) && entry.options.some((o) => o.name === 'on_progress'))) words.push('--progress')
             if (spec.scope) words.push('--scope', spec.scope.folder, '--scope-project', spec.scope.project, ...(spec.scope.branch ? ['--scope-branch', spec.scope.branch] : []))
             words.push('--', ...positionals)
             // Monitoring reads first: their own lane and budget, one attempt, nothing kept and nothing cleared.
@@ -821,10 +817,9 @@ export function client(spec: CliSpec): Lfs {
             const timeout: number | undefined = opts.timeout_ms ?? (!read ? undefined : PROBES.has(`${family}.${call}`) ? PROBE_TIMEOUT_MS : READ_TIMEOUT_MS)
             const storeRead = read && args[0] && (entry.args[0]?.kind === 'project' || family === 'store') ? String(args[0]).split('/')[0] : undefined
             const invoke = () => execute(spec, words, {
-              input, read, storeRead, events, timeout: timeout || undefined,
+              input, read, storeRead, timeout: timeout || undefined,
               onProgress: opts.on_progress,
               onSpawn: (child) => opts.on_spawn?.(child.pid),
-              onFrame: (frame) => { if (frame.stream) opts[frame.stream]?.(bytes(frame.bytes)) },
             })
             if (!read) {
               recent.clear()
@@ -836,7 +831,8 @@ export function client(spec: CliSpec): Lfs {
             const kept = keep ? recent.get(key) : undefined
             if (kept && kept.until > Date.now()) return Promise.resolve(kept.value)
             if (!flying.has(key)) {
-              const pending = retryRace(invoke)
+              // one attempt: a refusal (a Store race included) passes through as it came
+              const pending = invoke()
               flying.set(key, pending)
               pending.then((value) => {
                 if (!keep) return
@@ -853,29 +849,22 @@ export function client(spec: CliSpec): Lfs {
   })
 }
 
-/** The largest page a list call takes. */
+/** The largest page a list call takes (2.0 `list_shape.max_limit`). */
 export const PAGE = 1000
 
-/** Every item of a paged list (`items` + `next_page_pos`). */
-export async function pages<T = any>(read: (paging: { page_size: number, page_pos: number }) => Promise<any>, most = Infinity): Promise<T[]> {
+/** Every item of a 2.0 paged list: `--limit`/`--cursor` in, `items` + `next_cursor` out. */
+export async function pages<T = any>(read: (paging: { limit: number, cursor?: string }) => Promise<any>, most = Infinity): Promise<T[]> {
   const all: T[] = []
-  for (let pos: number | null = 0; pos !== null && all.length < most;) {
-    const page = await read({ page_size: PAGE, page_pos: pos })
+  for (let cursor: string | null | undefined = undefined; all.length < most;) {
+    const page = await read({ limit: PAGE, ...(cursor ? { cursor } : {}) })
     all.push(...(page.items ?? []))
-    pos = page.next_page_pos ?? null
+    cursor = typeof page.next_cursor === 'string' && page.next_cursor ? page.next_cursor : null
+    if (!cursor) break
   }
   return all
 }
 
-/** A Sandbox's Workspaces: every page of `sandbox.get` (pages hold `workspaces`). */
-export async function sandboxWorkspaces(lfs: Lfs, sandbox: string): Promise<any> {
-  const all: unknown[] = []
-  let first: any
-  for (let pos: number | null = 0; pos !== null;) {
-    const page = await lfs.sandbox.get(sandbox, { page_size: PAGE, page_pos: pos })
-    first ??= page
-    all.push(...(page.workspaces ?? []))
-    pos = page.next_page_pos ?? null
-  }
-  return { ...first, workspaces: all }
+/** A Sandbox and its Workspaces: one `sandbox get --detail` (2.0: unpaged, at most 16 Workspaces). */
+export function sandboxWorkspaces(lfs: Lfs, sandbox: string): Promise<any> {
+  return lfs.sandbox.get(sandbox, { detail: true })
 }

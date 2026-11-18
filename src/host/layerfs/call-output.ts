@@ -54,11 +54,10 @@ export type OutputSink = ReturnType<typeof outputSink>
 
 /**
  * The stored record of one call. `stdout` keeps its head and `stderr` its tail,
- * each within `max` bytes, cut on UTF-8 character boundaries. `final` (the
- * `--events` result or refusal frame) is appended to stdout as its last line
- * and always kept when it fits. `refusal` only for a refused call (exit 125).
+ * each within `max` bytes, cut on UTF-8 character boundaries. `refusal` only
+ * for a refused call (exit 125: the 2.0 `{ error, message, fix?, detail? }`).
  */
-export function outputRecord(o: { tag: string, exit: number | null | undefined, stdout: OutputSink, stderr: OutputSink, final?: string, refusal?: any, max: number }): CallOutput {
+export function outputRecord(o: { tag: string, exit: number | null | undefined, stdout: OutputSink, stderr: OutputSink, refusal?: any, max: number }): CallOutput {
   const head = (buffer: Buffer): Buffer => {
     let at = buffer.length - 1, back = 0
     while (at >= 0 && back < 3 && (buffer[at] & 0xc0) === 0x80) { at--; back++ }
@@ -71,17 +70,10 @@ export function outputRecord(o: { tag: string, exit: number | null | undefined, 
     while (at < 3 && at < buffer.length && (buffer[at] & 0xc0) === 0x80) at++
     return buffer.subarray(at)
   }
-  let out = o.stdout.bytes(), outTotal = o.stdout.total()
-  if (typeof o.final === 'string' && o.final) {
-    const sep = out.length && out[out.length - 1] !== 0x0a ? '\n' : ''
-    const last = Buffer.from(`${sep}${o.final}\n`)
-    outTotal += last.length
-    out = last.length >= o.max ? head(Buffer.concat([out, last]).subarray(0, o.max)) : Buffer.concat([head(out.subarray(0, o.max - last.length)), last])
-  } else out = head(out)
+  const out = head(o.stdout.bytes()), outTotal = o.stdout.total()
   const err = tail(o.stderr.bytes()), errTotal = o.stderr.total()
   const truncated = { ...(out.length < outTotal ? { stdout: true } : {}), ...(err.length < errTotal ? { stderr: true } : {}) }
-  // a 2.0 refusal names its code `error`; an `--events` final frame still says `code` (cs20: switch when the Workspace package merges)
-  const code = o.refusal && typeof o.refusal.error === 'string' ? o.refusal.error : o.refusal && typeof o.refusal.code === 'string' ? o.refusal.code : null
+  const code = o.refusal && typeof o.refusal.error === 'string' ? o.refusal.error : null
   const refusal = o.exit === 125 && code !== null ? {
     code: code.slice(0, 64),
     ...(typeof o.refusal.message === 'string' ? { message: o.refusal.message } : {}),

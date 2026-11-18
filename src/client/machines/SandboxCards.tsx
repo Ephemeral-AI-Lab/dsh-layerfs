@@ -31,7 +31,7 @@ import { useMetrics } from './MachineStats.tsx'
 import { SANDBOX_FILTERS, SANDBOX_SORTS, sandboxCards, type SandboxCard, type SandboxFilter, type SandboxSort } from './machine-tabs.ts'
 import { processors, sandboxTable, upTime } from './metrics.ts'
 import { Dash, useWords } from './MetricsViews.tsx'
-import { gib, machineState, opWords, projectRef, sandboxesOn, shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox, type SandboxImagesView } from './model.ts'
+import { gib, machineState, opWords, projectRef, sandboxGone, sandboxesOn, shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox, type SandboxImagesView } from './model.ts'
 import type { Query } from '../ui/use-query.ts'
 import { SandboxMenu, useClose } from './Sandboxes.tsx'
 import { sandboxSpaceReason, spaceSize, type SandboxSpace } from './space.ts'
@@ -41,7 +41,7 @@ import css from './machines.module.css'
 
 type Row = ReturnType<typeof sandboxTable>[number] & { memory: number | null }
 
-/** A gone Sandbox's Close: sandbox.close, which removes its record and run folder (a gone Sandbox has no daemon to stop). */
+/** A gone Sandbox's Close: sandbox.remove, which removes its record and run folder (a gone Sandbox has no daemon to stop). */
 function CloseGone({ name }: { name: string }): ReactNode {
   const { t } = useMachinesContext()
   const { busy, error, close } = useClose(name)
@@ -118,10 +118,10 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
   }
 
   const look = lookOf(b)
-  const gone = b.state === 'gone'
+  const gone = sandboxGone(b)
   const needs = sandboxNeedsYou(b)
-  const dot = needs ? 'error' : b.state === 'running' ? 'done' : 'idle'
-  const up = b.state === 'running' && mx && !mx.gap && mx.row?.startedAt != null ? upTime(mx.row.startedAt, now) : null
+  const dot = needs ? 'error' : b.state === 'ready' ? 'done' : 'idle'
+  const up = b.state === 'ready' && mx && !mx.gap && mx.row?.startedAt != null ? upTime(mx.row.startedAt, now) : null
   const sub = [
     b.project ? projectRef(b.project).name : null,
     up && up !== '—' ? t('sbUp', { time: up }) : null,

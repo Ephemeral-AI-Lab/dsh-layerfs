@@ -270,7 +270,7 @@ function CommitDialog({ ws, name, onClose, onDone }: { ws: WorkspaceInfo, name: 
     setSaving(true); setFailed(null)
     try {
       const result = await api.call<any>('POST', `/api/workspaces/${enc(ws.ws)}/commit`, message.trim() ? { message: message.trim() } : {})
-      onDone(result?.kind === 'UpToDate' ? t('termUpToDate') : t('termCommitted', { commit: shortId(typeof result?.commit === 'string' ? result.commit : result?.commit?.id ?? result?.head ?? null) }))
+      onDone(result?.unchanged === true ? t('termUpToDate') : t('termCommitted', { commit: shortId(typeof result?.commit === 'string' ? result.commit : null) }))
     } catch (e) { setFailed(e) } finally { setSaving(false) }
   }
   return (

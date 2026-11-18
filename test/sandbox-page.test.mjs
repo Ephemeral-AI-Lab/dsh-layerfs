@@ -21,10 +21,12 @@ const M = await import(pathToFileURL(join(out, 'page.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
 test('daemon line and overlay helpers', () => {
-  const base = { state: 'running', workspaces: [] }
+  // the 2.0 six states: ready reaches the daemon; broken (lost, unreachable) is down; stopped or blocked is not running
+  const base = { state: 'ready', workspaces: [] }
   assert.equal(M.daemonLook({ ...base }).key, 'sbDaemonReachable')
-  assert.equal(M.daemonLook({ ...base, downReason: 'x' }).tone, 'danger')
-  assert.equal(M.daemonLook({ ...base, state: 'lost' }).key, 'sbDaemonStopped')
+  assert.equal(M.daemonLook({ ...base, state: 'broken', reason: 'lost' }).tone, 'danger')
+  assert.equal(M.daemonLook({ ...base, state: 'stopped' }).key, 'sbDaemonStopped')
+  assert.equal(M.daemonLook({ ...base, state: 'blocked', blockedBy: { machine: 'lima1', reason: 'stopped' } }).key, 'sbDaemonStopped')
   assert.equal(M.daemonLook({ ...base, unread: true }).key, 'sbDaemonUnknown')
   assert.deepEqual(M.daemonSlots({ ...base, daemonCapacity: { admission: { pool_vacant: 3, pool_running: 1, reserved_vacant: 1, reserved_running: 0 } } }), { free: 4, total: 5 })
   assert.equal(M.daemonSlots(base), null)

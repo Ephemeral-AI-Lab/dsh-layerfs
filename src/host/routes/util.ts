@@ -105,7 +105,7 @@ export interface CliFeatures {
   /**
    * Monitoring reads (layerfs-project#178), one per call: a page shows a part
    * only when its call is in the table. `machineLog`: machine.log (a machine's
-   * worker log); `sandboxLog`: logs.sandbox (a Sandbox's daemon log); `files`:
+   * worker log); `sandboxLog`: sandbox.log (a Sandbox's daemon log); `files`:
    * sandbox.files; `machineFiles`: machine.files; `machineStats`: machine.stats
    * (a machine's observed resources, data disk, Store sizes and live Sandbox
    * count, layerfs-project#164).
@@ -133,8 +133,7 @@ export function featuresOf(discovery: Partial<Pick<Discovery, 'calls' | 'identit
     createProgress: option('sandbox', 'create', 'on_progress'),
     sandboxRuntime,
     imageStage: images && imageLoad && imagePrune && imageRefs && sandboxRuntime ? 1 : 0,
-    // cs20: switch when the Sandbox package merges (`sandbox.log` replaces `logs.sandbox`)
-    inspect: { machineLog: !!call('machine', 'log'), sandboxLog: !!call('logs', 'sandbox'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files'), machineStats: !!call('machine', 'stats') },
+    inspect: { machineLog: !!call('machine', 'log'), sandboxLog: !!call('sandbox', 'log'), files: !!call('sandbox', 'files'), machineFiles: !!call('machine', 'files'), machineStats: !!call('machine', 'stats') },
     sandboxLive: option('sandbox', 'list', 'live'),
     machineSpace: withValues(call('machine', 'stats')).includes('space'),
   }
@@ -171,8 +170,8 @@ export function invalidateSandbox(lfs: object, sandbox: string): void {
 }
 
 /**
- * A Sandbox's Workspaces: every page of sandbox.get (its pages hold
- * `workspaces`, not `items`). One read per Sandbox at a time: callers share
+ * A Sandbox and its Workspaces: one `sandbox get --detail` (2.0: unpaged, at
+ * most 16 Workspaces). One read per Sandbox at a time: callers share
  * the one in flight, so polls never stack 60 s admission waits. A `Busy`
  * refusal answers again for BUSY_MS without a call, and a good answer for
  * SANDBOX_KEEP_MS (shared by every tab; a write on the Sandbox drops it,
@@ -193,17 +192,7 @@ export function sandboxObservation(lfs: Lfs, sandbox: string, { wait = null as n
     const began = Date.now()
     // only the read still current settles the cache: one an invalidation dropped leaves it alone
     const current = () => flying.get(sandbox) === read
-    read = (async () => {
-      const all: unknown[] = []
-      let observation: any
-      for (let pos: number | null = 0; pos !== null;) {
-        const page = await lfs.sandbox.get(sandbox, { page_size: PAGE, page_pos: pos })
-        observation ??= page
-        all.push(...(page.workspaces ?? []))
-        pos = page.next_page_pos ?? null
-      }
-      return { ...observation, workspaces: all }
-    })().then(
+    read = (lfs.sandbox.get(sandbox, { detail: true, with: ['stats'] }) as Promise<any>).then(
       (all) => {
         if (current()) {
           busy.delete(sandbox)

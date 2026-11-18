@@ -14,14 +14,31 @@ const list = (value: any): any[] => (Array.isArray(value) ? value : [])
 export const STATES = new Set(['ready', 'busy', 'stopped', 'blocked', 'broken', 'unknown'])
 
 /**
- * An `op` as the page reads it: 2.0's `{ name, phase, started_at }` (a
- * machine's), or today's `{ id, name, phase, started, uncertain }` (Stores and
- * Sandboxes; cs20: switch when the Store and Sandbox packages merge), or null.
+ * A 2.0 `op` companion (`{ name, phase, started_at }`: a busy machine's,
+ * Store's, Sandbox's or Workspace's) as the page reads it, or null. 2.0 has no
+ * uncertain op: an outcome that is not known is `broken` with reason
+ * `unresolved`, so `uncertain` is always false.
  */
 export const opOf = (o: any) => {
   if (!o || typeof o !== 'object' || typeof o.name !== 'string') return null
   const at = typeof o.started_at === 'string' ? Date.parse(o.started_at) : NaN
-  return { id: String(o.id ?? ''), name: o.name as string, phase: text(o.phase) ?? '', started: num(o.started) ?? (Number.isFinite(at) ? at : null), uncertain: o.uncertain === true }
+  return { id: '', name: o.name as string, phase: text(o.phase) ?? '', started: Number.isFinite(at) ? at : null, uncertain: false }
+}
+
+/** An ISO time (2.0 `*_at`) as epoch ms, or null. */
+export const msAt = (v: unknown): number | null => { if (typeof v !== 'string') return null; const at = Date.parse(v); return Number.isFinite(at) ? at : null }
+
+/** A 2.0 thing's state companions: `blocked_by`, `reason`, `fix`, `message`, `observed_at` (absent when LayerFS gave none). */
+export function companionsOf(s: any): { blockedBy?: { machine?: string, store?: string, sandbox?: string, reason: string }, reason?: string, fix?: string, message?: string, observedAt?: number } {
+  const out: ReturnType<typeof companionsOf> = {}
+  const b = s?.blocked_by
+  if (b && typeof b === 'object') out.blockedBy = { ...(typeof b.machine === 'string' ? { machine: b.machine } : {}), ...(typeof b.store === 'string' ? { store: b.store } : {}), ...(typeof b.sandbox === 'string' ? { sandbox: b.sandbox } : {}), reason: String(b.reason ?? '') }
+  if (typeof s?.reason === 'string' && s.reason) out.reason = s.reason
+  if (typeof s?.fix === 'string' && s.fix) out.fix = s.fix
+  if (typeof s?.message === 'string' && s.message) out.message = s.message
+  const seen = msAt(s?.observed_at)
+  if (seen !== null) out.observedAt = seen
+  return out
 }
 
 /**

@@ -4,7 +4,7 @@
  * sampler's newest values and its run folder on disk, joined by name, filtered
  * and ordered), and what the Overview's "needs you" notices count.
  */
-import type { MachineSandbox } from './model.ts'
+import { sandboxGone, type MachineSandbox } from './model.ts'
 import type { SandboxSpace } from './space.ts'
 
 export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'images' | 'files' | 'log'
@@ -62,7 +62,7 @@ export function sandboxCards<M extends MetricsRowLike>(records: readonly Machine
   const closed = metrics.filter((r) => r.closedAt != null && !recorded.has(r.name))
   const counts: Record<SandboxFilter, number> = {
     all: records.length,
-    running: records.filter((b) => b.state === 'running').length,
+    running: records.filter((b) => b.state === 'ready').length,
     attention: records.filter(needsYou).length,
     closed: closed.length,
   }
@@ -70,7 +70,7 @@ export function sandboxCards<M extends MetricsRowLike>(records: readonly Machine
     const cards = closed.map((r) => ({ name: r.name, record: null, metrics: r, space: null }))
     return { cards: cards.sort((a, b) => (b.metrics.closedAt ?? 0) - (a.metrics.closedAt ?? 0) || a.name.localeCompare(b.name)), counts }
   }
-  const kept = records.filter((b) => filter === 'all' || (filter === 'running' ? b.state === 'running' : needsYou(b)))
+  const kept = records.filter((b) => filter === 'all' || (filter === 'running' ? b.state === 'ready' : needsYou(b)))
   const cards: SandboxCard<M>[] = kept.map((b) => ({ name: b.name, record: b, metrics: byName.get(b.name) ?? null, space: disk.get(b.name) ?? null }))
   const order = sort === 'name' ? (a: SandboxCard<M>, b: SandboxCard<M>) => a.name.localeCompare(b.name)
     : sort === 'disk' ? bySize<M>((c) => c.space?.bytes)
@@ -87,13 +87,13 @@ export function sandboxCards<M extends MetricsRowLike>(records: readonly Machine
  * need you.
  */
 export function sandboxAttention(records: readonly MachineSandbox[], space: readonly SandboxSpace[] | null, needsYou: (b: MachineSandbox) => boolean): { gone: number, goneBytes: number | null, needsYou: number } {
-  const gone = records.filter((b) => b.state === 'gone')
+  const gone = records.filter(sandboxGone)
   const disk = new Map((space ?? []).map((r) => [r.name, r.bytes]))
   const measured = gone.map((b) => disk.get(b.name)).filter((n): n is number => n != null)
   return {
     gone: gone.length,
     goneBytes: measured.length ? measured.reduce((a, b) => a + b, 0) : null,
-    needsYou: records.filter((b) => b.state !== 'gone' && needsYou(b)).length,
+    needsYou: records.filter((b) => !sandboxGone(b) && needsYou(b)).length,
   }
 }
 

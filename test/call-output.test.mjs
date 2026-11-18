@@ -59,11 +59,6 @@ test('records: stdout keeps its head, stderr its tail, within the cap on charact
   assert.equal(r.refusal, undefined)
   const small = L.outputRecord({ tag: 'dsh:-:t', exit: 0, stdout: L.outputSink(10, 'head'), stderr: L.outputSink(10, 'tail'), max: 10 })
   assert.deepEqual(small, { tag: 'dsh:-:t', exit: 0, bytes: { stdout: 0, stderr: 0 } })
-  // The --events final frame is the last stdout line and survives a full stream.
-  const exec = L.outputSink(20, 'head'); exec.push('x'.repeat(50))
-  const ev = L.outputRecord({ tag: 'dsh:-:t', exit: 0, stdout: exec, stderr: L.outputSink(20, 'tail'), final: '{"result":1}', max: 20 })
-  assert.equal(ev.stdout, `${'x'.repeat(6)}\n{"result":1}\n`); assert.equal(Buffer.byteLength(ev.stdout), 20)
-  assert.equal(ev.bytes.stdout, 50 + 14); assert.equal(ev.truncated.stdout, true)
   // A refusal is kept only for a refused call.
   const refusal = { error: 'Conflict', message: 'm', detail: { a: 1 } }
   assert.deepEqual(L.outputRecord({ tag: 'dsh:-:t', exit: 125, stdout: L.outputSink(1, 'head'), stderr: L.outputSink(1, 'tail'), refusal, max: 1 }).refusal, { code: 'Conflict', message: 'm', detail: { a: 1 } })
@@ -111,17 +106,6 @@ test('execute(): host tags outside sessions, session tags inside, outputs stored
   const native = await L.execute({ ...spec, nativeLogs: true }, ['store', 'create', '--', 'n'])
   assert.match(native.tag, /^dsh:-:/); assert.ok(L.hasOutput(outputs, native.tag))
   assert.equal(L.listCalls(callLog, {}).lines.length, 4)
-})
-
-test('execute(): --events calls keep the decoded exec bytes plus the final frame', async () => {
-  const { dir, callLog, outputs } = place(), cli = fakeCli(dir)
-  const seen = []
-  const result = await L.execute({ cli, home: join(dir, 'home'), callLog, nativeLogs: false }, ['workspace', 'exec', '--events', '--', 'ws', 'echo hi'], { events: true, onFrame: f => seen.push(f) })
-  assert.equal(result.kind, 'Exited'); assert.equal(seen.length, 4)
-  const stored = L.readOutput(outputs, result.tag)
-  const last = stored.stdout.trimEnd().split('\n').at(-1)
-  assert.equal(stored.stdout.split('\n')[0], 'hello world'); assert.deepEqual(JSON.parse(last).result.kind, 'Exited')
-  assert.match(stored.stderr, /warn\n/)
 })
 
 function run(command, argv, env, input = '') {
