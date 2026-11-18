@@ -14,16 +14,17 @@ test.after(() => rmSync(out, { recursive: true, force: true }))
 const A = '00000000-0000-4000-8000-00000000000a'
 const B = '00000000-0000-4000-8000-00000000000b'
 const fail = (code) => Object.assign(new Error(code), { code })
-const info = (key, created = 100, machine = 'native') => ({ project: key, store: key.split('/')[0], name: key.split('/')[1], kind: 'sqlite', machine, created })
+// a 2.0 `project get --detail` / list row
+const info = (key, created = 100, machine = 'native') => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine, created_at: new Date(created).toISOString() })
 
-/** A fake LayerFS: projects by address, each with its branch names. */
+/** A fake LayerFS 2.0: projects by address, each with its branch names; refusals by 2.0 code. */
 function fixture() {
   const dir = mkdtempSync(join(root, '.dev-test-catalog-'))
   const state = { projects: new Map([['store/app', { info: info('store/app'), branches: ['main'] }]]), offline: null, forks: 0, beforeFork: null }
   const project = (key) => {
     if (state.offline) throw fail('Unavailable')
     const p = state.projects.get(key)
-    if (!p) throw fail('NoSuchProject')
+    if (!p) throw fail('NotFound')
     return p
   }
   const lfs = {
@@ -32,18 +33,18 @@ function fixture() {
       get: async (key) => project(key).info,
     },
     branch: {
-      list: async (key) => ({ items: project(key).branches.map((name) => ({ name })) }),
+      list: async (key, o = {}) => ({ items: project(key).branches.filter((name) => !o.prefix || name.startsWith(o.prefix)).map((branch) => ({ branch })) }),
       fork: async (key, name, from) => {
         const p = project(key)
         state.forks++
         state.beforeFork?.(p)
-        if (!p.branches.includes(from)) throw fail('NoSuchBranch')
-        if (p.branches.includes(name)) throw fail('BranchExists')
+        if (!p.branches.includes(from)) throw fail('NotFound')
+        if (p.branches.includes(name)) throw fail('Exists')
         p.branches.push(name)
-        return {}
+        return { commit: `32${'a'.repeat(64)}` }
       },
     },
-    store: { status: async () => ({ state: state.offline ? 'down' : 'idle' }) },
+    store: { get: async () => (state.offline ? { state: 'blocked', blocked_by: { machine: 'native', reason: 'stopped' } } : { state: 'ready' }) },
   }
   return { state, dir, catalog: new ProjectCatalog(() => lfs, dir), close: () => rmSync(dir, { recursive: true, force: true }) }
 }
@@ -109,7 +110,7 @@ test('reads with an unclaimed id never claim; they accept the address as it is',
     assert.deepEqual(f.state.projects.get('store/app').branches, ['main'])
     assert.equal(f.catalog.retained().length, 0, 'an unclaimed read is not remembered')
     await assert.rejects(f.catalog.assert('store/app', 'unclaimed:store/other'), { code: 'ProjectIdentityChanged' })
-    await assert.rejects(f.catalog.assert('store/gone', 'unclaimed:store/gone'), { code: 'NoSuchProject' })
+    await assert.rejects(f.catalog.assert('store/gone', 'unclaimed:store/gone'), { code: 'NotFound' })
     // Claimed since the listing (a conversation was placed): reads answer the new UUID.
     f.state.projects.get('store/app').branches.push(identityBranch(A))
     assert.equal((await f.catalog.assert('store/app', 'unclaimed:store/app')).projectId, A)
@@ -212,7 +213,7 @@ test('a damaged durable catalog is reported instead of silently replaced', async
   } finally { f.close() }
 })
 
-test('parallel identity lookups of one project share one read, and a dropped-lease refusal is retried', async () => {
+test('parallel identity lookups of one project share one read; a refusal is one attempt', async () => {
   const f = fixture()
   try {
     const lfs = f.catalog['lfs']()
@@ -225,13 +226,12 @@ test('parallel identity lookups of one project share one read, and a dropped-lea
       return list(key, paging)
     }
     f.state.projects.get('store/app').branches.push(identityBranch(A))
+    const refused = await Promise.allSettled([1, 2, 3].map(() => f.catalog.uuidOf('store/app')))
+    assert.deepEqual(refused.map((r) => r.status), ['rejected', 'rejected', 'rejected'], 'the shared read was refused: never run again')
+    assert.equal(reads, 1, 'three callers, one read')
     const ids = await Promise.all([1, 2, 3].map(() => f.catalog.uuidOf('store/app')))
     assert.deepEqual(ids, [A, A, A])
-    assert.equal(reads, 2, 'three callers, one read plus its one retry')
-    refuse = 5
-    await assert.rejects(f.catalog.uuidOf('store/app'), /NotFound/, 'gives up after two retries')
-    lfs.branch.list = async () => { throw Object.assign(new Error('nope'), { code: 'Unavailable' }) }
-    await assert.rejects(f.catalog.uuidOf('store/app'), /nope/, 'other refusals are not retried')
+    assert.equal(reads, 2, 'the next lookup is its own read, shared again')
   } finally { f.close() }
 })
 

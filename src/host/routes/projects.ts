@@ -8,23 +8,22 @@
  *   list          project.list(), each with its Store's state
  *   create/init   project.init(key, folder, { on_progress }) into an existing
  *                 Store; the host keeps its own table of the Inits it started
- *   state         branch.list metadata, sandbox.list and store.status: the
+ *   state         branch.list metadata, sandbox.list and store.get: the
  *                 Store's facts, no Sandbox asked
  *   sandboxes     sandbox.list; Workspaces are not read (`unread`), the client asks
  *                 GET /api/sandboxes/:name (sandbox.get) for each it shows
- *   createSandbox sandbox.create(key, name, machine, { image }), after
+ *   createSandbox sandbox.create(key, name, { machine, image }), after
  *                 machine.start with `start`, as a job with `background`
- *   closeSandbox  sandbox.close(name, { force })
+ *   closeSandbox  sandbox.remove(name, { force })
  *   commits       commit.list, newest first, each Commit's changed paths from
  *                 commit.diff against its parent
- *   listDir/file  file.list, file.stat and file.read
- *   remove        project.delete, or project.remove on an older runtime
+ *   listDir/file  file.list, file.stat and file.read (pinned with --at)
+ *   fileQuery     file.blame (+ file.read for the lines), file.history, and
+ *                 commit.diff for a path or a Branch
+ *   remove        project.delete
  * Every LayerFS call is made once; a refusal passes through with its code.
- * Saved reads are pinned and paged. Store allocation and project tree
- * statistics are independent queries with separate scopes.
- *
- * cs20: switch when the project, Store and file packages merge (project.*,
- * store.*, file.* calls here keep today's names and shapes).
+ * Saved reads are pinned (`--at`) and paged by cursor. Store allocation and
+ * project tree statistics are independent queries with separate scopes.
  */
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'
@@ -32,7 +31,7 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
-import { machineRows } from '../layerfs/machine-records.ts'
+import { companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
 import { Answer, PAGE, cliFeatures, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 import { processOf, usageOf, type Usage } from './observed.ts'
 import { SandboxCreates, type Report } from './sandbox-creates.ts'
@@ -49,12 +48,8 @@ const KEEP_INITS = 50
 export const HISTORY_PAGE_SIZE = 20
 /** History pages kept per host (Projects.historyPages). */
 const HISTORY_PAGES_KEPT = 512
-/**
- * A wide page (Load all, counting) asks for this many. Each Commit costs its message plus
- * 1 KiB of LayerFS's 48 KiB reply budget, and a page over it is refused, not cut short: the
- * read halves its size and asks again (`widePage`).
- */
-const HISTORY_WIDE_PAGE = 32
+/** A wide page (Load all, counting) asks for this many (2.0 pages take up to 1000; one attempt, no shrinking retry). */
+const HISTORY_WIDE_PAGE = 100
 /** Branch Commit counts kept per host (Projects.historyCounts). */
 const HISTORY_COUNTS_KEPT = 2048
 
@@ -63,12 +58,12 @@ const isLayer = (id: unknown) => typeof id === 'string' && id.startsWith('32')
 /** A full image digest: what the pinned CLI takes as `sandbox.create --image` before Stage 1. */
 const DIGEST = /^sha256:[a-f0-9]{64}$/
 
-/** The create phases `sandbox.create --progress` reports (docs/specs/sandbox-images.md §3, R1). */
-const CREATE_PHASES = new Set(['inspect', 'export', 'send', 'unpack', 'start'])
+/** The create phases `sandbox.create --progress` reports (2.0 spec v19: `lock` while another copy holds the image). */
+const CREATE_PHASES = new Set(['inspect', 'lock', 'export', 'send', 'unpack', 'start', 'mount'])
 const byteCount = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined)
 
 /** One `sandbox.create` progress event `{ phase, done?, total? }` as a job update; anything else is no update. */
-export function createPhase(progress: unknown): { phase: 'inspect' | 'export' | 'send' | 'unpack' | 'start', done?: number, total?: number } | null {
+export function createPhase(progress: unknown): { phase: 'inspect' | 'lock' | 'export' | 'send' | 'unpack' | 'start' | 'mount', done?: number, total?: number } | null {
   if (!progress || typeof progress !== 'object') return null
   const p = progress as { phase?: unknown, done?: unknown, total?: unknown }
   if (typeof p.phase !== 'string' || !CREATE_PHASES.has(p.phase)) return null
@@ -99,33 +94,45 @@ function keep<K, V>(map: Map<K, V>, key: K, value: V, most: number): void {
   while (map.size > most) map.delete(map.keys().next().value as K)
 }
 
-/** A 2.0 Commit record -> CommitInfo. */
+/** A saved id as the file views name it: a publication on main is a Layer, else a Commit. */
 export const savedRef = (id: string | null | undefined, branch?: string | null) => id ? { id, kind: isLayer(id) ? 'Layer' : 'Commit', branch: branch ?? '' } : null
-export const commitInfo = (c: any, branch?: string | null): any => ({
-  id: c.id,
-  branch: c.branch ?? c.ref?.branch ?? branch ?? '',
-  message: c.message ?? '',
-  at: typeof c.time === 'number' ? c.time : null,
-  parent: c.parent ?? null,
-  merged: c.second_parent ?? null,
-  kind: c.via ?? null,
-  base: c.base ?? null,
-  sourceCommit: c.source_commit ?? null,
-  sourceBranch: c.source_branch ?? null,
-  sourceTime: c.source_time ?? null,
-  logical: c.logical ?? null,
-  savedKind: isLayer(c.id) ? 'layer' : 'commit',
-  ref: c.ref ?? savedRef(c.id, c.branch ?? branch),
-  parentRef: c.parent_ref ?? savedRef(c.parent ?? c.base, c.branch ?? branch),
-  sourceRef: c.source_commit_ref ?? c.source_ref ?? savedRef(c.source_commit, c.source_branch),
-  timeStatus: c.time_status ?? (typeof c.time === 'number' ? 'recorded' : 'unavailable'),
-  newCanonical: c.new_canonical ?? null,
-  newStored: c.new_stored ?? null,
-  newMetadata: c.new_metadata ?? null,
-})
+/**
+ * A 2.0 Commit row (`commit list --detail`, `commit get --detail`) ->
+ * CommitInfo: `commit`, `created_at`, `size`, `new_*_bytes`; a publication on
+ * main carries `source_branch`/`source_commit` and no message.
+ */
+export const commitInfo = (c: any, branch?: string | null): any => {
+  const id = c.commit ?? c.id
+  const at = msAt(c.created_at)
+  return {
+    id,
+    branch: c.branch ?? branch ?? '',
+    message: c.message ?? '',
+    at,
+    parent: c.parent ?? null,
+    merged: c.second_parent ?? null,
+    kind: c.via ?? null,
+    base: c.base ?? null,
+    sourceCommit: c.source_commit ?? null,
+    sourceBranch: c.source_branch ?? null,
+    sourceTime: null,
+    logical: c.size ?? null,
+    savedKind: c.source_branch || isLayer(id) ? 'layer' : 'commit',
+    ref: savedRef(id, c.branch ?? branch),
+    parentRef: savedRef(c.parent ?? c.base, c.branch ?? branch),
+    sourceRef: savedRef(c.source_commit, c.source_branch),
+    timeStatus: at !== null ? 'recorded' : 'unavailable',
+    newCanonical: c.new_canonical_bytes ?? null,
+    newStored: c.new_stored_bytes ?? null,
+    newMetadata: c.new_metadata_bytes ?? null,
+  }
+}
 
-/** An SDK `op` ({ id, name, phase, started, uncertain }), or null. */
-export const opOf = (o: any) => (o && typeof o === 'object' && typeof o.name === 'string' ? { id: String(o.id ?? ''), name: o.name as string, phase: o.phase ?? '', started: o.started ?? null, uncertain: o.uncertain === true } : null)
+/** A 2.0 diff row's `change` (added, removed, modified) as the views' kind word. */
+const changeKind = (change: unknown): string => { const c = String(change ?? ''); return c ? c[0]!.toUpperCase() + c.slice(1) : 'Modified' }
+
+/** A 2.0 `op` companion as the page's operation (machine-records.ts). */
+export { companionsOf, msAt, opOf }
 
 /** A LayerFS refusal as the UI shows it: code, the SDK's text, and its detail (entity, phase, op, related). */
 export const refusalOf = (error: any) => ({ code: error?.code ?? 'Failed', message: error?.message ?? String(error), detail: error?.detail ?? null })
@@ -133,32 +140,45 @@ export const refusalOf = (error: any) => ({ code: error?.code ?? 'Failed', messa
 /** Refusals a Store's operation gives every Store call: the page still renders what the home's records say. */
 export const STORE_REFUSALS = new Set(['Busy', 'Unresolved', 'Unavailable'])
 
-/** A sandbox.list/get record (and its Workspaces, when read) -> SandboxInfo. States are the SDK's (#537 U4). */
+/**
+ * A 2.0 Sandbox (a `sandbox list --detail` row, or `sandbox get --detail
+ * --with stats`) -> SandboxInfo. `state` is one of the six with its
+ * companions; `workspaces` are read only from `sandbox get` (a list row
+ * leaves them `unread`). Each Workspace is `{ workspace: "<sandbox>:<name>",
+ * branch, running, state, op, path, commit, base_layer, branch_moved,
+ * pending_merge, commands }`; `stats.workspaces` adds its overlay and usage.
+ */
 export function sandboxInfo(s: any, workspaces: any[] | null = null) {
+  const name = String(s.sandbox ?? s.name)
+  const stats = s.stats && typeof s.stats === 'object' ? s.stats : null
+  const perWorkspace = new Map<string, any>((Array.isArray(stats?.workspaces) ? stats.workspaces : []).map((w: any) => [String(w?.workspace), w]))
   return {
-    id: String(s.name),
-    name: String(s.name),
-    state: s.state ?? 'unknown',
+    id: name,
+    name,
+    state: typeof s.state === 'string' ? s.state : 'ready',
     op: opOf(s.op),
+    ...companionsOf(s),
     backend: s.backend ?? null,
     route: s.route ?? null,
     project: s.project ?? null,
     image: s.image ?? null,
     machine: s.machine ?? null,
-    runtime: s.runtime ?? null,
-    runtimeId: s.id ?? null, created: s.created ?? null, downReason: s.down_reason ?? null,
-    // the daemon's control admission and retained failures (sandbox.get, best effort), and a capacity refusal's counts
-    daemonCapacity: s.daemon_capacity ?? null, down: s.down ?? null,
+    created: msAt(s.created_at),
+    // the daemon's control admission and retained failures (`--with stats`, best effort)
+    daemonCapacity: stats?.daemon_capacity ?? null,
     ...(s.platform ? { platform: s.platform } : {}),
-    workspaces: (workspaces ?? [])
-      .filter((w) => w.mounted !== false && (w.directory || w.path))
-      .map((w) => ({
-        ws: w.ws ?? `${s.name}:${w.name ?? w.directory}`, wsId: typeof w.workspace === 'string' ? w.workspace : null, name: w.name ?? null, branch: w.branch ?? '', path: w.directory ?? w.path, activity: w.activity ?? null, base: w.base ?? null, baseLayer: w.base_layer ?? null, root: w.root ?? null, headMovedSinceMount: w.head_moved_since_mount ?? null, dirty: w.dirty ?? null, pendingMerge: w.pending_merge ?? null, revision: w.revision ?? null,
-        ...runningOf(w), ...overlayBytesOf(w), ...workspaceUsageOf(w),
-      })),
-    // the daemon process and the Sandbox's cgroup usage (layerfs-project#164): absent from a CLI that does not say, null when not observed
+    workspaces: (workspaces ?? []).filter((w) => typeof w?.workspace === 'string').map((w) => {
+      const handle = String(w.workspace)
+      return {
+        ws: handle, name: handle.slice(handle.indexOf(':') + 1), branch: w.branch ?? '', path: w.path ?? null,
+        state: typeof w.state === 'string' ? w.state : 'ready', op: opOf(w.op), ...companionsOf(w),
+        base: w.commit ?? null, baseLayer: w.base_layer ?? null, headMovedSinceMount: w.branch_moved ?? null, pendingMerge: w.pending_merge ?? null,
+        mountedAt: msAt(w.mounted_at),
+        ...runningOf(w), ...overlayBytesOf(perWorkspace.get(handle), !!stats), ...workspaceUsageOf(perWorkspace.get(handle), !!stats),
+      }
+    }),
+    // the daemon process and the Sandbox's cgroup usage (`--with stats`): absent when not asked, null when not observed
     ...processOf(s),
-    // the Workspace slots of one Sandbox (layerfs-project#178): absent from a CLI that does not say
     ...(Number.isSafeInteger(s.workspace_capacity) && s.workspace_capacity > 0 ? { workspaceCapacity: s.workspace_capacity as number } : {}),
     ...(workspaces ? {} : { unread: true }),
   }
@@ -180,29 +200,29 @@ export interface RunningCommand {
 }
 
 /**
- * A Workspace item's `running` (layerfs-project#178 "Fields"), by presence:
- * absent from an older worker (unknown: the page shows nothing), `null` when
- * the records could not be read, else the commands, oldest first.
+ * A Workspace's running commands (2.0 `sandbox get --detail`: `commands`,
+ * each `{ exec, started_at, program, tag }`; the short form's `running` holds
+ * the exec ids alone), oldest first; absent when LayerFS listed neither.
  */
 function runningOf(w: any): { running?: RunningCommand[] | null } {
-  if (!w || !('running' in w)) return {}
-  if (!Array.isArray(w.running)) return { running: null }
+  if (!w || !('commands' in w || 'running' in w)) return {}
+  const source = Array.isArray(w.commands) ? w.commands : Array.isArray(w.running) ? w.running.map((exec: unknown) => ({ exec })) : null
+  if (!source) return { running: [] }
   const running: RunningCommand[] = []
-  for (const r of w.running) {
-    if (!r || typeof r.exec_id !== 'string' || !r.exec_id) continue
-    const started = Number(r.started)
+  for (const r of source) {
+    if (!r || typeof r.exec !== 'string' || !r.exec) continue
     running.push({
-      execId: r.exec_id, started: Number.isFinite(started) ? (started < 1e12 ? started * 1000 : started) : 0,
+      execId: r.exec, started: msAt(r.started_at) ?? 0,
       tag: typeof r.tag === 'string' && r.tag ? r.tag : null, program: typeof r.program === 'string' && r.program ? r.program : null,
     })
   }
   return { running: running.sort((a, b) => a.started - b.started) }
 }
 
-/** A Workspace item's `overlay_bytes`, by presence: absent from an older worker, `null` when not observed. */
-function overlayBytesOf(w: any): { overlayBytes?: number | null } {
-  if (!w || !('overlay_bytes' in w)) return {}
-  return { overlayBytes: typeof w.overlay_bytes === 'number' && Number.isFinite(w.overlay_bytes) && w.overlay_bytes >= 0 ? w.overlay_bytes : null }
+/** A Workspace's `overlay_bytes` (`--with stats` row): absent when stats were not read, `null` when not observed. */
+function overlayBytesOf(w: any, read: boolean): { overlayBytes?: number | null } {
+  if (!read) return {}
+  return { overlayBytes: typeof w?.overlay_bytes === 'number' && Number.isFinite(w.overlay_bytes) && w.overlay_bytes >= 0 ? w.overlay_bytes : null }
 }
 
 /**
@@ -212,24 +232,31 @@ function overlayBytesOf(w: any): { overlayBytes?: number | null } {
  * usage per Workspace (the page shows a dash), `null` with the reason when
  * there was nothing to read (no command runs, so LayerFS has removed the group).
  */
-function workspaceUsageOf(w: any): { usage?: Usage | null, usageReason?: string } {
-  if (!w || !('usage' in w)) return {}
+function workspaceUsageOf(w: any, read: boolean): { usage?: Usage | null, usageReason?: string } {
+  if (!read) return {}
+  if (!w) return { usage: null }
   const reason = typeof w.usage_reason === 'string' && w.usage_reason ? w.usage_reason : null
   return { usage: usageOf(w.usage), ...(reason ? { usageReason: reason } : {}) }
 }
 
 /** BranchInfo[] from branch.list records and the Commits read (by id). */
+/**
+ * BranchInfo[] from 2.0 `branch list --detail` rows (`branch`, `commit`,
+ * `forked_from`, `base`) and the Commits read (by id). A Branch with no
+ * Commit of its own answers the Commit it was forked at as `commit`.
+ */
 export function branchInfos(listed: any[], byId: Map<string, any> | null = null) {
   const merges = byId ? [...byId.values()].filter((c) => c.via === 'merge') : []
   return listed.map((b) => {
-    if (b.name === 'main') return { name: 'main', head: b.base ?? null, parent: null, forkedFrom: null, state: 'open', commits: 0 }
-    const head = b.head ?? null
+    const name = String(b.branch ?? b.name)
+    if (name === 'main') return { name: 'main', head: b.commit ?? null, parent: null, forkedFrom: null, state: 'open', commits: 0 }
+    const head = b.commit && b.commit !== b.forked_from ? b.commit : null
     const parent = b.forked_from ? (isLayer(b.forked_from) ? 'main' : (byId?.get(b.forked_from)?.branch ?? null)) : null
     let commits: number | null = byId ? 0 : null
-    if (byId) for (const c of byId.values()) if (c.branch === b.name) commits!++
+    if (byId) for (const c of byId.values()) if (c.branch === name) commits!++
     // which Branches were published has no 2.0 read (§9 Q3): a Branch is open or merged
-    const merged = !!head && merges.some((c) => c.branch !== b.name && (c.parent === head || c.second_parent === head || c.merged_from === head))
-    return { name: b.name, head: head ?? b.base ?? null, parent, forkedFrom: b.forked_from ?? null, state: merged ? 'merged' : 'open', commits }
+    const merged = !!head && merges.some((c) => c.branch !== name && (c.parent === head || c.second_parent === head || c.merged_from === head))
+    return { name, head: b.commit ?? null, parent, forkedFrom: b.forked_from ?? null, state: merged ? 'merged' : 'open', commits }
   })
 }
 
@@ -241,7 +268,8 @@ const integer = (q: URLSearchParams, k: string, fallback: number, max = 2000) =>
   if (!Number.isSafeInteger(n) || n < 1 || n > max) throw fail(`${k} must be an integer from 1 to ${max}`)
   return n
 }
-const pinOf = (b: any) => b.saved_head?.id ?? (b.name === 'main' ? b.base : b.head ?? b.base)
+/** A Branch's saved pin: 2.0 `commit` (its head, or the Commit it was forked at). */
+const pinOf = (b: any) => b.commit
 const validate = (branch: unknown, path: unknown) => {
   if (typeof branch !== 'string' || !branch || branch.includes('\0')) throw fail('Name a Branch.')
   if (typeof path !== 'string' || !path.startsWith('/') || path.includes('\0') || path.split('/').includes('..')) throw fail('Use an absolute path.')
@@ -347,12 +375,14 @@ export class Projects {
   summary(p: any, join: Map<string, { state: string, op: unknown }> | null = null) {
     const key = keyOf(p)
     return {
-      name: p.name,
+      name: key.slice(key.indexOf('/') + 1),
       key,
-      store: p.store,
-      kind: p.kind ?? null,
+      store: p.store ?? key.split('/')[0],
+      kind: p.engine ?? null,
       machine: p.machine ?? null,
-      created: p.created ?? null,
+      created: msAt(p.created_at),
+      // the project's own 2.0 state (busy init/delete, broken unresolved), when not ready
+      ...(typeof p.state === 'string' && p.state !== 'ready' ? { state: p.state, op: opOf(p.op), ...companionsOf(p) } : {}),
       demo: null,
       run: null,
       ...(join ? { storeState: join.get(p.store)?.state ?? null, storeOp: join.get(p.store)?.op ?? null } : {}),
@@ -385,7 +415,7 @@ export class Projects {
     const completion = Promise.resolve()
       .then(() => this.lfs.project.init(key, source ?? emptySource, { on_progress }))
       .then(
-        (made) => Object.assign(job, { step: 'done', project: this.summary(made) }),
+        (made) => Object.assign(job, { step: 'done', project: this.summary({ ...made, project: made?.project ?? key }) }),
         (error: any) => {
           Object.assign(job, { step: 'failed', error: { ...refusalOf(error), ...(error?.transport ? { transport: error.transport } : {}) } })
           this.log(`[host] creating ${key}: ${error?.message ?? error}`)
@@ -436,43 +466,46 @@ export class Projects {
 
   /** ProjectSummary[]. */
   async list() {
-    const records = await pages((p) => this.lfs.project.list(p))
+    const records = await pages((p) => this.lfs.project.list({ ...p, detail: true }))
     // set by the host (Storage.projectJoin); a failure leaves the field out
     const join = this.storeJoin ? await this.storeJoin().catch(() => null) : null
     return records.map((p) => this.summary(p, join))
   }
 
-  /** project.get of a key. */
-  record(key: string): Promise<any> {
-    return this.lfs.project.get(projectRef(key).key)
+  /** `project get --detail` of a key (the long form names the project, its engine, machine and created_at). */
+  async record(key: string): Promise<any> {
+    const project = projectRef(key).key
+    const got: any = await this.lfs.project.get(project, { detail: true })
+    return { ...got, project: got?.project ?? project }
   }
 
   /**
    * ProjectState from the Store alone: its Branch metadata, its Sandbox
-   * records and the Store file's size. No Sandbox is asked. While its Store
-   * is busy (a push or pull) or unresolved, Store calls are refused (Busy,
-   * Unresolved); while it is down none is made (U3): the page then gets what
-   * the home's records say, the Store's state and op, and the refusal in
-   * `refusal`, with no Branches.
+   * records and the Store's state. No Sandbox is asked. While its Store is
+   * busy or broken, Store calls are refused (Busy, Unresolved, Unavailable);
+   * while it is blocked (its machine is not ready) none is made (U3): the
+   * page then gets what the home's records say, the Store's state and its
+   * companions, and the refusal in `refusal`, with no Branches.
    */
   async state(key: string) {
     const record = await this.record(key)
     const project = keyOf(record)
-    // store.status first: on a stopped machine no Store call is made (U3); the banner offers Start
-    const status = await this.lfs.store.status(record.store).catch(() => null)
-    const down = status?.state === 'down'
+    // store.get first (records only): on a stopped machine no Store call is made (U3); the banner offers Start
+    const status = await this.lfs.store.get(record.store, { detail: true }).catch(() => null)
+    const down = status?.state === 'blocked'
     const [listed, sandboxes] = await Promise.all([
       down
         ? { refused: null }
-        : pages((p) => this.lfs.branch.list(project, p)).catch((error: any) => {
+        : pages((p) => this.lfs.branch.list(project, { ...p, detail: true })).catch((error: any) => {
             if (STORE_REFUSALS.has(error?.code)) return { refused: refusalOf(error) }
             throw error
           }),
-      pages((p) => this.lfs.sandbox.list(project, p)).catch((error: any) => (this.log(`[host] sandbox.list of ${project}: ${error?.message ?? error}`), [] as any[])),
+      pages((p) => this.lfs.sandbox.list({ project, ...p, detail: true })).catch((error: any) => (this.log(`[host] sandbox.list of ${project}: ${error?.message ?? error}`), [] as any[])),
     ])
-    const storeFacts = { storeState: status?.state ?? null, storeOp: opOf(status?.op), storeDown: status?.down_reason ?? null }
-    const file = status?.file
-    const store = { path: null, bytes: file?.exists ? (file.bytes ?? 0) + (file.wal_bytes ?? 0) : null }
+    const facts = companionsOf(status)
+    const storeFacts = { storeState: status?.state ?? null, storeOp: opOf(status?.op), storeBlockedBy: facts.blockedBy ?? null, storeReason: facts.reason ?? null, storeFix: facts.fix ?? null }
+    // the Store's size is `store get --with stats` (it opens the Store): the Storage tab reads it
+    const store = { path: null, bytes: null }
     if (!Array.isArray(listed)) {
       return {
         project: { ...this.summary(record), ...storeFacts, refusal: listed.refused },
@@ -487,12 +520,12 @@ export class Projects {
     }
     // Every project tab needs this shell. History must never gate Files,
     // Storage or Sandboxes; load saved revisions through their paged routes.
-    const main = listed.find((b: any) => b.name === 'main')
+    const main = listed.find((b: any) => b.branch === 'main')
     return {
       project: { ...this.summary(record), ...storeFacts },
       branches: branchInfos(listed),
       // 2.0 lists none of main's Layers but its newest (§9 Q3)
-      layers: main?.base ? [{ id: main.base, message: '', at: null, from: null }] : [],
+      layers: main?.commit ? [{ id: main.commit, message: '', at: null, from: null }] : [],
       sandboxes: sandboxes.map((s) => sandboxInfo(s)),
       last: null,
       commits: null,
@@ -505,7 +538,7 @@ export class Projects {
   /** SandboxInfo[] of the project's records (Workspaces are read on demand). */
   async sandboxes(key: string) {
     const { key: project } = projectRef(key)
-    const listed = await pages((p) => this.lfs.sandbox.list(project, p))
+    const listed = await pages((p) => this.lfs.sandbox.list({ project, ...p, detail: true }))
     return listed.map((s) => sandboxInfo(s))
   }
 
@@ -529,11 +562,14 @@ export class Projects {
     const record = await this.record(key)
     const { name, image } = body ?? {}
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'A Sandbox needs a name.')
-    let machine = record.machine
-    if (record.kind === 'postgresql') {
-      const store = String(record.store ?? keyOf(record).split('/')[0])
+    // a sqlite project's Sandboxes run on its Store's machine (LayerFS's default); a PostgreSQL one's on the machine named, else this install's choice
+    const storeName = String(record.store ?? keyOf(record).split('/')[0])
+    const storeRecord: any = await this.lfs.store.get(storeName).catch(() => null)
+    const postgresql = (storeRecord?.engine ?? record.engine) === 'postgresql'
+    let machine = storeRecord?.machine ?? record.machine
+    if (postgresql) {
       const named = typeof body.machine === 'string' && body.machine ? body.machine : null
-      machine = named ?? pgMachineOf(new StoreMachines(this.host.root).get(store), await machineRows(this.lfs))
+      machine = named ?? pgMachineOf(new StoreMachines(this.host.root).get(storeName), await machineRows(this.lfs))
     }
     if (image !== undefined && image !== null && image !== '' && typeof image !== 'string') throw refuse(400, 'InvalidInput', 'Name the image as a string: its id (a sha256 digest) or a reference.')
     const picked = typeof image === 'string' && image ? image : undefined
@@ -541,10 +577,10 @@ export class Projects {
     if (picked && !DIGEST.test(picked) && features.imageStage < 1) {
       throw Object.assign(refuse(501, 'Unsupported', `The pinned LayerFS CLI takes a Sandbox image only by its full sha256 digest, not ${JSON.stringify(picked)}. Pick an image from the list, or pin a LayerFS that takes image references.`), { detail: { need: 'image-refs' } })
     }
-    // Stage 1: a Docker image whose copy cannot fit is refused before the export starts (D8; LayerFS's NoSpace is the real answer)
+    // Stage 1: a Docker image whose copy cannot fit is refused before the export starts (D8), in LayerFS's own `Capacity` shape (its refusal is the real answer)
     if (picked && features.imageStage === 1) {
       const short = await this.spaceFor(String(machine), picked)
-      if (short) throw Object.assign(refuse(507, 'NoSpace', `${picked} needs ${short.need} bytes on ${machine}; it has ${short.free} free.`), { detail: short })
+      if (short) throw Object.assign(refuse(507, 'Capacity', `${picked} needs ${short.need} bytes on ${machine}; it has ${short.free} free.`), { detail: { needed_bytes: short.need, free_bytes: short.free, path: null }, fix: `layerfs machine prune ${machine} --unused` })
     }
     const start = body.start === true
     const project = keyOf(record)
@@ -556,9 +592,9 @@ export class Projects {
         report({ phase: 'queued' })
       }
       await this.host.ensureNative()
-      // the CLI's create phases (inspect, export, send, unpack, start) as the job's, bytes while a phase reports them
+      // the CLI's create phases (inspect, lock, export, send, unpack, start) as the job's, bytes while a phase reports them
       const progress = features.createProgress ? { on_progress: (p: unknown) => { const u = createPhase(p); if (u) report(u) } } : {}
-      const made = await this.lfs.sandbox.create(project, name, machine, { ...(picked ? { image: picked } : {}), ...progress })
+      const made = await this.lfs.sandbox.create(project, name, { ...(postgresql ? { machine: String(machine) } : {}), ...(picked ? { image: picked } : {}), ...progress })
       this.sandboxCreates.created(project, name)
       return made
     }
@@ -576,7 +612,7 @@ export class Projects {
   async sandbox(name: string) {
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'Name the Sandbox.')
     const record = await sandboxObservation(this.lfs, name)
-    const info = sandboxInfo({ ...record, name }, record.workspaces)
+    const info = sandboxInfo({ ...record, sandbox: record?.sandbox ?? name }, Array.isArray(record?.workspaces) ? record.workspaces : [])
     // running commands: which ones this host's Sandbox pages started (by exact exec id), and whose session a tag names
     const tags = new Set<string>()
     for (const w of info.workspaces) for (const r of w.running ?? []) if (r.tag) tags.add(r.tag)
@@ -605,7 +641,7 @@ export class Projects {
     if (branch === 'main') throw refuse(400, 'InvalidInput', 'Only side Branches are mounted: fork a Branch from main and mount that.')
     const lfs = this.lfs
     if (fork) {
-      const { project } = await lfs.sandbox.get(sandbox, { page_size: 1, page_pos: 0 })
+      const { project } = await lfs.sandbox.get(sandbox, { detail: true })
       await lfs.branch.fork(project, branch, 'main')
     }
     try { return await lfs.workspace.mount(sandbox, branch, name ? { name } : {}) } finally { invalidateSandbox(lfs, sandbox) }
@@ -618,15 +654,15 @@ export class Projects {
     try { return await lfs.workspace.unmount(ws, { ...(discard ? { discard: true } : {}), ...(force ? { force: true } : {}) }) } finally { invalidateSandbox(lfs, ws.slice(0, ws.indexOf(':'))) }
   }
 
-  /** sandbox.close(name, { force }); answers its result, with the `unknown` Workspaces a forced close left. */
+  /** sandbox.remove(name, { force }); answers its long form (`unmounted`: the Workspaces a forced removal ended). */
   async closeSandbox(name: string, { force = false } = {}) {
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'Name the Sandbox to close.')
     // A session's Sandbox holds its mounted Workspace: save a checkpoint and close it as the session does.
     if (!force && await this.host.closeSessionSandbox?.(name).finally(() => this.forget(name))) {
       this.sandboxClosedHook?.(name)
-      return { kind: 'Closed', sandbox: name, closed: name, session: true }
+      return { ok: true, outcome: 'removed', sandbox: name, unmounted: [], session: true }
     }
-    const result = await this.lfs.sandbox.close(name, force ? { force: true } : {}).finally(() => this.forget(name))
+    const result = await this.lfs.sandbox.remove(name, { detail: true, ...(force ? { force: true } : {}) }).finally(() => this.forget(name))
     await this.host.sandboxClosed?.(name)
     this.sandboxClosedHook?.(name)
     return result
@@ -643,43 +679,38 @@ export class Projects {
   /** Closes every Sandbox of the project (`force` passes on); answers each close. */
   async closeSandboxes(key: string, { force = false } = {}) {
     const { key: project } = projectRef(key)
-    const listed = await pages((p) => this.lfs.sandbox.list(project, p))
+    const listed = await pages((p) => this.lfs.sandbox.list({ project, ...p }))
     const out = []
-    for (const s of listed) out.push(await this.closeSandbox(s.name, { force }))
+    for (const s of listed) out.push(await this.closeSandbox(String(s.sandbox), { force }))
     return out
   }
 
   /**
-   * project.delete: refused MountsActive while a mount of the project is live; the project's data stays in its Store until
-   * store.compact collects it. A runtime from before layerfs-project#41 has project.remove instead (InUse while any Sandbox
-   * record exists, Unsupported for a PostgreSQL project).
+   * project.delete: refused while a mount of the project is live; the project's data stays in its Store until
+   * store.compact collects it.
    */
   async remove(key: string) {
     const { key: project } = projectRef(key)
     // DSH sessions of the project hold Sandboxes and mounts: save and close them first.
     await this.host.projectRemoving?.(project)
-    const hasDelete = (await this.host.discover()).calls.some((c) => c.family === 'project' && c.call === 'delete')
-    if (hasDelete) await this.lfs.project.delete(project)
-    else await this.lfs.project.remove(project)
+    await this.lfs.project.delete(project)
     await this.host.projectRemoved?.(project)
     return { removed: true }
   }
 
   // ---------- Store statistics ----------
 
+  /**
+   * A Store's statistics: `store get --with stats` (it opens the Store where it
+   * lives), its engine and the `stats` section. The observation journal needs
+   * a Store identity 2.0 does not answer, so its append is refused and the
+   * answer says why (`observationError`).
+   */
   async storeStats(name: string) {
-    let stats = await this.lfs.store.stats(name)
-    if (stats.kind === 'sqlite') {
-      try {
-        const status = await this.lfs.store.status(name), file = status.file
-        stats = { ...stats, fileMeasurements: file?.exists === true ? { observedAt: Date.now(), bytes: file.bytes ?? null, walBytes: file.wal_bytes ?? null, incomingBytes: file.incoming_bytes ?? null } : null }
-        if (file?.unavailable || status.down_reason) stats.fileMeasurementError = file?.unavailable ?? status.down_reason
-      } catch (error: any) {
-        stats = { ...stats, fileMeasurements: null, fileMeasurementError: String(error?.message ?? error) }
-      }
-    }
+    const record: any = await this.lfs.store.get(name, { detail: true, with: ['stats'] })
+    const stats = { engine: record?.engine ?? null, ...(record?.stats ?? {}) }
     try {
-      await this.storageObservations.record(name, stats, await this.lfs.store.get(name))
+      await this.storageObservations.record(name, stats, record)
       return stats
     } catch (error: any) {
       // Measurement success remains visible even if local observation persistence fails.
@@ -702,9 +733,9 @@ export class Projects {
     const names = [...new Set((Array.isArray(store?.projects) ? store.projects : []).map(String))].sort()
     const projects = []
     for (const short of names) {
-      const record = await this.lfs.project.get(`${name}/${short}`).catch(() => null)
+      const record = await this.record(`${name}/${short}`).catch(() => null)
       if (!record) { projects.push({ name: short, created: null, totals: null, last: null, files: null, partial: true, building: null, error: null }); continue }
-      const project = keyOf(record), created = typeof record.created === 'number' ? record.created : null
+      const project = keyOf(record), created = msAt(record.created_at)
       const view = await this.storageLedgers.view(project, created)
       const last = view.recent.length ? view.recent[view.recent.length - 1] : null
       projects.push({ name: short, created, totals: view.totals, last, files: await this.mainFiles(project), partial: view.partial, building: view.building, error: view.error })
@@ -715,12 +746,12 @@ export class Projects {
   /** main's file count, by main's head (one project.stats walk per head). */
   private readonly filesByHead = new Map<string, { head: string, files: number | null, complete: boolean }>()
   private async mainFiles(project: string): Promise<{ files: number | null, complete: boolean } | null> {
-    const head = await this.lfs.branch.get(project, 'main').then((b: any) => String(b?.saved_head?.id ?? b?.head ?? b?.base ?? ''), () => '')
+    const head = await this.lfs.branch.get(project, 'main').then((b: any) => String(b?.commit ?? ''), () => '')
     const known = this.filesByHead.get(project)
     if (head && known?.head === head) return { files: known.files, complete: known.complete }
-    const stats = await this.lfs.project.stats(project).catch(() => null)
+    const stats = await this.lfs.project.stats(project, head ? { at: head } : {}).catch(() => null)
     if (!stats) return null
-    const row = { head, files: typeof stats.files === 'number' ? stats.files : null, complete: stats.complete !== false }
+    const row = { head, files: typeof stats.file_count === 'number' ? stats.file_count : null, complete: stats.partial !== true }
     if (head) this.filesByHead.set(project, row)
     return { files: row.files, complete: row.complete }
   }
@@ -734,18 +765,18 @@ export class Projects {
    */
   async projectStorage(key: string, q: URLSearchParams) {
     const record = await this.record(key)
-    const project = keyOf(record), created = typeof record.created === 'number' ? record.created : null
+    const project = keyOf(record), created = msAt(record.created_at)
     const [view, store, storeRecord, main] = await Promise.all([
       this.storageLedgers.view(project, created, { refresh: q.get('refresh') === '1' }),
-      this.lfs.store.stats(record.store).catch((error: any) => ({ refusal: refusalOf(error) })),
+      this.lfs.store.get(record.store, { with: ['stats'] }).then((r: any) => r?.stats ?? {}, (error: any) => ({ refusal: refusalOf(error) })),
       this.lfs.store.get(record.store).catch(() => null),
       this.lfs.project.stats(project).catch(() => null),
     ])
     const projects = Array.isArray(storeRecord?.projects) ? new Set(storeRecord.projects).size : null
     return {
       ...view,
-      store: { name: record.store, projects, ...('refusal' in store ? { refusal: store.refusal } : { historyLogical: store.history_logical ?? null, canonical: store.canonical ?? null, stored: store.stored ?? null, metadata: store.metadata ?? null, file: store.file ?? null }) },
-      main: main ? { logical: main.logical ?? null, files: main.files ?? null, directories: main.directories ?? null, complete: main.complete !== false } : null,
+      store: { name: record.store, projects, ...('refusal' in store ? { refusal: store.refusal } : { historyLogical: store.logical_bytes ?? null, canonical: store.canonical_bytes ?? null, stored: store.stored_bytes ?? null, metadata: store.metadata_bytes ?? null, file: store.file_bytes ?? null }) },
+      main: main ? { logical: main.size ?? null, files: main.file_count ?? null, directories: main.dir_count ?? null, complete: main.partial !== true } : null,
     }
   }
 
@@ -759,11 +790,11 @@ export class Projects {
    */
   async projectSize(key: string, q: URLSearchParams) {
     const record = await this.record(key)
-    const project = keyOf(record), created = typeof record.created === 'number' ? record.created : null
-    const files = this.lfs.project.stats(project).then((main: any) => typeof main?.logical === 'number' ? main.logical : null, () => null)
+    const project = keyOf(record), created = msAt(record.created_at)
+    const files = this.lfs.project.stats(project).then((main: any) => typeof main?.size === 'number' ? main.size : null, () => null)
     if (q.get('alone') === '1') {
-      const [store, logical] = await Promise.all([this.lfs.store.stats(record.store).catch(() => null), files])
-      return { project, stored: typeof store?.stored === 'number' ? store.stored : null, counting: false, files: logical }
+      const [store, logical] = await Promise.all([this.lfs.store.get(record.store, { with: ['stats'] }).then((r: any) => r?.stats ?? null, () => null), files])
+      return { project, stored: typeof store?.stored_bytes === 'number' ? store.stored_bytes : null, counting: false, files: logical }
     }
     const [view, logical] = await Promise.all([this.storageLedgers.view(project, created), files])
     return { project, stored: view.totals && !view.partial ? view.totals.stored : null, counting: view.partial || view.building !== null, files: logical }
@@ -773,34 +804,33 @@ export class Projects {
     const project = projectRef(key).key
     const branch = q.get('branch')
     if (!branch) {
-      const pos = Number(q.get('pos') ?? 0)
-      if (!Number.isSafeInteger(pos) || pos < 0) throw fail('pos must be a nonnegative integer')
-      const page = await this.branchPage(project, pos)
-      return { branches: page.items.map((b: any) => ({ name: b.name, head: pinOf(b), base: b.base, forkedFrom: b.forked_from ?? null })), next: page.next }
+      const page = await this.branchPage(project, q.get('pos'))
+      return { branches: page.items.map((b: any) => ({ name: String(b.branch), head: pinOf(b), base: b.base ?? null, forkedFrom: b.forked_from ?? null })), next: page.next }
     }
     const commit = q.get('commit')
     if (commit) {
-      const c = await this.lfs.branch.get_commit(project, branch, commit)
+      const c = await this.lfs.commit.get(project, commit, { branch, detail: true })
+      const id = String(c?.commit ?? commit)
       const from = q.get('from') ?? c.parent ?? c.base
-      if (!from) return { item: commitInfo(c, branch), changes: [], nextChanges: null }
-      const diff = await this.lfs.commit.diff(project, from, c.id, { paths_only: true, page_size: 100, ...(q.get('cursor') ? { cursor: q.get('cursor') } : {}) })
-      return { item: commitInfo(c, branch), changes: diff.items ?? [], nextChanges: diff.next_cursor ?? null }
+      if (!from) return { item: commitInfo({ ...c, commit: id }, branch), changes: [], nextChanges: null }
+      const diff = await this.lfs.commit.diff(project, id, { from, limit: 100, ...(q.get('cursor') ? { cursor: q.get('cursor') } : {}) })
+      return { item: commitInfo({ ...c, commit: id }, branch), changes: (diff.items ?? []).map(({ path, change }: any) => ({ path, kind: String(change) })), nextChanges: diff.next_cursor ?? null }
     }
     // Resume from the immutable last parent, rather than re-reading a moving head.
     const at = q.get('at') ?? q.get('head')
     // the caller's fork point from the Branch list (`fork`) saves a branch.get per Branch
-    const fork = branch === 'main' ? null : q.get('fork') || (await this.lfs.branch.get(project, branch)).forked_from
+    const fork = branch === 'main' ? null : q.get('fork') || (await this.lfs.branch.get(project, branch, { detail: true })).forked_from
     if (q.get('count')) return this.historyCount(project, branch, at, fork)
     const wide = !!q.get('wide')
     const cacheKey = at ? JSON.stringify([project, branch, at, fork, wide]) : null
     const cached = cacheKey ? this.historyPages.get(cacheKey) : undefined
     if (cached) { this.historyPages.delete(cacheKey!); this.historyPages.set(cacheKey!, cached); return cached }
-    const page = wide ? await this.widePage(project, branch, at) : await this.lfs.branch.commits(project, branch, { page: 1, page_size: HISTORY_PAGE_SIZE, ...(at ? { at_commit: at } : {}) })
-    const all: any[] = page.items ?? []
+    const page = await this.commitPage(project, branch, at, wide ? HISTORY_WIDE_PAGE : HISTORY_PAGE_SIZE)
+    const all: any[] = page.items
     const boundary = fork ? all.findIndex((c) => c.id === fork) : -1
     const items = boundary < 0 ? all : all.slice(0, boundary)
     const parent = items.at(-1)?.parent
-    const answer = { items: items.map((c) => commitInfo(c, branch)), head: page.at_commit?.id ?? (typeof page.at_commit === 'string' ? page.at_commit : null) ?? at ?? items[0]?.id ?? null, next: page.has_more && boundary < 0 && parent !== fork ? parent ?? null : null }
+    const answer = { items: items.map((c) => commitInfo(c, branch)), head: at ?? items[0]?.id ?? null, next: page.more && boundary < 0 && parent !== fork ? parent ?? null : null }
     if (cacheKey) {
       this.historyPages.set(cacheKey, answer)
       if (this.historyPages.size > HISTORY_PAGES_KEPT) this.historyPages.delete(this.historyPages.keys().next().value!)
@@ -826,8 +856,8 @@ export class Projects {
       let count = 0
       let at: string = head
       for (;;) {
-        const page = await this.widePage(project, branch, at)
-        const rows: any[] = page.items ?? []
+        const page = await this.commitPage(project, branch, at, HISTORY_WIDE_PAGE)
+        const rows: any[] = page.items
         let done = false
         for (const c of rows) {
           if (fork && c.id === fork) { done = true; break }
@@ -835,7 +865,7 @@ export class Projects {
           count++
         }
         const parent = rows.at(-1)?.parent
-        if (done || !page.has_more || !rows.length || !parent || parent === fork || parent === at) break
+        if (done || !page.more || !rows.length || !parent || parent === fork || parent === at) break
         at = parent
       }
       const answer = { head, count }
@@ -848,89 +878,144 @@ export class Projects {
     try { return await run } finally { this.counting.delete(flight) }
   }
 
-  /** The widest page of a Branch's Commits from `at` that fits LayerFS's reply budget. */
-  async widePage(project: string, branch: string, at: string | null): Promise<any> {
-    for (let size = HISTORY_WIDE_PAGE; ; size = Math.floor(size / 2)) {
-      try {
-        return await this.lfs.branch.commits(project, branch, { page: 1, page_size: size, ...(at ? { at_commit: at } : {}) })
-      } catch (error: any) {
-        if (size <= 1 || !/reply budget/i.test(String(error?.message ?? ''))) throw error
-      }
-    }
+  /**
+   * One page of a Branch's Commits from `at` (2.0 `commit list --at --detail`),
+   * newest first, each row with its `id`; `more` when LayerFS has another page.
+   * Pages after the first resume at the last row's parent, so each is an
+   * immutable read the host can keep.
+   */
+  async commitPage(project: string, branch: string, at: string | null, limit: number): Promise<{ items: any[], more: boolean }> {
+    const page: any = await this.lfs.commit.list(project, branch, { limit, ...(at ? { at } : {}), detail: true })
+    return { items: (page?.items ?? []).map((c: any) => ({ ...c, id: c.commit })), more: !!page?.next_cursor }
   }
 
-  /** One bounded immutable directory page; metadata is read only for opened files. */
+  /** One bounded immutable directory page (2.0 `file list --at`, by cursor); metadata is read only for opened files. */
   async listDir(key: string, branch: string, path: string, pin: string | null, pos: string | number = 0) {
     validate(branch, path)
     const project = projectRef(key).key
     const at = await this.saved(project, branch, pin)
-    if (!Number.isSafeInteger(Number(pos)) || Number(pos) < 0) throw fail('pos must be a nonnegative integer')
-    const page = await this.lfs.file.list(project, branch, path, at, { page_size: 1000, page_pos: Number(pos) })
-    return { items: page.items.map((i: any) => ({ name: i.name, path: i.path, kind: i.type ?? 'file', size: i.size ?? null, mode: i.mode ?? null })), next: page.has_more ? page.next_page_pos ?? null : null, at: page.at ?? { id: at } }
+    const cursor = pos === 0 || pos === '0' || pos === '' ? null : String(pos)
+    const page: any = await this.lfs.file.list(project, branch, path, { at, limit: 1000, ...(cursor ? { cursor } : {}) })
+    const items = (page?.items ?? []).map((i: any) => ({ name: String(i.path).split('/').filter(Boolean).at(-1) ?? String(i.path), path: i.path, kind: i.type ?? 'file', size: null, mode: null }))
+    return { items, next: page?.next_cursor ?? null, at: { id: at } }
   }
 
+  /** A window of a saved file (`file stat` and `file read --at --line --limit --detail`; a file that is not text answers `binary`). */
   async file(key: string, branch: string, path: string | null, pin: string | null, line: string | number = 1) {
     validate(branch, path)
     const project = projectRef(key).key
     const at = await this.saved(project, branch, pin)
     if (!Number.isSafeInteger(Number(line)) || Number(line) < 1) throw fail('line must be a positive integer')
-    const stat = await this.lfs.file.stat(project, branch, path, at)
-    try {
-      const window = await this.lfs.file.read(project, branch, path, at, { start_line: Number(line), end_line: Number(line) + 999 })
-      return { ...window, path, size: stat.size, mode: stat.mode, binary: false, at: window.at ?? { id: at } }
-    } catch (e: any) {
-      if (e?.code === 'Binary') return { path, size: stat.size, binary: true, text: null, at: { id: at } }
-      throw e
+    const stat: any = await this.lfs.file.stat(project, branch, path, { at })
+    const window: any = await this.lfs.file.read(project, branch, path, { at, line: Number(line), limit: 1000, detail: true })
+    if (window?.binary === true) return { path, size: stat.size, binary: true, text: null, at: { id: at } }
+    return {
+      path, size: stat.size, mode: stat.mode, binary: false, text: typeof window?.text === 'string' ? window.text : '',
+      next_line: window?.next_line ?? null, line_truncated: window?.line_truncated === true, at: { id: at },
     }
   }
 
+  /**
+   * The saved-file queries: `blame` (file blame's ranges with file read's
+   * lines for the same window), `revisions` (file history), `compare` (commit
+   * diff of one path, `--with patch`) and `branch-diff` (commit diff under a
+   * path). 2.0 has no line ownership across a diff: `attribution` answers the
+   * comparison with its attribution unavailable (file blame names owners).
+   */
   async fileQuery(key: string, q: URLSearchParams) {
     const project = projectRef(key).key, branch = q.get('branch') ?? 'main', path = q.get('path')
     validate(branch, path)
     const at = await this.saved(project, branch, q.get('pin'))
     const kind = q.get('kind'), pageSize = integer(q, 'size', 50, 1000)
-    if (kind === 'blame') return this.lfs.file.blame(project, branch, path, at, { from_line: integer(q, 'line', 1, Number.MAX_SAFE_INTEGER), line_count: 1000 })
-    if (kind === 'revisions') return this.lfs.file.revision(project, branch, path, { at_commit: at, traversal: q.get('traversal') ?? 'provenance', page_size: pageSize, ...(q.get('continuation') ? { continuation: q.get('continuation') } : { page: integer(q, 'page', 1) }) })
+    if (kind === 'blame') {
+      const line = integer(q, 'line', 1, Number.MAX_SAFE_INTEGER)
+      const [window, blame]: any[] = await Promise.all([
+        this.lfs.file.read(project, branch, path, { at, line, limit: 1000, detail: true }),
+        this.lfs.file.blame(project, branch, path, { at, line, limit: 1000, detail: true }),
+      ])
+      const messages = new Map<string, string | null>((Array.isArray(blame?.commits) ? blame.commits : []).map((c: any) => [String(c.commit), c.message ?? null]))
+      const ranges: any[] = Array.isArray(blame?.ranges) ? blame.ranges : []
+      const text: string = typeof window?.text === 'string' ? window.text : ''
+      const rows = text === '' ? [] : text.replace(/\n$/, '').split('\n')
+      const lines = rows.map((t, i) => {
+        const n = line + i
+        const owner = ranges.find((r) => n >= r.start && n <= r.end)?.commit
+        return { n, text: t, owner: owner ? { ref: savedRef(owner)!, message: messages.get(String(owner)) ?? null } : null }
+      })
+      return { at: savedRef(at, branch), lines, coverage: { status: blame?.partial ? 'partial' : 'complete' }, next_line: blame?.next_line ?? window?.next_line ?? null }
+    }
+    if (kind === 'revisions') {
+      const page: any = await this.lfs.file.history(project, branch, path, { at, traversal: q.get('traversal') ?? 'provenance', limit: pageSize, ...(q.get('continuation') ? { cursor: q.get('continuation') } : {}), detail: true })
+      return {
+        items: (page?.items ?? []).map((r: any) => ({
+          ref: savedRef(r.commit, branch), compared_to: savedRef(r.parent, branch), kind: changeKind(r.change), message: r.message ?? null,
+          recorded_at: msAt(r.created_at), after: typeof r.size === 'number' ? { size: r.size } : null,
+          changes: { content: r.content ?? undefined, metadata: r.metadata ?? undefined, identity: r.identity ?? undefined },
+        })),
+        has_more: !!page?.next_cursor, continuation: page?.next_cursor ?? null,
+      }
+    }
     if (kind === 'compare' || kind === 'attribution') {
-      const left = q.get('left'), rightBranch = q.get('rightBranch') ?? branch
-      const leftPin = await this.saved(project, rightBranch, left)
-      return this.lfs.file.diff(project, rightBranch, path, branch, path, { left_commit: leftPin, right_commit: at, allow_missing: true, include_attribution: kind === 'attribution', page: integer(q, 'page', 1), page_size: pageSize })
+      const rightBranch = q.get('rightBranch') ?? branch
+      const leftPin = await this.saved(project, rightBranch, q.get('left'))
+      const diff: any = await this.lfs.commit.diff(project, at, { from: leftPin, path, with: ['patch'], limit: 1, detail: true })
+      const item = (diff?.items ?? []).find((i: any) => i.path === path) ?? diff?.items?.[0] ?? null
+      let left = 0, right = 0
+      const rows = (Array.isArray(item?.hunks) ? item.hunks : []).map((h: any) => {
+        const op = h.op === '+' || h.op === '-' ? h.op : ' '
+        if (op !== '+') left++
+        if (op !== '-') right++
+        return { op, text: String(h.text ?? ''), ...(op !== '+' ? { left_line: left } : {}), ...(op !== '-' ? { right_line: right } : {}) }
+      })
+      return {
+        rows, has_more: item?.hunks_omitted === true, change_kind: item ? changeKind(item.change) : 'Unchanged',
+        changes: item ? { content: item.content, metadata: item.metadata, identity: item.identity, attribution: null } : undefined,
+        ...(kind === 'attribution' ? { attribution_coverage: { status: 'unavailable', reasons: ['LayerFS 2.0 names line owners with file blame, not across a diff'] } } : {}),
+      }
     }
     if (kind === 'branch-diff') {
       const left = await this.saved(project, q.get('rightBranch') ?? branch, q.get('left'))
-      return this.lfs.branch.diff(project, q.get('rightBranch') ?? branch, branch, { from_commit: left, to_commit: at, include_attribution: true, path_prefix: path, page_size: pageSize, ...(q.get('continuation') ? { continuation: q.get('continuation') } : { page: integer(q, 'page', 1) }) })
+      const diff: any = await this.lfs.commit.diff(project, at, { from: left, ...(path && path !== '/' ? { path } : {}), limit: pageSize, ...(q.get('continuation') ? { cursor: q.get('continuation') } : {}), detail: true })
+      return {
+        from: savedRef(diff?.from ?? left), to: savedRef(diff?.to ?? at, branch),
+        items: (diff?.items ?? []).map((i: any) => ({ path: i.path, kind: changeKind(i.change), type: i.type ?? 'file', content: i.content, metadata: i.metadata, attribution: null, changed_owner_lines: null })),
+        has_more: !!diff?.next_cursor, continuation: diff?.next_cursor ?? null, coverage: { complete: true },
+      }
     }
     throw fail('Unknown saved-file query.')
   }
 
   async branches(key: string, q: URLSearchParams) {
     const project = projectRef(key).key
-    if (q.get('branch')) return this.lfs.branch.get(project, q.get('branch'))
-    const pos = Number(q.get('pos') ?? 0)
-    if (!Number.isSafeInteger(pos) || pos < 0) throw fail('pos must be a nonnegative integer')
-    const page = await this.branchPage(project, pos)
-    return { items: page.items.map((b: any) => ({ name: b.name, head: pinOf(b), parent: null, forkedFrom: b.forked_from ?? null, state: 'open', commits: null })), next: page.next }
+    if (q.get('branch')) return this.lfs.branch.get(project, q.get('branch'), { detail: true })
+    const page = await this.branchPage(project, q.get('pos'))
+    return { items: page.items.map((b: any) => ({ name: String(b.branch), head: pinOf(b), parent: null, forkedFrom: b.forked_from ?? null, state: 'open', commits: null })), next: page.next }
   }
 
   /**
-   * One page of a project's Branches (branch.list, 100 at a time), main first:
-   * main is read on its own for page 0 and left out of every listed page, since
-   * name order puts it on any page (`dsh.*` sorts before it). Page 0 is never
-   * empty, so a client that hides internal Branches still has one to show.
+   * One page of a project's Branches (`branch list --detail`, 100 at a time,
+   * by cursor; `pos` is the cursor, `0` or none the first page), main first:
+   * main is read on its own for the first page and left out of every listed
+   * page, since name order puts it on any page (`dsh.*` sorts before it). The
+   * first page is never empty, so a client that hides internal Branches still
+   * has one to show.
    */
-  private async branchPage(project: string, pos: number): Promise<{ items: any[], next: number | null }> {
-    const [page, main] = await Promise.all([
-      this.lfs.branch.list(project, { page_size: 100, page_pos: pos }),
-      pos === 0 ? this.lfs.branch.get(project, 'main') : null,
+  private async branchPage(project: string, pos: string | null): Promise<{ items: any[], next: string | null }> {
+    const cursor = pos && pos !== '0' ? pos : null
+    const [page, main]: any[] = await Promise.all([
+      this.lfs.branch.list(project, { limit: 100, ...(cursor ? { cursor } : {}), detail: true }),
+      cursor ? null : this.lfs.branch.get(project, 'main', { detail: true }),
     ])
-    const items = (page.items ?? []).filter((b: any) => b.name !== 'main')
-    return { items: main ? [main, ...items] : items, next: page.next_page_pos ?? null }
+    const items = (page?.items ?? []).filter((b: any) => b.branch !== 'main')
+    return { items: main ? [{ ...main, branch: 'main' }, ...items] : items, next: page?.next_cursor ?? null }
   }
 
+  /** `project stats --branch --at`: main's (or a Branch's) tree at a pin, in the view's words. */
   async projectStats(key: string, q: URLSearchParams) {
     const project = projectRef(key).key, branch = q.get('branch') ?? 'main'
     const at = await this.saved(project, branch, q.get('pin'))
-    return { ...await this.lfs.project.stats(project, branch, at), projectKey: project }
+    const s: any = await this.lfs.project.stats(project, { branch, at })
+    return { files: s?.file_count ?? null, directories: s?.dir_count ?? null, symlinks: s?.symlink_count ?? null, logical: s?.size ?? null, complete: s?.partial !== true, projectKey: project }
   }
 
   // ---------- Commits ----------
@@ -940,10 +1025,10 @@ export class Projects {
     const limit = limitText == null || limitText === '' ? LIMIT : Number(limitText)
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > PAGE) throw refuse(400, 'InvalidInput', `limit must be a whole number from 1 to ${PAGE}`)
     const { key: project } = projectRef(key)
-    // main is a chain of Layers, not a Branch: commit.list refuses it
+    // main's rows are its publications: the Commits list reads side Branches
     if (branch === 'main') return []
-    const b = await this.lfs.branch.get(project, branch)
-    return this.withChanges(project, branch, await this.ownCommits(project, b, limit))
+    const b: any = await this.lfs.branch.get(project, branch, { detail: true })
+    return this.withChanges(project, branch, await this.ownCommits(project, { name: branch, forked_from: b?.forked_from ?? null }, limit))
   }
 
   /** `{ [branch]: CommitInfo[] }` for several Branches (main's are []); a Branch gone since the caller saw it is left out. */
@@ -954,28 +1039,28 @@ export class Projects {
     for (const b of branches) checkBranch(b)
     const wanted = [...new Set(branches)]
     const out: Record<string, unknown> = Object.fromEntries(wanted.filter((b) => b === 'main').map((b) => [b, []]))
-    const listed = new Map((await pages((p) => this.lfs.branch.list(project, p))).map((b: any) => [b.name, b]))
+    const listed = new Map((await pages((p) => this.lfs.branch.list(project, { ...p, detail: true }))).map((b: any) => [String(b.branch), b]))
     await each(wanted.filter((b) => b !== 'main' && listed.has(b)), WIDTH, async (branch) => {
       try {
-        out[branch] = await this.withChanges(project, branch, await this.ownCommits(project, listed.get(branch), LIMIT))
+        out[branch] = await this.withChanges(project, branch, await this.ownCommits(project, { name: branch, forked_from: listed.get(branch).forked_from ?? null }, LIMIT))
       } catch (error: any) {
-        if (error?.code !== 'NoSuchBranch') throw error
+        if (error?.code !== 'NotFound') throw error
       }
     })
     return out
   }
 
-  /** A Branch's own Commits (records), newest first: commit.list stops at the fork. */
-  async ownCommits(project: string, branch: any, limit: number) {
+  /** A Branch's own Commits (records), newest first: the walk stops at the fork. */
+  async ownCommits(project: string, branch: { name: string, forked_from: string | null }, limit: number) {
     const items: any[] = []
-    let at: string | undefined
+    let at: string | null = null
     while (items.length < limit) {
-      const result = await this.lfs.branch.commits(project, branch.name, { page: 1, page_size: Math.min(HISTORY_PAGE_SIZE, limit - items.length), ...(at ? { at_commit: at } : {}) })
-      const rows = (result.items ?? []).map((c: any) => ({ ...c, branch: c.branch ?? c.ref?.branch ?? branch.name }))
+      const page = await this.commitPage(project, branch.name, at, Math.min(HISTORY_PAGE_SIZE, limit - items.length))
+      const rows = page.items.map((c: any) => ({ ...c, branch: c.branch ?? branch.name }))
       const boundary = rows.findIndex((c: any) => c.id === branch.forked_from)
       items.push(...(boundary < 0 ? rows : rows.slice(0, boundary)))
       const parent = rows.at(-1)?.parent
-      if (!result.has_more || boundary >= 0 || !parent || parent === branch.forked_from || parent === at || !rows.length) break
+      if (!page.more || boundary >= 0 || !parent || parent === branch.forked_from || parent === at || !rows.length) break
       at = parent
     }
     return items
@@ -992,9 +1077,9 @@ export class Projects {
   }
 
   /**
-   * One Commit's changed paths: commit.diff from its parent, or for a
-   * Branch's first Commit from its base Layer (`commit diff <layer> <commit>`,
-   * as history() reads it). A failed diff is logged.
+   * One Commit's changed paths: `commit diff <commit> --from <parent>`, or for
+   * a Branch's first Commit from its base (as history() reads it). A failed
+   * diff is logged.
    */
   async changesOf(project: string, c: any) {
     if (this.changes.has(c.id)) return this.changes.get(c.id)
@@ -1003,8 +1088,8 @@ export class Projects {
     try {
       const items: any[] = []
       for (let cursor: string | null = null; ;) {
-        const page: any = await this.lfs.commit.diff(project, from, c.id, { paths_only: true, page_size: PAGE, ...(cursor ? { cursor } : {}) })
-        items.push(...page.items.map(({ path, kind }: any) => ({ path, kind: String(kind).toLowerCase() })))
+        const page: any = await this.lfs.commit.diff(project, c.id, { from, limit: PAGE, ...(cursor ? { cursor } : {}) })
+        items.push(...(page.items ?? []).map(({ path, change }: any) => ({ path, kind: String(change) })))
         if (page.next_cursor) cursor = page.next_cursor
         else break
       }

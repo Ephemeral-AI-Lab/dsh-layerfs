@@ -10,7 +10,7 @@
  * `<root>/project-storage/`: one row per Commit id (a Commit never changes).
  * A refresh lists the Branches, walks each moved Branch newest first until a
  * Commit the ledger has, taking the counters from the listing itself
- * (`branch.commits --include-storage`, one call per page instead of one per
+ * (`commit list --detail`, one call per page instead of one per
  * Commit), and counts main's publications. Reads of one Store run one at a
  * time, so the walk is sequential: page reads of the same Store take their
  * turn between its pages. The first read of a long history runs in the
@@ -23,10 +23,8 @@ import { join, resolve } from 'node:path'
 import type { Lfs } from '../layerfs/cli.ts'
 import { pages } from './util.ts'
 
-/** Rows per `branch.commits` page (a smaller page when one does not fit). */
-const PAGE_SIZES = [100, 25, 5]
-/** The same with the storage counters, whose rows are larger (25 fit the reply budget). */
-const STORAGE_PAGE_SIZES = [25, 10, 5]
+/** Rows per `commit list` page. */
+const PAGE_SIZE = 100
 /** The ledger is saved at most this often during a long read, to survive a restart. */
 const SAVE_MS = 5000
 /** Newest saves the page draws as bars. */
@@ -61,8 +59,8 @@ interface Job { promise: Promise<void>, progress: StorageProgress, ledger: Ledge
 
 const digest = (value: string) => createHash('sha256').update(value).digest('hex')
 const num = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? value : 0
-const isCommit = (c: any) => (c?.ref?.kind ?? (String(c?.id).startsWith('32') ? 'Layer' : 'Commit')) === 'Commit'
-const counted = (c: any) => typeof c?.new_canonical === 'number' && typeof c?.new_stored === 'number' && typeof c?.new_metadata === 'number'
+/** A side Branch's own Commit (a publication on main has `source_branch`). */
+const isCommit = (c: any) => !c?.source_branch
 
 export class ProjectStorageLedgers {
   readonly directory: string
@@ -71,7 +69,6 @@ export class ProjectStorageLedgers {
   private readonly errors = new Map<string, any>()
   private readonly finished = new Map<string, number>()
   /** CLI clients that refused `include_storage` (builds older than it); a runtime switch makes a new client. */
-  private readonly withoutStorage = new WeakSet<object>()
 
   constructor(root: string, home: string, private readonly lfs: () => Lfs, private readonly log: (line: string) => void = () => {}, private readonly now: () => number = Date.now) {
     this.directory = join(root, 'project-storage')
@@ -121,85 +118,71 @@ export class ProjectStorageLedgers {
   async close(): Promise<void> { await Promise.all([...this.jobs.values()].map((job) => job.promise)) }
 
   /**
-   * Walks `branch` from `head` newest first, handing each page's rows to `take`
-   * until `known` matches. A page refused as too large is listed again in
-   * smaller pages from the same row on, so no row is taken twice.
+   * Walks `branch` from `head` newest first (2.0 `commit list --at <head>
+   * --detail`, by cursor: the cursor pins the Commit the first page read),
+   * handing each page's rows to `take` until `known` matches. The long rows
+   * always carry their byte counts.
    */
-  private async walk(project: string, branch: string, head: string, known: (id: string) => boolean, counters: boolean, take: (rows: any[]) => Promise<void>): Promise<void> {
-    const storage = counters && !this.withoutStorage.has(this.lfs())
-    const sizes = storage ? STORAGE_PAGE_SIZES : PAGE_SIZES
-    let taken = 0
-    for (const [index, size] of sizes.entries()) {
-      try {
-        for (;;) {
-          const skip = taken % size
-          const listed = await this.lfs().branch.commits(project, branch, { page: Math.floor(taken / size) + 1, page_size: size, at_commit: head, ...(storage ? { include_storage: true } : {}) })
-          const items: any[] = listed.items ?? []
-          const rows: any[] = []
-          let reached = false
-          for (const c of items.slice(skip)) {
-            if (known(c.id)) { reached = true; break }
-            rows.push(c)
-          }
-          taken += rows.length
-          await take(rows)
-          if (reached || !listed.has_more || items.length <= skip) return
-        }
-      } catch (error: any) {
-        // a CLI older than `--include-storage` refuses the option before listing anything:
-        // list without it, and each Commit is read whole (`row`)
-        if (storage && taken === 0 && error?.code === 'InvalidInput' && /include_storage/.test(String(error?.message))) {
-          this.withoutStorage.add(this.lfs())
-          this.log('[host] project storage: this LayerFS CLI lists no storage counters; reading each save')
-          return this.walk(project, branch, head, known, counters, take)
-        }
-        // a page whose reply does not fit is refused whole: list smaller pages
-        if (error?.code !== 'Capacity' || index === sizes.length - 1) throw error
+  private async walk(project: string, branch: string, head: string, known: (id: string) => boolean, take: (rows: any[]) => Promise<void>): Promise<void> {
+    let cursor: string | null = null
+    for (;;) {
+      const listed: any = await this.lfs().commit.list(project, branch, { at: head, limit: PAGE_SIZE, ...(cursor ? { cursor } : {}), detail: true })
+      const rows: any[] = []
+      let reached = false
+      for (const c of listed?.items ?? []) {
+        const id = String(c.commit)
+        if (known(id)) { reached = true; break }
+        rows.push({ ...c, id })
       }
+      await take(rows)
+      const next: string | null = listed?.next_cursor ?? null
+      if (reached || !next || next === cursor) return
+      cursor = next
     }
   }
 
-  /** A ledger row from a listed Commit; one without counters (an older listing) is read whole. */
-  private async row(project: string, branch: string, c: any): Promise<Row> {
-    const r = counted(c) ? c : { ...c, ...await this.lfs().branch.get_commit(project, branch, c.id) }
-    return [typeof r.time === 'number' ? r.time : null, r.via ?? null, num(r.logical), num(r.new_canonical), num(r.new_stored), num(r.new_metadata), branch, String(r.message ?? '').slice(0, MESSAGE)]
+  /** A ledger row from a listed 2.0 Commit (`created_at`, `size`, `new_*_bytes`). */
+  private row(branch: string, c: any): Row {
+    const at = typeof c.created_at === 'string' ? Date.parse(c.created_at) : NaN
+    return [Number.isFinite(at) ? at : null, c.via ?? null, num(c.size), num(c.new_canonical_bytes), num(c.new_stored_bytes), num(c.new_metadata_bytes), branch, String(c.message ?? '').slice(0, MESSAGE)]
   }
 
   private async build(project: string, created: number | null, job: Job): Promise<void> {
     const lfs = this.lfs(), progress = job.progress
     const ledger = job.ledger = await this.read(project, created)
-    const branches: any[] = await pages((p) => lfs.branch.list(project, p))
-    const side = branches.filter((b) => b.name !== 'main' && b.head)
+    const branches: any[] = await pages((p) => lfs.branch.list(project, { ...p, detail: true }))
+    // a Branch with no Commit of its own answers the Commit it was forked at
+    const side = branches.filter((b) => b.branch !== 'main' && b.commit && b.commit !== b.forked_from)
     progress.branchesTotal = side.length
     let dirty = false, lastWrite = this.now()
     // keep progress across a restart of a long first read
     const save = async () => { if (dirty && this.now() - lastWrite > SAVE_MS) { await this.write(ledger); dirty = false; lastWrite = this.now() } }
     for (const b of side) {
-      const head: string = b.saved_head?.id ?? b.head
-      if (ledger.heads[b.name] !== head) {
-        await this.walk(project, b.name, head, (id) => id in ledger.commits, true, async (rows) => {
+      const head: string = b.commit
+      if (ledger.heads[b.branch] !== head) {
+        await this.walk(project, b.branch, head, (id) => id in ledger.commits, async (rows) => {
           for (const c of rows.filter(isCommit)) {
-            ledger.commits[c.id] = await this.row(project, b.name, c)
+            ledger.commits[c.id] = this.row(b.branch, c)
             progress.saves++
           }
           dirty = true
           await save()
         })
-        ledger.heads[b.name] = head
+        ledger.heads[b.branch] = head
         dirty = true
       }
       progress.branches++
       await save()
     }
     // main's publications: Layers, newest first, down to the newest one counted
-    const main = branches.find((b) => b.name === 'main')
-    const mainHead: string | null = main ? main.saved_head?.id ?? main.base ?? null : null
+    const main = branches.find((b) => b.branch === 'main')
+    const mainHead: string | null = main?.commit ?? null
     if (mainHead && mainHead !== ledger.publications.head) {
       const layers: any[] = []
-      await this.walk(project, 'main', mainHead, (id) => id === ledger.publications.head, false, async (rows) => { layers.push(...rows) })
+      await this.walk(project, 'main', mainHead, (id) => id === ledger.publications.head, async (rows) => { layers.push(...rows) })
       ledger.publications = {
         count: ledger.publications.count + layers.length,
-        logical: ledger.publications.logical + layers.reduce((sum, c) => sum + num(c.logical), 0),
+        logical: ledger.publications.logical + layers.reduce((sum, c) => sum + num(c.size), 0),
         head: mainHead,
       }
       dirty = true

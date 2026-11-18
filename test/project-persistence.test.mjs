@@ -19,11 +19,12 @@ async function fixture(branches = ['main']) {
   const dir = mkdtempSync(join(root, '.dev-test-persistence-'))
   const ctx = new Context()
   // One project whose branches hold its UUID (`dsh.project.<uuid>`) once claimed.
-  const info = (key) => ({ project: key, store: key.split('/')[0], name: key.split('/')[1], kind: 'sqlite', machine: 'native', created: 100 })
+  // 2.0 long forms: a project row, Branch rows keyed by `branch` (listed by prefix), a ready Store
+  const info = (key) => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine: 'native', created_at: '1970-01-01T00:00:00.100Z' })
   ctx.provide('layerfs', { root: join(dir, 'plugin'), projectSessionHome: join(dir, 'project-home'), home: join(dir, 'layerfs-home'), lfs: {
     project: { list: async () => ({ items: [info('store/project')] }), get: async (key) => info(key) },
-    branch: { list: async () => ({ items: branches.map((name) => ({ name })) }), fork: async (_, name) => { if (!branches.includes(name)) branches.push(name); return {} } },
-    store: { status: async () => ({ state: 'idle' }) },
+    branch: { list: async (_, o = {}) => ({ items: branches.filter((name) => !o.prefix || name.startsWith(o.prefix)).map((branch) => ({ branch })) }), fork: async (_, name) => { if (!branches.includes(name)) branches.push(name); return { commit: `32${'a'.repeat(64)}` } } },
+    store: { get: async () => ({ state: 'ready' }) },
   } })
   const fork = ctx.plugin(persistence, { root: join(dir, 'normal') })
   await fork.await()
@@ -112,7 +113,7 @@ function archiveFixture(f, files) {
       applied.push(changes)
       for (const change of changes) {
         if (change.op === 'write') files.set(change.path, change.content)
-        if (change.op === 'rm') { if (!files.has(change.path)) throw Object.assign(new Error(change.path), { code: 'NoSuchPath' }); files.delete(change.path) }
+        if (change.op === 'rm') { if (!files.has(change.path)) throw Object.assign(new Error(change.path), { code: 'NotFound' }); files.delete(change.path) }
       }
     },
     read: async (_, branch, path) => ({ text: files.get(path) }),
@@ -486,7 +487,7 @@ test('a failed first archive save is retried as a first save; another writer\'s 
       archiveBranches.add(name); return {}
     }
     const read = lfs.file.read
-    lfs.file.read = async (project, branch, path, options) => { if (!files.has(path)) throw refusal('NoSuchPath'); return read(project, branch, path, options) }
+    lfs.file.read = async (project, branch, path, options) => { if (!files.has(path)) throw refusal('NotFound'); return read(project, branch, path, options) }
     const apply = lfs.file.apply
     let failures = 1
     lfs.file.apply = async (...args) => { if (failures-- > 0) throw refusal('Unavailable'); return apply(...args) }
@@ -733,17 +734,19 @@ test('discover rereads a stored session manifest only when its Branch head moves
   const manifest = (name) => JSON.stringify({ sessionId: name.slice('dsh.session.'.length), projectId: 'p', title: `${name} @ ${heads[name]}`, count: 3, checkpoints: [] })
   const fake = {
     branch: {
-      list: async () => {
+      // 2.0 `branch list --prefix`: rows `{ branch, commit }`
+      list: async (_p, o = {}) => {
         lists++
         await new Promise((r) => setTimeout(r, 5))
-        return { items: [{ name: 'main', head: null, saved_head: { id: 'm1' } }, ...Object.keys(heads).map((name) => ({ name, head: heads[name] }))], next_page_pos: null }
+        const items = [{ branch: 'main', commit: 'm1' }, ...Object.keys(heads).map((branch) => ({ branch, commit: heads[branch] }))]
+        return { items: items.filter((b) => !o.prefix || b.branch.startsWith(o.prefix)) }
       },
     },
     file: {
       read: async (_project, branch) => {
         reads.push(branch)
         const text = manifest(branch) + '\n'
-        return { kind: 'ok', start_line: 1, line_truncated: false, truncated: false, next_line: null, text, size: Buffer.byteLength(text) }
+        return { text, next_line: null, line_truncated: false, binary: false, size: Buffer.byteLength(text), start_line: 1, end_line: 1 }
       },
     },
   }

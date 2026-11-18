@@ -13,15 +13,15 @@ export const projectPath = (project: string): string => `/api/projects/${encodeU
 export const isInternalBranch = (name: string): boolean => name.startsWith('dsh.project.') || name.startsWith('dsh.session.')
 
 export const filesApi = {
-  branches: (api: LayerfsApi, project: string, pos = 0) =>
-    api.call<{ items: BranchInfo[], next: number | null }>('GET', `${projectPath(project)}/branches${q({ pos })}`)
+  branches: (api: LayerfsApi, project: string, pos: number | string = 0) =>
+    api.call<{ items: BranchInfo[], next: string | null }>('GET', `${projectPath(project)}/branches${q({ pos })}`)
       .then((page) => ({ ...page, items: page.items.filter((b) => !isInternalBranch(b.name)) })),
-  list: (api: LayerfsApi, project: string, branch: string, path: string, pin?: string, pos = 0) =>
-    api.call<{ items: FsEntry[], next: number | null, at: { id: string } }>('GET', `${projectPath(project)}/fs${q({ branch, path, pin, pos })}`),
+  list: (api: LayerfsApi, project: string, branch: string, path: string, pin?: string, pos: number | string = 0) =>
+    api.call<{ items: FsEntry[], next: string | null, at: { id: string } }>('GET', `${projectPath(project)}/fs${q({ branch, path, pin, pos })}`),
   file: (api: LayerfsApi, project: string, branch: string, path: string, pin?: string, line = 1) =>
     api.call<FileWindow>('GET', `${projectPath(project)}/file${q({ branch, path, pin, line })}`),
-  historyBranches: (api: LayerfsApi, project: string, pos = 0) =>
-    api.call<{ branches: HistoryBranch[], next: number | null }>('GET', `${projectPath(project)}/history${q({ pos })}`)
+  historyBranches: (api: LayerfsApi, project: string, pos: number | string = 0) =>
+    api.call<{ branches: HistoryBranch[], next: string | null }>('GET', `${projectPath(project)}/history${q({ pos })}`)
       .then((page) => ({ ...page, branches: page.branches.filter((b) => !isInternalBranch(b.name)) })),
   /**
    * One page of `branch`'s Commits from `at` (a page's `next`, or the Branch's head from
@@ -44,7 +44,7 @@ export const filesApi = {
   commit: (api: LayerfsApi, project: string, branch: string, commit: string, from?: string, cursor?: string) =>
     api.call<CommitDetail>('GET', `${projectPath(project)}/history${q({ branch, commit, from, cursor })}`),
   /**
-   * `file.diff` of one path: `left` (saved on `leftBranch`, default `branch`)
+   * `commit.diff --path --with patch` of one path: `left` (saved on `leftBranch`, default `branch`)
    * against `pin` on `branch`. `attribution` also compares each line's owner.
    */
   fileDiff: (api: LayerfsApi, project: string, branch: string, path: string, left: string, pin: string, leftBranch?: string, attribution = false) =>
@@ -52,7 +52,7 @@ export const filesApi = {
   /** `file.blame`: up to 1000 lines from `line`, each with the saved version that last wrote it. */
   blame: (api: LayerfsApi, project: string, branch: string, path: string, pin?: string, line = 1) =>
     api.call<BlameResult>('GET', `${projectPath(project)}/file-query${q({ branch, path, pin, line, kind: 'blame' })}`),
-  /** `file.revision`: the saved changes to a path, newest first; `provenance` follows forks into other branches. */
+  /** `file.history`: the saved changes to a path, newest first; `provenance` follows forks into other branches. */
   revisions: (api: LayerfsApi, project: string, branch: string, path: string, pin: string | undefined, traversal: 'provenance' | 'branch', continuation?: string) =>
     api.call<RevisionPage>('GET', `${projectPath(project)}/file-query${q({ branch, path, pin, traversal, continuation, kind: 'revisions', size: 50 })}`),
   /** `branch.diff`: the paths that differ from `from` (saved on `fromBranch`) to `pin` on `branch`, with owner changes. */

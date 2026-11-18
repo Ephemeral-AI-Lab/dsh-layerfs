@@ -564,7 +564,8 @@ export function apply(ctx: Context): void {
         const to = need(args, 'to')
         const from = typeof args?.from === 'string' && args.from ? args.from : null
         if (!from) return { files: [], from, to }
-        return await ctx.layerfs.lfs.commit.diff(b.project, from, to, { ...(args?.paths_only ? { paths_only: true } : {}) })
+        // 2.0 `commit diff <to> --from <from>`: paths by default, each text file's lines `--with patch`
+        return await ctx.layerfs.lfs.commit.diff(b.project, to, { from, ...(args?.paths_only ? {} : { with: ['patch'] }) })
       },
       'checkpoints.restore': async (args: any) => {
         const id = need(args, 'sessionId')
@@ -576,7 +577,7 @@ export function apply(ctx: Context): void {
         const out = await sessions.branchAt(need(args, 'sessionId'), typeof args?.commit === 'string' ? args.commit : null, Number(args?.turn ?? 0))
         return { ...out, navigate: { sessionId: out.sessionId } }
       },
-      'projects.branches': async (args: any) => ({ items: await pages((p) => ctx.layerfs.lfs.branch.list(need(args, 'project'), p)) }),
+      'projects.branches': async (args: any) => ({ items: await pages((p) => ctx.layerfs.lfs.branch.list(need(args, 'project'), { ...p, detail: true })) }),
     })
   })
 }

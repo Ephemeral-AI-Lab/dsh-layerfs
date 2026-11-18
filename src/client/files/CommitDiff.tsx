@@ -1,6 +1,6 @@
 /**
  * What one saved Commit changed: its changed paths (commit.diff, paths only)
- * and, for the selected path, its hunks (file.diff against the parent, or
+ * and, for the selected path, its hunks (commit.diff against the parent, or
  * against `from` when given) in DSH's diff block.
  */
 import { useEffect, useState, type ReactNode } from 'react'
@@ -38,7 +38,7 @@ export function changeKind(kind: string, t: Translate): { label: string, tone: T
   return { label: t('files_kindModified'), tone: 'neutral' }
 }
 
-/** `file.diff` rows as DiffBlock hunks: contiguous rows form one hunk; a jump in line numbers starts the next. */
+/** Compare rows as DiffBlock hunks: contiguous rows form one hunk; a jump in line numbers starts the next. */
 export function hunksOf(path: string, rows: readonly DiffRow[], added: boolean): DiffHunk[] {
   const hunks: DiffRow[][] = []
   let last: DiffRow | undefined

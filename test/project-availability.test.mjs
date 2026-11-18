@@ -5,7 +5,8 @@ import { transform } from 'esbuild'
 
 const { code } = await transform(readFileSync(new URL('../src/client/projects/availability.ts', import.meta.url), 'utf8'), { loader: 'ts', format: 'esm' })
 const { projectAvailability: availability } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
-const project = { key: 'store/compiler', machine: 'build', kind: 'sqlite', storeState: 'idle' }
+// the project's Store in the 2.0 six states: only a ready Store lets a command run
+const project = { key: 'store/compiler', machine: 'build', kind: 'sqlite', storeState: 'ready' }
 // the machines view over 2.0 records: six states with their companions (op, reason, message), and the live probes
 const view = (state, extra = {}, live = {}) => ({ available: true, machines: [{ name: 'build', platform: 'lima', state, ...extra }], live: { build: live } })
 
@@ -44,13 +45,13 @@ test('checking and machine operations never enable execution', () => {
 })
 
 test('running machine does not conceal storage blockers, including unknown storage state', () => {
-  for (const storeState of ['down', 'busy', 'unresolved', undefined]) {
+  for (const storeState of ['blocked', 'busy', 'broken', 'stopped', 'unknown', undefined]) {
     const result = availability({ ...project, storeState }, view('ready'))
     assert.equal(result.state, 'available')
     assert.equal(result.storageBlocked, true)
     assert.equal(result.canRun, false)
   }
-  assert.equal(availability({ ...project, storeState: 'in_use' }, view('ready')).canRun, true)
+  assert.equal(availability({ ...project, storeState: 'ready' }, view('ready')).canRun, true)
 })
 
 test('native machines are never offered a power action; PostgreSQL uses the default execution machine', () => {

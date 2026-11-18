@@ -220,9 +220,10 @@ test('recovery reuses the persisted project execution context instead of startin
   try {
     const checkpoints = [{ kind: 'turn', turn: 1, commit: 'saved', branch: 'existing-internal', changed: 1 }]
     const { s } = sessions({ layerfsRoot: scratch, lfs: {
-      project: { get: async () => ({ kind: 'sqlite', machine: 'native' }) },
+      project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
       branch: { fork: async () => { throw new Error('recovery must not fork from main') } },
-      sandbox: { get: async () => ({ state: 'running', workspaces: [{ name: 'main', branch: 'existing-internal', directory: scratch }] }) },
+      // 2.0 `sandbox get --detail`: Workspaces `{ workspace, branch, path }`
+      sandbox: { get: async (name) => ({ sandbox: name, state: 'ready', workspaces: [{ workspace: `${name}:main`, branch: 'existing-internal', path: scratch }] }) },
     } })
     const persistence = {
       ownerOf: () => ({ project: 'st/app' }),
@@ -295,8 +296,8 @@ test('close refuses to discard unsaved files after an uncertain checkpoint', asy
   state.sessions.a = { sessionId: 'a', kind: 'project', project: 'st/app', state: 'bound', ws: 'sb:main', sandbox: 'sb', branch: 'internal' }
   let closed = false
   const { s } = sessions({ state, lfs: {
-    workspace: { status: async () => ({ overlay: { entries: 1 } }), commit: async () => { throw new Refusal('Unknown', 'uncertain save') } },
-    sandbox: { close: async () => { closed = true } },
+    workspace: { status: async () => ({ changes: [{ path: '/a', change: 'modified' }], overlay: { entries: 1 } }), commit: async () => { throw new Refusal('Unknown', 'uncertain save') } },
+    sandbox: { remove: async () => { closed = true } },
   } })
   await assert.rejects(s.close('a'), (e) => e.code === 'Unknown')
   assert.equal(closed, false)
@@ -306,14 +307,15 @@ test('close refuses to discard unsaved files after an uncertain checkpoint', asy
 test('ensureBound binds a remote project: Sandbox on its machine, working directory the scratch folder', async () => {
   const calls = []
   const lfs = {
-    project: { get: async () => ({ kind: 'sqlite', machine: 'lima1' }) },
-    branch: { fork: async (project, branch, from) => calls.push(`fork ${project} ${branch} ${from}`) },
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'lima1', state: 'ready' }) },
+    branch: { fork: async (project, branch, from) => { calls.push(`fork ${project} ${branch} ${from}`); return { commit: 'f'.repeat(66) } } },
     sandbox: {
-      get: async () => { throw new Refusal('NoSuchSandbox') },
-      create: async (project, name, machine) => calls.push(`sandbox ${project} ${name} ${machine}`),
+      get: async () => { throw new Refusal('NotFound') },
+      // 2.0 `sandbox create <project> <sandbox> [--machine M]`
+      create: async (project, name, options) => { calls.push(`sandbox ${project} ${name} ${options.machine ?? '(its Store\'s machine)'}`); return { ok: true } },
     },
     workspace: {
-      mount: async (sandbox, branch, options) => { calls.push(`mount ${sandbox} ${branch} ${options.name}`); return { path: '/mnt/inside-the-guest', ws: `${sandbox}:${options.name}`, base: 'base-1' } },
+      mount: async (sandbox, branch, options) => { calls.push(`mount ${sandbox} ${branch} ${options.name}`); return { path: '/mnt/inside-the-guest', workspace: `${sandbox}:${options.name}`, commit: 'base-1' } },
     },
   }
   const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
@@ -332,7 +334,7 @@ test('ensureBound binds a remote project: Sandbox on its machine, working direct
   assert.equal(b.ws, 'dsh-n1:main', 'the Workspace handle stays usable for exec/status/commit')
   assert.equal(b.scratch, s.ctx.layerfs.root)
   assert.equal(b.scratchManaged, false)
-  assert.deepEqual(calls, ['fork st/app dsh.n1 main', 'sandbox st/app dsh-n1 lima1', 'mount dsh-n1 dsh.n1 main'])
+  assert.deepEqual(calls, ['fork st/app dsh.n1 main', 'sandbox st/app dsh-n1 lima1', 'mount dsh-n1 dsh.n1 main'], 'the machine is named whenever it is not native')
   assert.equal(appended.find(([type]) => type === 'working-directory/change'), undefined)
   assert.deepEqual(selected, ['layerfs'], 'the session is recomposed under the layerfs preset')
   rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
@@ -343,12 +345,12 @@ test('ensureBound runs a PostgreSQL project on its Store\'s saved machine, else 
     const calls = []
     const lfs = {
       // a PostgreSQL Store is on no machine: project.get names none
-      project: { get: async () => ({ kind: 'postgresql' }) },
+      project: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
       // `machine list --detail` (2.0): rows keyed `machine`, `supports` a list
       machine: { list: async () => ({ items: machines.map(({ name, ...rest }) => ({ machine: name, ...rest })) }) },
-      branch: { fork: async () => {} },
-      sandbox: { get: async () => { throw new Refusal('NoSuchSandbox') }, create: async (project, name, machine) => calls.push(`sandbox ${project} ${name} ${machine}`) },
-      workspace: { mount: async (sandbox, branch, options) => ({ path: '/mnt/inside', ws: `${sandbox}:${options.name}`, base: 'base-1' }) },
+      branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
+      sandbox: { get: async () => { throw new Refusal('NotFound') }, create: async (project, name, options) => { calls.push(`sandbox ${project} ${name} ${options.machine ?? 'native'}`); return { ok: true } } },
+      workspace: { mount: async (sandbox, branch, options) => ({ path: '/mnt/inside', workspace: `${sandbox}:${options.name}`, commit: 'base-1' }) },
     }
     const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
     try {
@@ -371,13 +373,13 @@ test('ensureBound runs a PostgreSQL project on its Store\'s saved machine, else 
 test('ensureBound keeps native project local cwd as selected scratch, separate from the mount', async () => {
   const calls = []
   const lfs = {
-    project: { get: async () => ({ kind: 'sqlite', machine: 'native' }) },
-    branch: { fork: async () => calls.push('fork') },
+    project: { get: async () => ({ store: 'st', engine: 'sqlite', machine: 'native', state: 'ready' }) },
+    branch: { fork: async () => { calls.push('fork'); return { commit: 'f'.repeat(66) } } },
     sandbox: {
-      get: async () => { throw new Refusal('NoSuchSandbox') },
-      create: async (_p, _n, machine) => calls.push(`sandbox ${machine}`),
+      get: async () => { throw new Refusal('NotFound') },
+      create: async (_p, _n, options) => { calls.push(`sandbox ${options.machine ?? 'native'}`); return { ok: true } },
     },
-    workspace: { mount: async (sandbox, _b, options) => { calls.push(`mount ${sandbox}`); return { path: `${s_root}/host-mount`, ws: `${sandbox}:${options.name}` } } },
+    workspace: { mount: async (sandbox, _b, options) => { calls.push(`mount ${sandbox}`); return { path: `${s_root}/host-mount`, workspace: `${sandbox}:${options.name}` } } },
   }
   const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
   const s_root = s.ctx.layerfs.root
@@ -402,7 +404,7 @@ test('ensureScratchProject makes the Store and project once, tolerating Exists',
   let made = false
   const lfs = {
     project: {
-      get: async (key) => { calls.push(`get ${key}`); if (!made) throw new Refusal('NoSuchStore'); return { key } },
+      get: async (key) => { calls.push(`get ${key}`); if (!made) throw new Refusal('NotFound'); return { project: key } },
       init: async (key, folder) => { calls.push(`init ${key}`); assert.ok(folder.includes('scratch-')); made = true; return {} },
     },
     store: { create: async (name) => { calls.push(`create ${name}`); throw new Refusal('Exists') } },
@@ -501,17 +503,18 @@ test('a session recreates its force-stopped gone Sandbox on the retained branch'
   state.sessions.live = { sessionId: 'live', kind: 'project', project: 'st/p', machine: 'vm', sandbox: 'box', branch: 'saved-branch', scratch: root, anchor: root, state: 'closed' }
   const f = sessions({ state, layerfsRoot: root, lfs: {
     sandbox: {
-      get: async () => ({ state: 'gone', workspaces: [] }),
-      close: async (name) => { calls.push(['close', name]) },
-      create: async (...args) => { calls.push(['create', ...args]) },
+      // 2.0: a Sandbox whose daemon is gone reads broken (lost)
+      get: async (name) => ({ sandbox: name, state: 'broken', reason: 'lost', workspaces: [] }),
+      remove: async (name) => { calls.push(['remove', name]); return { ok: true } },
+      create: async (...args) => { calls.push(['create', ...args]); return { ok: true } },
     },
-    workspace: { mount: async (name, branch) => { calls.push(['mount', name, branch]); return { ws: 'box:main', base: 'saved' } } },
+    workspace: { mount: async (name, branch) => { calls.push(['mount', name, branch]); return { workspace: 'box:main', commit: 'saved' } } },
   } })
   f.s.ctx.get = () => undefined
   f.s.ctx.workingDirectory = { get: () => root }
   try {
     await f.s.ensureBound({ id: 'live', session: session('live', { cwd: root }) })
-    assert.deepEqual(calls, [['close', 'box'], ['create', 'st/p', 'box', 'vm'], ['mount', 'box', 'saved-branch']])
+    assert.deepEqual(calls, [['remove', 'box'], ['create', 'st/p', 'box', { machine: 'vm' }], ['mount', 'box', 'saved-branch']])
     assert.equal(f.state().sessions.live.state, 'bound')
     assert.equal(f.state().sessions.live.branch, 'saved-branch')
   } finally { rmSync(root, { recursive: true, force: true }) }
@@ -573,8 +576,9 @@ test('polling detects lost access and restored availability without replaying ex
   state.sessions.history = { sessionId: 'history', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', branch: 'retained' }
   state.checkpoints.history = [{ commit: 'saved' }]
   const f = sessions({ state, lfs: {
-    machine: { get: async () => ({ state: online ? 'ready' : 'stopped' }) },
-    store: { status: async () => ({ state: online ? 'idle' : 'down' }) },
+    machine: { get: async () => ({ machine: 'vm', state: online ? 'ready' : 'stopped' }) },
+    // 2.0 `store get --detail`: a Store on a stopped machine reads blocked
+    store: { get: async () => online ? { store: 'store', engine: 'sqlite', state: 'ready' } : { store: 'store', engine: 'sqlite', state: 'blocked', blocked_by: { machine: 'vm', reason: 'stopped' } } },
     workspace: { status: async () => ({}), mount: async () => { mounts++; return {} } },
   } })
   f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
@@ -598,7 +602,7 @@ test('a missing saved checkpoint blocks activation without falling back to proje
   state.checkpoints.history = [{ commit: 'missing-checkpoint', branch: 'retained' }]
   const calls = []
   const f = sessions({ state, lfs: {
-    machine: { get: async () => ({ state: 'ready' }) }, store: { status: async () => ({ state: 'idle' }) },
+    machine: { get: async () => ({ state: 'ready' }) }, store: { get: async () => ({ store: 'store', engine: 'sqlite', state: 'ready' }) },
     file: { list: async () => { throw new Refusal('NotFound') } },
     branch: { fork: async () => { calls.push('fork') } }, sandbox: { create: async () => { calls.push('sandbox') } },
   } })
@@ -608,18 +612,21 @@ test('a missing saved checkpoint blocks activation without falling back to proje
   assert.equal(f.state().checkpoints.history[0].commit, 'missing-checkpoint')
 })
 
-test('classifyStore: only down, unresolved, unreachable PostgreSQL and unlisted Stores are unavailable', () => {
-  assert.equal(S.classifyStore({ name: 's', state: 'idle' }).state, 'available')
-  assert.equal(S.classifyStore({ name: 's', state: 'in_use' }).state, 'available')
-  assert.equal(S.classifyStore({ name: 's', state: 'busy', op: { name: 'store.push' } }).state, 'transient')
-  assert.equal(S.classifyStore({ name: 's', state: 'idle', op: { name: 'store.pull' } }).state, 'transient')
-  const down = S.classifyStore({ name: 's', state: 'down' }, { state: 'down', down_reason: 'machine vm: the worker is of another build' })
-  assert.deepEqual(down, { state: 'unavailable', reason: 'machine vm: the worker is of another build' })
-  assert.equal(S.classifyStore({ name: 's', state: 'unresolved' }).state, 'unavailable')
+test('classifyStore: the 2.0 six states: blocked and broken are unavailable, busy waits, unknown never deactivates', () => {
+  assert.equal(S.classifyStore({ store: 's', state: 'ready' }).state, 'available')
+  assert.equal(S.classifyStore({ store: 's' }).state, 'available', 'a ready row may leave state out')
+  assert.equal(S.classifyStore({ store: 's', state: 'busy', op: { name: 'move' } }).state, 'transient')
+  assert.equal(S.classifyStore({ store: 's', state: 'ready', op: { name: 'compact' } }).state, 'transient')
+  const blocked = S.classifyStore({ store: 's', state: 'blocked', blocked_by: { machine: 'vm', reason: 'stopped' } })
+  assert.deepEqual(blocked, { state: 'unavailable', reason: 'The machine of Store s (vm) is stopped.' })
+  assert.equal(S.classifyStore({ store: 's', state: 'broken', reason: 'unresolved', fix: 'layerfs store move s vm' }).state, 'unavailable')
+  assert.match(S.classifyStore({ store: 's', state: 'broken', reason: 'unresolved', fix: 'layerfs store move s vm' }).reason, /Fix: layerfs store move s vm/)
   assert.equal(S.classifyStore(undefined).state, 'removed')
-  assert.equal(S.classifyStore({ name: 'pg', kind: 'postgresql', state: 'idle' }, { state: 'idle', server: { reachable: false, error: 'connection refused' } }).state, 'unavailable')
-  assert.equal(S.classifyStore({ name: 'pg', kind: 'postgresql', state: 'idle' }, { state: 'idle', server: { reachable: true } }).state, 'available')
-  assert.equal(S.classifyStore({ name: 's', state: 'mystery' }).state, 'unknown')
+  // a PostgreSQL Store: the live read (`store get --with live`) decides
+  assert.equal(S.classifyStore({ store: 'pg', engine: 'postgresql', state: 'ready' }, { store: 'pg', state: 'broken', reason: 'unreachable' }).state, 'unavailable')
+  assert.equal(S.classifyStore({ store: 'pg', engine: 'postgresql', state: 'ready' }, { store: 'pg', state: 'ready' }).state, 'available')
+  assert.equal(S.classifyStore({ store: 's', state: 'unknown' }).state, 'unknown')
+  assert.equal(S.classifyStore({ store: 's', state: 'mystery' }).state, 'unknown')
 })
 
 /** Store health poll fixture: an active owner + its subagent on `st`, another active session on `ok`. */
@@ -631,19 +638,19 @@ function polled(stores, statuses = {}) {
   state.checkpoints.owner = [{ commit: 'saved', branch: 'dsh.owner' }]
   const calls = []
   const f = sessions({ state, lfs: {
+    // 2.0: `store list --detail` rows, and a PostgreSQL Store's `store get --with live`
     store: {
       list: async () => { calls.push('list'); if (stores instanceof Error) throw stores; return { items: stores() } },
-      status: async (name) => { calls.push(`status:${name}`); return statuses[name]?.() ?? { state: 'idle' } },
+      get: async (name) => { calls.push(`get:${name}`); return statuses[name]?.() ?? { store: name, state: 'ready' } },
     },
-    workspace: { mount: async () => { calls.push('mount') } }, sandbox: { create: async () => { calls.push('create') }, close: async () => { calls.push('close') } },
+    workspace: { mount: async () => { calls.push('mount') } }, sandbox: { create: async () => { calls.push('create') }, remove: async () => { calls.push('remove') } },
   } })
   return { ...f, calls }
 }
 
 test('the availability poll deactivates active conversations whose Store went down, keeping history and the retained branch', async () => {
   let down = true
-  const f = polled(() => [{ name: 'st', kind: 'sqlite', state: down ? 'down' : 'idle' }, { name: 'ok', kind: 'sqlite', state: 'idle' }],
-    { st: () => ({ state: 'down', down_reason: 'machine vm: the worker is of another build' }) })
+  const f = polled(() => [down ? { store: 'st', engine: 'sqlite', state: 'blocked', blocked_by: { machine: 'vm', reason: 'stopped' } } : { store: 'st', engine: 'sqlite', state: 'ready' }, { store: 'ok', engine: 'sqlite', state: 'ready' }])
   assert.equal(f.s.watchesAvailability(), true)
   await f.s.refreshAvailability()
   await f.s.settled('owner')
@@ -654,14 +661,14 @@ test('the availability poll deactivates active conversations whose Store went do
     assert.equal(b.mount, undefined)
     assert.equal(b.ws, undefined)
     assert.equal(b.interruption.kind, 'availability')
-    assert.match(b.error, /another build/)
+    assert.match(b.error, /machine of Store st \(vm\) is stopped/)
   }
   assert.equal(f.state().sessions.owner.sandbox, 'box', 'the Sandbox name is kept so the next message re-mounts it')
   assert.equal(f.state().sessions.owner.branch, 'dsh.owner')
   assert.deepEqual(f.state().checkpoints.owner, [{ commit: 'saved', branch: 'dsh.owner' }])
   assert.equal(f.state().sessions.calm.state, 'bound', 'other Stores are untouched')
   assert.ok(f.events.some((e) => e.type === 'layerfs-availability' && e.data.stores.st.state === 'unavailable'))
-  assert.ok(!f.calls.includes('mount') && !f.calls.includes('create') && !f.calls.includes('close'), 'polling never starts, mounts or closes anything')
+  assert.ok(!f.calls.includes('mount') && !f.calls.includes('create') && !f.calls.includes('remove'), 'polling never starts, mounts or removes anything')
   // Access returns: the error clears, execution stays interrupted until a new message.
   down = false
   await f.s.refreshAvailability()
@@ -674,7 +681,7 @@ test('the availability poll deactivates active conversations whose Store went do
 })
 
 test('the availability poll never deactivates on a busy Store, an unknown state or a failed list', async () => {
-  const busy = polled(() => [{ name: 'st', state: 'busy', op: { name: 'store.push' } }, { name: 'ok', state: 'mystery' }])
+  const busy = polled(() => [{ store: 'st', state: 'busy', op: { name: 'move' } }, { store: 'ok', state: 'unknown' }])
   await busy.s.refreshAvailability()
   assert.equal(busy.state().sessions.owner.state, 'bound')
   assert.equal(busy.state().sessions.calm.state, 'bound')
@@ -684,18 +691,18 @@ test('the availability poll never deactivates on a busy Store, an unknown state 
 })
 
 test('a removed Store and an unreachable PostgreSQL server deactivate their conversations', async () => {
-  const removed = polled(() => [{ name: 'ok', state: 'idle' }])
+  const removed = polled(() => [{ store: 'ok', state: 'ready' }])
   await removed.s.refreshAvailability()
   await removed.s.settled('owner')
   assert.equal(removed.state().sessions.owner.executionState, 'interrupted')
   assert.match(removed.state().sessions.owner.error, /no longer listed/)
-  const pg = polled(() => [{ name: 'st', kind: 'postgresql', state: 'idle' }, { name: 'ok', state: 'idle' }],
-    { st: () => ({ state: 'idle', server: { reachable: false, error: 'connection refused' } }) })
+  const pg = polled(() => [{ store: 'st', engine: 'postgresql', state: 'ready' }, { store: 'ok', state: 'ready' }],
+    { st: () => ({ store: 'st', engine: 'postgresql', state: 'broken', reason: 'unreachable', fix: 'layerfs store doctor st' }) })
   await pg.s.refreshAvailability()
   await pg.s.settled('owner')
   assert.equal(pg.state().sessions.owner.executionState, 'interrupted')
-  assert.match(pg.state().sessions.owner.error, /PostgreSQL server of Store st did not answer: connection refused/)
-  assert.ok(pg.calls.includes('status:st'))
+  assert.match(pg.state().sessions.owner.error, /PostgreSQL server of Store st cannot be reached from this computer/)
+  assert.ok(pg.calls.includes('get:st'), 'its server is read live')
 })
 
 test('a tool call never re-activates an interrupted context mid-turn; only a new message does', async () => {
@@ -750,7 +757,7 @@ test('Presets Reset deletes this home\'s project sessions only; loaded ones are 
   state.mirror.bound = { count: 3, project: 'demo/app', branch: 'dsh.session.bound' }
   state.projects['demo/app'] = { project: 'demo/app', anchor: '/a', createdAt: 1 }
   const closed = [], archived = [], deleted = [], forgotten = []
-  const f = sessions({ state, lfs: { sandbox: { close: async (name, options) => { closed.push([name, options]) } } } })
+  const f = sessions({ state, lfs: { sandbox: { remove: async (name, options) => { closed.push([name, options]); return { ok: true } } } } })
   // Owner routes: one in this home's Store, one in a same-named Store of another home (other Store ID).
   const owners = { bound: { project: 'demo/app', storeId: 'here' }, archivedOnly: { project: 'demo/old', storeId: 'here' }, foreign: { project: 'demo/app', storeId: 'elsewhere' } }
   const persistence = {
@@ -804,9 +811,10 @@ const boundState = (extra = {}) => {
 
 test('a turn-end save carries its receipt; UpToDate binds as unchanged; a refused save keeps the refusal receipt', async () => {
   const tags = []
-  let answer = { kind: 'Committed', commit: { id: hex('a') } }
+  // 2.0 answers: `workspace status --detail` counts its changes; `workspace commit` answers `commit` (+ `unchanged`)
+  let answer = { commit: hex('a') }
   const { s, recorded } = receiptFixture({ workspace: {
-    status: async () => ({ overlay: { entries: 2 } }),
+    status: async () => ({ changes: [{ path: '/a', change: 'modified' }, { path: '/b', change: 'added' }], changes_count: 2 }),
     commit: traced('workspace.commit', () => { if (answer instanceof Error) throw answer; return answer }, tags, (ws) => ws),
   } }, boundState())
   const saved = await s.checkpoint('a', 'turn', 1, 'dsh turn 1')
@@ -814,7 +822,7 @@ test('a turn-end save carries its receipt; UpToDate binds as unchanged; a refuse
   assert.equal(saved.receipt, recorded[0].id)
   assert.equal(tags[0], `dsh:a:${saved.receipt}`, 'tagged with the owning session id')
   assert.deepEqual(recorded[0].versions, [{ kind: 'Commit', id: hex('a'), effect: 'created' }])
-  answer = { kind: 'UpToDate', head: hex('a') }
+  answer = { commit: hex('a'), unchanged: true }
   const same = await s.checkpoint('a', 'manual', 1, 'Checkpoint')
   assert.equal(same.changed, 0); assert.equal(same.commit, hex('a')); assert.equal(same.receipt, recorded[1].id)
   assert.notEqual(same.receipt, saved.receipt)
@@ -831,12 +839,12 @@ test('a restore checkpoint carries the successful fork receipt', async () => {
   state.checkpoints.a = [{ kind: 'turn', turn: 1, seq: 3, endSeq: 4, commit: hex('c'), branch: 'gone-branch', changed: 1, message: 't1', at: 1 }]
   const { s, recorded } = receiptFixture({
     workspace: {
-      status: async () => ({ overlay: { entries: 0 } }),
-      commit: traced('workspace.commit', () => ({ kind: 'UpToDate', head: hex('c') }), tags, (ws) => ws),
-      unmount: async () => ({}), mount: async () => ({ ws: 'sb:main', path: '/mnt' }),
+      status: async () => ({ changes_count: 0 }),
+      commit: traced('workspace.commit', () => ({ commit: hex('c'), unchanged: true }), tags, (ws) => ws),
+      unmount: async () => ({ ok: true }), mount: async () => ({ workspace: 'sb:main', path: '/mnt' }),
     },
-    branch: { fork: traced('branch.fork', (project, branch, from) => { if (from !== 'main') throw new Refusal('NotFound'); return { kind: 'Forked', head: hex('c') } }, tags) },
-    sandbox: { get: async () => ({ state: 'running', workspaces: [] }) },
+    branch: { fork: traced('branch.fork', (project, branch, from) => { if (from !== 'main') throw new Refusal('NotFound'); return { commit: hex('c') } }, tags) },
+    sandbox: { get: async (name) => ({ sandbox: name, state: 'ready', workspaces: [] }) },
   }, state)
   await s.restore('a', hex('c'))
   const restore = s.checkpoints('a').at(-1)
@@ -854,9 +862,9 @@ test('a branched child base checkpoint carries the fork receipt, tagged with the
   state.checkpoints.a = [{ kind: 'turn', turn: 1, seq: 3, endSeq: 4, commit: hex('d'), branch: 'internal', changed: 1, message: 't1', at: 1 }]
   state.sessions.child = { sessionId: 'child', kind: 'project', project: 'st/app', state: 'bound', ws: 'sbc:main', sandbox: 'sbc', branch: 'first' }
   const { s, recorded } = receiptFixture({
-    workspace: { unmount: async () => ({}), mount: async () => ({ ws: 'sbc:main', path: '/mnt' }) },
-    branch: { fork: traced('branch.fork', () => ({ kind: 'Forked', head: hex('d') }), tags) },
-    sandbox: { get: async () => ({ state: 'running', workspaces: [] }) },
+    workspace: { unmount: async () => ({ ok: true }), mount: async () => ({ workspace: 'sbc:main', path: '/mnt' }) },
+    branch: { fork: traced('branch.fork', () => ({ commit: hex('d') }), tags) },
+    sandbox: { get: async (name) => ({ sandbox: name, state: 'ready', workspaces: [] }) },
   }, state)
   const persistence = s.ctx.get('sessionPersistence')
   s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : name === 'sessionController' ? { fork: async () => ({ sessionId: 'child' }) } : undefined
@@ -871,7 +879,7 @@ test('a branched child base checkpoint carries the fork receipt, tagged with the
 test('archive writes stay untagged and record no receipt', async () => {
   const recorded = [], tags = []
   await S.tracing.withTraceContext({ origin: 'host', sessionId: 'a', project: 'st/app', record: async (row) => { recorded.push(row) } }, () =>
-    S.tracing.withoutTraceContext(() => S.tracing.traceInvocation('file.apply', async (tag) => { tags.push(tag); return { kind: 'Committed', head: hex('e') } })))
+    S.tracing.withoutTraceContext(() => S.tracing.traceInvocation('file.apply', async (tag) => { tags.push(tag); return { commit: hex('e') } })))
   assert.deepEqual(tags, [undefined]); assert.deepEqual(recorded, [])
 })
 
@@ -888,21 +896,22 @@ test('choosing a project with an unclaimed listing id claims it (the one claimin
   rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
 })
 
-test('a turn that only edits existing files (dirty inodes, no new entries) is checkpointed', async () => {
-  let overlay = { inodes: 1, entries: 0, pending_merge: false }
+test('a turn with changes (an in-place edit counts as one) or a pending merge is checkpointed; an unchanged turn is not', async () => {
+  // 2.0 `workspace status --detail`: `changes` lists the first 20, `changes_count` all of them
+  let status = { changes: [{ path: '/a.txt', change: 'modified' }], changes_count: 1, pending_merge: false, branch_moved: false }
   let commits = 0
   const { s } = receiptFixture({ workspace: {
-    status: async () => ({ overlay, head_moved_since_mount: false }),
-    commit: async () => { commits++; return { kind: 'Committed', commit: { id: hex('f') } } },
+    status: async () => status,
+    commit: async () => { commits++; return { commit: hex('f') } },
   } }, boundState())
   const saved = await s.checkpoint('a', 'turn', 1, 'dsh turn 1')
   assert.equal(commits, 1)
   assert.equal(saved.commit, hex('f')); assert.equal(saved.changed, 1)
-  overlay = { inodes: 3, entries: 2, pending_merge: false }
-  assert.equal((await s.checkpoint('a', 'turn', 2, 'dsh turn 2')).changed, 3, 'changed counts the larger of inodes and entries')
-  overlay = { inodes: 0, entries: 0, pending_merge: true }
+  status = { changes: [{ path: '/a', change: 'modified' }], changes_count: 3, pending_merge: false, branch_moved: false }
+  assert.equal((await s.checkpoint('a', 'turn', 2, 'dsh turn 2')).changed, 3, 'changed is changes_count, not the listed page')
+  status = { changes: [], changes_count: 0, pending_merge: true, branch_moved: false }
   assert.ok(await s.checkpoint('a', 'turn', 3, 'dsh turn 3'), 'a pending merge is saved')
-  overlay = { inodes: 0, entries: 0, pending_merge: false }
+  status = { changes: [], changes_count: 0, pending_merge: false, branch_moved: false }
   assert.equal(await s.checkpoint('a', 'turn', 4, 'dsh turn 4'), undefined, 'an unchanged turn records nothing')
   assert.equal(commits, 3)
 })
@@ -914,13 +923,13 @@ test('a restore whose mount fails keeps the forked branch, unbound, and a retry 
   let failMount = 1
   const { s } = receiptFixture({
     workspace: {
-      status: async () => ({ overlay: { inodes: 0, entries: 0 } }),
-      commit: async () => ({ kind: 'UpToDate', head: hex('c') }),
-      unmount: async () => ({}),
-      mount: async (sandbox, branch) => { if (failMount-- > 0) throw new Refusal('Unavailable', 'worker gone'); return { ws: `${sandbox}:main`, path: '/mnt', base: hex('c') } },
+      status: async () => ({ changes_count: 0 }),
+      commit: async () => ({ commit: hex('c'), unchanged: true }),
+      unmount: async () => ({ ok: true }),
+      mount: async (sandbox, branch) => { if (failMount-- > 0) throw new Refusal('Unavailable', 'worker gone'); return { workspace: `${sandbox}:main`, path: '/mnt', commit: hex('c') } },
     },
-    branch: { fork: async (project, branch) => { if (forks.includes(branch)) throw new Refusal('Exists'); forks.push(branch); return { kind: 'Forked' } } },
-    sandbox: { get: async () => ({ state: 'running', workspaces: [] }) },
+    branch: { fork: async (project, branch) => { if (forks.includes(branch)) throw new Refusal('Exists'); forks.push(branch); return { commit: hex('c') } } },
+    sandbox: { get: async (name) => ({ sandbox: name, state: 'ready', workspaces: [] }) },
   }, state)
   await assert.rejects(s.restore('a', hex('c')), (e) => e.code === 'Unavailable')
   const failed = s.binding('a')
@@ -941,9 +950,9 @@ test('a branched child whose mount fails keeps its forked branch for the next me
   state.checkpoints.a = [{ kind: 'turn', turn: 1, seq: 3, endSeq: 4, commit: hex('d'), branch: 'internal', changed: 1, message: 't1', at: 1 }]
   state.sessions.child = { sessionId: 'child', kind: 'project', project: 'st/app', state: 'bound', ws: 'sbc:main', sandbox: 'sbc', branch: 'first' }
   const { s } = receiptFixture({
-    workspace: { unmount: async () => ({}), mount: async () => { throw new Refusal('Unavailable', 'worker gone') } },
-    branch: { fork: async () => ({ kind: 'Forked' }) },
-    sandbox: { get: async () => ({ state: 'running', workspaces: [] }) },
+    workspace: { unmount: async () => ({ ok: true }), mount: async () => { throw new Refusal('Unavailable', 'worker gone') } },
+    branch: { fork: async () => ({ commit: hex('d') }) },
+    sandbox: { get: async (name) => ({ sandbox: name, state: 'ready', workspaces: [] }) },
   }, state)
   const persistence = s.ctx.get('sessionPersistence')
   s.ctx.get = (name) => name === 'sessionPersistence' ? persistence : name === 'sessionController' ? { fork: async () => ({ sessionId: 'child' }) } : undefined
@@ -962,8 +971,8 @@ test('a failed readiness check keeps a bound execution whose Workspace still ans
   let answers = true
   const { s, state: now } = sessions({ state, lfs: {
     machine: { get: async () => ({ state: 'unknown' }) },
-    store: { status: async () => ({}) },
-    workspace: { status: async () => { if (!answers) throw new Refusal('NotMounted'); return { ws: 'dsh-owner:main' } } },
+    store: { get: async () => ({ store: 'st', state: 'unknown' }) },
+    workspace: { status: async () => { if (!answers) throw new Refusal('NotFound'); return { workspace: 'dsh-owner:main' } } },
   } })
   s.ctx.get = (name) => name === 'sessionPersistence' ? { assertSessionIdentity: async () => ({ kind: 'sqlite', machine: 'docker', store: 'st', key: 'st/app' }) } : undefined
   await s.validateExecutionIdentity('child')
@@ -982,8 +991,8 @@ test('a failed readiness check keeps a bound execution whose Workspace still ans
 test('re-activating an interrupted binding over a still-mounted Workspace restores its handle (F23)', async () => {
   const mounts = []
   const { s } = sessions({ lfs: {
-    sandbox: { get: async () => ({ state: 'running', workspaces: [{ name: 'main', branch: 'dsh.owner', path: '/layerfs/run/main', ws: 'dsh-owner:main' }] }) },
-    workspace: { mount: async (...args) => { mounts.push(args); return { ws: 'dsh-owner:main' } }, unmount: async () => {} },
+    sandbox: { get: async (name) => ({ sandbox: name, state: 'ready', workspaces: [{ workspace: 'dsh-owner:main', branch: 'dsh.owner', path: '/layerfs/run/main' }] }) },
+    workspace: { mount: async (...args) => { mounts.push(args); return { workspace: 'dsh-owner:main' } }, unmount: async () => ({ ok: true }) },
   } })
   const binding = { sessionId: 'owner', kind: 'project', project: 'st/app', machine: 'docker', branch: 'dsh.owner', sandbox: 'dsh-owner', state: 'closed', executionState: 'interrupted' }
   const mount = await s.mount(binding)

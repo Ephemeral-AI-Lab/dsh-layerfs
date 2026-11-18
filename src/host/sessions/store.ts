@@ -24,8 +24,8 @@ export const STORE_PREFIX = 'dsh.session.'
 
 /** A listed Branch's head Commit id (its live head, else its saved head), or null when it has none. */
 function branchHead(branch: any): string | null {
-  const head = branch?.head ?? branch?.saved_head
-  const id = typeof head === 'string' ? head : head?.id
+  // 2.0 `branch list`: `commit` is the Branch's head (or its fork point while it has none)
+  const id = branch?.commit
   return typeof id === 'string' && id ? id : null
 }
 const DIR = '/.dsh/session'
@@ -218,12 +218,12 @@ export class SessionStore {
       let saved = false
       if (!confirmed) {
         await withoutTraceContext(() => this.lfs.branch.fork(project, branch, 'main')).catch(async (error: any) => {
-          if (error?.code !== 'Exists' && error?.code !== 'NameTaken') throw error
+          if (error?.code !== 'Exists') throw error
           // The branch exists: ours from a first save whose write failed (no
           // manifest yet), or one that already holds exactly this save. Anything
           // else is another writer's archive.
           const existing = await this.readManifest(project, branch).catch((e: any) => {
-            if (['NoSuchPath', 'NotFound'].includes(e?.code)) return null
+            if (e?.code === 'NotFound') return null
             throw e
           })
           if (existing && existing.digest !== digest) throw new CliError('ArchiveConflict', 'An archive already exists for this conversation. Reconcile it before saving local history.')
@@ -277,7 +277,7 @@ export class SessionStore {
   }
 
   private async discoverNow(project: string): Promise<StoredSession[]> {
-    const branches = await pages((paging) => this.lfs.branch.list(project, paging))
+    const branches = (await pages((paging) => this.lfs.branch.list(project, { prefix: STORE_PREFIX, ...paging }))).map((b: any) => ({ ...b, name: b.branch }))
     const stored = branches.filter((b: any) => typeof b.name === 'string' && b.name.startsWith(STORE_PREFIX))
     const out: StoredSession[] = []
     const seen = new Set<string>()
@@ -353,12 +353,13 @@ export class SessionStore {
     // Listing should not materialize a whole project for a small manifest. Only
     // the positively complete canonical response is safe: long lines may be
     // clipped even when there is no next line to request.
-    const page = await withoutTraceContext(() => this.lfs.file.read(project, branch, `${DIR}/manifest.json`, { start_line: 1 }))
+    const page: any = await withoutTraceContext(() => this.lfs.file.read(project, branch, `${DIR}/manifest.json`, { line: 1, detail: true }))
     let size: bigint | undefined
     if (typeof page.size === 'bigint' && page.size >= 0n) size = page.size
     else if (typeof page.size === 'number' && Number.isSafeInteger(page.size) && page.size >= 0) size = BigInt(page.size)
     else if (typeof page.size === 'string' && /^[0-9]{1,20}$/.test(page.size)) size = BigInt(page.size)
-    if (page.kind === 'ok' && page.start_line === 1 && page.line_truncated === false && page.truncated === false && page.next_line === null && typeof page.text === 'string' && size === BigInt(Buffer.byteLength(page.text))) return JSON.parse(page.text)
+    // 2.0 long form: the whole file when it starts at line 1, has no next_line and no cut line, and its text is the file's size
+    if (page.binary !== true && page.start_line === 1 && page.line_truncated === false && page.next_line == null && typeof page.text === 'string' && size === BigInt(Buffer.byteLength(page.text))) return JSON.parse(page.text)
     return this.withArchive(project, branch, async read => JSON.parse(await read(`${DIR}/manifest.json`)))
   }
 

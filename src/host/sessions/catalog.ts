@@ -1,4 +1,3 @@
-// cs20: switch when the Store package merges (store.status keeps today's name and shape).
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -55,11 +54,14 @@ export function uuidOfBranches(names: readonly string[]): string | null {
 }
 
 const keyOf = (info: any): string => info.project ?? `${info.store}/${info.name}`
-/** The pinned CLI's transient refusal of a read racing another process on the same home. */
-const transientRead = (error: any): boolean => error?.code === 'Failed' && /NotFound/.test(String(error?.message ?? ''))
+/** A 2.0 project row (`project get/list --detail`) in the catalog's words: its name, engine as `kind`, `created` in ms. */
+const viewOf = (info: any, project?: string): any => {
+  const key = info?.project ?? project
+  const at = typeof info?.created_at === 'string' ? Date.parse(info.created_at) : NaN
+  return { ...info, project: key, name: String(key).split('/')[1], kind: info?.engine ?? null, created: Number.isFinite(at) ? at : null }
+}
 /**
- * How long a remembered project LayerFS answered as removed (NoSuchStore,
- * NoSuchProject) is listed as removed without asking again: listings run on a
+ * How long a remembered project LayerFS answered as removed (NotFound) is listed as removed without asking again: listings run on a
  * timer, and each would otherwise spend a failed project.get per removed project.
  * A project that returns shows in the live listing, which this never skips.
  */
@@ -119,21 +121,10 @@ export class ProjectCatalog {
     return read
   }
 
-  /**
-   * One fresh read, retried twice on `Failed: Os { NotFound }`: CLIs built
-   * before layerfs fix/lease-stale-race refuse a Store read that way when
-   * another process drops its Store lease meanwhile (the read is safe to repeat).
-   */
+  /** One fresh read of the project's identity Branches (`branch list --prefix dsh.project.`); one attempt. */
   private async readUuid(project: string): Promise<string | null> {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        const branches = await pages((paging) => this.lfs().branch.list(project, paging))
-        return uuidOfBranches(branches.map((b: any) => String(b?.name ?? b)))
-      } catch (error) {
-        if (attempt >= 2 || !transientRead(error)) throw error
-        await new Promise((resolve) => setTimeout(resolve, 60 * (attempt + 1)))
-      }
-    }
+    const branches = await pages((paging) => this.lfs().branch.list(project, { prefix: 'dsh.project.', ...paging }))
+    return uuidOfBranches(branches.map((b: any) => String(b?.branch ?? b)))
   }
 
   /**
@@ -164,7 +155,7 @@ export class ProjectCatalog {
    * a project nobody has claimed; without it an unclaimed project is refused.
    */
   async resolve(project: string, { claim = true }: { claim?: boolean } = {}): Promise<CatalogProject> {
-    const info = await this.lfs().project.get(project)
+    const info = viewOf(await this.lfs().project.get(project, { detail: true }), project)
     const id = await this.identify(project, claim)
     if (!id) throw changed()
     return this.observe(info, id)
@@ -180,7 +171,7 @@ export class ProjectCatalog {
     if (expected.startsWith(UNCLAIMED)) {
       if (expected !== `${UNCLAIMED}${project}`) throw changed()
       if (claim) return this.resolve(project)
-      const info = await this.lfs().project.get(project)
+      const info = viewOf(await this.lfs().project.get(project, { detail: true }), project)
       const id = await this.uuidOf(project)
       if (id) return this.observe(info, id)
       return { projectId: expected, key: project, name: info.name ?? project.split('/')[1], store: info.store ?? project.split('/')[0],
@@ -200,7 +191,7 @@ export class ProjectCatalog {
   async list(): Promise<CatalogProject[]> {
     const retained = this.retained()
     let live: any[]
-    try { live = await pages((paging) => this.lfs().project.list(paging)) }
+    try { live = (await pages((paging) => this.lfs().project.list({ ...paging, detail: true }))).map((info) => viewOf(info)) }
     catch (error: any) {
       if (!retained.length) throw error
       return retained.map((row) => ({ ...row, catalogState: 'unavailable', catalogError: String(error?.message ?? error), storeState: null }))
@@ -212,7 +203,7 @@ export class ProjectCatalog {
     for (const info of live) {
       const key = keyOf(info)
       const store = info.store ?? key.split('/')[0]
-      if (!statuses.has(store)) statuses.set(store, this.lfs().store.status(store).catch(() => null))
+      if (!statuses.has(store)) statuses.set(store, this.lfs().store.get(store, { detail: true }).catch(() => null))
       const known = retained.find((row) => row.key === key && row.created === info.created && !row.projectId.startsWith(UNCLAIMED))
       let id: string | null = known?.projectId ?? null
       let failure: any
@@ -257,7 +248,7 @@ export class ProjectCatalog {
         this.gone.delete(row.key)
         rows.push({ ...row, storeState: null, catalogState: 'identity-mismatch', catalogError: 'This name now refers to a different project.' })
       } catch (error: any) {
-        const removed = ['NoSuchStore', 'NoSuchProject', 'NotFound'].includes(error?.code)
+        const removed = error?.code === 'NotFound'
         if (removed) this.gone.set(row.key, { at: Date.now(), message: String(error?.message ?? error) })
         else this.gone.delete(row.key)
         rows.push({ ...row, storeState: null, catalogState: removed ? 'removed' : 'unavailable', catalogError: String(error?.message ?? error) })

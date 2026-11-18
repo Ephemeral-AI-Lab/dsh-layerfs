@@ -50,7 +50,7 @@ interface View {
 const saved = new Map<string, View>()
 
 /** Each project's last read (Branch list and first pages), kept across remounts. */
-interface HistoryData { branches: HistoryBranch[], next: number | null, pages: Record<string, HistoryPage | undefined>, counts?: Record<string, BranchCount> }
+interface HistoryData { branches: HistoryBranch[], next: string | null, pages: Record<string, HistoryPage | undefined>, counts?: Record<string, BranchCount> }
 /** A side Branch's Commit count at a head (`files.commitCount`). */
 interface BranchCount { head: string | null, count: number }
 const dataCache = new Map<string, HistoryData>()
@@ -92,7 +92,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   // The last read of this project draws at once on a remount (a tab switch); a fresh read follows.
   const [cached] = useState(() => dataCache.get(project))
   const [branches, setBranches] = useState<HistoryBranch[]>(() => cached?.branches ?? [])
-  const [branchNext, setBranchNext] = useState<number | null>(() => cached?.next ?? null)
+  const [branchNext, setBranchNext] = useState<string | null>(() => cached?.next ?? null)
   const [pages, setPagesState] = useState<Record<string, HistoryPage | undefined>>(() => cached?.pages ?? {})
   const [busy, setBusy] = useState<string | null>(cached ? null : 'initial')
   // What is read so far, ahead of the render: the loaders check their own progress against it.
@@ -596,7 +596,7 @@ function useDetail(api: LayerfsApi, project: string, commit: CommitInfo | undefi
 function BranchFinder({ anchorRef, t, branches, parents, families, filtered, onQuery, onBranch, onToggleFamily, busy, branchNext, onMore, onClose }: {
   anchorRef: RefObject<HTMLSpanElement | null>, t: Translate, branches: readonly HistoryBranch[], parents: ReadonlyMap<string, string | null>, families: ReadonlySet<string>
   filtered: string, onQuery: (q: string) => void, onBranch: (name: string) => void, onToggleFamily: (name: string) => void
-  busy: string | null, branchNext: number | null, onMore: () => void, onClose: () => void
+  busy: string | null, branchNext: string | null, onMore: () => void, onClose: () => void
 }): ReactNode {
   const panel = useRef<HTMLDivElement>(null)
   const position = useAnchoredPosition({ open: true, anchorRef, panelRef: panel, side: 'top', align: 'end', gap: 6, margin: 8 })

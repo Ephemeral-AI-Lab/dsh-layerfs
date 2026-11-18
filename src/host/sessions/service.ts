@@ -11,9 +11,6 @@
  * Changed turns save through workspace.commit. Saved-version annotations retain
  * exact tool/host provenance alongside the original native DSH conversation.
  * Branches and sandbox handles are internal implementation details.
- *
- * cs20: switch when the Store, project, Sandbox and Workspace packages merge
- * (their calls here keep today's names and shapes).
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'
@@ -52,7 +49,7 @@ const WS_NAME = 'main'
 
 const real = (path: string): string => { try { return realpathSync(path) } catch { return path } }
 const errorOf = (error: any) => ({ code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) })
-const exists = (error: any) => error?.code === 'Exists' || error?.code === 'NameTaken'
+const exists = (error: any) => error?.code === 'Exists'
 
 /** Where a session works: a LayerFS project, its parent's Workspace, or a plain folder (stock DSH). */
 export type Place =
@@ -211,7 +208,7 @@ export class LayerfsSessions extends Service {
     const key = this.ctx.layerfs.scratchProject
     this.scratchReady ??= (async () => {
       try { await this.lfs.project.get(key); return } catch (error: any) {
-        if (error?.code !== 'NoSuchProject' && error?.code !== 'NoSuchStore') throw error
+        if (error?.code !== 'NotFound') throw error
       }
       await this.ctx.layerfs.ensureNative()
       await this.lfs.store.create(key.split('/')[0]).catch((error: any) => { if (!exists(error)) throw error })
@@ -455,8 +452,8 @@ export class LayerfsSessions extends Service {
    * else docker, else native).
    */
   private async machineFor(project: string, preferred?: string | null): Promise<string> {
-    const info = await this.lfs.project.get(project)
-    if (info.kind !== 'postgresql') return info.machine ?? 'native'
+    const info: any = await this.lfs.project.get(project, { detail: true })
+    if (info?.engine !== 'postgresql') return info?.machine ?? 'native'
     if (preferred) return preferred
     return pgMachineOf(new StoreMachines(this.ctx.layerfs.root).get(storeOf(project)!), await machineRows(this.lfs))
   }
@@ -476,25 +473,29 @@ export class LayerfsSessions extends Service {
     if (native) await this.ctx.layerfs.ensureNative()
     let observed: any
     try { observed = await sandboxWorkspaces(this.lfs, sandbox) } catch (error: any) {
-      if (error?.code !== 'NoSuchSandbox' && error?.code !== 'NotFound') throw error
+      if (error?.code !== 'NotFound') throw error
     }
-    if (!observed || observed.state === 'stopped' || observed.state === 'gone' || observed.down_reason) {
-      if (observed) await this.lfs.sandbox.close(sandbox, { force: true }).catch(() => {})
-      await this.lfs.sandbox.create(project, sandbox, binding.machine ?? 'native')
+    // a Sandbox whose daemon is gone (broken: lost, missing, not answering, unresolved) is removed and made again
+    if (!observed || observed.state === 'broken') {
+      if (observed) await this.lfs.sandbox.remove(sandbox, { force: true }).catch(() => {})
+      const machine = binding.machine ?? 'native'
+      // `--machine` defaults to the Store's machine (a PostgreSQL project's: this computer)
+      await this.lfs.sandbox.create(project, sandbox, machine !== 'native' ? { machine } : {})
       observed = { workspaces: [] }
     }
-    const existing = (observed.workspaces ?? []).find((w: any) => w.name === WS_NAME)
-    if (existing && existing.branch === branch && (existing.directory ?? existing.path)) {
+    const handle = `${sandbox}:${WS_NAME}`
+    const existing = (observed.workspaces ?? []).find((w: any) => w.workspace === handle)
+    if (existing && existing.branch === branch && existing.path) {
       // Re-activating an interrupted binding (which dropped `ws`) over a Workspace that
       // is still mounted: restore the handle too, or every tool call stays refused
       // "Project execution is not active" (Quarry v2 FIX-LOG F23).
-      binding.ws = existing.ws ?? `${sandbox}:${WS_NAME}`
-      return native ? (existing.directory ?? existing.path) : undefined
+      binding.ws = handle
+      return native ? existing.path : undefined
     }
-    if (existing) await this.lfs.workspace.unmount(`${sandbox}:${WS_NAME}`, { force: true, discard: false }).catch(() => this.lfs.workspace.unmount(`${sandbox}:${WS_NAME}`, { force: true, discard: true }))
-    const mounted = await this.lfs.workspace.mount(sandbox, branch, { name: WS_NAME })
-    binding.base ??= mounted.base ?? mounted.base_layer ?? null
-    if (mounted.ws) binding.ws = mounted.ws
+    if (existing) await this.lfs.workspace.unmount(handle, { force: true, discard: false }).catch(() => this.lfs.workspace.unmount(handle, { force: true, discard: true }))
+    const mounted = await this.lfs.workspace.mount(sandbox, branch, { name: WS_NAME, detail: true })
+    binding.base ??= mounted.commit ?? mounted.base_layer ?? null
+    if (typeof mounted.workspace === 'string') binding.ws = mounted.workspace
     return native ? mounted.path : undefined
   }
 
@@ -657,7 +658,7 @@ export class LayerfsSessions extends Service {
         await this.assertReady(row, machine)
         if (binding?.branch) {
           const latest = [...this.checkpoints(id)].reverse().find((checkpoint) => checkpoint.commit && !checkpoint.error)
-          if (latest?.commit) await this.lfs.file.list(row.key, latest.branch ?? binding.branch, '/', latest.commit, { page_size: 1 }).catch(() => { throw new CliError('CheckpointUnavailable', 'The latest saved file checkpoint is unavailable in this Store. History and checkpoint references are retained; recover that checkpoint before continuing.') })
+          if (latest?.commit) await this.lfs.file.list(row.key, latest.branch ?? binding.branch, '/', { at: latest.commit, limit: 1 }).catch(() => { throw new CliError('CheckpointUnavailable', 'The latest saved file checkpoint is unavailable in this Store. History and checkpoint references are retained; recover that checkpoint before continuing.') })
         }
         if (binding && binding.machine && binding.machine !== machine) this.save({ ...binding, machine, state: 'closed', executionState: 'inactive', mount: undefined, ws: undefined })
       }
@@ -860,17 +861,17 @@ export class LayerfsSessions extends Service {
     let receipt: string | undefined
     try {
       await (this.ctx.get?.('sessionPersistence' as never) as any)?.assertSessionIdentity?.(sessionId)
-      const status = await this.lfs.workspace.status(binding.ws)
-      // In-place edits count as dirty inodes with no new directory entries.
-      const entries = Math.max(Number(status?.overlay?.inodes ?? 0) || 0, Number(status?.overlay?.entries ?? 0) || 0)
-      if (!entries && !status?.overlay?.pending_merge && !status?.head_moved_since_mount && kind === 'turn') return undefined
+      // 2.0 `workspace status --detail`: `changes` (the first 20) and `changes_count`, `branch_moved`, `pending_merge`
+      const status = await this.lfs.workspace.status(binding.ws, { detail: true })
+      const entries = Number(status?.changes_count ?? (Array.isArray(status?.changes) ? status.changes.length : 0)) || 0
+      if (!entries && !status?.pending_merge && !status?.branch_moved && kind === 'turn') return undefined
       // Tagged with this session's own id: the session that owns the checkpoint.
-      const result = await this.hostOperation(sessionId, binding.project!, turn, () => this.lfs.workspace.commit(binding.ws!, { message }), (invocation) => { receipt = invocation.id })
-      const commit = result?.kind === 'Committed' ? result.commit?.id ?? result.head : result?.head ?? null
+      const result = await this.hostOperation(sessionId, binding.project!, turn, () => this.lfs.workspace.commit(binding.ws!, { message, detail: true }), (invocation) => { receipt = invocation.id })
+      const commit = typeof result?.commit === 'string' ? result.commit : null
       // Agents change files with `file` calls and their own Workspaces' Commits, so the
       // session Branch often moved while this Workspace changed nothing: count what moved.
-      const changed = result?.kind === 'Committed' ? Math.max(entries, 1)
-        : status?.head_moved_since_mount && commit ? await this.pathsChanged(binding.project!, status.base ?? status.base_layer, commit) : 0
+      const changed = result?.unchanged !== true ? Math.max(entries, 1)
+        : status?.branch_moved && commit ? await this.pathsChanged(binding.project!, status.commit ?? status.base_layer, commit) : 0
       checkpoint = { kind, turn, seq, commit, branch: binding.branch!, changed, message, at: Date.now(), ...(receipt ? { receipt } : {}) }
       if (commit && binding.simulation?.handoffReady) {
         this.state.update((s) => {
@@ -889,7 +890,7 @@ export class LayerfsSessions extends Service {
   private async pathsChanged(project: string, from: string | null | undefined, to: string): Promise<number> {
     if (!from || from === to) return from ? 0 : 1
     try {
-      const page: any = await this.lfs.commit.diff(project, from, to, { paths_only: true, page_size: 1000 })
+      const page: any = await this.lfs.commit.diff(project, to, { from, limit: 1000, detail: true })
       const files = (page?.items ?? []).filter((item: any) => item?.type !== 'dir').length
       return Math.max(files, page?.items?.length ? 1 : 0)
     } catch { return 1 }
@@ -976,10 +977,10 @@ export class LayerfsSessions extends Service {
   private async forkAt(project: string, branch: string, from: string, commit: string | null): Promise<void> {
     if (!commit) { await this.lfs.branch.fork(project, branch, from); return }
     try {
-      await this.lfs.branch.fork(project, branch, from, commit)
+      await this.lfs.branch.fork(project, branch, from, { at: commit })
     } catch (error: any) {
       if (from === 'main' || exists(error)) throw error
-      await this.lfs.branch.fork(project, branch, 'main', commit)
+      await this.lfs.branch.fork(project, branch, 'main', { at: commit })
     }
   }
 
@@ -1099,24 +1100,25 @@ export class LayerfsSessions extends Service {
     const stores = new Set(watched.map((b) => storeOf(b.project)).filter((s): s is string => !!s))
     if (!stores.size) return
     let rows: any[]
-    try { rows = (await this.lfs.store.list())?.items ?? [] } catch (error: any) {
+    try { rows = (await this.lfs.store.list({ detail: true }))?.items ?? [] } catch (error: any) {
       // Not knowing is not evidence of loss: never deactivate on a failed list.
       this.ctx.logger('layerfs').warn('availability: store list: %s', String(error?.message ?? error))
       return
     }
     let changed = false
     for (const name of stores) {
-      const row = rows.find((r) => r?.name === name)
-      let status: any
-      const askServer = row?.kind === 'postgresql' && Date.now() - (this.serverChecked.get(name) ?? 0) >= 60_000
-      if (askServer || row?.state === 'down') {
-        if (askServer) this.serverChecked.set(name, Date.now())
-        status = await this.lfs.store.status(name).catch(() => undefined)
+      const row = rows.find((r) => r?.store === name)
+      let live: any
+      // a PostgreSQL Store's server is asked once a minute (`store get --with live`, from this computer); records answer the rest
+      const askServer = row?.engine === 'postgresql' && Date.now() - (this.serverChecked.get(name) ?? 0) >= 60_000
+      if (askServer) {
+        this.serverChecked.set(name, Date.now())
+        live = await this.lfs.store.get(name, { detail: true, with: ['live'] }).catch(() => undefined)
       }
       const previous = this.storeHealth.get(name)
-      let health = classifyStore(row, status)
+      let health = classifyStore(row, live)
       // A PostgreSQL verdict holds until the server is asked again.
-      if (row?.kind === 'postgresql' && !askServer && previous?.state === 'unavailable' && health.state === 'available') health = previous
+      if (row?.engine === 'postgresql' && !askServer && previous?.state === 'unavailable' && health.state === 'available') health = previous
       if (previous?.state !== health.state || previous?.reason !== health.reason) changed = true
       this.storeHealth.set(name, health)
       for (const owner of watched) {
@@ -1144,8 +1146,8 @@ export class LayerfsSessions extends Service {
     if ((status?.state ?? 'ready') !== 'ready' || status?.op) {
       throw new CliError('Unavailable', `Machine ${machine} is not ready (${status?.state ?? 'unknown'}${status?.reason ? `: ${status.reason}` : ''}). Start or repair it, then send the message again.`, null, 'refusal', typeof status?.fix === 'string' ? status.fix : null)
     }
-    const store = await this.lfs.store.status(row.store)
-    const health = classifyStore({ name: row.store, kind: row.kind ?? store?.kind }, store)
+    const store = await this.lfs.store.get(row.store, { detail: true })
+    const health = classifyStore(store)
     this.storeHealth.set(row.store, health)
     if (health.state !== 'available') throw new CliError('Unavailable', health.reason ?? 'The project Store is not ready. Restore access, then send the message again.')
   }
@@ -1157,7 +1159,7 @@ export class LayerfsSessions extends Service {
       if (!binding || binding.kind !== 'project' || binding.state !== 'bound' || !binding.sandbox) return
       const saved = await this.checkpoint(sessionId, 'idle', this.lastTurn(sessionId), reason === 'idle' ? 'Saved before the idle Sandbox closed' : 'Saved before closing')
       if (saved?.error) throw new CliError(saved.error.code, saved.error.message)
-      await this.lfs.sandbox.close(binding.sandbox, { force: true })
+      await this.lfs.sandbox.remove(binding.sandbox, { force: true })
       this.save({ ...binding, state: 'closed', executionState: 'inactive', mount: undefined, ws: undefined })
       this.store?.schedule(sessionId, 0)
     })
@@ -1168,7 +1170,7 @@ export class LayerfsSessions extends Service {
     if (this.isSimulationManaged(sessionId)) throw new CliError('Busy', 'Settle script execution before forgetting its binding')
     const binding = this.binding(sessionId)
     if (!binding) return
-    if (binding.kind === 'project' && binding.sandbox) await this.lfs.sandbox.close(binding.sandbox, { force: true }).catch(() => {})
+    if (binding.kind === 'project' && binding.sandbox) await this.lfs.sandbox.remove(binding.sandbox, { force: true }).catch(() => {})
     // Scratch is a user-selected folder and may be shared with normal sessions.
     // Even legacy generated scratch can hold evidence; release it separately.
     this.state.update((s) => { delete s.sessions[sessionId]; delete s.pending[sessionId] })
@@ -1179,11 +1181,11 @@ export class LayerfsSessions extends Service {
     for (const b of Object.values(this.state.read().sessions)) {
       if (b.project !== project || b.kind !== 'project') continue
       if (b.state === 'bound') await this.close(b.sessionId, 'user').catch(() => {})
-      if (b.sandbox) await this.lfs.sandbox.close(b.sandbox, { force: true }).catch(() => {})
+      if (b.sandbox) await this.lfs.sandbox.remove(b.sandbox, { force: true }).catch(() => {})
     }
     // Session Sandboxes another DSH on this LayerFS home made (same naming) block removal too.
-    const listed = await pages((paging) => this.lfs.sandbox.list(project, paging)).catch(() => [] as any[])
-    for (const s of listed) if (typeof s?.name === 'string' && s.name.startsWith('dsh-')) await this.lfs.sandbox.close(s.name, { force: true }).catch(() => {})
+    const listed = await pages((paging) => this.lfs.sandbox.list({ project, ...paging })).catch(() => [] as any[])
+    for (const s of listed) if (typeof s?.sandbox === 'string' && s.sandbox.startsWith('dsh-')) await this.lfs.sandbox.remove(s.sandbox, { force: true }).catch(() => {})
   }
 
   /**
@@ -1192,13 +1194,10 @@ export class LayerfsSessions extends Service {
    * partial listing still covers them.
    */
   async homeStores(also: readonly string[] = []): Promise<HomeStore[]> {
+    // 2.0 answers no Store ID (`store get` has none): the Store name decides
     const rows: any[] = await this.lfs.store.list().then((value: any) => value?.items ?? [], () => [])
     const out = new Map<string, HomeStore>(also.map((name) => [name, { name }]))
-    for (const row of rows) {
-      if (typeof row?.name !== 'string') continue
-      const stats = await this.lfs.store.stats(row.name).catch(() => undefined)
-      out.set(row.name, { name: row.name, ...(stats?.store_id ? { id: String(stats.store_id) } : {}) })
-    }
+    for (const row of rows) if (typeof row?.store === 'string') out.set(row.store, { name: row.store })
     return [...out.values()]
   }
 
@@ -1247,7 +1246,7 @@ export class LayerfsSessions extends Service {
     await Promise.all(ids.map((id) => this.lane(id, async () => {})))
     for (const id of ids) {
       const binding = this.binding(id)
-      if (binding?.kind === 'project' && binding.sandbox) await this.lfs.sandbox.close(binding.sandbox, { force: true }).catch(() => {})
+      if (binding?.kind === 'project' && binding.sandbox) await this.lfs.sandbox.remove(binding.sandbox, { force: true }).catch(() => {})
       this.store?.forget(id)
     }
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any

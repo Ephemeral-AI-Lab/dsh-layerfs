@@ -29,76 +29,81 @@ class Refusal extends Error {
 
 /** Calls that change LayerFS state: none may run while answering a GET. */
 const MUTATING = new Set([
-  'branch.fork', 'branch.merge', 'branch.publish', 'branch.delete',
+  'branch.fork', 'branch.merge', 'branch.publish', 'branch.remove',
   'file.write', 'file.edit', 'file.rm', 'file.mkdir', 'file.mv', 'file.cp', 'file.apply',
-  'store.create', 'store.remove', 'store.connect', 'store.update', 'store.push', 'store.pull', 'store.disconnect',
-  'sandbox.create', 'sandbox.close',
-  'workspace.mount', 'workspace.unmount', 'workspace.commit', 'workspace.exec', 'workspace.exec_cancel',
-  'project.init', 'project.remove', 'project.delete', 'project.export',
+  'store.create', 'store.remove', 'store.connect', 'store.update', 'store.move', 'store.disconnect', 'store.save_auth', 'store.remove_auth', 'store.compact',
+  'sandbox.create', 'sandbox.remove',
+  'workspace.mount', 'workspace.unmount', 'workspace.commit', 'workspace.exec', 'workspace.cancel',
+  'project.init', 'project.delete', 'project.export', 'project.hide_path',
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load_image', 'machine.prune',
   'backup.create', 'backup.restore', 'backup.connect', 'backup.disconnect',
-  'home.clear_log', 'home.init', 'home.prune', 'doctor.fix',
+  'home.clear_log', 'home.init', 'home.prune',
 ])
 /** The read calls (cli.ts READS plus workspace.status and home.log): anything else a GET makes is suspect too. */
-const READS = new Set(['list', 'get', 'status', 'log', 'images', 'stats', 'storage_report', 'commits', 'get_commit', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'revision', 'doctor'])
-/** Monitoring reads, named with their family (cli.ts INSPECT_CALLS): `logs.sandbox` is no bare read name. */
-const INSPECT = new Set(['machine.log', 'logs.sandbox', 'sandbox.files', 'machine.files', 'machine.stats'])
+const READS = new Set(['list', 'get', 'status', 'log', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'auths', 'leftovers', 'doctor'])
+/** Monitoring reads, named with their family (cli.ts INSPECT_CALLS). */
+const INSPECT = new Set(['machine.log', 'sandbox.log', 'sandbox.files', 'machine.files', 'machine.stats'])
 const isRead = (call) => (READS.has(call.split('.')[1]) || INSPECT.has(call)) && !MUTATING.has(call)
 
 const L = `32${'a'.repeat(64)}`
 const C1 = `c1${'1'.repeat(64)}`
 const C2 = `c2${'2'.repeat(64)}`
-const commit1 = { id: C1, branch: 'feat', parent: null, base: L, time: 1, message: 'one', new_canonical: 1, new_stored: 1, new_metadata: 1, logical: 3 }
-const commit2 = { id: C2, branch: 'feat', parent: C1, time: 2, message: 'two', new_canonical: 2, new_stored: 2, new_metadata: 1, logical: 4 }
+// 2.0 `commit list --detail` rows
+const commit1 = { commit: C1, message: 'one', parent: null, base: L, created_at: '1970-01-01T00:00:01Z', size: 3, new_canonical_bytes: 1, new_stored_bytes: 1, new_metadata_bytes: 1 }
+const commit2 = { commit: C2, message: 'two', parent: C1, created_at: '1970-01-01T00:00:02Z', size: 4, new_canonical_bytes: 2, new_stored_bytes: 2, new_metadata_bytes: 1 }
 
 /**
- * A fake LayerFS home (machines native + lima1, Store s1 with projects p and q,
- * Branch feat with two Commits, Sandbox box1 with Workspace box1:w) behind a
- * Proxy that records `family.call` with its args. `gate` holds sandbox.get until
- * released; `sandboxBusy` makes it refuse Busy.
+ * A fake LayerFS 2.0 home (machines native + lima1, Store s1 with projects p
+ * and q, Branch feat with two Commits, Sandbox box1 with Workspace box1:w)
+ * behind a Proxy that records `family.call` with its args, answering the long
+ * forms. `gate` holds sandbox.get until released; `sandboxBusy` makes it
+ * refuse Busy.
  */
 function fakeLayerfs() {
   const state = {
     calls: [],
-    stores: [{ name: 's1', machine: 'native', kind: 'sqlite', projects: ['p', 'q'], state: 'idle' }],
-    storeState: 'idle',
+    stores: [{ store: 's1', machine: 'native', engine: 'sqlite', projects: ['p', 'q'], state: 'ready' }],
     sandboxBusy: false,
     gate: null,
   }
-  const project = (key) => ({ project: key, store: key.split('/')[0], name: key.split('/')[1], kind: 'sqlite', machine: 'native', created: 100 })
-  const projects = () => state.stores.flatMap((s) => s.projects.map((p) => project(`${s.name}/${p}`)))
-  const branches = { main: { name: 'main', base: L }, feat: { name: 'feat', head: C2, base: L, forked_from: L } }
+  const project = (key) => ({ project: key, store: key.split('/')[0], engine: 'sqlite', machine: 'native', state: 'ready', commit: L, created_at: '1970-01-01T00:00:00.100Z' })
+  const projects = () => state.stores.flatMap((s) => s.projects.map((p) => project(`${s.store}/${p}`)))
+  const branches = { main: { branch: 'main', commit: L }, feat: { branch: 'feat', commit: C2, base: L, forked_from: L } }
+  const chain = [commit2, commit1]
   const impl = {
     project: {
-      list: async () => ({ items: projects(), next_page_pos: null }),
-      get: async (key) => { const p = projects().find((x) => x.project === key); if (!p) throw new Refusal('NoSuchProject', `no project ${key}`); return p },
-      stats: async () => ({ logical: 3, files: 1, directories: 1, complete: true }),
+      list: async () => ({ items: projects() }),
+      get: async (key) => { const p = projects().find((x) => x.project === key); if (!p) throw new Refusal('NotFound', `no project ${key}`); return p },
+      stats: async () => ({ file_count: 1, dir_count: 1, symlink_count: 0, size: 3, partial: false }),
       init: async (key) => project(key),
-      remove: async () => ({}),
+      delete: async () => ({ ok: true }),
     },
     branch: {
-      list: async () => ({ items: Object.values(branches), next_page_pos: null }),
-      get: async (_p, name) => { if (!branches[name]) throw new Refusal('NoSuchBranch', `no branch ${name}`); return branches[name] },
-      commits: async () => ({ items: [commit2, commit1], has_more: false }),
-      get_commit: async (_p, _b, id) => [commit1, commit2].find((c) => c.id === id) ?? commit2,
-      diff: async () => ({ items: [], next_cursor: null }),
-      fork: async () => ({}),
+      list: async () => ({ items: Object.values(branches) }),
+      get: async (_p, name) => { if (!branches[name]) throw new Refusal('NotFound', `no branch ${name}`); return branches[name] },
+      fork: async () => ({ commit: L }),
     },
-    commit: { diff: async () => ({ items: [{ path: '/a.txt', kind: 'Modified' }], next_cursor: null }) },
+    commit: {
+      list: async (_p, _b, opts = {}) => {
+        const from = opts.at ? chain.findIndex((c) => c.commit === opts.at) : 0
+        const rows = from < 0 ? [] : chain.slice(from, from + (opts.limit ?? 20))
+        return { items: rows, ...(from >= 0 && from + rows.length < chain.length ? { next_cursor: 'more' } : {}) }
+      },
+      get: async (_p, id) => chain.find((c) => c.commit === id) ?? commit2,
+      diff: async () => ({ items: [{ path: '/a.txt', change: 'modified', type: 'file' }] }),
+    },
     file: {
-      list: async () => ({ items: [{ name: 'a.txt', path: '/a.txt', type: 'file', size: 3 }], has_more: false }),
-      stat: async () => ({ size: 3, mode: 420 }),
-      read: async () => ({ text: 'abc', start_line: 1, end_line: 1 }),
-      blame: async () => ({ items: [] }),
-      revision: async () => ({ items: [] }),
-      diff: async () => ({ items: [] }),
+      list: async () => ({ items: [{ path: '/a.txt', type: 'file' }] }),
+      stat: async () => ({ type: 'file', size: 3, mode: 420 }),
+      read: async () => ({ text: 'abc', next_line: null, line_truncated: false, binary: false, size: 3, start_line: 1, end_line: 1 }),
+      blame: async () => ({ ranges: [{ start: 1, end: 1, commit: C2 }], commits: [{ commit: C2, message: 'two' }], next_line: null, partial: false }),
+      history: async () => ({ items: [] }),
     },
     store: {
-      list: async () => ({ items: state.stores.map((s) => ({ ...s })) }),
-      status: async () => ({ state: state.storeState, file: { exists: true, bytes: 100, wal_bytes: 5 }, holders: [] }),
-      stats: async () => ({ kind: 'sqlite', canonical: 10, stored: 10, metadata: 1, history_logical: 10, store_id: 'id1', store_generation: 1 }),
-      get: async (name) => ({ ...(state.stores.find((s) => s.name === name) ?? { name }) }),
-      create: async (name) => { state.stores.push({ name, machine: 'native', kind: 'sqlite', projects: [], state: 'idle' }); return {} },
+      list: async () => ({ items: state.stores.map((s) => ({ ...s, projects_count: s.projects.length, size: 105 })) }),
+      get: async (name) => ({ ...(state.stores.find((s) => s.store === name) ?? { store: name, state: 'ready' }), stats: { canonical_bytes: 10, stored_bytes: 10, metadata_bytes: 1, history_logical_bytes: 10, size: 105 } }),
+      create: async (name) => { state.stores.push({ store: name, machine: 'native', engine: 'sqlite', projects: [], state: 'ready' }); return { ok: true } },
+      auths: async () => ({ items: [] }),
     },
     // the 2.0 machine family (long forms); platforms come from home.get --with platforms
     machine: {
@@ -112,25 +117,23 @@ function fakeLayerfs() {
       get: async () => ({ home: '/fake/home', state: 'ready', version: '2.0.0', generation: 2, platforms: { host: 'macos', items: [{ platform: 'lima', ready: true, options: [] }] } }),
     },
     sandbox: {
-      files: async () => ({ kind: 'folder', entries: [], next: null, has_more: false }),
-      list: async () => ({ items: [{ name: 'box1', project: 's1/p', state: 'ready', machine: 'native' }], next_page_pos: null }),
+      files: async () => ({ type: 'dir', items: [], next_cursor: null }),
+      list: async () => ({ items: [{ sandbox: 'box1', project: 's1/p', state: 'ready', machine: 'native' }] }),
       get: async (name) => {
         if (state.gate) await state.gate.promise
         if (state.sandboxBusy) throw new Refusal('Busy', `${name} is busy`, { op: { name: 'workspace.mount' } })
-        return { name, project: 's1/p', state: 'ready', machine: 'native', workspaces: [{ ws: `${name}:w`, name: 'w', branch: 'feat', directory: '/tmp/w' }], next_page_pos: null }
+        return { sandbox: name, project: 's1/p', state: 'ready', machine: 'native', workspaces: [{ workspace: `${name}:w`, branch: 'feat', path: '/tmp/w' }] }
       },
-      close: async (name) => ({ kind: 'Closed', closed: name }),
+      remove: async () => ({ ok: true, outcome: 'removed', unmounted: [] }),
+      log: async () => ({ items: [{ text: 'daemon up' }], next_cursor: null }),
     },
     workspace: {
       status: async () => ({ dirty: false }),
-      mount: async (sandbox) => ({ ws: `${sandbox}:w2` }),
-      unmount: async () => ({ kind: 'Unmounted' }),
-      commit: async () => ({ id: C2 }),
+      mount: async (sandbox) => ({ workspace: `${sandbox}:w2` }),
+      unmount: async () => ({ ok: true }),
+      commit: async () => ({ commit: C2 }),
     },
     backup: { list: async () => ({ items: [] }) },
-    logs: {
-      sandbox: async () => ({ lines: [{ text: 'daemon up' }], cursor: 'c1', has_more: false }),
-    },
   }
   const lfs = new Proxy({ spec: { cli: '/fake/layerfs', home: '/fake/home' } }, {
     get(target, family) {
@@ -177,12 +180,11 @@ test('two project lists within 15 s read the Store join once', async (t) => {
   const f = setup(t)
   const a = await f.http('GET', '/api/projects')
   assert.equal(a.status, 200)
-  assert.deepEqual(a.body.map((p) => [p.key, p.storeState]), [['s1/p', 'idle'], ['s1/q', 'idle']])
+  assert.deepEqual(a.body.map((p) => [p.key, p.storeState]), [['s1/p', 'ready'], ['s1/q', 'ready']])
   t.mock.timers.tick(10_000)
   await f.http('GET', '/api/projects')
   assert.equal(f.count('project.list'), 2, 'the project records themselves are read each time')
   assert.equal(f.count('store.list'), 1, 'the joined Storage view is reused within 15 s')
-  assert.equal(f.count('store.status'), 1)
 })
 
 // §4.1 Hits: the platforms (home.get --with platforms) are answered from a 30 s cache.
@@ -252,11 +254,11 @@ test('history pages read at a head skip branch.get and are kept', async (t) => {
   assert.equal(f.count('branch.get'), 0, 'the fork point came from the caller')
   const b = await f.http('GET', path)
   assert.deepEqual(b.body, a.body)
-  assert.equal(f.count('branch.commits'), 1, 'the page at a named head is kept')
+  assert.equal(f.count('commit.list'), 1, 'the page at a named head is kept')
   // without a head the Branch may have moved: read again
   await f.http('GET', `/api/projects/${P}/history?branch=feat&fork=${L}`)
   await f.http('GET', `/api/projects/${P}/history?branch=feat&fork=${L}`)
-  assert.equal(f.count('branch.commits'), 3)
+  assert.equal(f.count('commit.list'), 3)
 })
 
 // History's whole count: wide pages back to the fork, kept per head; a moved head reads only back
@@ -264,43 +266,42 @@ test('history pages read at a head skip branch.get and are kept', async (t) => {
 test('history counts a Branch once and then only what is new', async (t) => {
   const f = setup(t)
   const ids = Array.from({ length: 130 }, (_, i) => `12${String(i + 1).padStart(4, '0')}`)
-  const chain = new Map(ids.map((id, i) => [id, { id, branch: 'feat', parent: i ? ids[i - 1] : L, base: L, message: null, time: i }]))
+  const chain = new Map(ids.map((id, i) => [id, { commit: id, parent: i ? ids[i - 1] : L, base: L, message: null, created_at: null }]))
   const pages = []
-  f.impl.branch.commits = async (_p, _b, opts) => {
+  // `commit list --at C --limit N`: from C back, newest first; a cursor when there is more
+  f.impl.commit.list = async (_p, _b, opts) => {
     pages.push(opts)
-    // like LayerFS: a page over the reply budget (here 20 Commits) is refused, not cut short
-    if (opts.page_size > 20) throw new Error('saved history page exceeds reply budget; reduce page_size')
     const rows = []
-    for (let c = chain.get(opts.at_commit); c && rows.length < opts.page_size; c = chain.get(c.parent)) rows.push(c)
-    return { items: rows, has_more: !!chain.get(rows.at(-1)?.parent) }
+    for (let c = chain.get(opts.at); c && rows.length < opts.limit; c = chain.get(c.parent)) rows.push(c)
+    return { items: rows, ...(chain.get(rows.at(-1)?.parent) ? { next_cursor: 'more' } : {}) }
   }
   const count = (head) => f.http('GET', `/api/projects/${P}/history?branch=feat&at=${head}&fork=${L}&count=1`)
   const [a, b] = await Promise.all([count(ids[119]), count(ids[119])])
   assert.equal(a.status, 200)
   assert.deepEqual(a.body, { head: ids[119], count: 120 })
   assert.deepEqual(b.body, a.body)
-  const read = () => pages.filter((o) => o.page_size <= 20)
-  assert.equal(read().length, 8, 'one count of 120 in pages of 16 (32 refused, halved), shared by both asks')
-  assert.ok(read().every((o) => o.page_size === 16))
+  const read = () => pages
+  assert.equal(read().length, 2, 'one count of 120 in pages of 100 (one attempt each, no shrinking), shared by both asks')
+  assert.ok(read().every((o) => o.limit === 100))
   assert.deepEqual((await count(ids[119])).body.count, 120)
-  assert.equal(read().length, 8, 'kept at that head')
+  assert.equal(read().length, 2, 'kept at that head')
   assert.deepEqual((await count(ids[129])).body, { head: ids[129], count: 130 })
-  assert.equal(read().length, 9, 'ten new Commits: one page, stopping at the counted head')
+  assert.equal(read().length, 3, 'ten new Commits: one page, stopping at the counted head')
   assert.deepEqual((await f.http('GET', `/api/projects/${P}/history?branch=main&at=${L}&count=1`)).body.count, null)
   assert.deepEqual((await f.http('GET', `/api/projects/${P}/history?branch=feat&at=${L}&fork=${L}&count=1`)).body.count, 0)
-  assert.equal(read().length, 9)
+  assert.equal(read().length, 3)
 })
 
 // Load all reads wide pages, kept apart from the narrow first pages.
 test('history wide pages ask for a wide page and are kept by width', async (t) => {
   const f = setup(t)
   const seen = []
-  const commits = f.impl.branch.commits
-  f.impl.branch.commits = async (...args) => { seen.push(args[2].page_size); return commits(...args) }
+  const commits = f.impl.commit.list
+  f.impl.commit.list = async (...args) => { seen.push(args[2].limit); return commits(...args) }
   await f.http('GET', `/api/projects/${P}/history?branch=feat&at=${C2}&fork=${L}`)
   await f.http('GET', `/api/projects/${P}/history?branch=feat&at=${C2}&fork=${L}&wide=1`)
   await f.http('GET', `/api/projects/${P}/history?branch=feat&at=${C2}&fork=${L}&wide=1`)
-  assert.deepEqual(seen, [20, 32])
+  assert.deepEqual(seen, [20, 100])
 })
 
 // §4.1 Hits: a Commit's changed paths are kept (a Commit never changes): repeated branch-commits make no new commit.diff.
@@ -416,9 +417,9 @@ test('TTL bounds: cached at TTL − 1 ms, read again at TTL', async (t) => {
 /** A recording fake CLI for the paths that spawn it directly (doctor, presets): argv lines in `log`. */
 function fakeCli(dir) {
   const cli = join(dir, 'fake-layerfs.cjs'), log = join(dir, 'fake-layerfs.log')
-  const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'branch.commits', 'commit.diff',
-    'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.get', 'sandbox.close', 'workspace.mount', 'workspace.commit', 'workspace.status',
-    'workspace.unmount', 'workspace.exec', 'machine.list', 'machine.get', 'store.list', 'store.create', 'store.get', 'home.get', 'home.doctor']
+  const required = ['project.init', 'project.list', 'project.get', 'project.export', 'branch.fork', 'branch.list', 'commit.list', 'commit.diff',
+    'file.read', 'file.list', 'file.apply', 'sandbox.create', 'sandbox.list', 'sandbox.get', 'sandbox.remove', 'workspace.mount', 'workspace.commit', 'workspace.status',
+    'workspace.unmount', 'workspace.exec', 'workspace.cancel', 'machine.list', 'machine.get', 'store.list', 'store.create', 'store.get', 'home.get', 'home.doctor']
   const entry = (k) => ({ family: k.split('.')[0], call: k.split('.')[1], args: [], options: [], ...(k === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) })
   const help = { calls: required.map(entry), commands: [], switches: [] }
   writeFileSync(cli, `#!${process.execPath}
@@ -476,6 +477,7 @@ const GETS = [
   ['stores/:id/observations', '/api/stores/s1/observations'],
   ['stores/:id/projects', '/api/stores/s1/projects'],
   ['stores/:id/check', '/api/stores/s1/check?machine=native'],
+  ['store-auths', '/api/store-auths'],
   ['buckets/:id/files', '/api/buckets/b1/files'],
   ['storage-jobs/:id', '/api/storage-jobs/job-x'],
   ['platforms', '/api/platforms'],
@@ -541,7 +543,7 @@ test('the no-writes table covers every GET route in router.ts', () => {
 
 // C1 (finding: GETs with an `unclaimed:` projectId forked dsh.project.<uuid>): no GET route makes a mutating LayerFS call.
 test('no GET route makes a mutating LayerFS call, with or without a projectId', { timeout: 30_000 }, async (t) => {
-  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'machine', call: 'log', args: [], options: [] }, { family: 'logs', call: 'sandbox', args: [], options: [] }, { family: 'machine', call: 'files', args: [], options: [] }, { family: 'sandbox', call: 'files', args: [], options: [] }, { family: 'machine', call: 'stats', args: [], options: [], form: { with: { space: {} } } }, { family: 'home', call: 'get', args: [], options: [], form: { with: { platforms: {}, tree: {} } } }, { family: 'sandbox', call: 'list', args: [], options: [{ name: 'live', kind: 'bool' }] }]) })
+  const f = setup(t, { discovery: discoveryOf([{ family: 'machine', call: 'images', args: [], options: [] }, { family: 'machine', call: 'log', args: [], options: [] }, { family: 'sandbox', call: 'log', args: [], options: [] }, { family: 'machine', call: 'files', args: [], options: [] }, { family: 'sandbox', call: 'files', args: [], options: [] }, { family: 'machine', call: 'stats', args: [], options: [], form: { with: { space: {} } } }, { family: 'home', call: 'get', args: [], options: [], form: { with: { platforms: {}, tree: {} } } }]) })
   // the real identity check, wired as routes/index.ts wires it: reads never claim
   const catalog = new ProjectCatalog(() => f.lfs, join(f.dir, 'root'))
   f.host.host.assertProjectIdentity = (project, projectId) => catalog.assert(project, projectId, { claim: false })
@@ -596,12 +598,15 @@ test('no GET route makes a mutating LayerFS call, with or without a projectId', 
   assert.equal(f.count('branch.fork'), 0, 'an unclaimed projectId never claims (C1)')
   // the log reads made their calls, and nothing else: no sandbox.get, no machine probe
   assert.equal(f.count('machine.log'), 2)
-  assert.equal(f.count('logs.sandbox'), 2)
+  assert.equal(f.count('sandbox.log'), 2)
   // Stage 0: the ready images come from the archive on this host, never from a machine call
   assert.equal(statuses['/api/machines/lima1/sandbox-images'], 200)
   // GETs that write local stat journals only: Store observations and the project storage ledger, in the stat folder
   const stats = join(home, 'stat')
-  assert.ok(readdirSync(join(stats, 'storage-observations')).length > 0, '/stores/:id/stats records an observation locally')
+  // 2.0's `store get --with stats` answers no Store identity: no observation is kept (the answer says why)
+  const observations = join(stats, 'storage-observations')
+  assert.equal(statuses['/api/stores/s1/stats'], 200)
+  assert.deepEqual(existsSync(observations) ? readdirSync(observations) : [], [], '/stores/:id/stats keeps no observation without a Store identity')
   assert.ok(readdirSync(join(stats, 'project-storage')).length > 0, '/projects/:id/storage?refresh=1 keeps its ledger locally')
 })
 

@@ -37,7 +37,7 @@ export interface ProjectFilesProps {
 
 export function ProjectFiles(props: ProjectFilesProps): ReactNode {
   const { api, project, t } = props
-  const [pos, setPos] = useState(0)
+  const [pos, setPos] = useState<number | string>(0)
   const [branches, setBranches] = useState<BranchInfo[]>([])
   const query = useQuery(() => filesApi.branches(api, project, pos), [api, project, pos], { refresh: [props.tick], cache: `branches:${project}:${pos}` })
   useEffect(() => {
@@ -72,8 +72,8 @@ function FilesFrame({ api, project, t, branches, initialBranch, initialPin, init
   const [pin, setPin] = useState<string | undefined>(initialPin)
   const head = branches.find((b) => b.name === ref)?.head ?? undefined
   const at = pin ?? head
-  const read = useCallback((path: string, pos?: number) => filesApi.list(api, project, ref, path, at, pos), [api, project, ref, at])
-  const { dirs, nexts, load, reset } = useFolders<FsEntry, number>(read)
+  const read = useCallback((path: string, pos?: string) => filesApi.list(api, project, ref, path, at, pos), [api, project, ref, at])
+  const { dirs, nexts, load, reset } = useFolders<FsEntry, string>(read)
   const [open, setOpen] = useState<Set<string>>(() => new Set(initialPath ? parentsOf(initialPath) : []))
   const [tabs, setTabs] = useState<string[]>(initialPath ? [initialPath] : [])
   const [active, setActive] = useState<string | undefined>(initialPath)

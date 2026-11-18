@@ -70,12 +70,12 @@ export interface CommitDetail { item: CommitInfo, changes: { path: string, kind:
 
 /** A saved Commit or Layer as the file queries name it; `branch` is where it was saved (unknown stays null). */
 export interface SavedRef { id: string, kind?: 'Commit' | 'Layer' | string, branch?: string | null }
-/** The saved version that last wrote a line (`file.blame`, `file.diff` with attribution). */
+/** The saved version that last wrote a line (`file.blame`, `commit.diff` with patch). */
 export interface LineOwner { ref: SavedRef, message?: string | null }
 /** How much of a query LayerFS could answer exactly. */
 export interface QueryCoverage { status?: 'complete' | 'partial' | 'unavailable' | string, comparison?: string, reasons?: string[] }
 
-/** One row of `file.diff` (GET /api/projects/<key>/file-query?kind=compare|attribution). */
+/** One row built from `commit.diff --with patch` (GET /api/projects/<key>/file-query?kind=compare|attribution). */
 export interface DiffRow {
   op: ' ' | '+' | '-'
   text: string
@@ -85,7 +85,7 @@ export interface DiffRow {
   after_owner?: LineOwner | null
   owner_changed?: boolean | null
 }
-/** The `file.diff` answer the views read. */
+/** The compare answer the views read (from `commit.diff --with patch`). */
 export interface FileDiffResult {
   rows?: DiffRow[]
   has_more?: boolean
@@ -107,7 +107,7 @@ export interface BlameResult {
   next_line?: number | null
 }
 
-/** One saved change to a path (`file.revision`). */
+/** One saved change to a path (`file.history`). */
 export interface FileRevision {
   ref: SavedRef
   /** The version it changed from; null for the version that added the path. */
@@ -119,7 +119,7 @@ export interface FileRevision {
   after?: { size?: number } | null
   changes?: { content?: boolean, metadata?: boolean, identity?: boolean, attribution?: boolean | null }
 }
-/** `file.revision` (file-query kind=revisions): one page, newest first. */
+/** `file.history` (file-query kind=revisions): one page, newest first. */
 export interface RevisionPage {
   items: FileRevision[]
   has_more?: boolean
