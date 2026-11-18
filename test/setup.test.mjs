@@ -195,6 +195,62 @@ test('Convert while a setup check reads the old folder answers the converted fol
   })
 })
 
+// Review UR B1: a `home get` that started before `home init` lands after it; its stale
+// `needs_conversion` must not be kept for the re-read Convert relies on. The fake's
+// `home get` reads the folder when it starts, then takes 700 ms.
+for (const ms of [20, 150, 450]) {
+  test(`Convert ${ms} ms into a setup check answers the converted folder (a read running across the write keeps nothing)`, async () => {
+    await withService({ layout2: true, slowGetMs: 700 }, async ({ s, fake }) => {
+      const running = s.setup()
+      await new Promise((r) => setTimeout(r, ms))
+      const after = await s.convertHome()
+      assert.equal(after.folder.state, 'current', fake.calls().join('\n'))
+      await running
+      await s.lfs.store.list()
+    })
+  })
+}
+
+test('Convert once the setup check\'s home get process has started: that get is not kept, the re-read asks again', async () => {
+  await withService({ layout2: true, slowGetMs: 700 }, async ({ s, fake }) => {
+    const running = s.setup()
+    const until = Date.now() + 10_000
+    while (!fake.calls().includes('home get --detail') && Date.now() < until) await new Promise((r) => setTimeout(r, 10))
+    assert.ok(fake.calls().includes('home get --detail'), 'the setup check started its home get')
+    const after = await s.convertHome()
+    assert.equal(after.folder.state, 'current', fake.calls().join('\n'))
+    const calls = fake.calls()
+    const init = calls.indexOf('home init --detail')
+    assert.ok(init > 0 && calls.slice(init + 1).includes('home get --detail'), `a fresh home get after home init:\n${calls.join('\n')}`)
+    await running
+    await s.lfs.store.list()
+  })
+})
+
+test('kept reads: home get stays kept between writes; a read in flight across a write is neither kept nor shared', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-kept-'))
+  try {
+    const home = join(dir, 'home')
+    mkdirSync(home, { recursive: true, mode: 0o700 })
+    writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 2 }))
+    const fake = fakeCli(dir, { slowGetMs: 400 })
+    const lfs = H.client({ cli: fake.cli, home })
+    const gets = () => fake.calls().filter((c) => c === 'home get --detail').length
+    // a read starts, then a write runs to completion while it is still running
+    const early = lfs.home.get({ detail: true })
+    const until = Date.now() + 10_000
+    while (gets() < 1 && Date.now() < until) await new Promise((r) => setTimeout(r, 10))
+    await lfs.home.init({ detail: true })
+    const late = lfs.home.get({ detail: true })
+    assert.equal((await early).reason, 'outdated', 'the early read saw the old folder')
+    assert.equal((await late).state, 'ready', 'a read asked after the write is not the early one')
+    assert.equal(gets(), 2)
+    // between writes home get stays kept: the late answer serves the next read
+    assert.equal((await lfs.home.get({ detail: true })).state, 'ready', 'the early answer was not kept')
+    assert.equal(gets(), 2, 'a read inside the keep window after the late one is its kept answer')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('a stopped docker counts as idle for replacing a bundle; a ready (running) one does not', async () => {
   await withService({}, async ({ s, home }) => {
     mkdirSync(home, { recursive: true })

@@ -356,7 +356,8 @@ export const PROBE_TIMEOUT_MS = 15_000
 export const PROBES = new Set(['machine.get', 'machine.list', 'machine.images'])
 /**
  * Reads whose answer is reused for this many ms (state polls; machine probes take seconds
- * each). A write through the same client clears them all.
+ * each). A write through the same client clears them all, and a read that was running
+ * when a write began or ended keeps nothing.
  */
 export const KEPT_READS = new Map<string, number>([
   ['store.get', 2000], ['store.list', 2000], ['project.get', 2000], ['project.list', 2000], ['branch.list', 2000],
@@ -738,6 +739,10 @@ export function client(spec: CliSpec): Lfs {
   // times a second during a team run, each a CLI process in the Store's queue. Any write
   // through this client clears them, so what it changed is read fresh.
   const recent = new Map<string, { until: number, value: unknown }>()
+  // Writes through this client, counted at their start and their end: a read keeps its
+  // answer (and is shared) only within the count it started under, so a read that was
+  // already running when a write began or ended never serves what that write changed.
+  let writes = 0
   const families = new Map<string, Record<string, (...a: any[]) => Promise<any>>>()
   return new Proxy({ spec } as Lfs, {
     get(target, family: string | symbol) {
@@ -822,25 +827,29 @@ export function client(spec: CliSpec): Lfs {
               onSpawn: (child) => opts.on_spawn?.(child.pid),
             })
             if (!read) {
+              writes++
               recent.clear()
-              return invoke().finally(() => recent.clear())
+              return invoke().finally(() => { writes++; recent.clear() })
             }
             const key = JSON.stringify([words, input ?? null])
+            const started = writes
             // A call with its own budget is a deliberate probe: it always asks.
             const keep = opts.timeout_ms === undefined && spec.keepReads !== false ? KEPT_READS.get(`${family}.${call}`) : undefined
             const kept = keep ? recent.get(key) : undefined
             if (kept && kept.until > Date.now()) return Promise.resolve(kept.value)
-            if (!flying.has(key)) {
+            // shared only with an identical read started under the same write count
+            const share = JSON.stringify([started, key])
+            if (!flying.has(share)) {
               // one attempt: a refusal (a Store race included) passes through as it came
               const pending = invoke()
-              flying.set(key, pending)
+              flying.set(share, pending)
               pending.then((value) => {
-                if (!keep) return
+                if (!keep || writes !== started) return
                 if (recent.size > 500) recent.clear()
                 recent.set(key, { until: Date.now() + keep, value })
-              }, () => {}).finally(() => flying.delete(key)).catch(() => {})
+              }, () => {}).finally(() => flying.delete(share)).catch(() => {})
             }
-            return flying.get(key)
+            return flying.get(share)
           }
         },
       }) as never)
