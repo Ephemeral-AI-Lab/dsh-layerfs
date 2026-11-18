@@ -92,9 +92,9 @@ export interface BucketRow {
   stores: string[]
 }
 
-export type JobKind = 'push' | 'pull' | 'move' | 'backup' | 'restore'
+export type JobKind = 'push' | 'pull' | 'move' | 'backup' | 'restore' | 'compact'
 
-/** A push, pull, move, backup or restore the host started. */
+/** A push, pull, move, backup, restore or compaction the host started. */
 export interface StorageJob {
   id: string
   kind: JobKind
@@ -111,6 +111,10 @@ export interface StorageJob {
   error: (SdkRefusal & { phase: string | null, note?: 'pulled' }) | null
   outcome?: 'succeeded' | 'failed' | 'interrupted' | 'unknown' | null
   phases?: { phase: string, half: string | null, at: number }[]
+  /** The call's phases in order, when the host knows them before the run (a compaction). */
+  steps?: readonly string[]
+  /** A finished compaction's report (store.compact): the path it took and what the Store shrank by. */
+  result?: { path?: string | null, physical_shrink?: number | null } | null
   summary?: string | null
 }
 
@@ -124,6 +128,8 @@ export interface StorageView {
   stores: StoreRow[]
   buckets: BucketRow[]
   jobs: StorageJob[]
+  /** Whether the selected LayerFS runtime has store.compact; absent from an older host. */
+  compact?: boolean
   at: number
 }
 

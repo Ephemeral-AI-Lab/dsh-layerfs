@@ -27,7 +27,7 @@
  * Events, published with `ctx.layerfs.emit(type, data)`; `data` is Connect's
  * whole HostEvent object (its `type` included), so a client handler written
  * for Connect's event stream takes `event.data` unchanged:
- *   storage-job  { type: 'storage-job', job: StorageJob }  a push/pull/move/backup/restore job moved
+ *   storage-job  { type: 'storage-job', job: StorageJob }  a push/pull/move/backup/restore/compact job moved
  *   storage      { type: 'storage' }                       the Storage view changed (read it again)
  *   doctor       { type: 'doctor', id, state }             a Doctor job changed
  *   demo-preset  { jobId, preset, state }                  a preset build or reset moved

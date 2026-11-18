@@ -555,6 +555,67 @@ test('storage jobs: push runs as a job with storage-job events; one job per Stor
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('storage jobs: compact runs as a job with its steps, phases and report; an older runtime has none', async () => {
+  const compactCall = (options) => async () => ({ ...(await discovery()), calls: [{ family: 'store', call: 'compact', args: [{ name: 'name', kind: 'name' }], options }] })
+  let finish, given
+  const impl = (kind) => ({
+    ...base,
+    store: {
+      ...base.store,
+      get: async () => ({ name: 's1', kind, machine: kind === 'sqlite' ? 'native' : null }),
+      compact: (store, options) => new Promise((resolve) => { given = options; options.on_progress?.({ phase: 'mark', done: null, total: null }); options.on_progress?.({ phase: 'build', done: null, total: null }); finish = resolve }),
+    },
+  })
+  // a runtime whose store.compact declares on_progress
+  const { http, root } = fakeGroups(impl('sqlite'), compactCall([{ name: 'on_progress', kind: 'function' }]))
+  try {
+    assert.equal((await http('GET', '/api/storage')).body.compact, true)
+    const j = await http('POST', '/api/stores/s1/compact')
+    assert.equal(j.status, 200)
+    assert.equal(j.body.kind, 'compact')
+    assert.deepEqual(j.body.steps, ['mark', 'build', 'verify', 'install'])
+    await new Promise((r) => setTimeout(r, 10))
+    assert.equal(typeof given.on_progress, 'function')
+    const running = await http('GET', `/api/storage-jobs/${j.body.id}`)
+    assert.equal(running.body.phase, 'build')
+    assert.deepEqual(running.body.phases.map((p) => p.phase), ['mark', 'build'])
+    assert.equal((await http('POST', '/api/stores/s1/compact')).body.code, 'ConnectBusy')
+    finish({ kind: 'Compacted', path: 'rebuild', physical_shrink: 4096 })
+    await new Promise((r) => setTimeout(r, 10))
+    const done = await http('GET', `/api/storage-jobs/${j.body.id}`)
+    assert.equal(done.body.outcome, 'succeeded')
+    assert.deepEqual(done.body.result, { kind: 'Compacted', path: 'rebuild', physical_shrink: 4096 })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+  // a PostgreSQL Store names its own steps; a refusal in `install` keeps the SDK's own code (not a transfer's unknown)
+  const pg = fakeGroups({ ...impl('postgresql'), store: { ...impl('postgresql').store, compact: async () => { throw new Refusal('Capacity', 'no space', { phase: 'install' }) } } }, compactCall([{ name: 'on_progress', kind: 'function' }]))
+  try {
+    const j = await pg.http('POST', '/api/stores/s1/compact')
+    assert.deepEqual(j.body.steps, ['mark', 'build', 'swap', 'cleanup'])
+    await new Promise((r) => setTimeout(r, 10))
+    const failed = await pg.http('GET', `/api/storage-jobs/${j.body.id}`)
+    assert.equal(failed.body.outcome, 'failed')
+    assert.equal(failed.body.error.code, 'Capacity')
+  } finally { rmSync(pg.root, { recursive: true, force: true }) }
+  // store.compact without on_progress: the job runs, and the option is not passed
+  const plain = fakeGroups(impl('sqlite'), compactCall([]))
+  try {
+    await plain.http('POST', '/api/stores/s1/compact')
+    await new Promise((r) => setTimeout(r, 10))
+    assert.equal(given.on_progress, undefined)
+    finish({ kind: 'Compacted', path: 'none' })
+    await new Promise((r) => setTimeout(r, 10))
+  } finally { rmSync(plain.root, { recursive: true, force: true }) }
+  // a runtime with no store.compact: the view says so and the route refuses before any call
+  const old = fakeGroups(impl('sqlite'))
+  try {
+    assert.equal((await old.http('GET', '/api/storage')).body.compact, false)
+    const refused = await old.http('POST', '/api/stores/s1/compact')
+    assert.equal(refused.status, 409)
+    assert.equal(refused.body.code, 'Unsupported')
+    assert.ok(!old.calls.includes('store.compact'))
+  } finally { rmSync(old.root, { recursive: true, force: true }) }
+})
+
 test('project init job and saved reads route to their calls', async () => {
   const head = 'c'.repeat(66)
   const src = mkdtempSync(join(tmpdir(), 'dsh-routes-src-'))

@@ -183,6 +183,8 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && sub === 'move' && method === 'POST') return storage.move(id, body?.machine)
     // { bucket, file? }
     if (id && sub === 'backup' && method === 'POST') return storage.backup(id, body ?? {})
+    // reclaim the Store's dead bytes (store.compact), as a job
+    if (id && sub === 'compact' && method === 'POST') return storage.compact(id)
     return undefined
   }
   if (group === 'buckets') {

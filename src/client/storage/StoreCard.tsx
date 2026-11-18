@@ -8,7 +8,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { LinkButton, MoreMenu } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { inHome, latestBackup } from './model.ts'
+import { compactBlock, inHome, latestBackup } from './model.ts'
 import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
@@ -18,6 +18,8 @@ export interface StoreActions {
   move: () => void
   backup: () => void
   backupTo: (link: StoreBackupLink) => void
+  /** Confirm, then compact the Store; absent when the selected LayerFS runtime has no store.compact. */
+  compact?: (() => void) | undefined
   restore: (bucket: string, file: string) => void
   remove: () => void
   disconnect: () => void
@@ -52,14 +54,17 @@ export function Location({ store: s, t, onMachine }: { store: StoreRow, t: Stora
  */
 export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined }): ReactNode {
   const pg = s.kind === 'postgresql'
+  const blocked = compactBlock(s, t)
   return (
     <MoreMenu label={t('storeActions', { name: s.name })}>
       {(close) => {
         const run = (fn: () => void) => () => { close(); fn() }
+        const compact = on.compact ? <MenuItemButton disabled={blocked !== null} disabledReason={blocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton> : null
         return pg ? (
           <>
             <MenuItemButton onSelect={run(() => on.editConnection())}>{t('msEditConnection')}</MenuItemButton>
             <MenuItemButton onSelect={run(() => on.check(machine))}>{t('pgCheckFrom')}</MenuItemButton>
+            {compact}
             <MenuItemButton danger separatorBefore onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
           </>
         ) : (
@@ -78,6 +83,7 @@ export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: S
                 {`${t('backupNow')} · ${l.bucket}/${l.file}`}
               </MenuItemButton>
             ))}
+            {compact}
             <MenuItemButton danger separatorBefore onSelect={run(on.remove)}>{t('remove')}</MenuItemButton>
           </>
         )

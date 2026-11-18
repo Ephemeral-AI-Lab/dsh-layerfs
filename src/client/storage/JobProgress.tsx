@@ -17,7 +17,7 @@ export function JobPanel({ job: j, t, onRetry, onDismiss }: { job: StorageJob, t
     <div className={css.job} data-state={running ? 'running' : failed ? 'failed' : 'done'} role="status">
       <div className={css.jobLine}>
         <StateDot state={running ? 'ongoing' : failed ? 'error' : 'done'} size={running ? 13 : 10} />
-        <span className={css.jobTitle}>{running ? doingWords(j, t) : endedWords(j, t)}</span>
+        <span className={css.jobTitle}>{running ? doingWords(j, t) : endedWords(j, t, bytes)}</span>
         {running ? <span className={css.jobMeta}>{t('jobStep', { at, of: steps.length, step: stepWords(j.phase, t) })}</span> : null}
         {running && j.total ? <span className={css.jobMeta}>{t('jobBytes', { done: bytes(j.done ?? 0), total: bytes(j.total) })}</span> : null}
         <span className={css.jobEnd}>
@@ -52,7 +52,7 @@ export function JobList({ jobs, t, now }: { jobs: readonly StorageJob[], t: Stor
         <li key={j.id} className={css.row}>
           <StateDot state={!j.ended ? 'ongoing' : j.error ? 'error' : 'done'} size={!j.ended ? 13 : 10} />
           <span className={css.rowMain}>
-            <span className={css.rowTitle}>{j.ended ? endedWords(j, t) : doingWords(j, t)}</span>
+            <span className={css.rowTitle}>{j.ended ? endedWords(j, t, bytes) : doingWords(j, t)}</span>
             <span className={css.rowSub}>{kindWords(j.kind, t)} {j.target} · {ago(j.ended ?? j.started, now, t as Translate)}</span>
           </span>
         </li>

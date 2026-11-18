@@ -10,7 +10,7 @@ import { stringify } from './util.ts'
 /** One storage job (Connect's StorageJob). */
 export interface StorageJob {
   id: string
-  kind: 'push' | 'pull' | 'move' | 'backup' | 'restore'
+  kind: 'push' | 'pull' | 'move' | 'backup' | 'restore' | 'compact'
   store: string
   target: string
   from: string | null
@@ -20,6 +20,8 @@ export interface StorageJob {
   half: 'pull' | 'push' | null
   phase: string | null
   phases: { phase: string, half: string | null, at: number }[]
+  /** The phases the call reports, in order, when the host knows them before the run (a compaction). */
+  steps?: readonly string[]
   outcome: 'succeeded' | 'failed' | 'unknown' | 'interrupted' | null
   pid: number | null
   observation: any
@@ -33,6 +35,9 @@ export interface StorageJob {
 }
 
 /** Transfer failures retain the CLI's declared authority. Never infer rollback. */
+/** The phases store.compact reports, by Store family (LayerFS `on_progress`, GC decision A13). */
+export const COMPACT_STEPS = { sqlite: ['mark', 'build', 'verify', 'install'], postgresql: ['mark', 'build', 'swap', 'cleanup'] } as const
+
 export function failureOutcome(error: any, phase: string | null): StorageJob['outcome'] {
   if (error?.code === 'Unknown' || (error?.transport && error.transport !== 'refusal') || ['install', 'record'].includes(phase ?? '')) return 'unknown'
   if (error?.code === 'Interrupted') return 'interrupted'
@@ -55,6 +60,8 @@ export async function inspectJob(lfs: Lfs, job: StorageJob) {
   const at = Date.now()
   if (job.kind === 'backup') return { at, kind: 'backup', value: await lfs.backup.list(job.target), action: null }
   if (job.kind === 'restore') return { at, kind: 'restore', value: await lfs.store.get(job.store), action: null }
+  // a compaction is never resolved from here: the next store.compact judges what a run left
+  if (job.kind === 'compact') return { at, kind: 'compact', value: await lfs.store.status(job.store), action: null }
   const status = await lfs.store.status(job.store)
   const direction = job.kind === 'move' ? job.half ?? 'pull' : job.kind
   const expected = `store.${direction}`
