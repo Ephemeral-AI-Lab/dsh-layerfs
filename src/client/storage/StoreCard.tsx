@@ -8,7 +8,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { LinkButton, MoreMenu } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { inHome, latestBackup, storeStateWords } from './model.ts'
+import { compactWaitsFor, inHome, latestBackup, storeStateWords } from './model.ts'
 import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
@@ -54,8 +54,8 @@ export function Location({ store: s, t, onMachine }: { store: StoreRow, t: Stora
  */
 export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined }): ReactNode {
   const pg = s.kind === 'postgresql'
-  // LayerFS compacts a ready Store where it lives (a machine's sqlite Store on its worker); it refuses any other
-  const blocked = s.state === 'ready' ? null : t('compactNeedsIdle')
+  // LayerFS compacts a Store where it lives (a machine's sqlite Store on its worker); the 2.0 state alone decides
+  const blocked = compactWaitsFor(s, t)
   return (
     <MoreMenu label={t('storeActions', { name: s.name })}>
       {(close) => {

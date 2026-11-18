@@ -25,6 +25,33 @@ export function backupStateOf(f: Pick<BackupFile, 'store' | 'behind' | 'changed'
   return f.behind ? (f.changed ? 'both_changed' : 'store_changed') : f.changed ? 'bucket_changed' : 'current'
 }
 
+/**
+ * Why the Store menu's Compact waits, or null when it is offered. Only the
+ * 2.0 state decides; placement does not (a sqlite Store on a machine is
+ * compacted by that machine's worker). A Store `blocked` by its stopped
+ * machine waits for that machine; a `broken` Store whose fix is
+ * `layerfs store compact <store>` (an earlier run's outcome unknown) is
+ * offered, since running it is that fix; any other state that is not
+ * `ready` waits (LayerFS would refuse it `Busy` or `Unavailable`).
+ */
+export function compactWaitsFor(s: StoreRow, t: StorageT): string | null {
+  if (s.state === 'ready') return null
+  if (s.state === 'broken' && s.fix === `layerfs store compact ${s.name}`) return null
+  if (s.state === 'blocked' && s.blockedBy?.machine) return t('compactNeedsMachine', { machine: s.blockedBy.machine })
+  return t('compactNeedsIdle')
+}
+
+/**
+ * A PostgreSQL Store's size as LayerFS measures it (`store get --with stats`):
+ * stored pack bodies plus metadata (`stored_bytes`, `metadata_bytes`), or null
+ * when neither was reported. Unlike the projects' Commit counters it includes
+ * what Init saved.
+ */
+export function pgStoreBytes(st: { stored_bytes?: number | null, metadata_bytes?: number | null } | null | undefined): number | null {
+  const stored = st?.stored_bytes ?? null, metadata = st?.metadata_bytes ?? null
+  return stored === null && metadata === null ? null : (stored ?? 0) + (metadata ?? 0)
+}
+
 const byName = (a: StoreRow, b: StoreRow) => a.name.localeCompare(b.name)
 
 /** The board's order: the home's Stores, those on machines (by machine), then PostgreSQL. */

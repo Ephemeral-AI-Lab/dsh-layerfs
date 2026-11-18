@@ -47,8 +47,9 @@ import { BrandLockup, HomeHero, panelId } from './HomeHero.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
-import { bucketFiles, doingWords, endedWords, orderStores, shareOf } from './model.ts'
+import { bucketFiles, doingWords, endedWords, orderStores, pgStoreBytes, shareOf } from './model.ts'
 import { refusalLabels, StoreGlyph } from './parts.tsx'
+import type { StoreStats } from './store-page.ts'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import { runnableFix, type DoctorCount } from '../../shared/doctor.ts'
 import css from './HomeOverview.module.css'
@@ -105,18 +106,15 @@ export interface HomeOverviewProps {
 /** A PostgreSQL Store's size as LayerFS measures it, or why it could not. */
 type PgSize = { bytes: number | null } | { error: string }
 
-/** `store.stats` for each PostgreSQL Store (`GET /api/stores/<name>/stats`): stored pack bodies plus metadata. */
+/** `store get --with stats` for each PostgreSQL Store (`GET /api/stores/<name>/stats`), measured by pgStoreBytes. */
 function usePgSizes(api: LayerfsApi, names: readonly string[], refreshKey: number): ReadonlyMap<string, PgSize> {
   const [sizes, setSizes] = useState<ReadonlyMap<string, PgSize>>(new Map())
   const key = names.join('\n')
   useEffect(() => {
     let gone = false
     for (const name of names) {
-      api.call<{ stored?: number | null, metadata?: number | null }>('GET', `/api/stores/${enc(name)}/stats`).then(
-        (st) => {
-          const n = (st?.stored ?? null) === null && (st?.metadata ?? null) === null ? null : (st.stored ?? 0) + (st.metadata ?? 0)
-          if (!gone) setSizes((had) => new Map(had).set(name, { bytes: n }))
-        },
+      api.call<StoreStats>('GET', `/api/stores/${enc(name)}/stats`).then(
+        (st) => { if (!gone) setSizes((had) => new Map(had).set(name, { bytes: pgStoreBytes(st) })) },
         (e: unknown) => { if (!gone) setSizes((had) => new Map(had).set(name, { error: e instanceof Error ? e.message : String(e) })) },
       )
     }

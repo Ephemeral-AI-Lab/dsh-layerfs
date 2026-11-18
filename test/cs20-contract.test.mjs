@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -242,6 +242,43 @@ test('spec v19 forms the Machines page reads: image item states, load-image reus
   for (const f of ['exec', 'exit_code', 'stdout_bytes', 'stderr_bytes', 'cancelled']) assert.ok(longOf('workspace.exec').has(f), `workspace exec --detail has ${f}`)
   // the markers this pin proves are gone from the source
   for (const { path, text } of sources()) assert.ok(!text.includes('cs20: switch when V19 merges'), `${path} still waits on V19`)
+})
+
+// The owner's Storage commits (merged in U4): a PostgreSQL card's size is
+// `store get --with stats` (routes/projects.ts storeStats, `stored_bytes` +
+// `metadata_bytes`), and Compact is `store compact --progress` as a job
+// (routes/storage.ts). Sent through the seam to the pinned CLI, which records
+// each argv and runs it on a sqlite Store of a throwaway home.
+test('the Storage card\'s size and Compact send `store get --detail --with stats` and `store compact --detail --progress`', { skip }, async () => {
+  const src = sources()
+  const has = (re) => src.some((f) => re.test(f.text))
+  assert.ok(has(/this\.lfs\.store\.get\(name, \{ detail: true, with: \['stats'\] \}\)/), 'storeStats reads store get --with stats --detail')
+  assert.ok(has(/this\.lfs\.store\.compact\(store, \{ on_progress, on_spawn, detail: true \}\)/), 'compact runs store compact with progress and --detail')
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-storage-'))
+  try {
+    const home = join(dir, 'home'), log = join(dir, 'argv.log'), wrapper = join(dir, 'layerfs')
+    writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${CLI}' "$@"\n`)
+    chmodSync(wrapper, 0o755)
+    const env = { ...process.env, LAYERFS_HOME: home }
+    execFileSync(CLI, ['home', 'init'], { env, timeout: 30_000 })
+    execFileSync(CLI, ['store', 'create', 's1'], { env, timeout: 30_000 })
+    await build({
+      absWorkingDir: root, stdin: { contents: "export { client } from './src/host/layerfs/cli.ts'\n", resolveDir: root, loader: 'ts' },
+      outfile: join(dir, 'cli.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
+    })
+    const { client } = await import(pathToFileURL(join(dir, 'cli.mjs')).href)
+    const lfs = client({ cli: wrapper, home, keepReads: false })
+    const record = await lfs.store.get('s1', { detail: true, with: ['stats'] })
+    for (const key of ['stored_bytes', 'metadata_bytes']) assert.equal(typeof record.stats?.[key], 'number', `store get --with stats answers stats.${key}`)
+    const phases = []
+    const report = await lfs.store.compact('s1', { on_progress: (e) => phases.push(e.phase), on_spawn: () => {}, detail: true })
+    assert.ok(['compacted', 'unchanged'].includes(report.outcome), `compact outcome ${report.outcome}`)
+    assert.equal(typeof report.freed_bytes, 'number')
+    assert.ok(report.kept_waste && typeof report.kept_waste === 'object', 'compact --detail answers kept_waste')
+    assert.deepEqual(phases.slice(0, 1), ['mark'], 'an sqlite compaction reports its phases from mark')
+    const sent = readFileSync(log, 'utf8').split('\n').filter((l) => l.startsWith('store '))
+    assert.deepEqual(sent, ['store get --detail --with stats -- s1', 'store compact --detail --progress -- s1'])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 test('the Doctor page\'s argv is a 2.0 call: six doctors, --progress only where reported, --full only where taken', { skip }, async () => {
