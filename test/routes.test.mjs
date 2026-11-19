@@ -353,6 +353,72 @@ test('postgresql: a Store naming no saved login is broken/outdated; its fix save
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+// U9: the project dialog's new PostgreSQL Store names a saved login, or saves a new one under
+// the name the person gives (store save-auth, the password on stdin) and then connects with it.
+// A name a saved login has is refused (saving would change that login's password), a password
+// needs its user, and a connect LayerFS refuses removes the new login again (a refusal proves no
+// connect happened); an unknown outcome keeps it.
+test('postgresql: a new connection\'s new login: saved under its name then connected; an existing name or no user is refused; a refused connect removes it', async () => {
+  const saved = [{ auth: 'team', user: 'app', stores: ['pg'] }]
+  const seen = []
+  const records = []
+  const { http, root } = fakeGroups({
+    ...base,
+    machine: { ...base.machine, list: pgMachines },
+    store: {
+      ...base.store,
+      list: async () => ({ items: records }),
+      get: async (name) => records.find((r) => r.store === name) ?? (() => { throw new Refusal('NotFound', `no Store ${name}`) })(),
+      auths: async () => ({ items: saved }),
+      save_auth: async (auth, options) => { seen.push(['save_auth', auth, options]); return { ok: true } },
+      remove_auth: async (auth) => { seen.push(['remove_auth', auth]); return { ok: true } },
+      connect: async (name, url, options) => {
+        seen.push(['connect', name, url, options])
+        if (url.includes('denied')) throw new Refusal('Denied', 'password authentication failed for user "app"')
+        if (url.includes('lost')) throw new Refusal('Unknown', 'LayerFS ended without a complete result', null, 'transport-unknown')
+        records.push({ store: name, engine: 'postgresql', auth: options.auth, connections: [{ url }], projects: [], state: 'ready' })
+        return { ok: true }
+      },
+    },
+  })
+  try {
+    // success: the new login is saved first, under the name given, then named on connect
+    const ok = await http('POST', '/api/stores/postgresql', { name: 'shop', url: 'postgresql://db.lan:5432/shop', authName: 'shop-login', user: 'app', passwordValue: 's3cret', runsOn: 'native' })
+    assert.equal(ok.status, 200)
+    assert.deepEqual(seen, [['save_auth', 'shop-login', { user: 'app', password: 's3cret' }], ['connect', 'shop', 'postgresql://db.lan:5432/shop', { auth: 'shop-login' }]])
+    assert.ok(!JSON.stringify(ok.body).includes('s3cret'), 'the password is never answered')
+    assert.equal(ok.body.stores.find((s) => s.name === 'shop').postgresql.auth, 'shop-login')
+    // a saved login picked instead: connect --auth only, nothing saved
+    seen.length = 0
+    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'shop2', url: 'postgresql://db.lan:5432/shop2', auth: 'team' })).status, 200)
+    assert.deepEqual(seen, [['connect', 'shop2', 'postgresql://db.lan:5432/shop2', { auth: 'team' }]])
+    // an existing login name, given or defaulted from the Store's name, and a password without its user: refused before LayerFS
+    seen.length = 0
+    const taken = await http('POST', '/api/stores/postgresql', { name: 'shop3', url: 'postgresql://db.lan/shop3', authName: 'team', user: 'app', passwordValue: 'pw' })
+    assert.equal(taken.status, 400)
+    assert.match(taken.body.message, /saved login named team exists/)
+    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'team', url: 'postgresql://db.lan/team2', user: 'app', passwordValue: 'pw' })).status, 400, 'the default name is the Store\'s: taken too')
+    const noUser = await http('POST', '/api/stores/postgresql', { name: 'shop3', url: 'postgresql://db.lan/shop3', authName: 'shop3', user: '  ', passwordValue: 'pw' })
+    assert.equal(noUser.status, 400)
+    assert.match(noUser.body.message, /user/)
+    assert.deepEqual(seen, [], 'nothing saved, nothing connected')
+    // LayerFS refuses the connect: its code comes back, and the login saved for it is removed again
+    const denied = await http('POST', '/api/stores/postgresql', { name: 'shop4', url: 'postgresql://denied/shop4', authName: 'shop4', user: 'app', passwordValue: 'wrong' })
+    assert.equal(denied.status, 403)
+    assert.equal(denied.body.code, 'Denied')
+    assert.deepEqual(seen, [['save_auth', 'shop4', { user: 'app', password: 'wrong' }], ['connect', 'shop4', 'postgresql://denied/shop4', { auth: 'shop4' }], ['remove_auth', 'shop4']])
+    // an unknown outcome proves nothing: the login stays
+    seen.length = 0
+    const lost = await http('POST', '/api/stores/postgresql', { name: 'shop5', url: 'postgresql://lost/shop5', authName: 'shop5', user: 'app', passwordValue: 'pw' })
+    assert.notEqual(lost.status, 200)
+    assert.deepEqual(seen.map((c) => c[0]), ['save_auth', 'connect'])
+    // a picked login is never removed when its connect is refused
+    seen.length = 0
+    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'shop6', url: 'postgresql://denied/shop6', auth: 'team' })).status, 403)
+    assert.deepEqual(seen.map((c) => c[0]), ['connect'])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('postgresql: where a Store runs is the plugin\'s own choice: docker by default, saved by connect and runs-on, dropped on disconnect', async () => {
   const records = [{ store: 'pg', engine: 'postgresql', auth: 'pg', connections: [{ url: 'postgresql://db.lan/team' }], projects: [], state: 'ready' }, { store: 's1', machine: 'native', engine: 'sqlite', projects: ['p'], state: 'ready' }]
   let machines = pgMachines

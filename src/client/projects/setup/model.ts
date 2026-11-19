@@ -88,10 +88,33 @@ export function freeStoreName(base: string, view: Pick<StorageView, 'stores'> | 
   for (let n = 2; ; n++) if (!taken.has(`${root}-${n}`.slice(0, 63))) return `${root}-${n}`.slice(0, 63)
 }
 
-/** A password field's request body: a reference is sent as one, anything else as a typed password. */
-export const PG_REFERENCE = /^(env:[A-Za-z_][A-Za-z0-9_]*|file:\/.+)$/
-export function passwordBody(value: string): { password: string } | { passwordValue: string } {
-  return PG_REFERENCE.test(value.trim()) ? { password: value.trim() } : { passwordValue: value }
+/**
+ * A new PostgreSQL Store's login (LayerFS 2.0 saved logins): one saved before,
+ * by name (`store auths`), or a new one the host saves now under `authName`
+ * (`store save-auth <authName> --user <user> --password-stdin`), then names
+ * on `store connect --auth`.
+ */
+export type PgLogin = { auth: string } | { authName: string, user: string, password: string }
+
+/** A saved login's name, as LayerFS names things. */
+const LOGIN_NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
+
+/** Why a login cannot be used yet, or null. `saved`: the home's saved logins by name; a new login never takes one of them. */
+export type PgLoginProblem = 'pick' | 'name' | 'nameInvalid' | 'nameTaken' | 'user' | 'password'
+export function pgLoginProblem(login: PgLogin, saved: readonly string[]): PgLoginProblem | null {
+  if ('auth' in login) return login.auth && saved.includes(login.auth) ? null : 'pick'
+  const name = login.authName.trim()
+  if (!name) return 'name'
+  if (!LOGIN_NAME.test(name)) return 'nameInvalid'
+  if (saved.includes(name)) return 'nameTaken'
+  if (!login.user.trim()) return 'user'
+  if (!login.password) return 'password'
+  return null
+}
+
+/** The connect route's login fields: a saved login's name, or a new login (the password goes to LayerFS on stdin). */
+export function pgLoginBody(login: PgLogin): { auth: string } | { authName: string, user: string, passwordValue: string } {
+  return 'auth' in login ? { auth: login.auth } : { authName: login.authName.trim(), user: login.user.trim(), passwordValue: login.password }
 }
 
 /** What a Create asks for. */
@@ -100,7 +123,8 @@ export interface CreatePlan {
   kind: StoreKind
   /** An existing Store, or null for a new one. */
   store: StoreRow | null
-  newStore?: { name: string, url?: string, password?: string }
+  /** A new Store; a PostgreSQL one has its address (no user or password) and its login. */
+  newStore?: { name: string, url?: string, login?: PgLogin }
   /** One machine: where a SQLite Store's file goes, or where a PostgreSQL Store's sessions run. */
   machines: string[]
   /** An absolute folder the project starts from; empty when absent. */

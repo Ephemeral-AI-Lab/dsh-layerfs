@@ -12,8 +12,10 @@
  *   removeStore       store.remove(name), `confirm` naming it
  *   connectPostgresql store.connect(name, url, { auth, synchronous_commit }):
  *                     the URL holds no user or password; the login is a saved
- *                     auth (`auth`), one saved now from `user` + `passwordValue`
- *                     (store.save_auth, the password on stdin), or the one of
+ *                     auth (`auth`), a new one saved now from `user` +
+ *                     `passwordValue` under `authName` (store.save_auth, the
+ *                     password on stdin; an existing name is refused, and a
+ *                     refused connect removes the new login), or the one of
  *                     the Store named by `passwordFrom`
  *   updateStore       the Store's address (store.connect), one machine's own
  *                     address (store.connect --machine; `clear`: store.disconnect
@@ -341,18 +343,41 @@ export class Storage {
     return undefined
   }
 
+  /** A new login's name: refused when a saved login has it (saving under it would change another Store's password). */
+  private async freeLoginName(authName: unknown): Promise<string> {
+    checkName(authName, 'The new login')
+    if ((await this.auths()).items.some((a: { auth: string }) => a.auth === authName)) throw refuse(400, 'InvalidInput', `A saved login named ${authName} exists: pick it, or name another`)
+    return authName
+  }
+
   /**
    * A PostgreSQL database as a Store: { name, url (no user or password), auth
-   * | passwordFrom | user + passwordValue, synchronousCommit?, runsOn? }.
-   * `runsOn` saves the machine its sessions run on by default.
+   * | passwordFrom | user + passwordValue + authName?, synchronousCommit?,
+   * runsOn? }. A typed user and password are saved as a new login named
+   * `authName` (default: the Store's name), never one that exists; when
+   * LayerFS refuses the connect, that new login is removed again, so the
+   * same name can be given once more. `runsOn` saves the machine its
+   * sessions run on by default.
    */
   async connectPostgresql(input: any = {}) {
     const { name, url, synchronousCommit } = input
     checkName(name, 'A PostgreSQL Store')
     checkUrl(url, 'The database URL')
-    const auth = await this.loginOf(input, name, url)
+    const named = (typeof input.auth === 'string' && input.auth) || (input.passwordFrom !== undefined && input.passwordFrom !== null && input.passwordFrom !== '')
+    const typed = !named && typeof input.passwordValue === 'string' && input.passwordValue !== ''
+    if (typed && !(typeof input.user === 'string' && input.user.trim())) throw refuse(400, 'InvalidInput', 'Give the database user with the password')
+    const fresh = typed ? await this.freeLoginName(input.authName === undefined || input.authName === null || input.authName === '' ? name : input.authName) : undefined
+    const auth = await this.loginOf(fresh ? { ...input, authName: fresh } : input, name, url)
     if (!auth) throw refuse(400, 'InvalidInput', 'Choose a saved login, or give the user and password')
-    await this.lfs.store.connect(name, url, { auth, ...(synchronousCommit ? { synchronous_commit: synchronousCommit } : {}) })
+    try {
+      await this.lfs.store.connect(name, url, { auth, ...(synchronousCommit ? { synchronous_commit: synchronousCommit } : {}) })
+    } catch (error) {
+      // only a refusal proves the connect did not happen; an unknown outcome keeps the login
+      if (fresh && (error as { transport?: string })?.transport === 'refusal') {
+        try { await this.lfs.store.remove_auth(fresh) } catch { /* the refusal below is the answer; the login stays listed */ }
+      }
+      throw error
+    }
     if (typeof input.runsOn === 'string' && input.runsOn) this.storeMachines.set(name, input.runsOn)
     this.changed()
     return this.view()
@@ -389,18 +414,16 @@ export class Storage {
     let rotated = false
     if (typeof input.passwordValue === 'string' && input.passwordValue !== '' && !input.auth) {
       const record: any = await this.lfs.store.get(name, { detail: true })
-      const saved = (await this.auths()).items
       if (typeof record?.auth !== 'string') {
         // no saved login: `store save-auth <auth> --user <user> --password-stdin && store update <store> --auth <auth>`, <auth> the person's
-        const authName = input.authName
-        checkName(authName, 'The new login')
-        if (saved.some((a: { auth: string }) => a.auth === authName)) throw refuse(400, 'InvalidInput', `A saved login named ${authName} exists: pick it, or name another`)
+        const authName = await this.freeLoginName(input.authName)
         const auth = await this.loginOf({ ...input, authName }, name, null)
         await this.lfs.store.update(name, { auth, ...(sync ? { synchronous_commit: sync } : {}) })
         this.changed()
         return this.view()
       }
       // `store save-auth` needs the user with the password: the saved login's own unless one was typed
+      const saved = (await this.auths()).items
       const user = typeof input.user === 'string' && input.user.trim() ? input.user : saved.find((a: { auth: string }) => a.auth === record.auth)?.user ?? undefined
       await this.loginOf({ ...input, user, authName: record.auth }, name, null)
       rotated = true

@@ -695,6 +695,23 @@
 .step[data-state='running'] .stepMark { border: 0; }
 .step[data-state='failed'] .stepMark { border-color: var(--dsw-alias-state-error-primary); }
 
+/* a stopped Create: dot (LayerFS's words on hover), word and step, one action */
+.stopped {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.stoppedWord {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* the running Init's phase and count, after its label */
 .stepDetail {
   margin-left: auto;

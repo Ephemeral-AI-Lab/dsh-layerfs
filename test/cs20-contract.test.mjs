@@ -74,6 +74,7 @@ const SENT = {
   'store.remove': {},
   'store.save_auth': { options: ['user', 'password'] },
   'store.auths': {},
+  'store.remove_auth': {},
   'store.connect': { options: ['auth', 'machine', 'synchronous_commit'] },
   'store.disconnect': { options: ['machine'] },
   'store.update': { options: ['auth', 'synchronous_commit'] },

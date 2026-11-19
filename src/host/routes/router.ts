@@ -161,7 +161,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'storage' && id === 'check' && !sub && method === 'POST') return storage.check(body ?? {})
   if (group === 'stores') {
     if (!id && method === 'POST') return storage.createStore(body ?? {})
-    // a PostgreSQL database: { name, url, auth | passwordFrom | user + passwordValue, synchronousCommit?, runsOn? }
+    // a PostgreSQL database: { name, url, auth | passwordFrom | user + passwordValue + authName? (a new login), synchronousCommit?, runsOn? }
     if (id === 'postgresql' && !sub && method === 'POST') return storage.connectPostgresql(body ?? {})
     if (id && sub === 'stats' && method === 'GET') return projects.storeStats(id)
     if (id && sub === 'observations' && method === 'GET') return projects.storeObservations(id)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createSteps, defaultMachine, freeStoreName, machinesFor, passwordBody, pgMachine, pickable, primaryMachine, runsOn, tileBlocks } from '../src/client/projects/setup/model.ts'
+import { createSteps, defaultMachine, freeStoreName, machinesFor, pgLoginBody, pgLoginProblem, pgMachine, pickable, primaryMachine, runsOn, tileBlocks } from '../src/client/projects/setup/model.ts'
 
 const view = {
   machines: [
@@ -52,12 +52,37 @@ test('where a project runs: SQLite its Store machine, PostgreSQL the machine its
   assert.equal(primaryMachine({ kind: 'sqlite', machine: null }), 'native')
 })
 
-test('store names and passwords', () => {
+test('store names', () => {
   assert.equal(freeStoreName('website', view), 'website-3')
   assert.equal(freeStoreName('fresh', view), 'fresh')
-  assert.deepEqual(passwordBody('env:PGPASS'), { password: 'env:PGPASS' })
-  assert.deepEqual(passwordBody('file:/run/pw'), { password: 'file:/run/pw' })
-  assert.deepEqual(passwordBody('hunter2'), { passwordValue: 'hunter2' })
+})
+
+test('a new PostgreSQL Store\'s login: a saved one by name, or a new one (name, user, password) never under a saved name', () => {
+  const saved = ['team', 'ro']
+  // success: a new login, sent as authName + user + passwordValue; a saved one by its name
+  const fresh = { authName: ' shop ', user: ' app ', password: 'p w' }
+  assert.equal(pgLoginProblem(fresh, saved), null)
+  assert.deepEqual(pgLoginBody(fresh), { authName: 'shop', user: 'app', passwordValue: 'p w' }, 'names trimmed, the password as typed')
+  assert.equal(pgLoginProblem({ auth: 'team' }, saved), null)
+  assert.deepEqual(pgLoginBody({ auth: 'team' }), { auth: 'team' })
+  // an existing login name is refused, never saved over
+  assert.equal(pgLoginProblem({ ...fresh, authName: 'team' }, saved), 'nameTaken')
+  // a missing user, password or name; an invalid name; a saved login not picked or not listed
+  assert.equal(pgLoginProblem({ ...fresh, user: '  ' }, saved), 'user')
+  assert.equal(pgLoginProblem({ ...fresh, password: '' }, saved), 'password')
+  assert.equal(pgLoginProblem({ ...fresh, authName: '' }, saved), 'name')
+  assert.equal(pgLoginProblem({ ...fresh, authName: 'Shop Login' }, saved), 'nameInvalid')
+  assert.equal(pgLoginProblem({ auth: '' }, saved), 'pick')
+  assert.equal(pgLoginProblem({ auth: 'gone' }, saved), 'pick')
+})
+
+test('the setup copy offers no password reference, in either language', async () => {
+  const { locales } = await import('../src/client/projects/setup/locale.ts')
+  for (const [lang, words] of Object.entries(locales)) {
+    for (const [key, text] of Object.entries(words)) assert.doesNotMatch(text, /env:|file:\//, `${lang}.${key}`)
+    assert.ok(words.loginName && words.user && words.password && words.loginNameTaken.includes('{auth}'), lang)
+  }
+  assert.deepEqual(Object.keys(locales.zh).sort(), Object.keys(locales.en).sort())
 })
 
 test('create steps: new SQLite Store on docker is made on native, docker started, then pushed', () => {

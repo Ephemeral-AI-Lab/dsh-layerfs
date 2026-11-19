@@ -63,7 +63,16 @@ the pane. Opened from the picker, the head has a **‹ Projects** link back to i
 - **Store**: two kind cards, **SQLite** (feather) and **PostgreSQL**
   (elephant), then **New Store / New connection** or **Existing · N**. New asks
   the Store name (prefilled, `-2`… when taken); a new connection also asks the
-  URL without a password and the password or an `env:` / `file:` reference.
+  URL without a user or password, and its login (LayerFS 2.0 saved logins):
+  **New login** (login name, prefilled with the Store's when no saved login has
+  it; user; password typed once) or **Saved · N** (picked from `store auths`).
+  The host saves a new login with `store save-auth <login> --user <user>
+  --password-stdin` (the password on stdin, never in argv or a log), refuses a
+  name a saved login has (never overwrites it), then runs `store connect
+  <store> <url> --auth <login>`; if LayerFS refuses that connect, the new login
+  is removed again (`store remove-auth`), and an unknown outcome keeps it. A
+  stopped Create shows Refused (or No answer) and the step, LayerFS's words as
+  the dot's tip, and one action, Edit, which scrolls to the part to change.
   Existing shows one searchable list of that kind's Stores (`name`, then
   `<machine> · N projects` or `<server> · N projects`); the kind icon is on the
   card only, not repeated on rows.

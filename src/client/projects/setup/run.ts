@@ -6,7 +6,7 @@
 import { enc, type LayerfsApi } from '../../api.ts'
 import { waitProject, type ProjectInitJob } from '../../picker/NewProjectForm.tsx'
 import type { StorageJob } from '../../storage/types.ts'
-import { passwordBody, type CreatePlan, type Step } from './model.ts'
+import { pgLoginBody, type CreatePlan, type Step } from './model.ts'
 
 /** Start a machine and wait until it runs (the host waits; native answers at once). */
 export async function startMachine(api: LayerfsApi, machine: string): Promise<void> {
@@ -51,7 +51,8 @@ export async function runStep(api: LayerfsApi, plan: CreatePlan, step: Step, onJ
       await api.call('POST', '/api/stores', { name: store })
       return
     case step.id === 'connect':
-      await api.call('POST', '/api/stores/postgresql', { name: store, url: plan.newStore?.url ?? '', ...passwordBody(plan.newStore?.password ?? ''), ...(step.machine ? { runsOn: step.machine } : {}) })
+      // a new login is saved by the host first (store save-auth, the password on stdin), then named on store connect --auth
+      await api.call('POST', '/api/stores/postgresql', { name: store, url: plan.newStore?.url ?? '', ...(plan.newStore?.login ? pgLoginBody(plan.newStore.login) : {}), ...(step.machine ? { runsOn: step.machine } : {}) })
       return
     case step.id === 'start-store':
     case step.id.startsWith('start:'):
