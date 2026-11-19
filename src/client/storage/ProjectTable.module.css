@@ -136,6 +136,14 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* A history LayerFS could not read: its dot (the tip and the fix) and the word. */
+.unread {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .branch {
   flex: 0 1 auto;
   max-width: 40%;
@@ -516,4 +524,31 @@
   .colStore {
     display: none;
   }
+}
+
+/* A phone: the name keeps the room. Sessions and Sandboxes leave the row (the
+   chevron still opens either list, and "N running" stays by the name); the
+   row keeps its name, when a session last changed and its menu. */
+@container (max-width: 480px) {
+  .table,
+  .table[data-store-column] {
+    grid-template-columns: 20px minmax(0, 1fr) minmax(56px, auto) 28px;
+    column-gap: 10px;
+  }
+
+  .colSessions,
+  .colSandboxes {
+    display: none;
+  }
+
+  .row {
+    padding-inline: 8px;
+  }
+}
+
+/* A heading never spills into the next column. */
+.head > [role='columnheader'] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

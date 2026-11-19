@@ -126,6 +126,13 @@ export function serverGroups(stores: readonly StoreRow[]): PgServerGroup[] {
   })
 }
 
+/** What the server header says of the host's check: unreachable, reachable (with its latency only when it was measured), or not checked. */
+export function serverCheckWords(g: Pick<PgServerGroup, 'state' | 'latencyMs'>, t: StorageT): string {
+  if (g.state === 'failed') return t('hsUnreachable')
+  if (g.state !== 'ok') return t('msNotCheckedShort')
+  return g.latencyMs != null && Number.isFinite(g.latencyMs) ? t('msReachableMs', { latency: g.latencyMs }) : t('msReachable')
+}
+
 /**
  * A Store's own trouble, when it is not its server's: the server answers
  * (another of its Stores reached it) but this database did not. Null when

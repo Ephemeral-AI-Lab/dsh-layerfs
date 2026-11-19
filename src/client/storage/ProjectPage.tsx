@@ -4,7 +4,7 @@
  */
 import { useId, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, SegmentedTabs, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, HostError, type LayerfsApi } from '../api.ts'
 import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory } from '../files/ProjectHistory.tsx'
@@ -13,9 +13,9 @@ import { EmptyState } from '../files/States.tsx'
 import type { Translate } from '../files/types.ts'
 import { errorCode, useQuery } from '../files/use-query.ts'
 import { Card, Fact, Facts, LoadError, Loading, MoreMenu, Refusal, Section } from '../ui/index.tsx'
+import { TabBar } from '../ui/TabBar.tsx'
 import type { StorageDialog } from './dialogs.tsx'
 import type { StorageT } from './locale.ts'
-import { PaneBar } from './PaneBar.tsx'
 import { refusalLabels } from './parts.tsx'
 import type { ProjectState, SessionRow } from './types.ts'
 import css from './Storage.module.css'
@@ -60,7 +60,10 @@ export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore,
   })
   return (
     <div className={css.projectPage}>
-      <PaneBar title={name}
+      <h1 className={css.srOnly}>{name}</h1>
+      {/* the shared tab bar: labels never squeeze; on a phone the tabs scroll with fades at their cut edges and the actions take the next line */}
+      <TabBar className={css.projectTabs} label={t('projectTabs')} active={tab} onSelect={(key) => setTab(key as Tab)}
+        tabs={tabs.map((x) => ({ key: x.value, label: x.label, id: `${ids}-${x.value}`, controls: `${ids}-${x.value}-panel` }))}
         actions={(
           <>
             <Tooltip label={t('refreshProject')} side="bottom" portal delayMs={500}>
@@ -68,10 +71,7 @@ export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore,
             </Tooltip>
             <MoreMenu label={t('projectActions', { name })}>{(close) => <MenuItemButton danger onSelect={() => { close(); remove() }}>{t('removeProject')}</MenuItemButton>}</MoreMenu>
           </>
-        )}>
-        <SegmentedTabs size="sm" className={css.tabList} label={t('projectTabs')} value={tab} onChange={setTab}
-          items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
-      </PaneBar>
+        )} />
       <div role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`} className={clsx(css.tabPanel, (tab === 'files' || tab === 'history') && css.fillPanel)}>
         {tab === 'files' ? (
           <ProjectFiles key={`${open.n}`} api={api} project={project} t={tt} tick={tick} initialBranch={open.branch} initialPin={open.pin} initialPath={open.path} />

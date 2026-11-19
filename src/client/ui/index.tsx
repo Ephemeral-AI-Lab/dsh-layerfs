@@ -215,7 +215,7 @@ export interface FixRunner {
 export const FixContext = createContext<FixRunner | null>(null)
 
 /** One refusal's fix as its one action: a removal asks a second press; a refused fix shows its own refusal (without an action). */
-function FixAction({ line, fix, runner, labels }: { line: string, fix: RunnableFix, runner: FixRunner, labels: RefusalLabels }): ReactNode {
+export function FixAction({ line, fix, runner, labels }: { line: string, fix: RunnableFix, runner: FixRunner, labels: RefusalLabels }): ReactNode {
   const [step, setStep] = useState<'idle' | 'confirm' | 'busy' | 'done'>('idle')
   const [failed, setFailed] = useState<unknown>(null)
   const removes = fix.kind === 'delete' || fix.kind === 'prune'

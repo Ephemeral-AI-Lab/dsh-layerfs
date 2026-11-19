@@ -19,7 +19,7 @@
  * by; each row's session count from the local session list (no Store walk),
  * reread on session events, coalesced; the full list only while a row shows it.
  */
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular, IconTrashOutlineRegular, MenuItemButton, StateDot,
@@ -30,14 +30,15 @@ import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { sandboxRuns } from '../machines/stats.ts'
 import { useProjectSessions, type ProjectSession } from '../projects/hooks.ts'
-import { Card, MoreMenu } from '../ui/index.tsx'
+import { Card, FixAction, FixContext, MoreMenu } from '../ui/index.tsx'
+import { runnableFix } from '../../shared/doctor.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { enc, type LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { TabId } from './tabs.ts'
 import type { StorageKey, StorageT } from './locale.ts'
 import { useHostEvents } from './hooks.ts'
-import { HomeGlyph, StoreGlyph } from './parts.tsx'
+import { HomeGlyph, StoreGlyph, refusalLabels } from './parts.tsx'
 import { Signal } from './Signal.tsx'
 import { JobLine, RestartButton, SIZE_POLL_MS, sandboxesOfProject, storeTrouble, type Place, type Trouble } from './HomeCards.tsx'
 import { doingWords } from './model.ts'
@@ -359,7 +360,10 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
                   {line.branch ? <code className={css.branch}>{line.branch}</code> : null}
                 </>
               ) : (
-                <span className={css.ellipsis}>{p.totals ? t('spNoCommits') : counting ? t('spCounting', { n: String(p.building!.saves) }) : p.error ? p.error.message : t('spReading')}</span>
+                p.totals ? <span className={css.ellipsis}>{t('spNoCommits')}</span>
+                  : counting ? <span className={css.ellipsis}>{t('spCounting', { n: String(p.building!.saves) })}</span>
+                  : p.error ? <HistoryUnread error={p.error} t={t} />
+                  : <span className={css.ellipsis}>{t('spReading')}</span>
               )}
             </span>
           </span>
@@ -432,6 +436,27 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * A project whose history LayerFS could not read: a dot and the word under its
+ * name; LayerFS's own message is the dot's tip, and its fix line (Start the
+ * machine, say) the one action where the page can run it, else part of the tip.
+ */
+function HistoryUnread({ error, t }: { error: { code: string, message: string, fix?: string }, t: StorageT }): ReactNode {
+  const fixes = useContext(FixContext)
+  const fix = fixes && error.fix ? runnableFix(error.fix) : null
+  const word = t('spHistoryUnread')
+  return (
+    <span className={css.unread} data-history-unread={error.code}>
+      <span data-signal>
+        <Signal state="warning" title={word} label={`${word}: ${error.message}`}
+          detail={<>{error.message}{error.fix && !fix ? <><br /><code>{fixes ? fixes.tip(error.fix) : error.fix}</code></> : null}</>}
+          action={fix && fixes ? <FixAction line={error.fix!} fix={fix} runner={fixes} labels={refusalLabels(t)} /> : undefined} />
+      </span>
+      <span className={css.ellipsis}>{word}</span>
+    </span>
   )
 }
 

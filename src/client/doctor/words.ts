@@ -85,10 +85,11 @@ export function wordsOf(t: DoctorT) {
     } else if (x.kind === 'workspace') {
       if (x.branch) bits.push(tt('dpFactBranch', { branch: x.branch }))
     } else if (x.kind === 'project') {
-      if (note?.fullAt) bits.push(tt('dpFactDataRead', { time: clock(note.fullAt) }))
+      // a row that reads Not checked again (a fix, a changed record) says no older data read beside it
+      if (note?.fullAt && v.seen.st !== 'nc') bits.push(tt('dpFactDataRead', { time: clock(note.fullAt) }))
     } else {
       bits.push(provider(x.provider))
-      if (note?.fullAt) bits.push(tt('dpFactWriteTested', { time: clock(note.fullAt) }))
+      if (note?.fullAt && v.seen.st !== 'nc') bits.push(tt('dpFactWriteTested', { time: clock(note.fullAt) }))
     }
     return bits.filter(Boolean).join(' · ')
   }

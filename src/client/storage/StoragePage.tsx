@@ -340,7 +340,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   ) : null
 
   const pageOf = (id: TabId): ReactNode => {
-    if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} />
+    if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} refreshKey={checks} />
     if (id === 'logs') return <LogsPage api={api} t={more.logs} />
     if (id.startsWith('machine:')) {
       return (

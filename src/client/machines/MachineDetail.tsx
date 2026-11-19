@@ -11,10 +11,10 @@
  * has a worker log (`supports.log`).
  */
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import clsx from 'clsx'
-import { Button, IconSettingsOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconSettingsOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
-import { Empty, LinkButton, Notice, Page, PageHead, Refusal } from '../ui/index.tsx'
+import { Empty, LinkButton, Notice, Page, PageHead, Refusal, refusalOf } from '../ui/index.tsx'
+import { TabBar } from '../ui/TabBar.tsx'
 import { DiskLine, attentionOf, blockedOf, glyphOs } from './Board.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph } from './icons.tsx'
@@ -28,6 +28,7 @@ import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandb
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
+import { closeFirstKey, inUseSandboxes } from './notices.ts'
 import { onSocketRequest, takeSocketRequest } from './socket.ts'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { MachineOverview } from './Overview.tsx'
@@ -115,15 +116,26 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const hasImages = view.features?.imageStage === 1 && m.backend !== 'native'
   const sandboxCount = sandboxesOn(view, m).length
   const storeCount = storeLines(view, m).length
+  // the shared tab bar: labels never squeeze, a count beside its label; on a phone the bar scrolls with fades at its cut edges
   const labels: Record<MachineTab, string> = {
-    overview: t('tabOverview'), sandboxes: t('tabSandboxes', { n: String(sandboxCount) }), stores: t('tabStores', { n: String(storeCount) }),
+    overview: t('tabOverview'), sandboxes: t('sandboxes'), stores: t('stores'),
     images: t('tabImages'), files: t('tabFiles'), log: t('tabWorkerLog'),
   }
+  const counts: Partial<Record<MachineTab, number>> = { sandboxes: sandboxCount, stores: storeCount }
   const tabs = machineTabs({ images: hasImages, files: hasFiles, log: hasLog }).map((value) => ({ value, label: labels[value] }))
   const [tab, setTab] = useDetailTab<MachineTab>('machine', m.name, tabs.map((x) => x.value), 'overview')
   const ids = useId()
   const worker = observed.offered ? workerLine(observed.read?.stats, t) : null
   const logLink = hasLog && tab !== 'log' ? <LinkButton onClick={() => setTab('log')}>{t('openWorkerLog')}</LinkButton> : null
+  // a stop refused InUse because Sandboxes run: what to do in words, their names, and the Sandboxes tab as its one action (LayerFS's message is the tip)
+  const inUse = error !== null ? inUseSandboxes(error) : null
+  const refused = error === null ? null : inUse ? (
+    <div className={css.inUse} data-in-use={inUse.length} title={refusalOf(error).message}>
+      <p className={css.inUseTitle}>{t(closeFirstKey(inUse.length), { n: String(inUse.length) })}</p>
+      <ul className={css.inUseList}>{inUse.map((x) => <li key={x} className={css.mono}>{x}</li>)}</ul>
+      {tab !== 'sandboxes' && <Button size="sm" variant="outline" onClick={() => setTab('sandboxes')}>{t('inUseOpenSandboxes')}</Button>}
+    </div>
+  ) : <Refusal error={error} labels={refusal} />
   // startup progress and notices: on every tab, where today's page has them
   const notices = (
     <>
@@ -137,11 +149,11 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
         </Notice>
       )}
       {(reason || error !== null || state.state === 'unresolved') && (
-        <Notice tone={attention === 'danger' || error !== null ? 'danger' : undefined}>
+        <Notice tone={attention === 'danger' || (error !== null && !inUse) ? 'danger' : inUse ? 'warning' : undefined}>
           {reason && (unreadableRecord(m) ? <p title={reason}>{t('recordUnreadable')}</p> : <p>{reason}</p>)}
           {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
           {heldStores(m) > 0 && attention === 'danger' && <p>{t(heldStores(m) === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(heldStores(m)) })}</p>}
-          {error !== null && <Refusal error={error} labels={refusal} />}
+          {refused}
           {logLink && (reason || state.state === 'unresolved') ? <p>{logLink}</p> : null}
         </Notice>
       )}
@@ -149,8 +161,8 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   )
   return (
     <Page wide label={name}>
-      <SegmentedTabs size="sm" className={clsx(logCss.tabs, logCss.tabsTop)} label={t('machineTabs', { name })} value={tab} onChange={setTab}
-        items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
+      <TabBar className={logCss.tabsTop} label={t('machineTabs', { name })} active={tab} onSelect={(key) => setTab(key as MachineTab)}
+        tabs={tabs.map((x) => ({ key: x.value, label: x.label, count: counts[x.value], id: `${ids}-${x.value}`, controls: `${ids}-${x.value}-panel` }))} />
 
       {tab === 'files' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-files-panel`} aria-labelledby={`${ids}-files`}>

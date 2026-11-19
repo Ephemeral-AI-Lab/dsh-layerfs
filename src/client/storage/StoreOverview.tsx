@@ -14,7 +14,7 @@ import { useQuery } from '../ui/use-query.ts'
 import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { backupStateOf, latestBackup, runsOnOf, storeStateWords } from './model.ts'
-import { commitTotal, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
+import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
 import storageCss from './Storage.module.css'
@@ -56,7 +56,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           <Tile label={t('spDatabaseFile')} value={s.size ? bytes(s.size.bytes) : t('sizeUnavailable')} sub={s.size?.stale && s.size.seen ? t('msSizeSeen', { when: ago(s.size.seen, now, tt) }) : undefined} />
         )}
         <Tile label={t('tabProjects')} value={String(s.projectsCount ?? s.projects.length)} onOpen={() => onTab('projects')}
-          sub={commits ? (commits.refused && !commits.commits ? t('spCommitsUnread') : t(commits.complete || commits.refused ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() })) : undefined} />
+          sub={commits ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : undefined} />
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} />
         {pg ? (
           <Tile label={t('pgRunsOnLabel')} value={runsOn === 'native' ? t('layerfsHome') : runsOn} onOpen={() => onTab('connections')}

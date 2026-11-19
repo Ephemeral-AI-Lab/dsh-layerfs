@@ -12,6 +12,6 @@ import type { DoctorT } from '../doctor/locale.ts'
 import type { StorageT } from '../storage/locale.ts'
 
 /** The Health page's body, shown as a Center page (`health`). */
-export function HealthView({ api, t, ts }: { api: LayerfsApi, t: DoctorT, ts: StorageT }): ReactNode {
-  return <DoctorPage api={api} t={t} ts={ts} />
+export function HealthView({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: StorageT, refreshKey?: number }): ReactNode {
+  return <DoctorPage api={api} t={t} ts={ts} refreshKey={refreshKey ?? 0} />
 }

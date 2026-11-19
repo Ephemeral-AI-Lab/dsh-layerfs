@@ -6,7 +6,8 @@
  * each edge that cuts tabs off. Arrow keys, Home and End move between the tabs,
  * as a tablist does; only the selected tab is in the tab order.
  */
-import { useCallback, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './TabBar.module.css'
 
@@ -30,13 +31,15 @@ export interface TabItem {
   fid?: string
 }
 
-export function TabBar({ tabs, active, onSelect, label, actions }: {
+export function TabBar({ tabs, active, onSelect, label, actions, className }: {
   tabs: readonly TabItem[]
   active: string
   onSelect: (key: string) => void
   label: string
   /** The selected tab's actions, at the right end of the bar. */
   actions?: ReactNode
+  /** The bar's own spacing on a page (its top inset). */
+  className?: string | undefined
 }): ReactNode {
   const scroll = useRef<HTMLDivElement | null>(null)
   const fades = useCallback(() => {
@@ -49,8 +52,23 @@ export function TabBar({ tabs, active, onSelect, label, actions }: {
   useLayoutEffect(() => {
     fades()
     window.addEventListener('resize', fades)
-    return () => window.removeEventListener('resize', fades)
+    // the bar or its tabs change width (a count lands, the pane narrows): the fades follow
+    const bar = scroll.current
+    const watch = typeof ResizeObserver === 'function' && bar ? new ResizeObserver(fades) : null
+    if (watch && bar) { watch.observe(bar); if (bar.firstElementChild) watch.observe(bar.firstElementChild) }
+    return () => { window.removeEventListener('resize', fades); watch?.disconnect() }
   }, [fades, tabs.length])
+  // the selected tab is kept in sight (one restored from before, or picked off-screen), without scrolling the page
+  useEffect(() => {
+    const bar = scroll.current
+    const el = bar?.querySelector<HTMLElement>(`[data-key="${CSS.escape(active)}"]`)
+    if (!bar || !el) return
+    const at = el.getBoundingClientRect(), box = bar.getBoundingClientRect()
+    const left = at.left - box.left + bar.scrollLeft, right = left + at.width
+    if (left < bar.scrollLeft) bar.scrollLeft = Math.max(0, left - 28)
+    else if (right > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = right - bar.clientWidth + 28
+    fades()
+  }, [active, fades])
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const at = tabs.findIndex((x) => x.key === active)
     const to = e.key === 'ArrowRight' ? at + 1 : e.key === 'ArrowLeft' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null
@@ -64,7 +82,7 @@ export function TabBar({ tabs, active, onSelect, label, actions }: {
     fades()
   }
   return (
-    <div className={css.bar}>
+    <div className={clsx(css.bar, className)}>
       <div className={css.scroll} ref={scroll} onScroll={fades} data-tip-keep="">
         <div className={css.tabs} role="tablist" aria-label={label} onKeyDown={onKey}>
           {tabs.map((x) => {

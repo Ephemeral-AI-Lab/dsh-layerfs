@@ -93,7 +93,8 @@ export interface StoreProject {
   files: { files: number | null, complete: boolean } | null
   partial: boolean
   building: { branches: number, branchesTotal: number, saves: number } | null
-  error: { code: string, message: string } | null
+  /** Why the ledger could not be read: LayerFS's refusal, with its fix line when it gave one. */
+  error: { code: string, message: string, fix?: string } | null
 }
 
 export interface StoreProjectsView { store: string, projects: StoreProject[] }
@@ -158,6 +159,14 @@ export function commitTotal(projects: readonly StoreProject[]): { commits: numbe
     complete: projects.every((p) => !p.partial && p.totals !== null),
     refused: projects.find((p) => p.error && p.totals === null)?.error?.message ?? null,
   }
+}
+
+/** The commit total in words: unread, counted (one or many) or still counting. */
+export function commitTotalWords(c: { commits: number, complete: boolean, refused: string | null }): { key: 'spCommitsUnread' | 'spCommitsTotal' | 'spCommitsTotalOne' | 'spCommitsCounting', n: string } {
+  const n = c.commits.toLocaleString()
+  if (c.refused && !c.commits) return { key: 'spCommitsUnread', n }
+  if (c.complete || c.refused) return { key: c.commits === 1 ? 'spCommitsTotalOne' : 'spCommitsTotal', n }
+  return { key: 'spCommitsCounting', n }
 }
 
 /** Whether a ledger is still being read (and the answer worth asking again): partial or building, not refused. */

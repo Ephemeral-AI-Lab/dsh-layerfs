@@ -41,7 +41,7 @@ import { useQuery } from '../ui/use-query.ts'
 import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { machineStores, projectSplit, serverGroups, startKind, storeOffServer, type PgServerGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
+import { machineStores, projectSplit, serverCheckWords, serverGroups, startKind, storeOffServer, type PgServerGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
 import { cardJob, pgStoreBytes, runsOnOf } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
@@ -457,7 +457,7 @@ function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
     <div className={css.pgGroups}>
       {serverGroups(props.stores).map((g) => {
         const version = g.version ? t('msPgShort', { version: g.version.split(' ')[0]! }) : null
-        const check = g.state === 'failed' ? t('hsUnreachable') : g.state === 'ok' ? t('msReachableMs', { latency: g.latencyMs ?? '—' }) : t('msNotCheckedShort')
+        const check = serverCheckWords(g, t)
         return (
           <section key={g.server} className={css.pgGroup} data-pg-server={g.server} aria-label={g.server}>
             <header className={css.pgServer}>

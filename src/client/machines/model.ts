@@ -542,7 +542,9 @@ export function stateLook(entity: Entity, state: string | null | undefined): Sta
 /** An operation in words: `store.move · send`. */
 export function opWords(op: SdkOperation | null | undefined): string | null {
   if (!op) return null
-  return [op.name, op.phase].filter(Boolean).join(' · ')
+  // a phase that only repeats the op's name (`stop · stop`) is said once
+  const same = op.phase === op.name || op.phase === op.name.replace(/^[a-z_]+\./, '')
+  return [op.name, same ? null : op.phase].filter(Boolean).join(' · ')
 }
 
 /**
@@ -561,6 +563,8 @@ const BUSY_LABEL: Record<string, MachinesKey> = {
   create: 'stateCreating', start: 'stateStarting', stop: 'stateStopping', remove: 'stateRemoving', move: 'stateMoving', compact: 'stateCompacting',
   backup: 'stateBackingUp', restore: 'stateRestoring', mount: 'stateMounting', commit: 'stateCommitting', unmount: 'stateUnmounting', load_image: 'stateCopying',
 }
+/** The word a busy thing shows for an op (`stop` or `machine.stop` -> Stopping), if this page has one. */
+export const busyWordOf = (name: string): MachinesKey | undefined => BUSY_LABEL[name.replace(/^[a-z_]+\./, '')]
 /** A broken thing's word by its reason (2.0 `state_companions.broken.reason`). */
 const BROKEN_LABEL: Record<string, MachinesKey> = {
   engine_down: 'stateEngineDown', not_answering: 'stateNotAnswering', outdated: 'stateOutdated', unreachable: 'stateUnreachable',

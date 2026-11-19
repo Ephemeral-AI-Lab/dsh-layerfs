@@ -12,10 +12,10 @@
  * whose machine differs from the one it was opened from is refused here.
  */
 import { useId, type ReactNode } from 'react'
-import clsx from 'clsx'
-import { Button, IconRefreshOutlineRegular, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import { LinkButton, LoadError, Loading, Notice, Page, PageHead, Refusal, StateChip } from '../ui/index.tsx'
+import { TabBar } from '../ui/TabBar.tsx'
 import { useMachinesContext } from './context.tsx'
 import { useDetailTab } from './detail-tabs.ts'
 import { SandboxGlyph } from './icons.tsx'
@@ -90,8 +90,8 @@ export function SandboxDetail({ machine, name, go }: { machine: string, name: st
   return (
     <Page wide label={name}>
       {/* the tabs come first, as on the machine page: the top bar's breadcrumb shows where this is, the name, icon and state are on the Overview tab (its Details card), and the page region carries the name */}
-      <SegmentedTabs size="sm" className={clsx(logCss.tabs, logCss.tabsTop)} label={t('machineTabs', { name })} value={tab} onChange={setTab}
-        items={tabs.map((x) => ({ value: x.value, label: x.label, id: `${ids}-${x.value}`, panelId: `${ids}-${x.value}-panel` })) as [never, ...never[]]} />
+      <TabBar className={logCss.tabsTop} label={t('machineTabs', { name })} active={tab} onSelect={(key) => setTab(key as typeof tab)}
+        tabs={tabs.map((x) => ({ key: x.value, label: x.label, id: `${ids}-${x.value}`, controls: `${ids}-${x.value}-panel` }))} />
 
       {((info && (info.refusal || (info.state !== 'ready' && info.message))) || calls || closing.error !== null || !!closing.unknown?.length || (info && detail.error != null)) && (
         <Notice tone="danger">

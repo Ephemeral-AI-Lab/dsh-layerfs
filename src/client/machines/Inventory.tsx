@@ -19,12 +19,13 @@ export { besideCreating, creatingOn } from './images.ts'
 import { FreeSpaceDialog } from './MachineImages.tsx'
 import { SandboxMenu, useClose } from './Sandboxes.tsx'
 import {
-  SANDBOX_CAPACITY, bytes, machineState, opWords, pgUsable, projectRef, sandboxesOn, shortSandbox, stateLook, storesOn,
+  SANDBOX_CAPACITY, bytes, machineState, pgUsable, projectRef, sandboxesOn, shortSandbox, stateLook, storesOn,
   type AvailableView, type Creation, type MachineInfo, type MachineSandbox, thingLook,
 } from './model.ts'
 import { storeSizes, useMachineStats } from './MachineStats.tsx'
 import { liveNote, sandboxLook } from './stats.ts'
 import css from './machines.module.css'
+import { chipOpWords, sandboxesEmptyKey } from './notices.ts'
 
 /** The name a machine goes by everywhere: the tree's "LayerFS Home" for the native machine, else its own. */
 export function useMachineTitle(): (m: { name: string, platform: string }) => string {
@@ -83,8 +84,8 @@ export function Inventory({ m, view, storeAction, sandboxAction, storeMenu, sand
   const rows = besideCreating(sandboxes, creating)
   const running = machineState(m, view.live[m.name]).key === 'running'
   const storesEmpty = view.readErrors?.stores ? t('storesUnread') : t('noStoresHere')
-  const sandboxesEmpty = view.readErrors?.sandboxes ? t('sandboxesUnread') : running ? t('noSandboxesHere')
-    : t(m.platform === 'docker' ? 'sandboxesAfterWorker' : 'sandboxesAfterStart', { name: m.platform === 'native' ? t('homeName') : m.name })
+  const emptyKey = sandboxesEmptyKey(m, view, running)
+  const sandboxesEmpty = t(emptyKey.key, { name: emptyKey.home ? t('homeName') : m.name })
   return (
     <div className={css.inventory}>
       <section className={css.inventoryColumn} aria-label={t('storesOnMachine', { name: m.name })}>
@@ -224,7 +225,7 @@ function StoreRows({ rows, menu, projects: named = true }: { rows: StoreLine[], 
               <span className={css.lineName}>{s.name}</span>
               <span className={css.lineMeta}>{projects && <span className={css.tag} title={projects}>{projects}</span>}</span>
               {busy
-                ? <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={opWords(s.op)} />
+                ? <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={chipOpWords({ ...look, op: s.op ?? null, state: s.state ?? '' })} />
                 : <span className={css.lineSize}>{s.family === 'postgresql' ? t('pgChip') : s.size != null ? bytes(s.size) : null}</span>}
             </button>
             {menu && <span className={css.lineMenu}>{actions}</span>}
@@ -253,7 +254,7 @@ function SandboxRows({ rows, machine, menus }: { rows: MachineSandbox[], machine
               <span className={clsx(css.lineName, css.mono)}>{shortSandbox(b.name)}</span>
               <span className={css.lineMeta} />
               <span className={css.lineSlots}>{b.workspaces != null ? t('slotsOf', { n: String(b.workspaces), max: String(SANDBOX_CAPACITY) }) : ''}</span>
-              <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={opWords(b.op)} title={note ?? undefined} />
+              <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={chipOpWords({ ...look, op: b.op ?? null, state: b.state ?? '' })} title={note ?? undefined} />
             </button>
             {menus && <span className={css.lineMenu}><SandboxRowMenu b={b} machine={machine} /></span>}
           </li>

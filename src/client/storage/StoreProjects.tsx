@@ -16,7 +16,7 @@ import type { TabId } from './tabs.ts'
 import type { StoreRow } from './types.ts'
 import { sandboxesOfProject } from './HomeCards.tsx'
 import { ProjectGrid, placeholderProject, useSessionLists, useSessionOrder } from './ProjectTable.tsx'
-import { commitTotal, orderProjects, type ProjectOrder, type StoreProject } from './store-page.ts'
+import { commitTotal, commitTotalWords, orderProjects, type ProjectOrder, type StoreProject } from './store-page.ts'
 import css from './StorePage.module.css'
 
 export interface StoreProjectsProps {
@@ -56,7 +56,7 @@ export function StoreProjects({ api, store, names, projects, stored, stores, fle
   const runningAll = names.reduce((a, n) => a + boxesOf(n).filter(sandboxRuns).length, 0)
   const commits = commitTotal(rows)
   const summary = [
-    projects ? (commits.refused && !commits.commits ? t('spCommitsUnread') : t(commits.complete || commits.refused ? 'spCommitsTotal' : 'spCommitsCounting', { n: commits.commits.toLocaleString() })) : null,
+    projects ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : null,
     stored && stored > 0 ? bytes(stored) : null,
     runningAll ? t('spRunningN', { n: String(runningAll) }) : null,
   ].filter(Boolean).join(' · ')

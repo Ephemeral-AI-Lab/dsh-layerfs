@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Lfs } from '../layerfs/cli.ts'
-import { pages } from './util.ts'
+import { fixOf, pages } from './util.ts'
 
 /** Rows per `commit list` page. */
 const PAGE_SIZE = 100
@@ -104,7 +104,8 @@ export class ProjectStorageLedgers {
     const job: Job = { promise: Promise.resolve(), progress: { branches: 0, branchesTotal: 0, saves: 0 }, ledger: null }
     job.promise = this.build(project, created, job)
       .then(() => { this.errors.delete(key) }, (error: any) => {
-        this.errors.set(key, { code: error?.code ?? 'Failed', message: error?.message ?? String(error), detail: error?.detail ?? null })
+        // the refusal's fix line rides along: the project row offers it as its one action (Start the machine, say)
+        this.errors.set(key, { code: error?.code ?? 'Failed', message: error?.message ?? String(error), detail: error?.detail ?? null, ...fixOf(error) })
         this.log(`[host] project storage of ${project}: ${error?.message ?? error}`)
       })
       .finally(() => { this.jobs.delete(key); this.finished.set(key, this.now()) })

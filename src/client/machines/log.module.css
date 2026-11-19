@@ -195,12 +195,6 @@
   cursor: pointer;
 }
 
-/* The tab bar of a machine page and a Sandbox page. */
-.tabs {
-  width: fit-content;
-  max-width: 100%;
-}
-
 /* The page column's own gap, so Overview keeps the spacing it had without tabs. */
 .tabPanel {
   display: flex;

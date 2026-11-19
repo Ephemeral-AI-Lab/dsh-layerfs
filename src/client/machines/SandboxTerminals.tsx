@@ -26,6 +26,7 @@ import { NewWorkspaceTile, WorkspaceGrid } from './WorkspaceGrid.tsx'
 import css from './terminal.module.css'
 import machinesCss from './machines.module.css'
 import gridCss from './workspace-grid.module.css'
+import { workspaceOffer } from './notices.ts'
 
 const NAME = /^[a-z0-9][a-z0-9._-]{0,62}$/
 const NEW_BRANCH = '\u0000new'
@@ -81,7 +82,9 @@ export function SandboxTerminals({ info, onChanged, focus, onOpenFiles }: {
   const allIds = useMemo(() => workspaces.map((w) => w.ws), [workspaces])
   // "n of N": what sandbox.get says a Sandbox holds, else the constant it had before it said
   const capacity = workspaceCapacity(info)
-  const canAdd = reachable && workspaces.length < capacity
+  // a Sandbox whose daemon is gone never takes a Workspace: no New workspace; otherwise off with its reason
+  const offer = workspaceOffer(info, workspaces.length, capacity)
+  const canAdd = offer.show && offer.why === null
   const runs = useMemo(() => runningSummary(workspaces), [workspaces])
   const overlays = useMemo(() => {
     const sizes = workspaces.map((w) => w.overlayBytes).filter((n): n is number => typeof n === 'number')
@@ -221,9 +224,12 @@ export function SandboxTerminals({ info, onChanged, focus, onOpenFiles }: {
             </button>
           ))}
         </span>
-        <Tooltip label={canAdd ? t('termNewWorkspace') : reachable ? t('termFull', { cap: String(capacity) }) : t('termOffline')}>
-          <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canAdd} onClick={startAdding}>{t('termNewWorkspace')}</Button>
-        </Tooltip>
+        {offer.show && (
+          <Tooltip label={offer.why ? t(offer.why, { cap: String(capacity) }) : t('termNewWorkspace')}>
+            <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canAdd} data-new-workspace={offer.why ?? 'on'}
+              title={offer.why ? t(offer.why, { cap: String(capacity) }) : undefined} onClick={startAdding}>{t('termNewWorkspace')}</Button>
+          </Tooltip>
+        )}
       </div>
 
       {!terminals ? (

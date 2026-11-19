@@ -31,13 +31,14 @@ import { useMetrics } from './MachineStats.tsx'
 import { SANDBOX_FILTERS, SANDBOX_SORTS, sandboxCards, type SandboxCard, type SandboxFilter, type SandboxSort } from './machine-tabs.ts'
 import { processors, sandboxTable, upTime } from './metrics.ts'
 import { Dash, useWords } from './MetricsViews.tsx'
-import { gib, machineState, opWords, projectRef, sandboxGone, sandboxesOn, shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox, type SandboxImagesView } from './model.ts'
+import { gib, machineState, projectRef, sandboxGone, sandboxesOn, shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox, type SandboxImagesView } from './model.ts'
 import type { Query } from '../ui/use-query.ts'
 import { SandboxMenu, useClose } from './Sandboxes.tsx'
 import { sandboxSpaceReason, spaceSize, type SandboxSpace } from './space.ts'
 import { useMachineSpace } from './SpaceViews.tsx'
 import { liveNote } from './stats.ts'
 import css from './machines.module.css'
+import { chipOpWords, sandboxesEmptyKey } from './notices.ts'
 
 type Row = ReturnType<typeof sandboxTable>[number] & { memory: number | null }
 
@@ -135,7 +136,7 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
   const showFigures = !gone && (showMetrics || spaceOffered)
   return (
     <Card className={css.sbCard} data-sb-card={card.name} tone={needs ? 'warning' : undefined}>
-      {head(dot, <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={opWords(b.op)} title={liveNote(b, tw) ?? undefined} />,
+      {head(dot, <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={chipOpWords({ ...look, op: b.op ?? null, state: b.state ?? '' })} title={liveNote(b, tw) ?? undefined} />,
         <SandboxMenu name={card.name} op={b.op} closing={closing} />)}
       {sub && <p className={css.sbCardSub}>{sub}</p>}
       {image && <p className={css.sbCardImage} data-sb-image title={card.record?.image ?? undefined}><span className={css.sbCardImageLabel}>{t('sbImageLabel')}</span>{onImages ? <LinkButton className={css.mono} onClick={onImages} title={t('sbImageOpen')}>{image}</LinkButton> : <span className={css.mono}>{image}</span>}</p>}
@@ -222,8 +223,8 @@ function SandboxesBody({ m, view, canCreate, onCreate, onImages, images }: TabPr
   const sorts = SANDBOX_SORTS.filter((x) => (x === 'disk' ? space.offered : x === 'memory' ? metrics.offered : true))
   const filters = SANDBOX_FILTERS.filter((f) => f === 'all' || counts[f] > 0 || f === filter)
   const running = machineState(m, view.live[m.name]).key === 'running'
-  const empty = filter !== 'all' ? t('sbFilterEmpty') : view.readErrors?.sandboxes ? t('sandboxesUnread') : running ? t('noSandboxesHere')
-    : t(m.platform === 'docker' ? 'sandboxesAfterWorker' : 'sandboxesAfterStart', { name: m.platform === 'native' ? t('homeName') : m.name })
+  const emptyKey = sandboxesEmptyKey(m, view, running)
+  const empty = filter !== 'all' ? t('sbFilterEmpty') : t(emptyKey.key, { name: emptyKey.home ? t('homeName') : m.name })
   return (
     <div className={css.tabStack}>
       <div className={css.tabToolbar}>

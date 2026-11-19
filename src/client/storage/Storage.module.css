@@ -35,11 +35,6 @@
 
 /* ---------- the project view switch ---------- */
 
-.tabList {
-  width: fit-content;
-  min-width: 240px;
-}
-
 .search {
   width: 260px;
   max-width: 100%;
@@ -472,6 +467,11 @@
   flex-direction: column;
   gap: 20px;
   min-width: 0;
+}
+
+/* the project page's tab bar (ui/TabBar.tsx) sits where the pane bar was */
+.projectTabs {
+  margin-top: var(--lfs-page-top-inset);
 }
 
 .fillPanel {

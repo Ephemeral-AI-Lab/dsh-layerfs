@@ -12,6 +12,7 @@ import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
 import type { MachinesKey } from './locale.ts'
 import { BUILT_IN, duration, fixAction, forceStopOf, machineState, opWords, powerOf, stageWords, unreadableRecord, workerDown, type MachineInfo, type MachineLive } from './model.ts'
+import { chipOpWords } from './notices.ts'
 import { socketSetting, socketSourceWords, type SocketChoice, type SocketSetting } from './socket.ts'
 import css from './machines.module.css'
 
@@ -54,10 +55,12 @@ export function MachineStateChip({ m, live, pending, blocked }: { m: MachineInfo
   if (blocked === 'engine') return <StateChip tone="neutral" dashed label={t('stateEngineDown')} />
   if (blocked) return <StateChip tone="warning" label={t('stateUnavailable')} />
   const look = machineState(m, live)
-  const op = opWords(look.op)
+  // the op once: "Stopping" for a busy stop, its phase only when it adds something
+  const op = chipOpWords(look)
+  const full = opWords(look.op)
   return (
     <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={op}
-      title={op ? t(look.op?.uncertain ? 'opTitleUncertain' : 'opTitle', { op }) : undefined} />
+      title={full ? t(look.op?.uncertain ? 'opTitleUncertain' : 'opTitle', { op: full }) : undefined} />
   )
 }
 

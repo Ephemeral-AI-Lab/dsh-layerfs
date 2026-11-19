@@ -44,7 +44,8 @@ const newId = (): string => {
 }
 const ENDED = ['done', 'failed', 'stopped']
 
-export function useDoctor(api: LayerfsApi, say: (what: Say) => void): Doctor {
+/** `refreshKey`: bumped by the page's Refresh (the top bar's); each new value reads the tree and the host's results again. */
+export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey = 0): Doctor {
   const [state, setState] = useState<DoctorState>(emptyState)
   const [error, setError] = useState<unknown>(undefined)
   const [loading, setLoading] = useState(true)
@@ -103,6 +104,14 @@ export function useDoctor(api: LayerfsApi, say: (what: Say) => void): Doctor {
 
   /** The tree again, quietly: after something changed it. A failure keeps the rows the page has. */
   const refresh = useCallback(() => { void readTree().catch(() => {}) }, [readTree])
+
+  // the page's Refresh: the records may have changed behind it (a machine record rewritten, say), so the tree is read again
+  const lastKey = useRef(refreshKey)
+  useEffect(() => {
+    if (lastKey.current === refreshKey) return
+    lastKey.current = refreshKey
+    void readTree().then(() => resync()).catch(() => {})
+  }, [refreshKey, readTree, resync])
 
   useHostEvents(api, ['doctor-run'], (e) => {
     const run = e.data as DoctorRun | undefined

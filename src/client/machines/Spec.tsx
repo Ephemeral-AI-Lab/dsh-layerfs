@@ -12,7 +12,8 @@ import { Card, LinkButton } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachinesKey } from './locale.ts'
 import { storeLines } from './Inventory.tsx'
-import { BUILT_IN, heldWords, inUse, machineState, sandboxesOn, supports, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, heldWords, inUse, machineState, opWords, sandboxesOn, supports, unreadableRecord, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
+import { pgStoresHere, pgSupportKey } from './notices.ts'
 import { useMachineStats } from './MachineStats.tsx'
 import { upTime } from './metrics.ts'
 import { liveCounts } from './stats.ts'
@@ -56,7 +57,9 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
   const state = machineState(m, live)
   const worker = useMachineStats(m).read?.stats?.worker ?? null
   const missing = p?.missing ?? []
-  const postgresql = (view.postgresql ?? []).length
+  // the PostgreSQL Stores that run here, counted as the Stores tab lists them
+  const postgresql = pgStoresHere(view, m).length
+  const unreadable = unreadableRecord(m)
   const sandboxes = sandboxesOn(view, m)
   const running = liveCounts(sandboxes).running
   const stores = storeLines(view, m).length
@@ -82,10 +85,13 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
               ? <><LinkButton onClick={() => onTab('sandboxes')}>{sandboxWords}</LinkButton>{' · '}<LinkButton onClick={() => onTab('stores')}>{storeWords}</LinkButton></>
               : `${sandboxWords} · ${storeWords}`}
           </Item>
-          {m.message && m.state !== 'ready' && m.state !== 'stopped' && <Item label={t('downBecause')} tone="danger">{m.message}</Item>}
-          {!m.message && live?.error && <Item label={t('downBecause')} tone="danger">{live.error.message}</Item>}
-          {state.op && <Item label={t('operation')} mono>{`${state.op.name} · ${state.op.phase}`}</Item>}
-          {m.fix && <Item label={t('fix')} mono>{m.fix}</Item>}
+          {/* an unreadable record: the word, LayerFS's parser message as its tip; Run diagnostics (the head) is its one action */}
+          {unreadable
+            ? <Item label={t('downBecause')} tone="danger" title={m.message ?? undefined}>{t('stateUnreadable')}</Item>
+            : m.message && m.state !== 'ready' && m.state !== 'stopped' && <Item label={t('downBecause')} tone="danger">{m.message}</Item>}
+          {!m.message && !unreadable && live?.error && <Item label={t('downBecause')} tone="danger">{live.error.message}</Item>}
+          {state.op && <Item label={t('operation')} mono>{opWords(state.op)}</Item>}
+          {m.fix && !unreadable && <Item label={t('fix')} mono>{m.fix}</Item>}
         </Group>
         <Group title={t('sandboxes')}>
           <Item label={t('ovSandboxesRun')}>{pick(RUNS_AS, m.backend) ?? t('runsUnknown')}</Item>
@@ -97,7 +103,7 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
           )}
           <Item label={t('pgSandboxes')} tone={supports(m, 'postgresql_sandbox') === false ? 'muted' : undefined}>
             {supports(m, 'postgresql_sandbox')
-              ? t(postgresql === 1 ? 'pgSupportedOne' : 'pgSupported', { n: String(postgresql) })
+              ? t(pgSupportKey(postgresql), { n: String(postgresql) })
               : supports(m, 'postgresql_sandbox') === false ? t('no') : t('notSaid')}
           </Item>
         </Group>
@@ -118,13 +124,17 @@ export function DangerZone({ m, pending, onRemove }: { m: MachineInfo, pending: 
   const { t, tw } = useMachinesContext()
   if (BUILT_IN.has(m.platform)) return null
   const held = inUse(m)
+  // LayerFS refuses to remove a machine whose record it cannot read (Failed): off, with the reason the list row's menu gives
+  const unreadable = unreadableRecord(m)
+  const why = unreadable ? t('recordUnreadableNoRemove') : held ? tw(heldWords(held)) : null
   return (
     <Card tone="danger" className={css.zone}>
       <span className={css.zoneText}>
         <span className={css.zoneTitle}>{t('dangerZone')}</span>
-        {held && <span className={css.muted}>{tw(heldWords(held))}</span>}
+        {why && <span className={css.muted} data-remove-off={unreadable ? 'unreadable' : 'held'}>{why}</span>}
       </span>
-      <Button size="sm" variant="outline" className={css.dangerOutline} icon={<IconTrashOutlineRegular size={13} />} disabled={!!held || pending !== null} onClick={onRemove}>
+      <Button size="sm" variant="outline" className={css.dangerOutline} icon={<IconTrashOutlineRegular size={13} />} disabled={!!why || pending !== null}
+        title={why ?? undefined} onClick={onRemove}>
         {t('removeNamed', { name: m.name })}
       </Button>
     </Card>

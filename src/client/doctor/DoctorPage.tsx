@@ -40,10 +40,10 @@ function TabIcon({ tab }: { tab: TabKey }): ReactNode {
 /** A tab's dot: what starts in it at its worst (a stopped machine marks its tab; a check that runs spins). */
 const TAB_TONE = { bad: 'danger', warn: 'warning', nc: 'idle', run: 'ongoing' } as const
 
-function Body({ api, t, ts }: { api: LayerfsApi, t: DoctorT, ts: StorageT }): ReactNode {
+function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: StorageT, refreshKey: number }): ReactNode {
   const w = useMemo(() => wordsOf(t), [t])
   const toast = useToast()
-  const doctor = useDoctor(api, (what) => toast(w.toast(what)))
+  const doctor = useDoctor(api, (what) => toast(w.toast(what)), refreshKey)
   const { state } = doctor
   const [tab, setTab] = useState<TabKey>('machines')
   const [open, setOpen] = useState<Record<string, boolean>>({})
@@ -207,10 +207,11 @@ function splitOn(text: string, code: ReactNode): ReactNode {
   return <>{before}{code}{after ?? ''}</>
 }
 
-export function DoctorPage({ api, t, ts }: { api: LayerfsApi, t: DoctorT, ts: StorageT }): ReactNode {
+/** `refreshKey`: the top bar's Refresh; each new value reads the tree again. */
+export function DoctorPage({ api, t, ts, refreshKey = 0 }: { api: LayerfsApi, t: DoctorT, ts: StorageT, refreshKey?: number }): ReactNode {
   return (
     <Page label={t('healthTitle')}>
-      <TipLayer><Body api={api} t={t} ts={ts} /></TipLayer>
+      <TipLayer><Body api={api} t={t} ts={ts} refreshKey={refreshKey} /></TipLayer>
     </Page>
   )
 }

@@ -8,7 +8,8 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
-  margin: 0 -4px;
+  /* inline only: a page's own top inset (its className) is kept */
+  margin-inline: -4px;
   padding: 0 4px;
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-base);

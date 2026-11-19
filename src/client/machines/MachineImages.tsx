@@ -20,6 +20,7 @@ import { NewSandboxDialog } from './Sandboxes.tsx'
 import { bytes, type DockerImage, type ImageLoad, type MachineInfo, type PruneAnswer, type ReadyImage, type SandboxImagesView } from './model.ts'
 import type { Query } from '../ui/use-query.ts'
 import css from './machines.module.css'
+import { shortDigests } from './notices.ts'
 
 type MachineRef = Pick<MachineInfo, 'name' | 'state'>
 
@@ -29,7 +30,8 @@ function Refused({ refused, names }: { refused: PruneAnswer['refused'], names: M
   if (!refused.length) return null
   return (
     <div role="alert" className={css.errorText}>
-      {refused.map((r) => <p key={r.id}>{t('pruneRefused', { image: names.get(r.id) ?? r.id, message: r.message })}</p>)}
+      {/* a long image digest is cut to 12 digits; the whole message is the tip */}
+      {refused.map((r) => <p key={r.id} title={r.message}>{t('pruneRefused', { image: names.get(r.id) ?? r.id, message: shortDigests(r.message) })}</p>)}
     </div>
   )
 }
