@@ -13,6 +13,7 @@ import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { listProjects, type ProjectRow } from '../picker/NewProjectForm.tsx'
 import { useQuery } from '../files/use-query.ts'
+import { usePressGuard } from '../ui/index.tsx'
 import { useHostEvents } from '../storage/hooks.ts'
 import type { StorageView, StoreRow } from '../storage/types.ts'
 import { projectAvailability, type ProjectAvailability } from './availability.ts'
@@ -170,6 +171,8 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
   // A name two listed projects share carries its Store, on screen and in every accessible name.
   const label = showStore ? `${nameOf(project)} · ${storeOf(project)}` : nameOf(project)
   const read = useProjectSessions(api, project.key, open, project.projectId)
+  // its Start <machine> behind the press guard, like every power control
+  const startGuard = usePressGuard(`start:${availability.machine ?? ''}:${availability.state}`)
   const selected = api.selectedSessionId()
   const sessions = visibleProjectSessions(read.sessions, titles, selected)
   const status = sidebarStatus(project, availability)
@@ -190,7 +193,7 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
           aria-label={t('newSession', { project: label })} title={availability.canRun ? t('newSession', { project: label }) : t('cannotRun', { reason: t(status.key) })}
           onClick={() => { setOpen(true); void actions.create(project) }} />}
         {availability.canStart
-          ? <Button className={css.start} variant="ghost" size="sm" disabled={actions.busy} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={() => void actions.start(availability.machine!)}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
+          ? <Button className={css.start} variant="ghost" size="sm" disabled={actions.busy || startGuard.settling} aria-disabled={startGuard.settling || undefined} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={startGuard(() => void actions.start(availability.machine!))}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
           : null}
       </span>
     </div>

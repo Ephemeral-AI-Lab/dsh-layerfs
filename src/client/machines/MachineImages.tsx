@@ -11,7 +11,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, Checkbox, IconCopyOutlineRegular, IconDownloadOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconTrashOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import clsx from 'clsx'
-import { Card, Refusal, Section } from '../ui/index.tsx'
+import { Card, Refusal, Section, usePressGuard } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { onMac, useImageName, useRestartWorker, useSandboxImages } from './ImageMenu.tsx'
 import { agoWords, badgeHue, diskSegments, dockerRows, freeSpaceRows, freesWords, imageLabel, imagesFooter, imagesStatus, loadWords, phaseShare, reasonWords, removable, type ImageLabel } from './images.ts'
@@ -285,6 +285,7 @@ export function ImagesSection({ m, images, onCreate }: { m: MachineInfo, images:
   const [refused, setRefused] = useState<PruneAnswer['refused']>([])
   const [freeing, setFreeing] = useState(false)
   const restarting = useRestartWorker(m, images.reload)
+  const restartGuard = usePressGuard(`restart:${m.name}:${m.state}`)
   if (answer && (answer.stage !== 1 || answer.mode === 'host')) return null
   const status = imagesStatus(answer, m.state)
   // removing needs a machine that answers now: not stopped, not an outdated worker, not a failed read
@@ -365,7 +366,7 @@ export function ImagesSection({ m, images, onCreate }: { m: MachineInfo, images:
             ? (
               <div className={css.imagesOutdated} role="status">
                 <p>{t('imagesWorkerOutdated', { machine: m.name })}</p>
-                <Button variant="outline" size="sm" disabled={restarting.pending !== null} onClick={() => void restarting.restart()}>
+                <Button variant="outline" size="sm" disabled={restarting.pending !== null || restartGuard.settling} aria-disabled={restartGuard.settling || undefined} onClick={restartGuard(() => void restarting.restart())}>
                   {restarting.pending ? t('restartingWorker') : t('restartWorker')}
                 </Button>
               </div>

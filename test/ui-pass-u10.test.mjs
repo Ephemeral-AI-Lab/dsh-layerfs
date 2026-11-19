@@ -320,7 +320,7 @@ test('machine.start: no Create, Move, New Store or Home hero starts a machine; e
   assert.equal(store.match(/startMachine\(/g)?.length ?? 0, 1, 'one start, behind StartFirst\'s own button')
   assert.match(store, /start=\{\(m\) => startMachine\(api, m\)\}/)
   const tiles = src('src/client/projects/setup/MachineTiles.tsx')
-  assert.match(tiles, /aria-label=\{words\.start\(m\)\}[\s\S]{0,200}?onClick=\{\(\) => press\(m\)\}/, 'one Start per machine, named')
+  assert.match(tiles, /aria-label=\{words\.start\(m\)\}[\s\S]{0,200}?onClick=\{guard\(\(\) => press\(m\)\)\}/, 'one Start per machine, named')
   const hero = src('src/client/storage/HomeOverview.tsx')
   assert.doesNotMatch(hero, /startMachine|t\('ovStart'\)/, 'the hero opens the machine page instead of starting it')
   const view = { machines: [{ name: 'native', state: 'ready' }, { name: 'docker', state: 'stopped' }, { name: 'old', state: 'broken' }] }

@@ -22,7 +22,7 @@ import { useHostEvents } from '../../storage/hooks.ts'
 import { PG_URL_LOGIN } from '../../storage/pg-fields.tsx'
 import { Signal } from '../../storage/Signal.tsx'
 import type { PgAuth, StorageView, StoreRow } from '../../storage/types.ts'
-import { refusalOf } from '../../ui/index.tsx'
+import { refusalOf, usePressGuard } from '../../ui/index.tsx'
 import { projectDialog, type DialogRequest, type ProjectRef } from '../dialog.ts'
 import type { ListT } from '../list-locale.ts'
 import { openStorage } from '../navigation.ts'
@@ -740,6 +740,7 @@ function PickRow({ api, t, tl, item, sessions, onChanged, platformOf }: { api: L
   const [error, setError] = useState<string | null>(null)
   const name = nameOf(row)
   const status = sidebarStatus(row, availability)
+  const startGuard = usePressGuard(`start:${availability.machine ?? ''}:${availability.state}`)
   const configure = () => projectDialog.open({ mode: 'configure', project: { key: row.key, projectId: row.projectId, name, store: storeOf(row) }, back: PICK })
   const go = async (work: () => Promise<unknown>, message: (m: string) => string, close: boolean) => {
     setBusy(true); setError(null)
@@ -763,8 +764,8 @@ function PickRow({ api, t, tl, item, sessions, onChanged, platformOf }: { api: L
         : <span className={css.count}>{sessions === 1 ? t('oneSession') : t('sessions', { n: sessions })}</span>}
     </button>
     {availability.canStart
-      ? <Button variant="outline" size="sm" disabled={busy} aria-label={t('startFor', { machine: availability.machine ?? '', project: name })}
-        onClick={() => void go(() => api.call('POST', `/api/machines/${enc(availability.machine!)}/start`), (m) => t('startFailed', { machine: availability.machine ?? '', message: m }), false)}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
+      ? <Button variant="outline" size="sm" disabled={busy || startGuard.settling} aria-disabled={startGuard.settling || undefined} aria-label={t('startFor', { machine: availability.machine ?? '', project: name })}
+        onClick={startGuard(() => void go(() => api.call('POST', `/api/machines/${enc(availability.machine!)}/start`), (m) => t('startFailed', { machine: availability.machine ?? '', message: m }), false))}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
       : null}
     <Button variant="ghost" size="sm" className={css.pickGear} icon={<IconSettingsOutlineRegular size={15} />} aria-label={t('configure', { project: name })} title={t('configure', { project: name })} onClick={configure} />
     {error ? <p className={css.pickError} role="alert">{error}</p> : null}

@@ -182,7 +182,7 @@ test('NOTE 3: each start a page press sends names its machine in the label or th
     assert.match(fill(M.presetsLocales[lang].confirmStarts, { machines: 'demo-build, demo-research' }), /demo-build, demo-research/, `${lang} preset confirm`)
   }
   // the visible text, not only the accessible name
-  assert.match(src('src/client/projects/ProjectList.tsx'), /onClick=\{\(\) => void actions\.start\(availability\.machine!\)\}>\{t\('startNamed', \{ machine: availability\.machine \?\? '' \}\)\}/)
+  assert.match(src('src/client/projects/ProjectList.tsx'), /onClick=\{startGuard\(\(\) => void actions\.start\(availability\.machine!\)\)\}>\{t\('startNamed', \{ machine: availability\.machine \?\? '' \}\)\}/)
   assert.match(src('src/client/projects/setup/ProjectDialog.tsx'), /\{t\('startNamed', \{ machine: availability\.machine \?\? '' \}\)\}<\/Button>/)
   assert.match(src('src/client/storage/HomeCards.tsx'), /t\('ovRestartWorker', \{ machine: m\.name \}\)/)
 })
@@ -239,7 +239,9 @@ test('NOTE 10: a refused Start in StartFirst is a word on that machine\'s line w
   const view = M.mount(M.StartFirst, { names: ['docker', 'lima1'], words, start: async () => { throw new Error(message) }, onStarted: () => { started++ } })
   const starts = find(view.tree, (p) => typeof p.onClick === 'function')
   assert.deepEqual(starts.map((b) => b.props['aria-label']), ['Start docker', 'Start lima1'], 'one Start per machine, named')
-  starts[0].props.onClick()
+  // each Start is behind the press guard (it settles from when it is drawn): press once it has settled
+  await new Promise((resolve) => setTimeout(resolve, 650))
+  starts[0].props.onClick({ stopPropagation() {} })
   const after = await view.settle()
   const refused = find(after, (p) => p['data-start-refused'] === 'docker')
   assert.equal(refused.length, 1)

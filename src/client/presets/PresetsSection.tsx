@@ -13,7 +13,7 @@ import { Button, Checkbox, IconCodeOutlineRegular, IconPlayOutlineRegular, MenuI
 import { enc, type LayerfsApi } from '../api.ts'
 import type { BusySession, DemoPreset, DemoPresets, PresetResetPlan, PresetExecutionMode, PresetJob } from '../../shared/presets.ts'
 import { useQuery } from '../files/use-query.ts'
-import { Card, LinkButton, MoreMenu, Notice, Refusal } from '../ui/index.tsx'
+import { Card, LinkButton, MoreMenu, Notice, Refusal, usePressGuard } from '../ui/index.tsx'
 import { machinesStarted, refusalLabels } from './labels.ts'
 import type { PresetsKey, PresetsT } from './locale.ts'
 import { count, PresetProgress } from './Progress.tsx'
@@ -85,6 +85,8 @@ export function Library({ api, t, data, preset, onRefresh, className }: { api: L
   const [script, setScript] = useState<{ open: boolean, resource?: PresetResource }>({ open: false })
   const [waiting, setWaiting] = useState(false)
   const [dialog, setDialog] = useState<Dialog>()
+  // the confirm that starts or stops machines (Build, Reset, Stop) settles from when its plan shows, like every power control
+  const confirmGuard = usePressGuard(`preset:${preset.id}:${dialog?.kind ?? ''}:${dialog?.plan ? 'plan' : ''}`)
   const [planFailure, setPlanFailure] = useState<unknown>()
   const [unknown, setUnknown] = useState<string>()
   const [failure, setFailure] = useState<unknown>()
@@ -180,7 +182,7 @@ export function Library({ api, t, data, preset, onRefresh, className }: { api: L
               : <Button variant="outline" disabled={waiting} data-modal-autofocus="" onClick={close}>{t('cancel')}</Button>}
             {dialog?.kind === 'build' && !dialog.plan
               ? <Button variant="primary" disabled={waiting || data.busy} aria-busy={waiting} onClick={() => { void checkBuild(dialog.mixed) }}>{waiting ? t('checking') : t('continue')}</Button>
-              : <Button variant="primary" className={css.dangerPrimary} disabled={waiting || data.busy} aria-busy={waiting} onClick={() => { void execute() }}>
+              : <Button variant="primary" className={css.dangerPrimary} disabled={waiting || data.busy || confirmGuard.settling} aria-disabled={confirmGuard.settling || undefined} aria-busy={waiting} onClick={confirmGuard(() => { void execute() })}>
                   {waiting ? t('starting') : dialog?.kind === 'stop' ? t('stopAction') : t('resetAndBuild')}
                 </Button>}
           </div>

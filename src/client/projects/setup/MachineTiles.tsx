@@ -11,6 +11,7 @@ import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconCheckOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { MachineGlyph } from '../../machines/icons.tsx'
+import { usePressGuard } from '../../ui/index.tsx'
 import { isRunning, type Machine, type TileBlock } from './model.ts'
 import css from './dialog.module.css'
 
@@ -69,6 +70,8 @@ export function StartFirst({ names, words, start, onStarted, className }: {
 }): ReactNode {
   const [busy, setBusy] = useState<string | null>(null)
   const [failed, setFailed] = useState<{ machine: string, message: string } | null>(null)
+  // each Start <machine> behind the press guard, like every power control
+  const guard = usePressGuard(`start-first:${names.join(',')}`)
   if (!names.length) return null
   const press = (m: string) => {
     setBusy(m); setFailed(null)
@@ -81,8 +84,8 @@ export function StartFirst({ names, words, start, onStarted, className }: {
           {failed?.machine === m
             ? <span className={clsx(css.startFirstWord, css.startFirstFailed)} role="alert" title={failed.message} data-start-refused={m}><StateDot state="error" size={6} />{words.refused(m)}</span>
             : <span className={css.startFirstWord}><StateDot state="idle" size={6} />{words.stopped(m)}</span>}
-          <Button type="button" size="sm" variant="outline" disabled={busy !== null} aria-label={words.start(m)}
-            icon={busy === m ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => press(m)}>{words.start(m)}</Button>
+          <Button type="button" size="sm" variant="outline" disabled={busy !== null || guard.settling} aria-disabled={guard.settling || undefined} aria-label={words.start(m)}
+            icon={busy === m ? <StateDot state="ongoing" size={12} /> : undefined} onClick={guard(() => press(m))}>{words.start(m)}</Button>
         </p>
       ))}
     </div>

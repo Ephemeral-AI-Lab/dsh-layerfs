@@ -6,9 +6,9 @@
  * LayerFS can copy there ("From Docker on this Mac": size · copies once).
  * Digests, paths and Ids never show.
  */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode, type SyntheticEvent } from 'react'
 import { Menu, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
-import { SelectAnchor, refusalOf } from '../ui/index.tsx'
+import { SelectAnchor, refusalOf, usePressGuard } from '../ui/index.tsx'
 import { useQuery, type Query } from '../ui/use-query.ts'
 import { useMachinesContext } from './context.tsx'
 import { agoWords, displayRef, dockerTag, imagesFooter, imagesStatus, pickOf, reasonWords, type ImagePick } from './images.ts'
@@ -128,6 +128,8 @@ export function ImageMenu({ machine, images, value, onChange, disabled }: {
       : []),
   ]
   const restarting = useRestartWorker(machine, images.reload)
+  // its Restart worker row behind the press guard, like every power control
+  const restartGuard = usePressGuard(`restart:${machine.name}:${machine.state}`)
   const outdated = imagesStatus(answer, machine.state) === 'outdated'
   const footing = imagesFooter(answer, machine.state)
   const footer: MenuEntry[] | undefined = restarting.pending
@@ -152,7 +154,7 @@ export function ImageMenu({ machine, images, value, onChange, disabled }: {
       items={items} footer={footer}
       onSelect={(id) => {
         setOpen(false)
-        if (id === RESTART) { void restarting.restart(); return }
+        if (id === RESTART) { restartGuard(() => void restarting.restart())({ stopPropagation: () => {} } as unknown as SyntheticEvent); return }
         const row = ready.find((r) => r.id === id)
         const copy = row ? undefined : docker.find((r) => r.id === id)
         onChange(row?.usable ? pickOf(row, 'ready') : copy?.usable ? pickOf(copy, 'docker') : null)

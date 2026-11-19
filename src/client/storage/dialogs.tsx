@@ -10,7 +10,7 @@ import { Button, Checkbox, Input, SegmentedControl, StateDot } from '@deepseek-a
 import { enc, type LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
-import { Contained, Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
+import { Contained, Field, MenuSelect, Notice, Refusal, usePressGuard } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { backupStateOf, bucketParts, canMove, inHome, needsLogin, pgServerLogin, storeStateWords, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
@@ -411,6 +411,8 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<unknown>(undefined)
   const view = machines.data?.available ? machines.data : null
+  // its Start <machine> behind the press guard, like every power control
+  const startGuard = usePressGuard(`start:${target}`)
   const targets = (view?.machines ?? []).filter((m) => m.name !== 'native' && m.name !== s.machine && (!m.supports || m.supports.includes('sqlite')))
   const chosen = targets.find((m) => m.name === target)
   const free = chosen ? view?.live[chosen.name]?.freeDisk ?? null : null
@@ -432,8 +434,8 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
         </p>
       ) : null}
       {chosen?.state === 'stopped' ? (
-        <Button variant="outline" size="sm" className={css.selfStart} disabled={starting} icon={starting ? <StateDot state="ongoing" size={13} /> : undefined}
-          onClick={() => { setStarting(true); api.call('POST', `/api/machines/${enc(chosen.name)}/start`).then(machines.reload, setStartError).finally(() => setStarting(false)) }}>
+        <Button variant="outline" size="sm" className={css.selfStart} disabled={starting || startGuard.settling} aria-disabled={startGuard.settling || undefined} icon={starting ? <StateDot state="ongoing" size={13} /> : undefined}
+          onClick={startGuard(() => { setStarting(true); api.call('POST', `/api/machines/${enc(chosen.name)}/start`).then(machines.reload, setStartError).finally(() => setStarting(false)) })}>
           {t('startMachine', { machine: chosen.name })}
         </Button>
       ) : null}

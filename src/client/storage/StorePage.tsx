@@ -19,7 +19,7 @@ import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { canAddProject, storeStateWords, storeTip, storeTone } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
-import { Location, StoreAction, StoreMenu, storeNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
+import { Location, MachineStartAction, StoreAction, StoreMenu, storeNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
 import { StoreBackups, StoreConnection } from './StoreLinks.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
@@ -106,7 +106,8 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
         <Notice tone="danger" role="alert">
           {/* the state word and its reason; LayerFS's sentence is the tip, the fix the one action */}
           <StoreNoticeWords s={s} t={t} notice={notice} />
-          {s.kind === 'sqlite' && machineState === 'stopped' ? <Button variant="outline" size="sm" onClick={on.start}>{t('startMachine', { machine: s.machine ?? '' })}</Button> : <StoreAction store={s} t={t} />}
+          {/* the machine's Start behind the press guard, like every power control (MachineStartAction) */}
+          {s.kind === 'sqlite' && machineState === 'stopped' ? <MachineStartAction machine={s.machine ?? ''} t={t} onStart={on.start} /> : <StoreAction store={s} t={t} />}
         </Notice>
       ) : null}
       {current ? <JobPanel job={current} t={t} onRetry={() => on.retry(current)} onDismiss={() => on.dismiss(current)} /> : s.state === 'busy' && s.op ? <OpPanel store={s} t={t} /> : null}

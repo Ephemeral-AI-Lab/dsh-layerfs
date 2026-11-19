@@ -4,7 +4,7 @@
  * VMs, refused while it holds Stores or Sandboxes), the settings and remove
  * dialogs, and the startup progress of a create or start.
  */
-import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
 import { Button, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CopyLine, Field, FixAction, FixContext, MoreMenu, Refusal, StateChip, Contained, usePressGuard } from '../ui/index.tsx'
 import { runnableFix } from '../../shared/doctor.ts'
@@ -153,6 +153,9 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
   const builtIn = BUILT_IN.has(m.platform)
   const down = workerDown(m)
   const fix = fixAction(m)
+  // its power items behind the press guard, like every power control: a press on an item that just changed under the pointer does nothing
+  const guard = usePressGuard(`menu:${m.name}:${m.state}:${m.reason ?? ''}:${pending ?? ''}`)
+  const guarded = (act: () => void) => () => guard(act)({ stopPropagation: () => {} } as unknown as SyntheticEvent)
   return (
     <MoreMenu label={t('moreFor', { name: m.name })}>
       {(close) => (
@@ -160,19 +163,19 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
           {onOpen && <MenuItemButton icon={<IconChevronRightOutlineRegular size={14} />} onSelect={() => { close(); onOpen() }}>{t('open')}</MenuItemButton>}
           {down ? (
             <>
-              <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null || fix?.kind === 'forced'}
+              <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null || fix?.kind === 'forced' || guard.settling}
                 disabledReason={fix?.kind === 'forced' ? t(fix.sandboxes === 1 ? 'fixForcedOneTip' : 'fixForcedTip', { n: String(fix.sandboxes) }) : undefined}
-                onSelect={() => { close(); void run(fix?.kind === 'restart' ? 'restart' : 'start', { kind: fix?.kind === 'restart' ? 'restart' : 'start', name: m.name, platform: m.platform }) }}>
+                onSelect={guarded(() => { close(); void run(fix?.kind === 'restart' ? 'restart' : 'start', { kind: fix?.kind === 'restart' ? 'restart' : 'start', name: m.name, platform: m.platform }) })}>
                 {t('powerFor', { action: t('restartWorker'), name: m.name })}
               </MenuItemButton>
-              <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
-                onSelect={() => { close(); void run('stop', { kind: 'stop', name: m.name }) }}>
+              <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null || guard.settling}
+                onSelect={guarded(() => { close(); void run('stop', { kind: 'stop', name: m.name }) })}>
                 {t('powerFor', { action: t(m.platform === 'docker' ? 'stopWorker' : 'stopUnreachable'), name: m.name })}
               </MenuItemButton>
             </>
           ) : power && (
-            <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
-              onSelect={() => { close(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }}>
+            <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null || guard.settling}
+              onSelect={guarded(() => { close(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) })}>
               {t('powerFor', { action: t(powerKey(m, power)), name: m.name })}
             </MenuItemButton>
           )}
@@ -223,14 +226,16 @@ export function MachineDialogs({ m, dialog, onClose, pending, run, onRemoved }: 
 /** Force stop is an explicit escalation; normal Stop keeps its refusal behavior. */
 function ForceStopDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose: () => void, pending: string | null, run: Run }): ReactNode {
   const { t } = useMachinesContext()
+  // the confirm press settles from when the dialog opens: a double click on Force stop… does not pass through it
+  const guard = usePressGuard(`force-stop:${m.name}:${m.state}`)
   return (
     <Modal open onClose={() => { if (pending === null) onClose() }} title={t('forceStopTitle', { name: m.name })}
       description={t(m.platform === 'native' ? 'forceStopNativeBody' : 'forceStopBody', { name: m.name })} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
           <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" className={css.danger} disabled={pending !== null}
-            onClick={() => void run('stop', { kind: 'stop', name: m.name, force: true }).then(() => onClose())}>
+          <Button variant="primary" className={css.danger} disabled={pending !== null || guard.settling} aria-disabled={guard.settling || undefined}
+            onClick={guard(() => void run('stop', { kind: 'stop', name: m.name, force: true }).then(() => onClose()))}>
             {pending === 'stop' ? t('forceStopping') : t('forceStopAction')}
           </Button>
         </>

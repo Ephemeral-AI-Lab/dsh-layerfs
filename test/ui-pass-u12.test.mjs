@@ -331,7 +331,7 @@ test('review NOTE-1: the settle is visible (off and aria-disabled, one re-render
   const ui = src('src/client/ui/index.tsx')
   assert.match(ui, /const settling = settleMs > 0 && !pressAllowed\(seen\.current, identity, Date\.now\(\), settleMs\)/)
   assert.match(ui, /setTimeout\(\(\) => rerender\(\(n\) => n \+ 1\), Math\.max\(0, seen\.current\.at \+ settleMs - Date\.now\(\)\) \+ 5\)/, 'one timer re-render at at + settleMs')
-  for (const [file, n] of [['src/client/machines/parts.tsx', 3], ['src/client/storage/HomeOverview.tsx', 2], ['src/client/storage/HomeCards.tsx', 1], ['src/client/ui/index.tsx', 1]]) {
+  for (const [file, n] of [['src/client/machines/parts.tsx', 4], ['src/client/storage/HomeOverview.tsx', 2], ['src/client/storage/HomeCards.tsx', 1], ['src/client/ui/index.tsx', 1]]) {
     assert.equal((src(file).match(/aria-disabled=\{guard\.settling \|\| undefined\}/g) ?? []).length, n, file)
     assert.ok((src(file).match(/disabled=\{[^}]*guard\.settling\}/g) ?? []).length >= n, `${file} visibly off`)
   }
@@ -708,4 +708,32 @@ test('K FAIL 1 (R2-2): a Store blocked by its stopped machine (fix null) reads W
     assert.match(M.storageLocales[lang].waitingOnMachineTip, /\{machine\}[^]*\{store\}/)
     assert.match(M.storageLocales[lang].startMachineNamed, /\{machine\}/)
   }
+})
+
+// ---------------------------------------------------------------- follow-up: every power press guarded
+
+test('every machine start/stop/restart press sits behind the press guard (no exception)', () => {
+  const sites = [
+    ['src/client/storage/StorePage.tsx', /machineState === 'stopped' \? <MachineStartAction machine=\{s\.machine \?\? ''\} t=\{t\} onStart=\{on\.start\} \/>/],
+    ['src/client/storage/StoreCard.tsx', /onClick=\{guard\(\(e\) => \{ e\.stopPropagation\(\); onStart\(\) \}\)\}/],
+    ['src/client/projects/ProjectList.tsx', /disabled=\{actions\.busy \|\| startGuard\.settling\} aria-disabled=\{startGuard\.settling \|\| undefined\}[^\n]*onClick=\{startGuard\(\(\) => void actions\.start\(availability\.machine!\)\)\}/],
+    ['src/client/projects/setup/ProjectDialog.tsx', /disabled=\{busy \|\| startGuard\.settling\} aria-disabled=\{startGuard\.settling \|\| undefined\}[^\n]*\n\s*onClick=\{startGuard\(\(\) => void go\(\(\) => api\.call\('POST', `\/api\/machines\//],
+    ['src/client/projects/setup/MachineTiles.tsx', /disabled=\{busy !== null \|\| guard\.settling\} aria-disabled=\{guard\.settling \|\| undefined\}[^]*?onClick=\{guard\(\(\) => press\(m\)\)\}/],
+    ['src/client/storage/dialogs.tsx', /disabled=\{starting \|\| startGuard\.settling\} aria-disabled=\{startGuard\.settling \|\| undefined\}[^]*?onClick=\{startGuard\(\(\) => \{ setStarting\(true\); api\.call\('POST', `\/api\/machines\//],
+    ['src/client/machines/MachineImages.tsx', /disabled=\{restarting\.pending !== null \|\| restartGuard\.settling\} aria-disabled=\{restartGuard\.settling \|\| undefined\} onClick=\{restartGuard\(\(\) => void restarting\.restart\(\)\)\}/],
+    ['src/client/machines/ImageMenu.tsx', /if \(id === RESTART\) \{ restartGuard\(\(\) => void restarting\.restart\(\)\)/],
+    ['src/client/machines/parts.tsx', /disabled=\{pending !== null \|\| guard\.settling\} aria-disabled=\{guard\.settling \|\| undefined\}\n\s*onClick=\{guard\(\(\) => void run\('stop', \{ kind: 'stop', name: m\.name, force: true \}\)/],
+    ['src/client/presets/PresetsSection.tsx', /disabled=\{waiting \|\| data\.busy \|\| confirmGuard\.settling\} aria-disabled=\{confirmGuard\.settling \|\| undefined\} aria-busy=\{waiting\} onClick=\{confirmGuard\(\(\) => \{ void execute\(\) \}\)\}/],
+  ]
+  for (const [file, re] of sites) assert.match(src(file), re, file)
+  // the machine menu's power items: every onSelect that runs start/stop/restart goes through guarded()
+  const parts = src('src/client/machines/parts.tsx')
+  const menu = parts.slice(parts.indexOf('export function MachineMenu'), parts.indexOf('{forceStopOf('))
+  assert.equal((menu.match(/onSelect=\{\(\) => \{ close\(\); void run\(/g) ?? []).length, 0, 'no unguarded power item')
+  assert.equal((menu.match(/onSelect=\{guarded\(\(\) => \{ close\(\); void run\(/g) ?? []).length, 3)
+  assert.equal((menu.match(/guard\.settling\}/g) ?? []).length, 3)
+  // the earlier sites keep theirs: power button, fix button, Home need actions, Restart worker card, FixAction
+  assert.match(parts, /onClick=\{guard\(\(e\) => \{ e\.stopPropagation\(\); void run\(power,/)
+  assert.match(src('src/client/storage/HomeOverview.tsx'), /onClick=\{guard\(\(\) => \{ if \(n\.secondary!\.confirm && !armed\) setArmed\(true\); else go\(n\.secondary!\.run\) \}\)\}/)
+  assert.match(src('src/client/storage/HomeCards.tsx'), /onClick=\{guard\(\(\) => \{ setBusy\(true\)/)
 })
