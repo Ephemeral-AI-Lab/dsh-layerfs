@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createSteps, defaultMachine, freeStoreName, machinesFor, needsStart, pgLoginBody, pgLoginProblem, pgMachine, pickable, primaryMachine, runsOn, stoppedOf, tileBlocks } from '../src/client/projects/setup/model.ts'
+import { createSteps, defaultMachine, freeStoreName, machinesFor, needsStart, pgLoginBody, pgLoginProblem, pickable, primaryMachine, runsOn, stoppedOf, tileBlocks } from '../src/client/projects/setup/model.ts'
 
 const view = {
   machines: [
@@ -61,13 +61,15 @@ test('a blocked docker is not the default: native is', () => {
   assert.equal(tileBlocks(view.machines, undefined, 'macos').size, 0)
 })
 
-test('where a project runs: SQLite its Store machine, PostgreSQL the machine its Store runs on', () => {
+test('where a project runs: SQLite its Store machine; PostgreSQL the machines its database is connected from, its readiness a placeable one (spec v23)', () => {
   assert.deepEqual(runsOn({ kind: 'sqlite', machine: 'dev' }), ['dev'])
-  assert.deepEqual(runsOn({ kind: 'postgresql', machine: null, runsOn: 'docker' }), ['docker'])
-  assert.deepEqual(runsOn({ kind: 'postgresql', machine: null }), ['native'], 'a host that names none: native')
-  assert.equal(pgMachine({ runsOn: 'dev' }), 'dev')
-  assert.equal(pgMachine({ runsOn: null }), 'native')
-  assert.equal(primaryMachine({ kind: 'postgresql', machine: null, runsOn: 'docker' }), 'docker')
+  const rows = [{ machine: null, reached: 'ok' }, { machine: 'docker', reached: 'ok' }, { machine: 'vm', reached: 'failed' }]
+  assert.deepEqual(runsOn({ kind: 'postgresql', machine: null, connectedFrom: rows }), ['native', 'docker', 'vm'])
+  assert.deepEqual(runsOn({ kind: 'postgresql', machine: null }), [], 'nothing connected yet')
+  const machines = [{ name: 'native', state: 'ready' }, { name: 'docker', state: 'stopped' }, { name: 'vm', state: 'ready' }]
+  // docker is reached but stopped, vm is running but its reach failed: native
+  assert.equal(primaryMachine({ kind: 'postgresql', machine: null, connectedFrom: rows.slice(1) }, machines), 'native')
+  assert.equal(primaryMachine({ kind: 'postgresql', machine: null, connectedFrom: [{ machine: 'vm', reached: 'ok' }] }, machines), 'vm')
   assert.equal(primaryMachine({ kind: 'sqlite', machine: null }), 'native')
 })
 
@@ -119,17 +121,16 @@ test('create steps: existing SQLite Store inits on its machine, moves only when 
   assert.deepEqual(ids(createSteps({ name: 'app', kind: 'sqlite', store: onNative, machines: ['dev'] }, view)), ['init', 'place:dev', 'open'])
 })
 
-test('create steps: a new PostgreSQL Store is connected with where it runs; an existing one only has that changed', () => {
+test('create steps: a PostgreSQL Store changes nothing Store-wide; the machine picked is the first session\'s own (spec v23)', () => {
   // nothing attaches (a PostgreSQL Store is on no machine); docker is stopped in this view, and Create does not start it
   const fresh = createSteps({ name: 'app', kind: 'postgresql', store: null, newStore: { name: 'pg' }, machines: ['docker'] }, view)
   assert.deepEqual(ids(fresh), ['connect', 'init', 'open'])
-  assert.deepEqual(ids(createSteps({ name: 'app', kind: 'postgresql', store: null, newStore: { name: 'pg' }, machines: ['dev'] }, view)), ['connect', 'init', 'open'], 'a running machine is not started')
-  assert.equal(fresh[0].machine, 'docker', 'connect carries the machine its sessions run on')
-  const existing = { name: 'pg', kind: 'postgresql', runsOn: 'native', projects: [] }
-  assert.deepEqual(ids(createSteps({ name: 'app', kind: 'postgresql', store: existing, machines: ['native'] }, view)), ['init', 'open'])
-  const moved = createSteps({ name: 'app', kind: 'postgresql', store: existing, machines: ['dev'] }, view)
-  assert.deepEqual(ids(moved), ['init', 'runs-on:dev', 'open'])
-  assert.equal(moved[1].machine, 'dev')
+  assert.equal(fresh[0].machine, undefined, 'connect carries no machine')
+  assert.equal(fresh[2].machine, 'docker', 'the session opens on the machine picked')
+  const existing = { name: 'pg', kind: 'postgresql', projects: [] }
+  const picked = createSteps({ name: 'app', kind: 'postgresql', store: existing, machines: ['dev'] }, view)
+  assert.deepEqual(ids(picked), ['init', 'open'], 'no runs-on step')
+  assert.equal(picked[1].machine, 'dev')
 })
 
 test('create steps: a folder is checked before anything is made', () => {

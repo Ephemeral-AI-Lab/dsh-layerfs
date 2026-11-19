@@ -66,7 +66,7 @@ function fakeDriver() {
   return { stores, calls, inputs, driver: { invoke, spec: {} } }
 }
 
-test('runner: a fresh database, then connect; where it runs goes to the plugin, never to LayerFS', async () => {
+test('runner: a fresh database, then connect; placing a PostgreSQL Store records no machine anywhere (spec v23)', async () => {
   const state = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-runner-'))
   const { calls, inputs, driver } = fakeDriver()
   const log = []
@@ -77,8 +77,7 @@ test('runner: a fresh database, then connect; where it runs goes to the plugin, 
     authName: 'dsh-preset-postgres',
     password: () => 'pw-from-state',
   }
-  const runsOn = []
-  const runner = new DemoRunner({ state, home: join(state, 'home'), adoptHome: true, preset: 'studio', driver, postgres, report: () => {}, runsOn: (store, machine) => { runsOn.push(`${store} ${machine}`) } })
+  const runner = new DemoRunner({ state, home: join(state, 'home'), adoptHome: true, preset: 'studio', driver, postgres, report: () => {} })
   runner.load(true)
   const services = presetOf('studio').stores.find((s) => s.name === 'demo-services')
   await runner.ensureStore(services)
@@ -89,7 +88,6 @@ test('runner: a fresh database, then connect; where it runs goes to the plugin, 
     'store connect demo-services postgresql://127.0.0.1:54999/demo_services --auth dsh-preset-postgres',
   ], 'placing a PostgreSQL Store makes no LayerFS call')
   assert.deepEqual(inputs, ['pw-from-state', null], 'the password goes on stdin, once')
-  assert.deepEqual(runsOn, ['demo-services docker'], 'the plugin is told the machine its sessions run on')
   assert.equal(runner.manifest.resources.store['demo-services'].owned, true)
   // a second ensure finds the owned Store and neither drops nor reconnects it
   await runner.ensureStore(services)

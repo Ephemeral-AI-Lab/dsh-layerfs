@@ -153,13 +153,13 @@ test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row sho
 test('minor: the machine Stores tab and Overview count the same PostgreSQL Stores', () => {
   const m = { ...unreadable, name: 'vm', platform: 'lima', state: 'ready', reason: undefined, sandboxes: [] }
   const view = {
-    postgresql: [{ name: 'a', runsOn: 'vm', projects: 1 }, { name: 'b', runsOn: 'native', projects: 1 }, { name: 'c', runsOn: null, projects: 0 }],
+    postgresql: [{ name: 'a', connectedFrom: [{ machine: 'native', reached: 'ok' }, { machine: 'vm', reached: 'ok' }], projects: 1 }, { name: 'b', connectedFrom: [{ machine: 'native', reached: null }], projects: 1 }, { name: 'c', connectedFrom: [], projects: 0 }],
     sandboxes: [{ name: 'sb', machine: 'vm', project: 'b/web', workspaces: 0 }],
   }
-  assert.deepEqual(N.pgStoresHere(view, m), ['a', 'b'], 'runs here by default, or has a Sandbox here now')
+  assert.deepEqual(N.pgStoresHere(view, m), ['a', 'b'], 'connected from here (spec v23), or has a Sandbox here now')
   const en = M.machineLocales.en
-  assert.equal(en[N.pgSupportKey(0)], 'Supported · none run here')
-  assert.equal(fill(en[N.pgSupportKey(2)], { n: 2 }), 'Supported · 2 Stores run here')
+  assert.equal(en[N.pgSupportKey(0)], 'Supported · none connected from here')
+  assert.equal(fill(en[N.pgSupportKey(2)], { n: 2 }), 'Supported · 2 Stores connected from here')
   assert.match(src('src/client/machines/Spec.tsx'), /pgStoresHere\(view, m\)\.length/)
 })
 

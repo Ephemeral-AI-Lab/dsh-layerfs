@@ -5,9 +5,9 @@
  *
  * Two tiles at the top switch between SQLite Stores (the file lives on a
  * machine's disk: push and pull move it) and PostgreSQL Stores (the data
- * stays on its server; a Store is on no machine, it only has a machine its
- * sessions run on). The choice is remembered per viewer and machine. A
- * machine page lists the PostgreSQL Stores that run there.
+ * stays on its server; a Store is on no machine, and each session picks its
+ * own). The choice is remembered per viewer and machine. A machine page
+ * lists the PostgreSQL Stores connected from it.
  *
  * Both kinds draw the same card, split by the Store's projects:
  *
@@ -15,8 +15,9 @@
  *   figure    one large figure: the file's size (SQLite), else the projects'
  *             packed bytes, else their count (PostgreSQL); small words beside
  *             it (last write; or the database)
- *   where     Stored on its machine (SQLite, Home only); Runs on a machine,
- *             with Change (PostgreSQL)
+ *   where     Stored on its machine (SQLite, Home only); Connected from: one
+ *             chip per machine that connects, then Connect a machine
+ *             (PostgreSQL, spec v23)
  *   rows      up to three projects (the LayerFS mark), each with its bytes and
  *             its own bar: its share of the file, or of the projects
  *   status    only when something is happening: a transfer, in use, down
@@ -24,9 +25,9 @@
  *             has a foot only for "+N projects" or a status its server's
  *             header does not already say
  *
- * PostgreSQL cards sit under a thin header per server: its address, the
- * host's own check (reachable, latency), the user, the version, and Add
- * database. There is one view of them: no server cards, no second view.
+ * PostgreSQL cards sit under one header per saved login (spec v23 V23-1):
+ * the login, its user, its Store count, its worst state, Rotate password…
+ * and Remove login. There is one view of them.
  *
  * The backups badge counts the Store's bucket copies, marks their providers
  * and dots the worst state; it opens Backups (BackupDialogs.tsx).
@@ -41,11 +42,11 @@ import { useQuery } from '../ui/use-query.ts'
 import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { machineStores, projectSplit, serverCheckWords, serverGroups, startKind, storeOffServer, type PgServerGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { brokenWords, cardJob, needsLogin, pgStoreBytes, runsOnOf, storeStateWords, storeTip } from './model.ts'
+import { loginGroups, machineStores, projectSplit, startKind, type PgLoginGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
+import { cardJob, pgStoreBytes, rowMachine, storeStateWords, storeTip } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
-import { StoreAction, StoreMenu, storeNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
+import { StoreAction, StoreMenu, storeNotice, useStoreTip, type LoginActions, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
 import type { StoreProjectsView, StoreStats } from './store-page.ts'
 import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
@@ -64,11 +65,15 @@ export interface MachineStoresProps {
   dismissed: ReadonlySet<string>
   now: number
   actionsFor: (s: StoreRow) => StoreActions
+  /** A saved PostgreSQL login's own actions (the PostgreSQL tab's login headers). */
+  loginActions?: LoginActions | undefined
+  /** The Sandboxes the Machines view knows: a Connected from chip counts the machine's Sandboxes of the Store. */
+  sandboxes?: readonly { machine?: string | null, project?: string | null }[] | undefined
   /** Add Store's SQLite side: push a Store to this machine. */
   onPushHere: (machine: string) => void
-  /** Connect a database: a new one that runs here, or one already connected set to run here. */
+  /** Connect a database: a new one checked from here, or one already connected checked from here. */
   onConnect: (machine: string) => void
-  /** The PostgreSQL Stores with a Sandbox on this machine now (the Machines view knows): listed beside those that run here by default. */
+  /** The PostgreSQL Stores with a Sandbox on this machine now (the Machines view knows): listed beside those connected from here. */
   busy?: ReadonlySet<string> | undefined
   onOpenStore: (name: string) => void
   /** Opens a project, by `store/project`. */
@@ -87,6 +92,8 @@ interface CardProps {
   dismissed: ReadonlySet<string>
   now: number
   actionsFor: (s: StoreRow) => StoreActions
+  loginActions?: LoginActions | undefined
+  sandboxes?: readonly { machine?: string | null, project?: string | null }[] | undefined
   onOpenStore: (name: string) => void
   onOpenProject: (key: string) => void
   onBackups: (store: string) => void
@@ -307,23 +314,65 @@ function MachineChip({ name, view, t, health, title, onOpen }: {
   )
 }
 
-/**
- * Where a Store is, on one line in the same place on both kinds. SQLite:
- * "Stored on" its one machine. PostgreSQL: "Runs on" the machine its sessions
- * start on (the plugin's choice; the Store itself is on no machine), then
- * Change. The dot says whether the machine runs.
- */
+/** Where a SQLite Store is, on one line: "Stored on" its one machine; the dot says whether the machine runs. */
 export function MachineLine({ s, view, t, on }: { s: StoreRow, view: StorageView, t: StorageT, on: StoreActions }): ReactNode {
-  const pg = s.kind === 'postgresql'
-  const machine = pg ? runsOnOf(s) : s.machine
+  const machine = s.machine
   const state = view.machines.find((m) => m.name === machine)?.state ?? null
   const health = machine === 'native' || state === 'ready' ? 'current' : state ? 'unknown' : null
   return (
     <div className={css.machines}>
-      <span className={css.machinesLabel}>{pg ? t('pgRunsOnLabel') : t('hsStoredOn')}</span>
+      <span className={css.machinesLabel}>{t('hsStoredOn')}</span>
       <MachineChip name={machine} view={view} t={t} health={health} onOpen={on.openMachine}
         title={[machine === 'native' ? t('layerfsHome') : machine ?? '?', state ? storeStateWords(state, t) : null].filter(Boolean).join(' · ')} />
-      {pg ? <button type="button" className={css.chip} data-add onClick={on.changeRunsOn} title={t('pgRunsOnHint')}>{t('pgRunsOnChange')}</button> : null}
+    </div>
+  )
+}
+
+/**
+ * Who connects to a PostgreSQL Store's database (spec v23 §5.1): one chip
+ * per `connections` row, this computer first. The dot is the last reach
+ * (reached, failed, not checked yet); a machine that is broken shows its
+ * own state. The machine's Sandboxes of the Store show as `n ▣`. The tip
+ * says the address (its own, or the Store's), when it was checked, the
+ * server's version and latency, or that the check failed; never a raw
+ * error. A chip checks from its machine again; the last chip is Connect a
+ * machine.
+ */
+function ConnectedFrom({ s, view, t, on, now, sandboxes }: { s: StoreRow, view: StorageView, t: StorageT, on: StoreActions, now: number, sandboxes?: CardProps['sandboxes'] }): ReactNode {
+  const rows = s.connectedFrom ?? []
+  return (
+    <div className={css.machines} data-connected-from={s.name}>
+      <span className={css.machinesLabel}>{t('pgConnectedFromLabel')}</span>
+      <div className={css.chips}>
+        {rows.map((c) => {
+          const name = rowMachine(c)
+          const record = view.machines.find((m) => m.name === name)
+          const broken = record?.state === 'broken'
+          const health = broken || c.reached === 'failed' ? 'problem' : c.reached === 'ok' ? 'current' : 'unknown'
+          const boxes = (sandboxes ?? []).filter((b) => (b.machine ?? 'native') === name && b.project?.startsWith(`${s.name}/`)).length
+          const reach = c.reach
+          const tip = [
+            c.machine === null ? t('pgThisComputer') : name,
+            c.own ? t('pgOwnAddress', { server: c.server ? `${c.server.host}:${c.server.port ?? 5432}` : '' }) : t('pgDefaultAddress'),
+            reach?.at ? t('pgCheckedAgo', { when: ago(reach.at, now, t as Translate) }) : t('pgNotChecked'),
+            reach?.ok ? [reach.version ? t('msPgShort', { version: reach.version.split(' ')[0]! }) : null, reach.latencyMs != null ? t('msReachableMs', { latency: reach.latencyMs }) : null].filter(Boolean).join(' · ') || null : reach ? t('pgCheckFailed') : null,
+            broken && record ? storeStateWords(record.state ?? 'broken', t) : null,
+            boxes ? t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes }) : null,
+          ].filter(Boolean).join(' · ')
+          return (
+            <button key={c.machine ?? '(here)'} type="button" className={css.chip} data-connected={name} data-reached={c.reached ?? 'none'} title={tip}
+              onClick={() => (broken ? on.openMachine(name) : on.check(c.machine ?? undefined))}>
+              <span className={css.metaMark}>{c.machine === null ? <HomeGlyph size={12} /> : <MachineGlyph platform={record?.platform ?? ''} size={12} />}</span>
+              <span className={css.chipName}>{c.machine === null ? t('pgThisComputer') : name}</span>
+              <span className={css.dot} data-health={health} />
+              {boxes ? <span className={css.chipCount} aria-label={t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes })}>{boxes} ▣</span> : null}
+            </button>
+          )
+        })}
+        <button type="button" className={css.chip} data-add data-connect-machine={s.name} onClick={on.connectMachine} title={t('pgConnectMachineTip')}>
+          <IconPlusOutlineRegular size={10} />{t('pgConnectMachine')}
+        </button>
+      </div>
     </div>
   )
 }
@@ -457,32 +506,58 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   )
 }
 
+/** A group's state as a dot. */
+const healthOf = (state: string) => (state === 'ready' ? 'current' : state === 'broken' ? 'problem' : 'unknown')
+
+/** A login group's tip: the servers its Stores are on, when it was saved, and its Stores. */
+function loginTip(g: PgLoginGroup, t: StorageT, now: number): string {
+  return [
+    g.servers.length ? g.servers.join(', ') : null,
+    g.saved ? t('pgSavedAgo', { when: ago(g.saved, now, t as Translate) }) : null,
+    g.stores.length ? t('pgUsedBy', { stores: g.stores.map((s) => s.name).join(', ') }) : t('pgLoginUnused'),
+    g.fix ?? null,
+  ].filter(Boolean).join(' · ')
+}
+
 /**
- * PostgreSQL: the cards under one thin header per server. The header says
- * what the host's own check of the server found, once for all its
- * databases, and adds another database on it.
+ * PostgreSQL (spec v23 §5.1): the cards under one header per saved login
+ * (V23-1), a login no Store names too, then "No login" for Stores whose
+ * login is missing. The header is the login, its user, its Store count and
+ * one state word (its Stores' worst) with a dot, Rotate password… as its one
+ * action and Remove login in its ⋯ (only while no Store names it). A
+ * machine page shows only the logins of the Stores connected from it.
  */
 function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
-  const { t, actionsFor } = props
+  const { t, view, loginActions, now, machine } = props
+  const groups = loginGroups(props.stores, view.auths ?? []).filter((g) => machine === null || g.stores.length > 0)
   return (
     <div className={css.pgGroups}>
-      {serverGroups(props.stores).map((g) => {
-        const version = g.version ? t('msPgShort', { version: g.version.split(' ')[0]! }) : null
-        const check = serverCheckWords(g, t)
+      {groups.map((g) => {
+        const count = g.stores.length === 1 ? t('msStoreOne', { n: 1 }) : t('msStores', { n: g.stores.length })
         return (
-          <section key={g.server} className={css.pgGroup} data-pg-server={g.server} aria-label={g.server}>
-            <header className={css.pgServer}>
+          <section key={g.auth ?? '(no login)'} className={css.pgGroup} data-pg-login={g.auth ?? ''} aria-label={g.auth ?? t('pgNoLogin')}>
+            <header className={css.pgServer} title={loginTip(g, t, now)}>
               <StoreGlyph kind="postgresql" size={14} />
-              <span className={css.pgServerName} title={g.server}>{g.server}</span>
-              <span className={css.check} data-state={g.state === 'failed' ? 'failed' : undefined} title={g.error ?? undefined}>
-                <span className={css.dot} data-health={g.state === 'ok' ? 'current' : g.state === 'failed' ? 'problem' : 'unknown'} />{check}
+              <span className={css.pgServerName}>{g.auth ?? t('pgNoLogin')}</span>
+              <span className={css.pgServerFacts}>{[g.user, count].filter(Boolean).join(' · ')}</span>
+              <span className={css.check} data-state={g.state === 'broken' ? 'failed' : undefined}>
+                <span className={css.dot} data-health={healthOf(g.state)} />{storeStateWords(g.state, t)}
               </span>
-              <span className={css.pgServerFacts}>{[g.user, version].filter(Boolean).join(' · ')}</span>
-              <span className={css.pgServerAdd}>
-                <Button size="sm" variant="ghost" icon={<IconPlusOutlineRegular size={12} />} onClick={() => actionsFor(g.stores[0]!).newOnServer()}>{t('ovConnectHere')}</Button>
-              </span>
+              {g.auth && loginActions ? (
+                <span className={css.pgServerAdd}>
+                  <Button size="sm" variant="ghost" onClick={() => loginActions.rotate(g.auth!)}>{t('pgRotate')}</Button>
+                  <MoreMenu label={t('pgLoginActions', { auth: g.auth })}>
+                    {(close) => (
+                      <MenuItemButton danger disabled={g.stores.length > 0} disabledReason={g.stores.length ? t('pgLoginInUse', { stores: g.stores.map((s) => s.name).join(', ') }) : undefined}
+                        onSelect={() => { close(); loginActions.remove(g.auth!) }}>{t('pgRemoveLogin')}</MenuItemButton>
+                    )}
+                  </MoreMenu>
+                </span>
+              ) : null}
             </header>
-            <div className={css.grid}>{g.stores.map((s) => <PgCard key={s.name} s={s} group={g} {...props} />)}</div>
+            {g.stores.length
+              ? <div className={css.grid}>{g.stores.map((s) => <PgCard key={s.name} s={s} {...props} />)}</div>
+              : <p className={css.empty}>{t('pgLoginUnused')}</p>}
           </section>
         )
       })}
@@ -490,15 +565,15 @@ function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
   )
 }
 
-function PgCard({ s, group, api, machine, t, view, jobs, dismissed, now, actionsFor, onOpenStore, onOpenProject }: CardProps & { s: StoreRow, group: PgServerGroup }): ReactNode {
+function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, sandboxes, onOpenStore, onOpenProject }: CardProps & { s: StoreRow }): ReactNode {
   const on = actionsFor(s)
   // A compaction on this database shows its steps and result here, as on a sqlite card.
   const job = cardJob(jobs, s.name, dismissed, now)
-  // a database that names no saved login: its words, LayerFS's sentence as the tip, Save a login… as the one action
-  const noLogin = needsLogin(s)
+  // a broken database: its words, LayerFS's sentence as the tip, its fix as the one action (Save a login…, Update)
+  const notice = storeNotice(s, null, t)
   const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
     : s.op ? <OpPanel store={s} t={t} />
-      : noLogin ? <StoreStatus s={s} t={t} words={brokenWords(s, t)} /> : null
+      : notice ? <StoreStatus s={s} t={t} words={notice} /> : null
   // The database's size as LayerFS measures it (store get --with stats), read again when its projects change or a job ends.
   const stats = useQuery(() => api.call<StoreStats>('GET', `/api/stores/${enc(s.name)}/stats`), [api, s.name],
     { refresh: [s.projects.length, job?.ended], cache: `store-stats:${s.name}` })
@@ -508,20 +583,18 @@ function PgCard({ s, group, api, machine, t, view, jobs, dismissed, now, actions
   // Until the size is read: the projects' Commit counters, which leave out what Init saved.
   const counted = split?.rows.filter((r) => r.bytes !== null) ?? []
   const total = size ?? (counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null)
-  // said only when it is not what the server's header says: this database fails while its server answers
-  const off = noLogin ? null : storeOffServer(s, group)
   const more = s.projects.length > ROWS
   return (
-    <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={off !== null ? 'danger' : undefined}>
+    <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={s.state === 'broken' ? 'danger' : undefined}>
       <Head s={s} on={on} t={t} machine={machine ?? undefined} onOpenStore={onOpenStore} />
-      {/* refused stats (a broken database, no saved login): its size is unknown, "—", never the 0 B of its uncounted projects */}
-      <Figure big={stats.error && size === null ? '—' : total !== null ? bytes(total) : projectsWords(s.projects.length, t)} title={pg?.target ?? undefined}
+      {/* refused stats (a broken database): its size is unknown, "—", never the 0 B of its uncounted projects */}
+      <Figure big={stats.error && size === null ? '—' : total !== null ? bytes(total) : projectsWords(s.projects.length, t)}
+        title={[pg?.server, pg?.binding ? t('pgDatabaseId', { id: pg.binding.slice(0, 8) }) : null].filter(Boolean).join(' · ') || undefined}
         meta={pg?.database ? <span className={css.metaText}>{pg.database}</span> : null} />
-      <MachineLine s={s} view={view} t={t} on={on} />
+      <ConnectedFrom s={s} view={view} t={t} on={on} now={now} sandboxes={sandboxes} />
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />
-      {off !== null || more || status ? (
+      {more || status ? (
         <div className={css.foot}>
-          {off !== null ? <span className={css.check} data-state="failed" title={off || t('unreachable')}><span className={css.dot} data-health="problem" />{t('hsUnreachable')}</span> : null}
           <More s={s} shown={status ? 1 : ROWS} t={t} onOpenStore={onOpenStore} />
         </div>
       ) : null}

@@ -250,7 +250,7 @@ test('postgresql: logins are saved in LayerFS (password on stdin, never a file o
       connect: async (name, url, options) => {
         seen.push(['connect', name, url, options])
         if (url.includes('bad')) throw new Refusal('Denied', 'password authentication failed for user "lfs"')
-        if (options.machine) record.connections = [...record.connections.filter((c) => c.machine !== options.machine), { machine: options.machine, url }]
+        if (options.machine) record.connections = [...record.connections.filter((c) => c.machine !== options.machine), { machine: options.machine, url, own: true }]
         return { ok: true }
       },
       update: async (name, options) => { seen.push(['update', options]); if (options.synchronous_commit) record.synchronous_commit = options.synchronous_commit; return { ok: true } },
@@ -262,7 +262,8 @@ test('postgresql: logins are saved in LayerFS (password on stdin, never a file o
     // connect with a typed login: saved first (`store save-auth`, the password goes on stdin), then connect --auth; a refusal is LayerFS's code
     const bad = await http('POST', '/api/stores/postgresql', { name: 'pg2', url: 'postgresql://bad/x', user: 'lfs', passwordValue: 's3cret' })
     assert.equal(bad.status, 403)
-    assert.deepEqual(seen.slice(0, 2), [['save_auth', 'pg2', { user: 'lfs', password: 's3cret' }], ['connect', 'pg2', 'postgresql://bad/x', { auth: 'pg2' }]])
+    // a typed login is named after its server (spec v23 V23-12), never the Store
+    assert.deepEqual(seen.slice(0, 2), [['save_auth', 'pg-bad-5432', { user: 'lfs', password: 's3cret' }], ['connect', 'pg2', 'postgresql://bad/x', { auth: 'pg-bad-5432' }]])
     assert.ok(!JSON.stringify(bad.body).includes('s3cret'))
     seen.length = 0
     const ok = await http('POST', '/api/stores/postgresql', { name: 'pg2', url: 'postgresql://db/x', auth: 'pg', synchronousCommit: 'off' })
@@ -383,7 +384,7 @@ test('postgresql: a new connection\'s new login: saved under its name then conne
   })
   try {
     // success: the new login is saved first, under the name given, then named on connect
-    const ok = await http('POST', '/api/stores/postgresql', { name: 'shop', url: 'postgresql://db.lan:5432/shop', authName: 'shop-login', user: 'app', passwordValue: 's3cret', runsOn: 'native' })
+    const ok = await http('POST', '/api/stores/postgresql', { name: 'shop', url: 'postgresql://db.lan:5432/shop', authName: 'shop-login', user: 'app', passwordValue: 's3cret' })
     assert.equal(ok.status, 200)
     assert.deepEqual(seen, [['save_auth', 'shop-login', { user: 'app', password: 's3cret' }], ['connect', 'shop', 'postgresql://db.lan:5432/shop', { auth: 'shop-login' }]])
     assert.ok(!JSON.stringify(ok.body).includes('s3cret'), 'the password is never answered')
@@ -397,7 +398,8 @@ test('postgresql: a new connection\'s new login: saved under its name then conne
     const taken = await http('POST', '/api/stores/postgresql', { name: 'shop3', url: 'postgresql://db.lan/shop3', authName: 'team', user: 'app', passwordValue: 'pw' })
     assert.equal(taken.status, 400)
     assert.match(taken.body.message, /saved login named team exists/)
-    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'team', url: 'postgresql://db.lan/team2', user: 'app', passwordValue: 'pw' })).status, 400, 'the default name is the Store\'s: taken too')
+    saved.push({ auth: 'pg-team-lan-5432', user: 'app', stores: [] })
+    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'team2', url: 'postgresql://team.lan/team2', user: 'app', passwordValue: 'pw' })).status, 400, 'the default name is the server\'s (spec v23 V23-12): taken too')
     const noUser = await http('POST', '/api/stores/postgresql', { name: 'shop3', url: 'postgresql://db.lan/shop3', authName: 'shop3', user: '  ', passwordValue: 'pw' })
     assert.equal(noUser.status, 400)
     assert.match(noUser.body.message, /user/)
@@ -419,88 +421,46 @@ test('postgresql: a new connection\'s new login: saved under its name then conne
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('postgresql: where a Store runs is the plugin\'s own choice: docker by default, saved by connect and runs-on, dropped on disconnect', async () => {
-  const records = [{ store: 'pg', engine: 'postgresql', auth: 'pg', connections: [{ url: 'postgresql://db.lan/team' }], projects: [], state: 'ready' }, { store: 's1', machine: 'native', engine: 'sqlite', projects: ['p'], state: 'ready' }]
-  let machines = pgMachines
-  const { http, calls, events, root } = fakeGroups({
-    ...base,
-    machine: { ...base.machine, list: () => machines() },
-    store: {
-      ...base.store,
-      list: async () => ({ items: records }),
-      get: async (name) => records.find((r) => r.store === name) ?? (() => { throw new Refusal('NotFound', `no Store ${name}`) })(),
-      connect: async (name, url, options) => { records.push({ store: name, engine: 'postgresql', auth: options.auth, connections: [{ url }], projects: [], state: 'ready' }); return { ok: true } },
-      disconnect: async (name) => { records.splice(records.findIndex((r) => r.store === name), 1); return { ok: true } },
-    },
-  })
-  const saved = () => { try { return JSON.parse(readFileSync(join(root, 'store-machines.json'), 'utf8')) } catch { return null } }
-  const runsOn = async (name) => (await http('GET', '/api/storage')).body.stores.find((s) => s.name === name).runsOn
-  try {
-    assert.equal(await runsOn('pg'), 'docker', 'no choice yet: docker, which runs PostgreSQL Sandboxes')
-    assert.equal(await runsOn('s1'), null, 'a SQLite Store runs where its file is')
-    assert.equal(saved(), null, 'a default is not written down')
-    // the choice, saved in the plugin root and never sent to LayerFS
-    const before = calls.length
-    const set = await http('POST', '/api/stores/pg/runs-on', { machine: 'vm1' })
-    assert.equal(set.status, 200)
-    assert.equal(set.body.stores.find((s) => s.name === 'pg').runsOn, 'vm1', 'a stopped machine can be chosen: nothing is checked or started for a choice')
-    assert.deepEqual(saved(), { pg: 'vm1' })
-    assert.ok(events.some((e) => e.type === 'storage'))
-    // the Machines view names it too (a machine page lists the Stores that run there)
-    assert.deepEqual((await http('GET', '/api/machines')).body.postgresql.map((x) => [x.name, x.runsOn]), [['pg', 'vm1']])
-    assert.ok(!calls.slice(before).some((c) => /^store\.(update|attach|connect)$/.test(c)), 'LayerFS records no machine for a PostgreSQL Store')
-    // refusals: a machine that runs none, no such machine, a SQLite Store
-    const none = await http('POST', '/api/stores/pg/runs-on', { machine: 'nopg' })
-    assert.deepEqual([none.status, none.body.code, none.body.message], [400, 'Unsupported', 'machine nopg runs no PostgreSQL Sandboxes'])
-    assert.equal((await http('POST', '/api/stores/pg/runs-on', { machine: 'ghost' })).status, 404)
-    assert.equal((await http('POST', '/api/stores/s1/runs-on', { machine: 'docker' })).status, 400)
-    assert.deepEqual(saved(), { pg: 'vm1' })
-    // connect saves the machine picked in the dialog
-    assert.equal((await http('POST', '/api/stores/postgresql', { name: 'pg2', url: 'postgresql://db.lan/two', auth: 'pg', runsOn: 'native' })).status, 200)
-    assert.deepEqual(saved(), { pg: 'vm1', pg2: 'native' })
-    assert.equal(await runsOn('pg2'), 'native')
-    // a saved machine that is gone falls back to the default; with no docker, native
-    machines = async () => ({ items: (await pgMachines()).items.filter((m) => m.machine === 'native' || m.machine === 'docker') })
-    await http('POST', '/api/stores', { name: 'bump' }) // any write: the view is read anew
-    assert.equal(await runsOn('pg'), 'docker')
-    machines = async () => ({ items: (await pgMachines()).items.filter((m) => m.machine === 'native') })
-    await http('POST', '/api/stores', { name: 'bump' })
-    assert.equal(await runsOn('pg'), 'native')
-    // disconnect forgets the choice
-    assert.equal((await http('POST', '/api/stores/pg2/disconnect')).status, 200)
-    assert.deepEqual(saved(), { pg: 'vm1' })
-  } finally { rmSync(root, { recursive: true, force: true }) }
-})
-
-test('postgresql: a Sandbox is made on the machine asked for, else where its Store runs; no machine is "not attached"', async () => {
+test('postgresql: a Sandbox is made on the machine asked for, else its project\'s last machine, else one its database was reached from, else native; never a stopped one (spec v23)', async () => {
   const made = []
+  let last = null
+  let reached = []
   const { http, root } = fakeGroups({
     ...base,
     machine: { ...base.machine, list: pgMachines },
     project: { get: async (key) => ({ project: key, store: 'pg', engine: 'postgresql' }) },
-    store: { ...base.store, list: async () => ({ items: [{ store: 'pg', engine: 'postgresql', auth: 'pg', connections: [{ url: 'postgresql://h/d' }], state: 'ready' }] }), get: async () => ({ store: 'pg', engine: 'postgresql', auth: 'pg' }) },
+    store: { ...base.store, list: async () => ({ items: [{ store: 'pg', engine: 'postgresql', auth: 'pg', connections: [{ url: 'postgresql://h/d' }], state: 'ready' }] }),
+      get: async () => ({ store: 'pg', engine: 'postgresql', auth: 'pg', connections: [{ machine: null, url: 'postgresql://h/d', reached: null }, ...reached.map((m) => ({ machine: m, url: 'postgresql://h/d', reached: 'ok' }))] }) },
     // 2.0 `sandbox create <project> <name> --machine M`: the machine is an option
-    sandbox: { ...base.sandbox, create: async (project, name, options) => { made.push([name, options.machine]); return { ok: true } } },
+    sandbox: { ...base.sandbox, list: async () => ({ items: last ? [{ sandbox: 'old', machine: last, created_at: '2026-11-19T00:00:00Z' }] : [] }), create: async (project, name, options) => { made.push([name, options.machine]); return { ok: true } } },
   })
   const create = (body) => http('POST', `/api/projects/${encodeURIComponent('pg/app')}/sandboxes`, body)
   try {
     assert.equal((await create({ name: 'b1' })).status, 200)
     assert.equal((await create({ name: 'b2', machine: 'vm1' })).status, 200, 'a machine it was never "attached" to')
-    assert.equal((await http('POST', '/api/stores/pg/runs-on', { machine: 'native' })).status, 200)
+    reached = ['docker']
     assert.equal((await create({ name: 'b3' })).status, 200)
-    assert.deepEqual(made, [['b1', 'docker'], ['b2', 'vm1'], ['b3', 'native']])
+    // the project's last machine wins over a reached one; a stopped last machine (vm1 here) is skipped
+    last = 'native'
+    assert.equal((await create({ name: 'b4' })).status, 200)
+    last = 'vm1'
+    assert.equal((await create({ name: 'b5' })).status, 200)
+    assert.deepEqual(made, [['b1', 'native'], ['b2', 'vm1'], ['b3', 'docker'], ['b4', 'native'], ['b5', 'docker']])
+    assert.equal(existsSync(join(root, 'store-machines.json')), false, 'nothing Store-wide is written')
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-test('postgresql: the check from a machine is store doctor --machine, answered as it came and kept nowhere', async () => {
+test('postgresql: the check from a machine (or this computer) is store doctor, answered with the reach LayerFS recorded (spec v23)', async () => {
   const seen = []
-  // 2.0 `store doctor <store> --machine M --detail`: a finding for each failed check, `not_checked` for one not run
+  // 2.0 `store doctor <store> [--machine M] --detail`; LayerFS records each reach and `store get` reads it back as a `connections` row
   let report = { findings: [], not_checked: [], observed_at: '2026-11-19T10:00:00Z' }
+  let rows = []
   const { http, root } = fakeGroups({
     ...base,
     store: {
       ...base.store,
       list: async () => ({ items: [{ store: 'pg', engine: 'postgresql', auth: 'pg', connections: [{ url: 'postgresql://localhost/d' }], state: 'ready' }] }),
+      get: async () => ({ store: 'pg', engine: 'postgresql', auth: 'pg', connections: rows }),
       doctor: async (name, options) => {
         seen.push(options)
         if (options.machine === 'ghost') throw new Refusal('NotFound', 'no machine named ghost')
@@ -508,28 +468,31 @@ test('postgresql: the check from a machine is store doctor --machine, answered a
       },
     },
   })
+  const row = (machine, reach) => ({ machine, url: 'postgresql://localhost/d', own: false, server: { host: 'localhost', port: 5432, database: 'd' }, reached: reach ? (reach.ok ? 'ok' : 'failed') : null, reach })
   try {
+    rows = [row(null, null), row('docker', { at: '2026-11-19T10:00:00Z', ok: true, latency_ms: 2, server_version: '17.6', error: null })]
     const ok = await http('GET', '/api/stores/pg/check?machine=docker')
     assert.equal(ok.status, 200)
-    assert.deepEqual(ok.body, { machine: 'docker', host: null, ok: true, at: Date.parse('2026-11-19T10:00:00Z'), version: null, latencyMs: null })
+    assert.deepEqual(ok.body, { machine: 'docker', host: 'localhost', ok: true, at: Date.parse('2026-11-19T10:00:00Z'), version: '17.6', latencyMs: 2 })
     assert.equal(seen[0].machine, 'docker')
     assert.ok(seen[0].timeout_ms > 0, 'its own budget, so it always asks LayerFS')
-    // a check that failed is an answer, not a refusal: the dialog draws the step it stopped at
-    report = { findings: [{ check: 'store.connection', from: 'docker', severity: 'error', message: 'machine docker cannot reach PostgreSQL Store pg\'s server: connection refused' }], not_checked: [] }
+    // this computer: no --machine, its row is the one without a machine
+    rows = [row(null, { at: '2026-11-19T10:01:00Z', ok: true, latency_ms: 0, server_version: '17.6', error: null })]
+    const here = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([here.status, here.body.machine, here.body.ok, here.body.latencyMs], [200, 'native', true, 0])
+    assert.equal(seen[1].machine, undefined)
+    // a check that failed is an answer, not a refusal
+    rows = [row(null, null), row('docker', { at: '2026-11-19T10:02:00Z', ok: false, error: 'machine docker cannot reach PostgreSQL Store pg\'s server: connection refused' })]
     const failed = await http('GET', '/api/stores/pg/check?machine=docker')
-    assert.equal(failed.status, 200)
-    assert.deepEqual([failed.body.ok, failed.body.error.code], [false, 'Unavailable'])
+    assert.deepEqual([failed.status, failed.body.ok, failed.body.error.code], [200, false, 'Unavailable'])
     assert.match(failed.body.error.message, /connection refused/)
     // a check LayerFS could not run from there (the machine stopped) is an answer too
+    rows = [row(null, null)]
     report = { findings: [], not_checked: [{ check: 'store.connection', from: 'docker', reason: 'stopped', message: 'machine docker is stopped' }] }
     const skipped = await http('GET', '/api/stores/pg/check?machine=docker')
     assert.deepEqual([skipped.status, skipped.body.ok, skipped.body.error.code], [200, false, 'stopped'])
-    // a bad input is LayerFS's refusal; no machine named is refused here
+    // a bad input is LayerFS's refusal
     assert.equal((await http('GET', '/api/stores/pg/check?machine=ghost')).status, 404)
-    assert.equal((await http('GET', '/api/stores/pg/check')).status, 400)
-    // nothing of a check reaches the view
-    const view = await http('GET', '/api/storage')
-    assert.ok(!JSON.stringify(view.body).includes('connection refused'))
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

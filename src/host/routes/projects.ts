@@ -30,7 +30,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
-import { pgMachineOf, StoreMachines } from '../store-machines.ts'
+import { lastUsed, pgPlacement, reachedFrom } from '../placement.ts'
 import { companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
 import { Answer, PAGE, cliFeatures, fixOf, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 import { processOf, usageOf, type Usage } from './observed.ts'
@@ -547,8 +547,9 @@ export class Projects {
    * (docs/specs/sandbox-images.md §4.1). A sqlite project's Sandboxes run on
    * its Store's machine (another is Unsupported); a PostgreSQL project's on
    * `machine` when one is named (any machine whose platform runs PostgreSQL
-   * Sandboxes; LayerFS refuses the rest), else its Store's default
-   * (store-machines.ts).
+   * Sandboxes; LayerFS refuses the rest), else placement.ts's order (its
+   * last machine, a machine its database was reached from, native; never a
+   * broken or stopped one).
    *
    * `image` is a string. Until the pinned CLI declares references (Stage 1,
    * `imageRefs`), only a full `sha256:` digest is taken: anything else is
@@ -562,14 +563,17 @@ export class Projects {
     const record = await this.record(key)
     const { name, image } = body ?? {}
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'A Sandbox needs a name.')
-    // a sqlite project's Sandboxes run on its Store's machine (LayerFS's default); a PostgreSQL one's on the machine named, else this install's choice
+    // a sqlite project's Sandboxes run on its Store's machine (LayerFS's default); a PostgreSQL one's on the machine named, else placement.ts's
     const storeName = String(record.store ?? keyOf(record).split('/')[0])
-    const storeRecord: any = await this.lfs.store.get(storeName).catch(() => null)
+    const storeRecord: any = await this.lfs.store.get(storeName, { detail: true }).catch(() => null)
     const postgresql = (storeRecord?.engine ?? record.engine) === 'postgresql'
     let machine = storeRecord?.machine ?? record.machine
     if (postgresql) {
       const named = typeof body.machine === 'string' && body.machine ? body.machine : null
-      machine = named ?? pgMachineOf(new StoreMachines(this.host.root).get(storeName), await machineRows(this.lfs))
+      if (!named) {
+        const sandboxes = await this.lfs.sandbox.list({ project: keyOf(record), detail: true }).then((r: any) => r?.items ?? [], () => [])
+        machine = pgPlacement(await machineRows(this.lfs), { last: lastUsed(sandboxes), reached: reachedFrom(storeRecord) })
+      } else machine = named
     }
     if (image !== undefined && image !== null && image !== '' && typeof image !== 'string') throw refuse(400, 'InvalidInput', 'Name the image as a string: its id (a sha256 digest) or a reference.')
     const picked = typeof image === 'string' && image ? image : undefined

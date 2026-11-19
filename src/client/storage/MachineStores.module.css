@@ -833,3 +833,23 @@
     white-space: normal;
   }
 }
+
+/* Connected from (spec v23): the chips wrap under their label; a chip's Sandbox count is quiet */
+.machines[data-connected-from] {
+  align-items: flex-start;
+  overflow: visible;
+  white-space: normal;
+}
+.machines[data-connected-from] .machinesLabel {
+  line-height: 22px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.chipCount {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}

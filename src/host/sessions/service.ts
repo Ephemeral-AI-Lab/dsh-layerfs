@@ -26,7 +26,7 @@ import { initialState, type Binding, type Checkpoint, type SessionsState, type S
 import type { SessionStore } from './store.ts'
 import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
 import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
-import { pgMachineOf, StoreMachines } from '../store-machines.ts'
+import { lastUsed, pgPlacement, reachedFrom } from '../placement.ts'
 import { machineRows } from '../layerfs/machine-records.ts'
 
 /** How long a passed identity and readiness check stands for pre-step checks. */
@@ -246,14 +246,14 @@ export class LayerfsSessions extends Service {
    * `null` clears the choice; a recorded binding always outranks the pending
    * one, so a bound session cannot be re-placed this way.
    */
-  async choose(sessionId: string, project: string | null, projectId?: string): Promise<void> {
+  async choose(sessionId: string, project: string | null, projectId?: string, machine?: string): Promise<void> {
     // The choice runs in the session's lane, and pre-step waits for the lane
     // before resolving the place: a first message sent while the choice is in
     // flight runs under the chosen owner, never as the previous one.
-    await this.lane(sessionId, () => this.chooseNow(sessionId, project, projectId))
+    await this.lane(sessionId, () => this.chooseNow(sessionId, project, projectId, machine))
   }
 
-  private async chooseNow(sessionId: string, project: string | null, projectId?: string): Promise<void> {
+  private async chooseNow(sessionId: string, project: string | null, projectId?: string, machine?: string): Promise<void> {
     const live = this.ctx.sessions.get(sessionId as never) as any
     const bound = this.binding(sessionId)
     const persistence = this.ctx.get?.('sessionPersistence' as never) as any
@@ -281,7 +281,7 @@ export class LayerfsSessions extends Service {
     }
     await persistence?.migrateProject?.(live ?? sessionId, project)
     this.state.update((s) => {
-      if (project) s.pending[sessionId] = { project }
+      if (project) s.pending[sessionId] = { project, ...(machine ? { machine } : {}) }
       else delete s.pending[sessionId]
     })
     // The New Session row's preset chip follows the choice before the first
@@ -448,14 +448,19 @@ export class LayerfsSessions extends Service {
   /**
    * The machine a project's Sandboxes run on: a sqlite Store's machine; for a
    * PostgreSQL Store `preferred` (the session's own machine) when it has one,
-   * else the Store's default (store-machines.ts: this install's saved choice,
-   * else docker, else native).
+   * else placement.ts's order: the project's last machine, a machine its
+   * database was reached from, native; never a broken or stopped one.
    */
   private async machineFor(project: string, preferred?: string | null): Promise<string> {
     const info: any = await this.lfs.project.get(project, { detail: true })
     if (info?.engine !== 'postgresql') return info?.machine ?? 'native'
     if (preferred) return preferred
-    return pgMachineOf(new StoreMachines(this.ctx.layerfs.root).get(storeOf(project)!), await machineRows(this.lfs))
+    const [machines, store, sandboxes] = await Promise.all([
+      machineRows(this.lfs),
+      this.lfs.store.get(storeOf(project)!, { detail: true }).catch(() => null),
+      this.lfs.sandbox.list({ project, detail: true }).then((r: any) => r?.items ?? [], () => []),
+    ])
+    return pgPlacement(machines, { last: lastUsed(sandboxes), reached: reachedFrom(store) })
   }
 
   /**
@@ -785,7 +790,7 @@ export class LayerfsSessions extends Service {
       const resolved = await persistence?.assertSessionIdentity?.(sessionId)
       binding = { ...existing, ...selected, machine: resolved ? (resolved.kind === 'postgresql' ? existing.machine ?? 'native' : resolved.machine ?? 'native') : existing.machine, state: existing.state }
     } else {
-      const machine = await this.machineFor(project, existing?.machine)
+      const machine = await this.machineFor(project, existing?.machine ?? this.state.read().pending[sessionId]?.machine)
       const sandbox = this.simulationOf(sessionId) ? this.simulationSandbox(sessionId) : sandboxOf(sessionId)
       const branch = existing?.resumeFromArchive ? `${branchOf(sessionId)}.resume.${randomUUID().replaceAll('-', '').slice(0, 12)}` : branchOf(sessionId)
       const start = this.forkSource(sessionId, header, project)

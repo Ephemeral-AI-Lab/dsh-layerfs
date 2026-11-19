@@ -724,3 +724,36 @@
   .health,
   .partsLegend { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Connection ▸ Machines (spec v23): one row per side that connects */
+.connList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.connRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 0;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+.connRow:first-child {
+  border-top: none;
+}
+.connName {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.connReach {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

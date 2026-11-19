@@ -2,12 +2,12 @@
  * The Stores boards, as data (MachineStores.tsx draws them):
  *
  * - `machineStores`: a machine's SQLite Stores (the file lives on its disk)
- *   and the PostgreSQL Stores that run here (their sessions run on it by
- *   default, or one has a Sandbox on it now; the data stays on its server),
+ *   and the PostgreSQL Stores connected from it (its `connections` row, or a
+ *   Sandbox on it now; the data stays on its server),
  *   with why the machine takes neither kind when it cannot;
- * - `serverGroups`: PostgreSQL Stores under their server, with what the
- *   host's own check of that server found, for the board's thin server
- *   header and for Connect a database;
+ * - `loginGroups`: PostgreSQL Stores under their saved login (spec v23), the
+ *   PostgreSQL tab's groups; `serverGroups`: the same Stores under their
+ *   server, for Connect a database's list;
  * - `parsePgUrl` / `pgUrl`: a connection URL from and to its parts (never a
  *   password: the host takes it apart from the URL);
  * - `projectSplit`: a Store card's project rows, by the bytes their Commits
@@ -16,7 +16,7 @@
 import type { StorageT } from './locale.ts'
 import { pgStoresOn } from './model.ts'
 import { hueOf, type StoreProject } from './store-page.ts'
-import type { PgServer, StorageView, StoreRow } from './types.ts'
+import type { PgAuth, PgServer, StorageView, StoreRow } from './types.ts'
 
 export type StoreKind = 'sqlite' | 'postgresql'
 
@@ -124,6 +124,52 @@ export function serverGroups(stores: readonly StoreRow[]): PgServerGroup[] {
       error: reached ? null : failing?.reason ?? null,
     }
   })
+}
+
+/** One login group of the PostgreSQL tab (spec v23 V23-1): a saved login, or (`auth: null`) the Stores whose login is missing. */
+export interface PgLoginGroup {
+  /** The saved login's name; null for "No login". */
+  auth: string | null
+  user: string | null
+  /** Its Stores, by name. */
+  stores: StoreRow[]
+  /** The worst state of its Stores, or the login's own when its file cannot be read. */
+  state: string
+  /** The servers its Stores are on (`host:port`), for the tip. */
+  servers: string[]
+  /** When the login was saved last. */
+  saved: number | null
+  /** The login's own fix, when its file cannot be read. */
+  fix?: string | undefined
+}
+
+const WORST = ['broken', 'unknown', 'blocked', 'busy', 'stopped', 'ready']
+const worst = (states: readonly string[]): string => WORST.find((w) => states.includes(w)) ?? 'ready'
+
+/** Whether Store `s`'s login is missing: it names none, or one the home does not hold. */
+const loginMissing = (s: StoreRow, saved: ReadonlySet<string>): boolean => !s.postgresql?.auth || !saved.has(s.postgresql.auth)
+
+/**
+ * PostgreSQL Stores under their saved login (spec v23 V23-1): every login the
+ * home holds (one no Store names too, so it can be removed), each with its
+ * Stores, then "No login" for Stores whose login is missing. Logins by name.
+ */
+export function loginGroups(stores: readonly StoreRow[], auths: readonly PgAuth[]): PgLoginGroup[] {
+  const pg = stores.filter((s) => s.kind === 'postgresql').sort((a, b) => a.name.localeCompare(b.name))
+  const saved = new Set(auths.map((a) => a.auth))
+  const groups: PgLoginGroup[] = [...auths].sort((a, b) => a.auth.localeCompare(b.auth)).map((a) => {
+    const mine = pg.filter((s) => s.postgresql?.auth === a.auth)
+    return {
+      auth: a.auth, user: a.user, stores: mine,
+      state: (a.state ?? 'ready') !== 'ready' ? a.state! : worst(mine.map((s) => s.state)),
+      servers: [...new Set(mine.map((s) => s.postgresql?.server).filter((x): x is string => !!x))].sort(),
+      saved: a.updated ?? a.created ?? null,
+      fix: a.fix,
+    }
+  })
+  const lost = pg.filter((s) => loginMissing(s, saved))
+  if (lost.length) groups.push({ auth: null, user: null, stores: lost, state: worst(lost.map((s) => s.state)), servers: [...new Set(lost.map((s) => s.postgresql?.server).filter((x): x is string => !!x))].sort(), saved: null })
+  return groups
 }
 
 /** What the server header says of the host's check: unreachable, reachable (with its latency only when it was measured), or not checked. */

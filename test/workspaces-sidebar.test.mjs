@@ -14,24 +14,18 @@ test('slugify turns free text into a project name', () => {
 test('locations: native SQLite then PostgreSQL, never Scratch or other machines', () => {
   const view = { stores: [
     { name: 'scratch', kind: 'sqlite', machine: 'native' },
-    { name: 'team', kind: 'postgresql', postgresql: { target: 'db.lan:5432/app' }, runsOn: 'vm2' },
+    { name: 'team', kind: 'postgresql', postgresql: { target: 'db.lan:5432/app' }, connectedFrom: [{ machine: null }, { machine: 'vm2' }] },
     { name: 'local', kind: 'sqlite', machine: 'native' },
     { name: 'far', kind: 'sqlite', machine: 'vm1' },
   ] }
   assert.deepEqual(locationsOf(view, 'scratch'), [
-    { store: 'local', kind: 'sqlite', server: null, runsOn: null },
-    { store: 'team', kind: 'postgresql', server: 'db.lan:5432/app', runsOn: 'vm2' },
+    { store: 'local', kind: 'sqlite', server: null, connectedFrom: [] },
+    { store: 'team', kind: 'postgresql', server: 'db.lan:5432/app', connectedFrom: ['native', 'vm2'] },
   ])
   assert.equal(defaultStoreName(view), 'projects')
   assert.equal(defaultStoreName({ stores: [{ name: 'projects' }, { name: 'projects-2' }] }), 'projects-3')
 })
 
-test('a PostgreSQL location runs where the host says its Store runs, native when it says nothing', () => {
-  const runsOn = (store) => locationsOf({ stores: [{ name: 'team', kind: 'postgresql', ...store }] })[0].runsOn
-  assert.equal(runsOn({ runsOn: 'docker' }), 'docker')
-  assert.equal(runsOn({}), 'native')
-  assert.equal(runsOn({ runsOn: null }), 'native')
-})
 
 test('the last Store is preselected while it is still offered', () => {
   const locations = [{ store: 'a' }, { store: 'b' }]

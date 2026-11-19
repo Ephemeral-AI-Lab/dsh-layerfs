@@ -13,7 +13,7 @@ import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, latestBackup, runsOnOf, storeStateWords } from './model.ts'
+import { backupStateOf, latestBackup, storeStateWords } from './model.ts'
 import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
@@ -44,7 +44,6 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
   const sandboxes = [...running.values()].reduce((a, n) => a + n, 0)
   const commits = projects ? commitTotal(projects) : null
   const latest = latestBackup(s)
-  const runsOn = runsOnOf(s)
 
   return (
     <div className={css.stack}>
@@ -59,8 +58,8 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           sub={commits ? t(commitTotalWords(commits).key, { n: commitTotalWords(commits).n }) : undefined} />
         <Tile label={t('spRunning')} value={t(sandboxes === 1 ? 'spSandboxOne' : 'spSandboxes', { n: String(sandboxes) })} />
         {pg ? (
-          <Tile label={t('pgRunsOnLabel')} value={runsOn === 'native' ? t('layerfsHome') : runsOn} onOpen={() => onTab('connections')}
-            sub={view.machines.find((m) => m.name === runsOn)?.state ?? undefined} />
+          <Tile label={t('pgConnectedFromLabel')} value={String((s.connectedFrom ?? []).length)} onOpen={() => onTab('connections')}
+            sub={(s.connectedFrom ?? []).map((c) => (c.machine === null ? t('pgThisComputer') : c.machine)).join(', ') || undefined} />
         ) : (
           <Tile label={t('factLastBackup')} value={latest !== null ? ago(latest, now, tt) : t('noBackup')} title={latest !== null ? when(latest) : undefined}
             onOpen={() => onTab('backups')} tone={latest === null ? 'warning' : undefined} sub={s.links[0] ? s.links[0].bucket : undefined} />

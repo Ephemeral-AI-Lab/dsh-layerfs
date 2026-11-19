@@ -193,8 +193,12 @@ export function parseFix(line: string | null | undefined): Fix | null {
  *   removeStore    `layerfs store remove S` (a Store record LayerFS cannot place, no `kind`: records only)
  *   removeSandbox  `layerfs sandbox remove B` (a broken Sandbox, an `lfs-` one included: LayerFS's remove)
  *   saveAuth  `layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update S --auth <auth>`
- *             (a PostgreSQL Store naming no saved login): opens the save-login dialog for S; the
- *             page never fills a password in for the person
+ *             (a PostgreSQL Store naming no saved login), or the same with the login's name and
+ *             user filled in (spec v23: a Store naming a login the home lacks, `missing`): opens
+ *             the save-login dialog for S; the page never fills a password in for the person
+ *   updateAuth  `layerfs store update S --auth A` (spec v23: a record holding fields 2.0 no
+ *             longer writes, `outdated`): store update names its own login again, which
+ *             rewrites the record
  *   connectBucket  `layerfs backup connect <name> <url> --access-key <key> --key-stdin` (a bucket
  *             whose key was refused or whose record has none, V21-4): opens the Connect dialog
  *             with the name and URL; connecting again with the same URL rotates the key
@@ -209,10 +213,13 @@ export type RunnableFix =
   | { kind: 'backup', store: string, bucket: string }
   | { kind: 'homeInit' }
   | { kind: 'saveAuth', store: string }
+  | { kind: 'updateAuth', store: string, auth: string }
   | { kind: 'connectBucket', bucket: string, url: string }
 
 /** LayerFS's fix for a PostgreSQL Store that names no saved login (its placeholders are for the person). */
 const SAVE_AUTH = /^layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update (\S+) --auth <auth>$/
+/** The same fix for a login the home lacks (spec v23 `missing`): the login's name in both places, a user or `<user>`. */
+const SAVE_NAMED = /^layerfs store save-auth (\S+) --user \S+ --password-stdin && layerfs store update (\S+) --auth (\S+)$/
 
 /**
  * A shell line's words, with '…' and "…" quoting and backslash escapes undone
@@ -267,6 +274,9 @@ export function runnableFix(line: string | null | undefined): RunnableFix | null
   if (words.join(' ') === 'layerfs home init') return { kind: 'homeInit' }
   const login = SAVE_AUTH.exec(words.join(' '))
   if (login && WORD.test(login[1]!)) return { kind: 'saveAuth', store: login[1]! }
+  const named = SAVE_NAMED.exec(words.join(' '))
+  if (named && named[1] === named[3] && WORD.test(named[1]!) && WORD.test(named[2]!)) return { kind: 'saveAuth', store: named[2]! }
+  if (words[1] === 'store' && words[2] === 'update' && words.length === 6 && words[4] === '--auth' && WORD.test(words[3]!) && WORD.test(words[5]!)) return { kind: 'updateAuth', store: words[3]!, auth: words[5]! }
   if (words[0] !== 'layerfs') return null
   if (words[1] === 'machine' && words[2] === 'doctor' && plain(4)) return { kind: 'doctor', machine: words[3]! }
   if (words[1] === 'machine' && words[2] === 'remove' && plain(4)) return { kind: 'removeMachine', machine: words[3]! }

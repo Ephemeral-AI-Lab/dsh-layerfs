@@ -6,20 +6,20 @@
  */
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, Checkbox, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Input, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, bucketParts, canMove, inHome, needsLogin, runsOnOf, storeStateWords, type BackupState, type Reconnect } from './model.ts'
+import { backupStateOf, bucketParts, canMove, inHome, needsLogin, pgServerLogin, storeStateWords, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { LocationPicker, placeName, StartFirst } from '../projects/setup/MachineTiles.tsx'
 import { defaultMachine, machinesFor, stoppedOf } from '../projects/setup/model.ts'
 import { placeStore, startMachine, waitJob } from '../projects/setup/run.ts'
 import { Signal } from './Signal.tsx'
 import { FormModal, locationWords, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
-import type { MachinesView, ProjectInitJob, StorageJob, StorageView, StoreRow } from './types.ts'
+import type { MachinesView, PgRotation, ProjectInitJob, StorageJob, StorageView, StoreRow } from './types.ts'
 import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
 import { PG_URL_LOGIN, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
 import { parsePgUrl } from './machine-stores.ts'
@@ -39,8 +39,8 @@ export type StorageDialog =
   | { kind: 'connect', machine?: string, server?: string, check?: { store: string, machine?: string } }
   /** Edit a PostgreSQL Store's connection, or (`machine`) that machine's own. */
   | { kind: 'pg-edit', store: string, machine?: string }
-  /** Choose the machine a PostgreSQL Store's sessions run on. */
-  | { kind: 'pg-runs-on', store: string }
+  /** A new password for a saved PostgreSQL login: its Stores named, each checked again after (spec v23). */
+  | { kind: 'pg-rotate', auth: string }
   | { kind: 'add-project', store: string }
   | { kind: 'push', store: StoreRow }
   | { kind: 'to-machine', machine: string }
@@ -77,7 +77,7 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done, onDialog }
     case 'new-store': return <NewStoreDialog api={api} t={t} view={view} opened={dialog.machine} onClose={onClose} done={done} onDialog={onDialog} />
     case 'connect': return <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} server={dialog.server} check={dialog.check} onClose={onClose} done={done} />
     case 'pg-edit': return <EditConnectionDialog api={api} t={t} view={view} store={dialog.store} machine={dialog.machine} onClose={onClose} done={done} />
-    case 'pg-runs-on': return <RunsOnDialog api={api} t={t} view={view} store={dialog.store} onClose={onClose} done={done} />
+    case 'pg-rotate': return <RotateLoginDialog api={api} t={t} view={view} auth={dialog.auth} onClose={onClose} done={done} />
     case 'add-project': return <NewProjectDialog api={api} t={t} store={dialog.store} onClose={onClose} done={done} />
     case 'push':
     case 'move': return <PlaceDialog api={api} t={t} kind={dialog.kind} store={dialog.store} onClose={onClose} done={done} />
@@ -296,7 +296,10 @@ function SaveLoginDialog({ api, t, store: s, onClose, done }: { api: LayerfsApi,
   const pw = usePgPassword('entered', '', null, parsePgUrl(s.postgresql?.url ?? '')?.user ?? '')
   const [typed, setTyped] = useState<string | null>(null)
   const taken = new Set(auths.map((a) => a.auth))
-  const authName = (typed ?? (taken.has(s.name) ? '' : s.name)).trim()
+  // a Store naming a login the home lacks (`missing`) gets that login back under its own name; one naming none, the server's (V23-12)
+  const named = s.postgresql?.auth ?? null
+  const fallbackName = named ?? pgServerLogin(s.postgresql?.server ?? null) ?? s.name
+  const authName = (typed ?? (taken.has(fallbackName) ? '' : fallbackName)).trim()
   const entered = pw.how === 'entered'
   const nameError = !entered || !authName ? null : taken.has(authName) ? t('pgLoginNameTaken', { auth: authName }) : NAME.test(authName) ? null : t('storeNameHint')
   const valid = entered ? !!authName && !nameError && !pw.missing : !pw.missing
@@ -310,23 +313,46 @@ function SaveLoginDialog({ api, t, store: s, onClose, done }: { api: LayerfsApi,
   )
 }
 
-/** Where a PostgreSQL Store's sessions run: one machine, the plugin's own choice (LayerFS records none). */
-function RunsOnDialog({ api, t, view, store, onClose, done }: {
-  api: LayerfsApi, t: StorageT, view: StorageView | undefined, store: string, onClose: () => void, done: () => void
+/**
+ * A new password for saved login `auth` (spec v23 §5.1): the dialog names
+ * every Store that uses it, the password goes to LayerFS on stdin (`store
+ * save-auth` under its own name rotates it), then each of those Stores is
+ * checked from this computer, one dot each. A failed check is a result:
+ * its dot and LayerFS's sentence as the tip.
+ */
+function RotateLoginDialog({ api, t, view, auth, onClose, done }: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined, auth: string, onClose: () => void, done: () => void
 }): ReactNode {
-  const s = view?.stores.find((x) => x.name === store)
-  const current = s ? runsOnOf(s) : 'native'
-  const [picked, setPicked] = useState<string | null>(null)
-  if (!s || !view) return null
-  const machines = machinesFor(view, 'postgresql')
-  const chosen = picked ?? current
-  const words = locationWords(t, view)
+  const login = view?.auths?.find((a) => a.auth === auth)
+  const [user, setUser] = useState(login?.user ?? '')
+  const [password, setPassword] = useState('')
+  const [result, setResult] = useState<PgRotation | null>(null)
+  const stores = login?.stores ?? []
+  if (result) {
+    const failed = result.checks.filter((c) => !c.ok).length
+    return (
+      <FormModal open onClose={onClose} t={t} title={t('pgRotateTitle', { auth })} description={failed ? t('pgRotateSomeFailed', { n: failed }) : t('pgRotateDone')}
+        action={t('cdDone')} valid submit={async () => onClose()}>
+        <ul className={css.rotateChecks} data-rotate-checks>
+          {result.checks.map((c) => (
+            <li key={c.store} className={css.rotateCheck} data-store={c.store} data-ok={c.ok || undefined} title={c.error?.message}>
+              <StateDot state={c.ok ? 'done' : 'error'} size={9} />
+              <span className={css.mono}>{c.store}</span>
+              <span className={css.choiceMeta}>{c.ok ? t('pgReached') : t('pgCheckFailed')}</span>
+            </li>
+          ))}
+        </ul>
+      </FormModal>
+    )
+  }
   return (
-    <FormModal open onClose={onClose} t={t} title={t('pgRunsOnTitle', { store })} description={t('pgRunsOnBody')}
-      action={t('pgRunsOnSave', { machine: placeName(chosen, words) })} valid={chosen !== current}
-      submit={() => api.call('POST', `/api/stores/${enc(store)}/runs-on`, { machine: chosen }).then(done)}>
-      <Field label={t('pgRunsOnLabel')} hint={t('pgRunsOnHint')} group>
-        <LocationPicker machines={machines} value={chosen} onChange={setPicked} words={words} label={t('pgRunsOnLabel')} current={current} compact />
+    <FormModal open onClose={onClose} t={t} title={t('pgRotateTitle', { auth })}
+      description={stores.length ? t('pgRotateBody', { stores: stores.join(', ') }) : t('pgRotateBodyNone')}
+      action={stores.length ? t('pgRotateAction') : t('save')} valid={!!password && !!user.trim()} busyHint={t('pgRotateChecking')} keepOpen
+      submit={() => api.call<PgRotation>('POST', `/api/store-auths/${enc(auth)}/rotate`, { user: user.trim(), passwordValue: password }).then((r) => { done(); setResult(r) })}>
+      <TextField label={t('pgUser')} value={user} onChange={setUser} mono />
+      <Field label={t('pgPasswordValue')} hint={t('pgPasswordNote')}>
+        <Input className={css.monoInput} value={password} onChange={(e) => setPassword(e.target.value)} type="password" aria-label={t('pgPasswordValue')} autoComplete="off" spellCheck={false} autoFocus />
       </Field>
     </FormModal>
   )

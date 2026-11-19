@@ -1,8 +1,8 @@
 /**
  * A Store's third tab. A SQLite Store's Backups: one card per bucket copy it
  * is linked to, with when it was saved, its size and state, Back up now and
- * Restore. A PostgreSQL Store's Connection: its one connection, where its
- * sessions run, and the machines that dial a connection of their own.
+ * Restore. A PostgreSQL Store's Connection: its database, and every machine
+ * that connects to it (spec v23).
  */
 import type { ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -12,8 +12,8 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { Card } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, brokenWords, needsLogin, runsOnOf, storeStateWords, storeTip, type BackupState } from './model.ts'
-import type { StoreActions } from './StoreCard.tsx'
+import { backupStateOf, brokenWords, storeStateWords, storeTip, type BackupState } from './model.ts'
+import { StoreAction, type StoreActions } from './StoreCard.tsx'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
 
@@ -63,75 +63,85 @@ export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, 
 }
 
 /**
- * A PostgreSQL Store's Connection: the one connection every machine dials
- * (URL, saved login, synchronous_commit) with Edit and Check from a
- * machine, and where its sessions run. A machine is listed only when it
- * dials a connection of its own, with Check, Edit and Remove.
+ * A PostgreSQL Store's Connection (spec v23 §5.2): the Database (its login,
+ * its server and database, its id as a tip, the state with one action, and
+ * Check), then Machines: one row per side that connects (this computer
+ * first), each with its address (its own, or the Store's: "default
+ * address"), the dot of its last reach with the latency and when, its
+ * Sandboxes of the Store, and Check; a machine with an address of its own
+ * also Edit and Disconnect. Connect a machine ends the list.
  */
-export function StoreConnection({ store: s, view, t, on }: { store: StoreRow, view: StorageView, t: StorageT, on: StoreActions }): ReactNode {
+export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
+  store: StoreRow, view: StorageView, t: StorageT, on: StoreActions, now: number
+  sandboxes?: readonly { machine?: string | null, project?: string | null }[] | undefined
+}): ReactNode {
+  const tt = t as Translate
   const pg = s.postgresql
-  const own = s.ownConnections ?? []
-  const runsOn = runsOnOf(s)
-  const place = (m: string) => (m === 'native' ? t('layerfsHome') : m)
+  const rows = s.connectedFrom ?? []
+  const here = rows.find((c) => c.machine === null)
+  const place = (m: string) => (m === 'native' ? t('pgThisComputer') : m)
   const platformOf = (m: string) => view.machines.find((x) => x.name === m)?.platform ?? (m === 'native' ? 'native' : 'unknown')
   const mark = (m: string) => <span className={css.linkMark} aria-hidden="true">{m === 'native' ? <HomeGlyph size={16} /> : <MachineGlyph platform={platformOf(m)} size={16} />}</span>
-  // 2.0: a ready Store reached its server; broken with a reason did not (the state word and reason; its fix is the tip)
-  const reached = s.state === 'ready' ? true : s.state === 'broken' ? false : null
+  const broken = s.state === 'broken'
+  const server = pg?.server ? `${pg.server}${pg.database ? `/${pg.database}` : ''}` : pg?.target ?? '—'
+  const checked = here?.reach
   return (
     <div className={css.stack}>
-      <Card className={css.linkCard} data-tone={reached === false ? 'danger' : undefined} data-connection={s.name}>
+      <Card className={css.linkCard} data-tone={broken ? 'danger' : undefined} data-connection={s.name}>
         <div className={css.linkHead}>
-          <StateDot state={reached === false ? 'error' : reached ? 'done' : 'idle'} size={10} />
-          <span className={css.linkName}>{t('connection')}</span>
-          <span className={css.mono}>{pg?.target ?? '—'}</span>
+          <span className={css.linkName}>{t('pgDatabase')}</span>
+          <span className={css.mono} title={pg?.binding ? t('pgDatabaseIdTip', { id: pg.binding.slice(0, 8) }) : undefined}>{server}</span>
         </div>
         <dl className={css.linkFacts}>
-          <div><dt>{t('pgUrl')}</dt><dd className={css.mono}>{pg?.url ?? '—'}</dd></div>
-          <div><dt>{t('pgPasswordHow')}</dt><dd className={pg?.auth ? css.mono : undefined}>{pg?.auth ? t('pgPasswordSaved', { auth: pg.auth }) : t('pgNoLogin')}</dd></div>
+          <div><dt>{t('pgLogin')}</dt><dd className={pg?.auth ? css.mono : undefined}>{pg?.auth ?? t('pgNoLogin')}</dd></div>
+          <div><dt>{t('pgDatabaseIdLabel')}</dt><dd className={css.mono} title={t('pgDatabaseIdTip', { id: pg?.binding?.slice(0, 8) ?? '—' })}>{pg?.binding?.slice(0, 8) ?? '—'}</dd></div>
           <div><dt>{t('syncCommit')}</dt><dd>{pg?.synchronousCommit ?? t('syncCommitDefault')}</dd></div>
-          <div>
-            <dt>{t('spServer')}</dt>
-            <dd title={reached === false ? storeTip(s, t) : undefined}>
-              {reached === false ? <span className={css.dangerText}>{brokenWords(s, t)}</span>
-                : reached ? storeStateWords(s.state, t)
-                  : t('unknown')}
-            </dd>
-          </div>
         </dl>
+        <div className={css.linkCheck} data-state={broken ? 'failed' : undefined}>
+          <StateDot state={broken ? 'error' : s.state === 'ready' ? 'done' : 'idle'} size={10} />
+          <span title={broken ? storeTip(s, t) : undefined}>{broken ? brokenWords(s, t) : storeStateWords(s.state, t)}</span>
+          {checked?.at ? <span className={css.muted}>{t('pgCheckedAgo', { when: ago(checked.at, now, tt) })}</span> : null}
+          {checked?.ok && checked.version ? <span className={css.muted}>{checked.version.split(' ')[0]}</span> : null}
+          {checked?.ok && checked.latencyMs != null ? <span className={css.muted}>{t('msReachableMs', { latency: checked.latencyMs })}</span> : null}
+        </div>
         <div className={css.linkActions}>
-          {/* a Store naming no saved login: Edit is the save-login form, its one action */}
-          <Button variant={needsLogin(s) ? 'primary' : 'outline'} size="sm" onClick={() => on.editConnection()}>{needsLogin(s) ? t('fixRunSaveLogin') : t('edit')}</Button>
-          <Button variant="ghost" size="sm" onClick={() => on.check()}>{t('pgCheckFrom')}</Button>
+          {broken ? <StoreAction store={s} t={t} /> : null}
+          <Button variant="ghost" size="sm" onClick={() => on.editConnection()}>{t('pgChangeLogin')}</Button>
+          <Button variant="outline" size="sm" onClick={() => on.check()}>{t('pgCheck')}</Button>
         </div>
       </Card>
-      <Card className={css.linkCard} data-runs-on={runsOn}>
-        <div className={css.linkHead}>
-          {mark(runsOn)}
-          <span className={css.linkName}>{t('pgRunsOn', { machine: place(runsOn) })}</span>
-          <span className={css.spacer} />
-          <Button variant="ghost" size="sm" onClick={on.changeRunsOn}>{t('pgRunsOnChange')}</Button>
+      <Card className={css.linkCard} data-machines={s.name}>
+        <div className={css.linkHead}><span className={css.linkName}>{t('pgMachines')}</span></div>
+        <ul className={css.connList}>
+          {rows.map((c) => {
+            const name = c.machine ?? 'native'
+            const record = view.machines.find((m) => m.name === name)
+            const reach = c.reach
+            const boxes = (sandboxes ?? []).filter((b) => (b.machine ?? 'native') === name && b.project?.startsWith(`${s.name}/`)).length
+            const state = record?.state === 'broken' || c.reached === 'failed' ? 'error' : c.reached === 'ok' ? 'done' : 'idle'
+            return (
+              <li key={c.machine ?? '(here)'} className={css.connRow} data-conn={name} data-reached={c.reached ?? 'none'}>
+                {mark(name)}
+                <span className={css.connName}>{place(name)}</span>
+                <span className={css.muted} title={c.url ?? undefined}>{c.own ? t('pgOwnAddressShort') : t('pgDefaultAddress')}</span>
+                <span className={css.connReach} title={reach?.ok === false ? t('pgCheckFailed') : undefined}>
+                  <StateDot state={state} size={9} />
+                  {reach ? (reach.ok ? (reach.latencyMs != null ? t('msReachableMs', { latency: reach.latencyMs }) : t('pgReached')) : t('pgCheckFailed')) : t('pgNotChecked')}
+                </span>
+                <span className={css.muted}>{reach?.at ? ago(reach.at, now, tt) : ''}</span>
+                <span className={css.muted}>{boxes ? t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes }) : ''}</span>
+                <span className={css.spacer} />
+                <Button variant="ghost" size="sm" onClick={() => on.check(c.machine ?? undefined)}>{t('pgCheck')}</Button>
+                {c.machine && c.own ? <Button variant="ghost" size="sm" onClick={() => on.editConnection(c.machine!)}>{t('edit')}</Button> : null}
+                {c.machine && (c.own || reach) ? <Button variant="ghost" size="sm" onClick={() => on.removeOwn(c.machine!)}>{t('pgForget')}</Button> : null}
+              </li>
+            )
+          })}
+        </ul>
+        <div className={css.linkActions}>
+          <Button variant="outline" size="sm" onClick={on.connectMachine}>{t('pgConnectMachine')}</Button>
         </div>
-        <p className={css.linkCheck}>{t('pgRunsOnHint')}</p>
       </Card>
-      {own.length ? <p className={css.muted}>{t('pgOwnHeading')}</p> : null}
-      {own.map((c) => (
-        <Card key={c.machine} className={css.linkCard} data-own-connection={c.machine}>
-          <div className={css.linkHead}>
-            {mark(c.machine)}
-            <span className={css.linkName}>{place(c.machine)}</span>
-            <span className={css.mono}>{c.url ? c.target ?? c.url : t('pgOwnPasswordOnly')}</span>
-          </div>
-          <dl className={css.linkFacts}>
-            <div><dt>{t('pgPasswordHow')}</dt><dd>{t('pgOwnStorePassword')}</dd></div>
-          </dl>
-          <div className={css.linkActions}>
-            <Button variant="outline" size="sm" onClick={() => on.check(c.machine)}>{t('cdCheck')}</Button>
-            <Button variant="ghost" size="sm" onClick={() => on.editConnection(c.machine)}>{t('edit')}</Button>
-            <span className={css.spacer} />
-            <Button variant="ghost" size="sm" onClick={() => on.removeOwn(c.machine)}>{t('pgRemoveOwn')}</Button>
-          </div>
-        </Card>
-      ))}
     </div>
   )
 }

@@ -5,6 +5,7 @@
  */
 import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { engineStart, machineBlock, type HostOs } from '../../machines/needs.ts'
+import { connectedMachines, pgDefaultMachine } from '../../storage/model.ts'
 import type { StorageView, StoreRow } from '../../storage/types.ts'
 
 export type StoreKind = 'sqlite' | 'postgresql'
@@ -65,23 +66,24 @@ export function defaultMachine(machines: readonly Machine[], blocks: ReadonlyMap
 export const pickable = (name: string, blocks: ReadonlyMap<string, TileBlock>): boolean => blocks.get(name)?.startable ?? true
 
 /**
- * The machine a PostgreSQL Store's sessions run on by default: the host's
- * answer (this install's saved choice, else docker when it can, else native).
+ * Where a project runs: its SQLite Store's machine; for a PostgreSQL Store
+ * the machines its database is connected from (spec v23: each session picks
+ * its own, nothing is Store-wide).
  */
-export function pgMachine(store: Pick<StoreRow, 'runsOn'>): string {
-  return store.runsOn ?? 'native'
-}
-
-/** Where a project runs: its SQLite Store's machine, or the machine its PostgreSQL Store runs on. */
-export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'runsOn'> | undefined): string[] {
+export function runsOn(store: Pick<StoreRow, 'kind' | 'machine' | 'connectedFrom'> | undefined): string[] {
   if (!store) return []
-  return [store.kind === 'postgresql' ? pgMachine(store) : store.machine ?? 'native']
+  return store.kind === 'postgresql' ? connectedMachines(store) : [store.machine ?? 'native']
 }
 
-/** The machine a project's readiness follows (§8). */
-export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'runsOn'> | undefined): string | null {
+/**
+ * The machine a project's readiness follows (§8): a SQLite Store's machine;
+ * for a PostgreSQL Store the machine a new session would run on
+ * (`pgDefaultMachine`: never a broken or stopped one, native at worst), so
+ * it reads available while its Store is ready and some machine can run it.
+ */
+export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'connectedFrom'> | undefined, machines: Pick<StorageView, 'machines'>['machines'] = []): string | null {
   if (!store) return null
-  return store.kind === 'postgresql' ? pgMachine(store) : store.machine ?? 'native'
+  return store.kind === 'postgresql' ? pgDefaultMachine(store, machines) : store.machine ?? 'native'
 }
 
 /** A free Store name from a project name: itself, else `-2`, `-3`, … */
@@ -129,20 +131,20 @@ export interface CreatePlan {
   store: StoreRow | null
   /** A new Store; a PostgreSQL one has its address (no user or password) and its login. */
   newStore?: { name: string, url?: string, login?: PgLogin }
-  /** One machine: where a SQLite Store's file goes, or where a PostgreSQL Store's sessions run. */
+  /** One machine: where a SQLite Store's file goes, or where this project's first PostgreSQL session runs. */
   machines: string[]
   /** An absolute folder the project starts from; empty when absent. */
   source?: string
 }
 
-export type StepId = 'check' | 'store' | 'connect' | 'init' | `place:${string}` | `runs-on:${string}` | 'open'
+export type StepId = 'check' | 'store' | 'connect' | 'init' | `place:${string}` | 'open'
 export interface Step { id: StepId, machine?: string }
 
 /**
- * The steps a Create runs, in order (§3). A PostgreSQL Store is on no machine:
- * a new one is connected with the machine its sessions run on, an existing
- * one only has that choice changed (`runs-on:<m>`) when another is picked.
- * Nothing is attached. Create starts no machine: a machine it needs that is
+ * The steps a Create runs, in order (§3). A PostgreSQL Store is on no machine
+ * and has no Store-wide machine (spec v23): a new one is connected, and the
+ * machine picked is the first session's own (`open` carries it). Nothing is
+ * attached. Create starts no machine: a machine it needs that is
  * not running ({@link needsStart}) is started by the person's own press on
  * that machine's Start first (UI pass 2: no start without that press).
  */
@@ -156,12 +158,11 @@ export function createSteps(plan: CreatePlan, _view?: Pick<StorageView, 'machine
     steps.push({ id: 'init' })
     if (target !== at) steps.push({ id: `place:${target}`, machine: target })
   } else {
-    const target = plan.machines[0]
-    if (!plan.store) steps.push({ id: 'connect', ...(target ? { machine: target } : {}) })
+    if (!plan.store) steps.push({ id: 'connect' })
     steps.push({ id: 'init' })
-    if (plan.store && target && target !== pgMachine(plan.store)) steps.push({ id: `runs-on:${target}`, machine: target })
   }
-  steps.push({ id: 'open' })
+  const first = plan.kind === 'postgresql' ? plan.machines[0] : undefined
+  steps.push({ id: 'open', ...(first ? { machine: first } : {}) })
   return steps
 }
 

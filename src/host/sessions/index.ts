@@ -16,7 +16,8 @@
  *   agent/disposed       mirror now; close the Sandbox after `idleMinutes`
  *
  * Operations (the `layerfs` Remote):
- *   sessions.choose {sessionId, project|null}  place the session in a LayerFS project (or clear it);
+ *   sessions.choose {sessionId, project|null, machine?}  place the session in a LayerFS project (or clear it);
+ *                    `machine`: where a PostgreSQL project's Sandbox runs (else placement.ts's default);
  *                                              it stays in whichever workspace it was selected in
  *   sessions.prepareScratch             the Scratch workspace (a plain folder workspace)
  *   sessions.list {project}             local bindings + sessions stored in the project (imports missing ones)
@@ -386,7 +387,8 @@ export function apply(ctx: Context): void {
       'sessions.choose': async (args: any) => {
         const sessionId = need(args, 'sessionId')
         const project = typeof args?.project === 'string' && args.project ? args.project : null
-        await sessions.choose(sessionId, project, args?.projectId)
+        const machine = typeof args?.machine === 'string' && args.machine ? args.machine : undefined
+        await sessions.choose(sessionId, project, args?.projectId, machine)
         if (project) void store.sync(project).catch(() => {})
         return { sessionId, project }
       },

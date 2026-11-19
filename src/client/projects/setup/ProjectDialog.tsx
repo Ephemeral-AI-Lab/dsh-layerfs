@@ -31,9 +31,10 @@ import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
 import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
-import { createSteps, defaultMachine, freeStoreName, machinesFor, needsStart, pgLoginProblem, pgMachine, pickable, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
+import { createSteps, defaultMachine, freeStoreName, machinesFor, needsStart, pgLoginProblem, pickable, runsOn, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
+import { pgDefaultMachine } from '../../storage/model.ts'
 import { LocationPicker, placeName, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
-import { placeStore, runStep, setRunsOn, startMachine } from './run.ts'
+import { placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
 
 const PG_URL = /^postgres(?:ql)?:\/\//i
@@ -161,10 +162,9 @@ function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
   if (id === 'store') return t('step_store', { store })
   if (id === 'connect') return t('step_connect', { store })
   if (id === 'init') return plan.source ? t('step_import', { source: shortPath(plan.source), name: plan.name }) : t('step_init', { name: plan.name })
-  if (id === 'open') return t('step_open')
   const machine = placeName(step.machine ?? '', wordsOf(t))
-  if (id.startsWith('place:')) return t('step_place', { store, machine })
-  return t('step_runs_on', { store, machine })
+  if (id === 'open') return step.machine ? t('step_open_on', { machine }) : t('step_open')
+  return t('step_place', { store, machine })
 }
 
 /** The running Init's phase and count: `hash · 8,412 / 12,930`. */
@@ -313,8 +313,8 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const slug = slugify(name)
   const newStoreName = storeName ?? freeStoreName(slug || 'project', data)
   const chosenSqlite = sqliteMachine ?? (existing?.machine ?? fallback)
-  // PostgreSQL: one machine too, the Store's saved one when it has one
-  const chosenPg = pgChoice ?? (existing ? pgMachine(existing) : fallback)
+  // PostgreSQL: the first session's own machine (spec v23: nothing Store-wide), by default where the database was reached from
+  const chosenPg = pgChoice ?? (existing ? pgDefaultMachine(existing, data?.machines ?? []) : fallback)
   const chosen = [kind === 'sqlite' ? chosenSqlite : chosenPg]
   const running = steps !== null && !error && !failure
   useEffect(() => { onBusy(running) }, [running])
@@ -378,7 +378,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
       const step = list[i]!.step
       mark(i, 'running')
       try {
-        if (step.id === 'open') await api.openProjectSession(key)
+        if (step.id === 'open') await api.openProjectSession(key, undefined, undefined, step.machine)
         else await runStep(api, p, step, setInitJob)
         mark(i, 'done')
       } catch (e) {
@@ -560,7 +560,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
             </Group>
             : <Group label={t('machines')} hint={t('runsOnPg')}>
               <LocationPicker machines={machines} value={chosenPg} onChange={setPgChoice} words={words} label={t('runsOn')}
-                current={existing ? pgMachine(existing) : null} fallback={fallback} blocks={blocks}>
+                current={null} fallback={fallback} blocks={blocks}>
                 <NewMachineTile api={api} t={t} />
               </LocationPicker>
             </Group>}
@@ -664,30 +664,19 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
       </footer>
     </>
   }
-  const current = pgMachine(store)
-  const chosen = target ?? current
+  // a PostgreSQL Store has no machine of its own: each session picks one when it starts (spec v23)
   return <>{head}
     <div className={css.body}><div className={css.fields}>
       {storeCard}
-      <Group label={t('runsOn')} hint={t('runsOnNote', { store: store.name })}>
-        <LocationPicker machines={machines} value={chosen} onChange={setTarget} words={words} label={t('runsOn')} current={current} disabled={!!busy} blocks={blocks}>
-          <NewMachineTile api={api} t={t} />
-        </LocationPicker>
+      <Group label={t('runsOn')} hint={t('pgPlacedPerSession')}>
+        <p className={css.notice}>{runsOn(store).length ? t('pgConnectedFrom', { machines: runsOn(store).map((m) => placeName(m, words)).join(', ') }) : t('pgNotConnectedYet')}</p>
       </Group>
       {error ? <p className={css.error} role="alert">{error}</p> : null}
     </div></div>
     <footer className={css.foot}>
       {hide}
       <div className={css.footActions}>
-        {chosen !== current
-          ? <>
-            <Button variant="outline" disabled={!!busy} onClick={() => setTarget(null)}>{t('cancel')}</Button>
-            <Button variant="primary" disabled={!!busy} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}
-              onClick={() => void run('runs-on', () => setRunsOn(api, store.name, chosen))}>
-              {busy ? t('saving') : t('runsOnSave', { machine: placeName(chosen, words) })}
-            </Button>
-          </>
-          : <Button variant="primary" disabled={!!busy} onClick={() => projectDialog.close()}>{t('done')}</Button>}
+        <Button variant="primary" disabled={!!busy} onClick={() => projectDialog.close()}>{t('done')}</Button>
       </div>
     </footer>
   </>

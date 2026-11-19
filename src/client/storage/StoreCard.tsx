@@ -33,10 +33,10 @@ export interface StoreActions {
   openMachine: (name: string) => void
   /** PostgreSQL: edit the Store's connection, or (`machine`) that machine's own. */
   editConnection: (machine?: string) => void
-  /** PostgreSQL: the check from a machine (where its sessions run unless named). */
+  /** PostgreSQL: the check from a machine (this computer unless named); LayerFS records what it saw. */
   check: (machine?: string) => void
-  /** PostgreSQL: choose the machine its sessions run on. */
-  changeRunsOn: () => void
+  /** PostgreSQL: Connect a machine: the check from a machine not yet connected, then its own address if it fails (spec v23). */
+  connectMachine: () => void
   /** PostgreSQL: confirm, then remove a machine's own connection (it dials the Store's again). */
   removeOwn: (machine: string) => void
   /** PostgreSQL: Connect a database on this Store's server, with its user and password. */
@@ -50,10 +50,17 @@ export function Location({ store: s, t, onMachine }: { store: StoreRow, t: Stora
   return <LinkButton onClick={() => s.machine && onMachine(s.machine)}>{s.machine ?? '?'}</LinkButton>
 }
 
+/** A saved PostgreSQL login's own actions (a login group's header): a new password, and Remove while no Store names it. */
+export interface LoginActions {
+  rotate: (auth: string) => void
+  remove: (auth: string) => void
+}
+
 /**
- * A Store's ⋯ menu: every Store-wide action. A PostgreSQL Store's: Edit
- * connection, Check from a machine (on a machine page, `machine`: from that
- * one) and Disconnect.
+ * A Store's ⋯ menu: every Store-wide action. A PostgreSQL Store's (spec v23
+ * §5.1): Check (from this computer; on a machine page, `machine`: from that
+ * one), Change login…, Disconnect a machine for each machine with an address
+ * of its own, and Disconnect.
  */
 export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined }): ReactNode {
   const pg = s.kind === 'postgresql'
@@ -66,8 +73,11 @@ export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: S
         const compact = on.compact ? <MenuItemButton disabled={blocked !== null} disabledReason={blocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton> : null
         return pg ? (
           <>
-            <MenuItemButton onSelect={run(() => on.editConnection())}>{t('msEditConnection')}</MenuItemButton>
-            <MenuItemButton onSelect={run(() => on.check(machine))}>{t('pgCheckFrom')}</MenuItemButton>
+            <MenuItemButton onSelect={run(() => on.check(machine))}>{t('pgCheck')}</MenuItemButton>
+            <MenuItemButton onSelect={run(() => on.editConnection())}>{t('pgChangeLogin')}</MenuItemButton>
+            {(s.ownConnections ?? []).map((c) => (
+              <MenuItemButton key={c.machine} onSelect={run(() => on.removeOwn(c.machine))}>{t('pgDisconnectMachine', { machine: c.machine === 'native' ? t('layerfsHome') : c.machine })}</MenuItemButton>
+            ))}
             {compact}
             <MenuItemButton danger separatorBefore onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>
           </>

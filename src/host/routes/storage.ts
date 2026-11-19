@@ -22,9 +22,12 @@
  *                     --machine), another saved login or synchronous_commit
  *                     (store.update), or a new password for its login
  *                     (store.save_auth under the same name rotates it)
- *   checkStore        store.doctor(name, { machine }): the connection check from a machine
- *   setRunsOn         the machine a PostgreSQL Store's sessions run on by
- *                     default: this install's choice (store-machines.ts)
+ *   checkStore        store.doctor(name, { machine }): the connection check
+ *                     from a machine, or from this computer; LayerFS records
+ *                     the reach (spec v23) and the answer is its row
+ *   rotateLogin       store.save_auth under a login's own name (the password
+ *                     on stdin), then store.doctor of every Store naming it
+ *   removeLogin       store.remove_auth: a login no Store names
  *   disconnectStore   store.disconnect(name): a PostgreSQL Store
  *   auths             store.auths: the saved logins (never a password)
  *   connectBucket     backup.connect(name, url, { access_key, secret_key }):
@@ -53,7 +56,6 @@ import { COMPACT_STEPS, JobStore, failureOutcome, inspectJob, transferSummary, t
 import { computer } from './computer.ts'
 import { fixOf, pages, refuse, wire, type RouteHost } from './util.ts'
 import { StoreSizes } from './store-sizes.ts'
-import { pgMachineOf, StoreMachines, type PgMachine } from '../store-machines.ts'
 import { companionsOf, machineRows, msAt, opOf, runsPostgresql } from '../layerfs/machine-records.ts'
 
 /** Finished jobs kept in the table. */
@@ -76,6 +78,39 @@ function checkUrl(value: unknown, what: string): void {
     throw refuse(400, 'InvalidInput', `${what} is not a URL`)
   }
   if (url.password || url.username) throw refuse(400, 'InvalidInput', `${what} must not hold a user or password: they are given apart`)
+  // a login in a parameter, or a password file, is refused as LayerFS refuses it (spec v23 V23-13); sslkey/sslcert name files and pass
+  if ([...url.searchParams.keys()].some((k) => loginParameter(k))) throw refuse(400, 'InvalidInput', `${what} must not carry a user, a password or a password file: give the login apart`)
+}
+
+/** Whether URL parameter `name` carries a login (`user`, any `password`, `passfile`), as LayerFS reads it. */
+export const loginParameter = (name: string): boolean => { const n = name.toLowerCase(); return n === 'user' || n === 'passfile' || n.includes('password') }
+
+/** The name a new login for the server of `url` gets by default (spec v23 V23-12): `pg-<host>-<port>`, never the Store's. */
+export function pgLoginName(url: unknown): string | null {
+  const where = pgWhere(url)
+  if (!where) return null
+  const name = `pg-${where.server}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 63).replace(/-+$/, '')
+  return /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(name) ? name : null
+}
+
+/** A reach as LayerFS records it (`connections[].reach`), as the page reads it. */
+function reachOf(r: any): { at: number | null, ok: boolean, latencyMs: number | null, version: string | null, error: string | null } | null {
+  if (!r || typeof r !== 'object') return null
+  return { at: msAt(r.at), ok: r.ok === true, latencyMs: typeof r.latency_ms === 'number' ? r.latency_ms : null, version: typeof r.server_version === 'string' ? r.server_version : null, error: typeof r.error === 'string' ? r.error : null }
+}
+
+/**
+ * A PostgreSQL Store's `connections` rows (spec v23 V23-3) as the page reads
+ * them: every side that connects, this computer first (`machine: null`),
+ * each with the URL it dials, whether that address is its own, the server
+ * it names and the last reach seen with its word.
+ */
+export function connectionRows(s: any) {
+  return (Array.isArray(s?.connections) ? s.connections : []).filter((c: any) => c && typeof c === 'object').map((c: any) => {
+    const server = c.server && typeof c.server === 'object' ? { host: String(c.server.host ?? ''), port: typeof c.server.port === 'number' ? c.server.port : Number(c.server.port) || null, database: typeof c.server.database === 'string' ? c.server.database : null } : null
+    const reached = c.reached === 'ok' || c.reached === 'failed' ? c.reached as 'ok' | 'failed' : null
+    return { machine: typeof c.machine === 'string' ? c.machine : null, url: typeof c.url === 'string' ? c.url : null, own: c.own === true, server, reached, reach: reachOf(c.reach) }
+  })
 }
 
 /** A bucket URL from its parts: MinIO `<endpoint>/<bucket>/<prefix>`, R2 `r2://<account>/<bucket>/<prefix>[?jurisdiction=…]`. */
@@ -145,15 +180,14 @@ export function moveLegacyStorageState(home: string, jobDir: string, statDir: st
 /**
  * One `store list --detail --with stats` item -> StoreRow: the six-state
  * `state` with its companions, its projects (the first 20 names and the
- * count), its size, its backup links, and (PostgreSQL) its login and
- * addresses: the home's own (`machine: null`, every machine dials it) and
- * each machine's own.
+ * count), its size, its backup links, and (PostgreSQL) its login, its
+ * binding (the database's id) and every side that connects to it
+ * (`connectedFrom`, spec v23), with the machines' own addresses.
  */
-export function storeRow(s: any, jobs: StorageJob[], runsOn: string | null = null) {
+export function storeRow(s: any, jobs: StorageJob[]) {
   const kind: 'sqlite' | 'postgresql' = s.engine === 'postgresql' ? 'postgresql' : 'sqlite'
-  const connections: { machine: string | null, url: string }[] = (Array.isArray(s.connections) ? s.connections : [])
-    .filter((c: any) => typeof c?.url === 'string').map((c: any) => ({ machine: typeof c.machine === 'string' ? c.machine : null, url: c.url }))
-  const home = connections.find((c) => c.machine === null)?.url ?? null
+  const rows = kind === 'postgresql' ? connectionRows(s) : []
+  const home = rows.find((c: any) => c.machine === null)?.url ?? null
   const where = pgWhere(home)
   const names = (Array.isArray(s.projects) ? s.projects : []).map(String)
   return {
@@ -177,10 +211,11 @@ export function storeRow(s: any, jobs: StorageJob[], runsOn: string | null = nul
       auth: typeof s.auth === 'string' ? s.auth : null,
       url: home, target: home ? pgTarget(home) : null, server: where?.server ?? null, database: where?.database ?? null,
       synchronousCommit: typeof s.synchronous_commit === 'string' ? s.synchronous_commit : null,
+      binding: typeof s.binding === 'string' ? s.binding : null,
     } : null,
-    // PostgreSQL: the machine its sessions run on by default (this install's choice), and the machines with an address of their own
-    runsOn: kind === 'postgresql' ? runsOn : null,
-    ownConnections: connections.filter((c) => c.machine !== null).map((c) => ({ machine: c.machine as string, url: c.url, target: pgTarget(c.url) })),
+    // PostgreSQL: every side that connects (this computer first), and the machines with an address of their own
+    connectedFrom: rows,
+    ownConnections: rows.filter((c: any) => c.machine !== null && c.own && c.url).map((c: any) => ({ machine: c.machine as string, url: c.url as string, target: pgTarget(c.url) })),
   }
 }
 
@@ -197,8 +232,6 @@ export class Storage {
   readonly jobs: Map<string, StorageJob>
   /** bucket name -> its last backup.list */
   readonly listings = new Map<string, Listing>()
-  /** Where each PostgreSQL Store's sessions run by default (this install's choice). */
-  readonly storeMachines: StoreMachines
   lastView: any = null
   /** The StorageView read in flight, shared by concurrent callers; a write (`changed`) bumps `generation` so later callers read anew. */
   private viewing: { promise: ReturnType<Storage['readView']>, generation: number } | null = null
@@ -216,7 +249,6 @@ export class Storage {
       chmodSync(dir, 0o700)
     }
     this.sizes = new StoreSizes(host.stats)
-    this.storeMachines = new StoreMachines(host.root)
     this.jobStore = new JobStore(host.jobs)
     this.jobs = this.jobStore.jobs
     this.reconciled = Promise.resolve().then(async () => {
@@ -262,15 +294,15 @@ export class Storage {
   }
 
   private async readView(generation: number) {
-    const [listed, machines, recorded] = await Promise.all([
+    const [listed, machines, recorded, auths] = await Promise.all([
       this.lfs.store.list({ detail: true, with: ['stats'] }),
       machineRows(this.lfs),
       this.bucketRows().catch((error: any) => (this.log(`[storage] home get --with tree: ${error?.message ?? error}`), [] as BucketRecord[])),
+      this.auths().catch((error: any) => (this.log(`[storage] store auths: ${error?.message ?? error}`), { items: [] })),
     ])
     const items: any[] = listed?.items ?? []
     const jobs = this.jobList()
-    const fleet: PgMachine[] = machines
-    const stores = items.map((s) => storeRow(s, jobs, s.engine === 'postgresql' ? pgMachineOf(this.storeMachines.get(String(s.store)), fleet) : null))
+    const stores = items.map((s) => storeRow(s, jobs))
     // a Store with more than 20 projects: `projects` is cut at 20 beside `projects_count`, so its names come page by page
     await Promise.all(stores.filter((s) => s.projectsCount > s.projects.length).map(async (s) => {
       const all = await pages((p) => this.lfs.project.list({ store: s.name, ...p })).catch((error: any) => (this.log(`[storage] project list --store ${s.name}: ${error?.message ?? error}`), null))
@@ -293,6 +325,8 @@ export class Storage {
       // this computer (the native machine): its OS names it
       computer: computer(),
       stores,
+      // the saved PostgreSQL logins (store auths), with those no Store names: the PostgreSQL tab groups by them (spec v23 V23-1)
+      auths: auths.items,
       buckets,
       jobs,
       compact: true,
@@ -362,12 +396,12 @@ export class Storage {
 
   /**
    * A PostgreSQL database as a Store: { name, url (no user or password), auth
-   * | passwordFrom | user + passwordValue + authName?, synchronousCommit?,
-   * runsOn? }. A typed user and password are saved as a new login named
-   * `authName` (default: the Store's name), never one that exists; when
-   * LayerFS refuses the connect, that new login is removed again, so the
-   * same name can be given once more. `runsOn` saves the machine its
-   * sessions run on by default.
+   * | passwordFrom | user + passwordValue + authName?, synchronousCommit? }.
+   * A typed user and password are saved as a new login named `authName`
+   * (default: the server's, `pg-<host>-<port>`, spec v23 V23-12), never one
+   * that exists; when LayerFS refuses the connect, that new login is removed
+   * again, so the same name can be given once more. Where its sessions run
+   * is chosen when each is made (placement.ts).
    */
   async connectPostgresql(input: any = {}) {
     const { name, url, synchronousCommit } = input
@@ -376,7 +410,7 @@ export class Storage {
     const named = (typeof input.auth === 'string' && input.auth) || (input.passwordFrom !== undefined && input.passwordFrom !== null && input.passwordFrom !== '')
     const typed = !named && typeof input.passwordValue === 'string' && input.passwordValue !== ''
     if (typed && !(typeof input.user === 'string' && input.user.trim())) throw refuse(400, 'InvalidInput', 'Give the database user with the password')
-    const fresh = typed ? await this.freeLoginName(input.authName === undefined || input.authName === null || input.authName === '' ? name : input.authName) : undefined
+    const fresh = typed ? await this.freeLoginName(input.authName === undefined || input.authName === null || input.authName === '' ? pgLoginName(url) ?? name : input.authName) : undefined
     const auth = await this.loginOf(fresh ? { ...input, authName: fresh } : input, name, url)
     if (!auth) throw refuse(400, 'InvalidInput', 'Choose a saved login, or give the user and password')
     try {
@@ -388,7 +422,6 @@ export class Storage {
       }
       throw error
     }
-    if (typeof input.runsOn === 'string' && input.runsOn) this.storeMachines.set(name, input.runsOn)
     this.changed()
     return this.view()
   }
@@ -446,50 +479,90 @@ export class Storage {
   }
 
   /**
-   * The connection check from `machine` (`store doctor <store> --machine M`):
-   * `{ machine, host, ok, at }` or `{ machine, host, ok: false, error }` from
-   * its `store.connection` check from that machine. Nothing is kept: the
-   * caller shows it. A bad input (no such machine, a sqlite Store) is
-   * LayerFS's refusal.
+   * The connection check from `machine` (`store doctor <store> --machine M`),
+   * or from this computer when none is named (`store doctor <store>`).
+   * LayerFS records what the check saw (spec v23 V23-2): the answer is that
+   * side's `connections` row read back, `{ machine, host, ok, at, version,
+   * latencyMs }` or `{ machine, host, ok: false, error }`. A machine the
+   * doctor could not dial (not ready) is `ok: false` with the reason it
+   * gave. A bad input (no such machine, a sqlite Store) is LayerFS's
+   * refusal.
    */
   async checkStore(name: string, machine: unknown) {
     checkName(name, 'A PostgreSQL Store')
-    checkName(machine, 'A machine')
-    const report: any = await this.lfs.store.doctor(name, { machine, detail: true, timeout_ms: CHECK_TIMEOUT_MS })
-    const finding = (Array.isArray(report?.findings) ? report.findings : []).find((f: any) => f?.check === 'store.connection' && f?.from === machine)
-    const skipped = (Array.isArray(report?.not_checked) ? report.not_checked : []).find((n: any) => (n?.check === 'store.connection' || !n?.check) && (n?.from === machine || !n?.from))
-    const at = msAt(report?.observed_at) ?? Date.now()
-    if (finding) return { machine, host: null, ok: false as const, error: { code: finding.severity === 'error' ? 'Unavailable' : 'Failed', message: String(finding.message ?? 'the check failed') } }
-    // a not_checked entry is `{ check, blocked_by, reason }`: no message of its own
-    if (skipped) return { machine, host: null, ok: false as const, error: { code: String(skipped.reason ?? skipped.blocked_by?.reason ?? 'Unknown'), message: `machine ${machine} was not checked` } }
-    return { machine, host: null, ok: true as const, at, version: null, latencyMs: null }
-  }
-
-  /** `{ machine }`: the machine PostgreSQL Store `name`'s sessions run on by default (this install's choice). */
-  async setRunsOn(name: string, input: any = {}) {
-    checkName(name, 'A PostgreSQL Store')
-    checkName(input.machine, 'A machine')
-    const record: any = await this.lfs.store.get(name)
-    if (record?.engine !== 'postgresql') throw refuse(400, 'InvalidInput', `${name} is a SQLite Store; it runs on the machine that holds its file`)
-    const target = (await machineRows(this.lfs)).find((m) => m.name === input.machine)
-    if (!target) throw refuse(404, 'NotFound', `no machine named ${input.machine}`)
-    if (!runsPostgresql(target)) throw refuse(400, 'Unsupported', `machine ${input.machine} runs no PostgreSQL Sandboxes`)
-    this.storeMachines.set(name, input.machine)
+    const from = machine === undefined || machine === null || machine === '' || machine === 'native' ? null : machine
+    if (from !== null) checkName(from, 'A machine')
+    const report: any = await this.lfs.store.doctor(name, { ...(from ? { machine: from } : {}), detail: true, timeout_ms: CHECK_TIMEOUT_MS })
     this.changed()
-    return this.view()
+    const record: any = await this.lfs.store.get(name, { detail: true })
+    const row = connectionRows(record).find((c: any) => c.machine === from)
+    const host = row?.server?.host ?? null
+    const who = from ?? 'native'
+    if (row?.reach) return row.reach.ok
+      ? { machine: who, host, ok: true as const, at: row.reach.at ?? Date.now(), version: row.reach.version, latencyMs: row.reach.latencyMs }
+      : { machine: who, host, ok: false as const, error: { code: 'Unavailable', message: row.reach.error ?? 'the check failed' } }
+    // a not_checked entry is `{ check, blocked_by, reason }`: no message of its own
+    const skipped = (Array.isArray(report?.not_checked) ? report.not_checked : []).find((n: any) => (n?.check === 'store.connection' || !n?.check) && (n?.from === from || !n?.from))
+    return { machine: who, host, ok: false as const, error: { code: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'Unknown'), message: `machine ${who} was not checked` } }
   }
 
   async disconnectStore(name: string) {
     await this.lfs.store.disconnect(name)
-    this.storeMachines.drop(name)
     this.changed()
     return this.view()
   }
 
-  /** The home's saved PostgreSQL logins (`store auths --detail`): name, user, the Stores naming it; never a password. */
+  /**
+   * The home's saved PostgreSQL logins (`store auths --detail`): name, user,
+   * the Stores naming it, when it was saved and its state (a login file
+   * LayerFS cannot read is `broken` with its fix); never a password.
+   */
   async auths() {
     const listed = await this.lfs.store.auths({ detail: true })
-    return { items: (Array.isArray(listed?.items) ? listed.items : []).map((a: any) => ({ auth: String(a.auth), user: typeof a.user === 'string' ? a.user : null, stores: Array.isArray(a.stores) ? a.stores.map(String) : [] })) }
+    return {
+      items: (Array.isArray(listed?.items) ? listed.items : []).map((a: any) => ({
+        auth: String(a.auth), user: typeof a.user === 'string' ? a.user : null, stores: Array.isArray(a.stores) ? a.stores.map(String) : [],
+        state: typeof a.state === 'string' ? a.state : 'ready', ...companionsOf(a), created: msAt(a.created_at), updated: msAt(a.updated_at),
+      })),
+    }
+  }
+
+  /**
+   * A new password for saved login `auth` (`{ user?, passwordValue }`, the
+   * login's own user unless one is given): `store save-auth` under its own
+   * name rotates it, the password on stdin, and every Store naming it dials
+   * with it from its next connection. Then each of those Stores is checked
+   * from this computer (`store doctor`, which records the reach). Answers
+   * `{ auth, checks: [{ store, ok, error? }] }`; a check that fails is a
+   * result, not a refusal.
+   */
+  async rotateLogin(auth: string, input: any = {}) {
+    checkName(auth, 'A saved login')
+    if (typeof input.passwordValue !== 'string' || input.passwordValue === '') throw refuse(400, 'InvalidInput', 'Give the new password')
+    const saved = (await this.auths()).items.find((a: { auth: string }) => a.auth === auth)
+    if (!saved) throw refuse(404, 'NotFound', `no saved login named ${auth}`)
+    const user = typeof input.user === 'string' && input.user.trim() ? input.user.trim() : saved.user
+    if (!user) throw refuse(400, 'InvalidInput', 'Give the database user with the password')
+    const answer: any = await this.lfs.store.save_auth(auth, { user, password: input.passwordValue, detail: true })
+    this.changed()
+    const stores: string[] = Array.isArray(answer?.stores) ? answer.stores.map(String) : saved.stores
+    const checks = await Promise.all(stores.map(async (store) => {
+      try {
+        const check: any = await this.checkStore(store, null)
+        return check.ok ? { store, ok: true } : { store, ok: false, error: check.error }
+      } catch (error: any) {
+        return { store, ok: false, error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } }
+      }
+    }))
+    return { auth, checks }
+  }
+
+  /** Removes saved login `auth` (`store remove-auth`): LayerFS refuses `InUse` while a Store names it. */
+  async removeLogin(auth: string) {
+    checkName(auth, 'A saved login')
+    await this.lfs.store.remove_auth(auth)
+    this.changed()
+    return this.view()
   }
 
   // ---------- buckets ----------

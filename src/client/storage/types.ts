@@ -30,6 +30,29 @@ export interface PgServer {
   database: string | null
   /** The Store's synchronous_commit, or null (LayerFS's default). */
   synchronousCommit: string | null
+  /** The database's id (16 hex, `store get` `binding`): one database behind two addresses has one. */
+  binding?: string | null
+}
+
+/** The last reach LayerFS saw from one side (spec v23 `connections[].reach`). */
+export interface PgReach { at: number | null, ok: boolean, latencyMs: number | null, version: string | null, error: string | null }
+
+/**
+ * One side that connects to a PostgreSQL Store's database (spec v23
+ * `connections` rows): this computer (`machine: null`, the Store's address),
+ * a machine with an address of its own, one a reach was seen from, or one
+ * with a Sandbox of the Store.
+ */
+export interface PgConnection {
+  machine: string | null
+  /** The URL it dials (never a login). */
+  url: string | null
+  /** Whether the URL is the machine's own (`store connect --machine`). */
+  own: boolean
+  server: { host: string, port: number | null, database: string | null } | null
+  /** The last reach's word: `ok`, `failed`, or null when none was seen. */
+  reached: 'ok' | 'failed' | null
+  reach: PgReach | null
 }
 
 /** A 2.0 thing's state companions. */
@@ -59,8 +82,8 @@ export interface StoreRow extends StateCompanions {
   links: StoreBackupLink[]
   job: string | null
   postgresql?: PgServer | null
-  /** PostgreSQL: the machine its sessions run on by default (this DSH install's choice, never a LayerFS record). */
-  runsOn?: string | null
+  /** PostgreSQL: every side that connects (this computer first), as LayerFS lists them (spec v23). */
+  connectedFrom?: PgConnection[]
   /** PostgreSQL: the machines with an address of their own (store connect --machine). */
   ownConnections?: PgOwnConnection[]
 }
@@ -77,8 +100,11 @@ export type PgCheck =
   | { machine: string, host: string | null, ok: true, at: number, version: string | null, latencyMs: number | null }
   | { machine: string, host: string | null, ok: false, error: { code: string, message: string } }
 
-/** GET /api/store-auths: one saved PostgreSQL login (never its password). */
-export interface PgAuth { auth: string, user: string | null, stores: string[] }
+/** GET /api/store-auths: one saved PostgreSQL login (never its password); a file LayerFS cannot read is `broken` with its fix. */
+export interface PgAuth { auth: string, user: string | null, stores: string[], state?: string, reason?: string, fix?: string, created?: number | null, updated?: number | null }
+
+/** POST /api/store-auths/:a/rotate: the login's Stores, each checked from this computer after the new password was saved. */
+export interface PgRotation { auth: string, checks: { store: string, ok: boolean, error?: { code: string, message: string } }[] }
 
 /**
  * One file in a bucket (2.0 `backup list --detail`): its Store link, whether
@@ -147,6 +173,8 @@ export interface StorageView {
   /** This computer (the native machine); absent from an older host. */
   computer?: { os: 'macos' | 'linux' | 'windows' | 'other', name: string | null, arch: string }
   stores: StoreRow[]
+  /** The saved PostgreSQL logins, with those no Store names (absent from an older host). */
+  auths?: PgAuth[]
   buckets: BucketRow[]
   jobs: StorageJob[]
   /** Whether the selected LayerFS runtime has store.compact; absent from an older host. */

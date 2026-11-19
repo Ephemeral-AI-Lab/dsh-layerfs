@@ -1203,3 +1203,19 @@
   flex: none;
   width: 100%;
 }
+
+/* Rotate password: one row per Store, its dot and its word */
+.rotateChecks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rotateCheck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}

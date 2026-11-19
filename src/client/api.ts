@@ -52,7 +52,8 @@ export interface LayerfsApi {
   /** Public DSH directory dialog; null when cancelled. */
   pickDirectory(): Promise<string | null>
   /** Open a project-owned session using the selected local workspace as scratch. */
-  openProjectSession(project: string, workspaceId?: string, projectId?: string): Promise<{ sessionId: string, workspaceId: string }>
+  /** `machine`: where a PostgreSQL project's Sandbox runs (the person's pick; else the host's default, placement.ts). */
+  openProjectSession(project: string, workspaceId?: string, projectId?: string, machine?: string): Promise<{ sessionId: string, workspaceId: string }>
 }
 
 /** Navigation the host may ask for in an operation result (`navigate`). */
@@ -246,14 +247,14 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
       return picker.pickDirectory()
     },
     selectedSessionId: () => nav.currentSessionId?.(),
-    async openProjectSession(project: string, workspaceId?: string, projectId?: string) {
+    async openProjectSession(project: string, workspaceId?: string, projectId?: string, machine?: string) {
       const ws = workspace()
       // No folder selected (often so in the sidebar's LayerFS view): the managed Scratch workspace.
       const target = workspaceId ?? selectedWorkspaceId()
         ?? (ws?.connectWorkspace ? (await op<{ workspaceId: string }>('sessions.prepareScratch', { navigate: false })).workspaceId : undefined)
       if (!ws?.connectWorkspace || !target) throw new HostError('no-workspace', 'Select a local folder to use as scratch for the project session', 0)
       const sessionId = String(await ws.connectWorkspace(target))
-      await op('sessions.choose', { sessionId, project, projectId })
+      await op('sessions.choose', { sessionId, project, projectId, ...(machine ? { machine } : {}) })
       nav.openSession(sessionId)
       return { sessionId, workspaceId: target }
     },

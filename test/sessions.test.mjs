@@ -18,7 +18,7 @@ const out = mkdtempSync(join(root, 'lib', '.test-sessions-'))
 await build({
   absWorkingDir: root,
   stdin: {
-    contents: "export * from './src/host/sessions/service.ts'\nexport * from './src/host/store-machines.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\n",
+    contents: "export * from './src/host/sessions/service.ts'\nexport * from './src/host/placement.ts'\nexport * as persistence from './src/host/session-persistence.ts'\nexport { initialState } from './src/host/sessions/state.ts'\nexport * from './src/host/sessions/availability.ts'\nexport * as tracing from './src/host/layerfs/tracing.ts'\n",
     resolveDir: root,
     loader: 'ts',
   },
@@ -340,34 +340,42 @@ test('ensureBound binds a remote project: Sandbox on its machine, working direct
   rmSync(s.ctx.layerfs.root, { recursive: true, force: true })
 })
 
-test('ensureBound runs a PostgreSQL project on its Store\'s saved machine, else docker, else native; never on an "attached" one', async () => {
-  const bind = async (machines, saved) => {
+test('ensureBound runs a PostgreSQL project where the session picked, else its last machine, else one its database was reached from, else native; never a broken or stopped one (spec v23)', async () => {
+  const bind = async (machines, { picked, last, reached = [] } = {}) => {
     const calls = []
     const lfs = {
       // a PostgreSQL Store is on no machine: project.get names none
       project: { get: async () => ({ store: 'st', engine: 'postgresql', state: 'ready' }) },
       // `machine list --detail` (2.0): rows keyed `machine`, `supports` a list
       machine: { list: async () => ({ items: machines.map(({ name, ...rest }) => ({ machine: name, ...rest })) }) },
+      store: { get: async () => ({ engine: 'postgresql', connections: [{ machine: null, reached: null }, ...reached.map((m) => ({ machine: m, reached: 'ok' }))] }) },
       branch: { fork: async () => ({ commit: 'f'.repeat(66) }) },
-      sandbox: { get: async () => { throw new Refusal('NotFound') }, create: async (project, name, options) => { calls.push(`sandbox ${project} ${name} ${options.machine ?? 'native'}`); return { ok: true } } },
+      sandbox: {
+        get: async () => { throw new Refusal('NotFound') },
+        list: async () => ({ items: last ? [{ sandbox: 'old', machine: last, created_at: '2026-11-19T00:00:00Z' }] : [] }),
+        create: async (project, name, options) => { calls.push(`sandbox ${project} ${name} ${options.machine ?? 'native'}`); return { ok: true } },
+      },
       workspace: { mount: async (sandbox, branch, options) => ({ path: '/mnt/inside', workspace: `${sandbox}:${options.name}`, commit: 'base-1' }) },
     }
     const { s, state } = sessions({ lfs, layerfsRoot: mkdtempSync(join(tmpdir(), 'dsh-root-')) })
     try {
-      if (saved) new S.StoreMachines(s.ctx.layerfs.root).set('st', saved)
       s.ctx.get = (name) => (name === 'agentPresets' ? { select: async (_a, id) => id } : undefined)
       s.ctx.workingDirectory = { get: () => s.ctx.layerfs.root, set: async () => {} }
-      state().pending.n1 = { project: 'st/app' }
+      state().pending.n1 = { project: 'st/app', ...(picked ? { machine: picked } : {}) }
       await s.ensureBound({ id: 'n1', session: { ...session('n1', { cwd: join(s.ctx.layerfs.root, 'projects', 'st', 'app') }), seq: 0, append: () => {} } })
       assert.deepEqual(calls, [`sandbox st/app dsh-n1 ${state().sessions.n1.machine}`])
+      // nothing Store-wide was written: no store-machines.json beside the plugin's state
+      assert.equal(existsSync(join(s.ctx.layerfs.root, 'store-machines.json')), false)
       return state().sessions.n1.machine
     } finally { rmSync(s.ctx.layerfs.root, { recursive: true, force: true }) }
   }
-  const m = (name, postgresql_sandbox = true) => ({ name, supports: postgresql_sandbox ? ['sqlite', 'postgresql_sandbox'] : ['sqlite'] })
-  assert.equal(await bind([m('native'), m('docker'), m('vm1')], 'vm1'), 'vm1', 'the saved choice')
-  assert.equal(await bind([m('native'), m('docker'), m('vm1')], null), 'docker', 'none saved: docker')
-  assert.equal(await bind([m('native'), m('vm1')], null), 'native', 'no docker: native')
-  assert.equal(await bind([m('native'), m('docker')], 'vm1'), 'docker', 'a saved machine that is gone falls back')
+  const m = (name, more = {}) => ({ name, supports: ['sqlite', 'postgresql_sandbox'], ...more })
+  const fleet = [m('native'), m('docker'), m('vm1'), m('vm2', { state: 'stopped' }), m('vm3', { state: 'broken' }), m('old', { supports: ['sqlite'] })]
+  assert.equal(await bind(fleet, { picked: 'vm1' }), 'vm1', 'the session\'s own pick')
+  assert.equal(await bind(fleet, { last: 'vm1', reached: ['docker'] }), 'vm1', 'the project\'s last machine')
+  assert.equal(await bind(fleet, { last: 'vm2', reached: ['vm3', 'docker'] }), 'docker', 'a stopped last machine and a broken reached one are skipped')
+  assert.equal(await bind(fleet, { reached: ['old'] }), 'native', 'a machine that runs no PostgreSQL Sandbox is not the default')
+  assert.equal(await bind(fleet, {}), 'native', 'nothing known: native')
 })
 
 test('ensureBound keeps native project local cwd as selected scratch, separate from the mount', async () => {
@@ -785,36 +793,16 @@ test('a tool call never re-activates an interrupted context mid-turn; only a new
   assert.deepEqual(calls, [])
 })
 
-test('pgMachineOf: the machine asked for, else the saved choice while it still runs PostgreSQL Sandboxes, else docker, else native', () => {
-  const m = (name, postgresql_sandbox = true) => ({ name, supports: postgresql_sandbox ? ['sqlite', 'postgresql_sandbox'] : ['sqlite'] })
-  const both = [m('native'), m('docker'), m('vm1')]
-  // a session's own machine, or one named in the request, always wins: LayerFS reaches the Store from any machine
-  assert.equal(S.pgMachineOf('vm1', both, 'docker'), 'docker')
-  assert.equal(S.pgMachineOf(null, [], 'lima1'), 'lima1')
-  assert.equal(S.pgMachineOf('vm1', both), 'vm1', 'the saved choice')
-  assert.equal(S.pgMachineOf('gone', both), 'docker', 'a saved machine that was removed falls back to the default')
-  assert.equal(S.pgMachineOf('vm1', [m('native'), m('docker'), m('vm1', false)]), 'docker', 'a saved machine that runs none any more falls back too')
-  assert.equal(S.pgMachineOf(null, both), 'docker', 'no choice: docker when it exists')
-  assert.equal(S.pgMachineOf(null, [m('native'), m('docker', false)]), 'native', 'docker that cannot run PostgreSQL Sandboxes is not the default')
-  assert.equal(S.pgMachineOf(undefined, [m('native')]), 'native')
-  assert.equal(S.pgMachineOf(null, []), 'native')
-  assert.equal(S.defaultPgMachine([{ name: 'docker' }]), 'docker', 'a machine that says nothing about support runs them')
-})
-
-test('StoreMachines: the saved choices live in one small file of the plugin root, read on every use', () => {
-  const root = mkdtempSync(join(tmpdir(), 'lfs-store-machines-'))
-  try {
-    const a = new S.StoreMachines(root), b = new S.StoreMachines(root)
-    assert.equal(a.get('team'), null)
-    a.set('team', 'docker'); a.set('other', 'native')
-    assert.equal(b.get('team'), 'docker', 'another holder of the same root sees it at once')
-    assert.equal(statSync(a.path).mode & 0o777, 0o600)
-    b.drop('team'); b.drop('never-there')
-    assert.equal(a.get('team'), null)
-    assert.deepEqual(JSON.parse(readFileSync(a.path, 'utf8')), { other: 'native' })
-    writeFileSync(a.path, 'not json')
-    assert.equal(a.get('other'), null, 'an unreadable file is no choice, never a throw')
-  } finally { rmSync(root, { recursive: true, force: true }) }
+test('pgPlacement: the last machine, else a reached one, else native; placeable means running, PostgreSQL Sandboxes, not broken (spec v23)', () => {
+  const m = (name, more = {}) => ({ name, supports: ['sqlite', 'postgresql_sandbox'], ...more })
+  const fleet = [m('native'), m('docker'), m('vm1', { state: 'stopped' }), m('vm2', { state: 'broken' })]
+  assert.equal(S.pgPlacement(fleet, { last: 'docker' }), 'docker')
+  assert.equal(S.pgPlacement(fleet, { last: 'vm1', reached: ['vm2', 'docker'] }), 'docker')
+  assert.equal(S.pgPlacement(fleet, { last: 'gone' }), 'native')
+  assert.equal(S.pgPlacement([], {}), 'native')
+  assert.deepEqual(S.reachedFrom({ connections: [{ machine: null, reached: 'ok' }, { machine: 'docker', reached: 'failed' }, { machine: 'vm', reached: 'ok' }] }), ['native', 'vm'])
+  assert.equal(S.lastUsed([{ machine: 'a', created_at: '2026-01-01T00:00:00Z' }, { machine: 'b', created_at: '2026-02-01T00:00:00Z' }]), 'b')
+  assert.equal(S.placeable({ name: 'x' }), true, 'a machine that says nothing about support or state is placeable')
 })
 
 test('Presets Reset deletes this home\'s project sessions only; loaded ones are archived with activity stopped first', async () => {

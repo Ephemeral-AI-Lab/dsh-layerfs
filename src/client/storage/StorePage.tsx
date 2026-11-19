@@ -122,7 +122,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
         ) : tab === 'backups' ? (
           <StoreBackups store={s} view={view} t={t} now={now} on={on} />
         ) : tab === 'connections' ? (
-          <StoreConnection store={s} view={view} t={t} on={on} />
+          <StoreConnection store={s} view={view} t={t} on={on} now={now} sandboxes={machines.data?.available ? machines.data.sandboxes : undefined} />
         ) : (
           <StoreOverview store={s} view={view} t={t} api={api} now={now} stats={stats.data} statsError={stats.error} projects={projects.data?.projects} running={running}
             machineState={machineState} onTab={setTab} onRemove={pg ? on.disconnect : on.remove} />

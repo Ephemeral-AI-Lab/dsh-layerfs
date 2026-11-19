@@ -1,6 +1,6 @@
 /** Storage's pure rules: placement, attention, backup coverage and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
-import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
+import type { BackupFile, BucketRow, JobKind, PgConnection, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import type { StorageT } from './locale.ts'
 import { connectBucketFix } from '../../shared/doctor.ts'
 
@@ -177,7 +177,7 @@ export function storeStateWords(state: string, t: StorageT, reason?: string | nu
  * (`store save-auth` then `store update --auth`).
  */
 export const needsLogin = (s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'postgresql'>): boolean =>
-  s.kind === 'postgresql' && s.state === 'broken' && s.reason === 'outdated' && !s.postgresql?.auth
+  s.kind === 'postgresql' && s.state === 'broken' && ((s.reason === 'outdated' && !s.postgresql?.auth) || (s.reason === 'missing' && !!s.postgresql?.auth))
 
 /** A broken Store's words: an unknown outcome, a PostgreSQL Store with no saved login, else the state word and its reason. */
 export function brokenWords(s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'postgresql'>, t: StorageT): string {
@@ -431,20 +431,48 @@ export function jobCounts(jobs: readonly StorageJob[], dismissed: ReadonlySet<st
   return { running: last.filter((j) => !j.ended).length, failed: last.filter((j) => j.ended && j.error && !dismissed.has(j.id)).length }
 }
 
-// ---------- PostgreSQL: where a Store's sessions run ----------
+// ---------- PostgreSQL: who connects (spec v23) ----------
 
-/**
- * The machine a PostgreSQL Store's sessions run on by default: this DSH
- * install's saved choice as the host answers it (docker when it can run
- * them, else the LayerFS Home, when none was chosen).
- */
-export function runsOnOf(s: Pick<StoreRow, 'runsOn'>): string {
-  return s.runsOn ?? 'native'
+/** A connections row's machine as the page names machines: this computer is `native`. */
+export const rowMachine = (c: Pick<PgConnection, 'machine'>): string => c.machine ?? 'native'
+
+/** The machines a PostgreSQL Store's database is connected from, this computer first (as `native`). */
+export function connectedMachines(s: Pick<StoreRow, 'connectedFrom'>): string[] {
+  return (s.connectedFrom ?? []).map(rowMachine)
 }
 
-/** The PostgreSQL Stores whose sessions run on `machine` by default, or with a Sandbox there now (`busy`: their names), by name. */
+/** `machine`'s row of a PostgreSQL Store (this computer's for `native` without an address of its own), or null. */
+export function connectionOf(s: Pick<StoreRow, 'connectedFrom'>, machine: string): PgConnection | null {
+  const rows = s.connectedFrom ?? []
+  return rows.find((c) => c.machine === machine) ?? (machine === 'native' ? rows.find((c) => c.machine === null) ?? null : null)
+}
+
+/** The name a new login for `server` (`host:port`) gets by default (spec v23 V23-12): `pg-<host>-<port>`, never the Store's. */
+export function pgServerLogin(server: string | null | undefined): string | null {
+  if (!server) return null
+  const name = `pg-${server}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '').slice(0, 63).replace(/-+$/, '')
+  return /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/.test(name) ? name : null
+}
+
+/** The PostgreSQL Stores connected from `machine` (its `connections` name it), or with a Sandbox there now (`busy`: their names), by name. */
 export function pgStoresOn(view: Pick<StorageView, 'stores'>, machine: string, busy: ReadonlySet<string> = new Set()): StoreRow[] {
-  return view.stores.filter((s) => s.kind === 'postgresql' && (runsOnOf(s) === machine || busy.has(s.name))).sort((a, b) => a.name.localeCompare(b.name))
+  return view.stores.filter((s) => s.kind === 'postgresql' && (connectedMachines(s).includes(machine) || busy.has(s.name))).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** Whether a new PostgreSQL session may be placed on `m`: it runs, runs PostgreSQL Sandboxes and is not broken (the host's placement.ts). */
+export const pgPlaceable = (m: { state?: string | null, supports?: readonly string[] | null } | undefined): boolean =>
+  !!m && (!m.supports || m.supports.includes('postgresql_sandbox')) && (m.state ?? 'ready') === 'ready'
+
+/**
+ * The machine a new session of PostgreSQL Store `s` runs on when the person
+ * names none (the host's placement.ts order, without its Sandbox read): the
+ * project's last machine when given, a machine the database was reached
+ * from, else native. Never a broken or stopped machine.
+ */
+export function pgDefaultMachine(s: Pick<StoreRow, 'connectedFrom'> | undefined, machines: readonly { name: string, state?: string | null, supports?: readonly string[] | null }[], last?: string | null): string {
+  const ok = (name: string | null | undefined): name is string => !!name && pgPlaceable(machines.find((m) => m.name === name))
+  if (ok(last)) return last
+  return (s?.connectedFrom ?? []).filter((c) => c.reached === 'ok').map(rowMachine).find(ok) ?? 'native'
 }
 
 /** What a machine of `platform` dials for a server on this host's localhost (LayerFS's reach rewrite). */

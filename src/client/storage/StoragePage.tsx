@@ -39,12 +39,12 @@ import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { MachineStores } from './MachineStores.tsx'
 import { serverKey } from './machine-stores.ts'
-import { bucketFiles, cardJob, inHome, orderStores, runsOnOf, type Reconnect } from './model.ts'
+import { bucketFiles, cardJob, connectedMachines, inHome, orderStores, pgPlaceable, type Reconnect } from './model.ts'
 import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
 import type { ProjectMapShare } from './ProjectSandboxes.tsx'
-import type { StoreActions } from './StoreCard.tsx'
+import type { LoginActions, StoreActions } from './StoreCard.tsx'
 import { StorePage } from './StorePage.tsx'
 import { isTabId, openHomeStores, readOverviewTab, writeOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import type { ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
@@ -127,6 +127,7 @@ function CenterFixes({ api, t, loginRef, reconnectRef, children }: { api: Layerf
           case 'backup': return t('fixRunBackup', { bucket: fix.bucket })
           case 'homeInit': return t('fixRunHomeInit')
           case 'saveAuth': return t('fixRunSaveLogin')
+          case 'updateAuth': return t('fixRunUpdateAuth')
           case 'connectBucket': return t('fixRunConnectBucket')
         }
       },
@@ -246,7 +247,12 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, map, mor
     addProject: () => setDialog({ kind: 'add-project', store: s.name }),
     editConnection: (machine) => setDialog({ kind: 'pg-edit', store: s.name, ...(machine ? { machine } : {}) }),
     check: (machine) => setDialog({ kind: 'connect', check: { store: s.name, ...(machine ? { machine } : {}) } }),
-    changeRunsOn: () => setDialog({ kind: 'pg-runs-on', store: s.name }),
+    // a machine that runs and is not connected yet, else this computer; the check's From picks another
+    connectMachine: () => {
+      const connected = new Set(connectedMachines(s))
+      const next = (view?.machines ?? []).find((m) => !connected.has(m.name) && pgPlaceable(m))?.name ?? 'native'
+      setDialog({ kind: 'connect', check: { store: s.name, machine: next } })
+    },
     removeOwn: (machine) => setDialog({
       kind: 'confirm', title: t('pgRemoveOwnTitle', { store: s.name, machine: machine === 'native' ? t('layerfsHome') : machine }),
       body: t('pgRemoveOwnBody', { machine: machine === 'native' ? t('layerfsHome') : machine }), action: t('pgRemoveOwn'),
@@ -257,6 +263,14 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, map, mor
     dismiss: (j) => dismiss(j.id),
     openMachine,
   })
+  // a saved PostgreSQL login's own actions (its group's header): a new password; Remove while no Store names it
+  const loginActions: LoginActions = {
+    rotate: (auth) => setDialog({ kind: 'pg-rotate', auth }),
+    remove: (auth) => setDialog({
+      kind: 'confirm', title: t('pgRemoveLoginTitle', { auth }), body: t('pgRemoveLoginBody', { auth }), action: t('pgRemoveLogin'), name: auth,
+      run: () => api.call('DELETE', `/api/store-auths/${enc(auth)}`),
+    }),
+  }
   const listBucket = (name: string) => {
     setListing(name)
     api.call('GET', `/api/buckets/${enc(name)}/files`).catch(setFailed).finally(() => { setListing(null); reload() })
@@ -279,9 +293,9 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, map, mor
       .sort((a, b) => rank(a.name, a.platform) - rank(b.name, b.platform) || a.name.localeCompare(b.name))
   }, [view?.machines, fleet?.machines])
   const kindWord = (s: StoreRow) => (s.kind === 'postgresql' ? 'PostgreSQL' : 'SQLite')
-  /** Where a Store is: its machine (SQLite), or the machine its sessions run on (PostgreSQL). */
+  /** Where a Store is: its machine (SQLite), or its server (PostgreSQL: on no machine). */
   const storeWhere = (s: StoreRow): string => s.kind === 'postgresql'
-    ? t('pgRunsOn', { machine: machineWord(runsOnOf(s)) })
+    ? s.postgresql?.server ?? t('postgresql')
     : machineWord(inHome(s) ? 'native' : s.machine ?? '')
   const stores = orderStores(view?.stores ?? [])
   const sandboxes = fleet?.sandboxes ?? []
@@ -379,7 +393,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, map, mor
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
           // before the Stores are read the tab says so (no empty list that the cards then replace)
           storesTab={(machine) => (!view ? <Loading label={t('readingStores')} /> : (
-            <MachineStores api={api} machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor}
+            <MachineStores api={api} machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor} loginActions={loginActions} sandboxes={sandboxes}
               busy={new Set(sandboxes.filter((b) => b.machine === machine && b.project).map((b) => b.project!.split('/')[0]!))}
               onPushHere={(m) => setDialog({ kind: 'to-machine', machine: m })} onConnect={(m) => setDialog({ kind: 'connect', machine: m })}
               onOpenStore={(name) => open(`store:${name}`)} onOpenProject={(key) => open(`project:${key}`)} onBackups={(store) => setDialog({ kind: 'backups', store })} />
@@ -393,7 +407,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, map, mor
     if (id === 'overview') {
       return (
         <Page wide label={t('title')}>
-          <HomeOverview view={view} error={storage.error} t={t} setup={more.setup} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed}
+          <HomeOverview view={view} error={storage.error} t={t} setup={more.setup} now={now} doctor={doctor} jobs={jobs} dismissed={dismissed} loginActions={loginActions} sandboxes={sandboxes}
             onOpen={open} onRefresh={refresh} onCheckAgain={() => setChecks((n) => n + 1)}
             onNewStore={() => setDialog({ kind: 'new-store' })} onConnect={() => setDialog({ kind: 'connect' })}
             onBackups={(store) => setDialog({ kind: 'backups', store })} onNewMachine={() => setNewMachine(true)} onPresets={() => setPresetsOpen(true)} presetsLabel={more.presets('openTitle')}

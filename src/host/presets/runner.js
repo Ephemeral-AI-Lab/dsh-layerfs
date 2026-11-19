@@ -35,10 +35,9 @@ const uncertain = error => error.code === 'Unknown' || error.transport === 'tran
 export const PRESET_HISTORY_LIMITS = Object.freeze({ ...DEFAULT_HISTORY_LIMITS, perStore: 1 })
 
 export class DemoRunner extends CliInventory {
-  constructor({ state, home, adoptHome = false, preset = 'studio', driver, sandboxes, report = console.log, progress = () => {}, historyDensity = 'dense', historyCycles, executionMode = 'filesystem', historySchedule = 'parallel', historyConcurrency = PRESET_HISTORY_LIMITS.concurrency, historyStoreConcurrency = PRESET_HISTORY_LIMITS.perStore, historyProjectConcurrency = PRESET_HISTORY_LIMITS.perProject, postgres, runsOn }) {
+  constructor({ state, home, adoptHome = false, preset = 'studio', driver, sandboxes, report = console.log, progress = () => {}, historyDensity = 'dense', historyCycles, executionMode = 'filesystem', historySchedule = 'parallel', historyConcurrency = PRESET_HISTORY_LIMITS.concurrency, historyStoreConcurrency = PRESET_HISTORY_LIMITS.perStore, historyProjectConcurrency = PRESET_HISTORY_LIMITS.perProject, postgres }) {
     super(driver)
     // Saves the machine a PostgreSQL Store's sessions run on by default (the host's own choice; LayerFS records none).
-    this.runsOn = runsOn
     this.state = resolve(state)
     this.home = home ? resolve(home) : join(this.state, 'home-2')
     this.adoptHome = adoptHome
@@ -239,14 +238,11 @@ export class DemoRunner extends CliInventory {
     }
     return this.ensureResource('store', store.name, null)
   }
-  /** A SQLite Store pushed to its machine; a PostgreSQL Store is on none: its machine is saved as where its sessions run. */
+  /** A SQLite Store pushed to its machine; a PostgreSQL Store is on none (its Sandboxes name their machine when they are made). */
   async placeStore(store, reportProgress = () => {}) {
     const placed = await this.query(['store', 'get', store.name, '--detail'])
     if (placed.op || placed.state === 'busy' || placed.state === 'broken') fail(`Store ${store.name} has an operation that needs inspection.`)
-    if (isPostgresql(store)) {
-      await this.runsOn?.(store.name, store.machine)
-      return
-    }
+    if (isPostgresql(store)) return
     if (placed.machine !== store.machine) {
       if (placed.machine !== 'native') fail(`Store ${store.name} moved outside the fixture plan. Inspect it or reset.`)
       reportProgress(`Moving ${store.name} to ${store.machine}`)

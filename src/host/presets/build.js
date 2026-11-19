@@ -15,7 +15,7 @@ import { projectVerificationSteps } from './recipe/project-verification.js'
 import { EnvironmentReset } from './environment-reset.js'
 import { POSTGRES_IMAGE, PresetPostgres, isPostgresql, usesMachine } from './postgresql.js'
 
-const runnerFor = (spec, options) => new DemoRunner({ state: spec.state, home: spec.home, adoptHome: true, runsOn: spec.runsOn, ...options })
+const runnerFor = (spec, options) => new DemoRunner({ state: spec.state, home: spec.home, adoptHome: true, ...options })
 
 /** Prepare the manifest and initialize the home, check prerequisites, then plan the reset. Nothing is removed. */
 export async function prepareBuild({ spec, preset, driver, sandboxes, executionMode = 'filesystem', report = () => {}, progress = () => {} }) {

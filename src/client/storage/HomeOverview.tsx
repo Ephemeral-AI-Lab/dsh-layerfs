@@ -44,7 +44,7 @@ import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { projectDialog } from '../projects/dialog.ts'
 import { LogsPanelIcon } from '../logs/index.tsx'
 import { BrandLockup, HomeHero, panelId } from './HomeHero.tsx'
-import { StoreMenu, type StoreActions } from './StoreCard.tsx'
+import { StoreMenu, type LoginActions, type StoreActions } from './StoreCard.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
 import { bucketFiles, doingWords, endedWords, orderStores, pgStoreBytes, shareOf, type Reconnect } from './model.ts'
@@ -87,6 +87,10 @@ export interface HomeOverviewProps {
   onBackup: (store: string) => void
   /** A Store's actions (the Store menu, Back up, Edit connection), through the page's dialogs. */
   actionsFor: (store: StoreRow) => StoreActions
+  /** A saved PostgreSQL login's own actions (the PostgreSQL tab's login headers). */
+  loginActions: LoginActions
+  /** The Sandboxes the Machines view knows: a Connected from chip counts the machine's Sandboxes of the Store. */
+  sandboxes?: readonly { machine?: string | null, project?: string | null }[]
   onAddBucket: () => void
   /** Lists a bucket's files. */
   onListBucket: (bucket: string) => void
@@ -392,7 +396,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
               </EmptyState>
             </Card>
           ) : (
-            <HomeStores api={mc.api} stores={stores} view={view} t={t} now={now} jobs={props.jobs} dismissed={props.dismissed} actionsFor={props.actionsFor}
+            <HomeStores api={mc.api} stores={stores} view={view} t={t} now={now} jobs={props.jobs} dismissed={props.dismissed} actionsFor={props.actionsFor} loginActions={props.loginActions} sandboxes={props.sandboxes}
               onOpenStore={(name) => props.onOpen(`store:${name}`)} onOpenProject={(key) => props.onOpen(`project:${key}`)} onBackups={props.onBackups}
               onNewStore={props.onNewStore} onConnect={props.onConnect} alt={storesAlt} />
           )}

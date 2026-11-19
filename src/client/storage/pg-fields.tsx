@@ -18,8 +18,8 @@ import css from './Storage.module.css'
 
 /** A PostgreSQL URL that holds a password (user:password@, or a password parameter). */
 export const PG_URL_PASSWORD = /^postgres(?:ql)?:\/\/[^/@?]*:[^/@?]*@|[?&][^=&]*password=/i
-/** A PostgreSQL URL that holds a user or a password: a Store's address carries neither in 2.0 (the saved login does). */
-export const PG_URL_LOGIN = /^postgres(?:ql)?:\/\/[^/@?]*@|[?&][^=&]*(password|user)=/i
+/** A PostgreSQL URL that holds a user, a password or a password file: a Store's address carries none in 2.0 (the saved login does; spec v23 V23-13). */
+export const PG_URL_LOGIN = /^postgres(?:ql)?:\/\/[^/@?]*@|[?&]([^=&]*password|user|passfile)=/i
 
 type How = 'same' | 'entered' | 'saved'
 

@@ -127,9 +127,11 @@ export interface SessionsState {
   sessions: Record<string, Binding>
   checkpoints: Record<string, Checkpoint[]>
   mirror: Record<string, Mirror>
-  /** Placed sessions (`sessions.choose`) carry only `project`; forked sessions
-   * also record where their files start. */
-  pending: Record<string, { project: string, commit?: string | null, branch?: string | null, session?: string, turn?: number, simulation?: SimulationBinding }>
+  /** Placed sessions (`sessions.choose`) carry `project`, and the machine the
+   * person picked for a PostgreSQL project's Sandbox (spec v23: a session's
+   * own choice, never Store-wide); forked sessions also record where their
+   * files start. */
+  pending: Record<string, { project: string, machine?: string, commit?: string | null, branch?: string | null, session?: string, turn?: number, simulation?: SimulationBinding }>
 }
 
 export const initialState = (): SessionsState => ({ version: 1, projects: {}, sessions: {}, checkpoints: {}, mirror: {}, pending: {} })

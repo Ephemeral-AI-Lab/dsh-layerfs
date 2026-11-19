@@ -51,9 +51,13 @@ test('the CUT fixes: a Store with no saved login opens the save-login dialog, do
   assert.deepEqual(M.runnableFix('layerfs machine remove docker'), { kind: 'removeMachine', machine: 'docker' })
   assert.deepEqual(M.runnableFix('layerfs store remove nokind'), { kind: 'removeStore', store: 'nokind' })
   assert.deepEqual(M.runnableFix('layerfs sandbox remove lfs-1a2b3c4d-box'), { kind: 'removeSandbox', sandbox: 'lfs-1a2b3c4d-box' })
-  // never run in part, never with a guessed login: a filled-in or longer line stays a tip
+  // spec v23: a login the home lacks (`missing`) opens the save-login dialog for its Store (the person types the password there);
+  // an old record (`outdated`) is Update, store update naming its own login again
+  assert.deepEqual(M.runnableFix('layerfs store save-auth pg --user u --password-stdin && layerfs store update pg --auth pg'), { kind: 'saveAuth', store: 'pg' })
+  assert.deepEqual(M.runnableFix('layerfs store update demo-experiments --auth demo-pg'), { kind: 'updateAuth', store: 'demo-experiments', auth: 'demo-pg' })
+  // never run in part, never with a guessed login: a line whose names differ, or a longer one, stays a tip
   for (const line of [
-    'layerfs store save-auth pg --user u --password-stdin && layerfs store update pg --auth pg',
+    'layerfs store save-auth other --user u --password-stdin && layerfs store update pg --auth pg',
     'layerfs store save-auth <auth> --user <user> --password-stdin',
     'layerfs store update pg --auth <auth>',
     'layerfs machine remove old --force',

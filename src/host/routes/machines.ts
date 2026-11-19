@@ -32,7 +32,6 @@ import { liveOf, spaceAnswer, type MachineSpace, type MachineSpaceView, type Mac
 import { Answer, cliFeatures, featuresOf, fixOf, pages, refuse, type CliFeatures, type RouteHost } from './util.ts'
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
-import { pgMachineOf, StoreMachines } from '../store-machines.ts'
 import { companionsOf, machineOf, opOf, unreadableRecord, probedRecord } from '../layerfs/machine-records.ts'
 
 export { machineOf, opOf, STATES } from '../layerfs/machine-records.ts'
@@ -253,13 +252,15 @@ export function storeOf(s: any) {
 
 /**
  * One store.list() item, when it is a PostgreSQL Store (on no machine: Sandboxes
- * reach its database). `runsOn`: the machine its sessions run on by default,
- * this DSH install's own choice (store-machines.ts).
+ * reach its database). `connectedFrom`: the machines its `connections` name
+ * (spec v23: an address of their own, a reach seen, or a Sandbox), this
+ * computer as `native`, each with the word of its last reach.
  */
-export function pgStoreOf(s: any, runsOn: string | null = null) {
+export function pgStoreOf(s: any) {
   if (s.engine !== 'postgresql') return null
   const names = Array.isArray(s.projects) ? s.projects.map(String) : []
-  return { name: String(s.store), projects: num(s.projects_count) ?? names.length, names, state: text(s.state) ?? 'ready', op: opOf(s.op), ...companionsOf(s), runsOn }
+  const connectedFrom = (Array.isArray(s.connections) ? s.connections : []).map((c: any) => ({ machine: text(c?.machine) ?? 'native', reached: text(c?.reached) }))
+  return { name: String(s.store), projects: num(s.projects_count) ?? names.length, names, state: text(s.state) ?? 'ready', op: opOf(s.op), ...companionsOf(s), connectedFrom }
 }
 
 /**
@@ -383,8 +384,7 @@ export class Machines {
     const machines = rows.map((m: any) => machineOf(probedRecord(m, probed.get(String(m.machine))?.got)))
     const live = Object.fromEntries([...probed].map(([name, p]) => [name, machineLive(name, p.got, p.error)]))
     const stores = listedStores.map(storeOf).filter(Boolean)
-    const saved = new StoreMachines(this.host.root)
-    const postgresql = listedStores.map((s: any) => pgStoreOf(s, s.engine === 'postgresql' ? pgMachineOf(saved.get(String(s.store)), machines) : null)).filter(Boolean)
+    const postgresql = listedStores.map(pgStoreOf).filter(Boolean)
     // features: what the pinned CLI can do (force stop, the image stage and its parts); the page offers only those
     const answer: any = { available: true, readErrors, layerfs: version, features, computer: computer(host), machines, platforms, stores, postgresql, sandboxes, live }
     for (const [part, fields] of Object.entries({ stores: ['stores', 'postgresql'], sandboxes: ['sandboxes'], platforms: ['platforms'] })) {

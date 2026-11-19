@@ -1,18 +1,20 @@
 /**
  * Connect a database: the one dialog a PostgreSQL Store is connected and
- * checked with. A PostgreSQL Store is on no machine; "Runs on" is only the
- * machine its sessions start on (the plugin's own choice), and any machine
- * that runs PostgreSQL Sandboxes reaches the Store with the Store's own
- * connection. Three screens:
+ * checked with. A PostgreSQL Store is on no machine and has no Store-wide
+ * machine (spec v23): any machine that runs PostgreSQL Sandboxes reaches it,
+ * with its own address or the Store's, and each session picks where it runs.
+ * Three screens:
  *
- * - pick: every connected PostgreSQL Store under its server, each with where
- *   it runs and one button (Check; on a machine page, Run here for a Store
- *   that runs elsewhere). Each server ends with "New database on this
- *   server" (its host and user filled in, its password reused) and the list
- *   with "New server".
+ * - pick: every connected PostgreSQL Store under its server, each with the
+ *   machines it is connected from and one button (Check from this computer;
+ *   on a machine page, Connect: the check from that machine). Each server
+ *   ends with "New database on this server" (its host and user filled in,
+ *   its login reused) and the list with "New server".
  * - new: the database, its Store name (the database's by default), for a new
- *   server its host, user and password (a pasted connection URL fills them),
- *   and Runs on. store.connect, then the check from that machine.
+ *   server its host, user and password (a pasted connection URL fills them);
+ *   a saved login that already serves that server is picked by default
+ *   (V23-12). store.connect, then the check from this computer (or the
+ *   machine page's machine), which LayerFS records.
  * - check: the path the machine dials (machine, server, Store) and the three
  *   things the check tries from there (store doctor --machine). It answers
  *   once, so the path runs as one until it does; a failure marks the step
@@ -25,15 +27,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
-import { LocationPicker } from '../projects/setup/MachineTiles.tsx'
-import { defaultMachine, machinesFor } from '../projects/setup/model.ts'
+import { machinesFor } from '../projects/setup/model.ts'
 import { Field, MenuSelect, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { CHECK_STEPS, failedStep, parsePgUrl, pgUrl, routedServer, serverGroups, serverKey, type CheckStep, type PgServerGroup } from './machine-stores.ts'
-import { loopbackAlias, runsOnOf } from './model.ts'
-import { locationWords, refusalLabels, StoreGlyph, TextField } from './parts.tsx'
+import { connectedMachines, loopbackAlias } from './model.ts'
+import { refusalLabels, StoreGlyph, TextField } from './parts.tsx'
 import { PG_URL_LOGIN, PG_URL_PASSWORD, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
-import type { PgCheck, StorageView, StoreRow } from './types.ts'
+import type { PgAuth, PgCheck, StorageView, StoreRow } from './types.ts'
 import css from './MachineStores.module.css'
 import scss from './Storage.module.css'
 
@@ -64,19 +65,18 @@ export function dialedServer(s: StoreRow | undefined, machine: string, platform:
 
 export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, check: startCheck, onClose, done }: {
   api: LayerfsApi, t: StorageT, view: StorageView | undefined
-  /** A machine page's dialog: new databases run on it, and a Store that runs elsewhere can be moved here. */
+  /** A machine page's dialog: checks run from it, so a Store is connected from it. */
   machine?: string | undefined
   /** Open on a new database on this server (`host:port`). */
   server?: string | undefined
-  /** Open on the check of a Store, from `machine` (else where it runs). */
+  /** Open on the check of a Store, from `machine` (else this computer): Connect a machine. */
   check?: { store: string, machine?: string | undefined } | undefined
   onClose: () => void, done: () => void
 }): ReactNode {
   const groups = serverGroups(view?.stores ?? [])
   const [screen, setScreen] = useState<Screen>(() => {
     if (startCheck) {
-      const s = view?.stores.find((x) => x.name === startCheck.store)
-      return { kind: 'check', check: { store: startCheck.store, machine: startCheck.machine ?? fixed ?? (s ? runsOnOf(s) : 'native'), state: 'running' } }
+      return { kind: 'check', check: { store: startCheck.store, machine: startCheck.machine ?? fixed ?? 'native', state: 'running' } }
     }
     if (server) return { kind: 'new', server: groups.find((g) => g.server === server) ?? null }
     return groups.length ? { kind: 'pick' } : { kind: 'new', server: null }
@@ -104,9 +104,6 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
   if (!view) return null
   const place = (m: string) => (m === 'native' ? t('layerfsHome') : m)
   const running = screen.kind === 'check' && screen.check.state === 'running'
-  const runHere = async (store: string, machine: string) => {
-    await check(store, machine, {}, () => api.call('POST', `/api/stores/${enc(store)}/runs-on`, { machine }))
-  }
   const title = screen.kind === 'check' ? t('cdCheckTitle', { store: screen.check.store }) : fixed ? t('cdTitle', { machine: place(fixed) }) : t('connectDatabase')
   // a dialog opened on one screen has no list to go back to
   const back = startCheck || running || screen.kind === 'pick' || (screen.kind === 'new' && (server || !groups.length)) ? null : () => { setOwn(false); setScreen({ kind: 'pick' }) }
@@ -116,12 +113,11 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
       <div className={scss.form}>
         {screen.kind === 'pick' ? (
           <Pick t={t} groups={groups} fixed={fixed} place={place}
-            onCheck={(s) => void check(s.name, runsOnOf(s))}
-            onRunHere={(s) => void runHere(s.name, fixed!)}
+            onCheck={(s) => void check(s.name, fixed ?? 'native')}
             onNew={(g) => setScreen({ kind: 'new', server: g })} />
         ) : screen.kind === 'new' ? (
-          <NewDatabase api={api} t={t} view={view} fixed={fixed} server={screen.server} place={place}
-            onConnected={(store, machine) => { done(); void check(store, machine, { connected: true }) }} />
+          <NewDatabase api={api} t={t} view={view} server={screen.server}
+            onConnected={(store) => { done(); void check(store, fixed ?? 'native', { connected: true }) }} />
         ) : (
           <CheckView t={t} view={view} check={screen.check} place={place} own={own} ownUrl={ownUrl} setOwnUrl={setOwnUrl}
             onFrom={(machine) => { setOwn(false); void check(screen.check.store, machine, { connected: screen.check.connected }) }}
@@ -154,9 +150,9 @@ function Footer({ t, screen, back, onClose }: { t: StorageT, screen: Screen, bac
   )
 }
 
-function Pick({ t, groups, fixed, place, onCheck, onRunHere, onNew }: {
+function Pick({ t, groups, fixed, place, onCheck, onNew }: {
   t: StorageT, groups: PgServerGroup[], fixed: string | undefined, place: (m: string) => string
-  onCheck: (s: StoreRow) => void, onRunHere: (s: StoreRow) => void, onNew: (server: PgServerGroup | null) => void
+  onCheck: (s: StoreRow) => void, onNew: (server: PgServerGroup | null) => void
 }): ReactNode {
   return (
     <div className={css.servers}>
@@ -168,17 +164,17 @@ function Pick({ t, groups, fixed, place, onCheck, onRunHere, onNew }: {
             {g.user ? <span>{t('cdUser', { user: g.user })}</span> : null}
           </div>
           {g.stores.map((s) => {
-            const on = runsOnOf(s)
+            const from = connectedMachines(s)
             const database = s.postgresql?.database
             return (
               <div key={s.name} className={css.db} data-pg-store={s.name}>
                 <StateDot state={s.state === 'broken' ? 'error' : s.state === 'ready' ? 'done' : 'idle'} size={8} />
                 <span className={css.dbMain}>
                   <span className={css.dbName}>{s.name}</span>
-                  <span className={css.dbSub}>{[database && database !== s.name ? database : null, t('pgRunsOn', { machine: place(on) }), s.projects.join(', ') || t('msNoProjects')].filter(Boolean).join(' · ')}</span>
+                  <span className={css.dbSub}>{[database && database !== s.name ? database : null, from.length ? t('pgFrom', { machines: from.map(place).join(', ') }) : null, s.projects.join(', ') || t('msNoProjects')].filter(Boolean).join(' · ')}</span>
                 </span>
-                {fixed && on !== fixed
-                  ? <Button size="sm" variant="outline" onClick={() => onRunHere(s)}>{t('cdRunHere')}</Button>
+                {fixed && !from.includes(fixed)
+                  ? <Button size="sm" variant="outline" onClick={() => onCheck(s)}>{t('pgConnectMachineShort')}</Button>
                   : <Button size="sm" variant="ghost" onClick={() => onCheck(s)}>{t('cdCheck')}</Button>}
               </div>
             )
@@ -194,9 +190,19 @@ function Pick({ t, groups, fixed, place, onCheck, onRunHere, onNew }: {
 /** `text` as a URL with its scheme, as `parsePgUrl` reads one typed without it. */
 const withScheme = (text: string) => (/^postgres(?:ql)?:\/\//i.test(text.trim()) ? text.trim() : `postgresql://${text.trim()}`)
 
-function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
-  api: LayerfsApi, t: StorageT, view: StorageView, fixed: string | undefined, server: PgServerGroup | null, place: (m: string) => string
-  onConnected: (store: string, machine: string) => void
+/** A server as LayerFS compares them: `host:port`, the host in lower case, port 5432 by default. */
+const serverOf = (host: string): string => { const h = host.trim().toLowerCase(); return !h ? '' : /:\d+$/.test(h) ? h : `${h}:5432` }
+
+/** The saved login that already serves `server` (one of its Stores is on it), for Connect a database's default (spec v23 V23-12). */
+export function serverLogin(view: Pick<StorageView, 'stores'>, auths: readonly PgAuth[], server: string): string | null {
+  if (!server) return null
+  const on = new Set(view.stores.filter((s) => s.kind === 'postgresql' && s.postgresql?.server === server).map((s) => s.name))
+  return auths.find((a) => (a.state ?? 'ready') === 'ready' && a.stores.some((st) => on.has(st)))?.auth ?? null
+}
+
+function NewDatabase({ api, t, view, server, onConnected }: {
+  api: LayerfsApi, t: StorageT, view: StorageView, server: PgServerGroup | null
+  onConnected: (store: string) => void
 }): ReactNode {
   // a new server is given whole, as one URL; a known server gives its host and user
   const [url, setUrl] = useState('')
@@ -213,10 +219,10 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
   const pw = usePgPassword('entered', '', server?.stores.find((s) => s.postgresql?.auth)?.name ?? null)
   const auths = usePgAuths(api)
   const loginUser = pw.user.trim() || user
-  const machines = machinesFor(view, 'postgresql')
-  const fallback = defaultMachine(machines)
-  const [picked, setPicked] = useState<string | null>(null)
-  const runsOn = fixed ?? picked ?? fallback
+  // a new server's URL whose server a saved login already serves: that login, until the person picks another way
+  const known = server ? null : serverLogin(view, auths, serverOf(host))
+  const chose = useRef(false)
+  useEffect(() => { if (known && !chose.current) { pw.setHow('saved'); pw.setAuth(known) } }, [known])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(undefined)
   const [tried, setTried] = useState(false)
@@ -237,9 +243,9 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
     try {
       await api.call('POST', '/api/stores/postgresql', {
         // the address has no user: the login (saved now, reused, or named) carries it
-        name: storeName, url: pgUrl({ user: '', host, database }), ...(pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body()), runsOn, ...(sync ? { synchronousCommit: sync } : {}),
+        name: storeName, url: pgUrl({ user: '', host, database }), ...(pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body()), ...(sync ? { synchronousCommit: sync } : {}),
       })
-      onConnected(storeName, runsOn)
+      onConnected(storeName)
     } catch (e) {
       setError(e)
     } finally {
@@ -254,12 +260,7 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
             error={dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null} />
         : <TextField label={t('cdUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://app@db.internal:5432/orders" hint={t('cdUrlHint')} error={urlError} autoFocus />}
       <TextField label={t('cdStoreName')} value={named ? name : storeName} onChange={(v) => { setNamed(true); setName(v) }} mono error={nameError} />
-      <PgPasswordFields id="lfs-cd-password" pw={pw} t={t} auths={auths} />
-      {fixed ? <p className={scss.formNote}>{t('cdRunsOnFixed', { machine: place(fixed) })}</p> : (
-        <Field label={t('pgRunsOnLabel')} hint={t('cdRunsOnHint')} group>
-          <LocationPicker machines={machines} value={runsOn} onChange={setPicked} words={locationWords(t, view)} label={t('pgRunsOnLabel')} fallback={fallback} compact />
-        </Field>
-      )}
+      <PgPasswordFields id="lfs-cd-password" pw={{ ...pw, setHow: (h: Parameters<typeof pw.setHow>[0]) => { chose.current = true; pw.setHow(h) } }} t={t} auths={auths} />
       <details className={scss.storeDetails}>
         <summary className={scss.storeDetailsSummary}>
           <IconChevronRightOutlineRegular size={12} className={scss.storeDetailsChevron} />

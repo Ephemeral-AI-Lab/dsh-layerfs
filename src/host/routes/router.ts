@@ -162,7 +162,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (group === 'storage' && id === 'check' && !sub && method === 'POST') return storage.check(body ?? {})
   if (group === 'stores') {
     if (!id && method === 'POST') return storage.createStore(body ?? {})
-    // a PostgreSQL database: { name, url, auth | passwordFrom | user + passwordValue + authName? (a new login), synchronousCommit?, runsOn? }
+    // a PostgreSQL database: { name, url, auth | passwordFrom | user + passwordValue + authName? (a new login), synchronousCommit? }
     if (id === 'postgresql' && !sub && method === 'POST') return storage.connectPostgresql(body ?? {})
     if (id && sub === 'stats' && method === 'GET') return projects.storeStats(id)
     if (id && sub === 'observations' && method === 'GET') return projects.storeObservations(id)
@@ -174,7 +174,6 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     // the connection check from a machine (store doctor --machine): ?machine=<name>
     if (id && sub === 'check' && method === 'GET') return storage.checkStore(id, query.get('machine'))
     // the machine a PostgreSQL Store's sessions run on by default: { machine }
-    if (id && sub === 'runs-on' && method === 'POST') return storage.setRunsOn(id, body ?? {})
     // a sqlite Store on native to a machine (store move): { machine }
     if (id && sub === 'push' && method === 'POST') return storage.push(id, body?.machine)
     // a sqlite Store on a machine back to native (store move <s> native)
@@ -198,6 +197,9 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   }
   // the home's saved PostgreSQL logins (store auths): never a password
   if (group === 'store-auths' && !id && method === 'GET') return storage.auths()
+  // a login's new password (store save-auth under its own name), then every Store naming it checked; a login no Store names removed
+  if (group === 'store-auths' && id && sub === 'rotate' && method === 'POST') return storage.rotateLogin(id, body ?? {})
+  if (group === 'store-auths' && id && !sub && method === 'DELETE') return storage.removeLogin(id)
   if (group === 'storage-jobs' && id && !sub && method === 'GET') return storage.job(id)
   if (group === 'storage-jobs' && id && sub === 'inspect' && method === 'POST') return storage.inspect(id)
   if (group === 'storage-jobs' && id && sub === 'retry' && method === 'POST') return storage.retry(id)

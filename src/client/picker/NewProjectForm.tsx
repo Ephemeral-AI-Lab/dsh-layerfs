@@ -161,7 +161,7 @@ export function NewProjectForm({ api, t, scratchKey, withSource, optionalSource 
           : locations.length === 1 ? <span className={css.locationText} data-layerfs-location={locations[0]!.store}>{locationLabel(locations[0]!)}</span>
             : <MenuSelect value={store} label={t('location')} placeholder={t('storeChoose')}
               options={locations.map((l) => ({ value: l.store, label: locationLabel(l) }))} onChange={setStore} />}
-      {chosen?.kind === 'postgresql' && chosen.runsOn ? <span className={css.locationHint}>{t('runsOn', { machine: machineLabel(chosen.runsOn) })}</span> : null}
+      {chosen?.kind === 'postgresql' && chosen.connectedFrom.length ? <span className={css.locationHint}>{t('connectedFrom', { machines: chosen.connectedFrom.map(machineLabel).join(', ') })}</span> : null}
     </Field>
   )
   const back = <Button variant={dialog ? 'outline' : 'ghost'} type="button" disabled={busy} onClick={onBack}>{backLabel ?? t('back')}</Button>

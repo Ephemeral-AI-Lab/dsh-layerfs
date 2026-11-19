@@ -82,7 +82,7 @@ export function useProjectData(api: LayerfsApi) {
   const storage = useSteady(api, () => api.call<StorageView>('GET', '/api/storage'), ['storage', 'storage-job', 'machine-progress', 'connection'])
   const item = (row: ProjectRow): ProjectItem => {
     const store = storage.data?.stores.find((s) => s.name === storeOf(row))
-    const machine = primaryMachine(store) ?? row.machine ?? null
+    const machine = primaryMachine(store, storage.data?.machines) ?? row.machine ?? null
     return { row, store, runsOn: store ? runsOn(store) : row.machine ? [row.machine] : [], availability: projectAvailability({ ...row, machine }, machines.data, machines.error) }
   }
   return {

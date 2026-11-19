@@ -32,9 +32,6 @@ export async function placeStore(api: LayerfsApi, store: string, machine: string
   if (job && typeof job === 'object' && 'id' in job && 'ended' in job) await waitJob(api, job)
 }
 
-/** The machine a PostgreSQL Store's sessions run on by default (the plugin's own choice; LayerFS records none). */
-export const setRunsOn = (api: LayerfsApi, store: string, machine: string) => api.call('POST', `/api/stores/${enc(store)}/runs-on`, { machine })
-
 /** The Store a plan creates in or uses. */
 export const storeOfPlan = (plan: CreatePlan): string => plan.store?.name ?? plan.newStore?.name ?? ''
 
@@ -53,7 +50,7 @@ export async function runStep(api: LayerfsApi, plan: CreatePlan, step: Step, onJ
       return
     case step.id === 'connect':
       // a new login is saved by the host first (store save-auth, the password on stdin), then named on store connect --auth
-      await api.call('POST', '/api/stores/postgresql', { name: store, url: plan.newStore?.url ?? '', ...(plan.newStore?.login ? pgLoginBody(plan.newStore.login) : {}), ...(step.machine ? { runsOn: step.machine } : {}) })
+      await api.call('POST', '/api/stores/postgresql', { name: store, url: plan.newStore?.url ?? '', ...(plan.newStore?.login ? pgLoginBody(plan.newStore.login) : {}) })
       return
     case step.id === 'init': {
       const job = await api.call<ProjectInitJob>('POST', '/api/projects', { store, name: plan.name, ...(plan.source ? { source: plan.source } : {}) })
@@ -62,9 +59,6 @@ export async function runStep(api: LayerfsApi, plan: CreatePlan, step: Step, onJ
     }
     case step.id.startsWith('place:'):
       await placeStore(api, store, step.machine!, !plan.store)
-      return
-    case step.id.startsWith('runs-on:'):
-      await setRunsOn(api, store, step.machine!)
       return
     default:
   }
