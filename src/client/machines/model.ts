@@ -628,13 +628,20 @@ const REASON_LABEL: Record<string, MachinesKey> = {
   missing: 'stateMissing', failed: 'stateFailed', unresolved: 'stateUnresolved', lost: 'stateLost', unsupported: 'stateUnsupported',
 }
 
+/**
+ * A machine whose record LayerFS cannot read: listed `broken` with reason
+ * `failed`, no platform and the fix `layerfs machine doctor <name>`. Its
+ * get, remove and update are refused `Failed`; the Doctor names what is wrong.
+ */
+export const unreadableRecord = (m: Pick<MachineInfo, 'state' | 'reason' | 'platform'>): boolean => m.state === 'broken' && m.reason === 'failed' && !m.platform
+
 /** A machine's state as LayerFS gives it (one of the six), worded by its companion: a busy op's name, a broken reason. */
 export function machineState(m: MachineInfo, _live?: MachineLive): StateLook & { key: MachineKey, state: string, op: SdkOperation | null } {
   const state = m.state || 'unknown'
   const look = stateLook('machine', state)
   const op = m.op ?? null
   if (state === 'busy') return { ...look, label: (op && OP_LABEL[op.name.replace(/^machine\./, '')]) || look.label, key: 'busy', state, op }
-  if (state === 'broken') return { ...look, label: (m.reason && REASON_LABEL[m.reason]) || look.label, key: 'needs', state, op }
+  if (state === 'broken') return { ...look, label: unreadableRecord(m) ? 'stateUnreadable' : (m.reason && REASON_LABEL[m.reason]) || look.label, key: 'needs', state, op }
   const key: MachineKey = state === 'ready' ? 'running' : state === 'stopped' ? 'stopped' : 'unknown'
   return { ...look, key, state, op }
 }

@@ -52,7 +52,8 @@ export function machineOf(m: any) {
   const state = text(m.state) ?? 'ready'
   return {
     name: String(m.machine),
-    platform: String(m.platform),
+    // empty for a record LayerFS could not read (it lists the machine `broken`/`failed` with no platform)
+    platform: text(m.platform) ?? '',
     backend: text(m.backend),
     // the SDK's state, as it is (#537 U4)
     state: STATES.has(state) ? state : 'unknown',
@@ -78,6 +79,14 @@ export function machineOf(m: any) {
     ...(text(m.daemon) ? { daemon: m.daemon } : {}),
   }
 }
+
+/**
+ * A machine whose record LayerFS cannot read: `machine list` names it
+ * `broken` with reason `failed`, no platform and the fix `layerfs machine
+ * doctor <name>`; `machine get`, `remove` and `update` refuse it `Failed`.
+ */
+export const unreadableRecord = (m: { state?: string | null, reason?: string | null, platform?: string | null }): boolean =>
+  m.state === 'broken' && m.reason === 'failed' && !m.platform
 
 /** A machine as the page and the host read it. */
 export type MachineRecord = ReturnType<typeof machineOf>

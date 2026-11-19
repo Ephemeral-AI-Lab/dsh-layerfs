@@ -3,7 +3,8 @@
 // action the fix line becomes. (The Doctor page's own fixes: test/doctor-model.test.mjs.)
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { fixAction, machineState, workerDown, powerOf } from '../src/client/machines/model.ts'
+import { fixAction, machineState, workerDown, powerOf, unreadableRecord } from '../src/client/machines/model.ts'
+import { machineOf, unreadableRecord as hostUnreadable } from '../src/host/layerfs/machine-records.ts'
 
 const vm = (state, extra = {}) => ({ name: 'demo-build', platform: 'lima', state, stores: ['demo-build-cache'], sandboxes: [], ...extra })
 const restart = 'layerfs machine stop demo-build && layerfs machine start demo-build'
@@ -46,4 +47,25 @@ test('a clean stop, native, and the other states are not down', () => {
   assert.deepEqual([busy.key, busy.label], ['busy', 'stateStarting'])
   assert.equal(workerDown(vm('busy')), false)
   assert.equal(fixAction(vm('ready')), null)
+})
+
+// LayerFS N-D: a machine record LayerFS cannot read is a `machine list` item `broken`
+// with reason `failed`, no platform and the fix `layerfs machine doctor <name>` (its
+// get, remove and update refuse `Failed`). The page names it, offers no start or
+// restart, and its one action is the Doctor (the fix line is not run from here).
+test('an unreadable machine record: broken, "record unreadable", nothing to start, the Doctor as its action', () => {
+  const item = { machine: 'bad', platform: null, state: 'broken', op: null, reason: 'failed', fix: 'layerfs machine doctor bad', message: '/home/machine/bad/record.json: expected a field name at byte 1', stores: null, sandboxes: null }
+  const m = machineOf(item)
+  assert.equal(m.platform, '')
+  assert.equal(hostUnreadable(m), true)
+  assert.equal(unreadableRecord(m), true)
+  const look = machineState(m)
+  assert.deepEqual([look.key, look.label], ['needs', 'stateUnreadable'])
+  assert.equal(workerDown(m), false)
+  assert.equal(powerOf(m), null)
+  // the fix is a doctor call the page does not run: kept as a line, never a button here
+  assert.deepEqual(fixAction(m), { kind: 'copy', line: 'layerfs machine doctor bad' })
+  // a broken machine whose record reads is not one
+  assert.equal(unreadableRecord(vm('broken', { reason: 'failed', fix: 'layerfs machine start demo-build' })), false)
+  assert.equal(machineState(vm('broken', { reason: 'failed' })).label, 'stateFailed')
 })

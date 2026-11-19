@@ -17,7 +17,7 @@ import { MachineGlyph, MachinesGlyph } from './icons.tsx'
 import type { View } from './context.tsx'
 import { Inventory, creatingOn, storeLines, useMachineTitle, type StoreMenuOf } from './Inventory.tsx'
 import {
-  RANK, downReason, gib, machineOrder, machineState, runtimeOf, sandboxesOn,
+  RANK, downReason, gib, machineOrder, machineState, runtimeOf, sandboxesOn, unreadableRecord,
   type AvailableView, type MachineInfo,
 } from './model.ts'
 import { engineStart, machineBlock, nativeGlyphOs, nativeNameKey, osOfView, stepReasons, type Readiness } from './needs.ts'
@@ -234,7 +234,9 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
   const sandboxAction = !block
     ? <button type="button" className={css.columnAction} disabled={pending !== null} onClick={() => setCreating(true)} title={t('newSandboxOn', { name })}>{plus}{t('newSandbox')}</button>
     : null
-  const sub = m.platform === 'native' ? `${t(nativeNameKey(osOfView(view)))} · ${tw(runtimeOf(m))}` : `${kind(m.platform)} · ${tw(runtimeOf(m))}`
+  const sub = m.platform === 'native' ? `${t(nativeNameKey(osOfView(view)))} · ${tw(runtimeOf(m))}` : m.platform ? `${kind(m.platform)} · ${tw(runtimeOf(m))}` : t('platformUnknown')
+  // an unreadable record: the page's sentence, LayerFS's own words as its tip
+  const unreadable = unreadableRecord(m)
   return (
     <div className={css.fleetMachine} data-machine={m.name} data-open={open || undefined} data-tone={attention ?? undefined} role="rowgroup" aria-label={name}>
       <div className={css.fleetRow} role="row" onClick={(e) => { if (!fromControl(e)) onToggle(!open) }}>
@@ -267,7 +269,7 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
           {block && <Blocked m={m} block={block} action={engine ? <PowerButton m={m} pending={pending} run={run} engine /> : undefined} />}
           {!block && (reason || attention === 'danger') && (
             <div className={css.blockReason}>
-              <span className={css.blockReasonText} title={reason ?? undefined}>{reason ?? t('needsInspect', { state: t(machineState(m, live).label ?? 'stateUnknown') })}</span>
+              <span className={css.blockReasonText} title={reason ?? undefined}>{unreadable ? t('recordUnreadable') : reason ?? t('needsInspect', { state: t(machineState(m, live).label ?? 'stateUnknown') })}</span>
               {attention === 'danger' && <DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} />}
             </div>
           )}

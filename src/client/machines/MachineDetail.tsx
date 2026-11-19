@@ -24,7 +24,7 @@ import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { useMachineTitle } from './Inventory.tsx'
-import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, heldStores, supports, type AvailableView, type MachineInfo } from './model.ts'
+import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, heldStores, supports, unreadableRecord, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
@@ -138,7 +138,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
       )}
       {(reason || error !== null || state.state === 'unresolved') && (
         <Notice tone={attention === 'danger' || error !== null ? 'danger' : undefined}>
-          {reason && <p>{reason}</p>}
+          {reason && (unreadableRecord(m) ? <p title={reason}>{t('recordUnreadable')}</p> : <p>{reason}</p>)}
           {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
           {heldStores(m) > 0 && attention === 'danger' && <p>{t(heldStores(m) === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(heldStores(m)) })}</p>}
           {error !== null && <Refusal error={error} labels={refusal} />}
@@ -184,7 +184,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
             icon={<MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={22} />}
             title={name}
             badge={<MachineStateChip m={m} live={live} pending={pending} blocked={engine ? 'engine' : !!block} />}
-            intro={`${kind(m.platform)} · ${tw(runtimeOf(m))}`}
+            intro={m.platform ? `${kind(m.platform)} · ${tw(runtimeOf(m))}` : t('platformUnknown')}
             actions={(
               <>
                 {power}

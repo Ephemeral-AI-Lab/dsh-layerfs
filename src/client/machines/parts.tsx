@@ -11,7 +11,7 @@ import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
 import type { MachinesKey } from './locale.ts'
-import { BUILT_IN, duration, fixAction, forceStopOf, machineState, opWords, powerOf, stageWords, workerDown, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, duration, fixAction, forceStopOf, machineState, opWords, powerOf, stageWords, unreadableRecord, workerDown, type MachineInfo, type MachineLive } from './model.ts'
 import { socketSetting, socketSourceWords, type SocketChoice, type SocketSetting } from './socket.ts'
 import css from './machines.module.css'
 
@@ -174,7 +174,9 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
             : (
               <>
                 {/* a machine that still holds Stores or Sandboxes gets the guided Remove (RemoveDialog) */}
-                <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} disabled={pending !== null}
+                {/* LayerFS refuses to remove a machine whose record it cannot read: the Doctor says what is wrong first */}
+                <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} disabled={pending !== null || unreadableRecord(m)}
+                  disabledReason={unreadableRecord(m) ? t('recordUnreadableNoRemove') : undefined}
                   onSelect={() => { close(); onDialog('remove') }}>
                   {t('remove')}
                 </MenuItemButton>

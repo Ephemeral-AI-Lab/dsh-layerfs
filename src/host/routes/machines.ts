@@ -13,8 +13,9 @@
  * The 2.0 machine family (call-surface-2-0 `machine` rows): `machine list
  * --detail` (records only: each machine's six-state `state` with its
  * companion `op`, `reason` and `fix`, never guessed here), then `machine get
- * <m> --detail --with live` for each machine but native (the live probe: the
- * state it finds, free disk, tool version, worker), with store.list() and
+ * <m> --detail --with live` for each machine whose record LayerFS can read
+ * (the live probe: the state it finds, free disk, tool version, worker;
+ * native's is its free disk), with store.list() and
  * sandbox.list(): one read for the page, and none of it starts a machine.
  * The platforms come from `home get --with platforms`. One answer serves
  * every tab for {@link VIEW_KEEP_MS}. Whether a
@@ -32,7 +33,7 @@ import { Answer, cliFeatures, featuresOf, fixOf, pages, refuse, type CliFeatures
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
-import { companionsOf, machineOf, opOf } from '../layerfs/machine-records.ts'
+import { companionsOf, machineOf, opOf, unreadableRecord } from '../layerfs/machine-records.ts'
 
 export { machineOf, opOf, STATES } from '../layerfs/machine-records.ts'
 import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
@@ -370,8 +371,10 @@ export class Machines {
       lfs.store.list({ detail: true }).then((a: any) => list(a?.items), failed('stores')),
       // records only: a row's Workspaces where the home keeps them
       pages(listSandboxes).then((rows) => rows.map(sandboxOf), failed('sandboxes')),
-      // the live probe of each machine but native (it has none): starts nothing; its answer is the machine's current state
-      Promise.all(rows.filter((m: any) => m?.platform !== 'native').map((m: any) => lfs.machine.get(String(m.machine), { detail: true, with: ['live'] })
+      // the live probe of each machine (native's answers its free disk): starts nothing; its answer is the machine's current state.
+      // A record LayerFS cannot read is not probed: `machine get` refuses it `Failed` with the same fix its list row carries.
+      // (a probe that throws at once is a failed probe like any other: the record's row stands)
+      Promise.all(rows.filter((m: any) => !unreadableRecord({ state: m?.state, reason: m?.reason, platform: m?.platform })).map((m: any) => Promise.resolve().then(() => lfs.machine.get(String(m.machine), { detail: true, with: ['live'] }))
         .then((got: any) => ({ name: String(m.machine), got }), (error: any) => ({ name: String(m.machine), error })))),
     ])
     const probed = new Map<string, { got?: any, error?: any }>(probes.map((p: any) => [p.name, p]))
