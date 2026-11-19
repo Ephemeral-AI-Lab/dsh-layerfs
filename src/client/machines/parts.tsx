@@ -368,7 +368,7 @@ function RemoveDialog({ m, onClose, pending, run, onRemoved }: { m: MachineInfo,
   }
   const confirmed = !occupied || typed === m.name
   return (
-    <Modal open onClose={() => { if (!busy) onClose() }} title={t('removeTitle', { name: m.name })} description={recordOnly ? t('removeRecordBody', { name: m.name }) : occupied ? t('removeHeldBody', { name: m.name }) : t('removeBody')} closeLabel={t('close')} className={css.dialog}
+    <Modal open onClose={() => { if (!busy) onClose() }} title={t('removeTitle', { name: m.name })} description={recordOnly ? (m.stores.length ? t('removeRecordHeldBody', { name: m.name, stores: m.stores.join(', ') }) : t('removeRecordBody', { name: m.name })) : occupied ? t('removeHeldBody', { name: m.name }) : t('removeBody')} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
           <Button variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>

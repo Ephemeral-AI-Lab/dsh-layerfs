@@ -211,6 +211,8 @@ export const CHECK_STEPS: readonly CheckStep[] = ['server', 'store', 'write']
 export function failedStep(code: string | undefined, message: string | undefined): CheckStep | null {
   const text = message ?? ''
   if (code === 'Unavailable') return text.includes('holds another Store than') ? 'store' : 'server'
+  // a check the host stopped because LayerFS did not answer in time: the server did not answer (M FAIL 4), so its own address is offered
+  if (code === 'Unknown' && /did not answer in time|timed out/i.test(text)) return 'server'
   if (code === 'Denied') {
     if (!/\black(s)?\b/.test(text)) return 'server'
     return text.includes(' on schema ') ? 'store' : 'write'

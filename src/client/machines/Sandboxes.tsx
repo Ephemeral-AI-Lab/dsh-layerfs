@@ -109,7 +109,7 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
         )}
       </MoreMenu>
       {confirm && (
-        <Modal open onClose={() => { if (!busy) setConfirm(null) }} title={t(confirm === 'force' ? 'forceDeleteTitle' : 'deleteTitle')} closeLabel={t('close')} className={css.dialog}
+        <Modal open onClose={() => { if (!busy) setConfirm(null) }} title={t(confirm === 'force' ? 'forceDeleteTitle' : 'deleteTitle', { name })} closeLabel={t('close')} className={css.dialog}
           description={t(confirm === 'force' ? 'forceDeleteBody' : 'deleteBody', { name })}
           footer={(
             <>

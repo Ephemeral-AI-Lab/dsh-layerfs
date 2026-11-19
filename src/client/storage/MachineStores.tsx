@@ -33,7 +33,7 @@
  * and dots the worst state; it opens Backups (BackupDialogs.tsx).
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
@@ -461,14 +461,20 @@ function SizeFigure({ s, t, now, last }: { s: StoreRow, t: StorageT, now: number
   if (!size) return <Figure big={t('msSizeUnknown')} tone="none" meta={meta} />
   const parts = bytes(size.bytes)
   return <Figure big={bytes(size.bytes)} tone={size.stale ? 'stale' : undefined} meta={meta}
-    title={size.stale ? t('msSizeStaleTitle', { parts, when: seen ?? '?' }) : undefined} />
+    // a stopped machine is stopped, not "does not answer" (R2-2)
+    title={size.stale ? t(stoppedBlock(s) ? 'msSizeStaleStoppedTitle' : 'msSizeStaleTitle', { parts, when: seen ?? '?' }) : undefined} />
 }
 
 /** A Store's state in words on its card (LayerFS's sentence as the tip) and its fix as the one action. */
+/** A Store waiting on its stopped (or not yet listed) machine. */
+const stoppedBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): boolean => s.state === 'blocked' && ['', 'stopped'].includes(s.blockedBy?.reason ?? '')
+
+/** The card's status: dot and word, LayerFS's sentence (or its fix) as the tip, and the one fix (R2-2: never a bare sentence). */
 function StoreStatus({ s, t, words }: { s: StoreRow, t: StorageT, words: string }): ReactNode {
-  const tip = useStoreTip(s, t)
+  const tip = useStoreTip(s, t) ?? s.fix ?? undefined
   return (
     <div className={css.statusRow} data-tone={s.state === 'broken' ? 'danger' : 'warning'}>
+      <StateDot state={s.state === 'broken' ? 'error' : 'idle'} size={8} />
       <span className={css.statusText} title={tip}>{words}</span>
       <StoreAction store={s} t={t} />
     </div>
@@ -534,14 +540,18 @@ function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
     <div className={css.pgGroups}>
       {groups.map((g) => {
         const count = g.stores.length === 1 ? t('msStoreOne', { n: 1 }) : t('msStores', { n: g.stores.length })
+        // a ready login whose Stores' last reach failed (a wrong password after a rotation) is not "Ready": the header follows its chips (M FAIL 10)
+        const failed = g.state === 'ready' ? g.stores.flatMap((st) => (st.connectedFrom ?? []).filter((c) => c.reached === 'failed')) : []
+        const state = failed.length ? 'broken' : g.state
+        const causes = [...new Set(failed.map((c) => c.reach?.error).filter((e): e is string => !!e))]
         return (
           <section key={g.auth ?? '(no login)'} className={css.pgGroup} data-pg-login={g.auth ?? ''} aria-label={g.auth ?? t('pgNoLogin')}>
-            <header className={css.pgServer} title={loginTip(g, t, now)}>
+            <header className={css.pgServer} title={[loginTip(g, t, now), ...causes].join('\n')}>
               <StoreGlyph kind="postgresql" size={14} />
               <span className={css.pgServerName}>{g.auth ?? t('pgNoLogin')}</span>
               <span className={css.pgServerFacts}>{[g.user, count].filter(Boolean).join(' · ')}</span>
-              <span className={css.check} data-state={g.state === 'broken' ? 'failed' : undefined}>
-                <span className={css.dot} data-health={healthOf(g.state)} />{storeStateWords(g.state, t)}
+              <span className={css.check} data-state={state === 'broken' ? 'failed' : undefined}>
+                <span className={css.dot} data-health={healthOf(state)} />{failed.length ? t('pgLoginNotReached') : storeStateWords(g.state, t)}
               </span>
               {g.auth && loginActions ? (
                 <span className={css.pgServerAdd}>

@@ -678,7 +678,7 @@ export function machineState(m: MachineInfo, _live?: MachineLive): StateLook & {
   const look = stateLook('machine', state)
   const op = m.op ?? null
   if (state === 'busy') return { ...look, label: (op && OP_LABEL[op.name.replace(/^machine\./, '')]) || look.label, key: 'busy', state, op }
-  if (state === 'broken') return { ...look, label: unreadableRecord(m) ? 'stateUnreadable' : recordOutdated(m) ? 'stateRecordOutdated' : (m.reason && REASON_LABEL[m.reason]) || look.label, key: 'needs', state, op }
+  if (state === 'broken') return { ...look, label: unreadableRecord(m) ? 'stateUnreadable' : recordOutdated(m) ? 'stateRecordOutdated' : vmGone(m) ? 'stateVmGone' : (m.reason && REASON_LABEL[m.reason]) || look.label, key: 'needs', state, op }
   const key: MachineKey = state === 'ready' ? 'running' : state === 'stopped' ? 'stopped' : 'unknown'
   return { ...look, key, state, op }
 }
@@ -758,7 +758,15 @@ export function heldWords(held: { stores: number }): Words {
  * `missing`). Its `fix` says how; {@link fixAction} says what the page runs.
  */
 export const workerDown = (m: MachineInfo, _live?: MachineLive): boolean =>
-  m.platform !== 'native' && m.state === 'broken' && ['not_answering', 'outdated', 'unreachable', 'engine_down', 'missing'].includes(m.reason ?? '') && !recordOutdated(m)
+  m.platform !== 'native' && m.state === 'broken' && ['not_answering', 'outdated', 'unreachable', 'engine_down'].includes(m.reason ?? '') && !recordOutdated(m)
+
+/**
+ * A machine whose VM or container is gone (LayerFS reason `missing`, fix
+ * `layerfs machine remove M`; M FAIL 9): not a worker that does not answer.
+ * Nothing to restart or stop; LayerFS's fix is the one action.
+ */
+export const vmGone = (m: Pick<MachineInfo, 'platform' | 'state' | 'reason'>): boolean =>
+  m.platform !== 'native' && m.state === 'broken' && m.reason === 'missing'
 
 /**
  * An `outdated` record no call repairs (UI pass 3 R FAIL 2): a record with no

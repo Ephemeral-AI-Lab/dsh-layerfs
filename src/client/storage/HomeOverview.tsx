@@ -24,7 +24,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import type { Query } from '../files/use-query.ts'
 import { useMachinesContext } from '../machines/context.tsx'
-import { downReason, machineOrder, machineState, recordOutdated, workerDown, type AvailableView } from '../machines/model.ts'
+import { downReason, machineOrder, machineState, recordOutdated, vmGone, workerDown, type AvailableView } from '../machines/model.ts'
 import { machineBlock, stepReasons } from '../machines/needs.ts'
 import type { SetupModalT } from '../setup/locale.ts'
 import { SetupCard, unset } from '../setup/SetupCard.tsx'
@@ -232,6 +232,17 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         action: { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
         // a power action from the head asks a second press that names the machine (UI pass 3 F6): a stray click never stops it
         secondary: { label: t('ovStopUnreachable', { machine: place(m.name) }), title: t('ovStopUnreachableTitle', { machine: place(m.name) }), confirm: t('ovStopConfirm', { machine: place(m.name) }), run: () => mc.act({ kind: 'stop', name: m.name }) },
+      })
+    } else if (vmGone(m)) {
+      // its VM is gone (LayerFS `missing`, M FAIL 9): not "not answering", no Stop or Restart; LayerFS's fix is the one action
+      const fix = fixes ? resolveFix(fixes, m.fix)?.fix ?? null : null
+      needs.push({
+        key: `gone:${m.name}`, tone: 'danger', rank: 1,
+        title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{m.stores.length
+          ? t('ovVmGoneStores', { machine: place(m.name), stores: m.stores.join(', ') })
+          : t('ovVmGone', { machine: place(m.name) })}</Link>,
+        detail: <span title={[m.message, m.fix].filter(Boolean).join('\n') || undefined}>{mc.stateWord(look)}</span>,
+        action: fix && fixes ? { label: fixes.label(fix), run: () => fixes.run(fix) } : { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
       })
     } else if (recordOutdated(m)) {
       // an outdated record no call repairs (UI pass 3 R FAIL 2): not a worker that does not answer, and no Stop;

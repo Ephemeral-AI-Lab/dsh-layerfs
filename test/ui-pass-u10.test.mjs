@@ -194,7 +194,8 @@ test('F1: Remove for a built-in follows LayerFS: enabled when its fix is machine
   const parts = src('src/client/machines/parts.tsx')
   assert.match(parts, /builtIn && !fixRemoves\(m\)/, 'the greyed "Built in" Remove only when LayerFS gives no remove fix (U12: alone or as the last step of a chain)')
   assert.match(parts, /const recordOnly = fixAction\(m\)\?\.kind === 'remove'/)
-  assert.match(parts, /recordOnly \? t\('removeRecordBody'/)
+  // fix loop 2 (M FAIL 5): a record that still holds Stores names them first; otherwise the record-only words as before
+  assert.match(parts, /recordOnly \? \(m\.stores\.length \? t\('removeRecordHeldBody'[^]*?\) : t\('removeRecordBody'/)
   assert.match(src('src/client/machines/Spec.tsx'), /if \(BUILT_IN\.has\(m\.platform\) && !recordOnly\) return null/)
   const docker = { name: 'docker', platform: 'docker', state: 'broken', reason: 'failed', fix: 'layerfs machine remove docker' }
   assert.equal(M.mm.fixAction(docker)?.kind, 'remove')

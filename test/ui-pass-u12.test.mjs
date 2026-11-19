@@ -60,6 +60,8 @@ await build({
       "export { refusalOf as cliRefusalOf } from './src/host/layerfs/cli.ts'",
       "export { refusedInUse } from './src/client/machines/MachineImages.tsx'",
       "export { classifyStore } from './src/host/sessions/availability.ts'",
+      "export { PG_URL_LOGIN, loginInUrlFix } from './src/client/storage/pg-fields.tsx'",
+      "export * as ms from './src/client/storage/machine-stores.ts'",
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
       "export { locales as storageLocales } from './src/client/storage/locale.ts'",
       "export { locales as doctorLocales } from './src/client/doctor/locale.ts'",
@@ -147,7 +149,7 @@ test('R FAIL 2: an outdated record whose fix removes it is not a worker that doe
   const branch = home.slice(home.indexOf('} else if (recordOutdated(m)) {'), home.indexOf("} else if (look.key === 'needs') {"))
   assert.match(branch, /ovRecordOutdatedStores/)
   assert.doesNotMatch(branch, /secondary|kind: 'stop'/, 'the head never offers Stop for it')
-  assert.match(src('src/client/machines/MachineDetail.tsx'), /recordOutdated\(m\) \? \(heldStores\(m\) === 1 \? 'storeBlockedRecordOne' : 'storesBlockedRecord'\)/)
+  assert.match(src('src/client/machines/MachineDetail.tsx'), /recordOutdated\(m\) \|\| vmGone\(m\) \? \(heldStores\(m\) === 1 \? 'storeBlockedRecordOne' : 'storesBlockedRecord'\)/, 'an outdated record (and, since fix loop 2, a VM gone) blocks its Store until the record is removed')
   for (const lang of ['en', 'zh']) {
     assert.ok(M.storageLocales[lang].ovRecordOutdatedStores.includes('{stores}'), lang)
     assert.ok(M.machineLocales[lang].stateRecordOutdated && M.machineLocales[lang].storeBlockedRecordOne && M.machineLocales[lang].storesBlockedRecord.includes('{n}'), lang)
@@ -582,4 +584,90 @@ test('R1 F4/F5: the Connection status parts stand apart; the password input stay
   assert.match(pageCss, /\.linkCheck \{[^}]*display: flex;[^}]*gap: 4px 6px;/)
   assert.match(pageCss, /\.linkPart \+ \.linkPart::before \{\s*content: '·';/)
   assert.match(src('src/client/storage/Storage.module.css'), /\.passwordPart \.passwordInput \{[^}]*box-sizing: border-box;[^}]*max-width: 100%;/)
+})
+
+// ---------------------------------------------------------------- Step 7 fix loop 2 (M and R2 on 3080)
+
+test('M2 (V23-13): Connect a database refuses a URL naming a login, with LayerFS\'s fix line; nothing is created; other options go through', () => {
+  const base = 'postgresql://127.0.0.1:56968/x'
+  for (const q of ['?passfile=/x', '?sslpassword=s', '?password=p', '?user=u']) assert.ok(M.PG_URL_LOGIN.test(base + q), q)
+  assert.ok(M.PG_URL_LOGIN.test('postgresql://app@db:5432/x'), 'a user part')
+  assert.ok(M.PG_URL_LOGIN.test('postgresql://app:pw@db:5432/x'), 'a password part')
+  // V23-13 (spec NOTE): sslkey/sslcert name a client-certificate file, not a secret: allowed
+  assert.equal(M.PG_URL_LOGIN.test(base + '?sslkey=/k.pem'), false)
+  assert.equal(M.PG_URL_LOGIN.test(base + '?sslmode=require'), false)
+  assert.equal(M.loginInUrlFix('postgresql://app:pw@db:5432/orders?sslmode=require&passfile=/x', 'orders'),
+    'layerfs store save-auth <auth> --user app --password-stdin && layerfs store connect orders postgresql://db:5432/orders?sslmode=require --auth <auth>')
+  assert.equal(M.loginInUrlFix(base + '?sslpassword=s&user=u', ''), `layerfs store save-auth <auth> --user u --password-stdin && layerfs store connect <store> ${base} --auth <auth>`)
+  const cd = src('src/client/storage/ConnectDatabase.tsx')
+  assert.match(cd, /const loginInUrl = !server && PG_URL_LOGIN\.test\(withScheme\(url\)\)/)
+  assert.match(cd, /const urlError = loginInUrl \? t\('cdLoginInUrl'\)/)
+  assert.match(cd, /const valid = [^\n]*!urlError/, 'Connect stays off: nothing is created')
+  assert.match(cd, /\{loginInUrl \? <p className=\{scss\.formNote\} data-login-fix>[^\n]*loginInUrlFix\(url, storeName\)/)
+  assert.match(cd, /url: `\$\{pgUrl\(\{ user: '', host, database \}\)\}\$\{options\}`/, 'its other options are not dropped')
+  for (const lang of ['en', 'zh']) for (const key of ['cdLoginInUrl', 'cdLoginFix']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
+})
+
+test('M3b: opening Connect a machine runs no check; the named "Check <store> from <machine>" does', () => {
+  const cd = src('src/client/storage/ConnectDatabase.tsx')
+  assert.match(cd, /machine: startCheck\.machine \?\? fixed \?\? 'native', state: 'ready' \}/)
+  assert.doesNotMatch(cd, /useEffect\(\(\) => \{ if \(screen\.kind === 'check' && screen\.check\.state === 'running'\) void check/, 'no check on open')
+  assert.match(cd, /check\?\.state === 'ready'\s*\? <Button variant="primary" onClick=\{onRun\}>\{t\('cdCheckFromNamed', \{ store: check\.store, machine: place\(check\.machine\) \}\)\}/)
+  assert.match(cd, /if \(screen\.check\.state === 'ready'\) setScreen\(\{ kind: 'check', check: \{ \.\.\.screen\.check, machine \} \}\)/, 'choosing From before the press checks nothing')
+  for (const lang of ['en', 'zh']) assert.match(M.storageLocales[lang].cdCheckFromNamed, /\{store\}[^]*\{machine\}|\{machine\}[^]*\{store\}/)
+})
+
+test('M9: a lost VM (missing) is "VM gone": not worker down, no Stop or Restart, LayerFS\'s fix as the one action', () => {
+  const gone = { name: 'lm', platform: 'lima', state: 'broken', reason: 'missing', fix: 'layerfs machine remove lm', stores: ['bs'], sandboxes: [] }
+  assert.equal(M.mm.vmGone(gone), true)
+  assert.equal(M.mm.workerDown(gone), false)
+  assert.equal(M.mm.powerOf(gone), null)
+  assert.equal(M.mm.machineState(gone).label, 'stateVmGone')
+  assert.equal(M.mm.vmGone({ ...gone, platform: 'native' }), false)
+  assert.equal(M.mm.workerDown({ ...gone, reason: 'not_answering' }), true)
+  const home = src('src/client/storage/HomeOverview.tsx')
+  assert.match(home, /\} else if \(vmGone\(m\)\) \{[^]*?t\('ovVmGoneStores'[^]*?action: fix && fixes \? \{ label: fixes\.label\(fix\), run: \(\) => fixes\.run\(fix\) \}/)
+  assert.match(src('src/client/machines/Spec.tsx'), /vmGone\(m\) \? t\('readinessVmGone'\)/)
+  assert.match(src('src/client/machines/MachineDetail.tsx'), /t\(recordOutdated\(m\) \|\| vmGone\(m\) \?/)
+  for (const lang of ['en', 'zh']) {
+    for (const key of ['ovVmGone', 'ovVmGoneStores']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
+    for (const key of ['stateVmGone', 'readinessVmGone']) assert.ok(M.machineLocales[lang][key], `${lang} ${key}`)
+  }
+  assert.doesNotMatch(M.storageLocales.en.ovVmGoneStores, /answer/)
+})
+
+test('R2-2: a Store on a stopped machine shows a dot, word, tip and its fix; its size tip says stopped, not "does not answer"', () => {
+  const ms = src('src/client/storage/MachineStores.tsx')
+  const status = ms.slice(ms.indexOf('function StoreStatus'), ms.indexOf('function SqliteCard'))
+  assert.match(status, /<StateDot state=\{s\.state === 'broken' \? 'error' : 'idle'\} size=\{8\} \/>/)
+  assert.match(status, /const tip = useStoreTip\(s, t\) \?\? s\.fix \?\? undefined/)
+  assert.match(ms, /t\(stoppedBlock\(s\) \? 'msSizeStaleStoppedTitle' : 'msSizeStaleTitle'/)
+  const card = src('src/client/storage/StoreCard.tsx')
+  assert.match(card, /\(s\.state === 'broken' \|\| s\.state === 'blocked'\) \? resolveFix\(fixes, s\.fix\)/)
+  assert.match(card, /: s\.state === 'blocked' \? <StoreFixAction store=\{s\} t=\{t\} \/> : null/)
+  for (const lang of ['en', 'zh']) assert.doesNotMatch(M.storageLocales[lang].msSizeStaleStoppedTitle, /answer|响应/)
+})
+
+test('M4/M5: a timed-out reach check is a server failure (Give own address); the record-only remove names the Stores it holds', () => {
+  assert.equal(M.ms.failedStep('Unknown', 'LayerFS did not answer in time and was stopped'), 'server')
+  assert.equal(M.ms.failedStep('Unknown', 'something else'), null)
+  assert.equal(M.ms.failedStep('Unavailable', 'connection refused (os error 61)'), 'server')
+  const parts = src('src/client/machines/parts.tsx')
+  assert.match(parts, /recordOnly \? \(m\.stores\.length \? t\('removeRecordHeldBody', \{ name: m\.name, stores: m\.stores\.join\(', '\) \}\) : t\('removeRecordBody'/)
+  for (const lang of ['en', 'zh']) assert.match(M.machineLocales[lang].removeRecordHeldBody, /\{stores\}/)
+})
+
+test('M8/M1: Delete Sandbox titles and the platform Create name their resource', () => {
+  for (const lang of ['en', 'zh']) for (const key of ['deleteTitle', 'forceDeleteTitle']) assert.match(M.machineLocales[lang][key], /\{name\}/, `${lang} ${key}`)
+  assert.match(src('src/client/machines/Sandboxes.tsx'), /t\(confirm === 'force' \? 'forceDeleteTitle' : 'deleteTitle', \{ name \}\)/)
+  assert.match(src('src/client/machines/AddMachineDialog.tsx'), /aria-label=\{t\('createPlatformNamed', \{ platform: kind\(p\.platform\) \}\)\}/)
+  for (const lang of ['en', 'zh']) assert.match(M.machineLocales[lang].createPlatformNamed, /\{platform\}/)
+})
+
+test('M10: a login header follows its Stores\' worst reach (no green Ready over red chips); the reach errors stay in its tip', () => {
+  const ms = src('src/client/storage/MachineStores.tsx')
+  assert.match(ms, /const failed = g\.state === 'ready' \? g\.stores\.flatMap\(\(st\) => \(st\.connectedFrom \?\? \[\]\)\.filter\(\(c\) => c\.reached === 'failed'\)\) : \[\]/)
+  assert.match(ms, /data-health=\{healthOf\(state\)\} \/>\{failed\.length \? t\('pgLoginNotReached'\) : storeStateWords\(g\.state, t\)\}/)
+  assert.match(ms, /title=\{\[loginTip\(g, t, now\), \.\.\.causes\]\.join\('\\n'\)\}/)
+  for (const lang of ['en', 'zh']) assert.ok(M.storageLocales[lang].pgLoginNotReached, lang)
 })

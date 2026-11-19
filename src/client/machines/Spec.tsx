@@ -12,7 +12,7 @@ import { Card, LinkButton } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachinesKey } from './locale.ts'
 import { storeLines } from './Inventory.tsx'
-import { BUILT_IN, fixAction, fixRemoves, heldWords, inUse, machineState, opWords, sandboxesOn, supports, unreadableRecord, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, fixAction, fixRemoves, heldWords, inUse, machineState, opWords, sandboxesOn, supports, unreadableRecord, vmGone, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
 import { pgStoresHere, pgSupportKey } from './notices.ts'
 import { useMachineStats } from './MachineStats.tsx'
 import { upTime, unitsOf } from './metrics.ts'
@@ -77,8 +77,8 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
         <Group title={t('ovGroupMachine')}>
           <Item label={t('platform')} title={p?.description ?? undefined}>{[kind(m.platform), p?.how ? pick(HOW, p.how) : null].filter(Boolean).join(' · ')}</Item>
           {/* an unreadable record names no platform: its readiness is not known, not "not offered" */}
-          <Item label={t('readiness')} tone={missing.length ? 'danger' : p ? 'success' : undefined} title={unreadable ? m.message ?? undefined : undefined}>
-            {unreadable ? t('readinessRecordUnreadable') : !p ? t('notListed') : missing.length ? t('missingList', { list: missing.join(', ') }) : t('readyHere')}
+          <Item label={t('readiness')} tone={missing.length || vmGone(m) ? 'danger' : p ? 'success' : undefined} title={unreadable ? m.message ?? undefined : undefined}>
+            {unreadable ? t('readinessRecordUnreadable') : vmGone(m) ? t('readinessVmGone') : !p ? t('notListed') : missing.length ? t('missingList', { list: missing.join(', ') }) : t('readyHere')}
           </Item>
           <Item label={t('tool')} mono>{live?.toolVersion ?? p?.version ?? null}</Item>
           <Item label={t('ovContentsFact')}>

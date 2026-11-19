@@ -102,7 +102,7 @@ function PlatformRow({ p, r, os, view, busy, form, onForm, help, onHelp, onLeave
   onLeave: () => void
   onBusy: (busy: boolean) => void, onMade: (name: string) => void
 }): ReactNode {
-  const { t, tw } = useMachinesContext()
+  const { t, tw, kind } = useMachinesContext()
   const blurb = blurbKey(p.platform)
   const ready = r.step === 'ready'
   const step = r.step === 'ready' || r.step === 'unsupported' ? null : STEP_WORDS[r.step]
@@ -124,7 +124,7 @@ function PlatformRow({ p, r, os, view, busy, form, onForm, help, onHelp, onLeave
         {ready && p.how !== 'created'
           ? <BuiltInMark view={view} platform={p.platform} />
           : ready
-            ? <Button size="sm" variant={form ? 'ghost' : 'outline'} disabled={busy} aria-expanded={form} onClick={() => onForm(!form)}>{t('create')}</Button>
+            ? <Button size="sm" variant={form ? 'ghost' : 'outline'} disabled={busy} aria-expanded={form} aria-label={t('createPlatformNamed', { platform: kind(p.platform) })} onClick={() => onForm(!form)}>{t('create')}</Button>
             : step && (
               <span className={css.platformMark}>
                 <span className={css.tag}>{t(step.tag)}</span>

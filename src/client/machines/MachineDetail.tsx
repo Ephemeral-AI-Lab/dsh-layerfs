@@ -24,7 +24,7 @@ import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { useMachineTitle } from './Inventory.tsx'
-import { BUILT_IN, clearingCall, downReason, fixAction, gib, runsFix, machineState, recordOutdated, runtimeOf, sandboxesOn, heldStores, supports, unreadableRecord, type AvailableView, type MachineInfo } from './model.ts'
+import { BUILT_IN, clearingCall, downReason, fixAction, gib, runsFix, machineState, recordOutdated, vmGone, runtimeOf, sandboxesOn, heldStores, supports, unreadableRecord, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
@@ -164,7 +164,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
           ))}
           {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
           {/* an outdated record no call repairs: its Stores wait for the remove, not for a worker to answer (UI pass 3 R FAIL 2) */}
-          {heldStores(m) > 0 && attention === 'danger' && <p>{t(recordOutdated(m) ? (heldStores(m) === 1 ? 'storeBlockedRecordOne' : 'storesBlockedRecord') : heldStores(m) === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(heldStores(m)) })}</p>}
+          {heldStores(m) > 0 && attention === 'danger' && <p>{t(recordOutdated(m) || vmGone(m) ? (heldStores(m) === 1 ? 'storeBlockedRecordOne' : 'storesBlockedRecord') : heldStores(m) === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(heldStores(m)) })}</p>}
           {refused}
           {/* the worker log only when LayerFS gave no fix the page runs (one action) */}
           {logLink && (reason || state.state === 'unresolved') && !runsFix(m) ? <p>{logLink}</p> : null}

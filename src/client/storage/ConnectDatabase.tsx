@@ -33,7 +33,7 @@ import type { StorageT } from './locale.ts'
 import { CHECK_STEPS, failedStep, parsePgUrl, pgUrl, routedServer, serverGroups, serverKey, type CheckStep, type PgServerGroup } from './machine-stores.ts'
 import { connectedMachines, loopbackAlias } from './model.ts'
 import { refusalLabels, StoreGlyph, TextField } from './parts.tsx'
-import { PG_URL_LOGIN, PG_URL_PASSWORD, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
+import { loginInUrlFix, PG_URL_LOGIN, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
 import type { PgAuth, PgCheck, StorageView, StoreRow } from './types.ts'
 import css from './MachineStores.module.css'
 import scss from './Storage.module.css'
@@ -46,7 +46,8 @@ type Screen = { kind: 'pick' } | { kind: 'new', server: PgServerGroup | null } |
 interface Check {
   store: string
   machine: string
-  state: 'running' | 'ok' | 'failed'
+  /** `ready`: opened on it, not run yet; the named Check runs it (opening writes nothing: M FAIL 3b). */
+  state: 'ready' | 'running' | 'ok' | 'failed'
   /** What the machine answered. */
   result?: PgCheck
   /** A refusal of the call itself, or the check's own error. */
@@ -76,7 +77,7 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
   const groups = serverGroups(view?.stores ?? [])
   const [screen, setScreen] = useState<Screen>(() => {
     if (startCheck) {
-      return { kind: 'check', check: { store: startCheck.store, machine: startCheck.machine ?? fixed ?? 'native', state: 'running' } }
+      return { kind: 'check', check: { store: startCheck.store, machine: startCheck.machine ?? fixed ?? 'native', state: 'ready' } }
     }
     if (server) return { kind: 'new', server: groups.find((g) => g.server === server) ?? null }
     return groups.length ? { kind: 'pick' } : { kind: 'new', server: null }
@@ -99,8 +100,7 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
       if (mine === turn.current) setScreen({ kind: 'check', check: { store, machine, state: 'failed', error, ...extra } })
     }
   }
-  // opened on a check: run it once
-  useEffect(() => { if (screen.kind === 'check' && screen.check.state === 'running') void check(screen.check.store, screen.check.machine) }, [])
+  // opened on a check: nothing runs until its named Check is pressed (a check runs store doctor and writes observed state)
   if (!view) return null
   const place = (m: string) => (m === 'native' ? t('layerfsHome') : m)
   const running = screen.kind === 'check' && screen.check.state === 'running'
@@ -109,7 +109,8 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
   const back = startCheck || running || screen.kind === 'pick' || (screen.kind === 'new' && (server || !groups.length)) ? null : () => { setOwn(false); setScreen({ kind: 'pick' }) }
   return (
     <Modal open onClose={() => { if (!running) onClose() }} title={title} closeLabel={t('close')} className={scss.modal}
-      footer={<Footer t={t} screen={screen} back={back} onClose={onClose} />}>
+      footer={<Footer t={t} screen={screen} back={back} onClose={onClose} place={place}
+        onRun={() => { if (screen.kind === 'check') void check(screen.check.store, screen.check.machine, { connected: screen.check.connected }) }} />}>
       <div className={scss.form}>
         {screen.kind === 'pick' ? (
           <Pick t={t} groups={groups} fixed={fixed} place={place}
@@ -120,7 +121,7 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
             onConnected={(store) => { done(); void check(store, fixed ?? 'native', { connected: true }) }} />
         ) : (
           <CheckView t={t} view={view} check={screen.check} place={place} own={own} ownUrl={ownUrl} setOwnUrl={setOwnUrl}
-            onFrom={(machine) => { setOwn(false); void check(screen.check.store, machine, { connected: screen.check.connected }) }}
+            onFrom={(machine) => { setOwn(false); if (screen.check.state === 'ready') setScreen({ kind: 'check', check: { ...screen.check, machine } }); else void check(screen.check.store, machine, { connected: screen.check.connected }) }}
             onOwn={() => setOwn(true)}
             onRetryOwn={() => {
               const { store, machine, connected } = screen.check
@@ -133,14 +134,17 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
   )
 }
 
-function Footer({ t, screen, back, onClose }: { t: StorageT, screen: Screen, back: (() => void) | null, onClose: () => void }): ReactNode {
+function Footer({ t, screen, back, onClose, onRun, place }: { t: StorageT, screen: Screen, back: (() => void) | null, onClose: () => void, onRun: () => void, place: (m: string) => string }): ReactNode {
   const check = screen.kind === 'check' ? screen.check : null
   return (
     <div className={scss.modalFooter}>
       {check?.state === 'running' ? <span className={scss.modalHint} role="status">{t('cdChecking')}</span> : <span />}
       <div className={scss.modalActions}>
         {back ? <Button variant="outline" onClick={back}>{t('cdBack')}</Button> : null}
-        {check?.state === 'ok'
+        {check?.state === 'ready' ? <Button variant="outline" onClick={onClose}>{t('cancel')}</Button> : null}
+        {check?.state === 'ready'
+          ? <Button variant="primary" onClick={onRun}>{t('cdCheckFromNamed', { store: check.store, machine: place(check.machine) })}</Button>
+          : check?.state === 'ok'
           ? <Button variant="primary" onClick={onClose}>{t('cdDone')}</Button>
           : screen.kind === 'new'
             ? <Button variant="primary" type="submit" form="lfs-cd-new">{t('connect')}</Button>
@@ -188,6 +192,9 @@ function Pick({ t, groups, fixed, place, onCheck, onNew }: {
   )
 }
 
+/** A URL's options (`?sslmode=…`), as typed; empty when it has none or cannot be read. */
+const searchOf = (text: string): string => { try { return new URL(withScheme(text)).search } catch { return '' } }
+
 /** `text` as a URL with its scheme, as `parsePgUrl` reads one typed without it. */
 const withScheme = (text: string) => (/^postgres(?:ql)?:\/\//i.test(text.trim()) ? text.trim() : `postgresql://${text.trim()}`)
 
@@ -232,7 +239,11 @@ function NewDatabase({ api, t, view, server, onConnected }: {
   const dbTaken = server && database ? server.stores.find((s) => s.postgresql?.database === database) : undefined
   // a URL that names no server or no database is said so once Connect was tried, not while it is typed
   const urlShort = !server && !!url.trim() && !(host && database)
-  const urlError = PG_URL_PASSWORD.test(withScheme(url)) ? t('pgPasswordInUrl') : tried && urlShort ? t('cdUrlInvalid') : null
+  // V23-13: a URL naming a login (a password, user=, passfile=) is refused with words, nothing created (M FAIL 2)
+  const loginInUrl = !server && PG_URL_LOGIN.test(withScheme(url))
+  const urlError = loginInUrl ? t('cdLoginInUrl') : tried && urlShort ? t('cdUrlInvalid') : null
+  // its other options (sslmode, …) go to LayerFS as given, never dropped
+  const options = server ? '' : searchOf(url)
   const loginMissing = pw.how === 'entered' ? (!loginUser ? t('pgUser') : !pw.value ? t('pgPasswordValue') : null) : pw.missing ? t('pgPasswordReferenceLabel') : null
   const missing = [server ? !database && t('cdDatabase') : !url.trim() && t('cdUrl'), !storeName && t('cdStoreName'), loginMissing].filter(Boolean) as string[]
   const nameError = storeName && !NAME.test(storeName) ? t('projectNameHint') : taken ? t('nameTaken') : null
@@ -244,7 +255,7 @@ function NewDatabase({ api, t, view, server, onConnected }: {
     try {
       await api.call('POST', '/api/stores/postgresql', {
         // the address has no user: the login (saved now, reused, or named) carries it
-        name: storeName, url: pgUrl({ user: '', host, database }), ...(pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body()), ...(sync ? { synchronousCommit: sync } : {}),
+        name: storeName, url: `${pgUrl({ user: '', host, database })}${options}`, ...(pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body()), ...(sync ? { synchronousCommit: sync } : {}),
       })
       onConnected(storeName)
     } catch (e) {
@@ -259,7 +270,9 @@ function NewDatabase({ api, t, view, server, onConnected }: {
       {server
         ? <TextField label={t('cdDatabase')} value={typed} onChange={setTyped} mono placeholder="orders" autoFocus hint={t('pgDatabaseHint')}
             error={dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null} />
-        : <TextField label={t('cdUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://app@db.internal:5432/orders" hint={t('cdUrlHint')} error={urlError} autoFocus />}
+        : <TextField label={t('cdUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://db.internal:5432/orders" hint={t('cdUrlHint')} error={urlError} autoFocus />}
+      {/* LayerFS's own fix for it: save the login, connect the address without it (--auth) */}
+      {loginInUrl ? <p className={scss.formNote} data-login-fix><span>{t('cdLoginFix')}</span> <code className={css.mono}>{loginInUrlFix(url, storeName)}</code></p> : null}
       <TextField label={t('cdStoreName')} value={named ? name : storeName} onChange={(v) => { setNamed(true); setName(v) }} mono error={nameError} />
       <PgPasswordFields id="lfs-cd-password" pw={{ ...pw, setHow: (h: Parameters<typeof pw.setHow>[0]) => { chose.current = true; pw.setHow(h) } }} t={t} auths={auths} />
       <details className={scss.storeDetails}>
@@ -295,6 +308,7 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
   const failure = check.state === 'failed' ? (check.error as { code?: string, message?: string } | undefined) : undefined
   const at = failure ? failedStep(failure.code, failure.message) : null
   const stepState = (step: CheckStep): 'pending' | 'running' | 'ok' | 'failed' | 'unknown' => {
+    if (check.state === 'ready') return 'pending'
     if (check.state === 'running') return 'running'
     if (check.state === 'ok') return 'ok'
     if (!at) return 'unknown'

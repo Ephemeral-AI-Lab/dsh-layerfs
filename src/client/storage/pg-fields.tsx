@@ -18,6 +18,22 @@ import css from './Storage.module.css'
 
 /** A PostgreSQL URL that holds a password (user:password@, or a password parameter). */
 export const PG_URL_PASSWORD = /^postgres(?:ql)?:\/\/[^/@?]*:[^/@?]*@|[?&][^=&]*password=/i
+/**
+ * LayerFS's fix for an address that names a login (V23-13, M FAIL 2): save the
+ * login, then connect the address without it. `user` from the URL (its user
+ * part or `user=`), else a placeholder; the address keeps its other options.
+ */
+export function loginInUrlFix(url: string, store: string): string {
+  let address = url.trim(), user = ''
+  try {
+    const u = new URL(/^postgres(?:ql)?:\/\//i.test(address) ? address : `postgresql://${address}`)
+    user = decodeURIComponent(u.username) || u.searchParams.get('user') || ''
+    u.username = ''; u.password = ''
+    for (const key of [...u.searchParams.keys()]) if (/password|^user$|^passfile$/i.test(key)) u.searchParams.delete(key)
+    address = u.toString()
+  } catch { /* the address as typed */ }
+  return `layerfs store save-auth <auth> --user ${user || '<user>'} --password-stdin && layerfs store connect ${store || '<store>'} ${address} --auth <auth>`
+}
 /** A PostgreSQL URL that holds a user, a password or a password file: a Store's address carries none in 2.0 (the saved login does; spec v23 V23-13). */
 export const PG_URL_LOGIN = /^postgres(?:ql)?:\/\/[^/@?]*@|[?&]([^=&]*password|user|passfile)=/i
 

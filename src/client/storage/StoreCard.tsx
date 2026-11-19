@@ -144,7 +144,8 @@ export function storeNotice(s: StoreRow, machineState: string | null | undefined
  */
 export function StoreFixAction({ store: s, t }: { store: Pick<StoreRow, 'state' | 'fix'>, t: StorageT }): ReactNode {
   const fixes = useContext(FixContext)
-  const resolved = fixes && s.state === 'broken' ? resolveFix(fixes, s.fix) : null
+  // a broken Store's fix, or a blocked one's (`layerfs machine start M` for a stopped machine: R2-2)
+  const resolved = fixes && (s.state === 'broken' || s.state === 'blocked') ? resolveFix(fixes, s.fix) : null
   return resolved?.fix && fixes ? <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} /> : null
 }
 
@@ -178,7 +179,7 @@ export function StoreAction({ store: s, t }: { store: StoreRow, t: StorageT }): 
   const m = useBlockingMachine(s)
   const machine = brokenBlock(s)
   if (s.state === 'broken') return <StoreFixAction store={s} t={t} />
-  return machine ? <MachineRepair machine={machine} record={m} t={t} /> : null
+  return machine ? <MachineRepair machine={machine} record={m} t={t} /> : s.state === 'blocked' ? <StoreFixAction store={s} t={t} /> : null
 }
 
 /** A broken machine's one action for what waits on it: its fix, else Repair <m> (its page). */
