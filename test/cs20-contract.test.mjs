@@ -8,14 +8,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
 const root = new URL('..', import.meta.url).pathname
-const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? '/Users/yifanxu/.cache/cs20-pins/9aa73af987/layerfs'
+const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? '/Users/yifanxu/.cache/cs20-pins/c27f94ca41/layerfs'
 const skip = existsSync(CLI) ? false : `no 2.0 CLI at ${CLI}`
 
 /** The pinned table, read once in a home of its own. */
@@ -330,4 +330,101 @@ test('options 2.0 makes required are always sent: save-auth user + password, bac
   // the plugin itself makes no file edit (agents do, through the CLI): none to check, and none may appear without its strings
   for (const s of sites(/\.file\.edit\([^)]*\)/g)) assert.ok(/old_string/.test(s.call) && /new_string/.test(s.call), `${s.path}: ${s.call}`)
   for (const s of sites(/\['file', 'edit'[^\]]*\]/g)) assert.ok(s.call.includes("'--old-string'") && s.call.includes("'--new-string'"), `${s.path}: ${s.call}`)
+})
+
+/** cli.ts bundled into `dir` and its client over a wrapper that records each argv to `log`. */
+async function recordingClient(dir, home) {
+  const log = join(dir, 'argv.log'), wrapper = join(dir, 'layerfs')
+  writeFileSync(wrapper, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${CLI}' "$@"\n`)
+  chmodSync(wrapper, 0o755)
+  await build({
+    absWorkingDir: root, stdin: { contents: "export { client } from './src/host/layerfs/cli.ts'\n", resolveDir: root, loader: 'ts' },
+    outfile: join(dir, 'cli.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
+  })
+  const { client } = await import(pathToFileURL(join(dir, 'cli.mjs')).href)
+  return { lfs: client({ cli: wrapper, home, keepReads: false }), sent: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) }
+}
+
+// LayerFS N-F: an option other than `--with` and a repeatable one (`--env`) given twice is
+// a usage error (exit 2). The seam writes each option once and joins `--with` sections;
+// a raw argv the plugin writes (presets, simulations) never repeats a flag either.
+test('no option is given twice: the seam joins --with, and no raw argv repeats a flag', { skip }, async () => {
+  const { help, calls } = table()
+  const repeatable = new Set(['--with'])
+  for (const c of help.calls) for (const o of c.options ?? []) if (o.repeat) repeatable.add(`--${o.name.replace(/_/g, '-')}`)
+  let argvs = 0
+  for (const { path, text } of sources()) {
+    for (const m of text.matchAll(new RegExp(`\\[\\s*'(${FAMILY})'\\s*,\\s*'([a-z_-]+)'([^\\n]*)`, 'g'))) {
+      if (FAMILIES.has(m[2]) || !calls.has(`${m[1]}.${m[2].replace(/-/g, '_')}`)) continue
+      argvs++
+      // up to the literal's own closing bracket, ignoring nested lists' brackets
+      let depth = 1, end = 0
+      for (; end < m[3].length && depth > 0; end++) depth += m[3][end] === '[' ? 1 : m[3][end] === ']' ? -1 : 0
+      const flags = [...m[3].slice(0, end).matchAll(/'(--[a-z][a-z-]*)'/g)].map((f) => f[1])
+      for (const f of new Set(flags)) if (!repeatable.has(f)) assert.ok(flags.filter((x) => x === f).length === 1, `${m[1]} ${m[2]} (${path.slice(root.length)}) gives ${f} once`)
+    }
+  }
+  assert.ok(argvs > 30, `the scan read the plugin's raw argvs (${argvs})`)
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-repeat-'))
+  try {
+    const home = join(dir, 'home')
+    const env = { ...process.env, LAYERFS_HOME: home }
+    execFileSync(CLI, ['home', 'init'], { env, timeout: 30_000 })
+    // the rule exists in this pin: a repeated --detail is exit 2
+    let status = 0
+    try { execFileSync(CLI, ['machine', 'list', '--detail', '--detail'], { env, timeout: 30_000, stdio: 'pipe' }) } catch (e) { status = e.status }
+    assert.equal(status, 2, 'a repeated option is a usage error')
+    const { lfs, sent } = await recordingClient(dir, home)
+    const got = await lfs.home.get({ detail: true, with: ['platforms', 'tree', 'platforms'] })
+    assert.ok(got.platforms && got.tree, 'both sections answered')
+    assert.deepEqual(sent().filter((l) => l.startsWith('home get')), ['home get --detail --with platforms,tree --'])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// LayerFS N-G: `help --json` marks the options a call needs `optional: false` (with
+// `required: true`). The seam refuses a call that leaves one out before spawning, and
+// every call site sends them (the static check above).
+test('the table\'s required options are the three pairs the call sites send; the seam refuses one left out', { skip }, async () => {
+  const { help } = table()
+  const required = {}
+  for (const c of help.calls) for (const o of c.options ?? []) if (o.optional === false || o.required === true) (required[`${c.family}.${c.call}`] ??= []).push(o.name)
+  assert.deepEqual(required, { 'store.save_auth': ['user', 'password'], 'backup.connect': ['access_key', 'secret_key'], 'file.edit': ['old_string', 'new_string'] },
+    'a new required option needs its call sites checked (the test above)')
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-required-'))
+  try {
+    const home = join(dir, 'home')
+    execFileSync(CLI, ['home', 'init'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
+    const { lfs, sent } = await recordingClient(dir, home)
+    await assert.rejects(lfs.store.save_auth('x', { password: 'p' }), (e) => e.code === 'InvalidInput' && /user is required/.test(e.message))
+    await assert.rejects(lfs.backup.connect('b', 'https://example.invalid', { secret_key: 's' }), (e) => e.code === 'InvalidInput' && /access_key is required/.test(e.message))
+    assert.deepEqual(sent().filter((l) => /^(store save-auth|backup connect)/.test(l)), [], 'nothing spawned')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// LayerFS N-D and Q: the machine answers the Machines page reads. An unreadable record
+// is a `machine list` item (broken, failed, no platform, fix `layerfs machine doctor`);
+// `machine get` refuses it `Failed` with that fix, so the page does not probe it; the
+// other lists still answer. Native's live probe answers its free disk.
+test('machine answers: an unreadable record is listed broken/failed and not probed; native\'s live probe has its free disk', { skip }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-machines-'))
+  try {
+    const home = join(dir, 'home')
+    const env = { ...process.env, LAYERFS_HOME: home }
+    execFileSync(CLI, ['home', 'init'], { env, timeout: 30_000 })
+    mkdirSync(join(home, 'machine', 'bad'), { recursive: true })
+    writeFileSync(join(home, 'machine', 'bad', 'record.json'), '{not json')
+    const { lfs, sent } = await recordingClient(dir, home)
+    const items = (await lfs.machine.list({ detail: true })).items
+    const bad = items.find((m) => m.machine === 'bad')
+    assert.deepEqual([bad.state, bad.reason, bad.platform, bad.fix], ['broken', 'failed', null, 'layerfs machine doctor bad'])
+    assert.ok(items.some((m) => m.machine === 'native' && m.state === 'ready'), 'the other machines are listed')
+    await assert.rejects(lfs.machine.get('bad', { detail: true, with: ['live'] }), (e) => e.code === 'Failed' && e.fix === 'layerfs machine doctor bad')
+    for (const family of ['store', 'sandbox']) assert.ok(Array.isArray((await lfs[family].list({ detail: true })).items), `${family} list answers beside it`)
+    const native = await lfs.machine.get('native', { detail: true, with: ['live'] })
+    assert.equal(typeof native.live?.disk_free_bytes, 'number', 'native live answers disk_free_bytes')
+    // the page's probe set (routes/machines.ts readView): every machine whose record reads
+    const { unreadableRecord } = await import(pathToFileURL(join(root, 'src/host/layerfs/machine-records.ts')).href)
+    assert.deepEqual(items.filter((m) => !unreadableRecord(m)).map((m) => m.machine).sort(), items.map((m) => m.machine).filter((n) => n !== 'bad').sort())
+    assert.ok(sent().includes('machine get --detail --with live -- native'))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })

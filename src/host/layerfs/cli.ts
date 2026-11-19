@@ -147,8 +147,8 @@ export interface CallEntry {
   readonly family: string
   readonly call: string
   readonly args: readonly { readonly name: string, readonly kind: string, readonly optional?: boolean }[]
-  /** `shell`: a secret option's stdin flag (`--password-stdin`); `repeat`: given once per value. */
-  readonly options: readonly { readonly name: string, readonly kind: string, readonly shell?: string, readonly repeat?: boolean }[]
+  /** `shell`: a secret option's stdin flag (`--password-stdin`); `repeat`: given once per value; `required` (with `optional: false`): the call needs it. */
+  readonly options: readonly { readonly name: string, readonly kind: string, readonly shell?: string, readonly repeat?: boolean, readonly optional?: boolean, readonly required?: boolean }[]
   /** The 2.0 answer form; absent from a table before 2.0. */
   readonly form?: CallForm
 }
@@ -779,6 +779,8 @@ export function client(spec: CliSpec): Lfs {
             for (const name of Object.keys(options)) {
               if (!local.has(name) && !entry.options.some((o) => o.name === name)) throw invalid(`${family}.${call}: unknown option ${name}`)
             }
+            // an option the row marks required (`required`, `optional: false`) is a usage error when left out: say so before spawning
+            for (const o of entry.options) if ((o.required === true || o.optional === false) && o.kind !== 'function' && (options[o.name] === undefined || options[o.name] === null)) throw invalid(`${family}.${call}: ${o.name} is required`)
             for (const [name, value] of Object.entries(options)) {
               const option = entry.options.find((o) => o.name === name)
               if (option?.kind === 'bool' && value != null && typeof value !== 'boolean') throw invalid(`${name} must be true or false`)
