@@ -93,7 +93,7 @@ export function RestartButton({ m, t, onRestart }: { m: MachineInfo, t: StorageT
   // click safety (UI pass 3 F6): keyed to this machine, dropped while the card has just appeared or changed under the pointer
   const guard = usePressGuard(`restart:${m.name}:${m.state}:${m.reason ?? ''}`)
   return (
-    <Button variant="outline" size="sm" disabled={busy} title={failed ?? t('ovRestartWorkerTitle', { machine: m.name })} data-machine={m.name}
+    <Button variant="outline" size="sm" disabled={busy || guard.settling} aria-disabled={guard.settling || undefined} title={failed ?? t('ovRestartWorkerTitle', { machine: m.name })} data-machine={m.name}
       onClick={guard(() => { setBusy(true); setFailed(null); void onRestart(m).catch((e: unknown) => setFailed(String((e as Error)?.message ?? e))).finally(() => setBusy(false)) })}>
       {busy ? t('ovRestarting') : failed ? t('ovRestartFailed') : t('ovRestartWorker', { machine: m.name })}
     </Button>

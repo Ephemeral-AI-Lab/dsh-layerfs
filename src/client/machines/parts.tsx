@@ -103,7 +103,7 @@ export function PowerButton({ m, pending, run, size = 'sm', compact, engine = fa
       else if (fix.kind === 'start') void run('start', { kind: 'start', name: m.name, platform: m.platform })
     }
     return (
-      <Button size={size} variant={fix.kind === 'check' ? 'outline' : 'primary'} disabled={busy || fix.kind === 'forced'} icon={<PowerGlyph size={14} />} title={title}
+      <Button size={size} variant={fix.kind === 'check' ? 'outline' : 'primary'} disabled={busy || fix.kind === 'forced' || guard.settling} aria-disabled={guard.settling || undefined} icon={<PowerGlyph size={14} />} title={title}
         aria-label={named(words)} data-machine={m.name} onClick={guard((e) => { e.stopPropagation(); act() })}>
         {words}
       </Button>
@@ -114,14 +114,14 @@ export function PowerButton({ m, pending, run, size = 'sm', compact, engine = fa
   if (compact && pending === null) {
     const words = t(powerKey(m, power, engine))
     return (
-      <Button size={size} variant="ghost" icon={<PowerGlyph size={14} />} aria-label={named(words)} data-machine={m.name}
+      <Button size={size} variant="ghost" icon={<PowerGlyph size={14} />} aria-label={named(words)} data-machine={m.name} disabled={guard.settling} aria-disabled={guard.settling || undefined}
         title={`${words} · ${t(engine ? 'engineStartTitle' : power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}`}
         onClick={guard((e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) })} />
     )
   }
   const label = pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t(powerKey(m, power, engine))
   return (
-    <Button size={size} variant={power === 'stop' ? 'outline' : 'primary'} disabled={pending !== null} icon={<PowerGlyph size={14} />}
+    <Button size={size} variant={power === 'stop' ? 'outline' : 'primary'} disabled={pending !== null || guard.settling} aria-disabled={guard.settling || undefined} icon={<PowerGlyph size={14} />}
       title={t(engine ? 'engineStartTitle' : power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}
       aria-label={named(label)} data-machine={m.name}
       onClick={guard((e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) })}>

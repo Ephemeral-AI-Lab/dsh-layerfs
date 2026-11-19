@@ -52,7 +52,8 @@ export type StorageDialog =
   /** `then`: the dialog Add a bucket returns to, closed or saved; `again`: Connect again… on a bucket whose key was refused (its name, and its URL when LayerFS's fix names it). */
   | { kind: 'bucket', then?: StorageDialog, again?: Reconnect }
   /** `plain`: the action removes nothing, so its button is not the danger one (Compact). */
-  | { kind: 'confirm', title: string, body: string, action: string, name?: string, force?: ConfirmForce, plain?: boolean, run: (force: boolean) => Promise<unknown> }
+  /** `steps`: what the confirm runs, listed in order (a fix chain); `cancelled`: it was closed without confirming. */
+  | { kind: 'confirm', title: string, body: string, action: string, name?: string, force?: ConfirmForce, plain?: boolean, steps?: string[], cancelled?: () => void, run: (force: boolean) => Promise<unknown> }
 
 /** An optional Force checkbox on a confirm: checked, the action runs with force and reads `action`. */
 export interface ConfirmForce { label: string, action: string }
@@ -91,7 +92,8 @@ function OpenDialog({ api, t, dialog, view, onClose, done, onDialog }: DialogsPr
     case 'backups': return <BackupsDialog api={api} t={t} store={dialog.store} view={view} onClose={onClose} done={done} onDialog={onDialog} />
     case 'restore': return <RestoreDialog api={api} t={t} dialog={dialog} view={view} onClose={onClose} done={done} />
     case 'bucket': return <BucketDialog api={api} t={t} again={dialog.again} onClose={dialog.then && onDialog ? () => onDialog(dialog.then!) : onClose} done={done} />
-    case 'confirm': return <ConfirmDialog t={t} title={dialog.title} body={dialog.body} action={dialog.action} name={dialog.name} force={dialog.force} plain={dialog.plain} onClose={onClose} run={(force) => after(dialog.run(force))} />
+    case 'confirm': return <ConfirmDialog t={t} title={dialog.title} body={dialog.body} action={dialog.action} name={dialog.name} force={dialog.force} plain={dialog.plain} steps={dialog.steps}
+      onClose={() => { dialog.cancelled?.(); onClose() }} run={(force) => after(dialog.run(force))} />
   }
 }
 
@@ -640,14 +642,15 @@ function BucketDialog({ api, t, again, onClose, done }: { api: LayerfsApi, t: St
 // ---------- Confirm ----------
 
 /** A destructive confirmation; with `name`, the name is typed to confirm. */
-function ConfirmDialog({ t, title, body, action, name, force, plain, onClose, run }: {
-  t: StorageT, title: string, body: string, action: string, name?: string | undefined, force?: ConfirmForce | undefined, plain?: boolean | undefined, onClose: () => void, run: (force: boolean) => Promise<unknown>
+function ConfirmDialog({ t, title, body, action, name, force, plain, steps, onClose, run }: {
+  t: StorageT, title: string, body: string, action: string, name?: string | undefined, force?: ConfirmForce | undefined, plain?: boolean | undefined, steps?: string[] | undefined, onClose: () => void, run: (force: boolean) => Promise<unknown>
 }): ReactNode {
   const [typed, setTyped] = useState('')
   const [forced, setForced] = useState(false)
   const on = !!force && forced
   return (
     <FormModal open onClose={onClose} t={t} title={title} description={body} action={on ? force.action : action} danger={!plain} valid={!name || typed === name} submit={() => run(on)}>
+      {steps?.length ? <ol data-steps={steps.length}>{steps.map((x, i) => <li key={i}>{x}</li>)}</ol> : null}
       {name ? <TextField label={t('typeToConfirm', { name })} value={typed} onChange={setTyped} mono autoFocus placeholder={name} /> : null}
       {force ? <Checkbox checked={forced} onChange={setForced} label={force.label} /> : null}
       {!name && !force ? <span className={clsx(css.hidden)} /> : null}

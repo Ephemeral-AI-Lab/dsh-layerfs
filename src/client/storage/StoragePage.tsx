@@ -82,13 +82,23 @@ export function StoragePage(props: StorageMainProps): ReactNode {
   const loginRef = useRef<(store: string) => void>(() => {})
   // The connect-again fix (a bucket whose key was refused) opens the Connect dialog the same way.
   const reconnectRef = useRef<(again: Reconnect) => void>(() => {})
+  // a fix chain that removes data asks the Store Remove's typed-name confirm (review FAIL-1); StorageIde owns the dialog
+  const confirmRef = useRef<(dialog: StorageDialog) => void>(() => {})
   return (
     <MachinesProvider props={machines}>
-      <CenterFixes api={api} t={t} loginRef={loginRef} reconnectRef={reconnectRef}>
-        <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} loginRef={loginRef} reconnectRef={reconnectRef} map={map} more={more} />
+      <CenterFixes api={api} t={t} loginRef={loginRef} reconnectRef={reconnectRef} confirmRef={confirmRef}>
+        <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} loginRef={loginRef} reconnectRef={reconnectRef} confirmRef={confirmRef} map={map} more={more} />
       </CenterFixes>
     </MachinesProvider>
   )
+}
+
+/**
+ * A fix chain's steps for its confirm, numbered in order (review FAIL-1): a step
+ * that removes data says so (`Remove Store S and its data`), the rest by their button words.
+ */
+export function chainSteps(fix: Extract<RunnableFix, { kind: 'chain' }>, label: (fix: RunnableFix) => string, t: (key: 'fixStepRemoveStore' | 'fixStepDelete', vars: Record<string, string>) => string): string[] {
+  return fix.steps.map((s, i) => `${i + 1}. ${s.kind === 'removeStore' ? t('fixStepRemoveStore', { name: s.store }) : s.kind === 'delete' ? t('fixStepDelete', { name: s.project }) : label(s)}`)
 }
 
 /**
@@ -97,7 +107,7 @@ export function StoragePage(props: StorageMainProps): ReactNode {
  * Doctor page; a PostgreSQL Store's save-login fix opens the save-login dialog
  * for that Store (the person gives the login and its password there).
  */
-function CenterFixes({ api, t, loginRef, reconnectRef, children }: { api: LayerfsApi, t: StorageT, loginRef: { current: (store: string) => void }, reconnectRef: { current: (again: Reconnect) => void }, children: ReactNode }): ReactNode {
+function CenterFixes({ api, t, loginRef, reconnectRef, confirmRef, children }: { api: LayerfsApi, t: StorageT, loginRef: { current: (store: string) => void }, reconnectRef: { current: (again: Reconnect) => void }, confirmRef: { current: (dialog: StorageDialog) => void }, children: ReactNode }): ReactNode {
   const { recheck, useMachines } = useMachinesContext()
   const fleet = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.machines : null))
   const startDoctor = useStartDoctor(api)
@@ -137,6 +147,12 @@ function CenterFixes({ api, t, loginRef, reconnectRef, children }: { api: Layerf
         : t(fix.kind === 'delete' ? 'fixConfirmDelete' : fix.kind === 'removeMachine' || fix.kind === 'removeStore' ? 'fixConfirmRemoveRecord'
           : fix.kind === 'removeSandbox' ? 'fixConfirmCloseSandbox' : 'fixConfirmPrune', { name: name(fix) }),
       step: (i, n, fix) => t('fixChainStep', { i, n, step: label(fix) }),
+      confirmChain: (fix, typed) => new Promise<boolean>((resolve) => {
+        confirmRef.current({
+          kind: 'confirm', title: t('fixChainTitle', { n: fix.steps.length }), body: t('fixChainBody'), action: t('fixChainAction'), name: typed,
+          steps: chainSteps(fix, label, t), cancelled: () => resolve(false), run: async () => { resolve(true) },
+        })
+      }),
       // the accessible name names what it acts on (UI pass 3 F5): `Update (compact-demo-pg)`; words that already name it stay
       named: (fix, words) => {
         const target = fix.kind === 'chain' ? fix.steps.map(name).filter(Boolean).join(', ') : name(fix)
@@ -147,11 +163,11 @@ function CenterFixes({ api, t, loginRef, reconnectRef, children }: { api: Layerf
       // a refusal that says to start, stop or restart a machine whose own record is broken: that machine's fix instead, else none
       resolve: (line) => fleetFix(line, fleet),
     }
-  }, [api, t, recheck, loginRef, reconnectRef, fleet])
+  }, [api, t, recheck, loginRef, reconnectRef, confirmRef, fleet])
   return <FixContext.Provider value={runner}>{children}</FixContext.Provider>
 }
 
-function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, loginRef: { current: (store: string) => void }, reconnectRef: { current: (again: Reconnect) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {
+function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, loginRef: { current: (store: string) => void }, reconnectRef: { current: (again: Reconnect) => void }, confirmRef: { current: (dialog: StorageDialog) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {
   const mc = useMachinesContext()
   useEffect(() => mc.activate(), [mc.activate])
   const fleetRead = mc.useMachines((s) => s)
@@ -166,6 +182,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, map, mor
   const now = useNow(10_000)
   const [dialog, setDialog] = useState<StorageDialog | null>(null)
   loginRef.current = (store) => setDialog({ kind: 'pg-edit', store })
+  confirmRef.current = setDialog
   const reconnect = (again: Reconnect) => setDialog({ kind: 'bucket', again })
   reconnectRef.current = reconnect
   const [failed, setFailed] = useState<unknown>(undefined)

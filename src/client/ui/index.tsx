@@ -3,14 +3,14 @@
  * share so they read as native DSH pages. Every visible word arrives as a
  * prop from the caller's locale `t`; nothing here owns copy.
  */
-import { createContext, useContext, useRef, useState, type HTMLAttributes, type ReactNode, type SyntheticEvent } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type HTMLAttributes, type ReactNode, type SyntheticEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconEllipsisOutlineRegular,
   IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, StateDot,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { removesSomething, runnableFix, type RunnableFix } from '../../shared/doctor.ts'
+import { removesSomething, runnableFix, typedNameOf, type RunnableFix } from '../../shared/doctor.ts'
 import css from './ui.module.css'
 
 export { css as uiCss }
@@ -183,20 +183,47 @@ export function StateChip({ tone, label, live, dashed, op, title, className }: {
 /** How long a control that runs an action ignores presses after it appears or changes what it does (UI pass 3 F6). */
 export const PRESS_SETTLE_MS = 600
 
+/** A guarded onClick wrapper; `settling` is true while presses are dropped (render the control off then: aria-disabled and visibly). */
+export interface PressGuard {
+  <E extends SyntheticEvent>(handler: (e: E) => void): (e: E) => void
+  readonly settling: boolean
+}
+
 /**
  * Click safety for a control that runs an action (a power action, a fix): its
  * press is keyed to `identity` (the thing it acts on and what it does now). A
  * press that lands within {@link PRESS_SETTLE_MS} of the control first showing
  * that identity (a row re-rendered, re-sorted or swapped under the pointer) is
  * dropped, and the handler always runs with the identity it was drawn for, so
- * a stale handler never acts on another row. Returns a wrapper for onClick.
+ * a stale handler never acts on another row. The drop is never silent: while
+ * it holds, `settling` is true (the control renders off) and one timer
+ * re-renders it at the end. Enter and Space reach a button as a click, so the
+ * keyboard goes through the same guard (UI pass 3 F6, review NOTE-1).
  */
-export function usePressGuard(identity: string, settleMs = PRESS_SETTLE_MS): <E extends SyntheticEvent>(handler: (e: E) => void) => (e: E) => void {
+export function usePressGuard(identity: string, settleMs = PRESS_SETTLE_MS): PressGuard {
   const seen = useRef({ identity, at: Date.now() })
   if (seen.current.identity !== identity) seen.current = { identity, at: Date.now() }
-  const drawn = identity
-  return (handler) => (e) => {
-    if (!pressAllowed(seen.current, drawn, Date.now(), settleMs)) { e.stopPropagation(); return }
+  const [, rerender] = useState(0)
+  const settling = settleMs > 0 && !pressAllowed(seen.current, identity, Date.now(), settleMs)
+  useEffect(() => {
+    if (!settling) return undefined
+    const timer = setTimeout(() => rerender((n) => n + 1), Math.max(0, seen.current.at + settleMs - Date.now()) + 5)
+    return () => clearTimeout(timer)
+  }, [identity, settling, settleMs])
+  const guard = (<E extends SyntheticEvent>(handler: (e: E) => void) => guardedPress(seen, identity, settleMs, handler)) as PressGuard
+  Object.defineProperty(guard, 'settling', { value: settling })
+  return guard
+}
+
+/**
+ * The guarded handler itself (pure, for tests): runs `handler` only when the
+ * control still shows `drawn` and has for `settleMs`; any press, pointer or
+ * keyboard (`detail` 0), is judged the same way.
+ */
+export function guardedPress<E extends { stopPropagation(): void }>(seen: { current: { identity: string, at: number } }, drawn: string, settleMs: number, handler: (e: E) => void, now: () => number = Date.now): (e: E) => void {
+  // the control as it is when pressed (the ref), against what this handler was drawn for: a stale handler never acts
+  return (e) => {
+    if (!pressAllowed(seen.current, drawn, now(), settleMs)) { e.stopPropagation(); return }
     handler(e)
   }
 }
@@ -248,6 +275,12 @@ export interface FixRunner {
   tip(line: string): string
   /** After a fix ran. */
   done: string
+  /**
+   * A chain with a step that removes data (review FAIL-1): the page's typed-name
+   * confirm, listing every step; resolves true once the name was typed and
+   * confirmed, false when it was cancelled. Absent: such a chain is not run here.
+   */
+  confirmChain?(fix: Extract<RunnableFix, { kind: 'chain' }>, typed: string): Promise<boolean>
   /** The button's accessible name: its words and the thing it acts on (`Update (compact-demo-pg)`); absent: the words. */
   named?(fix: RunnableFix, words: string): string
   /** A chain's step while it runs (`Step 1 of 2: Remove x’s record`); absent: `1/2`. */
@@ -288,9 +321,13 @@ export function FixAction({ line, fix, runner, labels }: { line: string, fix: Ru
   // a fix that opens something (the save-login dialog, the Doctor page) is not done when it opens
   const opens = fix.kind === 'saveAuth' || fix.kind === 'doctor' || fix.kind === 'connectBucket'
   const steps: RunnableFix[] = fix.kind === 'chain' ? fix.steps : [fix]
+  // a chain that removes data asks the typed-name confirm (every step listed) instead of the second press
+  const typed = typedNameOf(fix)
   const press = async () => {
     if (step === 'busy') return
-    if (removes && step === 'idle') { setStep('confirm'); return }
+    if (fix.kind === 'chain' && typed) {
+      if (!runner.confirmChain || !(await runner.confirmChain(fix, typed))) return
+    } else if (removes && step === 'idle') { setStep('confirm'); return }
     setStep('busy'); setFailed(null)
     try {
       for (let i = 0; i < steps.length; i++) { setAt(i); await runner.run(steps[i]!) }
@@ -303,7 +340,7 @@ export function FixAction({ line, fix, runner, labels }: { line: string, fix: Ru
   return (
     <div className={css.refusalFix}>
       {/* its name is its words; the CLI line it runs is only the tip */}
-      <Button size="sm" variant={step === 'confirm' ? 'primary' : 'outline'} disabled={step === 'busy'} title={runner.tip(line)} aria-label={runner.named?.(fix, words) ?? words} data-fid="refusal-fix"
+      <Button size="sm" variant={step === 'confirm' ? 'primary' : 'outline'} disabled={step === 'busy' || guard.settling} aria-disabled={guard.settling || undefined} title={runner.tip(line)} aria-label={runner.named?.(fix, words) ?? words} data-fid="refusal-fix"
         aria-busy={step === 'busy' || undefined} onClick={guard((e) => { e.stopPropagation(); void press() })}>
         {words}
       </Button>

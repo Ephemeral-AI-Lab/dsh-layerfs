@@ -441,9 +441,9 @@ function NeedActions({ need: n, labels, more, role }: { need: Need, labels: Retu
   return (
     <>
       <span className={heroCss.acts} role={role}>
-        {n.action ? <Button variant="outline" size="sm" disabled={busy} onClick={guard(() => go(n.action!.run))}>{n.action.label}</Button> : null}
+        {n.action ? <Button variant="outline" size="sm" disabled={busy || guard.settling} aria-disabled={guard.settling || undefined} onClick={guard(() => go(n.action!.run))}>{n.action.label}</Button> : null}
         {n.secondary ? (
-          <Button variant={armed ? 'primary' : 'ghost'} size="sm" disabled={busy} title={n.secondary.title}
+          <Button variant={armed ? 'primary' : 'ghost'} size="sm" disabled={busy || guard.settling} aria-disabled={guard.settling || undefined} title={n.secondary.title}
             onClick={guard(() => { if (n.secondary!.confirm && !armed) setArmed(true); else go(n.secondary!.run) })}>
             {armed && n.secondary.confirm ? n.secondary.confirm : n.secondary.label}
           </Button>

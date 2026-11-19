@@ -83,7 +83,7 @@ export function Btn({ fid, tip, onPress, off, busy, variant = 'outline', width, 
   const guard = usePressGuard(settle ?? fid, settle ? undefined : 0)
   return (
     <Button variant={variant} size="sm" className={clsx(css.btn, className)} data-w={width} data-variant={variant} data-fid={fid} aria-label={label}
-      aria-busy={busy || undefined} aria-disabled={busy || off || undefined} {...props}
+      aria-busy={busy || undefined} aria-disabled={busy || off || guard.settling || undefined} data-settling={guard.settling ? '' : undefined} {...props}
       onClick={guard((e: MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation()
         // it cannot be pressed now: its tip says why, and nothing happens

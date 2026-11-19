@@ -248,6 +248,17 @@ export const removesSomething = (fix: RunnableFix): boolean =>
   fix.kind === 'chain' ? fix.steps.some(removesSomething)
     : fix.kind === 'delete' || fix.kind === 'prune' || fix.kind === 'removeMachine' || fix.kind === 'removeStore' || fix.kind === 'removeSandbox'
 
+/**
+ * The name a chain's confirm asks to be typed (review FAIL-1): the target of its
+ * first step that removes data (a Store with its projects, or a project), as the
+ * standalone Store Remove asks; null when no step removes data (one confirm press).
+ */
+export const typedNameOf = (fix: RunnableFix | null | undefined): string | null => {
+  if (fix?.kind !== 'chain') return null
+  const step = fix.steps.find((s) => s.kind === 'removeStore' || s.kind === 'delete')
+  return step?.kind === 'removeStore' ? step.store : step?.kind === 'delete' ? step.project : null
+}
+
 /** The machine a fix's last step removes (`… && layerfs machine remove M`), or null. */
 export const removesMachine = (fix: RunnableFix | null | undefined): string | null => {
   const last = fix?.kind === 'chain' ? fix.steps[fix.steps.length - 1] : fix

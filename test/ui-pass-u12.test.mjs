@@ -50,7 +50,8 @@ await build({
       "export * as mm from './src/client/machines/model.ts'",
       "export * as dm from './src/client/doctor/model.ts'",
       "export { fixCall } from './src/client/storage/fix-call.ts'",
-      "export { pressAllowed, PRESS_SETTLE_MS } from './src/client/ui/index.tsx'",
+      "export { pressAllowed, guardedPress, PRESS_SETTLE_MS } from './src/client/ui/index.tsx'",
+      "export { chainSteps } from './src/client/storage/StoragePage.tsx'",
       "export { blockedOf } from './src/client/files/States.tsx'",
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
       "export { locales as storageLocales } from './src/client/storage/locale.ts'",
@@ -269,4 +270,60 @@ test('F5: Store and connection controls and every fix button name what they act 
     assert.ok(M.storageLocales[lang].ariaFor.includes('{name}'), lang)
     assert.ok(M.storageLocales[lang].ariaForOn.includes('{name}') && M.storageLocales[lang].ariaForOn.includes('{store}'), lang)
   }
+})
+
+// ---------------------------------------------------------------- review fix loop
+
+test('review FAIL-1: a chain that removes data asks the Store Remove\'s typed-name confirm, listing every step', () => {
+  const chain = M.doc.runnableFix(CHAIN)
+  assert.equal(M.doc.typedNameOf(chain), 'sim-website-0cefe19cfdbb6fe8d224', 'the Store step\'s name is typed, as the standalone Store Remove asks')
+  assert.equal(M.doc.typedNameOf(M.doc.runnableFix('layerfs project delete s/p && layerfs machine remove m')), 's/p')
+  // a chain with no data-removing step keeps the single confirm press
+  const plain = M.doc.runnableFix('layerfs machine prune m --unused && layerfs machine remove m')
+  assert.equal(plain.kind, 'chain')
+  assert.equal(M.doc.typedNameOf(plain), null)
+  assert.equal(M.doc.removesSomething(plain), true, 'still a second press')
+  assert.equal(M.doc.typedNameOf(M.doc.runnableFix('layerfs store remove s')), null, 'a single Store remove keeps its own confirm')
+  // every step listed, numbered, the data step saying so
+  const L = M.storageLocales.en
+  const t = (key, vars) => L[key].replace(/\{(\w+)\}/g, (_, k) => vars[k])
+  const label = (f) => f.kind === 'removeMachine' ? t('fixRunRemoveRecord', { name: f.machine }) : f.kind
+  assert.deepEqual(M.chainSteps(chain, label, t), ['1. Remove Store sim-website-0cefe19cfdbb6fe8d224 and its data', '2. Remove docker’s record'])
+  const ui = src('src/client/ui/index.tsx')
+  const fa = ui.slice(ui.indexOf('export function FixAction'), ui.indexOf('/** The words a refusal needs'))
+  assert.match(fa, /if \(fix\.kind === 'chain' && typed\) \{\n\s+if \(!runner\.confirmChain \|\| !\(await runner\.confirmChain\(fix, typed\)\)\) return/, 'no typed confirm, no run')
+  assert.match(fa, /\} else if \(removes && step === 'idle'\) \{ setStep\('confirm'\); return \}/)
+  const center = src('src/client/storage/StoragePage.tsx')
+  assert.match(center, /kind: 'confirm', title: t\('fixChainTitle', \{ n: fix\.steps\.length \}\), body: t\('fixChainBody'\), action: t\('fixChainAction'\), name: typed,/)
+  assert.match(center, /steps: chainSteps\(fix, label, t\), cancelled: \(\) => resolve\(false\), run: async \(\) => \{ resolve\(true\) \}/)
+  const dialogs = src('src/client/storage/dialogs.tsx')
+  assert.match(dialogs, /\{steps\?\.length \? <ol data-steps=\{steps\.length\}>/)
+  assert.match(dialogs, /onClose=\{\(\) => \{ dialog\.cancelled\?\.\(\); onClose\(\) \}\}/)
+  assert.match(dialogs, /<TextField label=\{t\('typeToConfirm', \{ name \}\)\}/, 'the same typed-name field as Store Remove')
+  for (const lang of ['en', 'zh']) for (const key of ['fixChainTitle', 'fixChainBody', 'fixChainAction', 'fixStepRemoveStore', 'fixStepDelete']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
+})
+
+test('review NOTE-1: the settle is visible (off and aria-disabled, one re-render at its end) and keyboard presses go through it', () => {
+  const seen = { current: { identity: 'demo-build:start', at: 1000 } }
+  let ran = 0
+  let clock = 1000 + 100
+  const press = M.guardedPress(seen, 'demo-build:start', M.PRESS_SETTLE_MS, () => { ran++ }, () => clock)
+  const keyboardClick = () => { const e = { detail: 0, key: 'Enter', stopped: false, stopPropagation() { this.stopped = true } }; press(e); return e }
+  assert.equal(keyboardClick().stopped, true, 'Enter inside the settle is dropped, as a pointer press is')
+  assert.equal(ran, 0)
+  clock = 1000 + M.PRESS_SETTLE_MS
+  keyboardClick()
+  assert.equal(ran, 1, 'after the settle Enter acts')
+  seen.current = { identity: 'docker:stop', at: 0 }
+  clock = 99_999
+  keyboardClick()
+  assert.equal(ran, 1, 'a handler drawn for another identity never acts, by keyboard either')
+  const ui = src('src/client/ui/index.tsx')
+  assert.match(ui, /const settling = settleMs > 0 && !pressAllowed\(seen\.current, identity, Date\.now\(\), settleMs\)/)
+  assert.match(ui, /setTimeout\(\(\) => rerender\(\(n\) => n \+ 1\), Math\.max\(0, seen\.current\.at \+ settleMs - Date\.now\(\)\) \+ 5\)/, 'one timer re-render at at + settleMs')
+  for (const [file, n] of [['src/client/machines/parts.tsx', 3], ['src/client/storage/HomeOverview.tsx', 2], ['src/client/storage/HomeCards.tsx', 1], ['src/client/ui/index.tsx', 1]]) {
+    assert.equal((src(file).match(/aria-disabled=\{guard\.settling \|\| undefined\}/g) ?? []).length, n, file)
+    assert.ok((src(file).match(/disabled=\{[^}]*guard\.settling\}/g) ?? []).length >= n, `${file} visibly off`)
+  }
+  assert.match(src('src/client/doctor/Row.tsx'), /aria-disabled=\{busy \|\| off \|\| guard\.settling \|\| undefined\}/, 'the Doctor button is drawn off by its aria-disabled style')
 })
