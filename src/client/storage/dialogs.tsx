@@ -10,7 +10,7 @@ import { Button, Checkbox, Input, SegmentedControl, StateDot } from '@deepseek-a
 import { enc, type LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
-import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
+import { Contained, Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { backupStateOf, bucketParts, canMove, inHome, needsLogin, pgServerLogin, storeStateWords, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
@@ -70,7 +70,12 @@ interface DialogsProps {
 }
 
 /** The open dialog, if any. */
-export function StorageDialogs({ api, t, dialog, view, onClose, done, onDialog }: DialogsProps): ReactNode {
+export function StorageDialogs(props: DialogsProps): ReactNode {
+  // a press inside the dialog stays there: it never reaches the page row or card under it through the portal (UI pass 3 F6)
+  return props.dialog ? <Contained><OpenDialog {...props} /></Contained> : null
+}
+
+function OpenDialog({ api, t, dialog, view, onClose, done, onDialog }: DialogsProps): ReactNode {
   if (!dialog) return null
   const after = <T,>(p: Promise<T>) => p.then((v) => { done(); return v })
   switch (dialog.kind) {

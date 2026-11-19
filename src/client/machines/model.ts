@@ -12,6 +12,7 @@
  */
 import type { Tone } from '../ui/index.tsx'
 import { parseTag, type CallLabel } from '../../shared/logs.ts'
+import { removesMachine, runnableFix } from '../../shared/doctor.ts'
 import type { MachinesKey } from './locale.ts'
 
 // ---------- host shapes ----------
@@ -655,7 +656,7 @@ export function machineState(m: MachineInfo, _live?: MachineLive): StateLook & {
   const look = stateLook('machine', state)
   const op = m.op ?? null
   if (state === 'busy') return { ...look, label: (op && OP_LABEL[op.name.replace(/^machine\./, '')]) || look.label, key: 'busy', state, op }
-  if (state === 'broken') return { ...look, label: unreadableRecord(m) ? 'stateUnreadable' : (m.reason && REASON_LABEL[m.reason]) || look.label, key: 'needs', state, op }
+  if (state === 'broken') return { ...look, label: unreadableRecord(m) ? 'stateUnreadable' : recordOutdated(m) ? 'stateRecordOutdated' : (m.reason && REASON_LABEL[m.reason]) || look.label, key: 'needs', state, op }
   const key: MachineKey = state === 'ready' ? 'running' : state === 'stopped' ? 'stopped' : 'unknown'
   return { ...look, key, state, op }
 }
@@ -735,7 +736,16 @@ export function heldWords(held: { stores: number }): Words {
  * `missing`). Its `fix` says how; {@link fixAction} says what the page runs.
  */
 export const workerDown = (m: MachineInfo, _live?: MachineLive): boolean =>
-  m.platform !== 'native' && m.state === 'broken' && ['not_answering', 'outdated', 'unreachable', 'engine_down', 'missing'].includes(m.reason ?? '')
+  m.platform !== 'native' && m.state === 'broken' && ['not_answering', 'outdated', 'unreachable', 'engine_down', 'missing'].includes(m.reason ?? '') && !recordOutdated(m)
+
+/**
+ * An `outdated` record no call repairs (UI pass 3 R FAIL 2): a record with no
+ * vm_name, whose LayerFS fix removes the record (`layerfs machine remove M`,
+ * after its Stores: `layerfs store remove S && layerfs machine remove M`).
+ * Its worker is not "not answering": nothing to restart or stop, the fix is the remove.
+ */
+export const recordOutdated = (m: Pick<MachineInfo, 'name' | 'state' | 'reason' | 'fix'>): boolean =>
+  m.state === 'broken' && m.reason === 'outdated' && removesMachine(runnableFix(m.fix)) === m.name
 
 /** Start or Stop: Stop when it is ready, Start when it is stopped (never for native). */
 export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>
@@ -753,6 +763,8 @@ export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>
  */
 export type FixAction =
   | { kind: 'start' | 'restart' | 'engine' | 'check' | 'remove' }
+  /** LayerFS's multi-command fix the page runs step by step behind one confirm press (`layerfs store remove S && layerfs machine remove M`). */
+  | { kind: 'chain', line: string }
   | { kind: 'forced', sandboxes: number, line: string }
   | { kind: 'copy', line: string }
 export function fixAction(m: MachineInfo): FixAction | null {
@@ -768,8 +780,13 @@ export function fixAction(m: MachineInfo): FixAction | null {
   if (commands.length === 1 && word(commands[0]!, 'remove')) return { kind: 'remove' }
   if (commands.length === 2 && word(commands[0]!, 'stop') && word(commands[1]!, 'start')) return heldSandboxes(m) ? { kind: 'forced', sandboxes: heldSandboxes(m), line } : { kind: 'restart' }
   if (commands.length === 2 && word(commands[0]!, 'stop', true) && word(commands[1]!, 'start')) return { kind: 'forced', sandboxes: heldSandboxes(m), line }
+  // a chain about this very machine (its last step removes it): run step by step, never "Run diagnostics" (UI pass 3 R FAIL 1)
+  if (commands.length > 1 && runnableFix(line)?.kind === 'chain' && removesMachine(runnableFix(line)) === m.name) return { kind: 'chain', line }
   return line ? { kind: 'copy', line } : null
 }
+
+/** Whether LayerFS's own fix for a machine removes its record (alone, or after its Stores): Remove… is then that machine's fix, built in or not. */
+export const fixRemoves = (m: MachineInfo): boolean => { const f = fixAction(m); return f?.kind === 'remove' || f?.kind === 'chain' }
 
 /** Whether LayerFS's fix for a machine is one the page runs behind its one button (start, restart, remove, force): then nothing else is offered beside it. */
 export const runsFix = (m: MachineInfo): boolean => { const f = fixAction(m); return !!f && f.kind !== 'copy' && f.kind !== 'check' }

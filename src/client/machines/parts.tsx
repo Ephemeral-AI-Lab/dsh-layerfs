@@ -6,13 +6,13 @@
  */
 import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CopyLine, Field, FixAction, FixContext, MoreMenu, Refusal, StateChip } from '../ui/index.tsx'
+import { CopyLine, Field, FixAction, FixContext, MoreMenu, Refusal, StateChip, Contained, usePressGuard } from '../ui/index.tsx'
 import { runnableFix } from '../../shared/doctor.ts'
 import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
 import type { MachinesKey } from './locale.ts'
-import { BUILT_IN, duration, fixAction, forceStopOf, machineState, opWords, powerOf, stageWords, unreadableRecord, workerDown, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, duration, fixAction, fixRemoves, forceStopOf, machineState, opWords, powerOf, stageWords, unreadableRecord, workerDown, type MachineInfo, type MachineLive } from './model.ts'
 import { chipOpWords } from './notices.ts'
 import { socketSetting, socketSourceWords, type SocketChoice, type SocketSetting } from './socket.ts'
 import css from './machines.module.css'
@@ -81,8 +81,13 @@ export function PowerButton({ m, pending, run, size = 'sm', compact, engine = fa
   const fix = engine ? null : fixAction(m)
   const power = engine || fix?.kind === 'engine' ? 'start' : powerOf(m)
   const elapsed = useElapsed(pending === 'stop')
-  // a record with no vm_name: Remove its record (a confirm press), where Center runs fixes; else the line stays the tip to copy
-  if (fix?.kind === 'remove') {
+  // click safety (UI pass 3 F6): a press is keyed to this machine and what the button does now; one that lands
+  // while the button has just appeared or changed (a re-render moved it under the pointer) does nothing
+  const guard = usePressGuard(`${m.name}:${m.state}:${m.reason ?? ''}:${fix?.kind ?? power ?? ''}:${pending ?? ''}`)
+  const named = (action: string) => t('powerFor', { action, name: m.name })
+  // a record with no vm_name: Remove its record (a confirm press), or LayerFS's chain (its Stores, then the record) step by step,
+  // where Center runs fixes; else the line stays the tip to copy
+  if (fix?.kind === 'remove' || fix?.kind === 'chain') {
     const runnable = fixes && m.fix ? runnableFix(m.fix) : null
     return runnable && fixes ? <span onClick={(e) => e.stopPropagation()}><FixAction line={m.fix!} fix={runnable} runner={fixes} labels={refusal} /></span> : null
   }
@@ -99,7 +104,7 @@ export function PowerButton({ m, pending, run, size = 'sm', compact, engine = fa
     }
     return (
       <Button size={size} variant={fix.kind === 'check' ? 'outline' : 'primary'} disabled={busy || fix.kind === 'forced'} icon={<PowerGlyph size={14} />} title={title}
-        onClick={(e) => { e.stopPropagation(); act() }}>
+        aria-label={named(words)} data-machine={m.name} onClick={guard((e) => { e.stopPropagation(); act() })}>
         {words}
       </Button>
     )
@@ -109,16 +114,18 @@ export function PowerButton({ m, pending, run, size = 'sm', compact, engine = fa
   if (compact && pending === null) {
     const words = t(powerKey(m, power, engine))
     return (
-      <Button size={size} variant="ghost" icon={<PowerGlyph size={14} />} aria-label={words}
+      <Button size={size} variant="ghost" icon={<PowerGlyph size={14} />} aria-label={named(words)} data-machine={m.name}
         title={`${words} · ${t(engine ? 'engineStartTitle' : power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}`}
-        onClick={(e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }} />
+        onClick={guard((e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) })} />
     )
   }
+  const label = pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t(powerKey(m, power, engine))
   return (
     <Button size={size} variant={power === 'stop' ? 'outline' : 'primary'} disabled={pending !== null} icon={<PowerGlyph size={14} />}
       title={t(engine ? 'engineStartTitle' : power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}
-      onClick={(e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }}>
-      {pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t(powerKey(m, power, engine))}
+      aria-label={named(label)} data-machine={m.name}
+      onClick={guard((e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) })}>
+      {label}
     </Button>
   )
 }
@@ -156,17 +163,17 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
               <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null || fix?.kind === 'forced'}
                 disabledReason={fix?.kind === 'forced' ? t(fix.sandboxes === 1 ? 'fixForcedOneTip' : 'fixForcedTip', { n: String(fix.sandboxes) }) : undefined}
                 onSelect={() => { close(); void run(fix?.kind === 'restart' ? 'restart' : 'start', { kind: fix?.kind === 'restart' ? 'restart' : 'start', name: m.name, platform: m.platform }) }}>
-                {t('restartWorker')}
+                {t('powerFor', { action: t('restartWorker'), name: m.name })}
               </MenuItemButton>
               <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
                 onSelect={() => { close(); void run('stop', { kind: 'stop', name: m.name }) }}>
-                {t(m.platform === 'docker' ? 'stopWorker' : 'stopUnreachable')}
+                {t('powerFor', { action: t(m.platform === 'docker' ? 'stopWorker' : 'stopUnreachable'), name: m.name })}
               </MenuItemButton>
             </>
           ) : power && (
             <MenuItemButton icon={<PowerGlyph size={14} />} disabled={pending !== null}
               onSelect={() => { close(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) }}>
-              {t(powerKey(m, power))}
+              {t('powerFor', { action: t(powerKey(m, power)), name: m.name })}
             </MenuItemButton>
           )}
           {forceStopOf(m, hasSandboxes, features) && (
@@ -175,7 +182,7 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
               {t('forceStop')}
             </MenuItemButton>
           )}
-          {builtIn && fix?.kind !== 'remove'
+          {builtIn && !fixRemoves(m)
             ? (
               <>
                 {hasSettings(m) && <MenuItemButton icon={<IconSettingsOutlineRegular size={14} />} onSelect={() => { close(); onDialog('settings') }}>{t('updateSettings')}</MenuItemButton>}
@@ -189,7 +196,7 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
                 {/* a machine that still holds Stores or Sandboxes gets the guided Remove (RemoveDialog) */}
                 {/* LayerFS refuses to remove a machine whose record it cannot read: the Doctor says what is wrong first */}
                 <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} disabled={pending !== null || unreadableRecord(m)}
-                  disabledReason={unreadableRecord(m) ? t('recordUnreadableNoRemove') : undefined}
+                  disabledReason={unreadableRecord(m) ? t('recordUnreadableNoRemove') : pending !== null ? t('removeWaitPending') : undefined}
                   onSelect={() => { close(); onDialog('remove') }}>
                   {t('remove')}
                 </MenuItemButton>
@@ -206,9 +213,10 @@ export const hasSettings = (m: MachineInfo): boolean => m.platform === 'docker'
 
 /** The menu's dialogs: the docker machine's settings, or removing a VM. */
 export function MachineDialogs({ m, dialog, onClose, pending, run, onRemoved }: { m: MachineInfo, dialog: 'settings' | 'remove' | 'force-stop' | null, onClose: () => void, pending: string | null, run: Run, onRemoved?: () => void }): ReactNode {
-  if (dialog === 'settings' && hasSettings(m)) return <SettingsDialog m={m} onClose={onClose} pending={pending} run={run} />
-  if (dialog === 'force-stop') return <ForceStopDialog m={m} onClose={onClose} pending={pending} run={run} />
-  if (dialog === 'remove') return <RemoveDialog m={m} onClose={onClose} pending={pending} run={run} onRemoved={onRemoved} />
+  // a press inside the dialog stays there: never the row's toggle or a button under it (UI pass 3 F6)
+  if (dialog === 'settings' && hasSettings(m)) return <Contained><SettingsDialog m={m} onClose={onClose} pending={pending} run={run} /></Contained>
+  if (dialog === 'force-stop') return <Contained><ForceStopDialog m={m} onClose={onClose} pending={pending} run={run} /></Contained>
+  if (dialog === 'remove') return <Contained><RemoveDialog m={m} onClose={onClose} pending={pending} run={run} onRemoved={onRemoved} /></Contained>
   return null
 }
 

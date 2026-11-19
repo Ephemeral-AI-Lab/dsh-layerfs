@@ -16,7 +16,7 @@ import { MachinesGlyph, SandboxesGlyph, StoreGlyph } from '../machines/icons.tsx
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { StorageT } from '../storage/locale.ts'
 import { BucketGlyph, refusalLabels } from '../storage/parts.tsx'
-import { Empty, LoadError, Loading, Page } from '../ui/index.tsx'
+import { Contained, Empty, LoadError, Loading, Page } from '../ui/index.tsx'
 import { TabBar } from '../ui/TabBar.tsx'
 import type { DoctorT } from './locale.ts'
 import { allOffWhy, allPlan, headOf, tabOf, tabsOf, viewOf, TABS, type RowFix, type TabKey, type Thing } from './model.ts'
@@ -57,7 +57,8 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
   const lastFocus = useRef<string | null>(null)
 
   // the clock of a Full check's elapsed time: only while one runs
-  const timing = Object.values(state.runs).some((r) => r.kind === 'full')
+  // (and while a call waits for its turn at the host, so its row can say so: F12)
+  const timing = Object.values(state.runs).some((r) => r.kind === 'full' || !r.spawned)
   useEffect(() => {
     if (!timing) return
     setNow(Date.now())
@@ -185,7 +186,7 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
       <p className={css.source}>{splitOn(w.t('dpSource', { command: '\u0000' }), <code>layerfs home get --with tree</code>)}</p>
 
       {confirm ? (
-        <Modal open onClose={() => setConfirm(null)} title={w.t('dpDeleteTitle', { name: confirm.thing.name })} closeLabel={w.t('close')}
+        <Contained><Modal open onClose={() => setConfirm(null)} title={w.t('dpDeleteTitle', { name: confirm.thing.name })} closeLabel={w.t('close')}
           footer={(
             <div className={css.modalActions}>
               <Button variant="outline" onClick={() => setConfirm(null)}>{w.t('dpCancel')}</Button>
@@ -193,7 +194,7 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
             </div>
           )}>
           <p className={css.modalBody}>{splitOn(w.t('dpDeleteBody', { command: '\u0000' }), <code>{confirm.fix.line}</code>)}</p>
-        </Modal>
+        </Modal></Contained>
       ) : null}
     </div>
   )

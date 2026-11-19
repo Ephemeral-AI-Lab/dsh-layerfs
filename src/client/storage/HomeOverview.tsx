@@ -24,14 +24,14 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import type { Query } from '../files/use-query.ts'
 import { useMachinesContext } from '../machines/context.tsx'
-import { downReason, machineOrder, machineState, workerDown, type AvailableView } from '../machines/model.ts'
+import { downReason, machineOrder, machineState, recordOutdated, workerDown, type AvailableView } from '../machines/model.ts'
 import { machineBlock, stepReasons } from '../machines/needs.ts'
 import type { SetupModalT } from '../setup/locale.ts'
 import { SetupCard, unset } from '../setup/SetupCard.tsx'
 import { missingWords } from '../setup/SetupDialog.tsx'
 import { setupDialog, useSetupStatus } from '../setup/store.ts'
 import { EmptyState } from '../files/States.tsx'
-import { Card, FixContext, LoadError, Loading, MoreMenu, Refusal, resolveFix } from '../ui/index.tsx'
+import { Card, FixContext, LoadError, Loading, MoreMenu, Refusal, resolveFix, usePressGuard } from '../ui/index.tsx'
 import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import { BucketCards } from './BucketCards.tsx'
 import { HomeStores } from './MachineStores.tsx'
@@ -138,7 +138,7 @@ interface Need {
   detail?: ReactNode
   action?: { label: string, run: () => void | Promise<unknown> } | undefined
   /** A second, quieter action (e.g. Stop beside Restart worker); runs and refuses like `action`. */
-  secondary?: { label: string, title?: string, run: () => void | Promise<unknown> } | undefined
+  secondary?: { label: string, title?: string, run: () => void | Promise<unknown>, confirm?: string } | undefined
   extra?: ReactNode
 }
 
@@ -224,7 +224,19 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         // it opens that machine's page, where its own Start (or fix) is pressed (UI pass 2 audit);
         // Stop <machine> beside it stays a press that names the machine (RV4 NOTE 14)
         action: { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
-        secondary: { label: t('ovStopUnreachable', { machine: place(m.name) }), title: t('ovStopUnreachableTitle', { machine: place(m.name) }), run: () => mc.act({ kind: 'stop', name: m.name }) },
+        // a power action from the head asks a second press that names the machine (UI pass 3 F6): a stray click never stops it
+        secondary: { label: t('ovStopUnreachable', { machine: place(m.name) }), title: t('ovStopUnreachableTitle', { machine: place(m.name) }), confirm: t('ovStopConfirm', { machine: place(m.name) }), run: () => mc.act({ kind: 'stop', name: m.name }) },
+      })
+    } else if (recordOutdated(m)) {
+      // an outdated record no call repairs (UI pass 3 R FAIL 2): not a worker that does not answer, and no Stop;
+      // its fix (remove, after its Stores) runs behind a confirm on the machine's page, so the head opens it
+      needs.push({
+        key: `record:${m.name}`, tone: 'danger', rank: 1,
+        title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{m.stores.length
+          ? t('ovRecordOutdatedStores', { machine: place(m.name), stores: m.stores.join(', ') })
+          : t('ovRecordOutdated', { machine: place(m.name) })}</Link>,
+        detail: m.message ?? m.fix ?? undefined,
+        action: { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
       })
     } else if (look.key === 'needs') {
       needs.push({
@@ -419,15 +431,23 @@ function NeedActions({ need: n, labels, more, role }: { need: Need, labels: Retu
   // one action at a time; a refusal stays until the next try
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const [armed, setArmed] = useState(false)
+  // click safety (UI pass 3 F6): presses are keyed to this need and dropped while its buttons have just appeared or changed
+  const guard = usePressGuard(`${n.key}:${n.action?.label ?? ''}:${n.secondary?.label ?? ''}`)
   const go = (run: () => void | Promise<unknown>) => {
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setArmed(false)
     void Promise.resolve().then(run).catch(setError).finally(() => setBusy(false))
   }
   return (
     <>
       <span className={heroCss.acts} role={role}>
-        {n.action ? <Button variant="outline" size="sm" disabled={busy} onClick={() => go(n.action!.run)}>{n.action.label}</Button> : null}
-        {n.secondary ? <Button variant="ghost" size="sm" disabled={busy} title={n.secondary.title} onClick={() => go(n.secondary!.run)}>{n.secondary.label}</Button> : null}
+        {n.action ? <Button variant="outline" size="sm" disabled={busy} onClick={guard(() => go(n.action!.run))}>{n.action.label}</Button> : null}
+        {n.secondary ? (
+          <Button variant={armed ? 'primary' : 'ghost'} size="sm" disabled={busy} title={n.secondary.title}
+            onClick={guard(() => { if (n.secondary!.confirm && !armed) setArmed(true); else go(n.secondary!.run) })}>
+            {armed && n.secondary.confirm ? n.secondary.confirm : n.secondary.label}
+          </Button>
+        ) : null}
         {n.extra}
       </span>
       {more}

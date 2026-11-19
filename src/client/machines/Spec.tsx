@@ -12,7 +12,7 @@ import { Card, LinkButton } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachinesKey } from './locale.ts'
 import { storeLines } from './Inventory.tsx'
-import { BUILT_IN, fixAction, heldWords, inUse, machineState, opWords, sandboxesOn, supports, unreadableRecord, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, fixAction, fixRemoves, heldWords, inUse, machineState, opWords, sandboxesOn, supports, unreadableRecord, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
 import { pgStoresHere, pgSupportKey } from './notices.ts'
 import { useMachineStats } from './MachineStats.tsx'
 import { upTime, unitsOf } from './metrics.ts'
@@ -125,7 +125,8 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
 export function DangerZone({ m, pending, onRemove }: { m: MachineInfo, pending: string | null, onRemove: () => void }): ReactNode {
   const { t, tw } = useMachinesContext()
   // a built-in has none, unless LayerFS's own fix removes its record (`machine remove <m>`: LayerFS decides, U8)
-  const recordOnly = fixAction(m)?.kind === 'remove'
+  // (or LayerFS's chain: its Stores, then its record; the guided Remove removes them in that order)
+  const recordOnly = fixRemoves(m)
   if (BUILT_IN.has(m.platform) && !recordOnly) return null
   const held = recordOnly ? null : inUse(m)
   // LayerFS refuses to remove a machine whose record it cannot read (Failed): off, with the reason the list row's menu gives

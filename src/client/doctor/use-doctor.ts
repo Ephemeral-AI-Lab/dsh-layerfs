@@ -13,7 +13,7 @@ import { useHostEvents } from '../storage/hooks.ts'
 import type { DoctorCall, DoctorFixRun, DoctorReport, DoctorResults, DoctorRun, TreeAnswer } from '../../shared/doctor.ts'
 import { thingKey, thingOf } from '../../shared/doctor.ts'
 import {
-  addRuns, afterFix, allMore, allPlan, buildWorld, callOf, closeAll, dropRuns, emptyState, fixEnd, fixStep, forget, onFix, onRun, openAll, planCalls, running, seed, setTree,
+  fixOffered, addRuns, afterFix, allMore, allPlan, buildWorld, callOf, closeAll, dropRuns, emptyState, fixEnd, fixStep, forget, onFix, onRun, openAll, planCalls, running, seed, setTree,
   type DoctorState, type RowFix, type Thing, type World,
 } from './model.ts'
 
@@ -211,7 +211,8 @@ export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey 
   }, [start])
 
   const stop = useCallback((thing: Thing) => {
-    const run = running(ref.current, 'full', thing.key)
+    // a Full check, or a call still waiting for its turn at the host (F12): the host ends it, nothing is written
+    const run = running(ref.current, 'full', thing.key) ?? Object.values(ref.current.runs).find((r) => r.target === thing.key && !r.spawned)
     // a call that already ended answers NotFound: its end is on its way as an event
     if (run) void api.call('POST', `/api/doctor/runs/${run.id}/stop`).catch(() => {})
   }, [api])
@@ -238,6 +239,9 @@ export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey 
 
   const fix = useCallback((thing: Thing, row: RowFix) => {
     if (!row.fix || ref.current.fixes[thing.key]) return
+    // click safety (UI pass 3 F6): the press runs only the fix its row offers now, for that very thing,
+    // and not while the row is being checked or re-read (a stale handler never runs another row's fix)
+    if (!fixOffered(ref.current, thing.key, row.line)) return
     const id = newId()
     const key = thing.key
     const name = thing.name

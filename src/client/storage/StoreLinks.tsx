@@ -106,8 +106,9 @@ export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
         </div>
         <div className={css.linkActions}>
           {broken ? <StoreAction store={s} t={t} /> : null}
-          <Button variant="ghost" size="sm" onClick={() => on.editConnection()}>{t('pgChangeLogin')}</Button>
-          <Button variant="outline" size="sm" onClick={() => on.check()}>{t('pgCheck')}</Button>
+          {/* accessible names name the Store they act on (UI pass 3 F5); the visible words stay short */}
+          <Button variant="ghost" size="sm" aria-label={t('ariaFor', { action: t('pgChangeLogin'), name: s.name })} onClick={() => on.editConnection()}>{t('pgChangeLogin')}</Button>
+          <Button variant="outline" size="sm" aria-label={t('ariaFor', { action: t('pgCheck'), name: s.name })} onClick={() => on.check()}>{t('pgCheck')}</Button>
         </div>
       </Card>
       <Card className={css.linkCard} data-machines={s.name}>
@@ -131,9 +132,10 @@ export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
                 <span className={css.muted}>{reach?.at ? ago(reach.at, now, tt) : ''}</span>
                 <span className={css.muted}>{boxes ? t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes }) : ''}</span>
                 <span className={css.spacer} />
-                <Button variant="ghost" size="sm" onClick={() => on.check(c.machine ?? undefined)}>{t('pgCheck')}</Button>
-                {c.machine && c.own ? <Button variant="ghost" size="sm" onClick={() => on.editConnection(c.machine!)}>{t('edit')}</Button> : null}
-                {c.machine && (c.own || reach) ? <Button variant="ghost" size="sm" onClick={() => on.removeOwn(c.machine!)}>{t('pgForget')}</Button> : null}
+                {/* each names its machine row and the Store (F5) */}
+                <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('pgCheck'), name: place(name), store: s.name })} onClick={() => on.check(c.machine ?? undefined)}>{t('pgCheck')}</Button>
+                {c.machine && c.own ? <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('edit'), name: place(name), store: s.name })} onClick={() => on.editConnection(c.machine!)}>{t('edit')}</Button> : null}
+                {c.machine && (c.own || reach) ? <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('pgForget'), name: place(name), store: s.name })} onClick={() => on.removeOwn(c.machine!)}>{t('pgForget')}</Button> : null}
               </li>
             )
           })}

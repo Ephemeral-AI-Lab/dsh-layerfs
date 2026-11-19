@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { FileTypeIcon, IconCloseOutlineRegular, IconSearchOutlineRegular, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
+import { removesMachine } from '../../shared/doctor.ts'
 import { filesApi } from './api.ts'
 import { BranchPicker } from './BranchPicker.tsx'
 import { FileTree, treeLabels, useFolders } from './FileTree.tsx'
@@ -44,8 +45,12 @@ export function ProjectFiles(props: ProjectFilesProps): ReactNode {
     if (query.data) setBranches((all) => [...new Map([...(pos ? all : []), ...query.data!.items].map((b) => [b.name, b])).values()])
   }, [query.data, pos])
   if (query.error && !query.data) {
+    // a refusal is a word, LayerFS's message as its tip, and its fix (a chain step by step) or Repair as the one action (UI pass 3 R FAIL 3);
+    // a Store blocked by a broken machine reads `Blocked · <m> broken`, whether LayerFS answers Failed with the machine's fix or a blocked refusal
     return <ErrorState title={t('files_readFailed', { what: project })} error={query.error} retryLabel={t('files_retry')} onRetry={query.reload}
-      fixWord={(fix) => (fix.kind === 'saveAuth' ? t('files_noSavedLogin') : null)} inTheWay={t('files_inTheWay')} />
+      fixWord={(fix) => (fix.kind === 'saveAuth' ? t('files_noSavedLogin') : removesMachine(fix) ? t('files_blockedMachine', { machine: removesMachine(fix)! }) : null)}
+      blockedWord={(b) => (b?.machine ? t('files_blockedMachine', { machine: b.machine }) : b ? t('files_blocked') : null)}
+      fixLabel={t('files_fix')} inTheWay={t('files_inTheWay')} />
   }
   // Progressive: with a Branch to open, its folder tree loads at once (at its tip) while the
   // Branch list is still on its way; the list fills the picker when it arrives.

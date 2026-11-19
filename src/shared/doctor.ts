@@ -215,6 +215,44 @@ export type RunnableFix =
   | { kind: 'saveAuth', store: string }
   | { kind: 'updateAuth', store: string, auth: string }
   | { kind: 'connectBucket', bucket: string, url: string }
+  | { kind: 'chain', steps: ChainStep[] }
+
+/**
+ * One step of a fix chain: a single-command fix that is a host call (no dialog).
+ * A chain is LayerFS's multi-command fix (`layerfs store remove S && layerfs
+ * machine remove M`, a record with no vm_name and a Store on it): the page runs
+ * it step by step behind one confirm press, one attempt per step, and stops at
+ * the first refusal (UI pass 3 R FAIL 1).
+ */
+export type ChainStep = Extract<RunnableFix, { kind: 'start' | 'stop' | 'restart' | 'prune' | 'removeMachine' | 'compact' | 'removeStore' | 'removeSandbox' | 'delete' | 'backup' }>
+const CHAIN_KINDS = new Set(['start', 'stop', 'prune', 'removeMachine', 'compact', 'removeStore', 'removeSandbox', 'delete', 'backup'])
+/** The most steps a chain the page runs may have; a longer line stays a tip to copy. */
+const CHAIN_MOST = 4
+
+/** A fix line of two or more commands, each a step the page runs, as a chain; else null. */
+export function chainFix(line: string | null | undefined): Extract<RunnableFix, { kind: 'chain' }> | null {
+  if (typeof line !== 'string' || line.length > 512 || !line.includes('&&')) return null
+  const parts = line.split('&&').map((c) => c.trim())
+  if (parts.length < 2 || parts.length > CHAIN_MOST || parts.some((c) => !c)) return null
+  const steps: ChainStep[] = []
+  for (const part of parts) {
+    const step = runnableFix(part)
+    if (!step || !CHAIN_KINDS.has(step.kind)) return null
+    steps.push(step as ChainStep)
+  }
+  return { kind: 'chain', steps }
+}
+
+/** Whether a fix removes something (its press asks a second, confirming press). */
+export const removesSomething = (fix: RunnableFix): boolean =>
+  fix.kind === 'chain' ? fix.steps.some(removesSomething)
+    : fix.kind === 'delete' || fix.kind === 'prune' || fix.kind === 'removeMachine' || fix.kind === 'removeStore' || fix.kind === 'removeSandbox'
+
+/** The machine a fix's last step removes (`… && layerfs machine remove M`), or null. */
+export const removesMachine = (fix: RunnableFix | null | undefined): string | null => {
+  const last = fix?.kind === 'chain' ? fix.steps[fix.steps.length - 1] : fix
+  return last?.kind === 'removeMachine' ? last.machine : null
+}
 
 /** LayerFS's fix for a PostgreSQL Store that names no saved login (its placeholders are for the person). */
 const SAVE_AUTH = /^layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update (\S+) --auth <auth>$/
@@ -285,7 +323,7 @@ export function runnableFix(line: string | null | undefined): RunnableFix | null
   if (words[1] === 'store' && words[2] === 'remove' && plain(4)) return { kind: 'removeStore', store: words[3]! }
   if (words[1] === 'sandbox' && words[2] === 'remove' && plain(4)) return { kind: 'removeSandbox', sandbox: words[3]! }
   if (words[1] === 'machine' && words[2] === 'prune' && words.length === 5 && words[4] === '--unused' && WORD.test(words[3]!)) return { kind: 'prune', machine: words[3]! }
-  return null
+  return chainFix(line)
 }
 
 /**

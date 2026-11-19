@@ -19,7 +19,7 @@ import { SandboxGlyph } from '../machines/icons.tsx'
 import { downReason, shortSandbox, workerDown, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { sandboxRuns } from '../machines/stats.ts'
 import { machineBlock } from '../machines/needs.ts'
-import { MoreMenu } from '../ui/index.tsx'
+import { MoreMenu, usePressGuard } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
 import { enc, type LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -90,9 +90,11 @@ export function troubleAction(trouble: Trouble | null, t: StorageT, onRestart?: 
 export function RestartButton({ m, t, onRestart }: { m: MachineInfo, t: StorageT, onRestart: (m: MachineInfo) => Promise<unknown> }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
+  // click safety (UI pass 3 F6): keyed to this machine, dropped while the card has just appeared or changed under the pointer
+  const guard = usePressGuard(`restart:${m.name}:${m.state}:${m.reason ?? ''}`)
   return (
-    <Button variant="outline" size="sm" disabled={busy} title={failed ?? t('ovRestartWorkerTitle', { machine: m.name })}
-      onClick={() => { setBusy(true); setFailed(null); void onRestart(m).catch((e: unknown) => setFailed(String((e as Error)?.message ?? e))).finally(() => setBusy(false)) }}>
+    <Button variant="outline" size="sm" disabled={busy} title={failed ?? t('ovRestartWorkerTitle', { machine: m.name })} data-machine={m.name}
+      onClick={guard(() => { setBusy(true); setFailed(null); void onRestart(m).catch((e: unknown) => setFailed(String((e as Error)?.message ?? e))).finally(() => setBusy(false)) })}>
       {busy ? t('ovRestarting') : failed ? t('ovRestartFailed') : t('ovRestartWorker', { machine: m.name })}
     </Button>
   )

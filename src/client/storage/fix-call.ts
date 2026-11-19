@@ -24,5 +24,7 @@ export function fixCall(api: LayerfsApi, fix: RunnableFix): Promise<unknown> {
     // a record with fields 2.0 no longer writes: store update names its own login again, which writes it clean (spec v23)
     case 'updateAuth': return api.call('POST', `/api/stores/${enc(fix.store)}/connection`, { auth: fix.auth })
     case 'doctor': case 'saveAuth': case 'connectBucket': return Promise.reject(new Error(`the ${fix.kind} fix is Center's own, not a host call`))
+    // a multi-command fix: its steps in order, one attempt each; the first refusal ends it (nothing after it runs)
+    case 'chain': return fix.steps.reduce<Promise<unknown>>((before, step) => before.then(() => fixCall(api, step)), Promise.resolve())
   }
 }

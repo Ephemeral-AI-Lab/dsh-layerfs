@@ -198,6 +198,8 @@ export interface RunInfo {
   /** The things it owes an event for, and the ones that have landed. */
   covers: string[]
   landed: Record<string, true>
+  /** The host started its CLI process (a `running` event); until then it waits for its turn there (UI pass 3 F12). */
+  spawned?: boolean
 }
 
 export interface DoctorState {
@@ -351,6 +353,7 @@ export function onRun(state: DoctorState, event: DoctorRun, now: number): Doctor
   if (!run) return state
   if (event.state === 'queued') return next
   if (event.state === 'running') {
+    if (!run.spawned) next = { ...next, runs: { ...next.runs, [run.id]: { ...run, spawned: true } } }
     const thing = thingOf(event.progress?.node)
     if (!thing) return next
     const key = keyIn(next.world, thing.kind, thing.name)
@@ -378,7 +381,8 @@ export function seed(state: DoctorState, held: DoctorResults, now: number): Doct
   const live = new Set(held.running.map((r) => r.id))
   // a call this page followed that the host no longer runs ended while the page was away: its outcome is in `last`
   next = dropRuns(next, Object.keys(next.runs).filter((id) => !live.has(id)))
-  for (const run of held.running) next = onRun(next, { ...run, state: 'queued' }, now)
+  // a held run keeps whether its process started (`running` marks it spawned)
+  for (const run of held.running) next = onRun(next, { ...run, state: run.state === 'running' ? 'running' : 'queued' }, now)
   let fixes = next.fixes
   for (const f of held.fixes) if (f.state === 'running') fixes = { ...fixes, [thingKey(f.kind, f.name)]: { id: f.id, step: f.steps[f.step] ?? null } }
   return { ...next, fixes }
@@ -548,6 +552,31 @@ export function fixOf(thing: Thing, seen: Seen): RowFix | null {
 export const sandboxesOn = (world: World, machine: Thing): Thing[] => kidsOf(world, machine).filter((k) => k.kind === 'sandbox')
 
 // ---------------------------------------------------------------- buttons
+
+/**
+ * Whether a thing's row offers this fix line now, pressable (UI pass 3 F6): the
+ * thing is still in the tree, its fix is that line and is about it, no fix,
+ * check or Check all runs on it. A press from a stale render passes none of this.
+ */
+export function fixOffered(state: DoctorState, key: string, line: string): boolean {
+  const thing = state.world?.by[key]
+  if (!thing || state.fixes[key]) return false
+  const v = viewOf(state, thing, 0, false)
+  if (v.blocked || !v.fix?.fix || v.fix.line !== line) return false
+  if (Object.values(state.runs).some((r) => r.target === key || r.covers.includes(key))) return false
+  return offWhy(state, thing, 'fix', v.fix) === null
+}
+
+/** How long a run may wait for its turn at the host before its row says it waits (and offers Stop). */
+export const WAIT_SHOWN_MS = 2000
+
+/**
+ * A row's call that the host has not started yet, after {@link WAIT_SHOWN_MS}
+ * (UI pass 3 F12): the row must not read Checking with no call in flight; it
+ * says it waits for its turn and offers Stop.
+ */
+export const waitingRun = (state: DoctorState, target: string, now: number): RunInfo | undefined =>
+  Object.values(state.runs).find((r) => r.target === target && !isAllGroup(r.group) && !r.spawned && now - r.started >= WAIT_SHOWN_MS)
 
 export const running = (state: DoctorState, kind: RunInfo['kind'], target?: string): RunInfo | undefined =>
   Object.values(state.runs).find((r) => r.kind === kind && !isAllGroup(r.group) && (target === undefined || r.target === target))

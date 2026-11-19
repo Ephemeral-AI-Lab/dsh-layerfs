@@ -14,10 +14,11 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, ty
 import clsx from 'clsx'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { quickChecks, whatOf } from './checks.ts'
-import { causeOf, kidsOf, offWhy, running, stateOf, viewOf, type DoctorState, type Mark as CheckMark, type RowFix, type RowView, type Thing } from './model.ts'
+import { causeOf, kidsOf, offWhy, running, stateOf, viewOf, waitingRun, type DoctorState, type Mark as CheckMark, type RowFix, type RowView, type Thing } from './model.ts'
 import { markDot, TipBody, useTip, type MarkKind, type TipData } from './tips.tsx'
 import { DOT, mmss, type Words } from './words.ts'
 import { Signal, type SignalState } from '../storage/Signal.tsx'
+import { usePressGuard } from '../ui/index.tsx'
 import { BucketProviderGlyph, MachineGlyph, SandboxGlyph, StoreKindGlyph } from '../machines/icons.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { BucketGlyph } from '../storage/parts.tsx'
@@ -64,8 +65,10 @@ export function KindGlyph({ thing }: { thing: Thing }): ReactNode {
 }
 
 /** A button of the page: a DSH Button that says why when it cannot be pressed. */
-export function Btn({ fid, tip, onPress, off, busy, variant = 'outline', width, label, className, children }: {
+export function Btn({ fid, tip, onPress, off, busy, variant = 'outline', width, label, className, settle, children }: {
   fid: string
+  /** Click safety for a button that changes something (a fix): presses are keyed to this and dropped while it has just appeared or changed. */
+  settle?: string | undefined
   tip: TipData
   onPress(): void
   off?: boolean
@@ -77,15 +80,16 @@ export function Btn({ fid, tip, onPress, off, busy, variant = 'outline', width, 
   children: ReactNode
 }): ReactNode {
   const { props, showNow, hide } = useTip(tip)
+  const guard = usePressGuard(settle ?? fid, settle ? undefined : 0)
   return (
     <Button variant={variant} size="sm" className={clsx(css.btn, className)} data-w={width} data-variant={variant} data-fid={fid} aria-label={label}
       aria-busy={busy || undefined} aria-disabled={busy || off || undefined} {...props}
-      onClick={(e: MouseEvent<HTMLButtonElement>) => {
+      onClick={guard((e: MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation()
         // it cannot be pressed now: its tip says why, and nothing happens
         if (busy || off) showNow(e.currentTarget)
         else { hide(); onPress() }
-      }}>
+      })}>
       {children}
     </Button>
   )
@@ -217,6 +221,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
     const after = kidsOf(state.world!, x).filter((k) => k.kind === 'store' || k.kind === 'sandbox').map((k) => w.callFor(k))
     more.push(
       <Btn key="fix" variant="primary" fid={`fix:${key}`} busy={!!fixing} off={!!off} onPress={() => on.fix(x, v.fix!)}
+        label={w.t('dpFixNamed', { fix: fixLabel, name: w.nameOf(x) })} settle={`${key}:${v.fix.line}:${o.st}:${off?.why ?? ''}`}
         tip={{ title: fixLabel, lines: [w.offText(off) ?? w.t(x.kind === 'machine' ? 'dpFixThenMachine' : 'dpFixThen')], cmds: forced ? [] : [v.fix.line, `# ${w.t('dpCmdThen')}`, w.callFor(x.kind === 'project' && x.parent ? state.world!.by[x.parent] ?? x : x), ...(x.kind === 'machine' ? after : [])] }}>
         {fixLabel}
       </Btn>,
@@ -232,6 +237,16 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
       <StatusSignal key="refused" fid={`refused:${key}`} st="notice" said={said} tip={{ title, lines: [said, w.t('dpRefusedNothing', { fix: fixLabel || w.t('dpDetailFix') })] }}>
         {w.t('dpRefused')}
       </StatusSignal>,
+    )
+  }
+  // a call the host has not started yet (UI pass 3 F12): it says it waits for its turn, with Stop, never a silent Checking
+  const waiting = full ? undefined : waitingRun(state, key, ctx.now)
+  if (waiting) {
+    more.push(
+      <span key="wait" className={css.live} data-waiting="">
+        <StatusSignal fid={`wait:${key}`} st="notice" tip={{ title: w.t('dpWaitingTurn'), lines: [w.t('dpWaitingTip')] }}>{w.t('dpWaitingTurn')}</StatusSignal>
+        <Btn fid={`stopwait:${key}`} label={w.t('dpStopWaitLabel', { name: w.nameOf(x) })} tip={{ title: w.t('dpStop'), lines: [w.t('dpStopWaitTip')] }} onPress={() => on.stop(x)}>{w.t('dpStop')}</Btn>
+      </span>,
     )
   }
   if (full) {

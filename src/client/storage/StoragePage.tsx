@@ -105,34 +105,43 @@ function CenterFixes({ api, t, loginRef, reconnectRef, children }: { api: Layerf
   doctorRef.current = startDoctor
   const runner = useMemo<FixRunner>(() => {
     const name = (fix: RunnableFix) => ('machine' in fix ? fix.machine : 'store' in fix ? fix.store : 'project' in fix ? fix.project : 'sandbox' in fix ? fix.sandbox : 'bucket' in fix ? fix.bucket : '')
+    const label = (fix: RunnableFix): string => {
+      switch (fix.kind) {
+        case 'chain': return t('fixRunChain', { n: fix.steps.length, first: label(fix.steps[0]!) })
+        case 'start': return t('fixRunStart', { name: fix.machine })
+        case 'stop': return t('fixRunStop', { name: fix.machine })
+        case 'restart': return t('fixRunRestart', { name: fix.machine })
+        case 'prune': return t('fixRunPrune')
+        case 'doctor': return t('fixRunDoctor', { name: fix.machine })
+        case 'removeMachine': return t('fixRunRemoveRecord', { name: fix.machine })
+        case 'compact': return t('fixRunCompact', { name: fix.store })
+        case 'removeStore': return t('fixRunRemoveRecord', { name: fix.store })
+        case 'removeSandbox': return t('fixRunCloseSandbox', { name: fix.sandbox })
+        case 'delete': return t('fixRunDelete', { name: fix.project })
+        case 'backup': return t('fixRunBackup', { bucket: fix.bucket })
+        case 'homeInit': return t('fixRunHomeInit')
+        case 'saveAuth': return t('fixRunSaveLogin')
+        case 'updateAuth': return t('fixRunUpdateAuth')
+        case 'connectBucket': return t('fixRunConnectBucket')
+      }
+    }
     return {
       run: async (fix) => {
         if (fix.kind === 'saveAuth') { loginRef.current(fix.store); return }
         if (fix.kind === 'connectBucket') { reconnectRef.current({ bucket: fix.bucket, provider: null, url: fix.url }); return }
         if (fix.kind === 'doctor') return doctorRef.current('machine', fix.machine)
-        try { return await fixCall(api, fix) } finally { if ('machine' in fix) void recheck() }
+        try { return await fixCall(api, fix) } finally { if ('machine' in fix || (fix.kind === 'chain' && fix.steps.some((s) => 'machine' in s))) void recheck() }
       },
-      label: (fix) => {
-        switch (fix.kind) {
-          case 'start': return t('fixRunStart', { name: fix.machine })
-          case 'stop': return t('fixRunStop', { name: fix.machine })
-          case 'restart': return t('fixRunRestart', { name: fix.machine })
-          case 'prune': return t('fixRunPrune')
-          case 'doctor': return t('fixRunDoctor', { name: fix.machine })
-          case 'removeMachine': return t('fixRunRemoveRecord', { name: fix.machine })
-          case 'compact': return t('fixRunCompact', { name: fix.store })
-          case 'removeStore': return t('fixRunRemoveRecord', { name: fix.store })
-          case 'removeSandbox': return t('fixRunCloseSandbox', { name: fix.sandbox })
-          case 'delete': return t('fixRunDelete', { name: fix.project })
-          case 'backup': return t('fixRunBackup', { bucket: fix.bucket })
-          case 'homeInit': return t('fixRunHomeInit')
-          case 'saveAuth': return t('fixRunSaveLogin')
-          case 'updateAuth': return t('fixRunUpdateAuth')
-          case 'connectBucket': return t('fixRunConnectBucket')
-        }
+      label: (fix) => label(fix),
+      confirm: (fix) => fix.kind === 'chain' ? t('fixConfirmChain', { n: fix.steps.length })
+        : t(fix.kind === 'delete' ? 'fixConfirmDelete' : fix.kind === 'removeMachine' || fix.kind === 'removeStore' ? 'fixConfirmRemoveRecord'
+          : fix.kind === 'removeSandbox' ? 'fixConfirmCloseSandbox' : 'fixConfirmPrune', { name: name(fix) }),
+      step: (i, n, fix) => t('fixChainStep', { i, n, step: label(fix) }),
+      // the accessible name names what it acts on (UI pass 3 F5): `Update (compact-demo-pg)`; words that already name it stay
+      named: (fix, words) => {
+        const target = fix.kind === 'chain' ? fix.steps.map(name).filter(Boolean).join(', ') : name(fix)
+        return target && !words.includes(target) ? t('ariaFor', { action: words, name: target }) : words
       },
-      confirm: (fix) => t(fix.kind === 'delete' ? 'fixConfirmDelete' : fix.kind === 'removeMachine' || fix.kind === 'removeStore' ? 'fixConfirmRemoveRecord'
-        : fix.kind === 'removeSandbox' ? 'fixConfirmCloseSandbox' : 'fixConfirmPrune', { name: name(fix) }),
       tip: (line) => t('fixTip', { line }),
       done: t('fixDone'),
       // a refusal that says to start, stop or restart a machine whose own record is broken: that machine's fix instead, else none

@@ -3,14 +3,14 @@
  * share so they read as native DSH pages. Every visible word arrives as a
  * prop from the caller's locale `t`; nothing here owns copy.
  */
-import { createContext, useContext, useState, type HTMLAttributes, type ReactNode } from 'react'
+import { createContext, useContext, useRef, useState, type HTMLAttributes, type ReactNode, type SyntheticEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconEllipsisOutlineRegular,
   IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, StateDot,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { runnableFix, type RunnableFix } from '../../shared/doctor.ts'
+import { removesSomething, runnableFix, type RunnableFix } from '../../shared/doctor.ts'
 import css from './ui.module.css'
 
 export { css as uiCss }
@@ -178,6 +178,43 @@ export function StateChip({ tone, label, live, dashed, op, title, className }: {
   )
 }
 
+// ---------- click safety ----------
+
+/** How long a control that runs an action ignores presses after it appears or changes what it does (UI pass 3 F6). */
+export const PRESS_SETTLE_MS = 600
+
+/**
+ * Click safety for a control that runs an action (a power action, a fix): its
+ * press is keyed to `identity` (the thing it acts on and what it does now). A
+ * press that lands within {@link PRESS_SETTLE_MS} of the control first showing
+ * that identity (a row re-rendered, re-sorted or swapped under the pointer) is
+ * dropped, and the handler always runs with the identity it was drawn for, so
+ * a stale handler never acts on another row. Returns a wrapper for onClick.
+ */
+export function usePressGuard(identity: string, settleMs = PRESS_SETTLE_MS): <E extends SyntheticEvent>(handler: (e: E) => void) => (e: E) => void {
+  const seen = useRef({ identity, at: Date.now() })
+  if (seen.current.identity !== identity) seen.current = { identity, at: Date.now() }
+  const drawn = identity
+  return (handler) => (e) => {
+    if (!pressAllowed(seen.current, drawn, Date.now(), settleMs)) { e.stopPropagation(); return }
+    handler(e)
+  }
+}
+
+/** Whether a press drawn for `drawn` may act now: the control still shows that identity, and has shown it for `settleMs`. */
+export const pressAllowed = (seen: { identity: string, at: number }, drawn: string, now: number, settleMs = PRESS_SETTLE_MS): boolean =>
+  seen.identity === drawn && now - seen.at >= settleMs
+
+/**
+ * Keeps a dialog's clicks and keys inside it: a React portal passes its events
+ * up the component tree, so a press in a confirm dialog would otherwise also
+ * reach the row or card that rendered it (UI pass 3 F6). Wrap a Modal in it.
+ */
+export function Contained({ children }: { children: ReactNode }): ReactNode {
+  // clicks only (Enter and Space on a button arrive as a click): Escape and the dialog's own keys stay as they are
+  return <span style={{ display: 'contents' }} onClick={(e) => e.stopPropagation()}>{children}</span>
+}
+
 // ---------- notice ----------
 
 /** A tinted strip for reasons, refusals and clearing calls. */
@@ -211,6 +248,10 @@ export interface FixRunner {
   tip(line: string): string
   /** After a fix ran. */
   done: string
+  /** The button's accessible name: its words and the thing it acts on (`Update (compact-demo-pg)`); absent: the words. */
+  named?(fix: RunnableFix, words: string): string
+  /** A chain's step while it runs (`Step 1 of 2: Remove x’s record`); absent: `1/2`. */
+  step?(index: number, count: number, fix: RunnableFix): string
   /**
    * The fix a refusal's line stands for on this page: a start, stop or restart
    * of a machine whose own record is broken is that machine's own fix instead
@@ -228,25 +269,42 @@ export function resolveFix(runner: FixRunner | null, line: string | null | undef
   return { line, fix: runner ? runnableFix(line) : null }
 }
 
-/** One refusal's fix as its one action: a removal asks a second press; a refused fix shows its own refusal (without an action). */
+/**
+ * One refusal's fix as its one action: a removal asks a second press; a refused fix shows its own refusal (without an action).
+ * A chain (LayerFS's multi-command fix) runs its steps in order behind that confirm press, saying the step it is at;
+ * one attempt per step, and the first refusal ends it with that step's refusal (nothing after it runs).
+ * The press is keyed to its fix line: a line that changes under the button (a re-render, a re-read) starts it idle again,
+ * so a confirm armed for one fix never runs another.
+ */
 export function FixAction({ line, fix, runner, labels }: { line: string, fix: RunnableFix, runner: FixRunner, labels: RefusalLabels }): ReactNode {
+  const guard = usePressGuard(line)
   const [step, setStep] = useState<'idle' | 'confirm' | 'busy' | 'done'>('idle')
   const [failed, setFailed] = useState<unknown>(null)
-  const removes = fix.kind === 'delete' || fix.kind === 'prune' || fix.kind === 'removeMachine' || fix.kind === 'removeStore' || fix.kind === 'removeSandbox'
+  const [at, setAt] = useState<number | null>(null)
+  // the line this button's state belongs to: a different line resets it
+  const [armedFor, setArmedFor] = useState(line)
+  if (armedFor !== line) { setArmedFor(line); setStep('idle'); setFailed(null); setAt(null) }
+  const removes = removesSomething(fix)
   // a fix that opens something (the save-login dialog, the Doctor page) is not done when it opens
   const opens = fix.kind === 'saveAuth' || fix.kind === 'doctor' || fix.kind === 'connectBucket'
+  const steps: RunnableFix[] = fix.kind === 'chain' ? fix.steps : [fix]
   const press = async () => {
+    if (step === 'busy') return
     if (removes && step === 'idle') { setStep('confirm'); return }
     setStep('busy'); setFailed(null)
-    try { await runner.run(fix); setStep(opens ? 'idle' : 'done') } catch (error) { setFailed(error); setStep('idle') }
+    try {
+      for (let i = 0; i < steps.length; i++) { setAt(i); await runner.run(steps[i]!) }
+      setStep(opens ? 'idle' : 'done')
+    } catch (error) { setFailed(error); setStep('idle') } finally { setAt(null) }
   }
   if (step === 'done') return <p className={css.refusalFix} role="status"><StateDot state="done" />{runner.done}</p>
-  const words = step === 'confirm' ? runner.confirm(fix) : runner.label(fix)
+  const running = step === 'busy' && at !== null && steps.length > 1
+  const words = running ? (runner.step?.(at + 1, steps.length, steps[at]!) ?? `${at + 1}/${steps.length}`) : step === 'confirm' ? runner.confirm(fix) : runner.label(fix)
   return (
     <div className={css.refusalFix}>
       {/* its name is its words; the CLI line it runs is only the tip */}
-      <Button size="sm" variant={step === 'confirm' ? 'primary' : 'outline'} disabled={step === 'busy'} title={runner.tip(line)} aria-label={words} data-fid="refusal-fix"
-        onClick={(e) => { e.stopPropagation(); void press() }}>
+      <Button size="sm" variant={step === 'confirm' ? 'primary' : 'outline'} disabled={step === 'busy'} title={runner.tip(line)} aria-label={runner.named?.(fix, words) ?? words} data-fid="refusal-fix"
+        aria-busy={step === 'busy' || undefined} onClick={guard((e) => { e.stopPropagation(); void press() })}>
         {words}
       </Button>
       {failed != null && <Refusal error={failed} labels={labels} compact noFix />}

@@ -192,13 +192,15 @@ test('F1: a broken machine\'s tabs never advise machine start: its own fix stand
 
 test('F1: Remove for a built-in follows LayerFS: enabled when its fix is machine remove', () => {
   const parts = src('src/client/machines/parts.tsx')
-  assert.match(parts, /builtIn && fix\?\.kind !== 'remove'/, 'the greyed "Built in" Remove only when LayerFS gives no remove fix')
+  assert.match(parts, /builtIn && !fixRemoves\(m\)/, 'the greyed "Built in" Remove only when LayerFS gives no remove fix (U12: alone or as the last step of a chain)')
   assert.match(parts, /const recordOnly = fixAction\(m\)\?\.kind === 'remove'/)
   assert.match(parts, /recordOnly \? t\('removeRecordBody'/)
   assert.match(src('src/client/machines/Spec.tsx'), /if \(BUILT_IN\.has\(m\.platform\) && !recordOnly\) return null/)
   const docker = { name: 'docker', platform: 'docker', state: 'broken', reason: 'failed', fix: 'layerfs machine remove docker' }
   assert.equal(M.mm.fixAction(docker)?.kind, 'remove')
   assert.equal(M.mm.runsFix(docker), true)
+  assert.equal(M.mm.fixRemoves(docker), true)
+  assert.equal(M.mm.fixRemoves({ ...docker, sandboxes: [], fix: 'layerfs machine stop docker && layerfs machine start docker' }), false)
   for (const lang of ['en', 'zh']) assert.ok(M.machineLocales[lang].removeRecordBody.includes('{name}'), lang)
 })
 
@@ -265,7 +267,8 @@ test('M3: tab buttons and the fix button are named by their words', () => {
   assert.equal(M.tabName({ label: 'Sandboxes', count: 2, hint: 'one needs you' }), 'Sandboxes, 2, one needs you')
   assert.equal(M.tabName({ label: 'Images', count: null }), 'Images')
   assert.match(src('src/client/ui/TabBar.tsx'), /aria-label=\{tabName\(x\)\}/)
-  assert.match(src('src/client/ui/index.tsx'), /aria-label=\{words\}/)
+  // U12 F5: the fix button's name is its words, plus the thing it acts on where the runner names it (`Update (compact-demo-pg)`)
+  assert.match(src('src/client/ui/index.tsx'), /aria-label=\{runner\.named\?\.\(fix, words\) \?\? words\}/)
 })
 
 test('M4: the Save-login labels sit over their inputs; the saved-login line only with saved logins', () => {
