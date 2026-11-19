@@ -129,7 +129,7 @@ export function TextField({ label, value, onChange, hint, error, placeholder, mo
 }): ReactNode {
   return (
     <Field label={label} hint={hint} error={error}>
-      <Input className={mono ? css.monoInput : undefined} value={value} placeholder={placeholder} type={type} autoComplete="off" spellCheck={false}
+      <Input className={mono ? css.monoInput : undefined} value={value} placeholder={placeholder} type={type} autoComplete="off" spellCheck={false} aria-label={label}
         data-modal-autofocus={autoFocus ? '' : undefined} onChange={(e) => onChange(e.target.value)} />
     </Field>
   )

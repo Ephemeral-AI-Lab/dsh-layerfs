@@ -83,6 +83,8 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
     return groups.length ? { kind: 'pick' } : { kind: 'new', server: null }
   })
   const [own, setOwn] = useState(false)
+  // why the new database's Connect is off (K FAIL 2): the form's reason, shown beside the disabled press
+  const [newWhy, setNewWhy] = useState<string | null>(null)
   const [ownUrl, setOwnUrl] = useState('')
   // one call at a time: a newer check wins, an older answer is dropped
   const turn = useRef(0)
@@ -109,7 +111,7 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
   const back = startCheck || running || screen.kind === 'pick' || (screen.kind === 'new' && (server || !groups.length)) ? null : () => { setOwn(false); setScreen({ kind: 'pick' }) }
   return (
     <Modal open onClose={() => { if (!running) onClose() }} title={title} closeLabel={t('close')} className={scss.modal}
-      footer={<Footer t={t} screen={screen} back={back} onClose={onClose} place={place}
+      footer={<Footer t={t} screen={screen} back={back} onClose={onClose} place={place} why={newWhy}
         onRun={() => { if (screen.kind === 'check') void check(screen.check.store, screen.check.machine, { connected: screen.check.connected }) }} />}>
       <div className={scss.form}>
         {screen.kind === 'pick' ? (
@@ -117,7 +119,7 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
             onCheck={(s) => void check(s.name, fixed ?? 'native')}
             onNew={(g) => setScreen({ kind: 'new', server: g })} />
         ) : screen.kind === 'new' ? (
-          <NewDatabase api={api} t={t} view={view} server={screen.server}
+          <NewDatabase api={api} t={t} view={view} server={screen.server} onWhy={setNewWhy}
             onConnected={(store) => { done(); void check(store, fixed ?? 'native', { connected: true }) }} />
         ) : (
           <CheckView t={t} view={view} check={screen.check} place={place} own={own} ownUrl={ownUrl} setOwnUrl={setOwnUrl}
@@ -134,11 +136,12 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
   )
 }
 
-function Footer({ t, screen, back, onClose, onRun, place }: { t: StorageT, screen: Screen, back: (() => void) | null, onClose: () => void, onRun: () => void, place: (m: string) => string }): ReactNode {
+function Footer({ t, screen, back, onClose, onRun, place, why }: { t: StorageT, screen: Screen, back: (() => void) | null, onClose: () => void, onRun: () => void, place: (m: string) => string, why: string | null }): ReactNode {
   const check = screen.kind === 'check' ? screen.check : null
   return (
     <div className={scss.modalFooter}>
-      {check?.state === 'running' ? <span className={scss.modalHint} role="status">{t('cdChecking')}</span> : <span />}
+      {check?.state === 'running' ? <span className={scss.modalHint} role="status">{t('cdChecking')}</span>
+        : screen.kind === 'new' && why ? <span className={scss.modalHint} data-connect-why>{why}</span> : <span />}
       <div className={scss.modalActions}>
         {back ? <Button variant="outline" onClick={back}>{t('cdBack')}</Button> : null}
         {check?.state === 'ready' ? <Button variant="outline" onClick={onClose}>{t('cancel')}</Button> : null}
@@ -147,7 +150,7 @@ function Footer({ t, screen, back, onClose, onRun, place }: { t: StorageT, scree
           : check?.state === 'ok'
           ? <Button variant="primary" onClick={onClose}>{t('cdDone')}</Button>
           : screen.kind === 'new'
-            ? <Button variant="primary" type="submit" form="lfs-cd-new">{t('connect')}</Button>
+            ? <Button variant="primary" type="submit" form="lfs-cd-new" disabled={!!why} aria-disabled={!!why || undefined} title={why ?? undefined}>{t('connect')}</Button>
             : <Button variant="outline" disabled={check?.state === 'running'} onClick={onClose}>{check ? t('close') : t('cancel')}</Button>}
       </div>
     </div>
@@ -208,8 +211,10 @@ export function serverLogin(view: Pick<StorageView, 'stores'>, auths: readonly P
   return auths.find((a) => (a.state ?? 'ready') === 'ready' && a.stores.some((st) => on.has(st)))?.auth ?? null
 }
 
-function NewDatabase({ api, t, view, server, onConnected }: {
+function NewDatabase({ api, t, view, server, onConnected, onWhy }: {
   api: LayerfsApi, t: StorageT, view: StorageView, server: PgServerGroup | null
+  /** Why Connect is off now (null: it may be pressed): a login in the URL first, then what is still needed. */
+  onWhy: (why: string | null) => void
   onConnected: (store: string) => void
 }): ReactNode {
   // a new server is given whole, as one URL; a known server gives its host and user
@@ -248,6 +253,9 @@ function NewDatabase({ api, t, view, server, onConnected }: {
   const missing = [server ? !database && t('cdDatabase') : !url.trim() && t('cdUrl'), !storeName && t('cdStoreName'), loginMissing].filter(Boolean) as string[]
   const nameError = storeName && !NAME.test(storeName) ? t('projectNameHint') : taken ? t('nameTaken') : null
   const valid = !missing.length && !urlShort && !nameError && !urlError && !pw.error(t) && !dbTaken
+  const why = valid ? null : urlError ?? (urlShort ? t('cdUrlInvalid') : null) ?? nameError ?? pw.error(t) ?? (dbTaken ? t('pgDatabaseTaken', { store: dbTaken.name }) : null) ?? (missing.length ? t('stillNeeded', { what: missing.join(', ') }) : null)
+  useEffect(() => { onWhy(why) }, [why])
+  useEffect(() => () => onWhy(null), [])
   const submit = async () => {
     setTried(true)
     if (!valid || busy) return

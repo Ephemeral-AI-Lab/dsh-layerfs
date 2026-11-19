@@ -46,7 +46,7 @@ import { loginGroups, machineStores, projectSplit, startKind, type PgLoginGroup,
 import { cardJob, pgStoreBytes, rowMachine, storeStateWords, storeTip } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
-import { StoreAction, StoreMenu, storeNotice, useStoreTip, type LoginActions, type StoreActions } from './StoreCard.tsx'
+import { StoreAction, StoreMenu, stoppedBlock, storeNotice, useStoreTip, type LoginActions, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
 import type { StoreProjectsView, StoreStats } from './store-page.ts'
 import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
@@ -466,17 +466,14 @@ function SizeFigure({ s, t, now, last }: { s: StoreRow, t: StorageT, now: number
 }
 
 /** A Store's state in words on its card (LayerFS's sentence as the tip) and its fix as the one action. */
-/** A Store waiting on its stopped (or not yet listed) machine. */
-const stoppedBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): boolean => s.state === 'blocked' && ['', 'stopped'].includes(s.blockedBy?.reason ?? '')
-
 /** The card's status: dot and word, LayerFS's sentence (or its fix) as the tip, and the one fix (R2-2: never a bare sentence). */
-function StoreStatus({ s, t, words }: { s: StoreRow, t: StorageT, words: string }): ReactNode {
+function StoreStatus({ s, t, words, onStart }: { s: StoreRow, t: StorageT, words: string, onStart?: (() => void) | undefined }): ReactNode {
   const tip = useStoreTip(s, t) ?? s.fix ?? undefined
   return (
     <div className={css.statusRow} data-tone={s.state === 'broken' ? 'danger' : 'warning'}>
       <StateDot state={s.state === 'broken' ? 'error' : 'idle'} size={8} />
       <span className={css.statusText} title={tip}>{words}</span>
-      <StoreAction store={s} t={t} />
+      <StoreAction store={s} t={t} onStart={onStart} />
     </div>
   )
 }
@@ -492,7 +489,7 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   const notice = storeNotice(s, null, t)
   const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
     : s.op ? <OpPanel store={s} t={t} />
-      : notice ? <StoreStatus s={s} t={t} words={notice} />
+      : notice ? <StoreStatus s={s} t={t} words={notice} onStart={on.start} />
         : null
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">

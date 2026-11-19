@@ -62,6 +62,7 @@ await build({
       "export { classifyStore } from './src/host/sessions/availability.ts'",
       "export { PG_URL_LOGIN, loginInUrlFix } from './src/client/storage/pg-fields.tsx'",
       "export * as ms from './src/client/storage/machine-stores.ts'",
+      "export { stoppedBlock, storeNotice } from './src/client/storage/StoreCard.tsx'",
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
       "export { locales as storageLocales } from './src/client/storage/locale.ts'",
       "export { locales as doctorLocales } from './src/client/doctor/locale.ts'",
@@ -644,7 +645,7 @@ test('R2-2: a Store on a stopped machine shows a dot, word, tip and its fix; its
   assert.match(ms, /t\(stoppedBlock\(s\) \? 'msSizeStaleStoppedTitle' : 'msSizeStaleTitle'/)
   const card = src('src/client/storage/StoreCard.tsx')
   assert.match(card, /\(s\.state === 'broken' \|\| s\.state === 'blocked'\) \? resolveFix\(fixes, s\.fix\)/)
-  assert.match(card, /: s\.state === 'blocked' \? <StoreFixAction store=\{s\} t=\{t\} \/> : null/)
+  assert.match(card, /return s\.state === 'blocked' \? <StoreFixAction store=\{s\} t=\{t\} \/> : null/, 'a blocked Store with a fix from LayerFS: that fix (since loop 3, a stopped machine with none gets Start <m>)')
   for (const lang of ['en', 'zh']) assert.doesNotMatch(M.storageLocales[lang].msSizeStaleStoppedTitle, /answer|响应/)
 })
 
@@ -670,4 +671,41 @@ test('M10: a login header follows its Stores\' worst reach (no green Ready over 
   assert.match(ms, /data-health=\{healthOf\(state\)\} \/>\{failed\.length \? t\('pgLoginNotReached'\) : storeStateWords\(g\.state, t\)\}/)
   assert.match(ms, /title=\{\[loginTip\(g, t, now\), \.\.\.causes\]\.join\('\\n'\)\}/)
   for (const lang of ['en', 'zh']) assert.ok(M.storageLocales[lang].pgLoginNotReached, lang)
+})
+
+// ---------------------------------------------------------------- Step 7 fix loop 3 (K on 3080)
+
+test('K FAIL 2 (V23-13): a login URL leaves Connect disabled, with its reason beside it; the URL input is named', () => {
+  const cd = src('src/client/storage/ConnectDatabase.tsx')
+  assert.match(cd, /<Button variant="primary" type="submit" form="lfs-cd-new" disabled=\{!!why\} aria-disabled=\{!!why \|\| undefined\} title=\{why \?\? undefined\}>\{t\('connect'\)\}/)
+  assert.match(cd, /const why = valid \? null : urlError \?\?/, 'a login URL (urlError) is the first reason')
+  assert.match(cd, /const valid = [^\n]*!urlError/, 'a login URL makes the form not valid')
+  assert.match(cd, /useEffect\(\(\) => \{ onWhy\(why\) \}, \[why\]\)/)
+  assert.match(cd, /screen\.kind === 'new' && why \? <span className=\{scss\.modalHint\} data-connect-why>\{why\}<\/span>/, 'the reason is shown, not only a tooltip')
+  assert.match(cd, /onWhy=\{setNewWhy\}/)
+  assert.match(src('src/client/storage/parts.tsx'), /spellCheck=\{false\} aria-label=\{label\}/, 'TextField inputs (the Connection URL) carry their label as their name')
+})
+
+test('K FAIL 1 (R2-2): a Store blocked by its stopped machine (fix null) reads Waiting on <m>, with a tip and one guarded Start <m>', () => {
+  const t = (key, vars) => `${key} ${JSON.stringify(vars ?? {})}`
+  const s = { name: 'demo-build-cache', kind: 'sqlite', state: 'blocked', blockedBy: { machine: 'demo-build', reason: 'stopped' }, fix: null }
+  assert.equal(M.stoppedBlock(s), true)
+  assert.equal(M.stoppedBlock({ ...s, blockedBy: { machine: 'demo-build', reason: 'not_answering' } }), false, 'a broken machine keeps its Repair/fix route')
+  assert.equal(M.storeNotice(s, null, t), 'waitingOnMachine {"machine":"demo-build"}')
+  const card = src('src/client/storage/StoreCard.tsx')
+  assert.match(card, /if \(stoppedBlock\(s\) && s\.blockedBy\?\.machine && !s\.message\) return t\('waitingOnMachineTip', \{ machine: s\.blockedBy\.machine, store: s\.name \}\)/)
+  assert.match(card, /if \(stoppedBlock\(s\) && !s\.fix && s\.blockedBy\?\.machine && onStart\) return <MachineStartAction machine=\{s\.blockedBy\.machine\} t=\{t\} onStart=\{onStart\} \/>/)
+  const press = card.slice(card.indexOf('export function MachineStartAction'))
+  assert.match(press, /const guard = usePressGuard\(`start:\$\{machine\}`\)/, 'the same press guard (600 ms settle) as other power controls')
+  assert.match(press, /disabled=\{guard\.settling\} aria-disabled=\{guard\.settling \|\| undefined\} aria-label=\{t\('startMachineNamed', \{ machine \}\)\}/)
+  assert.match(press, /onClick=\{guard\(\(e\) => \{ e\.stopPropagation\(\); onStart\(\) \}\)\}/)
+  // the existing Store start (StoragePage's StoreActions.start), so no new machine-start press site (u11 NOTE 3 list unchanged)
+  const ms = src('src/client/storage/MachineStores.tsx')
+  assert.match(ms, /<StoreAction store=\{s\} t=\{t\} onStart=\{onStart\} \/>/)
+  assert.equal((ms.match(/words=\{notice\} onStart=\{on\.start\} \/>/g) ?? []).length, 1, 'the sqlite card only')
+  for (const lang of ['en', 'zh']) {
+    assert.match(M.storageLocales[lang].waitingOnMachine, /\{machine\}/)
+    assert.match(M.storageLocales[lang].waitingOnMachineTip, /\{machine\}[^]*\{store\}/)
+    assert.match(M.storageLocales[lang].startMachineNamed, /\{machine\}/)
+  }
 })

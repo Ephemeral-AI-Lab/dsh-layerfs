@@ -6,7 +6,7 @@ import { useContext, type ReactNode } from 'react'
 import { Button, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { FixAction, FixContext, LinkButton, MoreMenu, resolveFix } from '../ui/index.tsx'
+import { FixAction, FixContext, LinkButton, MoreMenu, resolveFix, usePressGuard } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { blockedWords, brokenWords, compactWaitsFor, inHome, latestBackup, storeStateWords, storeTip } from './model.ts'
 import { useMachinesMaybe } from '../machines/context.tsx'
@@ -130,6 +130,8 @@ export function StoreSub({ store: s, t, now, onMachine }: { store: StoreRow, t: 
 /** Why a Store needs you now, if it does: its state word and reason (the fix is the one action beside it). */
 export function storeNotice(s: StoreRow, machineState: string | null | undefined, t: StorageT): string | null {
   if (s.state === 'broken') return brokenWords(s, t)
+  // waiting on its stopped machine: a word, never the bare sentence (K FAIL 1)
+  if (stoppedBlock(s) && s.blockedBy?.machine) return t('waitingOnMachine', { machine: s.blockedBy.machine })
   if (s.state === 'blocked' && s.blockedBy?.machine) return blockedWords(s.blockedBy, t)
   if (s.state === 'broken' || s.state === 'blocked' || s.state === 'unknown') return storeStateWords(s.state, t, s.reason ?? s.blockedBy?.reason)
   if (s.kind === 'sqlite' && machineState === 'stopped') return t('machineStopped', { machine: s.machine ?? '?' })
@@ -149,6 +151,9 @@ export function StoreFixAction({ store: s, t }: { store: Pick<StoreRow, 'state' 
   return resolved?.fix && fixes ? <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} /> : null
 }
 
+/** A Store waiting on its stopped machine (`blocked_by { machine, reason: stopped }`, LayerFS gives no fix). */
+export const stoppedBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): boolean => s.state === 'blocked' && ['', 'stopped'].includes(s.blockedBy?.reason ?? '')
+
 /** The machine a Store waits on while that machine is broken (not stopped or busy), or null (F3). */
 export const brokenBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): string | null =>
   s.state === 'blocked' && s.blockedBy?.machine && !['', 'stopped', 'busy'].includes(s.blockedBy.reason) ? s.blockedBy.machine : null
@@ -165,6 +170,7 @@ function useBlockingMachine(s: Pick<StoreRow, 'state' | 'blockedBy'>): MachineIn
 /** A Store's status tip: LayerFS's sentence for the Store; for one blocked by a broken machine, that machine's sentence (else its reason). */
 export function useStoreTip(s: StoreRow, t: StorageT): string | undefined {
   const m = useBlockingMachine(s)
+  if (stoppedBlock(s) && s.blockedBy?.machine && !s.message) return t('waitingOnMachineTip', { machine: s.blockedBy.machine, store: s.name })
   if (!brokenBlock(s)) return storeTip(s, t)
   return m?.message ?? m?.fix ?? s.blockedBy?.reason ?? undefined
 }
@@ -175,11 +181,30 @@ export function useStoreTip(s: StoreRow, t: StorageT): string | undefined {
  * (Remove record, Run doctor…), else Repair <m>, which opens the machine.
  * Never the raw reason.
  */
-export function StoreAction({ store: s, t }: { store: StoreRow, t: StorageT }): ReactNode {
+export function StoreAction({ store: s, t, onStart }: { store: StoreRow, t: StorageT, /** The Store's own Start <machine> (its card's actions). */ onStart?: (() => void) | undefined }): ReactNode {
   const m = useBlockingMachine(s)
   const machine = brokenBlock(s)
   if (s.state === 'broken') return <StoreFixAction store={s} t={t} />
-  return machine ? <MachineRepair machine={machine} record={m} t={t} /> : s.state === 'blocked' ? <StoreFixAction store={s} t={t} /> : null
+  if (machine) return <MachineRepair machine={machine} record={m} t={t} />
+  // waiting on a stopped machine with no fix from LayerFS: Start <m>, the machines page's own guarded start (K FAIL 1)
+  if (stoppedBlock(s) && !s.fix && s.blockedBy?.machine && onStart) return <MachineStartAction machine={s.blockedBy.machine} t={t} onStart={onStart} />
+  return s.state === 'blocked' ? <StoreFixAction store={s} t={t} /> : null
+}
+
+/**
+ * Start <m> for a Store waiting on it: the Store's own start (StoreActions.start,
+ * the Store page's existing "Start <machine>"), named by its machine, behind the
+ * press guard (the same settle as the power controls): a stray click on a
+ * control that just appeared starts nothing.
+ */
+export function MachineStartAction({ machine, t, onStart }: { machine: string, t: StorageT, onStart: () => void }): ReactNode {
+  const guard = usePressGuard(`start:${machine}`)
+  return (
+    <Button size="sm" variant="outline" disabled={guard.settling} aria-disabled={guard.settling || undefined} aria-label={t('startMachineNamed', { machine })} data-start-machine={machine}
+      onClick={guard((e) => { e.stopPropagation(); onStart() })}>
+      {t('startMachineNamed', { machine })}
+    </Button>
+  )
 }
 
 /** A broken machine's one action for what waits on it: its fix, else Repair <m> (its page). */
