@@ -172,6 +172,8 @@ into the one 3080 server. That is expected; coordinate instead of competing for 
 
 ## Verification
 
+- Keep each loop's checks scoped to the change, and save restarts and UI checks
+  on 3080 for what the change touched: `docs/test-speed.md`.
 - `node scripts/build.mjs && npx tsc -p tsconfig.json && node --test test/*.test.mjs`
 - End to end with the keyless scripted model (`dev/fake-llm`): start the dev server with
   `DSH_LAYERFS_DEV_OVERLAY=$PWD/dev/fake-llm.overlay.yml node scripts/dev.mjs`, then
