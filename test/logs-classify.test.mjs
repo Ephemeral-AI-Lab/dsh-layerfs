@@ -17,7 +17,7 @@ const WRITES = new Set([
   'sandbox.create', 'sandbox.remove',
   'workspace.mount', 'workspace.exec', 'workspace.cancel', 'workspace.commit', 'workspace.unmount',
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load_image', 'machine.prune',
-  'home.init', 'home.clear_log', 'home.prune',
+  'home.init', 'home.clear_log',
   'store.create', 'store.connect', 'store.update', 'store.move', 'store.remove', 'store.compact', 'store.disconnect', 'store.save_auth', 'store.remove_auth',
   'backup.connect', 'backup.disconnect', 'backup.create', 'backup.restore',
   'doctor.fix',
@@ -26,7 +26,7 @@ const WRITES = new Set([
 test('family-only reads are not writes', () => {
   for (const argv of [['doctor'], ['doctor', 'machine', 'docker'], ['help', '--json'], ['logs', 'list'], ['--version', '--json']]) assert.equal(isWrite(argv), false, argv.join(' '))
   // the monitoring reads (they write no call-log line, and a line of one would be a read)
-  for (const argv of [['machine', 'files', 'docker', '/etc'], ['sandbox', 'files', 'sb'], ['machine', 'stats', 'docker'], ['machine', 'log', 'docker'], ['sandbox', 'log', 'sb'], ['home', 'log'], ['home', 'doctor'], ['machine', 'doctor', 'docker'], ['home', 'leftovers']]) assert.equal(isWrite(argv), false, argv.join(' '))
+  for (const argv of [['machine', 'files', 'docker', '/etc'], ['sandbox', 'files', 'sb'], ['machine', 'stats', 'docker'], ['machine', 'log', 'docker'], ['sandbox', 'log', 'sb'], ['home', 'log'], ['home', 'doctor'], ['machine', 'doctor', 'docker']]) assert.equal(isWrite(argv), false, argv.join(' '))
   assert.equal(isWrite(['doctor', 'fix', 'native:run-folder:x']), true, 'doctor fix removes a leftover')
 })
 
@@ -34,7 +34,8 @@ test('every pinned CLI call is classified as its kind', { skip: !pinned() && 'no
   const home = mkdtempSync(join(tmpdir(), 'lfs-classify-'))
   const help = JSON.parse(execFileSync(pinned().cli, ['help', '--json'], { env: { ...process.env, LAYERFS_HOME: home }, encoding: 'utf8', timeout: 15000 }))
   rmSync(home, { recursive: true, force: true })
-  const calls = new Set(help.calls.map((c) => `${c.family}.${c.call}`))
+  // home.leftovers and home.prune are removed by LayerFS (spec v20, LO); a pin from before LO still lists them
+  const calls = new Set(help.calls.map((c) => `${c.family}.${c.call}`).filter((call) => call !== 'home.leftovers' && call !== 'home.prune'))
   assert.ok(calls.size > 40, `found ${calls.size} calls in help --json`)
   const wrong = [...calls].filter((call) => {
     const [family, name] = call.split('.')

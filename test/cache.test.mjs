@@ -37,10 +37,10 @@ const MUTATING = new Set([
   'project.init', 'project.delete', 'project.export', 'project.hide_path',
   'machine.start', 'machine.stop', 'machine.create', 'machine.remove', 'machine.update', 'machine.load_image', 'machine.prune',
   'backup.create', 'backup.restore', 'backup.connect', 'backup.disconnect',
-  'home.clear_log', 'home.init', 'home.prune',
+  'home.clear_log', 'home.init',
 ])
 /** The read calls (cli.ts READS plus workspace.status and home.log): anything else a GET makes is suspect too. */
-const READS = new Set(['list', 'get', 'status', 'log', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'auths', 'leftovers', 'doctor'])
+const READS = new Set(['list', 'get', 'status', 'log', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'auths', 'doctor'])
 /** Monitoring reads, named with their family (cli.ts INSPECT_CALLS). */
 const INSPECT = new Set(['machine.log', 'sandbox.log', 'sandbox.files', 'machine.files', 'machine.stats'])
 const isRead = (call) => (READS.has(call.split('.')[1]) || INSPECT.has(call)) && !MUTATING.has(call)

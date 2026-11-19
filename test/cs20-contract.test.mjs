@@ -54,8 +54,6 @@ const SENT = {
   'home.get': { with: ['platforms', 'tree'] },
   'home.log': { options: ['call', 'client', 'tag', 'outcome', 'since', 'limit', 'cursor'] },
   'home.clear_log': {},
-  'home.leftovers': {},
-  'home.prune': {},
   'machine.list': {},
   'machine.get': { with: ['live'] },
   'machine.images': { with: ['docker'] },
@@ -158,6 +156,26 @@ test('every call the plugin sends is in the 2.0 table, with its options, section
   }
 })
 
+// Owner 2026-11-19 (spec v20, package LO): LayerFS removes leftovers by itself at
+// safe points and drops `home leftovers` and `home prune` with no alias. A pin from
+// before LO still lists both; this asks only that the plugin never sends them.
+test('the plugin sends neither home.leftovers nor home.prune, and has no route or page for them', () => {
+  for (const gone of ['home.leftovers', 'home.prune']) assert.ok(!(gone in SENT), `${gone} is not listed in SENT`)
+  const sends = [
+    /\blfs(?:\(\))?\.home\.(?:leftovers|prune)\b/, // the seam's proxy
+    /\[\s*'home'\s*,\s*'(?:leftovers|prune)'/, // a raw argv
+    /\bhome\s+(?:leftovers|prune)\b/, // a command shown in a tip
+    /call\s*===\s*'leftovers'/, // a discovery check
+    /\/api\/doctor\/leftovers|'leftovers'/, // the old route
+  ]
+  let scanned = 0
+  for (const { path, text } of sources()) {
+    scanned++
+    for (const re of sends) assert.ok(!re.test(text), `${path.slice(root.length)} sends or offers a removed call (${re})`)
+  }
+  assert.ok(scanned > 100, `the scan read the plugin's sources (${scanned})`)
+})
+
 test('every flag in a raw argv the plugin writes (presets, simulations) is a 2.0 switch or one the call takes', { skip }, () => {
   const { help, calls } = table()
   const switches = new Set((help.switches ?? []).map((s) => s.name))
@@ -214,7 +232,6 @@ test('the 2.0 answers the plugin reads: paging, the project/file forms and the r
   for (const f of ['ranges', 'commits']) assert.ok(longOf('file.blame').has(f), `file.blame --detail has ${f}`)
   for (const f of ['file_count', 'dir_count', 'size']) assert.ok(longOf('project.stats').has(f), `project.stats --detail has ${f}`)
   for (const f of ['commit', 'unchanged']) assert.ok(longOf('workspace.commit').has(f), `workspace.commit --detail has ${f}`)
-  for (const f of ['items', 'not_listed']) assert.ok(longOf('home.leftovers').has(f), `home.leftovers --detail has ${f}`)
   assert.ok(longOf('home.init').has('outcome'), 'home.init --detail has outcome')
 })
 

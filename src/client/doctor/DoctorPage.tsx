@@ -24,7 +24,6 @@ import { Btn, Detail, Node, Row, StatusSignal, type RowContext } from './Row.tsx
 import { TipLayer, useToast } from './tips.tsx'
 import { useDoctor } from './use-doctor.ts'
 import { wordsOf, type Words } from './words.ts'
-import { Leftovers } from './Leftovers.tsx'
 import css from './DoctorPage.module.css'
 
 const TAB_LABEL: Record<TabKey, string> = { machines: 'dpTabMachines', stores: 'dpTabStores', projects: 'dpTabProjects', sandboxes: 'dpTabSandboxes', backups: 'dpTabBackups' }
@@ -184,7 +183,6 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
         {rows.length ? rows.map((x) => <div key={x.key} className={css.group}><Node thing={x} depth={0} ctx={ctx} /></div>) : <p className={css.none}>{w.t('dpTabEmpty')}</p>}
       </div>
       <p className={css.source}>{splitOn(w.t('dpSource', { command: '\u0000' }), <code>layerfs home get --with tree</code>)}</p>
-      <Leftovers api={api} t={t} />
 
       {confirm ? (
         <Modal open onClose={() => setConfirm(null)} title={w.t('dpDeleteTitle', { name: confirm.thing.name })} closeLabel={w.t('close')}

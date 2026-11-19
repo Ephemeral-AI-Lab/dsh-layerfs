@@ -718,7 +718,7 @@ export function inspectRead(spec: CliSpec, argv: readonly string[], options: { t
   })
 }
 
-const READS = new Set(['list', 'get', 'status', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'log', 'auths', 'leftovers'])
+const READS = new Set(['list', 'get', 'status', 'images', 'stats', 'read', 'stat', 'glob', 'grep', 'blame', 'diff', 'history', 'log', 'auths'])
 const invalid = (message: string) => new CliError('InvalidInput', message)
 const isPlain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v)
 

@@ -14,7 +14,7 @@ import { createRequire } from 'node:module'
 import { NotRun, O, diskOf, editor, features, jump, main, openBoard, openHealth, setupObserve, shot, sleep, statsDriver, waitObserved } from './e2e-inspect-observe-lib.mjs'
 
 const axePath = createRequire(import.meta.url).resolve('axe-core/axe.min.js')
-const FRESH = '[data-leftovers], [data-disk], [data-resources], [data-worker-line], [data-stats-cpus], [data-stats-memory], [data-stats-disk], [data-stats-disk-scope], [data-stats-worker], [data-stats-at], [data-stats-live], [data-stats-stores], [data-stats-stale], [data-not-observed], [data-stats], [data-here-now], [data-daemon-process], [data-sandbox-usage]'
+const FRESH = '[data-disk], [data-resources], [data-worker-line], [data-stats-cpus], [data-stats-memory], [data-stats-disk], [data-stats-disk-scope], [data-stats-worker], [data-stats-at], [data-stats-live], [data-stats-stores], [data-stats-stale], [data-not-observed], [data-stats], [data-here-now], [data-daemon-process], [data-sandbox-usage]'
 
 async function axe(page) {
   if (!(await page.evaluate(() => !!window.axe))) await page.addScriptTag({ path: axePath })

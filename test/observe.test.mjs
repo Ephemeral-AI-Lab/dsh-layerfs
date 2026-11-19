@@ -5,7 +5,7 @@
 //           the machines view's `live`, sandbox.get's fields, the machine log route
 //   page    the stats poller (src/client/machines/stats.ts), what a stopped
 //           machine and a null value read as, live counts, usage words
-//           (leftovers are no longer on a page: `home leftovers` lists them)
+//           (leftovers are on no page: LayerFS removes them by itself)
 //   node --test test/observe.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
