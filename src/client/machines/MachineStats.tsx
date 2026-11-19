@@ -14,7 +14,7 @@
 import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
 import { Meter } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
-import { statsReadOf, type MetricsSnapshot } from './metrics.ts'
+import { sinceStart, statsReadOf, type MetricsSnapshot } from './metrics.ts'
 import { gib, type MachineInfo } from './model.ts'
 import { diskScopeWords, notObserved, reasonList, resourceScopeWords, staleWords, statsAskable, type MachineStats, type StatsRead } from './stats.ts'
 import css from './machines.module.css'
@@ -40,7 +40,10 @@ export function useMetrics(machine: string | null | undefined): { offered: boole
  */
 export function useMachineStats(m: Pick<MachineInfo, 'name' | 'state'>): { offered: boolean, read: StatsRead | undefined } {
   const { offered, snapshot } = useMetrics(m.name)
-  return { offered, read: offered && statsAskable(m) ? statsReadOf(snapshot, m.name) : undefined }
+  // a read from before the machine's last start here is not its facts now (UI pass 3 F14)
+  const { useStartups } = useMachinesContext()
+  const startedAt = useStartups((s) => (s[m.name]?.status === 'success' ? s[m.name]!.endedAt ?? null : null))
+  return { offered, read: offered && statsAskable(m) ? sinceStart(statsReadOf(snapshot, m.name), startedAt) : undefined }
 }
 
 const clock = (at: number | null): string => (at ? clockTime(at) : '—')

@@ -641,6 +641,28 @@ const REASON_LABEL: Record<string, MachinesKey> = {
 export const unreadableRecord = (m: Pick<MachineInfo, 'state' | 'reason' | 'platform'>): boolean => m.state === 'broken' && m.reason === 'failed' && !m.platform
 
 /**
+ * The machine whose record a refused read names as unreadable
+ * (`…/machine/<name>/record.json: <parse error>`), or null (UI pass 3 F9).
+ */
+export function unreadableNamed(error: unknown): string | null {
+  const message = error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string' ? (error as { message: string }).message : ''
+  return /\/machine\/([^/\s]+)\/record\.json\b/.exec(message)?.[1] ?? null
+}
+
+/**
+ * The last machines view after a read that failed because one record cannot be
+ * read (UI pass 3 F9): that machine shows as LayerFS lists an unreadable record
+ * (broken `failed`, no platform, its message), so its page and row stop
+ * offering Stop and stop reading Running/Healthy; the rest stay as last read.
+ */
+export function staleView<V extends { available?: boolean, machines?: MachineInfo[] }>(view: V | null, error: unknown): V | null {
+  const name = unreadableNamed(error)
+  if (!view || !name || !view.available || !view.machines?.some((m) => m.name === name)) return view
+  const message = (error as { message: string }).message
+  return { ...view, machines: view.machines.map((m) => (m.name === name ? { ...m, state: 'broken', reason: 'failed', platform: '', fix: `layerfs machine doctor ${name}`, message } : m)) }
+}
+
+/**
  * The disk line's words when no free space was read: an unreadable record
  * says so (its platform and disk are not known, whatever runs), "while
  * stopped" only for a stopped machine, else "not reported".

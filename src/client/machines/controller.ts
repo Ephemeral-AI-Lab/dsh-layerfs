@@ -13,7 +13,7 @@
  */
 import { HostError, enc, q, type HostEvent, type LayerfsApi } from '../api.ts'
 import {
-  mergeStage, startupFailure,
+  mergeStage, staleView, startupFailure,
   type Creation, type MachineStartup, type MachinesView, type NewMachine, type PruneAnswer, type ProjectSummary, type RuntimeStatus, type SandboxImagesView, type SandboxInfo,
 } from './model.ts'
 import { MetricsPoller, type MetricsSnapshot, type MetricsView } from './metrics.ts'
@@ -173,7 +173,7 @@ export class MachinesController {
           this.machines.set({ status: 'ready', data, error: null, observedAt: Date.now() })
         } catch (error) {
           const prev = this.machines.getSnapshot()
-          this.machines.set({ status: prev.data ? 'ready' : 'error', data: prev.data, error, observedAt: prev.observedAt })
+          this.machines.set({ status: prev.data ? 'ready' : 'error', data: staleView(prev.data, error), error, observedAt: prev.observedAt })
         }
       },
       reloadRuntime: () => this.reloadRuntime(),
@@ -251,7 +251,8 @@ export class MachinesController {
         this.forgetFinished(began)
       } catch (error) {
         const prev = this.machines.getSnapshot()
-        this.machines.set({ status: prev.data ? 'ready' : 'error', data: prev.data, error, observedAt: prev.observedAt })
+        // a record that cannot be read shows as such, never as the Running it was (UI pass 3 F9)
+        this.machines.set({ status: prev.data ? 'ready' : 'error', data: staleView(prev.data, error), error, observedAt: prev.observedAt })
       } finally {
         this.reading = null
         if (this.again) { this.again = false; this.reload() }
@@ -324,6 +325,8 @@ export class MachinesController {
     try {
       await request()
       this.update(input.name, id, (s) => ({ ...s, status: 'success', endedAt: Date.now() }))
+      // a started machine's facts changed: read its stats now (F14)
+      this.metrics.refresh()
     } catch (error) {
       this.update(input.name, id, (s) => ({ ...s, status: startupFailure(error), endedAt: Date.now(), error }))
       throw error

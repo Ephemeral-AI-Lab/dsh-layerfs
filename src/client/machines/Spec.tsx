@@ -90,7 +90,8 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
           {unreadable
             ? <Item label={t('downBecause')} tone="danger" title={m.message ?? undefined}>{t('stateUnreadable')}</Item>
             : m.message && m.state !== 'ready' && m.state !== 'stopped' && <Item label={t('downBecause')} tone="danger" title={m.message}>{stateWord(state)}</Item>}
-          {!m.message && !unreadable && live?.error && <Item label={t('downBecause')} tone="danger" title={live.error.message}>{stateWord(state)}</Item>}
+          {/* a live read that failed on a machine that is not down is not a reason it is down (never "Down because: Running", F9) */}
+          {!m.message && !unreadable && live?.error && m.state !== 'ready' && m.state !== 'stopped' && <Item label={t('downBecause')} tone="danger" title={live.error.message}>{stateWord(state)}</Item>}
           {state.op && <Item label={t('operation')} mono>{opWords(state.op)}</Item>}
           {/* a fix the page runs is the head's one action; only a line it cannot run stays here to copy */}
           {m.fix && !unreadable && fixAction(m)?.kind === 'copy' && <Item label={t('fix')} mono>{m.fix}</Item>}

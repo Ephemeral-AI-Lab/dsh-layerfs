@@ -1,12 +1,12 @@
 /** A Storage job on its Store: what it does, its step, bytes and a bar; how it ended, with Retry and Dismiss. */
-import type { ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import type { StorageT } from './locale.ts'
 import { doingWords, endedWords, kindWords, shareOf, stepsOf, stepWords } from './model.ts'
 import type { StorageJob, StoreRow } from './types.ts'
-import { Refusal } from '../ui/index.tsx'
+import { FixAction, FixContext, resolveFix } from '../ui/index.tsx'
 import { refusalLabels } from './parts.tsx'
 import css from './Storage.module.css'
 
@@ -19,7 +19,8 @@ export function JobPanel({ job: j, t, onRetry, onDismiss }: { job: StorageJob, t
     <div className={css.job} data-state={running ? 'running' : failed ? 'failed' : 'done'} role="status">
       <div className={css.jobLine}>
         <StateDot state={running ? 'ongoing' : failed ? 'error' : 'done'} size={running ? 13 : 10} />
-        <span className={css.jobTitle}>{running ? doingWords(j, t) : endedWords(j, t, bytes)}</span>
+        {/* how it ended is the word; LayerFS's code, words and fix are its tip (UI pass 3 F10: no raw refusal under it) */}
+        <span className={css.jobTitle} title={j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [j.error.fix] : [])].join('\n') : undefined}>{running ? doingWords(j, t) : endedWords(j, t, bytes)}</span>
         {running ? <span className={css.jobMeta}>{t('jobStep', { at, of: steps.length, step: stepWords(j.phase, t) })}</span> : null}
         {running && j.total ? <span className={css.jobMeta}>{t('jobBytes', { done: bytes(j.done ?? 0), total: bytes(j.total) })}</span> : null}
         <span className={css.jobEnd}>
@@ -28,9 +29,16 @@ export function JobPanel({ job: j, t, onRetry, onDismiss }: { job: StorageJob, t
         </span>
       </div>
       {running ? <span className={css.jobBar}><span className={css.jobFill} style={{ width: `${Math.round(shareOf(j) * 100)}%` }} /></span> : null}
-      {j.error ? <Refusal error={j.error} labels={refusalLabels(t)} compact className={css.jobError} /> : null}
+      {j.error?.fix ? <JobFix line={j.error.fix} t={t} /> : null}
     </div>
   )
+}
+
+/** A failed job's fix line as its one action, where the page runs it; else nothing (the line is in the title's tip). */
+function JobFix({ line, t }: { line: string, t: StorageT }): ReactNode {
+  const fixes = useContext(FixContext)
+  const resolved = fixes ? resolveFix(fixes, line) : null
+  return resolved?.fix && fixes ? <div className={css.jobError}><FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} /></div> : null
 }
 
 /** An operation another client runs on the Store (store.list's `op`). */

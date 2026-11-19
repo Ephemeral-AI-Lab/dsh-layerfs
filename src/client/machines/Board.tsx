@@ -11,13 +11,13 @@ import { useMemo, useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconChevronRightOutlineRegular, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
-import { Card, Empty, LoadError, Loading, Meter, Notice, Refusal } from '../ui/index.tsx'
+import { Card, Empty, LoadError, Loading, Meter, Notice, Refusal, refusalOf } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { MachineGlyph, MachinesGlyph } from './icons.tsx'
 import type { View } from './context.tsx'
 import { Inventory, creatingOn, storeLines, useMachineTitle, type StoreMenuOf } from './Inventory.tsx'
 import {
-  RANK, downReason, gib, machineOrder, machineState, runsFix, runtimeOf, sandboxesOn, unreadableRecord, unreportedDiskKey,
+  RANK, downReason, gib, machineOrder, machineState, runsFix, runtimeOf, sandboxesOn, unreadableNamed, unreadableRecord, unreportedDiskKey,
   type AvailableView, type MachineInfo,
 } from './model.ts'
 import { engineStart, machineBlock, nativeGlyphOs, nativeNameKey, osOfView, stepReasons, type Readiness } from './needs.ts'
@@ -58,8 +58,8 @@ export function Board({ go, onAddStore, storeMenu }: {
     <>
       {view && read.error != null && (
         <Notice tone="warning" role="status">
-          <p>{t('staleRead', { time: read.observedAt ? clockTime(read.observedAt) : '—' })}</p>
-          <Refusal error={read.error} labels={refusal} compact />
+          {/* the word, LayerFS's code and words as its tip; never a path or parse error inline (UI pass 3 F9) */}
+          <p title={`${refusalOf(read.error).code}: ${refusalOf(read.error).message}`}>{unreadableNamed(read.error) ? t('staleUnreadable', { name: unreadableNamed(read.error)! }) : t('staleRead', { time: read.observedAt ? clockTime(read.observedAt) : '—' })}</p>
         </Notice>
       )}
       {!view
@@ -72,7 +72,7 @@ export function Board({ go, onAddStore, storeMenu }: {
             <>
               {Object.entries(available.readErrors ?? {}).map(([part, e]) => (
                 <Notice key={part} tone="danger" role="status">
-                  <p>{t('partUnread', { part, time: clockTime(e.at), code: e.error.code, message: e.error.message })}</p>
+                  <p title={`${e.error.code}: ${e.error.message}`}>{t('partUnreadWord', { part, time: clockTime(e.at) })}</p>
                 </Notice>
               ))}
               <Card className={css.fleet}>

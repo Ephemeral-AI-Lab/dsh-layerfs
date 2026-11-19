@@ -43,7 +43,9 @@ test('a compaction ends in the words of its 2.0 report (`outcome`, `freed_bytes`
   // nothing freed, or no way to write a size: the plain words
   assert.equal(M.endedWords(job({ ended: 9, result: { outcome: 'compacted', freed_bytes: 0 } }), t, size), 'jobCompacted {"place":"s1"}')
   assert.equal(M.endedWords(job({ ended: 9, result: { outcome: 'compacted', freed_bytes: 4096 } }), t), 'jobCompacted {"place":"s1"}')
-  assert.match(M.endedWords(job({ ended: 9, phase: 'build', error: { code: 'Capacity', message: 'no space', phase: 'build' } }), t), /^jobFailed .*"phase":"build"/)
+  // U12 F10: the step is named in words (stepBuild), never LayerFS's step code
+  assert.match(M.endedWords(job({ ended: 9, phase: 'build', error: { code: 'Capacity', message: 'no space', phase: 'build' } }), t), /^jobFailed .*"phase":"stepBuild"/)
+  assert.match(M.endedWords(job({ ended: 9, phase: 'mark', error: { code: 'MountsActive', message: 'mounts active: 2 holder(s)', phase: 'mark' } }), t), /^jobInUse /, 'in use is its own word')
 })
 
 test('a PostgreSQL Store measures stored pack bodies plus metadata (`store get --with stats`)', () => {

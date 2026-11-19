@@ -376,13 +376,22 @@ export function doingWords(j: StorageJob, t: StorageT): string {
   }
 }
 
+/** A job refused because something holds its Store (a compaction while Workspaces are mounted: `InUse`, `MountsActive`). UI pass 3 F10. */
+export const inUseJob = (j: Pick<StorageJob, 'error'>): boolean => j.error?.code === 'InUse' || j.error?.code === 'MountsActive'
+
+/** What holds a Store, by the Sandboxes whose projects are in it (the in-use refusal names only a count). */
+export const storeHolders = <B extends { name: string, project?: string | null }>(store: string, sandboxes: readonly B[]): B[] =>
+  sandboxes.filter((b) => !!b.project && b.project.startsWith(`${store}/`))
+
 /** How a job ended, in words. `size` writes a byte count (a compaction's freed space); without it the count is left out. */
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
   if (j.summary) return j.summary
   if (j.outcome === 'unknown') return t('jobUnknown')
   if (j.outcome === 'interrupted') return t('jobInterrupted')
   const place = j.kind === 'pull' ? placeWords(j.from, t) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target, t)
-  if (j.error) return t('jobFailed', { what: kindWords(j.kind, t), place, phase: j.error.phase ?? '—' })
+  // in use is its own word; a failure names its step in words, never LayerFS's step code (UI pass 3 F10)
+  if (j.error && inUseJob(j)) return t('jobInUse', { what: kindWords(j.kind, t), place })
+  if (j.error) return t('jobFailed', { what: kindWords(j.kind, t), place, phase: j.error.phase ? stepWords(j.error.phase, t) : '—' })
   switch (j.kind) {
     case 'push': return t(j.made ? 'jobMade' : 'jobPushed', { place })
     case 'pull': return t('jobPulled', { place })
@@ -421,6 +430,16 @@ export function cardJob(jobs: readonly StorageJob[], store: string, dismissed: R
   const last = mine.filter((j) => j.ended).sort((a, b) => b.ended! - a.ended!)[0]
   if (!last || dismissed.has(last.id)) return undefined
   return last.error || now - last.ended! < SHOW_DONE_MS ? last : undefined
+}
+
+/**
+ * Whether a failed job's notice no longer holds (UI pass 3 F11): its Store is
+ * gone, or a later job of the same kind on that Store ended without an error
+ * (a compaction that failed, then one that worked).
+ */
+export function failureSuperseded(job: Pick<StorageJob, 'id' | 'kind' | 'store' | 'ended'>, jobs: readonly Pick<StorageJob, 'id' | 'kind' | 'store' | 'ended' | 'error'>[], stores: readonly { name: string }[]): boolean {
+  if (!stores.some((s) => s.name === job.store)) return true
+  return jobs.some((j) => j.id !== job.id && j.store === job.store && j.kind === job.kind && j.ended != null && job.ended != null && j.ended > job.ended && !j.error)
 }
 
 /** How many jobs run, and how many failed and are not dismissed. */

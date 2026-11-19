@@ -154,6 +154,9 @@ export class MetricsPoller {
     }
   }
 
+  /** Read now, not at the next tick (a machine just started: its facts changed, UI pass 3 F14). */
+  refresh(): void { this.last = -Infinity; this.pump() }
+
   /** Look for a due poll now (the window became visible again). */
   wake(): void { this.pump() }
 
@@ -342,6 +345,16 @@ export function statsReadOf(snapshot: MetricsSnapshot, machine: string): StatsRe
   const last = m.points.at(-1)
   const stale = last && !last.values ? { at: m.latest?.at ?? null, code: last.code ?? 'Unknown', message: last.message ?? last.code ?? '' } : null
   return { stats: m.latest?.stats ?? null, at: m.latest?.at ?? null, stale, reading: false, loaded: m.points.length > 0 || !!m.latest }
+}
+
+/**
+ * A machine's stats read against its last start (UI pass 3 F14): a read taken
+ * before the start ended describes the machine before it (stopped, an older
+ * worker's uptime), so it reads as not observed yet until a later read lands.
+ */
+export function sinceStart(read: StatsRead | undefined, startedAt: number | null | undefined): StatsRead | undefined {
+  if (!read || startedAt == null || read.at == null || read.at >= startedAt) return read
+  return { stats: null, at: null, stale: null, reading: true, loaded: false }
 }
 
 /** A Sandbox's newest row, its machine's processors, and its series. */

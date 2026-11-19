@@ -28,7 +28,7 @@ import { BUILT_IN, clearingCall, downReason, fixAction, gib, runsFix, machineSta
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
-import { closeFirstKey, inUseSandboxes } from './notices.ts'
+import { closeFirstKey, inUseNow } from './notices.ts'
 import { onSocketRequest, takeSocketRequest } from './socket.ts'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import { MachineOverview } from './Overview.tsx'
@@ -81,7 +81,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const { t, tw, kind, api, doctorT, useStartups, refusal, stateWord } = useMachinesContext()
   const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
-  const { run, pending: localPending, error } = useMachineRun()
+  const { run, pending: localPending, error: lastError } = useMachineRun()
   const pending = localPending ?? (startup?.status === 'running' ? startup.kind : null)
   const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
   // "Choose another socket" elsewhere (Docker isn't answering): docker's page opens its socket setting
@@ -128,7 +128,10 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const worker = observed.offered ? workerLine(observed.read?.stats, t) : null
   const logLink = hasLog && tab !== 'log' ? <LinkButton onClick={() => setTab('log')}>{t('openWorkerLog')}</LinkButton> : null
   // a stop refused InUse because Sandboxes run: what to do in words, their names, and the Sandboxes tab as its one action (LayerFS's message is the tip)
-  const inUse = error !== null ? inUseSandboxes(error) : null
+  // a stop refused InUse follows the Sandbox list: the names still there, and no panel once they are all gone (UI pass 3 F7)
+  const held = lastError !== null ? inUseNow(lastError, sandboxesOn(view, m).map((b) => b.name)) : null
+  const error = held?.cleared ? null : lastError
+  const inUse = held && !held.cleared && held.names.length ? held.names : null
   const refused = error === null ? null : inUse ? (
     <div className={css.inUse} data-in-use={inUse.length} title={refusalOf(error).message}>
       <p className={css.inUseTitle}>{t(closeFirstKey(inUse.length), { n: String(inUse.length) })}</p>

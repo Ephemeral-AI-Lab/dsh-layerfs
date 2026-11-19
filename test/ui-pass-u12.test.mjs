@@ -52,6 +52,9 @@ await build({
       "export { fixCall } from './src/client/storage/fix-call.ts'",
       "export { pressAllowed, guardedPress, PRESS_SETTLE_MS } from './src/client/ui/index.tsx'",
       "export { chainSteps } from './src/client/storage/StoragePage.tsx'",
+      "export * as notices from './src/client/machines/notices.ts'",
+      "export * as sm from './src/client/storage/model.ts'",
+      "export * as metrics from './src/client/machines/metrics.ts'",
       "export { blockedOf } from './src/client/files/States.tsx'",
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
       "export { locales as storageLocales } from './src/client/storage/locale.ts'",
@@ -326,4 +329,96 @@ test('review NOTE-1: the settle is visible (off and aria-disabled, one re-render
     assert.ok((src(file).match(/disabled=\{[^}]*guard\.settling\}/g) ?? []).length >= n, `${file} visibly off`)
   }
   assert.match(src('src/client/doctor/Row.tsx'), /aria-disabled=\{busy \|\| off \|\| guard\.settling \|\| undefined\}/, 'the Doctor button is drawn off by its aria-disabled style')
+})
+
+// ---------------------------------------------------------------- U12b
+
+test('F7: the "close its Sandbox first" panel follows the Sandbox list and goes when they are gone', () => {
+  const refusal = { code: 'InUse', message: 'Sandboxes run', detail: { sandboxes: ['sbm', 'sbm2'] } }
+  assert.deepEqual(M.notices.inUseNow(refusal, ['sbm', 'sbm2', 'other']), { names: ['sbm', 'sbm2'], cleared: false })
+  assert.deepEqual(M.notices.inUseNow(refusal, ['sbm2']), { names: ['sbm2'], cleared: false })
+  assert.deepEqual(M.notices.inUseNow(refusal, []), { names: [], cleared: true })
+  assert.equal(M.notices.inUseNow({ code: 'Busy', message: 'x' }, []), null)
+  const detail = src('src/client/machines/MachineDetail.tsx')
+  assert.match(detail, /const held = lastError !== null \? inUseNow\(lastError, sandboxesOn\(view, m\)\.map\(\(b\) => b\.name\)\) : null/)
+  assert.match(detail, /const error = held\?\.cleared \? null : lastError/)
+})
+
+test('F11: a failed job\'s notice goes after a later success on its Store, or when the Store is gone', () => {
+  const failed = { id: 'a', kind: 'compact', store: 's', ended: 10, error: { code: 'MountsActive' } }
+  const stores = [{ name: 's' }]
+  assert.equal(M.sm.failureSuperseded(failed, [failed], stores), false)
+  assert.equal(M.sm.failureSuperseded(failed, [failed, { id: 'b', kind: 'compact', store: 's', ended: 20, error: null }], stores), true)
+  assert.equal(M.sm.failureSuperseded(failed, [failed, { id: 'b', kind: 'compact', store: 's', ended: 5, error: null }], stores), false, 'an earlier success does not')
+  assert.equal(M.sm.failureSuperseded(failed, [failed, { id: 'b', kind: 'backup', store: 's', ended: 20, error: null }], stores), false, 'another kind does not')
+  assert.equal(M.sm.failureSuperseded(failed, [failed], []), true, 'its Store removed')
+  assert.match(src('src/client/storage/HomeOverview.tsx'), /if \(failureSuperseded\(j, props\.jobs, view\.stores\)\) continue/)
+})
+
+test('F10: an in-use compaction is a word, its holders as the tip and Open <Sandbox>; never "failed in mark" or a raw refusal', () => {
+  const t = (key, vars) => `${key} ${JSON.stringify(vars)}`
+  const job = { id: 'j', kind: 'compact', store: 's', target: 's', started: 1, ended: 2, phase: 'mark', error: { code: 'MountsActive', message: 'mounts active: 2 holder(s)', phase: 'mark' } }
+  assert.match(M.sm.endedWords(job, t), /^jobInUse /)
+  assert.equal(M.sm.inUseJob(job), true)
+  assert.match(M.sm.endedWords({ ...job, error: { code: 'Capacity', message: 'full', phase: 'mark' } }, t), /"phase":"stepMark[ "]/, 'a step in words, not its code')
+  assert.deepEqual(M.sm.storeHolders('s', [{ name: 'sbn', project: 's/p' }, { name: 'x', project: 'other/p' }, { name: 'y', project: null }]).map((b) => b.name), ['sbn'])
+  const home = src('src/client/storage/HomeOverview.tsx')
+  assert.match(home, /t\('jobInUseHolders', \{ holders: holders\.map\(\(b\) => b\.name\)\.join\(', '\) \}\)/)
+  assert.match(home, /holder \? \{ label: t\('jobOpenSandbox', \{ name: holder\.name \}\), run: \(\) => props\.onOpen\(`sandbox:\$\{holder\.machine \?\? 'native'\}\/\$\{holder\.name\}`\) \}/)
+  const panel = src('src/client/storage/JobProgress.tsx')
+  assert.doesNotMatch(panel, /<Refusal error=\{j\.error\}/, 'no raw refusal under the job')
+  assert.match(panel, /title=\{j\.error \? \[`\$\{j\.error\.code\}: \$\{j\.error\.message\}`/)
+  for (const lang of ['en', 'zh']) for (const key of ['jobInUse', 'jobInUseHolders', 'jobOpenSandbox']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
+  assert.doesNotMatch(M.storageLocales.en.jobFailed, / in \{phase\}/)
+})
+
+test('F13: an image the free-space dialog could not remove reads Not removed; why and the message are the tip, no digest inline', () => {
+  const images = src('src/client/machines/MachineImages.tsx')
+  const refused = images.slice(images.indexOf('function Refused'), images.indexOf('export function ImagesTab'))
+  assert.match(refused, /\{t\('pruneRefusedWord', \{ image: names\.get\(r\.id\) \?\? r\.id \}\)\}/)
+  assert.doesNotMatch(refused, /t\('pruneRefused',/, 'the message is no longer the text')
+  for (const lang of ['en', 'zh']) assert.ok(!M.machineLocales[lang].pruneRefusedWord.includes('{message}') && M.machineLocales[lang].pruneWhyInUse, lang)
+})
+
+test('F9: a record that cannot be read shows as such (no Running, no Stop) and the banners keep the path in their tip', () => {
+  const err = { code: 'Failed', message: '/Users/x/.layerfs/machine/cs20ui-m/record.json: unexpected end at byte 14' }
+  assert.equal(M.mm.unreadableNamed(err), 'cs20ui-m')
+  assert.equal(M.mm.unreadableNamed({ code: 'Failed', message: 'no such thing' }), null)
+  const view = { available: true, machines: [{ name: 'cs20ui-m', platform: 'lima', state: 'ready', reason: null, fix: null, stores: [], sandboxes: [] }, { name: 'b', platform: 'lima', state: 'ready', stores: [], sandboxes: [] }] }
+  const stale = M.mm.staleView(view, err)
+  const m = stale.machines[0]
+  assert.equal(M.mm.unreadableRecord(m), true)
+  assert.equal(M.mm.powerOf(m), null, 'no Start or Stop')
+  assert.equal(M.mm.machineState(m).label, 'stateUnreadable')
+  assert.equal(stale.machines[1], view.machines[1], 'the others as last read')
+  assert.equal(M.mm.staleView(view, { code: 'Busy', message: 'later' }), view)
+  const board = src('src/client/machines/Board.tsx')
+  assert.doesNotMatch(board, /<Refusal error=\{read\.error\}/, 'no raw path or parse error inline')
+  assert.match(board, /t\('staleUnreadable', \{ name: unreadableNamed\(read\.error\)! \}\)/)
+  assert.match(board, /title=\{`\$\{e\.error\.code\}: \$\{e\.error\.message\}`\}>\{t\('partUnreadWord'/)
+  assert.match(src('src/client/machines/controller.ts'), /data: staleView\(prev\.data, error\)/)
+  assert.match(src('src/client/machines/Spec.tsx'), /live\?\.error && m\.state !== 'ready' && m\.state !== 'stopped' &&/, 'never "Down because: Running"')
+})
+
+test('F14: a stats read from before the machine\'s last start is not shown as its facts; a start reads again at once', () => {
+  const read = { stats: { resources: {} }, at: 100, stale: null, reading: false, loaded: true }
+  assert.equal(M.metrics.sinceStart(read, null), read)
+  assert.equal(M.metrics.sinceStart(read, 50), read, 'read after the start')
+  assert.deepEqual(M.metrics.sinceStart(read, 200), { stats: null, at: null, stale: null, reading: true, loaded: false })
+  // the poller reads at once on refresh
+  let reads = 0
+  const clock = { now: () => 1000, setTimeout: () => 1, clearTimeout: () => {} }
+  const poller = new M.metrics.MetricsPoller(async () => { reads++; return { at: 1000, machines: {}, sandboxes: {} } }, () => true, clock)
+  poller.watch('m')
+  return new Promise((resolve) => setTimeout(() => {
+    const before = reads
+    poller.refresh()
+    setTimeout(() => {
+      assert.ok(reads > before, 'refresh polled now')
+      poller.dispose()
+      assert.match(src('src/client/machines/controller.ts'), /status: 'success', endedAt: Date\.now\(\) \}\)\)\n\s+\/\/ a started machine's facts changed: read its stats now \(F14\)\n\s+this\.metrics\.refresh\(\)/)
+      assert.match(src('src/client/machines/MachineStats.tsx'), /sinceStart\(statsReadOf\(snapshot, m\.name\), startedAt\)/)
+      resolve()
+    }, 10)
+  }, 10))
 })

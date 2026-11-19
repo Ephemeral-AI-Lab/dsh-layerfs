@@ -30,8 +30,12 @@ function Refused({ refused, names }: { refused: PruneAnswer['refused'], names: M
   if (!refused.length) return null
   return (
     <div role="alert" className={css.errorText}>
-      {/* a long image digest is cut to 12 digits; the whole message is the tip */}
-      {refused.map((r) => <p key={r.id} title={r.message}>{t('pruneRefused', { image: names.get(r.id) ?? r.id, message: shortDigests(r.message) })}</p>)}
+      {/* the word per image; why (in use by a Sandbox here, or LayerFS's words with the digest cut) and the whole message are the tip (UI pass 3 F13) */}
+      {refused.map((r) => (
+        <p key={r.id} data-refused={r.code} title={[r.code === 'InUse' || /used by a sandbox/i.test(r.message) ? t('pruneWhyInUse') : shortDigests(r.message), r.message].join('\n')}>
+          {t('pruneRefusedWord', { image: names.get(r.id) ?? r.id })}
+        </p>
+      ))}
     </div>
   )
 }
