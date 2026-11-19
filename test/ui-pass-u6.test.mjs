@@ -185,12 +185,12 @@ test('minor: "1 commit", not "1 commits"', () => {
   assert.equal(say({ commits: 0, complete: false, refused: 'x' }), storageT('spCommitsUnread'))
 })
 
-test('minor: a long image digest in the prune dialog is cut (the full message is the tip) and the text wraps', () => {
+test('minor: a long image digest in the prune dialog is cut and the text wraps', () => {
   const msg = 'cgr.dev/chainguard/minio:latest: image sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae72601059aa0 is used by a Sandbox'
   assert.equal(N.shortDigests(msg), 'cgr.dev/chainguard/minio:latest: image sha256:4692462f35d9… is used by a Sandbox')
   assert.equal(N.shortDigests('fbfb4059d212 short'), 'fbfb4059d212 short', 'a short id stays')
-  // U12 F13: the word per image is "Not removed"; the cut message (or "used by a Sandbox") and the whole message are its tip
-  assert.match(src('src/client/machines/MachineImages.tsx'), /t\('pruneWhyInUse'\) : shortDigests\(r\.message\), r\.message\]\.join\('\\n'\)\}>\s*\{t\('pruneRefusedWord', \{ image: names\.get\(r\.id\) \?\? r\.id \}\)\}/)
+  // U12 F13 (fix loop FAIL-3): the word per image is "Not removed"; its tip is "used by a Sandbox" or the cut message, never the full digest
+  assert.match(src('src/client/machines/MachineImages.tsx'), /title=\{refusedInUse\(r\) \? t\('pruneWhyInUse'\) : shortDigests\(r\.message\)\}>\s*\{t\('pruneRefusedWord', \{ image: names\.get\(r\.id\) \?\? r\.id \}\)\}/)
   assert.match(src('src/client/machines/machines.module.css'), /\.errorText \{[^}]*overflow-wrap: anywhere;/)
 })
 

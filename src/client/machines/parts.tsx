@@ -25,7 +25,7 @@ import { clockTime } from '../ui/locale-sync.ts'
  */
 export type Run = (key: string, action: MachineAction, options?: { rethrow?: boolean }) => Promise<boolean>
 
-export function useMachineRun(): { run: Run, pending: string | null, error: unknown } {
+export function useMachineRun(): { run: Run, pending: string | null, error: unknown, clear: () => void } {
   const { act } = useMachinesContext()
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState<string | null>(null)
@@ -43,7 +43,7 @@ export function useMachineRun(): { run: Run, pending: string | null, error: unkn
       setPending(null)
     }
   }
-  return { run, pending, error }
+  return { run, pending, error, clear: () => setError(null) }
 }
 
 /** The machine's state as the SDK gives it, or `Starting…` while a start runs here. */

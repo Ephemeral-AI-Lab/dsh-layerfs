@@ -360,7 +360,8 @@ export function stepWords(step: string | null, t: StorageT): string {
     case 'swap': return t('stepSwap')
     case 'cleanup': return t('stepCleanup')
     case null: return t('stepStarting')
-    default: return step
+    // a step this page has no word for: a plain word, never LayerFS's step code
+    default: return t('stepWorking')
   }
 }
 
@@ -382,6 +383,23 @@ export const inUseJob = (j: Pick<StorageJob, 'error'>): boolean => j.error?.code
 /** What holds a Store, by the Sandboxes whose projects are in it (the in-use refusal names only a count). */
 export const storeHolders = <B extends { name: string, project?: string | null }>(store: string, sandboxes: readonly B[]): B[] =>
   sandboxes.filter((b) => !!b.project && b.project.startsWith(`${store}/`))
+
+/** A Sandbox as the job notices name it: what holds a Store. */
+type Holder = { name: string, machine?: string | null, project?: string | null }
+
+/**
+ * A failed job's tip and what holds its Store, the same on Home and on its
+ * Store (UI pass 3 F10): for an in-use refusal, the holding Sandboxes first,
+ * then LayerFS's code and words, then its fix line (as `fixTip` words it).
+ */
+export function jobEnd<B extends Holder>(j: Pick<StorageJob, 'error' | 'store'>, sandboxes: readonly B[], t: StorageT, fixTip: (line: string) => string = (line) => line): { holders: B[], tip: string | undefined } {
+  const holders = j.error && inUseJob(j) ? storeHolders(j.store, sandboxes) : []
+  const tip = j.error ? [...(holders.length ? [t('jobInUseHolders', { holders: holders.map((b) => b.name).join(', ') })] : []), `${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [fixTip(j.error.fix)] : [])].join('\n') : undefined
+  return { holders, tip }
+}
+
+/** The page a holding Sandbox opens on. */
+export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machine ?? 'native'}/${b.name}`
 
 /** How a job ended, in words. `size` writes a byte count (a compaction's freed space); without it the count is left out. */
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
@@ -435,10 +453,12 @@ export function cardJob(jobs: readonly StorageJob[], store: string, dismissed: R
 /**
  * Whether a failed job's notice no longer holds (UI pass 3 F11): its Store is
  * gone, or a later job of the same kind on that Store ended without an error
- * (a compaction that failed, then one that worked).
+ * (a compaction that failed, then one that worked). A restore's Store may never
+ * have existed (restore as a new Store that failed), so its absence does not
+ * end a restore's notice; only a later restore that worked does.
  */
 export function failureSuperseded(job: Pick<StorageJob, 'id' | 'kind' | 'store' | 'ended'>, jobs: readonly Pick<StorageJob, 'id' | 'kind' | 'store' | 'ended' | 'error'>[], stores: readonly { name: string }[]): boolean {
-  if (!stores.some((s) => s.name === job.store)) return true
+  if (job.kind !== 'restore' && !stores.some((s) => s.name === job.store)) return true
   return jobs.some((j) => j.id !== job.id && j.store === job.store && j.kind === job.kind && j.ended != null && job.ended != null && j.ended > job.ended && !j.error)
 }
 

@@ -81,7 +81,7 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const { t, tw, kind, api, doctorT, useStartups, refusal, stateWord } = useMachinesContext()
   const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
-  const { run, pending: localPending, error: lastError } = useMachineRun()
+  const { run, pending: localPending, error: lastError, clear: clearError } = useMachineRun()
   const pending = localPending ?? (startup?.status === 'running' ? startup.kind : null)
   const [dialog, setDialog] = useState<'settings' | 'remove' | 'force-stop' | null>(null)
   // "Choose another socket" elsewhere (Docker isn't answering): docker's page opens its socket setting
@@ -132,6 +132,8 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   const held = lastError !== null ? inUseNow(lastError, sandboxesOn(view, m).map((b) => b.name)) : null
   const error = held?.cleared ? null : lastError
   const inUse = held && !held.cleared && held.names.length ? held.names : null
+  // once its Sandboxes are gone the refusal is spent: a new Sandbox of the same name does not bring the panel back
+  useEffect(() => { if (held?.cleared) clearError() }, [held?.cleared])
   const refused = error === null ? null : inUse ? (
     <div className={css.inUse} data-in-use={inUse.length} title={refusalOf(error).message}>
       <p className={css.inUseTitle}>{t(closeFirstKey(inUse.length), { n: String(inUse.length) })}</p>

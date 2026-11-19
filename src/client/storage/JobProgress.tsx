@@ -4,41 +4,58 @@ import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import type { StorageT } from './locale.ts'
-import { doingWords, endedWords, kindWords, shareOf, stepsOf, stepWords } from './model.ts'
+import { doingWords, endedWords, holderTab, jobEnd, kindWords, shareOf, stepsOf, stepWords } from './model.ts'
 import type { StorageJob, StoreRow } from './types.ts'
 import { FixAction, FixContext, resolveFix } from '../ui/index.tsx'
 import { refusalLabels } from './parts.tsx'
+import { useMachinesMaybe, type MachinesContext } from '../machines/context.tsx'
+import type { MachineSandbox as Sandbox } from '../machines/model.ts'
 import css from './Storage.module.css'
 
-export function JobPanel({ job: j, t, onRetry, onDismiss }: { job: StorageJob, t: StorageT, onRetry?: (() => void) | undefined, onDismiss?: (() => void) | undefined }): ReactNode {
+type JobPanelProps = { job: StorageJob, t: StorageT, onRetry?: (() => void) | undefined, onDismiss?: (() => void) | undefined }
+
+/** A job on its Store; where the page knows the Sandboxes (the Machines context), an in-use refusal names what holds the Store. */
+export function JobPanel(props: JobPanelProps): ReactNode {
+  const mc = useMachinesMaybe()
+  return mc ? <FleetJobPanel {...props} mc={mc} /> : <JobPanelView {...props} sandboxes={[]} />
+}
+
+function FleetJobPanel({ mc, ...props }: JobPanelProps & { mc: MachinesContext }): ReactNode {
+  const sandboxes = mc.useMachines((s) => (s.data?.available ? s.data.sandboxes : NONE))
+  return <JobPanelView {...props} sandboxes={sandboxes} onOpen={mc.openStorageTab} />
+}
+
+const NONE: readonly Sandbox[] = []
+
+function JobPanelView({ job: j, t, onRetry, onDismiss, sandboxes, onOpen }: JobPanelProps & { sandboxes: readonly Sandbox[], onOpen?: (id: string) => void }): ReactNode {
+  const fixes = useContext(FixContext)
   const running = !j.ended
   const failed = !!j.ended && (!!j.error || j.outcome === 'failed' || j.outcome === 'unknown' || j.outcome === 'interrupted')
   const steps = stepsOf(j)
   const at = Math.max(0, steps.findIndex((s) => s.state === 'now' || s.state === 'failed')) + 1
+  // the same tip and one action as Home's notice (UI pass 3 F10): the fix where the page runs it, else Open <holder> while in use, else Retry
+  const { holders: [holder], tip } = jobEnd(j, sandboxes, t, fixes ? (line) => fixes.tip(line) : undefined)
+  const resolved = failed && fixes ? resolveFix(fixes, j.error?.fix) : null
+  const action = !failed ? null
+    : resolved?.fix && fixes ? <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} />
+      : holder && onOpen ? <Button variant="outline" size="sm" onClick={() => onOpen(holderTab(holder))}>{t('jobOpenSandbox', { name: holder.name })}</Button>
+        : onRetry ? <Button variant="outline" size="sm" onClick={onRetry}>{t('jobRetry')}</Button> : null
   return (
     <div className={css.job} data-state={running ? 'running' : failed ? 'failed' : 'done'} role="status">
       <div className={css.jobLine}>
         <StateDot state={running ? 'ongoing' : failed ? 'error' : 'done'} size={running ? 13 : 10} />
-        {/* how it ended is the word; LayerFS's code, words and fix are its tip (UI pass 3 F10: no raw refusal under it) */}
-        <span className={css.jobTitle} title={j.error ? [`${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [j.error.fix] : [])].join('\n') : undefined}>{running ? doingWords(j, t) : endedWords(j, t, bytes)}</span>
+        {/* how it ended is the word; what holds the Store, LayerFS's code, words and fix are its tip (UI pass 3 F10: no raw refusal under it) */}
+        <span className={css.jobTitle} title={tip}>{running ? doingWords(j, t) : endedWords(j, t, bytes)}</span>
         {running ? <span className={css.jobMeta}>{t('jobStep', { at, of: steps.length, step: stepWords(j.phase, t) })}</span> : null}
         {running && j.total ? <span className={css.jobMeta}>{t('jobBytes', { done: bytes(j.done ?? 0), total: bytes(j.total) })}</span> : null}
         <span className={css.jobEnd}>
-          {failed && onRetry ? <Button variant="outline" size="sm" onClick={onRetry}>{t('jobRetry')}</Button> : null}
+          {action}
           {!running && onDismiss ? <Button variant="ghost" size="sm" onClick={onDismiss}>{t('dismiss')}</Button> : null}
         </span>
       </div>
       {running ? <span className={css.jobBar}><span className={css.jobFill} style={{ width: `${Math.round(shareOf(j) * 100)}%` }} /></span> : null}
-      {j.error?.fix ? <JobFix line={j.error.fix} t={t} /> : null}
     </div>
   )
-}
-
-/** A failed job's fix line as its one action, where the page runs it; else nothing (the line is in the title's tip). */
-function JobFix({ line, t }: { line: string, t: StorageT }): ReactNode {
-  const fixes = useContext(FixContext)
-  const resolved = fixes ? resolveFix(fixes, line) : null
-  return resolved?.fix && fixes ? <div className={css.jobError}><FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} /></div> : null
 }
 
 /** An operation another client runs on the Store (store.list's `op`). */

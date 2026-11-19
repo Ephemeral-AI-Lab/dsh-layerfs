@@ -23,18 +23,6 @@ const nameOf = (x: unknown): string | null => {
  * the Sandboxes it relates, else the bracketed list in its message. Null for
  * any other refusal, or one that names no Sandbox.
  */
-/**
- * An InUse refusal against the Sandboxes there are now (UI pass 3 F7): the
- * names still present, or `cleared` when every Sandbox it named is gone (its
- * panel goes; the refusal no longer holds). Not an InUse refusal: null.
- */
-export function inUseNow(error: unknown, present: readonly string[]): { names: string[], cleared: boolean } | null {
-  const named = inUseSandboxes(error)
-  if (!named) return null
-  const names = named.filter((x) => present.includes(x))
-  return { names, cleared: named.length > 0 && names.length === 0 }
-}
-
 export function inUseSandboxes(error: unknown): string[] | null {
   if (!error || typeof error !== 'object') return null
   const e = error as { code?: unknown, message?: unknown, detail?: unknown, sandboxes?: unknown }
@@ -50,6 +38,18 @@ export function inUseSandboxes(error: unknown): string[] | null {
     if (list) names = list.split(',').map((x) => x.trim().replace(/^["'`]|["'`]$/g, '')).filter(Boolean)
   }
   return names.length ? [...new Set(names)] : null
+}
+
+/**
+ * An InUse refusal against the Sandboxes there are now (UI pass 3 F7): the
+ * names still present, or `cleared` when every Sandbox it named is gone (its
+ * panel goes; the refusal no longer holds). Not an InUse refusal: null.
+ */
+export function inUseNow(error: unknown, present: readonly string[]): { names: string[], cleared: boolean } | null {
+  const named = inUseSandboxes(error)
+  if (!named) return null
+  const names = named.filter((x) => present.includes(x))
+  return { names, cleared: named.length > 0 && names.length === 0 }
 }
 
 /** "Close its N Sandboxes first", by count. */

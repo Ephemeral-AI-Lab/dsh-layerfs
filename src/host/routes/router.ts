@@ -92,7 +92,10 @@ export const isConversion = (code: string, detail: any) => code === 'InUse' && A
 export function errorAnswer(error: any): { status: number, body: Record<string, unknown> } {
   const code = typeof error?.code === 'string' ? error.code : 'failed'
   const status = Number.isInteger(error?.status) ? error.status : (STATUS[code] ?? 500)
-  const detail = error?.detail && typeof error.detail === 'object' ? error.detail : null
+  const own = error?.detail && typeof error.detail === 'object' ? error.detail : null
+  // LayerFS puts a blocked refusal's cause beside `error` (`blocked_by`, `detail` null): keep it in `detail` for the page
+  const blocked = error?.blocked_by && typeof error.blocked_by === 'object' && !own?.blocked_by ? error.blocked_by : null
+  const detail = blocked ? { ...own, blocked_by: blocked } : own
   return { status, body: wire({ code, ...(error?.transport ? { transport: error.transport } : {}), message: error?.message ?? String(error), ...(detail ? { detail } : {}), ...fixOf(error), ...(isConversion(code, detail) ? { conversion: true } : {}) }) }
 }
 

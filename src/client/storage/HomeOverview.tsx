@@ -47,7 +47,7 @@ import { BrandLockup, HomeHero, panelId } from './HomeHero.tsx'
 import { StoreMenu, type LoginActions, type StoreActions } from './StoreCard.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
-import { bucketFiles, doingWords, endedWords, failureSuperseded, inUseJob, orderStores, storeHolders, pgStoreBytes, shareOf, type Reconnect } from './model.ts'
+import { bucketFiles, doingWords, endedWords, failureSuperseded, holderTab, jobEnd, orderStores, pgStoreBytes, shareOf, type Reconnect } from './model.ts'
 import { refusalLabels, StoreGlyph } from './parts.tsx'
 import type { StoreStats } from './store-page.ts'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
@@ -194,14 +194,13 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     // its fix line, where the page runs it, is the one action, else Retry
     const fix = fixes ? resolveFix(fixes, j.error?.fix)?.fix ?? null : null
     // in use (F10): the tip names what holds the Store (its Sandboxes), the one action opens the first of them
-    const holders = inUseJob(j) && fleet ? storeHolders(j.store, fleet.sandboxes) : []
-    const holder = holders[0]
+    const { holders: [holder], tip } = jobEnd(j, fleet?.sandboxes ?? [], t, fixes ? (line) => fixes.tip(line) : undefined)
     needs.push({
       key: `job:${j.id}`, tone: 'danger', rank: 0,
       title: <StoreLink name={j.store} onOpen={props.onOpen}>{endedWords(j, t, bytes)}</StoreLink>,
-      detail: <span title={j.error ? [...(holders.length ? [t('jobInUseHolders', { holders: holders.map((b) => b.name).join(', ') })] : []), `${j.error.code}: ${j.error.message}`, ...(j.error.fix ? [fixes ? fixes.tip(j.error.fix) : j.error.fix] : [])].join('\n') : undefined}>{ago(j.ended, now, t as Translate)}</span>,
+      detail: <span title={tip}>{ago(j.ended, now, t as Translate)}</span>,
       action: fix && fixes ? { label: fixes.label(fix), run: () => fixes.run(fix) }
-        : holder ? { label: t('jobOpenSandbox', { name: holder.name }), run: () => props.onOpen(`sandbox:${holder.machine ?? 'native'}/${holder.name}`) }
+        : holder ? { label: t('jobOpenSandbox', { name: holder.name }), run: () => props.onOpen(holderTab(holder)) }
           : { label: t('jobRetry'), run: () => props.onRetry(j) },
       extra: <Button variant="ghost" size="sm" onClick={() => props.onDismiss(j)}>{t('dismiss')}</Button>,
     })

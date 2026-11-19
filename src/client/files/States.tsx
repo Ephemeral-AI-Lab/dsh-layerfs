@@ -31,8 +31,9 @@ export function ErrorState({ title, error, retryLabel, onRetry, className, fixWo
   inTheWay?: string | undefined
 }): ReactNode {
   const fixes = useContext(FixContext)
-  // a blocked read (its cause in `detail.blocked_by`) is worded by what blocks it, on either path below
-  title = blockedWord?.(blockedOf(refusalOf(error).detail)) ?? title
+  // a blocked read is worded by what blocks it, on either path below: LayerFS puts `blocked_by` beside `error`
+  // (an SDK error carries it so); the host keeps it in `detail` (cli.ts refusalOf, router errorAnswer)
+  title = blockedWord?.(blockedOf(error) ?? blockedOf(refusalOf(error).detail)) ?? title
   const resolved = fixes ? resolveFix(fixes, refusalOf(error).fix) : null
   // a refusal with a fix the page runs (Center): the word, LayerFS's message as its tip, the fix as the one action; no code chip, no Retry
   if (resolved?.fix && fixes) {
@@ -60,7 +61,7 @@ export function ErrorState({ title, error, retryLabel, onRetry, className, fixWo
   )
 }
 
-/** What a blocked refusal names as its cause (`detail.blocked_by` / `blockedBy`: a machine and its reason), or null. */
+/** What a blocked refusal names as its cause (`blocked_by` / `blockedBy` on the object given, the error or its `detail`: a machine and its reason), or null. */
 export function blockedOf(detail: unknown): { machine: string | null, reason: string | null } | null {
   const d = detail && typeof detail === 'object' ? detail as Record<string, any> : null
   const b = d?.blocked_by ?? d?.blockedBy

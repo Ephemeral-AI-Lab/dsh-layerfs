@@ -24,18 +24,26 @@ import { shortDigests } from './notices.ts'
 
 type MachineRef = Pick<MachineInfo, 'name' | 'state'>
 
-/** LayerFS's refusals of single images, as lines under the list. */
-function Refused({ refused, names }: { refused: PruneAnswer['refused'], names: Map<string, string> }): ReactNode {
-  const { t } = useMachinesContext()
+/** Whether LayerFS refused an image because a Sandbox here uses it. */
+export const refusedInUse = (r: PruneAnswer['refused'][number]): boolean => r.code === 'InUse' || /used by a sandbox/i.test(r.message)
+
+/**
+ * LayerFS's refusals of single images, as lines under the list: the word per
+ * image, why as its tip (in use by a Sandbox here, or LayerFS's words with the
+ * digests cut, never a full sha256), and Open Sandboxes as the one action while
+ * a Sandbox holds one (UI pass 3 F13). `onLeave` closes a dialog before it goes.
+ */
+function Refused({ refused, names, machine, onLeave }: { refused: PruneAnswer['refused'], names: Map<string, string>, machine: string, onLeave?: () => void }): ReactNode {
+  const { t, go } = useMachinesContext()
   if (!refused.length) return null
   return (
     <div role="alert" className={css.errorText}>
-      {/* the word per image; why (in use by a Sandbox here, or LayerFS's words with the digest cut) and the whole message are the tip (UI pass 3 F13) */}
       {refused.map((r) => (
-        <p key={r.id} data-refused={r.code} title={[r.code === 'InUse' || /used by a sandbox/i.test(r.message) ? t('pruneWhyInUse') : shortDigests(r.message), r.message].join('\n')}>
+        <p key={r.id} data-refused={r.code} title={refusedInUse(r) ? t('pruneWhyInUse') : shortDigests(r.message)}>
           {t('pruneRefusedWord', { image: names.get(r.id) ?? r.id })}
         </p>
       ))}
+      {refused.some(refusedInUse) ? <Button size="sm" variant="outline" onClick={() => { onLeave?.(); go({ kind: 'machine', name: machine, tab: 'sandboxes' }) }}>{t('inUseOpenSandboxes')}</Button> : null}
     </div>
   )
 }
@@ -367,7 +375,7 @@ export function ImagesSection({ m, images, onCreate }: { m: MachineInfo, images:
       )}
       {restarting.error != null && <Refusal error={restarting.error} labels={refusal} compact className={css.errorText} />}
       {error != null && <Refusal error={error} labels={refusal} compact className={css.errorText} />}
-      <Refused refused={refused} names={names} />
+      <Refused refused={refused} names={names} machine={m.name} />
       {freeing && <FreeSpaceDialog machine={m} onClose={() => { setFreeing(false); images.reload() }} />}
     </section>
   )
@@ -451,7 +459,7 @@ export function FreeSpaceDialog({ machine, need, onClose }: { machine: MachineRe
             )}
         {images.data && rows.length > 0 && <p className={css.muted}>{tw(freesWords(rows, checked, need))}</p>}
         {error != null && <Refusal error={error} labels={refusal} className={css.errorText} />}
-        <Refused refused={refused} names={names} />
+        <Refused refused={refused} names={names} machine={machine.name} onLeave={close} />
       </div>
     </Modal>
   )

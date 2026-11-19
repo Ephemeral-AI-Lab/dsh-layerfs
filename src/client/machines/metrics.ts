@@ -123,6 +123,8 @@ export class MetricsPoller {
   private since = 0
   private last = -Infinity
   private flying = false
+  /** A refresh asked while a poll flew: read again once it ends (its own `last` would cancel the reset). */
+  private again = false
   private timer: unknown
   private disposed = false
 
@@ -155,7 +157,7 @@ export class MetricsPoller {
   }
 
   /** Read now, not at the next tick (a machine just started: its facts changed, UI pass 3 F14). */
-  refresh(): void { this.last = -Infinity; this.pump() }
+  refresh(): void { this.last = -Infinity; if (this.flying) this.again = true; this.pump() }
 
   /** Look for a due poll now (the window became visible again). */
   wake(): void { this.pump() }
@@ -196,6 +198,7 @@ export class MetricsPoller {
     this.flying = false
     // the interval counts from the end of the poll
     this.last = this.clock.now()
+    if (this.again) { this.again = false; this.last = -Infinity }
     if (view) this.take(view, names, since)
     else this.set({ ...this.value, error })
     // a machine watched while this poll ran: read it now, not a tick later

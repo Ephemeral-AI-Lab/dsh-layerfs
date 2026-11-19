@@ -56,6 +56,9 @@ await build({
       "export * as sm from './src/client/storage/model.ts'",
       "export * as metrics from './src/client/machines/metrics.ts'",
       "export { blockedOf } from './src/client/files/States.tsx'",
+      "export { errorAnswer } from './src/host/routes/router.ts'",
+      "export { refusalOf as cliRefusalOf } from './src/host/layerfs/cli.ts'",
+      "export { refusedInUse } from './src/client/machines/MachineImages.tsx'",
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
       "export { locales as storageLocales } from './src/client/storage/locale.ts'",
       "export { locales as doctorLocales } from './src/client/doctor/locale.ts'",
@@ -158,7 +161,7 @@ test('R FAIL 3: the Files tab refusal is a word, LayerFS\'s words as the tip and
   const fallback = states.slice(states.indexOf('const code = errorCode(error)'), states.indexOf('export function blockedOf'))
   assert.doesNotMatch(fallback, /failureDetail|<code/, 'no inline sentence, no code chip')
   assert.match(fallback, /title=\{tip\}/, 'LayerFS\'s words, code and fix line are the tip')
-  assert.match(states, /title = blockedWord\?\.\(blockedOf\(refusalOf\(error\)\.detail\)\) \?\? title/, 'a blocked refusal is worded by what blocks it, on both paths')
+  assert.match(states, /title = blockedWord\?\.\(blockedOf\(error\) \?\? blockedOf\(refusalOf\(error\)\.detail\)\) \?\? title/, 'a blocked refusal is worded by what blocks it, on both paths (the error itself, else its detail)')
   // both LayerFS shapes: `Failed` with the machine's chain (runnable now), and the blocked refusal with reason + fix
   assert.deepEqual(M.blockedOf({ blocked_by: { machine: 'docker', reason: 'outdated' } }), { machine: 'docker', reason: 'outdated' })
   assert.deepEqual(M.blockedOf({ blockedBy: { machine: 'docker' } }), { machine: 'docker', reason: null })
@@ -363,11 +366,17 @@ test('F10: an in-use compaction is a word, its holders as the tip and Open <Sand
   assert.match(M.sm.endedWords({ ...job, error: { code: 'Capacity', message: 'full', phase: 'mark' } }, t), /"phase":"stepMark[ "]/, 'a step in words, not its code')
   assert.deepEqual(M.sm.storeHolders('s', [{ name: 'sbn', project: 's/p' }, { name: 'x', project: 'other/p' }, { name: 'y', project: null }]).map((b) => b.name), ['sbn'])
   const home = src('src/client/storage/HomeOverview.tsx')
-  assert.match(home, /t\('jobInUseHolders', \{ holders: holders\.map\(\(b\) => b\.name\)\.join\(', '\) \}\)/)
-  assert.match(home, /holder \? \{ label: t\('jobOpenSandbox', \{ name: holder\.name \}\), run: \(\) => props\.onOpen\(`sandbox:\$\{holder\.machine \?\? 'native'\}\/\$\{holder\.name\}`\) \}/)
+  assert.match(home, /const \{ holders: \[holder\], tip \} = jobEnd\(j, fleet\?\.sandboxes \?\? \[\], t,/)
+  assert.match(home, /holder \? \{ label: t\('jobOpenSandbox', \{ name: holder\.name \}\), run: \(\) => props\.onOpen\(holderTab\(holder\)\) \}/)
+  const tt = (key, vars) => (vars ? `${key} ${JSON.stringify(vars)}` : key)
+  const end = M.sm.jobEnd(job, [{ name: 'sbn', machine: 'lima1', project: 's/p' }], tt)
+  assert.deepEqual(end.holders.map((b) => b.name), ['sbn'])
+  assert.equal(end.tip.split('\n')[0], 'jobInUseHolders {"holders":"sbn"}', 'the holders lead the tip')
+  assert.equal(M.sm.holderTab(end.holders[0]), 'sandbox:lima1/sbn')
+  assert.equal(M.sm.holderTab({ name: 'x', machine: null }), 'sandbox:native/x')
   const panel = src('src/client/storage/JobProgress.tsx')
   assert.doesNotMatch(panel, /<Refusal error=\{j\.error\}/, 'no raw refusal under the job')
-  assert.match(panel, /title=\{j\.error \? \[`\$\{j\.error\.code\}: \$\{j\.error\.message\}`/)
+  assert.match(panel, /title=\{tip\}/)
   for (const lang of ['en', 'zh']) for (const key of ['jobInUse', 'jobInUseHolders', 'jobOpenSandbox']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
   assert.doesNotMatch(M.storageLocales.en.jobFailed, / in \{phase\}/)
 })
@@ -377,6 +386,7 @@ test('F13: an image the free-space dialog could not remove reads Not removed; wh
   const refused = images.slice(images.indexOf('function Refused'), images.indexOf('export function ImagesTab'))
   assert.match(refused, /\{t\('pruneRefusedWord', \{ image: names\.get\(r\.id\) \?\? r\.id \}\)\}/)
   assert.doesNotMatch(refused, /t\('pruneRefused',/, 'the message is no longer the text')
+  assert.doesNotMatch(refused, /r\.message\]/, 'no raw message (full sha256) in the tip')
   for (const lang of ['en', 'zh']) assert.ok(!M.machineLocales[lang].pruneRefusedWord.includes('{message}') && M.machineLocales[lang].pruneWhyInUse, lang)
 })
 
@@ -421,4 +431,78 @@ test('F14: a stats read from before the machine\'s last start is not shown as it
       resolve()
     }, 10)
   }, 10))
+})
+
+// ---------------------------------------------------------------- U12b fix loop
+
+test('U12b FAIL-1: a failed restore as a new Store keeps its Home notice though that Store was never made', () => {
+  const restore = { id: 'r', kind: 'restore', store: 'shop-restored', ended: 10, error: { code: 'Failed', message: 'bad file' } }
+  const stores = [{ name: 'shop' }]
+  assert.equal(M.sm.failureSuperseded(restore, [restore], stores), false, 'stays visible')
+  assert.equal(M.sm.failureSuperseded(restore, [restore, { id: 'r2', kind: 'restore', store: 'shop-restored', ended: 20, error: null }], stores), true, 'a later restore that worked ends it')
+  const compact = { id: 'c', kind: 'compact', store: 'gone', ended: 10, error: { code: 'MountsActive', message: 'x' } }
+  assert.equal(M.sm.failureSuperseded(compact, [compact], stores), true, 'other kinds: their Store gone still ends it')
+})
+
+test('U12b FAIL-2: the Store page and Store cards word an in-use job like Home: holders tip, one action Open <Sandbox>', () => {
+  const panel = src('src/client/storage/JobProgress.tsx')
+  assert.match(panel, /const \{ holders: \[holder\], tip \} = jobEnd\(j, sandboxes, t,/, 'the same tip as Home')
+  const action = panel.slice(panel.indexOf('const action ='), panel.indexOf('return (', panel.indexOf('const action =')))
+  assert.match(action, /resolved\?\.fix && fixes \? <FixAction[^]*: holder && onOpen \? <Button[^]*t\('jobOpenSandbox', \{ name: holder\.name \}\)[^]*: onRetry \? <Button[^]*t\('jobRetry'\)/, 'one action: fix, else Open <Sandbox>, else Retry')
+  assert.equal((panel.match(/\{action\}/g) ?? []).length, 1)
+  assert.doesNotMatch(panel, /function JobFix|<JobFix/, 'no second (fix) action beside Retry')
+  assert.match(panel, /mc\.useMachines\(\(s\) => \(s\.data\?\.available \? s\.data\.sandboxes : NONE\)\)/)
+  assert.match(panel, /onOpen=\{mc\.openStorageTab\}/)
+  for (const file of ['src/client/storage/StorePage.tsx', 'src/client/storage/MachineStores.tsx']) assert.match(src(file), /<JobPanel job=/, file)
+})
+
+test('U12b FAIL-3: a refused image tip has digests cut (no raw message), and Open Sandboxes is its one action when in use', () => {
+  const images = src('src/client/machines/MachineImages.tsx')
+  const refused = images.slice(images.indexOf('function Refused'), images.indexOf('export function ImagesTab'))
+  assert.match(refused, /title=\{refusedInUse\(r\) \? t\('pruneWhyInUse'\) : shortDigests\(r\.message\)\}/)
+  assert.match(refused, /refused\.some\(refusedInUse\) \? <Button[^]*go\(\{ kind: 'machine', name: machine, tab: 'sandboxes' \}\)[^]*t\('inUseOpenSandboxes'\)/)
+  assert.match(images, /<Refused refused=\{refused\} names=\{names\} machine=\{machine\.name\} onLeave=\{close\} \/>/, 'the dialog closes before it goes')
+  assert.equal(M.refusedInUse({ id: 'a', code: 'InUse', message: 'x' }), true)
+  assert.equal(M.refusedInUse({ id: 'a', code: 'Failed', message: 'image sha256:abc is used by a sandbox' }), true)
+  assert.equal(M.refusedInUse({ id: 'a', code: 'Failed', message: 'disk error' }), false)
+  for (const lang of ['en', 'zh']) assert.ok(M.machineLocales[lang].inUseOpenSandboxes, lang)
+})
+
+test('U12b LF10: blocked_by beside error (CLI JSON, Node SDK error) reaches the Files tab word', () => {
+  const blocked_by = { machine: 'rt9lf', reason: 'outdated' }
+  const line = { error: 'Unavailable', message: 'Store rt9lfs is blocked by machine rt9lf (outdated): …', fix: 'layerfs store remove rt9lfs && layerfs machine remove rt9lf', blocked_by }
+  // the host's CLI path: with and without --detail ("detail": null)
+  for (const frame of [line, { ...line, detail: null }]) {
+    const r = M.cliRefusalOf(frame)
+    assert.deepEqual(r.detail, { blocked_by }, JSON.stringify(frame))
+    assert.deepEqual(M.blockedOf(r.detail), blocked_by)
+  }
+  // an SDK-shaped error (err.blocked_by, err.detail null) through the host's error answer
+  const sdk = Object.assign(new Error(line.message), { code: 'Unavailable', detail: null, fix: line.fix, blocked_by })
+  const body = M.errorAnswer(sdk).body
+  assert.deepEqual(body.detail, { blocked_by })
+  assert.deepEqual(M.blockedOf(body.detail), blocked_by)
+  // the page reads it where it arrives: on the error itself, else its detail
+  assert.deepEqual(M.blockedOf(sdk), blocked_by)
+  assert.equal(M.errorAnswer(Object.assign(new Error('x'), { code: 'Unavailable', detail: { blocked_by: { machine: 'a', reason: 'stopped' } }, blocked_by })).body.detail.blocked_by.machine, 'a', 'detail wins on a clash')
+})
+
+test('U12b notes: unknown step in words, refresh during a poll reads again, F7 refusal spent once cleared', async () => {
+  const t = (key) => key
+  assert.equal(M.sm.stepWords('rehash-v9', t), 'stepWorking')
+  for (const lang of ['en', 'zh']) assert.ok(M.storageLocales[lang].stepWorking, lang)
+  let reads = 0, release
+  const clock = { now: () => 1000, setTimeout: () => 1, clearTimeout: () => {} }
+  const poller = new M.metrics.MetricsPoller(() => { reads++; return new Promise((r) => { release = () => r({ at: 1000, since: 1, epoch: 'e', machines: {}, sandboxes: {} }) }) }, () => true, clock)
+  poller.watch('m')
+  await new Promise((r) => setTimeout(r, 5))
+  assert.equal(reads, 1)
+  poller.refresh() // while the first poll flies
+  release()
+  await new Promise((r) => setTimeout(r, 5))
+  assert.equal(reads, 2, 'the refresh was not cancelled by the in-flight poll')
+  poller.dispose()
+  assert.match(src('src/client/machines/MachineDetail.tsx'), /useEffect\(\(\) => \{ if \(held\?\.cleared\) clearError\(\) \}, \[held\?\.cleared\]\)/)
+  const notices = src('src/client/machines/notices.ts')
+  assert.ok(notices.indexOf('export function inUseSandboxes') < notices.indexOf('An InUse refusal against the Sandboxes there are now'), 'inUseNow\'s doc sits by its own function')
 })
