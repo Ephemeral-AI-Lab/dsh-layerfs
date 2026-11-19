@@ -365,7 +365,11 @@ export class Storage {
    * from it; store.connect). `clear` with `machine`: that machine's own
    * address goes (store.disconnect --machine). `auth`/`passwordFrom` or
    * `synchronousCommit`: store.update. A typed password: saved under the
-   * Store's current login (store.save_auth rotates it).
+   * Store's current login (store.save_auth rotates it). A Store of an older
+   * home has no saved login (`auth: null`: its record carries a password
+   * reference LayerFS still dials): a typed user and password become a new
+   * login under a free name (the Store's own, else `<store>-login[-n]`),
+   * which store.update makes its login.
    */
   async updateStore(name: string, input: any = {}) {
     checkName(name, 'A PostgreSQL Store')
@@ -385,9 +389,19 @@ export class Storage {
     let rotated = false
     if (typeof input.passwordValue === 'string' && input.passwordValue !== '' && !input.auth) {
       const record: any = await this.lfs.store.get(name, { detail: true })
-      if (typeof record?.auth !== 'string') throw refuse(400, 'InvalidInput', `Store ${name} has no saved login to change`)
+      const saved = (await this.auths()).items
+      if (typeof record?.auth !== 'string') {
+        // no saved login yet: save one under a name no other login has, then make it this Store's
+        const taken = new Set(saved.map((a: { auth: string }) => a.auth))
+        let authName = name
+        for (let n = 1; taken.has(authName); n++) authName = n === 1 ? `${name}-login` : `${name}-login-${n}`
+        const auth = await this.loginOf({ ...input, authName }, name, null)
+        await this.lfs.store.update(name, { auth, ...(sync ? { synchronous_commit: sync } : {}) })
+        this.changed()
+        return this.view()
+      }
       // `store save-auth` needs the user with the password: the saved login's own unless one was typed
-      const user = typeof input.user === 'string' && input.user.trim() ? input.user : (await this.auths()).items.find((a: { auth: string }) => a.auth === record.auth)?.user ?? undefined
+      const user = typeof input.user === 'string' && input.user.trim() ? input.user : saved.find((a: { auth: string }) => a.auth === record.auth)?.user ?? undefined
       await this.loginOf({ ...input, user, authName: record.auth }, name, null)
       rotated = true
     }

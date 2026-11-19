@@ -8,7 +8,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { LinkButton, MoreMenu } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { compactWaitsFor, inHome, latestBackup, storeStateWords } from './model.ts'
+import { blockedWords, compactWaitsFor, inHome, latestBackup, storeStateWords } from './model.ts'
 import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
@@ -117,7 +117,7 @@ export function StoreSub({ store: s, t, now, onMachine }: { store: StoreRow, t: 
 /** Why a Store needs you now, if it does: its state word and reason (the fix is the one action beside it). */
 export function storeNotice(s: StoreRow, machineState: string | null | undefined, t: StorageT): string | null {
   if (s.state === 'broken' && s.reason === 'unresolved') return t('unresolved')
-  if (s.state === 'blocked' && s.blockedBy?.machine) return t('machineStopped', { machine: s.blockedBy.machine })
+  if (s.state === 'blocked' && s.blockedBy?.machine) return blockedWords(s.blockedBy, t)
   if (s.state === 'broken' || s.state === 'blocked' || s.state === 'unknown') return storeStateWords(s.state, t, s.reason ?? s.blockedBy?.reason)
   if (s.kind === 'sqlite' && machineState === 'stopped') return t('machineStopped', { machine: s.machine ?? '?' })
   return null

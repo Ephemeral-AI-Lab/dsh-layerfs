@@ -18,7 +18,7 @@ import type { Translate } from '../files/types.ts'
 import { Card, Empty, LinkButton, MoreMenu, Notice, StateChip } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { PaneBar } from './PaneBar.tsx'
-import { backupChip, bucketFiles, placeWords } from './model.ts'
+import { backupChip, bucketFiles, listFailedWords, placeWords } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { BucketGlyph } from './parts.tsx'
 import type { BucketRow, StorageView } from './types.ts'
@@ -84,7 +84,7 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
           listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : null,
         ].filter(Boolean).join(' · ')}
       </PaneBar>
-      {b.error ? <Notice tone="danger"><strong>{t('bucketListFailed')}</strong><span>{b.error.code}: {b.error.message}</span></Notice> : null}
+      {b.error ? <Notice tone="danger"><strong>{t('bucketListFailed')}</strong><span title={b.error.message}>{listFailedWords(b.error.code, t)}</span></Notice> : null}
       {rows.length === 0 ? (
         <Empty title={listed ? t('bucketEmptyListedTitle') : t('bucketEmptyUnlistedTitle')} icon={<BucketMark provider={b.provider} size={20} />}>
           {listed ? t('bucketEmptyListed') : listing ? t('bucketListing') : t('bucketEmptyUnlisted')}
@@ -188,7 +188,7 @@ export function BackupFilePage({ bucket, file, view, t, now, listing, onList, on
           listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : t('bucketNotListed'),
         ].filter(Boolean).join(' · ')}
       </PaneBar>
-      {b.error ? <Notice tone="danger"><strong>{t('bucketListFailed')}</strong><span>{b.error.code}: {b.error.message}</span></Notice> : null}
+      {b.error ? <Notice tone="danger"><strong>{t('bucketListFailed')}</strong><span title={b.error.message}>{listFailedWords(b.error.code, t)}</span></Notice> : null}
       <Card className={css.backupFacts}>
         <dl className={css.backupFactList}>
           <dt>{t('backupObject')}</dt>

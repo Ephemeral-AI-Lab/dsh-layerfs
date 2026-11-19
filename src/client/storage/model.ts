@@ -37,8 +37,25 @@ export function backupStateOf(f: Pick<BackupFile, 'store' | 'behind' | 'changed'
 export function compactWaitsFor(s: StoreRow, t: StorageT): string | null {
   if (s.state === 'ready') return null
   if (s.state === 'broken' && s.fix === `layerfs store compact ${s.name}`) return null
-  if (s.state === 'blocked' && s.blockedBy?.machine) return t('compactNeedsMachine', { machine: s.blockedBy.machine })
+  // a stopped machine is started; one that is broken (its worker does not answer, its record cannot be read) is repaired
+  if (s.state === 'blocked' && s.blockedBy?.machine) return t(!s.blockedBy.reason || s.blockedBy.reason === 'stopped' ? 'compactNeedsMachine' : 'compactNeedsMachineFixed', { machine: s.blockedBy.machine })
   return t('compactNeedsIdle')
+}
+
+/**
+ * Why a blocked Store waits, from its `blocked_by` (2.0: the machine at the
+ * root of the block with that machine's state, `stopped` or `busy`, or its
+ * broken reason): stopped, busy, a record LayerFS cannot read (`failed`),
+ * or any other broken reason in words. `place` names the machine.
+ */
+export function blockedWords(b: { machine?: string, reason: string }, t: StorageT, place: (m: string) => string = (m) => m): string {
+  const machine = place(b.machine ?? '?')
+  switch (b.reason) {
+    case '': case 'stopped': return t('machineStopped', { machine })
+    case 'busy': return t('machineBusyBlock', { machine })
+    case 'failed': return t('machineUnreadableBlock', { machine })
+    default: return t('machineBrokenBlock', { machine, reason: b.reason.replace(/_/g, ' ') })
+  }
 }
 
 /**
@@ -101,7 +118,7 @@ export function storeSignal(s: StoreRow, job: StorageJob | undefined, machineSta
   if (job?.error) return { state: 'error', reason: endedWords(job, t) }
   // the state's word and its reason; the fix is the card's one action
   if (s.state === 'broken') return { state: 'error', reason: s.reason === 'unresolved' ? t('unresolved') : storeStateWords(s.state, t, s.reason) }
-  if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? t('machineStopped', { machine: s.blockedBy.machine }) : storeStateWords(s.state, t, s.blockedBy?.reason) }
+  if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? blockedWords(s.blockedBy, t) : storeStateWords(s.state, t, s.blockedBy?.reason) }
   if (s.state === 'unknown') return { state: 'warning', reason: storeStateWords(s.state, t) }
   const links = s.links.map((l) => ({ l, state: linkState(s, l.bucket, l.file, buckets) }))
   const linkReason = (x: typeof links[number]) => `${x.l.bucket}/${x.l.file}: ${backupChip(x.state, t).label}`
@@ -148,6 +165,22 @@ export function storeStateWords(state: string, t: StorageT, reason?: string | nu
 
 /** A Store's one action from its `fix`, when the line is a layerfs call the page can name (the card shows it as the tip's action). */
 export const storeFix = (s: Pick<StoreRow, 'fix'>): string | null => (typeof s.fix === 'string' && s.fix.startsWith('layerfs ') ? s.fix : null)
+
+/**
+ * Why a bucket did not list, in words: a `backup list` `not_listed` reason
+ * (`refused`: the bucket answered and refused, or was never asked because
+ * its connection cannot be read; `timeout`, `busy`, `lost`) or a refusal
+ * code. LayerFS's own sentence is the tip, never the text.
+ */
+export function listFailedWords(code: string, t: StorageT): string {
+  switch (code) {
+    case 'refused': return t('bucketWhyRefused')
+    case 'timeout': case 'Timeout': return t('bucketWhyTimeout')
+    case 'busy': case 'Busy': return t('bucketWhyBusy')
+    case 'lost': return t('bucketWhyLost')
+    default: return t('bucketWhyOther')
+  }
+}
 
 /** A backup file's state: its tone and words. */
 export function backupChip(state: BackupState | null | undefined, t: StorageT): { tone: Tone, label: string, dashed?: boolean } {

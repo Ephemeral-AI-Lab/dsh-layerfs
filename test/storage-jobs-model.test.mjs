@@ -66,3 +66,30 @@ test('Compact is offered by the 2.0 state alone, a Store blocked by its machine 
   assert.equal(M.compactWaitsFor(store({ state: 'broken', reason: 'unresolved', fix: 'layerfs store compact s1' }), t), null)
   assert.equal(M.compactWaitsFor(store({ kind: 'postgresql', machine: null, state: 'broken', reason: 'unreachable' }), t), 'compactNeedsIdle')
 })
+
+// LayerFS N-D / Q: a Store on a machine that is not just stopped is `blocked` with
+// `blocked_by { machine, reason }`, the reason being the machine's state (`busy`) or
+// its broken reason (`failed`: a record LayerFS cannot read; `not_answering`: its worker).
+test('a blocked Store says why by its blocked_by reason, and Compact waits for a repair, not a start', () => {
+  const blocked = (reason) => store({ machine: 'lima1', state: 'blocked', blockedBy: { machine: 'lima1', reason } })
+  assert.equal(M.blockedWords({ machine: 'lima1', reason: 'stopped' }, t), 'machineStopped {"machine":"lima1"}')
+  assert.equal(M.blockedWords({ machine: 'lima1', reason: 'busy' }, t), 'machineBusyBlock {"machine":"lima1"}')
+  assert.equal(M.blockedWords({ machine: 'lima1', reason: 'failed' }, t), 'machineUnreadableBlock {"machine":"lima1"}')
+  assert.equal(M.blockedWords({ machine: 'lima1', reason: 'not_answering' }, t), 'machineBrokenBlock {"machine":"lima1","reason":"not answering"}')
+  assert.equal(M.blockedWords({ machine: 'lima1', reason: 'failed' }, t, (m) => `<${m}>`), 'machineUnreadableBlock {"machine":"<lima1>"}')
+  assert.equal(M.storeSignal(blocked('failed'), undefined, null, [], t).reason, 'machineUnreadableBlock {"machine":"lima1"}')
+  assert.equal(M.compactWaitsFor(blocked('failed'), t), 'compactNeedsMachineFixed {"machine":"lima1"}')
+  assert.equal(M.compactWaitsFor(blocked('not_answering'), t), 'compactNeedsMachineFixed {"machine":"lima1"}')
+  assert.equal(M.compactWaitsFor(blocked('stopped'), t), 'compactNeedsMachine {"machine":"lima1"}')
+})
+
+// LayerFS N-E: `backup list` `not_listed` reasons are timeout, busy, lost and refused
+// (a bucket that answered and refused, or was never asked because its connection
+// cannot be read); the page words the reason and keeps LayerFS's sentence as the tip.
+test('a bucket that did not list is worded by its not_listed reason', () => {
+  assert.equal(M.listFailedWords('refused', t), 'bucketWhyRefused')
+  assert.equal(M.listFailedWords('timeout', t), 'bucketWhyTimeout')
+  assert.equal(M.listFailedWords('busy', t), 'bucketWhyBusy')
+  assert.equal(M.listFailedWords('lost', t), 'bucketWhyLost')
+  assert.equal(M.listFailedWords('Unavailable', t), 'bucketWhyOther')
+})

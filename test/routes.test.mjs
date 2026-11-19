@@ -313,6 +313,46 @@ test('postgresql: logins are saved in LayerFS (password on stdin, never a file o
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+// LayerFS PW: a PostgreSQL Store of an older home keeps a password reference in its
+// record and no saved login (`store get` answers `auth: null`); LayerFS dials it as
+// before. It is a normal Store; a login given on the page becomes its first saved
+// login (a free name, then `store update --auth`), never a rotation of another's.
+test('postgresql: a Store of an older home (auth null) is a normal Store; a typed login becomes its first saved login', async () => {
+  const record = { store: 'old', engine: 'postgresql', auth: null, connections: [{ url: 'postgresql://lfs@db.lan:5432/team' }], projects: ['app'], state: 'ready' }
+  const seen = []
+  const { http, root } = fakeGroups({
+    ...base,
+    machine: { ...base.machine, list: pgMachines },
+    store: {
+      ...base.store,
+      list: async () => ({ items: [record] }),
+      get: async () => record,
+      // `old` is already another Store's login name: the new one takes the next free name
+      auths: async () => ({ items: [{ auth: 'old', user: 'x', stores: ['other'] }] }),
+      save_auth: async (auth, options) => { seen.push(['save_auth', auth, options]); return { ok: true } },
+      update: async (name, options) => { seen.push(['update', name, options]); return { ok: true } },
+    },
+  })
+  try {
+    const view = await http('GET', '/api/storage')
+    assert.equal(view.status, 200)
+    const row = view.body.stores.find((s) => s.name === 'old')
+    assert.deepEqual([row.state, row.postgresql.auth, row.postgresql.server, row.postgresql.database], ['ready', null, 'db.lan:5432', 'team'])
+    // a typed user + password: saved as a new login, then made the Store's
+    const set = await http('POST', '/api/stores/old/connection', { user: 'lfs', passwordValue: 'pw' })
+    assert.equal(set.status, 200)
+    assert.deepEqual(seen, [['save_auth', 'old-login', { user: 'lfs', password: 'pw' }], ['update', 'old', { auth: 'old-login' }]])
+    // a saved login picked instead: store update --auth only
+    seen.length = 0
+    assert.equal((await http('POST', '/api/stores/old/connection', { auth: 'team-login' })).status, 200)
+    assert.deepEqual(seen, [['update', 'old', { auth: 'team-login' }]])
+    // a password without its user: refused before LayerFS
+    seen.length = 0
+    assert.equal((await http('POST', '/api/stores/old/connection', { passwordValue: 'pw' })).status, 400)
+    assert.deepEqual(seen, [])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('postgresql: where a Store runs is the plugin\'s own choice: docker by default, saved by connect and runs-on, dropped on disconnect', async () => {
   const records = [{ store: 'pg', engine: 'postgresql', auth: 'pg', connections: [{ url: 'postgresql://db.lan/team' }], projects: [], state: 'ready' }, { store: 's1', machine: 'native', engine: 'sqlite', projects: ['p'], state: 'ready' }]
   let machines = pgMachines

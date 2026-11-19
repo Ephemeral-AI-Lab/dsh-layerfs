@@ -21,6 +21,7 @@ import { FormModal, locationWords, refusalLabels, StoreGlyph, TextField, TileCho
 import type { MachinesView, ProjectInitJob, StorageJob, StorageView, StoreRow } from './types.ts'
 import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
 import { PG_URL_LOGIN, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
+import { parsePgUrl } from './machine-stores.ts'
 import { BackUpDialog, BackupsDialog } from './BackupDialogs.tsx'
 import css from './Storage.module.css'
 
@@ -233,7 +234,8 @@ function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
   // the current login is shown picked; a new password rotates it (its user is the login's), another login replaces it
   const authBefore = s?.postgresql?.auth ?? ''
   const auths = usePgAuths(api)
-  const pw = usePgPassword(authBefore ? 'saved' : 'entered', authBefore)
+  // a Store of an older home has no saved login (its record's password reference still works): a login given here becomes its first; its URL's user starts the field
+  const pw = usePgPassword(authBefore ? 'saved' : 'entered', authBefore, null, authBefore ? '' : parsePgUrl(before)?.user ?? '')
   const syncBefore = s?.postgresql?.synchronousCommit ?? ''
   const [sync, setSync] = useState(syncBefore)
   if (!s || !view) return null
@@ -242,7 +244,8 @@ function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
   const loginUser = pw.user.trim() || auths.find((a) => a.auth === authBefore)?.user || ''
   const pwChanged = !machine && (pw.how === 'entered' ? !!pw.value && !!loginUser : !pw.missing && !(pw.how === 'saved' && pw.auth === authBefore))
   const syncChanged = !machine && !!sync && sync !== syncBefore
-  const urlError = PG_URL_LOGIN.test(url.trim()) ? t('pgPasswordInUrl') : null
+  // only an address typed here is checked: an older Store's own URL may carry its user, and is not sent unless changed
+  const urlError = urlChanged && PG_URL_LOGIN.test(url.trim()) ? t('pgPasswordInUrl') : null
   const login = () => (pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body())
   const body = () => ({
     ...(machine ? { machine } : {}), ...(urlChanged ? { url: url.trim() } : {}), ...(pwChanged ? login() : {}), ...(syncChanged ? { synchronousCommit: sync } : {}),
@@ -258,7 +261,7 @@ function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
       <TextField label={machine ? t('cdOwnUrl', { machine: place ?? '' }) : t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db"
         hint={machine ? t('pgUrlHint') : undefined} error={urlError} autoFocus />
       {machine ? null : <PgPasswordFields id="lfs-pg-edit-password" pw={pw} t={t} auths={auths} />}
-      {!machine && authBefore && !pwChanged ? <p className={css.formNote}>{t('pgPasswordKept')}</p> : null}
+      {!machine && !pwChanged ? <p className={css.formNote}>{t(authBefore ? 'pgPasswordKept' : 'pgPasswordLegacyKept')}</p> : null}
       {machine ? null : (
         <Field label={t('syncCommit')}>
           <MenuSelect value={sync} label={t('syncCommit')} placeholder={t('syncCommitDefault')}

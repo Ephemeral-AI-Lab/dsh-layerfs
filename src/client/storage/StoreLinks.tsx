@@ -87,7 +87,7 @@ export function StoreConnection({ store: s, view, t, on }: { store: StoreRow, vi
         </div>
         <dl className={css.linkFacts}>
           <div><dt>{t('pgUrl')}</dt><dd className={css.mono}>{pg?.url ?? '—'}</dd></div>
-          <div><dt>{t('pgPasswordHow')}</dt><dd className={css.mono}>{pg?.auth ? t('pgPasswordSaved', { auth: pg.auth }) : '—'}</dd></div>
+          <div><dt>{t('pgPasswordHow')}</dt><dd className={pg?.auth ? css.mono : undefined}>{pg?.auth ? t('pgPasswordSaved', { auth: pg.auth }) : t('pgPasswordLegacy')}</dd></div>
           <div><dt>{t('syncCommit')}</dt><dd>{pg?.synchronousCommit ?? t('syncCommitDefault')}</dd></div>
           <div>
             <dt>{t('spServer')}</dt>

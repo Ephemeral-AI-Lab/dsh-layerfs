@@ -23,7 +23,12 @@ export function classifyStore(row: any | undefined, live?: any): StoreHealth {
   const state = typeof x.state === 'string' ? x.state : 'ready'
   const op = x.op
   const fix = typeof x.fix === 'string' && x.fix ? ` Fix: ${x.fix}` : ''
-  if (state === 'blocked') return { state: 'unavailable', reason: `The machine of ${name}${x.blocked_by?.machine ? ` (${x.blocked_by.machine})` : ''} is ${x.blocked_by?.reason ?? 'not ready'}.` }
+  if (state === 'blocked') {
+    // blocked_by names the machine with its state (stopped, busy) or its broken reason; `failed` is a record LayerFS cannot read
+    const why = x.blocked_by?.reason
+    const words = !why ? 'not ready' : why === 'failed' ? 'unreadable: LayerFS cannot read its record' : String(why).replace(/_/g, ' ')
+    return { state: 'unavailable', reason: `The machine of ${name}${x.blocked_by?.machine ? ` (${x.blocked_by.machine})` : ''} is ${words}.` }
+  }
   if (state === 'broken') {
     if (x.reason === 'unresolved') return { state: 'unavailable', reason: `An earlier operation on ${name} left an uncertain outcome; resolve it on the Storage page.${fix}` }
     if (x.reason === 'unreachable') return { state: 'unavailable', reason: `The PostgreSQL server of ${name} cannot be reached from this computer.${fix}` }
