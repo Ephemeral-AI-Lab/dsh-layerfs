@@ -59,6 +59,7 @@ await build({
       "export { errorAnswer } from './src/host/routes/router.ts'",
       "export { refusalOf as cliRefusalOf } from './src/host/layerfs/cli.ts'",
       "export { refusedInUse } from './src/client/machines/MachineImages.tsx'",
+      "export { classifyStore } from './src/host/sessions/availability.ts'",
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
       "export { locales as storageLocales } from './src/client/storage/locale.ts'",
       "export { locales as doctorLocales } from './src/client/doctor/locale.ts'",
@@ -505,4 +506,80 @@ test('U12b notes: unknown step in words, refresh during a poll reads again, F7 r
   assert.match(src('src/client/machines/MachineDetail.tsx'), /useEffect\(\(\) => \{ if \(held\?\.cleared\) clearError\(\) \}, \[held\?\.cleared\]\)/)
   const notices = src('src/client/machines/notices.ts')
   assert.ok(notices.indexOf('export function inUseSandboxes') < notices.indexOf('An InUse refusal against the Sandboxes there are now'), 'inUseNow\'s doc sits by its own function')
+})
+
+// ---------------------------------------------------------------- Step 7 fix loop 1 (R1 on 3080 at d7c583e)
+
+test('R1 F6: a broken PostgreSQL Store makes its sessions unavailable (owner Q-R3): word, tip, one fix; no Open or New session', () => {
+  const row = { store: 'demo-experiments', engine: 'postgresql', auth: 'demo', state: 'broken', reason: 'outdated', fix: 'layerfs store update demo-experiments' }
+  // the live read answers reach; the record's outdated holds until its fix
+  assert.equal(M.classifyStore(row, { state: 'ready' }).state, 'unavailable')
+  assert.equal(M.classifyStore(row).state, 'unavailable')
+  assert.equal(M.classifyStore({ ...row, reason: 'missing' }, { state: 'ready' }).state, 'unavailable')
+  assert.equal(M.classifyStore({ ...row, reason: 'unreachable' }, { state: 'ready' }).state, 'available', 'reach is the live read\'s to answer')
+  assert.equal(M.classifyStore({ ...row, state: 'ready', reason: null }, { state: 'ready' }).state, 'available')
+  assert.equal(M.sm.sessionsUnavailable({ state: 'broken' }), true)
+  assert.equal(M.sm.sessionsUnavailable({ state: 'blocked' }), true)
+  assert.equal(M.sm.sessionsUnavailable({ state: 'ready' }), false)
+  assert.equal(M.sm.sessionsUnavailable({ state: 'busy' }), false)
+  assert.equal(M.sm.sessionsUnavailable(undefined), false)
+  const page = src('src/client/storage/ProjectPage.tsx')
+  const sessions = page.slice(page.indexOf('function Sessions('), page.indexOf('function Stats('))
+  assert.match(sessions, /const down = sessionsUnavailable\(store\)/)
+  assert.match(sessions, /const create = down \? undefined :/)
+  assert.match(sessions, /\{down && store \? <StoreBroken s=\{store\} t=\{t\} \/> : null\}/)
+  assert.match(sessions, /\{down \? null : <Button variant="outline" size="sm"[^]*t\('sessionsOpen'\)\}<\/Button>\}/)
+  assert.match(page, /<Sessions api=\{api\} t=\{t\} project=\{project\} tick=\{tick\} store=\{store\} \/>/)
+  const table = src('src/client/storage/ProjectTable.tsx')
+  assert.match(table, /\{sessionsUnavailable\(store\) \? null : <MenuItemButton[^]*?t\('ptNewSession'\)/)
+  assert.match(table, /down=\{sessionsUnavailable\(store\)\}/)
+  assert.match(table, /action=\{down \? undefined :/)
+  assert.match(table, /className=\{clsx\(css\.line, css\.sessionLine\)\} disabled=\{down\}/)
+  assert.match(table, /store: \{ name: s\.name, kind: s\.kind, state: s\.state \}/)
+  assert.match(src('src/client/storage/StorePage.tsx'), /<StoreProjects api=\{api\} store=\{\{ name: s\.name, kind: s\.kind, state: s\.state \}\}/)
+})
+
+test('R1 F3: New project offers a PostgreSQL Store only running, not-broken machines that run PostgreSQL Sandboxes', () => {
+  assert.equal(M.sm.pgPlaceable({ state: 'stopped', supports: ['postgresql_sandbox'] }), false)
+  assert.equal(M.sm.pgPlaceable({ state: 'broken', supports: ['postgresql_sandbox'] }), false)
+  assert.equal(M.sm.pgPlaceable({ state: 'ready', supports: ['sqlite'] }), false)
+  assert.equal(M.sm.pgPlaceable({ state: 'ready', supports: ['postgresql_sandbox'] }), true)
+  // default: last used, then connected from (reached), then native; never a stopped one
+  const machines = [{ name: 'native', state: 'ready' }, { name: 'demo-research', state: 'stopped' }, { name: 'lima1', state: 'ready' }]
+  assert.equal(M.sm.pgDefaultMachine({ connectedFrom: [{ machine: 'demo-research', reached: 'ok' }, { machine: 'lima1', reached: 'ok' }] }, machines), 'lima1')
+  assert.equal(M.sm.pgDefaultMachine({ connectedFrom: [{ machine: 'demo-research', reached: 'ok' }] }, machines), 'native')
+  assert.equal(M.sm.pgDefaultMachine({ connectedFrom: [] }, machines, 'lima1'), 'lima1')
+  const dialog = src('src/client/projects/setup/ProjectDialog.tsx')
+  assert.match(dialog, /const offered = kind === 'postgresql' \? machines\.filter\(\(m\) => pgPlaceable\(m\) && !blocks\.has\(m\.name\)\) : machines/)
+  assert.match(dialog, /<LocationPicker machines=\{offered\} value=\{chosenPg\}/)
+  assert.match(dialog, /2: chosen\.length > 0 && chosen\.every\(\(m\) => offered\.some/)
+  assert.match(dialog, /const pgPicked = pgChoice && offered\.some\(\(m\) => m\.name === pgChoice\) \? pgChoice : null/)
+})
+
+test('R1 F1: Home words an outdated or login-missing PostgreSQL Store as needing its update, with the one fix; never "down"', () => {
+  const home = src('src/client/storage/HomeOverview.tsx')
+  assert.match(home, /const needsKey = s\.kind !== 'postgresql' \? null : needsLogin\(s\) \|\| s\.reason === 'missing' \? 'ovStoreNeedsLogin' : s\.reason === 'outdated' \? 'ovStoreNeedsUpdate' : null/)
+  assert.match(home, /t\(pgDown \? 'ovPgUnreachable' : needsKey \?\? 'ovStoreDown', \{ store: s\.name \}\)/)
+  assert.match(home, /action: fix && fixes \? \{ label: fixes\.label\(fix\), run: \(\) => fixes\.run\(fix\) \} : \{ label: t\('ovOpen'\)/)
+  for (const lang of ['en', 'zh']) for (const key of ['ovStoreNeedsUpdate', 'ovStoreNeedsLogin']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
+  assert.doesNotMatch(M.storageLocales.en.ovStoreNeedsUpdate, /down/)
+})
+
+test('R1 F2: Connect a database names each Check, Connect and New database by its Store or server', () => {
+  const cd = src('src/client/storage/ConnectDatabase.tsx')
+  assert.match(cd, /aria-label=\{t\('cdCheckTitle', \{ store: s\.name \}\)\} onClick=\{\(\) => onCheck\(s\)\}>\{t\('cdCheck'\)\}/)
+  assert.match(cd, /aria-label=\{t\('cdConnectMachineNamed', \{ store: s\.name \}\)\} onClick=\{\(\) => onCheck\(s\)\}>\{t\('pgConnectMachineShort'\)\}/)
+  assert.match(cd, /aria-label=\{t\('cdNewOnServerNamed', \{ server: g\.server \}\)\} onClick=\{\(\) => onNew\(g\)\}/)
+  for (const lang of ['en', 'zh']) for (const key of ['cdCheckTitle', 'cdConnectMachineNamed', 'cdNewOnServerNamed']) assert.match(M.storageLocales[lang][key], /\{(store|server)\}/, `${lang} ${key}`)
+})
+
+test('R1 F4/F5: the Connection status parts stand apart; the password input stays inside its column', () => {
+  const links = src('src/client/storage/StoreLinks.tsx')
+  const from = links.indexOf('className={css.linkCheck} data-state={broken')
+  const line = links.slice(from, links.indexOf('className={css.linkActions}', from))
+  assert.equal((line.match(/css\.linkPart/g) ?? []).length, 4)
+  const pageCss = src('src/client/storage/StorePage.module.css')
+  assert.match(pageCss, /\.linkCheck \{[^}]*display: flex;[^}]*gap: 4px 6px;/)
+  assert.match(pageCss, /\.linkPart \+ \.linkPart::before \{\s*content: '·';/)
+  assert.match(src('src/client/storage/Storage.module.css'), /\.passwordPart \.passwordInput \{[^}]*box-sizing: border-box;[^}]*max-width: 100%;/)
 })

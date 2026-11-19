@@ -699,6 +699,15 @@
   margin: 0;
   font-size: 12px;
   color: var(--dsw-alias-label-secondary);
+  /* its parts apart, a dot between them (R1 F4: "outdatedchecked just now17.11" ran together) */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.linkPart + .linkPart::before {
+  content: '·';
+  margin-right: 6px;
 }
 
 .linkActions {

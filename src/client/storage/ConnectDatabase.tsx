@@ -173,13 +173,14 @@ function Pick({ t, groups, fixed, place, onCheck, onNew }: {
                   <span className={css.dbName}>{s.name}</span>
                   <span className={css.dbSub}>{[database && database !== s.name ? database : null, from.length ? t('pgFrom', { machines: from.map(place).join(', ') }) : null, s.projects.join(', ') || t('msNoProjects')].filter(Boolean).join(' · ')}</span>
                 </span>
+                {/* each press names its Store (a Check runs store doctor and writes observed.json): R1 F2 */}
                 {fixed && !from.includes(fixed)
-                  ? <Button size="sm" variant="outline" onClick={() => onCheck(s)}>{t('pgConnectMachineShort')}</Button>
-                  : <Button size="sm" variant="ghost" onClick={() => onCheck(s)}>{t('cdCheck')}</Button>}
+                  ? <Button size="sm" variant="outline" aria-label={t('cdConnectMachineNamed', { store: s.name })} onClick={() => onCheck(s)}>{t('pgConnectMachineShort')}</Button>
+                  : <Button size="sm" variant="ghost" aria-label={t('cdCheckTitle', { store: s.name })} onClick={() => onCheck(s)}>{t('cdCheck')}</Button>}
               </div>
             )
           })}
-          <button type="button" className={css.addRow} onClick={() => onNew(g)}>{t('cdNewOnServer')}</button>
+          <button type="button" className={css.addRow} aria-label={t('cdNewOnServerNamed', { server: g.server })} onClick={() => onNew(g)}>{t('cdNewOnServer')}</button>
         </div>
       ))}
       <button type="button" className={`${css.addRow} ${css.addServer}`} onClick={() => onNew(null)} data-pg-new-server>{t('cdNewServer')}</button>

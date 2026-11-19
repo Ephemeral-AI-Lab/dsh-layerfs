@@ -116,7 +116,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
 
       <div className={tabCss.panelArea} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
         {tab === 'projects' ? (
-          <StoreProjects api={api} store={{ name: s.name, kind: s.kind }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored_bytes === 'number' ? stats.data.stored_bytes : null}
+          <StoreProjects api={api} store={{ name: s.name, kind: s.kind, state: s.state }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored_bytes === 'number' ? stats.data.stored_bytes : null}
             stores={view.stores} fleet={machines.data?.available ? machines.data : null} t={t} now={now} tick={tick}
             canAdd={canAddProject(s)} onAdd={on.addProject} onOpen={(id) => (onOpen ? onOpen(id) : id.startsWith('project:') ? onOpenProject(id.slice('project:'.length)) : undefined)} />
         ) : tab === 'backups' ? (

@@ -18,7 +18,7 @@ import type { StorageDialog } from './dialogs.tsx'
 import type { StorageT } from './locale.ts'
 import { refusalLabels } from './parts.tsx'
 import type { ProjectState, SessionRow, StoreRow } from './types.ts'
-import { brokenWords, storeTip } from './model.ts'
+import { brokenWords, sessionsUnavailable, storeTip } from './model.ts'
 import { StoreFixAction } from './StoreCard.tsx'
 import css from './Storage.module.css'
 import { ProjectStorage } from './ProjectStorage.tsx'
@@ -101,7 +101,7 @@ export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore,
         ) : tab === 'sandboxes' ? (
           <ProjectSandboxes key={project} api={api} t={t} share={map} project={project} tick={tick} onDialog={onDialog} />
         ) : tab === 'sessions' ? (
-          <Sessions api={api} t={t} project={project} tick={tick} />
+          <Sessions api={api} t={t} project={project} tick={tick} store={store} />
         ) : (
           <Stats api={api} t={t} project={project} tick={tick} onOpenStore={onOpenStore} />
         )}
@@ -122,7 +122,7 @@ function sessionStateWords(state: string | null, t: StorageT): string {
   return state ?? '—'
 }
 
-function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, project: string, tick: number }): ReactNode {
+function Sessions({ api, t, project, tick, store }: { api: LayerfsApi, t: StorageT, project: string, tick: number, store?: StoreRow | undefined }): ReactNode {
   const q = useQuery(async () => {
     const value = await api.op<SessionRow[] | { sessions: SessionRow[] }>('sessions.list', { project })
     return Array.isArray(value) ? value : value?.sessions ?? []
@@ -138,12 +138,15 @@ function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, pro
   if (q.error && isUnknownOp(q.error)) return <Card><EmptyState title={t('sessionsUnsupported')}>{t('sessionsUnsupportedBody')}</EmptyState></Card>
   if (q.error && !q.data) return <LoadError title={t('sessionsFailed')} error={q.error} labels={refusalLabels(t)} retryLabel={t('retry')} onRetry={q.reload} />
   if (!q.data) return <Loading label={t('loading')} />
-  const create = (
+  // a broken or blocked Store: its sessions are unavailable until the fix (owner Q-R3): the word, its tip and the one fix; no Open or New session
+  const down = sessionsUnavailable(store)
+  const create = down ? undefined : (
     <Button variant="primary" size="sm" icon={busy === 'new' ? <StateDot state="ongoing" size={13} /> : <IconPlusOutlineRegular size={13} />} disabled={busy !== null}
       onClick={() => act('new', () => api.openProjectSession(project))}>{t('sessionsNew')}</Button>
   )
   return (
     <Section title={t('sessions')} count={String(q.data.length)} actions={q.data.length ? create : undefined}>
+      {down && store ? <StoreBroken s={store} t={t} /> : null}
       {failed !== undefined ? <Refusal error={failed} labels={refusalLabels(t)} /> : null}
       {q.data.length === 0 ? (
         <Card><EmptyState title={t('sessionsNone')} action={create}>{t('sessionsNoneBody')}</EmptyState></Card>
@@ -159,8 +162,8 @@ function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, pro
                   <td className={`${css.num} ${css.wide} ${css.muted}`}>{s.checkpoints ?? '—'}</td>
                   <td className={`${css.num} ${css.muted}`} title={when(s.updatedAt)}>{s.updatedAt ? ago(s.updatedAt, now, t as Translate) : '—'}</td>
                   <td className={css.actionsCell}>
-                    <Button variant="outline" size="sm" disabled={busy !== null} icon={busy === s.sessionId ? <StateDot state="ongoing" size={13} /> : undefined}
-                      onClick={() => act(s.sessionId, () => api.op('sessions.open', { sessionId: s.sessionId }))}>{t('sessionsOpen')}</Button>
+                    {down ? null : <Button variant="outline" size="sm" disabled={busy !== null} icon={busy === s.sessionId ? <StateDot state="ongoing" size={13} /> : undefined}
+                      onClick={() => act(s.sessionId, () => api.op('sessions.open', { sessionId: s.sessionId }))}>{t('sessionsOpen')}</Button>}
                   </td>
                 </tr>
               ))}

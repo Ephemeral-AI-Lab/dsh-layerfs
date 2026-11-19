@@ -758,6 +758,8 @@ const en = {
   ovMachineStoppedBody: 'Its projects cannot open until it runs.',
   ovPgUnreachable: '{store} is unreachable',
   ovStoreDown: '{store} is down',
+  ovStoreNeedsUpdate: '{store} needs its update',
+  ovStoreNeedsLogin: '{store} needs its login',
   ovNeverBacked: '{store} has never been backed up',
   ovProjectsCount: '{n} projects',
   ovProjectCount: '1 project',
@@ -970,6 +972,8 @@ const en = {
   ovListBuckets: 'List bucket files',
   // PostgreSQL: one connection, where it runs, the check from a machine (store.update, store doctor --machine)
   cdCheckTitle: 'Check {store}',
+  cdConnectMachineNamed: 'Connect a machine to {store}',
+  cdNewOnServerNamed: 'New database on {server}',
   // who connects (spec v23): Connected from, the login groups, the Connection tab
   pgFrom: 'From {machines}',
   pgConnectedFromLabel: 'Connected from',
@@ -1785,6 +1789,8 @@ const zh: typeof en = {
   ovMachineStoppedBody: '它运行之前，其中的项目无法打开。',
   ovPgUnreachable: '{store} 无法连接',
   ovStoreDown: '{store} 不可用',
+  ovStoreNeedsUpdate: '{store} 需要更新',
+  ovStoreNeedsLogin: '{store} 需要登录信息',
   ovNeverBacked: '{store} 从未备份',
   ovProjectsCount: '{n} 个项目',
   ovProjectCount: '1 个项目',
@@ -1997,6 +2003,8 @@ const zh: typeof en = {
   ovListBuckets: '列出存储桶文件',
   // PostgreSQL：一个连接、运行位置、从机器检查（store.update、store doctor --machine）
   cdCheckTitle: '检查 {store}',
+  cdConnectMachineNamed: '为 {store} 连接一台机器',
+  cdNewOnServerNamed: '在 {server} 上新建数据库',
   // 谁在连接（规范 v23）：连接自、登录分组、连接页
   pgFrom: '连接自 {machines}',
   pgConnectedFromLabel: '连接自',

@@ -186,6 +186,9 @@ export function brokenWords(s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'pos
   return storeStateWords(s.state, t, s.reason)
 }
 
+/** Whether a Store's sessions are unavailable (owner Q-R3): broken (outdated, missing, …) or blocked, until its fix. */
+export const sessionsUnavailable = (s: { state?: string | null } | undefined): boolean => s?.state === 'broken' || s?.state === 'blocked'
+
 /**
  * A Store's hover tip: LayerFS's own sentence when its answer has one; a
  * PostgreSQL Store with no saved login says what LayerFS's refusal says

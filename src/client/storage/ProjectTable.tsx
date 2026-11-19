@@ -40,7 +40,7 @@ import { useHostEvents } from './hooks.ts'
 import { HomeGlyph, StoreGlyph, refusalLabels } from './parts.tsx'
 import { Signal } from './Signal.tsx'
 import { JobLine, SIZE_POLL_MS, sandboxesOfProject, storeTrouble, troubleAction, type Place, type Trouble } from './HomeCards.tsx'
-import { doingWords } from './model.ts'
+import { doingWords, sessionsUnavailable } from './model.ts'
 import { orderProjects, sessionOrder, sizeCacheKey, type ProjectSize, type ProjectSort } from './project-list.ts'
 import { commitLine, stillCounting, type ProjectOrder, type StoreProject, type StoreProjectsView } from './store-page.ts'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
@@ -68,7 +68,7 @@ export const placeholderProject = (name: string): StoreProject => ({ name, creat
 export interface GridRow {
   /** `store/project` */
   key: string
-  store: { name: string, kind: string }
+  store: { name: string, kind: string, state?: string | null }
   p: StoreProject
   boxes: readonly MachineSandbox[]
   /** Its share of its Store's bytes (a Store's page), for the bar under its size. */
@@ -292,7 +292,7 @@ export function ProjectTable({ api, tick, query, sort, frozen, onClearSearch, st
   }
   const rows: GridRow[] = projects.map(({ s, p, trouble }) => ({
     key: `${s.name}/${p}`,
-    store: { name: s.name, kind: s.kind },
+    store: { name: s.name, kind: s.kind, state: s.state },
     p: answers.get(s.name)?.projects.find((x) => x.name === p) ?? placeholderProject(p),
     boxes: sandboxesOfProject(sandboxes, stores, s.name, p),
     trouble,
@@ -416,7 +416,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
             {(close) => (
               <>
                 <MenuItemButton icon={<IconChevronRightOutlineRegular size={14} />} onSelect={() => { close(); openProject() }}>{t('ovOpen')}</MenuItemButton>
-                <MenuItemButton icon={<IconPlusOutlineRegular size={14} />} onSelect={() => { close(); void api.openProjectSession(key).catch(() => {}) }}>{t('ptNewSession')}</MenuItemButton>
+                {sessionsUnavailable(store) ? null : <MenuItemButton icon={<IconPlusOutlineRegular size={14} />} onSelect={() => { close(); void api.openProjectSession(key).catch(() => {}) }}>{t('ptNewSession')}</MenuItemButton>}
                 {onRemove ? (
                   <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} onSelect={() => { close(); onRemove(store.name, p.name) }}>
                     {t('removeProject')}
@@ -432,7 +432,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
         <div className={css.detail} id={detailId}>
           <div className={css.panel}>
             {open === 'sessions'
-              ? <SessionList api={api} project={key} t={t} other={boxes.length} onSwitch={() => onSetOpen('sandboxes')} />
+              ? <SessionList api={api} project={key} t={t} other={boxes.length} onSwitch={() => onSetOpen('sandboxes')} down={sessionsUnavailable(store)} />
               : <SandboxList boxes={boxes} fleet={fleet} place={place} t={t} other={local?.length ?? null} onSwitch={() => onSetOpen('sessions')} onOpen={onOpen} />}
           </div>
         </div>
@@ -503,7 +503,8 @@ function SwapGlyph(): ReactNode {
 }
 
 /** A project's sessions, newest first: this DSH's own and those only in the Store. */
-function SessionList({ api, project, t, other, onSwitch }: { api: LayerfsApi, project: string, t: StorageT, other: number, onSwitch: () => void }): ReactNode {
+/** `down`: its Store is broken or blocked, so its sessions are listed but neither open nor start (owner Q-R3). */
+function SessionList({ api, project, t, other, onSwitch, down }: { api: LayerfsApi, project: string, t: StorageT, other: number, onSwitch: () => void, down: boolean }): ReactNode {
   const { sessions, loading, error } = useProjectSessions(api, project)
   const [failed, setFailed] = useState<string | null>(null)
   const now = Date.now()
@@ -523,7 +524,7 @@ function SessionList({ api, project, t, other, onSwitch }: { api: LayerfsApi, pr
   return (
     <>
       <ListHead title={t('ptSessions')} count={sessions.length || (loading ? null : 0)} other={t('ptShowSandboxes', { n: other })} onSwitch={onSwitch}
-        action={<button type="button" className={css.add} onClick={create}><IconPlusOutlineRegular size={11} />{t('ptNewSession')}</button>} />
+        action={down ? undefined : <button type="button" className={css.add} onClick={create}><IconPlusOutlineRegular size={11} />{t('ptNewSession')}</button>} />
       {failed ? <p className={css.error} role="alert">{failed}</p> : null}
       {sessions.length === 0
         ? <p className={css.empty}>{loading ? t('ptReadingSessions') : error ? t('ptSessionsUnread') : t('ptNoSessions')}</p>
@@ -533,7 +534,7 @@ function SessionList({ api, project, t, other, onSwitch }: { api: LayerfsApi, pr
               const look = state(x)
               return (
                 <li key={x.sessionId}>
-                  <button type="button" className={clsx(css.line, css.sessionLine)} onClick={() => openSession(x.sessionId)} data-session={x.sessionId}
+                  <button type="button" className={clsx(css.line, css.sessionLine)} disabled={down} onClick={() => openSession(x.sessionId)} data-session={x.sessionId}
                     title={x.error ?? x.title ?? x.sessionId}>
                     <span className={css.lineIcon} aria-hidden="true">{x.local ? <ChatGlyph /> : <CloudGlyph />}</span>
                     <span className={clsx(css.ellipsis, (!x.local || !x.title) && css.dim)}>

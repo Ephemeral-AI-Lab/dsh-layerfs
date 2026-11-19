@@ -1202,6 +1202,13 @@
 .passwordPart .passwordInput {
   flex: none;
   width: 100%;
+  /* the input's own padding and border inside the column (R1 F5: the password field overran it) */
+  box-sizing: border-box;
+  max-width: 100%;
+}
+.passwordPart .passwordInput input {
+  min-width: 0;
+  width: 100%;
 }
 
 /* Rotate password: one row per Store, its dot and its word */

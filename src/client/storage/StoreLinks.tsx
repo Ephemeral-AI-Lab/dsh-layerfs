@@ -15,6 +15,7 @@ import type { StorageT } from './locale.ts'
 import { backupStateOf, brokenWords, storeStateWords, storeTip, type BackupState } from './model.ts'
 import { StoreAction, type StoreActions } from './StoreCard.tsx'
 import type { StorageView, StoreRow } from './types.ts'
+import clsx from 'clsx'
 import css from './StorePage.module.css'
 
 const STATE_TONE: Partial<Record<BackupState, 'ok' | 'warning' | 'danger'>> = {
@@ -99,10 +100,10 @@ export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
         </dl>
         <div className={css.linkCheck} data-state={broken ? 'failed' : undefined}>
           <StateDot state={broken ? 'error' : s.state === 'ready' ? 'done' : 'idle'} size={10} />
-          <span title={broken ? storeTip(s, t) : undefined}>{broken ? brokenWords(s, t) : storeStateWords(s.state, t)}</span>
-          {checked?.at ? <span className={css.muted}>{t('pgCheckedAgo', { when: ago(checked.at, now, tt) })}</span> : null}
-          {checked?.ok && checked.version ? <span className={css.muted}>{checked.version.split(' ')[0]}</span> : null}
-          {checked?.ok && checked.latencyMs != null ? <span className={css.muted}>{t('msReachableMs', { latency: checked.latencyMs })}</span> : null}
+          <span className={css.linkPart} title={broken ? storeTip(s, t) : undefined}>{broken ? brokenWords(s, t) : storeStateWords(s.state, t)}</span>
+          {checked?.at ? <span className={clsx(css.linkPart, css.muted)}>{t('pgCheckedAgo', { when: ago(checked.at, now, tt) })}</span> : null}
+          {checked?.ok && checked.version ? <span className={clsx(css.linkPart, css.muted)}>{checked.version.split(' ')[0]}</span> : null}
+          {checked?.ok && checked.latencyMs != null ? <span className={clsx(css.linkPart, css.muted)}>{t('msReachableMs', { latency: checked.latencyMs })}</span> : null}
         </div>
         <div className={css.linkActions}>
           {broken ? <StoreAction store={s} t={t} /> : null}

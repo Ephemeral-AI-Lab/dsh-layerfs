@@ -19,7 +19,9 @@ export interface StoreHealth { readonly state: StoreHealthState, readonly reason
 export function classifyStore(row: any | undefined, live?: any): StoreHealth {
   if (!row) return { state: 'removed', reason: 'The project Store is no longer listed in this LayerFS home. Conversation history is retained.' }
   const name = row.store ? `Store ${row.store}` : 'the project Store'
-  const x = live ?? row
+  // the live read answers reach; a record broken for another reason (outdated, missing, unresolved) holds until its fix (owner Q-R3)
+  const recordBroken = row.state === 'broken' && row.reason !== 'unreachable'
+  const x = live && !(recordBroken && (live.state ?? 'ready') === 'ready') ? live : row
   const state = typeof x.state === 'string' ? x.state : 'ready'
   const op = x.op
   const fix = typeof x.fix === 'string' && x.fix ? ` Fix: ${x.fix}` : ''

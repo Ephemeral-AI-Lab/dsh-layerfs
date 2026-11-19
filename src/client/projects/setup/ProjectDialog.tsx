@@ -32,7 +32,7 @@ import { sidebarHidden } from '../recent.ts'
 import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { createSteps, defaultMachine, freeStoreName, machinesFor, needsStart, pgLoginProblem, pickable, runsOn, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
-import { pgDefaultMachine } from '../../storage/model.ts'
+import { pgDefaultMachine, pgPlaceable } from '../../storage/model.ts'
 import { LocationPicker, placeName, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
 import { placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
@@ -307,14 +307,17 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const machines = machinesFor(data, kind)
   // a machine whose platform is not ready here shows blocked; the default is native when docker cannot run now
   const blocks = useMemo(() => tileBlocks(data?.machines ?? [], platforms, data?.computer?.os), [data, platforms])
-  const fallback = defaultMachine(machines, blocks)
+  // PostgreSQL (V23-11): only machines that run now, are not broken or blocked here and run PostgreSQL Sandboxes are offered; never a stopped one
+  const offered = kind === 'postgresql' ? machines.filter((m) => pgPlaceable(m) && !blocks.has(m.name)) : machines
+  const fallback = defaultMachine(offered, blocks)
   const stores = (data?.stores ?? []).filter((s) => s.kind === kind && s.name !== scratchStore)
   const existing = mode === 'existing' ? stores.find((s) => s.name === picked) ?? null : null
   const slug = slugify(name)
   const newStoreName = storeName ?? freeStoreName(slug || 'project', data)
   const chosenSqlite = sqliteMachine ?? (existing?.machine ?? fallback)
   // PostgreSQL: the first session's own machine (spec v23: nothing Store-wide), by default where the database was reached from
-  const chosenPg = pgChoice ?? (existing ? pgDefaultMachine(existing, data?.machines ?? []) : fallback)
+  const pgPicked = pgChoice && offered.some((m) => m.name === pgChoice) ? pgChoice : null
+  const chosenPg = pgPicked ?? (existing ? pgDefaultMachine(existing, (data?.machines ?? []).filter((m) => !blocks.has(m.name))) : fallback)
   const chosen = [kind === 'sqlite' ? chosenSqlite : chosenPg]
   const running = steps !== null && !error && !failure
   useEffect(() => { onBusy(running) }, [running])
@@ -355,7 +358,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
     1: mode === 'existing' ? !!existing : NAME.test(newStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
-    2: chosen.length > 0 && chosen.every((m) => machines.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0,
+    2: chosen.length > 0 && chosen.every((m) => offered.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0,
   }
   const valid = !!data && parts.every((i) => ok[i])
 
@@ -559,12 +562,12 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
               </LocationPicker>
             </Group>
             : <Group label={t('machines')} hint={t('runsOnPg')}>
-              <LocationPicker machines={machines} value={chosenPg} onChange={setPgChoice} words={words} label={t('runsOn')}
+              <LocationPicker machines={offered} value={chosenPg} onChange={setPgChoice} words={words} label={t('runsOn')}
                 current={null} fallback={fallback} blocks={blocks}>
                 <NewMachineTile api={api} t={t} />
               </LocationPicker>
             </Group>}
-          {machines.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
+          {offered.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
           {/* Create starts no machine: each stopped one it needs has its own Start here */}
           <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />
           {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: placeName(chosenSqlite, words), n: Math.max(0, existing!.projects.length) })}</p> : null}

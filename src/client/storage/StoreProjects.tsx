@@ -21,7 +21,7 @@ import css from './StorePage.module.css'
 
 export interface StoreProjectsProps {
   api: LayerfsApi
-  store: { name: string, kind: string }
+  store: { name: string, kind: string, state?: string | null }
   /** The Store's project names (store.get), drawn while the ledgers are read. */
   names: readonly string[]
   projects: readonly StoreProject[] | undefined
