@@ -30,7 +30,7 @@ import { projectDialog } from '../projects/dialog.ts'
 import { takeStorageRequest, useStorageRequest } from '../projects/navigation.ts'
 import type { SetupModalT } from '../setup/locale.ts'
 import { FixContext, Loading, Page, Refusal, type FixRunner } from '../ui/index.tsx'
-import type { RunnableFix } from '../../shared/doctor.ts'
+import { fleetFix, type RunnableFix } from '../../shared/doctor.ts'
 import { fixCall } from './fix-call.ts'
 import { BackupFilePage, BucketPage, providerWords } from './BucketPage.tsx'
 import { StorageDialogs, type StorageDialog } from './dialogs.tsx'
@@ -39,7 +39,7 @@ import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { MachineStores } from './MachineStores.tsx'
 import { serverKey } from './machine-stores.ts'
-import { bucketFiles, cardJob, inHome, orderStores, runsOnOf } from './model.ts'
+import { bucketFiles, cardJob, inHome, orderStores, runsOnOf, type Reconnect } from './model.ts'
 import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
@@ -80,10 +80,12 @@ export function StoragePage(props: StorageMainProps): ReactNode {
   }), [props])
   // The save-login fix opens the page's own dialog; the ref reaches the page's latest `setDialog`.
   const loginRef = useRef<(store: string) => void>(() => {})
+  // The connect-again fix (a bucket whose key was refused) opens the Connect dialog the same way.
+  const reconnectRef = useRef<(again: Reconnect) => void>(() => {})
   return (
     <MachinesProvider props={machines}>
-      <CenterFixes api={api} t={t} loginRef={loginRef}>
-        <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} loginRef={loginRef} map={map} more={more} />
+      <CenterFixes api={api} t={t} loginRef={loginRef} reconnectRef={reconnectRef}>
+        <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} loginRef={loginRef} reconnectRef={reconnectRef} map={map} more={more} />
       </CenterFixes>
     </MachinesProvider>
   )
@@ -95,16 +97,18 @@ export function StoragePage(props: StorageMainProps): ReactNode {
  * Doctor page; a PostgreSQL Store's save-login fix opens the save-login dialog
  * for that Store (the person gives the login and its password there).
  */
-function CenterFixes({ api, t, loginRef, children }: { api: LayerfsApi, t: StorageT, loginRef: { current: (store: string) => void }, children: ReactNode }): ReactNode {
-  const { recheck } = useMachinesContext()
+function CenterFixes({ api, t, loginRef, reconnectRef, children }: { api: LayerfsApi, t: StorageT, loginRef: { current: (store: string) => void }, reconnectRef: { current: (again: Reconnect) => void }, children: ReactNode }): ReactNode {
+  const { recheck, useMachines } = useMachinesContext()
+  const fleet = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data.machines : null))
   const startDoctor = useStartDoctor(api)
   const doctorRef = useRef(startDoctor)
   doctorRef.current = startDoctor
   const runner = useMemo<FixRunner>(() => {
-    const name = (fix: RunnableFix) => ('machine' in fix ? fix.machine : 'store' in fix ? fix.store : 'project' in fix ? fix.project : 'sandbox' in fix ? fix.sandbox : '')
+    const name = (fix: RunnableFix) => ('machine' in fix ? fix.machine : 'store' in fix ? fix.store : 'project' in fix ? fix.project : 'sandbox' in fix ? fix.sandbox : 'bucket' in fix ? fix.bucket : '')
     return {
       run: async (fix) => {
         if (fix.kind === 'saveAuth') { loginRef.current(fix.store); return }
+        if (fix.kind === 'connectBucket') { reconnectRef.current({ bucket: fix.bucket, provider: null, url: fix.url }); return }
         if (fix.kind === 'doctor') return doctorRef.current('machine', fix.machine)
         try { return await fixCall(api, fix) } finally { if ('machine' in fix) void recheck() }
       },
@@ -123,18 +127,21 @@ function CenterFixes({ api, t, loginRef, children }: { api: LayerfsApi, t: Stora
           case 'backup': return t('fixRunBackup', { bucket: fix.bucket })
           case 'homeInit': return t('fixRunHomeInit')
           case 'saveAuth': return t('fixRunSaveLogin')
+          case 'connectBucket': return t('fixRunConnectBucket')
         }
       },
       confirm: (fix) => t(fix.kind === 'delete' ? 'fixConfirmDelete' : fix.kind === 'removeMachine' || fix.kind === 'removeStore' ? 'fixConfirmRemoveRecord'
         : fix.kind === 'removeSandbox' ? 'fixConfirmCloseSandbox' : 'fixConfirmPrune', { name: name(fix) }),
       tip: (line) => t('fixTip', { line }),
       done: t('fixDone'),
+      // a refusal that says to start, stop or restart a machine whose own record is broken: that machine's fix instead, else none
+      resolve: (line) => fleetFix(line, fleet),
     }
-  }, [api, t, recheck, loginRef])
+  }, [api, t, recheck, loginRef, reconnectRef, fleet])
   return <FixContext.Provider value={runner}>{children}</FixContext.Provider>
 }
 
-function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, loginRef: { current: (store: string) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {
+function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, loginRef: { current: (store: string) => void }, reconnectRef: { current: (again: Reconnect) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {
   const mc = useMachinesContext()
   useEffect(() => mc.activate(), [mc.activate])
   const fleetRead = mc.useMachines((s) => s)
@@ -149,6 +156,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: La
   const now = useNow(10_000)
   const [dialog, setDialog] = useState<StorageDialog | null>(null)
   loginRef.current = (store) => setDialog({ kind: 'pg-edit', store })
+  const reconnect = (again: Reconnect) => setDialog({ kind: 'bucket', again })
+  reconnectRef.current = reconnect
   const [failed, setFailed] = useState<unknown>(undefined)
   const [listing, setListing] = useState<string | null>(null)
   const [listingAll, setListingAll] = useState(false)
@@ -338,7 +347,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: La
   const canCreate = !!fleet && fleet.platforms.some((x) => x.how === 'created')
   const add: AddItem[] = [
     { id: 'project', label: t('newProject'), run: () => projectDialog.open({ mode: 'new' }) },
-    { id: 'store', label: t('newStore'), run: () => setDialog({ kind: 'new-store' }) },
+    // from a machine's page the new Store defaults to that machine (when it runs and is not broken)
+    { id: 'store', label: t('newStore'), run: () => setDialog({ kind: 'new-store', machine: active.startsWith('machine:') ? active.slice(8) : undefined }) },
     { id: 'database', label: t('connectDatabaseRow'), run: () => setDialog({ kind: 'connect' }) },
     ...(canCreate ? [{ id: 'machine', label: t('newMachine'), run: () => setNewMachine(true) }] : []),
     { id: 'bucket', label: t('addBucket'), run: () => setDialog({ kind: 'bucket' }) },
@@ -367,12 +377,13 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: La
     if (id.startsWith('machine:')) {
       return (
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
-          storesTab={view ? (machine) => (
+          // before the Stores are read the tab says so (no empty list that the cards then replace)
+          storesTab={(machine) => (!view ? <Loading label={t('readingStores')} /> : (
             <MachineStores api={api} machine={machine} view={view} t={t} jobs={jobs} dismissed={dismissed} now={now} actionsFor={actionsFor}
               busy={new Set(sandboxes.filter((b) => b.machine === machine && b.project).map((b) => b.project!.split('/')[0]!))}
               onPushHere={(m) => setDialog({ kind: 'to-machine', machine: m })} onConnect={(m) => setDialog({ kind: 'connect', machine: m })}
               onOpenStore={(name) => open(`store:${name}`)} onOpenProject={(key) => open(`project:${key}`)} onBackups={(store) => setDialog({ kind: 'backups', store })} />
-          ) : undefined} />
+          ))} />
       )
     }
     if (id.startsWith('sandbox:')) {
@@ -393,7 +404,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: La
             })}
             onRetry={(j) => { dismiss(j.id); act(() => retry(j)) }} onDismiss={(j) => dismiss(j.id)}
             onBackup={(name) => { const s = storeNamed(name); if (s) setDialog({ kind: 'backup', store: s }) }}
-            actionsFor={actionsFor} onAddBucket={() => setDialog({ kind: 'bucket' })} onListBucket={listBucket} onRestore={(bucket, file) => setDialog({ kind: 'restore', bucket, file, store: null })} refreshKey={checks}
+            actionsFor={actionsFor} onAddBucket={() => setDialog({ kind: 'bucket' })} onListBucket={listBucket} onReconnect={reconnect} onRestore={(bucket, file) => setDialog({ kind: 'restore', bucket, file, store: null })} refreshKey={checks}
             tab={section} onTab={setSection} onListAll={listAll} listingAll={listingAll} />
         </Page>
       )
@@ -414,7 +425,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: La
       const store = key.slice(0, key.indexOf('/'))
       return (
         <Page wide label={t('title')}>
-          <ProjectPage api={api} t={t} map={map} project={key} onDialog={setDialog} onOpenStore={(store) => open(`store:${store}`)}
+          <ProjectPage api={api} t={t} map={map} project={key} store={view?.stores.find((x) => x.name === store)} onDialog={setDialog} onOpenStore={(store) => open(`store:${store}`)}
             onRemoved={() => { refresh(); open(`store:${store}`); close(id) }} />
         </Page>
       )
@@ -431,7 +442,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: La
             onRestore={(f, store) => setDialog({ kind: 'restore', bucket, file: f, store })}
             onBackup={(store, f) => act(() => api.call('POST', `/api/stores/${enc(store)}/backup`, { bucket, file: f }))}
             onOpenStore={(store) => open(`store:${store}`)} onOpenProject={(key) => open(`project:${key}`)}
-            onOpenBucket={() => open(`bucket:${bucket}`)} />
+            onOpenBucket={() => open(`bucket:${bucket}`)} onReconnect={reconnect} />
         </Page>
       )
     }
@@ -447,7 +458,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: La
             kind: 'confirm', title: t('confirmTitleBucket', { name }), body: t('confirmBucketBody'), action: t('disconnectAction'),
             run: () => api.call('DELETE', `/api/buckets/${enc(name)}`).then(() => close(`bucket:${name}`)),
           })}
-          onOpenStore={(store) => open(`store:${store}`)} onOpenFile={(file) => open(`backup:${name}/${file}`)} />
+          onOpenStore={(store) => open(`store:${store}`)} onOpenFile={(file) => open(`backup:${name}/${file}`)} onReconnect={reconnect} />
       </Page>
     )
   }

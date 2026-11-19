@@ -5,11 +5,11 @@
  * sessions run. `native` is shown as the LayerFS Home.
  * A machine whose platform is not ready here (`blocks`, model.ts tileBlocks)
  * shows so and cannot be picked, except a docker machine whose Docker Engine
- * its Start launches (Create starts it).
+ * its Start launches (picked by the person, who presses its named Start).
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { IconCheckOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { MachineGlyph } from '../../machines/icons.tsx'
 import { isRunning, type Machine, type TileBlock } from './model.ts'
 import css from './dialog.module.css'
@@ -30,7 +30,7 @@ export interface LocationWords {
   nativeOs?: 'mac' | 'linux' | 'pc' | undefined
   /** The note of a machine that cannot run here now (its platform is not ready). */
   blocked?: string | undefined
-  /** The note of a docker machine whose Docker Engine is not running (Create starts it). */
+  /** The note of a docker machine whose Docker Engine is not running (its own Start launches it). */
   engineDown?: string | undefined
 }
 
@@ -45,12 +45,46 @@ export function machineNote(m: Machine, words: LocationWords, block?: TileBlock 
   if (m.name === 'native') return words.thisMac
   if (isRunning(m)) return words.running
   if (m.state === 'stopped') return words.stopped
-  return m.state ?? ''
+  return stateCap(m.state)
 }
 
-/** The chosen machines that are stopped (native never is). */
-export function stoppedPicked(names: readonly string[], machines: readonly Machine[]): string[] {
-  return names.filter((n) => { const m = machines.find((x) => x.name === n); return !!m && !isRunning(m) })
+/** A state word as LayerFS gives it, capitalised like the page's own words (broken -> Broken). */
+export const stateCap = (state: string | null | undefined): string => (state ? state.charAt(0).toUpperCase() + state.slice(1) : '')
+
+/**
+ * The machines an action needs that are not running: one line each (a dot,
+ * "Stopped · <m>") with that machine's own Start. A dialog never starts a
+ * machine on its own (UI pass 2: a machine starts only on the person's press
+ * on that machine); its action waits until none is left here.
+ */
+export function StartFirst({ names, words, start, onStarted, className }: {
+  names: readonly string[]
+  words: { stopped: (machine: string) => string, start: (machine: string) => string, failed: (machine: string, message: string) => string }
+  /** Starts one machine (it resolves once the machine runs). */
+  start: (machine: string) => Promise<unknown>
+  /** A machine started: read the machines again. */
+  onStarted: () => void
+  className?: string | undefined
+}): ReactNode {
+  const [busy, setBusy] = useState<string | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  if (!names.length) return null
+  const press = (m: string) => {
+    setBusy(m); setFailed(null)
+    start(m).then(onStarted, (e: unknown) => setFailed(words.failed(m, e instanceof Error ? e.message : String(e)))).finally(() => setBusy(null))
+  }
+  return (
+    <div className={clsx(css.startFirst, className)}>
+      {names.map((m) => (
+        <p key={m} className={css.startFirstRow} data-start-first={m}>
+          <span className={css.startFirstWord}><StateDot state="idle" size={6} />{words.stopped(m)}</span>
+          <Button type="button" size="sm" variant="outline" disabled={busy !== null} aria-label={words.start(m)}
+            icon={busy === m ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => press(m)}>{words.start(m)}</Button>
+        </p>
+      ))}
+      {failed ? <p className={css.startFirstFailed} role="alert">{failed}</p> : null}
+    </div>
+  )
 }
 
 export function Tick({ on, square }: { on: boolean, square?: boolean }): ReactNode {
@@ -118,7 +152,8 @@ export function LocationPicker({ machines, value, onChange, words, label, curren
       const badge = current ? (m.name === current ? words.here : null) : m.name === fallback ? words.default : null
       const block = blocks.get(m.name)
       return <MachineTile key={m.name} m={m} os={words.nativeOs} label={placeName(m.name, words)} multi={false} selected={value === m.name}
-        disabled={disabled || (!!block && !block.startable && value !== m.name)} blocked={!!block}
+        // a broken machine is not picked here (its page holds the fix); one already chosen stays shown
+        disabled={disabled || (((!!block && !block.startable) || m.state === 'broken') && value !== m.name)} blocked={!!block}
         note={machineNote(m, words, block)} badge={badge} compact={compact} onSelect={() => onChange(m.name)} />
     })}
     {children}

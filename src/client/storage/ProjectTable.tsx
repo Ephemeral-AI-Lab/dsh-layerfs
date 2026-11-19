@@ -30,8 +30,7 @@ import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { sandboxRuns } from '../machines/stats.ts'
 import { useProjectSessions, type ProjectSession } from '../projects/hooks.ts'
-import { Card, FixAction, FixContext, MoreMenu } from '../ui/index.tsx'
-import { runnableFix } from '../../shared/doctor.ts'
+import { Card, FixAction, FixContext, MoreMenu, resolveFix } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
 import { enc, type LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -87,7 +86,7 @@ const COLUMNS: readonly { order: ProjectOrder, label: StorageKey, cls: string, t
   { order: 'session', label: 'ptLastSession', cls: 'colSession', title: 'ptLastSessionTitle' },
   { order: 'recent', label: 'spColUpdated', cls: 'colWhen' },
   { order: 'commits', label: 'spColCommits', cls: 'colCommits' },
-  { order: 'branches', label: 'spColBranches', cls: 'colBranches' },
+  { order: 'branches', label: 'spColBranches', cls: 'colBranches', title: 'spColBranchesTitle' },
   { order: 'size', label: 'spColSize', cls: 'colSize' },
 ]
 
@@ -328,7 +327,10 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
   const line = p.last ? commitLine(p.last) : null
   const at = p.last?.time ?? null
   const counting = p.partial && p.building
-  const size = r.sizeRoute ? routed.stored ?? null : p.totals && p.totals.stored > 0 ? p.totals.stored : null
+  // a project whose history was not read (its Store broken, or a refusal): its figures are unknown, "—", never 0
+  const unread = !!trouble?.store || !!p.error
+  const totals = unread ? null : p.totals
+  const size = unread ? null : r.sizeRoute ? routed.stored ?? null : p.totals && p.totals.stored > 0 ? p.totals.stored : null
   const sizeWaiting = r.sizeRoute ? routed.counting : !!counting
   const detailId = `project-detail-${key}`
   const openProject = () => onOpen(`project:${key}`)
@@ -402,11 +404,11 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
         <span role="cell" className={clsx(css.num, css.colWhen, css.muted)} title={when(at ?? p.created)}>
           {at !== null ? ago(at, now, tt) : p.created !== null ? t('createdAgo', { ago: ago(p.created, now, tt) }) : '—'}
         </span>
-        <span role="cell" className={clsx(css.num, css.colCommits, !p.totals && css.muted)}>{p.totals ? p.totals.saves.toLocaleString() : '—'}</span>
-        <span role="cell" className={clsx(css.num, css.colBranches, !p.totals && css.muted)}>{p.totals ? p.totals.branches.toLocaleString() : '—'}</span>
+        <span role="cell" className={clsx(css.num, css.colCommits, !totals && css.muted)}>{totals ? totals.saves.toLocaleString() : '—'}</span>
+        <span role="cell" className={clsx(css.num, css.colBranches, !totals && css.muted)}>{totals ? totals.branches.toLocaleString() : '—'}</span>
         <span role="cell" className={clsx(css.num, css.colSize)}
           title={share != null ? t('spShareOfStore', { n: share < 0.01 && share > 0 ? '<1' : String(Math.round(share * 100)) }) : r.sizeRoute ? (r.sizeRoute.alone ? t('ovSizeTitleAlone') : t('ovSizeTitle')) : undefined}>
-          <span className={clsx(size === null && css.muted)}>{size !== null ? bytes(size) : sizeWaiting ? t('ovSizeCounting') : '—'}</span>
+          <span className={clsx(size === null && css.muted)}>{size !== null ? bytes(size) : sizeWaiting && !unread ? t('ovSizeCounting') : '—'}</span>
           {share != null ? <span className={css.share} aria-hidden="true"><span style={{ width: `${Math.max(share * 100, share > 0 ? 2 : 0).toFixed(1)}%` }} /></span> : null}
         </span>
         <span role="cell" className={css.actions}>
@@ -446,14 +448,16 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
  */
 function HistoryUnread({ error, t }: { error: { code: string, message: string, fix?: string }, t: StorageT }): ReactNode {
   const fixes = useContext(FixContext)
-  const fix = fixes && error.fix ? runnableFix(error.fix) : null
+  const resolved = resolveFix(fixes, error.fix)
+  const line = resolved?.line || null
+  const fix = fixes ? resolved?.fix ?? null : null
   const word = t('spHistoryUnread')
   return (
     <span className={css.unread} data-history-unread={error.code}>
       <span data-signal>
         <Signal state="warning" title={word} label={`${word}: ${error.message}`}
-          detail={<>{error.message}{error.fix && !fix ? <><br /><code>{fixes ? fixes.tip(error.fix) : error.fix}</code></> : null}</>}
-          action={fix && fixes ? <FixAction line={error.fix!} fix={fix} runner={fixes} labels={refusalLabels(t)} /> : undefined} />
+          detail={<>{error.message}{line && !fix ? <><br /><code>{fixes ? fixes.tip(line) : line}</code></> : null}</>}
+          action={fix && fixes && line ? <FixAction line={line} fix={fix} runner={fixes} labels={refusalLabels(t)} /> : undefined} />
       </span>
       <span className={css.ellipsis}>{word}</span>
     </span>

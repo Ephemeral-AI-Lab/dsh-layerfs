@@ -19,7 +19,9 @@ import {
 import { Card, Empty, LinkButton, LoadError, Loading, MenuSelect, Page, PageHead, Refusal, type RefusalLabels } from '../ui/index.tsx'
 import { CallDetail } from './CallDetail.tsx'
 import { CommandCell } from './Command.tsx'
-import { absoluteTime, commandParts, duration } from './format.ts'
+import { shortId } from '../files/format.ts'
+import { clockTime, dateTime } from '../ui/locale-sync.ts'
+import { absoluteTime, commandParts, duration, kindWords } from './format.ts'
 import type { LogsT } from './locale.ts'
 import { openLogs, onLogsRequest, peekLogsRequest, takeLogsRequest, type LogsRequest } from './request.ts'
 import { sessionParts } from './session-words.ts'
@@ -54,7 +56,8 @@ interface Loaded {
 const PAGE = 100
 const lineKey = (line: LabeledLine) => `${line.at}|${line.tag ?? ''}|${line.argv.join('\u0000')}`
 const merge = (a: readonly LabeledLine[], b: readonly LabeledLine[]) => [...new Map([...a, ...b].map((line) => [lineKey(line), line])).values()]
-const shortHex = (id: string | undefined) => id ? id.slice(0, 12) : ''
+/** A saved id as LayerFS labels it short (its tag kept: a prefix `commit get` accepts); the full id is the tip. */
+const shortHex = (id: string | undefined) => id ? shortId(id) : ''
 
 function argsOf(f: Filters): LogsListArgs {
   return {
@@ -355,7 +358,7 @@ function when(at: number, now: number, t: LogsT): string {
   if (s < 6 * 3600) return t('hoursAgo', { n: Math.round(s / 3600) })
   const date = new Date(at)
   const today = new Date(now).toDateString() === date.toDateString()
-  return today ? date.toLocaleTimeString(undefined, { timeStyle: 'short' }) : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return today ? clockTime(date, { timeStyle: 'short' }) : dateTime(date, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 /** Clicks on the row's own controls, or ending a text selection, do not open the detail. */
@@ -395,7 +398,7 @@ function Row({ api, t, line, now, rowKey, detailOpen, onOpen, onKeyDown }: {
       <td title={ok ? undefined : line.outcome}>{ok ? <span className={css.ok}>{t('outcomeOk')}</span> : <Tag tone="danger" className={css.codeTag}>{line.outcome}</Tag>}</td>
       <td className={clsx(css.num, css.duration)}>{duration(line.ms, t)}</td>
       <td className={clsx(css.saved, css.wSaved)}>
-        {version ? <>{line.kind && <span className={css.kind}>{line.kind}</span>}<code className={css.hex}>{shortHex(version)}</code></> : <span className={css.muted}>—</span>}
+        {version ? <>{line.kind && <span className={css.kind} title={line.kind}>{kindWords(line.kind, t)}</span>}<code className={css.hex} title={version}>{shortHex(version)}</code></> : <span className={css.muted}>—</span>}
       </td>
       <td>{line.dsh ? <SessionLabel api={api} t={t} label={line.dsh} /> : <span className={css.muted}>—</span>}</td>
     </tr>

@@ -221,6 +221,24 @@
   margin-top: 2px;
 }
 
+/* a session row and its Archive action, shown on hover or keyboard focus */
+.sessionItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sessionAction {
+  position: absolute;
+  inset-inline-end: 6px;
+  opacity: 0;
+}
+
+.sessionItem:hover .sessionAction,
+.sessionItem:focus-within .sessionAction {
+  opacity: 1;
+}
+
 .session {
   width: 100%;
   height: 32px;

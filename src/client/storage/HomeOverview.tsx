@@ -31,7 +31,7 @@ import { SetupCard, unset } from '../setup/SetupCard.tsx'
 import { missingWords } from '../setup/SetupDialog.tsx'
 import { setupDialog, useSetupStatus } from '../setup/store.ts'
 import { EmptyState } from '../files/States.tsx'
-import { Card, FixContext, LoadError, Loading, MoreMenu, Refusal } from '../ui/index.tsx'
+import { Card, FixContext, LoadError, Loading, MoreMenu, Refusal, resolveFix } from '../ui/index.tsx'
 import { isOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
 import { BucketCards } from './BucketCards.tsx'
 import { HomeStores } from './MachineStores.tsx'
@@ -47,11 +47,11 @@ import { BrandLockup, HomeHero, panelId } from './HomeHero.tsx'
 import { StoreMenu, type StoreActions } from './StoreCard.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
-import { bucketFiles, doingWords, endedWords, orderStores, pgStoreBytes, shareOf } from './model.ts'
+import { bucketFiles, doingWords, endedWords, orderStores, pgStoreBytes, shareOf, type Reconnect } from './model.ts'
 import { refusalLabels, StoreGlyph } from './parts.tsx'
 import type { StoreStats } from './store-page.ts'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
-import { runnableFix, type DoctorCount } from '../../shared/doctor.ts'
+import type { DoctorCount } from '../../shared/doctor.ts'
 import css from './HomeOverview.module.css'
 import heroCss from './HomeHero.module.css'
 
@@ -90,6 +90,8 @@ export interface HomeOverviewProps {
   onAddBucket: () => void
   /** Lists a bucket's files. */
   onListBucket: (bucket: string) => void
+  /** Connect again… on a bucket whose key was refused. */
+  onReconnect: (again: Reconnect) => void
   /** Restores a bucket file not from this home as a new Store. */
   onRestore: (bucket: string, file: string) => void
   /** Bumps on Refresh and Check again: PostgreSQL sizes are read again. */
@@ -184,7 +186,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     if (!j.error && j.outcome !== 'failed' && j.outcome !== 'interrupted' && j.outcome !== 'unknown') continue
     // the card's word is how the job ended; LayerFS's own words are the tip (UI rule: no raw errors on cards);
     // its fix line, where the page runs it, is the one action, else Retry
-    const fix = fixes && typeof j.error?.fix === 'string' ? runnableFix(j.error.fix) : null
+    const fix = fixes ? resolveFix(fixes, j.error?.fix)?.fix ?? null : null
     needs.push({
       key: `job:${j.id}`, tone: 'danger', rank: 0,
       title: <StoreLink name={j.store} onOpen={props.onOpen}>{endedWords(j, t, bytes)}</StoreLink>,
@@ -214,8 +216,9 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           ? t('ovWorkerDownStores', { machine: place(m.name), stores: m.stores.join(', ') })
           : t('ovWorkerDown', { machine: place(m.name) })}</Link>,
         detail: downReason(m, fleet?.live[m.name]) ?? undefined,
-        action: { label: t('ovRestartWorker'), run: () => mc.act({ kind: 'start', name: m.name, platform: m.platform }) },
-        secondary: { label: t('ovStopUnreachable'), title: t('ovStopUnreachableTitle', { machine: place(m.name) }), run: () => mc.act({ kind: 'stop', name: m.name }) },
+        // the head's one slot changes with what is most pressing: it never starts or stops a machine,
+        // it opens that machine's page, where its own Start (or fix) is pressed (UI pass 2 audit)
+        action: { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
       })
     } else if (look.key === 'needs') {
       needs.push({
@@ -229,7 +232,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         key: `stopped:${m.name}`, tone: 'warning', rank: 3,
         title: <Link onClick={() => props.onOpen(`machine:${m.name}`)}>{t('ovMachineStoppedStores', { machine: place(m.name), stores: m.stores.join(', ') })}</Link>,
         detail: t('ovMachineStoppedBody'),
-        action: { label: t('ovStart'), run: () => mc.act({ kind: 'start', name: m.name, platform: m.platform }) },
+        action: { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
       })
     }
   }
@@ -293,7 +296,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const storesAlt = {
     main: { label: t('hsViewStores'), count: sqlite.length },
     other: { label: t('hsViewBuckets'), count: view.buckets.length },
-    view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onRestore={props.onRestore} />,
+    view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onReconnect={props.onReconnect} onRestore={props.onRestore} />,
     add: (
       <>
         {view.buckets.length > 0 ? <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}>{t('ovListBuckets')}</Button> : null}

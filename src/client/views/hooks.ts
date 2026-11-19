@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { LayerfsApi } from '../api.ts'
 import { useQuery } from '../files/use-query.ts'
-import { rootOf, type MapBinding, type SessionRow } from './model.ts'
+import { rootOf, SESSION_POLL_MS, type MapBinding, type SessionRow } from './model.ts'
 
 /** DSH's session list as an observable (`ctx.sessions.list`). */
 export interface SessionsSource {
@@ -52,8 +52,10 @@ export function useRootState(api: LayerfsApi, sessionId: string, source: Session
     let timer: ReturnType<typeof setTimeout> | undefined
     const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; reload() }, 500) }
     const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === root) later() }
-    const offs = [api.onEvent('layerfs-session', mine), api.onEvent('layerfs-checkpoint', mine), api.onEvent('connection', later)]
-    return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
+    // a tool call's operation changed the Workspace (its unsaved line follows), and a shell's writes send no event: a poll while visible
+    const offs = [api.onEvent('layerfs-session', mine), api.onEvent('layerfs-checkpoint', mine), api.onEvent('layerfs-operation', mine), api.onEvent('connection', later)]
+    const poll = setInterval(() => { if (document.visibilityState === 'visible') later() }, SESSION_POLL_MS)
+    return () => { offs.forEach((off) => off()); clearInterval(poll); if (timer) clearTimeout(timer) }
   }, [api, root, reload])
   const view = query.data?.sessionId === root ? query.data : null
   return { root, byId, title, label, view, error: view ? null : query.error ?? null, reload, tick }

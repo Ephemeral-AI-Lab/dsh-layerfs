@@ -92,7 +92,7 @@ export function FileHistory({ api, project, branch, path, pin, t, focus }: FileH
                   onClick={() => { setSelected(v.ref.id); setAgainst(PREVIOUS) }}>
                   <span className={css.revisionTop}><span className={css.revisionTitle}>{revisionTitle(v, t)}</span>{tag}</span>
                   <span className={css.blameMeta}>
-                    <code>{shortId(v.ref.id)}</code>
+                    <code title={v.ref.id}>{shortId(v.ref.id)}</code>
                     {other ? <span title={other}>{branchLabel(other, t)}</span> : null}
                     {at != null ? <span>{ago(at, now, t)}</span> : null}
                   </span>

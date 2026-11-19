@@ -95,9 +95,18 @@ export interface BackupFile {
 export interface BucketRow {
   name: string
   provider: string | null
+  /** Its address when the record names one (Connect again prefills it; never a key). */
+  url?: string | null
+  /** The record's own state when it is not ready (`home get --with tree`), with its reason, fix and LayerFS's sentence. */
+  state?: string | null
+  reason?: string | null
+  fix?: string | null
+  message?: string | null
+  /** When the host last asked LayerFS to list it (a refusal is a result too). */
   listed: number | null
   files: BackupFile[] | null
-  error: { code: string, message: string } | null
+  /** Why the last listing gave no files: a `not_listed` reason or a refusal code, LayerFS's sentence, its fix line. */
+  error: { code: string, message: string, fix?: string | null } | null
   stores: string[]
 }
 
@@ -125,6 +134,8 @@ export interface StorageJob {
   /** A finished compaction's report (store.compact): `compacted` or `unchanged`, and what the Store's file or database shrank by. */
   result?: { outcome?: string | null, freed_bytes?: number | null } | null
   summary?: string | null
+  /** A push placing a Store a New Store dialog just made. */
+  made?: boolean
 }
 
 /** What a machine supports, as `machine list --detail` lists it (`sqlite`, `postgresql_sandbox`, `log`). */
@@ -179,6 +190,9 @@ export interface SandboxInfo {
   id: string
   name: string
   state: string
+  /** A broken one's reason (`lost`, `missing`: its daemon ended; the machine pages call it Lost). */
+  reason?: string
+  message?: string
   op?: SdkOperation | null
   project?: string | null
   refusal?: SdkRefusal | null

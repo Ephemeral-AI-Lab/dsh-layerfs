@@ -379,10 +379,12 @@ export function FreeSpaceDialog({ machine, need, onClose }: { machine: MachineRe
   const { t, tw, refusal, pruneImages } = useMachinesContext()
   const images = useSandboxImages(machine)
   const nameOf = useImageName()
-  const { rows, preselected } = freeSpaceRows(images.data)
+  /** Images LayerFS refused to remove in this dialog, with its words: unchecked and held, whatever the listing still counts. */
+  const [held, setHeld] = useState<ReadonlyMap<string, string>>(new Map())
+  const { rows, preselected } = freeSpaceRows(images.data, held)
   // undefined: not touched yet, the unused images are checked
   const [picked, setPicked] = useState<string[] | undefined>(undefined)
-  const checked = (picked ?? preselected).filter((id) => rows.some((r) => r.id === id && r.sandboxes <= 0))
+  const checked = (picked ?? preselected).filter((id) => !held.has(id) && rows.some((r) => r.id === id && r.sandboxes <= 0))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [refused, setRefused] = useState<PruneAnswer['refused']>([])
@@ -398,6 +400,7 @@ export function FreeSpaceDialog({ machine, need, onClose }: { machine: MachineRe
       setPicked(undefined)
       if (!answer.refused.length) { setBusy(false); onClose(any); return }
       setRefused(answer.refused)
+      setHeld((now) => new Map([...now, ...answer.refused.map((r) => [r.id, r.message] as const)]))
       images.reload()
     } catch (e) { setError(e) }
     setBusy(false)
@@ -428,12 +431,15 @@ export function FreeSpaceDialog({ machine, need, onClose }: { machine: MachineRe
               <ul className={css.freeList}>
                 {rows.map((r) => {
                   const used = r.sandboxes > 0
+                  const no = held.get(r.id)
                   return (
-                    <li key={r.id} className={css.freeRow}>
-                      <Checkbox checked={checked.includes(r.id)} disabled={busy || used} label={names.get(r.id) ?? r.id}
+                    <li key={r.id} className={css.freeRow} data-held={no !== undefined || undefined}>
+                      <Checkbox checked={checked.includes(r.id)} disabled={busy || used || no !== undefined} label={names.get(r.id) ?? r.id}
                         title={r.refs.join('\n') || undefined} onChange={(on) => toggle(r.id, on)} className={css.freeCheck} />
                       <span className={css.imageTag}>{bytes(r.size)}</span>
-                      <span className={css.imageTag} data-off={used || undefined}>{used ? t('inUseBy', { n: String(r.sandboxes) }) : t('imagesUnused')}</span>
+                      {no !== undefined
+                        ? <span className={css.imageTag} data-off title={no}>{t('imageNotRemoved')}</span>
+                        : <span className={css.imageTag} data-off={used || undefined}>{used ? t('inUseBy', { n: String(r.sandboxes) }) : t('imagesUnused')}</span>}
                     </li>
                   )
                 })}

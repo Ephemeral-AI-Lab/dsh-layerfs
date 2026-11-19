@@ -27,7 +27,7 @@ import type { TabId } from './tabs.ts'
 import type { StorageT } from './locale.ts'
 import { blockedWords, brokenWords, doingWords, shareOf, storeStateWords, storeTip, type RowSignal } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
-import { StoreFixAction } from './StoreCard.tsx'
+import { brokenBlock, MachineRepair, StoreFixAction } from './StoreCard.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import { orderProjects, sizeCacheKey, type ProjectSize, type ProjectSort } from './project-list.ts'
@@ -51,7 +51,7 @@ function Name({ children, onClick, title }: { children: ReactNode, onClick: () =
  * not trouble here: the Store card shows it.
  */
 /** A Store's trouble, short; `detail` is LayerFS's full words, `restart` the machine whose worker would fix it, `store` the broken Store whose fix is the one action. */
-export type Trouble = RowSignal & { detail?: string, restart?: MachineInfo, store?: StoreRow }
+export type Trouble = RowSignal & { detail?: string, restart?: MachineInfo, store?: StoreRow, repair?: { machine: string, record: MachineInfo | null } }
 
 export function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place: Place, fleet?: AvailableView | null): Trouble | null {
   // its machine's worker does not answer: say that, and offer the fix, instead of LayerFS's long refusal
@@ -66,6 +66,13 @@ export function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place:
     const tip = storeTip(s, t)
     return { state: 'error', reason: brokenWords(s, t), ...(tip ? { detail: tip } : {}), store: s }
   }
+  // blocked by a broken machine (F3): the word, that machine's sentence as the tip, its fix (else Repair <m>) as the one action
+  const repair = brokenBlock(s)
+  if (repair) {
+    const record = fleet?.machines.find((m) => m.name === repair) ?? null
+    const tip = record?.message ?? record?.fix ?? s.blockedBy?.reason
+    return { state: 'warning', reason: blockedWords(s.blockedBy!, t, place), ...(tip ? { detail: tip } : {}), repair: { machine: repair, record } }
+  }
   if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? blockedWords(s.blockedBy, t, place) : storeStateWords(s.state, t, s.blockedBy?.reason) }
   if (s.state === 'unknown') return { state: 'warning', reason: storeStateWords(s.state, t) }
   if (s.kind === 'sqlite' && view.machines.find((m) => m.name === s.machine)?.state === 'stopped') return { state: 'warning', reason: t('machineStopped', { machine: place(s.machine) }) }
@@ -75,6 +82,7 @@ export function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place:
 /** A trouble's one action: Restart worker, else the broken Store's fix where Center runs it. */
 export function troubleAction(trouble: Trouble | null, t: StorageT, onRestart?: (m: MachineInfo) => Promise<unknown>): ReactNode {
   if (trouble?.restart && onRestart) return <RestartButton m={trouble.restart} t={t} onRestart={onRestart} />
+  if (trouble?.repair) return <MachineRepair machine={trouble.repair.machine} record={trouble.repair.record} t={t} />
   return trouble?.store ? <StoreFixAction store={trouble.store} t={t} /> : undefined
 }
 

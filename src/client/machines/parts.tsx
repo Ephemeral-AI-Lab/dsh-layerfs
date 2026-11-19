@@ -16,6 +16,7 @@ import { BUILT_IN, duration, fixAction, forceStopOf, machineState, opWords, powe
 import { chipOpWords } from './notices.ts'
 import { socketSetting, socketSourceWords, type SocketChoice, type SocketSetting } from './socket.ts'
 import css from './machines.module.css'
+import { clockTime } from '../ui/locale-sync.ts'
 
 /**
  * Runs a machine action, one at a time: `pending` names it; LayerFS's refusal
@@ -174,7 +175,7 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
               {t('forceStop')}
             </MenuItemButton>
           )}
-          {builtIn
+          {builtIn && fix?.kind !== 'remove'
             ? (
               <>
                 {hasSettings(m) && <MenuItemButton icon={<IconSettingsOutlineRegular size={14} />} onSelect={() => { close(); onDialog('settings') }}>{t('updateSettings')}</MenuItemButton>}
@@ -183,6 +184,8 @@ export function MachineMenu({ m, pending, run, onOpen, onDialog }: { m: MachineI
             )
             : (
               <>
+                {/* LayerFS decides whether a built-in goes: its fix `machine remove <m>` (a record with no vm_name) offers Remove (U8) */}
+                {builtIn && hasSettings(m) && <MenuItemButton icon={<IconSettingsOutlineRegular size={14} />} onSelect={() => { close(); onDialog('settings') }}>{t('updateSettings')}</MenuItemButton>}
                 {/* a machine that still holds Stores or Sandboxes gets the guided Remove (RemoveDialog) */}
                 {/* LayerFS refuses to remove a machine whose record it cannot read: the Doctor says what is wrong first */}
                 <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} disabled={pending !== null || unreadableRecord(m)}
@@ -331,11 +334,13 @@ function SocketChoices({ setting, value, onChange, disabled }: { setting: Socket
 function RemoveDialog({ m, onClose, pending, run, onRemoved }: { m: MachineInfo, onClose: () => void, pending: string | null, run: Run, onRemoved?: () => void }): ReactNode {
   const { t, refusal, useMachines, closeSandbox, removeStore } = useMachinesContext()
   const data = useMachines((snapshot) => (snapshot.data?.available ? snapshot.data : null))
+  // LayerFS's own fix `machine remove <m>` (a record with no vm_name): only the record goes, so nothing it holds is closed first
+  const recordOnly = fixAction(m)?.kind === 'remove'
   // What the machine still holds: LayerFS refuses to remove it until they are gone.
-  const held = useMemo(() => ({
+  const held = useMemo(() => (recordOnly ? { stores: [], sandboxes: [] } : {
     stores: (data?.stores ?? []).filter((s) => s.machine === m.name || m.stores.includes(s.name)),
     sandboxes: (data?.sandboxes ?? []).filter((s) => s.machine === m.name),
-  }), [data, m.name, m.stores])
+  }), [data, m.name, m.stores, recordOnly])
   const occupied = held.stores.length > 0 || held.sandboxes.length > 0
   const [typed, setTyped] = useState('')
   const [step, setStep] = useState<string | null>(null)
@@ -355,7 +360,7 @@ function RemoveDialog({ m, onClose, pending, run, onRemoved }: { m: MachineInfo,
   }
   const confirmed = !occupied || typed === m.name
   return (
-    <Modal open onClose={() => { if (!busy) onClose() }} title={t('removeTitle', { name: m.name })} description={occupied ? t('removeHeldBody', { name: m.name }) : t('removeBody')} closeLabel={t('close')} className={css.dialog}
+    <Modal open onClose={() => { if (!busy) onClose() }} title={t('removeTitle', { name: m.name })} description={recordOnly ? t('removeRecordBody', { name: m.name }) : occupied ? t('removeHeldBody', { name: m.name }) : t('removeBody')} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
           <Button variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
@@ -472,7 +477,7 @@ export function useInspect(name: string): { inspection: string | null, inspect: 
   const inspect = async () => {
     try {
       const answer = await inspectMachine(name)
-      setInspection(t('observedAt', { time: new Date().toLocaleTimeString(), state: answer.state ?? t('stateUnknown') }))
+      setInspection(t('observedAt', { time: clockTime(Date.now()), state: answer.state ?? t('stateUnknown') }))
     } catch (e) {
       setInspection(e instanceof Error ? e.message : String(e))
     }

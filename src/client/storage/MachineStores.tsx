@@ -42,10 +42,10 @@ import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { machineStores, projectSplit, serverCheckWords, serverGroups, startKind, storeOffServer, type PgServerGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { brokenWords, cardJob, needsLogin, pgStoreBytes, runsOnOf, storeTip } from './model.ts'
+import { brokenWords, cardJob, needsLogin, pgStoreBytes, runsOnOf, storeStateWords, storeTip } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
-import { StoreFixAction, StoreMenu, storeNotice, type StoreActions } from './StoreCard.tsx'
+import { StoreAction, StoreMenu, storeNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
 import type { StoreProjectsView, StoreStats } from './store-page.ts'
 import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
@@ -136,12 +136,12 @@ function StoresBoard(props: BoardProps): ReactNode {
   const tiles: { kind: StoreKind, label: string, figure: string, why: string | null }[] = [
     {
       kind: 'sqlite', label: t('sqlite'),
-      figure: props.sqlite.length ? [t(props.sqlite.length === 1 ? 'msStoreOne' : 'msStores', { n: props.sqlite.length }), props.sqliteBytes != null && bytes(props.sqliteBytes)].filter(Boolean).join(' · ') : t('msNone'),
+      figure: props.sqlite.length ? [t(props.sqlite.length === 1 ? 'msStoreOne' : 'msStores', { n: props.sqlite.length }), props.sqliteBytes != null && bytes(props.sqliteBytes)].filter(Boolean).join(' · ') : t('msStores', { n: 0 }),
       why: props.sqlite.length ? null : props.noSqlite,
     },
     {
       kind: 'postgresql', label: t('postgresql'),
-      figure: props.postgresql.length ? t(props.postgresql.length === 1 ? 'msDatabaseOne' : 'msDatabases', { n: props.postgresql.length }) : t('msNone'),
+      figure: props.postgresql.length ? t(props.postgresql.length === 1 ? 'msDatabaseOne' : 'msDatabases', { n: props.postgresql.length }) : t('msDatabases', { n: 0 }),
       why: props.postgresql.length ? null : props.noPostgresql,
     },
   ]
@@ -322,7 +322,7 @@ export function MachineLine({ s, view, t, on }: { s: StoreRow, view: StorageView
     <div className={css.machines}>
       <span className={css.machinesLabel}>{pg ? t('pgRunsOnLabel') : t('hsStoredOn')}</span>
       <MachineChip name={machine} view={view} t={t} health={health} onOpen={on.openMachine}
-        title={[machine === 'native' ? t('layerfsHome') : machine ?? '?', state].filter(Boolean).join(' · ')} />
+        title={[machine === 'native' ? t('layerfsHome') : machine ?? '?', state ? storeStateWords(state, t) : null].filter(Boolean).join(' · ')} />
       {pg ? <button type="button" className={css.chip} data-add onClick={on.changeRunsOn} title={t('pgRunsOnHint')}>{t('pgRunsOnChange')}</button> : null}
     </div>
   )
@@ -368,7 +368,7 @@ function Slot({ s, split, t, now, status, onAdd, onOpenProject }: { s: StoreRow,
 /** "+N projects" in the foot when the room holds fewer than the Store has; opens the Store. */
 function More({ s, shown, t, onOpenStore }: { s: StoreRow, shown: number, t: StorageT, onOpenStore: (name: string) => void }): ReactNode {
   const rest = s.projects.length - shown
-  return rest > 0 ? <LinkButton className={css.more} onClick={() => onOpenStore(s.name)}>{t('msMoreProjects', { n: rest })}</LinkButton> : null
+  return rest > 0 ? <LinkButton className={css.more} onClick={() => onOpenStore(s.name)}>{t(rest === 1 ? 'msMoreProjectOne' : 'msMoreProjects', { n: rest })}</LinkButton> : null
 }
 
 /** The backups badge: provider marks, the count and the worst state's dot; "No backup" when there is none. */
@@ -417,10 +417,11 @@ function SizeFigure({ s, t, now, last }: { s: StoreRow, t: StorageT, now: number
 
 /** A Store's state in words on its card (LayerFS's sentence as the tip) and its fix as the one action. */
 function StoreStatus({ s, t, words }: { s: StoreRow, t: StorageT, words: string }): ReactNode {
+  const tip = useStoreTip(s, t)
   return (
     <div className={css.statusRow} data-tone={s.state === 'broken' ? 'danger' : 'warning'}>
-      <span className={css.statusText} title={storeTip(s, t)}>{words}</span>
-      <StoreFixAction store={s} t={t} />
+      <span className={css.statusText} title={tip}>{words}</span>
+      <StoreAction store={s} t={t} />
     </div>
   )
 }
@@ -513,7 +514,8 @@ function PgCard({ s, group, api, machine, t, view, jobs, dismissed, now, actions
   return (
     <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={off !== null ? 'danger' : undefined}>
       <Head s={s} on={on} t={t} machine={machine ?? undefined} onOpenStore={onOpenStore} />
-      <Figure big={total !== null ? bytes(total) : projectsWords(s.projects.length, t)} title={pg?.target ?? undefined}
+      {/* refused stats (a broken database, no saved login): its size is unknown, "—", never the 0 B of its uncounted projects */}
+      <Figure big={stats.error && size === null ? '—' : total !== null ? bytes(total) : projectsWords(s.projects.length, t)} title={pg?.target ?? undefined}
         meta={pg?.database ? <span className={css.metaText}>{pg.database}</span> : null} />
       <MachineLine s={s} view={view} t={t} on={on} />
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />

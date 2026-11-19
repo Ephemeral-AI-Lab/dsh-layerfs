@@ -154,6 +154,8 @@ export class MetricsSampler {
   private readonly clock: Clock
   private readonly machines = new Map<string, MachineTrack>()
   private readonly sandboxes = new Map<string, SandboxTrack>()
+  /** Sandboxes made since a read began, by name, with when: that read's rows predate them (U10 add-on 7). */
+  private readonly madeAt = new Map<string, number>()
   private listedAt = -Infinity
   private seq = 0
   private stepping = false
@@ -257,6 +259,7 @@ export class MetricsSampler {
     const controller = new AbortController()
     this.controller = controller
     this.reads++
+    const begun = this.clock.now()
     let answer: unknown, error: any = null
     try { answer = await this.deps.stats(m.name, controller.signal) } catch (e) { error = e }
     this.controller = null
@@ -280,6 +283,10 @@ export class MetricsSampler {
     const here = new Set<string>()
     for (const row of items) {
       here.add(row.name)
+      // a read that began before this Sandbox was made saw its create (or an earlier one of that name), not its daemon now
+      const made = this.madeAt.get(row.name)
+      if (made !== undefined && begun <= made) continue
+      this.madeAt.delete(row.name)
       let b = this.sandboxes.get(row.name)
       if (!b) this.sandboxes.set(row.name, b = { name: row.name, machine: m.name, closedAt: null, points: [] })
       b.machine = m.name
@@ -299,6 +306,7 @@ export class MetricsSampler {
 
   private prune(now: number): void {
     for (const [name, b] of this.sandboxes) if (b.closedAt !== null && now - b.closedAt >= CLOSED_KEEP_MS) this.sandboxes.delete(name)
+    for (const [name, at] of this.madeAt) if (now - at >= CLOSED_KEEP_MS) this.madeAt.delete(name)
   }
 
   /**
@@ -331,6 +339,17 @@ export class MetricsSampler {
   machine(name: string): { latest: MachineTrack['latest'], last: Point<MachineValues> | null, state: string } | null {
     const m = this.machines.get(name)
     return m ? { latest: m.latest, last: m.points.at(-1) ?? null, state: m.state } : null
+  }
+
+  /**
+   * A Sandbox was just made: what was kept for its name is of its create or an
+   * earlier Sandbox, so it is dropped, and a read already under way when it was
+   * made adds nothing for it. Until the next read its `live` is absent and its
+   * card shows its record's state (never "Daemon not running" from before).
+   */
+  created(name: string): void {
+    this.sandboxes.delete(name)
+    this.madeAt.set(name, this.clock.now())
   }
 
   /**

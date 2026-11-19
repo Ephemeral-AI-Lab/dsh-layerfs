@@ -1,5 +1,6 @@
 import { relativeTime } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Translate } from './types.ts'
+import { dateTime } from '../ui/locale-sync.ts'
 
 /** A host time as epoch milliseconds: the host may answer seconds or milliseconds. */
 export const toMs = (at: number | null | undefined): number | null =>
@@ -16,9 +17,13 @@ export function bytes(n: number | null | undefined): string {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 
-/** Eight characters of a saved id; a tagged id (0x12 Commit, 0x32 Layer) skips its tag byte. */
+/**
+ * A saved id as LayerFS labels it short (B2 #4): a tagged id (0x12 Commit,
+ * 0x32 Layer) keeps its tag, the first 14 characters, a prefix `commit get`
+ * accepts; anything else its first 8. The full id goes in the tip and copy.
+ */
 export const shortId = (id: string | null | undefined): string =>
-  !id ? '—' : id.length <= 12 ? id : /^(12|32)[0-9a-f]{64}$/.test(id) ? id.slice(2, 10) : id.slice(0, 8)
+  !id ? '—' : id.length <= 14 ? id : /^(12|32)[0-9a-f]{64}$/.test(id) ? id.slice(0, 14) : id.slice(0, 8)
 
 /**
  * A relative time in the caller's words (`files_justNow`, `files_minutes`, …).
@@ -45,5 +50,5 @@ export function ago(at: number | null | undefined, now: number, t: Translate): s
 /** A local date and time, for tooltips. */
 export const when = (at: number | null | undefined): string | undefined => {
   const ms = toMs(at)
-  return ms === null ? undefined : new Date(ms).toLocaleString()
+  return ms === null ? undefined : dateTime(ms)
 }

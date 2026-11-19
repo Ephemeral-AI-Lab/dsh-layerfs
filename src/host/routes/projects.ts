@@ -596,6 +596,7 @@ export class Projects {
       const progress = features.createProgress ? { on_progress: (p: unknown) => { const u = createPhase(p); if (u) report(u) } } : {}
       const made = await this.lfs.sandbox.create(project, name, { ...(postgresql ? { machine: String(machine) } : {}), ...(picked ? { image: picked } : {}), ...progress })
       this.sandboxCreates.created(project, name)
+      this.sandboxMade(name)
       return made
     }
     if (body.background === true) return new Answer(202, { creation: this.sandboxCreates.admit(input, run) })
@@ -604,6 +605,9 @@ export class Projects {
 
   /** Stage 1's disk precheck of a create; the router wires Machines.spaceFor (none: no precheck). */
   spaceFor: (machine: string, image: string) => Promise<{ need: number, free: number } | null> = async () => null
+
+  /** A Sandbox was made: the router wires the metrics sampler's `created` (no stale "daemon not running" point). */
+  sandboxMade: (name: string) => void = () => {}
 
   /** machine.start of `name` before a create (`start: true`); the router wires Machines.start (machine-progress events). */
   startMachine: (name: string) => Promise<unknown> = (name) => this.lfs.machine.start(name)

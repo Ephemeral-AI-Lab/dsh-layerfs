@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconArchiveOutlineRegular, IconPlusOutlineRegular, IconSettingsOutlineRegular, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { listProjects, type ProjectRow } from '../picker/NewProjectForm.tsx'
@@ -161,15 +161,27 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
         <span role="alert">{t('archiveFailed', { message: errorMessage(read.error, t) })}</span>
         <Button variant="ghost" size="sm" onClick={read.reload}>{t('retry')}</Button>
       </li> : read.loading ? <li className={css.notice}>{t('archiveLoading')}</li> : null}
-      {sessions.length ? sessions.map((session) => <li key={session.sessionId}>
-        <button type="button" className={css.session} data-selected={selected === session.sessionId || undefined} onClick={() => resume(session.sessionId)}>
-          <span className={css.slot} aria-hidden="true" />
-          <span className={css.title}>{titles[session.sessionId]?.title || session.title || t('untitled')}</span>
-          {session.executionState === 'interrupted' ? <span className={css.interrupted} title={session.error ?? t('interruptedHint')}>{t('interrupted')}</span> : null}
-        </button>
-      </li>) : !read.error && !read.loading ? <li className={css.notice}>{t('noSessions')}</li> : null}
+      {sessions.length ? sessions.map((session) => {
+        const title = titles[session.sessionId]?.title || session.title || t('untitled')
+        return <li key={session.sessionId} className={css.sessionItem}>
+          <button type="button" className={css.session} data-selected={selected === session.sessionId || undefined} onClick={() => resume(session.sessionId)}>
+            <span className={css.slot} aria-hidden="true" />
+            <span className={css.title}>{title}</span>
+            {session.executionState === 'interrupted' ? <span className={css.interrupted} title={session.error ?? t('interruptedHint')}>{t('interrupted')}</span> : null}
+          </button>
+          {/* B2 #7: the row's one action, Archive (DSH's archive set; DSH's archived list unarchives it) */}
+          <Button className={clsx(css.iconButton, css.sessionAction)} variant="ghost" size="sm" icon={<IconArchiveOutlineRegular size={14} />}
+            aria-label={t('archiveSession', { session: title })} title={t('archiveSession', { session: title })} data-archive-session={session.sessionId}
+            onClick={() => { void api.op('sessions.archive', { sessionId: session.sessionId }).then(read.reload, () => {}) }} />
+        </li>
+      }) : !read.error && !read.loading ? <li className={css.notice}>{t('noSessions')}</li> : null}
     </ul> : null}
   </li>
+}
+
+/** The projects with sessions the catalog does not list (sorted keys joined), or '' when there are none. */
+export function missingKey(rows: readonly { row: { key: string, catalogState?: unknown } }[], catalog: readonly { key: string }[] | null): string {
+  return rows.filter((r) => !r.row.catalogState && !catalog?.some((p) => p.key === r.row.key)).map((r) => r.row.key).sort().join('\n')
 }
 
 /** The sidebar's projects with their Store, machine and availability, and the catalog's size. */
@@ -179,9 +191,12 @@ export function useSidebarProjects(api: LayerfsApi, sessionSource?: SessionSourc
   const data = useProjectData(api)
   const recent = useRecent(api)
   const rows = recent.data ? sidebarProjects(recent.data.projects, data.catalog.data ? data.catalog.data.rows : null, hidden, data.liveStores) : null
-  // A project with sessions the catalog doesn't list yet (just created): read the catalog again.
-  const missing = rows?.some((r) => !r.row.catalogState && !data.catalog.data?.rows.some((p) => p.key === r.row.key)) ?? false
-  useEffect(() => { if (missing) data.catalog.reload() }, [missing, recent.data])
+  // A project with sessions the catalog doesn't list yet (just created): read the catalog again,
+  // once per such set of projects. A catalog read that still lacks them (or was refused) is a
+  // result, not a reason to read again on the next sessions poll.
+  const missing = missingKey(rows ?? [], data.catalog.data?.rows ?? null)
+  const asked = useRef<string | null>(null)
+  useEffect(() => { if (missing && asked.current !== missing) { asked.current = missing; data.catalog.reload() } }, [missing])
   return {
     items: rows?.map((r) => ({ ...data.item(r.row), showStore: r.showStore, hideKey: r.hideKey })) ?? null,
     scratchKey: data.scratchKey,

@@ -22,12 +22,17 @@ import { registerHero } from './hero/index.tsx'
 import { registerSimulation } from './simulation/index.tsx'
 import { registerViews } from './views/index.tsx'
 import { registerSetup } from './setup/index.tsx'
+import { syncLocale } from './ui/locale-sync.ts'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 
 export function apply(ctx: any): void {
   ctx.effect(() => ctx.locale.register(NS, locales), 'dsh-layerfs: locale')
   ctx.effect(() => ctx.locale.register(DOCTOR_NS, doctorLocales), 'dsh-layerfs: doctor locale')
+  // times, dates and memoized views follow the active locale (ui/locale-sync.ts)
+  const followLocale = () => syncLocale(ctx.locale.getLocale?.().active)
+  followLocale()
+  ctx.effect(() => ctx.locale.subscribe?.(followLocale) ?? (() => {}), 'dsh-layerfs: locale clock')
   const info = createTypertRemoteInfo(remoteSpec(z) as never, z)
   ctx.effect(() => {
     let dispose: undefined | (() => unknown)

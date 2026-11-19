@@ -961,3 +961,33 @@
   font-size: 13px;
   line-height: 18px;
 }
+
+/* machines an action needs that are not running: each with its own Start (StartFirst) */
+.startFirst {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.startFirstRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+.startFirstWord {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.startFirstFailed {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}

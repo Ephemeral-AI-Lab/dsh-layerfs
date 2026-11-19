@@ -12,11 +12,12 @@ import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, canMove, inHome, needsLogin, runsOnOf, type BackupState } from './model.ts'
+import { backupStateOf, bucketParts, canMove, inHome, needsLogin, runsOnOf, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
-import { LocationPicker, placeName, stoppedPicked } from '../projects/setup/MachineTiles.tsx'
-import { defaultMachine, isRunning, machinesFor } from '../projects/setup/model.ts'
+import { LocationPicker, placeName, StartFirst, stateCap } from '../projects/setup/MachineTiles.tsx'
+import { defaultMachine, machinesFor, stoppedOf } from '../projects/setup/model.ts'
 import { placeStore, startMachine, waitJob } from '../projects/setup/run.ts'
+import { Signal } from './Signal.tsx'
 import { FormModal, locationWords, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
 import type { MachinesView, ProjectInitJob, StorageJob, StorageView, StoreRow } from './types.ts'
 import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
@@ -29,7 +30,7 @@ const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 
 /** Which dialog is open, and on what. */
 export type StorageDialog =
-  | { kind: 'new-store' }
+  | { kind: 'new-store', machine?: string | undefined }
   /**
    * Connect a database (ConnectDatabase.tsx), the one PostgreSQL connect dialog. `machine`: a machine page's
    * (new databases run on it); `server`: open on a new database on that server (`host:port`); `check`: open
@@ -48,8 +49,8 @@ export type StorageDialog =
   | { kind: 'backup', store: StoreRow, known?: string[], pick?: string }
   | { kind: 'backups', store: string }
   | { kind: 'restore', bucket: string, file: string, store?: string | null }
-  /** `then`: the dialog Add a bucket returns to, closed or saved. */
-  | { kind: 'bucket', then?: StorageDialog }
+  /** `then`: the dialog Add a bucket returns to, closed or saved; `again`: Connect again… on a bucket whose key was refused (its name, and its URL when LayerFS's fix names it). */
+  | { kind: 'bucket', then?: StorageDialog, again?: Reconnect }
   /** `plain`: the action removes nothing, so its button is not the danger one (Compact). */
   | { kind: 'confirm', title: string, body: string, action: string, name?: string, force?: ConfirmForce, plain?: boolean, run: (force: boolean) => Promise<unknown> }
 
@@ -73,7 +74,7 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done, onDialog }
   if (!dialog) return null
   const after = <T,>(p: Promise<T>) => p.then((v) => { done(); return v })
   switch (dialog.kind) {
-    case 'new-store': return <NewStoreDialog api={api} t={t} view={view} onClose={onClose} done={done} onDialog={onDialog} />
+    case 'new-store': return <NewStoreDialog api={api} t={t} view={view} opened={dialog.machine} onClose={onClose} done={done} onDialog={onDialog} />
     case 'connect': return <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} server={dialog.server} check={dialog.check} onClose={onClose} done={done} />
     case 'pg-edit': return <EditConnectionDialog api={api} t={t} view={view} store={dialog.store} machine={dialog.machine} onClose={onClose} done={done} />
     case 'pg-runs-on': return <RunsOnDialog api={api} t={t} view={view} store={dialog.store} onClose={onClose} done={done} />
@@ -84,7 +85,7 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done, onDialog }
     case 'backup': return <BackUpDialog api={api} t={t} store={dialog.store} known={dialog.known} pick={dialog.pick} view={view} onClose={onClose} done={done} onDialog={onDialog} />
     case 'backups': return <BackupsDialog api={api} t={t} store={dialog.store} view={view} onClose={onClose} done={done} onDialog={onDialog} />
     case 'restore': return <RestoreDialog api={api} t={t} dialog={dialog} view={view} onClose={onClose} done={done} />
-    case 'bucket': return <BucketDialog api={api} t={t} onClose={dialog.then && onDialog ? () => onDialog(dialog.then!) : onClose} done={done} />
+    case 'bucket': return <BucketDialog api={api} t={t} again={dialog.again} onClose={dialog.then && onDialog ? () => onDialog(dialog.then!) : onClose} done={done} />
     case 'confirm': return <ConfirmDialog t={t} title={dialog.title} body={dialog.body} action={dialog.action} name={dialog.name} force={dialog.force} plain={dialog.plain} onClose={onClose} run={(force) => after(dialog.run(force))} />
   }
 }
@@ -94,8 +95,10 @@ export function StorageDialogs({ api, t, dialog, view, onClose, done, onDialog }
 type NewPane = 'empty' | 'restore'
 
 /** A new SQLite Store, empty or restored from a bucket. PostgreSQL goes on to Connect a database. */
-function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
+function NewStoreDialog({ api, t, view, opened, onClose, done, onDialog }: {
   api: LayerfsApi, t: StorageT, view: StorageView | undefined, onClose: () => void, done: () => void
+  /** The machine whose page opened the dialog: the default place when it runs and is not broken. */
+  opened?: string | undefined
   onDialog?: ((dialog: StorageDialog) => void) | undefined
 }): ReactNode {
   const [pane, setPane] = useState<NewPane>('empty')
@@ -107,7 +110,8 @@ function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
   const [listError, setListError] = useState<unknown>(undefined)
   // Where the new Store lives. LayerFS makes it in the home; another machine is a move after.
   const machines = machinesFor(view, 'sqlite')
-  const fallback = defaultMachine(machines)
+  // never a broken machine or one Create would start: such a machine is the person's pick, its start named (StartFirst)
+  const fallback = defaultMachine(machines, undefined, opened)
   const [placeChoice, setPlace] = useState<string | null>(null)
   const place = placeChoice ?? fallback
   const words = locationWords(t, view)
@@ -134,7 +138,7 @@ function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
     pane === 'restore' && !bucket && t('bucket'),
     pane === 'restore' && !file && t('storeFile'),
   ].filter(Boolean) as string[]
-  /** Make the Store in the home, then (another machine) start it if stopped and move the Store there. */
+  /** Make the Store in the home, then (another machine) move the Store there; a stopped machine is started first by its own Start, never here. */
   const placed = async (make: () => Promise<unknown>, making: string) => {
     const store = name.trim()
     if (made !== store) {
@@ -146,12 +150,8 @@ function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
       setMade(store)
       done()
     }
-    if (!isRunning(view?.machines.find((m) => m.name === place))) {
-      setStage(t('nsStarting', { machine: where }))
-      await startMachine(api, place)
-    }
     setStage(t('nsPlacing', { store, machine: where }))
-    await placeStore(api, store, place)
+    await placeStore(api, store, place, true)
     setMade(null)
   }
   const moveOnly = made !== null && made === name.trim() && place !== 'native'
@@ -165,11 +165,13 @@ function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
       submit: () => placed(() => api.call('POST', `/api/buckets/${enc(bucket)}/restore`, { store: name.trim(), file }), t('nsRestoring', { store: name.trim() })),
     },
   }[pane]
+  // the machine the Store goes to, when it is not running: started only by its own Start below
+  const stopped = stoppedOf([place], view)
   // The name's rule shows only once a typed name breaks it.
   const nameError = taken ? t('nameTaken') : name.trim() && !NAME.test(name.trim()) ? t('storeNameHint') : null
   return (
     <FormModal open onClose={onClose} t={t} title={t('newStore')} description={form.description} action={form.action}
-      valid={!missing.length && nameOk} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
+      valid={!missing.length && nameOk && stopped.length === 0} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
       busyHint={stage}
       submit={() => form.submit().then(done)}>
       {/* a PostgreSQL Store is connected, not made: its tile opens Connect a database */}
@@ -208,7 +210,9 @@ function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
       <Field label={t('nsLocation')} hint={t('nsLocationHint')} group>
         <LocationPicker machines={machines} value={place} onChange={setPlace} words={words} label={t('nsLocation')} fallback={fallback} compact />
       </Field>
-      {stoppedPicked([place], machines).map((m) => <p key={m} className={css.formNote}>{t('nsStartsOnCreate', { machine: m })}</p>)}
+      {/* creating starts no machine: a stopped one has its own Start here */}
+      <StartFirst names={stopped} start={(m) => startMachine(api, m)} onStarted={done}
+        words={{ stopped: (machine) => t('nsStoppedFirst', { machine }), start: (machine) => t('startMachine', { machine }), failed: (machine, message) => t('nsStartFailed', { machine, message }) }} />
       {moveOnly ? <p className={css.formNote}>{t('nsMade', { store: made, machine: where })}</p> : null}
     </FormModal>
   )
@@ -298,7 +302,7 @@ function SaveLoginDialog({ api, t, store: s, onClose, done }: { api: LayerfsApi,
   const valid = entered ? !!authName && !nameError && !pw.missing : !pw.missing
   const body = () => (entered ? { authName, user: pw.user.trim(), passwordValue: pw.value } : pw.body())
   return (
-    <FormModal open onClose={onClose} t={t} title={t('pgLoginTitle', { store: s.name })} description={t('pgLoginBody', { target: s.postgresql?.target ?? s.name })}
+    <FormModal open onClose={onClose} t={t} title={t('pgLoginTitle', { store: s.name })} description={t(auths.length ? 'pgLoginBody' : 'pgLoginBodyNew', { target: s.postgresql?.target ?? s.name })}
       action={t('save')} valid={valid} submit={() => api.call('POST', `/api/stores/${enc(s.name)}/connection`, body()).then(done)}>
       <PgPasswordFields id="lfs-pg-login-password" pw={pw} t={t} auths={auths} />
       {entered ? <TextField label={t('pgLoginName')} value={typed ?? authName} onChange={setTyped} mono hint={t('pgLoginNameHint')} error={nameError} /> : null}
@@ -385,7 +389,7 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
       submit={() => api.call('POST', `/api/stores/${enc(s.name)}/${kind}`, { machine: target }).then(done)}>
       <Field label={t('machine')} hint={machines.loading && !view ? t('readingMachines') : targets.length ? undefined : t('noTargets')}>
         <MenuSelect value={target} label={t('machine')} placeholder={t('chooseMachine')} onChange={setTarget}
-          options={targets.map((m) => ({ value: m.name, label: `${m.name} · ${m.platform} · ${m.state}` }))} />
+          options={targets.map((m) => ({ value: m.name, label: `${m.name} · ${m.platform} · ${stateCap(m.state)}` }))} />
       </Field>
       {machines.error ? <Refusal error={machines.error} labels={refusalLabels(t)} compact /> : null}
       {chosen ? (
@@ -465,7 +469,7 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
       {pick && m?.state && m.state !== 'ready' ? <p className={css.formNote}>{t('notRunning', { machine: placeName(machine), state: m.state })}</p> : null}
       {onDialog && machine === 'native' ? (
         <p className={css.formNote}>
-          <button type="button" className={css.textLink} onClick={() => swap({ kind: 'new-store' })}>{t('newStore')}</button>
+          <button type="button" className={css.textLink} onClick={() => swap({ kind: 'new-store', machine })}>{t('newStore')}</button>
         </p>
       ) : null}
     </FormModal>
@@ -513,9 +517,31 @@ function RestoreDialog({ api, t, dialog, view, onClose, done }: { api: LayerfsAp
 
 const ACCOUNT = /^[0-9a-f]{32}$/
 
-function BucketDialog({ api, t, onClose, done }: { api: LayerfsApi, t: StorageT, onClose: () => void, done: () => void }): ReactNode {
-  const [provider, setProvider] = useState<'minio' | 'r2'>('minio')
-  const [v, setV] = useState<Record<string, string>>({ endpoint: 'http://localhost:9000', prefix: 'layerfs', jurisdiction: '' })
+/** The Connect dialog's first values: empty, or (Connect again…) the bucket's name and the parts of the URL LayerFS's fix names. */
+export function bucketDraft(again?: Reconnect): { provider: 'minio' | 'r2', values: Record<string, string> } {
+  const blank = { endpoint: 'http://localhost:9000', prefix: 'layerfs', jurisdiction: '' }
+  if (!again) return { provider: 'minio', values: blank }
+  const parts = bucketParts(again.url)
+  const provider = parts?.provider ?? (again.provider === 'r2' ? 'r2' : 'minio')
+  if (!parts) return { provider, values: { ...blank, ...(provider === 'r2' ? { endpoint: '' } : {}), name: again.bucket } }
+  return {
+    provider,
+    values: { name: again.bucket, bucket: parts.bucket, prefix: parts.prefix, jurisdiction: parts.jurisdiction ?? '', endpoint: parts.endpoint ?? '', account: parts.account ?? '' },
+  }
+}
+
+/** What a bucket connect did, from LayerFS's long form: `rotated` (the same name and URL: key replaced, links kept), else null. */
+export function connectOutcome(answer: unknown): 'rotated' | null {
+  return (answer as { outcome?: unknown } | null)?.outcome === 'rotated' ? 'rotated' : null
+}
+
+/** Add a bucket, or connect one again (the same URL replaces its key, spec v21; connecting again is a change, so it is listed once more). */
+function BucketDialog({ api, t, again, onClose, done }: { api: LayerfsApi, t: StorageT, again?: Reconnect | undefined, onClose: () => void, done: () => void }): ReactNode {
+  const [draft] = useState(() => bucketDraft(again))
+  /** LayerFS answered `rotated`: the dialog stays to say so, and its action closes it. */
+  const [rotated, setRotated] = useState(false)
+  const [provider, setProvider] = useState<'minio' | 'r2'>(draft.provider)
+  const [v, setV] = useState<Record<string, string>>(draft.values)
   const set = (k: string) => (value: string) => setV((x) => ({ ...x, [k]: value }))
   const accountError = provider === 'r2' && v.account && !ACCOUNT.test(v.account.trim().toLowerCase()) ? t('accountInvalid') : null
   const missing = [
@@ -535,9 +561,24 @@ function BucketDialog({ api, t, onClose, done }: { api: LayerfsApi, t: StorageT,
     accessKey: v.accessKey!.trim(), secretKey: v.secretKey!,
   })
   return (
-    <FormModal open onClose={onClose} t={t} title={t('bucketTitle')} description={t('bucketBody')} action={t('connectBucket')}
-      valid={!missing.length && !accountError} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
-      submit={() => api.call('POST', '/api/buckets', body()).then(done)}>
+    <FormModal open onClose={onClose} t={t} title={again ? t('reconnectTitle', { bucket: again.bucket }) : t('bucketTitle')} description={again ? t('reconnectBody') : t('bucketBody')}
+      action={rotated ? t('close') : again ? t('reconnectAction') : t('connectBucket')} keepOpen
+      valid={rotated || (!missing.length && !accountError)} hint={!rotated && missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
+      submit={async () => {
+        if (rotated) { onClose(); return }
+        const answer = await api.call<{ outcome?: unknown }>('POST', '/api/buckets', body())
+        // connecting again is a change: list the bucket once more (a refusal there shows on its page)
+        if (again) await api.call('GET', `/api/buckets/${enc(again.bucket)}/files`).catch(() => null)
+        done()
+        if (connectOutcome(answer) === 'rotated') setRotated(true)
+        else onClose()
+      }}>
+      {rotated ? (
+        <p className={css.bucketStatus} data-tone="ok" data-rotated role="status">
+          <Signal state="ok" size={7} title={t('keyRotated')} detail={t('keyRotatedTip')} />
+          <span className={css.bucketStatusText} title={t('keyRotatedTip')}>{t('keyRotated')}</span>
+        </p>
+      ) : null}
       <TileChoice label={t('provider')} value={provider} onChange={setProvider}
         options={[{ value: 'minio', label: t('minio'), icon: <BucketProviderGlyph provider="minio" size={18} /> }, { value: 'r2', label: t('r2'), icon: <BucketProviderGlyph provider="r2" size={18} /> }]} />
       <div className={css.fieldRow}>

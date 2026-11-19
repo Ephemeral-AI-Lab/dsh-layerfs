@@ -2,6 +2,7 @@
 import type { Tone } from '../ui/index.tsx'
 import type { BackupFile, BucketRow, JobKind, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import type { StorageT } from './locale.ts'
+import { connectBucketFix } from '../../shared/doctor.ts'
 
 /** A sqlite Store saved under the LayerFS home (`native`). */
 export const inHome = (s: StoreRow): boolean => s.kind === 'sqlite' && s.machine === 'native'
@@ -54,7 +55,7 @@ export function blockedWords(b: { machine?: string, reason: string }, t: Storage
     case '': case 'stopped': return t('machineStopped', { machine })
     case 'busy': return t('machineBusyBlock', { machine })
     case 'failed': return t('machineUnreadableBlock', { machine })
-    default: return t('machineBrokenBlock', { machine, reason: b.reason.replace(/_/g, ' ') })
+    default: return t('machineBrokenBlock', { machine })
   }
 }
 
@@ -139,6 +140,12 @@ export function bucketSignal(rows: readonly BucketFileRow[], t: StorageT): RowSi
   }))
 }
 
+/** A Sandbox's state in the machine pages' words: Lost for a broken one whose daemon ended (`lost`, `missing`), else the state word. */
+export function sandboxStateWords(b: { state: string, reason?: string | null }, t: StorageT): string {
+  if (b.state === 'broken' && (b.reason === 'lost' || b.reason === 'missing')) return t('sandboxLost')
+  return storeStateWords(b.state, t)
+}
+
 /** A Store's 2.0 state as a chip tone. */
 export function storeTone(state: string): Tone {
   if (state === 'ready') return 'success'
@@ -193,20 +200,58 @@ export function storeTip(s: Pick<StoreRow, 'name' | 'kind' | 'state' | 'reason' 
 /** A Store's one action from its `fix`, when the line is a layerfs call the page can name (the card shows it as the tip's action). */
 export const storeFix = (s: Pick<StoreRow, 'fix'>): string | null => (typeof s.fix === 'string' && s.fix.startsWith('layerfs ') ? s.fix : null)
 
-/**
- * Why a bucket did not list, in words: a `backup list` `not_listed` reason
- * (`refused`: the bucket answered and refused, or was never asked because
- * its connection cannot be read; `timeout`, `busy`, `lost`) or a refusal
- * code. LayerFS's own sentence is the tip, never the text.
- */
-export function listFailedWords(code: string, t: StorageT): string {
+/** A bucket that did not list, in a few words (the status word; LayerFS's sentence is its tip). */
+export function listStatusWords(code: string, t: StorageT): string {
   switch (code) {
-    case 'refused': return t('bucketWhyRefused')
-    case 'timeout': case 'Timeout': return t('bucketWhyTimeout')
-    case 'busy': case 'Busy': return t('bucketWhyBusy')
-    case 'lost': return t('bucketWhyLost')
-    default: return t('bucketWhyOther')
+    case 'refused': return t('bucketStatusRefused')
+    case 'timeout': case 'Timeout': return t('bucketStatusTimeout')
+    case 'busy': case 'Busy': return t('bucketStatusBusy')
+    case 'lost': return t('bucketStatusLost')
+    default: return t('bucketStatusOther')
   }
+}
+
+/**
+ * When a bucket page asks LayerFS to list on its own (F2): once per open, and
+ * only for a bucket with no listing and no remembered refusal. A refused or
+ * `not_listed` listing is a result: it is shown, never asked again by the
+ * page. It is listed again only on a press (List again) or a real change (the
+ * host lists it after a backup or restore). One closure per open page.
+ */
+export function autoList(): (name: string, b: Pick<BucketRow, 'files' | 'error'> | undefined, listing: boolean) => boolean {
+  let asked: string | null = null
+  return (name, b, listing) => {
+    if (asked === name || !b || listing) return false
+    asked = name
+    return b.files === null && !b.error
+  }
+}
+
+/** A bucket's address in its parts, for the Connect dialog: MinIO `http(s)://<host>/<bucket>/<prefix>`, R2 `r2://<account>/<bucket>/<prefix>[?jurisdiction=…]`. */
+export interface BucketParts { provider: 'minio' | 'r2', endpoint?: string, account?: string, jurisdiction?: string, bucket: string, prefix: string }
+export function bucketParts(url: string | null | undefined): BucketParts | null {
+  if (typeof url !== 'string') return null
+  const r2 = /^r2:\/\/([^/?]+)\/([^/?]+)(?:\/([^?]*?))?\/?(?:\?jurisdiction=([\w-]+))?$/.exec(url)
+  if (r2) return { provider: 'r2', account: r2[1]!, bucket: r2[2]!, prefix: r2[3] ?? '', ...(r2[4] ? { jurisdiction: r2[4] } : {}) }
+  const minio = /^(https?:\/\/[^/?#]+)\/([^/?#]+)(?:\/([^?#]*?))?\/?$/.exec(url)
+  if (minio) return { provider: 'minio', endpoint: minio[1]!, bucket: minio[2]!, prefix: minio[3] ?? '' }
+  return null
+}
+
+/**
+ * A bucket that must be connected again (F5): LayerFS refused its key
+ * (`not_listed` reason `refused`), or its record has no access key (a broken
+ * record, or a `backup connect` fix). Its one action is Connect again…: the
+ * Connect dialog with the name, and the URL when LayerFS's fix names it
+ * (connecting again with the same URL rotates the key, spec v21 `rotated`).
+ */
+export interface Reconnect { bucket: string, provider: string | null, url: string | null }
+export function reconnectOf(b: Pick<BucketRow, 'name' | 'provider' | 'state' | 'fix' | 'error'> & Partial<Pick<BucketRow, 'url'>>): Reconnect | null {
+  const fixed = connectBucketFix(b.error?.fix) ?? connectBucketFix(b.fix)
+  if (!fixed && b.error?.code !== 'refused' && b.state !== 'broken') return null
+  // a broken record with some other fix keeps that fix (its status tip), not Connect again
+  if (!fixed && b.error?.code !== 'refused' && b.fix) return null
+  return { bucket: b.name, provider: fixed ? bucketParts(fixed.url)?.provider ?? b.provider : b.provider, url: fixed?.url ?? b.url ?? null }
 }
 
 /** A backup file's state: its tone and words. */
@@ -322,7 +367,7 @@ export function stepWords(step: string | null, t: StorageT): string {
 /** What a running job does, in words. */
 export function doingWords(j: StorageJob, t: StorageT): string {
   switch (j.kind) {
-    case 'push': return t('jobPushing', { place: placeWords(j.target, t) })
+    case 'push': return t(j.made ? 'jobMaking' : 'jobPushing', { place: placeWords(j.target, t) })
     case 'pull': return t('jobPulling', { place: placeWords(j.from, t) })
     case 'move': return t('jobMoving', { place: placeWords(j.target, t) })
     case 'backup': return t('jobBackingUp', { place: j.target })
@@ -339,7 +384,7 @@ export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => str
   const place = j.kind === 'pull' ? placeWords(j.from, t) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target, t)
   if (j.error) return t('jobFailed', { what: kindWords(j.kind, t), place, phase: j.error.phase ?? '—' })
   switch (j.kind) {
-    case 'push': return t('jobPushed', { place })
+    case 'push': return t(j.made ? 'jobMade' : 'jobPushed', { place })
     case 'pull': return t('jobPulled', { place })
     case 'move': return t('jobMoved', { place })
     case 'backup': return t('jobBackedUp', { place })

@@ -6,12 +6,13 @@ import type { TraceOp, TraceVersion, TrajectoryRecord } from '../../shared/traje
 import type { Translate } from './locale.ts'
 import { durationParts, opCommand } from './trajectory-model.ts'
 import css from './trajectory.module.css'
+import { clockTime } from '../ui/locale-sync.ts'
 
 export type OpenVersion = ((v: TraceVersion) => void) | undefined
 
 /** A local clock time, or empty without one. */
 export const clock = (at: number | undefined): string =>
-  at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
+  at ? clockTime(at, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''
 
 /** A duration in the reader's words. */
 export function durationText(t: Translate, ms: number): string {
@@ -32,7 +33,7 @@ export function versionTitle(t: Translate, version: TraceVersion): string {
 export function Version({ version, t, onOpen }: { version: TraceVersion, t: Translate, onOpen: OpenVersion }): ReactNode {
   const title = versionTitle(t, version)
   return (
-    <button type="button" className={clsx(css.version, css[version.effect])} title={title} aria-label={title}
+    <button type="button" className={clsx(css.version, css[version.effect])} title={`${title}\n${version.id}`} aria-label={title}
       disabled={!version.branch || !onOpen} onClick={(e) => { e.stopPropagation(); onOpen?.(version) }}>
       {MARK[version.effect]} {shortId(version.id)}
     </button>

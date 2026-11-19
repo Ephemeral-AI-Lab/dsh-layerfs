@@ -30,6 +30,7 @@ import {
   type LogRow, type LogState, type LogView,
 } from './log-model.ts'
 import css from './log.module.css'
+import { clockTime } from '../ui/locale-sync.ts'
 
 /** How close to the bottom still counts as "at the bottom" (TerminalPane's). */
 const STICK_PX = 24
@@ -294,7 +295,7 @@ export function LogPane({ kind, name, label, unavailable = null, final = false }
   }
 
   const stale = state.stale
-  const time = (ms: number | null) => (ms == null ? null : new Date(ms).toLocaleTimeString())
+  const time = (ms: number | null) => (ms == null ? null : clockTime(ms))
   const lines = rows.filter((r) => r.kind === 'line').length
   return (
     <section className={css.pane} aria-label={label} data-log={kind} data-log-state={!state.loaded ? 'reading' : stale ? 'stale' : 'ready'} data-log-lines={lines}>

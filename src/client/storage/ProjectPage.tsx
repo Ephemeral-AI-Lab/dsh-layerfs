@@ -17,7 +17,9 @@ import { TabBar } from '../ui/TabBar.tsx'
 import type { StorageDialog } from './dialogs.tsx'
 import type { StorageT } from './locale.ts'
 import { refusalLabels } from './parts.tsx'
-import type { ProjectState, SessionRow } from './types.ts'
+import type { ProjectState, SessionRow, StoreRow } from './types.ts'
+import { brokenWords, storeTip } from './model.ts'
+import { StoreFixAction } from './StoreCard.tsx'
 import css from './Storage.module.css'
 import { ProjectStorage } from './ProjectStorage.tsx'
 import { ProjectSandboxes, type ProjectMapShare } from './ProjectSandboxes.tsx'
@@ -37,9 +39,25 @@ export interface ProjectPageProps {
   onOpenStore: (store: string) => void
   /** What the Sandboxes map needs of the conversation views. */
   map: ProjectMapShare
+  /** The project's Store as the Storage page last read it: a broken one (no saved login…) is shown instead of failed reads. */
+  store?: StoreRow | undefined
 }
 
-export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore, map }: ProjectPageProps): ReactNode {
+/**
+ * The project's Store is broken (UI pass 2 F4: a PostgreSQL Store with no
+ * saved login): its word, LayerFS's sentence as the tip and its fix (Save a
+ * login…) as the one action, instead of a failed read with a code and Retry.
+ */
+function StoreBroken({ s, t }: { s: StoreRow, t: StorageT }): ReactNode {
+  return (
+    <div className={css.storeBroken} role="alert" data-store-broken={s.reason ?? ''}>
+      <p className={css.storeBrokenWord} title={storeTip(s, t)}><StateDot state="error" />{brokenWords(s, t)}</p>
+      <StoreFixAction store={s} t={t} />
+    </div>
+  )
+}
+
+export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore, map, store }: ProjectPageProps): ReactNode {
   const name = project.slice(project.indexOf('/') + 1)
   const [tab, setTab] = useState<Tab>('files')
   // One prefix per page: several projects can be open at once.
@@ -73,7 +91,9 @@ export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore,
           </>
         )} />
       <div role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`} className={clsx(css.tabPanel, (tab === 'files' || tab === 'history') && css.fillPanel)}>
-        {tab === 'files' ? (
+        {(tab === 'files' || tab === 'history') && store?.state === 'broken' ? (
+          <StoreBroken s={store} t={t} />
+        ) : tab === 'files' ? (
           <ProjectFiles key={`${open.n}`} api={api} project={project} t={tt} tick={tick} initialBranch={open.branch} initialPin={open.pin} initialPath={open.path} />
         ) : tab === 'history' ? (
           <ProjectHistory api={api} project={project} t={tt} tick={tick}
@@ -130,7 +150,7 @@ function Sessions({ api, t, project, tick }: { api: LayerfsApi, t: StorageT, pro
       ) : (
         <Card className={css.tableCard}>
           <table className={css.table}>
-            <thead><tr><th>{t('colSession')}</th><th>{t('colState')}</th><th className={`${css.num} ${css.wide}`}>{t('colCheckpoints')}</th><th className={css.num}>{t('colUpdated')}</th><th><span className={css.srOnly}>{t('sessionsOpen')}</span></th></tr></thead>
+            <thead><tr><th>{t('colSession')}</th><th>{t('colState')}</th><th className={`${css.num} ${css.wide}`} title={t('colCheckpointsTitle')}>{t('colCheckpoints')}</th><th className={css.num}>{t('colUpdated')}</th><th><span className={css.srOnly}>{t('sessionsOpen')}</span></th></tr></thead>
             <tbody>
               {q.data.map((s) => (
                 <tr key={s.sessionId}>

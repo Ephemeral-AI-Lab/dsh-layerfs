@@ -21,6 +21,7 @@ import { ScriptDrawer } from './ScriptDrawer.tsx'
 import { PresetTopology, type PresetResource } from './Topology.tsx'
 import css from './presets.module.css'
 import { ReadDeadlineError, readWithDeadline } from '../projects/read-deadline.ts'
+import { clockTime, dateTime } from '../ui/locale-sync.ts'
 
 /** The Resources page's panel id (kept literal: importing the Storage area would bundle its registration here). */
 const STORAGE_PANEL = 'layerfs-storage'
@@ -208,7 +209,7 @@ function LibraryStatus({ api, t, preset, checking }: { api: LayerfsApi, t: Prese
   if (checking) return <p className={css.status} role="status"><StateDot state="ongoing" />{t('checking')}</p>
   const last = preset.lastBuild
   if (preset.contentReady) {
-    const when = last ? new Date(last.ended).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''
+    const when = last ? dateTime(last.ended, { dateStyle: 'medium', timeStyle: 'short' }) : ''
     return (
       <p className={css.status} role="status">
         <StateDot state="done" />
@@ -314,7 +315,7 @@ function Operation({ t, job, home, previous }: { t: PresetsT, job: PresetJob, ho
       <details className={css.disclosure}>
         <summary>{t('log')}</summary>
         {job.log.length
-          ? <pre className={css.log}>{job.log.map((line) => `${new Date(line.at).toLocaleTimeString()}  ${line.text}`).join('\n')}</pre>
+          ? <pre className={css.log}>{job.log.map((line) => `${clockTime(line.at)}  ${line.text}`).join('\n')}</pre>
           : <p className={css.muted}>{t('logEmpty')}</p>}
       </details>
       <details className={css.disclosure}>

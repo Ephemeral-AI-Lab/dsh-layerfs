@@ -57,7 +57,9 @@ test('FAIL 4: a project whose history could not be read: a word, LayerFS\'s mess
   assert.doesNotMatch(table, /p\.error \? p\.error\.message/, 'no raw message as the subtitle')
   assert.match(table, /<HistoryUnread error=\{p\.error\}/)
   assert.match(table, /detail=\{<>\{error\.message\}/, 'the message is the dot\'s tip')
-  assert.match(table, /<FixAction line=\{error\.fix!\} fix=\{fix\}/)
+  // the fix as the one action (U10: through resolveFix, so a broken machine's start or stop is its own fix instead)
+  assert.match(table, /const resolved = resolveFix\(fixes, error\.fix\)/)
+  assert.match(table, /<FixAction line=\{line\} fix=\{fix\}/)
   assert.equal(M.storageLocales.en.spHistoryUnread, 'History not read')
   assert.ok(M.storageLocales.zh.spHistoryUnread)
   // the host keeps the refusal's fix line beside its message
@@ -105,7 +107,7 @@ test('FAIL 7, 8: the project, machine and Sandbox pages use the shared tab bar (
     assert.match(s, /<TabBar /, file)
   }
   const bar = src('src/client/ui/TabBar.tsx')
-  assert.match(bar, /new ResizeObserver\(fades\)/, 'fades follow width changes')
+  assert.match(bar, /new ResizeObserver\(inSight\)/, 'fades and the selected tab follow width changes (inSight calls fades)')
   assert.match(bar, /bar\.scrollLeft = /, 'the selected tab is scrolled into sight')
   const css = src('src/client/ui/TabBar.module.css')
   assert.match(css, /\.tab \{[^}]*flex: none;[^}]*white-space: nowrap;/s, 'labels keep their width')

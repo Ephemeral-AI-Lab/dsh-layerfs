@@ -467,7 +467,9 @@ export function apply(ctx: Context): void {
             title: s.title, stored: true,
           })
         }
-        return { project, discoveryError, sessions: [...rows.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)) }
+        // a conversation archived in DSH (its row's Archive, or DSH's own) leaves the project's list until it is unarchived
+        const archived = new Set<string>(ctx.workspaceRegistry?.archivedSessionIds ?? [])
+        return { project, discoveryError, sessions: [...rows.values()].filter((r) => !archived.has(r.sessionId)).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)) }
       },
       'sessions.open': async (args: any) => {
         const sessionId = need(args, 'sessionId')
@@ -509,6 +511,13 @@ export function apply(ctx: Context): void {
         const detail = trajectoryDetail(await sessionEvents(id), seq)
         if (!detail) throw new CliError('NotFound', `No trajectory record ${seq} in this session's log`)
         return detail
+      },
+      // B2 #7: a project session row's one action, Archive (DSH's own archive set; Unarchive in DSH brings it back)
+      'sessions.archive': async (args: any) => {
+        const id = need(args, 'sessionId')
+        await ctx.workspaceRegistry.archiveSession(id as never)
+        ctx.layerfs.emit('layerfs-session', { sessionId: id })
+        return { sessionId: id, archived: true }
       },
       'session.place': (args: any) => {
         const id = need(args, 'sessionId')

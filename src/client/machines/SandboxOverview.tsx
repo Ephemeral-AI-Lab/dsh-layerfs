@@ -23,12 +23,14 @@ import { useMachinesContext } from './context.tsx'
 import { displayRef } from './images.ts'
 import { useMetrics } from './MachineStats.tsx'
 import { cpuShare } from './machine-tabs.ts'
-import { latest, machineCpu, processors, sandboxFigures, upTime } from './metrics.ts'
+import { latest, machineCpu, processors, sandboxFigures, upTime, unitsOf } from './metrics.ts'
 import { useWords } from './MetricsViews.tsx'
 import { daemonLook, daemonSlots, gib, type SandboxImagesView, type SandboxInfo } from './model.ts'
 import { sandboxSpaceReason, spaceSize } from './space.ts'
 import { useMachineSpace } from './SpaceViews.tsx'
+import { shortDigest } from '../../shared/doctor.ts'
 import css from './machines.module.css'
+import { clockTime, dateTime } from '../ui/locale-sync.ts'
 
 export interface SandboxOverviewProps {
   name: string
@@ -87,7 +89,7 @@ function DetailsCard({ name, machine, machineTitle, info, listed, onMachine, onW
   const startedAt = snapshot.sandboxes[name] ? sandboxFigures(snapshot, name)?.row?.startedAt ?? null : null
   const started = startedAt ?? info?.daemon?.startedAt ?? null
   const live = info ? info.state === 'ready' : true
-  const created = info?.created != null ? new Date(info.created < 1e12 ? info.created * 1000 : info.created).toLocaleString() : null
+  const created = info?.created != null ? dateTime(info.created < 1e12 ? info.created * 1000 : info.created) : null
   const id = info?.id ?? null
   return (
     <Card className={css.ovDetails} data-sandbox-details={name}>
@@ -113,7 +115,7 @@ function DetailsCard({ name, machine, machineTitle, info, listed, onMachine, onW
         <Item label={t('runtime')} data-sbov="runtime">{info ? info.backend ?? null : null}</Item>
         <Item label={t('filesystemRoute')} data-sbov="route">{info?.route}</Item>
         <Item label={t('created')} data-sbov="created">{created}</Item>
-        <Item label={t('mxUpTime')} data-sbov="up">{live && started != null ? upTime(started, snapshot.now ?? Date.now()) : null}</Item>
+        <Item label={t('mxUpTime')} data-sbov="up">{live && started != null ? upTime(started, snapshot.now ?? Date.now(), unitsOf(t)) : null}</Item>
         <Item label={t('sbovId')} mono title={id ?? undefined} data-sbov="id">{id}</Item>
       </dl>
     </Card>
@@ -126,7 +128,7 @@ function ImageName({ info, machine }: { info: SandboxInfo, machine: string }): R
   const known = info.image ? cachedAnswer<SandboxImagesView>(`machines:images:${info.machine ?? machine}`)?.ready.find((r) => r.id === info.image) : undefined
   const name = known ? (known.source === 'bundle' ? t('imageLayerfsDefault') : known.name || displayRef(known.refs)) : null
   if (name) return <span title={info.image ?? undefined}>{name}</span>
-  if (info.image) return <span className={css.mono} title={info.image}>{info.image}</span>
+  if (info.image) return <span className={css.mono} title={info.image}>{shortDigest(info.image)}</span>
   return info.backend === 'native' ? <>{t('imageNone')}</> : null
 }
 
@@ -170,7 +172,7 @@ function UsageCard({ name, machine }: { name: string, machine: string }): ReactN
     <header className={css.ovUsageHead}>
       <h3 className={css.columnTitle}>{t('ovUsage')}</h3>
       <span className={css.columnSpacer} />
-      {at != null && <span className={css.columnCount}>{t('ovReadAt', { time: new Date(at).toLocaleTimeString() })}</span>}
+      {at != null && <span className={css.columnCount}>{t('ovReadAt', { time: clockTime(at) })}</span>}
     </header>
   )
   if (unmeasured) {
@@ -298,7 +300,7 @@ function DaemonCard({ info, loading }: { info: SandboxInfo | null, loading: bool
             {slots ? ' · ' : ''}
             {!d ? t('sbProcessNotObserved') : [
               d.pid != null ? t('pidOf', { pid: String(d.pid) }) : t('sbNoPid'),
-              d.startedAt != null ? t('sbStartedAt', { time: new Date(d.startedAt).toLocaleString() }) : t('sbProcessEnded'),
+              d.startedAt != null ? t('sbStartedAt', { time: dateTime(d.startedAt) }) : t('sbProcessEnded'),
             ].join(' · ')}
           </span>
         )}

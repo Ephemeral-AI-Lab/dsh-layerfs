@@ -4,6 +4,15 @@
  */
 import { shellCommand } from '../../shared/logs.ts'
 import type { LogsT } from './locale.ts'
+import { dateTime } from '../ui/locale-sync.ts'
+
+const KIND_WORDS: Record<string, string> = { committed: 'kindCommitted', uptodate: 'kindUpToDate', unchanged: 'kindUpToDate', forked: 'kindForked', merged: 'kindMerged', added: 'kindAdded' }
+
+/** A line's `kind` (what the call saved: `Committed`, `UpToDate`, …) in the page's words (B2 #5); another word as it came. */
+export function kindWords(kind: string, t: LogsT): string {
+  const key = KIND_WORDS[kind.toLowerCase().replace(/[^a-z]/g, '')]
+  return key ? t(key as Parameters<LogsT>[0]) : kind
+}
 
 /** A duration as people read it: `212 ms`, `1.2 s`, `14 s`, `2 min 5 s`. */
 export function duration(ms: number, t: LogsT): string {
@@ -17,7 +26,7 @@ export function duration(ms: number, t: LogsT): string {
 
 /** Local date and time with milliseconds (`Nov 12, 2026, 14:03:07.412`). */
 export function absoluteTime(at: number): string {
-  return new Date(at).toLocaleString(undefined, {
+  return dateTime(at, {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3,
   })

@@ -3,7 +3,7 @@
  * from the model's codes and the locale. LayerFS's own words (check ids,
  * messages, fix lines, refusal sentences) are shown as they came.
  */
-import { doctorCommand } from '../../shared/doctor.ts'
+import { doctorCommand, shortDigest } from '../../shared/doctor.ts'
 import { locales, type DoctorT } from './locale.ts'
 import { busyOn, callOf, humanCheck, isAllGroup, kidsOf, type DoctorState, type Mark as CheckMark, type Off, type RowFix, type RowState, type RowView, type TabView, type Thing } from './model.ts'
 import type { MarkKind, TipCheck, TipData } from './tips.tsx'
@@ -79,7 +79,8 @@ export function wordsOf(t: DoctorT) {
       if (x.connections != null) bits.push(n('dpFactConnections', x.connections))
       bits.push(n('dpFactProjects', kids.length), on)
     } else if (x.kind === 'sandbox') {
-      bits.push(x.project ?? '', x.image ?? '')
+      // a 64-hex image id cut to its first twelve digits (the row's tip has it whole)
+      bits.push(x.project ?? '', shortDigest(x.image))
       if (!x.notListed || kids.length) bits.push(n('dpFactWorkspaces', kids.length))
       bits.push(on)
     } else if (x.kind === 'workspace') {

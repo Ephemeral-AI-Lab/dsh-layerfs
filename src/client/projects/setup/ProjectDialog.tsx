@@ -31,8 +31,8 @@ import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
 import type { SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
-import { createSteps, defaultMachine, freeStoreName, isRunning, machinesFor, pgLoginProblem, pgMachine, pickable, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
-import { LocationPicker, placeName, stoppedPicked, Tick, type LocationWords } from './MachineTiles.tsx'
+import { createSteps, defaultMachine, freeStoreName, machinesFor, needsStart, pgLoginProblem, pgMachine, pickable, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
+import { LocationPicker, placeName, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
 import { placeStore, runStep, setRunsOn, startMachine } from './run.ts'
 import css from './dialog.module.css'
 
@@ -147,6 +147,13 @@ type StepState = { step: Step, state: 'pending' | 'running' | 'done' | 'failed' 
 /** A path with the user's home folder shown as `~` (`/Users/me/code/shop` -> `~/code/shop`). */
 export const shortPath = (path: string): string => path.replace(/\/+$/, '').replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
 
+/** StartFirst's words in this dialog's locale. */
+const startWordsOf = (t: SetupT) => ({
+  stopped: (machine: string) => t('stoppedFirst', { machine }),
+  start: (machine: string) => t('startNamed', { machine }),
+  failed: (machine: string, message: string) => t('startFailed', { machine, message }),
+})
+
 function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
   const store = plan.store?.name ?? plan.newStore?.name ?? ''
   const id = step.id
@@ -156,7 +163,6 @@ function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
   if (id === 'init') return plan.source ? t('step_import', { source: shortPath(plan.source), name: plan.name }) : t('step_init', { name: plan.name })
   if (id === 'open') return t('step_open')
   const machine = placeName(step.machine ?? '', wordsOf(t))
-  if (id === 'start-store' || id.startsWith('start:')) return t('step_start', { machine })
   if (id.startsWith('place:')) return t('step_place', { store, machine })
   return t('step_runs_on', { store, machine })
 }
@@ -343,10 +349,13 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const login: PgLogin = loginMode === 'saved' ? { auth: pickedAuth ?? '' } : { authName: newLoginName, user: pgUser, password: pgPassword }
   const loginProblem = kind === 'postgresql' && mode === 'new' ? pgLoginProblem(login, authNames) : null
   const loginNameError = loginMode === 'new' && loginProblem === 'nameInvalid' ? t('loginNameInvalid') : loginMode === 'new' && loginProblem === 'nameTaken' ? t('loginNameTaken', { auth: newLoginName.trim() }) : null
+  // the machines Create needs that are not running: each is started by its own Start below, never by Create
+  const stopped = needsStart({ kind, store: existing, machines: chosen }, data)
+  const startWords = startWordsOf(t)
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
     1: mode === 'existing' ? !!existing : NAME.test(newStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
-    2: chosen.length > 0 && chosen.every((m) => machines.some((x) => x.name === m) && pickable(m, blocks)),
+    2: chosen.length > 0 && chosen.every((m) => machines.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0,
   }
   const valid = !!data && parts.every((i) => ok[i])
 
@@ -399,7 +408,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     0: ok[0] ? (importing ? t('fromSummary', { name: slug, source: shortPath(source.trim()) }) : slug) : importing && !source.trim() ? t('needFolder') : t('notNamed'),
     1: !ok[1] ? (mode === 'existing' ? t('pickStore') : kind === 'postgresql' && NAME.test(newStoreName) && !storeNameError ? pgMissing(url.trim() && !urlError ? loginProblem : 'url', t) : t('needStoreName'))
       : existing ? `${kindWord} · ${existing.name}` : `${kindWord} · ${t('newWord')} · ${newStoreName}`,
-    2: ok[2] ? chosen.map((m) => placeName(m, words)).join(', ') : t('noneChosen'),
+    2: ok[2] ? chosen.map((m) => placeName(m, words)).join(', ') : stopped.length ? t('needsStart', { machine: stopped.join(', ') }) : t('noneChosen'),
   }
   const railTitles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: t('stepMachine') }
   const titles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: kind === 'sqlite' ? t('stepMachine') : t('runsOn') }
@@ -556,7 +565,8 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
               </LocationPicker>
             </Group>}
           {machines.length === 0 ? <p className={css.notice}>{t('noMachines')}</p> : null}
-          {stoppedPicked(chosen, machines).map((m) => <p key={m} className={css.note}>{t('startsOnCreate', { machine: m })}</p>)}
+          {/* Create starts no machine: each stopped one it needs has its own Start here */}
+          <StartFirst names={stopped} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} />
           {moving ? <p className={css.warn}>{t('moveWarn', { store: existing!.name, machine: placeName(chosenSqlite, words), n: Math.max(0, existing!.projects.length) })}</p> : null}
           </div>
         </section>
@@ -609,8 +619,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
   const pg = store.kind === 'postgresql'
   const machines = machinesFor(view.data, pg ? 'postgresql' : 'sqlite')
   const blocks = tileBlocks(view.data.machines, platforms, view.data.computer?.os)
-  const state = (n: string) => view.data!.machines.find((m) => m.name === n)
-  const ensure = async (n: string) => { if (!isRunning(state(n))) await startMachine(api, n) }
+  const startWords = startWordsOf(t)
   const kindWords = pg ? t('kindPg') : t('kindSqlite')
   const storeCard = <Group label={t('store')}>
     <div className={css.storeCard}>
@@ -635,7 +644,8 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
           </LocationPicker>
         </Group>
         {chosen !== current ? <p className={css.warn}>{t('moveWarn', { store: store.name, machine: placeName(chosen, words), n: others })}</p> : null}
-        {chosen !== current ? stoppedPicked([chosen], machines).map((m) => <p key={m} className={css.note}>{t('startsOnMove', { machine: m })}</p>) : null}
+        {/* moving starts no machine: each stopped one it needs has its own Start here */}
+        {chosen !== current ? <StartFirst names={stoppedOf([current, chosen], view.data)} words={startWords} start={(m) => startMachine(api, m)} onStarted={view.reload} /> : null}
         {error ? <p className={css.error} role="alert">{error}</p> : null}
       </div></div>
       <footer className={css.foot}>
@@ -644,8 +654,8 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
           {chosen !== current
             ? <>
               <Button variant="outline" disabled={!!busy} onClick={() => setTarget(null)}>{t('cancel')}</Button>
-              <Button variant="primary" disabled={!!busy} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}
-                onClick={() => void run('move', async () => { if (current !== 'native') await ensure(current); await ensure(chosen); await placeStore(api, store.name, chosen) })}>
+              <Button variant="primary" disabled={!!busy || stoppedOf([current, chosen], view.data).length > 0} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}
+                onClick={() => void run('move', () => placeStore(api, store.name, chosen))}>
                 {busy ? t('moving') : t('moveTo', { machine: placeName(chosen, words) })}
               </Button>
             </>

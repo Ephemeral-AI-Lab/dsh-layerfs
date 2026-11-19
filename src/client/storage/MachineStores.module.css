@@ -812,3 +812,24 @@
   outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
   outline-offset: 2px;
 }
+
+/* phone: the PostgreSQL server row wraps (address and check on one line, Add database on the next) instead of clipping */
+@container (max-width: 520px) {
+  .pgServer {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .pgServerName {
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+  .pgServer .check {
+    flex: none;
+    white-space: nowrap;
+  }
+  .pgServerFacts {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+}

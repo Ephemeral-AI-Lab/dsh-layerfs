@@ -17,7 +17,7 @@ import { MachineGlyph, MachinesGlyph } from './icons.tsx'
 import type { View } from './context.tsx'
 import { Inventory, creatingOn, storeLines, useMachineTitle, type StoreMenuOf } from './Inventory.tsx'
 import {
-  RANK, downReason, gib, machineOrder, machineState, runtimeOf, sandboxesOn, unreadableRecord,
+  RANK, downReason, gib, machineOrder, machineState, runsFix, runtimeOf, sandboxesOn, unreadableRecord, unreportedDiskKey,
   type AvailableView, type MachineInfo,
 } from './model.ts'
 import { engineStart, machineBlock, nativeGlyphOs, nativeNameKey, osOfView, stepReasons, type Readiness } from './needs.ts'
@@ -28,6 +28,7 @@ import { Blocked } from './Readiness.tsx'
 import { SpaceCell } from './SpaceViews.tsx'
 import { NewSandboxDialog } from './Sandboxes.tsx'
 import css from './machines.module.css'
+import { clockTime } from '../ui/locale-sync.ts'
 
 /**
  * `onAddStore`: Storage's Add Store dialog for a machine (move a SQLite Store
@@ -57,7 +58,7 @@ export function Board({ go, onAddStore, storeMenu }: {
     <>
       {view && read.error != null && (
         <Notice tone="warning" role="status">
-          <p>{t('staleRead', { time: read.observedAt ? new Date(read.observedAt).toLocaleTimeString() : '—' })}</p>
+          <p>{t('staleRead', { time: read.observedAt ? clockTime(read.observedAt) : '—' })}</p>
           <Refusal error={read.error} labels={refusal} compact />
         </Notice>
       )}
@@ -71,7 +72,7 @@ export function Board({ go, onAddStore, storeMenu }: {
             <>
               {Object.entries(available.readErrors ?? {}).map(([part, e]) => (
                 <Notice key={part} tone="danger" role="status">
-                  <p>{t('partUnread', { part, time: new Date(e.at).toLocaleTimeString(), code: e.error.code, message: e.error.message })}</p>
+                  <p>{t('partUnread', { part, time: clockTime(e.at), code: e.error.code, message: e.error.message })}</p>
                 </Notice>
               ))}
               <Card className={css.fleet}>
@@ -127,7 +128,7 @@ function RecordDisk({ m, view }: { m: MachineInfo, view: AvailableView }): React
   const used = m.disk && live?.freeDisk != null ? Math.max(0, m.disk - live.freeDisk) : null
   const share = used !== null && m.disk ? used / m.disk : null
   if (live?.freeDisk == null) {
-    return <span className={css.muted}>{m.disk != null ? t('mxAllocatedDisk', { size: gib(m.disk) }) : t(m.state === 'ready' ? 'diskUnreported' : 'diskWhileStopped')}</span>
+    return <span className={css.muted}>{m.disk != null ? t('mxAllocatedDisk', { size: gib(m.disk) }) : t(unreportedDiskKey(m))}</span>
   }
   return (
     <span className={css.diskLine}>
@@ -209,7 +210,7 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
   m: MachineInfo, view: AvailableView, chosen: boolean | undefined, onToggle: (open: boolean) => void, onOpen: () => void
   onAddStore?: ((machine: string) => void) | undefined, storeMenu?: StoreMenuOf | undefined, only: boolean
 }): ReactNode {
-  const { t, tw, kind, api, doctorT, useStartups, refusal } = useMachinesContext()
+  const { t, tw, kind, api, doctorT, useStartups, refusal, stateWord } = useMachinesContext()
   const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
   const live = view.live[m.name]
@@ -227,12 +228,14 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
   const open = chosen ?? (only || attention !== null || startingNow || error !== null)
   const detailId = `machine-detail-${m.name}`
   const plus = <IconPlusOutlineRegular size={11} />
+  // an unreadable record: nothing goes on the machine until diagnostics say what is wrong (the reason Remove gives too)
+  const noUse = unreadableRecord(m) ? t('recordUnreadableNoRemove') : null
   const storeAction = onAddStore && !block
-    ? <button type="button" className={css.columnAction} onClick={() => onAddStore(m.name)} title={t('addStoreTo', { name })}>{plus}{t('addStore')}</button>
+    ? <button type="button" className={css.columnAction} disabled={noUse !== null} onClick={() => onAddStore(m.name)} title={noUse ?? t('addStoreTo', { name })} data-no-use={noUse ? '' : undefined}>{plus}{t('addStore')}</button>
     : null
   // a Sandbox on a stopped machine starts it first (the dialog says so); not while a start or stop runs
   const sandboxAction = !block
-    ? <button type="button" className={css.columnAction} disabled={pending !== null} onClick={() => setCreating(true)} title={t('newSandboxOn', { name })}>{plus}{t('newSandbox')}</button>
+    ? <button type="button" className={css.columnAction} disabled={pending !== null || noUse !== null} onClick={() => setCreating(true)} title={noUse ?? t('newSandboxOn', { name })} data-no-use={noUse ? '' : undefined}>{plus}{t('newSandbox')}</button>
     : null
   const sub = m.platform === 'native' ? `${t(nativeNameKey(osOfView(view)))} · ${tw(runtimeOf(m))}` : m.platform ? `${kind(m.platform)} · ${tw(runtimeOf(m))}` : t('platformUnknown')
   // an unreadable record: the page's sentence, LayerFS's own words as its tip
@@ -269,8 +272,9 @@ function MachineRow({ m, view, chosen, onToggle, onOpen, onAddStore, storeMenu, 
           {block && <Blocked m={m} block={block} action={engine ? <PowerButton m={m} pending={pending} run={run} engine /> : undefined} />}
           {!block && (reason || attention === 'danger') && (
             <div className={css.blockReason}>
-              <span className={css.blockReasonText} title={reason ?? undefined}>{unreadable ? t('recordUnreadable') : reason ?? t('needsInspect', { state: t(machineState(m, live).label ?? 'stateUnknown') })}</span>
-              {attention === 'danger' && <DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} />}
+              {/* the state's word, LayerFS's message as its tip; the row's fix button is its one action, else Run diagnostics */}
+              <span className={css.blockReasonText} title={reason ?? undefined}>{unreadable ? t('recordUnreadable') : reason ? stateWord(machineState(m, live)) : t('needsInspect', { state: t(machineState(m, live).label ?? 'stateUnknown') })}</span>
+              {attention === 'danger' && !runsFix(m) && <DoctorAction api={api} t={doctorT} target="machine" name={m.name} label={doctorT('runDiagnostics')} />}
             </div>
           )}
           {error !== null && <div className={css.blockReason}><Refusal error={error} labels={refusal} compact /></div>}

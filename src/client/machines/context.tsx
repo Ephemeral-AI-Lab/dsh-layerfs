@@ -109,6 +109,11 @@ export function MachinesProvider({ props, children }: { props: MachinesPageProps
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
+/** The Machines context where a page has one (Center), else null: for parts shown on pages with and without it. */
+export function useMachinesMaybe(): MachinesContext | null {
+  return useContext(Ctx)
+}
+
 export function useMachinesContext(): MachinesContext {
   const value = useContext(Ctx)
   if (!value) throw new Error('Machines components render inside MachinesProvider')

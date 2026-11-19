@@ -139,6 +139,9 @@ type ToolEntry = ToolRecord & { turn: number }
  * outside any open turn belongs to the next turn to open; at the log's end, with
  * no next `turn/start` yet, that is the last logged turn + 1 (turn 1 when none).
  */
+/** A call log `kind` that says the call made a version (call-log.ts savedFields). */
+const CREATING_KINDS: ReadonlySet<string> = new Set(['Committed', 'Added', 'Merged'])
+
 export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
   const { checkpoints, branch } = input
   const turns = new Map<number, TrajectoryTurn>()
@@ -259,21 +262,33 @@ export function buildTrajectory(input: TrajectoryInput): TrajectoryAnswer {
     else turn(n).hostOps.push(op)
   }
 
+  // B2 #3: every version the session made (its turns' checkpoints too), and the tool calls that made one. A saving
+  // call whose version is not linked (a commit of a Workspace other than the bound one) still counts, by its kind.
   const created = new Set<string>()
+  let unnamed = 0
   let callsWithVersions = 0
-  const count = (ops: readonly TraceOp[]): void => {
+  const madeBy = (op: TraceOp): boolean => {
     let any = false
-    for (const op of ops) for (const v of op.versions) if (v.effect === 'created') { created.add(v.id); any = true }
-    if (any) callsWithVersions++
+    for (const v of op.versions) if (v.effect === 'created') { created.add(v.id); any = true }
+    if (!any && op.outcome === 'success' && CREATING_KINDS.has(op.kind ?? '')) { unnamed++; any = true }
+    return any
   }
+  const count = (ops: readonly TraceOp[]): void => { if (ops.map(madeBy).some(Boolean)) callsWithVersions++ }
   for (const record of tools.values()) count(record.ops)
   for (const orphan of orphans.values()) count(orphan.ops)
+  for (const t of turns.values()) {
+    for (const op of t.hostOps) madeBy(op)
+    for (const c of t.checkpoints) {
+      const linked = c.op ? madeBy(c.op) : false
+      if (!linked && c.commit && !c.error && c.changed > 0) created.add(c.commit)
+    }
+  }
 
   return {
     sessionId: input.sessionId, project: input.project, branch,
     turns: [...turns.values()].sort((a, b) => a.turn - b.turn),
     logLoaded: input.events !== undefined,
-    counts: { versionsCreated: created.size, callsWithVersions },
+    counts: { versionsCreated: created.size + unnamed, callsWithVersions },
   }
 }
 

@@ -570,7 +570,13 @@ test('buckets: the keys go to LayerFS (the secret on stdin), never to a file her
     ...base,
     home: { get: async (o = {}) => ({ ...(await base.home.get()), ...(o.with?.includes('tree') ? { tree: { machines: [], stores: [], buckets: buckets.map((b) => ({ ...b })) } } : {}) }) },
     backup: {
-      connect: async (name, url, options) => { seen.push(['connect', name, url, options]); buckets.push({ bucket: name, provider: url.startsWith('r2://') ? 'r2' : 'minio' }); return { ok: true } },
+      // the long form (spec v21): `rotated` when the name is connected at that URL already (the key replaced, links kept)
+      connect: async (name, url, options) => {
+        seen.push(['connect', name, url, options])
+        const had = buckets.some((b) => b.bucket === name)
+        if (!had) buckets.push({ bucket: name, provider: url.startsWith('r2://') ? 'r2' : 'minio' })
+        return options?.detail ? { bucket: name, outcome: had ? 'rotated' : 'connected' } : { ok: true }
+      },
       disconnect: async (name) => { seen.push(['disconnect', name]); buckets.splice(buckets.findIndex((b) => b.bucket === name), 1); return { ok: true, unlinked: ['s1'] } },
       list: async () => ({ items: [] }),
     },
@@ -580,7 +586,8 @@ test('buckets: the keys go to LayerFS (the secret on stdin), never to a file her
     const ok = await http('POST', '/api/buckets', { name: 'r2b', provider: 'r2', account: 'a'.repeat(32), bucket: 'bk', accessKey: 'AK', secretKey: 'SK' })
     assert.equal(ok.status, 200)
     // `secret_key` is a content option: the seam writes it on stdin (`--key-stdin`), never on argv or disk
-    assert.deepEqual(seen[0], ['connect', 'r2b', `r2://${'a'.repeat(32)}/bk`, { access_key: 'AK', secret_key: 'SK' }])
+    assert.deepEqual(seen[0], ['connect', 'r2b', `r2://${'a'.repeat(32)}/bk`, { access_key: 'AK', secret_key: 'SK', detail: true }])
+    assert.equal(ok.body.outcome, 'connected', 'the long form\'s outcome comes back with the view')
     assert.ok(!existsSync(join(home, 'secret')) && !existsSync(join(root, 'secrets')), 'no key file on this host')
     assert.deepEqual(ok.body.buckets.map((b) => [b.name, b.provider]), [['r2b', 'r2']])
     assert.ok(!JSON.stringify(ok.body).includes('SK'))
@@ -593,7 +600,12 @@ test('buckets: the keys go to LayerFS (the secret on stdin), never to a file her
     buckets.push({ bucket: 'shared', provider: 'minio' })
     assert.equal((await http('POST', '/api/stores', { name: 'bump' })).status, 200)
     assert.deepEqual((await http('GET', '/api/storage')).body.buckets.map((b) => [b.name, b.provider]), [['r2b', 'r2'], ['shared', 'minio']])
-    // the old key routes are gone: a key changes by disconnecting and connecting again
+    // connecting again at the same URL rotates the key (U10 add-on 3): the answer says so, the page shows "Key replaced; links kept"
+    const again = await http('POST', '/api/buckets', { name: 'r2b', provider: 'r2', account: 'a'.repeat(32), bucket: 'bk', accessKey: 'AK2', secretKey: 'SK2' })
+    assert.equal(again.status, 200)
+    assert.equal(again.body.outcome, 'rotated')
+    assert.ok(!JSON.stringify(again.body).includes('SK2'))
+    // the old key routes are gone: a key changes by connecting again
     assert.equal((await http('POST', '/api/buckets/r2b/keys', { accessKey: 'AK2', secretKey: 'SK2' })).status, 404)
     const gone = await http('DELETE', '/api/buckets/r2b')
     assert.equal(gone.status, 200)

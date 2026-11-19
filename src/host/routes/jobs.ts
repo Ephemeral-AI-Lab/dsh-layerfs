@@ -34,6 +34,8 @@ export interface StorageJob {
   error: any
   result: unknown
   reconcileError?: { code: string, message: string }
+  /** A push that places a Store a New Store dialog just made (its words say created on, not pushed to). */
+  made?: boolean
   recovery?: unknown
 }
 

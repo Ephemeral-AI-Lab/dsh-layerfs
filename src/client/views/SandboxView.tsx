@@ -21,13 +21,15 @@ import type { MachinesView } from '../machines/model.ts'
 import { Gate, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useRootState } from './hooks.ts'
 import type { Translate } from './locale.ts'
+import { useLocaleRevision } from '../ui/locale-sync.ts'
 import { LayerfsMark, Whale } from './marks.tsx'
 import { WorkspaceTerminal } from './WorkspaceTerminal.tsx'
 import {
-  RESULT_S, RIPPLE_S, TAIL_S, activeAt, agentTree, buildSandboxMap, recentBranches, onlyBranches, wallAt, countEnded, easeOut, indexEvents, isQuietCall, lastEnded, mergeCalls, mountedAt, phaseOf, requestS, rippleAt, stamp, startedBy, windowAt,
+  RESULT_S, RIPPLE_S, TAIL_S, activeAt, agentTree, buildSandboxMap, stateWords, recentBranches, onlyBranches, wallAt, countEnded, easeOut, indexEvents, isQuietCall, lastEnded, mergeCalls, mountedAt, phaseOf, requestS, rippleAt, stamp, startedBy, windowAt,
   type LiveSandboxes, type MapAgent, type MapBinding, type MapEvent, type MapWorkspace, type SandboxMapModel,
 } from './model.ts'
 import css from './sandbox.module.css'
+import { dateTime } from '../ui/locale-sync.ts'
 
 /** Agent hues (`--lane-0` … in sandbox.module.css). */
 const LANES = 6
@@ -294,12 +296,15 @@ function useClock(duration: number, startLive: boolean) {
 type Focus = { kind: Kind | 'event', id: string } | null
 
 export function SandboxView(props: ViewProps): ReactNode {
-  const { api, t, sessionId, sessions } = props
+  const { api, sessionId, sessions } = props
+  // B2 #6: the translator is a stable function, so the memoized rows (Activity's agent and turn words) take a new one on a locale switch
+  const revision = useLocaleRevision()
+  const t = useMemo<Translate>(() => (key, params) => props.t(key, params), [props.t, revision])
   useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
   return (
     <Gate state={state} t={t}>
-      {(view, project) => <ChatSandboxMap {...props} project={project} binding={view.binding} root={state.root} byId={state.byId} title={state.title} label={state.label} />}
+      {(view, project) => <ChatSandboxMap {...props} t={t} project={project} binding={view.binding} root={state.root} byId={state.byId} title={state.title} label={state.label} />}
     </Gate>
   )
 }
@@ -344,7 +349,7 @@ export interface SandboxMapProps {
   /** The title of a group, from its head agent. */
   groupTitle: (head: MapAgent) => string
   /** A Sandbox's state when the page knows it better than the calls. */
-  boxState?: (name: string) => { text: string, live: boolean } | undefined
+  boxState?: (name: string) => { text: string, live: boolean, bad?: boolean } | undefined
   /** Controls beside a Sandbox (Close). */
   boxActions?: (name: string) => ReactNode
   /** A line under the toolbar (what the calls shown cover). */
@@ -927,7 +932,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
             const ghost = unborn(key)
             const bound = !!binding && binding.sandbox === box.name
             const known = boxState?.(box.name)
-            const state = ghost ? t('notCreated') : creating ? t('creating') : known ? known.text : bound ? binding.executionState ?? (binding.state === 'bound' ? t('active') : binding.state) : t('active')
+            const state = ghost ? t('notCreated') : creating ? t('creating') : known ? known.text : bound ? stateWords(binding.executionState ?? (binding.state === 'bound' ? 'active' : binding.state), t) : t('active')
             const stateLive = !ghost && (creating || (known ? known.live : bound && binding.state === 'bound'))
             const use = win.find((e) => !e.branch && e.sandbox === box.name && arrived(e) && now < e.end)
             const machine = box.machine ?? (bound ? binding.machine : undefined)
@@ -941,10 +946,16 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
                   style={{ ['--lane' as string]: use ? laneOf(use.agent) : creation ? laneOf(creation.agent) : undefined }}>
                   <MachineMark kind={kindOf(machine)} label={machineLabel(kindOf(machine), machine)} /><span className={css.rowName}>{box.name}</span>
                   {!ghost ? <span className={clsx(css.count, used >= WS_SLOTS - 1 && css.errorText)} title={t('workspacesMounted', { n: used, max: WS_SLOTS })}>{used}/{WS_SLOTS}</span> : null}
-                  <span className={css.status}><i className={clsx(css.dot, creating ? css.dotLane : stateLive && css.dotLive)} />{state}</span>
+                  <span className={css.status}><i className={clsx(css.dot, creating ? css.dotLane : known?.bad ? css.dotBad : stateLive && css.dotLive)} />{state}</span>
                 </button>
                 {boxActions ? <div className={css.boxActions}>{boxActions(box.name)}</div> : null}
-                {shownWs.length === 0 ? <p className={css.boxEmpty}>{creating ? t('starting') : t('noWorkspaces')}</p> : shownWs.map((ws) => {
+                {/* dsh's own session Workspace: listed (it holds a slot), off the flow; nobody runs commands in it */}
+                {!ghost && box.own?.map((ws) => (
+                  <p key={ws.id} className={css.boxOwn} data-own-ws={ws.id} title={[ws.id, ws.branch ? `${t('branch')}: ${ws.branch}` : null].filter(Boolean).join('\n')}>
+                    <span className={css.rowName}>{ws.name}</span><span className={css.muted}>{t('sessionWorkspace')}</span>
+                  </p>
+                ))}
+                {shownWs.length === 0 && !(box.own?.length && !ghost) ? <p className={css.boxEmpty}>{creating ? t('starting') : t('noWorkspaces')}</p> : shownWs.map((ws) => {
                   const wf = { kind: 'ws', id: ws.id } as const
                   const wkey = node('ws', ws.id)
                   const wsGhost = ghost || !mountedAt(mountsOf(ws.id), ws.id, now)
@@ -1043,7 +1054,7 @@ const ActivityRows = memo(function ActivityRows({ calls, count, now, t, choose, 
           <button type="button" className={css.event} onClick={() => choose({ kind: 'event', id: e.id })}
             onMouseEnter={() => setHover({ kind: 'event', id: e.id })} onMouseLeave={() => setHover(null)} style={{ ['--lane' as string]: laneOf(e.agent) }}>
             <EventIcon e={e} now={now} />
-            <time className={css.eventTime} dateTime={new Date(e.at).toISOString()} title={new Date(e.at).toLocaleString()}>{stamp(e.start)}</time>
+            <time className={css.eventTime} dateTime={new Date(e.at).toISOString()} title={dateTime(e.at)}>{stamp(e.start)}</time>
             <span className={css.eventMethod}>{e.method}</span>
             <span className={css.eventTarget}>{e.ws ?? e.branch ?? e.sandbox ?? ''}</span>
             {e.outcome !== 'ok' && e.end <= now ? <span className={css.errorText}>{e.outcome}</span> : null}

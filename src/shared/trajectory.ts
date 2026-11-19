@@ -100,7 +100,7 @@ export interface TrajectoryAnswer {
   turns: TrajectoryTurn[]
   /** False when the session log was not loaded: records are empty, calls come from receipts. */
   logLoaded: boolean
-  /** Distinct versions tool calls created, and the tool calls that created any. */
+  /** Distinct versions the session created (tool calls, its own calls and its turns' checkpoints), and the tool calls that created any. */
   counts: { versionsCreated: number, callsWithVersions: number }
 }
 

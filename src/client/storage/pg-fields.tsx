@@ -62,15 +62,22 @@ export function PgPasswordFields({ id, pw, t, auths = [] }: { id: string, pw: Re
     { value: 'entered' as const, label: t('pgPasswordEntered') },
     ...(auths.length ? [{ value: 'saved' as const, label: t('pgPasswordReference') }] : []),
   ]
+  // each input under its own label (User, Password); the saved logins' picker shows only when there is one
   return (
-    <Field label={t('pgPasswordHow')} hint={hint} error={pw.error(t)}>
+    <Field label={pw.how === 'entered' ? t('pgLoginField') : t('pgPasswordHow')} hint={hint} error={pw.error(t)}>
       <div className={css.passwordRow}>
         {pw.how === 'same' ? null : pw.how === 'entered' ? (
           <>
-            <Input key="user" className={clsx(css.monoInput, css.passwordInput)} value={pw.user} onChange={(e) => pw.setUser(e.target.value)} placeholder={t('pgUser')}
-              aria-label={t('pgUser')} autoComplete="off" spellCheck={false} />
-            <Input key="entered" className={clsx(css.monoInput, css.passwordInput)} value={pw.value} onChange={(e) => pw.setValue(e.target.value)} type="password"
-              aria-label={t('pgPasswordValue')} autoComplete="off" spellCheck={false} />
+            <label className={css.passwordPart}>
+              <span className={css.passwordLabel}>{t('pgUser')}</span>
+              <Input key="user" className={clsx(css.monoInput, css.passwordInput)} value={pw.user} onChange={(e) => pw.setUser(e.target.value)} placeholder={t('pgUser')}
+                aria-label={t('pgUser')} autoComplete="off" spellCheck={false} />
+            </label>
+            <label className={css.passwordPart}>
+              <span className={css.passwordLabel}>{t('pgPasswordValue')}</span>
+              <Input key="entered" className={clsx(css.monoInput, css.passwordInput)} value={pw.value} onChange={(e) => pw.setValue(e.target.value)} type="password"
+                aria-label={t('pgPasswordValue')} autoComplete="off" spellCheck={false} />
+            </label>
           </>
         ) : (
           <MenuSelect value={pw.auth} label={t('pgPasswordReferenceLabel')} placeholder={t('pgPasswordReferenceLabel')}

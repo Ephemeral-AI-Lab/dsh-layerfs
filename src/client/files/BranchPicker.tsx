@@ -21,7 +21,7 @@ export function BranchPicker({ branches, value, onChange, t, className }: Branch
   const others = branches.filter((b) => b.name !== 'main')
   const row = (b: { name: string, head: string | null }): MenuEntry => ({
     id: b.name,
-    label: <span className={css.branchItem} title={b.name}><span className={css.branchItemName}>{branchLabel(b.name, t)}</span><span className={css.branchItemHead}>{shortId(b.head)}</span></span>,
+    label: <span className={css.branchItem} title={b.name}><span className={css.branchItemName}>{branchLabel(b.name, t)}</span><span className={css.branchItemHead} title={b.head ?? undefined}>{shortId(b.head)}</span></span>,
   })
   const items: MenuEntry[] = [
     ...(main ? [{ type: 'label' as const, id: 'published', text: t('files_published') }, row(main)] : []),

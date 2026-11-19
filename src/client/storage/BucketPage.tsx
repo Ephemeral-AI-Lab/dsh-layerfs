@@ -8,19 +8,20 @@
  * Store; LayerFS reads its projects only by restoring it, so "inside" is the
  * linked Store's projects when the copy is still that Store's, else a Restore.
  */
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button, IconRefreshOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import type { DoctorT } from '../doctor/locale.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Card, Empty, LinkButton, MoreMenu, Notice, StateChip } from '../ui/index.tsx'
+import { Card, Empty, LinkButton, MoreMenu, StateChip } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { PaneBar } from './PaneBar.tsx'
-import { backupChip, bucketFiles, listFailedWords, placeWords } from './model.ts'
+import { autoList, backupChip, bucketFiles, listStatusWords, placeWords, reconnectOf, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { BucketGlyph } from './parts.tsx'
+import { Signal } from './Signal.tsx'
 import type { BucketRow, StorageView } from './types.ts'
 import css from './Storage.module.css'
 
@@ -36,8 +37,39 @@ export interface BucketPageProps {
   onRestore: (file: string, store: string | null) => void
   onBackup: (store: string, file: string) => void
   onDisconnect: () => void
+  /** Connect again… (a refused key, or a record with no key): the Connect dialog with its name and URL. */
+  onReconnect: (again: Reconnect) => void
   onOpenStore: (name: string) => void
   onOpenFile: (file: string) => void
+}
+
+/**
+ * Asks LayerFS to list the bucket once when its page opens, never again on its
+ * own: a refused or `not_listed` answer is kept as the result (F2: an effect
+ * keyed on "no files" listed it again forever). One ask per open page.
+ */
+function useListOnOpen(name: string, b: BucketRow | undefined, listing: boolean, onList: () => void): void {
+  const [ask] = useState(autoList)
+  useEffect(() => { if (ask(name, b, listing)) onList() })
+}
+
+/**
+ * A bucket that did not list, or whose record is broken: a dot and its word,
+ * LayerFS's sentence as the tip, and one action: Connect again… when the key
+ * was refused or the record has none (List again is the bar's own button).
+ */
+function BucketStatus({ b, t, onReconnect }: { b: BucketRow, t: StorageT, onReconnect: (again: Reconnect) => void }): ReactNode {
+  if (!b.error && b.state !== 'broken') return null
+  const again = reconnectOf(b)
+  const words = b.error ? listStatusWords(b.error.code, t) : t('bucketRecordBroken')
+  const tip = b.error?.message ?? b.message ?? b.fix ?? undefined
+  return (
+    <div className={css.bucketStatus} data-tone="danger" data-bucket-status={b.error?.code ?? b.state ?? ''}>
+      <Signal state="error" size={7} title={words} detail={tip} />
+      <span className={css.bucketStatusText} title={tip}>{words}</span>
+      {again ? <Button size="sm" variant="outline" onClick={() => onReconnect(again)}>{t('connectAgain')}</Button> : null}
+    </div>
+  )
 }
 
 /** A provider's words: Cloudflare R2, MinIO, else the record's own name. */
@@ -50,11 +82,10 @@ export function BucketMark({ provider, size = 14 }: { provider: string | null | 
   return provider === 'r2' || provider === 'minio' ? <BucketProviderGlyph provider={provider} size={size} /> : <BucketGlyph size={size} />
 }
 
-export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, onRestore, onBackup, onDisconnect, onOpenStore, onOpenFile }: BucketPageProps): ReactNode {
+export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, onRestore, onBackup, onDisconnect, onReconnect, onOpenStore, onOpenFile }: BucketPageProps): ReactNode {
   const b = view.buckets.find((x) => x.name === name)
-  // backup.list asks the bucket: once when the page opens, then on List.
-  const unlisted = b !== undefined && b.files === null && !listing
-  useEffect(() => { if (unlisted) onList() }, [unlisted]) // eslint-disable-line react-hooks/exhaustive-deps
+  // backup.list asks the bucket: once when the page opens, then on List again
+  useListOnOpen(name, b, listing, onList)
   if (!b) return <><PaneBar title={name} /><Empty title={t('bucketMissing', { name })}>{t('bucketMissingBody')}</Empty></>
   const rows = bucketFiles(b, view.stores)
   const listed = b.files !== null
@@ -84,7 +115,7 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
           listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : null,
         ].filter(Boolean).join(' · ')}
       </PaneBar>
-      {b.error ? <Notice tone="danger"><strong>{t('bucketListFailed')}</strong><span title={b.error.message}>{listFailedWords(b.error.code, t)}</span></Notice> : null}
+      <BucketStatus b={b} t={t} onReconnect={onReconnect} />
       {rows.length === 0 ? (
         <Empty title={listed ? t('bucketEmptyListedTitle') : t('bucketEmptyUnlistedTitle')} icon={<BucketMark provider={b.provider} size={20} />}>
           {listed ? t('bucketEmptyListed') : listing ? t('bucketListing') : t('bucketEmptyUnlisted')}
@@ -145,12 +176,12 @@ export interface BackupFilePageProps {
   onOpenStore: (name: string) => void
   onOpenProject: (key: string) => void
   onOpenBucket: () => void
+  onReconnect: (again: Reconnect) => void
 }
 
-export function BackupFilePage({ bucket, file, view, t, now, listing, onList, onRestore, onBackup, onOpenStore, onOpenProject, onOpenBucket }: BackupFilePageProps): ReactNode {
+export function BackupFilePage({ bucket, file, view, t, now, listing, onList, onRestore, onBackup, onOpenStore, onOpenProject, onOpenBucket, onReconnect }: BackupFilePageProps): ReactNode {
   const b = view.buckets.find((x) => x.name === bucket)
-  const unlisted = b !== undefined && b.files === null && !listing
-  useEffect(() => { if (unlisted) onList() }, [unlisted]) // eslint-disable-line react-hooks/exhaustive-deps
+  useListOnOpen(bucket, b, listing, onList)
   if (!b) return <><PaneBar title={file} /><Empty title={t('bucketMissing', { name: bucket })}>{t('bucketMissingBody')}</Empty></>
   const tt = t as Translate
   // one row per Store of this home linked to the file (LayerFS lists a file once per linked Store)
@@ -188,7 +219,7 @@ export function BackupFilePage({ bucket, file, view, t, now, listing, onList, on
           listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : t('bucketNotListed'),
         ].filter(Boolean).join(' · ')}
       </PaneBar>
-      {b.error ? <Notice tone="danger"><strong>{t('bucketListFailed')}</strong><span title={b.error.message}>{listFailedWords(b.error.code, t)}</span></Notice> : null}
+      <BucketStatus b={b} t={t} onReconnect={onReconnect} />
       <Card className={css.backupFacts}>
         <dl className={css.backupFactList}>
           <dt>{t('backupObject')}</dt>

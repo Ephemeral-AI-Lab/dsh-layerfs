@@ -19,13 +19,13 @@ import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { canAddProject, storeStateWords, storeTip, storeTone } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
-import { Location, StoreFixAction, StoreMenu, storeNotice, type StoreActions } from './StoreCard.tsx'
+import { Location, StoreAction, StoreMenu, storeNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
 import { StoreBackups, StoreConnection } from './StoreLinks.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
 import type { TabId } from './tabs.ts'
 import { runningByProject, stillCounting, storeTabs, type StoreProjectsView, type StoreStats, type StoreTab } from './store-page.ts'
-import type { ProjectSummary, StorageJob, StorageView } from './types.ts'
+import type { ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 import tabCss from './StorePage.module.css'
 
@@ -46,6 +46,11 @@ export interface StorePageProps {
   onOpenProject: (key: string) => void
   /** Open any page by its id (a Store, a Sandbox, a project), for the project table's links. */
   onOpen?: (id: TabId) => void
+}
+
+/** The notice's words: the state word and its reason, with LayerFS's sentence (or the blocking machine's) as the tip. */
+function StoreNoticeWords({ s, t, notice }: { s: StoreRow, t: StorageT, notice: string }): ReactNode {
+  return <span title={useStoreTip(s, t)}>{notice}</span>
 }
 
 export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen }: StorePageProps): ReactNode {
@@ -100,8 +105,8 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
       {notice ? (
         <Notice tone="danger" role="alert">
           {/* the state word and its reason; LayerFS's sentence is the tip, the fix the one action */}
-          <span title={s.state === 'broken' ? storeTip(s, t) : undefined}>{notice}</span>
-          {s.kind === 'sqlite' && machineState === 'stopped' ? <Button variant="outline" size="sm" onClick={on.start}>{t('startMachine', { machine: s.machine ?? '' })}</Button> : <StoreFixAction store={s} t={t} />}
+          <StoreNoticeWords s={s} t={t} notice={notice} />
+          {s.kind === 'sqlite' && machineState === 'stopped' ? <Button variant="outline" size="sm" onClick={on.start}>{t('startMachine', { machine: s.machine ?? '' })}</Button> : <StoreAction store={s} t={t} />}
         </Notice>
       ) : null}
       {current ? <JobPanel job={current} t={t} onRetry={() => on.retry(current)} onDismiss={() => on.dismiss(current)} /> : s.state === 'busy' && s.op ? <OpPanel store={s} t={t} /> : null}

@@ -18,6 +18,7 @@ import { branchParents, treeLayout } from './tree-model.ts'
 import { HistoryGraph } from './HistoryGraph.tsx'
 import { branchLabel } from './labels.ts'
 import { EmptyState, Loading } from './States.tsx'
+import { CopyId } from '../ui/index.tsx'
 import type { CommitInfo, HistoryBranch, HistoryPage, Translate } from './types.ts'
 import css from './History.module.css'
 
@@ -436,15 +437,15 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
         <dt>{t('files_branch')}</dt>
         <dd title={selectedBranch}>{branchLabel(selectedBranch, t)}</dd>
         {selectedEmpty
-          ? <><dt>{t('files_forkedFrom')}</dt><dd><code title={selected.id}>{shortId(selected.id)}</code></dd></>
-          : <><dt>{t('files_id')}</dt><dd><code title={selected.id}>{shortId(selected.id)}</code></dd></>}
+          ? <><dt>{t('files_forkedFrom')}</dt><dd><CopyId id={selected.id} short={shortId(selected.id)} copyLabel={t('files_copy')} copiedLabel={t('files_copied')} /></dd></>
+          : <><dt>{t('files_id')}</dt><dd><CopyId id={selected.id} short={shortId(selected.id)} copyLabel={t('files_copy')} copiedLabel={t('files_copied')} /></dd></>}
         {!selectedEmpty && selectedCommit?.at ? <><dt>{t('files_when')}</dt><dd>{when(selectedCommit.at)}</dd></> : null}
       </dl>
       {!selectedLive ? <p>{t('files_neverReachedMain')}</p> : null}
       {!selectedEmpty && selectedCommit?.parent && !layout.byId.has(selectedCommit.parent) ? <p>{t('files_parentMissing', { id: shortId(selectedCommit.parent) })}</p> : null}
       {!selectedEmpty && selectedCommit?.sourceBranch ? <p title={selectedCommit.sourceBranch}>{t('files_sourceBranch')}: {branchLabel(selectedCommit.sourceBranch, t)}</p> : null}
-      {!selectedEmpty && selectedCommit?.sourceCommit ? <p>{t('files_sourceCommit')}: <code>{shortId(selectedCommit.sourceCommit)}</code></p> : null}
-      {!selectedEmpty && selectedCommit?.base ? <p>{t('files_baseLayer')}: <code>{shortId(selectedCommit.base)}</code></p> : null}
+      {!selectedEmpty && selectedCommit?.sourceCommit ? <p>{t('files_sourceCommit')}: <code title={selectedCommit.sourceCommit}>{shortId(selectedCommit.sourceCommit)}</code></p> : null}
+      {!selectedEmpty && selectedCommit?.base ? <p>{t('files_baseLayer')}: <code title={selectedCommit.base}>{shortId(selectedCommit.base)}</code></p> : null}
       {!selectedEmpty && selectedCommit?.merged ? <p>{t('files_mergeParent', { id: shortId(selectedCommit.merged) })}</p> : null}
       {!selectedEmpty ? (
         <>
@@ -528,7 +529,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
                 : null}
             <button type="button" disabled={!branches.length} aria-label={t('files_compare')} title={t('files_compare')} onClick={openCompare}><IconCompareSplitOutlineRegular size={14} /></button>
             <span ref={finderAnchor} className={css.dockSlot}>
-              <button type="button" aria-expanded={finderOpen} aria-label={t('files_branches')} title={t('files_branches')} onClick={() => setFinderOpen((v) => !v)}>
+              <button type="button" aria-expanded={finderOpen} aria-label={t('files_branchesAll', { n: `${branches.length}${branchNext !== null ? '+' : ''}` })} title={t('files_branchesAll', { n: `${branches.length}${branchNext !== null ? '+' : ''}` })} onClick={() => setFinderOpen((v) => !v)}>
                 <IconBranchOutlineRegular size={14} />{branches.length}{branchNext !== null ? '+' : ''}
               </button>
             </span>

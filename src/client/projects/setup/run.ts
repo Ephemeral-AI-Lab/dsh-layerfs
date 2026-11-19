@@ -8,7 +8,7 @@ import { waitProject, type ProjectInitJob } from '../../picker/NewProjectForm.ts
 import type { StorageJob } from '../../storage/types.ts'
 import { pgLoginBody, type CreatePlan, type Step } from './model.ts'
 
-/** Start a machine and wait until it runs (the host waits; native answers at once). */
+/** Start a machine and wait until it runs (the host waits; native answers at once). Only ever behind a press on that machine's own Start. */
 export async function startMachine(api: LayerfsApi, machine: string): Promise<void> {
   if (machine === 'native') return
   await api.call('POST', `/api/machines/${enc(machine)}/start`)
@@ -26,8 +26,9 @@ export async function waitJob(api: LayerfsApi, job: StorageJob): Promise<Storage
 }
 
 /** Put a SQLite Store on a machine (a push from native, a pull to native, or a move) and wait. */
-export async function placeStore(api: LayerfsApi, store: string, machine: string): Promise<void> {
-  const job = await api.call<StorageJob>('POST', `/api/machines/${enc(machine)}/stores`, { store })
+/** @param made - the Store was just made here (New Store, a Create's new Store): the job reads "Created on", not "Pushed to". */
+export async function placeStore(api: LayerfsApi, store: string, machine: string, made = false): Promise<void> {
+  const job = await api.call<StorageJob>('POST', `/api/machines/${enc(machine)}/stores`, made ? { store, made } : { store })
   if (job && typeof job === 'object' && 'id' in job && 'ended' in job) await waitJob(api, job)
 }
 
@@ -54,17 +55,13 @@ export async function runStep(api: LayerfsApi, plan: CreatePlan, step: Step, onJ
       // a new login is saved by the host first (store save-auth, the password on stdin), then named on store connect --auth
       await api.call('POST', '/api/stores/postgresql', { name: store, url: plan.newStore?.url ?? '', ...(plan.newStore?.login ? pgLoginBody(plan.newStore.login) : {}), ...(step.machine ? { runsOn: step.machine } : {}) })
       return
-    case step.id === 'start-store':
-    case step.id.startsWith('start:'):
-      await startMachine(api, step.machine!)
-      return
     case step.id === 'init': {
       const job = await api.call<ProjectInitJob>('POST', '/api/projects', { store, name: plan.name, ...(plan.source ? { source: plan.source } : {}) })
       await waitProject(api, job, onJob)
       return
     }
     case step.id.startsWith('place:'):
-      await placeStore(api, store, step.machine!)
+      await placeStore(api, store, step.machine!, !plan.store)
       return
     case step.id.startsWith('runs-on:'):
       await setRunsOn(api, store, step.machine!)

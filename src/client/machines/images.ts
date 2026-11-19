@@ -235,9 +235,10 @@ export function imagesTotal(answer: Pick<SandboxImagesView, 'machine' | 'free' |
 export const removable = (row: Pick<ReadyImage, 'source'>): boolean => row.source !== 'bundle'
 
 /** Free space's rows: the removable images, the unused ones preselected. */
-export function freeSpaceRows(answer: Pick<SandboxImagesView, 'ready'> | null | undefined): { rows: ReadyImage[], preselected: string[] } {
+export function freeSpaceRows(answer: Pick<SandboxImagesView, 'ready'> | null | undefined, held: ReadonlyMap<string, string> = new Map()): { rows: ReadyImage[], preselected: string[] } {
   const rows = (answer?.ready ?? []).filter(removable)
-  return { rows, preselected: rows.filter((r) => r.sandboxes <= 0).map((r) => r.id) }
+  // an image LayerFS refused to remove (in use by a Sandbox the count missed) is never preselected again
+  return { rows, preselected: rows.filter((r) => r.sandboxes <= 0 && !held.has(r.id)).map((r) => r.id) }
 }
 
 /** Free space's footer: the bytes the checked images free, and what the new Sandbox needs when it was opened from New Sandbox. */

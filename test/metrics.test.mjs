@@ -215,6 +215,30 @@ function fixture(answers) {
 }
 const until = async (check, ms = 2000) => { const end = Date.now() + ms; while (!check()) { if (Date.now() > end) throw new Error('timed out'); await new Promise((r) => setTimeout(r, 5)) } }
 
+test('sampler (U10 add-on 7): a Sandbox just made drops its earlier points; a read begun before it was made adds none, the next read does', async () => {
+  let live = false
+  // the read is held open while the create ends: it began before the Sandbox was made
+  let release = null
+  const { s, clock } = sampler(() => [{ name: 'm', state: 'ready' }], {
+    m: (n) => (release === 'hold' ? new Promise((done) => { release = () => done(statsOf('m', n, [row('sb', n, { live })])) }) : statsOf('m', n, [row('sb', n, { live })])),
+  })
+  s.start(); await clock.advance(0); await clock.advance(0)
+  assert.deepEqual(s.liveOf('sb'), { live: false }, 'during its create its daemon was not running')
+  release = 'hold'
+  await clock.advance(H.TICK_MS)
+  assert.equal(typeof release, 'function', 'a read is under way')
+  live = true
+  s.created('sb')
+  assert.deepEqual(s.liveOf('sb'), {}, 'made: no live until a read after it, so the card shows its record (never "Daemon not running")')
+  live = false
+  release(); await clock.advance(0)
+  assert.deepEqual(s.liveOf('sb'), {}, 'the read begun before it was made adds nothing')
+  release = null; live = true
+  await clock.advance(H.TICK_MS)
+  assert.deepEqual(s.liveOf('sb'), { live: true }, 'the next read counts')
+  s.stop()
+})
+
 test('/api/metrics answers from memory with no LayerFS call; the stats route answers the sampler\'s values', async () => {
   const f = fixture({
     'machine.list': async () => ({ items: [{ machine: 'vm', platform: 'lima', state: 'ready' }] }),

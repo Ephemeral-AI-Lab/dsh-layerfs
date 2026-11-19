@@ -1140,3 +1140,66 @@
   margin: 0;
   font-size: 13px;
 }
+
+/* a bucket that did not list (or whose record is broken): dot, word (LayerFS's sentence as the tip), one action */
+.bucketStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+  font-size: 12px;
+  line-height: 16px;
+}
+.bucketStatus[data-tone='danger'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+.bucketStatusText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a project whose Store is broken (F4): the word (LayerFS's sentence as its tip) and its fix */
+.storeBroken {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+.storeBrokenWord {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* the login's two inputs, each under its own label */
+.passwordPart {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.passwordLabel {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+.passwordPart .passwordInput {
+  flex: none;
+  width: 100%;
+}

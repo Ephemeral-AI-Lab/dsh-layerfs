@@ -14,6 +14,7 @@ import { Field } from '../ui/index.tsx'
 import type { SetupModalT } from './locale.ts'
 import { useInstalled, type InstalledRuntime } from './store.ts'
 import css from './setup.module.css'
+import { dateOnly } from '../ui/locale-sync.ts'
 
 const isAbsolute = (p: string) => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
 const messageOf = (e: unknown): string => String((e as { message?: string } | null)?.message ?? e)
@@ -66,7 +67,7 @@ export function RuntimePicker({ api, t, other, onOther, onDone, cancellable, cur
               <li key={r.id} className={clsx(css.runtime, r.active && css.runtimeActive)} data-runtime={r.id}>
                 <span className={css.lineText}>
                   <span className={css.lineTitle}>{r.version ?? r.id}<span className={css.commit}>{r.commit ? r.commit.slice(0, 8) : '—'}</span>{r.dirty ? <span className={css.commit}>{t('dirtyTree')}</span> : null}</span>
-                  <span className={css.lineSub} data-blocked={blocking || undefined}>{[...wrong, new Date(r.at).toLocaleDateString()].join(' · ')}</span>
+                  <span className={css.lineSub} data-blocked={blocking || undefined}>{[...wrong, dateOnly(r.at)].join(' · ')}</span>
                 </span>
                 <span className={css.lineActions}>
                   {r.active

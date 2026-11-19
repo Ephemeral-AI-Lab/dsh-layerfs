@@ -88,6 +88,26 @@ export function machineOf(m: any) {
 export const unreadableRecord = (m: { state?: string | null, reason?: string | null, platform?: string | null }): boolean =>
   m.state === 'broken' && m.reason === 'failed' && !m.platform
 
+/**
+ * A machine's record (`machine list --detail` / `machine get --detail`, no
+ * live read) with its live probe (`machine get --with live`) over it. The
+ * probe's answer is the newer word on a machine, except that a record-level
+ * broken state (unreadable, outdated, unsupported, no 2.0 name) wins with its
+ * reason, fix and message: a live read that answers `unknown` (or anything
+ * else) never hides the record's broken state and its fix (UI pass 2 F1;
+ * LayerFS LF4 makes the live read keep it too).
+ */
+export function probedRecord(record: any, got: any): any {
+  if (!got || typeof got !== 'object') return record
+  const merged = { ...record, ...got, machine: record?.machine ?? got.machine }
+  if (record?.state !== 'broken') return merged
+  for (const key of ['state', 'reason', 'fix', 'message', 'op'] as const) {
+    if (record[key] === undefined || record[key] === null) delete merged[key]
+    else merged[key] = record[key]
+  }
+  return merged
+}
+
 /** A machine as the page and the host read it. */
 export type MachineRecord = ReturnType<typeof machineOf>
 

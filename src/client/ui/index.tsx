@@ -211,8 +211,22 @@ export interface FixRunner {
   tip(line: string): string
   /** After a fix ran. */
   done: string
+  /**
+   * The fix a refusal's line stands for on this page: a start, stop or restart
+   * of a machine whose own record is broken is that machine's own fix instead
+   * (or none): a broken machine is never advised `machine start` (UI pass 2 F1).
+   * Absent: the line as it is.
+   */
+  resolve?(line: string): { line: string, fix: RunnableFix | null } | null
 }
 export const FixContext = createContext<FixRunner | null>(null)
+
+/** A refusal's fix line on this page ({@link FixRunner.resolve}): the line to show as its tip (null: none) and the fix the page runs for it. */
+export function resolveFix(runner: FixRunner | null, line: string | null | undefined): { line: string, fix: RunnableFix | null } | null {
+  if (typeof line !== 'string' || !line) return null
+  if (runner?.resolve) return runner.resolve(line)
+  return { line, fix: runner ? runnableFix(line) : null }
+}
 
 /** One refusal's fix as its one action: a removal asks a second press; a refused fix shows its own refusal (without an action). */
 export function FixAction({ line, fix, runner, labels }: { line: string, fix: RunnableFix, runner: FixRunner, labels: RefusalLabels }): ReactNode {
@@ -220,18 +234,20 @@ export function FixAction({ line, fix, runner, labels }: { line: string, fix: Ru
   const [failed, setFailed] = useState<unknown>(null)
   const removes = fix.kind === 'delete' || fix.kind === 'prune' || fix.kind === 'removeMachine' || fix.kind === 'removeStore' || fix.kind === 'removeSandbox'
   // a fix that opens something (the save-login dialog, the Doctor page) is not done when it opens
-  const opens = fix.kind === 'saveAuth' || fix.kind === 'doctor'
+  const opens = fix.kind === 'saveAuth' || fix.kind === 'doctor' || fix.kind === 'connectBucket'
   const press = async () => {
     if (removes && step === 'idle') { setStep('confirm'); return }
     setStep('busy'); setFailed(null)
     try { await runner.run(fix); setStep(opens ? 'idle' : 'done') } catch (error) { setFailed(error); setStep('idle') }
   }
   if (step === 'done') return <p className={css.refusalFix} role="status"><StateDot state="done" />{runner.done}</p>
+  const words = step === 'confirm' ? runner.confirm(fix) : runner.label(fix)
   return (
     <div className={css.refusalFix}>
-      <Button size="sm" variant={step === 'confirm' ? 'primary' : 'outline'} disabled={step === 'busy'} title={runner.tip(line)} data-fid="refusal-fix"
+      {/* its name is its words; the CLI line it runs is only the tip */}
+      <Button size="sm" variant={step === 'confirm' ? 'primary' : 'outline'} disabled={step === 'busy'} title={runner.tip(line)} aria-label={words} data-fid="refusal-fix"
         onClick={(e) => { e.stopPropagation(); void press() }}>
-        {step === 'confirm' ? runner.confirm(fix) : runner.label(fix)}
+        {words}
       </Button>
       {failed != null && <Refusal error={failed} labels={labels} compact noFix />}
     </div>
@@ -267,8 +283,9 @@ const EXTRA = ['authority', 'source', 'retired', 'needed', 'free', 'missing', 'v
 export function Refusal({ error, labels, compact, className, noFix }: { error: unknown, labels: RefusalLabels, compact?: boolean, className?: string, noFix?: boolean }): ReactNode {
   const r = refusalOf(error)
   const runner = useContext(FixContext)
-  const fix = !noFix && r.fix ? r.fix : null
-  const runnable = fix && runner ? runnableFix(fix) : null
+  const resolved = !noFix && r.fix ? resolveFix(runner, r.fix) : null
+  const fix = resolved?.line || null
+  const runnable = fix && runner ? resolved!.fix : null
   const d = r.detail && typeof r.detail === 'object' ? r.detail : null
   const related: { kind: string, name: string, why?: string }[] = Array.isArray(d?.related) ? d.related : []
   const category = r.transport === 'usage-incompatible' ? 'usage' : r.transport === 'unavailable' ? 'unavailable' : r.transport === 'transport-unknown' ? 'unknown' : 'refusal'
@@ -435,6 +452,18 @@ export function CopyLine({ text, copyLabel, copiedLabel }: { text: string, copyL
         icon={copied ? <IconCheckOutlineRegular size={14} /> : <IconCopyOutlineRegular size={14} />}
         onClick={() => { void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1000) }) }} />
     </span>
+  )
+}
+
+/** A saved id as its short label (files/format.ts shortId): the full id is the tip, and a press copies the full id. */
+export function CopyId({ id, short, copyLabel, copiedLabel }: { id: string, short: string, copyLabel: string, copiedLabel: string }): ReactNode {
+  const [copied, setCopied] = useState(false)
+  const tip = `${id}\n${copied ? copiedLabel : copyLabel}`
+  return (
+    <button type="button" className={css.copyId} title={tip} aria-label={`${short}, ${copied ? copiedLabel : copyLabel}`} data-copy-id={id}
+      onClick={(e) => { e.stopPropagation(); void navigator.clipboard?.writeText(id).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1000) }) }}>
+      <code>{short}</code>{copied ? <IconCheckOutlineRegular size={11} /> : <IconCopyOutlineRegular size={11} />}
+    </button>
   )
 }
 

@@ -27,8 +27,9 @@ import {
 import { useMachineSpace } from './SpaceViews.tsx'
 import { diskScopeWords } from './stats.ts'
 import css from './machines.module.css'
+import { clockTime } from '../ui/locale-sync.ts'
 
-const clock = (at: number | null): string => (at ? new Date(at).toLocaleTimeString() : '—')
+const clock = (at: number | null): string => (at ? clockTime(at) : '—')
 const pct = (share: number): string => `${(Math.max(0, Math.min(1, share)) * 100).toFixed(2)}%`
 const LIST_ROWS = 5
 

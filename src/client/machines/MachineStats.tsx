@@ -18,6 +18,7 @@ import { statsReadOf, type MetricsSnapshot } from './metrics.ts'
 import { gib, type MachineInfo } from './model.ts'
 import { diskScopeWords, notObserved, reasonList, resourceScopeWords, staleWords, statsAskable, type MachineStats, type StatsRead } from './stats.ts'
 import css from './machines.module.css'
+import { clockTime, dateTime } from '../ui/locale-sync.ts'
 
 /**
  * The page's metrics (every machine read so far) while this component is
@@ -42,7 +43,7 @@ export function useMachineStats(m: Pick<MachineInfo, 'name' | 'state'>): { offer
   return { offered, read: offered && statsAskable(m) ? statsReadOf(snapshot, m.name) : undefined }
 }
 
-const clock = (at: number | null): string => (at ? new Date(at).toLocaleTimeString() : '—')
+const clock = (at: number | null): string => (at ? clockTime(at) : '—')
 
 /** "as of 12:03:10 · Busy": the values shown are older than the last read, which was refused. */
 function StaleMark({ read }: { read: StatsRead }): ReactNode {
@@ -106,7 +107,7 @@ export function ObservedCpuMemory({ read }: { read: StatsRead | undefined }): Re
 export function workerLine(stats: MachineStats | null | undefined, t: ReturnType<typeof useMachinesContext>['t']): string | null {
   const w = stats?.worker
   if (!w) return null
-  return [w.version ? t('workerVersion', { version: w.version }) : null, w.startedAt ? t('workerSince', { time: new Date(w.startedAt).toLocaleString() }) : null].filter(Boolean).join(' · ') || null
+  return [w.version ? t('workerVersion', { version: w.version }) : null, w.startedAt ? t('workerSince', { time: dateTime(w.startedAt) }) : null].filter(Boolean).join(' · ') || null
 }
 
 /** Each sqlite Store's size as observed (`stores[].bytes`: the Store file and its WAL), by name. */

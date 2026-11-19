@@ -184,10 +184,13 @@ export function storeRow(s: any, jobs: StorageJob[], runsOn: string | null = nul
   }
 }
 
-/** The not_listed entry for a bucket as the page shows it. */
-const notListedError = (n: any) => ({ code: String(n?.reason ?? 'lost'), message: String(n?.message ?? 'the bucket could not be listed') })
+/** The not_listed entry for a bucket as the page shows it: its reason, LayerFS's sentence and its fix line (`backup connect`, when the key was refused or the record has none). */
+const notListedError = (n: any) => ({ code: String(n?.reason ?? 'lost'), message: String(n?.message ?? 'the bucket could not be listed'), ...(typeof n?.fix === 'string' && n.fix ? { fix: n.fix } : {}) })
 
-type Listing = { at: number, items: any[] | null, error: { code: string, message: string } | null }
+type Listing = { at: number, items: any[] | null, error: { code: string, message: string, fix?: string } | null }
+
+/** A bucket as `home get --with tree` records it: its name, provider, and its state with its companions when it is not ready. */
+type BucketRecord = { name: string, provider: string | null, url?: string, state?: string, reason?: string, fix?: string, message?: string }
 
 export class Storage {
   readonly jobStore: JobStore
@@ -238,10 +241,15 @@ export class Storage {
   }
 
   /** The buckets connected to this LayerFS home, by any client: `home get --with tree` (records only). */
-  private async bucketRows(): Promise<{ name: string, provider: string | null }[]> {
+  private async bucketRows(): Promise<BucketRecord[]> {
     const tree = (await this.lfs.home.get({ with: ['tree'] }))?.tree
+    const text = (v: unknown) => (typeof v === 'string' && v ? { value: v } : null)
     return (Array.isArray(tree?.buckets) ? tree.buckets : []).filter((b: any) => typeof b?.bucket === 'string')
-      .map((b: any) => ({ name: b.bucket as string, provider: typeof b.provider === 'string' ? b.provider : null }))
+      .map((b: any) => {
+        const out: BucketRecord = { name: b.bucket as string, provider: typeof b.provider === 'string' ? b.provider : null }
+        for (const key of ['url', 'state', 'reason', 'fix', 'message'] as const) { const v = text(b[key]); if (v && !(key === 'state' && v.value === 'ready')) out[key] = v.value }
+        return out
+      })
   }
 
   /** StorageView: concurrent reads (the project list's join, the Storage page) share one. */
@@ -257,7 +265,7 @@ export class Storage {
     const [listed, machines, recorded] = await Promise.all([
       this.lfs.store.list({ detail: true, with: ['stats'] }),
       machineRows(this.lfs),
-      this.bucketRows().catch((error: any) => (this.log(`[storage] home get --with tree: ${error?.message ?? error}`), [] as { name: string, provider: string | null }[])),
+      this.bucketRows().catch((error: any) => (this.log(`[storage] home get --with tree: ${error?.message ?? error}`), [] as BucketRecord[])),
     ])
     const items: any[] = listed?.items ?? []
     const jobs = this.jobList()
@@ -276,7 +284,9 @@ export class Storage {
     const buckets = [...names].sort().map((name) => {
       const listing = this.listings.get(name)
       const record = recorded.find((b) => b.name === name)
-      return { name, provider: record?.provider ?? null, listed: listing?.at ?? null, files: listing?.items ?? null, error: listing?.error ?? null, stores: stores.filter((s) => s.links.some((l: { bucket: string }) => l.bucket === name)).map((s) => s.name) }
+      // the record's own state (a record with no access key reads broken, with the connect-again fix) beside the last listing
+      const own = record?.state ? { state: record.state, reason: record.reason ?? null, fix: record.fix ?? null, message: record.message ?? null } : {}
+      return { name, provider: record?.provider ?? null, ...(record?.url ? { url: record.url } : {}), ...own, listed: listing?.at ?? null, files: listing?.items ?? null, error: listing?.error ?? null, stores: stores.filter((s) => s.links.some((l: { bucket: string }) => l.bucket === name)).map((s) => s.name) }
     })
     const view = {
       machines: machines.map((m) => ({ name: m.name, platform: m.platform, state: m.state, supports: m.supports })),
@@ -489,8 +499,8 @@ export class Storage {
    * parts: MinIO { provider: 'minio', endpoint, bucket, prefix? }, R2
    * { provider: 'r2', account, jurisdiction?, bucket, prefix? }, with
    * { accessKey, secretKey }. The secret goes to LayerFS on stdin
-   * (`--key-stdin`); the home keeps it. To change a key: disconnect and
-   * connect again.
+   * (`--key-stdin`); the home keeps it. To change a key: connect again at
+   * the same URL (spec v21); the answer's `outcome` is then `rotated`.
    */
   async connectBucket(input: any = {}) {
     const { name } = input
@@ -500,9 +510,11 @@ export class Storage {
     if (!url.startsWith('r2://')) checkUrl(url, 'The bucket URL')
     const [access, secret] = [input.accessKey, input.secretKey].map((v) => (typeof v === 'string' ? v.trim() : ''))
     if (!access || !secret || /\s/.test(access + secret)) throw refuse(400, 'InvalidInput', 'Give both the access key and the secret key (no spaces)')
-    await this.lfs.backup.connect(name, url, { access_key: access, secret_key: secret })
+    // the long form says what happened: `rotated` when the name was already connected at this URL (spec v21: the key is replaced, links kept)
+    const answer: any = await this.lfs.backup.connect(name, url, { access_key: access, secret_key: secret, detail: true })
     this.changed()
-    return this.view()
+    const view = await this.view()
+    return { ...view, outcome: typeof answer?.outcome === 'string' ? answer.outcome : null }
   }
 
   /** Drops the bucket and its key; LayerFS drops every Store's link to it too. Answers which Stores lost theirs. */
@@ -627,13 +639,18 @@ export class Storage {
   }
 
   /** store.move(store, machine): a sqlite Store on native to `machine`. */
-  push(store: unknown, machine: unknown) {
+  push(store: unknown, machine: unknown, made = false) {
     checkName(store, 'A move')
     checkName(machine, 'A move')
-    return this.start('push', store, machine, null, async (on_progress, _step, on_spawn) => {
+    const job = this.start('push', store, machine, null, async (on_progress, _step, on_spawn) => {
       await this.host.ensureNative()
       return this.lfs.store.move(store, machine, { on_progress, on_spawn, detail: true })
     })
+    if (!made) return job
+    // the table's own row carries the mark (saved and sent with the next event), the answer too
+    const own = this.jobs.get(job.id)
+    if (own) own.made = true
+    return { ...job, made: true }
   }
 
   /** store.move(store, native): a sqlite Store on a machine back to this computer. */
@@ -671,14 +688,15 @@ export class Storage {
   }
 
   /** Puts sqlite Store `store` on `machine`: a move from native, to native, else two moves through native. */
-  async place(store: unknown, machine: unknown) {
+  /** @param made - a Store a New Store dialog just made: the push job is marked so its words read "created on". */
+  async place(store: unknown, machine: unknown, made = false) {
     checkName(store, 'A Store')
     checkName(machine, 'A machine')
     const record = await this.lfs.store.get(store)
     if (record.engine && record.engine !== 'sqlite') throw refuse(400, 'InvalidInput', `${store} is a PostgreSQL Store; it is never moved`)
     if (record.machine === machine) throw refuse(400, 'InvalidInput', `${store} is on ${machine} already`)
     if (machine === 'native') return this.pull(store)
-    if (record.machine === 'native') return this.push(store, machine)
+    if (record.machine === 'native') return this.push(store, machine, made)
     return this.move(store, machine)
   }
 

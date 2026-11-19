@@ -128,7 +128,7 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   // the project list shows each project's Store state from the Storage view
   projects.storeJoin = () => storage.projectJoin()
   // Compute's "Move to…" starts a job in Storage's table, so its progress shows there
-  const machines = new Machines(host, (store, machine) => storage.place(store, machine))
+  const machines = new Machines(host, (store, machine, made) => storage.place(store, machine, made))
   // a fix the Doctor page runs goes the way the Machines and Projects pages' own buttons go
   const checks = new DoctorChecks(host, undefined, { actions: { machineStart: (name) => machines.start(name), machineStop: (name) => machines.stop(name), projectDelete: (key) => projects.remove(key), backupCreate: (store, bucket) => storage.backupAndWait(store, bucket) } })
   const commands = new SandboxCommands(host)
@@ -138,6 +138,7 @@ export function createGroups(host: RouteHost, runtime: () => Promise<unknown>): 
   projects.ownExec = (ws, id) => commands.started(ws, id)
   // "Start and create" starts the machine as the Machines page does (machine-progress events)
   projects.startMachine = (name) => machines.start(name)
+  projects.sandboxMade = (name) => machines.metrics.created(name)
   // Stage 1: a Docker image that cannot fit on the machine is refused Capacity before its copy starts
   projects.spaceFor = (machine, image) => machines.spaceFor(machine, image)
   // a background create that ends changes the machines view: later GETs read anew
@@ -239,7 +240,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
     if (id && !sub && method === 'DELETE') return machines.remove(id)
     if (id && sub === 'update' && method === 'POST') return machines.update(id, body)
     // puts a sqlite Store here (push, pull, or pull then push): { store }
-    if (id && sub === 'stores' && method === 'POST') return machines.moveStore(body?.store, id)
+    if (id && sub === 'stores' && method === 'POST') return machines.moveStore(body?.store, id, body?.made === true)
   }
   if (group === 'status' && !id && method === 'GET') return projects.status(await g.runtime())
   // `id` is a project key, `<store>/<project>`, sent as one encoded segment

@@ -4,8 +4,9 @@ import type { RunnableFix } from '../../shared/doctor.ts'
 
 /**
  * The host call a refusal's fix line runs: the route the page's own button for
- * it takes. `doctor` and `saveAuth` are not calls: Center starts the doctor
- * (and opens the Doctor page) or opens the save-login dialog itself.
+ * it takes. `doctor`, `saveAuth` and `connectBucket` are not calls: Center
+ * starts the doctor (and opens the Doctor page) or opens the save-login or
+ * Connect dialog itself.
  */
 export function fixCall(api: LayerfsApi, fix: RunnableFix): Promise<unknown> {
   switch (fix.kind) {
@@ -20,6 +21,6 @@ export function fixCall(api: LayerfsApi, fix: RunnableFix): Promise<unknown> {
     case 'delete': return api.call('DELETE', `/api/projects/${enc(fix.project)}`)
     case 'backup': return api.call('POST', `/api/stores/${enc(fix.store)}/backup`, { bucket: fix.bucket })
     case 'homeInit': return api.op('setup.init')
-    case 'doctor': case 'saveAuth': return Promise.reject(new Error(`the ${fix.kind} fix is Center's own, not a host call`))
+    case 'doctor': case 'saveAuth': case 'connectBucket': return Promise.reject(new Error(`the ${fix.kind} fix is Center's own, not a host call`))
   }
 }

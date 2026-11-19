@@ -12,10 +12,10 @@ import { Card, LinkButton } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachinesKey } from './locale.ts'
 import { storeLines } from './Inventory.tsx'
-import { BUILT_IN, heldWords, inUse, machineState, opWords, sandboxesOn, supports, unreadableRecord, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
+import { BUILT_IN, fixAction, heldWords, inUse, machineState, opWords, sandboxesOn, supports, unreadableRecord, type AvailableView, type MachineInfo, type MachineLive } from './model.ts'
 import { pgStoresHere, pgSupportKey } from './notices.ts'
 import { useMachineStats } from './MachineStats.tsx'
-import { upTime } from './metrics.ts'
+import { upTime, unitsOf } from './metrics.ts'
 import { liveCounts } from './stats.ts'
 import css from './machines.module.css'
 
@@ -52,7 +52,7 @@ function Group({ title, children }: { title: string, children: ReactNode }): Rea
  * `onTab` makes the contents line open the Sandboxes and Stores tabs.
  */
 export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: MachineInfo, live: MachineLive | undefined, view: AvailableView, actions?: ReactNode, onTab?: ((tab: 'sandboxes' | 'stores') => void) | undefined }): ReactNode {
-  const { t, kind } = useMachinesContext()
+  const { t, kind, stateWord } = useMachinesContext()
   const p = view.platforms.find((x) => x.platform === m.platform)
   const state = machineState(m, live)
   const worker = useMachineStats(m).read?.stats?.worker ?? null
@@ -76,8 +76,9 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
       <div className={css.dtGrid}>
         <Group title={t('ovGroupMachine')}>
           <Item label={t('platform')} title={p?.description ?? undefined}>{[kind(m.platform), p?.how ? pick(HOW, p.how) : null].filter(Boolean).join(' · ')}</Item>
-          <Item label={t('readiness')} tone={missing.length ? 'danger' : p ? 'success' : undefined}>
-            {!p ? t('notListed') : missing.length ? t('missingList', { list: missing.join(', ') }) : t('readyHere')}
+          {/* an unreadable record names no platform: its readiness is not known, not "not offered" */}
+          <Item label={t('readiness')} tone={missing.length ? 'danger' : p ? 'success' : undefined} title={unreadable ? m.message ?? undefined : undefined}>
+            {unreadable ? t('readinessRecordUnreadable') : !p ? t('notListed') : missing.length ? t('missingList', { list: missing.join(', ') }) : t('readyHere')}
           </Item>
           <Item label={t('tool')} mono>{live?.toolVersion ?? p?.version ?? null}</Item>
           <Item label={t('ovContentsFact')}>
@@ -85,20 +86,21 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
               ? <><LinkButton onClick={() => onTab('sandboxes')}>{sandboxWords}</LinkButton>{' · '}<LinkButton onClick={() => onTab('stores')}>{storeWords}</LinkButton></>
               : `${sandboxWords} · ${storeWords}`}
           </Item>
-          {/* an unreadable record: the word, LayerFS's parser message as its tip; Run diagnostics (the head) is its one action */}
+          {/* why it is down: the state's word, LayerFS's message as its tip; the head's fix is its one action (no prose here) */}
           {unreadable
             ? <Item label={t('downBecause')} tone="danger" title={m.message ?? undefined}>{t('stateUnreadable')}</Item>
-            : m.message && m.state !== 'ready' && m.state !== 'stopped' && <Item label={t('downBecause')} tone="danger">{m.message}</Item>}
-          {!m.message && !unreadable && live?.error && <Item label={t('downBecause')} tone="danger">{live.error.message}</Item>}
+            : m.message && m.state !== 'ready' && m.state !== 'stopped' && <Item label={t('downBecause')} tone="danger" title={m.message}>{stateWord(state)}</Item>}
+          {!m.message && !unreadable && live?.error && <Item label={t('downBecause')} tone="danger" title={live.error.message}>{stateWord(state)}</Item>}
           {state.op && <Item label={t('operation')} mono>{opWords(state.op)}</Item>}
-          {m.fix && !unreadable && <Item label={t('fix')} mono>{m.fix}</Item>}
+          {/* a fix the page runs is the head's one action; only a line it cannot run stays here to copy */}
+          {m.fix && !unreadable && fixAction(m)?.kind === 'copy' && <Item label={t('fix')} mono>{m.fix}</Item>}
         </Group>
         <Group title={t('sandboxes')}>
           <Item label={t('ovSandboxesRun')}>{pick(RUNS_AS, m.backend) ?? t('runsUnknown')}</Item>
           {p?.route && <Item label={t('filesOver')}>{pick(KERNEL, p.route)}</Item>}
           {worker && (
             <Item label={t('worker')}>
-              {[worker.version ? t('workerVersion', { version: worker.version }) : null, worker.startedAt != null ? t('mxUpFor', { time: upTime(worker.startedAt, Date.now()) }) : null].filter(Boolean).join(' · ') || null}
+              {[worker.version ? t('workerVersion', { version: worker.version }) : null, worker.startedAt != null ? t('mxUpFor', { time: upTime(worker.startedAt, Date.now(), unitsOf(t)) }) : null].filter(Boolean).join(' · ') || null}
             </Item>
           )}
           <Item label={t('pgSandboxes')} tone={supports(m, 'postgresql_sandbox') === false ? 'muted' : undefined}>
@@ -119,11 +121,13 @@ export function MachineDetailsCard({ m, live, view, actions, onTab }: { m: Machi
   )
 }
 
-/** A created VM's Remove, refused while something holds the machine; built-in machines have none. */
+/** A created VM's Remove, refused while something holds the machine; a built-in has one only when LayerFS's fix removes its record. */
 export function DangerZone({ m, pending, onRemove }: { m: MachineInfo, pending: string | null, onRemove: () => void }): ReactNode {
   const { t, tw } = useMachinesContext()
-  if (BUILT_IN.has(m.platform)) return null
-  const held = inUse(m)
+  // a built-in has none, unless LayerFS's own fix removes its record (`machine remove <m>`: LayerFS decides, U8)
+  const recordOnly = fixAction(m)?.kind === 'remove'
+  if (BUILT_IN.has(m.platform) && !recordOnly) return null
+  const held = recordOnly ? null : inUse(m)
   // LayerFS refuses to remove a machine whose record it cannot read (Failed): off, with the reason the list row's menu gives
   const unreadable = unreadableRecord(m)
   const why = unreadable ? t('recordUnreadableNoRemove') : held ? tw(heldWords(held)) : null

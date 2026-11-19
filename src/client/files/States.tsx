@@ -1,7 +1,9 @@
 /** Loading, refusal and empty states shared by the LayerFS pages. */
-import type { ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { RunnableFix } from '../../shared/doctor.ts'
+import { FixAction, FixContext, refusalOf, resolveFix, type RefusalLabels } from '../ui/index.tsx'
 import { errorCode, errorText } from './use-query.ts'
 import css from './States.module.css'
 
@@ -17,7 +19,26 @@ export function Loading({ label, className }: { label: string, className?: strin
  * @param props.retryLabel - localized Retry.
  * @param props.onRetry - reads again.
  */
-export function ErrorState({ title, error, retryLabel, onRetry, className }: { title: string, error: unknown, retryLabel?: string, onRetry?: () => void, className?: string }): ReactNode {
+export function ErrorState({ title, error, retryLabel, onRetry, className, fixWord, inTheWay }: {
+  title: string, error: unknown, retryLabel?: string, onRetry?: () => void, className?: string
+  /** A refusal whose fix the page runs: the status word for that fix (default: `title`). */
+  fixWord?: ((fix: RunnableFix) => string | null) | undefined
+  /** "In the way", for a refused fix's own refusal. */
+  inTheWay?: string | undefined
+}): ReactNode {
+  const fixes = useContext(FixContext)
+  const resolved = fixes ? resolveFix(fixes, refusalOf(error).fix) : null
+  // a refusal with a fix the page runs (Center): the word, LayerFS's message as its tip, the fix as the one action; no code chip, no Retry
+  if (resolved?.fix && fixes) {
+    return (
+      <div className={clsx(css.failure, className)} role="alert" data-fix={resolved.fix.kind}>
+        <div className={css.failureText}>
+          <p className={css.failureTitle} title={errorText(error)}><StateDot state="error" />{fixWord?.(resolved.fix) ?? title}</p>
+        </div>
+        <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={compactLabels(inTheWay ?? '')} />
+      </div>
+    )
+  }
   const code = errorCode(error)
   return (
     <div className={clsx(css.failure, className)} role="alert">
@@ -29,6 +50,9 @@ export function ErrorState({ title, error, retryLabel, onRetry, className }: { t
     </div>
   )
 }
+
+/** The words a fix's own refusal needs when it shows compact (only "in the way" is read). */
+const compactLabels = (inTheWay: string): RefusalLabels => ({ category: () => '', inTheWay, kind: (k) => k, phase: (p) => p, operation: (o) => o })
 
 /** Nothing to show: a title, a sentence and an optional action. */
 export function EmptyState({ title, children, action, icon, className }: { title: string, children?: ReactNode, action?: ReactNode, icon?: ReactNode, className?: string }): ReactNode {

@@ -328,6 +328,7 @@
 
 .boxActions { display: flex; justify-content: flex-end; padding: 0 8px 4px; }
 .boxEmpty { margin: 0 11px 10px 35px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }
+.boxOwn { display: flex; gap: 6px; align-items: baseline; min-width: 0; margin: 0 11px 6px 35px; font-size: 11px; }
 
 .boxNone {
   display: flex;

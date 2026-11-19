@@ -33,7 +33,7 @@ import { Answer, cliFeatures, featuresOf, fixOf, pages, refuse, type CliFeatures
 import { ImageLoads, type LoadReport } from './image-loads.ts'
 import { createPhase } from './projects.ts'
 import { pgMachineOf, StoreMachines } from '../store-machines.ts'
-import { companionsOf, machineOf, opOf, unreadableRecord } from '../layerfs/machine-records.ts'
+import { companionsOf, machineOf, opOf, unreadableRecord, probedRecord } from '../layerfs/machine-records.ts'
 
 export { machineOf, opOf, STATES } from '../layerfs/machine-records.ts'
 import { engineSocket, realEngineDeps, startEngine, type EngineDeps } from './docker-engine.ts'
@@ -289,6 +289,8 @@ type PlatformsView = { host: string, platforms: ReturnType<typeof platformOf>[] 
 /** The machines view and its calls. */
 export class Machines {
   private lastView: any = null
+  /** The last `machine list --detail` rows by name: the records an inspect keeps a broken state from. */
+  private records = new Map<string, any>()
   /** The MachinesView read in flight, shared by concurrent GETs; `changed()` (any write) makes later GETs read anew. */
   private viewing: { promise: ReturnType<Machines['readView']>, generation: number } | null = null
   private generation = 0
@@ -301,7 +303,7 @@ export class Machines {
    * @param host - the route dependencies.
    * @param place - puts a Store on a machine as a job in Storage's table (push, pull, or pull then push).
    */
-  constructor(private readonly host: RouteHost, private readonly place: ((store: string, machine: string) => Promise<unknown>) | null = null) {}
+  constructor(private readonly host: RouteHost, private readonly place: ((store: string, machine: string, made?: boolean) => Promise<unknown>) | null = null) {}
 
   get lfs() { return this.host.lfs() }
 
@@ -378,8 +380,10 @@ export class Machines {
         .then((got: any) => ({ name: String(m.machine), got }), (error: any) => ({ name: String(m.machine), error })))),
     ])
     const probed = new Map<string, { got?: any, error?: any }>(probes.map((p: any) => [p.name, p]))
-    // a probe that answered is the newer word on the machine; one that failed leaves its record's
-    const machines = rows.map((m: any) => machineOf(probed.get(String(m.machine))?.got ? { ...m, ...probed.get(String(m.machine))!.got, machine: m.machine } : m))
+    // a probe that answered is the newer word on the machine; one that failed leaves its record's;
+    // a record that is broken itself (outdated, unreadable…) keeps its state, reason and fix over any probe
+    this.records = new Map(rows.map((m: any) => [String(m.machine), m]))
+    const machines = rows.map((m: any) => machineOf(probedRecord(m, probed.get(String(m.machine))?.got)))
     const live = Object.fromEntries([...probed].map(([name, p]) => [name, machineLive(name, p.got, p.error)]))
     const stores = listedStores.map(storeOf).filter(Boolean)
     const saved = new StoreMachines(this.host.root)
@@ -408,8 +412,8 @@ export class Machines {
     return { host: String(answer.host ?? ''), platforms: rows.map((p) => ({ ...p, options: p.options.filter((o: any) => !OFF_OPTIONS.has(o.option)) })) }
   }
 
-  /** `machine get <m> --detail --with live`, as LayerFS answers it. */
-  async inspect(name: string) { return { ...(await this.lfs.machine.get(name, { detail: true, with: ['live'] })), observedAt: Date.now() } }
+  /** `machine get <m> --detail --with live`, with the last listed record's own broken state kept over it ({@link probedRecord}). */
+  async inspect(name: string) { return { ...probedRecord(this.records.get(name) ?? null, await this.lfs.machine.get(name, { detail: true, with: ['live'] })), observedAt: Date.now() } }
 
   /** The monitoring reads' shared state: one read per key, last good answers, page requests that can be cancelled. */
   readonly reads = new InspectReads()
@@ -869,10 +873,11 @@ export class Machines {
   platformsChanged(): void { this.platformAnswer = null }
 
   /** Puts a sqlite Store on `machine`: a job in the host's table (its progress shows on Storage). */
-  async moveStore(store: string, machine: string) {
+  /** @param made - the Store was just made by a New Store dialog (the job's words say so). */
+  async moveStore(store: string, machine: string, made = false) {
     if (!store || !machine) throw refuse(null, 'InvalidInput', 'name the Store and the machine')
     if (!this.place) throw refuse(null, 'Unsupported', 'this host has no Storage job table to push or pull with')
-    return this.place(store, machine)
+    return this.place(store, machine, made)
   }
 }
 

@@ -13,6 +13,7 @@ import { branchLabel } from './labels.ts'
 import type { TreeBranch, TreeLayout, TreeRow } from './tree-model.ts'
 import type { Translate } from './types.ts'
 import css from './History.module.css'
+import { clockTime } from '../ui/locale-sync.ts'
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
 
@@ -392,7 +393,7 @@ export function HistoryGraph({ layout: latest, selected, branch, focus, onSelect
   for (let n = Math.ceil(first / tick) * tick; n <= last; n += tick) ticks.push(n)
   const clock = (row: TreeRow | undefined) => {
     const at = toMs(row?.commit?.at ?? row?.commit?.sourceTime)
-    return at == null ? '' : new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return at == null ? '' : clockTime(at, { hour: '2-digit', minute: '2-digit' })
   }
   const dim = (name: string) => !!lit && !lit.has(name)
   const selectedRow = selected ? layout.byId.get(selected) : undefined

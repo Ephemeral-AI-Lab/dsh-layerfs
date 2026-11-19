@@ -3,13 +3,14 @@
  * the Store menu, the words under its name and why it needs you now.
  */
 import { useContext, type ReactNode } from 'react'
-import { MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
-import { runnableFix } from '../../shared/doctor.ts'
+import { Button, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { FixAction, FixContext, LinkButton, MoreMenu } from '../ui/index.tsx'
+import { FixAction, FixContext, LinkButton, MoreMenu, resolveFix } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { blockedWords, brokenWords, compactWaitsFor, inHome, latestBackup, storeStateWords } from './model.ts'
+import { blockedWords, brokenWords, compactWaitsFor, inHome, latestBackup, storeStateWords, storeTip } from './model.ts'
+import { useMachinesMaybe } from '../machines/context.tsx'
+import type { MachineInfo } from '../machines/model.ts'
 import { refusalLabels } from './parts.tsx'
 import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
@@ -133,6 +134,53 @@ export function storeNotice(s: StoreRow, machineState: string | null | undefined
  */
 export function StoreFixAction({ store: s, t }: { store: Pick<StoreRow, 'state' | 'fix'>, t: StorageT }): ReactNode {
   const fixes = useContext(FixContext)
-  const fix = fixes && s.state === 'broken' && s.fix ? runnableFix(s.fix) : null
-  return fix && fixes ? <FixAction line={s.fix!} fix={fix} runner={fixes} labels={refusalLabels(t)} /> : null
+  const resolved = fixes && s.state === 'broken' ? resolveFix(fixes, s.fix) : null
+  return resolved?.fix && fixes ? <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} /> : null
+}
+
+/** The machine a Store waits on while that machine is broken (not stopped or busy), or null (F3). */
+export const brokenBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): string | null =>
+  s.state === 'blocked' && s.blockedBy?.machine && !['', 'stopped', 'busy'].includes(s.blockedBy.reason) ? s.blockedBy.machine : null
+
+/** That machine's record from the Machines read, where the page has one. */
+function useBlockingMachine(s: Pick<StoreRow, 'state' | 'blockedBy'>): MachineInfo | null {
+  const mc = useMachinesMaybe()
+  const name = brokenBlock(s)
+  // the context is there or not for the whole life of a page part, so the hook is called the same way each render
+  const m = mc ? mc.useMachines((snapshot) => (snapshot.data?.available && name ? snapshot.data.machines.find((x) => x.name === name) ?? null : null)) : null
+  return m ?? null
+}
+
+/** A Store's status tip: LayerFS's sentence for the Store; for one blocked by a broken machine, that machine's sentence (else its reason). */
+export function useStoreTip(s: StoreRow, t: StorageT): string | undefined {
+  const m = useBlockingMachine(s)
+  if (!brokenBlock(s)) return storeTip(s, t)
+  return m?.message ?? m?.fix ?? s.blockedBy?.reason ?? undefined
+}
+
+/**
+ * A Store's one action on its status line: a broken Store's own fix; a Store
+ * blocked by a broken machine, that machine's fix where Center runs it
+ * (Remove record, Run doctor…), else Repair <m>, which opens the machine.
+ * Never the raw reason.
+ */
+export function StoreAction({ store: s, t }: { store: StoreRow, t: StorageT }): ReactNode {
+  const m = useBlockingMachine(s)
+  const machine = brokenBlock(s)
+  if (s.state === 'broken') return <StoreFixAction store={s} t={t} />
+  return machine ? <MachineRepair machine={machine} record={m} t={t} /> : null
+}
+
+/** A broken machine's one action for what waits on it: its fix, else Repair <m> (its page). */
+export function MachineRepair({ machine, record, t }: { machine: string, record: Pick<MachineInfo, 'fix' | 'message'> | null | undefined, t: StorageT }): ReactNode {
+  const fixes = useContext(FixContext)
+  const mc = useMachinesMaybe()
+  const resolved = resolveFix(fixes, record?.fix)
+  if (resolved?.fix && fixes) return <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} />
+  return mc ? (
+    <Button size="sm" variant="outline" title={record?.message ?? record?.fix ?? undefined} data-repair={machine}
+      onClick={(e) => { e.stopPropagation(); mc.openStorageTab(`machine:${machine}`) }}>
+      {t('repairMachine', { machine })}
+    </Button>
+  ) : null
 }

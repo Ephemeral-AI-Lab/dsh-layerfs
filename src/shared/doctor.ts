@@ -195,6 +195,10 @@ export function parseFix(line: string | null | undefined): Fix | null {
  *   saveAuth  `layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update S --auth <auth>`
  *             (a PostgreSQL Store naming no saved login): opens the save-login dialog for S; the
  *             page never fills a password in for the person
+ *   connectBucket  `layerfs backup connect <name> <url> --access-key <key> --key-stdin` (a bucket
+ *             whose key was refused or whose record has none, V21-4): opens the Connect dialog
+ *             with the name and URL; connecting again with the same URL rotates the key
+ *             (spec v21 `rotated`), the person types the key there
  * Any other option (`--force`, `--mount …`) or command keeps it a tip.
  */
 export type RunnableFix =
@@ -205,12 +209,52 @@ export type RunnableFix =
   | { kind: 'backup', store: string, bucket: string }
   | { kind: 'homeInit' }
   | { kind: 'saveAuth', store: string }
+  | { kind: 'connectBucket', bucket: string, url: string }
 
 /** LayerFS's fix for a PostgreSQL Store that names no saved login (its placeholders are for the person). */
 const SAVE_AUTH = /^layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update (\S+) --auth <auth>$/
 
+/**
+ * A shell line's words, with '…' and "…" quoting and backslash escapes undone
+ * (LayerFS shell-quotes a fix's names and URLs); null when a quote is left open.
+ */
+export function shellWords(line: string): string[] | null {
+  const out: string[] = []
+  let word: string | null = null
+  let quote: '"' | "'" | null = null
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!
+    if (quote === "'") { if (c === "'") quote = null; else word = (word ?? '') + c; continue }
+    if (quote === '"') {
+      if (c === '"') quote = null
+      else if (c === '\\' && i + 1 < line.length && '"\\$`'.includes(line[i + 1]!)) word = (word ?? '') + line[++i]
+      else word = (word ?? '') + c
+      continue
+    }
+    if (/\s/.test(c)) { if (word !== null) out.push(word); word = null; continue }
+    if (word === null) word = ''
+    if (c === "'" || c === '"') quote = c
+    else if (c === '\\' && i + 1 < line.length) word = (word ?? '') + line[++i]
+    else word = (word ?? '') + c
+  }
+  if (quote) return null
+  if (word !== null) out.push(word)
+  return out
+}
+
+/** LayerFS's credentials fix for a bucket (V21-4): `layerfs backup connect <name> <url> --access-key <key> --key-stdin`, its bucket and URL. */
+export function connectBucketFix(line: string | null | undefined): { bucket: string, url: string } | null {
+  if (typeof line !== 'string' || line.length > 512 || line.includes('&&')) return null
+  const w = shellWords(line.trim())
+  if (!w || w.length !== 8 || w[0] !== 'layerfs' || w[1] !== 'backup' || w[2] !== 'connect') return null
+  if (w[5] !== '--access-key' || w[7] !== '--key-stdin' || !WORD.test(w[3]!) || !/^(https?:\/\/|r2:\/\/)\S+$/.test(w[4]!)) return null
+  return { bucket: w[3]!, url: w[4]! }
+}
+
 export function runnableFix(line: string | null | undefined): RunnableFix | null {
   if (typeof line !== 'string' || !line.trim() || line.length > 512) return null
+  const connect = connectBucketFix(line)
+  if (connect) return { kind: 'connectBucket', ...connect }
   const fix = parseFix(line)
   if (fix) {
     const [a] = fix.steps as [FixStep]
@@ -246,6 +290,24 @@ export function forcedRestart(line: string | null | undefined): string | null {
 
 /** The fix line that starts a machine stopped on purpose (the page offers it from records, before any doctor ran). */
 export const startLine = (machine: string): string => `layerfs machine start ${machine}`
+
+/**
+ * A refusal's fix line against the machines' records (UI pass 2 F1): a
+ * start, stop or restart of a machine whose own record is broken stands for
+ * that machine's own fix (null when it has none), never `machine start`.
+ * Anything else is the line as it is.
+ */
+export function fleetFix(line: string, fleet: readonly { name: string, state?: string | null, fix?: string | null }[] | null | undefined): { line: string, fix: RunnableFix | null } | null {
+  const fix = runnableFix(line)
+  if (!fix || (fix.kind !== 'start' && fix.kind !== 'stop' && fix.kind !== 'restart')) return { line, fix }
+  const m = fleet?.find((x) => x.name === fix.machine)
+  if (!m || m.state !== 'broken' || m.fix === line) return { line, fix }
+  return m.fix ? { line: m.fix, fix: runnableFix(m.fix) } : null
+}
+
+/** A Docker image id cut to `sha256:` and its first twelve hex digits (`sha256:0123456789ab…`); anything else as it is. */
+export const shortDigest = (ref: string | null | undefined): string =>
+  !ref ? '' : ref.replace(/^(sha256:)?([0-9a-f]{12})[0-9a-f]{52}$/, (_, p: string | undefined, h: string) => `${p ?? ''}${h}…`)
 
 /** A fix line's commands, one per line (tips and the detail's Fix line). */
 export const fixCommands = (line: string): string[] => line.split('&&').map((c) => c.trim()).filter(Boolean)

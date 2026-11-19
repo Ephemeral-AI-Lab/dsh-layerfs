@@ -31,6 +31,7 @@ import { SpaceBar, useDiskLevel, useMachineSpace } from './SpaceViews.tsx'
 import { DangerZone, MachineDetailsCard } from './Spec.tsx'
 import { diskScopeWords, resourceScopeWords, statsAskable } from './stats.ts'
 import css from './machines.module.css'
+import { clockTime } from '../ui/locale-sync.ts'
 
 /**
  * `troubled`: the page already shows a notice of the machine's own (down,
@@ -116,7 +117,7 @@ function UsageCard({ m, healthy, onDisk }: { m: MachineInfo, healthy: boolean, o
         <h3 className={css.columnTitle}>{t('ovUsage')}</h3>
         <span className={css.columnSpacer} />
         {healthy && <span className={css.ovHealthy} role="status" data-overview-status="healthy"><IconCheckCircleOutlineRegular size={13} />{t('ovHealthy')}</span>}
-        {at != null && <span className={css.columnCount}>{t('ovReadAt', { time: new Date(at).toLocaleTimeString() })}</span>}
+        {at != null && <span className={css.columnCount}>{t('ovReadAt', { time: clockTime(at) })}</span>}
       </header>
       <div className={css.ovCols} data-cols={hasCpu ? 3 : 2}>
         {hasCpu && (

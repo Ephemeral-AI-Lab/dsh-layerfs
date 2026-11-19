@@ -7,7 +7,7 @@ import clsx from 'clsx'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { ErrorState, Loading } from '../files/States.tsx'
-import { overlayCount } from '../machines/model.ts'
+import { unsavedCount } from './model.ts'
 import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory } from '../files/ProjectHistory.tsx'
 import { parseFocus, useRootState, type SessionsSource, type SessionStateView, type ViewFocus } from './hooks.ts'
@@ -80,10 +80,8 @@ function useFocus(id: string, { viewRequest, completeViewRequest }: ViewOwner): 
 
 function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId: string, t: Translate }): ReactNode {
   const branch = view.binding?.branch
-  // An in-place edit shows as inodes without entries, so count either (Machines' rule).
-  const overlay = view.status?.overlay
-  // 2.0 `workspace status --detail`: `overlay { inode_count, entry_count }`
-  const pending = overlay ? overlayCount({ inodes: Number(overlay.inode_count ?? 0), entries: Number(overlay.entry_count ?? 0) }) : 0
+  // 2.0 `workspace status --detail`: `overlay { inode_count, entry_count }`; the changed entries, not the inodes
+  const pending = unsavedCount(view.status?.overlay)
   const active = view.binding?.state === 'bound'
   return (
     <div className={css.sessionLine}>

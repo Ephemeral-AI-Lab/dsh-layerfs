@@ -397,13 +397,19 @@ export function processors(v: number): string {
 export const percent = (share: number): string => `${share > 0 && share < 0.01 ? '<1' : Math.round(share * 100)} %`
 
 /** Up time in words from a start time: "45 s", "12 min", "3 h 5 min", "2 d 4 h". */
-export function upTime(startedAt: number | null | undefined, now: number): string {
+export function upTime(startedAt: number | null | undefined, now: number, u: TimeUnits = EN_UNITS): string {
   if (startedAt == null || !Number.isFinite(startedAt) || now < startedAt) return '—'
   const s = Math.floor((now - startedAt) / 1000)
-  if (s < 60) return `${s} s`
+  if (s < 60) return `${s} ${u.s}`
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m} min`
+  if (m < 60) return `${m} ${u.min}`
   const h = Math.floor(m / 60)
-  if (h < 48) return `${h} h ${m % 60} min`
-  return `${Math.floor(h / 24)} d ${h % 24} h`
+  if (h < 48) return `${h} ${u.h} ${m % 60} ${u.min}`
+  return `${Math.floor(h / 24)} ${u.d} ${h % 24} ${u.h}`
 }
+
+/** The unit words an uptime reads in (B2 #5: `16 分钟` in zh, never `16 min`). */
+export interface TimeUnits { s: string, min: string, h: string, d: string }
+export const EN_UNITS: TimeUnits = { s: 's', min: 'min', h: 'h', d: 'd' }
+/** The units from the machines locale (`unitS`, `unitMin`, `unitH`, `unitD`). */
+export const unitsOf = (t: (key: 'unitS' | 'unitMin' | 'unitH' | 'unitD') => string): TimeUnits => ({ s: t('unitS'), min: t('unitMin'), h: t('unitH'), d: t('unitD') })

@@ -639,6 +639,16 @@ const REASON_LABEL: Record<string, MachinesKey> = {
  */
 export const unreadableRecord = (m: Pick<MachineInfo, 'state' | 'reason' | 'platform'>): boolean => m.state === 'broken' && m.reason === 'failed' && !m.platform
 
+/**
+ * The disk line's words when no free space was read: an unreadable record
+ * says so (its platform and disk are not known, whatever runs), "while
+ * stopped" only for a stopped machine, else "not reported".
+ */
+export function unreportedDiskKey(m: Pick<MachineInfo, 'state' | 'reason' | 'platform'>): 'diskRecordUnreadable' | 'diskWhileStopped' | 'diskUnreported' {
+  if (unreadableRecord(m)) return 'diskRecordUnreadable'
+  return m.state === 'stopped' ? 'diskWhileStopped' : 'diskUnreported'
+}
+
 /** A machine's state as LayerFS gives it (one of the six), worded by its companion: a busy op's name, a broken reason. */
 export function machineState(m: MachineInfo, _live?: MachineLive): StateLook & { key: MachineKey, state: string, op: SdkOperation | null } {
   const state = m.state || 'unknown'
@@ -760,6 +770,9 @@ export function fixAction(m: MachineInfo): FixAction | null {
   if (commands.length === 2 && word(commands[0]!, 'stop', true) && word(commands[1]!, 'start')) return { kind: 'forced', sandboxes: heldSandboxes(m), line }
   return line ? { kind: 'copy', line } : null
 }
+
+/** Whether LayerFS's fix for a machine is one the page runs behind its one button (start, restart, remove, force): then nothing else is offered beside it. */
+export const runsFix = (m: MachineInfo): boolean => { const f = fixAction(m); return !!f && f.kind !== 'copy' && f.kind !== 'check' }
 
 /** Force stop remains available for registered runtimes even when the worker
  * is stopped or unavailable; native stops its managed runtimes, not the host. */

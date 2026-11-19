@@ -26,7 +26,7 @@ export function machinesFor(view: Pick<StorageView, 'machines'> | undefined, kin
  * A machine whose platform is not ready here (needs.ts machineBlock): it
  * cannot run now whatever its record says. `startable`: only the Docker
  * Engine is down on macOS, which the machine's Start launches first, so it
- * stays pickable (Create starts it).
+ * stays pickable: the person picks it and presses its named Start first.
  */
 export interface TileBlock { startable: boolean }
 
@@ -47,14 +47,18 @@ export function tileBlocks(
 }
 
 /**
- * The default machine: docker when it can run the kind and nothing blocks it
- * here (`blocks`: tileBlocks), else native, else the first that can run,
- * else the first.
+ * The default machine (U10): the machine whose page the dialog was opened
+ * from, else native, else the first that runs. Never a machine that is
+ * broken, blocked here, or not running: Create would have to start it, and a
+ * start is only ever the person's own press on that machine (spec v21).
  */
-export function defaultMachine(machines: readonly Machine[], blocks: ReadonlyMap<string, TileBlock> = new Map()): string {
-  const docker = machines.find((m) => m.name === 'docker')
-  if (docker && !blocks.has(docker.name)) return docker.name
-  return machines.find((m) => m.name === 'native')?.name ?? machines.find((m) => !blocks.has(m.name))?.name ?? machines[0]?.name ?? 'native'
+export function defaultMachine(machines: readonly Machine[], blocks: ReadonlyMap<string, TileBlock> = new Map(), opened?: string | null): string {
+  const ok = (m: Machine | undefined): boolean => !!m && m.state !== 'broken' && !blocks.has(m.name) && isRunning(m)
+  const from = machines.find((m) => m.name === opened)
+  if (from && ok(from)) return from.name
+  const native = machines.find((m) => m.name === 'native')
+  if (native && ok(native)) return native.name
+  return machines.find((m) => ok(m))?.name ?? native?.name ?? 'native'
 }
 
 /** Whether `name` can be picked: not blocked here, or only waiting on the Docker Engine its Start launches. */
@@ -131,36 +135,58 @@ export interface CreatePlan {
   source?: string
 }
 
-export type StepId = 'check' | 'store' | 'connect' | 'start-store' | 'init' | `start:${string}` | `place:${string}` | `runs-on:${string}` | 'open'
+export type StepId = 'check' | 'store' | 'connect' | 'init' | `place:${string}` | `runs-on:${string}` | 'open'
 export interface Step { id: StepId, machine?: string }
 
 /**
- * The steps a Create runs, in order (§3). `view` gives machine states, so a
- * running machine is not started again. A PostgreSQL Store is on no machine:
+ * The steps a Create runs, in order (§3). A PostgreSQL Store is on no machine:
  * a new one is connected with the machine its sessions run on, an existing
  * one only has that choice changed (`runs-on:<m>`) when another is picked.
- * Nothing is attached; the machine is started last, because a session starts
- * none and the one Create opens runs there.
+ * Nothing is attached. Create starts no machine: a machine it needs that is
+ * not running ({@link needsStart}) is started by the person's own press on
+ * that machine's Start first (UI pass 2: no start without that press).
  */
-export function createSteps(plan: CreatePlan, view: Pick<StorageView, 'machines'> | undefined): Step[] {
-  const state = (name: string) => view?.machines.find((m) => m.name === name)
-  const start = (name: string): Step[] => (isRunning(state(name)) ? [] : [{ id: `start:${name}`, machine: name }])
+export function createSteps(plan: CreatePlan, _view?: Pick<StorageView, 'machines'> | undefined): Step[] {
   // the folder is checked before anything is made, so a wrong one leaves no empty Store
   const steps: Step[] = plan.source ? [{ id: 'check' }] : []
   if (plan.kind === 'sqlite') {
     const target = plan.machines[0] ?? 'native'
     const at = plan.store?.machine ?? 'native'
     if (!plan.store) steps.push({ id: 'store' })
-    else if (at !== 'native' && !isRunning(state(at))) steps.push({ id: 'start-store', machine: at })
     steps.push({ id: 'init' })
-    if (target !== at) steps.push(...start(target), { id: `place:${target}`, machine: target })
+    if (target !== at) steps.push({ id: `place:${target}`, machine: target })
   } else {
     const target = plan.machines[0]
     if (!plan.store) steps.push({ id: 'connect', ...(target ? { machine: target } : {}) })
     steps.push({ id: 'init' })
     if (plan.store && target && target !== pgMachine(plan.store)) steps.push({ id: `runs-on:${target}`, machine: target })
-    if (target) steps.push(...start(target))
   }
   steps.push({ id: 'open' })
   return steps
+}
+
+/**
+ * The machines a Create needs running that are not (never native): a SQLite
+ * project's Store machine and the machine it moves to, a PostgreSQL project's
+ * machine its session runs on. Each is started only by a press on its own
+ * Start; Create waits until none is left.
+ */
+export function needsStart(plan: Pick<CreatePlan, 'kind' | 'store' | 'machines'>, view: Pick<StorageView, 'machines'> | undefined): string[] {
+  const names = plan.kind === 'sqlite'
+    ? [plan.store?.machine ?? 'native', plan.machines[0] ?? 'native']
+    : plan.machines.slice(0, 1)
+  return stoppedOf(names, view)
+}
+
+/**
+ * Of these machines, the ones known and not running (native never needs a
+ * start), each once. A broken machine is not one: Start is not its fix (F1),
+ * LayerFS's refusal carries that.
+ */
+export function stoppedOf(names: readonly string[], view: Pick<StorageView, 'machines'> | undefined): string[] {
+  return [...new Set(names)].filter((n) => {
+    if (n === 'native') return false
+    const m = view?.machines.find((x) => x.name === n)
+    return !!m && m.state !== 'broken' && !isRunning(m)
+  })
 }

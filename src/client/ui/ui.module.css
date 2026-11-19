@@ -682,3 +682,21 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* a saved id's short label: the full id is its tip, a press copies it */
+.copyId {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: copy;
+}
+
+.copyId:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
+  outline-offset: 1px;
+}

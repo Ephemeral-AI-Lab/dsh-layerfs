@@ -446,6 +446,14 @@ export interface Seen {
   message: string | null
 }
 
+/**
+ * The root cause a Not checked row links to: what it waits on, or the
+ * stopped machine it is on (U10 add-on 8: named like a waiting row's cause,
+ * never itself). Null when it waits on nothing the page lists.
+ */
+export const causeOf = (o: Pick<Seen, 'st' | 'why' | 'by'>, key: string): Thing | null =>
+  (o.st === 'nc' && (o.why === 'waiting' || o.why === 'stopped') && o.by && o.by.key !== key ? o.by : null)
+
 /** The running call that still owes an event for a thing. */
 export const busyOn = (state: DoctorState, key: string): RunInfo | undefined => Object.values(state.runs).find((r) => r.covers.includes(key) && !r.landed[key])
 

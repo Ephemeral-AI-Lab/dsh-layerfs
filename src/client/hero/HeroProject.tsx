@@ -40,6 +40,17 @@ export class Imports {
 
 interface Place { projectId?: string, project: string | null, scratch?: string }
 
+/**
+ * A new session's default place that names a project the catalog lists as
+ * removed (or replaced): it is not offered as the default (B2 #7); the session
+ * starts with no project, and the person picks one.
+ */
+export function staleDefault(place: Pick<Place, 'project'> | null, rows: readonly Pick<ProjectRow, 'key' | 'catalogState'>[] | null): boolean {
+  if (!place?.project || !rows) return false
+  const row = rows.find((r) => r.key === place.project)
+  return row?.catalogState === 'removed' || row?.catalogState === 'identity-mismatch'
+}
+
 const NONE = '@none'
 const NEW = '@new'
 const IMPORT = '@import'
@@ -127,6 +138,15 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
       setSwitching(false)
     }
   }
+
+  // the composer's default never pre-selects a removed project: once per session, its place goes back to no project
+  const dropped = useRef(false)
+  useEffect(() => {
+    if (dropped.current || switching || !staleDefault(place, rows)) return
+    dropped.current = true
+    void switchTo(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [place, rows, switching])
 
   const project = !!place?.project
   useEffect(() => {

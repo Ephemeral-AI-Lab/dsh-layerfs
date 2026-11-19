@@ -43,7 +43,10 @@ export function ProjectFiles(props: ProjectFilesProps): ReactNode {
   useEffect(() => {
     if (query.data) setBranches((all) => [...new Map([...(pos ? all : []), ...query.data!.items].map((b) => [b.name, b])).values()])
   }, [query.data, pos])
-  if (query.error && !query.data) return <ErrorState title={t('files_readFailed', { what: project })} error={query.error} retryLabel={t('files_retry')} onRetry={query.reload} />
+  if (query.error && !query.data) {
+    return <ErrorState title={t('files_readFailed', { what: project })} error={query.error} retryLabel={t('files_retry')} onRetry={query.reload}
+      fixWord={(fix) => (fix.kind === 'saveAuth' ? t('files_noSavedLogin') : null)} inTheWay={t('files_inTheWay')} />
+  }
   // Progressive: with a Branch to open, its folder tree loads at once (at its tip) while the
   // Branch list is still on its way; the list fills the picker when it arrives.
   if (!query.data && !props.initialBranch) return <Loading label={t('files_readingFiles')} className={css.pad} />

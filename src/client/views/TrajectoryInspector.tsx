@@ -13,6 +13,7 @@ import type { Translate } from './locale.ts'
 import { clock, durationText, KindCell, opOutcome, Version, type OpenVersion } from './TrajectoryParts.tsx'
 import { checkpointVersion, opCommand, prettyArgs, SAVES } from './trajectory-model.ts'
 import css from './trajectory.module.css'
+import { dateTime } from '../ui/locale-sync.ts'
 
 /** What the inspector shows. */
 export type Inspected =
@@ -97,8 +98,8 @@ function Timing({ t, start, end, running }: { t: Translate, start: number | unde
   const none = t('trajNotRecorded')
   return (
     <dl className={css.fields}>
-      <Field label={t('trajStarted')}>{start ? new Date(start).toLocaleString() : none}</Field>
-      {end !== undefined || running !== undefined ? <Field label={t('trajEnded')}>{end ? new Date(end).toLocaleString() : running ? t('trajStatusRunning') : none}</Field> : null}
+      <Field label={t('trajStarted')}>{start ? dateTime(start) : none}</Field>
+      {end !== undefined || running !== undefined ? <Field label={t('trajEnded')}>{end ? dateTime(end) : running ? t('trajStatusRunning') : none}</Field> : null}
       {start && end ? <Field label={t('trajDuration')}>{durationText(t, end - start)}</Field> : null}
     </dl>
   )

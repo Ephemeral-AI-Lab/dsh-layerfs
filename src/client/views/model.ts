@@ -143,6 +143,8 @@ export interface MapSandbox {
   closed: boolean
   /** Slots held by Workspaces the map leaves out (dsh's own session Workspace), for the n/16 count. */
   reserved?: number
+  /** Those Workspaces themselves: listed on the card as the machine page and `sandbox get` list them (B2 #2), off the flow. */
+  own?: MapWorkspace[]
 }
 
 /**
@@ -330,14 +332,20 @@ export function buildSandboxMap(agents: MapAgent[], binding: MapBinding | null, 
     return ws
   }
   const reserved = new Set<string>()
-  const reserve = (id: string) => { if (!reserved.has(id)) { reserved.add(id); const box = sandbox(id.split(':')[0]); box.reserved = (box.reserved ?? 0) + 1 } }
+  const reserve = (id: string, branch?: string) => {
+    if (reserved.has(id)) return
+    reserved.add(id)
+    const box = sandbox(id.split(':')[0]!)
+    box.reserved = (box.reserved ?? 0) + 1
+    ;(box.own ??= []).push({ id, name: id.slice(id.indexOf(':') + 1), ...(branch ? { branch } : {}) })
+  }
   if (binding?.branch) branches.add(binding.branch)
   if (binding?.sandbox) { const box = sandbox(binding.sandbox); if (binding.machine) box.machine = binding.machine }
-  if (binding?.ws) { if (isSessionWorkspace(binding.ws)) reserve(binding.ws); else workspace(binding.ws, binding.branch) }
+  if (binding?.ws) { if (isSessionWorkspace(binding.ws)) reserve(binding.ws, binding.branch); else workspace(binding.ws, binding.branch) }
   for (const open of live?.sandboxes ?? []) {
     const box = sandbox(open.name)
     if (open.machine) box.machine = open.machine
-    for (const ws of open.workspaces) { if (isSessionWorkspace(ws.id)) reserve(ws.id); else workspace(ws.id, ws.branch) }
+    for (const ws of open.workspaces) { if (isSessionWorkspace(ws.id)) reserve(ws.id, ws.branch); else workspace(ws.id, ws.branch) }
   }
 
   const flat = agents.flatMap((agent) => (calls[agent.id] ?? [])
@@ -637,4 +645,28 @@ function topLevelAnd(line: string): string[] {
 export function execWords(argv: readonly string[]): string | null {
   const words = argv.slice(3).filter((w) => w !== '--' && w !== '--stream')
   return words.length && !words.some((w) => w.startsWith('<')) ? words.join(' ') : null
+}
+
+/**
+ * A session's unsaved count (B2 #1): the Workspace's changed entries
+ * (`workspace status --detail` `overlay.entry_count`), never its inodes, which
+ * include the root and every directory a change touched. A change that names
+ * no entry (an edit in place) still counts, as its inodes.
+ */
+export function unsavedCount(overlay: { inode_count?: number | null, entry_count?: number | null } | null | undefined): number {
+  if (!overlay) return 0
+  const entries = Number(overlay.entry_count ?? 0)
+  return entries > 0 ? entries : Math.max(0, Number(overlay.inode_count ?? 0))
+}
+
+/** How often an open conversation view reads its session again while visible (files written by a shell send no event). */
+export const SESSION_POLL_MS = 10_000
+
+const STATE_WORDS: Record<string, string> = { active: 'active', ready: 'stateReady', bound: 'active', stopped: 'stateStopped', busy: 'stateBusy', broken: 'stateBroken', unknown: 'stateUnknownWord' }
+
+/** A session binding's or Sandbox's state in the page's words (B2 #5: never the raw `ready`/`active` in zh); another word as it came. */
+export function stateWords(state: string | null | undefined, t: (key: string) => string): string {
+  if (!state) return t('active')
+  const key = STATE_WORDS[state]
+  return key ? t(key) : state
 }

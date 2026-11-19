@@ -3063,3 +3063,24 @@
 .socketNote p {
   margin: 0;
 }
+
+/* a machine page's "why": the state's word (LayerFS's message as its tip) and, off the Overview, its one fix */
+.reasonLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Phone: a machine's name wraps onto a second line instead of "dem…", so names
+   that share a start stay apart (the full name is the button's tip too). */
+@container (max-width: 520px) {
+  .fleetRow .blockName {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .fleetRow .blockGlyph {
+    display: none;
+  }
+}

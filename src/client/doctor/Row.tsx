@@ -14,13 +14,14 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, ty
 import clsx from 'clsx'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { quickChecks, whatOf } from './checks.ts'
-import { kidsOf, offWhy, running, stateOf, viewOf, type DoctorState, type Mark as CheckMark, type RowFix, type RowView, type Thing } from './model.ts'
+import { causeOf, kidsOf, offWhy, running, stateOf, viewOf, type DoctorState, type Mark as CheckMark, type RowFix, type RowView, type Thing } from './model.ts'
 import { markDot, TipBody, useTip, type MarkKind, type TipData } from './tips.tsx'
 import { DOT, mmss, type Words } from './words.ts'
 import { Signal, type SignalState } from '../storage/Signal.tsx'
 import { BucketProviderGlyph, MachineGlyph, SandboxGlyph, StoreKindGlyph } from '../machines/icons.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import { BucketGlyph } from '../storage/parts.tsx'
+import { shortDigest } from '../../shared/doctor.ts'
 import css from './DoctorPage.module.css'
 
 export interface RowActions {
@@ -197,7 +198,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
   const sigTip = w.sigTip(state, v)
   const fixing = state.fixes[key]
   const phase = w.stepWord(fixing?.step)
-  const waitsOn = o.st === 'nc' && o.why === 'waiting' ? o.by : null
+  const waitsOn = causeOf(o, key)
   const refusal = state.refusals[key]
   const full = running(state, 'full', key)
   const name = v.depth > 0 && x.kind === 'project' ? x.label : w.nameOf(x)
@@ -208,7 +209,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
   const rowWord = w.rowWord(v.word)
   if (rowWord) more.push(<span key="word" className={css.word}>{rowWord}</span>)
   if (waitsOn) more.push(<Cause key="cause" fid={`goto:${key}`} by={waitsOn} ctx={ctx} />)
-  else if (o.st === 'nc' && o.why === 'waiting' && o.byName) more.push(<span key="cause" className={css.fact}>{w.t('dpWaitingOn', { name: o.byName })}</span>)
+  else if (o.st === 'nc' && (o.why === 'waiting' || o.why === 'stopped') && o.byName) more.push(<span key="cause" className={css.fact}>{w.t('dpWaitingOn', { name: o.byName })}</span>)
   if (v.fix?.button && !v.blocked) {
     const off = fixing ? null : offWhy(state, x, 'fix', v.fix)
     // an off button shows no command when the only fix stops by force: that line is copied from the detail, never run here
@@ -242,7 +243,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
     )
   }
   const thin = more.length === 0 && !inside
-  if (fact) more.push(<span key="fact" className={css.fact}>{fact}</span>)
+  if (fact) more.push(<span key="fact" className={css.fact} title={v.thing.image && fact.includes(shortDigest(v.thing.image)) ? v.thing.image : undefined}>{fact}</span>)
   if (inside) more.push(<span key="inside" className={css.inside}>{markDot(v.inside.bad ? 'bad' : 'warn')}{inside}</span>)
 
   const acts: ReactNode[] = []

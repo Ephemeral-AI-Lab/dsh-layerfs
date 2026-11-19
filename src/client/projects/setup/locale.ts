@@ -32,11 +32,11 @@ const en = {
   user: 'User', password: 'Password', passwordHint: 'Typed once. It goes to LayerFS on stdin and is never shown again.',
   runsOn: 'Runs on', locationHint: 'Where the Store file lives. Its projects’ sessions run there.', layerfsHome: 'LayerFS Home', runsOnPg: 'Where this Store’s sessions run. Any machine can reach the database.',
   newMachine: 'New machine', noMachines: 'No machine can run this kind of Store. Add one in Home.',
-  default: 'Default', thisMac: 'This Mac, unisolated', thisLinux: 'This computer, sandboxed', thisPc: 'This PC', running: 'Running', stopped: 'Stopped', startsOnCreate: '{machine} is stopped. Create starts it.', startsOnMove: '{machine} is stopped. Moving starts it.', here: 'Here now',
+  default: 'Default', thisMac: 'This Mac, unisolated', thisLinux: 'This computer, sandboxed', thisPc: 'This PC', running: 'Running', stopped: 'Stopped', stoppedFirst: 'Stopped · {machine}', startNamed: 'Start {machine}', needsStart: 'Start {machine} first', here: 'Here now',
   working: 'Working…',
   moveWarn: 'Moves the whole Store {store} to {machine}: its {n} other projects run there too. Refused while any of them has a Sandbox.',
   create: 'Create and open', import: 'Import and open', creating: 'Creating…',
-  step_check: 'Check folder {source}', step_import: 'Copy {source} into {name}', step_store: 'Create Store {store}', step_connect: 'Connect {store}', step_init: 'Create project {name}', step_start: 'Start {machine}',
+  step_check: 'Check folder {source}', step_import: 'Copy {source} into {name}', step_store: 'Create Store {store}', step_connect: 'Connect {store}', step_init: 'Create project {name}',
   step_place: 'Move {store} to {machine}', step_runs_on: 'Run {store} on {machine}', step_open: 'Open a session',
   refused: 'Refused', noAnswer: 'No answer', editPart: 'Edit {part}',
   kindSqlite: 'SQLite Store', kindPg: 'PostgreSQL Store', shared: 'Shared with {n} other projects', sharedOne: 'Shared with 1 other project', alone: 'Only this project',
@@ -48,7 +48,7 @@ const en = {
   sessions: '{n} sessions', oneSession: '1 session', newProject: 'New project', importFolder: 'Import a folder',
   configure: 'Set up {project}', newSession: 'New session in {project}', start: 'Start', startFor: 'Start {machine} for {project}',
   openFailed: 'Could not open a session: {message}', startFailed: 'Could not start {machine}: {message}',
-  machineBlocked: 'Can’t run here now · see Machines', engineDown: 'Docker isn’t running · Create opens it',
+  machineBlocked: 'Can’t run here now · see Machines', engineDown: 'Docker isn’t running · start it first',
 }
 
 const zh: typeof en = {
@@ -82,11 +82,11 @@ const zh: typeof en = {
   user: '用户', password: '密码', passwordHint: '只输入一次，经标准输入交给 LayerFS，之后不再显示。',
   runsOn: '运行于', locationHint: '存储文件所在的位置，其中项目的会话也在那里运行。', layerfsHome: 'LayerFS Home', runsOnPg: '该 Store 的会话运行的位置。任何机器都能访问该数据库。',
   newMachine: '新建机器', noMachines: '没有机器能运行这类存储。请在“主页”中添加。',
-  default: '默认', thisMac: '本机，无隔离', thisLinux: '这台电脑，沙箱隔离', thisPc: '这台 PC', running: '运行中', stopped: '已停止', startsOnCreate: '{machine} 已停止，创建时会启动它。', startsOnMove: '{machine} 已停止，移动时会启动它。', here: '当前位置',
+  default: '默认', thisMac: '本机，无隔离', thisLinux: '这台电脑，沙箱隔离', thisPc: '这台 PC', running: '运行中', stopped: '已停止', stoppedFirst: '已停止 · {machine}', startNamed: '启动 {machine}', needsStart: '请先启动 {machine}', here: '当前位置',
   working: '处理中…',
-  moveWarn: '会把整个存储 {store} 移到 {machine}：其中另外 {n} 个项目也会在那里运行。任一项目有沙箱时会被拒绝。',
+  moveWarn: '会把整个存储 {store} 移到 {machine}：其中另外 {n} 个项目也会在那里运行。任一项目有 Sandbox 时会被拒绝。',
   create: '创建并打开', import: '导入并打开', creating: '正在创建…',
-  step_check: '检查文件夹 {source}', step_import: '把 {source} 复制到 {name}', step_store: '创建存储 {store}', step_connect: '连接 {store}', step_init: '创建项目 {name}', step_start: '启动 {machine}',
+  step_check: '检查文件夹 {source}', step_import: '把 {source} 复制到 {name}', step_store: '创建存储 {store}', step_connect: '连接 {store}', step_init: '创建项目 {name}',
   step_place: '把 {store} 移到 {machine}', step_runs_on: '让 {store} 运行于 {machine}', step_open: '打开会话',
   refused: '被拒绝', noAnswer: '没有应答', editPart: '修改{part}',
   kindSqlite: 'SQLite 存储', kindPg: 'PostgreSQL 存储', shared: '与另外 {n} 个项目共用', sharedOne: '与另外 1 个项目共用', alone: '仅此项目',
@@ -98,7 +98,7 @@ const zh: typeof en = {
   sessions: '{n} 个会话', oneSession: '1 个会话', newProject: '新建项目', importFolder: '导入文件夹',
   configure: '设置 {project}', newSession: '在 {project} 中新建会话', start: '启动', startFor: '为 {project} 启动 {machine}',
   openFailed: '无法打开会话：{message}', startFailed: '无法启动 {machine}：{message}',
-  machineBlocked: '目前无法在此运行 · 见“机器”', engineDown: 'Docker 未运行 · 创建时会打开它',
+  machineBlocked: '目前无法在此运行 · 见“机器”', engineDown: 'Docker 未运行 · 请先启动',
 }
 
 export const locales = { en, zh }

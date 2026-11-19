@@ -9,8 +9,7 @@
 import { useContext, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import { FixContext, Meter, StateChip, refusalOf } from '../ui/index.tsx'
-import { runnableFix } from '../../shared/doctor.ts'
+import { FixContext, Meter, StateChip, refusalOf, resolveFix } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph, StoreKindGlyph } from './icons.tsx'
 import { besideCreating, creatingOn, creationStore, needsSpace, phaseShare, phaseWords } from './images.ts'
@@ -150,8 +149,9 @@ export function CreatingRow({ c, showProject, bare }: { c: Creation, showProject
   const words = tw(phaseWords(c))
   // LayerFS's fix line: the one action where Center runs it (instead of Retry), else part of the tip
   const fixes = useContext(FixContext)
-  const fixLine = c.error?.fix ?? null
-  const fix = fixes && fixLine ? runnableFix(fixLine) : null
+  const resolved = resolveFix(fixes, c.error?.fix)
+  const fixLine = resolved?.line || null
+  const fix = fixes ? resolved?.fix ?? null : null
   const act = async (run: () => Promise<unknown>) => {
     setBusy(true); setError(null)
     try { await run() } catch (e) { setError(e) } finally { setBusy(false) }
@@ -253,7 +253,10 @@ function SandboxRows({ rows, machine, menus }: { rows: MachineSandbox[], machine
               <span className={css.lineIcon} aria-hidden="true"><SandboxGlyph size={14} /></span>
               <span className={clsx(css.lineName, css.mono)}>{shortSandbox(b.name)}</span>
               <span className={css.lineMeta} />
-              <span className={css.lineSlots}>{b.workspaces != null ? t('slotsOf', { n: String(b.workspaces), max: String(SANDBOX_CAPACITY) }) : ''}</span>
+              {/* labelled: "1 of 16" alone does not say it counts mounted Workspaces */}
+              <span className={css.lineSlots} title={b.workspaces != null ? t('slotsOfTitle', { n: String(b.workspaces), max: String(SANDBOX_CAPACITY) }) : undefined}>
+                {b.workspaces != null ? t('slotsOfWs', { n: String(b.workspaces), max: String(SANDBOX_CAPACITY) }) : ''}
+              </span>
               <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={chipOpWords({ ...look, op: b.op ?? null, state: b.state ?? '' })} title={note ?? undefined} />
             </button>
             {menus && <span className={css.lineMenu}><SandboxRowMenu b={b} machine={machine} /></span>}

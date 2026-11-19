@@ -29,7 +29,7 @@ import { CreatingRow, lookOf, sandboxNeedsYou } from './Inventory.tsx'
 import { useImageName, useSandboxImages } from './ImageMenu.tsx'
 import { useMetrics } from './MachineStats.tsx'
 import { SANDBOX_FILTERS, SANDBOX_SORTS, sandboxCards, type SandboxCard, type SandboxFilter, type SandboxSort } from './machine-tabs.ts'
-import { processors, sandboxTable, upTime } from './metrics.ts'
+import { processors, sandboxTable, upTime, unitsOf } from './metrics.ts'
 import { Dash, useWords } from './MetricsViews.tsx'
 import { gib, machineState, projectRef, sandboxGone, sandboxesOn, shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox, type SandboxImagesView } from './model.ts'
 import type { Query } from '../ui/use-query.ts'
@@ -39,6 +39,7 @@ import { useMachineSpace } from './SpaceViews.tsx'
 import { liveNote } from './stats.ts'
 import css from './machines.module.css'
 import { chipOpWords, sandboxesEmptyKey } from './notices.ts'
+import { clockTime } from '../ui/locale-sync.ts'
 
 type Row = ReturnType<typeof sandboxTable>[number] & { memory: number | null }
 
@@ -108,11 +109,11 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
 
   if (!b) {
     // closed within the sampler's hour: only its values remain
-    const ran = mx?.row?.startedAt != null && mx.closedAt != null ? upTime(mx.row.startedAt, mx.closedAt) : null
+    const ran = mx?.row?.startedAt != null && mx.closedAt != null ? upTime(mx.row.startedAt, mx.closedAt, unitsOf(t)) : null
     const peak = mx?.row?.usage?.memoryPeak ?? null
     return (
       <Card className={clsx(css.sbCard, css.sbCardClosed)} data-sb-card={card.name} data-sb-closed>
-        {head('idle', <span className={css.muted}>{mx?.closedAt != null ? t('sbClosedAt', { time: new Date(mx.closedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) }) : t('mxClosed')}</span>)}
+        {head('idle', <span className={css.muted}>{mx?.closedAt != null ? t('sbClosedAt', { time: clockTime(mx.closedAt, { hour: 'numeric', minute: '2-digit' }) }) : t('mxClosed')}</span>)}
         <p className={css.sbCardSub}>{[ran && ran !== '—' ? t('sbRan', { time: ran }) : null, peak != null ? t('sbPeak', { size: gib(peak) }) : null].filter(Boolean).join(' · ') || t('mxClosed')}</p>
       </Card>
     )
@@ -123,7 +124,7 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
   const closeFix = b.state === 'broken' && b.fix === `layerfs sandbox remove ${card.name}`
   const needs = sandboxNeedsYou(b)
   const dot = needs ? 'error' : b.state === 'ready' ? 'done' : 'idle'
-  const up = b.state === 'ready' && mx && !mx.gap && mx.row?.startedAt != null ? upTime(mx.row.startedAt, now) : null
+  const up = b.state === 'ready' && mx && !mx.gap && mx.row?.startedAt != null ? upTime(mx.row.startedAt, now, unitsOf(t)) : null
   const sub = [
     b.project ? projectRef(b.project).name : null,
     up && up !== '—' ? t('sbUp', { time: up }) : null,
@@ -143,14 +144,17 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
       {image && <p className={css.sbCardImage} data-sb-image title={card.record?.image ?? undefined}><span className={css.sbCardImageLabel}>{t('sbImageLabel')}</span>{onImages ? <LinkButton className={css.mono} onClick={onImages} title={t('sbImageOpen')}>{image}</LinkButton> : <span className={css.mono}>{image}</span>}</p>}
       {gone && (
         <div className={css.sbCardGone} role="status">
-          <p>{s?.bytes != null ? t('sbGoneBodySize', { size: spaceSize(s.bytes) }) : t('sbGoneBody')}</p>
+          {/* a word, the longer sentence (LayerFS's, else ours) as its tip, Close as the one action: no prose on the card */}
+          <p title={b.message ?? (s?.bytes != null ? t('sbGoneBodySize', { size: spaceSize(s.bytes) }) : t('sbGoneBody'))} data-sb-gone-word>
+            {s?.bytes != null ? t('sbGoneWordSize', { size: spaceSize(s.bytes) }) : t('sbGoneWord')}
+          </p>
           <CloseGone name={card.name} />
         </div>
       )}
       {/* broken otherwise (a retired backend's, an unknown outcome, a daemon that does not answer): LayerFS's sentence is the tip, its remove fix the one action */}
       {!gone && closeFix && (
         <div className={css.sbCardGone} role="status">
-          <p title={b.message ?? undefined}>{t('sbBrokenBody')}</p>
+          <p title={b.message ?? t('sbBrokenBody')} data-sb-broken-word>{t('sbBrokenWord')}</p>
           <CloseGone name={card.name} />
         </div>
       )}

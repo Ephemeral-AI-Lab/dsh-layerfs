@@ -49,6 +49,7 @@ import {
 import type { MachinesKey } from './locale.ts'
 import { workspaceChanges, workspaceName, type WorkspaceInfo } from './model.ts'
 import css from './inspect-files.module.css'
+import { clockTime } from '../ui/locale-sync.ts'
 
 /** The width under which the tree drills in instead of expanding in place. */
 const NARROW_PX = 600
@@ -510,7 +511,7 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
     if (!stale) return null
     return (
       <span className={css.refusal} data-files-stale={stale.code}>
-        <span>{t('filesStale', { time: stale.at ? new Date(stale.at).toLocaleTimeString() : '—', code: stale.code, message: stale.message })}</span>
+        <span>{t('filesStale', { time: stale.at ? clockTime(stale.at) : '—', code: stale.code, message: stale.message })}</span>
         <LinkButton onClick={() => load(key, shown, null, true)}>{t('filesReadAgain')}</LinkButton>
         {stale.code === 'Unavailable' && unavailableAction ? unavailableAction : null}
       </span>

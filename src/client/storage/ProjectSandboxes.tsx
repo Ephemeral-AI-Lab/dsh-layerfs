@@ -18,6 +18,7 @@ import type { StorageDialog } from './dialogs.tsx'
 import type { StorageT } from './locale.ts'
 import { refusalLabels } from './parts.tsx'
 import type { SandboxInfo } from './types.ts'
+import { sandboxStateWords } from './model.ts'
 
 /** What the Storage page needs of the conversation views to draw the map. */
 export interface ProjectMapShare {
@@ -158,8 +159,9 @@ export function ProjectSandboxes({ api, t: ts, share, project, tick, onDialog }:
     : title(head.id) ?? lineTitle(head.id) ?? t('untitled'), [t, title, lineTitle])
   const boxState = useCallback((box: string) => {
     const info = boxes.data?.find((b) => b.name === box)
-    return info ? { text: info.op ? `${info.op.name} · ${info.op.phase}` : info.state, live: info.state === 'running' || info.state === 'creating' || info.state === 'closing' } : undefined
-  }, [boxes.data])
+    // the same word and colour as the machine pages (Lost, red; Broken; Ready…), never the raw state
+    return info ? { text: info.op ? `${info.op.name} · ${info.op.phase}` : sandboxStateWords(info, ts), live: info.state === 'running' || info.state === 'creating' || info.state === 'closing', bad: info.state === 'broken' } : undefined
+  }, [boxes.data, ts])
   const boxActions = useCallback((box: string) => {
     const info = boxes.data?.find((b) => b.name === box)
     if (!info) return null

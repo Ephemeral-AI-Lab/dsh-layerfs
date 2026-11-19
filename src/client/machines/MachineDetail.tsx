@@ -24,7 +24,7 @@ import { sandboxOfRunFolder } from './inspect-files.ts'
 import { LogPane } from './LogPane.tsx'
 import type { View } from './context.tsx'
 import { useMachineTitle } from './Inventory.tsx'
-import { BUILT_IN, clearingCall, downReason, gib, machineState, runtimeOf, sandboxesOn, heldStores, supports, unreadableRecord, type AvailableView, type MachineInfo } from './model.ts'
+import { BUILT_IN, clearingCall, downReason, fixAction, gib, runsFix, machineState, runtimeOf, sandboxesOn, heldStores, supports, unreadableRecord, type AvailableView, type MachineInfo } from './model.ts'
 import { MachineDialogs, MachineMenu, MachineProgress, MachineStateChip, PowerButton, hasSettings, useMachineRun } from './parts.tsx'
 import { engineStart, osOfView, stepReasons } from './needs.ts'
 import { FixPanel } from './Readiness.tsx'
@@ -78,7 +78,7 @@ function resourcesOf(m: MachineInfo, t: ReturnType<typeof useMachinesContext>['t
 }
 
 function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableView, m: MachineInfo, go: (view: View) => void, onAddStore?: ((machine: string) => void) | undefined, storesTab?: ((machine: string) => ReactNode) | undefined }): ReactNode {
-  const { t, tw, kind, api, doctorT, useStartups, refusal } = useMachinesContext()
+  const { t, tw, kind, api, doctorT, useStartups, refusal, stateWord } = useMachinesContext()
   const title = useMachineTitle()
   const startup = useStartups((all) => all[m.name])
   const { run, pending: localPending, error } = useMachineRun()
@@ -150,11 +150,18 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
       )}
       {(reason || error !== null || state.state === 'unresolved') && (
         <Notice tone={attention === 'danger' || (error !== null && !inUse) ? 'danger' : inUse ? 'warning' : undefined}>
-          {reason && (unreadableRecord(m) ? <p title={reason}>{t('recordUnreadable')}</p> : <p>{reason}</p>)}
+          {/* why: the state's word with LayerFS's message as the tip; off the Overview (whose head has it) its fix is the one action */}
+          {reason && (unreadableRecord(m) ? <p title={reason}>{t('recordUnreadable')}</p> : (
+            <p className={css.reasonLine} data-reason-word>
+              <span title={reason}>{stateWord(state)}</span>
+              {tab !== 'overview' && fixAction(m) ? power : null}
+            </p>
+          ))}
           {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
           {heldStores(m) > 0 && attention === 'danger' && <p>{t(heldStores(m) === 1 ? 'storeBlockedOne' : 'storesBlocked', { n: String(heldStores(m)) })}</p>}
           {refused}
-          {logLink && (reason || state.state === 'unresolved') ? <p>{logLink}</p> : null}
+          {/* the worker log only when LayerFS gave no fix the page runs (one action) */}
+          {logLink && (reason || state.state === 'unresolved') && !runsFix(m) ? <p>{logLink}</p> : null}
         </Notice>
       )}
     </>

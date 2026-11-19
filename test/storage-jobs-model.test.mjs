@@ -75,7 +75,8 @@ test('a blocked Store says why by its blocked_by reason, and Compact waits for a
   assert.equal(M.blockedWords({ machine: 'lima1', reason: 'stopped' }, t), 'machineStopped {"machine":"lima1"}')
   assert.equal(M.blockedWords({ machine: 'lima1', reason: 'busy' }, t), 'machineBusyBlock {"machine":"lima1"}')
   assert.equal(M.blockedWords({ machine: 'lima1', reason: 'failed' }, t), 'machineUnreadableBlock {"machine":"lima1"}')
-  assert.equal(M.blockedWords({ machine: 'lima1', reason: 'not_answering' }, t), 'machineBrokenBlock {"machine":"lima1","reason":"not answering"}')
+  // F3 (UI pass 2): the word names the machine, never its raw reason (that is the tip)
+  assert.equal(M.blockedWords({ machine: 'lima1', reason: 'not_answering' }, t), 'machineBrokenBlock {"machine":"lima1"}')
   assert.equal(M.blockedWords({ machine: 'lima1', reason: 'failed' }, t, (m) => `<${m}>`), 'machineUnreadableBlock {"machine":"<lima1>"}')
   assert.equal(M.storeSignal(blocked('failed'), undefined, null, [], t).reason, 'machineUnreadableBlock {"machine":"lima1"}')
   assert.equal(M.compactWaitsFor(blocked('failed'), t), 'compactNeedsMachineFixed {"machine":"lima1"}')
@@ -87,11 +88,11 @@ test('a blocked Store says why by its blocked_by reason, and Compact waits for a
 // (a bucket that answered and refused, or was never asked because its connection
 // cannot be read); the page words the reason and keeps LayerFS's sentence as the tip.
 test('a bucket that did not list is worded by its not_listed reason', () => {
-  assert.equal(M.listFailedWords('refused', t), 'bucketWhyRefused')
-  assert.equal(M.listFailedWords('timeout', t), 'bucketWhyTimeout')
-  assert.equal(M.listFailedWords('busy', t), 'bucketWhyBusy')
-  assert.equal(M.listFailedWords('lost', t), 'bucketWhyLost')
-  assert.equal(M.listFailedWords('Unavailable', t), 'bucketWhyOther')
+  assert.equal(M.listStatusWords('refused', t), 'bucketStatusRefused')
+  assert.equal(M.listStatusWords('timeout', t), 'bucketStatusTimeout')
+  assert.equal(M.listStatusWords('busy', t), 'bucketStatusBusy')
+  assert.equal(M.listStatusWords('lost', t), 'bucketStatusLost')
+  assert.equal(M.listStatusWords('Unavailable', t), 'bucketStatusOther')
 })
 
 // CUT (LayerFS 2.0, 2026-11-19): a PostgreSQL Store recorded before saved logins is

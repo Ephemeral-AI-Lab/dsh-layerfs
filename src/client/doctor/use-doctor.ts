@@ -44,13 +44,28 @@ const newId = (): string => {
 }
 const ENDED = ['done', 'failed', 'stopped']
 
+/** The last state each host's Doctor page showed (M14: reopening the page keeps earlier results; the host's held results are read again over it). */
+const KEPT = new WeakMap<object, DoctorState>()
+export const keptState = (api: object): DoctorState | undefined => KEPT.get(api)
+export const keepState = (api: object, state: DoctorState): void => { if (state.world) KEPT.set(api, state) }
+
+/**
+ * Whether a run's end reads the tree again: a row's own check that answered.
+ * Its record may have changed behind the page (a machine record restored by
+ * hand): the row's platform mark and facts come from the tree, not the
+ * report. Check all and a fix's checks read it once when they end.
+ */
+export const rereadsTree = (run: Pick<DoctorRun, 'state' | 'group'>): boolean => run.state === 'done' && !run.group
+
 /** `refreshKey`: bumped by the page's Refresh (the top bar's); each new value reads the tree and the host's results again. */
 export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey = 0): Doctor {
-  const [state, setState] = useState<DoctorState>(emptyState)
+  // a page opened again draws what it showed before (its tree, outcomes and notes) at once, then reads anew
+  const [state, setState] = useState<DoctorState>(() => keptState(api) ?? emptyState())
   const [error, setError] = useState<unknown>(undefined)
   const [loading, setLoading] = useState(true)
   const ref = useRef(state)
   ref.current = state
+  useEffect(() => { keepState(api, state) }, [api, state])
   const sayRef = useRef(say)
   sayRef.current = say
   const alive = useRef(true)
@@ -120,6 +135,7 @@ export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey 
     if (!ENDED.includes(run.state)) return
     const done = runWaits.current.get(run.id)
     if (done) { runWaits.current.delete(run.id); done() }
+    if (rereadsTree(run)) refresh()
     const name = nameOf(run.kind, run.name)
     if (run.state === 'failed') sayRef.current({ kind: 'could', name, reason: run.failure?.reason ?? 'lost' })
     else if (run.state === 'stopped') sayRef.current({ kind: 'fullStopped', name })
@@ -264,7 +280,8 @@ export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey 
           }
         }
       } finally {
-        if (alive.current) setState((s) => fixEnd(s, key))
+        // the checks after a fix may have changed what the records say (a machine started): the rows follow
+        if (alive.current) { setState((s) => fixEnd(s, key)); refresh() }
       }
     })()
   }, [api, readTree, refresh, start])
