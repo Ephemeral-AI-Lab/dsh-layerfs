@@ -93,3 +93,23 @@ test('a bucket that did not list is worded by its not_listed reason', () => {
   assert.equal(M.listFailedWords('lost', t), 'bucketWhyLost')
   assert.equal(M.listFailedWords('Unavailable', t), 'bucketWhyOther')
 })
+
+// CUT (LayerFS 2.0, 2026-11-19): a PostgreSQL Store recorded before saved logins is
+// `broken` `outdated` (no `auth`). It is never a normal Store: its words say it has no
+// saved login, the tip is what LayerFS's refusal says, and its fix is the one action.
+test('a PostgreSQL Store naming no saved login is broken: its words, its tip and its fix', () => {
+  const fix = 'layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update old --auth <auth>'
+  const pg = store({ name: 'old', kind: 'postgresql', machine: null, state: 'broken', reason: 'outdated', fix, postgresql: { auth: null } })
+  assert.equal(M.needsLogin(pg), true)
+  assert.equal(M.brokenWords(pg, t), 'stateBroken · reasonNoLogin')
+  assert.equal(M.storeTip(pg, t), 'pgNoLoginTip {"store":"old"}')
+  assert.deepEqual(M.storeSignal(pg, undefined, null, [], t), { state: 'error', reason: 'stateBroken · reasonNoLogin' })
+  // LayerFS's own sentence wins when its answer has one
+  assert.equal(M.storeTip({ ...pg, message: 'PostgreSQL Store old names no saved login' }, t), 'PostgreSQL Store old names no saved login')
+  // a Store with a login, or a sqlite Store from another build, is not this case
+  assert.equal(M.needsLogin({ ...pg, postgresql: { auth: 'team' } }), false)
+  assert.equal(M.needsLogin(store({ state: 'broken', reason: 'outdated' })), false)
+  assert.equal(M.brokenWords(store({ state: 'broken', reason: 'not_answering' }), t), 'stateBroken · not answering')
+  assert.equal(M.brokenWords(store({ state: 'broken', reason: 'unresolved' }), t), 'unresolved')
+  assert.equal(M.storeTip(store({ state: 'broken', reason: 'missing', fix: 'layerfs store remove s1' }), t), 'layerfs store remove s1')
+})

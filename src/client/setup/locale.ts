@@ -8,7 +8,7 @@ const en = {
   // rail
   railMachines: 'Machines',
   sumNoRuntime: 'None chosen yet', sumMixed: 'From mixed builds', sumRuntimeFailed: 'Can’t be used',
-  sumFolderCreated: 'Created just now', sumFolderConverted: 'Converted just now', sumFolderOld: 'Made by an older LayerFS',
+  sumFolderCreated: 'Created just now', sumFolderOld: 'Made by an older LayerFS',
   sumFolderMissing: 'Not created yet', sumFolderUnknown: 'Can’t be read',
   sumMachinesWait: 'After the runtime', sumMachinesWaitFolder: 'After the folder', sumMachinesReading: 'Reading…',
   // runtime section
@@ -23,11 +23,8 @@ const en = {
   runtimeError: '{code}: {message}',
   // folder section
   folderMissingNoRuntime: 'Created once a runtime is chosen.',
-  folderOldWarn: 'Older LayerFS builds can’t open it after converting.',
+  folderOldNote: 'This LayerFS doesn’t convert it. Move it aside and make a new one:',
   folderUnknown: 'This LayerFS can’t read the folder (it may be from a newer LayerFS).',
-  folderOldCli: 'This runtime can’t convert folders; choose a newer one.',
-  convert: 'Convert', converting: 'Converting…',
-  convertBlocked: 'Can’t convert yet: {message}',
   modeNote: 'Other users can read it ({mode}). LayerFS works, but you may want to close it:',
   // machines section
   machinesWait: 'Machines show once a runtime is chosen and the folder is ready.',
@@ -66,7 +63,7 @@ const zh: typeof en = {
   readFailed: '无法检查设置：{message}',
   railMachines: '机器',
   sumNoRuntime: '尚未选择', sumMixed: '来自不同构建', sumRuntimeFailed: '无法使用',
-  sumFolderCreated: '刚刚创建', sumFolderConverted: '刚刚转换', sumFolderOld: '由旧版 LayerFS 创建',
+  sumFolderCreated: '刚刚创建', sumFolderOld: '由旧版 LayerFS 创建',
   sumFolderMissing: '尚未创建', sumFolderUnknown: '无法读取',
   sumMachinesWait: '在运行时之后', sumMachinesWaitFolder: '在文件夹之后', sumMachinesReading: '正在读取…',
   runtimeLine: 'LayerFS {version}',
@@ -79,11 +76,8 @@ const zh: typeof en = {
   recordDaemon: '使用此守护进程',
   runtimeError: '{code}：{message}',
   folderMissingNoRuntime: '选择运行时后即创建。',
-  folderOldWarn: '转换后，旧版 LayerFS 将拒绝使用此文件夹。',
+  folderOldNote: '此 LayerFS 不会转换它。请将它移到别处，再新建一个：',
   folderUnknown: '此 LayerFS 无法读取该文件夹（可能来自更新的 LayerFS）。',
-  folderOldCli: '此运行时不能转换文件夹；请选择更新的运行时。',
-  convert: '转换', converting: '正在转换…',
-  convertBlocked: '暂时无法转换：{message}',
   modeNote: '其他用户可以读取它（{mode}）。LayerFS 可以工作，但你可能想收紧权限：',
   machinesWait: '选择运行时且文件夹就绪后显示机器。',
   machinesFailed: '无法读取机器：{message}',

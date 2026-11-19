@@ -4,9 +4,10 @@
  * VMs, refused while it holds Stores or Sandboxes), the settings and remove
  * dialogs, and the startup progress of a create or start.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CopyLine, Field, MoreMenu, Refusal, StateChip } from '../ui/index.tsx'
+import { CopyLine, Field, FixAction, FixContext, MoreMenu, Refusal, StateChip } from '../ui/index.tsx'
+import { runnableFix } from '../../shared/doctor.ts'
 import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
 import { PowerGlyph } from './icons.tsx'
@@ -74,10 +75,16 @@ function powerKey(m: MachineInfo, power: 'start' | 'stop', engine = false) {
 /** `compact`: an icon button (the board's rows) while nothing runs; the words come back for a start, a stop or a worker to restart. */
 /** `engine`: the Docker Engine is not running and this Start launches it first (needs.ts engineStart). */
 export function PowerButton({ m, pending, run, size = 'sm', compact, engine = false }: { m: MachineInfo, pending: string | null, run: Run, size?: 'sm' | 'md', compact?: boolean, engine?: boolean }): ReactNode {
-  const { t, recheck } = useMachinesContext()
+  const { t, recheck, refusal } = useMachinesContext()
+  const fixes = useContext(FixContext)
   const fix = engine ? null : fixAction(m)
   const power = engine || fix?.kind === 'engine' ? 'start' : powerOf(m)
   const elapsed = useElapsed(pending === 'stop')
+  // a record with no vm_name: Remove its record (a confirm press), where Center runs fixes; else the line stays the tip to copy
+  if (fix?.kind === 'remove') {
+    const runnable = fixes && m.fix ? runnableFix(m.fix) : null
+    return runnable && fixes ? <span onClick={(e) => e.stopPropagation()}><FixAction line={m.fix!} fix={runnable} runner={fixes} labels={refusal} /></span> : null
+  }
   // a broken or unknown machine: its one action, from its `fix` (UI rule: one action; a line the page does not run stays to copy in its detail)
   if (fix && fix.kind !== 'engine' && fix.kind !== 'copy') {
     const busy = pending !== null

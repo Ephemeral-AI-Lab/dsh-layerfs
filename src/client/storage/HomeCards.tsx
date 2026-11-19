@@ -25,8 +25,9 @@ import { enc, type LayerfsApi } from '../api.ts'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { TabId } from './tabs.ts'
 import type { StorageT } from './locale.ts'
-import { blockedWords, doingWords, shareOf, storeStateWords, type RowSignal } from './model.ts'
+import { blockedWords, brokenWords, doingWords, shareOf, storeStateWords, storeTip, type RowSignal } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
+import { StoreFixAction } from './StoreCard.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import { orderProjects, sizeCacheKey, type ProjectSize, type ProjectSort } from './project-list.ts'
@@ -49,8 +50,8 @@ function Name({ children, onClick, title }: { children: ReactNode, onClick: () =
  * an unreachable PostgreSQL server, or its machine stopped. Backup state is
  * not trouble here: the Store card shows it.
  */
-/** A Store's trouble, short; `detail` is LayerFS's full words, `restart` the machine whose worker would fix it. */
-export type Trouble = RowSignal & { detail?: string, restart?: MachineInfo }
+/** A Store's trouble, short; `detail` is LayerFS's full words, `restart` the machine whose worker would fix it, `store` the broken Store whose fix is the one action. */
+export type Trouble = RowSignal & { detail?: string, restart?: MachineInfo, store?: StoreRow }
 
 export function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place: Place, fleet?: AvailableView | null): Trouble | null {
   // its machine's worker does not answer: say that, and offer the fix, instead of LayerFS's long refusal
@@ -60,12 +61,21 @@ export function storeTrouble(s: StoreRow, view: StorageView, t: StorageT, place:
   if (host && workerDown(host, fleet?.live[host.name])) {
     return { state: 'error', reason: t('ovStoreWorkerDown', { machine: place(host.name) }), detail: downReason(host, fleet?.live[host.name]) ?? undefined, restart: host }
   }
-  // the six-state word and its reason code; `detail` is LayerFS's fix line (the tip's one action), never a raw error
-  if (s.state === 'broken') return { state: 'error', reason: s.reason === 'unresolved' ? t('unresolved') : storeStateWords(s.state, t, s.reason), ...(s.fix ? { detail: s.fix } : {}) }
+  // the six-state word and its reason; `detail` is LayerFS's sentence (else its fix line), the fix the one action
+  if (s.state === 'broken') {
+    const tip = storeTip(s, t)
+    return { state: 'error', reason: brokenWords(s, t), ...(tip ? { detail: tip } : {}), store: s }
+  }
   if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? blockedWords(s.blockedBy, t, place) : storeStateWords(s.state, t, s.blockedBy?.reason) }
   if (s.state === 'unknown') return { state: 'warning', reason: storeStateWords(s.state, t) }
   if (s.kind === 'sqlite' && view.machines.find((m) => m.name === s.machine)?.state === 'stopped') return { state: 'warning', reason: t('machineStopped', { machine: place(s.machine) }) }
   return null
+}
+
+/** A trouble's one action: Restart worker, else the broken Store's fix where Center runs it. */
+export function troubleAction(trouble: Trouble | null, t: StorageT, onRestart?: (m: MachineInfo) => Promise<unknown>): ReactNode {
+  if (trouble?.restart && onRestart) return <RestartButton m={trouble.restart} t={t} onRestart={onRestart} />
+  return trouble?.store ? <StoreFixAction store={trouble.store} t={t} /> : undefined
 }
 
 /** Restart worker inside a signal's hover card: busy while it runs, LayerFS's refusal as its tooltip. */
@@ -186,7 +196,7 @@ export function ProjectCards({ api, tick, query, sort, frozen, onClearSearch, st
                 <span className={css.nameLine}>
                   <Name onClick={open}>{p}</Name>
                   <Signal state={trouble ? trouble.state : 'ok'} title={trouble?.reason ?? t('ovSignalReady')} detail={trouble?.detail}
-                    action={trouble?.restart && onRestart ? <RestartButton m={trouble.restart} t={t} onRestart={onRestart} /> : undefined} />
+                    action={troubleAction(trouble, t, onRestart)} />
                 </span>
               </span>
               {/* The card opens the project on click: nothing in its actions (the menu's portal included) reaches it. */}

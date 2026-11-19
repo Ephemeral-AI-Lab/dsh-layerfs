@@ -120,6 +120,7 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
 
   const look = lookOf(b)
   const gone = sandboxGone(b)
+  const closeFix = b.state === 'broken' && b.fix === `layerfs sandbox remove ${card.name}`
   const needs = sandboxNeedsYou(b)
   const dot = needs ? 'error' : b.state === 'ready' ? 'done' : 'idle'
   const up = b.state === 'ready' && mx && !mx.gap && mx.row?.startedAt != null ? upTime(mx.row.startedAt, now) : null
@@ -136,13 +137,20 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
   const showFigures = !gone && (showMetrics || spaceOffered)
   return (
     <Card className={css.sbCard} data-sb-card={card.name} tone={needs ? 'warning' : undefined}>
-      {head(dot, <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={chipOpWords({ ...look, op: b.op ?? null, state: b.state ?? '' })} title={liveNote(b, tw) ?? undefined} />,
+      {head(dot, <StateChip tone={look.tone} live={look.live} dashed={look.dashed} label={stateWord(look)} op={chipOpWords({ ...look, op: b.op ?? null, state: b.state ?? '' })} title={liveNote(b, tw) ?? b.message ?? undefined} />,
         <SandboxMenu name={card.name} op={b.op} closing={closing} />)}
       {sub && <p className={css.sbCardSub}>{sub}</p>}
       {image && <p className={css.sbCardImage} data-sb-image title={card.record?.image ?? undefined}><span className={css.sbCardImageLabel}>{t('sbImageLabel')}</span>{onImages ? <LinkButton className={css.mono} onClick={onImages} title={t('sbImageOpen')}>{image}</LinkButton> : <span className={css.mono}>{image}</span>}</p>}
       {gone && (
         <div className={css.sbCardGone} role="status">
           <p>{s?.bytes != null ? t('sbGoneBodySize', { size: spaceSize(s.bytes) }) : t('sbGoneBody')}</p>
+          <CloseGone name={card.name} />
+        </div>
+      )}
+      {/* broken otherwise (a retired backend's, an unknown outcome, a daemon that does not answer): LayerFS's sentence is the tip, its remove fix the one action */}
+      {!gone && closeFix && (
+        <div className={css.sbCardGone} role="status">
+          <p title={b.message ?? undefined}>{t('sbBrokenBody')}</p>
           <CloseGone name={card.name} />
         </div>
       )}

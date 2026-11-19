@@ -365,11 +365,11 @@ export class Storage {
    * from it; store.connect). `clear` with `machine`: that machine's own
    * address goes (store.disconnect --machine). `auth`/`passwordFrom` or
    * `synchronousCommit`: store.update. A typed password: saved under the
-   * Store's current login (store.save_auth rotates it). A Store of an older
-   * home has no saved login (`auth: null`: its record carries a password
-   * reference LayerFS still dials): a typed user and password become a new
-   * login under a free name (the Store's own, else `<store>-login[-n]`),
-   * which store.update makes its login.
+   * Store's current login (store.save_auth rotates it). A Store that names no
+   * saved login (`auth: null`: LayerFS answers it `broken` `outdated` and
+   * refuses its calls) takes LayerFS's fix: a typed user and password are
+   * saved as the login the person named (`authName`, never one that exists,
+   * which would change another Store's password), then store.update names it.
    */
   async updateStore(name: string, input: any = {}) {
     checkName(name, 'A PostgreSQL Store')
@@ -391,10 +391,10 @@ export class Storage {
       const record: any = await this.lfs.store.get(name, { detail: true })
       const saved = (await this.auths()).items
       if (typeof record?.auth !== 'string') {
-        // no saved login yet: save one under a name no other login has, then make it this Store's
-        const taken = new Set(saved.map((a: { auth: string }) => a.auth))
-        let authName = name
-        for (let n = 1; taken.has(authName); n++) authName = n === 1 ? `${name}-login` : `${name}-login-${n}`
+        // no saved login: `store save-auth <auth> --user <user> --password-stdin && store update <store> --auth <auth>`, <auth> the person's
+        const authName = input.authName
+        checkName(authName, 'The new login')
+        if (saved.some((a: { auth: string }) => a.auth === authName)) throw refuse(400, 'InvalidInput', `A saved login named ${authName} exists: pick it, or name another`)
         const auth = await this.loginOf({ ...input, authName }, name, null)
         await this.lfs.store.update(name, { auth, ...(sync ? { synchronous_commit: sync } : {}) })
         this.changed()

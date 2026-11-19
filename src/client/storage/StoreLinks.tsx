@@ -12,7 +12,7 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { Card } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, runsOnOf, storeStateWords, type BackupState } from './model.ts'
+import { backupStateOf, brokenWords, needsLogin, runsOnOf, storeStateWords, storeTip, type BackupState } from './model.ts'
 import type { StoreActions } from './StoreCard.tsx'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
@@ -87,19 +87,20 @@ export function StoreConnection({ store: s, view, t, on }: { store: StoreRow, vi
         </div>
         <dl className={css.linkFacts}>
           <div><dt>{t('pgUrl')}</dt><dd className={css.mono}>{pg?.url ?? '—'}</dd></div>
-          <div><dt>{t('pgPasswordHow')}</dt><dd className={pg?.auth ? css.mono : undefined}>{pg?.auth ? t('pgPasswordSaved', { auth: pg.auth }) : t('pgPasswordLegacy')}</dd></div>
+          <div><dt>{t('pgPasswordHow')}</dt><dd className={pg?.auth ? css.mono : undefined}>{pg?.auth ? t('pgPasswordSaved', { auth: pg.auth }) : t('pgNoLogin')}</dd></div>
           <div><dt>{t('syncCommit')}</dt><dd>{pg?.synchronousCommit ?? t('syncCommitDefault')}</dd></div>
           <div>
             <dt>{t('spServer')}</dt>
-            <dd title={reached === false ? s.fix ?? undefined : undefined}>
-              {reached === false ? <span className={css.dangerText}>{storeStateWords(s.state, t, s.reason)}</span>
+            <dd title={reached === false ? storeTip(s, t) : undefined}>
+              {reached === false ? <span className={css.dangerText}>{brokenWords(s, t)}</span>
                 : reached ? storeStateWords(s.state, t)
                   : t('unknown')}
             </dd>
           </div>
         </dl>
         <div className={css.linkActions}>
-          <Button variant="outline" size="sm" onClick={() => on.editConnection()}>{t('edit')}</Button>
+          {/* a Store naming no saved login: Edit is the save-login form, its one action */}
+          <Button variant={needsLogin(s) ? 'primary' : 'outline'} size="sm" onClick={() => on.editConnection()}>{needsLogin(s) ? t('fixRunSaveLogin') : t('edit')}</Button>
           <Button variant="ghost" size="sm" onClick={() => on.check()}>{t('pgCheckFrom')}</Button>
         </div>
       </Card>

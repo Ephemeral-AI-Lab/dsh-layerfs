@@ -2,13 +2,15 @@
  * The Store pieces the explorer and the Store page share: where a Store is,
  * the Store menu, the words under its name and why it needs you now.
  */
-import type { ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
 import { MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { runnableFix } from '../../shared/doctor.ts'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { LinkButton, MoreMenu } from '../ui/index.tsx'
+import { FixAction, FixContext, LinkButton, MoreMenu } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { blockedWords, compactWaitsFor, inHome, latestBackup, storeStateWords } from './model.ts'
+import { blockedWords, brokenWords, compactWaitsFor, inHome, latestBackup, storeStateWords } from './model.ts'
+import { refusalLabels } from './parts.tsx'
 import type { StorageJob, StoreBackupLink, StoreRow } from './types.ts'
 import css from './Storage.module.css'
 
@@ -116,9 +118,21 @@ export function StoreSub({ store: s, t, now, onMachine }: { store: StoreRow, t: 
 
 /** Why a Store needs you now, if it does: its state word and reason (the fix is the one action beside it). */
 export function storeNotice(s: StoreRow, machineState: string | null | undefined, t: StorageT): string | null {
-  if (s.state === 'broken' && s.reason === 'unresolved') return t('unresolved')
+  if (s.state === 'broken') return brokenWords(s, t)
   if (s.state === 'blocked' && s.blockedBy?.machine) return blockedWords(s.blockedBy, t)
   if (s.state === 'broken' || s.state === 'blocked' || s.state === 'unknown') return storeStateWords(s.state, t, s.reason ?? s.blockedBy?.reason)
   if (s.kind === 'sqlite' && machineState === 'stopped') return t('machineStopped', { machine: s.machine ?? '?' })
   return null
+}
+
+/**
+ * A broken Store's one action: its `fix` line where Center can run it
+ * ({@link FixContext}): Compact for an unknown outcome, Save a login… for a
+ * PostgreSQL Store that names no saved login (the save-login dialog), and so
+ * on. Null when the line stays a tip.
+ */
+export function StoreFixAction({ store: s, t }: { store: Pick<StoreRow, 'state' | 'fix'>, t: StorageT }): ReactNode {
+  const fixes = useContext(FixContext)
+  const fix = fixes && s.state === 'broken' && s.fix ? runnableFix(s.fix) : null
+  return fix && fixes ? <FixAction line={s.fix!} fix={fix} runner={fixes} labels={refusalLabels(t)} /> : null
 }

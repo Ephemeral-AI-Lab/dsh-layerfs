@@ -36,7 +36,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       'runtime.save': (args: { cli: string | null, daemon: string | null, bundle?: string | null, cacheHome?: string | null, runtime?: string | null }) => ctx.layerfs.savePin({ cli: args?.cli ?? null, daemon: args?.daemon ?? null, bundle: args?.bundle ?? null, ...(args?.runtime ? { runtime: args.runtime } : {}), ...(args && 'cacheHome' in args ? { cacheHome: args.cacheHome ?? null } : {}) }),
       // the setup check (docs/specs/layerfs-setup.md §3): runtime, LayerFS folder, one build
       'setup.status': () => ctx.layerfs.setup(),
-      'setup.convert': () => ctx.layerfs.convertHome(),
+      // a refusal's `layerfs home init` fix (a missing folder); an older LayerFS's folder is never converted
+      'setup.init': () => ctx.layerfs.initHome(),
       'setup.recordDaemon': () => ctx.layerfs.recordDaemon(),
       'runtime.installed': () => ctx.layerfs.installed(),
     })

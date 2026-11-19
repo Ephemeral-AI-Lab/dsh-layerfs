@@ -24,7 +24,8 @@ test('each runnable fix line makes the host call of the page\'s own button', asy
   for (const line of [
     'layerfs machine start dev', 'layerfs machine stop dev', 'layerfs machine stop dev && layerfs machine start dev',
     'layerfs machine prune dev --unused', 'layerfs store compact shop', 'layerfs project delete shop/web',
-    'layerfs backup create shop r2', 'layerfs home init',
+    'layerfs backup create shop r2', 'layerfs home init', 'layerfs machine remove old',
+    'layerfs store remove nokind', 'layerfs sandbox remove lfs-1a2b3c4d-box',
   ]) await M.fixCall(api, M.runnableFix(line))
   assert.deepEqual(sent, [
     ['POST', '/api/machines/dev/start', {}],
@@ -34,6 +35,33 @@ test('each runnable fix line makes the host call of the page\'s own button', asy
     ['POST', '/api/stores/shop/compact', {}],
     ['DELETE', '/api/projects/shop%2Fweb'],
     ['POST', '/api/stores/shop/backup', { bucket: 'r2' }],
-    ['op', 'setup.convert'],
+    ['op', 'setup.init'],
+    ['DELETE', '/api/machines/old'],
+    ['DELETE', '/api/stores/nokind?confirm=nokind'],
+    ['DELETE', '/api/sandboxes/lfs-1a2b3c4d-box'],
   ])
+})
+
+// CUT (LayerFS 2.0, 2026-11-19): the fixes of old state the page offers as its one action.
+test('the CUT fixes: a Store with no saved login opens the save-login dialog, docker\'s doctor runs, a record without vm_name is removed', async () => {
+  assert.deepEqual(M.runnableFix('layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update compact-demo-pg --auth <auth>'), { kind: 'saveAuth', store: 'compact-demo-pg' })
+  assert.deepEqual(M.runnableFix('layerfs machine doctor docker'), { kind: 'doctor', machine: 'docker' })
+  assert.deepEqual(M.runnableFix('layerfs machine remove old'), { kind: 'removeMachine', machine: 'old' })
+  // the cut's review: docker with no vm_name is reset by its remove; a Store with no kind and an lfs- Sandbox are removed (records only)
+  assert.deepEqual(M.runnableFix('layerfs machine remove docker'), { kind: 'removeMachine', machine: 'docker' })
+  assert.deepEqual(M.runnableFix('layerfs store remove nokind'), { kind: 'removeStore', store: 'nokind' })
+  assert.deepEqual(M.runnableFix('layerfs sandbox remove lfs-1a2b3c4d-box'), { kind: 'removeSandbox', sandbox: 'lfs-1a2b3c4d-box' })
+  // never run in part, never with a guessed login: a filled-in or longer line stays a tip
+  for (const line of [
+    'layerfs store save-auth pg --user u --password-stdin && layerfs store update pg --auth pg',
+    'layerfs store save-auth <auth> --user <user> --password-stdin',
+    'layerfs store update pg --auth <auth>',
+    'layerfs machine remove old --force',
+    'layerfs sandbox remove box --force',
+    'layerfs store remove a b',
+    'layerfs machine doctor',
+    'mv /h /h.old && layerfs home init',
+  ]) assert.equal(M.runnableFix(line), null, line)
+  // the two that are Center's own are not host calls
+  for (const fix of [{ kind: 'saveAuth', store: 'pg' }, { kind: 'doctor', machine: 'docker' }]) await assert.rejects(M.fixCall({ call: async () => assert.fail('no call'), op: async () => assert.fail('no op') }, fix))
 })

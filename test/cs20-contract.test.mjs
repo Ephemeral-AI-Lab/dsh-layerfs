@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
 const root = new URL('..', import.meta.url).pathname
-const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? '/Users/yifanxu/.cache/cs20-pins/c27f94ca41/layerfs'
+const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? '/Users/yifanxu/.cache/cs20-pins/a2a13a3892/layerfs'
 const skip = existsSync(CLI) ? false : `no 2.0 CLI at ${CLI}`
 
 /** The pinned table, read once in a home of its own. */
@@ -443,5 +443,48 @@ test('machine answers: an unreadable record is listed broken/failed and not prob
     const { unreadableRecord } = await import(pathToFileURL(join(root, 'src/host/layerfs/machine-records.ts')).href)
     assert.deepEqual(items.filter((m) => !unreadableRecord(m)).map((m) => m.machine).sort(), items.map((m) => m.machine).filter((n) => n !== 'bad').sort())
     assert.ok(sent().includes('machine get --detail --with live -- native'))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// CUT (LayerFS a2a13a3892, owner 2026-11-19): old state is not read as before. A PostgreSQL
+// Store recorded with no saved login is `broken` `outdated` and refused with the save-auth
+// fix; the built-in docker and a created machine whose record has no vm_name are refused
+// with `machine doctor docker` / `machine remove <m>`; `workspace exec` env is an object.
+// Each fix line LayerFS answers is the page's one action (runnableFix), never a guess.
+test('CUT old state: each refusal\'s fix is the page\'s one action; exec env is an object', { skip }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-cs20-cut-'))
+  try {
+    const home = join(dir, 'home')
+    const env = { ...process.env, LAYERFS_HOME: home }
+    execFileSync(CLI, ['home', 'init'], { env, timeout: 30_000 })
+    const record = (kind, name, value) => {
+      mkdirSync(join(home, kind, name), { recursive: true, mode: 0o700 })
+      writeFileSync(join(home, kind, name, 'record.json'), JSON.stringify(value), { mode: 0o600 })
+    }
+    record('store', 'pg', { name: 'pg', kind: 'postgresql', url: 'postgresql://owner@db.invalid:5432/team', schema: 'layerfs', password: 'env:NOPE' })
+    record('machine', 'docker', { v: 1, name: 'docker', platform: 'docker', created: 1795069751311 })
+    record('machine', 'old', { v: 1, name: 'old', platform: 'lima', created: 1795069751311 })
+    const out = join(dir, 'fix')
+    await build({
+      stdin: { contents: "export { runnableFix } from './src/shared/doctor.ts'\nexport { storeRow } from './src/host/routes/storage.ts'\n", resolveDir: root, loader: 'ts' },
+      bundle: true, platform: 'node', format: 'esm', outfile: join(out, 'fix.mjs'), absWorkingDir: root, target: 'node24', logLevel: 'warning', packages: 'external',
+    })
+    const { runnableFix, storeRow } = await import(pathToFileURL(join(out, 'fix.mjs')).href)
+    const { lfs, sent } = await recordingClient(dir, home)
+    const pg = (await lfs.store.list({ detail: true, with: ['stats'] })).items.find((s) => s.store === 'pg')
+    assert.deepEqual([pg.state, pg.reason, pg.auth], ['broken', 'outdated', null])
+    assert.deepEqual(runnableFix(pg.fix), { kind: 'saveAuth', store: 'pg' })
+    const row = storeRow(pg, [])
+    assert.deepEqual([row.state, row.reason, row.postgresql.auth, row.fix], ['broken', 'outdated', null, pg.fix])
+    await assert.rejects(lfs.store.compact('pg', { detail: true }), (e) => e.code === 'InvalidInput' && /names no saved login/.test(e.message) && runnableFix(e.fix)?.kind === 'saveAuth')
+    // docker: `machine doctor docker` at a2a13a3892; the cut's review makes it `machine remove docker` (records only, the built-in comes back fresh)
+    await assert.rejects(lfs.machine.stop('docker', {}), (e) => e.code === 'Failed' && /no vm_name/.test(e.message) && ['doctor', 'removeMachine'].includes(runnableFix(e.fix)?.kind) && runnableFix(e.fix).machine === 'docker')
+    await assert.rejects(lfs.machine.stop('old', {}), (e) => e.code === 'Failed' && JSON.stringify(runnableFix(e.fix)) === JSON.stringify({ kind: 'removeMachine', machine: 'old' }))
+    // that fix removes the record alone: no `forgotten` outcome
+    const removed = await lfs.machine.remove('old', { detail: true })
+    assert.deepEqual([removed.ok, removed.outcome], [true, 'removed'])
+    // exec env: an object only; a list or a text is refused by the seam before spawning
+    for (const bad of [['A=1'], 'A=1', { A: 1 }]) await assert.rejects(lfs.workspace.exec('box:ws', 'true', { env: bad }), (e) => e.code === 'InvalidInput' && /env is an object/.test(e.message))
+    assert.deepEqual(sent().filter((l) => l.startsWith('workspace exec')), [], 'nothing spawned')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })

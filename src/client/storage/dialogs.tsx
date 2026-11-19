@@ -12,7 +12,7 @@ import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, canMove, inHome, runsOnOf, type BackupState } from './model.ts'
+import { backupStateOf, canMove, inHome, needsLogin, runsOnOf, type BackupState } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { LocationPicker, placeName, stoppedPicked } from '../projects/setup/MachineTiles.tsx'
 import { defaultMachine, isRunning, machinesFor } from '../projects/setup/model.ts'
@@ -222,9 +222,18 @@ function NewStoreDialog({ api, t, view, onClose, done, onDialog }: {
  * store.update / store.save-auth) and its synchronous_commit. With
  * `machine`, that machine's own address instead (store.connect --machine),
  * which LayerFS checks from the machine before it saves anything. Only what
- * changed is sent. A refusal stays under the form.
+ * changed is sent. A refusal stays under the form. A Store that names no
+ * saved login gets the save-login form instead ({@link SaveLoginDialog}).
  */
-function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
+function EditConnectionDialog(props: {
+  api: LayerfsApi, t: StorageT, view: StorageView | undefined, store: string, machine?: string | undefined, onClose: () => void, done: () => void
+}): ReactNode {
+  const s = props.view?.stores.find((x) => x.name === props.store)
+  if (s && !props.machine && needsLogin(s)) return <SaveLoginDialog api={props.api} t={props.t} store={s} onClose={props.onClose} done={props.done} />
+  return <ConnectionDialog {...props} />
+}
+
+function ConnectionDialog({ api, t, view, store, machine, onClose, done }: {
   api: LayerfsApi, t: StorageT, view: StorageView | undefined, store: string, machine?: string | undefined, onClose: () => void, done: () => void
 }): ReactNode {
   const s = view?.stores.find((x) => x.name === store)
@@ -234,8 +243,7 @@ function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
   // the current login is shown picked; a new password rotates it (its user is the login's), another login replaces it
   const authBefore = s?.postgresql?.auth ?? ''
   const auths = usePgAuths(api)
-  // a Store of an older home has no saved login (its record's password reference still works): a login given here becomes its first; its URL's user starts the field
-  const pw = usePgPassword(authBefore ? 'saved' : 'entered', authBefore, null, authBefore ? '' : parsePgUrl(before)?.user ?? '')
+  const pw = usePgPassword(authBefore ? 'saved' : 'entered', authBefore)
   const syncBefore = s?.postgresql?.synchronousCommit ?? ''
   const [sync, setSync] = useState(syncBefore)
   if (!s || !view) return null
@@ -244,8 +252,7 @@ function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
   const loginUser = pw.user.trim() || auths.find((a) => a.auth === authBefore)?.user || ''
   const pwChanged = !machine && (pw.how === 'entered' ? !!pw.value && !!loginUser : !pw.missing && !(pw.how === 'saved' && pw.auth === authBefore))
   const syncChanged = !machine && !!sync && sync !== syncBefore
-  // only an address typed here is checked: an older Store's own URL may carry its user, and is not sent unless changed
-  const urlError = urlChanged && PG_URL_LOGIN.test(url.trim()) ? t('pgPasswordInUrl') : null
+  const urlError = PG_URL_LOGIN.test(url.trim()) ? t('pgPasswordInUrl') : null
   const login = () => (pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body())
   const body = () => ({
     ...(machine ? { machine } : {}), ...(urlChanged ? { url: url.trim() } : {}), ...(pwChanged ? login() : {}), ...(syncChanged ? { synchronousCommit: sync } : {}),
@@ -261,13 +268,40 @@ function EditConnectionDialog({ api, t, view, store, machine, onClose, done }: {
       <TextField label={machine ? t('cdOwnUrl', { machine: place ?? '' }) : t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db"
         hint={machine ? t('pgUrlHint') : undefined} error={urlError} autoFocus />
       {machine ? null : <PgPasswordFields id="lfs-pg-edit-password" pw={pw} t={t} auths={auths} />}
-      {!machine && !pwChanged ? <p className={css.formNote}>{t(authBefore ? 'pgPasswordKept' : 'pgPasswordLegacyKept')}</p> : null}
+      {!machine && authBefore && !pwChanged ? <p className={css.formNote}>{t('pgPasswordKept')}</p> : null}
       {machine ? null : (
         <Field label={t('syncCommit')}>
           <MenuSelect value={sync} label={t('syncCommit')} placeholder={t('syncCommitDefault')}
             options={['off', 'local', 'remote_write', 'on', 'remote_apply'].map((v) => ({ value: v, label: v }))} onChange={setSync} />
         </Field>
       )}
+    </FormModal>
+  )
+}
+
+/**
+ * Save a login for a PostgreSQL Store that names none (LayerFS's fix:
+ * `store save-auth <auth> --user <user> --password-stdin && store update
+ * <store> --auth <auth>`). Prefilled for the Store: the login's name is the
+ * Store's when no saved login has it, the user is the one its address names.
+ * The password is the person's to type; nothing is guessed. Or a saved login
+ * is picked (`store update --auth` alone). The host saves and names it.
+ */
+function SaveLoginDialog({ api, t, store: s, onClose, done }: { api: LayerfsApi, t: StorageT, store: StoreRow, onClose: () => void, done: () => void }): ReactNode {
+  const auths = usePgAuths(api)
+  const pw = usePgPassword('entered', '', null, parsePgUrl(s.postgresql?.url ?? '')?.user ?? '')
+  const [typed, setTyped] = useState<string | null>(null)
+  const taken = new Set(auths.map((a) => a.auth))
+  const authName = (typed ?? (taken.has(s.name) ? '' : s.name)).trim()
+  const entered = pw.how === 'entered'
+  const nameError = !entered || !authName ? null : taken.has(authName) ? t('pgLoginNameTaken', { auth: authName }) : NAME.test(authName) ? null : t('storeNameHint')
+  const valid = entered ? !!authName && !nameError && !pw.missing : !pw.missing
+  const body = () => (entered ? { authName, user: pw.user.trim(), passwordValue: pw.value } : pw.body())
+  return (
+    <FormModal open onClose={onClose} t={t} title={t('pgLoginTitle', { store: s.name })} description={t('pgLoginBody', { target: s.postgresql?.target ?? s.name })}
+      action={t('save')} valid={valid} submit={() => api.call('POST', `/api/stores/${enc(s.name)}/connection`, body()).then(done)}>
+      <PgPasswordFields id="lfs-pg-login-password" pw={pw} t={t} auths={auths} />
+      {entered ? <TextField label={t('pgLoginName')} value={typed ?? authName} onChange={setTyped} mono hint={t('pgLoginNameHint')} error={nameError} /> : null}
     </FormModal>
   )
 }

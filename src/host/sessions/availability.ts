@@ -7,7 +7,7 @@
  *
  *   available    ready, no op
  *   transient    busy (move, remove, compact, backup, restore): wait, never deactivate
- *   unavailable  blocked by its machine, or broken (unresolved, missing, unreachable)
+ *   unavailable  blocked by its machine, or broken (unresolved, missing, unreachable, a PostgreSQL Store with no saved login)
  *   removed      the Store is no longer listed
  *   unknown      unknown (its machine did not answer), or a word this build does not name: never deactivate on it
  */
@@ -33,6 +33,8 @@ export function classifyStore(row: any | undefined, live?: any): StoreHealth {
     if (x.reason === 'unresolved') return { state: 'unavailable', reason: `An earlier operation on ${name} left an uncertain outcome; resolve it on the Storage page.${fix}` }
     if (x.reason === 'unreachable') return { state: 'unavailable', reason: `The PostgreSQL server of ${name} cannot be reached from this computer.${fix}` }
     if (x.reason === 'missing') return { state: 'unavailable', reason: `The file of ${name} is missing.${fix}` }
+    // a PostgreSQL Store naming no saved login: LayerFS refuses its calls until one is saved and named
+    if (x.reason === 'outdated' && row.engine === 'postgresql' && typeof row.auth !== 'string') return { state: 'unavailable', reason: `PostgreSQL ${name} names no saved login; save one with Save a login… on its Storage page.${fix}` }
     return { state: 'unavailable', reason: `${name} needs repair (${String(x.reason ?? 'broken')}).${fix}` }
   }
   if (state === 'busy' || op) return { state: 'transient', reason: `The project Store is busy${op?.name ? ` (${op.name})` : ''}.` }

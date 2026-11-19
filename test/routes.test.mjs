@@ -313,12 +313,13 @@ test('postgresql: logins are saved in LayerFS (password on stdin, never a file o
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
-// LayerFS PW: a PostgreSQL Store of an older home keeps a password reference in its
-// record and no saved login (`store get` answers `auth: null`); LayerFS dials it as
-// before. It is a normal Store; a login given on the page becomes its first saved
-// login (a free name, then `store update --auth`), never a rotation of another's.
-test('postgresql: a Store of an older home (auth null) is a normal Store; a typed login becomes its first saved login', async () => {
-  const record = { store: 'old', engine: 'postgresql', auth: null, connections: [{ url: 'postgresql://lfs@db.lan:5432/team' }], projects: ['app'], state: 'ready' }
+// CUT (LayerFS 2.0, 2026-11-19): a PostgreSQL Store recorded before saved logins (no
+// `auth`) is `broken` `outdated` with the save-auth fix, and its calls are refused. The
+// page's one action saves the login the person names (never an existing one: that would
+// change another Store's password), then `store update --auth` names it; nothing is guessed.
+test('postgresql: a Store naming no saved login is broken/outdated; its fix saves the named login, then names it', async () => {
+  const fix = 'layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update old --auth <auth>'
+  const record = { store: 'old', engine: 'postgresql', auth: null, connections: [{ url: 'postgresql://lfs@db.lan:5432/team' }], projects: [], state: 'broken', reason: 'outdated', fix }
   const seen = []
   const { http, root } = fakeGroups({
     ...base,
@@ -327,8 +328,7 @@ test('postgresql: a Store of an older home (auth null) is a normal Store; a type
       ...base.store,
       list: async () => ({ items: [record] }),
       get: async () => record,
-      // `old` is already another Store's login name: the new one takes the next free name
-      auths: async () => ({ items: [{ auth: 'old', user: 'x', stores: ['other'] }] }),
+      auths: async () => ({ items: [{ auth: 'taken', user: 'x', stores: ['other'] }] }),
       save_auth: async (auth, options) => { seen.push(['save_auth', auth, options]); return { ok: true } },
       update: async (name, options) => { seen.push(['update', name, options]); return { ok: true } },
     },
@@ -337,19 +337,19 @@ test('postgresql: a Store of an older home (auth null) is a normal Store; a type
     const view = await http('GET', '/api/storage')
     assert.equal(view.status, 200)
     const row = view.body.stores.find((s) => s.name === 'old')
-    assert.deepEqual([row.state, row.postgresql.auth, row.postgresql.server, row.postgresql.database], ['ready', null, 'db.lan:5432', 'team'])
-    // a typed user + password: saved as a new login, then made the Store's
-    const set = await http('POST', '/api/stores/old/connection', { user: 'lfs', passwordValue: 'pw' })
-    assert.equal(set.status, 200)
-    assert.deepEqual(seen, [['save_auth', 'old-login', { user: 'lfs', password: 'pw' }], ['update', 'old', { auth: 'old-login' }]])
+    assert.deepEqual([row.state, row.reason, row.fix, row.postgresql.auth], ['broken', 'outdated', fix, null])
+    // a typed user + password without a login name, or under a saved login's name: refused before LayerFS
+    for (const body of [{ user: 'lfs', passwordValue: 'pw' }, { authName: 'taken', user: 'lfs', passwordValue: 'pw' }, { authName: 'old', passwordValue: 'pw' }]) {
+      assert.equal((await http('POST', '/api/stores/old/connection', body)).status, 400, JSON.stringify(body))
+    }
+    assert.deepEqual(seen, [])
+    // the named login: saved (password on stdin), then made the Store's
+    assert.equal((await http('POST', '/api/stores/old/connection', { authName: 'old', user: 'lfs', passwordValue: 'pw' })).status, 200)
+    assert.deepEqual(seen, [['save_auth', 'old', { user: 'lfs', password: 'pw' }], ['update', 'old', { auth: 'old' }]])
     // a saved login picked instead: store update --auth only
     seen.length = 0
-    assert.equal((await http('POST', '/api/stores/old/connection', { auth: 'team-login' })).status, 200)
-    assert.deepEqual(seen, [['update', 'old', { auth: 'team-login' }]])
-    // a password without its user: refused before LayerFS
-    seen.length = 0
-    assert.equal((await http('POST', '/api/stores/old/connection', { passwordValue: 'pw' })).status, 400)
-    assert.deepEqual(seen, [])
+    assert.equal((await http('POST', '/api/stores/old/connection', { auth: 'taken' })).status, 200)
+    assert.deepEqual(seen, [['update', 'old', { auth: 'taken' }]])
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

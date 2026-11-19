@@ -218,11 +218,13 @@ export const FixContext = createContext<FixRunner | null>(null)
 export function FixAction({ line, fix, runner, labels }: { line: string, fix: RunnableFix, runner: FixRunner, labels: RefusalLabels }): ReactNode {
   const [step, setStep] = useState<'idle' | 'confirm' | 'busy' | 'done'>('idle')
   const [failed, setFailed] = useState<unknown>(null)
-  const removes = fix.kind === 'delete' || fix.kind === 'prune'
+  const removes = fix.kind === 'delete' || fix.kind === 'prune' || fix.kind === 'removeMachine' || fix.kind === 'removeStore' || fix.kind === 'removeSandbox'
+  // a fix that opens something (the save-login dialog, the Doctor page) is not done when it opens
+  const opens = fix.kind === 'saveAuth' || fix.kind === 'doctor'
   const press = async () => {
     if (removes && step === 'idle') { setStep('confirm'); return }
     setStep('busy'); setFailed(null)
-    try { await runner.run(fix); setStep('done') } catch (error) { setFailed(error); setStep('idle') }
+    try { await runner.run(fix); setStep(opens ? 'idle' : 'done') } catch (error) { setFailed(error); setStep('idle') }
   }
   if (step === 'done') return <p className={css.refusalFix} role="status"><StateDot state="done" />{runner.done}</p>
   return (

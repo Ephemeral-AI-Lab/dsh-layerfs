@@ -17,9 +17,9 @@ import { Empty, Notice, PageHead, StateChip } from '../ui/index.tsx'
 import { useHostEvents } from './hooks.ts'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { canAddProject, storeStateWords, storeTone } from './model.ts'
+import { canAddProject, storeStateWords, storeTip, storeTone } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
-import { Location, StoreMenu, storeNotice, type StoreActions } from './StoreCard.tsx'
+import { Location, StoreFixAction, StoreMenu, storeNotice, type StoreActions } from './StoreCard.tsx'
 import { StoreBackups, StoreConnection } from './StoreLinks.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
@@ -99,8 +99,9 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
 
       {notice ? (
         <Notice tone="danger" role="alert">
-          <span>{notice}</span>
-          {s.kind === 'sqlite' && machineState === 'stopped' ? <Button variant="outline" size="sm" onClick={on.start}>{t('startMachine', { machine: s.machine ?? '' })}</Button> : null}
+          {/* the state word and its reason; LayerFS's sentence is the tip, the fix the one action */}
+          <span title={s.state === 'broken' ? storeTip(s, t) : undefined}>{notice}</span>
+          {s.kind === 'sqlite' && machineState === 'stopped' ? <Button variant="outline" size="sm" onClick={on.start}>{t('startMachine', { machine: s.machine ?? '' })}</Button> : <StoreFixAction store={s} t={t} />}
         </Notice>
       ) : null}
       {current ? <JobPanel job={current} t={t} onRetry={() => on.retry(current)} onDismiss={() => on.dismiss(current)} /> : s.state === 'busy' && s.op ? <OpPanel store={s} t={t} /> : null}

@@ -370,21 +370,28 @@
 .noneAction {
   font-size: 12px;
 }
-.status {
-  margin: 0;
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   padding: 6px 10px;
-  overflow: hidden;
   border-radius: var(--dsw-radius-m, 8px);
   background: var(--dsw-alias-bg-module-platform);
   font-size: 12px;
   line-height: 16px;
+}
+.statusText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.status[data-tone='danger'] {
+.statusRow[data-tone='danger'] {
   color: var(--dsw-alias-state-error-primary);
 }
-.status[data-tone='warning'] {
+.statusRow[data-tone='warning'] {
   color: var(--dsw-alias-state-warn-primary);
 }
 .foot {

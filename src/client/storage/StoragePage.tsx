@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { DoctorT } from '../doctor/locale.ts'
+import { useStartDoctor } from '../doctor/Doctor.tsx'
 import { useQuery } from '../files/use-query.ts'
 import { HealthView } from '../health/index.tsx'
 import { LogsPage, type LogsT } from '../logs/index.tsx'
@@ -77,43 +78,63 @@ export function StoragePage(props: StorageMainProps): ReactNode {
   const machines = useMemo<MachinesPageProps>(() => ({
     ...rest, api, doctorT, logsT: more.logs, t: tm, openTab: (id: string) => { if (isTabId(id)) openRef.current(id) },
   }), [props])
+  // The save-login fix opens the page's own dialog; the ref reaches the page's latest `setDialog`.
+  const loginRef = useRef<(store: string) => void>(() => {})
   return (
     <MachinesProvider props={machines}>
-      <CenterFixes api={api} t={t}>
-        <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} map={map} more={more} />
+      <CenterFixes api={api} t={t} loginRef={loginRef}>
+        <StorageIde api={api} doctorT={doctorT} t={t} openRef={openRef} loginRef={loginRef} map={map} more={more} />
       </CenterFixes>
     </MachinesProvider>
   )
 }
 
-/** Every refusal under Center offers its fix line as its one action ({@link FixContext}). */
-function CenterFixes({ api, t, children }: { api: LayerfsApi, t: StorageT, children: ReactNode }): ReactNode {
+/**
+ * Every refusal under Center offers its fix line as its one action
+ * ({@link FixContext}). A machine's doctor fix starts that doctor and opens the
+ * Doctor page; a PostgreSQL Store's save-login fix opens the save-login dialog
+ * for that Store (the person gives the login and its password there).
+ */
+function CenterFixes({ api, t, loginRef, children }: { api: LayerfsApi, t: StorageT, loginRef: { current: (store: string) => void }, children: ReactNode }): ReactNode {
   const { recheck } = useMachinesContext()
+  const startDoctor = useStartDoctor(api)
+  const doctorRef = useRef(startDoctor)
+  doctorRef.current = startDoctor
   const runner = useMemo<FixRunner>(() => {
-    const name = (fix: RunnableFix) => ('machine' in fix ? fix.machine : 'store' in fix ? fix.store : 'project' in fix ? fix.project : '')
+    const name = (fix: RunnableFix) => ('machine' in fix ? fix.machine : 'store' in fix ? fix.store : 'project' in fix ? fix.project : 'sandbox' in fix ? fix.sandbox : '')
     return {
-      run: async (fix) => { try { return await fixCall(api, fix) } finally { if ('machine' in fix) void recheck() } },
+      run: async (fix) => {
+        if (fix.kind === 'saveAuth') { loginRef.current(fix.store); return }
+        if (fix.kind === 'doctor') return doctorRef.current('machine', fix.machine)
+        try { return await fixCall(api, fix) } finally { if ('machine' in fix) void recheck() }
+      },
       label: (fix) => {
         switch (fix.kind) {
           case 'start': return t('fixRunStart', { name: fix.machine })
           case 'stop': return t('fixRunStop', { name: fix.machine })
           case 'restart': return t('fixRunRestart', { name: fix.machine })
           case 'prune': return t('fixRunPrune')
+          case 'doctor': return t('fixRunDoctor', { name: fix.machine })
+          case 'removeMachine': return t('fixRunRemoveRecord', { name: fix.machine })
           case 'compact': return t('fixRunCompact', { name: fix.store })
+          case 'removeStore': return t('fixRunRemoveRecord', { name: fix.store })
+          case 'removeSandbox': return t('fixRunCloseSandbox', { name: fix.sandbox })
           case 'delete': return t('fixRunDelete', { name: fix.project })
           case 'backup': return t('fixRunBackup', { bucket: fix.bucket })
           case 'homeInit': return t('fixRunHomeInit')
+          case 'saveAuth': return t('fixRunSaveLogin')
         }
       },
-      confirm: (fix) => t(fix.kind === 'delete' ? 'fixConfirmDelete' : 'fixConfirmPrune', { name: name(fix) }),
+      confirm: (fix) => t(fix.kind === 'delete' ? 'fixConfirmDelete' : fix.kind === 'removeMachine' || fix.kind === 'removeStore' ? 'fixConfirmRemoveRecord'
+        : fix.kind === 'removeSandbox' ? 'fixConfirmCloseSandbox' : 'fixConfirmPrune', { name: name(fix) }),
       tip: (line) => t('fixTip', { line }),
       done: t('fixDone'),
     }
-  }, [api, t, recheck])
+  }, [api, t, recheck, loginRef])
   return <FixContext.Provider value={runner}>{children}</FixContext.Provider>
 }
 
-function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {
+function StorageIde({ api, doctorT, t, openRef, loginRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, loginRef: { current: (store: string) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {
   const mc = useMachinesContext()
   useEffect(() => mc.activate(), [mc.activate])
   const fleetRead = mc.useMachines((s) => s)
@@ -127,6 +148,7 @@ function StorageIde({ api, doctorT, t, openRef, map, more }: { api: LayerfsApi, 
   const { jobs, dismissed, dismiss, take } = useStorageJobs(api, storage.data?.jobs)
   const now = useNow(10_000)
   const [dialog, setDialog] = useState<StorageDialog | null>(null)
+  loginRef.current = (store) => setDialog({ kind: 'pg-edit', store })
   const [failed, setFailed] = useState<unknown>(undefined)
   const [listing, setListing] = useState<string | null>(null)
   const [listingAll, setListingAll] = useState(false)

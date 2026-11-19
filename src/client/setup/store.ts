@@ -18,7 +18,8 @@ export interface Piece {
   readonly verdict: Verdict
 }
 
-export type HomeState = 'missing' | 'current' | 'needs_conversion' | 'unknown'
+/** `outdated`: an older LayerFS's folder, which LayerFS 2.0 does not convert (moved aside by hand, `fix`). */
+export type HomeState = 'missing' | 'current' | 'outdated' | 'unknown'
 export type SetupNeed = 'runtime' | 'folder' | 'build'
 
 /** `setup.status` (host service.ts `SetupStatus`). */
@@ -44,7 +45,10 @@ export interface SetupStatus {
     readonly layout: number | null
     readonly mode: string | null
     readonly modeOk: boolean | null
-    readonly did: { readonly created: boolean, readonly converted: boolean, readonly at: number } | null
+    readonly did: { readonly created: boolean, readonly at: number } | null
+    /** A folder that is not ready, in LayerFS's words (`home get` `message` and `fix`). */
+    readonly message?: string | null
+    readonly fix?: string | null
   }
   readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
   readonly warnings: readonly { readonly code: string, readonly message: string }[]
@@ -71,14 +75,14 @@ export interface InstalledRuntime {
   readonly error: string | null
 }
 
-/** How long the folder reads "created / converted just now" after the setup check did it. */
+/** How long the folder reads "created just now" after the setup check did it. */
 export const JUST_NOW_MS = 10 * 60_000
 
-/** What the setup check did to the folder lately (created or converted), else null. */
-export const lately = (s: SetupStatus): 'created' | 'converted' | null => {
+/** What the setup check did to the folder lately (created it), else null. */
+export const lately = (s: SetupStatus): 'created' | null => {
   const did = s.folder.did
   if (!did || Date.now() - did.at > JUST_NOW_MS) return null
-  return did.converted ? 'converted' : did.created ? 'created' : null
+  return did.created ? 'created' : null
 }
 
 /** The modal's sections, top to bottom (the rail). */

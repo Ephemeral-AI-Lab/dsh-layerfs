@@ -42,10 +42,10 @@ import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { machineStores, projectSplit, serverCheckWords, serverGroups, startKind, storeOffServer, type PgServerGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { cardJob, pgStoreBytes, runsOnOf } from './model.ts'
+import { brokenWords, cardJob, needsLogin, pgStoreBytes, runsOnOf, storeTip } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
-import { StoreMenu, storeNotice, type StoreActions } from './StoreCard.tsx'
+import { StoreFixAction, StoreMenu, storeNotice, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
 import type { StoreProjectsView, StoreStats } from './store-page.ts'
 import { HOME_SCOPE, readStoreKind, readStoresAlt, watchHomeStores, writeStoreKind, writeStoresAlt } from './tabs.ts'
@@ -415,6 +415,16 @@ function SizeFigure({ s, t, now, last }: { s: StoreRow, t: StorageT, now: number
     title={size.stale ? t('msSizeStaleTitle', { parts, when: seen ?? '?' }) : undefined} />
 }
 
+/** A Store's state in words on its card (LayerFS's sentence as the tip) and its fix as the one action. */
+function StoreStatus({ s, t, words }: { s: StoreRow, t: StorageT, words: string }): ReactNode {
+  return (
+    <div className={css.statusRow} data-tone={s.state === 'broken' ? 'danger' : 'warning'}>
+      <span className={css.statusText} title={storeTip(s, t)}>{words}</span>
+      <StoreFixAction store={s} t={t} />
+    </div>
+  )
+}
+
 function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, onOpenStore, onOpenProject, onBackups }: CardProps & { s: StoreRow }): ReactNode {
   const on = actionsFor(s)
   const job = cardJob(jobs, s.name, dismissed, now)
@@ -426,7 +436,7 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   const notice = storeNotice(s, null, t)
   const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
     : s.op ? <OpPanel store={s} t={t} />
-      : notice ? <p className={css.status} data-tone={s.state === 'broken' ? 'danger' : 'warning'} title={s.fix ?? undefined}>{notice}</p>
+      : notice ? <StoreStatus s={s} t={t} words={notice} />
         : null
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">
@@ -483,8 +493,11 @@ function PgCard({ s, group, api, machine, t, view, jobs, dismissed, now, actions
   const on = actionsFor(s)
   // A compaction on this database shows its steps and result here, as on a sqlite card.
   const job = cardJob(jobs, s.name, dismissed, now)
+  // a database that names no saved login: its words, LayerFS's sentence as the tip, Save a login… as the one action
+  const noLogin = needsLogin(s)
   const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
-    : s.op ? <OpPanel store={s} t={t} /> : null
+    : s.op ? <OpPanel store={s} t={t} />
+      : noLogin ? <StoreStatus s={s} t={t} words={brokenWords(s, t)} /> : null
   // The database's size as LayerFS measures it (store get --with stats), read again when its projects change or a job ends.
   const stats = useQuery(() => api.call<StoreStats>('GET', `/api/stores/${enc(s.name)}/stats`), [api, s.name],
     { refresh: [s.projects.length, job?.ended], cache: `store-stats:${s.name}` })
@@ -495,7 +508,7 @@ function PgCard({ s, group, api, machine, t, view, jobs, dismissed, now, actions
   const counted = split?.rows.filter((r) => r.bytes !== null) ?? []
   const total = size ?? (counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null)
   // said only when it is not what the server's header says: this database fails while its server answers
-  const off = storeOffServer(s, group)
+  const off = noLogin ? null : storeOffServer(s, group)
   const more = s.projects.length > ROWS
   return (
     <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={off !== null ? 'danger' : undefined}>

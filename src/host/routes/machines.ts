@@ -844,10 +844,15 @@ export class Machines {
     try { return await this.lfs.machine.create(name, platform, { ...given, on_progress: this.progress(name, 'create'), detail: true }) } finally { this.platformsChanged(); this.metrics.relist() }
   }
 
-  /** Removes a VM; LayerFS refuses InUse while it holds Stores or running Sandboxes. */
+  /**
+   * Removes a VM; LayerFS refuses InUse while it holds Stores or running
+   * Sandboxes. A built-in is LayerFS's to refuse: it removes one only as the
+   * fix of a record with no vm_name (`layerfs machine remove docker`: its
+   * record goes and the built-in comes back fresh), so the page only sends it
+   * as that fix.
+   */
   async remove(name: string) {
     const lfs = this.lfs
-    if (BUILT_IN.has(name)) throw refuse(null, 'InvalidInput', `${name} is built in and can't be removed`)
     try { return await lfs.machine.remove(name, { on_progress: this.progress(name, 'remove'), detail: true }) } finally { this.platformsChanged(); this.metrics.relist() }
   }
 

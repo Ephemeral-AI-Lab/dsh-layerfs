@@ -95,7 +95,12 @@ test('a pin lease keeps a runtime from another host\'s cleanup and moves with th
   } finally { f.done() }
 })
 
-/** A fake 2.0 LayerFS CLI (node script) logging its argv: `home get` answers the 2.0 shape, `home init` makes or converts the folder. */
+/**
+ * A fake 2.0 LayerFS CLI (node script) logging its argv: `home get` answers the 2.0 shape,
+ * `home init` makes a missing folder. An older LayerFS's folder (layout 2) is `broken`
+ * `outdated` and never converted (CUT): `home init` and every other call refuse it
+ * `Unsupported` with the fix that moves it aside.
+ */
 function fakeCli(dir, { homeGetFails = false, slowGetMs = 0, recorded = null }) {
   const log = join(dir, 'calls.log')
   // the host's REQUIRED_CALLS (2.0 names) and what this test drives
@@ -113,14 +118,15 @@ const say = (v) => { process.stdout.write(JSON.stringify(v) + '\\n'); process.ex
 if (argv[0] === '--version') say({ version: '9.9.9', commit: '${A}', dirty: false, features: [] })
 if (argv[0] === 'help') say({ calls: ${JSON.stringify(calls)}, commands: [], switches: [] })
 const file = path.join(home, 'layerfs.json')
-const st0 = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')).layout === 2 ? 'needs_conversion' : 'current') : 'missing'
-const st = st0
+const st = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')).layout === 2 ? 'outdated' : 'current') : 'missing'
+const older = { error: 'Unsupported', message: home + ' is the home of an older LayerFS; this build does not convert it: move it aside and make a new home', fix: 'mv ' + home + ' ' + home + '.old && layerfs home init' }
 const create = () => { fs.mkdirSync(home, { recursive: true }); fs.writeFileSync(file, JSON.stringify({ layout: 3 })) }
 if (argv[0] === 'home' && argv[1] === 'get' && ${homeGetFails}) { process.stderr.write('boom\\n'); process.exit(1) }
 if (argv[0] === 'home' && argv[1] === 'get' && ${slowGetMs}) { const until = Date.now() + ${slowGetMs}; while (Date.now() < until) {} }
-if (argv[0] === 'home' && argv[1] === 'get') say({ home, state: st === 'current' ? 'ready' : 'broken', version: '2.0.0', generation: 1, reason: st === 'current' ? null : st === 'missing' ? 'missing' : 'outdated', fix: st === 'current' ? null : 'layerfs home init', message: null, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', bundle: null, daemon: ${JSON.stringify(recorded)}, cache: { path: '/c' } })
-if (argv[0] === 'home' && argv[1] === 'init') { const was = st; create(); say({ ok: true, outcome: was === 'missing' ? 'created' : was === 'needs_conversion' ? 'converted' : 'unchanged', home, layout: 3 }) }
-// every other call opens the home as LayerFS does (creates or converts it)
+if (argv[0] === 'home' && argv[1] === 'get') say({ home, state: st === 'current' ? 'ready' : 'broken', version: '2.0.0', generation: 1, reason: st === 'current' ? null : st === 'missing' ? 'missing' : 'outdated', fix: st === 'current' ? null : st === 'missing' ? 'layerfs home init' : older.fix, message: st === 'outdated' ? older.message : null, layout: st === 'missing' ? null : st === 'current' ? 3 : 2, mode: '0700', bundle: null, daemon: ${JSON.stringify(recorded)}, cache: { path: '/c' } })
+if (st === 'outdated') { process.stderr.write(JSON.stringify(older) + '\\n'); process.exit(125) }
+if (argv[0] === 'home' && argv[1] === 'init') { const was = st; create(); say({ ok: true, outcome: was === 'missing' ? 'created' : 'unchanged', home, layout: 3 }) }
+// every other call opens a missing home as LayerFS does (creates it)
 create()
 if (argv[0] === 'machine' && argv[1] === 'list') say({ items: [] })
 say({})
@@ -158,19 +164,23 @@ test('setup check: a missing folder is created with home init; a read waits for 
   })
 })
 
-test('setup check: a folder that needs converting refuses every call Uninitialized until Convert', async () => {
+// CUT (LayerFS 2.0, 2026-11-19): an older LayerFS's folder is not converted. Every call is
+// refused Uninitialized, the setup status carries LayerFS's sentence and its fix (move it
+// aside, then `home init`) for the page to show, and nothing writes the folder.
+test('setup check: an older LayerFS\'s folder refuses every call Uninitialized; its fix is shown, never run', async () => {
   await withService({ layout2: true }, async ({ s, home, fake }) => {
-    await assert.rejects(() => s.lfs.store.list(), (e) => e.code === 'Uninitialized')
+    await assert.rejects(() => s.lfs.store.list(), (e) => e.code === 'Uninitialized' && /does not convert/.test(e.message))
     await assert.rejects(() => s.lfs.machine.update('native', {}), (e) => e.code === 'Uninitialized')
+    const status = await s.setup()
+    assert.equal(status.folder.state, 'outdated')
+    assert.deepEqual(status.needs, ['folder'])
+    assert.equal(status.folder.fix, `mv ${home} ${home}.old && layerfs home init`)
+    assert.match(status.folder.message, /older LayerFS/)
+    assert.equal(status.folder.did, null)
+    // `home init` (a refusal's fix on a missing folder) is LayerFS's to refuse here; the folder stays as it was
+    await assert.rejects(() => s.initHome(), (e) => e.code === 'Unsupported')
     assert.equal(JSON.parse(readFileSync(join(home, 'layerfs.json'), 'utf8')).layout, 2, 'nothing converted it')
     assert.ok(!fake.calls().some((c) => c.startsWith('store ') || c.startsWith('machine ')), fake.calls().join('\n'))
-    const status = await s.setup()
-    assert.equal(status.folder.state, 'needs_conversion')
-    assert.deepEqual(status.needs, ['folder'])
-    const after = await s.convertHome()
-    assert.equal(after.folder.state, 'current')
-    assert.equal(after.folder.did.converted, true)
-    await s.lfs.store.list()
   })
 })
 
@@ -184,55 +194,10 @@ test('setup check: a failing home get is unknown, never current, and the gate co
   })
 })
 
-test('Convert while a setup check reads the old folder answers the converted folder and opens the gate', async () => {
-  await withService({ layout2: true, slowGetMs: 700 }, async ({ s }) => {
-    const running = s.setup()
-    await new Promise((r) => setTimeout(r, 150))
-    const after = await s.convertHome()
-    assert.equal(after.folder.state, 'current')
-    await running
-    await s.lfs.store.list()
-  })
-})
-
-// Review UR B1: a `home get` that started before `home init` lands after it; its stale
-// `needs_conversion` must not be kept for the re-read Convert relies on. The fake's
-// `home get` reads the folder when it starts, then takes 700 ms.
-for (const ms of [20, 150, 450]) {
-  test(`Convert ${ms} ms into a setup check answers the converted folder (a read running across the write keeps nothing)`, async () => {
-    await withService({ layout2: true, slowGetMs: 700 }, async ({ s, fake }) => {
-      const running = s.setup()
-      await new Promise((r) => setTimeout(r, ms))
-      const after = await s.convertHome()
-      assert.equal(after.folder.state, 'current', fake.calls().join('\n'))
-      await running
-      await s.lfs.store.list()
-    })
-  })
-}
-
-test('Convert once the setup check\'s home get process has started: that get is not kept, the re-read asks again', async () => {
-  await withService({ layout2: true, slowGetMs: 700 }, async ({ s, fake }) => {
-    const running = s.setup()
-    const until = Date.now() + 10_000
-    while (!fake.calls().includes('home get --detail') && Date.now() < until) await new Promise((r) => setTimeout(r, 10))
-    assert.ok(fake.calls().includes('home get --detail'), 'the setup check started its home get')
-    const after = await s.convertHome()
-    assert.equal(after.folder.state, 'current', fake.calls().join('\n'))
-    const calls = fake.calls()
-    const init = calls.indexOf('home init --detail')
-    assert.ok(init > 0 && calls.slice(init + 1).includes('home get --detail'), `a fresh home get after home init:\n${calls.join('\n')}`)
-    await running
-    await s.lfs.store.list()
-  })
-})
-
 test('kept reads: home get stays kept between writes; a read in flight across a write is neither kept nor shared', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-setup-kept-'))
   try {
     const home = join(dir, 'home')
-    mkdirSync(home, { recursive: true, mode: 0o700 })
-    writeFileSync(join(home, 'layerfs.json'), JSON.stringify({ layout: 2 }))
     const fake = fakeCli(dir, { slowGetMs: 400 })
     const lfs = H.client({ cli: fake.cli, home })
     const gets = () => fake.calls().filter((c) => c === 'home get --detail').length
@@ -242,7 +207,7 @@ test('kept reads: home get stays kept between writes; a read in flight across a 
     while (gets() < 1 && Date.now() < until) await new Promise((r) => setTimeout(r, 10))
     await lfs.home.init({ detail: true })
     const late = lfs.home.get({ detail: true })
-    assert.equal((await early).reason, 'outdated', 'the early read saw the old folder')
+    assert.equal((await early).reason, 'missing', 'the early read saw no folder')
     assert.equal((await late).state, 'ready', 'a read asked after the write is not the early one')
     assert.equal(gets(), 2)
     // between writes home get stays kept: the late answer serves the next read

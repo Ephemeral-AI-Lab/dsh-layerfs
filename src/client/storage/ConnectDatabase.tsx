@@ -209,7 +209,7 @@ function NewDatabase({ api, t, view, fixed, server, place, onConnected }: {
   const [named, setNamed] = useState(false)
   const [sync, setSync] = useState('')
   // a database on a known server takes that server's saved login unless another is given; a pasted URL's user fills the login's
-  // reused only from a Store with a saved login (a Store of an older home has none to give)
+  // reused only from a Store with a saved login (one naming none is broken and has none to give)
   const pw = usePgPassword('entered', '', server?.stores.find((s) => s.postgresql?.auth)?.name ?? null)
   const auths = usePgAuths(api)
   const loginUser = pw.user.trim() || user

@@ -34,6 +34,10 @@ additive and lands without it.
 
 ### 2.1 `layerfs home init` (new)
 
+(Superseded for older homes by the 2026-11-19 CUT: `home init` converts
+nothing; an older home is `broken` `outdated` and refused with the fix
+`mv <home> <home>.old && layerfs home init`.)
+
 Creates an empty home (0700, `layerfs.json`, the built-in `native` and `docker`
 records), converts a layout 2 or 1.1.0 home, and finishes an interrupted
 conversion (`v2::finish`). A current home is left alone.
@@ -214,7 +218,7 @@ LayerFS sidebar row; status shown once (feedback-layerfs-project-ui).
 ### 4.1 Set up LayerFS (new modal)
 
 **Opens by itself** at most once per page load, and only when something
-required is missing: no runtime, a LayerFS folder that needs converting, or a
+required is missing: no runtime, a LayerFS folder made by an older LayerFS, or a
 runtime from mixed builds. A wrong folder mode never opens it. Also opened by
 Settings (Check setup…) and Health fixes. Later is remembered per viewer
 (`localStorage`) and leaves a "Finish setting up LayerFS" card in Center.
@@ -225,7 +229,7 @@ Settings (Check setup…) and Health fixes. Later is remembered per viewer
 | Section | Content | Actions |
 |---|---|---|
 | Runtime | One line for the chosen runtime; Change… opens the shared runtime picker. Its CLI, daemon, bundle and SDK each say Matches, From another build, or Can't tell | Change…, Other build… |
-| LayerFS folder | Path and state: "Created just now", "Made by an older LayerFS", "Other users can read it" | Convert (lists what blocks it and warns that older LayerFS builds will refuse the folder afterwards), Copy `chmod` |
+| LayerFS folder | Path and state: "Created just now", "Made by an older LayerFS" (LayerFS's sentence as the tip), "Other users can read it" | Copy LayerFS's fix (`mv <home> <home>.old && layerfs home init`: LayerFS 2.0 converts no older home since the CUT of 2026-11-19, and the page never moves a folder), Copy `chmod` |
 | Machines | The native machine (required) and Docker (optional) as two cards: mark, name, state tag, role, facts (OS and architecture; Docker's socket or what blocks it), with readiness from `needs.ts` | Start Docker; Socket… opens docker's socket setting |
 
 No Environment section. Lima and Apple Container are one line pointing to

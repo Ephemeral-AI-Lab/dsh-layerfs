@@ -26,10 +26,13 @@ test('a broken VM whose worker does not answer is "not answering", needs you, an
 test('the fix line becomes the action only when the page runs exactly that call', () => {
   assert.deepEqual(fixAction(vm('broken', { reason: 'failed', fix: 'layerfs machine start demo-build' })), { kind: 'start' })
   // another machine's name, another call or an extra word is copied, never run in part
-  for (const fix of ['layerfs machine start other', 'layerfs machine remove demo-build', 'layerfs machine start demo-build && layerfs store list']) {
+  for (const fix of ['layerfs machine start other', 'layerfs machine remove other', 'layerfs machine remove demo-build --force', 'layerfs machine start demo-build && layerfs store list']) {
     assert.deepEqual(fixAction(vm('broken', { reason: 'failed', fix })), { kind: 'copy', line: fix })
   }
   assert.equal(fixAction(vm('broken', { reason: 'failed', fix: null })), null)
+  // the cut: a record with no vm_name (a created machine, or the built-in docker) is fixed by its remove, records only, behind a confirm
+  assert.deepEqual(fixAction(vm('broken', { reason: 'outdated', fix: 'layerfs machine remove demo-build' })), { kind: 'remove' })
+  assert.deepEqual(fixAction({ ...vm('broken', { reason: 'outdated' }), name: 'docker', platform: 'docker', fix: 'layerfs machine remove docker' }), { kind: 'remove' })
   // Docker's Engine first; an unresolved operation and an unknown state are checked again (a live read)
   assert.deepEqual(fixAction(vm('broken', { platform: 'docker', reason: 'engine_down', fix: 'open Docker' })), { kind: 'engine' })
   assert.deepEqual(fixAction(vm('broken', { reason: 'unresolved', fix: 'layerfs machine get demo-build' })), { kind: 'check' })

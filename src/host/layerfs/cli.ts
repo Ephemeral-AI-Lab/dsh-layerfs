@@ -118,8 +118,8 @@ export interface CliSpec {
   /**
    * The home gate, awaited before every call but discovery and the `home`
    * family (and an `execute` given `gated`): it may set the home up first (a
-   * read on a missing home) or refuse `Uninitialized` (a home that needs
-   * converting). Unset: a read on a home without `layerfs.json` is refused
+   * read on a missing home) or refuse `Uninitialized` (an older LayerFS's
+   * home, which is never converted). Unset: a read on a home without `layerfs.json` is refused
    * `Uninitialized`, so reads never create a home.
    */
   readonly gate?: (call: { readonly family: string, readonly call: string, readonly read: boolean }) => Promise<void>
@@ -490,7 +490,7 @@ async function logged(spec: CliSpec, argv: readonly string[], options: ExecuteOp
   }
 }
 
-/** `Uninitialized`: the home is not set up (missing, or it needs converting); answered 503, expected. */
+/** `Uninitialized`: the home is not set up (missing, or an older LayerFS's); answered 503, expected. */
 export const uninitialized = (home: string, message?: string): CliError => new CliError('Uninitialized',
   message ?? `The LayerFS folder ${home} is not set up yet; open Set up LayerFS (Center) to create it`, { missing: [`home:${home}`] })
 
@@ -788,6 +788,8 @@ export function client(spec: CliSpec): Lfs {
               if (name === 'signal' && inspect) { if (value != null && !(value instanceof AbortSignal)) throw invalid('signal must be an AbortSignal'); continue }
               if ((option?.kind === 'function' || local.has(name)) && value != null && typeof value !== 'function') throw invalid(`${name} must be a function`)
               if (typeof value === 'number' && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) throw invalid(`${name} must preserve exact numeric values`)
+              // 2.0 (CUT): an exec's env is an object of names to text; a list of `K=V` or a text is refused, so it is not sent
+              if (family === 'workspace' && call === 'exec' && name === 'env' && value != null && (!isPlain(value) || !Object.values(value).every((v) => typeof v === 'string'))) throw invalid('env is an object of names to text')
             }
             const words = [family, call.replaceAll('_', '-')]
             const positionals: string[] = []

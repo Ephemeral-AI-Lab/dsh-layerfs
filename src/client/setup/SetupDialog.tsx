@@ -163,7 +163,7 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
     : t('runtimeTitle')
   return (
     <div className={css.rows}>
-      <FolderRow api={api} s={s} t={t} />
+      <FolderRow s={s} t={t} />
       <Row data="build" tile={<LayerfsGlyph size={16} />} title={title} line={line} lineWarn={b.state !== 'ready'} state={t(b.word)} warn={b.state !== 'ready'}
         action={changing ? null : <Button variant="outline" size="sm" onClick={() => setChanging('pick')}>{r.cli ? t('change') : t('choose')}</Button>} />
       {s.daemonRecordable ? <RecordDaemon api={api} t={t} /> : null}
@@ -182,28 +182,30 @@ function LayerfsSection({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: Set
   )
 }
 
-function FolderRow({ api, s, t }: { api: LayerfsApi, s: SetupStatus, t: SetupModalT }): ReactNode {
+/**
+ * The LayerFS folder. An older LayerFS's folder (`outdated`) is not converted
+ * by LayerFS 2.0: its word, LayerFS's sentence as the tip, and its fix line
+ * (move it aside, then `layerfs home init`) to copy and run by hand; the page
+ * never moves a folder.
+ */
+function FolderRow({ s, t }: { s: SetupStatus, t: SetupModalT }): ReactNode {
   const f = s.folder
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<unknown>(null)
-  const convert = async () => {
-    setBusy(true); setError(null)
-    try { await api.op('setup.convert') } catch (e) { setError(e) } finally { setBusy(false) }
-  }
   const did = lately(s)
-  const word = f.state === 'current' ? (did === 'converted' ? t('sumFolderConverted') : did === 'created' ? t('sumFolderCreated') : t('stateReady'))
-    : f.state === 'needs_conversion' ? t('sumFolderOld')
+  const word = f.state === 'current' ? (did === 'created' ? t('sumFolderCreated') : t('stateReady'))
+    : f.state === 'outdated' ? t('sumFolderOld')
       : f.state === 'unknown' ? t('sumFolderUnknown')
         : t('sumFolderMissing')
-  const canConvert = f.state === 'needs_conversion' && s.homeCalls
   return (
     <>
-      <Row data="folder" tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={f.path} lineMono state={word} warn={f.state !== 'current'}
-        action={canConvert ? <Button variant="primary" size="sm" disabled={busy} onClick={() => void convert()}>{busy ? t('converting') : t('convert')}</Button> : null} />
-      {f.state === 'needs_conversion' ? <p className={css.rowNote} data-warn="">{s.homeCalls ? t('folderOldWarn') : t('folderOldCli')}</p> : null}
+      <Row data="folder" tile={<IconFolderCloseRegular size={16} />} title={t('folderTitle')} line={f.path} lineMono state={word} warn={f.state !== 'current'} />
+      {f.state === 'outdated' ? (
+        <div className={css.noteBlock}>
+          <span className={css.note} data-warn="" title={f.message ?? undefined}>{t('folderOldNote')}</span>
+          {f.fix ? <CopyLine text={f.fix} copyLabel={t('copy')} copiedLabel={t('copied')} /> : null}
+        </div>
+      ) : null}
       {f.state === 'unknown' ? <p className={css.rowNote} data-warn="">{t('folderUnknown')}</p> : null}
       {f.state === 'missing' && !s.runtime.ok ? <p className={css.rowNote}>{t('folderMissingNoRuntime')}</p> : null}
-      {error != null ? <p className={dialog.error} role="alert">{t('convertBlocked', { message: messageOf(error) })}</p> : null}
       {f.modeOk === false ? (
         <div className={css.noteBlock}>
           <span className={css.note}>{t('modeNote', { mode: f.mode ?? '?' })}</span>

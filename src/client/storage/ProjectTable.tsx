@@ -40,7 +40,7 @@ import type { StorageKey, StorageT } from './locale.ts'
 import { useHostEvents } from './hooks.ts'
 import { HomeGlyph, StoreGlyph, refusalLabels } from './parts.tsx'
 import { Signal } from './Signal.tsx'
-import { JobLine, RestartButton, SIZE_POLL_MS, sandboxesOfProject, storeTrouble, type Place, type Trouble } from './HomeCards.tsx'
+import { JobLine, SIZE_POLL_MS, sandboxesOfProject, storeTrouble, troubleAction, type Place, type Trouble } from './HomeCards.tsx'
 import { doingWords } from './model.ts'
 import { orderProjects, sessionOrder, sizeCacheKey, type ProjectSize, type ProjectSort } from './project-list.ts'
 import { commitLine, stillCounting, type ProjectOrder, type StoreProject, type StoreProjectsView } from './store-page.ts'
@@ -349,7 +349,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
               {trouble ? (
                 <span data-signal>
                   <Signal state={trouble.state} title={trouble.reason} detail={trouble.detail}
-                    action={trouble.restart && onRestart ? <RestartButton m={trouble.restart} t={t} onRestart={onRestart} /> : undefined} />
+                    action={troubleAction(trouble, t, onRestart)} />
                 </span>
               ) : null}
             </span>

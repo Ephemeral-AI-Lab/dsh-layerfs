@@ -118,17 +118,19 @@ export interface HomeGet {
 
 /**
  * The LayerFS folder as the setup modal words it: `current` (home get `ready`),
- * `missing` (`broken`, reason `missing`), `needs_conversion` (`broken`, reason
- * `outdated`), else `unknown`; without the home family, `layerfs.json` present or not.
+ * `missing` (`broken`, reason `missing`), `outdated` (`broken`, reason
+ * `outdated`: an older LayerFS's home, which LayerFS 2.0 does not convert;
+ * every call is refused with the fix that moves it aside and makes a new
+ * one), else `unknown`; without the home family, `layerfs.json` present or not.
  */
-export type HomeState = 'missing' | 'current' | 'needs_conversion' | 'unknown'
+export type HomeState = 'missing' | 'current' | 'outdated' | 'unknown'
 
 /** The setup modal's folder word for a `home get` answer (see {@link HomeState}). */
 export function homeStateOf(got: Pick<HomeGet, 'state' | 'reason'> | null | undefined): HomeState {
   if (!got) return 'unknown'
   if (got.state === 'ready') return 'current'
   if (got.state === 'broken' && got.reason === 'missing') return 'missing'
-  if (got.state === 'broken' && got.reason === 'outdated') return 'needs_conversion'
+  if (got.state === 'broken' && got.reason === 'outdated') return 'outdated'
   return 'unknown'
 }
 
@@ -160,8 +162,11 @@ export interface SetupStatus {
     readonly mode: string | null
     /** No group or world access (null: unknown). A wrong mode is a note, never required. */
     readonly modeOk: boolean | null
-    /** What the setup check did to it while this host runs (created or converted), or null. */
-    readonly did: { readonly created: boolean, readonly converted: boolean, readonly at: number } | null
+    /** What the setup check did to it while this host runs (created it), or null. */
+    readonly did: { readonly created: boolean, readonly at: number } | null
+    /** A folder that is not ready, in LayerFS's words: its sentence and its fix line (`home get`). */
+    readonly message?: string | null
+    readonly fix?: string | null
   }
   readonly pieces: { readonly cli: Piece | null, readonly daemon: Piece | null, readonly bundle: Piece | null }
   /** A home that is not ready, in LayerFS's words (`home get` `message` and `fix`). */
@@ -261,9 +266,9 @@ export class LayerfsService extends Service {
   private nativeRecorded: Promise<unknown> | undefined
   /** Set while an operation holds the whole home (a preset build or reset): why new Sandboxes must wait, or null. */
   exclusive: (() => string | null) | undefined
-  /** The LayerFS folder's last known state (the setup check); `needs_conversion` closes the home gate. */
+  /** The LayerFS folder's last known state (the setup check); `outdated` closes the home gate. */
   private homeState: HomeState | null = null
-  /** Goes up when the folder changes under a running check (set up, converted) or the pin moves: older answers are stale. */
+  /** Goes up when the folder changes under a running check (set up, moved aside) or the pin moves: older answers are stale. */
   private homeGeneration = 0
   /** The background parts run (startSetup): lease, watch, first check. */
   private started = false
@@ -382,20 +387,20 @@ export class LayerfsService extends Service {
 
   /** The gate's refusal for a folder this LayerFS can't use as it is. */
   private closed(): CliError | null {
-    if (this.homeState === 'needs_conversion') return uninitialized(this.home, `The LayerFS folder ${this.home} was made by an older LayerFS and needs converting. Open Set up LayerFS in Center to convert it.`)
+    if (this.homeState === 'outdated') return uninitialized(this.home, `The LayerFS folder ${this.home} was made by an older LayerFS, which this LayerFS does not convert: move it aside and make a new one (Set up LayerFS in Center shows how).`)
     if (this.homeState === 'unknown') return uninitialized(this.home, `This LayerFS can't read the folder ${this.home}. Open Set up LayerFS in Center.`)
     return null
   }
 
   /**
-   * The home gate (cli.ts `CliSpec.gate`): a folder that needs converting
-   * (or that `home get` could not read) refuses every call `Uninitialized`
-   * until the user converts it; a read on a missing folder sets it up first
+   * The home gate (cli.ts `CliSpec.gate`): an older LayerFS's folder (or one
+   * that `home get` could not read) refuses every call `Uninitialized` until
+   * the user moves it aside; a read on a missing folder sets it up first
    * (`home init`, or one `machine list` for an older CLI) and is refused
    * `Uninitialized` if it is still missing.
    */
   private async gate(call: { family: string, call: string, read: boolean }): Promise<void> {
-    // not known yet (the first call after start or a runtime change): ask `home get` once, so nothing converts by accident
+    // not known yet (the first call after start or a runtime change): ask `home get` once, so nothing is set up over an older folder by accident
     if (this.homeState === null) await this.learnHome()
     const refused = this.closed()
     if (refused) { this.recheck(); throw refused }
@@ -407,7 +412,7 @@ export class LayerfsService extends Service {
     }
   }
 
-  /** After an `Uninitialized` refusal: the setup check again, at most every 2 s (the folder may have been converted elsewhere). */
+  /** After an `Uninitialized` refusal: the setup check again, at most every 2 s (the folder may have been set up elsewhere). */
   private recheck(): void {
     if (this.setupRead || (this.lastSetup && Date.now() - this.lastSetup.at < 2000)) return
     void this.setup().catch(() => {})
@@ -416,7 +421,7 @@ export class LayerfsService extends Service {
   /**
    * The folder's state from `home get` (one read shared by every caller).
    * A CLI with the home family whose `home get` fails leaves it `unknown`
-   * (the gate refuses; nothing converts it by accident); an older CLI says
+   * (the gate refuses; nothing writes it by accident); an older CLI says
    * only whether `layerfs.json` is there. Never throws.
    */
   private learnHome(): Promise<void> {
@@ -439,8 +444,8 @@ export class LayerfsService extends Service {
   }
 
   /**
-   * Sets a missing LayerFS folder up, once at a time: `home get` first (a
-   * folder that needs converting waits for the user), then `home init`; an
+   * Sets a missing LayerFS folder up, once at a time: `home get` first (an
+   * older LayerFS's folder is left alone), then `home init`; an
    * older CLI runs one `machine list` (outside the SDK's shared and kept
    * reads, which a gated poll may hold), which creates it as before.
    */
@@ -451,12 +456,12 @@ export class LayerfsService extends Service {
           const got: HomeGet = await this.lfs.home.get({ detail: true })
           this.homeState = homeStateOf(got)
           if (this.homeState !== 'missing') return
-          // 2.0 long form: `outcome` created | converted | unchanged
+          // 2.0 long form: `outcome` created | unchanged
           const did = await this.lfs.home.init({ detail: true })
-          this.homeDid = { created: did?.outcome === 'created', converted: did?.outcome === 'converted', at: Date.now() }
+          this.homeDid = { created: did?.outcome === 'created', at: Date.now() }
         } else if (!existsSync(join(this.home, 'layerfs.json'))) {
           await execute(this.lfs.spec, ['machine', 'list', '--'], { read: true, gated: true, timeout: 30_000 })
-          this.homeDid = { created: existsSync(join(this.home, 'layerfs.json')), converted: false, at: Date.now() }
+          this.homeDid = { created: existsSync(join(this.home, 'layerfs.json')), at: Date.now() }
         } else return
         this.homeGeneration++
         this.homeState = existsSync(join(this.home, 'layerfs.json')) ? 'current' : this.homeState
@@ -467,16 +472,15 @@ export class LayerfsService extends Service {
   }
 
   /**
-   * Converts a LayerFS folder made by an older LayerFS (`home init`), which
-   * the setup check never does without asking: afterwards older LayerFS
-   * builds refuse the folder. Refused `InUse` while Sandboxes run. A check
-   * already running read the folder before it was converted: it is waited
-   * for and a fresh one answers.
+   * `home init` (a refusal's `layerfs home init` fix): makes a missing
+   * folder; LayerFS refuses an older LayerFS's folder (`Unsupported`, with
+   * the fix that moves it aside), which this never touches. A check already
+   * running read the folder before: it is waited for and a fresh one answers.
    */
-  async convertHome(): Promise<SetupStatus> {
-    if (!(await this.homeCalls())) throw new CliError('Unsupported', 'This LayerFS runtime has no `home init`; choose a newer runtime to convert the folder')
+  async initHome(): Promise<SetupStatus> {
+    if (!(await this.homeCalls())) throw new CliError('Unsupported', 'This LayerFS runtime has no `home init`; choose a newer runtime')
     const did = await this.lfs.home.init({ detail: true })
-    this.homeDid = { created: did?.outcome === 'created', converted: did?.outcome === 'converted', at: Date.now() }
+    this.homeDid = { created: did?.outcome === 'created', at: Date.now() }
     this.homeGeneration++
     this.homeState = null
     await this.setupRead?.catch(() => {})
@@ -551,7 +555,10 @@ export class LayerfsService extends Service {
     if (runtime.ok && !mixedAllowed() && [bundle, daemon].some((p) => p?.verdict === 'other')) needs.push('build')
     const answer: SetupStatus = {
       at: Date.now(), runtime, homeCalls,
-      folder: { path: this.home, state, layout: got?.layout ?? null, mode: got?.mode ?? null, modeOk: modeOk(got?.mode), did: this.homeDid },
+      folder: {
+        path: this.home, state, layout: got?.layout ?? null, mode: got?.mode ?? null, modeOk: modeOk(got?.mode), did: this.homeDid,
+        ...(got && got.state !== 'ready' ? { message: got.message ?? null, fix: got.fix ?? null } : {}),
+      },
       pieces: { cli, daemon, bundle },
       // a home that is not ready: LayerFS's sentence and its fix (2.0 has no warnings list; `home doctor` reports the rest)
       warnings: got && got.state !== 'ready' && got.message ? [{ code: got.reason ?? got.state, message: got.fix ? `${got.message} (${got.fix})` : got.message }] : [],

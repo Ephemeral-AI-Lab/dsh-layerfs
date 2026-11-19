@@ -188,14 +188,27 @@ export function parseFix(line: string | null | undefined): Fix | null {
  *   delete    `layerfs project delete S/P`
  *   backup    `layerfs backup create S B`
  *   homeInit  `layerfs home init`
+ *   doctor    `layerfs machine doctor M` (the built-in docker whose record has no vm_name): runs that doctor
+ *   removeMachine  `layerfs machine remove M` (a record with no vm_name: only its record goes; a built-in comes back fresh)
+ *   removeStore    `layerfs store remove S` (a Store record LayerFS cannot place, no `kind`: records only)
+ *   removeSandbox  `layerfs sandbox remove B` (a broken Sandbox, an `lfs-` one included: LayerFS's remove)
+ *   saveAuth  `layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update S --auth <auth>`
+ *             (a PostgreSQL Store naming no saved login): opens the save-login dialog for S; the
+ *             page never fills a password in for the person
  * Any other option (`--force`, `--mount …`) or command keeps it a tip.
  */
 export type RunnableFix =
-  | { kind: 'start' | 'stop' | 'restart' | 'prune', machine: string }
-  | { kind: 'compact', store: string }
+  | { kind: 'start' | 'stop' | 'restart' | 'prune' | 'doctor' | 'removeMachine', machine: string }
+  | { kind: 'compact' | 'removeStore', store: string }
+  | { kind: 'removeSandbox', sandbox: string }
   | { kind: 'delete', project: string }
   | { kind: 'backup', store: string, bucket: string }
   | { kind: 'homeInit' }
+  | { kind: 'saveAuth', store: string }
+
+/** LayerFS's fix for a PostgreSQL Store that names no saved login (its placeholders are for the person). */
+const SAVE_AUTH = /^layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update (\S+) --auth <auth>$/
+
 export function runnableFix(line: string | null | undefined): RunnableFix | null {
   if (typeof line !== 'string' || !line.trim() || line.length > 512) return null
   const fix = parseFix(line)
@@ -208,9 +221,15 @@ export function runnableFix(line: string | null | undefined): RunnableFix | null
   const words = line.trim().split(/\s+/)
   const plain = (n: number) => words.length === n && words.slice(3).every((w) => WORD.test(w) && !w.startsWith('-'))
   if (words.join(' ') === 'layerfs home init') return { kind: 'homeInit' }
+  const login = SAVE_AUTH.exec(words.join(' '))
+  if (login && WORD.test(login[1]!)) return { kind: 'saveAuth', store: login[1]! }
   if (words[0] !== 'layerfs') return null
+  if (words[1] === 'machine' && words[2] === 'doctor' && plain(4)) return { kind: 'doctor', machine: words[3]! }
+  if (words[1] === 'machine' && words[2] === 'remove' && plain(4)) return { kind: 'removeMachine', machine: words[3]! }
   if (words[1] === 'machine' && words[2] === 'stop' && plain(4)) return { kind: 'stop', machine: words[3]! }
   if (words[1] === 'store' && words[2] === 'compact' && plain(4)) return { kind: 'compact', store: words[3]! }
+  if (words[1] === 'store' && words[2] === 'remove' && plain(4)) return { kind: 'removeStore', store: words[3]! }
+  if (words[1] === 'sandbox' && words[2] === 'remove' && plain(4)) return { kind: 'removeSandbox', sandbox: words[3]! }
   if (words[1] === 'machine' && words[2] === 'prune' && words.length === 5 && words[4] === '--unused' && WORD.test(words[3]!)) return { kind: 'prune', machine: words[3]! }
   return null
 }

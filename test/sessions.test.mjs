@@ -645,6 +645,10 @@ test('classifyStore: the 2.0 six states: blocked and broken are unavailable, bus
   assert.equal(S.classifyStore({ store: 'pg', engine: 'postgresql', state: 'ready' }, { store: 'pg', state: 'ready' }).state, 'available')
   assert.equal(S.classifyStore({ store: 's', state: 'unknown' }).state, 'unknown')
   assert.equal(S.classifyStore({ store: 's', state: 'mystery' }).state, 'unknown')
+  // CUT: a PostgreSQL Store naming no saved login is unavailable, and says what fixes it
+  const noLogin = S.classifyStore({ store: 'old', engine: 'postgresql', auth: null, state: 'broken', reason: 'outdated', fix: 'layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update old --auth <auth>' })
+  assert.equal(noLogin.state, 'unavailable')
+  assert.match(noLogin.reason, /PostgreSQL Store old names no saved login; save one with Save a login/)
 })
 
 /** Store health poll fixture: an active owner + its subagent on `st`, another active session on `ok`. */

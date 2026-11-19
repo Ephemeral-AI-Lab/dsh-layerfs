@@ -737,10 +737,12 @@ export const powerOf = (m: MachineInfo): 'start' | 'stop' | null =>
  * or `machine stop && machine start` with no Sandbox on it), Start that first
  * launches Docker for `engine_down`, Check (a live read) for `unresolved` or
  * `unknown`; a `--force` restart is offered off, with the line to copy.
+ * `remove`: `layerfs machine remove M`, the fix of a record with no vm_name
+ * (records only; a built-in comes back fresh), run behind a confirm press.
  * Null when there is none.
  */
 export type FixAction =
-  | { kind: 'start' | 'restart' | 'engine' | 'check' }
+  | { kind: 'start' | 'restart' | 'engine' | 'check' | 'remove' }
   | { kind: 'forced', sandboxes: number, line: string }
   | { kind: 'copy', line: string }
 export function fixAction(m: MachineInfo): FixAction | null {
@@ -753,6 +755,7 @@ export function fixAction(m: MachineInfo): FixAction | null {
   const commands = line.split('&&').map((c) => c.trim()).filter(Boolean)
   const word = (c: string, verb: string, force = false) => c.split(/\s+/).join(' ') === ['layerfs', 'machine', verb, m.name, ...(force ? ['--force'] : [])].join(' ')
   if (commands.length === 1 && word(commands[0]!, 'start')) return { kind: 'start' }
+  if (commands.length === 1 && word(commands[0]!, 'remove')) return { kind: 'remove' }
   if (commands.length === 2 && word(commands[0]!, 'stop') && word(commands[1]!, 'start')) return heldSandboxes(m) ? { kind: 'forced', sandboxes: heldSandboxes(m), line } : { kind: 'restart' }
   if (commands.length === 2 && word(commands[0]!, 'stop', true) && word(commands[1]!, 'start')) return { kind: 'forced', sandboxes: heldSandboxes(m), line }
   return line ? { kind: 'copy', line } : null

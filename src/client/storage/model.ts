@@ -117,7 +117,7 @@ export function storeSignal(s: StoreRow, job: StorageJob | undefined, machineSta
   if (job && !job.ended) return { state: 'ongoing', reason: doingWords(job, t) }
   if (job?.error) return { state: 'error', reason: endedWords(job, t) }
   // the state's word and its reason; the fix is the card's one action
-  if (s.state === 'broken') return { state: 'error', reason: s.reason === 'unresolved' ? t('unresolved') : storeStateWords(s.state, t, s.reason) }
+  if (s.state === 'broken') return { state: 'error', reason: brokenWords(s, t) }
   if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? blockedWords(s.blockedBy, t) : storeStateWords(s.state, t, s.blockedBy?.reason) }
   if (s.state === 'unknown') return { state: 'warning', reason: storeStateWords(s.state, t) }
   const links = s.links.map((l) => ({ l, state: linkState(s, l.bucket, l.file, buckets) }))
@@ -161,6 +161,33 @@ export function storeStateWords(state: string, t: StorageT, reason?: string | nu
     }
   })()
   return reason ? `${word} · ${reason.replace(/_/g, ' ')}` : word
+}
+
+/**
+ * A PostgreSQL Store whose record names no saved login (one connected before
+ * saved logins). LayerFS 2.0 does not dial it: it is `broken` `outdated` and
+ * every call is refused until a login is saved and named
+ * (`store save-auth` then `store update --auth`).
+ */
+export const needsLogin = (s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'postgresql'>): boolean =>
+  s.kind === 'postgresql' && s.state === 'broken' && s.reason === 'outdated' && !s.postgresql?.auth
+
+/** A broken Store's words: an unknown outcome, a PostgreSQL Store with no saved login, else the state word and its reason. */
+export function brokenWords(s: Pick<StoreRow, 'kind' | 'state' | 'reason' | 'postgresql'>, t: StorageT): string {
+  if (s.reason === 'unresolved') return t('unresolved')
+  if (needsLogin(s)) return `${t('stateBroken')} · ${t('reasonNoLogin')}`
+  return storeStateWords(s.state, t, s.reason)
+}
+
+/**
+ * A Store's hover tip: LayerFS's own sentence when its answer has one; a
+ * PostgreSQL Store with no saved login says what LayerFS's refusal says
+ * (`store list` gives no sentence for it); else its fix line.
+ */
+export function storeTip(s: Pick<StoreRow, 'name' | 'kind' | 'state' | 'reason' | 'postgresql' | 'message' | 'fix'>, t: StorageT): string | undefined {
+  if (s.message) return s.message
+  if (needsLogin(s)) return t('pgNoLoginTip', { store: s.name })
+  return s.fix ?? undefined
 }
 
 /** A Store's one action from its `fix`, when the line is a layerfs call the page can name (the card shows it as the tip's action). */
