@@ -65,15 +65,22 @@ Views resolve the root through DSH's session list (`useSessions`:
 `session.state` for that root. All four views show the root's project; the
 Sandbox map also lists every subagent under the root.
 
+The views read on mount, on events and on a 10 s poll while visible, none of
+it a press, so they always send `session.state { observe: true }`: the read
+that changes nothing. A refused machine, Store or Workspace check comes back
+as `execution.available: false` with its reason; the binding is never
+interrupted or saved by a view's read. Interrupting stays with an explicit
+action (a message's activation) and the host's own Store availability poll.
+
 Data comes from existing host operations only, so the views need no host
 restart:
 
 | Need | Operation |
 | --- | --- |
-| Binding, unsaved count, execution | `session.state` |
+| Binding, unsaved count, execution | `session.state { observe: true }` |
 | Files, branches, commits, diffs | the shared file views (`files/`) over the `http` op |
 | Calls per session | `logs.list { tag: "dsh:<sessionId>:" }` |
-| Live refresh | events `layerfs-session`, `layerfs-checkpoint`, `logs` |
+| Live refresh | events `layerfs-session`, `layerfs-checkpoint`, `layerfs-operation`, `logs`; a 10 s poll while visible |
 
 ## 3. Files
 

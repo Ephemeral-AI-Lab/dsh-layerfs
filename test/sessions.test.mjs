@@ -596,6 +596,54 @@ test('polling detects lost access and restored availability without replaying ex
   assert.equal(available.checkpoints[0].commit, 'saved')
 })
 
+test('an observed session.state (the views\' poll) changes nothing: a refused machine, Store or Workspace check leaves the session bound (RV4 FAIL 1)', async () => {
+  for (const refused of ['machine-op', 'machine', 'store', 'workspace']) {
+    const state = S.initialState()
+    state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', sandbox: 'box', mount: '/mnt/box', branch: 'retained', executionState: 'active' }
+    state.checkpoints.live = [{ commit: 'saved' }]
+    const before = structuredClone(state)
+    const f = sessions({ state, lfs: {
+      // an image load on the machine (an `op`), a stopped machine, a blocked Store, a timed-out status
+      machine: { get: async () => refused === 'machine-op' ? { machine: 'vm', state: 'ready', op: 'image load' } : { machine: 'vm', state: refused === 'machine' ? 'stopped' : 'ready' } },
+      store: { get: async () => refused === 'store' ? { store: 'store', engine: 'sqlite', state: 'blocked', blocked_by: { machine: 'vm', reason: 'stopped' } } : { store: 'store', engine: 'sqlite', state: 'ready' } },
+      workspace: { status: async () => { if (refused === 'workspace') throw new Refusal('Timeout', 'workspace status timed out'); return { overlay: { inode_count: 1 } } } },
+    } })
+    f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+      assertSessionIdentity: async () => ({ key: 'store/app', store: 'store', machine: 'vm' }),
+      projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+    } : undefined
+    const view = await f.s.view('live', { observe: true })
+    assert.equal(view.execution.available, false, refused)
+    assert.ok(view.execution.reason, refused)
+    assert.deepEqual(f.state().sessions, before.sessions, `${refused}: the binding is unchanged (still bound, mount and Workspace kept)`)
+    assert.equal(f.state().sessions.live.state, 'bound')
+    assert.notEqual(f.state().sessions.live.executionState, 'interrupted')
+    assert.deepEqual(f.state().checkpoints, before.checkpoints)
+    assert.deepEqual(f.events.filter((e) => e.type === 'layerfs-session'), [], `${refused}: no session event`)
+    // without `observe` (an explicit read) the same refusal still interrupts, as before
+    await f.s.view('live')
+    assert.equal(f.state().sessions.live.executionState, 'interrupted', refused)
+  }
+})
+
+test('an observed read never clears an availability error either; the explicit read does', async () => {
+  const state = S.initialState()
+  state.sessions.held = { sessionId: 'held', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'closed', executionState: 'interrupted', error: 'Store down', interruption: { kind: 'availability', at: 1 }, branch: 'retained' }
+  const f = sessions({ state, lfs: {
+    machine: { get: async () => ({ machine: 'vm', state: 'ready' }) },
+    store: { get: async () => ({ store: 'store', engine: 'sqlite', state: 'ready' }) },
+    workspace: { status: async () => ({}) },
+  } })
+  f.s.ctx.get = (name) => name === 'sessionPersistence' ? {
+    assertSessionIdentity: async () => ({ key: 'store/app', store: 'store', machine: 'vm' }),
+    projectIdOf: () => 'permanent-id', local: { stat: async () => ({ eventCount: 5 }) },
+  } : undefined
+  await f.s.view('held', { observe: true })
+  assert.equal(f.state().sessions.held.error, 'Store down')
+  await f.s.view('held')
+  assert.equal(f.state().sessions.held.error, undefined)
+})
+
 test('the session view reads workspace status --detail: its overlay counts are the line\'s unsaved files (review UR bug 2)', async () => {
   const state = S.initialState()
   state.sessions.live = { sessionId: 'live', kind: 'project', project: 'store/app', machine: 'vm', anchor: '/anchor', scratch: '/scratch', state: 'bound', ws: 'box:main', branch: 'retained' }

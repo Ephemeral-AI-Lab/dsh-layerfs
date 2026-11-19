@@ -14,7 +14,7 @@ import { enc, type LayerfsApi } from '../api.ts'
 import type { BusySession, DemoPreset, DemoPresets, PresetResetPlan, PresetExecutionMode, PresetJob } from '../../shared/presets.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Card, LinkButton, MoreMenu, Notice, Refusal } from '../ui/index.tsx'
-import { refusalLabels } from './labels.ts'
+import { machinesStarted, refusalLabels } from './labels.ts'
 import type { PresetsKey, PresetsT } from './locale.ts'
 import { count, PresetProgress } from './Progress.tsx'
 import { ScriptDrawer } from './ScriptDrawer.tsx'
@@ -189,7 +189,7 @@ export function Library({ api, t, data, preset, onRefresh, className }: { api: L
           <BuildOptions t={t} preset={preset} mixed={dialog.mixed} disabled={waiting} failure={planFailure}
             onMixed={(mixed) => { setPlanFailure(undefined); setDialog({ kind: 'build', mixed }) }} />
         )}
-        {dialog?.plan && <PlanImpact t={t} plan={dialog.plan} build={dialog.kind === 'build'} />}
+        {dialog?.plan && <PlanImpact t={t} plan={dialog.plan} build={dialog.kind === 'build'} starts={machinesStarted(preset, dialog.plan, dialog.kind === 'build')} />}
       </Modal>
     </>
   )
@@ -246,10 +246,12 @@ function BuildOptions({ t, preset, mixed, disabled, failure, onMixed }: { t: Pre
 }
 
 /** What a confirmed plan removes, stops or deletes. */
-function PlanImpact({ t, plan, build }: { t: PresetsT, plan: PresetResetPlan, build: boolean }): ReactNode {
+function PlanImpact({ t, plan, build, starts }: { t: PresetsT, plan: PresetResetPlan, build: boolean, starts: readonly string[] }): ReactNode {
   return (
     <div className={css.confirm}>
       <Notice tone="danger">{t(build ? 'confirmLoss' : 'stopLoss')}</Notice>
+      {/* a machine starts only on a press that names it: this confirm names every machine the plan may start */}
+      {starts.length > 0 && <Notice tone="warning"><span data-plan-starts={starts.join(' ')}>{t('confirmStarts', { machines: starts.join(', ') })}</span></Notice>}
       {plan.dsh.conversations.length > 0 && <Notice tone="warning">{plan.dsh.conversations.length === 1 ? t('deleteSessionsOne') : t('deleteSessionsMany', { n: plan.dsh.conversations.length })}</Notice>}
       {plan.dsh.workspaces.length > 0 && (
         <div>

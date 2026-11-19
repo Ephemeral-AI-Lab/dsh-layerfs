@@ -32,6 +32,8 @@ export interface LocationWords {
   blocked?: string | undefined
   /** The note of a docker machine whose Docker Engine is not running (its own Start launches it). */
   engineDown?: string | undefined
+  /** Another LayerFS machine state (busy, broken, blocked, unknown…) in the caller's locale (RV4 NOTE 9: never the raw word in zh). */
+  state: (state: string) => string
 }
 
 const NO_BLOCKS: ReadonlyMap<string, TileBlock> = new Map()
@@ -45,21 +47,20 @@ export function machineNote(m: Machine, words: LocationWords, block?: TileBlock 
   if (m.name === 'native') return words.thisMac
   if (isRunning(m)) return words.running
   if (m.state === 'stopped') return words.stopped
-  return stateCap(m.state)
+  return words.state(m.state ?? 'unknown')
 }
-
-/** A state word as LayerFS gives it, capitalised like the page's own words (broken -> Broken). */
-export const stateCap = (state: string | null | undefined): string => (state ? state.charAt(0).toUpperCase() + state.slice(1) : '')
 
 /**
  * The machines an action needs that are not running: one line each (a dot,
  * "Stopped · <m>") with that machine's own Start. A dialog never starts a
  * machine on its own (UI pass 2: a machine starts only on the person's press
- * on that machine); its action waits until none is left here.
+ * on that machine); its action waits until none is left here. A refused
+ * Start reads as a word on that line ("Not started · <m>") with LayerFS's
+ * message as its tip; the line's Start is its one action (RV4 NOTE 10).
  */
 export function StartFirst({ names, words, start, onStarted, className }: {
   names: readonly string[]
-  words: { stopped: (machine: string) => string, start: (machine: string) => string, failed: (machine: string, message: string) => string }
+  words: { stopped: (machine: string) => string, start: (machine: string) => string, refused: (machine: string) => string }
   /** Starts one machine (it resolves once the machine runs). */
   start: (machine: string) => Promise<unknown>
   /** A machine started: read the machines again. */
@@ -67,22 +68,23 @@ export function StartFirst({ names, words, start, onStarted, className }: {
   className?: string | undefined
 }): ReactNode {
   const [busy, setBusy] = useState<string | null>(null)
-  const [failed, setFailed] = useState<string | null>(null)
+  const [failed, setFailed] = useState<{ machine: string, message: string } | null>(null)
   if (!names.length) return null
   const press = (m: string) => {
     setBusy(m); setFailed(null)
-    start(m).then(onStarted, (e: unknown) => setFailed(words.failed(m, e instanceof Error ? e.message : String(e)))).finally(() => setBusy(null))
+    start(m).then(onStarted, (e: unknown) => setFailed({ machine: m, message: e instanceof Error ? e.message : String(e) })).finally(() => setBusy(null))
   }
   return (
     <div className={clsx(css.startFirst, className)}>
       {names.map((m) => (
         <p key={m} className={css.startFirstRow} data-start-first={m}>
-          <span className={css.startFirstWord}><StateDot state="idle" size={6} />{words.stopped(m)}</span>
+          {failed?.machine === m
+            ? <span className={clsx(css.startFirstWord, css.startFirstFailed)} role="alert" title={failed.message} data-start-refused={m}><StateDot state="error" size={6} />{words.refused(m)}</span>
+            : <span className={css.startFirstWord}><StateDot state="idle" size={6} />{words.stopped(m)}</span>}
           <Button type="button" size="sm" variant="outline" disabled={busy !== null} aria-label={words.start(m)}
             icon={busy === m ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => press(m)}>{words.start(m)}</Button>
         </p>
       ))}
-      {failed ? <p className={css.startFirstFailed} role="alert">{failed}</p> : null}
     </div>
   )
 }

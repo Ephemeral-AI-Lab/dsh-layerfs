@@ -1266,8 +1266,14 @@ export class LayerfsSessions extends Service {
     this.ctx.layerfs.emit('layerfs-workspaces-changed', { project })
   }
 
-  /** Everything the session panel shows. */
-  async view(sessionId: string): Promise<SessionView> {
+  /**
+   * Everything the session panel shows. `observe` (every poll and
+   * effect-driven read from the views) changes nothing: a refused machine,
+   * Store or Workspace check is answered as unavailable, but the binding is
+   * neither interrupted nor saved; that stays with an explicit action or the
+   * host's own availability poll.
+   */
+  async view(sessionId: string, options: { observe?: boolean } = {}): Promise<SessionView> {
     let binding = this.binding(sessionId) ?? null
     let effective = binding
     if (binding?.kind === 'shared' && binding.parent) effective = this.binding(binding.parent) ?? binding
@@ -1294,7 +1300,7 @@ export class LayerfsSessions extends Service {
     if (available && effective?.kind === 'project' && effective.state === 'bound' && effective.ws) {
       status = await this.lfs.workspace.status(effective.ws, { detail: true }).catch((error: any) => { available = false; reason = String(error?.message ?? error); refusal = error?.code; return { error: errorOf(error) } })
     }
-    const stored = effective ? this.binding(effective.sessionId) : undefined
+    const stored = effective && !options.observe ? this.binding(effective.sessionId) : undefined
     if (!available && stored?.state === 'bound') {
       // Same deactivation as the background poll: the panel just noticed first.
       this.interrupt(stored.sessionId, reason ?? 'The project is unavailable.', refusal === 'Unavailable' ? 'availability' : 'blocked')

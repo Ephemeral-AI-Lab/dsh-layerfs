@@ -29,7 +29,7 @@ import { openStorage } from '../navigation.ts'
 import { useProjectData, useRecent, type ProjectItem } from '../ProjectList.tsx'
 import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
-import type { SetupT } from './locale.ts'
+import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { createSteps, defaultMachine, freeStoreName, machinesFor, needsStart, pgLoginProblem, pgMachine, pickable, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
 import { LocationPicker, placeName, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
@@ -133,7 +133,7 @@ function KindCard({ kind, selected, t, onSelect }: { kind: StoreKind, selected: 
 
 /** The tiles' words from this dialog's locale. */
 /** The tiles' words; `os` names the native machine (This Mac, unisolated; This computer, sandboxed; This PC). */
-const wordsOf = (t: SetupT, os?: string): LocationWords => ({ home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown') })
+const wordsOf = (t: SetupT, os?: string): LocationWords => ({ home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'thisLinux' : os === 'windows' ? 'thisPc' : 'thisMac'), nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac', running: t('running'), stopped: t('stopped'), default: t('default'), here: t('here'), blocked: t('machineBlocked'), engineDown: t('engineDown'), state: (s) => setupStateWord(s, t) })
 
 function NewMachineTile({ api, t }: { api: LayerfsApi, t: SetupT }): ReactNode {
   return <button type="button" className={clsx(css.machine, css.newMachine)} onClick={() => { projectDialog.close(); openStorage(api, 'machines:new') }}>
@@ -151,7 +151,7 @@ export const shortPath = (path: string): string => path.replace(/\/+$/, '').repl
 const startWordsOf = (t: SetupT) => ({
   stopped: (machine: string) => t('stoppedFirst', { machine }),
   start: (machine: string) => t('startNamed', { machine }),
-  failed: (machine: string, message: string) => t('startFailed', { machine, message }),
+  refused: (machine: string) => t('startRefused', { machine }),
 })
 
 function stepLabel(step: Step, plan: CreatePlan, t: SetupT): string {
@@ -772,7 +772,7 @@ function PickRow({ api, t, tl, item, sessions, onChanged, platformOf }: { api: L
     </button>
     {availability.canStart
       ? <Button variant="outline" size="sm" disabled={busy} aria-label={t('startFor', { machine: availability.machine ?? '', project: name })}
-        onClick={() => void go(() => api.call('POST', `/api/machines/${enc(availability.machine!)}/start`), (m) => t('startFailed', { machine: availability.machine ?? '', message: m }), false)}>{t('start')}</Button>
+        onClick={() => void go(() => api.call('POST', `/api/machines/${enc(availability.machine!)}/start`), (m) => t('startFailed', { machine: availability.machine ?? '', message: m }), false)}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
       : null}
     <Button variant="ghost" size="sm" className={css.pickGear} icon={<IconSettingsOutlineRegular size={15} />} aria-label={t('configure', { project: name })} title={t('configure', { project: name })} onClick={configure} />
     {error ? <p className={css.pickError} role="alert">{error}</p> : null}

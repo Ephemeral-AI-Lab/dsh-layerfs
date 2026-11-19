@@ -216,9 +216,11 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           ? t('ovWorkerDownStores', { machine: place(m.name), stores: m.stores.join(', ') })
           : t('ovWorkerDown', { machine: place(m.name) })}</Link>,
         detail: downReason(m, fleet?.live[m.name]) ?? undefined,
-        // the head's one slot changes with what is most pressing: it never starts or stops a machine,
-        // it opens that machine's page, where its own Start (or fix) is pressed (UI pass 2 audit)
+        // the head's one slot changes with what is most pressing: it never starts a machine,
+        // it opens that machine's page, where its own Start (or fix) is pressed (UI pass 2 audit);
+        // Stop <machine> beside it stays a press that names the machine (RV4 NOTE 14)
         action: { label: t('ovOpen'), run: () => props.onOpen(`machine:${m.name}`) },
+        secondary: { label: t('ovStopUnreachable', { machine: place(m.name) }), title: t('ovStopUnreachableTitle', { machine: place(m.name) }), run: () => mc.act({ kind: 'stop', name: m.name }) },
       })
     } else if (look.key === 'needs') {
       needs.push({

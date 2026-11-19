@@ -86,14 +86,14 @@ export function troubleAction(trouble: Trouble | null, t: StorageT, onRestart?: 
   return trouble?.store ? <StoreFixAction store={trouble.store} t={t} /> : undefined
 }
 
-/** Restart worker inside a signal's hover card: busy while it runs, LayerFS's refusal as its tooltip. */
+/** Restart <machine>'s worker inside a signal's hover card (a press that names the machine it starts): busy while it runs, LayerFS's refusal as its tooltip. */
 export function RestartButton({ m, t, onRestart }: { m: MachineInfo, t: StorageT, onRestart: (m: MachineInfo) => Promise<unknown> }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
   return (
     <Button variant="outline" size="sm" disabled={busy} title={failed ?? t('ovRestartWorkerTitle', { machine: m.name })}
       onClick={() => { setBusy(true); setFailed(null); void onRestart(m).catch((e: unknown) => setFailed(String((e as Error)?.message ?? e))).finally(() => setBusy(false)) }}>
-      {busy ? t('ovRestarting') : failed ? t('ovRestartFailed') : t('ovRestartWorker')}
+      {busy ? t('ovRestarting') : failed ? t('ovRestartFailed') : t('ovRestartWorker', { machine: m.name })}
     </Button>
   )
 }

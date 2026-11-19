@@ -207,6 +207,11 @@
 .start {
   flex: none;
   height: 24px;
+  /* "Start <machine>": a long machine name ends in an ellipsis; the accessible name keeps it whole */
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Sessions sit at the project's inset with an empty leading slot, so their

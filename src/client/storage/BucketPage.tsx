@@ -48,7 +48,7 @@ export interface BucketPageProps {
  * own: a refused or `not_listed` answer is kept as the result (F2: an effect
  * keyed on "no files" listed it again forever). One ask per open page.
  */
-function useListOnOpen(name: string, b: BucketRow | undefined, listing: boolean, onList: () => void): void {
+export function useListOnOpen(name: string, b: BucketRow | undefined, listing: boolean, onList: () => void): void {
   const [ask] = useState(autoList)
   useEffect(() => { if (ask(name, b, listing)) onList() })
 }

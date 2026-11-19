@@ -512,6 +512,10 @@ export class Storage {
     if (!access || !secret || /\s/.test(access + secret)) throw refuse(400, 'InvalidInput', 'Give both the access key and the secret key (no spaces)')
     // the long form says what happened: `rotated` when the name was already connected at this URL (spec v21: the key is replaced, links kept)
     const answer: any = await this.lfs.backup.connect(name, url, { access_key: access, secret_key: secret, detail: true })
+    // a connect that succeeded answers a remembered refusal ("key refused"): it is no longer the bucket's word,
+    // with or without List again (RV4 NOTE 6); its last files stay until the next listing
+    const prior = this.listings.get(name)
+    if (prior?.error) this.listings.set(name, { ...prior, error: null })
     this.changed()
     const view = await this.view()
     return { ...view, outcome: typeof answer?.outcome === 'string' ? answer.outcome : null }

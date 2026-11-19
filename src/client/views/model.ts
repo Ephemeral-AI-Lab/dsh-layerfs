@@ -662,7 +662,11 @@ export function unsavedCount(overlay: { inode_count?: number | null, entry_count
 /** How often an open conversation view reads its session again while visible (files written by a shell send no event). */
 export const SESSION_POLL_MS = 10_000
 
-const STATE_WORDS: Record<string, string> = { active: 'active', ready: 'stateReady', bound: 'active', stopped: 'stateStopped', busy: 'stateBusy', broken: 'stateBroken', unknown: 'stateUnknownWord' }
+const STATE_WORDS: Record<string, string> = {
+  active: 'active', ready: 'stateReady', bound: 'active', stopped: 'stateStopped', busy: 'stateBusy', broken: 'stateBroken', unknown: 'stateUnknownWord',
+  // a session binding's execution states (host sessions/*.ts), and its closed/failed binding states read the same way
+  activating: 'stateActivating', inactive: 'stateInactive', interrupted: 'stateInterrupted', closed: 'stateInactive', failed: 'stateInterrupted',
+}
 
 /** A session binding's or Sandbox's state in the page's words (B2 #5: never the raw `ready`/`active` in zh); another word as it came. */
 export function stateWords(state: string | null | undefined, t: (key: string) => string): string {

@@ -52,7 +52,6 @@ await build({
       "export { brokenBlock } from './src/client/storage/StoreCard.tsx'",
       "export { tabName, keptInSight } from './src/client/ui/TabBar.tsx'",
       "export { missingKey } from './src/client/projects/ProjectList.tsx'",
-      "export { stateCap } from './src/client/projects/setup/MachineTiles.tsx'",
       "export * as setup from './src/client/projects/setup/model.ts'",
       "export * as mm from './src/client/machines/model.ts'",
       "export { freeSpaceRows } from './src/client/machines/images.ts'",
@@ -289,8 +288,7 @@ test('M5, M6: a lost Sandbox reads Lost (danger) everywhere, a word and Close on
 })
 
 test('M9, M10, M12, M13, M14: state words capitalised, short digests, loading before data, the PG row wraps, the Doctor keeps results', () => {
-  assert.equal(M.stateCap('broken'), 'Broken')
-  assert.equal(M.stateCap(null), '')
+  // capitalised state words: the locale's own words now, in zh too (test/ui-pass-u11.test.mjs NOTE 9 renders them)
   const digest = `sha256:${'ab12'.repeat(16)}`
   assert.equal(M.doc.shortDigest(digest), 'sha256:ab12ab12ab12…')
   assert.equal(M.doc.shortDigest('ubuntu:24.04'), 'ubuntu:24.04')
@@ -470,7 +468,7 @@ test('B2 #4: short ids keep the tag (LayerFS\'s 14-character label, a prefix com
   assert.equal(M.shortId(null), '—')
   const ui = src('src/client/ui/index.tsx')
   assert.match(ui, /export function CopyId/)
-  assert.match(ui, /navigator\.clipboard\?\.writeText\(id\)/)
+  // the press copies the full id (driven in test/ui-pass-u11.test.mjs NOTE 11, B2 #4)
   assert.match(src('src/client/files/ProjectHistory.tsx'), /<CopyId id=\{selected\.id\} short=\{shortId\(selected\.id\)\}/)
   assert.match(src('src/client/views/TrajectoryParts.tsx'), /title=\{`\$\{title\}\\n\$\{version\.id\}`\}/)
   assert.match(src('src/client/logs/LogsPage.tsx'), /const shortHex = \(id: string \| undefined\) => id \? shortId\(id\)/)
@@ -523,8 +521,7 @@ test('B2 #7: no removed project as the composer default; what each checkpoint co
   assert.ok(M.storageLocales.en.colCheckpointsTitle && M.storageLocales.zh.colCheckpointsTitle)
   assert.match(M.filesEn.files_checkpointCount, /forked/)
   assert.match(src('src/client/storage/ProjectPage.tsx'), /title=\{t\('colCheckpointsTitle'\)\}/)
-  const list = src('src/client/projects/ProjectList.tsx')
-  assert.match(list, /api\.op\('sessions\.archive', \{ sessionId: session\.sessionId \}\)/)
+  // the row's Archive sends sessions.archive with its own id (driven in test/ui-pass-u11.test.mjs FAIL 2)
   assert.ok(M.listLocales.zh.archiveSession.includes('{session}'))
   const host = src('src/host/sessions/index.ts')
   assert.match(host, /'sessions\.archive': async/)

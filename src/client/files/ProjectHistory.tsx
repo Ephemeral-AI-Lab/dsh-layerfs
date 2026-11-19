@@ -437,8 +437,8 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
         <dt>{t('files_branch')}</dt>
         <dd title={selectedBranch}>{branchLabel(selectedBranch, t)}</dd>
         {selectedEmpty
-          ? <><dt>{t('files_forkedFrom')}</dt><dd><CopyId id={selected.id} short={shortId(selected.id)} copyLabel={t('files_copy')} copiedLabel={t('files_copied')} /></dd></>
-          : <><dt>{t('files_id')}</dt><dd><CopyId id={selected.id} short={shortId(selected.id)} copyLabel={t('files_copy')} copiedLabel={t('files_copied')} /></dd></>}
+          ? <><dt>{t('files_forkedFrom')}</dt><dd><CopyId id={selected.id} short={shortId(selected.id)} copyLabel={t('files_copy')} copiedLabel={t('files_copied')} failedLabel={t('files_copyFailed')} /></dd></>
+          : <><dt>{t('files_id')}</dt><dd><CopyId id={selected.id} short={shortId(selected.id)} copyLabel={t('files_copy')} copiedLabel={t('files_copied')} failedLabel={t('files_copyFailed')} /></dd></>}
         {!selectedEmpty && selectedCommit?.at ? <><dt>{t('files_when')}</dt><dd>{when(selectedCommit.at)}</dd></> : null}
       </dl>
       {!selectedLive ? <p>{t('files_neverReachedMain')}</p> : null}

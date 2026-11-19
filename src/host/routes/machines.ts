@@ -289,8 +289,6 @@ type PlatformsView = { host: string, platforms: ReturnType<typeof platformOf>[] 
 /** The machines view and its calls. */
 export class Machines {
   private lastView: any = null
-  /** The last `machine list --detail` rows by name: the records an inspect keeps a broken state from. */
-  private records = new Map<string, any>()
   /** The MachinesView read in flight, shared by concurrent GETs; `changed()` (any write) makes later GETs read anew. */
   private viewing: { promise: ReturnType<Machines['readView']>, generation: number } | null = null
   private generation = 0
@@ -382,7 +380,6 @@ export class Machines {
     const probed = new Map<string, { got?: any, error?: any }>(probes.map((p: any) => [p.name, p]))
     // a probe that answered is the newer word on the machine; one that failed leaves its record's;
     // a record that is broken itself (outdated, unreadable…) keeps its state, reason and fix over any probe
-    this.records = new Map(rows.map((m: any) => [String(m.machine), m]))
     const machines = rows.map((m: any) => machineOf(probedRecord(m, probed.get(String(m.machine))?.got)))
     const live = Object.fromEntries([...probed].map(([name, p]) => [name, machineLive(name, p.got, p.error)]))
     const stores = listedStores.map(storeOf).filter(Boolean)
@@ -412,8 +409,20 @@ export class Machines {
     return { host: String(answer.host ?? ''), platforms: rows.map((p) => ({ ...p, options: p.options.filter((o: any) => !OFF_OPTIONS.has(o.option)) })) }
   }
 
-  /** `machine get <m> --detail --with live`, with the last listed record's own broken state kept over it ({@link probedRecord}). */
-  async inspect(name: string) { return { ...probedRecord(this.records.get(name) ?? null, await this.lfs.machine.get(name, { detail: true, with: ['live'] })), observedAt: Date.now() } }
+  /**
+   * `machine get <m> --detail --with live`, with the machine's own broken
+   * record state kept over it ({@link probedRecord}). The record is read now
+   * (`machine get <m> --detail`, beside the live read), never taken from the
+   * last listing: a record fixed outside the page since then must not read
+   * broken again (RV4 NOTE 5). A record read that fails leaves the live answer.
+   */
+  async inspect(name: string) {
+    const [record, got] = await Promise.all([
+      this.lfs.machine.get(name, { detail: true }).then((r: any) => (r && typeof r === 'object' ? r : null), () => null),
+      this.lfs.machine.get(name, { detail: true, with: ['live'] }),
+    ])
+    return { ...probedRecord(record, got), observedAt: Date.now() }
+  }
 
   /** The monitoring reads' shared state: one read per key, last good answers, page requests that can be cancelled. */
   readonly reads = new InspectReads()

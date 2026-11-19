@@ -455,14 +455,37 @@ export function CopyLine({ text, copyLabel, copiedLabel }: { text: string, copyL
   )
 }
 
-/** A saved id as its short label (files/format.ts shortId): the full id is the tip, and a press copies the full id. */
-export function CopyId({ id, short, copyLabel, copiedLabel }: { id: string, short: string, copyLabel: string, copiedLabel: string }): ReactNode {
-  const [copied, setCopied] = useState(false)
-  const tip = `${id}\n${copied ? copiedLabel : copyLabel}`
+/**
+ * Copies `id` to the clipboard: `copied` once written; `failed` when the
+ * write is refused (an unfocused page, no permission) or there is no
+ * clipboard, never an unhandled rejection (RV4 NOTE 11).
+ */
+export function copyText(id: string, clipboard: Pick<Clipboard, 'writeText'> | undefined = globalThis.navigator?.clipboard): Promise<'copied' | 'failed'> {
+  if (!clipboard?.writeText) return Promise.resolve('failed')
+  try { return clipboard.writeText(id).then(() => 'copied' as const, () => 'failed' as const) } catch { return Promise.resolve('failed') }
+}
+
+/**
+ * A saved id as its short label (files/format.ts shortId): the full id is the
+ * tip, and a press copies the full id. A refused copy says so in the tip and
+ * selects the shown id, so it can be copied by hand.
+ */
+export function CopyId({ id, short, copyLabel, copiedLabel, failedLabel }: { id: string, short: string, copyLabel: string, copiedLabel: string, failedLabel: string }): ReactNode {
+  const [outcome, setOutcome] = useState<'copied' | 'failed' | null>(null)
+  const word = outcome === 'copied' ? copiedLabel : outcome === 'failed' ? failedLabel : copyLabel
+  const tip = `${id}\n${word}`
   return (
-    <button type="button" className={css.copyId} title={tip} aria-label={`${short}, ${copied ? copiedLabel : copyLabel}`} data-copy-id={id}
-      onClick={(e) => { e.stopPropagation(); void navigator.clipboard?.writeText(id).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1000) }) }}>
-      <code>{short}</code>{copied ? <IconCheckOutlineRegular size={11} /> : <IconCopyOutlineRegular size={11} />}
+    <button type="button" className={css.copyId} title={tip} aria-label={`${short}, ${word}`} data-copy-id={id} data-copy={outcome ?? undefined}
+      onClick={(e) => {
+        e.stopPropagation()
+        const code = e.currentTarget.querySelector('code')
+        void copyText(id).then((done) => {
+          setOutcome(done)
+          if (done === 'failed' && code) { try { window.getSelection()?.selectAllChildren(code) } catch { /* nothing to select */ } }
+          if (done === 'copied') setTimeout(() => setOutcome(null), 1000)
+        })
+      }}>
+      <code>{short}</code>{outcome === 'copied' ? <IconCheckOutlineRegular size={11} /> : outcome === 'failed' ? <IconWarningOutlineRegular size={11} /> : <IconCopyOutlineRegular size={11} />}
     </button>
   )
 }

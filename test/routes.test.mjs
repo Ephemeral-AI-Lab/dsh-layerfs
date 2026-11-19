@@ -614,6 +614,57 @@ test('buckets: the keys go to LayerFS (the secret on stdin), never to a file her
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('RV4 NOTE 6: a connect that succeeds clears the bucket\'s remembered "key refused" without List again', async () => {
+  let refused = true
+  const { http, root } = fakeGroups({
+    ...base,
+    home: { get: async (o = {}) => ({ ...(await base.home.get()), ...(o.with?.includes('tree') ? { tree: { machines: [], stores: [], buckets: [{ bucket: 'bk', provider: 'minio', url: 'http://minio:9000/bk' }] } } : {}) }) },
+    backup: {
+      connect: async (name, url, options) => { refused = false; return options?.detail ? { bucket: name, outcome: 'rotated' } : { ok: true } },
+      list: async () => { if (refused) throw new Refusal('refused', 'the access key was refused'); return { items: [] } },
+    },
+  })
+  try {
+    assert.equal((await http('GET', '/api/buckets/bk/files')).body.error.code, 'refused')
+    assert.equal((await http('GET', '/api/storage')).body.buckets.find((b) => b.name === 'bk').error.code, 'refused', 'remembered')
+    const again = await http('POST', '/api/buckets', { name: 'bk', url: 'http://minio:9000/bk', accessKey: 'AK2', secretKey: 'SK2' })
+    assert.equal(again.status, 200)
+    assert.equal(again.body.buckets.find((b) => b.name === 'bk').error, null, 'the connect answers the refusal at once')
+    assert.equal((await http('GET', '/api/storage')).body.buckets.find((b) => b.name === 'bk').error, null)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('RV4 NOTE 5: Inspect reads the record now; a broken listing fixed outside the page does not read broken again', async () => {
+  let fixed = false
+  const broken = { machine: 'lima1', platform: 'lima', state: 'broken', reason: 'outdated', fix: 'layerfs machine update lima1', message: 'the worker is outdated', stores: [], sandboxes: [], supports: ['sqlite'] }
+  const reads = []
+  const { http, root } = fakeGroups({
+    ...base,
+    machine: {
+      list: async () => ({ items: [base.machine.list ? (await base.machine.list()).items[0] : null, broken].filter(Boolean) }),
+      get: async (name, o = {}) => {
+        reads.push(o.with?.includes('live') ? 'live' : 'record')
+        if (name !== 'lima1') return base.machine.get(name)
+        // LayerFS's record after `machine update` on the CLI: ready; before: broken (the live read alone says unknown)
+        if (!o.with?.includes('live')) return fixed ? { ...broken, state: 'ready', reason: null, fix: null, message: null } : broken
+        return { machine: 'lima1', platform: 'lima', state: fixed ? 'ready' : 'unknown', live: { disk_free_bytes: 7, worker: null, tool_version: null } }
+      },
+    },
+  })
+  try {
+    assert.equal((await http('GET', '/api/machines')).body.machines.find((m) => m.name === 'lima1').state, 'broken')
+    const before = await http('GET', '/api/machines/lima1/inspect')
+    assert.deepEqual([before.body.state, before.body.reason], ['broken', 'outdated'], 'a record broken now keeps its state over the live read')
+    fixed = true   // fixed on the CLI; the page has not listed since
+    reads.length = 0
+    const after = await http('GET', '/api/machines/lima1/inspect')
+    assert.equal(after.status, 200)
+    assert.equal(after.body.state, 'ready', 'never the stale listing\'s broken')
+    assert.equal(after.body.fix ?? null, null)
+    assert.deepEqual(reads.sort(), ['live', 'record'], 'one record read beside the live one')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('storage state lives in the LayerFS home: jobs are kept in client-neutral <home>/job and <home>/stat', async () => {
   const { http, root } = fakeGroups(base)
   const home = join(root, 'home')

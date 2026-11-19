@@ -12,9 +12,9 @@ import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, bucketParts, canMove, inHome, needsLogin, runsOnOf, type BackupState, type Reconnect } from './model.ts'
+import { backupStateOf, bucketParts, canMove, inHome, needsLogin, runsOnOf, storeStateWords, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
-import { LocationPicker, placeName, StartFirst, stateCap } from '../projects/setup/MachineTiles.tsx'
+import { LocationPicker, placeName, StartFirst } from '../projects/setup/MachineTiles.tsx'
 import { defaultMachine, machinesFor, stoppedOf } from '../projects/setup/model.ts'
 import { placeStore, startMachine, waitJob } from '../projects/setup/run.ts'
 import { Signal } from './Signal.tsx'
@@ -212,7 +212,7 @@ function NewStoreDialog({ api, t, view, opened, onClose, done, onDialog }: {
       </Field>
       {/* creating starts no machine: a stopped one has its own Start here */}
       <StartFirst names={stopped} start={(m) => startMachine(api, m)} onStarted={done}
-        words={{ stopped: (machine) => t('nsStoppedFirst', { machine }), start: (machine) => t('startMachine', { machine }), failed: (machine, message) => t('nsStartFailed', { machine, message }) }} />
+        words={{ stopped: (machine) => t('nsStoppedFirst', { machine }), start: (machine) => t('startMachine', { machine }), refused: (machine) => t('nsStartRefused', { machine }) }} />
       {moveOnly ? <p className={css.formNote}>{t('nsMade', { store: made, machine: where })}</p> : null}
     </FormModal>
   )
@@ -389,7 +389,7 @@ function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsAp
       submit={() => api.call('POST', `/api/stores/${enc(s.name)}/${kind}`, { machine: target }).then(done)}>
       <Field label={t('machine')} hint={machines.loading && !view ? t('readingMachines') : targets.length ? undefined : t('noTargets')}>
         <MenuSelect value={target} label={t('machine')} placeholder={t('chooseMachine')} onChange={setTarget}
-          options={targets.map((m) => ({ value: m.name, label: `${m.name} · ${m.platform} · ${stateCap(m.state)}` }))} />
+          options={targets.map((m) => ({ value: m.name, label: `${m.name} · ${m.platform} · ${storeStateWords(m.state ?? 'unknown', t)}` }))} />
       </Field>
       {machines.error ? <Refusal error={machines.error} labels={refusalLabels(t)} compact /> : null}
       {chosen ? (

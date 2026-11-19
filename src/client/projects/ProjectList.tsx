@@ -16,7 +16,7 @@ import { useQuery } from '../files/use-query.ts'
 import { useHostEvents } from '../storage/hooks.ts'
 import type { StorageView, StoreRow } from '../storage/types.ts'
 import { projectAvailability, type ProjectAvailability } from './availability.ts'
-import { EVENT_COALESCE_MS, SIDEBAR_POLL_MS, useProjectMachines, useProjectSessions } from './hooks.ts'
+import { EVENT_COALESCE_MS, SIDEBAR_POLL_MS, useProjectMachines, useProjectSessions, type ProjectSession } from './hooks.ts'
 import type { ListT } from './list-locale.ts'
 import css from './list.module.css'
 import { openMachineHome } from './navigation.ts'
@@ -24,7 +24,7 @@ import { projectDialog } from './dialog.ts'
 import { ReadDeadlineError, readWithDeadline, steadyRead } from './read-deadline.ts'
 import { sidebarStatus } from './readiness.ts'
 import { sidebarHidden, sidebarProjects, type RecentProject } from './recent.ts'
-import { visibleProjectSessions } from './session-visibility.ts'
+import { archivable, visibleProjectSessions } from './session-visibility.ts'
 import { primaryMachine, runsOn } from './setup/model.ts'
 
 interface SessionSummary { title?: string, blank?: boolean }
@@ -123,6 +123,45 @@ function ActionError({ api, t, error }: { api: LayerfsApi, t: ListT, error: { ki
   </div>
 }
 
+/** Archives one conversation in DSH (`sessions.archive`): null when archived, else DSH's refusal in its own words. */
+export function archiveConversation(api: Pick<LayerfsApi, 'op'>, sessionId: string): Promise<string | null> {
+  return api.op('sessions.archive', { sessionId }).then(() => null, (e: unknown) => String((e as Error)?.message ?? e))
+}
+
+/**
+ * One conversation under a project: its title (a press opens it), Interrupted
+ * when so, and Archive where DSH can archive it ({@link archivable}). A
+ * refused Archive reads "Not archived" with DSH's message as the tip and one
+ * action, Try again (RV4 FAIL 2: no refusal is dropped).
+ */
+export function SessionLine({ session, title, selected, t, onOpen, onArchive }: {
+  session: ProjectSession, title: string, selected: boolean, t: ListT
+  onOpen: () => void
+  /** Archives it: null when done, else the refusal's message. */
+  onArchive: () => Promise<string | null>
+}): ReactNode {
+  const [busy, setBusy] = useState(false)
+  const [refusal, setRefusal] = useState<string | null>(null)
+  const archive = () => { setBusy(true); setRefusal(null); void onArchive().then(setRefusal).finally(() => setBusy(false)) }
+  return <>
+    <li className={css.sessionItem}>
+      <button type="button" className={css.session} data-selected={selected || undefined} onClick={onOpen}>
+        <span className={css.slot} aria-hidden="true" />
+        <span className={css.title}>{title}</span>
+        {session.executionState === 'interrupted' ? <span className={css.interrupted} title={session.error ?? t('interruptedHint')}>{t('interrupted')}</span> : null}
+      </button>
+      {/* B2 #7: the row's one action, Archive (DSH's archive set; DSH's archived list unarchives it), only where DSH can */}
+      {archivable(session) ? <Button className={clsx(css.iconButton, css.sessionAction)} variant="ghost" size="sm" icon={<IconArchiveOutlineRegular size={14} />} disabled={busy}
+        aria-label={t('archiveSession', { session: title })} title={t('archiveSession', { session: title })} data-archive-session={session.sessionId}
+        onClick={archive} /> : null}
+    </li>
+    {refusal !== null ? <li className={clsx(css.notice, css.error)} data-archive-refused={session.sessionId}>
+      <span role="alert" title={refusal}>{t('archiveRefused')}</span>
+      <Button variant="ghost" size="sm" disabled={busy} onClick={archive}>{t('archiveAgain')}</Button>
+    </li> : null}
+  </>
+}
+
 /** One sidebar row (§4). */
 function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: ProjectItem, showStore: boolean, api: LayerfsApi, titles: Record<string, SessionSummary>, t: ListT, onChanged: () => void }): ReactNode {
   const { row: project, availability } = item
@@ -151,7 +190,7 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
           aria-label={t('newSession', { project: label })} title={availability.canRun ? t('newSession', { project: label }) : t('cannotRun', { reason: t(status.key) })}
           onClick={() => { setOpen(true); void actions.create(project) }} />}
         {availability.canStart
-          ? <Button className={css.start} variant="ghost" size="sm" disabled={actions.busy} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={() => void actions.start(availability.machine!)}>{t('start')}</Button>
+          ? <Button className={css.start} variant="ghost" size="sm" disabled={actions.busy} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={() => void actions.start(availability.machine!)}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
           : null}
       </span>
     </div>
@@ -163,17 +202,9 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
       </li> : read.loading ? <li className={css.notice}>{t('archiveLoading')}</li> : null}
       {sessions.length ? sessions.map((session) => {
         const title = titles[session.sessionId]?.title || session.title || t('untitled')
-        return <li key={session.sessionId} className={css.sessionItem}>
-          <button type="button" className={css.session} data-selected={selected === session.sessionId || undefined} onClick={() => resume(session.sessionId)}>
-            <span className={css.slot} aria-hidden="true" />
-            <span className={css.title}>{title}</span>
-            {session.executionState === 'interrupted' ? <span className={css.interrupted} title={session.error ?? t('interruptedHint')}>{t('interrupted')}</span> : null}
-          </button>
-          {/* B2 #7: the row's one action, Archive (DSH's archive set; DSH's archived list unarchives it) */}
-          <Button className={clsx(css.iconButton, css.sessionAction)} variant="ghost" size="sm" icon={<IconArchiveOutlineRegular size={14} />}
-            aria-label={t('archiveSession', { session: title })} title={t('archiveSession', { session: title })} data-archive-session={session.sessionId}
-            onClick={() => { void api.op('sessions.archive', { sessionId: session.sessionId }).then(read.reload, () => {}) }} />
-        </li>
+        return <SessionLine key={session.sessionId} session={session} title={title} selected={selected === session.sessionId} t={t}
+          onOpen={() => resume(session.sessionId)}
+          onArchive={() => archiveConversation(api, session.sessionId).then((refusal) => { if (refusal === null) read.reload(); return refusal })} />
       }) : !read.error && !read.loading ? <li className={css.notice}>{t('noSessions')}</li> : null}
     </ul> : null}
   </li>

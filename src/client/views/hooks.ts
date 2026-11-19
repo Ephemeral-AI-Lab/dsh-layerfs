@@ -45,7 +45,8 @@ export function useRootState(api: LayerfsApi, sessionId: string, source: Session
   const [tick, setTick] = useState(0)
   // One read at a time, never dropped for a newer event (events come many a second during a
   // run); the last answer per session draws at once when a tab mounts.
-  const query = useQuery(() => api.op<SessionStateView>('session.state', { sessionId: root }), [api, root], { refresh: [tick], cache: `session.state:${root}`, persist: true })
+  // `observe`: this read runs on mount, events and a poll (no press), so it changes nothing on the host
+  const query = useQuery(() => api.op<SessionStateView>('session.state', { sessionId: root, observe: true }), [api, root], { refresh: [tick], cache: `session.state:${root}`, persist: true })
   const reload = useCallback(() => setTick((n) => n + 1), [])
   useEffect(() => {
     // Coalesce bursts: one refresh per 500 ms at most.

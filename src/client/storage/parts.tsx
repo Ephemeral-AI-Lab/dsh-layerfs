@@ -5,6 +5,7 @@ import { StoreKindGlyph } from '../machines/icons.tsx'
 import { Field, Refusal, type RefusalLabels } from '../ui/index.tsx'
 import type { LocationWords } from '../projects/setup/MachineTiles.tsx'
 import type { StorageT } from './locale.ts'
+import { storeStateWords } from './model.ts'
 import type { StorageView } from './types.ts'
 import css from './Storage.module.css'
 
@@ -205,5 +206,6 @@ export function locationWords(t: StorageT, view: Pick<StorageView, 'computer'> |
     home: t('layerfsHome'), thisMac: t(os === 'linux' ? 'nsThisLinux' : os === 'windows' ? 'nsThisPc' : 'nsThisMac'),
     running: t('nsRunning'), stopped: t('nsStopped'), default: t('nsDefault'), here: t('nsHere'),
     nativeOs: os === 'linux' ? 'linux' : os === 'windows' || os === 'other' ? 'pc' : 'mac',
+    state: (s) => storeStateWords(s, t),
   }
 }

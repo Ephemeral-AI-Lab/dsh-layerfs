@@ -26,6 +26,8 @@ export function useProjectMachines(api: LayerfsApi) {
 
 export interface ProjectSession {
   sessionId: string, title: string | null, local: boolean, updatedAt: number
+  /** `sessions.list`: a binding's state (`bound`, `closed`, `failed`), else `pending`, `local` or `stored` (only in the Store). */
+  state?: string
   /** Local bindings only: `interrupted` when its Store became unavailable or its context was lost. */
   executionState?: 'inactive' | 'activating' | 'active' | 'interrupted'
   error?: string | null

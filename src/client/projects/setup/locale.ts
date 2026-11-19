@@ -32,7 +32,7 @@ const en = {
   user: 'User', password: 'Password', passwordHint: 'Typed once. It goes to LayerFS on stdin and is never shown again.',
   runsOn: 'Runs on', locationHint: 'Where the Store file lives. Its projects’ sessions run there.', layerfsHome: 'LayerFS Home', runsOnPg: 'Where this Store’s sessions run. Any machine can reach the database.',
   newMachine: 'New machine', noMachines: 'No machine can run this kind of Store. Add one in Home.',
-  default: 'Default', thisMac: 'This Mac, unisolated', thisLinux: 'This computer, sandboxed', thisPc: 'This PC', running: 'Running', stopped: 'Stopped', stoppedFirst: 'Stopped · {machine}', startNamed: 'Start {machine}', needsStart: 'Start {machine} first', here: 'Here now',
+  default: 'Default', thisMac: 'This Mac, unisolated', thisLinux: 'This computer, sandboxed', thisPc: 'This PC', running: 'Running', stopped: 'Stopped', stateReady: 'Ready', stateBusy: 'Busy', stateBlocked: 'Blocked', stateBroken: 'Broken', stateUnknown: 'Unknown', stoppedFirst: 'Stopped · {machine}', startNamed: 'Start {machine}', needsStart: 'Start {machine} first', here: 'Here now',
   working: 'Working…',
   moveWarn: 'Moves the whole Store {store} to {machine}: its {n} other projects run there too. Refused while any of them has a Sandbox.',
   create: 'Create and open', import: 'Import and open', creating: 'Creating…',
@@ -47,7 +47,7 @@ const en = {
   search: 'Search projects or Stores', noProjects: 'No projects yet.', noMatch: 'No project matches.',
   sessions: '{n} sessions', oneSession: '1 session', newProject: 'New project', importFolder: 'Import a folder',
   configure: 'Set up {project}', newSession: 'New session in {project}', start: 'Start', startFor: 'Start {machine} for {project}',
-  openFailed: 'Could not open a session: {message}', startFailed: 'Could not start {machine}: {message}',
+  openFailed: 'Could not open a session: {message}', startFailed: 'Could not start {machine}: {message}', startRefused: 'Not started · {machine}',
   machineBlocked: 'Can’t run here now · see Machines', engineDown: 'Docker isn’t running · start it first',
 }
 
@@ -82,7 +82,7 @@ const zh: typeof en = {
   user: '用户', password: '密码', passwordHint: '只输入一次，经标准输入交给 LayerFS，之后不再显示。',
   runsOn: '运行于', locationHint: '存储文件所在的位置，其中项目的会话也在那里运行。', layerfsHome: 'LayerFS Home', runsOnPg: '该 Store 的会话运行的位置。任何机器都能访问该数据库。',
   newMachine: '新建机器', noMachines: '没有机器能运行这类存储。请在“主页”中添加。',
-  default: '默认', thisMac: '本机，无隔离', thisLinux: '这台电脑，沙箱隔离', thisPc: '这台 PC', running: '运行中', stopped: '已停止', stoppedFirst: '已停止 · {machine}', startNamed: '启动 {machine}', needsStart: '请先启动 {machine}', here: '当前位置',
+  default: '默认', thisMac: '本机，无隔离', thisLinux: '这台电脑，沙箱隔离', thisPc: '这台 PC', running: '运行中', stopped: '已停止', stateReady: '就绪', stateBusy: '忙碌', stateBlocked: '受阻', stateBroken: '损坏', stateUnknown: '未知', stoppedFirst: '已停止 · {machine}', startNamed: '启动 {machine}', needsStart: '请先启动 {machine}', here: '当前位置',
   working: '处理中…',
   moveWarn: '会把整个存储 {store} 移到 {machine}：其中另外 {n} 个项目也会在那里运行。任一项目有 Sandbox 时会被拒绝。',
   create: '创建并打开', import: '导入并打开', creating: '正在创建…',
@@ -97,9 +97,15 @@ const zh: typeof en = {
   search: '搜索项目或存储', noProjects: '还没有项目。', noMatch: '没有匹配的项目。',
   sessions: '{n} 个会话', oneSession: '1 个会话', newProject: '新建项目', importFolder: '导入文件夹',
   configure: '设置 {project}', newSession: '在 {project} 中新建会话', start: '启动', startFor: '为 {project} 启动 {machine}',
-  openFailed: '无法打开会话：{message}', startFailed: '无法启动 {machine}：{message}',
+  openFailed: '无法打开会话：{message}', startFailed: '无法启动 {machine}：{message}', startRefused: '未启动 · {machine}',
   machineBlocked: '目前无法在此运行 · 见“机器”', engineDown: 'Docker 未运行 · 请先启动',
 }
 
 export const locales = { en, zh }
 export type SetupT = (key: keyof typeof en, params?: Record<string, string | number>) => string
+
+const SETUP_STATES: Record<string, keyof typeof en> = { ready: 'stateReady', running: 'running', stopped: 'stopped', busy: 'stateBusy', blocked: 'stateBlocked', broken: 'stateBroken' }
+/** A LayerFS machine state in the dialog's words (zh included); any other word reads Unknown. */
+export function setupStateWord(state: string, t: SetupT): string {
+  return t(SETUP_STATES[state] ?? 'stateUnknown')
+}
