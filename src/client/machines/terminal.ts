@@ -182,3 +182,13 @@ export const paneStore = {
     return () => { listeners.delete(listener) }
   },
 }
+
+/**
+ * The handle (`<sandbox>:<name>`) of a Workspace a mount made: LayerFS answers
+ * it as `workspace`; without it, the name LayerFS gives (the typed one, else
+ * the Branch's name lowercased with every other character made `-`).
+ */
+export function mountedWorkspace(sandbox: string, made: { workspace?: string | null } | null | undefined, name: string, branch: string): string {
+  if (made?.workspace) return made.workspace
+  return `${sandbox}:${name || branch.toLowerCase().replace(/[^a-z0-9._-]/g, '-')}`
+}

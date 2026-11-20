@@ -331,7 +331,7 @@ test('review NOTE-1: the settle is visible (off and aria-disabled, one re-render
   const ui = src('src/client/ui/index.tsx')
   assert.match(ui, /const settling = settleMs > 0 && !pressAllowed\(seen\.current, identity, Date\.now\(\), settleMs\)/)
   assert.match(ui, /setTimeout\(\(\) => rerender\(\(n\) => n \+ 1\), Math\.max\(0, seen\.current\.at \+ settleMs - Date\.now\(\)\) \+ 5\)/, 'one timer re-render at at + settleMs')
-  for (const [file, n] of [['src/client/machines/parts.tsx', 4], ['src/client/storage/HomeOverview.tsx', 2], ['src/client/storage/HomeCards.tsx', 1], ['src/client/ui/index.tsx', 1]]) {
+  for (const [file, n] of [['src/client/machines/parts.tsx', 5], ['src/client/storage/HomeOverview.tsx', 2], ['src/client/storage/HomeCards.tsx', 1], ['src/client/ui/index.tsx', 1]]) {
     assert.equal((src(file).match(/aria-disabled=\{guard\.settling \|\| undefined\}/g) ?? []).length, n, file)
     assert.ok((src(file).match(/disabled=\{[^}]*guard\.settling\}/g) ?? []).length >= n, `${file} visibly off`)
   }

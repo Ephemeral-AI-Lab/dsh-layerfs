@@ -60,7 +60,7 @@ commits), and Starter reads **Needs a rebuild**.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Title | **CLI commands · *preset*** (or ***project* · CLI script** from a project's #) | **×** closes | — | **Loading commands…** |
+| Title | **CLI commands · *preset*** (**Starter**, **Studio**; or ***project* · CLI script** from a project's #) and **Every command the build runs, in order: …** | **×** closes | — | **Loading commands…** |
 | Range (1) | ***from*–*to* of *total* commands** (100 a page) | **Previous** / **Next** | `GET /api/demo-presets/:id/script` (reads the home's inventory for the reset part: `machine list`, `store list --detail`, `sandbox list --detail`, `sandbox get` per Sandbox) | **This script preview expired. Close and reopen it…** |
 | **Copy this page** (2) | | Press → this page's commands on the clipboard | — | **Copied**; **Copy is unavailable…** |
 | **Download full plan** (3) | | Press → the whole plan as a file | — | **Preparing…** |

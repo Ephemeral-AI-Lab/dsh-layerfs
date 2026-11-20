@@ -209,17 +209,17 @@ export default [
       await history(page, h)
       await selectBranch(page, 'feature-holds')
       await inspector(page).getByRole('button', { name: 'Compare with…' }).click()
-      await h.see(/Select another version in the graph to compare with/)
+      await h.see(/Select another version or a Branch in the graph to compare with/)
       await h.wait(400)
     },
-    callouts: [(page) => page.getByRole('status').filter({ hasText: 'Select another version' })],
+    callouts: [(page) => page.getByRole('status').filter({ hasText: 'Select another version or a Branch' })],
   },
   {
     file: 'project-compare',
     run: async (page, h) => {
       // the graph is still waiting for the second side (the shot above): pick main's newest Layer.
-      // A point in the graph completes the pick; a Branch name tag only opens that Branch.
-      if (!(await page.getByText(/Select another version in the graph/).count())) {
+      // A point in the graph or a Branch name tag completes the pick.
+      if (!(await page.getByText(/Select another version or a Branch in the graph/).count())) {
         await history(page, h)
         await selectBranch(page, 'feature-holds')
         await inspector(page).getByRole('button', { name: 'Compare with…' }).click()
@@ -233,7 +233,6 @@ export default [
       (page) => page.getByRole('dialog').getByText('From', { exact: true }),
       (page) => page.getByRole('dialog').getByText('To', { exact: true }),
       (page) => page.getByRole('dialog').getByRole('button', { name: 'Swap' }),
-      (page) => page.getByRole('dialog').getByText('Only owner changes'),
     ],
   },
   {

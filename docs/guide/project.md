@@ -60,7 +60,7 @@ version saved on another Branch says **from `<branch>`**. Selecting a group swit
 **History** with that version selected (`See what <id> changed in this file`).
 **Show more lines** reads the next 1000. A blame LayerFS could only partly work out says
 **Part of this answer is approximate**. Calls: `file read` and `file blame` for the same
-window, and `file history` for the versions' times (all reads).
+window, `file history` for the versions' times, and `commit get` once per owner to name the Branch it was saved on (**from** *branch* when not this one) (all reads).
 
 **History** (the file's) lists the saved versions that changed this file:
 
@@ -68,7 +68,7 @@ window, and `file history` for the versions' times (all reads).
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
-| 1 | Version list | newest first: message, short id, Branch (when not this one), age; **Added** / **Removed** tags | click → its change on the right | `file history` (read; 50 a page) | **Load earlier versions**; **The search stopped early, so earlier versions may be missing.** |
+| 1 | Version list | newest first: message, short id, the Branch the version was saved on (when not this one), age; **Added** / **Removed** tags | click → its change on the right: removed lines `-`, added `+`, kept lines plain | `file history` (read; 50 a page), and with **Include other branches** `file history --traversal branch` plus `commit get` once per version saved elsewhere, to name its Branch (read) | **Load earlier versions**; **The search stopped early, so earlier versions may be missing.** |
 | 2 | **Include other branches** | on: versions saved before a fork or merged in from other Branches too | toggle → the list is read again | `file history` with or without provenance (read) | **No saved versions of this file** |
 | 3 | **Compare with: …** | the left side of the diff, **Previous version** by default | pick another listed version → the diff is between those two | `commit diff --path --with patch` (read) | **This version added the file.**, **No content changes**, **Only metadata changed**, **Binary comparison · …** |
 
@@ -84,12 +84,12 @@ reached main".
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
 | 1 | History tree | the time axis (`#n · time`), main's Layers (`L1`, `L3`…), Branch lanes in one colour per family, leaves (checkpoints), rings (merges), dashed lines (publishes to main), grey lanes (never reached main) | hover → a tip (Branch, `#n`, time, id, message); click a leaf or Layer → selects it and opens its details; drag → pan; scroll → zoom; arrow keys walk the selected Branch, **+** **−** **0** zoom | `branch list`, then `commit list` per Branch (read, below) | a selected Branch and its ancestry stay lit, the rest dims |
-| 2 | Branch name tag | the Branch's name at its newest save | click → opens that Branch: its newest save selected (an empty Branch through its fork point) | `commit list` if not read yet (read) | |
+| 2 | Branch name tag | the Branch's name at its newest save | click → opens that Branch: its newest save selected (an empty Branch through its fork point); while **Compare with…** waits, it completes the pick at that Branch's newest save | `commit list` if not read yet (read) | |
 | 3 | Zoom controls | **Zoom out**, `<n> in view`, **Zoom in**, **Whole run** | zoom the axis only (lanes keep their height); **Whole run** fits everything | — (view state) | |
 | 4 | **Compare** | compares two versions | → [Compare versions](#modals-opened-here) with main on the left and the selected version (or another Branch) on the right | `commit diff` (read) | disabled with no Branches |
 | 5 | Branches (`<n> Branches, main included`) | the Branch count | → the Branch finder (below) | — | `<n>+` while more pages are unread |
 | 6 | **Refresh** | | reads the Branch list and every Branch whose head moved again | `branch list`, `commit list` (read) | a spinner while a read runs |
-| 7 | Legend | **`<b>` Branches · `<c>` checkpoints · `<l>` Layers**, then **Layer on main**, **Checkpoint**, **Merge**, **Publish**, **Never reached main** | — | — | while loading: **Loading checkpoints… `<n>` so far** or **`<n>` of `<total>`** |
+| 7 | Legend | **`<b>` Branches · `<c>` checkpoints · `<l>` Layers** (singular for one), then **Layer on main**, **Checkpoint**, **Merge**, **Publish**, **Never reached main** | — | — | while loading: **Loading checkpoints… `<n>` so far** or **`<n>` of `<total>`** |
 
 **How it loads.** The tree is drawn progressively, most useful first, and never empties
 on a refresh:
@@ -126,7 +126,7 @@ Zoomed in, each checkpoint is a leaf on its Branch's line; the axis labels every
 | 1 | Details card | **Checkpoint**, **Layer on main**, **Merge** or **Branch head**; the message; **Branch**, **ID** (with copy), **When**; **Base layer**, **Source branch**, **Source commit**, **Merge parent** when they apply; **Never reached main** | **×** (**Close commit details**) → closes it | `commit get` (read) | **Earlier parent is not loaded: `<id>`** |
 | 2 | **Changed paths** | each path with **Added**, **Removed** or **Modified** | click a path → the Files tab opens that file at this commit | `commit diff` against its parent, paths only (read; 100 a page) | **Reading changed paths…**, **This commit changed no paths.**, **Initial import.**, **Load more changes** |
 | 3 | **View diff** | | → [Changes in `<id>`](#modals-opened-here) | `commit diff --path --with patch` per path (read) | |
-| 4 | **Compare with…** | | a bar asks **Select another version in the graph to compare with `<id>`.**; click a leaf or Layer in the tree → [Compare versions](#modals-opened-here) (a Branch name tag only opens that Branch); **Cancel** ends it | — until the second side is picked | |
+| 4 | **Compare with…** | | a bar asks **Select another version or a Branch in the graph to compare with `<id>`.**; click a leaf or Layer in the tree, or a Branch name tag (its newest save) → [Compare versions](#modals-opened-here); **Cancel** ends it | — until the second side is picked | |
 
 ![Compare with… waiting for its second side](img/project-compare-pick.png)
 
@@ -228,7 +228,7 @@ imported belongs to the Store, not to a save.
 |---|---|---|---|---|
 | [Confirm dialog](components.md#confirm-dialog) **Delete `<project>`?** | **⋯ › Delete project…** | *The project and all its history are deleted from its Store. This cannot be undone.* Type the name, then **Delete**; the page closes and its Store opens | `project delete` | none |
 | **Changes in `<id>`** | **View diff** in commit details | the commit's changed paths on the left, the selected path's diff on the right; **Open at this commit** opens the file in Files at that commit | `commit get`, `commit diff` (paths), `commit diff --path --with patch` (read) | — |
-| **Compare versions** | **Compare** in the dock, or **Compare with…** then a point in the tree | **From** and **To** each a Branch picker at a saved id (`@ <id>`, **Show latest** to go back to its head); **Swap**; the files that differ (`<n> files changed`), the selected file's diff, **Open at this commit**; **Only owner changes** keeps files whose unchanged lines changed owner | `commit diff` under `/` (read; 100 a page, **Load more changes**), then `commit diff --path --with patch` per file (read) | — |
+| **Compare versions** | **Compare** in the dock, or **Compare with…** then a point in the tree | **From** and **To** each a Branch picker at a saved id (`@ <id>`, **Show latest** to go back to its head); **Swap**; the files that differ (`<n> files changed`), the selected file's diff, **Open at this commit**. (**Only owner changes**, files whose unchanged lines changed owner, shows only when LayerFS reports line owners across a diff; 2.0 does not, so it is hidden) | `commit diff` under `/` (read; 100 a page, **Load more changes**), then `commit diff --path --with patch` per file (read) | — |
 | Confirm dialog **Close Sandbox `<name>`?** | **Close** on a Sandbox card (Sandboxes tab) | unmounts its Workspaces and removes it; **Force close** also stops running commands | `sandbox remove` | none |
 
 ![Delete project](img/project-delete-confirm.png)

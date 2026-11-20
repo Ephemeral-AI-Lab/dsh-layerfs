@@ -3,6 +3,11 @@ import type { DemoPreset, PresetResetPlan } from '../../shared/presets.ts'
 import type { RefusalLabels } from '../ui/index.tsx'
 import type { PresetsT } from './locale.ts'
 
+/** A preset's name in words, from its id: Studio, Starter, else the id. */
+export function presetIdName(t: PresetsT, id: string): string {
+  return id === 'studio' ? t('studio') : id === 'quickstart' ? t('quickstart') : id
+}
+
 export function refusalLabels(t: PresetsT): RefusalLabels {
   return {
     category: (kind) => kind === 'usage' ? t('refusalUsage') : kind === 'unavailable' ? t('refusalUnavailable') : kind === 'unknown' ? t('refusalUnknown') : t('refusalRefusal'),

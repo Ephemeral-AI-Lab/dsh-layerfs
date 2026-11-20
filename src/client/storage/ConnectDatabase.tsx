@@ -144,7 +144,7 @@ function Footer({ t, screen, back, onClose, onRun, place, why }: { t: StorageT, 
         : screen.kind === 'new' && why ? <span className={scss.modalHint} data-connect-why>{why}</span> : <span />}
       <div className={scss.modalActions}>
         {back ? <Button variant="outline" onClick={back}>{t('cdBack')}</Button> : null}
-        {check?.state === 'ready' ? <Button variant="outline" onClick={onClose}>{t('cancel')}</Button> : null}
+        {check?.state === 'ready' || screen.kind === 'new' ? <Button variant="outline" onClick={onClose}>{t('cancel')}</Button> : null}
         {check?.state === 'ready'
           ? <Button variant="primary" onClick={onRun}>{t('cdCheckFromNamed', { store: check.store, machine: place(check.machine) })}</Button>
           : check?.state === 'ok'

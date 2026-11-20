@@ -52,6 +52,8 @@ const HISTORY_PAGES_KEPT = 512
 const HISTORY_WIDE_PAGE = 100
 /** Branch Commit counts kept per host (Projects.historyCounts). */
 const HISTORY_COUNTS_KEPT = 2048
+/** Commits whose Branch is kept (`Projects.madeOn`). */
+const MADE_ON_KEPT = 20000
 
 /** Tagged ids: a Layer's first byte is 0x32. */
 const isLayer = (id: unknown) => typeof id === 'string' && id.startsWith('32')
@@ -303,6 +305,12 @@ export class Projects {
    */
   readonly historyCounts = new Map<string, { head: string, count: number }>()
   readonly counting = new Map<string, Promise<{ head: string | null, count: number }>>()
+  /**
+   * `<project> <commit>` -> the Branch the Commit was made on (`commit get`
+   * answers it; file history and blame do not). A Commit never moves, so the
+   * answer is kept, the oldest dropped past {@link MADE_ON_KEPT}.
+   */
+  readonly madeOn = new Map<string, string | null>()
   /** Init job id -> ProjectInitJob: the Inits this host started (2.0 keeps no job registry). */
   readonly inits = new Map<string, ProjectInitJob>()
   readonly creations = new Map<string, Promise<unknown>>()
@@ -325,6 +333,31 @@ export class Projects {
   get lfs() { return this.host.lfs() }
 
   private log(line: string): void { this.host.log(line) }
+
+  /**
+   * The Branch each of `ids` was made on: those in `own` are `branch`'s own;
+   * the rest are asked once each (`commit get`, at most 4 at a time) and kept.
+   * A Commit LayerFS cannot read answers null (the view names no Branch).
+   */
+  private async branchesOf(project: string, ids: readonly string[], branch: string, own: ReadonlySet<string> = new Set()): Promise<Map<string, string | null>> {
+    const out = new Map<string, string | null>()
+    const ask: string[] = []
+    for (const id of new Set(ids)) {
+      if (own.has(id)) out.set(id, branch)
+      else if (this.madeOn.has(`${project} ${id}`)) out.set(id, this.madeOn.get(`${project} ${id}`)!)
+      else ask.push(id)
+    }
+    for (let i = 0; i < ask.length; i += 4) {
+      await Promise.all(ask.slice(i, i + 4).map(async (id) => {
+        let made: string | null = null
+        try { const c: any = await this.lfs.commit.get(project, id); made = typeof c?.branch === 'string' && c.branch ? c.branch : null } catch { out.set(id, null); return }
+        out.set(id, made)
+        this.madeOn.set(`${project} ${id}`, made)
+        if (this.madeOn.size > MADE_ON_KEPT) this.madeOn.delete(this.madeOn.keys().next().value!)
+      }))
+    }
+    return out
+  }
 
   private async saved(project: string, branch: string, pin: string | null | undefined): Promise<string> {
     if (pin) {
@@ -945,23 +978,38 @@ export class Projects {
       ])
       const messages = new Map<string, string | null>((Array.isArray(blame?.commits) ? blame.commits : []).map((c: any) => [String(c.commit), c.message ?? null]))
       const ranges: any[] = Array.isArray(blame?.ranges) ? blame.ranges : []
+      const madeOn = await this.branchesOf(project, ranges.map((r) => r.commit).filter(Boolean).map(String), branch)
       const text: string = typeof window?.text === 'string' ? window.text : ''
       const rows = text === '' ? [] : text.replace(/\n$/, '').split('\n')
       const lines = rows.map((t, i) => {
         const n = line + i
         const owner = ranges.find((r) => n >= r.start && n <= r.end)?.commit
-        return { n, text: t, owner: owner ? { ref: savedRef(owner)!, message: messages.get(String(owner)) ?? null } : null }
+        return { n, text: t, owner: owner ? { ref: savedRef(owner, madeOn.get(String(owner)))!, message: messages.get(String(owner)) ?? null } : null }
       })
       return { at: savedRef(at, branch), lines, coverage: { status: blame?.partial ? 'partial' : 'complete' }, next_line: blame?.next_line ?? window?.next_line ?? null }
     }
     if (kind === 'revisions') {
-      const page: any = await this.lfs.file.history(project, branch, path, { at, traversal: q.get('traversal') ?? 'provenance', limit: pageSize, ...(q.get('continuation') ? { cursor: q.get('continuation') } : {}), detail: true })
+      const traversal = q.get('traversal') ?? 'provenance'
+      const page: any = await this.lfs.file.history(project, branch, path, { at, traversal, limit: pageSize, ...(q.get('continuation') ? { cursor: q.get('continuation') } : {}), detail: true })
+      const items: any[] = page?.items ?? []
+      // A provenance page also lists Commits made on the Branches the path came from: the same
+      // page on this Branch's own line says which are its own, `commit get` names the others.
+      let own = new Set<string>(traversal === 'branch' ? items.map((r) => String(r.commit)) : [])
+      if (traversal !== 'branch' && items.length) {
+        const line: any = await this.lfs.file.history(project, branch, path, { at, traversal: 'branch', limit: q.get('continuation') ? 1000 : pageSize }).catch(() => null)
+        own = new Set((line?.items ?? []).map((r: any) => String(r.commit)))
+      }
+      // a Commit's parent is on its Branch (a Branch's first Commit has none)
+      const madeOn = await this.branchesOf(project, items.map((r) => String(r.commit)), branch, own)
       return {
-        items: (page?.items ?? []).map((r: any) => ({
-          ref: savedRef(r.commit, branch), compared_to: savedRef(r.parent, branch), kind: changeKind(r.change), message: r.message ?? null,
-          recorded_at: msAt(r.created_at), after: typeof r.size === 'number' ? { size: r.size } : null,
-          changes: { content: r.content ?? undefined, metadata: r.metadata ?? undefined, identity: r.identity ?? undefined },
-        })),
+        items: items.map((r: any) => {
+          const on = madeOn.get(String(r.commit)) ?? branch
+          return {
+            ref: savedRef(r.commit, on), compared_to: savedRef(r.parent, on), kind: changeKind(r.change), message: r.message ?? null,
+            recorded_at: msAt(r.created_at), after: typeof r.size === 'number' ? { size: r.size } : null,
+            changes: { content: r.content ?? undefined, metadata: r.metadata ?? undefined, identity: r.identity ?? undefined },
+          }
+        }),
         has_more: !!page?.next_cursor, continuation: page?.next_cursor ?? null,
       }
     }
@@ -977,8 +1025,22 @@ export class Projects {
         if (op !== '-') right++
         return { op, text: String(h.text ?? ''), ...(op !== '+' ? { left_line: left } : {}), ...(op !== '-' ? { right_line: right } : {}) }
       })
+      // `--with patch` lists every line of a changed text file (kept ones too); its sides are
+      // what the change says: an added path has no before, a removed one no after. A changed
+      // file with no lines and none omitted is not text: its sides' sizes say what changed.
+      const change = String(item?.change ?? '')
+      const binary = !!item && !Array.isArray(item.hunks) && item.hunks_omitted !== true && item.content !== false && (item.type ?? 'file') === 'file'
+      const sizeAt = async (onBranch: string, pin: string) => {
+        if (!binary) return {}
+        try { const s: any = await this.lfs.file.stat(project, onBranch, path, { at: pin }); return typeof s?.size === 'number' ? { size: s.size } : {} } catch { return {} }
+      }
+      const [before, after] = await Promise.all([
+        change === 'added' ? null : sizeAt(rightBranch, leftPin),
+        change === 'removed' ? null : sizeAt(branch, at),
+      ])
       return {
         rows, has_more: item?.hunks_omitted === true, change_kind: item ? changeKind(item.change) : 'Unchanged',
+        before, after,
         changes: item ? { content: item.content, metadata: item.metadata, identity: item.identity, attribution: null } : undefined,
         ...(kind === 'attribution' ? { attribution_coverage: { status: 'unavailable', reasons: ['LayerFS 2.0 names line owners with file blame, not across a diff'] } } : {}),
       }

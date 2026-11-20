@@ -68,7 +68,7 @@ Storage writes marked ↻ then read the Storage view again (`home get`, `project
 | `GET /api/projects/:id/storage` | `projects.projectStorage` | `project get`, `project stats`, `store get` | this project's own storage from its saves' counters (see project-storage.ts): ?refresh=1 |
 | `GET /api/projects/:id/size` | `projects.projectSize` | `project get`, `project stats`, `store get` | the Overview card's size: packed bytes (the Store's when alone in it: ?alone=1) and main's raw bytes |
 | `GET /api/projects/:id/branches` | `projects.branches` | `branch get`, `branch list` |  |
-| `GET /api/projects/:id/file-query` | `projects.fileQuery` | `branch get`, `commit diff`, `file blame`, `file history`, `file read` |  |
+| `GET /api/projects/:id/file-query` | `projects.fileQuery` | `branch get`, `commit diff`, `commit get`, `file blame`, `file history`, `file read`, `file stat` |  |
 | `GET /api/projects/:id/stats` | `projects.projectStats` | `branch get`, `project stats` |  |
 | `GET /api/projects/:id/commits` | `projects.commits` | `branch get`, `commit diff`, `commit list` |  |
 | `GET /api/projects/:id/branch-commits` | `projects.branchCommits` | `branch list`, `commit diff`, `commit list` | several Branches' Commits in one call: ?branch=a&branch=b |

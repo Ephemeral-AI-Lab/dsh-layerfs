@@ -205,6 +205,8 @@ const en = {
   engineStartTitle: 'Docker is not running: Start opens it, waits for the Docker Engine, then starts {name}’s worker.',
   engineStartHint: 'Start opens Docker and waits for its Engine before starting the worker.',
   stopWorker: 'Stop worker',
+  /** The board's icon Stop after its first press: the second press stops. */
+  powerConfirm: 'Confirm: {action}',
   starting: 'Starting…',
   startingWorker: 'Starting worker…',
   stoppingFor: 'Stopping… {s}s',
@@ -1358,6 +1360,7 @@ const zh: typeof en = {
   engineStartTitle: 'Docker 未运行：启动会先打开 Docker、等待 Docker 引擎就绪，再启动 {name} 的 worker。',
   engineStartHint: '启动会先打开 Docker，等待其引擎就绪后再启动 worker。',
   stopWorker: '停止 worker',
+  powerConfirm: '确认：{action}',
   starting: '正在启动…',
   startingWorker: '正在启动 worker…',
   stoppingFor: '正在停止… {s} 秒',

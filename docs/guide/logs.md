@@ -51,7 +51,7 @@ session's title, turn and checkpoint.
 | Saved cell | **committed** / **forked** / **merged** / **published** / **unchanged** and the version's short id (full id on hover) | — | — | **—** when the call saved nothing |
 | Session cell | The session's title, and **turn *n* · tool call**, **turn *n* · turn checkpoint**, **host save**, **references** | Click the title → opens that conversation | — | **—** for calls DSH did not make |
 | **Load older calls** | | Press → the next 100 | `home log --cursor` (read) | **All calls loaded.**; ***n* unreadable lines were skipped.** |
-| Tag chip | **Calls of session *session-ef98*** or **Calls of call *id*** | **×** (**Show all calls**) → the filter goes | — | Shows when the page was opened for one session, checkpoint or call. **These calls are not in this machine’s log** when none are |
+| Tag chip | **Calls of session *ef98…*** (the session id without DSH's `session-` prefix) or **Calls of call *id*** | **×** (**Show all calls**) → the filter goes | — | Shows when the page was opened for one session, checkpoint or call. **These calls are not in this machine’s log** when none are |
 
 ![The page filtered to one session](img/logs-session.png)
 

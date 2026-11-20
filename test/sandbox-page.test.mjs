@@ -179,3 +179,11 @@ test('pane state outlives a pane and can be forgotten', () => {
   off()
   assert.equal(calls, 2)
 })
+
+test('a mounted Workspace opens by the handle LayerFS answers, else by the name it gives', () => {
+  assert.equal(M.mountedWorkspace('box', { workspace: 'box:agent', path: '/run/box/workspaces/1' }, '', 'agent'), 'box:agent')
+  assert.equal(M.mountedWorkspace('box', { workspace: 'box:mine' }, 'mine', 'agent'), 'box:mine')
+  // never the mount's folder path
+  assert.equal(M.mountedWorkspace('box', { path: '/run/box/workspaces/1' }, '', 'Feat/X'), 'box:feat-x')
+  assert.equal(M.mountedWorkspace('box', {}, 'mine', 'agent'), 'box:mine')
+})

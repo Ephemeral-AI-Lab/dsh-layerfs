@@ -356,6 +356,65 @@ test('Commits: a Branch\'s first Commit diffs against its base Layer', async () 
   } finally { f.close() }
 })
 
+test('file compare: a modified file keeps its before side, an added one has none, a non-text one has sizes', async () => {
+  const pin = (c) => c.repeat(66)
+  const answers = {
+    '/a.txt': { path: '/a.txt', change: 'modified', type: 'file', content: true, hunks: [{ op: ' ', text: 'one' }, { op: '-', text: 'two' }, { op: '+', text: 'three' }] },
+    '/new.txt': { path: '/new.txt', change: 'added', type: 'file', content: true, hunks: [{ op: '+', text: 'hi' }] },
+    '/gone.txt': { path: '/gone.txt', change: 'removed', type: 'file', content: true, hunks: [{ op: '-', text: 'bye' }] },
+    '/img.png': { path: '/img.png', change: 'modified', type: 'file', content: true },
+  }
+  const stats = []
+  const lfs = {
+    branch: { get: async () => ({ head: pin('b') }) },
+    commit: { diff: async (_p, _ref, { path }) => ({ items: [answers[path]] }) },
+    file: { stat: async (_p, _b, path, { at }) => { stats.push([path, at]); return { size: at === pin('a') ? 10 : 20 } } },
+  }
+  const f = fixture(lfs)
+  const query = (path) => f.http('GET', `/api/projects/${encodeURIComponent('s1/p')}/file-query?branch=main&path=${encodeURIComponent(path)}&pin=${pin('b')}&left=${pin('a')}&kind=compare`)
+  try {
+    const modified = (await query('/a.txt')).body
+    assert.deepEqual(modified.rows.map((r) => [r.op, r.left_line ?? null, r.right_line ?? null]), [[' ', 1, 1], ['-', 2, null], ['+', null, 2]])
+    assert.deepEqual([modified.before, modified.after], [{}, {}])
+    const added = (await query('/new.txt')).body
+    assert.deepEqual([added.before, added.after], [null, {}])
+    const removed = (await query('/gone.txt')).body
+    assert.deepEqual([removed.before, removed.after], [{}, null])
+    assert.deepEqual(stats, [], 'text files are not stat-ed')
+    const binary = (await query('/img.png')).body
+    assert.deepEqual([binary.rows, binary.before, binary.after], [[], { size: 10 }, { size: 20 }])
+  } finally { f.close() }
+})
+
+test('file history and blame name the Branch each Commit was made on, asking LayerFS once per Commit', async () => {
+  const pin = (c) => c.repeat(66)
+  const gets = []
+  const lfs = {
+    branch: { get: async () => ({ head: pin('f') }) },
+    // provenance: two of feat's own Commits and one made on main before the fork
+    file: {
+      history: async (_p, _b, _path, { traversal }) => (traversal === 'branch'
+        ? { items: [{ commit: 'c3' }, { commit: 'c2' }] }
+        : { items: [{ commit: 'c3', parent: 'c2', change: 'modified' }, { commit: 'c2', parent: null, change: 'modified' }, { commit: 'm1', parent: 'm0', change: 'added' }] }),
+      read: async () => ({ text: 'a\nb\n' }),
+      blame: async () => ({ ranges: [{ start: 1, end: 1, commit: 'm1' }, { start: 2, end: 2, commit: 'c3' }], commits: [] }),
+    },
+    commit: { get: async (_p, id) => { gets.push(id); return { m1: { branch: 'main' }, c3: { branch: 'feat' } }[id] ?? {} } },
+  }
+  const f = fixture(lfs)
+  const query = (kind) => f.http('GET', `/api/projects/${encodeURIComponent('s1/p')}/file-query?branch=feat&path=%2Fa.txt&kind=${kind}`)
+  try {
+    const revisions = (await query('revisions')).body.items
+    assert.deepEqual(revisions.map((r) => [r.ref.id, r.ref.branch, r.compared_to?.branch ?? null]), [['c3', 'feat', 'feat'], ['c2', 'feat', null], ['m1', 'main', 'main']])
+    assert.deepEqual(gets, ['m1'], 'only the Commit not on the Branch\'s own line is asked')
+    const blame = (await query('blame')).body.lines
+    assert.deepEqual(blame.map((l) => l.owner.ref.branch), ['main', 'feat'])
+    assert.deepEqual(gets, ['m1', 'c3'], 'm1 was kept from the history read')
+    await query('blame')
+    assert.deepEqual(gets, ['m1', 'c3'], 'a Commit\'s Branch is asked once')
+  } finally { f.close() }
+})
+
 test('client api: a Remote call lost after it was sent is tagged transport-unknown', async (t) => {
   const { build } = await import('esbuild')
   const { pathToFileURL } = await import('node:url')

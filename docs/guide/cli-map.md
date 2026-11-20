@@ -37,7 +37,7 @@ Pages: [Home](home.md) · [Entry points](entry-points.md)
 | **⋯ › Delete project…** | `Home › Projects` | `DELETE /api/projects/:key` | `project delete` |
 | PostgreSQL sizes and logins | `Home › Stores › PostgreSQL` | `GET /api/stores/:id/stats`, `GET /api/store-auths` | `store get`; `store auths` |
 | Machines table | `Home › Machines` | `GET /api/machines`, `GET /api/metrics`, `GET /api/machines/:id/space` | `home get`, `machine get`, `machine list`, `sandbox list`, `store list`; sampler memory; `machine stats` |
-| Row power **Stop** / **Start** | `Home › Machines` | `POST /api/machines/:id/stop` / `start` | `machine stop` / `machine start` |
+| Row power **Start**, **Stop** → **Confirm: Stop** | `Home › Machines` | `POST /api/machines/:id/stop` / `start` | `machine stop` / `machine start` |
 | Row **Add Store** | `Home › Machines` | `POST /api/machines/:id/stores` | `store move` (a job) |
 | Row **New Sandbox** | `Home › Machines` | `POST /api/projects/:id/sandboxes` | (`machine start`), `project get`, `sandbox create`, `store get` |
 | **⋯ › Diagnose this host** | `Home › Machines` | `POST /api/doctor/runs` `{kind: home}` | `home doctor` |
@@ -119,9 +119,9 @@ Pages: [Project](project.md)
 | Open the project page (Files tab) | `LayerFS › Home › Stores › <store> › <project>` | `GET /api/projects/:id/branches` | `branch list`, `branch get main` (read) |
 | Open a folder | `… › <project> › Files` | `GET /api/projects/:id/fs` | `file list` (read); `branch get` only when no saved id is known yet |
 | Open a file (Code), **Show more lines** | `… › Files` | `GET /api/projects/:id/file` | `file stat`, `file read` (read) |
-| **Blame** | `… › Files › Blame` | `GET /api/projects/:id/file-query?kind=blame` (+ `kind=revisions`) | `file read`, `file blame`, `file history` (read) |
-| File **History**, **Include other branches**, **Load earlier versions** | `… › Files › History` | `GET /api/projects/:id/file-query?kind=revisions` | `file history` (read) |
-| A version's diff, **Compare with:** | `… › Files › History` | `GET /api/projects/:id/file-query?kind=compare` | `commit diff --path --with patch` (read) |
+| **Blame** | `… › Files › Blame` | `GET /api/projects/:id/file-query?kind=blame` (+ `kind=revisions`) | `file read`, `file blame`, `file history`, `commit get` per owner not yet named (read) |
+| File **History**, **Include other branches**, **Load earlier versions** | `… › Files › History` | `GET /api/projects/:id/file-query?kind=revisions` | `file history`; with other branches also `file history --traversal branch` and `commit get` per version saved elsewhere (read) |
+| A version's diff, **Compare with:** | `… › Files › History` | `GET /api/projects/:id/file-query?kind=compare` | `commit diff --path --with patch` (read); a non-text file also `file stat --at` each side (read) |
 | Branch picker, **Load more branches** | `… › Files` | `GET /api/projects/:id/branches?pos=` | `branch list` (read) |
 | Open the History tab, **Refresh** | `… › History` | `GET /api/projects/:id/history` (Branch list, then pages) | `branch list`, `branch get main`, `commit list` (read) |
 | **Load all** (background read) | `… › History` | `GET /api/projects/:id/history?branch=&at=&wide=1` | `commit list` (read) |
@@ -129,7 +129,7 @@ Pages: [Project](project.md)
 | **Stop**, zoom, **Whole run**, fold a Branch family | `… › History` | — | — (view state) |
 | Select a leaf, Layer or Branch tag | `… › History` | `GET /api/projects/:id/history?branch=&commit=` | `commit get`, `commit diff` paths only (read) |
 | **View diff** | `… › History › Changes in <id>` | `…/history?commit=` + `GET /api/projects/:id/file-query?kind=compare` | `commit get`, `commit diff`, `commit diff --path --with patch` (read) |
-| **Compare** / **Compare with…** then pick | `… › History › Compare versions` | `GET /api/projects/:id/file-query?kind=branch-diff` then `kind=compare` | `commit diff` (read), `commit diff --path --with patch` (read) |
+| **Compare** / **Compare with…** then pick a version or a Branch tag | `… › History › Compare versions` | `GET /api/projects/:id/file-query?kind=branch-diff` then `kind=compare` | `commit diff` (read), `commit diff --path --with patch` (read) |
 | **Open at this commit** / click a changed path | History → Files | `GET /api/projects/:id/fs`, `/file` at that version | `file list`, `file stat`, `file read` (read) |
 | Branch finder › **Load more branches** | `… › History` | `GET /api/projects/:id/history?pos=` | `branch list` (read) |
 | Sandboxes tab (list) | `… › <project> › Sandboxes` | `GET /api/projects/:id/sandboxes`, `GET /api/sandboxes/:id` | `sandbox list` (read), `sandbox get` (read, host-kept) |

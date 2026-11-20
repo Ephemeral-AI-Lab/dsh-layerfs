@@ -337,10 +337,15 @@ export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
 }
 
 /** The outside filter, removable. */
-function TagChip({ t, tag, onClear }: { t: LogsT, tag: string, onClear: () => void }): ReactNode {
+/** What a tag filter holds, in words: one call, a session (its id without DSH's `session-` prefix), else the tag. */
+export function tagWords(tag: string, t: LogsT): string {
   const parsed = parseTag(tag)
-  const what = parsed ? t('tagCall', { id: parsed.receiptId.slice(0, 8) })
-    : tag.startsWith('dsh:') && tag.endsWith(':') ? t('tagSession', { id: tag.slice(4, -1).slice(0, 12) }) : tag
+  return parsed ? t('tagCall', { id: parsed.receiptId.slice(0, 8) })
+    : tag.startsWith('dsh:') && tag.endsWith(':') ? t('tagSession', { id: tag.slice(4, -1).replace(/^session-/, '').slice(0, 12) }) : tag
+}
+
+function TagChip({ t, tag, onClear }: { t: LogsT, tag: string, onClear: () => void }): ReactNode {
+  const what = tagWords(tag, t)
   return (
     <span className={css.chip} title={tag}>
       <span className={css.chipLabel}>{t('tagFilter', { what })}</span>

@@ -109,16 +109,16 @@ project while DSH stays open.
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | Tree | Axis `#n · time`, Layers, lanes, leaves, merges and publishes | Hover → a tip (Branch, `#n`, time, id, message). Click a leaf or Layer → select it and show details. Drag to pan, scroll to zoom, ←/→ to walk the selected Branch, + − 0 | `branch list`, `commit list` per Branch (read) | The selected line is lit and the rest dimmed |
-| Branch name tag | The Branch's name at its head | Click → open the Branch with its head selected (an empty Branch opens through its fork) | `commit list` if not read yet (read) | |
+| Branch name tag | The Branch's name at its head | Click → open the Branch with its head selected (an empty Branch opens through its fork); while **Compare with…** waits, it completes the pick at that Branch's head | `commit list` if not read yet (read) | |
 | Zoom | **Zoom out**, `<n> in view`, **Zoom in**, **Whole run** | Zoom the time axis only | — | |
 | **Load all** / **Stop** | The background read | **Stop** pauses it and **Load all** resumes it. Tip: "Checkpoints load in the background, newest first…" | `commit list`, wide pages (read) | **Loading checkpoints… `<n>` so far** / **`<n>` of `<total>`** |
 | **Compare** | | → Compare versions: main against the selected version | `commit diff` (read) | |
 | Branches (`<n> Branches, main included`) | How many Branches there are, with `+` while more are unread | → the Branch finder: **Find a branch…**, click a Branch to open it, the chevron with a child count folds or unfolds a **Branch family**, **Load more branches** | `branch list` for more (read). Folding is view state only | **No branches match.** |
 | **Refresh** | | Read the Branch list and moved heads again | `branch list`, `commit list` (read) | Spinner |
-| Legend | **`<b>` Branches · `<c>` checkpoints · `<l>` Layers**, **Layer on main**, **Checkpoint**, **Merge**, **Publish**, **Never reached main** | — | — | |
+| Legend | **`<b>` Branches · `<c>` checkpoints · `<l>` Layers** (singular for one: **1 Branch**), **Layer on main**, **Checkpoint**, **Merge**, **Publish**, **Never reached main** | — | — | |
 | Commit details | **Checkpoint**, **Layer on main**, **Merge** or **Branch head**, then the message, **Branch**, **ID** (copy), **When**, **Base layer**, **Source branch/commit**, **Merge parent**, **Never reached main**, **Changed paths** | Click a path → the file at that commit in Files. **View diff** → **Changes in `<id>`**. **Compare with…** → a bar "Select another version in the graph to compare with `<id>`." with **Cancel**; then click a leaf or Layer. **Close commit details** | `commit get`, `commit diff` with paths only (read; 100 per page, **Load more changes**) | **Reading changed paths…**, **This commit changed no paths.**, **Initial import.**, **Earlier parent is not loaded: `<id>`** |
 | **Changes in `<id>`** (modal) | The changed paths and the selected path's diff | **Open at this commit** | `commit diff --path --with patch` (read) | **The first saved version has nothing to compare with.** |
-| **Compare versions** (modal) | **From** and **To** Branch pickers `@ <id>` (**Show latest**), **Swap**, `<n> files changed`, the diff | **Only owner changes**, **Load more changes**, **Open at this commit** | `commit diff` under `/` (read; 100 per page), then `commit diff --path --with patch` (read) | **Both sides have the same files** |
+| **Compare versions** (modal) | **From** and **To** Branch pickers `@ <id>` (**Show latest**), **Swap**, `<n> files changed`, the diff | **Load more changes**, **Open at this commit** (**Only owner changes** only when LayerFS reports line owners across a diff; 2.0 does not) | `commit diff` under `/` (read; 100 per page), then `commit diff --path --with patch` (read) | **Both sides have the same files** |
 
 How the tree loads, so you know what you're looking at while it fills in:
 

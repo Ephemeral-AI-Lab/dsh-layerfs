@@ -3,7 +3,9 @@
  * files that differ from one to the other (`branch.diff`) and the selected
  * file's change. Each side is a Branch, at its saved head or at a version
  * picked in the history graph. "Only owner changes" lists the files whose
- * unchanged lines now belong to another version, and names those lines.
+ * unchanged lines now belong to another version, and names those lines; it is
+ * offered only when LayerFS says per file whether owners changed (2.0 does not:
+ * its diff has no line ownership, so every item's `attribution` is null).
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
@@ -20,6 +22,13 @@ import css from './Files.module.css'
 
 /** One side of a comparison: a Branch, at a saved version or its head. */
 export interface CompareEnd { branch: string, pin?: string | undefined }
+
+/** The files a comparison lists, and whether owner changes are known at all (some item says yes or no). */
+export function compareFiles<T extends { type?: string, attribution?: boolean | null }>(all: readonly T[], owners: boolean): { files: T[], ownersKnown: boolean } {
+  const listed = all.filter((item) => item.type !== 'dir')
+  const ownersKnown = listed.some((item) => typeof item.attribution === 'boolean')
+  return { ownersKnown, files: owners && ownersKnown ? listed.filter((item) => item.attribution === true) : listed }
+}
 
 export interface BranchCompareProps {
   api: LayerfsApi
@@ -71,9 +80,10 @@ export function BranchCompare({ api, project, t, branches, from: initialFrom, to
   const pages = [first.data, ...more]
   const last = pages.at(-1)!
   const all = pages.flatMap((p) => p.items).filter((item) => item.type !== 'dir')
-  const files = owners ? all.filter((item) => item.attribution === true) : all
+  const { files, ownersKnown } = compareFiles(all, owners)
+  const ownersOn = owners && ownersKnown
   const current: BranchDiffItem | undefined = files.find((f) => f.path === selected) ?? files[0]
-  const unknownOwners = owners && pages.some((p) => p.coverage?.complete === false)
+  const unknownOwners = ownersOn && pages.some((p) => p.coverage?.complete === false)
   const loadMore = () => {
     if (!last.continuation) return
     setLoadingMore(true)
@@ -89,7 +99,7 @@ export function BranchCompare({ api, project, t, branches, from: initialFrom, to
             <span className={css.changeCount}>{all.length === 1 && !last.continuation ? t('files_compareSummaryOne') : t('files_compareSummary', { count: `${all.length}${last.continuation ? '+' : ''}` })}</span>
           </div>
           {files.length === 0
-            ? <p className={css.treeNote}>{owners ? t('files_compareOwnersNone') : t('files_compareSame')}</p>
+            ? <p className={css.treeNote}>{ownersOn ? t('files_compareOwnersNone') : t('files_compareSame')}</p>
             : (
               <ul className={css.tree}>
                 {files.map((f) => {
@@ -107,13 +117,13 @@ export function BranchCompare({ api, project, t, branches, from: initialFrom, to
               </ul>
             )}
           {last.continuation ? <button type="button" className={css.linkButton} disabled={loadingMore} onClick={loadMore}>{t('files_moreChanges')}</button> : null}
-          <Checkbox className={css.revisionToggle} checked={owners} label={t('files_compareOwners')} onChange={setOwners} />
+          {ownersKnown ? <Checkbox className={css.revisionToggle} checked={owners} label={t('files_compareOwners')} onChange={setOwners} /> : null}
           {unknownOwners ? <p className={css.treeNote}>{t('files_compareOwnersUnknown')}</p> : null}
         </div>
         <div className={css.diffPane}>
           {current && fromAt && toAt
-            ? <PathDiff key={`${current.path}:${fromAt}:${toAt}:${owners}`} api={api} project={project} branch={to.branch} leftBranch={from.branch}
-                path={current.path} left={fromAt} right={toAt} kind={current.kind} t={t} attribution={owners}
+            ? <PathDiff key={`${current.path}:${fromAt}:${toAt}:${ownersOn}`} api={api} project={project} branch={to.branch} leftBranch={from.branch}
+                path={current.path} left={fromAt} right={toAt} kind={current.kind} t={t} attribution={ownersOn}
                 onOpenFile={onOpenFile && ((path, pin) => onOpenFile(to.branch, path, pin))} />
             : files.length ? <EmptyState title={t('files_selectPath')} /> : null}
         </div>

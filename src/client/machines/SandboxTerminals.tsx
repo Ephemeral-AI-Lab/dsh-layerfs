@@ -20,7 +20,7 @@ import { enc } from '../api.ts'
 import { Field, MenuSelect, Refusal } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { bytes, runningSummary, workspaceCapacity, workspaceName, type SandboxInfo } from './model.ts'
-import { DEFAULT_FIT, PANE_GAP, PANE_MIN_HEIGHT, orderWorkspaces, pageLayout, pageOf, paneFit, type Fit } from './terminal.ts'
+import { DEFAULT_FIT, PANE_GAP, PANE_MIN_HEIGHT, mountedWorkspace, orderWorkspaces, pageLayout, pageOf, paneFit, type Fit } from './terminal.ts'
 import { TerminalPane } from './TerminalPane.tsx'
 import { NewWorkspaceTile, WorkspaceGrid } from './WorkspaceGrid.tsx'
 import css from './terminal.module.css'
@@ -304,8 +304,8 @@ function NewWorkspace({ info, taken, onCancel, onMounted }: { info: SandboxInfo,
     if (name && !NAME.test(name)) { setProblem(t('termNameInvalid')); return }
     setProblem(null); setBusy(true); setError(null)
     try {
-      const made = await api.call<{ ws?: string, path?: string }>('POST', `/api/sandboxes/${enc(info.name)}/workspaces`, { branch: target, fork: isNew, ...(name ? { name } : {}) })
-      onMounted(made.ws ?? `${info.name}:${name || made.path}`)
+      const made = await api.call<{ workspace?: string, path?: string }>('POST', `/api/sandboxes/${enc(info.name)}/workspaces`, { branch: target, fork: isNew, ...(name ? { name } : {}) })
+      onMounted(mountedWorkspace(info.name, made, name, target))
     } catch (err) { setError(err) } finally { setBusy(false) }
   }
   const options = [...(branches.names ?? []).map((b) => ({ value: b, label: b })), { value: NEW_BRANCH, label: t('termBranchNew') }]

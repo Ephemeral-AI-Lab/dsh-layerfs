@@ -14,7 +14,7 @@ import { enc, type LayerfsApi } from '../api.ts'
 import type { BusySession, DemoPreset, DemoPresets, PresetResetPlan, PresetExecutionMode, PresetJob } from '../../shared/presets.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Card, LinkButton, MoreMenu, Notice, Refusal, usePressGuard } from '../ui/index.tsx'
-import { machinesStarted, refusalLabels } from './labels.ts'
+import { machinesStarted, presetIdName, refusalLabels } from './labels.ts'
 import type { PresetsKey, PresetsT } from './locale.ts'
 import { count, PresetProgress } from './Progress.tsx'
 import { ScriptDrawer } from './ScriptDrawer.tsx'
@@ -62,7 +62,7 @@ export function usePresets(api: LayerfsApi): { data: DemoPresets | undefined, er
 
 /** A preset's name in words. */
 export function presetName(t: PresetsT, preset: DemoPreset): string {
-  return preset.id === 'studio' ? t('studio') : preset.id === 'quickstart' ? t('quickstart') : preset.id
+  return presetIdName(t, preset.id)
 }
 
 /** All commits a preset's projects plan. */

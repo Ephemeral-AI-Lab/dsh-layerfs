@@ -78,6 +78,23 @@ export interface ProjectHistoryProps {
   className?: string | undefined
 }
 
+/** The legend's counts, each singular or plural: "1 Branch · 3 checkpoints · 1 Layer". */
+export function treeCounts(branches: number, checkpoints: number, layers: number, t: Translate): string {
+  const n = (count: number, one: Parameters<Translate>[0], many: Parameters<Translate>[0]) => (count === 1 ? t(one) : t(many, { n: count.toLocaleString() }))
+  return [n(branches, 'files_treeBranchOne', 'files_treeBranches'), n(checkpoints, 'files_treeCheckpointOne', 'files_treeCheckpoints'), n(layers, 'files_treeLayerOne', 'files_treeLayers')].join(' · ')
+}
+
+/**
+ * The comparison a "Compare with…" pick makes once the other side is chosen
+ * (a version, or a Branch at its saved head `head`), or null when that side
+ * is the version picked first.
+ */
+export function pickedCompare(picking: CompareEnd, to: CompareEnd, head: string | null): { from: CompareEnd, to: CompareEnd } | null {
+  const at = to.pin ?? head
+  if (at && at === picking.pin) return null
+  return { from: picking, to }
+}
+
 export function ProjectHistory({ api, project, t, initialBranch, initialCommit, tick = 0, onOpenFile, className }: ProjectHistoryProps): ReactNode {
   const key = `graph:${project}`
   const [view, setView] = useState<View>(() => {
@@ -395,14 +412,19 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   const loaded = sideBranches.reduce((sum, b) => sum + (pages[b.name]?.items.length ?? 0), 0)
   const total = countedTotal(sideBranches, counts)
 
+  /** Ends a "Compare with…" pick at `to`; false when `to` is the version picked first. */
+  function completePick(to: CompareEnd): boolean {
+    const ends = picking ? pickedCompare(picking, to, branches.find((b) => b.name === to.branch)?.head ?? null) : null
+    if (!ends) return false
+    setCompare(ends)
+    setPicking(null)
+    return true
+  }
   function select(id: string, branch: string) {
     writeView({ selected: id, branch })
     if (!picking) return
     const commit = layout.byId.get(id)?.commit
-    const to: CompareEnd = commit ? { branch: commit.branch, pin: commit.id } : { branch }
-    if (to.pin && to.pin === picking.pin) return
-    setCompare({ from: picking, to })
-    setPicking(null)
+    completePick(commit ? { branch: commit.branch, pin: commit.id } : { branch })
   }
   const compareEnds = branches.map((b) => ({ name: b.name, head: b.head ?? b.base }))
   const openCompare = () => {
@@ -416,6 +438,8 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
     writeView({ families, branch: '', selected: null })
   }
   const openBranch = (name: string) => {
+    // while picking, a Branch (its tag in the graph, or the finder) is the other side, at its head
+    if (picking) { setFinderOpen(false); if (completePick({ branch: name })) return }
     const b = branches.find((x) => x.name === name)
     // A Branch with nothing saved yet is shown through the point it forked from.
     writeView({ branch: name, selected: (b?.head && layout.byId.has(b.head) ? b.head : b?.forkedFrom) ?? null })
@@ -541,7 +565,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
             <span className={css.count} role={loadingAll === ALL ? 'status' : undefined}>
               {loadingAll === ALL ? (total != null ? t('files_loadingAllOf', { count: loaded.toLocaleString(), total: total.toLocaleString() }) : t('files_loadingAll', { count: loaded.toLocaleString() }))
                 : total != null && total > loaded ? t('files_checkpointsLoadedOf', { count: loaded.toLocaleString(), total: total.toLocaleString() })
-                : t('files_treeCounts', { branches: sideBranches.length.toLocaleString(), checkpoints: (view.families.size ? loaded : layout.rows.length - layout.layers.length).toLocaleString(), layers: layout.layers.length.toLocaleString() })}
+                : treeCounts(sideBranches.length, view.families.size ? loaded : layout.rows.length - layout.layers.length, layout.layers.length, t)}
             </span>
             <span><i className={css.legendTrunk} />{t('files_layerOnMain')}</span>
             <span><svg width="12" height="14" viewBox="-4 -11 12 14" aria-hidden="true"><path className={css.legendLeaf} d="M0 0q4.6 -0.6 5.7 -7q-4.8 1.5 -5.7 7z" /></svg>{t('files_checkpoint')}</span>

@@ -540,7 +540,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
                   onClick={() => { setPicked(s.name); setPgChoice(null); setSqliteMachine(null) }}>
                   <span className={css.storeName}>{s.name}</span>
                   <span className={css.storeNote}>
-                    {kind === 'sqlite' ? (s.machine ?? 'native') : s.postgresql?.target ?? ''}
+                    {kind === 'sqlite' ? placeName(s.machine ?? 'native', wordsOf(t)) : s.postgresql?.target ?? ''}
                     {' · '}{s.projects.length === 1 ? t('oneProject') : t('projects', { n: s.projects.length })}
                   </span>
                   {existing?.name === s.name ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}

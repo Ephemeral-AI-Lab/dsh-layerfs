@@ -20,12 +20,12 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { Card, LinkButton, Loading, Meter } from '../ui/index.tsx'
 import { cachedAnswer } from '../ui/use-query.ts'
 import { useMachinesContext } from './context.tsx'
-import { displayRef } from './images.ts'
+import { useImageName, useSandboxImages } from './ImageMenu.tsx'
 import { useMetrics } from './MachineStats.tsx'
 import { cpuShare } from './machine-tabs.ts'
 import { latest, machineCpu, processors, sandboxFigures, upTime, unitsOf } from './metrics.ts'
 import { useWords } from './MetricsViews.tsx'
-import { daemonLook, daemonSlots, gib, type SandboxImagesView, type SandboxInfo } from './model.ts'
+import { daemonLook, daemonSlots, gib, type MachineInfo, type SandboxImagesView, type SandboxInfo } from './model.ts'
 import { sandboxSpaceReason, spaceSize } from './space.ts'
 import { useMachineSpace } from './SpaceViews.tsx'
 import { shortDigest } from '../../shared/doctor.ts'
@@ -122,14 +122,30 @@ function DetailsCard({ name, machine, machineTitle, info, listed, onMachine, onW
   )
 }
 
-/** The Sandbox's image: its name when the machine's last images answer knows the id, else the id as LayerFS gives it. */
+/**
+ * The Sandbox's image in the words the machine's Sandbox card uses: its name
+ * among the machine's image copies ("LayerFS default" for the bundle's), read
+ * here when the machine runs images (Stage 1), else the short id LayerFS gives.
+ */
 function ImageName({ info, machine }: { info: SandboxInfo, machine: string }): ReactNode {
-  const { t } = useMachinesContext()
-  const known = info.image ? cachedAnswer<SandboxImagesView>(`machines:images:${info.machine ?? machine}`)?.ready.find((r) => r.id === info.image) : undefined
-  const name = known ? (known.source === 'bundle' ? t('imageLayerfsDefault') : known.name || displayRef(known.refs)) : null
-  if (name) return <span title={info.image ?? undefined}>{name}</span>
-  if (info.image) return <span className={css.mono} title={info.image}>{shortDigest(info.image)}</span>
-  return info.backend === 'native' ? <>{t('imageNone')}</> : null
+  const { t, useMachines } = useMachinesContext()
+  const name = info.machine ?? machine
+  const parent = useMachines((s) => (s.data?.available && s.data.features?.imageStage === 1 ? s.data.machines.find((m) => m.name === name) : undefined))
+  if (!info.image || info.image === 'local') return info.backend === 'native' ? <>{t('imageNone')}</> : null
+  if (parent && parent.backend !== 'native') return <ReadImageName image={info.image} machine={parent} />
+  return <ImageWords image={info.image} images={cachedAnswer<SandboxImagesView>(`machines:images:${name}`)} />
+}
+
+function ReadImageName({ image, machine }: { image: string, machine: MachineInfo }): ReactNode {
+  const images = useSandboxImages(machine)
+  return <ImageWords image={image} images={images.data} />
+}
+
+function ImageWords({ image, images }: { image: string, images: SandboxImagesView | null | undefined }): ReactNode {
+  const nameOf = useImageName()
+  const known = images?.ready.find((r) => r.id === image)
+  if (known) return <span title={image}>{nameOf(known)}</span>
+  return <span className={css.mono} title={image}>{shortDigest(image)}</span>
 }
 
 // ---------------------------------------------------------------- usage

@@ -77,7 +77,7 @@ the folder becomes scratch.
 |---|---|---|---|---|
 | Chip | **No project** or the project; aria **LayerFS project: {project}** | Press → the menu | `session.place` (host state, no call) | — |
 | **No project** | Checked when the session has none | Choose → a plain DSH session | — | — |
-| Project rows | **bookshelf** `docker`, **handbook** `native`: the name and where it runs; a ⚙ **Set up {project}** on hover | Choose → the session joins the project (the agent preset becomes **LayerFS**) · ⚙ → the [project dialog](#project-dialog) | `sessions.choose`: `project get`, and on the first claim `branch list`, `branch fork`; then a background Store sync | **Could not open the project: {message}** |
+| Project rows | **bookshelf** `docker`, **handbook** **LayerFS Home**: the name and where it runs; a ⚙ **Set up {project}** on hover | Choose → the session joins the project (the agent preset becomes **LayerFS**) · ⚙ → the [project dialog](#project-dialog) | `sessions.choose`: `project get`, and on the first claim `branch list`, `branch fork`; then a background Store sync | **Could not open the project: {message}** |
 | **New project…** · **Import a folder…** | — | → the [project dialog](#project-dialog) in that mode | see there | — |
 | Import progress | **Importing {name}…** · Counting files, Checking, Sending files, Writing layers, Recording the project, Opening | — | `project init` (polled job) | **Import failed** with **Dismiss** |
 

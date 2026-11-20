@@ -152,7 +152,7 @@ hold".
 | State | A chip: **Running**, **Stopped**, **Starting**, … | — | as above | **Blocked** rows say why, with a fix |
 | Memory · Disk | Bars | — | memory: `GET /api/metrics` (read, host memory); disk: `machine stats` (read) | `—` while stopped |
 | Holds | **1 Store**, **1 Sandbox** | — | as above | — |
-| 5 Power | **Stop** / **Start** (not on This Mac) | Press → the machine stops or starts; no confirm here | `machine stop` / `machine start` | disabled while it settles |
+| 5 Power | **Stop** / **Start** (not on This Mac) | **Start** → the machine starts. **Stop** asks a second press: the button becomes **Confirm: Stop** (**Confirm: Stop worker** for docker) for a few seconds, like the head card's Stop | `machine stop` / `machine start` | disabled while it settles |
 | 6 ⋯ | **More for {name}** | [Components › Machine menu](components.md#machine-menu) | see there | — |
 | 7 Add Store | **Add Store** | Press → a dialog to put a SQLite Store on this machine | `store move` (a job) | — |
 | 8 New Sandbox | **New Sandbox** | Press → the New Sandbox dialog ([Sandbox](sandbox.md)) | `sandbox create` | — |

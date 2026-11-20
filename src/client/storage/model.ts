@@ -284,7 +284,7 @@ export function coverageOf(view: StorageView) {
 }
 
 /** Where a Store is, in words: the home, a machine, or PostgreSQL. */
-export const placeWords = (machine: string | null | undefined, t: StorageT): string => (machine === 'native' ? t('home') : (machine ?? '?'))
+export const placeWords = (machine: string | null | undefined, t: StorageT): string => (machine === 'native' ? t('layerfsHome') : (machine ?? '?'))
 
 /** One file a bucket holds: the file, the Store it belongs to, its last listed state. */
 export interface BucketFileRow {

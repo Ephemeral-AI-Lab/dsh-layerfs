@@ -211,7 +211,8 @@ export function HeroProject({ sessionId, api, t, imports }: HeroProjectProps): R
       const store = p.key.split('/')[0] ?? ''
       const name = p.name ?? nameOf(p.key)
       // The note says where it runs (docs/specs/layerfs-workspaces.md §5); the Store is in the tooltip.
-      const note = runsOn(storage?.stores.find((s) => s.name === store)).join(', ') || (p.machine ?? '')
+      const where = runsOn(storage?.stores.find((s) => s.name === store))
+      const note = (where.length ? where : [p.machine ?? '']).filter(Boolean).map((m) => (m === 'native' ? t('home') : m)).join(', ')
       const configure = t('configure', { project: name })
       return {
         id: p.projectId ?? p.key,

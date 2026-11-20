@@ -11,7 +11,7 @@ import type { PresetExecutionMode, PresetScript, PresetScriptCommand } from '../
 import { Loading, Refusal } from '../ui/index.tsx'
 import type { PresetsT } from './locale.ts'
 import type { PresetResource } from './Topology.tsx'
-import { refusalLabels } from './labels.ts'
+import { presetIdName, refusalLabels } from './labels.ts'
 import css from './presets.module.css'
 
 const PAGE = 100
@@ -107,7 +107,7 @@ export function ScriptDrawer({ api, t, preset, sandboxes, executionMode, open, o
     } catch (e) { setError(e) } finally { setDownloading(false) }
   }
   const phaseLabel = { reset: t('phaseReset'), build: t('phaseBuild'), verify: t('phaseVerify') }
-  const title = scoped && projectName ? t('scriptTitleProject', { name: projectName }) : t('scriptTitleAll', { name: preset.charAt(0).toUpperCase() + preset.slice(1) })
+  const title = scoped && projectName ? t('scriptTitleProject', { name: projectName }) : t('scriptTitleAll', { name: presetIdName(t, preset) })
   const limits = script?.configuration.historyLimits
 
   return (

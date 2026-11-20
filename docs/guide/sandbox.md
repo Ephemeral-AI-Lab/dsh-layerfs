@@ -35,7 +35,7 @@ The page remembers the tab per Sandbox.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Details card | **Project** (`demo-starter/bookshelf`), **Machine** (**docker (Docker)**), **Image** (its name, or a short id), **Workspaces** (**1 of 16 mounted**), **Runtime**, **Filesystem route**, **Created**, **Up time**, **Id** | **Machine** → the machine page; **Workspaces** → the Workspaces tab | `sandbox list` (read, from the machines view), then `sandbox get` (read: every 15 s while it runs, every 5 s while a command runs, and after each command) | State chip: **Running**, **Stopped**, **Daemon not running**, **Needs repair**, … |
+| Details card | **Project** (`demo-starter/bookshelf`), **Machine** (**docker (Docker)**), **Image** (its name as the machine's Sandbox card says it, **LayerFS default** for the bundle's image, else a short id), **Workspaces** (**1 of 16 mounted**), **Runtime**, **Filesystem route**, **Created**, **Up time**, **Id** | **Machine** → the machine page; **Workspaces** → the Workspaces tab | `sandbox list` (read, from the machines view), then `sandbox get` (read: every 15 s while it runs, every 5 s while a command runs, and after each command); the image's name from `machine images` (read) | State chip: **Running**, **Stopped**, **Daemon not running**, **Needs repair**, … |
 | **Diagnose** | | Press → the Doctor page runs this Sandbox's checks | `sandbox doctor` (on the Doctor page) | |
 | **Refresh** | | Reads the Sandbox now | `sandbox get` (read) | |
 | ⋯ | **Delete Sandbox…** (**Read Sandbox** after an uncertain delete), **Force delete Sandbox…** | See [Modals](#modals-opened-here) | `sandbox remove` / `sandbox remove --force` | **Delete** off while an operation runs |
@@ -96,7 +96,7 @@ side Branches).
 | **Branch** | Pick one of the project's Branches, or **New branch from main…** | `branch list`, `branch get` (read) | **Branches could not be read.** |
 | **New branch name** | Shows for a new Branch | — | **Use lowercase letters, digits, dots, underscores or hyphens, starting with a letter or digit.** |
 | **Workspace name (optional)** | A name for the Workspace | — | A taken name is marked |
-| **Mount** | Mounts it, then shows its terminal | `workspace mount <sandbox> <branch> [--name]` (a new Branch: `sandbox get`, then `branch fork <project> <branch> main` first) | **Mounting…**; a refusal stays in the form |
+| **Mount** | Mounts it, then shows and focuses its terminal (named or not) | `workspace mount <sandbox> <branch> [--name]` (a new Branch: `sandbox get`, then `branch fork <project> <branch> main` first) | **Mounting…**; a refusal stays in the form |
 | **Cancel** / Escape | Closes the form | — | |
 
 ### Commit dialog

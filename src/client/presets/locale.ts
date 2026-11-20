@@ -129,7 +129,7 @@ const en = {
   // script
   scriptTitleAll: 'CLI commands · {name}',
   scriptTitleProject: '{name} · CLI script',
-  scriptBodyAll: 'After preparation and placement, eight projects share the CLI pool across four machines. Independent branches can run together.',
+  scriptBodyAll: 'Every command the build runs, in order: preparation and placement, then each project’s history. Independent branches can run together.',
   scriptBodyProject: 'Project commands in dependency order. Independent branches can run together. Shared setup and reset are in the full plan.',
   loadingCommands: 'Loading commands…',
   commandRange: '{from}–{to} of {total} commands',
@@ -329,7 +329,7 @@ const zh: typeof en = {
   starting: '正在开始…',
   scriptTitleAll: 'CLI 命令 · {name}',
   scriptTitleProject: '{name} · CLI 脚本',
-  scriptBodyAll: '完成准备和放置后，八个项目在四台机器间共享 CLI 池。独立分支可以同时运行。',
+  scriptBodyAll: '构建运行的全部命令，按顺序：先准备和放置，再写入每个项目的历史。独立分支可以同时运行。',
   scriptBodyProject: '按依赖顺序列出的项目命令。独立分支可以同时运行。共享的准备与重置命令在完整计划中。',
   loadingCommands: '正在读取命令…',
   commandRange: '第 {from}–{to} 条，共 {total} 条命令',

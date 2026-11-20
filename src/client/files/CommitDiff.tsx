@@ -153,7 +153,8 @@ export function PathDiff({ api, project, branch, path, left, right, leftBranch, 
   if (!rows.some((row) => row.op !== ' ')) {
     return <>{head}{owners}{owners ? null : <EmptyState title={r.changes?.metadata && !r.changes.content ? t('files_metadataOnly') : t('files_diffNoContent')}>{t('files_diffNoContentBody')}</EmptyState>}</>
   }
-  const added = !r.before || /add|creat|new/i.test(kind)
+  // the host says which side is missing (`before: null` for an added path); the caller's kind only when it does not
+  const added = r.before === null || (r.before === undefined && /add|creat|new/i.test(kind))
   const hunks = hunksOf(path, rows, added)
   return (
     <>

@@ -81,9 +81,19 @@ export function PowerButton({ m, pending, run, size = 'sm', compact, engine = fa
   const fix = engine ? null : fixAction(m)
   const power = engine || fix?.kind === 'engine' ? 'start' : powerOf(m)
   const elapsed = useElapsed(pending === 'stop')
+  // the board's icon Stop asks a second press that names what it stops, like Home's head card (a stray click never stops a machine);
+  // armed for this machine's state only, and for a few seconds (not ended on blur: the settle after arming disables, so blurs, the button)
+  const armKey = `${m.name}:${m.state}:${power ?? ''}:${pending ?? ''}`
+  const [armedFor, setArmedFor] = useState<string | null>(null)
+  const armed = armedFor === armKey
+  useEffect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => setArmedFor(null), STOP_ARMED_MS)
+    return () => clearTimeout(timer)
+  }, [armed])
   // click safety (UI pass 3 F6): a press is keyed to this machine and what the button does now; one that lands
-  // while the button has just appeared or changed (a re-render moved it under the pointer) does nothing
-  const guard = usePressGuard(`${m.name}:${m.state}:${m.reason ?? ''}:${fix?.kind ?? power ?? ''}:${pending ?? ''}`)
+  // while the button has just appeared or changed (a re-render moved it under the pointer, or arming) does nothing
+  const guard = usePressGuard(`${m.name}:${m.state}:${m.reason ?? ''}:${fix?.kind ?? power ?? ''}:${pending ?? ''}:${armed ? 'armed' : ''}`)
   const named = (action: string) => t('powerFor', { action, name: m.name })
   // a record with no vm_name: Remove its record (a confirm press), or LayerFS's chain (its Stores, then the record) step by step,
   // where Center runs fixes; else the line stays the tip to copy
@@ -113,10 +123,19 @@ export function PowerButton({ m, pending, run, size = 'sm', compact, engine = fa
   if (fix?.kind === 'engine') engine = true
   if (compact && pending === null) {
     const words = t(powerKey(m, power, engine))
+    if (power === 'stop' && armed) {
+      const confirm = t('powerConfirm', { action: words })
+      return (
+        <Button size={size} variant="primary" icon={<PowerGlyph size={14} />} aria-label={named(confirm)} data-machine={m.name} data-armed="" disabled={guard.settling} aria-disabled={guard.settling || undefined}
+          onClick={guard((e) => { e.stopPropagation(); setArmedFor(null); void run('stop', { kind: 'stop', name: m.name }) })}>
+          {confirm}
+        </Button>
+      )
+    }
     return (
       <Button size={size} variant="ghost" icon={<PowerGlyph size={14} />} aria-label={named(words)} data-machine={m.name} disabled={guard.settling} aria-disabled={guard.settling || undefined}
         title={`${words} · ${t(engine ? 'engineStartTitle' : power === 'stop' ? 'powerRunningTitle' : 'powerStoppedTitle', { name: m.name })}`}
-        onClick={guard((e) => { e.stopPropagation(); void run(power, power === 'start' ? { kind: 'start', name: m.name, platform: m.platform } : { kind: 'stop', name: m.name }) })} />
+        onClick={guard((e) => { e.stopPropagation(); if (power === 'stop') setArmedFor(armKey); else void run(power, { kind: 'start', name: m.name, platform: m.platform }) })} />
     )
   }
   const label = pending === 'start' ? t('starting') : pending === 'stop' ? t('stoppingFor', { s: String(elapsed) }) : t(powerKey(m, power, engine))
@@ -129,6 +148,9 @@ export function PowerButton({ m, pending, run, size = 'sm', compact, engine = fa
     </Button>
   )
 }
+
+/** How long the board's icon Stop waits for its second press. */
+export const STOP_ARMED_MS = 4000
 
 /** Seconds since `on` became true. */
 function useElapsed(on: boolean): number {

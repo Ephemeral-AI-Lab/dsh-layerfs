@@ -12,7 +12,8 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { Card } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, brokenWords, storeStateWords, storeTip, type BackupState } from './model.ts'
+import { backupChip, backupStateOf, brokenWords, storeStateWords, storeTip, type BackupState } from './model.ts'
+import { providerWords } from './BucketPage.tsx'
 import { StoreAction, type StoreActions } from './StoreCard.tsx'
 import type { StorageView, StoreRow } from './types.ts'
 import clsx from 'clsx'
@@ -45,12 +46,12 @@ export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, 
               <span className={css.linkName}>{link.bucket}</span>
               <span className={css.mono}>{link.file}</span>
               <span className={css.spacer} />
-              {state ? <span className={css.statePill} data-tone={tone} title={file?.message ?? undefined}>{t(`spBackupState_${state}` as Parameters<StorageT>[0])}</span> : null}
+              {state ? <span className={css.statePill} data-tone={tone} title={file?.message ?? undefined}>{backupChip(state, t).label}</span> : null}
             </div>
             <dl className={css.linkFacts}>
               <div><dt>{t('spLastSaved')}</dt><dd title={when(at)}>{at ? ago(at, now, tt) : t('noBackupTime')}</dd></div>
               <div><dt>{t('factSize')}</dt><dd>{size != null ? bytes(size) : '—'}</dd></div>
-              {bucket?.provider ? <div><dt>{t('spProvider')}</dt><dd>{bucket.provider}</dd></div> : null}
+              {bucket?.provider ? <div><dt>{t('spProvider')}</dt><dd>{providerWords(bucket.provider, t)}</dd></div> : null}
             </dl>
             <div className={css.linkActions}>
               <Button variant="outline" size="sm" disabled={blocked} onClick={() => on.backupTo(link)}>{t('backupNow')}</Button>

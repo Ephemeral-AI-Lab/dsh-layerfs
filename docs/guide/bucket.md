@@ -42,7 +42,7 @@ Which Stores are backed up here, and is each copy current.
 | Status line | **Not listed · key refused**, **· no answer in time**, **· busy**, **· answer lost**, or **Broken**; LayerFS's sentence on hover | **Connect again…** (when the key was refused or the record has none) → [Connect *bucket* again](#modals-opened-here) | `backup connect`, then `backup list` | hidden while the bucket lists |
 | Group rows | **Bound to a Store in this home** first, then **Not in this home** | — | — | a group shows only when it has rows |
 | File | `<file>/store.sqlite` | The file name → its [Backup file page](#backup-file) | — | |
-| Linked Store | The Store and where it is (**Home**, a machine, **PostgreSQL**) | The Store name → its Store page | — | **Not linked**; `—` for files not in this home |
+| Linked Store | The Store and where it is (**LayerFS Home**, a machine, **PostgreSQL**) | The Store name → its Store page | — | **Not linked**; `—` for files not in this home |
 | State | **Backed up**, **Store changed**, **Bucket changed**, **Both changed**, **Missing**, **Not checked**, **Not listed**; LayerFS's reason on hover | — | `backup list` (read: `behind`, `changed`, `missing`) | dashed chip until listed |
 | Size, Written | Bytes, and when the object was written | Hover → the exact time | `backup list` (read) | |
 | **Back up now** | | Press → a backup job over that file starts at once; its card shows on the Store | `backup create <store> <bucket> --file`, then `backup list` | only for **Store changed**, **Missing**, or a link not listed yet, on a SQLite Store that is not busy |
@@ -111,8 +111,7 @@ bucket. Home's page is described in [home.md](home.md); the cards are described 
 - **Missing** (red): the object is gone; back up again under a new file name (LayerFS will
   not reuse the name).
 - **Not listed · key refused**: the saved key no longer works; **Connect again…**.
-- Note: the Store page's Backups tab words the same states differently (**Up to date**,
-  **Behind**, **Changed in bucket**).
+- The Store page's Backups tab uses the same words for the same states.
 
 ## Where next
 
