@@ -6,7 +6,7 @@
 //   node --test test/machine-stores.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
@@ -123,20 +123,24 @@ test('connection URLs: parsed from a URL or a bare target, built back without a 
   assert.equal(M.routedServer('localhost:5432', null), 'localhost:5432', 'native dials the host itself')
 })
 
-test('the step and failure kind a failed check stopped at: server unreachable, wrong login (incl. Rejected), missing privilege, outdated record; unknown refusals never guess', () => {
-  // 1. Server unreachable -> server
+test('the step and failure kind a failed check stopped at: server unreachable, wrong login (incl. Rejected), missing privilege, outdated record; ambiguous and unknown refusals never guess', () => {
+  // 1. Server unreachable -> server (incl. transport evidence even when code is not Unavailable)
   assert.equal(M.failedStep('Unavailable', 'machine docker cannot reach PostgreSQL Store x\'s server at db:5432: connection refused'), 'server')
-  assert.equal(M.failedStep('Unavailable', 'PostgreSQL server unreachable: error connecting to server', 'transport'), 'server')
-  assert.equal(M.checkFailureKind('Unavailable', 'PostgreSQL server unreachable: error connecting to server', 'transport'), 'server')
+  assert.equal(M.failedStep('Failed', 'network closed before server banner', 'transport'), 'server', 'transport evidence classifies server even without Unavailable')
+  assert.equal(M.checkFailureKind('Failed', 'network closed before server banner', 'transport'), 'server')
 
-  // 2. Wrong login -> login (never server! Rejected, Denied without lacks, authentication step)
-  assert.equal(M.failedStep('Denied', 'password authentication failed for user "app"'), 'login', 'Denied without lacks is a login refusal, never server')
-  assert.equal(M.failedStep('Denied', 'machine docker, PostgreSQL Store x at 172.17.0.2: PostgreSQL server refused the connection: db error'), 'login')
+  // 2. Wrong login -> login (only with authentication evidence, Rejected, or explicit auth wording)
+  assert.equal(M.failedStep('Denied', 'password authentication failed for user "app"'), 'login', 'explicit auth wording is a login refusal, never server')
   assert.equal(M.failedStep('Denied', 'PostgreSQL server refused the connection: db error', 'authentication'), 'login')
   assert.equal(M.failedStep('Rejected', 'Rejected'), 'login', 'Rejected from LayerFS is a login refusal')
-  assert.equal(M.failedStep('Unavailable', 'the server refused the session: the database does not exist, or the user or password is wrong'), 'login')
   assert.equal(M.checkFailureKind('Rejected', 'Rejected'), 'login')
   assert.equal(M.checkFailureKind('Denied', 'password authentication failed for user "app"'), 'login')
+
+  // 2b. Ambiguous refusals (28* and 3D000 collapsed by LayerFS without evidence.step) -> undetermined (never login, never server)
+  assert.equal(M.failedStep('Denied', 'machine docker, PostgreSQL Store x at 172.17.0.2: PostgreSQL server refused the connection: db error'), null)
+  assert.equal(M.checkFailureKind('Denied', 'machine docker, PostgreSQL Store x at 172.17.0.2: PostgreSQL server refused the connection: db error'), null)
+  assert.equal(M.failedStep('Unavailable', 'the server refused the session: the database does not exist, or the user or password is wrong'), null)
+  assert.equal(M.checkFailureKind('Failed', 'the server refused the session: the database does not exist, or the user or password is wrong'), null)
 
   // 3. Missing privilege -> store (USAGE on schema) or write (CREATE on schema / table / database privileges), both kind 'privilege'
   assert.equal(M.failedStep('Denied', 'role app lacks USAGE on schema layerfs (3 privilege(s) missing in all)'), 'store')
@@ -145,6 +149,15 @@ test('the step and failure kind a failed check stopped at: server unreachable, w
   assert.equal(M.checkFailureKind('Denied', 'role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)'), 'privilege')
   assert.equal(M.checkFailureKind('Denied', 'role app lacks USAGE on schema layerfs (3 privilege(s) missing in all)'), 'privilege')
   assert.deepEqual(M.missingPrivilege('role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)'), { role: 'lowwrite', privilege: 'CREATE on schema layerfs', count: 94 })
+  assert.deepEqual(
+    M.missingPrivilege('role analytics read lacks CREATE on schema layerfs (94 privilege(s) missing in all)'),
+    { role: 'analytics read', privilege: 'CREATE on schema layerfs', count: 94 },
+    'PG current_user::text role names may contain spaces',
+  )
+  assert.deepEqual(
+    M.missingPrivilege('machine docker, PostgreSQL Store pg at 172.17.0.2: role analytics read lacks CREATE on schema layerfs (94 privilege(s) missing in all)'),
+    { role: 'analytics read', privilege: 'CREATE on schema layerfs', count: 94 },
+  )
 
   // 4. Outdated record -> record
   assert.equal(M.failedStep('Outdated', 'its record is outdated: it holds what 2.0 no longer writes (a password, a login in a URL or an old machine entry)', 'record'), 'record')
@@ -158,9 +171,23 @@ test('the step and failure kind a failed check stopped at: server unreachable, w
 
   // 6. Unrecognized failures never guess a step
   assert.equal(M.failedStep('Conflict', 'Store x changed while machine docker was checked'), null)
-  assert.equal(M.failedStep('Failed', 'something unexpected happened'), null)
   assert.equal(M.checkFailureKind('Failed', 'something unexpected happened'), null)
   assert.equal(M.failedStep(undefined, undefined), null)
+})
+
+test('check path wires: unknown failures keep both wires neutral (unknown), never pointing red at either hop', () => {
+  assert.deepEqual(M.checkWires('ready', null), ['pending', 'pending'])
+  assert.deepEqual(M.checkWires('running', null), ['running', 'running'])
+  assert.deepEqual(M.checkWires('ok', null), ['ok', 'ok'])
+  assert.deepEqual(M.checkWires('failed', null), ['unknown', 'unknown'], 'unknown failure never marks either wire failed')
+  assert.deepEqual(M.checkWires('failed', 'record'), ['pending', 'pending'])
+  assert.deepEqual(M.checkWires('failed', 'server'), ['failed', 'pending'])
+  assert.deepEqual(M.checkWires('failed', 'login'), ['ok', 'failed'])
+  assert.deepEqual(M.checkWires('failed', 'store'), ['ok', 'failed'])
+  assert.deepEqual(M.checkWires('failed', 'write'), ['ok', 'failed'])
+  const cd = readFileSync(join(root, 'src/client/storage/ConnectDatabase.tsx'), 'utf8')
+  assert.match(cd, /const \[serverWire, storeWire\] = checkWires\(check\.state, at\)/)
+  assert.doesNotMatch(cd, /state === 'unknown' \? 'failed'/)
 })
 
 const proj = (name, stored, time, more = {}) => ({ name, created: 1, totals: stored == null ? null : { saves: 1, merges: 0, branches: 1, stored, metadata: 0, commitLogical: 0, canonical: 0 }, last: time == null ? null : { id: 'c', time, branch: 'main', message: '' }, files: null, partial: false, building: null, error: null, ...more })

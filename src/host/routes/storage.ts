@@ -268,7 +268,6 @@ export function pgCheckError(
   if (/\black(s)?\b/i.test(message)) return withFix('Denied', /\bUSAGE\s+on\s+schema\b/i.test(message) ? 'store' : 'write')
   if (message.includes('holds another Store than')) return withFix('Unavailable', 'store')
   if (/\bRejected\b/i.test(message)) return withFix('Rejected', 'authentication')
-  if (/the server refused the session/i.test(message)) return withFix('Rejected', 'authentication')
   if (/password authentication failed|authentication failed|SQLSTATE 28/i.test(message)) return withFix('Denied', 'authentication')
   if (/PostgreSQL server refused the connection/i.test(message)) return withFix('Denied')
   if (/cannot reach PostgreSQL Store|PostgreSQL server unreachable|did not answer|timed out|connection refused|no connection to the server|resolves host\.docker\.internal to no IPv4|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH/i.test(message)) {

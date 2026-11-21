@@ -30,7 +30,7 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { machinesFor } from '../projects/setup/model.ts'
 import { Field, MenuSelect, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { CHECK_STEPS, checkFailureKind, failedStep, missingPrivilege, parsePgUrl, pgUrl, routedServer, serverGroups, serverKey, type CheckStep, type PgServerGroup } from './machine-stores.ts'
+import { CHECK_STEPS, checkFailureKind, checkWires, failedStep, missingPrivilege, parsePgUrl, pgUrl, routedServer, serverGroups, serverKey, type CheckStep, type PgServerGroup } from './machine-stores.ts'
 import { connectedMachines, loopbackAlias } from './model.ts'
 import { refusalLabels, StoreGlyph, TextField } from './parts.tsx'
 import { loginInUrlFix, PG_URL_LOGIN, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
@@ -333,18 +333,7 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
     const i = CHECK_STEPS.indexOf(step), f = CHECK_STEPS.indexOf(at)
     return i < f ? 'ok' : i === f ? 'failed' : 'pending'
   }
-  const serverWire = (): string => {
-    const state = stepState('server')
-    return state === 'unknown' ? 'failed' : state
-  }
-  const storeWire = (): string => {
-    if (check.state === 'ready') return 'pending'
-    if (check.state === 'running') return 'running'
-    if (check.state === 'ok') return 'ok'
-    if (!at) return 'failed'
-    if (at === 'record' || at === 'server') return 'pending'
-    return 'failed'
-  }
+  const [serverWire, storeWire] = checkWires(check.state, at)
   const words: Record<CheckStep, string> = {
     record: t('cdStepRecord'),
     server: t('cdStepServer'),
@@ -383,9 +372,9 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
       </Field>
       <div className={css.path} aria-hidden="true">
         <span className={css.hop}><span className={css.node}><MachineGlyph platform={platform ?? 'native'} size={18} /></span><span className={css.hopLabel}>{place(machine)}</span></span>
-        <span className={css.wire} data-state={serverWire()} />
+        <span className={css.wire} data-state={serverWire} />
         <span className={css.hop}><span className={css.node}><StoreGlyph kind="postgresql" size={18} /></span><span className={`${css.hopLabel} ${css.mono}`}>{server}</span></span>
-        <span className={css.wire} data-state={storeWire()} />
+        <span className={css.wire} data-state={storeWire} />
         <span className={css.hop}><span className={css.node}><StoreGlyph kind="postgresql" size={18} mono /></span><span className={css.hopLabel}>{check.store}</span></span>
       </div>
       <ul className={css.steps} aria-label={t('cdCheckFrom', { machine: place(machine) })}>

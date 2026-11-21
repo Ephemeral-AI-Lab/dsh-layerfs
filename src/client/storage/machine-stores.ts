@@ -206,27 +206,27 @@ export type CheckFailureKind = 'record' | 'server' | 'login' | 'privilege' | 'st
 export interface MissingPrivilege { role: string, privilege: string, count: number | null }
 
 export function missingPrivilege(message: string | undefined): MissingPrivilege | null {
-  const m = /\brole\s+(\S+)\s+lacks\s+(.+?)(?:\s+\((\d+)\s+privilege\(s\)\s+missing(?:\s+in\s+all)?\))?$/i.exec((message ?? '').trim())
+  const m = /\brole\s+(.+?)\s+lacks\s+(.+?)(?:\s+\((\d+)\s+privilege\(s\)\s+missing(?:\s+in\s+all)?\))?$/i.exec((message ?? '').trim())
   if (!m) return null
-  return { role: m[1]!, privilege: m[2]!.trim(), count: m[3] ? Number(m[3]) : null }
+  return { role: m[1]!.trim(), privilege: m[2]!.trim(), count: m[3] ? Number(m[3]) : null }
 }
 
 const isLoginRejection = (code: string | undefined, text: string): boolean =>
   code === 'Rejected'
   || /\bRejected\b/i.test(text)
-  || /the server refused the session/i.test(text)
   || /password authentication failed|authentication failed|SQLSTATE 28/i.test(text)
-  || /PostgreSQL server refused the connection/i.test(text)
 
 /**
  * Which failure class a failed check belongs to, strictly from LayerFS's own
  * codes, doctor evidence (`step`), and documented refusal messages:
  * - `record`: outdated or missing-login Store record (`Outdated`, `step: 'record'`);
- * - `server`: server unreachable or handshake timed out (`Unavailable` / timeout);
- * - `login`: wrong user/password (`Denied` without `lacks`, `Rejected`, `step: 'authentication'`);
+ * - `server`: server unreachable or handshake timed out (`Unavailable` / timeout / `step: 'transport'`);
+ * - `login`: wrong user/password (`Rejected`, `step: 'authentication'`, or explicit authentication wording);
  * - `privilege`: missing database/schema/table privilege (`Denied` with `lacks`);
  * - `store`: another Store in that schema, or database does not exist (`step: 'database'` / `holds another Store than`).
- * Anything else returns null so the UI never guesses a fix.
+ * Ambiguous refusals (such as `PostgreSQL server refused the connection: db error`
+ * without `authentication`/`database` evidence, or `the server refused the session`)
+ * and anything else return null so the UI never guesses a fix.
  */
 export function checkFailureKind(code: string | undefined, message: string | undefined, step?: string | undefined): CheckFailureKind | null {
   const text = message ?? ''
@@ -236,7 +236,7 @@ export function checkFailureKind(code: string | undefined, message: string | und
   if (step === 'transport' || step === 'handshake') return 'server'
   if (/\black(s)?\b/i.test(text) && (code === 'Denied' || step === 'write' || step === 'store')) return 'privilege'
   if (isLoginRejection(code, text)) return 'login'
-  if (code === 'Denied') return 'login'
+  if (/the server refused the session|PostgreSQL server refused the connection/i.test(text)) return null
   if (code === 'Unavailable') return 'server'
   // a check the host stopped because LayerFS did not answer in time: the server did not answer (M FAIL 4), so its own address is offered
   if (code === 'Unknown' && /did not answer in time|timed out/i.test(text)) return 'server'
@@ -254,6 +254,23 @@ export function failedStep(code: string | undefined, message: string | undefined
   if (!kind) return null
   if (kind === 'privilege') return /\bUSAGE\s+on\s+schema\b/i.test(text) ? 'store' : 'write'
   return kind
+}
+
+export type CheckWireState = 'pending' | 'running' | 'ok' | 'failed' | 'unknown'
+
+/**
+ * States of the two path wires (machine -> server, server -> Store) for a check run.
+ * When a check failed without a known step (`at === null`), both wires stay `unknown`
+ * rather than pointing red at either hop.
+ */
+export function checkWires(state: 'ready' | 'running' | 'ok' | 'failed', at: CheckStep | null): [CheckWireState, CheckWireState] {
+  if (state === 'ready') return ['pending', 'pending']
+  if (state === 'running') return ['running', 'running']
+  if (state === 'ok') return ['ok', 'ok']
+  if (!at) return ['unknown', 'unknown']
+  if (at === 'record') return ['pending', 'pending']
+  if (at === 'server') return ['failed', 'pending']
+  return ['ok', 'failed']
 }
 
 /**
