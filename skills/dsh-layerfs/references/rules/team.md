@@ -8,9 +8,9 @@ line; SDK examples run in a script that imported `layerfs` from `$DSH_LAYERFS_SD
 
 Every Sandbox holds 16 Workspaces. The session Sandbox `$SB` is laid out like this;
 for more workers at once, create one Sandbox per lane ([sandbox create](../methods/sandbox.md#sandbox-create)),
-where every slot is for that lane's workers, and close those Sandboxes when the run
-ends. If `sandbox create` is refused `PermissionDenied`, this host doesn't allow it:
-use `$SB` for every lane. `$SB`'s slots:
+where every slot is for that lane's workers, and remove those Sandboxes when the run
+ends. If `sandbox create` is refused `Failed` or `Unavailable` (host policy), this
+host doesn't allow it: use `$SB` for every lane. `$SB`'s slots:
 
 | Slots | Holder | Workspace name |
 | --- | --- | --- |
@@ -30,8 +30,8 @@ use `$SB` for every lane. `$SB`'s slots:
   when it reports. The main agent unmounts one only for a worker that has finished, and only
   when [cleaning up](parallel.md#cleaning-up) allows it.
 - On `Capacity`, don't mount again. The worker reports it and waits. The main agent
-  runs **one** `layerfs sandbox get "$SB" --page-size 16`, compares it with its
-  ledger, and clears what is left over.
+  runs **one** `layerfs sandbox get "$SB"`, compares it with its ledger, and clears
+  what is left over.
 
 ## The main agent's ledger
 
@@ -49,8 +49,9 @@ Keep it in the local working directory (`./team.md`) and update it on every repo
 ## The worker's line
 
 A worker never touches dsh's Workspace and never writes `$B`: those belong to the
-session. It starts every bash call with this line in place of the skill's, using the
-names from its brief:
+session. Keep `$B` quiet during the team run so dsh's checkpoints never conflict with
+other `$B` writes. A worker starts every bash call with this line in place of the
+skill's, using the names from its brief:
 
 ```bash
 layerfs() { "$DSH_LAYERFS_CLI" "$@"; }; P=$DSH_LAYERFS_PROJECT SB=${DSH_LAYERFS_WS%%:*} ME=w-p1 BR=w-p1-r2; ws=$SB:$ME
@@ -60,7 +61,10 @@ trap 'layerfs workspace unmount "$ws" >/dev/null' EXIT          # commit before 
 
 ```js
 const ME = "w-p1", BR = "w-p1-r2", ws = `${SB}:${ME}`;
-const st = await layerfs.workspace.status(ws).catch((e) => { if (e.code === "NotMounted") return null; throw e; });
+const st = await layerfs.workspace.status(ws, { detail: true }).catch((e) => {
+  if (e.error === "NotFound") return null;
+  throw e;
+});
 if (!st) await layerfs.workspace.mount(SB, BR, { name: ME });
 else if (st.branch !== BR) throw new Error(`${ws} is on ${st.branch}, not ${BR}: report it`);
 ```
@@ -71,8 +75,8 @@ reports the brief as wrong; it never forks a Branch of its own.
 ## Choosing where workers commit
 
 Work combines in place on a Branch in one way only: a `workspace commit` merges what
-moved on that Branch. `branch merge` always makes a **new** Branch. So choose who
-shares a Branch:
+moved on that Branch. `branch merge` moves `branch` unless `--into` creates a new
+Branch. So choose who shares a Branch:
 
 | Model | Conflicts show up | Isolation | Use for |
 | --- | --- | --- | --- |
@@ -84,9 +88,8 @@ shares a Branch:
   Commits cost little and nobody sees them until the main agent merges them.
 - On a shared Branch, commit only states that build (`cargo check -p <yours>` exit 0):
   the others take in every Commit you make at their next Commit.
-- A Workspace's view moves at a Commit: a Commit that answers `Committed` (with
-  `merged`) or `UpToDate` leaves it showing the Branch's new head, others' Commits
-  included.
+- A Workspace's view moves at a Commit: a Commit that answers `merged: true` or
+  `unchanged: true` leaves it showing the Branch's new head, others' Commits included.
 - Take in other workers' work by forking again, not by merging into your Branch:
   report your head, get the new base from the main agent, commit, unmount, fork
   `w-<id>-r<N>.<k>` from the base, and mount it under the same name.
@@ -104,23 +107,24 @@ shares a Branch:
 - **For a long command:** one bash call may run up to 600 s (the call's `timeout`, in
   ms). Set the inner `timeout` 30 s below it, so the command ends, its output comes
   back and the Commit runs within the same call: `timeout 570 cargo test …` in a
-  600 s call. Anything longer goes in a `run_in_background` bash call, with an
-  `--exec-id` you choose:
+  600 s call. Anything longer goes in a `run_in_background` bash call:
 
   ```bash
-  layerfs workspace exec "$ws" "mkdir -p /tmp/$ME && timeout 1500 cargo build --workspace --locked --offline >/tmp/$ME/build.log 2>&1; echo \$? >/tmp/$ME/build.code" --exec-id "$ME-build"
+  layerfs workspace exec "$ws" "mkdir -p /tmp/$ME && timeout 1500 cargo build --workspace --locked --offline >/tmp/$ME/build.log 2>&1; echo \$? >/tmp/$ME/build.code" --progress
   layerfs workspace exec "$ws" "cat /tmp/$ME/build.code; tail -n 40 /tmp/$ME/build.log" --stream   # after the job notice
   ```
 
-  While that exec runs, make no other call on that Workspace except `status`.
+  LayerFS assigns each exec an `exec-…` id and emits `{ phase: "start", exec: "exec-…" }`
+  on `--progress` (`on_progress`) / `--detail`. While that exec runs, make no other
+  call on that Workspace except `status`.
 - **When a tool timeout kills the `layerfs` process**, the command can keep running in
   the Sandbox and the Workspace stays `Busy` (unmount is refused `Busy`). End it with
-  `workspace exec-cancel "$ws" <exec-id>`, which needs the exec-id you gave it: give
-  one to every exec that may run longer than a minute.
+  `workspace cancel "$ws"` (cancels every running command in `$ws`) or
+  `workspace cancel "$ws" --exec <exec-id>`.
 - **Loops that call LayerFS** sleep at least 5 s between rounds, stop after a fixed
-  number of tries, and stop at the first `NotMounted` or `NoSuchSandbox`. Never call a
-  Workspace after its unmount, and never probe guessed names: one `sandbox get` lists
-  every Workspace.
+  number of tries, and stop at the first `NotFound` (`NotMounted` / `NoSuchSandbox`).
+  Never call a Workspace after its unmount, and never probe guessed names: one
+  `sandbox get` lists every Workspace.
 - **`Busy`:** wait `sleep $((3 + RANDOM % 8))` and try again, at most 5 times, then
   report it. With 15 agents, waits without jitter collide again.
 
@@ -151,19 +155,23 @@ Every Workspace in `$SB` shares one machine: `/tmp`, `HOME`, CPU, RAM and disk.
 ## Integrating
 
 Merge one Branch at a time onto the growing result: a chain, not a tree. Each conflict
-then belongs to exactly one worker, and `a`'s `/.lww` (the result so far) applies.
+then belongs to exactly one worker, and `branch`'s `/.lww` (the result so far) applies.
 
 ```js
 const reported = ["w-p1-r2", "w-x1-r2", "w-s1-r2"];          // in report order, from the ledger
 let acc = "base-r2", n = 0;
 for (const w of reported) {
   try {
-    const m = await layerfs.branch.merge(P, `int-r2.${++n}`, acc, w, { message: `integrate ${w}` });
-    console.log(m.branch, m.fast_forward ? "ff" : "merged", "lww:", m.lww.length);
+    const m = await layerfs.branch.merge(P, acc, w, {
+      into: `int-r2.${++n}`,
+      detail: true,
+      message: `integrate ${w}`,
+    });
+    console.log(m.branch, m.fast_forward ? "ff" : "merged", "overwritten:", (m.overwritten ?? []).length);
     acc = m.branch;
   } catch (e) {
-    if (e.code !== "Conflict") throw e;                       // anything else: stop and look
-    console.log("CONFLICT", w, JSON.stringify(e.detail.conflicts.map((c) => [c.path, c.kind])));
+    if (e.error !== "Conflict") throw e;                      // anything else: stop and look
+    console.log("CONFLICT", w, JSON.stringify(e.detail?.conflicts?.map((c) => [c.path, c.kind]) ?? e.conflicts));
   }                                                           // skip it; resolve after the rest
 }
 console.log("integrated:", acc);

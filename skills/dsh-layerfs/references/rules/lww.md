@@ -43,12 +43,13 @@ LayerFS merges in exactly two places, and `/.lww` applies to both:
 | Merge | When it happens | Which `/.lww` is read | "ours" / "theirs" |
 | --- | --- | --- | --- |
 | **Commit merge** | `workspace commit` (and the session's checkpoint) when the Branch moved since the mount | The one on the Branch's current head | ours = the Workspace, theirs = the head |
-| **Branch merge** | `branch merge <project> <name> <a> <b>` | The one on `a` | ours = `a`, theirs = `b` |
+| **Branch merge** | `branch merge <project> <branch> <from> [--into NEW]` | The one on `branch` | ours = `branch`, theirs = `from` |
 
-Nothing else merges, so nothing else reads it: `file` writes are refused `HeadMoved`
-if the Branch moved during the call, and `branch publish` replaces `main`'s view. A
-path only one side changed takes that side's change, with or without a rule. A change
-to `/.lww` takes effect once it is committed on the Branch the merge reads.
+Nothing else merges, so nothing else reads it: `file` writes are refused `Conflict`
+(`detail.code: "HeadMoved"`) if `expected` missed or if the same path moved, and
+`branch publish` replaces `main`'s view. A path only one side changed takes that
+side's change, with or without a rule. A change to `/.lww` takes effect once it is
+committed on the Branch the merge reads.
 
 ## How a path is decided
 
@@ -61,8 +62,9 @@ For each path both sides changed differently:
 3. Without a rule, the usual merge runs: text files merge line by line, and overlapping
    changes become marker blocks and a `Conflict` ([conflicts](conflicts.md)).
 
-Every rule decision is reported in the result's `lww` list, on success and inside a
-`Conflict`'s `detail`: `{ path, kept: "ours" | "theirs", deleted, rule }`.
+Every rule decision is reported on success in `overwritten` (first 20 paths, plus
+`overwritten_count` when past 20), and inside a `Conflict`'s `detail.lww` (when
+`--detail` / `{ detail: true }` is passed): `{ path, kept: "ours" | "theirs", deleted, rule }`.
 
 ## Syntax
 

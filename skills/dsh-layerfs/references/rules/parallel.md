@@ -24,13 +24,13 @@ commit, unmount within the bash call. A Commit merges with what others committed
 first; generated files merge by [`/.lww`](lww.md).
 
 ```js
-const { ws } = await layerfs.workspace.mount(SB, B, { name: "w-api" });   // a name per subagent
+const { workspace } = await layerfs.workspace.mount(SB, B, { name: "w-api" });   // a name per subagent
 try {
-  const run = await layerfs.workspace.exec(ws, "timeout 110 npm test -- api 2>&1");
-  const saved = await layerfs.workspace.commit(ws, { message: `api: tests (exit ${run.exit_code})` });
-  console.log(saved.kind, saved.head);          // report this Commit
+  const run = await layerfs.workspace.exec(workspace, "timeout 110 npm test -- api 2>&1");
+  const saved = await layerfs.workspace.commit(workspace, { message: `api: tests (exit ${run.exit_code})` });
+  console.log(saved.commit, saved.unchanged ? "unchanged" : "committed");   // report this Commit
 } finally {
-  await layerfs.workspace.unmount(ws);
+  await layerfs.workspace.unmount(workspace);
 }
 ```
 
@@ -44,7 +44,7 @@ try {
 - After a restore (the runtime context says the files were restored), `$B` is a new
   Branch. Variables are read fresh in every bash call, so new mounts use it. A
   Workspace still mounted on the old Branch saves nothing for the session: a worker
-  that finds its Workspace's `branch` (`workspace status`) differs from
+  that finds its Workspace's `branch` (`workspace status --detail`) differs from
   `$DSH_LAYERFS_BRANCH` commits, unmounts and reports instead of carrying on.
 
 ## Side Branches
@@ -54,48 +54,60 @@ commands:
 
 ```bash
 layerfs branch fork "$P" try-cache "$B"
-layerfs file edit "$P" try-cache /src/cache.js --old 'ttl = 60' --new 'ttl = 300' -m "longer ttl"
-layerfs branch diff "$P" "$B" try-cache --paths-only
+layerfs file edit "$P" try-cache /src/cache.js --old-string 'ttl = 60' --new-string 'ttl = 300' -m "longer ttl"
+layerfs commit diff "$P" try-cache --from "$B"
 ```
 
-Forked Branches stay in the project's history; you can't delete them. Name them for
-their work, never `dsh.…`.
+Name your Branches for their work, never `dsh.…` (and you can clean up temporary
+Branches you created with `branch remove`).
 
 ### Bringing work into the session
 
-A merge always makes a new Branch, so it can't move `$B`. To bring a side Branch's
-result into the session, merge it with `$B` into a new Branch, then write what changed
+A merge cannot target `$B` directly. To bring a side Branch's result into the
+session, merge it with `$B` into a new Branch (`--into`), then write what changed
 onto `$B` as one Commit. Generated output (`target/`, `node_modules/`) is not copied:
 rebuild it after.
 
 ```js
 const side = "try-cache", merged = `${side}-in`;
-await layerfs.branch.merge(P, merged, B, side, { message: `bring ${side} into the session` });
+await layerfs.branch.merge(P, B, side, { into: merged, message: `bring ${side} into the session` });
 const changes = [], removed = [], skipped = [];
 for (let cursor = null; ; ) {
-  const d = await layerfs.branch.diff(P, B, merged, { paths_only: true, page_size: 1000, ...(cursor ? { cursor } : {}) });
+  const d = await layerfs.commit.diff(P, merged, {
+    from: B,
+    limit: 1000,
+    detail: true,
+    ...(cursor ? { cursor } : {}),
+  });
   for (const item of d.items) {
     if (removed.some((dir) => item.path.startsWith(dir + "/"))) continue;   // inside a removed folder
     if (/^\/(target|\.cargo-home)\/|\/node_modules\//.test(item.path)) continue;   // generated: rebuild after
-    if (item.kind === "Removed") { changes.push({ op: "rm", path: item.path }); if (item.type === "dir") removed.push(item.path); continue }
-    if (item.type === "dir") { if (item.kind === "Added") changes.push({ op: "mkdir", path: item.path }); continue }
+    if (item.change === "removed") {
+      changes.push({ op: "rm", path: item.path, ...(item.type === "dir" ? { recursive: true } : {}) });
+      if (item.type === "dir") removed.push(item.path);
+      continue;
+    }
+    if (item.type === "dir") { if (item.change === "added") changes.push({ op: "mkdir", path: item.path }); continue }
     if (item.type === "symlink") { skipped.push(item.path); continue }
-    let content = "", line = 1;
-    try {
-      for (;;) {
-        const r = await layerfs.file.read(P, merged, item.path, { start_line: line });
-        content += r.text;
-        if (r.next_line == null) break;
-        line = r.next_line;
-      }
-    } catch (e) { if (e.code !== "Binary") throw e; skipped.push(item.path); continue }
-    const { mode } = await layerfs.file.stat(P, merged, item.path);   // keep executables executable
+    let content = "", line = 1, isBinary = false;
+    for (;;) {
+      const r = await layerfs.file.read(P, merged, item.path, { line });
+      if (r.binary) { isBinary = true; break; }
+      content += r.text ?? "";
+      if (r.next_line == null) break;
+      line = r.next_line;
+    }
+    if (isBinary) { skipped.push(item.path); continue }
+    const { mode } = await layerfs.file.stat(P, merged, item.path);   // octal string e.g. "0755"
     changes.push({ op: "write", path: item.path, content, mode });
   }
-  if (!d.has_more) break;
+  if (!d.next_cursor) break;
   cursor = d.next_cursor;
 }
-if (changes.length) console.log((await layerfs.file.apply(P, B, changes, { message: `bring ${side} into the session` })).kind);
+if (changes.length) {
+  const res = await layerfs.file.apply(P, B, changes, { message: `bring ${side} into the session` });
+  console.log(res.commit);
+}
 console.log("copy in a Workspace:", skipped);
 ```
 
@@ -111,10 +123,12 @@ Before your turn ends, and before you report:
 - every Workspace you or your subagents mounted is committed and unmounted (when the
   session closes or idles out, dsh stops `$SB` and a Workspace still mounted there
   loses its uncommitted changes);
-- `layerfs sandbox get "$SB" --page-size 16` lists only dsh's Workspace (`main`), and
-  those another agent said it is keeping on purpose.
+- `layerfs sandbox get "$SB"` lists only dsh's Workspace (`main`), and those another
+  agent said it is keeping on purpose.
 
-To clear a subagent's leftover Workspace: unmount it only when its `activity` is
-`idle` (compare lowercase), both `dirty` counts are 0, `pending_merge` is false, and
-nobody said they are keeping it. Never `discard` another agent's Workspace; an
-unmount refused `Dirty` means its owner must commit (or resolve its Conflict) first.
+To clear a subagent's leftover Workspace: check `sandbox get "$SB" --detail` and
+`workspace status "$ws" --detail`. Unmount it only when its `state` is `ready`,
+`running` is false, `activity` is `idle`, both `overlay` counts
+(`inode_count`, `entry_count`) are `0`, `pending_merge` is false, and nobody said
+they are keeping it. Never `discard` another agent's Workspace; an unmount refused
+`Dirty` means its owner must commit (or resolve its Conflict) first.
