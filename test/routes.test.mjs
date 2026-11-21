@@ -486,6 +486,31 @@ test('postgresql: the check from a machine (or this computer) is store doctor, a
     const failed = await http('GET', '/api/stores/pg/check?machine=docker')
     assert.deepEqual([failed.status, failed.body.ok, failed.body.error.code], [200, false, 'Unavailable'])
     assert.match(failed.body.error.message, /connection refused/)
+    // wrong login (doctor authentication evidence): Denied + step authentication, never Unavailable
+    report = { findings: [{ store: 'pg', check: 'store.connection', severity: 'error', message: 'this computer is refused by the server at 127.0.0.1:5432: SQLSTATE 28P01', fix: null, from: null, evidence: { step: 'authentication' } }], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:30Z', ok: false, error: 'PostgreSQL server refused the connection: db error' })]
+    const wrongLogin = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([wrongLogin.status, wrongLogin.body.ok, wrongLogin.body.error.code, wrongLogin.body.error.step], [200, false, 'Denied', 'authentication'])
+    // Rejected from LayerFS: classified as Rejected (wrong login), never Unavailable
+    report = { findings: [], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:35Z', ok: false, error: 'Rejected' })]
+    const rejected = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([rejected.status, rejected.body.ok, rejected.body.error.code], [200, false, 'Rejected'])
+    // missing privilege: Denied (even when doctor findings are empty on write-only privilege loss)
+    report = { findings: [], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:40Z', ok: false, error: 'role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)' })]
+    const missingPriv = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([missingPriv.status, missingPriv.body.ok, missingPriv.body.error.code, missingPriv.body.error.step], [200, false, 'Denied', 'write'])
+    // outdated record: reported failed as Outdated with its fix, even when reach.ok is true
+    report = { findings: [{ store: 'pg', check: 'store.record', severity: 'error', message: 'its record is outdated: it holds what 2.0 no longer writes (a password, a login in a URL or an old machine entry)', fix: 'layerfs store update pg --auth pg', from: null, evidence: null }], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:50Z', ok: true, latency_ms: 1, server_version: '17.6', error: null })]
+    const outdated = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([outdated.status, outdated.body.ok, outdated.body.error.code, outdated.body.error.step, outdated.body.error.fix], [200, false, 'Outdated', 'record', 'layerfs store update pg --auth pg'])
+    // unrecognized reach error: Failed, never guessed as Unavailable
+    report = { findings: [], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:55Z', ok: false, error: 'some opaque backend error' })]
+    const unknown = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([unknown.status, unknown.body.ok, unknown.body.error.code], [200, false, 'Failed'])
     // a check LayerFS could not run from there (the machine stopped) is an answer too
     rows = [row(null, null)]
     report = { findings: [], not_checked: [{ check: 'store.connection', from: 'docker', reason: 'stopped', message: 'machine docker is stopped' }] }

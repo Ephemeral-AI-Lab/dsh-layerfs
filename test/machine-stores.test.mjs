@@ -123,13 +123,43 @@ test('connection URLs: parsed from a URL or a bare target, built back without a 
   assert.equal(M.routedServer('localhost:5432', null), 'localhost:5432', 'native dials the host itself')
 })
 
-test('the step a failed check stopped at, from LayerFS\'s documented refusals; any other refusal names no step', () => {
+test('the step and failure kind a failed check stopped at: server unreachable, wrong login (incl. Rejected), missing privilege, outdated record; unknown refusals never guess', () => {
+  // 1. Server unreachable -> server
   assert.equal(M.failedStep('Unavailable', 'machine docker cannot reach PostgreSQL Store x\'s server at db:5432: connection refused'), 'server')
-  assert.equal(M.failedStep('Unavailable', 'machine docker, PostgreSQL Store x at db:5432: the PostgreSQL server holds another Store than x'), 'store')
-  assert.equal(M.failedStep('Denied', 'password authentication failed for user "app"'), 'server', 'a login refused')
+  assert.equal(M.failedStep('Unavailable', 'PostgreSQL server unreachable: error connecting to server', 'transport'), 'server')
+  assert.equal(M.checkFailureKind('Unavailable', 'PostgreSQL server unreachable: error connecting to server', 'transport'), 'server')
+
+  // 2. Wrong login -> login (never server! Rejected, Denied without lacks, authentication step)
+  assert.equal(M.failedStep('Denied', 'password authentication failed for user "app"'), 'login', 'Denied without lacks is a login refusal, never server')
+  assert.equal(M.failedStep('Denied', 'machine docker, PostgreSQL Store x at 172.17.0.2: PostgreSQL server refused the connection: db error'), 'login')
+  assert.equal(M.failedStep('Denied', 'PostgreSQL server refused the connection: db error', 'authentication'), 'login')
+  assert.equal(M.failedStep('Rejected', 'Rejected'), 'login', 'Rejected from LayerFS is a login refusal')
+  assert.equal(M.failedStep('Unavailable', 'the server refused the session: the database does not exist, or the user or password is wrong'), 'login')
+  assert.equal(M.checkFailureKind('Rejected', 'Rejected'), 'login')
+  assert.equal(M.checkFailureKind('Denied', 'password authentication failed for user "app"'), 'login')
+
+  // 3. Missing privilege -> store (USAGE on schema) or write (CREATE on schema / table / database privileges), both kind 'privilege'
   assert.equal(M.failedStep('Denied', 'role app lacks USAGE on schema layerfs (3 privilege(s) missing in all)'), 'store')
+  assert.equal(M.failedStep('Denied', 'role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)'), 'write', 'CREATE on schema is a write/compaction privilege, Store was already found')
   assert.equal(M.failedStep('Denied', 'role app lacks INSERT on table layerfs.objects (1 privilege(s) missing in all)'), 'write')
+  assert.equal(M.checkFailureKind('Denied', 'role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)'), 'privilege')
+  assert.equal(M.checkFailureKind('Denied', 'role app lacks USAGE on schema layerfs (3 privilege(s) missing in all)'), 'privilege')
+  assert.deepEqual(M.missingPrivilege('role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)'), { role: 'lowwrite', privilege: 'CREATE on schema layerfs', count: 94 })
+
+  // 4. Outdated record -> record
+  assert.equal(M.failedStep('Outdated', 'its record is outdated: it holds what 2.0 no longer writes (a password, a login in a URL or an old machine entry)', 'record'), 'record')
+  assert.equal(M.failedStep('Outdated', 'its record is outdated: it names no saved login', 'record'), 'record')
+  assert.equal(M.checkFailureKind('Outdated', 'its record is outdated: it holds what 2.0 no longer writes'), 'record')
+
+  // 5. Another Store / missing database -> store (not server, not login)
+  assert.equal(M.failedStep('Unavailable', 'machine docker, PostgreSQL Store x at db:5432: the PostgreSQL server holds another Store than x'), 'store')
+  assert.equal(M.failedStep('NotFound', 'PostgreSQL server refused the connection: db error', 'database'), 'store')
+  assert.equal(M.checkFailureKind('NotFound', 'PostgreSQL server refused the connection: db error', 'database'), 'store')
+
+  // 6. Unrecognized failures never guess a step
   assert.equal(M.failedStep('Conflict', 'Store x changed while machine docker was checked'), null)
+  assert.equal(M.failedStep('Failed', 'something unexpected happened'), null)
+  assert.equal(M.checkFailureKind('Failed', 'something unexpected happened'), null)
   assert.equal(M.failedStep(undefined, undefined), null)
 })
 
