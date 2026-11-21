@@ -58,18 +58,38 @@ whole. So the panel:
 
 ## 3. The Storage page
 
-- **Sidebar.** Backups → provider (Cloudflare R2, MinIO, other; the brand
-  marks from simple-icons) → bucket → files, each file with its size and its
-  worst state. Opening a file opens its own tab, `backup:<bucket>/<file>`.
-- **Bucket page.** Its files, the Store linked to each, state, size, written,
-  and Back up now / Restore.
-- **File page.** The object path, provider, bucket, size and time; *Inside*:
-  a whole SQLite Store, and its projects when a linked Store's copy is still
-  its own (`current`: the same projects; `store_changed`: the Store's projects
-  now, the backup may hold fewer or older ones); `bucket_changed` says the
-  file was rewritten elsewhere; an unlinked file says LayerFS reads it only by
-  restoring, with Restore as a new Store. Then the linked Stores, each with
-  its state, its last backup or restore, and Back up now / Restore.
+- **Home › Stores › SQLite › Buckets (`BucketCards`).** The SQLite board's
+  second view (with a provider switch when several providers are connected):
+  one card per bucket with its provider mark (Cloudflare R2, MinIO, other),
+  file count, size, list time, up to five file rows (linked Stores first, then
+  unlinked files with Restore…), and Open bucket. Opening a bucket opens
+  `bucket:<bucket>`; opening a file from the Bucket page opens
+  `backup:<bucket>/<file>`.
+- **Store cards, Store page and Backups dialogs.** Each SQLite Store card
+  shows a muted **No backup** button when unlinked, or its provider marks,
+  backup count and worst-state dot (which opens the **Backups of *store***
+  dialog with its provider-grouped copies and health bar). A Store's
+  **Overview** shows **Last backup** and Health's **Backups** row; its
+  **Backups** tab lists one destination card per linked bucket with state pill,
+  last saved, size, provider, **Back up now** and **Restore…**.
+- **Bucket page (`bucket:<bucket>`).** Its facts and actions (**Test
+  connection**, **List** / **List again**, ⋯ **Disconnect**), status line
+  (with **Connect again…** when the key was refused), then its files grouped
+  into *Bound to a Store in this home* and *Not in this home*, with linked
+  Store, state chip, size, written, and **Back up now** / **Restore…**.
+- **File page (`backup:<bucket>/<file>`).** The object path, provider, bucket,
+  size and time; *Inside*: a whole SQLite Store, and its projects when a linked
+  Store's copy is still its own (`current`: the same projects; `store_changed`:
+  the Store's projects now, the backup may hold fewer or older ones);
+  `bucket_changed` says the file was rewritten elsewhere; an unlinked file says
+  LayerFS reads it only by restoring, with Restore as a new Store. Then the
+  linked Stores, each with its state, its last backup or restore, and Back up
+  now / Restore.
+- **Tones (optional backups).** Backups are optional: no backup,
+  `store_changed`, `bucket_changed`, `unlinked`, `unknown` and unlisted copies
+  are neutral (muted text or grey dots, never amber warnings, and never counted
+  or sorted un-backed-up first). `current` is green; only real failures
+  (`missing` and `both_changed`) are red.
 
 ## 4. What LayerFS could add
 

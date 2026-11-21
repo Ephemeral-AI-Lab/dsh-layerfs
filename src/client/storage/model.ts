@@ -1,4 +1,4 @@
-/** Storage's pure rules: placement, attention, backup coverage and job words. No React. */
+/** Storage's pure rules: placement, attention and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
 import type { BackupFile, BucketRow, JobKind, PgConnection, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 import type { StorageT } from './locale.ts'
@@ -125,8 +125,6 @@ export function storeSignal(s: StoreRow, job: StorageJob | undefined, machineSta
   const linkReason = (x: typeof links[number]) => `${x.l.bucket}/${x.l.file}: ${backupChip(x.state, t).label}`
   const broken = links.find((x) => x.state === 'both_changed' || x.state === 'missing')
   if (broken) return { state: 'error', reason: linkReason(broken) }
-  const drifted = links.find((x) => x.state === 'store_changed' || x.state === 'bucket_changed')
-  if (drifted) return { state: 'warning', reason: linkReason(drifted) }
   if (machineState === 'stopped' && s.machine) return { state: 'warning', reason: t('machineStopped', { machine: s.machine }) }
   return null
 }
@@ -257,12 +255,12 @@ export function reconnectOf(b: Pick<BucketRow, 'name' | 'provider' | 'state' | '
   return { bucket: b.name, provider: fixed ? bucketParts(fixed.url)?.provider ?? b.provider : b.provider, url: fixed?.url ?? b.url ?? null }
 }
 
-/** A backup file's state: its tone and words. */
+/** A backup file's state: its tone and words. Backups are optional, so only real failures (missing, conflict) are red. */
 export function backupChip(state: BackupState | null | undefined, t: StorageT): { tone: Tone, label: string, dashed?: boolean } {
   switch (state) {
     case 'current': return { tone: 'success', label: t('backupCurrent') }
-    case 'store_changed': return { tone: 'warning', label: t('backupStoreChanged') }
-    case 'bucket_changed': return { tone: 'warning', label: t('backupBucketChanged') }
+    case 'store_changed': return { tone: 'neutral', label: t('backupStoreChanged') }
+    case 'bucket_changed': return { tone: 'neutral', label: t('backupBucketChanged') }
     case 'both_changed': return { tone: 'danger', label: t('backupBothChanged') }
     case 'unlinked': return { tone: 'neutral', label: t('backupUnlinked') }
     case 'missing': return { tone: 'danger', label: t('backupMissing') }
@@ -274,14 +272,6 @@ export function backupChip(state: BackupState | null | undefined, t: StorageT): 
 /** The newest backup time a Store's links recorded. */
 export const latestBackup = (s: StoreRow): number | null =>
   s.links.reduce<number | null>((n, l) => (l.last?.at != null && (n === null || l.last.at > n) ? l.last.at : n), null)
-
-/** Backup coverage of the SQLite Stores. */
-export function coverageOf(view: StorageView) {
-  const sqlite = view.stores.filter((s) => s.kind === 'sqlite')
-  const backed = sqlite.filter((s) => s.links.length > 0)
-  const latest = backed.map(latestBackup).filter((n): n is number => n !== null)
-  return { sqlite, backed, never: sqlite.filter((s) => s.links.length === 0), oldest: latest.length ? Math.min(...latest) : null }
-}
 
 /** Where a Store is, in words: the home, a machine, or PostgreSQL. */
 export const placeWords = (machine: string | null | undefined, t: StorageT): string => (machine === 'native' ? t('layerfsHome') : (machine ?? '?'))

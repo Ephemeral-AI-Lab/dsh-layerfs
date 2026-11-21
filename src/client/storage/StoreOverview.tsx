@@ -13,7 +13,8 @@ import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, latestBackup, storeStateWords } from './model.ts'
+import { backupChip, backupStateOf, latestBackup, storeStateWords, type BackupState } from './model.ts'
+import { overviewBackupHealth } from './store-backups.ts'
 import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
@@ -62,7 +63,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
             sub={(s.connectedFrom ?? []).map((c) => (c.machine === null ? t('pgThisComputer') : c.machine)).join(', ') || undefined} />
         ) : (
           <Tile label={t('factLastBackup')} value={latest !== null ? ago(latest, now, tt) : t('noBackup')} title={latest !== null ? when(latest) : undefined}
-            onOpen={() => onTab('backups')} tone={latest === null ? 'warning' : undefined} sub={s.links[0] ? s.links[0].bucket : undefined} />
+            onOpen={() => onTab('backups')} tone={latest === null ? 'muted' : undefined} sub={s.links[0] ? s.links[0].bucket : undefined} />
         )}
       </dl>
 
@@ -99,7 +100,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
   )
 }
 
-function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value: string, sub?: string | undefined, onOpen?: () => void, tone?: 'warning' | 'danger' | undefined, title?: string | undefined }): ReactNode {
+function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value: string, sub?: string | undefined, onOpen?: () => void, tone?: 'muted' | 'warning' | 'danger' | undefined, title?: string | undefined }): ReactNode {
   const body = (
     <>
       <dt>{label}</dt>
@@ -238,10 +239,16 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
     const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')
     rows.push({ key: 'machine', tone: machineState === 'stopped' ? 'danger' : machineState === 'ready' ? 'ok' : 'info', label: t('spMachine'), text: t(machineState === 'stopped' ? 'spMachineStopped' : 'spMachineRunning', { machine: place }) })
     const latest = latestBackup(s)
-    const states = s.links.map((link) => backupStateOf(view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name))).filter(Boolean)
-    const behind = states.some((x) => x === 'store_changed' || x === 'both_changed')
-    rows.push({ key: 'backup', tone: latest === null ? 'warning' : behind ? 'warning' : 'ok', label: t('backupsSection'),
-      text: latest === null ? t('noBackup') : behind ? t('spBackupBehind', { ago: ago(latest, now, tt) }) : t('spBackupOk', { ago: ago(latest, now, tt) }) })
+    const states = s.links
+      .map((link) => backupStateOf(view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name)))
+      .filter((x): x is BackupState => x !== null)
+    const bh = overviewBackupHealth(states, latest)
+    const backupText = bh.kind === 'problem' ? backupChip(bh.state, t).label
+      : bh.kind === 'none' ? t('noBackup')
+      : bh.kind === 'store_changed' ? t('spBackupBehind', { ago: ago(latest!, now, tt) })
+      : bh.kind === 'bucket_changed' ? backupChip('bucket_changed', t).label
+      : t('spBackupOk', { ago: ago(latest!, now, tt) })
+    rows.push({ key: 'backup', tone: bh.tone, label: t('backupsSection'), text: backupText })
     if (stats?.reusable_bytes != null && stats.file_bytes) rows.push({ key: 'free', tone: 'ok', label: t('spPartFree'), text: t('spFreeText', { free: bytes(stats.reusable_bytes), n: String(Math.round(stats.reusable_bytes / stats.file_bytes * 100)) }) })
   }
   return (

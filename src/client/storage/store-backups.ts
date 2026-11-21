@@ -10,7 +10,7 @@
 import { backupStateOf, listedOf, type BackupState } from './model.ts'
 import type { BucketRow, StorageView, StoreBackupLink, StoreRow } from './types.ts'
 
-/** What a backup needs: a missing or diverged copy first, then out of date, then fine. */
+/** What a backup needs: a missing or diverged copy first, then out of date (neutral), then fine. */
 export type BackupHealth = 'problem' | 'stale' | 'current' | 'unknown'
 
 export function healthOf(state: BackupState | null | undefined): BackupHealth {
@@ -22,6 +22,21 @@ export function healthOf(state: BackupState | null | undefined): BackupHealth {
     case 'current': return 'current'
     default: return 'unknown'
   }
+}
+
+export type OverviewBackupHealth =
+  | { tone: 'danger', kind: 'problem', state: 'missing' | 'both_changed' }
+  | { tone: 'info', kind: 'none' | 'store_changed' | 'bucket_changed' }
+  | { tone: 'ok', kind: 'ok' }
+
+/** Store Overview › Health › Backups row: red only for missing/conflict, neutral for none or changed, green when current. */
+export function overviewBackupHealth(states: readonly BackupState[], latest: number | null): OverviewBackupHealth {
+  const problem = states.find((x): x is 'missing' | 'both_changed' => x === 'both_changed' || x === 'missing')
+  if (problem) return { tone: 'danger', kind: 'problem', state: problem }
+  if (latest === null) return { tone: 'info', kind: 'none' }
+  if (states.includes('store_changed')) return { tone: 'info', kind: 'store_changed' }
+  if (states.includes('bucket_changed')) return { tone: 'info', kind: 'bucket_changed' }
+  return { tone: 'ok', kind: 'ok' }
 }
 
 const RANK: Record<BackupHealth, number> = { problem: 0, stale: 1, unknown: 2, current: 3 }

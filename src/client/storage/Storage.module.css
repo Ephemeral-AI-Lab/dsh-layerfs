@@ -150,10 +150,6 @@
   transition: width 300ms ease;
 }
 
-.barFill[data-tone='warning'] {
-  background: var(--dsw-alias-state-warn-primary);
-}
-
 .jobError {
   margin: 0;
   font-size: 12.5px;
@@ -346,15 +342,6 @@
   .twoCol {
     grid-template-columns: minmax(0, 1fr);
   }
-}
-
-.coverage {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px 4px;
-  font-size: 13px;
-  line-height: 20px;
 }
 
 .cardNote {

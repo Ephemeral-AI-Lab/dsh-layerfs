@@ -12,16 +12,12 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { Card } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, backupStateOf, brokenWords, storeStateWords, storeTip, type BackupState } from './model.ts'
+import { backupChip, backupStateOf, brokenWords, storeStateWords, storeTip } from './model.ts'
 import { providerWords } from './BucketPage.tsx'
 import { StoreAction, type StoreActions } from './StoreCard.tsx'
 import type { StorageView, StoreRow } from './types.ts'
 import clsx from 'clsx'
 import css from './StorePage.module.css'
-
-const STATE_TONE: Partial<Record<BackupState, 'ok' | 'warning' | 'danger'>> = {
-  current: 'ok', store_changed: 'warning', bucket_changed: 'warning', both_changed: 'warning', missing: 'danger',
-}
 
 export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, view: StorageView, t: StorageT, now: number, on: StoreActions }): ReactNode {
   const tt = t as Translate
@@ -39,7 +35,8 @@ export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, 
         const at = file?.modified ?? link.last?.at
         const size = file?.bytes ?? link.last?.bytes
         const state = backupStateOf(file)
-        const tone = state ? STATE_TONE[state] : undefined
+        const chipTone = state ? backupChip(state, t).tone : undefined
+        const tone = chipTone === 'success' ? 'ok' : chipTone === 'danger' ? 'danger' : undefined
         return (
           <Card key={link.bucket} className={css.linkCard} data-backup-link={link.bucket}>
             <div className={css.linkHead}>
