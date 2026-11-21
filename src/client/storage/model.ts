@@ -27,20 +27,49 @@ export function backupStateOf(f: Pick<BackupFile, 'store' | 'behind' | 'changed'
 }
 
 /**
- * Why the Store menu's Compact waits, or null when it is offered. Only the
- * 2.0 state decides; placement does not (a sqlite Store on a machine is
- * compacted by that machine's worker). A Store `blocked` by its stopped
- * machine waits for that machine; a `broken` Store whose fix is
- * `layerfs store compact <store>` (an earlier run's outcome unknown) is
- * offered, since running it is that fix; any other state that is not
- * `ready` waits (LayerFS would refuse it `Busy` or `Unavailable`).
+ * Why an action that requires a Ready Store (Push, Pull, Move, Back up, Add
+ * project) waits, or null when the Store is ready.
  */
-export function compactWaitsFor(s: StoreRow, t: StorageT): string | null {
-  if (s.state === 'ready') return null
-  if (s.state === 'broken' && s.fix === `layerfs store compact ${s.name}`) return null
-  // a stopped machine is started; one that is broken (its worker does not answer, its record cannot be read) is repaired
-  if (s.state === 'blocked' && s.blockedBy?.machine) return t(!s.blockedBy.reason || s.blockedBy.reason === 'stopped' ? 'compactNeedsMachine' : 'compactNeedsMachineFixed', { machine: s.blockedBy.machine })
+export function storeWaitsFor(
+  s: Pick<StoreRow, 'name' | 'state' | 'blockedBy' | 'op' | 'fix' | 'job'>,
+  t: StorageT,
+  runningJob = false,
+): string | null {
+  const localBusy = runningJob || !!s.job
+  if (s.state === 'ready' && !localBusy) return null
+  if (localBusy) return t('storeNeedsOpFinish')
+  if (s.state === 'busy') {
+    if (s.op) {
+      const op = s.op.phase ? `${s.op.name} · ${s.op.phase}` : s.op.name
+      return t('opRunning', { op })
+    }
+    return t('storeNeedsOpFinish')
+  }
+  if (s.state === 'blocked' && s.blockedBy?.machine) {
+    const r = s.blockedBy.reason
+    if (!r || r === 'stopped') return t('compactNeedsMachine', { machine: s.blockedBy.machine })
+    if (r === 'busy') return t('storeNeedsMachineBusy', { machine: s.blockedBy.machine })
+    return t('compactNeedsMachineFixed', { machine: s.blockedBy.machine })
+  }
+  if (s.state === 'broken') {
+    return s.fix === `layerfs store compact ${s.name}` ? t('storeNeedsCompact') : t('storeNeedsRepair')
+  }
   return t('compactNeedsIdle')
+}
+
+/**
+ * Why the Store menu's Compact waits, or null when it is offered. Shares
+ * {@link storeWaitsFor}, except a `broken` Store whose fix is
+ * `layerfs store compact <store>` (an earlier run's outcome unknown) is
+ * offered, since running it is that fix.
+ */
+export function compactWaitsFor(
+  s: Pick<StoreRow, 'name' | 'state' | 'blockedBy' | 'op' | 'fix' | 'job'>,
+  t: StorageT,
+  runningJob = false,
+): string | null {
+  if (!runningJob && !s.job && s.state === 'broken' && s.fix === `layerfs store compact ${s.name}`) return null
+  return storeWaitsFor(s, t, runningJob)
 }
 
 /**

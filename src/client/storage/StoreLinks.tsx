@@ -9,25 +9,26 @@ import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
-import { Card } from '../ui/index.tsx'
+import { Card, ExplainedButton } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, backupStateOf, brokenWords, storeStateWords, storeTip } from './model.ts'
+import { backupChip, backupStateOf, brokenWords, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 import { providerWords } from './BucketPage.tsx'
 import { StoreAction, type StoreActions } from './StoreCard.tsx'
 import type { StorageView, StoreRow } from './types.ts'
 import clsx from 'clsx'
 import css from './StorePage.module.css'
 
-export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, view: StorageView, t: StorageT, now: number, on: StoreActions }): ReactNode {
+export function StoreBackups({ store: s, view, t, now, on, runningJob }: { store: StoreRow, view: StorageView, t: StorageT, now: number, on: StoreActions, runningJob?: boolean | undefined }): ReactNode {
   const tt = t as Translate
-  const blocked = s.state !== 'ready'
+  const reason = storeWaitsFor(s, t, !!runningJob)
+  const busyReason = s.state === 'busy' || !!runningJob || !!s.job ? reason : null
   return (
     <div className={css.stack}>
       <div className={css.toolbar}>
         <span className={css.muted}>{t(s.links.length === 1 ? 'spDestinationOne' : 'spDestinations', { n: String(s.links.length) })}</span>
         <span className={css.spacer} />
-        <Button variant="outline" size="sm" disabled={blocked} onClick={on.backup}>{view.buckets.length ? t('backupTo') : t('addBucketEllipsis')}</Button>
+        <ExplainedButton variant="outline" size="sm" disabled={reason !== null} disabledReason={reason ?? undefined} onClick={on.backup}>{view.buckets.length ? t('backupTo') : t('addBucketEllipsis')}</ExplainedButton>
       </div>
       {s.links.length ? s.links.map((link) => {
         const bucket = view.buckets.find((b) => b.name === link.bucket)
@@ -51,8 +52,8 @@ export function StoreBackups({ store: s, view, t, now, on }: { store: StoreRow, 
               {bucket?.provider ? <div><dt>{t('spProvider')}</dt><dd>{providerWords(bucket.provider, t)}</dd></div> : null}
             </dl>
             <div className={css.linkActions}>
-              <Button variant="outline" size="sm" disabled={blocked} onClick={() => on.backupTo(link)}>{t('backupNow')}</Button>
-              {file ? <Button variant="ghost" size="sm" disabled={s.state === 'busy'} onClick={() => on.restore(link.bucket, link.file)}>{t('restore')}</Button> : null}
+              <ExplainedButton variant="outline" size="sm" disabled={reason !== null} disabledReason={reason ?? undefined} onClick={() => on.backupTo(link)}>{t('backupNow')}</ExplainedButton>
+              {file ? <ExplainedButton variant="ghost" size="sm" disabled={busyReason !== null} disabledReason={busyReason ?? undefined} onClick={() => on.restore(link.bucket, link.file)}>{t('restore')}</ExplainedButton> : null}
             </div>
           </Card>
         )

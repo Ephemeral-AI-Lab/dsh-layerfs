@@ -8,7 +8,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { FixAction, FixContext, LinkButton, MoreMenu, resolveFix, usePressGuard } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { blockedWords, brokenWords, compactWaitsFor, inHome, latestBackup, storeStateWords, storeTip } from './model.ts'
+import { blockedWords, brokenWords, compactWaitsFor, inHome, latestBackup, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 import { useMachinesMaybe } from '../machines/context.tsx'
 import type { MachineInfo } from '../machines/model.ts'
 import { refusalLabels } from './parts.tsx'
@@ -62,15 +62,16 @@ export interface LoginActions {
  * one), Change login…, Disconnect a machine for each machine with an address
  * of its own, and Disconnect.
  */
-export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined }): ReactNode {
+export function StoreMenu({ store: s, on, t, machine, runningJob }: { store: StoreRow, on: StoreActions, t: StorageT, machine?: string | undefined, runningJob?: boolean | undefined }): ReactNode {
   const pg = s.kind === 'postgresql'
+  const storeBlocked = storeWaitsFor(s, t, !!runningJob)
   // LayerFS compacts a Store where it lives (a machine's sqlite Store on its worker); the 2.0 state alone decides
-  const blocked = compactWaitsFor(s, t)
+  const compactBlocked = compactWaitsFor(s, t, !!runningJob)
   return (
     <MoreMenu label={t('storeActions', { name: s.name })}>
       {(close) => {
         const run = (fn: () => void) => () => { close(); fn() }
-        const compact = on.compact ? <MenuItemButton disabled={blocked !== null} disabledReason={blocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton> : null
+        const compact = on.compact ? <MenuItemButton disabled={compactBlocked !== null} disabledReason={compactBlocked ?? undefined} onSelect={run(on.compact)}>{t('compactStore')}</MenuItemButton> : null
         return pg ? (
           <>
             <MenuItemButton onSelect={run(() => on.check(machine))}>{t('pgCheck')}</MenuItemButton>
@@ -84,16 +85,16 @@ export function StoreMenu({ store: s, on, t, machine }: { store: StoreRow, on: S
         ) : (
           <>
             {inHome(s)
-              ? <MenuItemButton disabled={s.state !== 'ready'} onSelect={run(on.push)}>{t('pushTo')}</MenuItemButton>
+              ? <MenuItemButton disabled={storeBlocked !== null} disabledReason={storeBlocked ?? undefined} onSelect={run(on.push)}>{t('pushTo')}</MenuItemButton>
               : (
                 <>
-                  <MenuItemButton disabled={s.state !== 'ready'} onSelect={run(on.pull)}>{t('pullHome')}</MenuItemButton>
-                  <MenuItemButton disabled={s.state !== 'ready'} onSelect={run(on.move)}>{t('moveTo')}</MenuItemButton>
+                  <MenuItemButton disabled={storeBlocked !== null} disabledReason={storeBlocked ?? undefined} onSelect={run(on.pull)}>{t('pullHome')}</MenuItemButton>
+                  <MenuItemButton disabled={storeBlocked !== null} disabledReason={storeBlocked ?? undefined} onSelect={run(on.move)}>{t('moveTo')}</MenuItemButton>
                 </>
               )}
-            <MenuItemButton disabled={s.state !== 'ready'} onSelect={run(on.backup)}>{t('backupTo')}</MenuItemButton>
+            <MenuItemButton disabled={storeBlocked !== null} disabledReason={storeBlocked ?? undefined} onSelect={run(on.backup)}>{t('backupTo')}</MenuItemButton>
             {s.links.map((l) => (
-              <MenuItemButton key={l.bucket} disabled={s.state !== 'ready'} onSelect={run(() => on.backupTo(l))}>
+              <MenuItemButton key={l.bucket} disabled={storeBlocked !== null} disabledReason={storeBlocked ?? undefined} onSelect={run(() => on.backupTo(l))}>
                 {`${t('backupNow')} · ${l.bucket}/${l.file}`}
               </MenuItemButton>
             ))}

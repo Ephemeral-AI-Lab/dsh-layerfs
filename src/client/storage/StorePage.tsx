@@ -17,7 +17,7 @@ import { Empty, Notice, PageHead, StateChip } from '../ui/index.tsx'
 import { useHostEvents } from './hooks.ts'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { canAddProject, storeStateWords, storeTip, storeTone } from './model.ts'
+import { canAddProject, storeStateWords, storeTip, storeTone, storeWaitsFor } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
 import { Location, MachineStartAction, StoreAction, StoreMenu, storeNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
 import { StoreBackups, StoreConnection } from './StoreLinks.tsx'
@@ -77,6 +77,8 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
   const running = runningByProject(s.name, machines.data?.available ? machines.data.sandboxes : null)
   // A job of an earlier Store that had this name (over before this one was created) is not this Store's.
   const current = job && (s.created == null || (job.ended ?? Infinity) >= s.created) ? job : undefined
+  const runningJob = !!current && !current.ended
+  const addDisabledReason = storeWaitsFor(s, t, runningJob)
   const labels: Record<StoreTab, string> = {
     overview: t('tabOverview'),
     projects: `${t('tabProjects')} ${s.projects.length}`,
@@ -98,7 +100,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
           <>
             <DoctorAction api={api} t={doctorT} target="store.integrity" name={s.name} label={doctorT('checkIntegrity')} />
             {pg ? <DoctorAction api={api} t={doctorT} target="store.connection" name={s.name} label={doctorT('testConnection')} /> : null}
-            <StoreMenu store={s} on={on} t={t} />
+            <StoreMenu store={s} on={on} t={t} runningJob={runningJob} />
           </>
         )} />
 
@@ -119,9 +121,9 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
         {tab === 'projects' ? (
           <StoreProjects api={api} store={{ name: s.name, kind: s.kind, state: s.state }} names={s.projects} projects={projects.data?.projects} stored={typeof stats.data?.stored_bytes === 'number' ? stats.data.stored_bytes : null}
             stores={view.stores} fleet={machines.data?.available ? machines.data : null} t={t} now={now} tick={tick}
-            canAdd={canAddProject(s)} onAdd={on.addProject} onOpen={(id) => (onOpen ? onOpen(id) : id.startsWith('project:') ? onOpenProject(id.slice('project:'.length)) : undefined)} />
+            canAdd={canAddProject(s) && !runningJob} addDisabledReason={addDisabledReason} onAdd={on.addProject} onOpen={(id) => (onOpen ? onOpen(id) : id.startsWith('project:') ? onOpenProject(id.slice('project:'.length)) : undefined)} />
         ) : tab === 'backups' ? (
-          <StoreBackups store={s} view={view} t={t} now={now} on={on} />
+          <StoreBackups store={s} view={view} t={t} now={now} on={on} runningJob={runningJob} />
         ) : tab === 'connections' ? (
           <StoreConnection store={s} view={view} t={t} on={on} now={now} sandboxes={machines.data?.available ? machines.data.sandboxes : undefined} />
         ) : (
