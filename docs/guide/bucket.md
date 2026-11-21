@@ -105,8 +105,8 @@ bucket. Home's page is described in [home.md](home.md); the cards are described 
 
 ## States and signals
 
-- **Store changed** (amber): the Store changed since this copy; **Back up now** updates it.
-- **Bucket changed**: someone else rewrote the copy; **Restore…** can bring it in.
+- **Store changed** (neutral): the Store changed since this copy; **Back up now** updates it.
+- **Bucket changed** (neutral): someone else rewrote the copy; **Restore…** can bring it in.
 - **Both changed** (red): both sides moved; restore as a new Store, or back up under a new name.
 - **Missing** (red): the object is gone; back up again under a new file name (LayerFS will
   not reuse the name).
