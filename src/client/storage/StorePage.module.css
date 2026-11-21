@@ -5,6 +5,18 @@
   max-width: 100%;
 }
 
+.noticeRow {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.noticeRow > div {
+  margin-top: 0;
+}
+
 .panelArea {
   container-type: inline-size;
   min-width: 0;

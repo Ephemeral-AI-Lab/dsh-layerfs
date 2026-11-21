@@ -113,19 +113,55 @@ export function worstSignal(signals: readonly (RowSignal | null | undefined)[]):
   return signals.reduce<RowSignal | null>((w, s) => (s && (!w || SIGNAL_RANK[s.state] > SIGNAL_RANK[w.state]) ? s : w), null)
 }
 
+/** A Store waiting on its stopped machine (`blocked_by { machine, reason: stopped }`, LayerFS gives no fix). */
+export const stoppedBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): boolean =>
+  s.state === 'blocked' && ['', 'stopped'].includes(s.blockedBy?.reason ?? '')
+
+/** The machine a Store waits on while that machine is broken (not stopped or busy), or null (F3). */
+export const brokenBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): string | null =>
+  s.state === 'blocked' && s.blockedBy?.machine && !['', 'stopped', 'busy'].includes(s.blockedBy.reason) ? s.blockedBy.machine : null
+
+/** Whether a SQLite Store's machine is stopped (normal state, never a failure). */
+export const storeMachineStopped = (s: Pick<StoreRow, 'kind' | 'state' | 'blockedBy'>, machineState?: string | null): boolean =>
+  s.state !== 'broken' && !brokenBlock(s) && (stoppedBlock(s) || (s.kind === 'sqlite' && machineState === 'stopped'))
+
+/** Whether a SQLite Store's machine is broken or has an unreadable record. */
+export const storeMachineBroken = (s: Pick<StoreRow, 'kind' | 'state' | 'blockedBy'>, machineState?: string | null): boolean =>
+  !!brokenBlock(s) || (s.kind === 'sqlite' && machineState === 'broken')
+
+/** Notice / card status tone for a Store: red only for a broken Store or broken machine; stopped machine is neutral. */
+export function storeNoticeTone(s: Pick<StoreRow, 'kind' | 'state' | 'blockedBy'>, machineState?: string | null): 'danger' | undefined {
+  if (s.state === 'broken' || storeMachineBroken(s, machineState)) return 'danger'
+  return undefined
+}
+
+export type MachineHealthKey = 'spMachineRunning' | 'spMachineStopped' | 'spMachineBroken' | 'spMachineUnreadable' | 'spMachineBusy' | 'spMachineUnknown'
+
+/** Overview Health › Machine row: green when running, neutral grey when stopped/busy/unknown, red when broken/unreadable. */
+export function overviewMachineHealth(s: Pick<StoreRow, 'kind' | 'machine' | 'state' | 'blockedBy'>, machineState?: string | null): { tone: 'ok' | 'info' | 'danger', key: MachineHealthKey } {
+  if (storeMachineBroken(s, machineState)) {
+    return { tone: 'danger', key: s.blockedBy?.reason === 'failed' ? 'spMachineUnreadable' : 'spMachineBroken' }
+  }
+  if (storeMachineStopped(s, machineState)) return { tone: 'info', key: 'spMachineStopped' }
+  if (machineState === 'busy' || (s.state === 'blocked' && s.blockedBy?.reason === 'busy')) return { tone: 'info', key: 'spMachineBusy' }
+  if (machineState === 'ready' || (s.machine === 'native' && machineState !== 'broken')) return { tone: 'ok', key: 'spMachineRunning' }
+  return { tone: 'info', key: 'spMachineUnknown' }
+}
+
 /** How much a Store needs you, and why: its running or failed job first, then its own state, its backups, its machine. */
 export function storeSignal(s: StoreRow, job: StorageJob | undefined, machineState: string | null | undefined, buckets: readonly BucketRow[], t: StorageT): RowSignal | null {
   if (job && !job.ended) return { state: 'ongoing', reason: doingWords(job, t) }
   if (job?.error) return { state: 'error', reason: endedWords(job, t) }
   // the state's word and its reason; the fix is the card's one action
   if (s.state === 'broken') return { state: 'error', reason: brokenWords(s, t) }
-  if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? blockedWords(s.blockedBy, t) : storeStateWords(s.state, t, s.blockedBy?.reason) }
+  if (brokenBlock(s)) return { state: 'error', reason: blockedWords(s.blockedBy!, t) }
+  if (stoppedBlock(s)) return null
+  if (s.state === 'blocked') return s.blockedBy?.reason === 'busy' ? null : { state: 'warning', reason: s.blockedBy?.machine ? blockedWords(s.blockedBy, t) : storeStateWords(s.state, t, s.blockedBy?.reason) }
   if (s.state === 'unknown') return { state: 'warning', reason: storeStateWords(s.state, t) }
   const links = s.links.map((l) => ({ l, state: linkState(s, l.bucket, l.file, buckets) }))
   const linkReason = (x: typeof links[number]) => `${x.l.bucket}/${x.l.file}: ${backupChip(x.state, t).label}`
   const broken = links.find((x) => x.state === 'both_changed' || x.state === 'missing')
   if (broken) return { state: 'error', reason: linkReason(broken) }
-  if (machineState === 'stopped' && s.machine) return { state: 'warning', reason: t('machineStopped', { machine: s.machine }) }
   return null
 }
 
@@ -144,12 +180,17 @@ export function sandboxStateWords(b: { state: string, reason?: string | null }, 
   return storeStateWords(b.state, t)
 }
 
-/** A Store's 2.0 state as a chip tone. */
-export function storeTone(state: string): Tone {
+/** A Store's 2.0 state as a chip tone. Stopped machines stay neutral; broken machines and broken Stores are red. */
+export function storeTone(state: string, blockedBy?: StoreRow['blockedBy']): Tone {
   if (state === 'ready') return 'success'
   if (state === 'busy') return 'info'
-  if (state === 'blocked' || state === 'stopped') return 'warning'
+  if (state === 'stopped') return 'neutral'
   if (state === 'broken') return 'danger'
+  if (state === 'blocked') {
+    if (brokenBlock({ state, blockedBy })) return 'danger'
+    if (stoppedBlock({ state, blockedBy }) || blockedBy?.reason === 'busy') return 'neutral'
+    return 'warning'
+  }
   return 'neutral'
 }
 

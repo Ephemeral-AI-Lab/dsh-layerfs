@@ -378,6 +378,7 @@
   padding: 6px 10px;
   border-radius: var(--dsw-radius-m, 8px);
   background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 16px;
 }

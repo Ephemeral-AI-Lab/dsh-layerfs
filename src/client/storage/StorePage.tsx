@@ -17,9 +17,9 @@ import { Empty, Notice, PageHead, StateChip } from '../ui/index.tsx'
 import { useHostEvents } from './hooks.ts'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { canAddProject, storeStateWords, storeTip, storeTone } from './model.ts'
+import { brokenBlock, canAddProject, stoppedBlock, storeNoticeTone, storeStateWords, storeTip, storeTone } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
-import { Location, MachineStartAction, StoreAction, StoreMenu, storeNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
+import { Location, MachineStartAction, StoreAction, StoreMenu, storePageNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
 import { StoreBackups, StoreConnection } from './StoreLinks.tsx'
 import { StoreOverview } from './StoreOverview.tsx'
 import { StoreProjects } from './StoreProjects.tsx'
@@ -73,7 +73,8 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
   if (!s || !on) return <><PageHead title={name} /><Empty title={t('storeMissing', { name })}>{t('storeMissingBody')}</Empty></>
   const pg = s.kind === 'postgresql'
   const machineState = view.machines.find((m) => m.name === s.machine)?.state
-  const notice = storeNotice(s, machineState, t)
+  const notice = storePageNotice(s, machineState, t)
+  const noticeTone = storeNoticeTone(s, machineState)
   const running = runningByProject(s.name, machines.data?.available ? machines.data.sandboxes : null)
   // A job of an earlier Store that had this name (over before this one was created) is not this Store's.
   const current = job && (s.created == null || (job.ended ?? Infinity) >= s.created) ? job : undefined
@@ -86,7 +87,7 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
   return (
     <>
       <PageHead title={s.name} icon={<StoreGlyph kind={s.kind} size={22} />}
-        badge={s.state !== 'ready' ? <StateChip tone={storeTone(s.state)} label={storeStateWords(s.state, t)} live={s.state === 'busy'} /> : undefined}
+        badge={s.state !== 'ready' ? <StateChip tone={storeTone(s.state, s.blockedBy)} label={stoppedBlock(s) ? t('stateMachineStopped') : storeStateWords(s.state, t)} live={s.state === 'busy'} /> : undefined}
         intro={(
           <span className={css.cardSub}>
             <span>{pg ? t('postgresql') : t('sqlite')}</span>
@@ -103,11 +104,11 @@ export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenPro
         )} />
 
       {notice ? (
-        <Notice tone="danger" role="alert">
+        <Notice tone={noticeTone} role={noticeTone === 'danger' ? 'alert' : 'status'} className={tabCss.noticeRow}>
           {/* the state word and its reason; LayerFS's sentence is the tip, the fix the one action */}
           <StoreNoticeWords s={s} t={t} notice={notice} />
           {/* the machine's Start behind the press guard, like every power control (MachineStartAction) */}
-          {s.kind === 'sqlite' && machineState === 'stopped' ? <MachineStartAction machine={s.machine ?? ''} t={t} onStart={on.start} /> : <StoreAction store={s} t={t} />}
+          {s.state !== 'broken' && !brokenBlock(s) && s.kind === 'sqlite' && machineState === 'stopped' ? <MachineStartAction machine={s.machine ?? ''} t={t} onStart={on.start} /> : <StoreAction store={s} t={t} onStart={on.start} machineState={machineState} />}
         </Notice>
       ) : null}
       {current ? <JobPanel job={current} t={t} onRetry={() => on.retry(current)} onDismiss={() => on.dismiss(current)} /> : s.state === 'busy' && s.op ? <OpPanel store={s} t={t} /> : null}
