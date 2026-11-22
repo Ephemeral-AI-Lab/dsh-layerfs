@@ -550,6 +550,9 @@
   justify-content: flex-end;
 }
 
+.modeBar [role="tablist"] { width: min(100%, 246px); }
+.modeBar [role="tab"] { flex: 1 1 0; min-width: 0; padding-inline: 8px; }
+
 .modeBody {
   display: flex;
   flex: 1;
@@ -592,7 +595,7 @@
   gap: 1px;
   width: 100%;
   min-width: 0;
-  padding: 3px 8px;
+  padding: 8px 10px;
   border: 0;
   background: none;
   color: inherit;
@@ -633,7 +636,7 @@
 }
 
 .blameMeta code {
-  font-family: var(--ds-font-family-code);
+  font-family: inherit;
 }
 
 /* Long branch names stay on their line instead of pushing into the next column. */
@@ -647,14 +650,14 @@
 
 .blameUnknown {
   display: block;
-  padding: 3px 8px;
+  padding: 8px 10px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
 }
 
 .blameLines {
   min-width: 0;
-  padding: 2px 0;
+  padding: 8px 0;
   overflow-x: auto;
 }
 
@@ -662,7 +665,7 @@
   display: flex;
   gap: 10px;
   padding: 0 10px 0 0;
-  line-height: 20px;
+  line-height: 18px;
   white-space: pre;
 }
 
@@ -670,13 +673,13 @@
   flex: none;
   width: 36px;
   text-align: right;
-  font-family: var(--ds-font-family-code);
+  font-family: inherit;
   color: var(--dsw-alias-label-tertiary);
   user-select: none;
 }
 
 .blameText {
-  font-family: var(--ds-font-family-code);
+  font-family: inherit;
   color: var(--dsw-alias-label-primary);
 }
 

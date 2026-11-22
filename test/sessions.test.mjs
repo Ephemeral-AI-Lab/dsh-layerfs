@@ -9,9 +9,9 @@ import { build } from 'esbuild'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 // Inside the checkout, so the external DSH packages resolve from node_modules.
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-sessions-'))

@@ -305,20 +305,21 @@
 .rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) max-content 72px;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  padding: 8px 0;
+  padding: 12px 0;
 }
 
 .row + .row {
   border-top: 0.5px solid var(--dsw-alias-border-l2);
-  padding-top: 12px;
+
 }
 
 .rowTile {
@@ -378,7 +379,7 @@
 }
 
 .rowAction {
-  flex: none;
+  justify-self: end;
   display: inline-flex;
   align-items: center;
 }
@@ -404,12 +405,15 @@
 }
 
 .rowFollowText {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
 }
+
+.rowFollow + .details { margin-top: 8px; }
+.rowFollow > [role="alert"] { flex-basis: 100%; }
 
 /* Details: the build's pieces, folded away by default */
 .details {
@@ -477,4 +481,12 @@
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.scroll :is(.mono, .commit, .path) { font-family: inherit; }
+.scroll :is(.rowLine.mono, .path) { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .row { grid-template-columns: 32px minmax(0, 1fr) max-content; gap: 6px 10px; }
+  .rowAction { grid-column: 2 / -1; }
+  .rowFollow, .details, .rowNote { margin-inline-start: 42px; }
 }

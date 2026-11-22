@@ -490,20 +490,29 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
       </span>
     )
   }
-  const refusal = (stale: { code: string, message: string }, again: () => void): ReactNode => (
-    <span className={css.refusal} data-files-refusal={stale.code}>
-      <code className={css.code}>{stale.code}</code>
-      <span>{stale.message}</span>
-      <LinkButton onClick={again}>{t('filesReadAgain')}</LinkButton>
-      {stale.code === 'Unavailable' && unavailableAction ? unavailableAction : null}
-    </span>
-  )
+  const refusal = (stale: { code: string, message: string }, again: () => void): ReactNode => {
+    if (stale.code === 'Unavailable' && unavailableAction) {
+      return <div className={css.stoppedNotice} data-files-refusal={stale.code}>
+        <strong>{t('filesMachineStopped', { name })}</strong>
+        <span>{t('filesStartToRead')}</span>
+        <div className={css.stoppedActions}>{unavailableAction}<LinkButton onClick={again}>{t('filesReadAgain')}</LinkButton></div>
+        <details><summary>{t('filesErrorDetails')}</summary><p>{stale.code} · {stale.message}</p></details>
+      </div>
+    }
+    return (
+      <span className={css.refusal} data-files-refusal={stale.code}>
+        <span className={css.code}>{stale.code}</span>
+        <span>{stale.message}</span>
+        <LinkButton onClick={again}>{t('filesReadAgain')}</LinkButton>
+      </span>
+    )
+  }
   const pendingNote = (key: string): ReactNode => (pending[key] ? waiting(pending[key]!.since, () => stopRead(key)) : t('files_reading'))
   const failedNote = (key: string, error: Error): ReactNode => refusal({ code: errorCode(error) ?? 'Unknown', message: error.message }, () => load(key, shown))
   const moreOf = (key: string): TreeMore => {
     const m = meta[key], p = pending[key]
     if (p?.more) return { label: t('files_reading'), busy: true, note: waitedSeconds(p.since, now) !== null ? waiting(p.since, () => stopRead(key)) : undefined }
-    if (m?.moreError) return { label: t('filesReadAgain'), note: <span className={css.refusal} data-files-refusal={m.moreError.code}><code className={css.code}>{m.moreError.code}</code><span>{m.moreError.message}</span></span> }
+    if (m?.moreError) return { label: t('filesReadAgain'), note: <span className={css.refusal} data-files-refusal={m.moreError.code}><span className={css.code}>{m.moreError.code}</span><span>{m.moreError.message}</span></span> }
     return { label: m?.reason === 'deadline' ? t('filesDeadline') : t('filesMore') }
   }
   const afterNote = (key: string): ReactNode => {

@@ -4,10 +4,10 @@ import { build } from 'esbuild'
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync, symlinkSync, chmodSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-project-persistence-'))
 await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/session-persistence.ts'; export { SessionStore, planStream, PART_LIMIT, COMPACT_FLOOR } from './src/host/sessions/store.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'persistence.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'] })

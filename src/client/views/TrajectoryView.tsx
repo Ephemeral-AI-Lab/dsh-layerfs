@@ -149,11 +149,15 @@ function Chevron({ open }: { open: boolean }): ReactNode {
   return open ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronRightOutlineRegular size={12} />
 }
 
-/** DSH's fold toggle: ⊟ folds every item, ⊞ unfolds them again. */
+/** Fold/unfold toggle with crisp 14px SVG glyph. */
 function FoldToggle({ folded, label, expand, collapse, onClick }: { folded: boolean, label: string, expand: string, collapse: string, onClick: () => void }): ReactNode {
   return (
     <button type="button" className={css.action} aria-label={folded ? expand : collapse} title={folded ? expand : collapse} onClick={onClick}>
-      <span className={css.actionIcon} aria-hidden="true">{folded ? '⊞' : '⊟'}</span>{label}
+      <svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.35} strokeLinecap="round" strokeLinejoin="round" className={css.actionIcon} aria-hidden="true">
+        <rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2.5" />
+        <path d={folded ? 'M5.5 8h5M8 5.5v5' : 'M5.5 8h5'} />
+      </svg>
+      <span>{label}</span>
     </button>
   )
 }
@@ -372,34 +376,40 @@ export function TrajectoryView(props: ViewProps): ReactNode {
   const empty = !answer.turns.some((turn) => turn.records.length || turn.orphanCalls.length || turn.hostOps.length || turn.checkpoints.length)
   return (
     <div className={clsx(views.frame, css.frame)}>
-      <div className={css.toolbar} role="toolbar" aria-label={t('trajToolbar')}>
-        <div className={css.actions}>
-          <FoldToggle folded={allTurnsFolded} label={t('trajTurns')} expand={t('trajExpandTurns')} collapse={t('trajCollapseTurns')}
-            onClick={() => { setTurnsDefault(allTurnsFolded ? 'all' : 'none'); setTurnOverride(new Map()) }} />
-          {layerfs ? (
-            <>
-              <FoldToggle folded={allCallsFolded} label={t('trajLayerfsCalls')} expand={t('trajExpandCalls')} collapse={t('trajCollapseCalls')}
-                onClick={() => { setCallsDefault(allCallsFolded); setCallOverride(new Map()) }} />
-              <button type="button" role="checkbox" aria-checked={onlyWrites} className={css.action} onClick={() => setOnlyWrites(!onlyWrites)}>
-                <IconDatabaseOutlineRegular size={12} className={css.actionIcon} />{t('trajOnlyWrites')}
-              </button>
-            </>
-          ) : null}
+      <div className={css.controlsCard}>
+        <div className={css.toolbar} role="toolbar" aria-label={t('trajToolbar')}>
+          <div className={css.actions}>
+            <FoldToggle folded={allTurnsFolded} label={t('trajTurns')} expand={t('trajExpandTurns')} collapse={t('trajCollapseTurns')}
+              onClick={() => { setTurnsDefault(allTurnsFolded ? 'all' : 'none'); setTurnOverride(new Map()) }} />
+            {layerfs ? (
+              <>
+                <FoldToggle folded={allCallsFolded} label={t('trajLayerfsCalls')} expand={t('trajExpandCalls')} collapse={t('trajCollapseCalls')}
+                  onClick={() => { setCallsDefault(allCallsFolded); setCallOverride(new Map()) }} />
+                <button type="button" role="checkbox" aria-checked={onlyWrites} className={css.action} onClick={() => setOnlyWrites(!onlyWrites)}>
+                  <IconDatabaseOutlineRegular size={14} className={css.actionIcon} /><span>{t('trajOnlyWrites')}</span>
+                </button>
+              </>
+            ) : null}
+          </div>
+
+          <label className={css.search}>
+            <IconSearchOutlineRegular size={13} className={css.searchIcon} />
+            <input type="search" className={css.searchInput} placeholder={t('trajSearchPlaceholder')} aria-label={t('trajSearch')}
+              value={query} onChange={(e) => setQuery(e.currentTarget.value)} />
+          </label>
         </div>
-        <span className={css.counts}>
-          {[
-            layerfs ? t('trajCounts', { n: answer.counts.versionsCreated, m: answer.counts.callsWithVersions }) : null,
-            span ? t('trajTotal', { duration: durationText(t, span.end - span.start) }) : null,
-          ].filter(Boolean).join(' · ')}
-        </span>
-        <label className={css.search}>
-          <IconSearchOutlineRegular size={11} className={css.searchIcon} />
-          <input type="search" className={css.searchInput} placeholder={t('trajSearchPlaceholder')} aria-label={t('trajSearch')}
-            value={query} onChange={(e) => setQuery(e.currentTarget.value)} />
-        </label>
+        {!answer.logLoaded ? <p className={clsx(css.note, css.frameNote)}>{t('trajNoLog')}</p> : null}
+        <div className={css.timelineHead}>
+          <h2>{t('trajTimeline')}</h2>
+          <span className={css.counts}>
+            {[
+              layerfs ? t('trajCounts', { n: answer.counts.versionsCreated, m: answer.counts.callsWithVersions }) : null,
+              span ? t('trajTotal', { duration: durationText(t, span.end - span.start) }) : null,
+            ].filter(Boolean).join(' · ')}
+          </span>
+        </div>
+        <TrajectoryTimeline turns={filtered} now={now} span={span} selected={selected} onSelect={onTimeline} t={t} layerfs={layerfs} />
       </div>
-      {!answer.logLoaded ? <p className={clsx(css.note, css.frameNote)}>{t('trajNoLog')}</p> : null}
-      <TrajectoryTimeline turns={filtered} now={now} span={span} selected={selected} onSelect={onTimeline} t={t} layerfs={layerfs} />
       <div className={css.body}>
         <div className={css.table} ref={scroller}>
           {empty ? <EmptyState title={t('trajEmpty')}>{t('trajEmptyBody')}</EmptyState>

@@ -6,10 +6,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(root, 'lib', '.test-machine-tabs-'))
 await build({ absWorkingDir: root, stdin: { contents: "export * from './src/client/machines/machine-tabs.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'tabs.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })
 const T = await import(pathToFileURL(join(out, 'tabs.mjs')).href)
@@ -22,9 +22,9 @@ const needsYou = (b) => b.state === 'broken'
 
 test('tabs: Overview, Sandboxes and Stores always; Images, Files and Worker log by what the machine and CLI have; no Usage or Disk tab (both live on the Overview)', () => {
   assert.deepEqual(T.machineTabs({ images: false, files: false, log: false }), ['overview', 'sandboxes', 'stores'])
-  assert.deepEqual(T.machineTabs({ images: true, files: true, log: true }), ['overview', 'sandboxes', 'stores', 'images', 'files', 'log'])
-  assert.deepEqual(T.machineTabs({ images: false, files: true, log: false }), ['overview', 'sandboxes', 'stores', 'files'])
-  assert.deepEqual(T.machineTabs({ images: true, files: false, log: false }), ['overview', 'sandboxes', 'stores', 'images'])
+  assert.deepEqual(T.machineTabs({ images: true, files: true, log: true }), ['overview', 'images', 'files', 'sandboxes', 'stores', 'log'])
+  assert.deepEqual(T.machineTabs({ images: false, files: true, log: false }), ['overview', 'files', 'sandboxes', 'stores'])
+  assert.deepEqual(T.machineTabs({ images: true, files: false, log: false }), ['overview', 'images', 'sandboxes', 'stores'])
 })
 
 test('Sandbox cards: those that need you first, joined with sampler values and disk by name; counts per filter', () => {

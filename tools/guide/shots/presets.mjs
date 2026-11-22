@@ -6,7 +6,7 @@
 /** The Presets dialog, on one preset. */
 async function presets(page, h, pick = 'Starter') {
   await h.home()
-  await page.locator('nav[class*=tools]').getByRole('button', { name: 'Try a preset', exact: true }).click()
+  await page.getByRole('group').getByRole('button', { name: 'Try a preset', exact: true }).click()
   await page.getByRole('navigation', { name: 'Presets' }).waitFor({ timeout: 20000 })
   await page.getByRole('navigation', { name: 'Presets' }).getByRole('button', { name: new RegExp(`^${pick}`) }).click()
   await h.wait(1500)

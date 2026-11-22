@@ -17,7 +17,7 @@
  * LayerFS's backup.list skips every other object, so nothing is filtered here.
  */
 import { useState, type ReactNode } from 'react'
-import { Button, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MoreMenu } from '../ui/index.tsx'
@@ -47,12 +47,11 @@ function whereOf(b: BucketRow, t: StorageT): string {
   return providerWords(b.provider, t)
 }
 
-export function BucketCards({ view, t, now, jobs, onOpen, onAddBucket, onList, onReconnect, onRestore }: {
+export function BucketCards({ view, t, now, jobs, onOpen, onList, onReconnect, onRestore }: {
   view: StorageView, t: StorageT, now: number
   /** Running jobs. */
   jobs: readonly StorageJob[]
   onOpen: (id: TabId) => void
-  onAddBucket: () => void
   /** Lists a bucket's files again. */
   onList: (bucket: string) => void
   /** Connect again… (a refused key, or a record with no key): the Connect dialog with its name and URL. */
@@ -67,9 +66,7 @@ export function BucketCards({ view, t, now, jobs, onOpen, onAddBucket, onList, o
         <span className={css.emptyIcon}><BucketGlyph size={16} /></span>
         <span className={css.emptyText}>
           <span className={css.emptyTitle}>{t('ovNoBuckets')}</span>
-          <span className={css.line}>{t('ovNoBucketsBody')}</span>
         </span>
-        <Button variant="outline" size="sm" onClick={onAddBucket}>{t('ovAddBucket')}</Button>
       </div>
     )
   }
@@ -129,7 +126,7 @@ function BucketCard({ b, view, t, now, jobs, onOpen, onList, onReconnect, onRest
       <header className={css.head}>
         <span className={css.mark}><BucketMark provider={b.provider} size={15} /></span>
         <button type="button" className={css.name} title={b.name} onClick={open}>{b.name}</button>
-        <Signal state={state} size={6} title={failed ?? (unlisted ? t('ovBucketUnlisted') : t('ovSignalReady'))} detail={failed ? tip : undefined} />
+        {failed ? <Signal state={state} size={6} title={failed} detail={tip} /> : null}
         <span className={css.menu}>
           <MoreMenu label={t('bcMore', { bucket: b.name })}>
             {(close) => (
@@ -166,7 +163,6 @@ function BucketCard({ b, view, t, now, jobs, onOpen, onList, onReconnect, onRest
                     <button type="button" className={css.restore} onClick={() => onRestore(b.name, f.file)}>{t('ovRestore')}</button>
                   ) : (
                     <span className={css.store} title={[chip.label, f.modified ? when(f.modified) : null, f.reason].filter(Boolean).join(' · ')}>
-                      <span className={css.dot} data-health={health} />
                       {f.storeName && f.store
                         ? <button type="button" className={css.storeName} onClick={() => onOpen(`store:${f.storeName}`)}>{f.storeName}</button>
                         : <span className={css.storeName}>{f.storeName ?? '—'}</span>}

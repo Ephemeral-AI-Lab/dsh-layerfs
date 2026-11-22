@@ -11,6 +11,7 @@ import { NS as DOCTOR_NS } from '../doctor/locale.ts'
 import { LOGS_NS } from '../logs/index.tsx'
 import type { MachinesShare } from '../machines/index.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
+import { NS as LIST_NS } from '../projects/list-locale.ts'
 import { createSidebarRail } from '../overview/rail.tsx'
 import { PRESETS_NS } from '../presets/index.tsx'
 import { SETUP_MODAL_NS } from '../setup/index.tsx'
@@ -53,11 +54,11 @@ export function registerStorage(ctx: any, api: LayerfsApi, machines: MachinesSha
   // column, like the shell's own toggle. The shell's `wide` owner share arrives
   // through a sidebar.footer.action probe; panelInfo fires on every layout
   // change including the collapse itself, so act only on the transition in.
-  const rail = createSidebarRail(ctx.layout)
+  const rail = createSidebarRail(ctx.layout, PANEL_ID)
   ctx.effect(() => ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
     name: 'sidebar.footer.action',
-    id: 'layerfs-sidebar-wide',
-  }, rail.Probe)), 'dsh-layerfs: sidebar rail probe')
+    id: 'layerfs-sidebar-wide', locale: LIST_NS,
+  }, rail.Footer)), 'dsh-layerfs: Center sidebar fold action')
   ctx.effect(() => {
     let was = false
     const sync = (): void => {
@@ -69,21 +70,6 @@ export function registerStorage(ctx: any, api: LayerfsApi, machines: MachinesSha
     sync()
     return ctx.layout?.panelInfo?.subscribe?.(sync) ?? (() => {})
   }, 'dsh-layerfs: storage sidebar fold')
-  // The row's button is the shell's — a re-click on the active panel changes
-  // nothing panelInfo can see. The only per-row fact we own is the label the
-  // registration resolves onto the button, so a document listener watches for
-  // clicks on the nav button carrying it.
-  ctx.effect(() => {
-    const onClick = (event: MouseEvent): void => {
-      const button = (event.target as Element | null)?.closest?.('button[aria-label]')
-      if (button == null) return
-      if (button.getAttribute('aria-label') !== t('panel')) return
-      if (button.closest('nav') === null) return
-      rail.collapse()
-    }
-    document.addEventListener('click', onClick)
-    return () => document.removeEventListener('click', onClick)
-  }, 'dsh-layerfs: storage row fold')
   // The sidebar's one LayerFS row: it opens Center (Health and Logs are Center pages; Settings opens the setup modal).
   ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
     name: 'sidebar.panellist',

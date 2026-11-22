@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Keyless live browser proof. Use a private dev server with dev/fake-llm.overlay.yml.
 // Exercises normal model labels, script inspection, Stop and same-session tools.
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -25,7 +26,7 @@ const until = async (description, read, timeout = 240000, interval = 250) => {
   }
 }
 // Turns of a session that closed without a single step (an empty "Completed" turn).
-const sessionHome = process.env.DSH_LAYERFS_SESSION_HOME ?? join(process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname, 'project-sessions')
+const sessionHome = process.env.DSH_LAYERFS_SESSION_HOME ?? join(process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url)), 'project-sessions')
 const findLog = async (directory, sessionId) => {
   for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory()) continue

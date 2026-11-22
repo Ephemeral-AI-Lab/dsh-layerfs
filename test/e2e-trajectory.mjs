@@ -12,6 +12,7 @@
 // opens it on that call. Each mode shows one Trajectory tab: a plain folder
 // session (DSH mode) keeps DSH's stock Trajectory (its "Duration" toolbar), and
 // returning to the project session brings ours back.
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -43,7 +44,7 @@ const store = `e2etj${tag}`, name = 'demo', project = `${store}/${name}`
 let failed = false, sid
 try {
   step(`store + project ${project}`)
-  const fixtureRoot = join(process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname, 'fixtures')
+  const fixtureRoot = join(process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url)), 'fixtures')
   mkdirSync(fixtureRoot, { recursive: true })
   const src = mkdtempSync(join(fixtureRoot, 'trajectory-'))
   writeFileSync(join(src, 'README.md'), '# demo\n')

@@ -1,5 +1,7 @@
-<!-- source: 2bc385be1a58 -->
+<!-- source: ef1b407fb9d2 -->
 # 入口
+
+> 截图来自独立的指南环境，使用固定版本的 LayerFS 运行时和预置的 `handbook` 项目。
 
 > **位置：** DSH 窗口里、Center 之外 · **打开方式：** —（一直都在） · **源码：** 见文末
 
@@ -12,13 +14,13 @@ LayerFS 项目之间切换的 Workspaces 开关、New Session 行上的项目控
 | # | 组件 | 说明 |
 |---|---|---|
 | 1 | LayerFS 行 | 打开 Center（[主页](home.md)）的侧边栏行 |
-| 2 | Workspaces 开关 | Workspaces 标题里的 LayerFS 图标：DSH 工作区 ↔ LayerFS 项目 |
+| 2 | Workspaces 开关 | DSH 侧边栏底部或 LayerFS 项目视图标题中的切换按钮：DSH 工作区 ↔ LayerFS 项目 |
 | 3 | 项目控件 | New Session 行上的 **无项目**（No project）/ 项目名 |
 
 ## 布局
 
 DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More 并列）以及 Workspaces 列表。
-LayerFS 在 Workspaces 标题里加了一个开关；在 LayerFS 视图里，列表显示的是项目而不是文件夹。
+在 DSH 视图中，**显示 LayerFS 项目**（Show LayerFS projects）位于侧边栏底部的 More 上方，LayerFS 视图的开关在 Workspaces 标题中；在 LayerFS 视图里，列表显示的是项目而不是文件夹。
 在 New Session 行上，文件夹和模式选择器旁边，LayerFS 加了项目控件；会话一旦有了项目，它的文件夹
 选择器就变成草稿目录选择器。项目对话带有 **LayerFS** 智能体预设，以及文件、历史和 Sandbox 标签
 （[对话](conversation.md)）。
@@ -29,7 +31,7 @@ LayerFS 在 Workspaces 标题里加了一个开关；在 LayerFS 视图里，列
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| LayerFS 行 | LayerFS 图标和 **LayerFS** | 按下 → Center 打开到上次的页面（第一次是主页），侧边栏收成图标栏；Center 打开时再按一次，侧边栏会再次收起 | —（打开一个视图；之后主页会读取，见[主页](home.md#layout)） | Center 打开时高亮 |
+| LayerFS 行 | LayerFS 图标和 **LayerFS** | 按下 → Center 打开到上次的页面（第一次是主页），侧边栏收成图标栏；侧边栏重新展开后，按底部的 **保持 LayerFS 中心打开并折叠侧栏**（Fold sidebar with LayerFS Center open）可再次收起侧边栏 | —（打开一个视图；之后主页会读取，见[主页](home.md#layout)） | Center 打开时高亮 |
 | 1 图标栏上的 LayerFS 图标 | 同一行，收起后只剩图标 | 按下 → Center | — | — |
 | 2 LayerFS 项目 | 图标栏上的文件夹图标 | 按下 → 侧边栏重新展开，显示 Workspaces 列表 | — | 只在收起的图标栏上有 |
 
@@ -45,10 +47,10 @@ LayerFS 在 Workspaces 标题里加了一个开关；在 LayerFS 视图里，列
 | 1 开关 | LayerFS 图标；**显示 LayerFS 项目**（Show LayerFS projects）/ **显示 DSH 工作区**（Show DSH workspaces） | 按下 → 另一个列表 | —（记住的视图） | LayerFS 视图下为按下状态 |
 | 2 + | **新建会话或项目**（New session or project） | 按下 → 新建菜单（见下） | — | 只在 LayerFS 视图里有 |
 | 3 项目行 | **handbook** 和折叠箭头；两个项目同名时加 **· {store}**；不能运行时有一个原因词（**已停止**（Stopped）、**不可用**（Unavailable）、**机器已停止**（Machine stopped）…） | 按下 → 展开它的会话 | `projects.recent`（本地，没有调用）结合 `projects.catalog`：`project list`、`branch list`、`store get` (读取)，以及存储和机器视图 (读取)；每 60 秒一次，有事件时也会读 | — |
-| 4 ⚙ | **设置 {project}**（Set up {project}，悬停时出现） | 按下 → 打开这个项目的[项目对话框](#project-dialog) | —（打开对话框） | — |
+| 4 ⚙ | **设置 {project}**（Set up {project}，悬停或键盘聚焦时出现） | 按下 → 打开这个项目的[项目对话框](#project-dialog) | —（打开对话框） | — |
 | 5 + | **在 {project} 中新建会话**（New session in {project}，悬停时出现） | 按下 → 一个新的项目对话（见[下文](#new-session-in-a-project)） | `sessions.choose`：`project get`（第一次认领时还有 `branch list`、`branch fork`） | 不可用，并显示 **无法在此新建会话：{reason}**（Can’t start a session here: {reason}） |
 | | **启动 {machine}**（Start {machine}） | 项目的机器停止时代替 + 出现；按下 → 启动它 | `machine start` | 操作结束后才能再按 |
-| 6 会话行 | **Fake session** | 按下 → 打开那个对话 | `sessions.open`：日志在本机时没有调用；否则 `branch list`、`project export` | **已中断**（Interrupted），提示文字是错误信息 |
+| 6 会话行 | **New session** | 按下 → 打开那个对话 | `sessions.open`：日志在本机时没有调用；否则 `branch list`、`project export` | **已中断**（Interrupted），提示文字是错误信息 |
 | | 归档图标 | **归档 {session}**（Archive {session}）→ 它离开列表（在 DSH 的 Archived 列表里可以找回） | —（DSH 的归档） | **未归档**（Not archived），附 **重试**（Try again） |
 
 会话列表每 15 秒读一次本地会话，每 60 秒读一次 Store 里归档的对话（`sessions.list`：`branch list`、
@@ -75,7 +77,7 @@ LayerFS 在 Workspaces 标题里加了一个开关；在 LayerFS 视图里，列
 |---|---|---|---|---|
 | 控件块 | **无项目**（No project）或项目名；aria 为 **LayerFS 项目：{project}**（LayerFS project: {project}） | 按下 → 菜单 | `session.place`（主机状态，没有调用） | — |
 | **无项目**（No project） | 会话没有项目时打勾 | 选择 → 普通的 DSH 会话 | — | — |
-| 项目行 | **bookshelf** `docker`、**handbook** **LayerFS Home**：名称和运行位置；悬停时有 ⚙ **设置 {project}**（Set up {project}） | 选择 → 会话加入这个项目（智能体预设变成 **LayerFS**）· ⚙ → [项目对话框](#project-dialog) | `sessions.choose`：`project get`，第一次认领时还有 `branch list`、`branch fork`；之后在后台同步 Store | **无法打开项目：{message}**（Could not open the project: {message}） |
+| 项目行 | **bookshelf** 和 **handbook** 均显示 **LayerFS Home**：名称和运行位置；悬停时有 ⚙ **设置 {project}**（Set up {project}） | 选择 → 会话加入这个项目（智能体预设变成 **LayerFS**）· ⚙ → [项目对话框](#project-dialog) | `sessions.choose`：`project get`，第一次认领时还有 `branch list`、`branch fork`；之后在后台同步 Store | **无法打开项目：{message}**（Could not open the project: {message}） |
 | **新建项目…**（New project…）· **导入文件夹…**（Import a folder…） | — | → 以对应模式打开[项目对话框](#project-dialog) | 见那里 | — |
 | 导入进度 | **正在导入 {name}…**（Importing {name}…）· 正在统计文件（Counting files）、正在检查（Checking）、正在发送文件（Sending files）、正在写入层（Writing layers）、正在记录项目（Recording the project）、正在打开（Opening） | — | `project init`（轮询的任务） | **导入失败**（Import failed），附 **关闭**（Dismiss） |
 
@@ -90,7 +92,7 @@ LayerFS 在 Workspaces 标题里加了一个开关；在 LayerFS 视图里，列
 
 ## 草稿目录选择器
 
-没有截图：它只出现在项目会话的 New Session 行上，而放置一个会话会改变状态。
+下图中，点击项目草稿里的 **Scratch: default-workspace**（1）即可打开文件夹选择器。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
@@ -101,12 +103,13 @@ LayerFS 在 Workspaces 标题里加了一个开关；在 LayerFS 视图里，列
 
 ## 项目对话
 
-![DSH 视图里的一个项目对话](../img/entry-project-session.png)
+![handbook 草稿的目录、项目和 LayerFS 预设](../img/entry-project-session.png)
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 1 Workspaces 列表（DSH 视图） | 项目会话不在这里：LayerFS 给每个项目会话的行打上标记并把它藏起来，所以它们只列在 LayerFS 视图里各自的项目下面。它所在的 DSH 分组（这里是 **Ungrouped**，即 Scratch 工作区）可能看起来是空的。 | 切到 LayerFS 视图才能看到它们 | 每行一次 `session.place`（主机状态，没有调用） | — |
-| 2 智能体预设 | 标题旁的 **LayerFS**；提示文字：“LayerFS project sessions: everything through bash and the LayerFS CLI ($DSH_LAYERFS_CLI), so a project on any machine works the same way.” | — | — | — |
+| Workspaces 列表（DSH 视图） | 项目会话不在这里：LayerFS 给每个项目会话的行打上标记并把它藏起来，所以它们只列在 LayerFS 视图里各自的项目下面。它所在的 DSH 分组可能为空。 | 切到 LayerFS 视图才能看到它们 | 每行一次 `session.place`（主机状态，没有调用） | — |
+| 1 草稿目录 · 2 项目 | **Scratch: default-workspace** 和 **handbook** | 点击可打开各自的选择器 | `sessions.scratchOptions` / `session.place` | — |
+| 3 智能体预设 | 草稿控件里的 **LayerFS**；提示文字：“LayerFS project sessions: everything through bash and the LayerFS CLI ($DSH_LAYERFS_CLI), so a project on any machine works the same way.” | — | — | — |
 | 标签 | **轨迹**（Trajectory）、**文件**（Files）、**历史**（History）、**Sandbox**、**统计**（Stats） | → [对话](conversation.md) | 见那里 | — |
 
 ## 项目对话框
@@ -122,9 +125,9 @@ LayerFS 在 Workspaces 标题里加了一个开关；在 LayerFS 视图里，列
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 1 步骤栏 | **项目**（Project）· **存储**（Store）· **机器**（Machine），各带摘要（**尚未命名**（Not named yet）、**SQLite · 新建 · project**（SQLite · new · project）、**LayerFS Home**） | 按某一步 → 跳到那一部分 | — | 未完成时显示序号，设置好后显示勾，需要你处理时为橙色 |
-| 起点 | **空项目**（Empty）· **本机上的文件夹**（Folder on this Mac） | **本机上的文件夹**（Folder on this Mac）→ 出现一个文件夹字段，带 **浏览…**（Browse…） | — | — |
+| 2 起点 | **空项目**（Empty）· **本机上的文件夹**（Folder on this Mac） | **本机上的文件夹**（Folder on this Mac）→ 出现一个文件夹字段，带 **浏览…**（Browse…） | — | — |
 | 名称 | **也是它在存储中的文件夹名。**（Also the name of its folder in the Store.）/ **保存为 {slug}**（Saved as {slug}） | 输入 | — | — |
-| 2 类型 | **SQLite**“一台机器上的一个文件。”（A file on one machine.）· **PostgreSQL**“任何机器都能使用的服务器。”（A server any machine can use.） | 选择 | — | — |
+| 类型 | **SQLite**“一台机器上的一个文件。”（A file on one machine.）· **PostgreSQL**“任何机器都能使用的服务器。”（A server any machine can use.） | 选择 | — | — |
 | 存储 | **新建存储**（New Store）· **已有 · {n}**（Existing · {n}）；存储名称（Store name） | 选择或输入 | `GET /api/storage` (读取) | — |
 | 3 取消（Cancel） | — | 关闭；什么都不会创建 | — | — |
 | 4 创建并打开（Create and open） | — | 按顺序执行各步：检查文件夹、创建 Store、初始化项目、放置 Store、打开会话 | `store create`、`project init`（轮询的任务）、`store move`（任务，不在本机时才有）、`sessions.choose`；文件夹检查 `POST /api/project-sources/check`（仅主机） | 每一步显示进度；被拒绝时显示 **创建已停止**（Create stopped），附 **修改{part}**（Edit {part}） |
@@ -134,7 +137,7 @@ LayerFS 在 Workspaces 标题里加了一个开关；在 LayerFS 视图里，列
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 机器 | 磁贴：**docker**（运行中（Running））、**LayerFS Home**（本机，无隔离（This Mac, unisolated），**默认**（Default））、**新建机器**（New machine） | 选择 Store 文件放在哪里：“存储文件所在的位置，其中项目的会话也在那里运行。”（Where the Store file lives. Its projects’ sessions run there.）· **新建机器**（New machine）→ 关闭对话框，打开 主页 › 机器，并展开添加机器（Add a machine） | `GET /api/platforms`：`home get` (读取) | 已停止的机器会先提供 **启动 {machine}**（Start {machine}）（`machine start`） |
+| 机器 | 磁贴：**docker**（当前无法运行）、**LayerFS Home**（本机，无隔离（This Mac, unisolated），**默认**（Default））、**新建机器**（New machine） | 选择 Store 文件放在哪里：“存储文件所在的位置，其中项目的会话也在那里运行。”（Where the Store file lives. Its projects’ sessions run there.）· **新建机器**（New machine）→ 关闭对话框，打开 主页 › 机器，并展开添加机器（Add a machine） | `GET /api/platforms`：`home get` (读取) | 已停止的机器会先提供 **启动 {machine}**（Start {machine}）（`machine start`） |
 
 ![PostgreSQL](../img/entry-project-pg.png)
 
@@ -188,14 +191,14 @@ Store 已经不在的项目会显示：“此项目的存储已不在这个 Laye
 
 ![设置 LayerFS](../img/entry-setup.png)
 
-可以从主页的运行时按钮和 **设置**（Settings）、从设置卡片打开；缺东西时，每次加载页面它也会自己弹出一次
+可以从主页的运行时按钮、Center 导航栏的 **设置**（Settings）、从设置卡片打开；缺东西时，每次加载页面它也会自己弹出一次
 （除非你选了 **稍后**（Later））。它读取 `setup.status`（`home get`，文件夹还不存在时还有 `home init`）。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | LayerFS | **就绪**（Ready）或 **{n} 项待处理**（{n} to fix） | — | — | — |
 | 文件夹 | LayerFS 文件夹的路径 | 不能用时给出一行可复制的修复命令 | `home get` (读取) | **就绪**（Ready）、**刚刚创建**（Created just now）、**由旧版 LayerFS 创建**（Made by an older LayerFS）、**尚未创建**（Not created yet）、**无法读取**（Can’t be read） |
-| 运行时 | **LayerFS 2.0.0** `b275fc28` | 1 **更改…**（Change…）（或 **选择…**（Choose…））→ 运行时选择器 · **详情**（Details）→ 它的各个部分（CLI、本机守护进程（Native daemon）、Linux 包（Linux bundle）、Node SDK、终端（Terminal）命令行），带复制按钮 | `--version --json`、`help --json` (读取) | 本机机器记录的是另一个守护进程时，显示 **使用此守护进程**（Use this daemon）：`machine get native`、`machine update native --daemon` |
+| 运行时 | **LayerFS 2.0.0** `ed911896`（Incomplete，缺少 Linux 包） | 1 **更改…**（Change…）（或 **选择…**（Choose…））→ 运行时选择器 · **详情**（Details）→ 它的各个部分（CLI、本机守护进程（Native daemon）、Linux 包（Linux bundle）、Node SDK、终端（Terminal）命令行），带复制按钮 | `--version --json`、`help --json` (读取) | 本机机器记录的是另一个守护进程时，显示 **使用此守护进程**（Use this daemon）：`machine get native`、`machine update native --daemon` |
 | 机器 | **{n}/{total} 可用**（{n} of {total} available）：本机、Docker、Lima、Apple Container | **安装…**（Install…）/ **设置…**（Set up…）→ 操作说明；**检查**（Check）→ 重新读取 | `GET /api/machines?fresh=1`：`home get`、`machine get`、`machine list` (读取) | **就绪**（Ready）、**可用**（Available）、**未安装**（Not installed）、**未运行**（Not running）、**需要设置**（Needs setup）、**需要 Linux 包**（Needs the Linux bundle） |
 | 2 重新检查（Check again） | — | 全部重新读取 | 同上 | — |
 | **稍后**（Later） | 只在缺东西时出现 | 关闭；待办挪到主页的头部卡片上 | —（记在这个浏览器里） | — |
@@ -211,7 +214,7 @@ Store 已经不在的项目会显示：“此项目的存储已不在这个 Laye
 
 ### 设置卡片
 
-没有截图：示例环境已经设置完成。LayerFS 还没设置好时，它会出现在 Center 里、代替主页的标签：
+LayerFS 还没设置好时，它会出现在 Center 里、代替主页的标签：
 **LayerFS 尚未设置**（LayerFS isn’t set up yet）——“选择运行时并检查 LayerFS 文件夹，即可开始使用项目和机器。”
 （Choose a runtime and check the LayerFS folder to start using projects and machines.）（或 **完成 LayerFS 设置**
 （Finish setting up LayerFS）），附 **设置 LayerFS…**（Set up LayerFS…）→ 上面的对话框。
@@ -228,7 +231,7 @@ Store 已经不在的项目会显示：“此项目的存储已不在这个 Laye
 | 对话框 | 打开方式 | 作用 | LayerFS 调用 | 撤销 |
 |---|---|---|---|---|
 | 项目对话框 | 侧边栏 +、项目控件、⚙、主页 | 新建项目、导入文件夹、挑选、设置 | `store create`、`project init`、`store move`、`sessions.choose` | 在主页删除项目 |
-| 设置 LayerFS | 主页的运行时按钮和 **设置**（Settings）、设置卡片、自动弹出 | 文件夹、运行时、机器 | `home get`、`machine update native` | 重新选回原来的运行时 |
+| 设置 LayerFS | 主页的运行时按钮、Center 导航栏的 **设置**（Settings）、设置卡片、自动弹出 | 文件夹、运行时、机器 | `home get`、`machine update native` | 重新选回原来的运行时 |
 | 选择草稿目录（Choose scratch folder） | **输入文件夹路径…**（Enter a folder path…） | 设置项目会话的草稿目录 | — | 另选一个 |
 
 ## 状态与提示

@@ -1,6 +1,12 @@
 # Doctor
 
-> **Where:** `LayerFS › Doctor` · **Opens from:** the Doctor button (shield icon) on Home's [head card](components.md#head-card); **Diagnose** on a machine, Store or Sandbox page · **Source:** see the end
+> **Where:** `LayerFS › Doctor` · **Opens from:** the Doctor button (shield icon) in the [Center nav bar](components.md#nav-bar); **Diagnose** on a machine, Store or Sandbox page · **Source:** see the end
+
+The detail views below the current entry point come from the earlier demo setup.
+
+![1 Doctor, 2 Logs and 3 Settings (isolated fixture data)](img/home-navigation.png)
+
+*Isolated fixture data.*
 
 The Doctor page shows the whole LayerFS home as one tree (this install, its machines, Stores,
 projects, Sandboxes and backup buckets) and what LayerFS's doctors last said about each. Come

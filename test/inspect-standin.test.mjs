@@ -3,6 +3,7 @@
 // cli-standin-lib.mjs): they must answer as layerfs-project#178 describes, or
 // the UI checks run against them check nothing. Never evidence about a real build.
 //   node --test test/inspect-standin.test.mjs
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
@@ -10,8 +11,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, s
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const filesShim = new URL('./fixtures/cli-inspect-files.mjs', import.meta.url).pathname
-const fieldsShim = new URL('./fixtures/cli-inspect-fields.mjs', import.meta.url).pathname
+const filesShim = fileURLToPath(new URL('./fixtures/cli-inspect-files.mjs', import.meta.url))
+const fieldsShim = fileURLToPath(new URL('./fixtures/cli-inspect-fields.mjs', import.meta.url))
 
 /** A fixture folder, a tree that is a target's `/`, and a last CLI that answers `help --json`, `sandbox get` and `workspace exec`. */
 function fixture(targets = {}) {
@@ -19,7 +20,7 @@ function fixture(targets = {}) {
   const root = join(dir, 'root')
   const put = (path, text = '', mode) => { mkdirSync(join(root, path, '..'), { recursive: true }); writeFileSync(join(root, path), text); if (mode !== undefined) chmodSync(join(root, path), mode) }
   const last = join(dir, 'last-cli.mjs')
-  writeFileSync(last, `#!${process.execPath}
+  writeFileSync(last, `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs'
 const a = process.argv.slice(2)
 appendFileSync(${JSON.stringify(join(dir, 'last.log'))}, JSON.stringify({ argv: a, real: process.env.LFS_REAL_CLI ?? null, rest: process.env.LFS_REAL_CLI_REST ?? null }) + '\\n')
@@ -161,11 +162,14 @@ test('files: a file is read by window; a binary file has no content', () => {
 test('files: kinds that are listed and never opened, and the refusals for their paths', () => {
   const f = fixture({ whole: 'machine', o_r_outside: '/layerfs', run_folders: ['/layerfs/data/machine/native/run'], overlay: { '/proc': { kind: 'system' }, '/mnt/share': { kind: 'mount', fs: 'virtiofs' } } })
   try {
-    f.put('etc/hosts', 'x')
+    f.put('etc/hosts', 'x', 0o644)
     f.put('etc/shadow', 'secret', 0o600)
     symlinkSync('hosts', join(f.root, 'etc', 'link'))
-    spawnSync('mkfifo', [join(f.root, 'etc', 'pipe')])
+    chmodSync(join(f.root, 'etc'), 0o755)
+    assert.equal(spawnSync('mkfifo', [join(f.root, 'etc', 'pipe')]).status, 0)
+    chmodSync(join(f.root, 'etc', 'pipe'), 0o644)
     mkdirSync(join(f.root, 'mnt'), { recursive: true })
+    chmodSync(join(f.root, 'mnt'), 0o755)
     f.put('layerfs/data/sandbox/s/control.json', '{}')
     f.put('layerfs/data/sandbox/s/record.json', '{}')
     f.put('layerfs/data/store/s/store.sqlite', 'db')

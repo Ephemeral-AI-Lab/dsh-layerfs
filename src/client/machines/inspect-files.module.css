@@ -251,7 +251,7 @@
   border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-state-error-primary);
-  font-family: var(--ds-font-family-code);
+  font-family: inherit;
   font-size: 11.5px;
 }
 
@@ -291,3 +291,9 @@
     text-decoration: underline;
   }
 }
+
+.stoppedNotice { display: grid; gap: 6px; min-width: 0; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
+.stoppedNotice strong { font-weight: 600; color: var(--dsw-alias-label-primary); }
+.stoppedActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-block: 4px; }
+.stoppedNotice summary { cursor: pointer; }
+.stoppedNotice p { margin: 6px 0 0; }

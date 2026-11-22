@@ -189,12 +189,7 @@ function GrowthCard({ journal, t, now }: { journal: ObservationJournal | undefin
   )
 }
 
-/**
- * Each project's packed bytes from its own Commits as a block sized by its
- * share of the Store's stored content. What no Commit counted (project Init
- * imports, and anything before the counters) is one neutral block, so the
- * blocks add up to the Store and a project is never shown as all of it.
- */
+/** Include bytes from before commit accounting so the shares add up to the stored content. */
 function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[] | undefined, stats: StoreStats | undefined, t: StorageT }): ReactNode {
   const shares = projects ? projectShares(projects) : []
   const counted = shares.reduce((a, p) => a + p.bytes, 0)
@@ -206,20 +201,20 @@ function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[
     <Card className={css.panel} data-store-shares>
       <header className={css.panelHead}><h2 className={css.panelTitle}>{t('spSharesTitle')}</h2></header>
       {whole > 0 ? (
-        <div className={css.shares}>
+        <ul className={css.shares}>
           {shares.map((p) => (
-            <div key={p.name} className={css.shareBlock} data-hue={p.hue} style={{ flexGrow: p.bytes }} title={`${p.name} ${bytes(p.bytes)}`}>
+            <li key={p.name} className={css.shareBlock} title={`${p.name} ${bytes(p.bytes)}`}>
               <span className={css.shareName}>{p.name}</span>
               <span className={css.shareValue}>{bytes(p.bytes)} · {Math.round(p.bytes / whole * 100)}%</span>
-            </div>
+            </li>
           ))}
           {rest > 0 ? (
-            <div className={css.shareBlock} data-hue="rest" style={{ flexGrow: rest }} title={`${t('spSharesRest')} ${bytes(rest)}`}>
+            <li className={css.shareBlock} title={`${t('spSharesRest')} ${bytes(rest)}`}>
               <span className={css.shareName}>{t('spSharesRest')}</span>
               <span className={css.shareValue}>{bytes(rest)} · {Math.round(rest / whole * 100)}%</span>
-            </div>
+            </li>
           ) : null}
-        </div>
+        </ul>
       ) : <p className={css.muted}>{!projects ? t('spReading') : refused ? t('spNotRead', { message: refused }) : t('spSharesNone')}</p>}
     </Card>
   )

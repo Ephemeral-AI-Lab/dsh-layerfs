@@ -31,6 +31,7 @@ import { isAbsolute, join, relative, sep } from 'node:path'
 import { StorageObservations } from './storage-observations.ts'
 import { ProjectStorageLedgers } from './project-storage.ts'
 import { lastUsed, pgPlacement, reachedFrom } from '../placement.ts'
+import { READ_TIMEOUT_MS } from '../layerfs/cli.ts'
 import { companionsOf, machineRows, msAt, opOf } from '../layerfs/machine-records.ts'
 import { Answer, PAGE, cliFeatures, fixOf, invalidateSandbox, keyOf, pages, projectRef, refuse, sandboxObservation, type RouteHost } from './util.ts'
 import { processOf, usageOf, type Usage } from './observed.ts'
@@ -97,7 +98,7 @@ function keep<K, V>(map: Map<K, V>, key: K, value: V, most: number): void {
 }
 
 /** A saved id as the file views name it: a publication on main is a Layer, else a Commit. */
-export const savedRef = (id: string | null | undefined, branch?: string | null) => id ? { id, kind: isLayer(id) ? 'Layer' : 'Commit', branch: branch ?? '' } : null
+export const savedRef = (id: string | null | undefined, branch?: string | null) => id ? { id, kind: isLayer(id) ? 'Layer' : 'Commit', branch: branch ?? null } : null
 /**
  * A 2.0 Commit row (`commit list --detail`, `commit get --detail`) ->
  * CommitInfo: `commit`, `created_at`, `size`, `new_*_bytes`; a publication on
@@ -498,8 +499,8 @@ export class Projects {
   busy(): boolean { return [...this.inits.values()].some((j) => !j.ended) || this.creations.size > 0 }
 
   /** ProjectSummary[]. */
-  async list() {
-    const records = await pages((p) => this.lfs.project.list({ ...p, detail: true }))
+  async list(fresh = false) {
+    const records = await pages((p) => this.lfs.project.list({ ...p, detail: true, ...(fresh ? { timeout_ms: READ_TIMEOUT_MS } : {}) }))
     // set by the host (Storage.projectJoin); a failure leaves the field out
     const join = this.storeJoin ? await this.storeJoin().catch(() => null) : null
     return records.map((p) => this.summary(p, join))
@@ -1003,7 +1004,7 @@ export class Projects {
       const madeOn = await this.branchesOf(project, items.map((r) => String(r.commit)), branch, own)
       return {
         items: items.map((r: any) => {
-          const on = madeOn.get(String(r.commit)) ?? branch
+          const on = madeOn.get(String(r.commit))
           return {
             ref: savedRef(r.commit, on), compared_to: savedRef(r.parent, on), kind: changeKind(r.change), message: r.message ?? null,
             recorded_at: msAt(r.created_at), after: typeof r.size === 'number' ? { size: r.size } : null,

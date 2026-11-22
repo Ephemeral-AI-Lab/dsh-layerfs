@@ -2,7 +2,7 @@
  * The closed check lists of the LayerFS 2.0 doctors: for each kind, every
  * check its doctor can make, in order, with what the check is (LayerFS's own
  * words, shown as they are) and whether only a Full check makes it. A copy of
- * the frozen call surface's `doctor.checks` (calls.json v18, 2026-11-18);
+ * the frozen call surface's `doctor.checks` (calls.json v23, 2026-11-19);
  * `test/doctor-model.test.mjs` fails when it differs from the copied contract.
  *
  * The page never decides from this table which checks a thing has: it draws
@@ -41,11 +41,13 @@ export const CHECKS: Readonly<Record<string, readonly CheckEntry[]>> = {
     { check: 'store.connection', what: 'it is reached where it lives: a sqlite Store through its machine; a PostgreSQL Store from this computer, and once more from each machine that has a Sandbox of it, with `from` naming that machine', full_only: false },
     { check: 'store.identity', what: 'the id in its data is the id in its record', full_only: false },
     { check: 'store.schema', what: 'its schema is the one this build reads', full_only: false },
+    { check: 'store.mount_holders', what: 'durable mount holders have matching recorded workspaces', full_only: false },
     { check: 'store.backups', what: 'no backup of it is behind: its heads against each bucket link (sqlite; a notice per bucket)', full_only: false },
   ],
   project: [
     { check: 'project.record', what: 'the home\'s record of the project and its folder read, and the Store the record sits under is on record', full_only: false },
     { check: 'project.listed', what: 'the Store\'s own list holds the project the record names, by its stack id, or by its name for a record without one', full_only: false },
+    { check: 'project.mount_holders', what: 'durable mount holders have matching recorded workspaces', full_only: true },
     { check: 'project.data', what: 'everything reachable from main\'s head and from each Branch\'s head is read and checked', full_only: true },
   ],
   sandbox: [

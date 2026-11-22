@@ -66,7 +66,6 @@ function BucketStatus({ b, t, onReconnect }: { b: BucketRow, t: StorageT, onReco
   return (
     <div className={css.bucketStatus} data-tone="danger" data-bucket-status={b.error?.code ?? b.state ?? ''}>
       <Signal state="error" size={7} title={words} detail={tip} />
-      <span className={css.bucketStatusText} title={tip}>{words}</span>
       {again ? <Button size="sm" variant="outline" onClick={() => onReconnect(again)}>{t('connectAgain')}</Button> : null}
     </div>
   )

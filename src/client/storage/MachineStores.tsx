@@ -32,6 +32,7 @@
  * The backups badge counts the Store's bucket copies, marks their providers
  * and dots the worst state; it opens Backups (BackupDialogs.tsx).
  */
+import { createPortal } from 'react-dom'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
@@ -102,6 +103,7 @@ interface CardProps {
 /** A board's two kinds: their Stores, the words around them, and each kind's add button. */
 interface BoardProps extends CardProps {
   /** Tile ids and the remembered tile (per machine; `(home)` on Home). */
+  actionHost?: HTMLSpanElement | null
   scope: string
   sqlite: StoreRow[]
   sqliteBytes: number | null
@@ -188,7 +190,8 @@ function StoresBoard(props: BoardProps): ReactNode {
             })}
           </div>
         ) : null}
-        <span className={css.barAction}>{showAlt ? alt.add : words[kind].add}</span>
+        {props.actionHost ? createPortal(showAlt ? alt.add : words[kind].add, props.actionHost) :
+          <span className={css.barAction}>{showAlt ? alt.add : words[kind].add}</span>}
       </div>
       <section id={`lfs-ms-${scope}-panel`} role="tabpanel" aria-labelledby={`lfs-ms-${scope}-${kind}`} className={css.panel}>
         {showAlt ? alt.view
@@ -232,6 +235,7 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
 export interface HomeStoresProps extends Omit<CardProps, 'machine'> {
   /** Every Store, in the Overview's order. */
   stores: readonly StoreRow[]
+  actionHost: HTMLSpanElement | null
   onNewStore: () => void
   /** Connect a database (a new PostgreSQL Store). */
   onConnect: () => void

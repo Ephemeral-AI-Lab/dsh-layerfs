@@ -18,7 +18,7 @@ import { execFileSync } from 'node:child_process'
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runtimePin } from '../scripts/runtime-pin.mjs'
 import { isWrite } from '../src/shared/logs.ts'
 
@@ -268,7 +268,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const args = process.argv.slice(2)
   const opt = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined }
   const positional = args.filter((a, i) => !a.startsWith('--') && !['--save', '--diff'].includes(args[i - 1]))
-  const devDir = positional[0] ?? process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname
+  const devDir = positional[0] ?? process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url))
   const snap = await snapshot(devDir)
   if (opt('--save')) writeFileSync(opt('--save'), JSON.stringify(snap, null, 2))
   if (opt('--diff')) {

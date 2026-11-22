@@ -611,7 +611,6 @@ function BucketDialog({ api, t, again, onClose, done }: { api: LayerfsApi, t: St
       {rotated ? (
         <p className={css.bucketStatus} data-tone="ok" data-rotated role="status">
           <Signal state="ok" size={7} title={t('keyRotated')} detail={t('keyRotatedTip')} />
-          <span className={css.bucketStatusText} title={t('keyRotatedTip')}>{t('keyRotated')}</span>
         </p>
       ) : null}
       <TileChoice label={t('provider')} value={provider} onChange={setProvider}

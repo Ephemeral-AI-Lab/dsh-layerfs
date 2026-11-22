@@ -6,10 +6,10 @@ import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-store-page-'))
 after(() => rmSync(out, { recursive: true, force: true }))

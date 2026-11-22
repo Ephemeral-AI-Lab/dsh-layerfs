@@ -168,6 +168,48 @@ test('storage view: a Store with more than 20 projects lists every name by proje
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('storage view distinguishes a refused bucket inventory from confirmed removal', async () => {
+  let buckets = [{ bucket: 'unlinked', provider: 'minio' }]
+  let offline = false
+  const { http, root } = fakeGroups({
+    ...base,
+    home: { get: async () => {
+      if (offline) throw new Refusal('Busy', 'home tree is busy')
+      return { tree: { buckets } }
+    } },
+  })
+  try {
+    const initial = await http('GET', '/api/storage')
+    assert.equal(initial.body.bucketInventoryComplete, true)
+    assert.deepEqual(initial.body.buckets.map((bucket) => bucket.name), ['unlinked'])
+
+    offline = true
+    const refused = await http('GET', '/api/storage')
+    assert.equal(refused.status, 200)
+    assert.equal(refused.body.bucketInventoryComplete, false)
+    assert.deepEqual(refused.body.buckets, [])
+
+    offline = false
+    buckets = []
+    const removed = await http('GET', '/api/storage')
+    assert.equal(removed.body.bucketInventoryComplete, true)
+    assert.deepEqual(removed.body.buckets, [])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('project catalog Refresh rereads the pinned CLI', async () => {
+  const requested = []
+  const { http, root } = fakeGroups({
+    ...base,
+    project: { list: async (options) => { requested.push(options); return { items: [] } } },
+  })
+  try {
+    assert.equal((await http('GET', '/api/projects')).status, 200)
+    assert.equal((await http('GET', '/api/projects?fresh=1')).status, 200)
+    assert.deepEqual(requested.map((options) => options.timeout_ms), [undefined, R.cli.READ_TIMEOUT_MS])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('the Doctor page\'s backup fix runs as a Storage job (job row, storage-job events, one job per Store) and waits for its end (review UR M7)', async () => {
   let finish
   const { groups, events, root } = fakeGroups({
@@ -791,7 +833,7 @@ test('project init job and saved reads route to their calls', async () => {
 
 const pin = pinned()
 
-test('live: machines, store create, project init, list/get, branches, fs, file', { skip: !pin && 'no pinned LayerFS CLI', timeout: 600_000 }, async () => {
+test('live: machines, store create, project init, list/get, branches, fs, file', { skip: !pin && 'no pinned LayerFS CLI', timeout: 600_000 }, async (context) => {
   // a short path: the native daemon's sockets live in the home
   const root = mkdtempSync('/tmp/dshrt-')
   const home = join(root, 'home')
@@ -819,61 +861,61 @@ test('live: machines, store create, project init, list/get, branches, fs, file',
     return r.body
   }
   const key = encodeURIComponent('rt/demo')
-  try {
-    const machines = await ok('GET', '/api/machines')
-    assert.ok(machines.machines.some((m) => m.name === 'native'))
-    const status = await ok('GET', '/api/status')
-    assert.equal(status.settings.home, home)
-    const view = await ok('POST', '/api/stores', { name: 'rt' })
-    assert.ok(view.stores.some((s) => s.name === 'rt' && s.machine === 'native'))
-    assert.ok(t.events.some((e) => e.type === 'storage'))
-    const job = await ok('POST', '/api/projects', { store: 'rt', name: 'demo', source: src })
-    let init = job
-    for (let i = 0; i < 600 && !init.ended; i++) {
-      await new Promise((r) => setTimeout(r, 200))
-      init = await ok('GET', `/api/project-inits/${job.id}`)
-    }
-    assert.equal(init.step, 'done', JSON.stringify(init.error))
-    const list = await ok('GET', '/api/projects')
-    assert.ok(list.some((p) => p.key === 'rt/demo' && p.storeState))
-    const state = await ok('GET', `/api/projects/${key}`)
-    assert.equal(state.project.key, 'rt/demo')
-    assert.ok(state.branches.some((b) => b.name === 'main'))
-    const branches = await ok('GET', `/api/projects/${key}/branches`)
-    assert.ok(branches.items.some((b) => b.name === 'main'))
-    const fs = await ok('GET', `/api/projects/${key}/fs?branch=main&path=/`)
-    assert.deepEqual(fs.items.map((i) => i.name).sort(), ['README.md', 'lib'])
-    assert.equal(fs.items.find((i) => i.name === 'lib').kind, 'dir')
-    const sub = await ok('GET', `/api/projects/${key}/fs?branch=main&path=/lib`)
-    assert.deepEqual(sub.items.map((i) => i.path), ['/lib/a.js'])
-    const file = await ok('GET', `/api/projects/${key}/file?branch=main&path=/README.md`)
-    assert.equal(file.binary, false)
-    assert.match(file.text, /hello/)
-    const missing = await http('GET', `/api/projects/${key}/file?branch=main&path=/nope.txt`)
-    assert.equal(missing.status, 404, JSON.stringify(missing.body))
-    const sandboxes = await ok('GET', `/api/projects/${key}/sandboxes`)
-    assert.ok(Array.isArray(sandboxes))
-    const storage = await ok('GET', '/api/storage')
-    assert.ok(storage.stores.some((s) => s.name === 'rt' && s.projects.includes('demo')))
-    // a Sandbox, a forked side Branch mounted in it, its status, unmount and close
-    await ok('POST', `/api/projects/${key}/sandboxes`, { name: 'rtsb' })
-    const ws = await ok('POST', '/api/sandboxes/rtsb/workspaces', { branch: 'side', fork: true, name: 'w' })
-    assert.equal(ws.branch ?? 'side', 'side')
-    const sb = await ok('GET', '/api/sandboxes/rtsb')
-    assert.equal(sb.workspaces.length, 1)
-    const handle = sb.workspaces[0].ws
-    await ok('GET', `/api/workspaces/${encodeURIComponent(handle)}/status`)
-    const main = await http('POST', '/api/sandboxes/rtsb/workspaces', { branch: 'main' })
-    assert.equal(main.status, 400)
-    await ok('DELETE', `/api/workspaces/${encodeURIComponent(handle)}?discard=1`)
-    await ok('DELETE', '/api/sandboxes/rtsb')
-    const gone = await http('GET', '/api/sandboxes/rtsb')
-    assert.equal(gone.status, 404, JSON.stringify(gone.body))
-  } finally {
+  context.after(async () => {
     await http('POST', `/api/projects/${key}/close-sandboxes`, { force: true }).catch(() => {})
     await groups.projects.close()
+    execFileSync(pin.cli, ['machine', 'stop', 'native'], { env: { ...process.env, LAYERFS_HOME: home }, timeout: 30_000 })
     rmSync(root, { recursive: true, force: true })
+  })
+  const machines = await ok('GET', '/api/machines')
+  assert.ok(machines.machines.some((m) => m.name === 'native'))
+  const status = await ok('GET', '/api/status')
+  assert.equal(status.settings.home, home)
+  const view = await ok('POST', '/api/stores', { name: 'rt' })
+  assert.ok(view.stores.some((s) => s.name === 'rt' && s.machine === 'native'))
+  assert.ok(t.events.some((e) => e.type === 'storage'))
+  const job = await ok('POST', '/api/projects', { store: 'rt', name: 'demo', source: src })
+  let init = job
+  for (let i = 0; i < 600 && !init.ended; i++) {
+    await new Promise((r) => setTimeout(r, 200))
+    init = await ok('GET', `/api/project-inits/${job.id}`)
   }
+  assert.equal(init.step, 'done', JSON.stringify(init.error))
+  const list = await ok('GET', '/api/projects')
+  assert.ok(list.some((p) => p.key === 'rt/demo' && p.storeState))
+  const state = await ok('GET', `/api/projects/${key}`)
+  assert.equal(state.project.key, 'rt/demo')
+  assert.ok(state.branches.some((b) => b.name === 'main'))
+  const branches = await ok('GET', `/api/projects/${key}/branches`)
+  assert.ok(branches.items.some((b) => b.name === 'main'))
+  const fs = await ok('GET', `/api/projects/${key}/fs?branch=main&path=/`)
+  assert.deepEqual(fs.items.map((i) => i.name).sort(), ['README.md', 'lib'])
+  assert.equal(fs.items.find((i) => i.name === 'lib').kind, 'dir')
+  const sub = await ok('GET', `/api/projects/${key}/fs?branch=main&path=/lib`)
+  assert.deepEqual(sub.items.map((i) => i.path), ['/lib/a.js'])
+  const file = await ok('GET', `/api/projects/${key}/file?branch=main&path=/README.md`)
+  assert.equal(file.binary, false)
+  assert.match(file.text, /hello/)
+  const missing = await http('GET', `/api/projects/${key}/file?branch=main&path=/nope.txt`)
+  assert.equal(missing.status, 404, JSON.stringify(missing.body))
+  const sandboxes = await ok('GET', `/api/projects/${key}/sandboxes`)
+  assert.ok(Array.isArray(sandboxes))
+  const storage = await ok('GET', '/api/storage')
+  assert.ok(storage.stores.some((s) => s.name === 'rt' && s.projects.includes('demo')))
+  // a Sandbox, a forked side Branch mounted in it, its status, unmount and close
+  await ok('POST', `/api/projects/${key}/sandboxes`, { name: 'rtsb' })
+  const ws = await ok('POST', '/api/sandboxes/rtsb/workspaces', { branch: 'side', fork: true, name: 'w' })
+  assert.equal(ws.branch ?? 'side', 'side')
+  const sb = await ok('GET', '/api/sandboxes/rtsb')
+  assert.equal(sb.workspaces.length, 1)
+  const handle = sb.workspaces[0].ws
+  await ok('GET', `/api/workspaces/${encodeURIComponent(handle)}/status`)
+  const main = await http('POST', '/api/sandboxes/rtsb/workspaces', { branch: 'main' })
+  assert.equal(main.status, 400)
+  await ok('DELETE', `/api/workspaces/${encodeURIComponent(handle)}?discard=1`)
+  await ok('DELETE', '/api/sandboxes/rtsb')
+  const gone = await http('GET', '/api/sandboxes/rtsb')
+  assert.equal(gone.status, 404, JSON.stringify(gone.body))
 })
 
 test('project storage: a ledger of each save\'s counters from 2.0 commit list --detail pages (by cursor), then only new saves', async () => {

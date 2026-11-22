@@ -108,7 +108,7 @@ function receiptsOf(callLog, identity) {
 test('managed CLI preserves stdin, exact streams and exit status; one tagged line and receipt per invocation', async () => {
   const dir = mkdtempSync(join(root, 'wrap-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake-cli.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nlet input='';for await(const chunk of process.stdin)input+=chunk;process.stderr.write('diagnostic\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({error:'Conflict',message:'no'})+'\\n');process.exitCode=125}else console.log(JSON.stringify({commit:'${id}',echo:input,tag:process.env.LAYERFS_LOGS_TAG}));`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nlet input='';for await(const chunk of process.stdin)input+=chunk;process.stderr.write('diagnostic\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({error:'Conflict',message:'no'})+'\\n');process.exitCode=125}else console.log(JSON.stringify({commit:'${id}',echo:input,tag:process.env.LAYERFS_LOGS_TAG}));`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'private-home'), callLog })
   const identity = { origin: 'tool', sessionId: 's', project: 'p', turn: 2, toolCallId: 'bash-a', scope: toolScope('s', 'bash-a') }
   const env = { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment(identity), LAYERFS_LOGS_TAG: 'inherited' }
@@ -140,7 +140,7 @@ test('managed CLI: a streamed exec exiting non-zero is the command\'s result, no
   const dir = mkdtempSync(join(root, 'exit-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake-exit.mjs')
   // 2.0: exec exits with the command's own code, streamed (raw output) or not (one result JSON); 125 is LayerFS's refusal
-  writeFileSync(cli, `#!${process.execPath}\nconst code=Number(process.argv.at(-1).match(/exit (\\d+)/)?.[1]??0);if(code===125&&!process.argv.at(-1).includes('own'))process.stderr.write(JSON.stringify({error:'Busy',message:'no'})+'\\n');else if(process.argv.includes('--stream'))process.stdout.write('raw output\\n');else process.stdout.write(JSON.stringify({exit_code:code,stdout:'raw output\\n',exec:'exec-9'})+'\\n');process.exitCode=code`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nconst code=Number(process.argv.at(-1).match(/exit (\\d+)/)?.[1]??0);if(code===125&&!process.argv.at(-1).includes('own'))process.stderr.write(JSON.stringify({error:'Busy',message:'no'})+'\\n');else if(process.argv.includes('--stream'))process.stdout.write('raw output\\n');else process.stdout.write(JSON.stringify({exit_code:code,stdout:'raw output\\n',exec:'exec-9'})+'\\n');process.exitCode=code`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog })
   const identity = { origin: 'tool', sessionId: 's', project: 'p', turn: 1, toolCallId: 'bash-x', scope: toolScope('s', 'bash-x') }
   const env = { DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment(identity) }
@@ -161,7 +161,7 @@ test('managed CLI with the native call log is a bash script: tag, stdin, streams
   const dir = mkdtempSync(join(root, 'native-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake.mjs')
   // Echo stdin and the tag; `fail` refuses (125 + a refusal frame on stderr), `exit3` exits 3 (a streamed command's code).
-  writeFileSync(cli, `#!${process.execPath}\nlet input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({commit:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null,input,home:process.env.LAYERFS_HOME}));process.stderr.write('note\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({error:'Busy',message:'busy'})+'\\n');process.exitCode=125}else if(process.argv.includes('exit3'))process.exitCode=3})`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nlet input='';process.stdin.on('data',d=>input+=d);process.stdin.on('end',()=>{console.log(JSON.stringify({commit:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null,input,home:process.env.LAYERFS_HOME}));process.stderr.write('note\\n');if(process.argv.includes('fail')){process.stderr.write(JSON.stringify({error:'Busy',message:'busy'})+'\\n');process.exitCode=125}else if(process.argv.includes('exit3'))process.exitCode=3})`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog, native: true })
   assert.match(readFileSync(command, 'utf8'), /^#!\/bin\/bash\n/, 'no node per call')
   assert.doesNotMatch(readFileSync(command, 'utf8'), />\(|<\(|\/dev\/fd/, "no process substitution: DSH's command sandbox denies /dev/fd")
@@ -195,7 +195,7 @@ test('managed CLI with the native call log is a bash script: tag, stdin, streams
 test('the native bash wrapper forwards a signal and re-raises it', async () => {
   const dir = mkdtempSync(join(root, 'native-sig-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake-wait.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nprocess.stdout.write('ready\\n');process.on('SIGTERM',()=>process.kill(process.pid,'SIGKILL'));setInterval(()=>{},1000);`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nprocess.stdout.write('ready\\n');process.on('SIGTERM',()=>process.kill(process.pid,'SIGKILL'));setInterval(()=>{},1000);`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'home'), callLog, native: true })
   const child = spawn(command, ['workspace', 'commit', 'ws'], { env: { ...process.env, DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment({ origin: 'tool', sessionId: 'sig', project: 'p', scope: 'ab' }) }, stdio: 'pipe' })
   await new Promise((resolve, reject) => { child.once('error', reject); child.stdout.once('data', resolve) })
@@ -207,7 +207,7 @@ test('the native bash wrapper forwards a signal and re-raises it', async () => {
 test('receipts from lines never link an uncertain Workspace target or a malformed result', async () => {
   const dir = mkdtempSync(join(root, 'target-')), callLog = join(dir, 'calls.jsonl')
   const cli = join(dir, 'fake-other.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nif(process.argv.includes('malformed'))console.log('not json');else console.log(JSON.stringify({commit:'${id}'}));`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nif(process.argv.includes('malformed'))console.log('not json');else console.log(JSON.stringify({commit:'${id}'}));`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'private-home'), callLog })
   const identity = toolCallId => ({ origin: 'tool', sessionId: 'parallel', project: 'selected/project', workspace: 'bound:main', toolCallId, scope: toolScope('parallel', toolCallId) })
   const env = toolCallId => ({ DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment(identity(toolCallId)) })
@@ -229,7 +229,7 @@ test('receipts from lines never link an uncertain Workspace target or a malforme
 test('managed CLI cancellation forwards the signal, terminates, and records no version', async () => {
   const dir = mkdtempSync(join(root, 'cancel-')), callLog = join(dir, 'calls.jsonl')
   const cli = join(dir, 'fake-wait.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nprocess.stdout.write('ready\\n');setInterval(()=>{},1000);`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nprocess.stdout.write('ready\\n');setInterval(()=>{},1000);`, { mode: 0o700 })
   const command = managedCli({ root: dir, cli, home: join(dir, 'private-home'), callLog })
   const identity = { origin: 'tool', sessionId: 'cancel', project: 'p', toolCallId: 'cancel-call', scope: toolScope('cancel', 'cancel-call') }
   const child = spawn(command, ['workspace', 'commit', 'ws'], { env: { ...process.env, DSH_LAYERFS_TRACE_CONTEXT: traceEnvironment(identity) }, stdio: 'pipe' })
@@ -243,7 +243,7 @@ test('managed CLI cancellation forwards the signal, terminates, and records no v
 })
 test('SDK executor tags the child with the receipt id and removes an inherited tag outside a context', async () => {
   const cli = join(root, 'fake-sdk.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({commit:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null})));`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({commit:'${id}',tag:process.env.LAYERFS_LOGS_TAG??null})));`, { mode: 0o700 })
   const receipts = []
   const spec = { cli, home: join(root, 'sdk-home') }
   let tagged
@@ -259,7 +259,7 @@ test('SDK executor tags the child with the receipt id and removes an inherited t
 })
 test('SDK workspace saves only link the exact bound Workspace target', async () => {
   const cli = join(root, 'fake-workspace-target.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({commit:'${id}'})));`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({commit:'${id}'})));`, { mode: 0o700 })
   const spec = { cli, home: join(root, 'target-home') }, identity = { origin: 'tool', sessionId: 'target-check', project: 'selected/project', workspace: 'bound:main', toolCallId: 'commit-tool' }
   const receipts = []
   await withTraceContext({ ...identity, record: async row => receipts.push(row) }, async () => {
@@ -283,7 +283,7 @@ test('managed CLI never overwrites the installed CLI at root/bin/layerfs or foll
   const fixture=mkdtempSync(join(process.cwd(),'.dev-trace-self-'))
   try {
     mkdirSync(join(fixture,'bin'))
-    const cli=join(fixture,'bin','layerfs'), original=`#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({kind:'Committed',head:'${id}'})));`
+    const cli=join(fixture,'bin','layerfs'), original=`#!/usr/bin/env node\nprocess.stdin.resume();process.stdin.on('end',()=>console.log(JSON.stringify({kind:'Committed',head:'${id}'})));`
     writeFileSync(cli,original,{mode:0o700})
     const command=managedCli({root:fixture,cli,home:join(fixture,'home')})
     assert.equal(readFileSync(cli,'utf8'),original,'the pinned installed CLI must remain byte-for-byte unchanged')
@@ -317,7 +317,7 @@ test('managed CLI never overwrites the installed CLI at root/bin/layerfs or foll
 test('managed CLI wrappers (node and bash) insert no --image into sandbox create', async () => {
   const dir = mkdtempSync(join(root, 'noimage-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'echo-argv.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nconsole.log(JSON.stringify({argv:process.argv.slice(2)}))`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nconsole.log(JSON.stringify({argv:process.argv.slice(2)}))`, { mode: 0o700 })
   for (const native of [false, true]) {
     const command = managedCli({ root: join(dir, String(native)), cli, home: join(dir, 'home'), callLog, native })
     const text = readFileSync(command, 'utf8')

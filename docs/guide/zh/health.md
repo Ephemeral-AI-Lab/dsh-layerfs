@@ -1,7 +1,13 @@
-<!-- source: e5fee486d21e -->
+<!-- source: 0c2bca16c6f8 -->
 # 诊断
 
-> **位置：** `LayerFS › 诊断` · **打开方式：** 主页[顶部卡片](components.md#head-card)上的诊断按钮（盾牌图标）；机器、Store 或 Sandbox 页面上的 **诊断**（Diagnose） · **源码：** 见文末
+> **位置：** `LayerFS › 诊断` · **打开方式：** Center [导航栏](components.md#nav-bar)上的诊断按钮（盾牌图标）；机器、Store 或 Sandbox 页面上的 **诊断**（Diagnose） · **源码：** 见文末
+
+当前入口下方的详情图来自早期演示环境。
+
+![1 诊断、2 日志和 3 设置（隔离测试数据）](../img/home-navigation.png)
+
+*隔离测试数据。*
 
 诊断页把整个 LayerFS 主目录画成一棵树（这次安装、它的机器、Store、项目、Sandbox 和备份存储桶），
 并显示 LayerFS 的诊断最近一次对每一项说了什么。觉得哪里不对劲时就来这里：检查一下，

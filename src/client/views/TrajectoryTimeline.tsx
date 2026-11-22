@@ -8,6 +8,7 @@ import clsx from 'clsx'
 import type { TrajectoryTurn } from '../../shared/trajectory.ts'
 import type { Translate } from './locale.ts'
 import { LANES, laneItems, place, thinLane, type Selection } from './trajectory-model.ts'
+import { durationText } from './TrajectoryParts.tsx'
 import css from './trajectory.module.css'
 
 export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now, span, selected, onSelect, t, layerfs = true }: {
@@ -29,6 +30,9 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({ turns, now,
   if (!span) return <div className={css.timeline}><p className={css.timelineEmpty}>{t('trajNoTiming')}</p></div>
   return (
     <div className={css.timeline} role="group" aria-label={t('trajTimeline')}>
+      <div className={css.axis} aria-hidden="true">
+        {[0, 0.5, 1].map(fraction => <span key={fraction}>{durationText(t, (span.end - span.start) * fraction)}</span>)}
+      </div>
       <div className={css.laneLabels} aria-hidden="true">
         {lanes.map((lane) => <span key={lane} className={css.laneLabel}>{t(`trajLane_${lane}`)}</span>)}
       </div>

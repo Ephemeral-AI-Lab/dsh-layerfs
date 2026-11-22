@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-const root = new URL('..', import.meta.url).pathname
+import { fileURLToPath, pathToFileURL } from 'node:url'
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(root, 'lib', '.test-simulation-verify-'))
 await build({ absWorkingDir: root, entryPoints: ['src/host/simulations/verify.ts'], outfile: join(out, 'verify.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node24', external: ['@deepseek-ai/*'] })
 const { simulationVerificationQuery, verifySimulation } = await import(pathToFileURL(join(out, 'verify.mjs')).href)

@@ -2,6 +2,7 @@
 // Stage-0 sandbox images and create guard, docs/specs/sandbox-images.md), the refusal status map, Sandbox read invalidation after
 // writes, Branch paging with main first, and a first Commit's changed paths.
 //   node --test test/routes-features.test.mjs
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -415,10 +416,47 @@ test('file history and blame name the Branch each Commit was made on, asking Lay
   } finally { f.close() }
 })
 
+test('file history preserves an unknown provenance branch and retries its lookup', async (t) => {
+  const { build } = await import('esbuild')
+  const bundle = await build({ entryPoints: [fileURLToPath(new URL('../src/client/files/api.ts', import.meta.url))], bundle: true, write: false, format: 'esm', platform: 'node' })
+  const { filesApi } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`)
+  const commit = 'a'.repeat(66), parent = 'b'.repeat(66)
+  let readable = false
+  const f = fixture({
+    file: { history: async (_project, _branch, _path, { traversal }) => ({
+      items: traversal === 'branch' ? [] : [{ commit, parent, change: 'modified' }],
+    }) },
+    commit: {
+      get: async () => {
+        if (!readable) throw new Error('commit temporarily unavailable')
+        return { branch: 'main' }
+      },
+      diff: async (_project, at, { from, path }) => {
+        assert.deepEqual([at, from, path], [commit, parent, '/report.txt'])
+        return { items: [{ path, change: 'modified', hunks: [{ op: '+', text: 'updated' }] }] }
+      },
+    },
+  })
+  t.after(f.close)
+  const api = { call: async (...args) => {
+    const reply = await f.http(...args)
+    assert.equal(reply.status, 200)
+    return reply.body
+  } }
+  const read = () => filesApi.revisions(api, 's1/p', 'feat', '/report.txt', commit, 'provenance')
+  const [unknown] = (await read()).items
+  assert.deepEqual([unknown.ref.id, unknown.ref.branch, unknown.compared_to.id, unknown.compared_to.branch], [commit, null, parent, null])
+  const comparison = await filesApi.fileDiff(api, 's1/p', unknown.ref.branch ?? 'feat', '/report.txt', unknown.compared_to.id, unknown.ref.id, unknown.compared_to.branch ?? 'feat')
+  assert.deepEqual(comparison.rows, [{ op: '+', text: 'updated', right_line: 1 }])
+  readable = true
+  const [known] = (await read()).items
+  assert.deepEqual([known.ref.branch, known.compared_to.branch], ['main', 'main'])
+})
+
 test('client api: a Remote call lost after it was sent is tagged transport-unknown', async (t) => {
   const { build } = await import('esbuild')
   const { pathToFileURL } = await import('node:url')
-  const root = new URL('..', import.meta.url).pathname
+  const root = fileURLToPath(new URL('..', import.meta.url))
   const out = mkdtempSync(join(tmpdir(), 'dsh-api-'))
   t.after(() => rmSync(out, { recursive: true, force: true }))
   await build({ absWorkingDir: root, stdin: { contents: "export { createApi, HostError } from './src/client/api.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'api.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })
@@ -430,11 +468,36 @@ test('client api: a Remote call lost after it was sent is tagged transport-unkno
   } finally { api.dispose() }
 })
 
+test('client api: New project session creates distinct drafts in a shared scratch workspace', async (t) => {
+  const { build } = await import('esbuild')
+  const { outputFiles } = await build({ entryPoints: [fileURLToPath(new URL('../src/client/api.ts', import.meta.url))], bundle: true, write: false, format: 'esm', platform: 'node' })
+  const { createApi } = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].contents).toString('base64')}`)
+  const bindings = new Map()
+  const opened = []
+  const workspace = { connectWorkspace: async () => 'existing-draft' }
+  const events = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }), dispose() {} }
+  const remote = { events: () => events, async call({ op, args }) {
+    if (op === 'sessions.prepareScratch') return { ok: true, value: { workspaceId: 'scratch' } }
+    assert.equal(op, 'sessions.choose')
+    bindings.set(args.sessionId, args.project)
+    return { ok: true, value: {} }
+  } }
+  const api = createApi(() => remote, {
+    createSession: async workspaceId => { assert.equal(workspaceId, 'scratch'); return `session-${opened.length + 1}` },
+    openSession: id => opened.push(id),
+  }, () => workspace)
+  t.after(() => api.dispose())
+  await api.openProjectSession('store/first')
+  await api.openProjectSession('store/second')
+  assert.deepEqual([...bindings], [['session-1', 'store/first'], ['session-2', 'store/second']])
+  assert.deepEqual(opened, ['session-1', 'session-2'])
+})
+
 /** The client API over a fake Remote whose event stream the test drops and reopens, and whose calls it answers by hand. */
 async function droppableApi(t) {
   const { build } = await import('esbuild')
   const { pathToFileURL } = await import('node:url')
-  const root = new URL('..', import.meta.url).pathname
+  const root = fileURLToPath(new URL('..', import.meta.url))
   const out = mkdtempSync(join(tmpdir(), 'dsh-api-'))
   t.after(() => rmSync(out, { recursive: true, force: true }))
   await build({ absWorkingDir: root, stdin: { contents: "export { createApi, HostError, GET_TIMEOUT_MS } from './src/client/api.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'api.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })

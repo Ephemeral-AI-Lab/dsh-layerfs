@@ -11,6 +11,7 @@
 // LayerFS projects (project page, new session), the New Session project control,
 // the conversation's Files/History/Sandbox tabs (no LayerFS side panel) and the
 // Logs page (checkpoint receipts, the call detail with its stored output, Reset).
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -44,7 +45,7 @@ const store = `e2e${tag}`, name = 'demo', project = `${store}/${name}`
 let failed = false
 try {
   step(`store + project ${project}`)
-  const fixtureRoot = join(process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname, 'fixtures')
+  const fixtureRoot = join(process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url)), 'fixtures')
   mkdirSync(fixtureRoot, { recursive: true })
   const src = mkdtempSync(join(fixtureRoot, 'sessions-'))
   writeFileSync(join(src, 'README.md'), '# demo\n')
@@ -181,13 +182,13 @@ try {
   const lstate = await must('session.state', { sessionId: td.sessionId })
   assert.equal(lstate.binding, null)
 
-  step('UI: the Workspaces header switch shows projects with sessions in place of the stock list; a row folds its sessions, its menu opens the project page, + starts a session')
+  step('UI: the footer switch shows projects with sessions, a row folds its sessions, and the header menu opens the project picker')
   await dismiss(page)
   assert.equal(await page.locator('[data-layerfs-workspace-mount], [data-layerfs-work-areas], [data-layerfs-projects-section]').count(), 0, 'no injected sections')
   await page.evaluate(() => localStorage.removeItem('dsh-layerfs:workspaces-view'))
-  const headerSwitch = page.locator('[data-slot="sidebar.workspaces"] [data-layerfs-view-switch]')
-  await headerSwitch.waitFor({ timeout: 15000 })
-  await headerSwitch.click()
+  const footerSwitch = page.getByRole('button', { name: 'Show LayerFS projects', exact: true })
+  await footerSwitch.waitFor({ timeout: 15000 })
+  await footerSwitch.click()
   const view = page.locator('[data-layerfs-workspaces-view]')
   await view.waitFor({ timeout: 15000 })
   assert.equal(await page.locator('[data-slot="sidebar.workspaces"] [data-row-key^="workspace:"]').count(), 0, 'the LayerFS view replaces the stock list')

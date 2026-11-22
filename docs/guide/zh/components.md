@@ -1,5 +1,7 @@
-<!-- source: ce6bbf97eff6 -->
+<!-- source: 09ed2fb907fc -->
 # 组件
+
+> 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
 
 下面这些部件会出现在不止一个页面上，所以每个只在这里讲一次。各页面的指南
 会链接到下面的小节，而不是重复说明。
@@ -9,6 +11,14 @@
 横在每个 Center 页面最上方的一条。它告诉你现在在哪儿，带你去别处，
 还能新建东西。
 
+当前主页导航栏，标号 1–3 分别是诊断、日志和设置。
+
+![主页导航栏：1 诊断、2 日志、3 设置（隔离测试数据，当前界面）](../img/home-navigation.png)
+
+*隔离测试数据。*
+
+以下早期多 Store 示例显示面包屑切换器。
+
 ![项目页上的导航栏](../img/home-nav-bar.png)
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
@@ -17,35 +27,44 @@
 | 3 | 面包屑 | `主页 › Store › demo-starter › bookshelf` | 按一个面包屑 → 去那一页 | — | 最后一个面包屑就是你所在的页面 |
 | 4 | 面包屑切换 | 面包屑后面的一个箭头（**从 {name} 切换**，Switch from {name}），或当前面包屑上的一个小三角，在那个位置有同级项时出现 | 按下 → 列出它的同级项（每个 Store、这个 Store 里的每个项目……），带上种类和位置 → 打开其中一个 | —（使用 Center 已读到的内容） | 只有同级项多于一个时才出现 |
 | | 传输 | **{n} 个传输**（{n} transfers），带百分比和进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个任务时），或一个列出它们的菜单（有多个时） | —（Center 已在跟踪的任务） | 没有任务运行时隐藏 |
-| 5 | **跳转到…**（Jump to…） | 一个带 **⌘K**（**Ctrl+K**）的输入框 | 点它或按快捷键 → **跳转到项目、Store、机器、Sandbox 或存储桶**（Jump to a project, Store, machine, Sandbox or bucket），按项目、Store、机器、Sandbox、存储桶和页面（诊断、日志）分组。**↑ ↓ 移动 · Enter 打开 · Esc 关闭**（↑ ↓ to move · Enter to open · Esc to close） | —（在 Center 已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）。最多 60 条结果。有对话框打开时快捷键不可用 |
+| 5 | **跳转到…**（Jump to…） | 一个带 **⌘K**（**Ctrl+K**）的输入框 | 点它或按快捷键 → **跳转到会话、项目、Store、机器、Sandbox 或存储桶**（Jump to a session, project, Store, machine, Sandbox or bucket），按项目、Store、机器、Sandbox、存储桶、页面和会话分组。会话结果显示标题与 ID，选中后打开对话。**↑ ↓ 移动 · Enter 打开 · Esc 关闭**（↑ ↓ to move · Enter to open · Esc to close） | —（在 Center 已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）。最多 60 条结果。有对话框打开时快捷键不可用 |
 | 6 | 刷新 | 一个环形箭头，除主页外每个页面都有 | 按下 → 页面重新读取它的数据 | 页面自己的读取 | 读取时显示一个圆点 |
-| 7 | **+ 添加**（+ Add） | **新建项目**（New project）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 打开对应的对话框 | `store create` · `store save-auth`、`store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 只有某个平台能创建机器时才显示 **新建机器**（New machine） |
+| 7 | **+ 添加**（+ Add） | **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 打开对应的对话框 | `store create` · `store save-auth`、`store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 新建机器和新建 Sandbox 不可用时仍显示，并说明原因 |
+| | 诊断 | 带计数的盾牌图标，提示为 **诊断：{n} 项发现**（Doctor: {n} findings） | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 读取主机保存的结果。如果还没有结果，打开主页时会运行一次 `home doctor` | 有错误时计数为红色，有警告时为橙色 |
+| | 日志 | 列表图标 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | — | |
+| | 设置 | 齿轮图标 | 按下 → 设置 LayerFS | `home get`（读取） | |
 
 ![面包屑的切换菜单](../img/home-crumb-switcher.png)
 
-![跳转到](../img/home-jump.png)
+![跳转到（隔离测试数据，当前界面）](../img/home-jump.png)
 
-![添加菜单](../img/home-add-menu.png)
+*隔离测试数据。*
+
+![按标题或 ID 搜索会话（隔离测试数据，当前界面）](../img/home-jump-search.png)
+
+*隔离测试数据。*
+
+![添加菜单（隔离测试数据，当前界面）](../img/home-add-menu.png)
+
+*隔离测试数据。*
 
 ## 顶部卡片
 
 主页的最上方。它告诉你这是哪个 LayerFS，以及有没有需要你处理的事。
 
-![顶部卡片](../img/home-head-card.png)
+![顶部卡片（隔离测试数据，当前界面）](../img/home-head-card.png)
+
+*隔离测试数据。*
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
-| 1 | LayerFS × DSH | 标志。它的提示写着 LayerFS 文件夹和已准备好的镜像 | — | — | |
-| 2 | 运行时 | `LayerFS 2.0.0 · b275fc28`（**显示固定的运行时**，Show the pinned runtime） | 按下 → [设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
+| 1 | LayerFS × DSH | LayerFS × DSH 标志 | — | — | |
+| 2 | 运行时 | `LayerFS 2.0.0 · 12345678`（**显示固定的运行时**，Show the pinned runtime） | 按下 → 打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
 | 3 | 标题行 | 一个圆点和最紧急的那件事，或者绿色的 **没有需要处理的事项**（Nothing needs your attention） | 那件事的按钮（见[待处理提示](#needs-you-notices)） | 按钮的调用 | 有好几件时显示 **还有 {n} 个**（+{n} more） |
-| 4 | 诊断 | 一个带计数角标的盾牌。标题：**诊断：{n} 项发现**（Doctor: {n} findings） | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 主机保存的结果。如果还没有结果，主页打开时会运行一次主目录检查：`home doctor` | 有错误时角标为红色，有警告时为橙色 |
-| 5 | 日志 | 一个列表图标 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | — | |
-| 6 | 试用预设 | 预设图标 | 按下 → [预设](presets.md) | — | |
-| 7 | 设置 | 一个齿轮 | 按下 → 设置 LayerFS | `home get` (读取) | |
-| 8 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list` (读取)，然后 `home doctor` | 检查运行期间不可用 |
+| 4 | 试用预设 | 预设图标 | 按下 → [预设](presets.md) | — | |
+| 5 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list` (读取)，然后 `home doctor` | 检查运行期间不可用 |
 
-第 4–8 项组成“诊断、日志和设置”这一组。如果某个操作被拒绝，拒绝信息会显示在
-卡片下方，带 **关闭**（Dismiss）。
+按 **还有 {n} 个**（+{n} more）可在卡片下方展开或收起其余待处理事项及对应的修复按钮。被拒绝的操作显示在卡片下方，可按 **关闭**（Dismiss）收起。
 
 ## 待处理提示
 

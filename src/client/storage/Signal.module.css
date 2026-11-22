@@ -4,19 +4,36 @@
   align-items: center;
 }
 
-/* The dot is small; its button gives the pointer a 20px target. */
 .signal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin: 0 -4px;
-  padding: 0;
+  font: inherit;
+  line-height: 1;
+  color: var(--dsw-alias-label-secondary);
+  min-height: 20px;
+  margin: 0;
+  padding: 0 2px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 3px;
   background: none;
   cursor: default;
+}
+
+.signal[data-state='ok'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.signal[data-state='warning'] {
+  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+}
+
+.signal[data-state='error'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.signal[data-state='ongoing'] {
+  color: var(--dsw-alias-state-business-primary);
 }
 
 @media (hover: hover) {

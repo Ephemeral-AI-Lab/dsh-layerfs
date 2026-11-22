@@ -10,7 +10,7 @@
 import { useState, type ReactNode } from 'react'
 import { Button, IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { setupDialog } from '../setup/store.ts'
-import { CopyLine, LinkButton } from '../ui/index.tsx'
+import { CopyLine } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachineInfo } from './model.ts'
 import { STEP_WORDS, setupOf, stepReasons, type Fix, type Readiness } from './needs.ts'
@@ -20,14 +20,21 @@ import css from './machines.module.css'
 const URL_LINE = /^https?:\/\//
 
 /**
- * What to do for each need, in ladder order, then Check again (a fresh probe).
- * `onLeave`: called before a fix that opens another place (the setup modal,
- * docker's socket setting), so a dialog showing the panel can close.
+ * What to do for each need, in ladder order, with actions consolidated into a
+ * single bar ordered shortest-label first to longest-label last.
  */
 export function FixPanel({ fixes, className, onLeave }: { fixes: Fix[], className?: string | undefined, onLeave?: (() => void) | undefined }): ReactNode {
   const { t, tw, recheck, go } = useMachinesContext()
   const [checking, setChecking] = useState(false)
   const shown = fixes.filter((f) => f.step !== 'unsupported')
+  const setupStep = shown.find((f) => f.setup)?.setup
+  const hasSocket = shown.some((f) => f.socket)
+  const buttons: { key: string, label: string, disabled?: boolean, onClick: () => void }[] = [
+    { key: 'check', label: checking ? t('checking') : t('checkAgain'), disabled: checking, onClick: () => { setChecking(true); void recheck().finally(() => setChecking(false)) } },
+    ...(setupStep ? [{ key: 'setup', label: t('fixInSetup'), onClick: () => { onLeave?.(); setupDialog.open(setupStep) } }] : []),
+    ...(hasSocket ? [{ key: 'socket', label: t('chooseSocket'), onClick: () => { onLeave?.(); requestSocketSetting(); go({ kind: 'machine', name: 'docker' }) } }] : []),
+  ].sort((a, b) => a.label.length - b.label.length)
+
   return (
     <div className={className ?? css.platformHelp}>
       {shown.map((f) => (
@@ -36,17 +43,15 @@ export function FixPanel({ fixes, className, onLeave }: { fixes: Fix[], classNam
           {f.commands.map((line) => URL_LINE.test(line)
             ? <a key={line} href={line} target="_blank" rel="noreferrer" className={css.fixLink}>{line}</a>
             : <CopyLine key={line} text={line} copyLabel={t('copy')} copiedLabel={t('copied')} />)}
-          {f.setup && (
-            <Button size="sm" variant="outline" onClick={() => { onLeave?.(); setupDialog.open(f.setup) }}>{t('fixInSetup')}</Button>
-          )}
-          {f.socket && (
-            <p><LinkButton onClick={() => { onLeave?.(); requestSocketSetting(); go({ kind: 'machine', name: 'docker' }) }}>{t('chooseSocket')}</LinkButton></p>
-          )}
         </div>
       ))}
-      <Button size="sm" variant="outline" disabled={checking} onClick={() => { setChecking(true); void recheck().finally(() => setChecking(false)) }}>
-        {checking ? t('checking') : t('checkAgain')}
-      </Button>
+      <div className={css.fixActions}>
+        {buttons.map((b) => (
+          <Button key={b.key} size="sm" variant="outline" disabled={b.disabled} onClick={b.onClick}>
+            {b.label}
+          </Button>
+        ))}
+      </div>
     </div>
   )
 }

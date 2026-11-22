@@ -1,6 +1,6 @@
 {
  "_": "The long-form examples (`examples.long`, and home.get `with.tree.example`) of the calls the Doctor page uses, and the `doctor` section with its closed check lists (`doctor.checks`), copied from the frozen LayerFS 2.0 call surface (calls.json, with the exit review's fixes). Fixtures are built from these so they cannot drift from the spec; test/doctor-model.test.mjs compares this file with calls.json when LAYERFS_CALLS_JSON names it.",
- "version": 19,
+ "version": 23,
  "frozen": "2026-11-19",
  "base": "caff58a43b",
  "doctor": {
@@ -134,6 +134,11 @@
      "full_only": false
     },
     {
+     "check": "store.mount_holders",
+     "what": "durable mount holders have matching recorded workspaces",
+     "full_only": false
+    },
+    {
      "check": "store.backups",
      "what": "no backup of it is behind: its heads against each bucket link (sqlite; a notice per bucket)",
      "full_only": false
@@ -149,6 +154,11 @@
      "check": "project.listed",
      "full_only": false,
      "what": "the Store's own list holds the project the record names, by its stack id, or by its name for a record without one"
+    },
+    {
+     "check": "project.mount_holders",
+     "what": "durable mount holders have matching recorded workspaces",
+     "full_only": true
     },
     {
      "check": "project.data",
@@ -502,6 +512,7 @@
    "workspaces",
    "buckets"
   ],
+  "full_progress": "the Full check of project.doctor and backup.doctor may send {phase: \"data\", done, total} events without node while it reads (CF-3)",
   "exit": 0
  },
  "calls": {
@@ -766,7 +777,33 @@
       "connections": [
        {
         "machine": null,
-        "url": "postgres://db.internal:5432/experiments"
+        "url": "postgres://db.internal:5432/experiments",
+        "own": false,
+        "server": {
+         "host": "db.internal",
+         "port": 5432,
+         "database": "experiments"
+        },
+        "reached": "ok",
+        "reach": {
+         "at": "2026-11-18T09:15:59Z",
+         "ok": true,
+         "latency_ms": 2,
+         "server_version": "17.6",
+         "error": null
+        }
+       },
+       {
+        "machine": "demo-build",
+        "url": "postgres://db.internal:5432/experiments",
+        "own": false,
+        "server": {
+         "host": "db.internal",
+         "port": 5432,
+         "database": "experiments"
+        },
+        "reached": null,
+        "reach": null
        }
       ],
       "state": "ready",
@@ -959,10 +996,10 @@
    "long": {
     "ok": true,
     "unchanged": false,
-    "stopped_sandboxes": [],
-    "stopped_sandboxes_count": 0,
-    "unknown_workspaces": [],
-    "unknown_workspaces_count": 0,
+    "stopped_sandboxes": null,
+    "stopped_sandboxes_count": null,
+    "unknown_workspaces": null,
+    "unknown_workspaces_count": null,
     "outcome": "stopped",
     "machine": "dev",
     "forced": false

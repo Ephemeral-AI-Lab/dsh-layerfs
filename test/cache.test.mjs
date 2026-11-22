@@ -8,10 +8,10 @@ import { build } from 'esbuild'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { loadRoutes, testHost } from './routes-helper.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const R = await loadRoutes()
 // the real project catalog (assertProjectIdentity) and presets manager, bundled like the routes
 const extraDir = mkdtempSync(join(tmpdir(), 'dsh-cache-test-'))
@@ -422,7 +422,7 @@ function fakeCli(dir) {
     'workspace.unmount', 'workspace.exec', 'workspace.cancel', 'machine.list', 'machine.get', 'store.list', 'store.create', 'store.get', 'home.get', 'home.doctor']
   const entry = (k) => ({ family: k.split('.')[0], call: k.split('.')[1], args: [], options: [], ...(k === 'home.get' ? { form: { with: { platforms: {}, tree: {} } } } : {}) })
   const help = { calls: required.map(entry), commands: [], switches: [] }
-  writeFileSync(cli, `#!${process.execPath}
+  writeFileSync(cli, `#!/usr/bin/env node
 const { appendFileSync, existsSync, writeFileSync } = require('node:fs')
 const argv = process.argv.slice(2)
 appendFileSync(${JSON.stringify(log)}, JSON.stringify(argv) + '\\n')

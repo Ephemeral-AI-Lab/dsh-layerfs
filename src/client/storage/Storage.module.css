@@ -43,7 +43,7 @@
 .tabPanel {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: var(--lfs-section-gap);
   min-width: 0;
 }
 
@@ -767,11 +767,6 @@
 .tabBody {
   position: absolute;
   inset: 0;
-}
-
-/* The page sits closer to the bar. */
-.tabBody [role='region'] {
-  --lfs-page-top-inset: 18px;
 }
 
 /* ---------- pane bar: the top of an editor tab ---------- */

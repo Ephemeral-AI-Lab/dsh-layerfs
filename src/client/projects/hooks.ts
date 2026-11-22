@@ -15,7 +15,7 @@ export const EVENT_COALESCE_MS = 2_000
 
 export function useProjectMachines(api: LayerfsApi) {
   const last = useRef<{ value: MachinesView, failures: number } | null>(null)
-  const read = useQuery(() => steadyRead(last, () => readWithDeadline(api.call<MachinesView>('GET', '/api/machines'))), [api])
+  const read = useQuery(() => steadyRead(last, () => readWithDeadline(api.call<MachinesView>('GET', '/api/machines'))), [api], { cache: 'GET /api/machines' })
   useHostEvents(api, ['machine-progress', 'layerfs-availability', 'storage', 'runtime-changed', 'connection'], read.reload, { coalesceMs: EVENT_COALESCE_MS })
   useEffect(() => {
     const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, SIDEBAR_POLL_MS)

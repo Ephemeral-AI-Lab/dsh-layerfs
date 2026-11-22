@@ -114,7 +114,7 @@
 /* ---------- create: a readiness rail beside one scrolling page ---------- */
 .wizard {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   height: min(520px, calc(100vh - 220px));
   min-height: 0;
 }
@@ -898,7 +898,7 @@
 @media (max-width: 600px) {
   .wizard {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     height: min(560px, calc(100vh - 200px));
   }
   .rail {

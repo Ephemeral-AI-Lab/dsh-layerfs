@@ -22,6 +22,7 @@
 // fixture: the Branches History reads up front, and the pages a first ledger build reads. A route with `sameAs` must spawn exactly what that
 // route spawns alone (concurrent reads shared). Exit 1 on any breach, unstable count or failed route.
 // Results: `.dev-perf-host/<git-short-sha>.json`.
+import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -29,7 +30,7 @@ import { buildHome, realCli } from '../../tools/perf-fixture.mjs'
 import { groupSpawns, percentile, spawnOffset, spawns } from '../../tools/perf-lib.mjs'
 import { loadRoutes, testHost } from '../routes-helper.mjs'
 
-const root = new URL('../..', import.meta.url).pathname
+const root = fileURLToPath(new URL('../..', import.meta.url))
 const args = process.argv.slice(2)
 const flag = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback }
 const tiers = flag('--tier', null) ? [flag('--tier')] : ['S', 'M']
@@ -135,11 +136,11 @@ async function measureTier(tier) {
   const scratch = mkdtempSync(join(out, `run-${tier}-`))
   const sharedStats = join(scratch, 'stat')
   const fx = { project: fixture.projects[0], store: fixture.projects[0].split('/')[0] }
-  const listed = (await lfs.branch.list(fx.project, { page_size: 1000, page_pos: 0 })).items
+  const listed = await R.cli.pages((paging) => lfs.branch.list(fx.project, { ...paging, detail: true }))
   const branches = listed.length
   // Branches History reads up front: main first, then side Branches with something saved, up to the cap
-  const historyBranches = [listed.find((b) => b.name === 'main'), ...listed.filter((b) => b.name !== 'main')].filter(Boolean)
-    .slice(0, INITIAL_BRANCHES).filter((b) => b.name === 'main' || (b.saved_head?.id ?? b.head) !== b.forked_from).length
+  const historyBranches = [listed.find((b) => b.branch === 'main'), ...listed.filter((b) => b.branch !== 'main')].filter(Boolean)
+    .slice(0, INITIAL_BRANCHES).filter((b) => b.branch === 'main' || (b.saved_head?.id ?? b.head) !== b.forked_from).length
   const dims = { stores: fixture.stores.length, projects: fixture.projects.length, branches, historyBranches, ledgerPages: 0 }
   // A new CLI client per route group, as a freshly started host has: the client keeps polling
   // reads briefly (cli.ts KEPT_READS) and shares reads in flight, so a reused one would answer

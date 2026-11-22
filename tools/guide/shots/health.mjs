@@ -3,10 +3,10 @@
 // Store yet, so the Stores tab shows a checked row and the fix LayerFS proposes. No fix is pressed.
 const STORE = 'guide-notes'
 
-/** Center's Doctor page, from Home's head card (its tool group). */
+/** Center's Doctor page, from Center's navigation bar (its tool group). */
 async function doctor(page, h) {
   await h.home()
-  await page.locator('nav[class*=tools]').getByRole('button', { name: 'Doctor', exact: true }).click()
+  await page.locator('header[aria-label="Home navigation"]').getByRole('button', { name: 'Doctor', exact: true }).click()
   await page.getByRole('button', { name: 'Check all' }).waitFor({ timeout: 20000 })
   await h.wait(1200)
 }

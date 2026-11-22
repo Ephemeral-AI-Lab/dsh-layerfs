@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-simulation-sessions-'))
 await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/sessions/service.ts'; export { initialState } from './src/host/sessions/state.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'service.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'] })

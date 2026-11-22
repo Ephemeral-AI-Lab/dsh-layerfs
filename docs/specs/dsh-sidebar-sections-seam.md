@@ -23,20 +23,33 @@ The expanded sidebar's scroll area offers a plugin only:
 | `sidebar.workspaces` | single | No: occupied by ui-workspace's browser, which is not exported to wrap |
 | `sidebar.footer.action` | list | No: foot buttons beside Settings |
 
-The plugin used to inject into the workspace browser's DOM (a portal prepended
-into `[class*="_listArea"]`, a renamed header, folded and indented native rows,
-legacy groups hidden with global CSS). That is gone. Today the Workspaces
-section has a LayerFS view behind a header switch (`src/client/projects/WorkspacesView.tsx`):
+### Current public controls
 
-- The LayerFS view shadows the stock browser: a `sidebar.workspaces`
-  registration of its own (no children, no stock component) at priority -10,
-  registered only while that view is selected.
-- In the DSH view, one switch button is portalled from a
-  `sidebar.footer.action` entry into a host element inserted just before the
-  stock header's actions row, found by `[class*="_headerActions"]`; one CSS
-  rule hides it while DSH's search is expanded (`_searchExpanded`). These two
-  private class names are the only coupling to DSH's markup; the Workspaces
-  views request below removes them.
+In the DSH view, **Show LayerFS projects** is a `sidebar.footer.action`
+button beside Settings. Selecting it registers the LayerFS tree in the single
+`sidebar.workspaces` slot at priority -10. The LayerFS header owns **Show DSH
+workspaces** and the **New session or project** menu. Switching back disposes
+the occupant and restores DSH’s browser. The selection is remembered per
+browser. On the rail, **LayerFS Projects** uses the slot’s `expandSidebar`.
+
+The one `sidebar.panellist` launcher opens Center. The plugin observes the
+public `layout.panelInfo` transition and folds the wide sidebar on entry.
+DSH owns the launcher’s selected state. When Center is already active, use
+**Fold sidebar with LayerFS Center open** in the wide footer. It is a native
+button with a localized accessible name. Enter or Space calls
+`layout.toggleSidebar()` and keeps the current Center page selected. The
+`sidebar.panellist` icon receives `{ size, active }`. `sidebar.footer.action`
+receives `{ wide }`. DSH exposes no activation callback for a repeated press.
+
+To verify the sidebar, build the plugin and start a private dev host with
+`node scripts/dev.mjs --port 3091` under Node 24. Open the URL printed by the
+host. Check both Workspaces views, open Center from the rail, and verify that
+folding and expanding the sidebar keeps the current Center page selected.
+
+A switch inside DSH’s own header needs a public header action or view registry.
+Folding on a repeated launcher press needs a public panel activation event that
+also fires for the active panel. Both requests concern DSH. The plugin uses
+the footer and the shell toggle on hosts without these hooks.
 
 Approaches ruled out without a DSH change:
 
@@ -127,8 +140,8 @@ reload or removal falls back to the stock view.
   `layerfs` labeled "LayerFS Projects", binding its scroller.
 - Call `uiWorkspace.selectView('layerfs')` when a project session opens, and
   `selectView(null)` for a folder session, so the list follows the open session.
-- Delete the shadowing registration and the header button's portal host
-  (`WorkspacesView.tsx`), keeping the switch state.
+- Replace the footer switch and shadowing registration (`WorkspacesView.tsx`)
+  with the public header switch, keeping the selected view.
 - Update §7 of `docs/specs/project-sessions.md`.
 
 ## Fallback: `sidebar.sections` (`ui-sidebar`)
@@ -193,7 +206,7 @@ hand-off needs no change.
 ## Open points
 
 - On a DSH build without either slot, the plugin must not register into it;
-  keep the shadowing view and header button as the fallback.
+  keep the footer switch and shadowing Workspaces occupant.
 - Check where native DSH lists sessions with no workspace. Project sessions are
   detached from every workspace (`SessionService.detach`), so they must not
   show again in the native section.

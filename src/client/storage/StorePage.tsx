@@ -33,6 +33,7 @@ import tabCss from './StorePage.module.css'
 const COUNTING_POLL_MS = 2000
 
 export interface StorePageProps {
+  refreshKey?: number
   name: string
   view: StorageView
   t: StorageT
@@ -53,13 +54,14 @@ function StoreNoticeWords({ s, t, notice }: { s: StoreRow, t: StorageT, notice: 
   return <span title={useStoreTip(s, t)}>{notice}</span>
 }
 
-export function StorePage({ name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen }: StorePageProps): ReactNode {
+export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen }: StorePageProps): ReactNode {
   const ids = useId()
   const s = view.stores.find((x) => x.name === name)
   const kind = s?.kind ?? 'sqlite'
   const tabs = storeTabs(kind)
   const [tab, setTab] = useDetailTab<StoreTab>('store', name, tabs, 'overview')
-  const [tick, setTick] = useState(0)
+  const [eventTick, setTick] = useState(0)
+  const tick = eventTick + refreshKey
   useHostEvents(api, ['storage', 'storage-job', 'layerfs-workspaces-changed'], () => setTick((n) => n + 1), { coalesceMs: 2000 })
   const projects = useQuery(() => api.call<StoreProjectsView>('GET', `/api/stores/${enc(name)}/projects`), [api, name], { refresh: [tick, s?.projects.length], cache: `store-projects:${name}` })
   const counting = projects.data?.projects.some(stillCounting) ?? false

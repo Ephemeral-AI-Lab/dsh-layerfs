@@ -5,9 +5,9 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib/.test-simulation-narration-'))
 await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/simulations/model.ts'; export * from './src/host/simulations/runtime.ts'; export * from './src/host/simulations/narration.ts'; export { renderSimulationCommand, SIMULATION_CLI } from './src/host/simulations/compiler.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'bundle.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })

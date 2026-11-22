@@ -1,6 +1,7 @@
 // Sidebar and project dialog states against an isolated dev server. Machine
 // responses are simulated; no VM is started or stopped. The initial archive
 // failure check uses the real host operation.
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -9,7 +10,7 @@ import { openDev } from '../tools/e2e-lib.mjs'
 const { browser, page, logs } = await openDev()
 page.setDefaultTimeout(15_000)
 const until = async (check, ms = 15_000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await check()) return; await new Promise((r) => setTimeout(r, 150)) } throw new Error('timed out') }
-const artifacts = join(process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname, 'project-overview-artifacts')
+const artifacts = join(process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url)), 'project-overview-artifacts')
 mkdirSync(artifacts, { recursive: true })
 try {
   await page.waitForFunction(() => window.__dshLayerfs)
@@ -22,8 +23,8 @@ try {
   await page.evaluate(() => {
     const api = window.__dshLayerfs
     const call = api.call.bind(api), op = api.op.bind(api)
-    const fixture = window.__projectOverviewFixture = { state: 'stopped', starts: 0, sessions: 0 }
-    const row = { key: 'demo-store/compiler', name: 'compiler', store: 'demo-store', kind: 'sqlite', machine: 'build', created: 1794400000000, storeState: 'idle' }
+    const fixture = window.__projectOverviewFixture = { state: 'stopped', starts: 0, sessions: 0, holdRecent: false }
+    const row = { key: 'demo-store/compiler', name: 'compiler', store: 'demo-store', kind: 'sqlite', machine: 'build', created: 1794400000000, storeState: 'ready' }
     api.call = async (method, path, body) => {
       if (method === 'GET' && path === '/api/projects') return [row]
       if (method === 'GET' && path === '/api/machines') return { available: true, machines: [{ name: 'build', platform: 'lima', state: fixture.state, stores: ['demo-store'], sandboxes: [], cpus: 2, memory: 4000000000, disk: 20000000000 }], status: {}, platforms: [], stores: [], postgresql: [], sandboxes: [] }
@@ -34,13 +35,14 @@ try {
       if (method === 'POST' && path === '/api/machines/build/start') {
         fixture.starts++
         await new Promise((resolve) => setTimeout(resolve, 400))
-        fixture.state = 'running'
+        fixture.state = 'ready'
         return {}
       }
       return call(method, path, body)
     }
     api.op = async (name, args) => {
       if (name === 'projects.catalog') return { rows: [row], scratchKey: null }
+      if (name === 'projects.recent' && fixture.holdRecent) await new Promise((resolve) => { fixture.releaseRecent = resolve })
       if (name === 'projects.recent') return { projects: [{ project: row.key, projectId: null, lastActivity: 1794400000000, newestSession: 1794400000000, sessionIds: ['local-overview-conversation'] }] }
       if (name === 'sessions.list' && args.project === 'demo-store/compiler') return { sessions: [{ sessionId: 'local-overview-conversation', title: 'Saved local conversation', local: true, updatedAt: 1794400000000 }] }
       return op(name, args)
@@ -48,7 +50,7 @@ try {
     api.openProjectSession = async () => { fixture.sessions++; return { sessionId: 'new-overview-session', workspaceId: 'scratch' } }
   })
   // The sidebar's LayerFS view (docs/specs/layerfs-workspaces.md §4); there is no Projects page.
-  await page.locator('[data-slot="sidebar.workspaces"] [data-layerfs-view-switch]').click()
+  await page.getByRole('button', { name: 'Show LayerFS projects', exact: true }).click()
   const list = page.locator('[data-layerfs-workspaces-view]')
   const project = list.locator('[data-layerfs-project]').filter({ has: page.locator('button[title^="compiler · demo-store"]') })
   await project.waitFor({ timeout: 25_000 })
@@ -66,6 +68,18 @@ try {
   await until(async () => (await create.count()) === 1 && await create.isEnabled())
   await create.click()
   await until(async () => (await page.evaluate(() => window.__projectOverviewFixture.sessions)) === 1)
+
+  // A remount paints the cached list even while its replacement read is pending.
+  await page.evaluate(() => { window.__projectOverviewFixture.holdRecent = true })
+  await list.getByRole('button', { name: 'Show DSH workspaces' }).click()
+  await page.getByRole('button', { name: 'Show LayerFS projects' }).click()
+  await page.waitForFunction(() => !!window.__projectOverviewFixture.releaseRecent)
+  await project.getByRole('button', { name: 'Toggle conversations in compiler' }).waitFor()
+  await page.evaluate(() => {
+    const fixture = window.__projectOverviewFixture
+    fixture.holdRecent = false
+    fixture.releaseRecent()
+  })
 
   // ⚙ opens the project dialog: the Store and where it runs (§3).
   await project.hover()

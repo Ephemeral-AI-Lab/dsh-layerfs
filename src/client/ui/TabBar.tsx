@@ -113,7 +113,7 @@ export function TabBar({ tabs, active, onSelect, label, actions, className }: {
                 {x.icon ? <span className={css.icon} aria-hidden="true">{x.icon}</span> : null}
                 <span className={css.label} data-text={x.label}><span>{x.label}</span></span>
                 {x.count != null ? <span className={css.count}>{x.count}</span> : null}
-                {x.tone ? <span className={css.dot} aria-hidden="true"><StateDot state={TONE[x.tone]} size={x.tone === 'ongoing' ? 9 : 6} /></span> : null}
+                {x.tone === 'ongoing' ? <span className={css.dot} aria-hidden="true"><StateDot state={TONE[x.tone]} size={9} /></span> : null}
                 {x.hint ? <span className={css.sr}>, {x.hint}</span> : null}
               </button>
             )

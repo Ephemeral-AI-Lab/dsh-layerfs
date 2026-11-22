@@ -7,6 +7,8 @@ import type { CallLine } from '../../shared/logs.ts'
 
 /** The bits of a DSH session summary the views read (`ctx.sessions.list`'s `byId` rows). */
 export interface SessionRow {
+  title?: string
+  displayTitle?: string
   sessionId?: string
   /** The direct parent (DSH's summary field; there is no `parentSessionId`). */
   parentId?: string

@@ -4,10 +4,11 @@
 // left, every page's component and modal tables have a "LayerFS call" column,
 // and no page shows a token-looking string.
 //   node tools/guide/check.mjs        (exit 1 and a list of problems when any)
+import { fileURLToPath } from 'node:url'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 
-const dir = new URL('../../docs/guide/', import.meta.url).pathname
+const dir = fileURLToPath(new URL('../../docs/guide/', import.meta.url))
 const pages = readdirSync(dir).filter((f) => f.endsWith('.md'))
 const problems = []
 const say = (file, what) => problems.push(`${file}: ${what}`)

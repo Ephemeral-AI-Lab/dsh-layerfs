@@ -64,7 +64,8 @@
 
 .tile {
   min-width: 0;
-  border-radius: 10px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
   background: var(--dsw-alias-settings-card-fill);
 }
 
@@ -167,7 +168,7 @@
 .partsBar {
   display: flex;
   gap: 2px;
-  height: 24px;
+  height: 12px;
   overflow: hidden;
   border-radius: 6px;
   background: var(--dsw-alias-settings-card-fill);
@@ -302,32 +303,23 @@
 [data-hue='rest'] { --hue: var(--dsw-alias-border-l3); }
 
 .shares {
-  display: flex;
-  gap: 3px;
-  height: 64px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .shareBlock {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  justify-content: space-between;
-  min-width: 4px;
-  padding: 8px 10px;
-  overflow: hidden;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--hue) 18%, transparent);
-  box-shadow: inset 3px 0 0 var(--hue);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: 12px;
+  padding-block: 6px;
 }
 
-.shareName,
-.shareValue {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.shareBlock + .shareBlock { border-top: 1px solid var(--dsw-alias-border-l2); }
 
 .shareName {
+  overflow-wrap: anywhere;
   font-size: 13px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
@@ -725,6 +717,7 @@
 }
 
 @container (max-width: 640px) {
+  .health { grid-template-columns: minmax(0, 1fr); }
   .projectList { --project-cols: 22px minmax(0, 1fr) 64px 88px 12px; }
   .wide { display: none; }
 }

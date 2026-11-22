@@ -58,6 +58,7 @@ export interface LayerfsApi {
 
 /** Navigation the host may ask for in an operation result (`navigate`). */
 export interface Navigator {
+  createSession(workspaceId: string): Promise<string>
   currentSessionId?(): string | undefined
   openPanel(id: string): void
   openWorkspace(workspaceId: string): Promise<void>
@@ -248,12 +249,11 @@ export function createApi(remote: () => any, nav: Navigator, workspace: () => an
     },
     selectedSessionId: () => nav.currentSessionId?.(),
     async openProjectSession(project: string, workspaceId?: string, projectId?: string, machine?: string) {
-      const ws = workspace()
-      // No folder selected (often so in the sidebar's LayerFS view): the managed Scratch workspace.
       const target = workspaceId ?? selectedWorkspaceId()
-        ?? (ws?.connectWorkspace ? (await op<{ workspaceId: string }>('sessions.prepareScratch', { navigate: false })).workspaceId : undefined)
-      if (!ws?.connectWorkspace || !target) throw new HostError('no-workspace', 'Select a local folder to use as scratch for the project session', 0)
-      const sessionId = String(await ws.connectWorkspace(target))
+        ?? (await op<{ workspaceId: string }>('sessions.prepareScratch', { navigate: false })).workspaceId
+      if (!target) throw new HostError('no-workspace', 'Select a local folder to use as scratch for the project session', 0)
+      // A workspace blank may already belong to another project. Request a fresh identity before binding it.
+      const sessionId = await nav.createSession(target)
       await op('sessions.choose', { sessionId, project, projectId, ...(machine ? { machine } : {}) })
       nav.openSession(sessionId)
       return { sessionId, workspaceId: target }

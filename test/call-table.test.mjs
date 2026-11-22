@@ -5,6 +5,7 @@
 // handed to execute / the preset driver). Calls a CLI may lack are allowed only
 // where a discovery gate guards them (GATED, checked to be present).
 //   node --test test/call-table.test.mjs
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
@@ -13,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { pinned } from './routes-helper.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const pin = pinned()
 
 /** The pinned CLI's call table, read with a throwaway LAYERFS_HOME (never ~/.layerfs). */

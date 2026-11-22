@@ -171,7 +171,7 @@ export function StateChip({ tone, label, live, dashed, op, title, className }: {
 }): ReactNode {
   return (
     <span className={clsx(css.chip, className)} data-tone={tone} data-dashed={dashed || undefined} title={title}>
-      <span className={css.chipDot}><StateDot state={dotOf(tone, !!live)} /></span>
+      {live ? <span className={css.chipDot}><StateDot state={dotOf(tone, true)} /></span> : null}
       <span className={css.chipLabel}>{label}</span>
       {op && <span className={css.chipOp}>· {op}</span>}
     </span>
@@ -334,7 +334,7 @@ export function FixAction({ line, fix, runner, labels }: { line: string, fix: Ru
       setStep(opens ? 'idle' : 'done')
     } catch (error) { setFailed(error); setStep('idle') } finally { setAt(null) }
   }
-  if (step === 'done') return <p className={css.refusalFix} role="status"><StateDot state="done" />{runner.done}</p>
+  if (step === 'done') return <p className={css.refusalFix} role="status">{runner.done}</p>
   const running = step === 'busy' && at !== null && steps.length > 1
   const words = running ? (runner.step?.(at + 1, steps.length, steps[at]!) ?? `${at + 1}/${steps.length}`) : step === 'confirm' ? runner.confirm(fix) : runner.label(fix)
   return (

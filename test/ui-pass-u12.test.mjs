@@ -8,11 +8,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { freshState, treeAnswer } from './fixtures/doctor-scenarios.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-ui-pass-u12-'))
 
@@ -359,7 +359,7 @@ test('F11: a failed job\'s notice goes after a later success on its Store, or wh
   assert.equal(M.sm.failureSuperseded(failed, [failed, { id: 'b', kind: 'compact', store: 's', ended: 5, error: null }], stores), false, 'an earlier success does not')
   assert.equal(M.sm.failureSuperseded(failed, [failed, { id: 'b', kind: 'backup', store: 's', ended: 20, error: null }], stores), false, 'another kind does not')
   assert.equal(M.sm.failureSuperseded(failed, [failed], []), true, 'its Store removed')
-  assert.match(src('src/client/storage/HomeOverview.tsx'), /if \(failureSuperseded\(j, props\.jobs, view\.stores\)\) continue/)
+  assert.match(src('src/client/storage/HomeOverview.tsx'), /visibleFailures\(props\.jobs, view\.stores, props\.dismissed\)/)
 })
 
 test('F10: an in-use compaction is a word, its holders as the tip and Open <Sandbox>; never "failed in mark" or a raw refusal', () => {
@@ -534,9 +534,9 @@ test('R1 F6: a broken PostgreSQL Store makes its sessions unavailable (owner Q-R
   assert.match(sessions, /\{down \? null : <Button variant="outline" size="sm"[^]*t\('sessionsOpen'\)\}<\/Button>\}/)
   assert.match(page, /<Sessions api=\{api\} t=\{t\} project=\{project\} tick=\{tick\} store=\{store\} \/>/)
   const table = src('src/client/storage/ProjectTable.tsx')
-  assert.match(table, /\{sessionsUnavailable\(store\) \? null : <MenuItemButton[^]*?t\('ptNewSession'\)/)
+  assert.match(table, /const blockedSession = sessionsUnavailable\(store\) \? t\('ovSessionBlocked'\) : undefined/)
   assert.match(table, /down=\{sessionsUnavailable\(store\)\}/)
-  assert.match(table, /action=\{down \? undefined :/)
+  assert.match(table, /action=\{<button type="button" disabled=\{down\} title=\{down \? t\(\'ovSessionBlocked\'\)/)
   assert.match(table, /className=\{clsx\(css\.line, css\.sessionLine\)\} disabled=\{down\}/)
   assert.match(table, /store: \{ name: s\.name, kind: s\.kind, state: s\.state \}/)
   assert.match(src('src/client/storage/StorePage.tsx'), /<StoreProjects api=\{api\} store=\{\{ name: s\.name, kind: s\.kind, state: s\.state \}\}/)

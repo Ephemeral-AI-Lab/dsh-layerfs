@@ -176,6 +176,8 @@ export interface StorageView {
   /** The saved PostgreSQL logins, with those no Store names (absent from an older host). */
   auths?: PgAuth[]
   buckets: BucketRow[]
+  /** Whether the home tree read succeeded and includes unlinked buckets. */
+  bucketInventoryComplete?: boolean
   jobs: StorageJob[]
   /** Whether the selected LayerFS runtime has store.compact; absent from an older host. */
   compact?: boolean

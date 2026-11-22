@@ -62,8 +62,10 @@ export function ImagesTab({ m, taken = [], canCreate = false }: { m: MachineInfo
   if (answer && (answer.stage !== 1 || answer.mode === 'host')) return null
   return (
     <div className={css.tabStack}>
-      {answer && <ImagesDisk m={m} answer={answer} />}
-      <ImagesSection m={m} images={images} onCreate={canCreate ? setCreating : undefined} />
+      <Card className={css.imgInventory}>
+        {answer && <ImagesDisk m={m} answer={answer} />}
+        <ImagesSection m={m} images={images} onCreate={canCreate ? setCreating : undefined} />
+      </Card>
       {answer && <DockerSection m={m} images={images} />}
       {creating && <NewSandboxDialog machine={m} taken={taken} image={creating} onClose={() => setCreating(null)} />}
     </div>
@@ -104,7 +106,7 @@ function ImagesDisk({ m, answer }: { m: MachineInfo, answer: SandboxImagesView }
   const imagesBytes = answer.ready.reduce((sum, r) => sum + (r.size ?? 0), 0)
   const hueOf = (r: ReadyImage) => (r.source === 'bundle' ? 'bundle' : String(badgeHue(imageLabel(nameOf(r), r.refs).repo)))
   return (
-    <Card className={css.imgDisk} data-images-disk>
+    <div className={css.imgDisk} data-images-disk>
       <div className={css.imgDiskHead}>
         <span className={css.imgDiskTitle}>{t('imgSpaceTitle', { machine: m.name })}</span>
         <span className={css.imgDiskSub}>{seg ? t('imgSpaceOf', { images: bytes(imagesBytes), total: bytes(seg.total) }) : bytes(imagesBytes)}</span>
@@ -123,7 +125,7 @@ function ImagesDisk({ m, answer }: { m: MachineInfo, answer: SandboxImagesView }
         {seg && <span><i data-part="rest" />{t('imgSpaceRest', { size: bytes(seg.rest) })}</span>}
         {(seg ? seg.free : answer.free) != null && <span>{t('imgSpaceFree', { size: bytes(seg ? seg.free : answer.free) })}</span>}
       </div>
-    </Card>
+    </div>
   )
 }
 

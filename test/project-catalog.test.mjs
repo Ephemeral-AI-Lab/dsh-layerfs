@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
-const root = new URL('..', import.meta.url).pathname
+import { fileURLToPath, pathToFileURL } from 'node:url'
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-catalog-'))
 await build({ entryPoints: [join(root, 'src/host/sessions/catalog.ts')], outfile: join(out, 'catalog.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24' })

@@ -105,8 +105,7 @@ export const SIGNAL: Record<string, SignalState> = { ok: 'ok', run: 'ongoing', n
 export function StatusSignal({ fid, st, tip, said, className, size, children }: { fid: string, st: string, tip: TipData, said?: string | undefined, className?: string, size?: number, children: ReactNode }): ReactNode {
   return (
     <span className={clsx(css.sig, className)} data-st={st}>
-      <Signal state={SIGNAL[st] ?? 'idle'} size={size} fid={fid} title={tip.title} label={said ? `${tip.title}: ${said}` : tip.title} detail={<span className={css.sigCard}><TipBody tip={tip} /></span>} />
-      <span className={css.sigWord}>{children}</span>
+      <Signal state={SIGNAL[st] ?? 'idle'} size={size} fid={fid} title={tip.title} anchorText={children} label={said ? `${tip.title}: ${said}` : tip.title} detail={<span className={css.sigCard}><TipBody tip={tip} /></span>} />
     </span>
   )
 }
@@ -210,6 +209,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
   const fact = o.st === 'run' || phase ? '' : w.fact(state, v)
   const inside = w.inside(v)
   const more: ReactNode[] = []
+  const acts: ReactNode[] = []
   const rowWord = w.rowWord(v.word)
   if (rowWord) more.push(<span key="word" className={css.word}>{rowWord}</span>)
   if (waitsOn) more.push(<Cause key="cause" fid={`goto:${key}`} by={waitsOn} ctx={ctx} />)
@@ -219,7 +219,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
     // an off button shows no command when the only fix stops by force: that line is copied from the detail, never run here
     const forced = off?.why === 'sandboxes'
     const after = kidsOf(state.world!, x).filter((k) => k.kind === 'store' || k.kind === 'sandbox').map((k) => w.callFor(k))
-    more.push(
+    acts.push(
       <Btn key="fix" variant="primary" fid={`fix:${key}`} busy={!!fixing} off={!!off} onPress={() => on.fix(x, v.fix!)}
         label={w.t('dpFixNamed', { fix: fixLabel, name: w.nameOf(x) })} settle={`${key}:${v.fix.line}:${o.st}:${off?.why ?? ''}`}
         tip={{ title: fixLabel, lines: [w.offText(off) ?? w.t(x.kind === 'machine' ? 'dpFixThenMachine' : 'dpFixThen')], cmds: forced ? [] : [v.fix.line, `# ${w.t('dpCmdThen')}`, w.callFor(x.kind === 'project' && x.parent ? state.world!.by[x.parent] ?? x : x), ...(x.kind === 'machine' ? after : [])] }}>
@@ -261,7 +261,6 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
   if (fact) more.push(<span key="fact" className={css.fact} title={v.thing.image && fact.includes(shortDigest(v.thing.image)) ? v.thing.image : undefined}>{fact}</span>)
   if (inside) more.push(<span key="inside" className={css.inside}>{markDot(v.inside.bad ? 'bad' : 'warn')}{inside}</span>)
 
-  const acts: ReactNode[] = []
   if (v.canFull) {
     const off = full ? null : offWhy(state, x, 'full')
     acts.push(
@@ -309,10 +308,10 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
         if ((e.target as HTMLElement).closest('button, a') || window.getSelection()?.toString()) return
         on.toggle(key)
       }}>
-      <button type="button" className={css.rowBtn} data-row={key} data-fid={`row:${key}`} aria-expanded={open} aria-controls={controls} onKeyDown={onKey}
+      <button type="button" className={css.rowBtn} data-row={key} aria-label={`${name}, ${w.said(v, phase)}`} data-fid={`row:${key}`} aria-expanded={open} aria-controls={controls} onKeyDown={onKey}
         onClick={(e) => { e.stopPropagation(); on.toggle(key) }}>
         <span className={css.chev} aria-hidden="true" /><span className={css.ico}><KindGlyph thing={x} /></span>
-        <span className={css.name}>{name}</span><span className={css.sr}>, {w.said(v, phase)}</span>
+        <span className={css.name}>{name}</span>
       </button>
       <StatusSignal fid={`sig:${key}`} st={o.st} tip={sigTip} said={(sigTip.lines ?? []).filter(Boolean).join(' ')}>{w.word(o.st)}</StatusSignal>
       <span className={css.more} data-thin={thin ? '' : undefined}>{more}</span>

@@ -1,5 +1,7 @@
-<!-- source: 576ba6b4e5e4 -->
+<!-- source: de7961d62f7f -->
 # DSH 中的 LayerFS：界面指南
+
+> 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
 
 dsh-layerfs 把 LayerFS 加进了 DeepSeek Harness（DSH）网页应用。LayerFS 把项目文件放在 Store 里，每一次改动都记录成某个分支上的一个提交。Agent 在你机器上的 Sandbox 里干活。DSH 还是原来那个聊天应用，LayerFS 只是多加了一个侧边栏行、一组对话标签页，以及窗口周围的几个控件。
 
@@ -11,7 +13,7 @@ dsh-layerfs 把 LayerFS 加进了 DeepSeek Harness（DSH）网页应用。LayerF
 - **截图带编号。** 每个编号对应图片下方表格中的一行。
 - **每个操作都写明它的 LayerFS 调用**，放在“LayerFS 调用”一列里，比如 `store move`。“(读取)”标出视图为了绘制自己而读取的内容，`—` 表示没有调用（结果来自主机内存，或来自你的浏览器记住的内容）。[cli-map.md](cli-map.md) 把所有操作列在一处。
 - **用词以界面为准。** 按钮用 **粗体**，先写中文界面上的文字，括号里附英文，因为截图是英文界面。
-- 截图来自一套演示环境：入门（Starter）预设的 Store `demo-starter`（项目 `bookshelf`，235 个提交）、一个小 Store `guide-notes`（项目 `handbook`，含一个项目对话），以及一个存储桶 `guide-backups`。
+- 早期截图来自一套演示环境：入门（Starter）预设的 Store `demo-starter`（项目 `bookshelf`，235 个提交）、一个小 Store `guide-notes`（项目 `handbook`，含一个项目对话），以及一个存储桶 `guide-backups`。
 
 ## 两种模式：DSH 会话和项目会话
 
@@ -60,15 +62,17 @@ flowchart LR
 
 LayerFS 在 DSH 侧边栏里只有一行。它打开 **Center**：一个页面一次显示一个地方，顶部有自己的导航栏。Center 从 **主页**（Home）开始。
 
-![Center 的主页，带编号](../img/readme-center.png)
+![Center 的主页，带编号（隔离测试数据，当前界面）](../img/readme-center.png)
+
+*隔离测试数据。*
 
 | # | 组件 | 说明 | 页面 |
 |---|---|---|---|
-| 1 | LayerFS 侧边栏行 | 打开 Center，并把侧边栏收成图标 | [入口](entry-points.md) |
-| 2 | 导航栏 | 后退/前进、面包屑、**跳转到…**（Jump to…，⌘K）、刷新、**添加**（Add） | [组件 › 导航栏](components.md#nav-bar) |
-| 3 | 诊断、日志和设置 | 健康检查、调用日志、预设、设置、刷新 | [组件 › 头部卡片](components.md#head-card) |
-| 4 | 主页的标签页 | 项目 · Store · 机器 | [主页](home.md) |
-| 5 | 项目表格 | 所有项目，以及它们的 Store、会话和 Sandbox | [主页 › 项目](home.md#projects) |
+| 1 | 导航栏 | 后退、前进、面包屑、跳转和添加 | [导航栏](components.md#nav-bar) |
+| 2 | 诊断 | 打开诊断页查看检查结果。按钮上会显示发现数量 | [诊断](health.md) |
+| 3 | 顶部卡片 | 运行时、最紧急的提示、预设和刷新 | [主页](home.md) |
+| 4 | 标签页 | 项目、Store、机器 | [主页](home.md) |
+| 5 | 项目表 | 项目及其 Store、会话和 Sandbox | [项目](home.md#projects) |
 
 ```mermaid
 flowchart TD

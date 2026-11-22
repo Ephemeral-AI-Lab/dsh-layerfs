@@ -11,7 +11,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = mkdtempSync(join(tmpdir(), 'dsh-receipt-logs-'))
 await build({
@@ -27,7 +27,7 @@ const place = () => {
 }
 function fakeCli(dir) {
   const cli = join(dir, 'fake.mjs')
-  writeFileSync(cli, `#!${process.execPath}
+  writeFileSync(cli, `#!/usr/bin/env node
 const argv = process.argv.slice(2)
 let input = ''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => {
   if (argv.includes('fail')) { process.stderr.write(JSON.stringify({ error: 'Conflict', message: 'moved' }) + '\\n'); process.exitCode = 125; return }
@@ -185,7 +185,7 @@ test('simulation host calls carry dsh-sim tags, keep outputs and are labelled wi
 })
 
 test('stepOfCall joins a scripted tool call to its run and step, only for its own session', async () => {
-  const repo = new URL('..', import.meta.url).pathname
+  const repo = fileURLToPath(new URL('..', import.meta.url))
   const { mkdirSync, rmSync } = await import('node:fs')
   mkdirSync(join(repo, 'lib'), { recursive: true })
   const out = mkdtempSync(join(repo, 'lib/.test-receipt-step-'))

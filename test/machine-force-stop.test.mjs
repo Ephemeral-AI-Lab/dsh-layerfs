@@ -3,12 +3,12 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { loadRoutes, testHost } from './routes-helper.mjs'
 
 const R = await loadRoutes()
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(root, 'lib', '.test-force-stop-'))
 await build({ absWorkingDir: root, stdin: { contents: "export { MachinesController } from './src/client/machines/controller.ts'; export { forceStopOf } from './src/client/machines/model.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'controller.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning' })
 const { MachinesController, forceStopOf } = await import(pathToFileURL(join(out, 'controller.mjs')).href)

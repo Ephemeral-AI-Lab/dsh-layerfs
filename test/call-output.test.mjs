@@ -29,7 +29,7 @@ const place = () => {
 // A fake CLI: `fail` refuses (exit 125, refusal on stderr), `--events` streams exec frames, `big` prints 200 KB.
 function fakeCli(dir) {
   const cli = join(dir, 'fake.mjs')
-  writeFileSync(cli, `#!${process.execPath}
+  writeFileSync(cli, `#!/usr/bin/env node
 const argv = process.argv.slice(2), tag = process.env.LAYERFS_LOGS_TAG ?? null
 let input = ''; process.stdin.on('data', c => input += c); process.stdin.on('end', () => {
   process.stderr.write(JSON.stringify({ phase: 'start', done: 0, total: 1 }) + '\\n')

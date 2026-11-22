@@ -14,7 +14,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { runtimePin } from './runtime-pin.mjs'
 
-const root = new URL('..', import.meta.url).pathname.replace(/\/$/, '')
+import { fileURLToPath } from 'node:url'
+
+const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
 const args = process.argv.slice(2)
 const flag = (name, fallback) => {
   const i = args.indexOf(name)

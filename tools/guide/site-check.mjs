@@ -9,7 +9,7 @@ import { resolve, join } from 'node:path'
 const args = process.argv.slice(2)
 const file = resolve(args.find((a) => !a.startsWith('--') && !args[args.indexOf(a) - 1]?.startsWith('--')) ?? 'docs/guide/explorer.html')
 const shots = args.includes('--shots') ? args[args.indexOf('--shots') + 1] : null
-const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true })
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: 'en-US' })
 const errors = []
 page.on('pageerror', (e) => errors.push(String(e)))
@@ -33,7 +33,9 @@ await page.goto(pathToFileURL(file).href + '#' + target, { waitUntil: 'domconten
 await page.waitForTimeout(200)
 if (shots) await page.screenshot({ path: join(shots, 'en.png') })
 await page.click('#lang')
-await page.waitForTimeout(300)
+// Chromium can restore the pre-reload scroll position after the language has switched.
+await page.waitForLoadState('load')
+await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
 s = await state()
 expect(s.lang === 'zh-CN' && s.button === 'English' && s.toc === '本页内容', `switches to zh (${JSON.stringify(s)})`)
 const top = await page.evaluate((id) => Math.round(document.getElementById(id)?.getBoundingClientRect().top ?? -1), target)

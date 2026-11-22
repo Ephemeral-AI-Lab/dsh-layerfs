@@ -49,6 +49,7 @@
  * Events: `storage-job` `{ type, job }` as a job moves, `storage` `{ type }`
  * when the view changed.
  */
+import { READ_TIMEOUT_MS } from '../layerfs/cli.ts'
 import { randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, rmdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -273,8 +274,9 @@ export class Storage {
   }
 
   /** The buckets connected to this LayerFS home, by any client: `home get --with tree` (records only). */
-  private async bucketRows(): Promise<BucketRecord[]> {
-    const tree = (await this.lfs.home.get({ with: ['tree'] }))?.tree
+  private async bucketRows(probe: { timeout_ms?: number }): Promise<BucketRecord[] | null> {
+    const tree = (await this.lfs.home.get({ with: ['tree'], ...probe }))?.tree
+    if (!tree) return null
     const text = (v: unknown) => (typeof v === 'string' && v ? { value: v } : null)
     return (Array.isArray(tree?.buckets) ? tree.buckets : []).filter((b: any) => typeof b?.bucket === 'string')
       .map((b: any) => {
@@ -285,19 +287,22 @@ export class Storage {
   }
 
   /** StorageView: concurrent reads (the project list's join, the Storage page) share one. */
-  view(): ReturnType<Storage['readView']> {
+  view(fresh = false): ReturnType<Storage['readView']> {
+    if (fresh) this.generation++
     if (this.viewing && this.viewing.generation === this.generation) return this.viewing.promise
     const generation = this.generation
-    const promise = this.readView(generation).finally(() => { if (this.viewing?.promise === promise) this.viewing = null })
+    const promise = this.readView(generation, fresh).finally(() => { if (this.viewing?.promise === promise) this.viewing = null })
     this.viewing = { promise, generation }
     return promise
   }
 
-  private async readView(generation: number) {
-    const [listed, machines, recorded, auths] = await Promise.all([
-      this.lfs.store.list({ detail: true, with: ['stats'] }),
+  private async readView(generation: number, fresh: boolean) {
+    // An explicit refresh also observes changes from other CLI processes.
+    const probe = fresh ? { timeout_ms: READ_TIMEOUT_MS } : {}
+    const [listed, machines, bucketRecords, auths] = await Promise.all([
+      this.lfs.store.list({ ...probe, detail: true, with: ['stats'] }),
       machineRows(this.lfs),
-      this.bucketRows().catch((error: any) => (this.log(`[storage] home get --with tree: ${error?.message ?? error}`), [] as BucketRecord[])),
+      this.bucketRows(probe).catch((error: any) => (this.log(`[storage] home get --with tree: ${error?.message ?? error}`), null)),
       this.auths().catch((error: any) => (this.log(`[storage] store auths: ${error?.message ?? error}`), { items: [] })),
     ])
     const items: any[] = listed?.items ?? []
@@ -305,13 +310,14 @@ export class Storage {
     const stores = items.map((s) => storeRow(s, jobs))
     // a Store with more than 20 projects: `projects` is cut at 20 beside `projects_count`, so its names come page by page
     await Promise.all(stores.filter((s) => s.projectsCount > s.projects.length).map(async (s) => {
-      const all = await pages((p) => this.lfs.project.list({ store: s.name, ...p })).catch((error: any) => (this.log(`[storage] project list --store ${s.name}: ${error?.message ?? error}`), null))
+      const all = await pages((p) => this.lfs.project.list({ ...probe, store: s.name, ...p })).catch((error: any) => (this.log(`[storage] project list --store ${s.name}: ${error?.message ?? error}`), null))
       if (all) s.projects = all.map((r: any) => String(r?.project ?? '')).filter(Boolean).map((key) => key.slice(key.indexOf('/') + 1))
     }))
     // a Store whose machine does not answer keeps its last read size, marked stale
     const sqlite = stores.filter((s) => s.kind === 'sqlite')
     const sizes = this.sizes.answer(sqlite.map((s) => ({ name: s.name, size: s.size ? { bytes: s.size.bytes } : null })))
     sqlite.forEach((s, i) => { s.size = sizes[i] ?? null })
+    const recorded = bucketRecords ?? []
     const names = new Set([...recorded.map((b) => b.name), ...stores.flatMap((s) => s.links.map((l: { bucket: string }) => l.bucket))])
     const buckets = [...names].sort().map((name) => {
       const listing = this.listings.get(name)
@@ -328,6 +334,7 @@ export class Storage {
       // the saved PostgreSQL logins (store auths), with those no Store names: the PostgreSQL tab groups by them (spec v23 V23-1)
       auths: auths.items,
       buckets,
+      bucketInventoryComplete: bucketRecords !== null,
       jobs,
       compact: true,
       at: Date.now(),

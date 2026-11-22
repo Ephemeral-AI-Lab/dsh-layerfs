@@ -23,6 +23,7 @@
 // sessions.choose write, which a read-only crawl does not make).
 // Panels (for --only): resources, store, machine, sandbox, project, overview, health,
 // logs, settings, projects, hero, conversation.
+import { fileURLToPath } from 'node:url'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDev } from '../tools/e2e-lib.mjs'
@@ -34,7 +35,7 @@ const only = opt('--only') ? new Set(opt('--only').split(',')) : null
 const keepGoing = argv.includes('--keep-going')
 const sizes = opt('--sizes', '1280x820,900x800').split(',')
 const schemes = opt('--schemes', 'light,dark').split(',')
-const devDir = process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname
+const devDir = process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url))
 const shots = join(devDir, 'shots')
 rmSync(shots, { recursive: true, force: true })
 mkdirSync(shots, { recursive: true })

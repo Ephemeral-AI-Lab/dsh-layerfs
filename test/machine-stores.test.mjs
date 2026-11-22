@@ -8,10 +8,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(root, 'lib', '.test-machine-stores-'))
 await build({ absWorkingDir: root, stdin: { contents: "export * from './src/client/storage/machine-stores.ts'; export * from './src/client/storage/store-backups.ts'; export { pgUsable } from './src/client/machines/model.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'ms.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
 const M = await import(pathToFileURL(join(out, 'ms.mjs')).href)

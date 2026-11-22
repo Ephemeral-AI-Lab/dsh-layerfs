@@ -24,13 +24,13 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runtimePin } from '../scripts/runtime-pin.mjs'
-import { baseProjectHistorySteps } from '../src/host/presets/recipe/recipe.js'
+import { baseProjectHistorySteps, stepEffect } from '../src/host/presets/recipe/recipe.js'
 import { sourceFiles } from '../src/host/presets/recipe/presets.js'
 
-export const FIXTURE_VERSION = 3
-const root = new URL('..', import.meta.url).pathname
+export const FIXTURE_VERSION = 4
+const root = fileURLToPath(new URL('..', import.meta.url))
 const PROFILES = ['website', 'billing', 'embeddings', 'evaluation', 'compiler', 'sdk', 'design', 'gateway']
 export const TIERS = {
   S: { stores: 1, projects: 2, extraFiles: 0, extraBranches: 0, writesPerBranch: 0 },
@@ -131,7 +131,7 @@ export async function seed({ tier, http, cli, home, fixtures, log = console.log 
       for (const s of history) {
         const out = await lfsAsync(cli, home, s.argv, s.input)
         steps++
-        if (out.kind === 'Committed' || out.kind === 'Merged') commits++
+        if (stepEffect(s, out).commit) commits++
       }
       log(`project ${key}: ${history.length} history steps`)
     }

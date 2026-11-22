@@ -8,6 +8,7 @@
 // $DSH_LAYERFS_SDK and a script imports it and calls LayerFS; that call is in the call
 // log as a `node` line tagged with the session; the session's skill catalog lists
 // `dsh-layerfs`, and the skill loads with its reference pages beside it.
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,7 +16,7 @@ import { openDev, runTurn } from '../tools/e2e-lib.mjs'
 
 const step = (m) => console.log(`\n== ${m}`)
 const keep = process.argv.includes('--keep')
-const dev = process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname
+const dev = process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url))
 const { browser, page, logs } = await openDev()
 await page.waitForFunction(() => window.__dshLayerfs, null, { timeout: 30000 })
 const op = (name, args = {}) => page.evaluate(async ([n, a]) => {

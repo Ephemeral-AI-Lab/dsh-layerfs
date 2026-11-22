@@ -4,10 +4,10 @@ import { build } from 'esbuild'
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runtimePin } from '../scripts/runtime-pin.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 
 /** Import the routes module graph (router.ts plus cli.ts helpers). */
 export async function loadRoutes() {

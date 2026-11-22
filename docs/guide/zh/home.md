@@ -1,17 +1,21 @@
-<!-- source: 2aedf88f223d -->
+<!-- source: 55a9e1f3e55c -->
 # 主页
+
+> 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
 
 > **位置：** `LayerFS › 主页` · **打开方式：** 侧边栏的 **LayerFS** 行、任意 Center 页面的第一个面包屑、跳转到的“页面”分组 · **源码：** 见文末
 
 主页是 Center 的第一页：这个 LayerFS 主目录里的一切，一眼看全。来这里看看有什么需要你处理，
 找一个项目、Store 或机器，或者新建一个。
 
-![主页（带编号）](../img/home-overview.png)
+![主页（带编号）（隔离测试数据，当前界面）](../img/home-overview.png)
+
+*隔离测试数据。*
 
 | # | 组件 | 说明 |
 |---|---|---|
 | 1 | 导航栏 | [组件 › 导航栏](components.md#nav-bar)：后退、前进、面包屑（这里只有 **主页**，Home）、**跳转到…**（Jump to…）、**添加**（Add） |
-| 2 | 顶部卡片 | [组件 › 顶部卡片](components.md#head-card)：LayerFS × DSH、运行时、需要你关注的事项，以及诊断、日志、预设、设置和刷新按钮 |
+| 2 | 顶部卡片 | [组件 › 顶部卡片](components.md#head-card)：LayerFS × DSH、运行时、需要你关注的事项，以及预设和刷新按钮 |
 | 3 | 标签页 | **项目**（Projects）*n* · **Store**（Stores）*n* · **机器**（Machines）*n*，每个都带计数；里面有东西需要你处理时还会有一个彩色圆点 |
 | 4 | 搜索和排序 | 筛选项目表，并决定它的顺序 |
 | 5 | 项目行 | 一个项目：它的 Store、会话、Sandbox、最近会话和最近提交、大小 |
@@ -25,12 +29,14 @@
 
 主页打开时会读取存储视图（`GET /api/storage`：`home get`、`project list`、`store auths`、
 `store list`）和项目目录（`GET /api/projects`：`project list`）；页面可见时每 15 秒再读一次，
-每收到一个 `storage`、`projects`、`projects-changed` 或 `connection` 事件也会再读。操作失败时，
+数据变更后也会重新读取。500 毫秒内的存储和项目通知会合并处理。项目有变更时，项目目录和存储视图都会刷新。操作失败时，
 顶部卡片下方会出现一条红色提示条，带 **关闭**（Dismiss）。
 
 ## 顶部卡片与提示
 
-![顶部卡片](../img/home-head-card.png)
+![顶部卡片（隔离测试数据，当前界面）](../img/home-head-card.png)
+
+*隔离测试数据。*
 
 顶部卡片是一个共用组件；完整的表格见
 [组件 › 顶部卡片](components.md#head-card)，它列出的提示见
@@ -38,16 +44,25 @@
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 1 LayerFS × DSH | 标志；它的提示写着 LayerFS 文件夹和已准备好的镜像 | — | —（静态） | — |
-| 2 运行时 | `LayerFS 2.0.0 · b275fc28`，固定使用的构建 | 按下 → [设置 LayerFS](entry-points.md#set-up-layerfs) 对话框 | `--version --json` (读取，运行时发现) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
-| 3 标题行 | 最紧急的那件事，或者带绿点的 **没有需要处理的事项**（Nothing needs your attention） | 每件事各自的按钮（见[待处理提示](components.md#needs-you-notices)） | 按钮自己的调用 | 一件事，或者最紧急的一件加上 **还有 *n* 个**（+*n* more） |
-| 4 诊断 | 一个盾牌；主目录检查发现问题时带红色或橙色的计数 | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | `GET /api/doctor/results` (读取，主机内存) | 有错误时计数为红色，有警告时为橙色 |
-| 5 日志 | 一个列表图标 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | —（页面跳转） | — |
-| 6 试用预设 | 智能体预设图标 | 按下 → 预设对话框（[预设](presets.md)） | —（打开对话框） | — |
-| 7 设置 | 一个齿轮 | 按下 → [设置 LayerFS](entry-points.md#set-up-layerfs) | `home get` (读取，经由 `setup.status`) | — |
-| 8 刷新 | 一个环形箭头；它的提示写着上次检查的时间 | 按下 → 重新读取 Store、项目和机器，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list`、`project list` (读取)，然后 `home doctor` | 检查运行期间不可用 |
+| 1 LayerFS × DSH | LayerFS × DSH 标志 | — | —（静态） | — |
+| 2 运行时 | `LayerFS 2.0.0 · 12345678`，固定使用的构建 | 按下 → 打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取，运行时发现) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
+| 3 标题行 | 最紧急的那件事，或者带绿点的 **没有需要处理的事项**（Nothing needs your attention） | 每件事各自的按钮（见[待处理提示](components.md#needs-you-notices)） | 按钮自己的调用 | 按 **还有 {n} 个**（+{n} more）可展开或收起其余待处理事项及其操作按钮 |
+| 4 试用预设 | 智能体预设图标 | 按下 → 预设对话框（[预设](presets.md)） | —（打开对话框） | — |
+| 5 刷新 | 一个环形箭头；它的提示写着上次检查的时间 | 按下 → 重新读取 Store、项目和机器，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list`、`project list` (读取)，然后 `home doctor` | 检查运行期间不可用 |
+
+![展开后的待处理提示（隔离测试数据，当前界面）](../img/home-notices.png)
+
+*隔离测试数据。*
 
 ## 导航栏
+
+当前主页导航栏，标号 1–3 分别是诊断、日志和设置。
+
+![主页导航栏：1 诊断、2 日志、3 设置（隔离测试数据，当前界面）](../img/home-navigation.png)
+
+*隔离测试数据。*
+
+以下早期多 Store 示例显示面包屑切换器。
 
 ![项目页上的导航栏](../img/home-nav-bar.png)
 
@@ -55,8 +70,16 @@
 表格见：[组件 › 导航栏](components.md#nav-bar)。
 
 ![面包屑的切换菜单](../img/home-crumb-switcher.png)
-![跳转到](../img/home-jump.png)
-![添加菜单](../img/home-add-menu.png)
+![跳转到（隔离测试数据，当前界面）](../img/home-jump.png)
+
+*隔离测试数据。*
+
+![按标题或 ID 搜索会话（隔离测试数据，当前界面）](../img/home-jump-search.png)
+
+*隔离测试数据。*
+![添加菜单（隔离测试数据，当前界面）](../img/home-add-menu.png)
+
+*隔离测试数据。*
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
@@ -66,7 +89,10 @@
 | — 传输 | **{n} 个传输**（{n} transfers），带进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个时），或一个列出它们的菜单（有多个时） | —（已读到的存储视图里的任务） | 没有任务运行时隐藏 |
 | 5 跳转到… | 一个带 **⌘K** 的搜索框 | 按下或按 **⌘K** → 跳转到对话框：输入文字，**↑ ↓** 移动，**Enter** 打开，**Esc** 关闭 | —（在主页已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）；有其他对话框打开时不可用 |
 | 6 刷新 | 一个环形箭头，除主页外每个页面都有 | 按下 → 页面重新读取 | 页面自己的读取 | 读取时显示一个圆点 |
-| 7 添加 | **+ 添加**（+ Add） | 按下 → **新建项目**（New project）、**新建 Store**（New Store）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 各项对应的对话框（见[在此打开的对话框](#modals-opened-here)） | 只有某个平台能创建机器时才有 **新建机器**（New machine） |
+| 7 添加 | **+ 添加**（+ Add） | 按下 → **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 各项对应的对话框（见[在此打开的对话框](#modals-opened-here)） | **新建机器**和**新建 Sandbox** 不可用时仍会显示，并说明原因 |
+| 诊断 | 盾牌图标，主目录检查有发现时显示数量 | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | `GET /api/doctor/results`（读取主机内存） | 有错误时计数为红色，有警告时为橙色 |
+| 日志 | 列表图标 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | —（导航） | — |
+| 设置 | 齿轮图标 | 按下 → [设置 LayerFS](entry-points.md#set-up-layerfs) | `home get`（通过 `setup.status` 读取） | — |
 
 ## 项目
 
@@ -176,13 +202,16 @@
 | 对话框 | 打开方式 | 作用 | LayerFS 调用 | 撤销 |
 |---|---|---|---|---|
 | 新建项目 | **新建项目**（New project，标签页、添加菜单、空状态） | [入口 › 项目对话框](entry-points.md#project-dialog) | `store create`、`project init`、`store move` | 删除这个项目 |
+| 新建会话 | 添加 › **新建会话**（New session） | 为对话选择项目 | —（打开选择器） | 取消 |
+| 导入文件夹 | 添加 › **导入文件夹**（Import a folder） | 打开项目对话框并带入源文件夹 | 确认后调用 `project init` | 创建前可取消 |
+| 新建 Sandbox | 添加 › **新建 Sandbox**（New Sandbox） | 选择符合条件的机器，再配置 Sandbox | 确认后调用 `sandbox create` | 创建前可取消 |
 | 新建 Store | **新建 Store**（New Store）、添加 › **新建 Store** | 在一台机器上新建一个 SQLite Store | `store create` | Store 上的 **移除…**（Remove…） |
 | 连接数据库 | **连接数据库**（Connect a database） | 保存一个登录并连接一个 PostgreSQL 数据库 | `store save-auth`、`store connect`、`store get` | **断开连接…**（Disconnect…） |
 | 新建机器 | **新建机器**（New machine） | 创建一台 Docker、Lima 或 Apple Container 机器 | `machine create` | 机器菜单里的 **移除**（Remove） |
 | 添加存储桶 | **添加存储桶**（Add bucket） | 连接一个用于备份的 S3 存储桶 | `backup connect` | 存储桶上的 **断开连接**（Disconnect） |
 | 预设 | **试用预设**（Try a preset）、添加 › **试用预设** | [预设](presets.md) | 预设自己的脚本 | — |
 | 设置 LayerFS | 运行时、**设置**（Settings） | [入口 › 设置 LayerFS](entry-points.md#set-up-layerfs) | `home get` | — |
-| 跳转到 | **跳转到…**（Jump to…）、**⌘K** | 打开任意项目、Store、机器、Sandbox、存储桶或页面 | — | Esc |
+| 跳转到 | **跳转到…**（Jump to…）、**⌘K** | 打开项目、Store、机器、Sandbox、存储桶、Center 页面或可用的 DSH 会话 | — | Esc |
 | 删除 {name}？ | 项目 ⋯ › **删除项目…**（Delete project…） | [确认对话框](components.md#confirm-dialog) | `project delete` | 无 |
 
 ## 状态与信号

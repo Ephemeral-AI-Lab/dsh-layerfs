@@ -1,16 +1,20 @@
 # Home
 
+> Images marked “isolated fixture data” show the current components rendered in a private browser with sample data. Other images come from the earlier demo setup.
+
 > **Where:** `LayerFS › Home` · **Opens from:** the sidebar's **LayerFS** row, the first crumb of any Center page, Jump to's Pages · **Source:** see the end
 
 Home is Center's first page: everything this LayerFS home holds, at once. Come here to see
 what needs you, to find a project, Store or machine, and to add a new one.
 
-![Home, numbered](img/home-overview.png)
+![Home, numbered (current UI, isolated fixture data)](img/home-overview.png)
+
+*Isolated fixture data.*
 
 | # | Component | What it is |
 |---|---|---|
 | 1 | Nav bar | [Components › Nav bar](components.md#nav-bar): Back, Forward, the crumbs (just **Home** here), **Jump to…**, **Add** |
-| 2 | Head card | [Components › Head card](components.md#head-card): LayerFS × DSH, the runtime, what needs your attention, and the Doctor, Logs, preset, Settings and Refresh buttons |
+| 2 | Head card | [Components › Head card](components.md#head-card): LayerFS × DSH, the runtime, what needs your attention, and the preset and Refresh buttons |
 | 3 | Tabs | **Projects** *n* · **Stores** *n* · **Machines** *n*, each with a count and a coloured dot when something in it needs you |
 | 4 | Search and sort | Filters the projects table and orders it |
 | 5 | Project row | One project: its Store, sessions, Sandboxes, last session and commit, size |
@@ -25,12 +29,13 @@ kind and view and which rows are open.
 
 Home reads the Storage view (`GET /api/storage`: `home get`, `project list`, `store auths`,
 `store list`) and the project catalog (`GET /api/projects`: `project list`) when it opens,
-again every 15 s while it is visible, and on every `storage`, `projects`, `projects-changed` and
-`connection` event. A failed action shows a red bar under the head card with **Dismiss**.
+again every 15 s while it is visible, and after changes. Storage and project notifications are coalesced over 500 ms. Project changes refresh the catalog as well as storage. A failed action shows a red bar under the head card with **Dismiss**.
 
 ## Head card and notices
 
-![The head card](img/home-head-card.png)
+![The head card (current UI, isolated fixture data)](img/home-head-card.png)
+
+*Isolated fixture data.*
 
 The head card is a shared component; its full table is in
 [Components › Head card](components.md#head-card), and the notices it lists are in
@@ -38,16 +43,25 @@ The head card is a shared component; its full table is in
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| 1 LayerFS × DSH | The lockup; its tip names the LayerFS folder and prepared images | — | — (static) | — |
-| 2 Runtime | `LayerFS 2.0.0 · b275fc28`, the pinned build | Press → the [Set up LayerFS](entry-points.md#set-up-layerfs) dialog | `--version --json` (read, runtime discovery) | **LayerFS unavailable**, **Reading LayerFS…** |
-| 3 Headline | The most urgent need, or **Nothing needs your attention** with a green dot | Each need's own button (see [Needs-you notices](components.md#needs-you-notices)) | the button's own call | one need, or the top one and **+*n* more** |
-| 4 Doctor | A shield; a red or orange count when the home checks found something | Press → `LayerFS › Doctor` ([Doctor](health.md)) | `GET /api/doctor/results` (read, host memory) | count red for an error, orange for a warning |
-| 5 Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — (navigation) | — |
-| 6 Try a preset | The agent-preset icon | Press → the Presets dialog ([Presets](presets.md)) | — (opens a dialog) | — |
-| 7 Settings | A gear | Press → [Set up LayerFS](entry-points.md#set-up-layerfs) | `home get` (read, through `setup.status`) | — |
-| 8 Refresh | A circular arrow; its tip says when the checks last ran | Press → reads Stores, projects and machines again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list`, `project list` (read), then `home doctor` | disabled while the checks run |
+| 1 LayerFS × DSH | The LayerFS × DSH wordmark | — | — (static) | — |
+| 2 Runtime | `LayerFS 2.0.0 · 12345678`, the pinned build | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (read, runtime discovery) | **LayerFS unavailable**, **Reading LayerFS…** |
+| 3 Headline | The most urgent need, or **Nothing needs your attention** with a green dot | Each need's own button (see [Needs-you notices](components.md#needs-you-notices)) | the button's own call | **+{n} more** expands or collapses the remaining needs and their actions |
+| 4 Try a preset | The agent-preset icon | Press → the Presets dialog ([Presets](presets.md)) | — (opens a dialog) | — |
+| 5 Refresh | A circular arrow; its tip says when the checks last ran | Press → reads Stores, projects and machines again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list`, `project list` (read), then `home doctor` | disabled while the checks run |
+
+![Expanded Home notices and their actions (current UI, isolated fixture data)](img/home-notices.png)
+
+*Isolated fixture data.*
 
 ## Nav bar
+
+On the current Home navigation bar, 1 opens Doctor, 2 opens Logs and 3 opens Settings.
+
+![Home navigation with 1 Doctor, 2 Logs and 3 Settings (current UI, isolated fixture data)](img/home-navigation.png)
+
+*Isolated fixture data.*
+
+The earlier multi-Store example below shows the breadcrumb switcher.
 
 ![The nav bar on a project page](img/home-nav-bar.png)
 
@@ -55,8 +69,16 @@ Shown here on `Home › Stores › demo-starter › bookshelf`, where it has eve
 table: [Components › Nav bar](components.md#nav-bar).
 
 ![A crumb's switcher](img/home-crumb-switcher.png)
-![Jump to](img/home-jump.png)
-![The Add menu](img/home-add-menu.png)
+![Jump to (current UI, isolated fixture data)](img/home-jump.png)
+
+*Isolated fixture data.*
+
+![Session results with titles and IDs (current UI, isolated fixture data)](img/home-jump-search.png)
+
+*Isolated fixture data.*
+![The Add menu (current UI, isolated fixture data)](img/home-add-menu.png)
+
+*Isolated fixture data.*
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
@@ -66,7 +88,10 @@ table: [Components › Nav bar](components.md#nav-bar).
 | — Transfers | **{n} transfers** with a progress bar, while moves, backups or restores run | Press → that Store's page (one), or a menu of them (several) | — (the jobs in the Storage view already read) | hidden when nothing runs |
 | 5 Jump to… | A search field with **⌘K** | Press or **⌘K** → the Jump to dialog: type, **↑ ↓** to move, **Enter** to open, **Esc** to close | — (searches what Home already read) | **Nothing matches “{q}”**; not while another dialog is open |
 | 6 Refresh | A circular arrow, on every page but Home | Press → the page reads again | the page's own reads | a dot while reading |
-| 7 Add | **+ Add** | Press → **New project**, **New Store**, **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | each item's dialog (see [Modals opened here](#modals-opened-here)) | **New machine** only when a platform can create one |
+| 7 Add | **+ Add** | Press → **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store**, **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | each item's dialog (see [Modals opened here](#modals-opened-here)) | New machine and New Sandbox stay visible with the reason when unavailable |
+| Doctor | A shield; a red or orange count when the home checks found something | Press → `LayerFS › Doctor` ([Doctor](health.md)) | `GET /api/doctor/results` (read, host memory) | count red for an error, orange for a warning |
+| Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — (navigation) | — |
+| Settings | A gear | Press → [Set up LayerFS](entry-points.md#set-up-layerfs) | `home get` (read, through `setup.status`) | — |
 
 ## Projects
 
@@ -176,13 +201,16 @@ hold".
 | Modal | Opened by | What it does | LayerFS call | Undo |
 |---|---|---|---|---|
 | New project | **New project** (tab, Add, empty state) | [Entry points › Project dialog](entry-points.md#project-dialog) | `store create`, `project init`, `store move` | delete the project |
+| New session | Add › **New session** | Pick a project for the conversation | — (opens the picker) | Cancel |
+| Import a folder | Add › **Import a folder** | Open the project dialog with a source folder | `project init` on confirmation | Cancel before creation |
+| New Sandbox | Add › **New Sandbox** | Choose an eligible machine, then configure the Sandbox | `sandbox create` on confirmation | Cancel before creation |
 | New Store | **New Store**, Add › **New Store** | Makes a SQLite Store on a machine | `store create` | **Remove…** on the Store |
 | Connect a database | **Connect a database** | Saves a login and connects a PostgreSQL database | `store save-auth`, `store connect`, `store get` | **Disconnect…** |
 | New machine | **New machine** | Creates a Docker, Lima or Apple Container machine | `machine create` | **Remove** in the machine menu |
 | Add bucket | **Add bucket** | Connects an S3 bucket for backups | `backup connect` | **Disconnect** on the bucket |
 | Presets | **Try a preset**, Add › **Try a preset** | [Presets](presets.md) | the preset's script | — |
 | Set up LayerFS | Runtime, **Settings** | [Entry points › Set up LayerFS](entry-points.md#set-up-layerfs) | `home get` | — |
-| Jump to | **Jump to…**, **⌘K** | Opens any project, Store, machine, Sandbox, bucket or page | — | Esc |
+| Jump to | **Jump to…**, **⌘K** | Opens a project, Store, machine, Sandbox, bucket, Center page or available DSH session | — | Esc |
 | Delete {name}? | Project ⋯ › **Delete project…** | [Confirm dialog](components.md#confirm-dialog) | `project delete` | none |
 
 ## States and signals

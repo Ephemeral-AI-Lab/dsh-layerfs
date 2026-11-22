@@ -33,12 +33,14 @@
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   min-width: 0;
   height: 28px;
   padding: 0 10px;
   border-radius: 6px;
   color: var(--dsw-alias-label-secondary);
+  line-height: 1;
   cursor: pointer;
 }
 .tile[aria-selected='true'] {
@@ -381,6 +383,9 @@
   font-size: 12px;
   line-height: 16px;
 }
+.statusRow > :first-child:not(.statusText) {
+  display: none;
+}
 .statusText {
   flex: 1 1 auto;
   min-width: 0;
@@ -477,11 +482,7 @@
   margin-inline-start: 0;
 }
 .dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--dsw-alias-border-l3);
+  display: none;
 }
 .dot[data-health='problem'] {
   background: var(--dsw-alias-state-error-primary);

@@ -6,11 +6,17 @@
    Hover affordances sit under @media (hover: hover); a tap would otherwise
    latch :hover. */
 
+/* Page rhythm also applies to standalone views and portaled panels. */
+:global(:root) {
+  --lfs-section-gap: clamp(22px, 2.5vw, 32px);
+  --lfs-content-gap: clamp(16px, 1.75vw, 22px);
+}
+
 /* ---------- page shell ---------- */
 
 .page {
   --lfs-page-inset: clamp(24px, 4vw, 48px);
-  --lfs-page-top-inset: 28px;
+  --lfs-page-top-inset: var(--lfs-section-gap);
   --lfs-page-max: 960px;
 
   box-sizing: border-box;
@@ -35,7 +41,7 @@
 .column {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--lfs-section-gap);
   box-sizing: border-box;
   width: 100%;
   max-width: calc(var(--lfs-page-max) + 2 * var(--lfs-page-inset));
@@ -114,6 +120,16 @@
   min-width: 0;
 }
 
+.toolbar > button,
+.sectionActions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .headIcon {
   display: inline-flex;
   flex: none;
@@ -186,7 +202,7 @@
 .section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--lfs-content-gap);
   min-width: 0;
 }
 
@@ -300,8 +316,17 @@
   min-width: 0;
   font-size: 12.5px;
   line-height: 18px;
+  font-weight: 500;
   color: var(--dsw-alias-label-secondary);
   white-space: nowrap;
+}
+
+.chip[data-tone='success'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.chip[data-tone='info'] {
+  color: var(--dsw-alias-state-business-primary);
 }
 
 .chip[data-tone='danger'] {
@@ -597,6 +622,18 @@
   border-color: var(--dsw-alias-state-error-primary);
 }
 
+.page button {
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+
+.page button svg,
+.select svg,
+.iconButton svg {
+  display: block;
+  flex: none;
+}
+
 .select {
   display: inline-flex;
   align-items: center;
@@ -611,8 +648,8 @@
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
   font: inherit;
-  font-size: 14px;
-  line-height: 22px;
+  font-size: 13px;
+  line-height: 18px;
   text-align: start;
   cursor: pointer;
 }
@@ -645,9 +682,14 @@
 }
 
 .iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   min-width: 28px;
+  height: 28px;
   padding: 0;
+  line-height: 1;
   color: var(--dsw-alias-label-secondary);
 }
 

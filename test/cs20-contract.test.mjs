@@ -2,8 +2,7 @@
 // store, backup, project, branch, commit, file, sandbox, workspace and the six doctors) is in
 // the pinned CLI's `help --json`, with the options, `--with` sections, `--progress` and
 // `--full` it passes, and every flag in a raw argv (presets, simulations) is one the call takes.
-// Runs the pinned CLI (`DSH_LAYERFS_CS20_CLI`, default the cs20 pin) with a throwaway
-// LAYERFS_HOME; skipped when the pin is absent.
+// Runs DSH_LAYERFS_CS20_CLI or the dev runtime pin with a throwaway LAYERFS_HOME.
 //   node --test test/cs20-contract.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -11,12 +10,14 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
-const root = new URL('..', import.meta.url).pathname
-const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? '/Users/yifanxu/.cache/cs20-pins/a2a13a3892/layerfs'
-const skip = existsSync(CLI) ? false : `no 2.0 CLI at ${CLI}`
+import { runtimePin } from '../scripts/runtime-pin.mjs'
+
+const root = fileURLToPath(new URL('..', import.meta.url))
+const CLI = process.env.DSH_LAYERFS_CS20_CLI ?? runtimePin()?.cli
+const skip = CLI && existsSync(CLI) ? false : `no 2.0 CLI ${CLI ?? 'selected'}`
 
 /** The pinned table, read once in a home of its own. */
 function table() {

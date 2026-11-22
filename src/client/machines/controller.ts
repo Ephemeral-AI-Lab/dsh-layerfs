@@ -80,7 +80,7 @@ export interface MachinesFace {
   }
   /** Machine and Sandbox metrics from the host's sampler, for the machines a page watches. */
   metrics: MetricsFace
-  /** The page is shown: read now and poll every 5 s while the window is visible. Returns the release. */
+  /** The page is shown: read now and poll every 15 s while the window is visible. Returns the release. */
   activate: () => () => void
   reload: () => void
   /** Probe the platforms again now (Check again after an install or a start), then show the answer. */
@@ -112,7 +112,7 @@ export interface MachinesFace {
 /** What New Sandbox sends: `image` is the picked row's id; `start` starts a stopped machine first (D5). */
 export interface NewSandbox { name: string, machine: string, image?: string, start?: boolean }
 
-const POLL_MS = 5000
+const POLL_MS = 15_000
 /** How long progress events settle before the machines view is read again (the data-loading rule). */
 const SETTLE_MS = 500
 

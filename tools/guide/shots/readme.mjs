@@ -8,7 +8,7 @@ export default [
     callouts: [
       (p) => p.getByRole('navigation', { name: 'Global panels' }).getByRole('button', { name: 'LayerFS', exact: true }),
       (p) => p.locator('header[aria-label="Home navigation"]'),
-      (p) => p.locator('nav[class*=tools]'),
+      (p) => p.locator('header[aria-label="Home navigation"]').getByRole('button', { name: 'Doctor', exact: true }),
       (p) => p.getByRole('tablist').first(),
       (p) => p.getByRole('table').first(),
     ],

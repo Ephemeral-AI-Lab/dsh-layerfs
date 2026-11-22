@@ -1,6 +1,12 @@
 # Presets
 
-> **Where:** `LayerFS › Home ›` **Try a preset** · **Opens from:** the Presets button (the last tool icon before Settings) on Home's [head card](components.md#head-card) · **Source:** see the end
+> **Where:** `LayerFS › Home ›` **Try a preset** · **Opens from:** the Presets button on Home's [head card](components.md#head-card) · **Source:** see the end
+
+The detail views below the current entry point come from the earlier demo setup.
+
+![Presets beside Refresh (isolated fixture data)](img/home-head-card.png)
+
+*Isolated fixture data.*
 
 The Presets dialog builds a sample project library into this LayerFS home, so you can explore
 projects, Branches and history without your own data, or stops the home's machines. Building

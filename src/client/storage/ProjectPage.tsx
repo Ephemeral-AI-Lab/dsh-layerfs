@@ -27,6 +27,7 @@ import { ProjectSandboxes, type ProjectMapShare } from './ProjectSandboxes.tsx'
 type Tab = 'files' | 'history' | 'sandboxes' | 'sessions' | 'stats'
 
 export interface ProjectPageProps {
+  refreshKey?: number
   api: LayerfsApi
   t: StorageT
   /** The project key, `<store>/<project>`. */
@@ -57,12 +58,13 @@ function StoreBroken({ s, t }: { s: StoreRow, t: StorageT }): ReactNode {
   )
 }
 
-export function ProjectPage({ api, t, project, onDialog, onRemoved, onOpenStore, map, store }: ProjectPageProps): ReactNode {
+export function ProjectPage({ refreshKey = 0, api, t, project, onDialog, onRemoved, onOpenStore, map, store }: ProjectPageProps): ReactNode {
   const name = project.slice(project.indexOf('/') + 1)
   const [tab, setTab] = useState<Tab>('files')
   // One prefix per page: several projects can be open at once.
   const ids = useId()
-  const [tick, setTick] = useState(0)
+  const [localTick, setTick] = useState(0)
+  const tick = localTick + refreshKey
   const [open, setOpen] = useState<{ branch?: string, pin?: string, path?: string, n: number }>({ n: 0 })
   const tt = t as Translate
   const tabs: { value: Tab, label: string }[] = [

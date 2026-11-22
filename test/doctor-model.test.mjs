@@ -10,11 +10,11 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { CHECK_TABLE, EXAMPLES, HOME, SCENARIOS, checksFor, doctorAnswer, fixAnswer, freshState, thingKeys, treeAnswer } from './fixtures/doctor-scenarios.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(tmpdir(), 'dsh-doctor-model-'))
 await build({
   absWorkingDir: root,
@@ -402,7 +402,7 @@ test('a Full check covers its thing alone; a stopped one says how long it ran', 
   assert.equal(p.state.notes['project:shop/api'].fullAt, undefined)
   // run to its end: the data check is on the node, and the row remembers when its data was read
   p.run('project', 'shop/api', { full: true })
-  assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed', 'project.data'])
+  assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed', 'project.mount_holders', 'project.data'])
   assert.ok(p.state.notes['project:shop/api'].fullAt > 0)
   p.run('project', 'shop/api')
   assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed'])
@@ -542,9 +542,15 @@ test('the page\'s check table is the contract\'s doctor.checks', () => {
 test('the copied spec examples match calls.json when it is given', { skip: !process.env.LAYERFS_CALLS_JSON && 'set LAYERFS_CALLS_JSON to compare' }, () => {
   const spec = JSON.parse(readFileSync(process.env.LAYERFS_CALLS_JSON, 'utf8'))
   const rows = new Map(spec.families.flatMap((f) => f.calls).map((c) => [c.call, c]))
+  for (const key of ['version', 'frozen', 'base']) assert.equal(EXAMPLES[key], spec[key], key)
+  const tree = rows.get('home.get').with.tree.example
+  assert.deepEqual(EXAMPLES.calls['home.get'].tree, typeof tree === 'string' ? JSON.parse(tree) : tree)
   assert.deepEqual(EXAMPLES.doctor, spec.doctor, 'the doctor section (with doctor.checks) changed in calls.json')
   for (const [name, kept] of Object.entries(EXAMPLES.calls)) {
     const row = rows.get(name) ?? assert.fail(`calls.json has no ${name}`)
+    for (const key of ['cli', 'progress']) {
+      if (key in kept) assert.equal(kept[key], row[key], `${name}: ${key}`)
+    }
     const long = typeof row.examples?.long === 'string' ? JSON.parse(row.examples.long) : row.examples?.long
     assert.deepEqual(kept.long, long, `${name}: the long example changed in calls.json`)
   }

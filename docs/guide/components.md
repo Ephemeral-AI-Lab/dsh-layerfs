@@ -1,5 +1,7 @@
 # Components
 
+> Images marked “isolated fixture data” show the current components rendered in a private browser with sample data. Other images come from the earlier demo setup.
+
 These parts appear on more than one page, so each is described once here. Page guides
 link to the sections below instead of repeating them.
 
@@ -7,6 +9,14 @@ link to the sections below instead of repeating them.
 
 The strip across the top of every Center page. It shows where you are, gets you
 elsewhere, and adds things.
+
+On the current Home navigation bar, 1 opens Doctor, 2 opens Logs and 3 opens Settings.
+
+![Home navigation with 1 Doctor, 2 Logs and 3 Settings (current UI, isolated fixture data)](img/home-navigation.png)
+
+*Isolated fixture data.*
+
+The earlier multi-Store example below shows the breadcrumb switcher.
 
 ![The nav bar on a project page](img/home-nav-bar.png)
 
@@ -16,35 +26,44 @@ elsewhere, and adds things.
 | 3 | Breadcrumb | `Home › Stores › demo-starter › bookshelf` | Press a crumb → that page | — | The last crumb is the page you're on |
 | 4 | Crumb switcher | A chevron after a crumb (**Switch from {name}**), or a caret on the current crumb, when that place has siblings | Press → a menu of its siblings (every Store, every project in this Store, …) with their kind and place → open one | — (uses what Center already read) | Only when there is more than one sibling |
 | | Transfers | **{n} transfers**, with a percentage and a progress track, while moves, backups or restores run | Press → that Store's page (one job), or a menu of them (several) | — (the jobs Center already tracks) | Hidden when nothing is running |
-| 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**) | Press it or use the shortcut → **Jump to a project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets and Pages (Doctor, Logs). **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
+| 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**) | Press it or use the shortcut → **Jump to a session, project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets, Pages and Sessions. Session hits show the title and ID and open the conversation. **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
 | 6 | Refresh | A circular arrow, on every page except Home | Press → the page reads its data again | The page's own reads | A dot while reading |
-| 7 | **+ Add** | **New project**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store save-auth`, `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | **New machine** only shows when a platform can create one |
+| 7 | **+ Add** | **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store save-auth`, `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | New machine and New Sandbox stay visible with the reason when unavailable |
+| | Doctor | A shield with a count badge. Title: **Doctor: {n} findings** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, orange for a warning |
+| | Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
+| | Settings | A gear | Press → Set up LayerFS | `home get` (read) | |
 
 ![A crumb's switcher](img/home-crumb-switcher.png)
 
-![Jump to](img/home-jump.png)
+![Jump to (current UI, isolated fixture data)](img/home-jump.png)
 
-![The Add menu](img/home-add-menu.png)
+*Isolated fixture data.*
+
+![Session results with titles and IDs (current UI, isolated fixture data)](img/home-jump-search.png)
+
+*Isolated fixture data.*
+
+![The Add menu (current UI, isolated fixture data)](img/home-add-menu.png)
+
+*Isolated fixture data.*
 
 ## Head card
 
 The top of Home. It tells you which LayerFS this is and whether anything needs you.
 
-![The head card](img/home-head-card.png)
+![The head card (current UI, isolated fixture data)](img/home-head-card.png)
+
+*Isolated fixture data.*
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
-| 1 | LayerFS × DSH | The logo. Its tip names the LayerFS folder and the prepared images | — | — | |
-| 2 | Runtime | `LayerFS 2.0.0 · b275fc28` (**Show the pinned runtime**) | Press → [Set up LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (read) | **LayerFS unavailable**, **Reading LayerFS…** |
+| 1 | LayerFS × DSH | The LayerFS × DSH wordmark | — | — | |
+| 2 | Runtime | `LayerFS 2.0.0 · 12345678` (**Show the pinned runtime**) | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (read) | **LayerFS unavailable**, **Reading LayerFS…** |
 | 3 | Headline | A dot and the most urgent need, or **Nothing needs your attention** in green | The need's buttons (see [Needs-you notices](#needs-you-notices)) | The button's call | **+{n} more** when there are several |
-| 4 | Doctor | A shield with a count badge. Title: **Doctor: {n} findings** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, orange for a warning |
-| 5 | Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
-| 6 | Try a preset | The preset icon | Press → [Presets](presets.md) | — | |
-| 7 | Settings | A gear | Press → Set up LayerFS | `home get` (read) | |
-| 8 | Refresh | A circular arrow. Tip: **Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}** | Press → reads Stores, machines and buckets again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list` (read), then `home doctor` | Off while the checks run |
+| 4 | Try a preset | The preset icon | Press → [Presets](presets.md) | — | |
+| 5 | Refresh | A circular arrow. Tip: **Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}** | Press → reads Stores, machines and buckets again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list` (read), then `home doctor` | Off while the checks run |
 
-Items 4–8 form the "Doctor, Logs and Settings" group. If an action is refused, the refusal
-shows under the card with **Dismiss**.
+Use **+{n} more** to show or hide the remaining needs and their fix buttons below the card. A refused action appears with **Dismiss**.
 
 ## Needs-you notices
 

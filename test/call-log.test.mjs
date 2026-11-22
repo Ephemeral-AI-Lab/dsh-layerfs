@@ -149,7 +149,7 @@ function run(command, argv, env, input = '') {
 test('the wrapper and execute() each write one line carrying the same tag as their receipt', async () => {
   const dir = mkdtempSync(join(root, 'tags-')), callLog = join(dir, 'trace', 'calls.jsonl')
   const cli = join(dir, 'fake.mjs')
-  writeFileSync(cli, `#!${process.execPath}\nlet input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{if(process.argv.includes('bad-usage')){process.exitCode=2;return}console.log(JSON.stringify({commit:'${id}'}))});`, { mode: 0o700 })
+  writeFileSync(cli, `#!/usr/bin/env node\nlet input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{if(process.argv.includes('bad-usage')){process.exitCode=2;return}console.log(JSON.stringify({commit:'${id}'}))});`, { mode: 0o700 })
   const spec = { cli, home: join(dir, 'home'), callLog, nativeLogs: false }
   const receipts = []
   const identity = { origin: 'tool', sessionId: 'sess', project: 'demo/app', turn: 1, toolCallId: 'call-1', workspace: 'sb:main', scope: L.toolScope('sess', 'call-1') }

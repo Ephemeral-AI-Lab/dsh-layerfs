@@ -1,7 +1,13 @@
-<!-- source: 6b66f3c8c9e1 -->
+<!-- source: 41b39b388cbd -->
 # 日志
 
-> **位置：** `LayerFS › 日志` · **打开方式：** 主页[头部卡片](components.md#head-card)上的日志按钮（列表图标）；在调用详情里点 **此会话的调用**（Calls of this session）/ **此检查点的调用**（Calls of this checkpoint）会带着筛选重新打开它 · **源码：** 见文末
+> **位置：** `LayerFS › 日志` · **打开方式：** Center [导航栏](components.md#nav-bar)上的日志按钮（列表图标）；在调用详情里点 **此会话的调用**（Calls of this session）/ **此检查点的调用**（Calls of this checkpoint）会带着筛选重新打开它 · **源码：** 见文末
+
+当前入口下方的详情图来自早期演示环境。
+
+![1 诊断、2 日志和 3 设置（隔离测试数据）](../img/home-navigation.png)
+
+*隔离测试数据。*
 
 日志页按时间倒序列出这个 LayerFS 主目录上的每一次 LayerFS 调用：一行一个调用，写明确切的
 CLI 命令、结果、保存了什么；如果是 DSH 发起的调用，还会写明它属于哪个会话、哪一轮、哪个检查点。

@@ -12,7 +12,7 @@ test('cancel after queued CLI admission prevents the mutation process from spawn
   await build({ stdin: { contents: "export { execute } from './src/host/layerfs/cli.ts'", resolveDir: process.cwd(), loader: 'ts' }, outfile: join(directory, 'cli.mjs'), bundle: true, platform: 'node', format: 'esm', target: 'node24' })
   const { execute } = await import(pathToFileURL(join(directory, 'cli.mjs')))
   const binary = join(directory, 'fake-cli.mjs'), log = join(directory, 'spawned.jsonl'), release = join(directory, 'release')
-  writeFileSync(binary, `#!${process.execPath}\nimport {appendFileSync,existsSync} from 'node:fs';\nappendFileSync(process.env.ADMISSION_LOG,JSON.stringify(process.argv[2])+'\\n');\nif(process.argv[2]==='hold'){const timer=setInterval(()=>{if(existsSync(process.env.ADMISSION_RELEASE)){clearInterval(timer);console.log('{}')}},5)}else console.log('{}');\n`, { mode: 0o700 })
+  writeFileSync(binary, `#!/usr/bin/env node\nimport {appendFileSync,existsSync} from 'node:fs';\nappendFileSync(process.env.ADMISSION_LOG,JSON.stringify(process.argv[2])+'\\n');\nif(process.argv[2]==='hold'){const timer=setInterval(()=>{if(existsSync(process.env.ADMISSION_RELEASE)){clearInterval(timer);console.log('{}')}},5)}else console.log('{}');\n`, { mode: 0o700 })
   const spec = { cli: binary, home: directory }
   const options = { lane: { name: 'admission-proof', limit: 1 }, env: { ADMISSION_LOG: log, ADMISSION_RELEASE: release } }
   let announceSpawn

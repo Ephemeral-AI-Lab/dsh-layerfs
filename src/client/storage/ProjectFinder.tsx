@@ -77,9 +77,10 @@ export function ProjectFinderBar({ finder, t }: { finder: ProjectFinder, t: Stor
         placeholder={t('ovSearchProjects')} aria-label={t('ovSearchProjects')} autoComplete="off" spellCheck={false}
         onChange={(e) => finder.setQuery(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Escape' && finder.query) { e.preventDefault(); e.stopPropagation(); finder.setQuery('') } }} />
+      {finder.query && <button type="button" className={css.clear} onClick={() => { finder.setQuery(''); input.current?.focus() }}>{t('ovClearSearch')}</button>}
       {/* the sort sits at the right end */}
       <span className={css.finderSpacer} />
-      <MenuSelect label={t('ovSortLabel')} value={finder.sort} onChange={finder.setSort}
+      <MenuSelect className={css.finderSort} label={t('ovSortLabel')} value={finder.sort} onChange={finder.setSort}
         options={PROJECT_SORTS.map((s) => ({ value: s, label: labels[s] }))} />
     </div>
   )

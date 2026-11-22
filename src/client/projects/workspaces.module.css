@@ -52,13 +52,6 @@
   align-items: center;
 }
 
-/* The header button host inside the stock header's actions row. */
-.host {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-}
-
 .switch {
   color: var(--dsw-alias-label-tertiary);
 }
@@ -72,11 +65,6 @@
   width: 36px;
   height: 36px;
   color: var(--dsw-alias-label-primary);
-}
-
-/* DSH collapses its header actions while its search is open; step aside too. */
-:global([class*="_sectionHeader"]:has([class*="_searchExpanded"])) > .host {
-  display: none;
 }
 
 .error {
