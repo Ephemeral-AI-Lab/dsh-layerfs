@@ -304,9 +304,7 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
     e.preventDefault()
   }
 
-  const sigLabel = stoppedNeutral ? w.t('dpWordStopped')
-    : o.st === 'nc' && o.why === 'partial' ? w.t('dpWordPartial')
-      : w.word(o.st)
+  const sigLabel = w.rowStatus(v)
 
   return (
     <div className={css.line} data-key={key} data-depth={v.depth} data-st={o.st} style={{ '--depth': v.depth } as CSSProperties}

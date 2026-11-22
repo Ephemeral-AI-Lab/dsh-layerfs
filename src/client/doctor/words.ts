@@ -40,6 +40,13 @@ export function wordsOf(t: DoctorT) {
   const tt = t as unknown as Loose
   const n = (key: string, count: number): string => (count === 1 ? tt(`${key}One`) : tt(key, { n: count }))
   const word = (st: RowState): string => tt(WORD[st])
+  /** Displayed & announced status word for a row (`Stopped` / `Partial` override raw `ok` / `nc`). */
+  const rowStatus = (v: RowView): string => {
+    const o = v.seen
+    if (o.stopped && (o.st === 'ok' || o.st === 'nc')) return tt('dpWordStopped')
+    if (o.st === 'nc' && o.why === 'partial') return tt('dpWordPartial')
+    return word(o.st)
+  }
   /** A finding's own word: the locale's for its check id, else the id's last part spelled out. */
   const checkWord = (id: string): string => { const key = `chk_${id.replace(/[^A-Za-z0-9]/g, '_')}`; return key in locales.en ? tt(key) : humanCheck(id) }
   const rowWord = (code: string | null): string => (!code ? '' : code === 'stopped' ? tt('dpWordStopped') : code === 'could' ? tt('dpWordCould')
@@ -145,7 +152,8 @@ export function wordsOf(t: DoctorT) {
   /** What a screen reader gets for a row beside its name. */
   const said = (v: RowView, phase: string): string => {
     const waits = v.seen.st === 'nc' && v.seen.why === 'waiting' ? (v.seen.by ? nameOf(v.seen.by) : v.seen.byName) : null
-    return [kind(v.thing), word(v.seen.st), rowWord(v.word), phase, waits ? tt('dpWaitingOn', { name: waits }) : '', inside(v)].filter(Boolean).join(', ')
+    const stoppedNeutral = v.seen.stopped && (v.seen.st === 'ok' || v.seen.st === 'nc')
+    return [kind(v.thing), rowStatus(v), stoppedNeutral ? '' : rowWord(v.word), phase, waits ? tt('dpWaitingOn', { name: waits }) : '', inside(v)].filter(Boolean).join(', ')
   }
 
   const tabSaid = (tab: TabView): string[] => [
@@ -170,5 +178,5 @@ export function wordsOf(t: DoctorT) {
     }
   }
 
-  return { t: tt, n, word, rowWord, nameOf, kind, callFor, checkName, checkText, tipChecks, fixLabel, stepWord, offText, inside, fact, sigTip, said, tabSaid, toast }
+  return { t: tt, n, word, rowStatus, rowWord, nameOf, kind, callFor, checkName, checkText, tipChecks, fixLabel, stepWord, offText, inside, fact, sigTip, said, tabSaid, toast }
 }

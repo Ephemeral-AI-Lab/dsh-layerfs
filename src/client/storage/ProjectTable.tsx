@@ -350,7 +350,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
               {running ? <span className={css.runningPill}>{t('spRunningN', { n: String(running) })}</span> : null}
               {trouble ? (
                 <span data-signal>
-                  <Signal state={trouble.state} title={trouble.reason} detail={trouble.detail}
+                  <Signal dot state={trouble.state} title={trouble.reason} detail={trouble.detail}
                     action={troubleAction(trouble, t, onRestart)} />
                 </span>
               ) : null}

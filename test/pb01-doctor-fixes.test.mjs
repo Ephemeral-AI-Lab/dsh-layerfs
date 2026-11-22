@@ -165,11 +165,10 @@ function mixedDoctorState() {
   return M.dm.seed(w0, { last: [{ id: 'doc-1', kind: 'home', name: '/Users/dev/.layerfs', full: false, group: null, state: 'done', started: now - 2000, ended: now - 1000, report }], running: [], fixes: [] }, now)
 }
 
-test('P0-4 (Option A): header separates stopped count from OK, Partial HoverCard & zh child failure translate cleanly, stopped machine shows neutral Stopped + 5 marks + outline Start/Check', () => {
+test('P0-4 (Option A): header separates stopped count from OK, Partial/Stopped row aria-labels match status column, zh translates failed, and stopped machine keeps 5 marks + outline Start/Check', () => {
   const state = mixedDoctorState()
   testDoctorState = state
   const head = M.dm.headOf(state)
-  // Stopped machine whose static checks passed is counted in head.stopped (not head.counts.ok)
   assert.deepEqual([head.counts.ok, head.stopped, head.counts.nc], [1, 1, 6])
 
   for (const lang of ['en', 'zh']) {
@@ -178,11 +177,20 @@ test('P0-4 (Option A): header separates stopped count from OK, Partial HoverCard
     const w = M.wordsOf(t)
 
     // 1. Page header summary renders separate stopped count ("1 OK · 1 stopped · 6 not checked")
+    // and both Home root row + Docker machine row aria-labels match displayed status column
     const pageHtml = renderToStaticMarkup(createElement(M.DoctorPage, { api: { call: async () => ({}) }, t, ts, refreshKey: 0 }))
     const expectedHead = lang === 'zh' ? '1 项正常 · 1 项已停止 · 6 项未检查' : '1 OK · 1 stopped · 6 not checked'
     assert.ok(pageHtml.includes(expectedHead), `DoctorPage header must show "${expectedHead}"`)
 
-    // 2. Root Partial row: label & HoverCard title both use dpWordPartial ("Partial" / "部分检查"), and zh child checks translate "failed" -> "失败"
+    const rowAria = (rowKey) => {
+      const m = new RegExp(`<button[^>]*data-row="${rowKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*aria-label="([^"]+)"`).exec(pageHtml)
+      assert.ok(m, `expected row button aria-label for ${rowKey} (${lang})`)
+      return m[1]
+    }
+    assert.equal(rowAria('machine:docker'), lang === 'zh' ? 'docker, 机器，docker, 已停止' : 'docker, Machine, docker, Stopped')
+    assert.equal(rowAria('home:/Users/dev/.layerfs'), lang === 'zh' ? 'LayerFS 2.0.0, 本安装, 部分检查' : 'LayerFS 2.0.0, This install, Partial')
+
+    // 2. Root Partial row: HoverCard title uses dpWordPartial ("Partial" / "部分检查"), and zh child checks translate "failed" -> "失败"
     const homeThing = state.world.by['home:/Users/dev/.layerfs']
     const homeView = M.dm.viewOf(state, homeThing)
     const homeTip = w.sigTip(state, homeView)
@@ -201,8 +209,8 @@ test('P0-4 (Option A): header separates stopped count from OK, Partial HoverCard
       assert.ok(!homeDetailHtml.includes('未检查: failed'), 'zh expanded child checks must not leak English "failed"')
     }
 
-    // 3. Stopped machine (Option A): status = neutral Stopped (no OK), .more omits duplicate rowWord,
-    // keeps 5 static green marks, both Start & Check are outline, and HoverCard title is Stopped · Static checks OK
+    // 3. Stopped machine (Option A): sig button itself is neutral (data-state="idle", inner text literally "Stopped"/"已停止"),
+    // .more omits duplicate rowWord, keeps 5 static green marks, and both Start + Check are outline
     const dockerThing = state.world.by['machine:docker']
     const dockerView = M.dm.viewOf(state, dockerThing)
     assert.equal(dockerView.canCheck, true, 'stopped machine permits static Check')
@@ -210,11 +218,13 @@ test('P0-4 (Option A): header separates stopped count from OK, Partial HoverCard
     assert.equal(dockerTip.title, t('dpTipStoppedStaticTitle'))
 
     const dockerRowHtml = renderToStaticMarkup(createElement(M.TipLayer, { w }, createElement(M.Row, { v: dockerView, open: false, ctx: rowCtx })))
-    assert.match(dockerRowHtml, new RegExp(`data-fid="sig:machine:docker"[^>]*>[\\s\\S]*${t('dpWordStopped')}`))
-    // .more must show "docker" without repeating "Stopped" / "已停止" before it
+    const sigBtnMatch = /<button[^>]*data-state="([^"]+)"[^>]*data-fid="sig:machine:docker">([^<]*)<\/button>/.exec(dockerRowHtml)
+    assert.ok(sigBtnMatch, `expected stopped docker signal button (${lang})`)
+    assert.equal(sigBtnMatch[1], 'idle', `stopped docker signal must stay neutral idle tone, never green ok (${lang})`)
+    assert.equal(sigBtnMatch[2], t('dpWordStopped'), `stopped docker signal button text must literally be Stopped / 已停止 (${lang})`)
+
     assert.match(dockerRowHtml, /<span class="[^"]*fact[^"]*">docker<\/span>/)
     assert.ok(!dockerRowHtml.includes(`>${t('dpWordStopped')}</span><span`), '.more should omit redundant stopped word')
-    // Preserves 5 static green marks and both Start + Check outline buttons
     const marksSlice = dockerRowHtml.slice(dockerRowHtml.indexOf('data-fid="marks:machine:docker"'))
     const marksBtn = marksSlice.slice(0, marksSlice.indexOf('</button>'))
     assert.equal((marksBtn.match(/data-primitive="StateDot" data-state="done"/g) ?? []).length, 5, 'Option A keeps 5 static ok marks on stopped docker row')

@@ -324,7 +324,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         identity={runtimeBadge}
         tone={top?.tone}
         signal={top
-          ? <Signal state={top.tone === 'danger' ? 'error' : top.tone === 'warning' ? 'warning' : 'idle'} title={top.tone === 'danger' ? t('ovSignalProblem') : top.tone === 'warning' ? t('ovSignalWarning') : t('ovSignalNote')} detail={top.detail} />
+          ? <Signal dot state={top.tone === 'danger' ? 'error' : top.tone === 'warning' ? 'warning' : 'idle'} title={top.tone === 'danger' ? t('ovSignalProblem') : top.tone === 'warning' ? t('ovSignalWarning') : t('ovSignalNote')} detail={top.detail} />
           : null}
         headline={top ? top.title : dockerBlock ? null : t('ovHealthAllGood')}
         actions={top ? (
@@ -363,7 +363,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           <ul id="ov-more-needs" className={heroCss.notices}>
             {rest.map(n => (
               <li key={n.key} className={heroCss.notice}>
-                <Signal state={n.tone === 'danger' ? 'error' : 'warning'} title={t(n.tone === 'danger' ? 'ovSignalProblem' : 'ovSignalWarning')} detail={n.detail} />
+                <Signal dot state={n.tone === 'danger' ? 'error' : 'warning'} title={t(n.tone === 'danger' ? 'ovSignalProblem' : 'ovSignalWarning')} detail={n.detail} />
                 <span className={heroCss.noticeTitle}>{n.title}</span>
                 <NeedActions need={n} dismissLabel={t('dismiss')} labels={refusalLabels(t)} more={null} role={undefined} />
               </li>

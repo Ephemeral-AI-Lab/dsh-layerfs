@@ -1,4 +1,5 @@
-// Targeted regression tests for PB-01 Home fixes: P0-1 (Option A), P0-2 (Option A), P0-3, and P1-2.
+// Targeted regression tests for PB-01 Home & Storage fixes:
+// P0-1 (Signal opt-in dot vs shared callers like BucketPage), P0-2 (Option A), P0-3, and P1-2.
 //   node --test test/pb01-home-fixes.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -13,8 +14,11 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-pb01-home-fixes-'))
 
+globalThis.__pb01Setup = null
+globalThis.__pb01Buttons = []
+
 // Render real TSX components on React 18 server markup while exposing inspectable DOM attributes
-// for @deepseek-ai/dsh-client-ui-primitives and lightweight context stubs for HomeOverview hooks.
+// for @deepseek-ai/dsh-client-ui-primitives and lightweight context/button-click capture.
 const testPlugin = {
   name: 'pb01-test-stubs',
   setup(b) {
@@ -34,7 +38,7 @@ const testPlugin = {
         }
       }
       const rich = {
-        Button: `({ variant, size, icon, children, className, title, 'aria-label': ariaLabel, disabled }) => createElement('button', { type: 'button', 'data-primitive': 'Button', 'data-variant': variant, 'data-size': size, className, title, 'aria-label': ariaLabel, disabled }, icon, children)`,
+        Button: `({ variant, size, icon, children, className, title, 'aria-label': ariaLabel, disabled, onClick }) => { globalThis.__pb01Buttons.push({ label: typeof children === 'string' ? children : ariaLabel ?? '', variant, onClick }); return createElement('button', { type: 'button', 'data-primitive': 'Button', 'data-variant': variant, 'data-size': size, className, title, 'aria-label': ariaLabel, disabled }, icon, children) }`,
         StateDot: `({ state, size }) => createElement('span', { 'data-primitive': 'StateDot', 'data-state': state, 'data-size': size })`,
         HoverCard: `({ anchor, content }) => createElement('span', { 'data-primitive': 'HoverCard' }, anchor, createElement('span', { 'data-hovercard-content': '' }, content))`,
         MenuItemButton: `({ children }) => createElement('button', { type: 'button', 'data-primitive': 'MenuItemButton' }, children)`,
@@ -51,7 +55,7 @@ const testPlugin = {
 
     const stubHooks = {
       'machines/context.tsx': `export const useMachinesContext = () => ({ api: { call: async () => ({}), op: async () => ({}) }, act: async () => ({}), useMachines: (s) => s({ data: null, loading: false, error: null }), useStartups: (s) => s([]), t: (k) => k, tw: (k) => k, doctorT: (k) => k, stateWord: (l) => String(l ?? ''), go: () => {} }); export const useMachinesMaybe = () => null`,
-      'setup/store.ts': `export const setupDialog = { open: () => {} }; export const useSetupStatus = () => ({ data: null, loading: false, error: null }); export const useInstalled = () => null; export const lately = () => null`,
+      'setup/store.ts': `export const setupDialog = { open: () => {} }; export const useSetupStatus = () => ({ data: globalThis.__pb01Setup, loading: false, error: null }); export const useInstalled = () => null; export const lately = () => null`,
       'doctor/Doctor.tsx': `export const useStartDoctor = () => async () => {}; export const DoctorAction = () => null`,
       'ui/use-query.ts': `export const useQuery = () => ({ data: null, loading: false, error: null }); export const cachedAnswer = () => undefined; export const errorCode = () => undefined; export const errorText = (e) => String(e ?? '')`,
     }
@@ -74,6 +78,7 @@ await build({
       export { storeTrouble, troubleAction } from './src/client/storage/HomeCards.tsx'
       export { HomeStores, MachineLine } from './src/client/storage/MachineStores.tsx'
       export { BucketCards } from './src/client/storage/BucketCards.tsx'
+      export { BucketPage } from './src/client/storage/BucketPage.tsx'
       export { HomeOverview } from './src/client/storage/HomeOverview.tsx'
       export { locales as storageLocales } from './src/client/storage/locale.ts'
       export { locales as doctorLocales } from './src/client/doctor/locale.ts'
@@ -147,24 +152,26 @@ const noopStoreActions = () => ({
   disconnect: () => {}, remove: () => {}, fix: () => {}, retry: () => {}, dismiss: () => {},
 })
 
-test('P0-1 (Option A): Signal renders semantic StateDot with full reason & HoverCard fix matching observed app/web scenes (en + zh)', () => {
+test('P0-1 (Option A): opt-in Signal dot renders StateDot + full HoverCard body for Home & ProjectTable while default Signal keeps visible word for BucketPage', () => {
   for (const lang of ['en', 'zh']) {
     const t = makeT(lang)
+    const doctorT = makeDocT(lang)
     const place = (m) => (m === 'native' ? t('layerfsHome') : m ?? '?')
 
-    // app on unavailable stopped docker: warning dot, full reason inside HoverCard, NO fix button
+    // app on unavailable stopped docker: opt-in dot -> warning StateDot; HoverCard content body itself carries full reason (no fix button)
     const appTrouble = M.storeTrouble(troubleView.stores[0], troubleView, t, place, emptyFleet)
     assert.equal(appTrouble?.state, 'warning')
     const appAction = M.troubleAction(appTrouble, t)
     assert.equal(appAction, undefined, `expected no action button for unavailable docker (${lang})`)
-    const appHtml = renderToStaticMarkup(createElement(M.Signal, { state: appTrouble.state, title: appTrouble.reason, detail: appTrouble.detail, action: appAction }))
-    assert.match(appHtml, /data-dot=""/, `Option A Signal button must carry data-dot (${lang})`)
+    const appHtml = renderToStaticMarkup(createElement(M.Signal, { dot: true, state: appTrouble.state, title: appTrouble.reason, detail: appTrouble.detail, action: appAction }))
+    assert.match(appHtml, /data-dot=""/, `opt-in dot Signal must carry data-dot (${lang})`)
     assert.match(appHtml, /data-primitive="StateDot" data-state="warning"/, `app Signal must render warning StateDot (${lang})`)
-    assert.ok(!appHtml.includes('data-primitive="Button"'), `app HoverCard must not render a fix button (${lang})`)
+    const appHoverBody = appHtml.slice(appHtml.indexOf('data-hovercard-content'))
     const expectedAppReason = lang === 'zh' ? 'docker 现在无法在这台电脑上运行。' : 'docker can’t run on this computer now.'
-    assert.ok(appHtml.includes(expectedAppReason), `expected full reason ${expectedAppReason}`)
+    assert.ok(appHoverBody.includes(expectedAppReason), `HoverCard body itself must contain full reason (${lang})`)
+    assert.ok(!appHoverBody.includes('data-primitive="Button"'), `app HoverCard must not render a fix button (${lang})`)
 
-    // web on broken-store: error dot, Store header unreadable + Compact broken-store CTA
+    // web on broken-store: opt-in dot -> error dot; HoverCard body contains Store header unreadable + Compact broken-store CTA
     const webTrouble = M.storeTrouble(troubleView.stores[1], troubleView, t, place, emptyFleet)
     assert.equal(webTrouble?.state, 'error')
     const webAction = M.troubleAction(webTrouble, t)
@@ -175,13 +182,46 @@ test('P0-1 (Option A): Signal renders semantic StateDot with full reason & Hover
       tip: (line) => line,
       done: 'done',
     }
-    const webHtml = renderToStaticMarkup(createElement(M.FixContext.Provider, { value: runner }, createElement(M.Signal, { state: webTrouble.state, title: webTrouble.reason, detail: webTrouble.detail, action: webAction })))
+    const webHtml = renderToStaticMarkup(createElement(M.FixContext.Provider, { value: runner }, createElement(M.Signal, { dot: true, state: webTrouble.state, title: webTrouble.reason, detail: webTrouble.detail, action: webAction })))
     assert.match(webHtml, /data-dot=""/)
     assert.match(webHtml, /data-primitive="StateDot" data-state="error"/, `web Signal must render error StateDot (${lang})`)
-    assert.ok(webHtml.includes('Store header unreadable'))
+    const webHoverBody = webHtml.slice(webHtml.indexOf('data-hovercard-content'))
+    assert.ok(webHoverBody.includes('Store header unreadable'))
     const expectedFix = lang === 'zh' ? '压缩 broken-store' : 'Compact broken-store'
-    assert.ok(webHtml.includes(expectedFix), `expected web fix button ${expectedFix} (${lang})`)
+    assert.ok(webHoverBody.includes(expectedFix), `HoverCard body must render fix button ${expectedFix} (${lang})`)
+
+    // BucketPage shared Signal caller: must NOT default to dot-only; keeps visible Broken / 已损坏 text + detail tip
+    const brokenBucket = { name: 'broken-bucket', provider: 'minio', state: 'broken', message: 'bucket corrupt', fix: 'layerfs backup remove broken-bucket', files: null }
+    const bucketHtml = renderToStaticMarkup(createElement(M.BucketPage, {
+      name: 'broken-bucket',
+      view: { stores: [], machines: [], buckets: [brokenBucket], jobs: [], auths: [], at: 0 },
+      t,
+      api: { call: async () => ({}) },
+      doctorT,
+      now: 61000,
+      listing: false,
+      onList: () => {},
+      onRestore: () => {},
+      onBackup: () => {},
+      onDisconnect: () => {},
+      onReconnect: () => {},
+      onOpenStore: () => {},
+      onOpenFile: () => {},
+    }))
+    const statusIdx = bucketHtml.indexOf('data-bucket-status="broken"')
+    assert.ok(statusIdx >= 0, `BucketPage must render broken status container (${lang})`)
+    const statusSlice = bucketHtml.slice(statusIdx, bucketHtml.indexOf('</div>', statusIdx))
+    const firstBtn = /<button[^>]*>([\s\S]*?)<\/button>/.exec(statusSlice)
+    assert.ok(firstBtn, 'expected first button inside broken bucket status')
+    assert.equal(firstBtn[1], t('bucketRecordBroken'), `BucketPage broken status button must keep visible text, not dot-only (${lang})`)
+    assert.ok(!statusSlice.includes('data-dot=""'), `BucketPage status signal must not opt into data-dot (${lang})`)
+    assert.ok(statusSlice.includes('bucket corrupt'), `BucketPage HoverCard keeps detail message (${lang})`)
   }
+
+  // Ensure HomeOverview and ProjectTable explicitly pass dot to their target Signal callers
+  assert.match(src('src/client/storage/ProjectTable.tsx'), /<Signal\s+dot\s+state=\{trouble\.state\}/)
+  assert.match(src('src/client/storage/HomeOverview.tsx'), /<Signal\s+dot\s+state=\{top\.tone/)
+  assert.match(src('src/client/storage/HomeOverview.tsx'), /<Signal\s+dot\s+state=\{n\.tone/)
 
   const signalCss = src('src/client/storage/Signal.module.css')
   assert.match(signalCss, /\.signal\[data-dot\]\s*\{[\s\S]*border-radius:\s*50%;/)
@@ -209,42 +249,56 @@ test('P0-3: MachineStores shows broken red dot and amber stale backup dot while 
     onConnect: () => {},
   }))
 
-  // Exactly one error StateDot in StoreStatus (for broken-store); alpha-store on stopped docker renders no StateDot
   const statusDots = [...html.matchAll(/data-primitive="StateDot" data-state="([^"]+)"/g)].map((m) => m[1])
   assert.deepEqual(statusDots, ['error'], 'only broken StoreStatus renders a StateDot; stopped machine alpha-store has none')
 
-  // Backup badge on broken-store keeps amber stale dot; stopped docker MachineLine gets no health dot
   assert.match(html, /data-health="stale"/, 'backup behind: true keeps amber stale health dot')
   const alphaMachineHtml = renderToStaticMarkup(createElement(M.MachineLine, { s: troubleView.stores[0], view: troubleView, t, on: noopStoreActions() }))
   assert.ok(!alphaMachineHtml.includes('data-health='), 'stopped docker MachineLine must not show health dot')
 
+  // Verify MachineStores.module.css does not hide status dots or backup .dot via display:none, opacity:0, or visibility:hidden
   const msCss = src('src/client/storage/MachineStores.module.css')
-  assert.ok(!msCss.includes('.statusRow > :first-child:not(.statusText)'), 'CSS must not hide status dots globally')
-  assert.ok(!/\.dot\s*\{[^}]*display:\s*none/.test(msCss), 'CSS .dot must remain visible for stale backup dots')
+  assert.ok(!msCss.includes('.statusRow > :first-child:not(.statusText)'), 'CSS must not hide statusRow first child')
+  for (const rule of msCss.matchAll(/(?:^|\})\s*([^{}]+)\{([^}]*)\}/g)) {
+    const [, sel, body] = rule
+    if (/\.(dot|statusRow)\b/.test(sel)) {
+      assert.doesNotMatch(body, /display\s*:\s*none/, `${sel} must not use display: none`)
+      assert.doesNotMatch(body, /opacity\s*:\s*0(?:\s|;|$)/, `${sel} must not use opacity: 0`)
+      assert.doesNotMatch(body, /visibility\s*:\s*hidden/, `${sel} must not use visibility: hidden`)
+    }
+  }
 })
 
-test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + short SHA; empty Stores/Buckets cards show in-card guides & CTAs', () => {
+test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + 8-char SHA; empty Stores/Buckets cards wire live callbacks', () => {
   for (const lang of ['en', 'zh']) {
     const t = makeT(lang)
     t.doctorT = makeDocT(lang)
 
-    // 1. BucketCards empty card includes ovNoBucketsBody + ovAddBucket button
+    // 1. BucketCards empty card renders ovNoBucketsBody + wired ovAddBucket callback
+    let addBucketCalls = 0
+    globalThis.__pb01Buttons = []
     const bucketsHtml = renderToStaticMarkup(createElement(M.BucketCards, {
       view: { stores: [], machines: [], buckets: [], jobs: [], at: 0 },
       t,
       now: 61000,
       jobs: [],
       onOpen: () => {},
-      onAddBucket: () => {},
+      onAddBucket: () => { addBucketCalls++ },
       onList: () => {},
       onReconnect: () => {},
       onRestore: () => {},
     }))
     assert.ok(bucketsHtml.includes(t('ovNoBucketsBody')), `empty Buckets card must include ovNoBucketsBody (${lang})`)
-    assert.ok(bucketsHtml.includes(t('ovAddBucket')), `empty Buckets card must include ovAddBucket button (${lang})`)
+    const bucketBtn = globalThis.__pb01Buttons.find((b) => b.label === t('ovAddBucket'))
+    assert.ok(bucketBtn && typeof bucketBtn.onClick === 'function', `expected wired ovAddBucket button (${lang})`)
+    bucketBtn.onClick()
+    assert.equal(addBucketCalls, 1, `clicking ovAddBucket must invoke onAddBucket (${lang})`)
 
-    // 2. HomeOverview empty Stores tab renders noStoresBody, primary newStore, outline connectDatabase,
-    // omits duplicate New Store button from tab bar, and mounts runtime identity in HomeHero
+    // 2. HomeOverview ready runtime fixture renders LayerFS version + exact 8-char short SHA + wired Stores CTAs
+    globalThis.__pb01Setup = { runtime: { ok: true, version: '2.0.0', commit: 'ed911896abcdef1234', home: '/Users/dev/.layerfs' }, needs: [] }
+    let newStoreCalls = 0
+    let connectCalls = 0
+    globalThis.__pb01Buttons = []
     const homeHtml = renderToStaticMarkup(createElement(M.HomeOverview, {
       view: { stores: [], machines: troubleView.machines, buckets: [], jobs: [], at: 0 },
       error: null,
@@ -258,8 +312,8 @@ test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + short SHA; e
       onRefresh: () => {},
       onCheckAgain: () => {},
       refreshKey: 0,
-      onNewStore: () => {},
-      onConnect: () => {},
+      onNewStore: () => { newStoreCalls++ },
+      onConnect: () => { connectCalls++ },
       onBackups: () => {},
       onNewMachine: () => {},
       onAddStore: () => {},
@@ -281,15 +335,26 @@ test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + short SHA; e
       tab: 'stores',
       onTab: () => {},
     }))
+    globalThis.__pb01Setup = null
+
     assert.ok(homeHtml.includes(t('noStoresBody')), `empty Stores card must include noStoresBody (${lang})`)
-    assert.match(homeHtml, new RegExp(`data-primitive="Button" data-variant="primary"[^>]*>[\\s\\S]*${t('newStore')}`))
-    assert.match(homeHtml, new RegExp(`data-primitive="Button" data-variant="outline"[^>]*>[\\s\\S]*${t('connectDatabase')}`))
     const newStoreButtons = homeHtml.match(new RegExp(`data-primitive="Button"[^>]*>(?:(?!<button).)*?${t('newStore')}</button>`, 'g')) ?? []
     assert.equal(newStoreButtons.length, 1, `New Store button should appear once (inside card), not duplicated in tab bar (${lang})`)
-    assert.ok(homeHtml.includes(t('ovRuntimeChecking')), `HomeOverview must render runtimeBadge (${lang})`)
+
+    const newStoreBtn = globalThis.__pb01Buttons.find((b) => b.label === t('newStore') && b.variant === 'primary')
+    const connectBtn = globalThis.__pb01Buttons.find((b) => b.label === t('connectDatabase') && b.variant === 'outline')
+    assert.ok(newStoreBtn?.onClick, `expected primary newStore CTA (${lang})`)
+    assert.ok(connectBtn?.onClick, `expected outline connectDatabase CTA (${lang})`)
+    newStoreBtn.onClick()
+    connectBtn.onClick()
+    assert.equal(newStoreCalls, 1, `clicking New Store must invoke onNewStore (${lang})`)
+    assert.equal(connectCalls, 1, `clicking Connect a database must invoke onConnect (${lang})`)
+
+    assert.ok(homeHtml.includes('LayerFS 2.0.0'), `runtimeBadge must show LayerFS version (${lang})`)
+    assert.ok(homeHtml.includes('ed911896'), `runtimeBadge must show 8-char short SHA (${lang})`)
+    assert.ok(!homeHtml.includes('ed911896abcdef1234'), `runtimeBadge must truncate commit SHA to 8 chars (${lang})`)
   }
 
-  // P0-2 Option A: HomeHero heading aligns identity beside Overview title (before tools group) with monospace nowrap style
   const heroTsx = src('src/client/storage/HomeHero.tsx')
   assert.match(heroTsx, /<h1 className=\{css\.title\}>\{title\}<\/h1>\s*\{identity\}/)
   const heroCss = src('src/client/storage/HomeHero.module.css')
