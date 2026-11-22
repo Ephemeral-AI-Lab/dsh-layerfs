@@ -129,8 +129,9 @@ as Home › Stores and is described in
 
 ## Images
 
-Only on a machine that keeps its own copies of Sandbox images (docker and created VMs, not
-LayerFS Home, whose Sandboxes use this Mac's own system).
+Only on a machine that starts its Sandboxes from an image it keeps a copy of: docker, created
+VMs, and a LayerFS Home whose Sandboxes run in Linux namespaces. A macOS LayerFS Home has no
+**Images** tab, because its Sandboxes use the Mac's own system.
 
 ![docker › Images, numbered](img/machine-images.png)
 
@@ -255,8 +256,8 @@ opens (▸) to show what the machine holds; its name opens the machine page.
 | 10 | **New Sandbox** | In the Sandboxes column | Press → [New Sandbox dialog](#new-sandbox-dialog) | — | Off while a start or stop runs |
 | 11 | Sandbox row | Name, **n/16 Workspaces**, state | Click → the Sandbox page; its ⋯ → **Open**, **Delete Sandbox…**, **Force delete Sandbox…** | `sandbox remove` (`--force`) | Those that need you first, red |
 | | Store row | Name, size or **PostgreSQL** | Click → the Store page; its ⋯ → the [Store menu](components.md#store-menu) | | |
-| 12 | **New machine** | On the tab bar while a VM platform is available | Press → [Add machine dialog](#add-machine-dialog) | — | |
-| | ⋯ **More machine actions** | **Diagnose this host** | → the Doctor page runs the host's checks | `home doctor` (on the Doctor page) | |
+| 12 | **New machine** | On the tab bar, always; off with the reason as its tip while no platform can create one | Press → [Add machine dialog](#add-machine-dialog) | — | |
+| | **Diagnose this host** | The **</>** button at the right end of the tab bar, beside **New machine** | → the Doctor page runs the host's checks | `home doctor` (on the Doctor page) | |
 
 An open row also shows why a machine is blocked (with its fix steps), why it is down with
 **Run diagnostics**, a refused action, and a start in progress.
@@ -281,10 +282,11 @@ created.** One row per platform at its step of readiness.
 ## Variants
 
 - **LayerFS Home (`native`)** ([screenshot](img/machine-native.png)): no power button (it is
-  this computer), no Processor column on macOS, no **Images** tab (its Sandboxes use the
-  Mac's own system), no **Worker log** (no worker), no **Update settings…**, and **Remove…**
-  off with **Built in · can’t be removed**. **Force stop…** shows while it has Sandboxes, with
-  the native wording.
+  this computer), no Processor column on macOS, no **Worker log** (no worker), no **Update
+  settings…**, and **Remove…** off with **Built in · can’t be removed**. Its **Images** tab
+  depends on how its Sandboxes run: a macOS LayerFS Home runs them on the Mac's own system and
+  has none, a Linux one runs them in namespaces and has it. **Force stop…** shows while it has
+  Sandboxes, with the native wording.
 - **docker**: power words name the worker (**Start worker**, **Stop worker**, **Restart
   worker**); **Update settings…** for the socket; with the Docker Engine down on macOS the
   state is **Docker not running** and Start becomes **Start Docker and worker**. Remove is off
@@ -293,7 +295,8 @@ created.** One row per platform at its step of readiness.
   when its worker does not answer), a Danger zone with **Remove *name*…**, **Remove…** in the
   menu, no settings.
 - **Tabs that only show sometimes**: **Images** needs a CLI with Sandbox image copies (image
-  stage 1) and a machine that runs images (not LayerFS Home); **Files** needs the CLI's
+  stage 1) and a machine whose Sandboxes start from an image (not a macOS LayerFS Home, which
+  runs them on the Mac's own system); **Files** needs the CLI's
   `machine files`; **Worker log** needs the CLI's `machine log` and a machine LayerFS says has
   a worker log (`supports: log`). Nothing is decided by the platform's name.
 - **Older CLIs** without `machine stats`: the Usage card becomes a fact row of recorded

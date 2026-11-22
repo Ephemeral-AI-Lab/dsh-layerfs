@@ -1,4 +1,4 @@
-<!-- source: 626326640964 -->
+<!-- source: 60ecc1a95198 -->
 # 主页
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -16,7 +16,7 @@
 |---|---|---|
 | 1 | 导航栏 | [组件 › 导航栏](components.md#nav-bar)：后退、前进、面包屑（这里只有 **主页**，Home）、**跳转到…**（Jump to…）、**添加**（Add） |
 | 2 | 概览头部 | [组件 › 概览头部](components.md#overview-head)：标题、固定使用的运行时、需要你关注的事项，以及预设和刷新按钮 |
-| 3 | 标签页 | **项目**（Projects）*n* · **Store**（Stores）*n* · **机器**（Machines）*n*，每个都带计数；里面有东西需要你处理时还会有一个彩色圆点 |
+| 3 | 标签页 | **项目**（Projects）*n* · **Store**（Stores）*n* · **机器**（Machines）*n*，每个都带计数；里面的计数需要你处理时会变琥珀色或红色 |
 | 4 | 搜索和排序 | 筛选项目表，并决定它的顺序 |
 | 5 | 项目行 | 一个项目：它的 Store、会话、Sandbox、最近会话和最近提交、大小 |
 
@@ -108,10 +108,10 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 1 行展开 | 一个箭头 | 按下 → 这一行展开，显示它的会话（或 Sandbox） | 会话：`sessions.list`（只在本地，不调用 LayerFS）；Sandbox：`sandbox list` (读取，在 `GET /api/machines` 中) | 展开的行保持展开 |
 | 2 项目名 | **handbook**、绿色的 **{n} 个运行中**（{n} running）标签，以及最新提交那一行（`Session ef98eca3 · events 0–59`，或者一条提交说明和分支） | 按下 → [项目](project.md)页 | `project list` (读取)；提交那一行用 `branch get`、`project stats` (读取，`GET /api/stores/:id/projects`) | — |
 | 3 Store | Store 的图标和名称 | 按下 → [Store](store.md) 页 | —（页面跳转） | — |
-| 会话 · Sandbox | 计数；有活动会话时会话计数旁有一个绿点 | 按一个计数 → 这一行展开到那个列表 | 同行展开 | 没有时显示 `—` |
+| 会话 · Sandbox | 只有计数；数字的悬停提示会说明现在在跑什么（绿色的 **{n} 个运行中**（{n} running）标签在项目名旁边） | 按一个计数 → 这一行展开到那个列表 | 同行展开 | 没有时显示 `—` |
 | 最近会话 · 最近提交 | 相对时间 | — | `branch get` (读取) | 没有时显示 `—` |
 | 提交 · 分支 · 大小 | 数字 | — | `project stats` (读取)；大小用 `GET /api/projects/:key/size`：`project get`、`project stats`、`store get` (读取) | — |
-| 4 会话行 | **Fake session**、**活动中**（Active） / **空闲**（Idle） / **已中断**（Interrupted） / **在 Store 中**（In Store），以及时间 | 按下 → 在 DSH 中打开这个对话 | `sessions.open`：日志在本地时不调用；否则 `branch list`、`project export`（从 Store 导入） | — |
+| 4 会话行 | **Fake session**、它的状态词——**活动中**（Active）、**已中断**（Interrupted）或 **在 Store 中**（In Store），空闲的会话不显示状态词——以及时间 | 按下 → 在 DSH 中打开这个对话 | `sessions.open`：日志在本地时不调用；否则 `branch list`、`project export`（从 Store 导入） | — |
 | | 列表头部的 **+ 新会话**（+ New session） | 按下 → 新建一个项目对话（见[入口 › 在项目中新建会话](entry-points.md#new-session-in-a-project)） | `sessions.choose`：`project get`（第一次还有 `branch list`、`branch fork`） | — |
 | 5 列表切换 | **Sandbox {n}**（Sandboxes {n}） / **会话 {n}**（Sessions {n}） | 按下 → 切到另一个列表 | 同行展开 | — |
 | | 一条 Sandbox 行，**运行中**（Running） / **已停止**（Stopped） | 按下 → [Sandbox](sandbox.md) 页 | —（页面跳转） | — |
@@ -171,7 +171,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 1 新建机器 | **+ 新建机器**（+ New machine） | 按下 → 新建机器对话框（[机器](machine.md)） | `home get`、`machine create` | 只有某个平台能创建机器时才出现 |
+| 1 新建机器 | **+ 新建机器**（+ New machine），在标签栏右端 | 按下 → 新建机器对话框（[机器](machine.md)） | `home get`、`machine create` | 按钮一直在；没有能创建机器的平台时它不可用，原因在悬停提示里 |
 | 2 诊断这台主机 | 旁边的 **</>** 按钮（Diagnose this host） | 按下 → 运行主目录检查，并在[诊断](health.md)页打开结果 | `home doctor` | — |
 | 3 行展开 | 一个箭头 | 按下 → 它上面有什么；会被记住 | — | 需要你处理、正在启动或只有这一台机器时默认展开 |
 | 4 名称 | **docker**、`Docker · Linux namespaces`（或 `This Mac · Host processes`） | 按下 → [机器](machine.md)页 | `home get`、`machine get`、`machine list`、`sandbox list`、`store list` (读取) | — |
@@ -213,10 +213,11 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 
 ## 状态与信号
 
-- **标签页圆点。** 标签页圆点的颜色取它里面最糟的那一项：任务失败或 Store
-  损坏为红色，存放着 Store 的机器已停止为橙色。
-- 带绿点的 **没有需要处理的事项**（Nothing needs your attention）表示没有任务失败，也没有机器或 Store
-  损坏。诊断发现的问题只计在诊断按钮上，从没备份过的 Store 也不算待处理事项。
+- **标签页计数。** 标签页的计数颜色取它里面最糟的那一项：任务失败或 Store 损坏为红色，
+  存放着 Store 的机器已停止为琥珀色。标签页本身没有圆点。
+- 没有圆点的 **没有需要处理的事项**（Nothing needs your attention）表示没有任务失败，也没有机器或
+  Store 损坏；圆点只出现在待处理事项旁（故障红、警告琥珀）。诊断发现的问题只计在诊断按钮上，
+  从没备份过的 Store 也不算待处理事项。
 - **电源按钮不可用** 表示刚按过、正在切换状态；等它的状态变化就好。
 - 项目上的 **{n} 个运行中**（{n} running）是此刻为它运行的 Sandbox 数。
 

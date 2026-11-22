@@ -1,4 +1,4 @@
-<!-- source: 85723f8fe0f2 -->
+<!-- source: def4913d3f30 -->
 # 每个操作及其 LayerFS 调用
 
 每一行是你能做的一件事（或者一个视图为了绘制自己所做的一次读取），它调用的主机路由或操作，以及背后的
@@ -38,7 +38,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 行内电源 **启动**（Start）、**停止**（Stop）→ **确认：停止**（Confirm: Stop） | `主页 › 机器` | `POST /api/machines/:id/stop` / `start` | `machine stop` / `machine start` |
 | 行内 **添加 Store**（Add Store） | `主页 › 机器` | `POST /api/machines/:id/stores` | `store move`（一个任务） |
 | 行内 **新建 Sandbox**（New Sandbox） | `主页 › 机器` | `POST /api/projects/:id/sandboxes` | (`machine start`), `project get`, `sandbox create`, `store get` |
-| **⋯ › 诊断此主机**（⋯ › Diagnose this host） | `主页 › 机器` | `POST /api/doctor/runs` `{kind: home}` | `home doctor` |
+| **诊断此主机**（Diagnose this host） | `主页 › 机器`，标签栏 | `POST /api/doctor/runs` `{kind: home}` | `home doctor` |
 | LayerFS 侧边栏行 | DSH 侧边栏 | — | — |
 | Workspace 切换 | DSH 侧边栏 | — （当前浏览器） | — |
 | LayerFS 视图的行 | DSH 侧边栏，LayerFS 视图 | op `projects.recent`, `projects.catalog`, `GET /api/storage`, `GET /api/machines` | `project list`, `branch list`, `store get` (读取) |
@@ -153,7 +153,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 看板磁盘、用量的磁盘拆分、**磁盘占用**（On disk） | 看板、概览、Sandbox 概览 | `GET /api/machines/:id/space` | `machine stats --with space` (读取，缓存 1 分钟) |
 | 磁盘空间对话框、**刷新**（Refresh） | `… › <machine> › 概览` | `GET /api/machines/:id/space[?fresh=1]` | `machine stats --with space` (读取) |
 | **运行诊断**（Run diagnostics） | 机器概览 | 诊断（`/api/doctor/…`） | `machine doctor` |
-| **诊断此主机**（Diagnose this host） | `主页 › 机器` ⋯ | 诊断 | `home doctor` |
+| **诊断此主机**（Diagnose this host） | `主页 › 机器`，标签栏 | 诊断 | `home doctor` |
 | **启动 worker**（Start worker）/ **启动**（Start） | 机器头部、看板、菜单 | `POST /api/machines/:id/start` | `machine start` |
 | **停止 worker**（Stop worker）/ **停止**（Stop） | 机器头部、看板、菜单 | `POST /api/machines/:id/stop` | `machine stop` |
 | **重启 worker**（Restart worker）（修复） | 机器头部、菜单 | `POST /api/machines/:id/restart` | `machine get`, `machine stop`, `machine start` |

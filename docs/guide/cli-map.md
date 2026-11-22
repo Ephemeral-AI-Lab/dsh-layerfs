@@ -40,7 +40,7 @@ Pages: [Home](home.md) · [Entry points](entry-points.md)
 | Row power **Start**, **Stop** → **Confirm: Stop** | `Home › Machines` | `POST /api/machines/:id/stop` / `start` | `machine stop` / `machine start` |
 | Row **Add Store** | `Home › Machines` | `POST /api/machines/:id/stores` | `store move` (a job) |
 | Row **New Sandbox** | `Home › Machines` | `POST /api/projects/:id/sandboxes` | (`machine start`), `project get`, `sandbox create`, `store get` |
-| **⋯ › Diagnose this host** | `Home › Machines` | `POST /api/doctor/runs` `{kind: home}` | `home doctor` |
+| **Diagnose this host** | `Home › Machines`, tab bar | `POST /api/doctor/runs` `{kind: home}` | `home doctor` |
 | LayerFS sidebar row | DSH sidebar | — | — |
 | Workspaces switch | DSH sidebar | — (this browser) | — |
 | LayerFS view rows | DSH sidebar, LayerFS view | ops `projects.recent`, `projects.catalog`, `GET /api/storage`, `GET /api/machines` | `project list`, `branch list`, `store get` (read) |
@@ -155,7 +155,7 @@ Pages: [Machine](machine.md) · [Sandbox](sandbox.md)
 | Board Disk, Usage disk split, **On disk** | board, Overview, Sandbox Overview | `GET /api/machines/:id/space` | `machine stats --with space` (read, kept 1 min) |
 | Disk space dialog, **Refresh** | `… › <machine> › Overview` | `GET /api/machines/:id/space[?fresh=1]` | `machine stats --with space` (read) |
 | **Run diagnostics** | machine Overview | Doctor (`/api/doctor/…`) | `machine doctor` |
-| **Diagnose this host** | `Home › Machines` ⋯ | Doctor | `home doctor` |
+| **Diagnose this host** | `Home › Machines`, tab bar | Doctor | `home doctor` |
 | **Start worker** / **Start** | machine head, board, menu | `POST /api/machines/:id/start` | `machine start` |
 | **Stop worker** / **Stop** | machine head, board, menu | `POST /api/machines/:id/stop` | `machine stop` |
 | **Restart worker** (fix) | machine head, menu | `POST /api/machines/:id/restart` | `machine get`, `machine stop`, `machine start` |

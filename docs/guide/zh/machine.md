@@ -1,4 +1,4 @@
-<!-- source: cfe7bd7e2278 -->
+<!-- source: b34a7e2c2897 -->
 # 机器
 
 > **位置：** `LayerFS › 主页 › 机器 › <machine>` · **打开方式：** 主页 › 机器 中的机器名、导航栏的面包屑切换器、跳转到（**机器**（Machines）分组）、Store 的位置链接、Sandbox 的 **机器**（Machine）一项 · **源码：** 见文末
@@ -110,7 +110,7 @@
 
 ## 镜像
 
-只出现在自己保存 Sandbox 镜像副本的机器上（docker 和创建的虚拟机；LayerFS Home 没有，它的 Sandbox 使用这台 Mac 自己的系统）。
+只出现在用自己保存的镜像副本启动 Sandbox 的机器上：docker、创建的虚拟机，以及在 Linux 命名空间里运行 Sandbox 的 LayerFS Home。macOS 上的 LayerFS Home 没有 **镜像**（Images）标签页，因为它的 Sandbox 使用 Mac 自己的系统。
 
 ![docker › 镜像，带编号](../img/machine-images.png)
 
@@ -224,8 +224,8 @@ confirm），然后 **全部移除**（Remove everything）依次运行：每个
 | 10 | **新建 Sandbox**（New Sandbox） | 在 Sandbox 一栏里 | 按下 → [新建 Sandbox 对话框](#new-sandbox-dialog) | — | 启动或停止进行中时不可用 |
 | 11 | Sandbox 行 | 名称、**n/16 个 Workspace**（n/16 Workspaces）、状态 | 点击 → Sandbox 页；它的 ⋯ → **打开**（Open）、**删除 Sandbox…**（Delete Sandbox…）、**强制删除 Sandbox…**（Force delete Sandbox…） | `sandbox remove`（`--force`） | 需要你处理的排在前面，显示为红色 |
 | | Store 行 | 名称、大小或 **PostgreSQL** | 点击 → Store 页；它的 ⋯ → [Store 菜单](components.md#store-menu) | | |
-| 12 | **新建机器**（New machine） | 有可用的虚拟机平台时显示在标签栏上 | 按下 → [添加机器对话框](#add-machine-dialog) | — | |
-| | ⋯ **更多机器操作**（More machine actions） | **诊断此主机**（Diagnose this host） | → 诊断页运行主机的检查 | `home doctor`（在诊断页上） | |
+| 12 | **新建机器**（New machine） | 一直在标签栏上；没有能创建机器的平台时不可用，原因在悬停提示里 | 按下 → [添加机器对话框](#add-machine-dialog) | — | |
+| | **诊断此主机**（Diagnose this host） | 标签栏右端、**新建机器** 旁边的 **</>** 按钮 | → 诊断页运行主机的检查 | `home doctor`（在诊断页上） | |
 
 展开的行还会显示：机器为什么被阻塞（附修复步骤）、为什么停机（附 **运行诊断**（Run diagnostics））、被拒绝的操作，以及正在进行的启动。
 
@@ -248,10 +248,10 @@ created.）每个平台一行，显示它当前的就绪程度。
 
 ## 变体
 
-- **LayerFS Home（`native`）**（[截图](../img/machine-native.png)）：没有电源按钮（它就是这台电脑），macOS 上没有处理器一栏，没有 **镜像**（Images）标签页（它的 Sandbox 使用这台 Mac 自己的系统），没有 **Worker 日志**（Worker log，没有 worker），没有 **更新设置…**（Update settings…），**移除…**（Remove…）不可用并显示 **内置 · 无法移除**（Built in · can’t be removed）。上面有 Sandbox 时会显示 **强制停止…**（Force stop…），使用 native 版的说明文字。
+- **LayerFS Home（`native`）**（[截图](../img/machine-native.png)）：没有电源按钮（它就是这台电脑），macOS 上没有处理器一栏，没有 **Worker 日志**（Worker log，没有 worker），没有 **更新设置…**（Update settings…），**移除…**（Remove…）不可用并显示 **内置 · 无法移除**（Built in · can’t be removed）。**镜像**（Images）标签页取决于它的 Sandbox 怎么运行：macOS 上的 LayerFS Home 让 Sandbox 使用 Mac 自己的系统，没有这一页；Linux 上在命名空间里运行，有这一页。上面有 Sandbox 时会显示 **强制停止…**（Force stop…），使用 native 版的说明文字。
 - **docker**：电源按钮的文字提到 worker（**启动 worker**（Start worker）、**停止 worker**（Stop worker）、**重启 worker**（Restart worker））；**更新设置…**（Update settings…）用来设置套接字；macOS 上 Docker 引擎没运行时，状态是 **Docker 未运行**（Docker not running），启动按钮变成 **启动 Docker 和 worker**（Start Docker and worker）。除非 LayerFS 自己的修复要求移除它的记录，否则移除不可用。
 - **创建的虚拟机**（Lima、Apple Container）：**启动**（Start）/ **停止**（Stop）（worker 没有响应时为 **停止（关闭虚拟机）**（Stop (shut down the VM)）），有危险操作区和 **移除 *名称*…**（Remove *name*…），菜单里有 **移除…**（Remove…），没有设置。
-- **只在部分情况下出现的标签页**：**镜像**（Images）需要支持 Sandbox 镜像副本的 CLI（镜像阶段 1）以及能运行镜像的机器（不是 LayerFS Home）；**文件**（Files）需要 CLI 的 `machine files`；**Worker 日志**（Worker log）需要 CLI 的 `machine log`，以及 LayerFS 表示有 worker 日志的机器（`supports: log`）。这些都不按平台名称判断。
+- **只在部分情况下出现的标签页**：**镜像**（Images）需要支持 Sandbox 镜像副本的 CLI（镜像阶段 1）以及从镜像启动 Sandbox 的机器（不是 macOS 上的 LayerFS Home，它让 Sandbox 使用 Mac 自己的系统）；**文件**（Files）需要 CLI 的 `machine files`；**Worker 日志**（Worker log）需要 CLI 的 `machine log`，以及 LayerFS 表示有 worker 日志的机器（`supports: log`）。这些都不按平台名称判断。
 - **较旧的 CLI**（没有 `machine stats`）：用量卡片变成一行记录的大小；没有 `machine stats --with space` 时，就没有磁盘分段、**空间去向**（Where it goes）和 **磁盘占用**（On disk）。
 
 ## 从这里打开的对话框

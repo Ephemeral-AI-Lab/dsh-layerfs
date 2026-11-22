@@ -1,4 +1,4 @@
-<!-- source: 84c1e84854e7 -->
+<!-- source: 6541cf2f13d1 -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -108,18 +108,27 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
 
 一个变灰、原因却只存在于读屏器里的按钮是死路，所以 Center 的禁用操作把原因留在手边：
 `ExplainedButton`（以及带 `disabledReason` 的菜单项）仍可获得焦点，标为 `aria-disabled` 而不是
-`disabled`，悬停或用键盘聚焦时用提示框说明原因。它出现在 Store 卡片（**推送到…**，Push to…；
-**拉取**，Pull；**立即备份**，Back up now）、Store 菜单（**推送到…**、**移到另一台机器…**、
-**备份到…**、**压缩…**、**移除登录**、**断开**）、Store 页的 **添加项目**（Add project），
-以及存储桶页的 **立即备份** 上。只是“要等另一边先动”的按钮会直接说出等谁，比如 **先启动 docker**
-（Start docker first）。
+`disabled`，悬停或用键盘聚焦时用提示框说明原因。
+
+- **按钮**：Store 卡片的 **推送到…**（Push to…）和 **拉取**（Pull）；Store 页的 **添加项目**
+  （Add project）；备份标签页的 **备份到…**（Back up to…）、**立即备份**（Back up now）和
+  **恢复…**（Restore…）；存储桶页的 **立即备份**。
+- **菜单项**：Store 菜单的 **推送到…**、**拉取回本机**（Pull to home）、**移到另一台机器…**
+  （Move to another machine…）、**备份到…**、**立即备份 · *存储桶*/*文件***（Back up now · …）和
+  **压缩…**（Compact…）；PostgreSQL 登录组的 **移除登录**（Remove login，有 Store 在用时不可用）；
+  机器菜单的 **重启 worker**（Restart worker，它的修复需要 `--force` 时）和 **移除…**（Remove…）；
+  导航栏的 **+ 添加**（+ Add）与预设菜单的 **停止机器**（Stop machines）。
+- **不给原因、因为一直可按**：**断开**（Disconnect，Store、机器或存储桶的）和 Store 菜单的
+  **移除…**（Remove…）在动手前先确认。
+
+只是“要等另一边先动”的按钮会直接说出等谁，比如 **先启动 docker**（Start docker first）。
 
 ## 等宽字体
 
 命令、文件路径、提交 ID、版本号和源码使用 DSH 的代码字体（`--ds-font-family-code`），绝不使用正文字体：
 它们正是读者要复制的内容。这覆盖[修复](components.md#fix-buttons)里的 CLI 命令行、诊断行里的 **调用**（Call）、
 [设置 LayerFS](entry-points.md#set-up-layerfs) 里的固定版本、[文件标签页](project.md#files)上的路径与 ID、
-运行时或提交号徽标，以及 **提交信息**（Commit message）输入框。
+运行时或提交号徽标，以及[项目对话框](entry-points.md#project-dialog)里的文件夹、存储名称、数据库 URL、登录名和用户输入框。
 
 ## 文件视图
 

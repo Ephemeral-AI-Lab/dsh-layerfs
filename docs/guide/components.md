@@ -111,12 +111,21 @@ one line: **a working thing is quiet, a failure keeps its red dot.**
 A greyed button whose reason only appears in a screen reader is a dead end, so Center's
 disabled actions keep their reason in reach: an `ExplainedButton` (and a menu item with a
 `disabledReason`) stays focusable, is marked `aria-disabled` rather than `disabled`, and
-shows its reason in a tooltip on hover or keyboard focus. It appears on Store cards
-(**Push to…**, **Pull**, **Back up now**), on Store menus (**Push to…**, **Move to
-another machine…**, **Back up to…**, **Compact…**, **Remove login**, **Disconnect**), on
-the Store page's **Add project**, and on a bucket's **Back up now**. A button that is
-simply unavailable until something else happens says which thing, as **Start docker
-first** does.
+shows its reason in a tooltip on hover or keyboard focus.
+
+- **Buttons:** a Store card's **Push to…** and **Pull**; a Store page's **Add project**;
+  the Backups tab's **Back up to…**, **Back up now** and **Restore…**; a bucket's
+  **Back up now**.
+- **Menu items:** the Store menu's **Push to…**, **Pull to home**, **Move to another
+  machine…**, **Back up to…**, **Back up now · *bucket*/*file*** and **Compact…**; the
+  PostgreSQL login group's **Remove login** (off while a Store uses the login); the
+  machine menu's **Restart worker** (when its fix needs `--force`) and **Remove…**; the
+  nav bar's **+ Add** and the preset menu's **Stop machines**.
+- **No reason, because they are always pressable:** **Disconnect** (a Store's, a machine's
+  or a bucket's) and a Store menu's **Remove…** confirm before they act instead.
+
+A button that is simply unavailable until something else happens says which thing, as
+**Start docker first** does.
 
 ## Monospace
 
@@ -124,7 +133,8 @@ Commands, file paths, commit ids, version ids and source code are set in DSH's c
 (`--ds-font-family-code`), never in the prose font: they are the parts a reader copies.
 That covers the CLI line in a [fix](components.md#fix-buttons) or a Doctor row's **Call**,
 the pins in [Set up LayerFS](entry-points.md#set-up-layerfs), the paths and ids on the
-[Files tab](project.md#files), a runtime or commit badge, and a **Commit message** field.
+[Files tab](project.md#files), a runtime or commit badge, and the folder, Store name,
+database URL, login name and user fields of the [project dialog](entry-points.md#project-dialog).
 
 ## File views
 

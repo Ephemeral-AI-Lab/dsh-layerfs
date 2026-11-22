@@ -15,7 +15,7 @@ what needs you, to find a project, Store or machine, and to add a new one.
 |---|---|---|
 | 1 | Nav bar | [Components › Nav bar](components.md#nav-bar): Back, Forward, the crumbs (just **Home** here), **Jump to…**, **Add** |
 | 2 | Overview head | [Components › Overview head](components.md#overview-head): the title, the pinned runtime, what needs your attention, and the preset and Refresh buttons |
-| 3 | Tabs | **Projects** *n* · **Stores** *n* · **Machines** *n*, each with a count and a coloured dot when something in it needs you |
+| 3 | Tabs | **Projects** *n* · **Stores** *n* · **Machines** *n*, each with a count; a count that needs you turns amber or red |
 | 4 | Search and sort | Filters the projects table and orders it |
 | 5 | Project row | One project: its Store, sessions, Sandboxes, last session and commit, size |
 
@@ -108,10 +108,10 @@ it, when did it last change".
 | 1 Row toggle | A chevron | Press → the row opens on its sessions (or Sandboxes) | sessions: `sessions.list` (local only, no call); Sandboxes: `sandbox list` (read, in `GET /api/machines`) | rows that are open stay open |
 | 2 Project name | **handbook**, a green **{n} running** pill, and the newest commit's line (`Session ef98eca3 · events 0–59`, or a message and Branch) | Press → the [Project](project.md) page | `project list` (read); commit line `branch get`, `project stats` (read, `GET /api/stores/:id/projects`) | — |
 | 3 Store | The Store's glyph and name | Press → the [Store](store.md) page | — (navigation) | — |
-| Sessions · Sandboxes | Counts; the sessions count has a green dot when one is active | Press a count → the row opens on that list | as the row toggle | `—` for none |
+| Sessions · Sandboxes | Counts only; each number's tip names what runs now (the project name carries the green **{n} running** pill) | Press a count → the row opens on that list | as the row toggle | `—` for none |
 | Last session · Last commit | Relative times | — | `branch get` (read) | `—` for none |
 | Commits · Branches · Size | Numbers | — | `project stats` (read); size `GET /api/projects/:key/size`: `project get`, `project stats`, `store get` (read) | — |
-| 4 Session line | **Fake session**, **Active** / **Idle** / **Interrupted** / **In Store**, and when | Press → the conversation opens in DSH | `sessions.open`: none when its log is here; else `branch list`, `project export` (imports it from the Store) | — |
+| 4 Session line | **Fake session**, its state word — **Active**, **Interrupted** or **In Store**; an idle session shows none — and when | Press → the conversation opens in DSH | `sessions.open`: none when its log is here; else `branch list`, `project export` (imports it from the Store) | — |
 | | **+ New session** in the list head | Press → a new project conversation (see [Entry points › New session in a project](entry-points.md#new-session-in-a-project)) | `sessions.choose`: `project get` (+ `branch list`, `branch fork` the first time) | — |
 | 5 List switch | **Sandboxes {n}** / **Sessions {n}** | Press → the other list | as the row toggle | — |
 | | A Sandbox line, **Running** / **Stopped** | Press → the [Sandbox](sandbox.md) page | — (navigation) | — |
@@ -174,7 +174,7 @@ hold".
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| 1 New machine | **+ New machine**, at the right end of the tab bar | Press → the New machine dialog ([Machine](machine.md)) | `home get`, `machine create` | only when a platform can create one; otherwise off with the reason as its tip |
+| 1 New machine | **+ New machine**, at the right end of the tab bar | Press → the New machine dialog ([Machine](machine.md)) | `home get`, `machine create` | always there; off with the reason as its tip when no platform can create one |
 | 2 Diagnose this host | The **</>** button beside it | Press → the home checks run and the [Doctor](health.md) page opens on them | `home doctor` | — |
 | 3 Row toggle | A chevron | Press → what it holds; remembered | — | open by default when it needs you, is starting, or is the only machine |
 | 4 Name | **docker**, `Docker · Linux namespaces` (or `This Mac · Host processes`) | Press → the [Machine](machine.md) page | `home get`, `machine get`, `machine list`, `sandbox list`, `store list` (read) | — |
@@ -217,11 +217,12 @@ hold".
 
 ## States and signals
 
-- **Tab dots.** A tab's dot takes the colour of the worst thing in it: red for a failed job or a
-  broken Store, orange for a stopped machine holding Stores.
-- **Nothing needs your attention** with a green dot means no job failed, no machine or Store
-  is broken. Doctor findings are counted on the Doctor button only, and a Store never backed
-  up is not a need.
+- **Tab counts.** A tab's count takes the colour of the worst thing in it: red for a failed job
+  or a broken Store, amber for a stopped machine holding Stores. The tabs carry no dot of their
+  own.
+- **Nothing needs your attention**, with no dot, means no job failed, no machine or Store is
+  broken. A dot appears only beside a need (red for a problem, amber for a warning). Doctor
+  findings are counted on the Doctor button only, and a Store never backed up is not a need.
 - **A disabled power button** is settling after a press; wait for its state to change.
 - **{n} running** on a project is the Sandboxes running for it now.
 
