@@ -38,13 +38,13 @@ import { Button, IconPlusOutlineRegular, MenuItemButton, StateDot } from '@deeps
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Card, LinkButton, MoreMenu } from '../ui/index.tsx'
+import { Card, ExplainedButton, LinkButton, MoreMenu } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
 import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { loginGroups, machineStores, projectSplit, startKind, type PgLoginGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { cardJob, pgStoreBytes, rowMachine, storeStateWords, storeTip } from './model.ts'
+import { cardJob, pgStoreBytes, rowMachine, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
 import { StoreAction, StoreMenu, stoppedBlock, storeNotice, useStoreTip, type LoginActions, type StoreActions } from './StoreCard.tsx'
@@ -282,12 +282,12 @@ function useSplit(api: LayerfsApi, s: StoreRow, total: number | null): ProjectSp
   return q.data ? projectSplit(q.data.projects, total) : null
 }
 
-function Head({ s, on, t, machine, onOpenStore }: { s: StoreRow, on: StoreActions, t: StorageT, machine?: string, onOpenStore: (name: string) => void }): ReactNode {
+function Head({ s, on, t, machine, runningJob, onOpenStore }: { s: StoreRow, on: StoreActions, t: StorageT, machine?: string, runningJob?: boolean, onOpenStore: (name: string) => void }): ReactNode {
   return (
     <div className={css.head}>
       <span className={css.glyph}><StoreGlyph kind={s.kind} size={18} /></span>
       <LinkButton className={css.name} onClick={() => onOpenStore(s.name)} title={s.name}>{s.name}</LinkButton>
-      <StoreMenu store={s} on={on} t={t} machine={machine} />
+      <StoreMenu store={s} on={on} t={t} machine={machine} runningJob={runningJob} />
     </div>
   )
 }
@@ -440,16 +440,16 @@ function BackupsBadge({ s, view, t, onBackups, onBackup }: { s: StoreRow, view: 
   )
 }
 
-interface Act { label: string, run: () => void, disabled?: boolean }
+interface Act { label: string, run: () => void, disabled?: boolean, disabledReason?: string | undefined }
 
 /** The foot's actions: one button, the rest in a ⋯ menu. */
 function FootActions({ main, rest, label }: { main: Act, rest: Act[], label: string }): ReactNode {
   return (
     <span className={css.footActions}>
-      <Button size="sm" variant="ghost" disabled={main.disabled} onClick={main.run}>{main.label}</Button>
+      <ExplainedButton size="sm" variant="ghost" disabled={main.disabled} disabledReason={main.disabledReason} onClick={main.run}>{main.label}</ExplainedButton>
       {rest.length ? (
         <MoreMenu label={label}>
-          {(close) => rest.map((a) => <MenuItemButton key={a.label} disabled={a.disabled} onSelect={() => { close(); a.run() }}>{a.label}</MenuItemButton>)}
+          {(close) => rest.map((a) => <MenuItemButton key={a.label} disabled={a.disabled} disabledReason={a.disabledReason} onSelect={() => { close(); a.run() }}>{a.label}</MenuItemButton>)}
         </MoreMenu>
       ) : null}
     </span>
@@ -486,8 +486,8 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   const on = actionsFor(s)
   const job = cardJob(jobs, s.name, dismissed, now)
   const split = useSplit(api, s, s.size?.bytes ?? null)
-  const busy = s.state !== 'ready' || !!job && !job.ended
   const running = !!job && !job.ended
+  const footReason = storeWaitsFor(s, t, running)
   const last = split?.lastWrite ? ago(split.lastWrite, now, t as Translate) : null
   // Shown only when something is happening: ready says nothing. A state word with its reason; the fix line is the tip (the one action).
   const notice = storeNotice(s, null, t)
@@ -497,7 +497,7 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
         : null
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">
-      <Head s={s} on={on} t={t} onOpenStore={onOpenStore} />
+      <Head s={s} on={on} t={t} runningJob={running} onOpenStore={onOpenStore} />
       <SizeFigure s={s} t={t} now={now} last={last} />
       {machine === null ? <MachineLine s={s} view={view} t={t} on={on} /> : null}
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />
@@ -506,8 +506,8 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
         <More s={s} shown={status ? 1 : ROWS} t={t} onOpenStore={onOpenStore} />
         {/* the head's ⋯ holds Move, Back up and Remove */}
         {running ? null : s.machine === 'native'
-          ? <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('pushTo'), run: on.push, disabled: s.state !== 'ready' }} rest={[]} />
-          : <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('msPull'), run: on.pull, disabled: busy }} rest={[]} />}
+          ? <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('pushTo'), run: on.push, disabled: footReason !== null, disabledReason: footReason ?? undefined }} rest={[]} />
+          : <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('msPull'), run: on.pull, disabled: footReason !== null, disabledReason: footReason ?? undefined }} rest={[]} />}
       </div>
     </Card>
   )
@@ -597,7 +597,7 @@ function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, sa
   const more = s.projects.length > ROWS
   return (
     <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={s.state === 'broken' ? 'danger' : undefined}>
-      <Head s={s} on={on} t={t} machine={machine ?? undefined} onOpenStore={onOpenStore} />
+      <Head s={s} on={on} t={t} machine={machine ?? undefined} runningJob={!!job && !job.ended} onOpenStore={onOpenStore} />
       {/* refused stats (a broken database): its size is unknown, "—", never the 0 B of its uncounted projects */}
       <Figure big={stats.error && size === null ? '—' : total !== null ? bytes(total) : projectsWords(s.projects.length, t)}
         title={[pg?.server, pg?.binding ? t('pgDatabaseId', { id: pg.binding.slice(0, 8) }) : null].filter(Boolean).join(' · ') || undefined}

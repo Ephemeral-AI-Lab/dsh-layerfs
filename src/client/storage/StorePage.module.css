@@ -111,6 +111,10 @@
   white-space: nowrap;
 }
 
+.tileValue[data-tone='muted'] {
+  color: var(--dsw-alias-label-secondary);
+}
+
 .tileValue[data-tone='warning'] {
   color: var(--dsw-alias-state-warn-label);
 }

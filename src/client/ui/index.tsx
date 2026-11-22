@@ -3,11 +3,11 @@
  * share so they read as native DSH pages. Every visible word arrives as a
  * prop from the caller's locale `t`; nothing here owns copy.
  */
-import { createContext, useContext, useEffect, useRef, useState, type HTMLAttributes, type ReactNode, type SyntheticEvent } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, useState, type ComponentProps, type HTMLAttributes, type ReactNode, type SyntheticEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconEllipsisOutlineRegular,
-  IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, StateDot,
+  IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, StateDot, Tooltip,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { removesSomething, runnableFix, typedNameOf, type RunnableFix } from '../../shared/doctor.ts'
@@ -588,4 +588,35 @@ export function CopyId({ id, short, copyLabel, copiedLabel, failedLabel }: { id:
 /** A text button styled as a link. */
 export function LinkButton({ children, onClick, title, className }: { children: ReactNode, onClick: () => void, title?: string, className?: string }): ReactNode {
   return <button type="button" className={clsx(css.link, className)} onClick={onClick} title={title}>{children}</button>
+}
+
+/**
+ * A DSH Button that explains why it is off in a Tooltip, mirroring
+ * MenuItemButton's `disabledReason`: keeps `aria-disabled` instead of native
+ * `disabled` while a reason is given so hover and keyboard focus raise the
+ * Tooltip and assistive tech reads the reason via `aria-describedby`.
+ */
+export function ExplainedButton({ disabled, disabledReason, onClick, className, variant, type, ...rest }: ComponentProps<typeof Button> & {
+  disabledReason?: string | undefined
+}): ReactNode {
+  const reasonId = useId()
+  const explained = !!disabled && !!disabledReason
+  return (
+    <>
+      <Tooltip label={disabledReason ?? ''} disabled={!explained} side="bottom" delayMs={300} maxWidth={300} portal>
+        <Button
+          {...rest}
+          variant={variant}
+          type={explained ? 'button' : type}
+          className={clsx(className, explained && css.disabledButton)}
+          data-variant={explained ? (variant ?? 'ghost') : undefined}
+          disabled={disabled && !explained}
+          aria-disabled={explained || undefined}
+          aria-describedby={explained ? reasonId : undefined}
+          onClick={explained ? undefined : onClick}
+        />
+      </Tooltip>
+      {explained ? <span id={reasonId} hidden>{disabledReason}</span> : null}
+    </>
+  )
 }

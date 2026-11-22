@@ -489,7 +489,7 @@
   background: var(--dsw-alias-state-error-primary);
 }
 .dot[data-health='stale'] {
-  background: var(--dsw-alias-state-warn-primary);
+  background: var(--dsw-alias-label-tertiary);
 }
 .dot[data-health='current'] {
   background: var(--dsw-alias-state-success-primary);
@@ -749,7 +749,7 @@
   border-radius: 3px;
 }
 .health > [data-health='problem'] { background: var(--dsw-alias-state-error-primary); }
-.health > [data-health='stale'] { background: var(--dsw-alias-state-warn-primary); }
+.health > [data-health='stale'] { background: var(--dsw-alias-label-tertiary); }
 .health > [data-health='unknown'] { background: var(--dsw-alias-border-l3); }
 .health > [data-health='current'] { background: var(--dsw-alias-state-success-primary); }
 .pill {

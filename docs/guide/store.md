@@ -59,12 +59,12 @@ What the Store weighs, who wrote it and whether anything needs attention.
 | **Server** tile (PostgreSQL) | **Reachable**, **Unreachable** (with the reason) or **Unknown**; the fix line on hover | — | `store list` (read) | red when broken |
 | **Projects** tile | The project count and **n commits** (or **n commits so far** while ledgers are counted) | Click → Projects tab | `project list`, `project stats`, `branch get` (read) | **Not read: …** when the Store refused |
 | **Running now** tile | Sandboxes of this Store's projects whose daemon runs | — | `machine list`, `sandbox list` (read, `GET /api/machines`) | |
-| **Last backup** tile (SQLite) | How long ago, and the bucket | Click → Backups tab | `store list` (read: its links) | amber **No backup yet** |
+| **Last backup** tile (SQLite) | How long ago, and the bucket | Click → Backups tab | `store list` (read: its links) | muted **No backup yet** |
 | **Connected from** tile (PostgreSQL) | How many machines connect, and their names | Click → Connection tab | `store list` (read: `connections`) | |
 | What fills the database file | A bar of **Content**, **Metadata**, **Free pages** with sizes and shares; **Unique content** *x* **packs into** *y* and the **×** ratio | — | `store get --with stats` (read) | **Reading…**, **Not read: …**, **LayerFS did not report this Store's parts.** |
 | How the Store grew | File, content and metadata over this host's past reads; gaps longer than the journal's are breaks | — | — (host journal of earlier `store get --with stats` reads) | only once a read was journaled; **The chart starts with this host's reads of the Store: one so far.** |
 | Which projects wrote it | One block per project sized by its packed bytes; **Init and earlier** for bytes no Commit counted | Hover → name and size | `project stats` (read), `store get --with stats` (read) | **No project has committed content yet.** |
-| Health | **Machine** (*docker* **is running** / stopped), **Backups** (up to date, changed since the last backup, none), **Free pages** (reusable share); PostgreSQL: **Server**, **Backups** **covered by the server's own backups, not LayerFS** | — | from the reads above | green, amber, red dots |
+| Health | **Machine** (*docker* **is running** / stopped), **Backups** (up to date, changed since the last backup, bucket changed, missing/conflict, none), **Free pages** (reusable share); PostgreSQL: **Server**, **Backups** **covered by the server's own backups, not LayerFS** | — | from the reads above | green, grey, red dots |
 | Store details | **Created**, **Database file** or **Server**; then **Remove Store** / **Disconnect Store** | **Remove…** → [typed-name confirm](#modals-opened-here); **Disconnect…** → confirm | `store remove` ↻ / `store disconnect` ↻ | folded by default |
 
 ![Store details, unfolded](img/store-details.png)
@@ -229,8 +229,9 @@ while any Store names it). A machine page lists only the logins of Stores connec
   PostgreSQL Store with **no saved login**, **Update** for an outdated record).
 - **Inspect the Store before continuing: an operation's outcome is unknown.**: a job ended
   without an answer; its fix is a new compaction.
-- Amber **No backup yet** / Health **changed since the last backup**: back up, or ignore it
-  (missing backups are not an error).
+- Muted **No backup yet** / Health **changed since the last backup** (grey dot): back up, or
+  ignore it (missing or older backups are not an error); only **Missing** and **Both changed**
+  are red.
 - **size seen** *when*: the machine did not answer; the size is the last one read.
 
 ## Where next
