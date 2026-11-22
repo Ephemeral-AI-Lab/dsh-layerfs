@@ -94,9 +94,9 @@ test('opening the page: nothing is checked; a stopped machine and what is on it 
   assert.equal(st(p, 'store:sim-website-0ce'), 'nc:stopped')
   assert.equal(st(p, 'project:sim-website-0ce/website-0ce'), 'nc:stopped')
   assert.equal(p.seen('project:sim-website-0ce/website-0ce').by.key, 'machine:docker')
-  // Start is the stopped machine's only button; what is on it has none
+  // Start and static Check are both available on a stopped machine; what is on it has none
   const docker = p.view('machine:docker')
-  assert.deepEqual([docker.canCheck, docker.word, docker.fix.button, docker.fix.line], [false, 'stopped', 'start', 'layerfs machine start docker'])
+  assert.deepEqual([docker.canCheck, docker.word, docker.fix.button, docker.fix.line], [true, 'stopped', 'start', 'layerfs machine start docker'])
   const on = p.view('store:sim-website-0ce')
   assert.deepEqual([on.blocked, on.canCheck, on.fix], [true, false, null])
   const proj = p.view('project:sim-website-0ce/website-0ce')
@@ -110,7 +110,7 @@ test('a stopped machine whose own checks pass reads OK with Stopped beside it, a
   p.run('home')
   const docker = p.view('machine:docker')
   assert.deepEqual([docker.seen.st, docker.seen.why, docker.seen.stopped, docker.word], ['ok', null, true, 'stopped'])
-  assert.deepEqual([docker.canCheck, docker.fix.button, docker.fix.line, docker.ownTrouble], [false, 'start', 'layerfs machine start docker', true])
+  assert.deepEqual([docker.canCheck, docker.fix.button, docker.fix.line, docker.ownTrouble], [true, 'start', 'layerfs machine start docker', true])
   // the checks that apply to a stopped machine: its worker and its disk are not asked
   assert.deepEqual(docker.marks.map((m) => [m.check, m.r]), checksFor(p.world, 'machine', 'docker').map((c) => [c, 'ok']))
   assert.ok(!docker.marks.some((m) => /worker|capacity/.test(m.check)))

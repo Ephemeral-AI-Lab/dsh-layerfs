@@ -285,9 +285,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
           onClick={() => { void startDoctor('host').catch(() => props.onOpen('health')) }}>{mc.doctorT('diagnoseHost')}</Button>
       </>
     )
-     : <span className={heroCss.storeActions} ref={setStoreActionsHost}>
-        {stores.length === 0 && view.buckets.length === 0 ? null : null}
-      </span>
+     : <span className={heroCss.storeActions} ref={setStoreActionsHost} />
   // SQLite's second view: the backup buckets (once the Backups tab). PostgreSQL has one view: its databases under their server.
   const storesAlt = {
     main: { label: t('hsViewStores'), count: sqlite.length },

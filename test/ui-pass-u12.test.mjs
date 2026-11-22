@@ -637,10 +637,10 @@ test('M9: a lost VM (missing) is "VM gone": not worker down, no Stop or Restart,
   assert.doesNotMatch(M.storageLocales.en.ovVmGoneStores, /answer/)
 })
 
-test('R2-2: a Store on a stopped machine shows a dot, word, tip and its fix; its size tip says stopped, not "does not answer"', () => {
+test('R2-2: a broken Store shows its red dot, a stopped machine omits the idle dot, and both show word, tip and fix; its size tip says stopped, not "does not answer"', () => {
   const ms = src('src/client/storage/MachineStores.tsx')
   const status = ms.slice(ms.indexOf('function StoreStatus'), ms.indexOf('function SqliteCard'))
-  assert.match(status, /<StateDot state=\{s\.state === 'broken' \? 'error' : 'idle'\} size=\{8\} \/>/)
+  assert.match(status, /\{s\.state === 'broken' \? <StateDot state="error" size=\{8\} \/> : null\}/)
   assert.match(status, /const tip = useStoreTip\(s, t\) \?\? s\.fix \?\? undefined/)
   assert.match(ms, /t\(stoppedBlock\(s\) \? 'msSizeStaleStoppedTitle' : 'msSizeStaleTitle'/)
   const card = src('src/client/storage/StoreCard.tsx')
