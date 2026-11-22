@@ -124,7 +124,7 @@ export function wordsOf(t: DoctorT) {
       if (x.kind === 'bucket') lines.push(note?.fullAt ? tt('dpTipWriteTested', { time: clock(note.fullAt) }) : tt('dpTipWriteNever'))
       if (note?.stopped != null) lines.push(tt('dpTipFullStopped', { elapsed: mmss(note.stopped) }))
       // a machine stopped on purpose whose own checks pass
-      if (o.stopped) return { title: `${word('ok')} · ${tt('dpWordStopped')}`, lines: [...lines, tt('dpTipStoppedSelf')], cmds: fixCmds }
+      if (o.stopped) return { title: tt('dpTipStoppedStaticTitle'), lines: [...lines, tt('dpTipStoppedSelf')], cmds: fixCmds }
       return { title: word('ok'), lines }
     }
     if (o.st === 'notice' || o.st === 'problem') {
@@ -136,7 +136,7 @@ export function wordsOf(t: DoctorT) {
     if (o.why === 'waiting') return { title: nc, lines: [tt('dpTipWaiting', { name: o.by ? nameOf(o.by) : o.byName ?? '' })] }
     if (o.why === 'could') return { title: tt('dpWordCould'), lines: [tt(`dpReason${cap(o.reason ?? 'lost')}`), tt('dpTipAgain')], cmds: [callFor(x)] }
     if (o.why === 'parent') return { title: nc, lines: [tt('dpTipParent', { name: o.by ? nameOf(o.by) : '' })] }
-    if (o.why === 'partial') return { title: nc, lines: [tt('dpTipPartial')] }
+    if (o.why === 'partial') return { title: tt('dpWordPartial'), lines: [tt('dpTipPartial')] }
     if (o.why === 'working') return { title: nc, lines: [tt('dpTipWorking', { op: x.op?.name ?? '' })] }
     if (o.why === 'unknown') return { title: nc, lines: [tt('dpTipUnknown')] }
     return { title: nc, lines: [tt(x.kind === 'workspace' ? 'dpTipNeverWorkspace' : 'dpTipNever')] }

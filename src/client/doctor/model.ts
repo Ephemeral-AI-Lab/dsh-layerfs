@@ -712,6 +712,7 @@ export function viewOf(state: DoctorState, thing: Thing, depth: number, open: bo
 
 export interface Head {
   counts: Record<RowState, number>
+  stopped: number
   total: number
   /** The headline: Check all's progress, the problems, nothing checked yet, the notices, no problems so far, or all clear. */
   headline: { kind: 'checking', done: number, total: number } | { kind: 'problems' | 'notices', n: number } | { kind: 'notChecked' | 'noProblems' | 'allClear' }
@@ -721,7 +722,12 @@ export interface Head {
 export function headOf(state: DoctorState): Head {
   const world = state.world!
   const counts: Record<RowState, number> = { ok: 0, notice: 0, problem: 0, run: 0, nc: 0 }
-  for (const thing of world.things) counts[stateOf(state, thing).st] += 1
+  let stopped = 0
+  for (const thing of world.things) {
+    const o = stateOf(state, thing)
+    if (o.stopped && o.st === 'ok') stopped += 1
+    else counts[o.st] += 1
+  }
   const total = world.things.length
   const headline: Head['headline'] = state.all ? { kind: 'checking', done: Object.keys(state.all.done).length, total: Object.keys(state.all.total).length }
     : counts.problem ? { kind: 'problems', n: counts.problem }
@@ -729,7 +735,7 @@ export function headOf(state: DoctorState): Head {
         : counts.notice ? { kind: 'notices', n: counts.notice }
           : counts.nc || counts.run ? { kind: 'noProblems' } : { kind: 'allClear' }
   const st: RowState = state.all || counts.run ? 'run' : counts.problem ? 'problem' : counts.nc === total ? 'nc' : counts.notice ? 'notice' : counts.nc ? 'nc' : 'ok'
-  return { counts, total, headline, state: st }
+  return { counts, stopped, total, headline, state: st }
 }
 
 export const TABS = [['machines', 'machine'], ['stores', 'store'], ['projects', 'project'], ['sandboxes', 'sandbox'], ['backups', 'bucket']] as const

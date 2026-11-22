@@ -136,6 +136,7 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
       : h.kind === 'notChecked' ? w.word('nc') : h.kind === 'noProblems' ? w.t('dpHeadNoProblems') : w.t('dpHeadAllClear')
   const counts = [
     head.counts.ok ? w.t('dpCountOk', { n: head.counts.ok }) : '',
+    head.stopped ? w.t('dpCountStopped', { n: head.stopped }) : '',
     head.counts.problem && h.kind !== 'problems' ? w.n('dpProblems', head.counts.problem) : '',
     head.counts.notice && h.kind !== 'notices' ? w.n('dpNotices', head.counts.notice) : '',
     head.counts.run && h.kind !== 'checking' ? w.t('dpCountChecking', { n: head.counts.run }) : '',
