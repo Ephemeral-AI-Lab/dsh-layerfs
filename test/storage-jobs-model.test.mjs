@@ -62,11 +62,11 @@ test('Compact is offered by the 2.0 state alone, a Store blocked by its machine 
   // LayerFS compacts a Store on a machine in that machine's worker: no block for its place
   assert.equal(M.compactWaitsFor(store({ machine: 'lima1' }), t), null)
   assert.equal(M.compactWaitsFor(store({ machine: 'lima1', state: 'blocked', blockedBy: { machine: 'lima1', reason: 'stopped' } }), t), 'compactNeedsMachine {"machine":"lima1"}')
-  assert.equal(M.compactWaitsFor(store({ state: 'busy', op: { name: 'compact', phase: 'build', started_at: 'x' } }), t), 'compactNeedsIdle')
+  assert.equal(M.compactWaitsFor(store({ state: 'busy', op: { name: 'compact', phase: 'build', started_at: 'x' } }), t), 'opRunning {"op":"compact · build"}')
   assert.equal(M.compactWaitsFor(store({ state: 'unknown' }), t), 'compactNeedsIdle')
   // an earlier run left its outcome unknown: the fix is another compaction, so it is offered
   assert.equal(M.compactWaitsFor(store({ state: 'broken', reason: 'unresolved', fix: 'layerfs store compact s1' }), t), null)
-  assert.equal(M.compactWaitsFor(store({ kind: 'postgresql', machine: null, state: 'broken', reason: 'unreachable' }), t), 'compactNeedsIdle')
+  assert.equal(M.compactWaitsFor(store({ kind: 'postgresql', machine: null, state: 'broken', reason: 'unreachable' }), t), 'storeNeedsRepair')
 })
 
 // LayerFS N-D / Q: a Store on a machine that is not just stopped is `blocked` with

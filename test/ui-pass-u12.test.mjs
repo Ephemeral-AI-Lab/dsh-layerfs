@@ -640,7 +640,8 @@ test('M9: a lost VM (missing) is "VM gone": not worker down, no Stop or Restart,
 test('R2-2: a broken Store shows its red dot, a stopped machine omits the idle dot, and both show word, tip and fix; its size tip says stopped, not "does not answer"', () => {
   const ms = src('src/client/storage/MachineStores.tsx')
   const status = ms.slice(ms.indexOf('function StoreStatus'), ms.indexOf('function SqliteCard'))
-  assert.match(status, /\{s\.state === 'broken' \? <StateDot state="error" size=\{8\} \/> : null\}/)
+  assert.match(status, /const tone = storeNoticeTone\(s, machineState\)/)
+  assert.match(status, /\{tone === 'danger' \? <StateDot state="error" size=\{8\} \/> : null\}/)
   assert.match(status, /const tip = useStoreTip\(s, t\) \?\? s\.fix \?\? undefined/)
   assert.match(ms, /t\(stoppedBlock\(s\) \? 'msSizeStaleStoppedTitle' : 'msSizeStaleTitle'/)
   const card = src('src/client/storage/StoreCard.tsx')
@@ -686,25 +687,25 @@ test('K FAIL 2 (V23-13): a login URL leaves Connect disabled, with its reason be
   assert.match(src('src/client/storage/parts.tsx'), /spellCheck=\{false\} aria-label=\{label\}/, 'TextField inputs (the Connection URL) carry their label as their name')
 })
 
-test('K FAIL 1 (R2-2): a Store blocked by its stopped machine (fix null) reads Waiting on <m>, with a tip and one guarded Start <m>', () => {
+test('K FAIL 1 (R2-2): a Store blocked by its stopped machine (fix null) reads <m> is stopped, with a tip and one guarded Start <m>', () => {
   const t = (key, vars) => `${key} ${JSON.stringify(vars ?? {})}`
   const s = { name: 'demo-build-cache', kind: 'sqlite', state: 'blocked', blockedBy: { machine: 'demo-build', reason: 'stopped' }, fix: null }
   assert.equal(M.stoppedBlock(s), true)
   assert.equal(M.stoppedBlock({ ...s, blockedBy: { machine: 'demo-build', reason: 'not_answering' } }), false, 'a broken machine keeps its Repair/fix route')
-  assert.equal(M.storeNotice(s, null, t), 'waitingOnMachine {"machine":"demo-build"}')
+  assert.equal(M.storeNotice(s, null, t), 'cardMachineStopped {"machine":"demo-build"}')
   const card = src('src/client/storage/StoreCard.tsx')
   assert.match(card, /if \(stoppedBlock\(s\) && s\.blockedBy\?\.machine && !s\.message\) return t\('waitingOnMachineTip', \{ machine: s\.blockedBy\.machine, store: s\.name \}\)/)
-  assert.match(card, /if \(stoppedBlock\(s\) && !s\.fix && s\.blockedBy\?\.machine && onStart\) return <MachineStartAction machine=\{s\.blockedBy\.machine\} t=\{t\} onStart=\{onStart\} \/>/)
+  assert.match(card, /if \(storeMachineStopped\(s, machineState\) && !s\.fix && \(s\.blockedBy\?\.machine \?\? s\.machine\) && onStart\) \{\s*return <MachineStartAction machine=\{s\.blockedBy\?\.machine \?\? s\.machine \?\? ''\} t=\{t\} onStart=\{onStart\} \/>\s*\}/)
   const press = card.slice(card.indexOf('export function MachineStartAction'))
   assert.match(press, /const guard = usePressGuard\(`start:\$\{machine\}`\)/, 'the same press guard (600 ms settle) as other power controls')
   assert.match(press, /disabled=\{guard\.settling\} aria-disabled=\{guard\.settling \|\| undefined\} aria-label=\{t\('startMachineNamed', \{ machine \}\)\}/)
   assert.match(press, /onClick=\{guard\(\(e\) => \{ e\.stopPropagation\(\); onStart\(\) \}\)\}/)
   // the existing Store start (StoragePage's StoreActions.start), so no new machine-start press site (u11 NOTE 3 list unchanged)
   const ms = src('src/client/storage/MachineStores.tsx')
-  assert.match(ms, /<StoreAction store=\{s\} t=\{t\} onStart=\{onStart\} \/>/)
-  assert.equal((ms.match(/words=\{notice\} onStart=\{on\.start\} \/>/g) ?? []).length, 1, 'the sqlite card only')
+  assert.match(ms, /<StoreAction store=\{s\} t=\{t\} onStart=\{onStart\} machineState=\{machineState\} \/>/)
+  assert.equal((ms.match(/words=\{notice\} onStart=\{on\.start\} machineState=\{machineState\} \/>/g) ?? []).length, 1, 'the sqlite card only')
   for (const lang of ['en', 'zh']) {
-    assert.match(M.storageLocales[lang].waitingOnMachine, /\{machine\}/)
+    assert.match(M.storageLocales[lang].cardMachineStopped, /\{machine\}/)
     assert.match(M.storageLocales[lang].waitingOnMachineTip, /\{machine\}[^]*\{store\}/)
     assert.match(M.storageLocales[lang].startMachineNamed, /\{machine\}/)
   }
