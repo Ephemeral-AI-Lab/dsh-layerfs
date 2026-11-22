@@ -228,6 +228,55 @@ type Listing = { at: number, items: any[] | null, error: { code: string, message
 /** A bucket as `home get --with tree` records it: its name, provider, and its state with its companions when it is not ready. */
 type BucketRecord = { name: string, provider: string | null, url?: string, state?: string, reason?: string, fix?: string, message?: string }
 
+/**
+ * Classifies a failed PostgreSQL check from `store.doctor` + `store.get`
+ * without guessing: prefers LayerFS's structured `store.record` finding and
+ * `store.connection` evidence (`transport`, `handshake`, `authentication`,
+ * `database`, `login`), then LayerFS's documented refusal messages, and falls
+ * back to `Failed` when LayerFS gave nothing specific enough to classify.
+ */
+export function pgCheckError(
+  report: any,
+  record: any,
+  from: string | null,
+  reachError: string | null,
+): { code: string, message: string, fix?: string, step?: string } {
+  const findings: any[] = Array.isArray(report?.findings) ? report.findings : []
+  const recordFinding = findings.find((f) => f?.check === 'store.record' && f?.severity === 'error')
+  const recordFix = (typeof recordFinding?.fix === 'string' && recordFinding.fix) || (typeof record?.fix === 'string' && record.fix) || undefined
+  const brokenRecord = record?.state === 'broken' && (record?.reason === 'outdated' || record?.reason === 'missing')
+  if (recordFinding || brokenRecord) {
+    const message = String(recordFinding?.message ?? reachError ?? 'the Store record needs attention')
+    const outdated = record?.reason === 'outdated' || /\boutdated\b/i.test(message)
+    const missing = !outdated && (record?.reason === 'missing' || /\bmissing\b/i.test(message))
+    return {
+      code: outdated ? 'Outdated' : missing ? 'NotFound' : 'Failed',
+      message,
+      ...(recordFix ? { fix: recordFix } : {}),
+      step: 'record',
+    }
+  }
+  const connFinding = findings.find((f) => f?.check === 'store.connection' && (f?.from ?? null) === from)
+  const evidenceStep = typeof connFinding?.evidence?.step === 'string' ? connFinding.evidence.step : undefined
+  const fix = typeof connFinding?.fix === 'string' && connFinding.fix ? connFinding.fix : undefined
+  const message = String(reachError ?? connFinding?.message ?? 'the check failed')
+  const withFix = (code: string, step?: string) => ({ code, message, ...(fix ? { fix } : {}), ...(step ? { step } : {}) })
+
+  if (evidenceStep === 'authentication') return withFix('Denied', 'authentication')
+  if (evidenceStep === 'database') return withFix('NotFound', 'database')
+  if (evidenceStep === 'transport' || evidenceStep === 'handshake') return withFix('Unavailable', 'transport')
+  if (evidenceStep === 'login') return withFix(/\bno saved login\b/i.test(message) ? 'Outdated' : 'NotFound', 'record')
+  if (/\black(s)?\b/i.test(message)) return withFix('Denied', /\bUSAGE\s+on\s+schema\b/i.test(message) ? 'store' : 'write')
+  if (message.includes('holds another Store than')) return withFix('Unavailable', 'store')
+  if (/\bRejected\b/i.test(message)) return withFix('Rejected', 'authentication')
+  if (/password authentication failed|authentication failed|SQLSTATE 28/i.test(message)) return withFix('Denied', 'authentication')
+  if (/PostgreSQL server refused the connection/i.test(message)) return withFix('Denied')
+  if (/cannot reach PostgreSQL Store|PostgreSQL server unreachable|did not answer|timed out|connection refused|no connection to the server|resolves host\.docker\.internal to no IPv4|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH/i.test(message)) {
+    return withFix('Unavailable', 'transport')
+  }
+  return withFix('Failed')
+}
+
 export class Storage {
   readonly jobStore: JobStore
   readonly jobs: Map<string, StorageJob>
@@ -505,9 +554,15 @@ export class Storage {
     const row = connectionRows(record).find((c: any) => c.machine === from)
     const host = row?.server?.host ?? null
     const who = from ?? 'native'
+    const findings: any[] = Array.isArray(report?.findings) ? report.findings : []
+    const recordFailed = findings.some((f) => f?.check === 'store.record' && f?.severity === 'error')
+      || (record?.state === 'broken' && (record?.reason === 'outdated' || record?.reason === 'missing'))
+    if (recordFailed) {
+      return { machine: who, host, ok: false as const, error: pgCheckError(report, record, from, row?.reach?.error ?? null) }
+    }
     if (row?.reach) return row.reach.ok
       ? { machine: who, host, ok: true as const, at: row.reach.at ?? Date.now(), version: row.reach.version, latencyMs: row.reach.latencyMs }
-      : { machine: who, host, ok: false as const, error: { code: 'Unavailable', message: row.reach.error ?? 'the check failed' } }
+      : { machine: who, host, ok: false as const, error: pgCheckError(report, record, from, row.reach.error) }
     // a not_checked entry is `{ check, blocked_by, reason }`: no message of its own
     const skipped = (Array.isArray(report?.not_checked) ? report.not_checked : []).find((n: any) => (n?.check === 'store.connection' || !n?.check) && (n?.from === from || !n?.from))
     return { machine: who, host, ok: false as const, error: { code: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'Unknown'), message: `machine ${who} was not checked` } }

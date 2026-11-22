@@ -733,6 +733,11 @@
   font-size: 13px;
   line-height: 18px;
 }
+.checkActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 
 /* ---------- Backups and Back up ---------- */
 

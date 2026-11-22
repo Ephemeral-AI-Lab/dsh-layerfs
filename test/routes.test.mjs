@@ -8,9 +8,20 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, wr
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { build } from 'esbuild'
 import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
 
 const R = await loadRoutes()
+const repoRoot = new URL('..', import.meta.url).pathname
+const msOut = mkdtempSync(join(repoRoot, 'lib', '.test-routes-ms-'))
+await build({
+  absWorkingDir: repoRoot,
+  stdin: { contents: "export * from './src/client/storage/machine-stores.ts'", resolveDir: repoRoot, loader: 'ts' },
+  outfile: join(msOut, 'ms.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning',
+})
+const MS = await import(pathToFileURL(join(msOut, 'ms.mjs')).href)
+test.after(() => rmSync(msOut, { recursive: true, force: true }))
 
 class Refusal extends Error {
   constructor(code, message, detail = null, transport = 'refusal') { super(message); Object.assign(this, { code, detail, transport }) }
@@ -528,6 +539,31 @@ test('postgresql: the check from a machine (or this computer) is store doctor, a
     const failed = await http('GET', '/api/stores/pg/check?machine=docker')
     assert.deepEqual([failed.status, failed.body.ok, failed.body.error.code], [200, false, 'Unavailable'])
     assert.match(failed.body.error.message, /connection refused/)
+    // wrong login (doctor authentication evidence): Denied + step authentication, never Unavailable
+    report = { findings: [{ store: 'pg', check: 'store.connection', severity: 'error', message: 'this computer is refused by the server at 127.0.0.1:5432: SQLSTATE 28P01', fix: null, from: null, evidence: { step: 'authentication' } }], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:30Z', ok: false, error: 'PostgreSQL server refused the connection: db error' })]
+    const wrongLogin = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([wrongLogin.status, wrongLogin.body.ok, wrongLogin.body.error.code, wrongLogin.body.error.step], [200, false, 'Denied', 'authentication'])
+    // Rejected from LayerFS: classified as Rejected (wrong login), never Unavailable
+    report = { findings: [], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:35Z', ok: false, error: 'Rejected' })]
+    const rejected = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([rejected.status, rejected.body.ok, rejected.body.error.code], [200, false, 'Rejected'])
+    // missing privilege: Denied (even when doctor findings are empty on write-only privilege loss)
+    report = { findings: [], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:40Z', ok: false, error: 'role lowwrite lacks CREATE on schema layerfs (94 privilege(s) missing in all)' })]
+    const missingPriv = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([missingPriv.status, missingPriv.body.ok, missingPriv.body.error.code, missingPriv.body.error.step], [200, false, 'Denied', 'write'])
+    // outdated record: reported failed as Outdated with its fix, even when reach.ok is true
+    report = { findings: [{ store: 'pg', check: 'store.record', severity: 'error', message: 'its record is outdated: it holds what 2.0 no longer writes (a password, a login in a URL or an old machine entry)', fix: 'layerfs store update pg --auth pg', from: null, evidence: null }], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:50Z', ok: true, latency_ms: 1, server_version: '17.6', error: null })]
+    const outdated = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([outdated.status, outdated.body.ok, outdated.body.error.code, outdated.body.error.step, outdated.body.error.fix], [200, false, 'Outdated', 'record', 'layerfs store update pg --auth pg'])
+    // unrecognized reach error: Failed, never guessed as Unavailable
+    report = { findings: [], not_checked: [] }
+    rows = [row(null, { at: '2026-11-19T10:02:55Z', ok: false, error: 'some opaque backend error' })]
+    const unknown = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([unknown.status, unknown.body.ok, unknown.body.error.code], [200, false, 'Failed'])
     // a check LayerFS could not run from there (the machine stopped) is an answer too
     rows = [row(null, null)]
     report = { findings: [], not_checked: [{ check: 'store.connection', from: 'docker', reason: 'stopped', message: 'machine docker is stopped' }] }
@@ -535,6 +571,70 @@ test('postgresql: the check from a machine (or this computer) is store doctor, a
     assert.deepEqual([skipped.status, skipped.body.ok, skipped.body.error.code], [200, false, 'stopped'])
     // a bad input is LayerFS's refusal
     assert.equal((await http('GET', '/api/stores/pg/check?machine=ghost')).status, 404)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('postgresql check end-to-end (host checkStore -> client classification & wires): ambiguous refusals, transport evidence, unknown errors, and spaced role names', async () => {
+  let report = { findings: [], not_checked: [], observed_at: '2026-11-21T10:00:00Z' }
+  let rows = []
+  const { http, root } = fakeGroups({
+    ...base,
+    store: {
+      ...base.store,
+      list: async () => ({ items: [{ store: 'pg', engine: 'postgresql', auth: 'pg', connections: [{ url: 'postgresql://localhost/d' }], state: 'ready' }] }),
+      get: async () => ({ store: 'pg', engine: 'postgresql', auth: 'pg', connections: rows }),
+      doctor: async () => report,
+    },
+  })
+  const row = (machine, reach) => ({ machine, url: 'postgresql://localhost/d', own: false, server: { host: '172.17.0.2', port: 5432, database: 'd' }, reached: reach ? (reach.ok ? 'ok' : 'failed') : null, reach })
+  const classify = (err) => {
+    const kind = MS.checkFailureKind(err.code, err.message, err.step)
+    const step = MS.failedStep(err.code, err.message, err.step)
+    const wires = MS.checkWires('failed', step)
+    return { kind, step, wires }
+  }
+  try {
+    // 1. Ambiguous remote Denied (no evidence.step): host keeps Denied without step; client leaves kind/step null and both wires neutral
+    report = { findings: [], not_checked: [] }
+    rows = [row(null, null), row('docker', { at: '2026-11-21T10:00:01Z', ok: false, error: 'machine docker, PostgreSQL Store pg at 172.17.0.2: PostgreSQL server refused the connection: db error' })]
+    const remoteDbErr = await http('GET', '/api/stores/pg/check?machine=docker')
+    assert.deepEqual([remoteDbErr.status, remoteDbErr.body.ok, remoteDbErr.body.error.code, remoteDbErr.body.error.step], [200, false, 'Denied', undefined])
+    assert.deepEqual(classify(remoteDbErr.body.error), { kind: null, step: null, wires: ['unknown', 'unknown'] })
+
+    // 1b. Ambiguous session refusal (28* or 3D000): host returns Failed without step; client leaves kind/step null and both wires neutral
+    rows = [row(null, { at: '2026-11-21T10:00:02Z', ok: false, error: 'the server refused the session: the database does not exist, or the user or password is wrong' })]
+    const refusedSession = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([refusedSession.status, refusedSession.body.ok, refusedSession.body.error.code, refusedSession.body.error.step], [200, false, 'Failed', undefined])
+    assert.deepEqual(classify(refusedSession.body.error), { kind: null, step: null, wires: ['unknown', 'unknown'] })
+
+    // 1c. Explicit database evidence still classifies as store (not login, not server)
+    report = { findings: [{ store: 'pg', check: 'store.connection', severity: 'error', message: 'database missing', fix: null, from: null, evidence: { step: 'database' } }], not_checked: [] }
+    rows = [row(null, { at: '2026-11-21T10:00:03Z', ok: false, error: 'PostgreSQL server refused the connection: db error' })]
+    const missingDb = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([missingDb.body.error.code, missingDb.body.error.step], ['NotFound', 'database'])
+    assert.deepEqual(classify(missingDb.body.error), { kind: 'store', step: 'store', wires: ['ok', 'failed'] })
+
+    // 2. Transport evidence from doctor propagates through host -> client even when the reach message is opaque
+    report = { findings: [{ store: 'pg', check: 'store.connection', severity: 'error', message: 'dial aborted before banner', fix: null, from: 'docker', evidence: { step: 'transport' } }], not_checked: [] }
+    rows = [row(null, null), row('docker', { at: '2026-11-21T10:00:04Z', ok: false, error: 'dial aborted before banner' })]
+    const transport = await http('GET', '/api/stores/pg/check?machine=docker')
+    assert.deepEqual([transport.body.error.code, transport.body.error.step], ['Unavailable', 'transport'])
+    assert.deepEqual(classify(transport.body.error), { kind: 'server', step: 'server', wires: ['failed', 'pending'] })
+    assert.equal(MS.failedStep('Failed', transport.body.error.message, transport.body.error.step), 'server', 'transport step drives server classification on its own')
+
+    // 3. Unknown opaque error stays undetermined all the way from host checkStore to client steps and wires
+    report = { findings: [], not_checked: [] }
+    rows = [row(null, null), row('docker', { at: '2026-11-21T10:00:05Z', ok: false, error: 'something unexpected happened' })]
+    const unknown = await http('GET', '/api/stores/pg/check?machine=docker')
+    assert.deepEqual([unknown.body.error.code, unknown.body.error.step], ['Failed', undefined])
+    assert.deepEqual(classify(unknown.body.error), { kind: null, step: null, wires: ['unknown', 'unknown'] })
+
+    // 4. Role name with spaces preserves privilege detail end-to-end
+    rows = [row(null, { at: '2026-11-21T10:00:06Z', ok: false, error: 'role analytics read lacks CREATE on schema layerfs (94 privilege(s) missing in all)' })]
+    const spacedRole = await http('GET', '/api/stores/pg/check')
+    assert.deepEqual([spacedRole.body.error.code, spacedRole.body.error.step], ['Denied', 'write'])
+    assert.deepEqual(classify(spacedRole.body.error), { kind: 'privilege', step: 'write', wires: ['ok', 'failed'] })
+    assert.deepEqual(MS.missingPrivilege(spacedRole.body.error.message), { role: 'analytics read', privilege: 'CREATE on schema layerfs', count: 94 })
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

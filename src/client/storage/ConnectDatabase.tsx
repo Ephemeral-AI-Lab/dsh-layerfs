@@ -30,7 +30,7 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { machinesFor } from '../projects/setup/model.ts'
 import { Field, MenuSelect, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { CHECK_STEPS, failedStep, parsePgUrl, pgUrl, routedServer, serverGroups, serverKey, type CheckStep, type PgServerGroup } from './machine-stores.ts'
+import { CHECK_STEPS, checkFailureKind, checkWires, failedStep, missingPrivilege, parsePgUrl, pgUrl, routedServer, serverGroups, serverKey, type CheckStep, type PgServerGroup } from './machine-stores.ts'
 import { connectedMachines, loopbackAlias } from './model.ts'
 import { refusalLabels, StoreGlyph, TextField } from './parts.tsx'
 import { loginInUrlFix, PG_URL_LOGIN, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
@@ -64,7 +64,7 @@ export function dialedServer(s: StoreRow | undefined, machine: string, platform:
   return s ? routedServer(serverKey(s), platform ? loopbackAlias(platform) : null) : ''
 }
 
-export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, check: startCheck, onClose, done }: {
+export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, check: startCheck, onClose, done, onEditLogin, onRotateLogin }: {
   api: LayerfsApi, t: StorageT, view: StorageView | undefined
   /** A machine page's dialog: checks run from it, so a Store is connected from it. */
   machine?: string | undefined
@@ -73,6 +73,10 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
   /** Open on the check of a Store, from `machine` (else this computer): Connect a machine. */
   check?: { store: string, machine?: string | undefined } | undefined
   onClose: () => void, done: () => void
+  /** Open Edit connection / Save a login for `store` when a check finds a login, privilege or record problem. */
+  onEditLogin?: ((store: string) => void) | undefined
+  /** Open Rotate password for saved login `auth` when a check finds a login failure. */
+  onRotateLogin?: ((auth: string) => void) | undefined
 }): ReactNode {
   const groups = serverGroups(view?.stores ?? [])
   const [screen, setScreen] = useState<Screen>(() => {
@@ -125,6 +129,8 @@ export function ConnectDatabaseDialog({ api, t, view, machine: fixed, server, ch
           <CheckView t={t} view={view} check={screen.check} place={place} own={own} ownUrl={ownUrl} setOwnUrl={setOwnUrl}
             onFrom={(machine) => { setOwn(false); if (screen.check.state === 'ready') setScreen({ kind: 'check', check: { ...screen.check, machine } }); else void check(screen.check.store, machine, { connected: screen.check.connected }) }}
             onOwn={() => setOwn(true)}
+            onEditLogin={onEditLogin}
+            onRotateLogin={onRotateLogin}
             onRetryOwn={() => {
               const { store, machine, connected } = screen.check
               // a machine's own address only: the Store's saved login goes with it (store connect --machine)
@@ -145,6 +151,7 @@ function Footer({ t, screen, back, onClose, onRun, place, why }: { t: StorageT, 
       <div className={scss.modalActions}>
         {back ? <Button variant="outline" onClick={back}>{t('cdBack')}</Button> : null}
         {check?.state === 'ready' || screen.kind === 'new' ? <Button variant="outline" onClick={onClose}>{t('cancel')}</Button> : null}
+        {check?.state === 'failed' ? <Button variant="outline" onClick={onRun}>{t('ovCheckAgain')}</Button> : null}
         {check?.state === 'ready'
           ? <Button variant="primary" onClick={onRun}>{t('cdCheckFromNamed', { store: check.store, machine: place(check.machine) })}</Button>
           : check?.state === 'ok'
@@ -301,10 +308,12 @@ function NewDatabase({ api, t, view, server, onConnected, onWhy }: {
   )
 }
 
-function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOwn, onRetryOwn }: {
+function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOwn, onRetryOwn, onEditLogin, onRotateLogin }: {
   t: StorageT, view: StorageView, check: Check, place: (m: string) => string
   own: boolean, ownUrl: string, setOwnUrl: (v: string) => void
   onFrom: (machine: string) => void, onOwn: () => void, onRetryOwn: () => void
+  onEditLogin?: ((store: string) => void) | undefined
+  onRotateLogin?: ((auth: string) => void) | undefined
 }): ReactNode {
   const machine = check.machine
   const from_ = view.machines.find((m) => m.name === machine)
@@ -313,8 +322,9 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
   const stopped = machine !== 'native' && from_?.state != null && from_.state !== 'ready'
   const s = view.stores.find((x) => x.name === check.store)
   const server = check.result?.host ?? dialedServer(s, machine, platform)
-  const failure = check.state === 'failed' ? (check.error as { code?: string, message?: string } | undefined) : undefined
-  const at = failure ? failedStep(failure.code, failure.message) : null
+  const failure = check.state === 'failed' ? (check.error as { code?: string, message?: string, fix?: string, step?: string } | undefined) : undefined
+  const at = failure ? failedStep(failure.code, failure.message, failure.step) : null
+  const kind = failure ? checkFailureKind(failure.code, failure.message, failure.step) : null
   const stepState = (step: CheckStep): 'pending' | 'running' | 'ok' | 'failed' | 'unknown' => {
     if (check.state === 'ready') return 'pending'
     if (check.state === 'running') return 'running'
@@ -323,11 +333,35 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
     const i = CHECK_STEPS.indexOf(step), f = CHECK_STEPS.indexOf(at)
     return i < f ? 'ok' : i === f ? 'failed' : 'pending'
   }
-  const wire = (after: CheckStep): string => {
-    const state = stepState(after)
-    return state === 'unknown' ? 'failed' : state
+  const [serverWire, storeWire] = checkWires(check.state, at)
+  const words: Record<CheckStep, string> = {
+    record: t('cdStepRecord'),
+    server: t('cdStepServer'),
+    login: t('cdStepLogin'),
+    store: t('cdStepStore'),
+    write: t('cdStepWrite'),
   }
-  const words: Record<CheckStep, string> = { server: t('cdStepServer'), store: t('cdStepStore'), write: t('cdStepWrite') }
+  const priv = kind === 'privilege' ? missingPrivilege(failure?.message) : null
+  const guidance = (() => {
+    if (check.state !== 'failed' || stopped || !kind) return null
+    switch (kind) {
+      case 'server': return machine === 'native' ? t('cdFixServerHere') : t('cdFixServer', { machine: place(machine) })
+      case 'login': return t('cdFixLogin')
+      case 'privilege':
+        if (!priv) return t('cdFixPrivilegeGeneric')
+        return priv.count && priv.count > 1
+          ? t('cdFixPrivilege', { role: priv.role, privilege: priv.privilege, count: priv.count })
+          : t('cdFixPrivilegeOne', { role: priv.role, privilege: priv.privilege })
+      case 'record': {
+        const msg = failure?.message ?? ''
+        if (!s?.postgresql?.auth || /no saved login/i.test(msg)) return t('cdFixRecordNoLogin')
+        if (/does not hold|\bmissing\b/i.test(msg)) return t('cdFixRecordMissingLogin')
+        return t('cdFixRecord')
+      }
+      case 'store': return t('cdFixStore')
+    }
+  })()
+  const auth = s?.postgresql?.auth ?? null
   const from = machinesFor(view, 'postgresql')
   const ok = check.result?.ok ? check.result : null
   return (
@@ -338,9 +372,9 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
       </Field>
       <div className={css.path} aria-hidden="true">
         <span className={css.hop}><span className={css.node}><MachineGlyph platform={platform ?? 'native'} size={18} /></span><span className={css.hopLabel}>{place(machine)}</span></span>
-        <span className={css.wire} data-state={wire('server')} />
+        <span className={css.wire} data-state={serverWire} />
         <span className={css.hop}><span className={css.node}><StoreGlyph kind="postgresql" size={18} /></span><span className={`${css.hopLabel} ${css.mono}`}>{server}</span></span>
-        <span className={css.wire} data-state={check.state === 'failed' && at === 'server' ? 'pending' : wire('store')} />
+        <span className={css.wire} data-state={storeWire} />
         <span className={css.hop}><span className={css.node}><StoreGlyph kind="postgresql" size={18} mono /></span><span className={css.hopLabel}>{check.store}</span></span>
       </div>
       <ul className={css.steps} aria-label={t('cdCheckFrom', { machine: place(machine) })}>
@@ -363,9 +397,28 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
         <>
           {check.connected ? <p className={scss.formNote}>{t('cdConnectedNotReached', { store: check.store, machine: place(machine) })}</p> : null}
           {stopped ? <p className={scss.formNote} role="status">{t('cdMachineStopped', { machine: place(machine) })}</p> : null}
+          {guidance ? <p className={scss.formNote} data-check-failure={kind ?? undefined}>{guidance}</p> : null}
           <Refusal error={check.error} labels={refusalLabels(t)} />
-          {at === 'server' && machine !== 'native' && !own && !stopped ? (
+          {!stopped && kind === 'server' && machine !== 'native' && !own ? (
             <Button variant="outline" size="sm" className={scss.selfStart} onClick={onOwn}>{t('cdOwnAddress', { machine: place(machine) })}</Button>
+          ) : null}
+          {!stopped && kind === 'server' && machine === 'native' && onEditLogin ? (
+            <Button variant="outline" size="sm" className={scss.selfStart} onClick={() => onEditLogin(check.store)}>{t('msEditConnection')}</Button>
+          ) : null}
+          {!stopped && kind === 'login' && (onEditLogin || (auth && onRotateLogin)) ? (
+            <div className={css.checkActions}>
+              {onEditLogin ? <Button variant="outline" size="sm" onClick={() => onEditLogin(check.store)}>{t('pgChangeLogin')}</Button> : null}
+              {auth && onRotateLogin ? <Button variant="outline" size="sm" onClick={() => onRotateLogin(auth)}>{t('pgRotate')}</Button> : null}
+            </div>
+          ) : null}
+          {!stopped && kind === 'privilege' && onEditLogin ? (
+            <Button variant="outline" size="sm" className={scss.selfStart} onClick={() => onEditLogin(check.store)}>{t('pgChangeLogin')}</Button>
+          ) : null}
+          {!stopped && kind === 'record' && !failure?.fix && onEditLogin ? (
+            <Button variant="outline" size="sm" className={scss.selfStart} onClick={() => onEditLogin(check.store)}>{t('pgChangeLogin')}</Button>
+          ) : null}
+          {!stopped && kind === 'store' && onEditLogin ? (
+            <Button variant="outline" size="sm" className={scss.selfStart} onClick={() => onEditLogin(check.store)}>{t('msEditConnection')}</Button>
           ) : null}
           {own ? (
             <>
