@@ -40,12 +40,13 @@ function JobPanelView({ job: j, t, compact, onRetry, onDismiss, sandboxes, onOpe
     : resolved?.fix && fixes ? <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} />
       : holder && onOpen ? <Button variant="outline" size="sm" onClick={() => onOpen(holderTab(holder))}>{t('jobOpenSandbox', { name: holder.name })}</Button>
         : onRetry ? <Button variant="outline" size="sm" onClick={onRetry}>{t('jobRetry')}</Button> : null
+  const label = running ? doingWords(j, t) : endedWords(j, t, bytes)
   return (
     <div className={css.job} data-state={running ? 'running' : failed ? 'failed' : 'done'} data-compact={compact || undefined} role="status">
       <div className={css.jobLine}>
         <StateDot state={running ? 'ongoing' : failed ? 'error' : 'done'} size={running ? 13 : 10} />
         {/* how it ended is the word; what holds the Store, LayerFS's code, words and fix are its tip (UI pass 3 F10: no raw refusal under it) */}
-        <span className={css.jobTitle} title={tip}>{running ? doingWords(j, t) : endedWords(j, t, bytes)}</span>
+        <span className={css.jobTitle} title={tip ?? (compact ? label : undefined)}>{label}</span>
         {running ? <span className={css.jobMeta}>{t('jobStep', { at, of: steps.length, step: stepWords(j.phase, t) })}</span> : null}
         {running && j.total ? <span className={css.jobMeta}>{t('jobBytes', { done: bytes(j.done ?? 0), total: bytes(j.total) })}</span> : null}
         <span className={css.jobEnd}>

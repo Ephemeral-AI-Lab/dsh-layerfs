@@ -380,7 +380,7 @@ test('F10: an in-use compaction is a word, its holders as the tip and Open <Sand
   assert.equal(M.sm.holderTab({ name: 'x', machine: null }), 'sandbox:native/x')
   const panel = src('src/client/storage/JobProgress.tsx')
   assert.doesNotMatch(panel, /<Refusal error=\{j\.error\}/, 'no raw refusal under the job')
-  assert.match(panel, /title=\{tip\}/)
+  assert.match(panel, /title=\{tip \?\? \(compact \? label : undefined\)\}/)
   for (const lang of ['en', 'zh']) for (const key of ['jobInUse', 'jobInUseHolders', 'jobOpenSandbox']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
   assert.doesNotMatch(M.storageLocales.en.jobFailed, / in \{phase\}/)
 })

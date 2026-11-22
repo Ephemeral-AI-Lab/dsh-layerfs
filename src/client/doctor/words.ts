@@ -15,23 +15,28 @@ export const DOT: Record<RowState, MarkKind> = { ok: 'ok', run: 'run', nc: 'nc',
 const WORD: Record<RowState, string> = { ok: 'dpWordOk', run: 'dpWordRun', nc: 'dpWordNc', notice: 'dpWordNotice', problem: 'dpWordProblem' }
 const RES: Record<CheckMark['r'], string> = { ok: 'dpResOk', bad: 'dpResBad', warn: 'dpResWarn', nc: 'dpResNc' }
 const FIX: Record<NonNullable<RowFix['button']>, string> = { start: 'dpFixStart', restart: 'dpFixRestart', delete: 'dpFixDelete', backup: 'dpFixBackup' }
-const STEP: Record<string, string> = { stop: 'dpStepStop', start: 'dpStepStart', delete: 'dpStepDelete', create: 'dpStepCreate' }
-const REASON_SHORT: Record<string, string> = {
-  timeout: 'dpShortTimeout',
-  busy: 'dpShortBusy',
-  lost: 'dpShortLost',
-  failed: 'dpShortFailed',
-  stopped: 'dpShortStopped',
-  skipped: 'dpShortSkipped',
-  unavailable: 'dpShortUnavailable',
-  missing: 'dpShortMissing',
-  unsupported: 'dpShortUnsupported',
-  outdated: 'dpShortOutdated',
-  corrupt: 'dpShortCorrupt',
-  unreachable: 'dpShortUnreachable',
-  unresolved: 'dpShortUnresolved',
-  not_answering: 'dpShortNotAnswering',
-}
+const STEP = new Map<string, string>([
+  ['stop', 'dpStepStop'],
+  ['start', 'dpStepStart'],
+  ['delete', 'dpStepDelete'],
+  ['create', 'dpStepCreate'],
+])
+const REASON_SHORT = new Map<string, string>([
+  ['timeout', 'dpShortTimeout'],
+  ['busy', 'dpShortBusy'],
+  ['lost', 'dpShortLost'],
+  ['failed', 'dpShortFailed'],
+  ['stopped', 'dpShortStopped'],
+  ['skipped', 'dpShortSkipped'],
+  ['unavailable', 'dpShortUnavailable'],
+  ['missing', 'dpShortMissing'],
+  ['unsupported', 'dpShortUnsupported'],
+  ['outdated', 'dpShortOutdated'],
+  ['corrupt', 'dpShortCorrupt'],
+  ['unreachable', 'dpShortUnreachable'],
+  ['unresolved', 'dpShortUnresolved'],
+  ['not_answering', 'dpShortNotAnswering'],
+])
 const cap = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
 export const clock = (at: number): string => { const d = new Date(at); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
@@ -53,14 +58,14 @@ export function wordsOf(t: DoctorT) {
     return word(o.st)
   }
   /** A finding's own word: the locale's for its check id, else the id's last part spelled out. */
-  const checkWord = (id: string): string => { const key = `chk_${id.replace(/[^A-Za-z0-9]/g, '_')}`; return key in locales.en ? tt(key) : humanCheck(id) }
+  const checkWord = (id: string): string => { const key = `chk_${id.replace(/[^A-Za-z0-9]/g, '_')}`; return Object.hasOwn(locales.en, key) ? tt(key) : humanCheck(id) }
   const rowWord = (code: string | null): string => {
     if (!code) return ''
     if (code === 'stopped') return tt('dpWordStopped')
     if (code === 'could') return tt('dpWordCould')
     if (code.startsWith('check:')) return checkWord(code.slice(6))
     const raw = code.slice(code.indexOf(':') + 1)
-    const key = REASON_SHORT[raw.toLowerCase()]
+    const key = REASON_SHORT.get(raw.toLowerCase())
     return key ? cap(tt(key)) : human(raw)
   }
   const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.kind === 'machine' && x.name === 'native' ? tt('dpHomeMachine') : x.name)
@@ -75,12 +80,13 @@ export function wordsOf(t: DoctorT) {
   const checkName = (c: CheckMark): string => (c.from ? tt('dpCheckFrom', { check: c.check, machine: c.from }) : c.check)
   const checkText = (c: CheckMark): string => {
     const code = c.reason?.toLowerCase() ?? ''
-    const note = c.r === 'nc' ? (c.reason ? (REASON_SHORT[code] ? tt(REASON_SHORT[code]!) : human(c.reason).toLowerCase()) : '') : c.message ?? ''
+    const short = REASON_SHORT.get(code)
+    const note = c.r === 'nc' ? (c.reason ? (short ? tt(short) : human(c.reason).toLowerCase()) : '') : c.message ?? ''
     return note ? tt('dpResNote', { result: tt(RES[c.r]), note }) : tt(RES[c.r])
   }
   const tipChecks = (checks: readonly CheckMark[]): TipCheck[] => checks.map((c) => ({ r: c.r, name: checkName(c), text: checkText(c) }))
   const fixLabel = (fix: RowFix | null): string => (fix?.button ? tt(FIX[fix.button]) : '')
-  const stepWord = (step: string | null | undefined): string => (step && STEP[step] ? tt(STEP[step]!) : '')
+  const stepWord = (step: string | null | undefined): string => { const key = step ? STEP.get(step) : undefined; return key ? tt(key) : '' }
   const offText = (off: Off | null): string | null => (!off ? null : off.why === 'all' ? tt('dpOffAll') : off.why === 'fix' ? tt('dpOffFix') : off.why === 'busy' ? tt('dpOffBusy')
     : off.n === 0 ? tt('dpOffForced') : n('dpOffSandboxes', off.n))
   const inside = (v: RowView): string => {

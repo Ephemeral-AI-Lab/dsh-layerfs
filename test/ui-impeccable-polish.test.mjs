@@ -75,6 +75,8 @@ const testPlugin = {
       'machines/MachineStats.tsx': `export const useMachineStats = () => ({ read: { data: undefined } }); export const storeSizes = () => null`,
       'machines/Sandboxes.tsx': `export const SandboxMenu = () => null; export const useClose = () => false`,
       'machines/MachineImages.tsx': `export const FreeSpaceDialog = () => null`,
+      'logs/index.tsx': `export const LogsPanelIcon = () => null`,
+      'setup/store.ts': `export const setupDialog = { open: () => {} }`,
     }
     b.onResolve({ filter: /^\.\.?\/.*$/ }, (a) => {
       const resolved = join(a.resolveDir, a.path).replace(/\\/g, '/')
@@ -101,6 +103,7 @@ await build({
       export { StoreOverview } from './src/client/storage/StoreOverview.tsx'
       export { ProjectGrid } from './src/client/storage/ProjectTable.tsx'
       export { Inventory } from './src/client/machines/Inventory.tsx'
+      export { NavBar } from './src/client/storage/Nav.tsx'
     `,
     resolveDir: root,
     loader: 'tsx',
@@ -419,4 +422,109 @@ test('#12: PG check failure wraps errors in semantic callout and Inventory/Proje
   }))
   assert.match(ptHtml, /<h2[^>]*>Sandbox<\/h2>/)
   assert.ok(!ptHtml.includes('<h3'), 'ProjectGrid ListHead must not skip to <h3>')
+})
+
+test('fix1 #1: prototype property names (constructor/toString/valueOf) fall back cleanly without leaking Object internals', () => {
+  const zh = makeStorageT('zh')
+  const en = makeStorageT('en')
+
+  for (const protoKey of ['constructor', 'toString', 'valueOf', '__proto__']) {
+    const clean = protoKey.replace(/_/g, ' ')
+    assert.equal(M.sm.storeStateWords('broken', en, protoKey), `Broken · ${clean}`)
+    assert.equal(M.sm.storeStateWords('broken', zh, protoKey), `损坏 · ${clean}`)
+  }
+
+  const dwZh = M.doctorWords(makeDoctorT('zh'))
+  const dwEn = M.doctorWords(makeDoctorT('en'))
+
+  assert.equal(dwEn.rowWord('record:constructor'), 'Constructor')
+  assert.equal(dwZh.rowWord('record:constructor'), 'Constructor')
+  assert.equal(dwZh.rowWord('record:toString'), 'ToString')
+  assert.equal(dwEn.checkText({ r: 'nc', check: 'store.record', reason: 'constructor' }), 'not checked: constructor')
+  assert.equal(dwZh.checkText({ r: 'nc', check: 'store.record', reason: 'constructor' }), '未检查：constructor')
+  assert.equal(dwZh.stepWord('constructor'), '')
+})
+
+test('fix1 #2: compact running JobPanel on SQLite and PostgreSQL Store cards shows full title tooltip while keeping failed refusal tips', () => {
+  const noopAct = () => ({
+    push: () => {}, pull: () => {}, move: () => {}, backup: () => {}, compact: () => {},
+    addProject: () => {}, remove: () => {}, disconnect: () => {}, editConnection: () => {},
+    check: () => {}, connectMachine: () => {}, openMachine: () => {}, retry: () => {}, dismiss: () => {},
+  })
+  const sqliteStore = {
+    name: 'sqlite-busy', kind: 'sqlite', machine: 'native', state: 'ready',
+    projects: ['api'], projectsCount: 1, size: { bytes: 1024 }, links: [], ownConnections: [],
+  }
+  const pgStore = {
+    name: 'pg-very-long-database-name', kind: 'postgresql', machine: null, state: 'ready',
+    postgresql: { target: 'db:5432/app', server: 'db:5432', database: 'app', auth: 'primary' },
+    connectedFrom: [{ machine: null, own: false, reached: 'ok' }],
+    projects: ['api'], projectsCount: 1, links: [], ownConnections: [],
+  }
+  const baseView = {
+    stores: [sqliteStore, pgStore],
+    machines: [{ name: 'native', platform: 'native', state: 'ready', stores: ['sqlite-busy'], sandboxes: [] }],
+    buckets: [],
+    jobs: [],
+    auths: [{ auth: 'primary', user: 'app', stores: ['pg-very-long-database-name'], state: 'ready' }],
+    at: 2000,
+  }
+  const baseProps = {
+    api: noopApi, stores: baseView.stores, view: baseView, t: makeStorageT('zh'), now: 3000,
+    dismissed: new Set(), actionsFor: noopAct, sandboxes: [],
+    onOpenStore: () => {}, onOpenProject: () => {}, onBackups: () => {}, onNewStore: () => {}, onConnect: () => {},
+  }
+
+  // SQLite Store card with running backup to long bucket name
+  localStorage.setItem('dsh-layerfs:store-kind:(home)', 'sqlite')
+  const sqliteHtml = renderToStaticMarkup(createElement(M.HomeStores, {
+    ...baseProps,
+    jobs: [{ id: 'j-sql', kind: 'backup', store: 'sqlite-busy', target: 'a-very-long-bucket-name', phase: 'upload', started: 1000, ended: null, error: null, outcome: null }],
+  }))
+  assert.match(sqliteHtml, /data-store="sqlite-busy"[\s\S]*?data-compact="true"[\s\S]*?title="正在备份到 a-very-long-bucket-name">正在备份到 a-very-long-bucket-name</)
+
+  // PostgreSQL Store card with running compact job
+  const pgView = { ...baseView, stores: [pgStore] }
+  const pgHtml = renderToStaticMarkup(createElement(M.HomeStores, {
+    ...baseProps,
+    stores: pgView.stores,
+    view: pgView,
+    jobs: [{ id: 'j-pg', kind: 'compact', store: 'pg-very-long-database-name', target: 'pg-very-long-database-name', phase: 'build', started: 1000, ended: null, error: null, outcome: null }],
+  }))
+  assert.match(pgHtml, /data-store="pg-very-long-database-name"[\s\S]*?data-compact="true"[\s\S]*?title="正在压缩 pg-very-long-database-name">正在压缩 pg-very-long-database-name</)
+
+  // Failed job keeps refusal details as title tooltip (not overwritten by short label)
+  localStorage.setItem('dsh-layerfs:store-kind:(home)', 'sqlite')
+  const failedHtml = renderToStaticMarkup(createElement(M.HomeStores, {
+    ...baseProps,
+    jobs: [{
+      id: 'j-fail', kind: 'backup', store: 'sqlite-busy', target: 'a-very-long-bucket-name',
+      phase: 'upload', started: 1000, ended: 2500, outcome: 'failed',
+      error: { code: 'Denied', message: 'Access denied for bucket', phase: 'upload' },
+    }],
+  }))
+  assert.match(failedHtml, /data-compact="true"[\s\S]*?title="Denied: Access denied for bucket"/)
+})
+
+test('fix1 #3: NavBar jump button exposes localized aria-label and title for 760px icon-only state', () => {
+  const history = { current: 'overview', canBack: false, canForward: false, open: () => {}, back: () => {}, forward: () => {}, forget: () => {} }
+  for (const [lang, expected] of [['zh', '跳转到…'], ['en', 'Jump to…']]) {
+    const html = renderToStaticMarkup(createElement(M.NavBar, {
+      t: makeStorageT(lang),
+      history,
+      crumbs: [{ key: 'overview', label: lang === 'zh' ? '主页' : 'Home', id: 'overview' }],
+      sessions: undefined,
+      onSession: () => {},
+      jump: [],
+      jobs: [],
+      findings: [],
+      refreshing: false,
+      add: [],
+      onOpen: () => {},
+    }))
+    const btnMatch = /<button[^>]*aria-haspopup="dialog"[^>]*>/.exec(html)
+    assert.ok(btnMatch, `jump button missing (${lang})`)
+    assert.ok(btnMatch[0].includes(`aria-label="${expected}"`), `jump button must carry aria-label="${expected}" (${lang}): ${btnMatch[0]}`)
+    assert.ok(btnMatch[0].includes(`title="${expected}"`), `jump button must carry title="${expected}" (${lang}): ${btnMatch[0]}`)
+  }
 })

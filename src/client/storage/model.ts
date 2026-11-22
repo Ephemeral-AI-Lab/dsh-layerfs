@@ -223,18 +223,18 @@ export function storeTone(state: string, blockedBy?: StoreRow['blockedBy']): Ton
   return 'neutral'
 }
 
-const REASON_KEYS: Record<string, StorageKey> = {
-  corrupt: 'reasonCorrupt',
-  outdated: 'reasonOutdated',
-  missing: 'reasonMissing',
-  unreachable: 'reasonUnreachable',
-  failed: 'reasonFailed',
-  unresolved: 'reasonUnresolved',
-  lost: 'reasonLost',
-  engine_down: 'reasonEngineDown',
-  unsupported: 'reasonUnsupported',
-  not_answering: 'reasonNotAnswering',
-}
+const REASON_KEYS = new Map<string, StorageKey>([
+  ['corrupt', 'reasonCorrupt'],
+  ['outdated', 'reasonOutdated'],
+  ['missing', 'reasonMissing'],
+  ['unreachable', 'reasonUnreachable'],
+  ['failed', 'reasonFailed'],
+  ['unresolved', 'reasonUnresolved'],
+  ['lost', 'reasonLost'],
+  ['engine_down', 'reasonEngineDown'],
+  ['unsupported', 'reasonUnsupported'],
+  ['not_answering', 'reasonNotAnswering'],
+])
 
 /** A Store's state in words (one of the six), with its localized reason when given: `Broken · corrupt` / `损坏 · 数据损坏`. */
 export function storeStateWords(state: string, t: StorageT, reason?: string | null): string {
@@ -249,7 +249,7 @@ export function storeStateWords(state: string, t: StorageT, reason?: string | nu
     }
   })()
   if (!reason) return word
-  const key = REASON_KEYS[reason.toLowerCase()]
+  const key = REASON_KEYS.get(reason.toLowerCase())
   const text = key ? t(key) : reason.replace(/_/g, ' ')
   return `${word} · ${text}`
 }

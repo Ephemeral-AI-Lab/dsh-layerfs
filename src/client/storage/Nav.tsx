@@ -160,7 +160,7 @@ export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, fi
       </nav>
       <span className={css.tools}>
         {running.length > 0 ? <Jobs jobs={running} t={t} onOpen={onOpen} /> : null}
-        <button type="button" className={css.jumpField} onClick={() => setJumping(true)} aria-haspopup="dialog" aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}>
+        <button type="button" className={css.jumpField} onClick={() => setJumping(true)} aria-label={t('jumpTo')} title={t('jumpTo')} aria-haspopup="dialog" aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}>
           <IconSearchOutlineRegular size={14} className={css.jumpIcon} aria-hidden="true" />
           <span className={css.jumpText}>{t('jumpTo')}</span>
           <ShortcutKeys keys={[isMac ? '⌘' : 'Ctrl', 'K']} className={css.jumpKeys} />
