@@ -125,44 +125,48 @@ and a project's own settings. It opens from the sidebar's +, the project control
 
 ![New project](img/entry-project-new.png)
 
+The dialog is one scrolling form in three parts — **Project**, **Store** and **Machine** —
+with **Cancel** and **Create and open** at the bottom. There is no steps rail to walk: fill
+what you need, in any order, and the line beside the buttons says what is still missing and
+in which part (**Project: Not named yet**, **Store: Needs a name**).
+
+| # | Component | What it shows | Interaction → result | LayerFS call | States |
+|---|---|---|---|---|---|
+| 1 | Kind | **SQLite** "A file on one machine." · **PostgreSQL** "A server any machine can use." | Choose → the Store part changes with it, and **Machine** becomes **Runs on** for PostgreSQL | — | — |
+| Start from | **Empty** · **Folder on this Mac** (**Folder on this computer** on Linux) | **Folder on this Mac** → a Folder field with **Browse…** | — | — |
+| Name | **Also the name of its folder in the Store.** / **Saved as {slug}** | Type | — | a name another project already uses is refused here |
+| Store | **New Store** · **Existing · {n}**; the new Store is named after the project's slug, and a **Store name** field appears beside them when that name is taken or was edited | Choose or type | `GET /api/storage` (read) | A taken name is prefilled free (`demo-store-2`) with the line "Store {taken} is already taken — automatically renamed to {store}. Edit it above, or switch to Existing."; a name that is not lowercase letters, digits, dots, underscores and hyphens is refused |
+| 2 | Cancel | — | Closes; nothing is made | — | — |
+| 3 | Create and open | — | Runs the parts in order: check the folder, make the Store, init the project, place the Store, open a session | `store create`, `project init` (polled job), `store move` (a job, when not on native), `sessions.choose`; folder check `POST /api/project-sources/check` (host only) | progress per part; **Create stopped** with **Edit {part}** on a refusal |
+
+![The Store part](img/entry-project-store.png)
+![The Machine part](img/entry-project-machine.png)
+
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| 1 Steps rail | **Project** · **Store** · **Machine**, each with its summary (**Not named yet**, **SQLite · new · project**, **LayerFS Home**) | Press a step → its part | — | number while unfinished, check when set, orange when it needs you |
-| Start from | **Empty** · **Folder on this Mac** | **Folder on this Mac** → a Folder field with **Browse…** | — | — |
-| Name | **Also the name of its folder in the Store.** / **Saved as {slug}** | Type | — | — |
-| Kind | **SQLite** "A file on one machine." · **PostgreSQL** "A server any machine can use." | Choose | — | — |
-| Store | **New Store** · **Existing · {n}**; Store name | Choose or type | `GET /api/storage` (read) | — |
-| 3 Cancel | — | Closes; nothing is made | — | — |
-| 4 Create and open | — | Runs the steps in order: check the folder, make the Store, init the project, place the Store, open a session | `store create`, `project init` (polled job), `store move` (a job, when not on native), `sessions.choose`; folder check `POST /api/project-sources/check` (host only) | progress per step; **Create stopped** with **Edit {part}** on a refusal |
-
-![The Store step](img/entry-project-store.png)
-![The Machine step](img/entry-project-machine.png)
-
-| Component | What it shows | Interaction → result | LayerFS call | States |
-|---|---|---|---|---|
-| Machines | Tiles: **docker** (Can’t run here now), **LayerFS Home** (This Mac, unisolated, **Default**), **New machine** | Choose where the Store file lives: "Where the Store file lives. Its projects’ sessions run there." · **New machine** → closes the dialog and opens Home › Machines with Add machine | `GET /api/platforms`: `home get` (read) | a stopped machine offers **Start {machine}** first (`machine start`) |
+| Machines | Tiles: **docker**, **LayerFS Home** (This Mac, unisolated, or This computer, sandboxed; **Default**), **New machine** | Choose where the Store file lives: "Where the Store file lives. Its projects’ sessions run there." · **New machine** → closes the dialog and opens Home › Machines with Add machine | `GET /api/platforms`: `home get` (read) | a tile says **Running** / **Stopped**; a stopped machine offers **Start {machine}** first (`machine start`) |
 
 ![PostgreSQL](img/entry-project-pg.png)
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | Store | **New connection** · **Existing · {n}** | — | `GET /api/store-auths` (read, host only) | — |
-| Database URL | "Without a user or password, for example postgres://db.lan:5432/app." | Type | — | **Needs a database URL** on the rail |
+| Database URL | "Without a user or password, for example postgres://db.lan:5432/app." | Type | — | **Store: Needs a database URL** beside the buttons |
 | Login | **New login** · **Saved · {n}**; Login name, User, Password ("Typed once. It goes to LayerFS on stdin and is never shown again.") | Type | `store save-auth`, `store connect`, `store get` on create | — |
-| Runs on | The machine its sessions run on (the rail still says **Machine**) | Choose | — | — |
+| Runs on | The machine its sessions run on (this part is titled **Runs on** for PostgreSQL) | Choose | — | — |
 
 ### Import a folder
 
 ![Import a folder](img/entry-project-import.png)
 
-The same steps with **Folder on this Mac** chosen: "Copies everything in it, including .git
+The same form with **Folder on this Mac** chosen: "Copies everything in it, including .git
 and ignored files. The folder itself isn’t changed." The name follows the folder until you type
 one.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | 1 Browse… | — | DSH's folder chooser → the Folder field | — | — |
-| 2 Import and open | — | As **Create and open**, copying the folder in | `store create`, `project init <folder>`, `store move`, `sessions.choose` | **Pick a folder** on the rail until one is set |
+| 2 Import and open | — | As **Create and open**, copying the folder in | `store create`, `project init <folder>`, `store move`, `sessions.choose` | **Project: Pick a folder** beside the buttons until one is set |
 
 ### Pick
 
@@ -205,7 +209,7 @@ load on its own when something is missing (unless you chose **Later**). It reads
 | Runtime | **LayerFS 2.0.0** `ed911896` (Incomplete · No Linux bundle) | 1 **Change…** (or **Choose…**) → the runtime picker · **Details** → its pieces (CLI, Native daemon, Linux bundle, Node SDK, Terminal line) with copy buttons | `--version --json`, `help --json` (read) | **Use this daemon** when the native machine records another daemon: `machine get native`, `machine update native --daemon` |
 | Machines | **{n} of {total} available**: This Mac, Docker, Lima, Apple Container | **Install…** / **Set up…** → how-to; **Check** → reads again | `GET /api/machines?fresh=1`: `home get`, `machine get`, `machine list` (read) | **Ready**, **Available**, **Not installed**, **Not running**, **Needs setup**, **Needs the Linux bundle** |
 | 2 Check again | — | Reads everything again | as above | — |
-| **Later** | Only when something is missing | Closes; the need moves to Home's head card | — (remembered in this browser) | — |
+| **Later** | Only when something is missing | Closes; the need moves to Home's Overview head | — (remembered in this browser) | — |
 | 3 Done | — | Closes | — | disabled while something is missing |
 
 ![Choose a runtime](img/entry-setup-runtime.png)

@@ -81,11 +81,12 @@ at a time under its own navigation bar. Center starts on **Home**.
 
 | # | Component | What it is | Page |
 |---|---|---|---|
-| 1 | Navigation bar | History, location, Jump to and Add | [Navigation](components.md#nav-bar) |
-| 2 | Doctor | Opens the checks and shows the findings count | [Doctor](health.md) |
-| 3 | Head card | Runtime, most urgent notice, Presets and Refresh | [Home](home.md) |
-| 4 | Tabs | Projects, Stores and Machines | [Home](home.md) |
-| 5 | Projects table | Projects with their Stores, sessions and Sandboxes | [Projects](home.md#projects) |
+| 1 | LayerFS row | The sidebar row that opens Center | [Entry points](entry-points.md#sidebar-layerfs-row) |
+| 2 | Navigation bar | History, location, Jump to, Doctor, Logs, Settings and Add | [Navigation](components.md#nav-bar) |
+| 3 | Doctor | Opens the checks and shows the findings count | [Doctor](health.md) |
+| 4 | Overview head | The title, the pinned runtime, the most urgent notice, Presets and Refresh | [Home](home.md) |
+| 5 | Tabs | Projects, Stores and Machines | [Home](home.md) |
+| 6 | Projects table | Projects with their Stores, sessions and Sandboxes | [Projects](home.md#projects) |
 
 ```mermaid
 flowchart TD
@@ -94,7 +95,7 @@ flowchart TD
   NS[New Session row] --> PC[Project control]
   L --> H[Home<br/><small>Projects · Stores · Machines</small>]
   H --> ST[Store<br/><small>Overview · Projects · Backups or Connections</small>]
-  H --> MA[Machine<br/><small>Overview · Sandboxes · Stores · Images · Files · Worker log</small>]
+  H --> MA[Machine<br/><small>Overview · Images · Files · Sandboxes · Stores · Worker log</small>]
   H --> PR[Project<br/><small>Files · History · Sandboxes · Sessions · Stats</small>]
   ST --> PR
   ST --> BK[Bucket]

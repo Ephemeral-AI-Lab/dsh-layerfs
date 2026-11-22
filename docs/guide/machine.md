@@ -12,25 +12,24 @@ force stop, settings and remove.
 
 | # | Component | What it is |
 |---|---|---|
-| 1 | Tab bar | **Overview** · **Sandboxes** *n* · **Stores** *n* · **Images** · **Files** · **Worker log**. The last three only show when offered (see [Variants](#variants)) |
-| 2 | Head | The machine's glyph, name (**LayerFS Home** for `native`), state chip and kind line (**Docker · Linux namespaces**) |
-| 3 | Power button | **Stop worker** / **Start worker** (docker), **Stop** / **Start** (a VM), **Start Docker and worker**, or the state's one fix (**Restart worker**, **Check**). Not on LayerFS Home |
-| 4 | ⋯ | The machine menu: [Components › Machine menu](components.md#machine-menu) |
-| 5 | Usage card | Processor, memory and data disk now, with **Healthy** and the time they were read |
-| 6 | **Where it goes** | Opens the [Disk space dialog](#disk-space-dialog) |
-| 7 | Details card | The machine's facts in three groups: Machine, Sandboxes, Store calls and connection |
-| 8 | **Run diagnostics** | Runs the machine's checks on the Doctor page |
-| 9 | **Update settings…** | docker only: the [Settings dialog](#settings-dialog) |
+| 1 | Head | The machine's glyph, name (**LayerFS Home** for `native`), state chip, kind line (**Docker · Linux namespaces**), its power button and its ⋯ menu. Above every tab, the same on every kind of machine |
+| 2 | Tab bar | **Overview** · **Images** · **Files** · **Sandboxes** *n* · **Stores** *n* · **Worker log**. Images, Files and the Worker log only show when offered (see [Variants](#variants)) |
+| 3 | Usage card | Processor, memory and data disk now, with **Healthy** and the time they were read |
+| 4 | **Where it goes** | Opens the [Disk space dialog](#disk-space-dialog) |
+| 5 | Details card | The machine's facts in three groups: Machine, Sandboxes, Store calls and connection |
+| 6 | **Run diagnostics** | Runs the machine's checks on the Doctor page |
+| 7 | **Update settings…** | docker only: the [Settings dialog](#settings-dialog) |
 
-Above the bar is the [nav bar](components.md#nav-bar): `Home › Machines › docker`, whose last
+Above the head is the [nav bar](components.md#nav-bar): `Home › Machines › docker`, whose last
 crumb switches to another machine.
 
 ## Layout
 
-The tab bar comes first; the machine's head (glyph, name, state, power, ⋯) belongs to the
-Overview tab. Notices about the machine (a start in progress, a platform that is not ready, a
-refused action, why it is down) show on every tab, under the bar. The page remembers the
-tab per machine; a link elsewhere (a Sandbox card's **Terminals**, **Open worker log**) can
+The head comes first, then the tab bar. The head stays on every tab, so the machine's state,
+its power button and its ⋯ menu are in reach while you read its Sandboxes, Stores, images
+or log. Notices about the machine (a start in progress, a platform that is not ready, a
+refused action, why it is down) show on every tab, under the bar. The page remembers the tab
+per machine; a link elsewhere (a Sandbox card's **Terminals**, **Open worker log**) can
 switch it.
 
 ### Notices (every tab)
@@ -50,8 +49,8 @@ What the machine is using now and what it is.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Head | Glyph, name, state chip, kind · runtime | — | `home get`, `machine list`, `machine get --with live`, `sandbox list`, `store list` (read: the machines view, polled while the page shows) | **Running**, **Stopped**, **Starting…**, **Starting worker…**, **Stopping… *n*s**, **Needs repair**, **Docker not running**, **Unavailable** |
-| Power button | See the key table (3) | **Stop worker** / **Stop** → stops it | `machine stop` | Off while another power action runs; a press right after the button changed does nothing |
+| Head | Glyph, name, state chip, kind · runtime, above the tab bar | — | `home get`, `machine list`, `machine get --with live`, `sandbox list`, `store list` (read: the machines view, polled while the page shows) | **Running**, **Stopped**, **Starting…**, **Starting worker…**, **Stopping… *n*s**, **Needs repair**, **Docker not running**, **Unavailable** |
+| Power button | See the key table (1) | **Stop worker** / **Stop** → stops it | `machine stop` | Off while another power action runs; a press right after the button changed does nothing |
 | | | **Start worker** / **Start** → starts it, with startup progress | `machine start` | |
 | | | **Start Docker and worker** → opens Docker Desktop, waits for its Engine, then starts | `machine start` (Docker Desktop is launched by the host first) | macOS docker with the Engine down |
 | | | **Restart worker** (the fix for an outdated worker) | `machine get`, then `machine stop` then `machine start` | Refused (InUse) while Sandboxes are on it: off with **copy the fix to stop it anyway** |

@@ -1,4 +1,4 @@
-<!-- source: 45ea773d5f5e -->
+<!-- source: 85723f8fe0f2 -->
 # 每个操作及其 LayerFS 调用
 
 每一行是你能做的一件事（或者一个视图为了绘制自己所做的一次读取），它调用的主机路由或操作，以及背后的
@@ -20,9 +20,9 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 操作 | 位置 | 主机路由或 op | LayerFS 调用 |
 |---|---|---|---|
 | 主页绘制 | `LayerFS › 主页` | `GET /api/storage`, `GET /api/projects` | `home get`, `project list`, `store auths`, `store list` (读取) |
-| 诊断计数、主目录检查 | Center 导航栏 › 诊断（计数）、主页 › 顶部卡片 › 刷新（重新检查） | `GET /api/doctor/results`, `POST /api/doctor/runs` `{kind: home}` | 主机内存；`home doctor` |
-| 头部卡片 **刷新**（Refresh） | 主页 › 头部卡片 | 存储视图、项目和一次诊断运行 | 上面那些读取，然后 `home doctor` |
-| 运行时、设置 | 主页 › 顶部卡片 › 运行时、Center 导航栏 › 设置 | op `setup.status`, `runtime.status` | `home get`（缺失时再 `home init`）；`--version --json` |
+| 诊断计数、主目录检查 | Center 导航栏 › 诊断（计数）、主页 › 概览头部 › 刷新（重新检查） | `GET /api/doctor/results`, `POST /api/doctor/runs` `{kind: home}` | 主机内存；`home doctor` |
+| 概览头部 **刷新**（Refresh） | 主页 › 概览头部 | 存储视图、项目和一次诊断运行 | 上面那些读取，然后 `home doctor` |
+| 运行时、设置 | 主页 › 概览头部 › 运行时、Center 导航栏 › 设置 | op `setup.status`, `runtime.status` | `home get`（缺失时再 `home init`）；`--version --json` |
 | 跳转到、面包屑切换、后退、前进 | 导航栏 | — | — |
 | **添加 › 新建 Store**（Add › New Store） | 导航栏 | `POST /api/stores` | `store create` |
 | **添加 › 连接数据库**（Add › Connect a database） | 导航栏 | `POST /api/stores/postgresql` | `store save-auth`, `store connect`, `store get` |

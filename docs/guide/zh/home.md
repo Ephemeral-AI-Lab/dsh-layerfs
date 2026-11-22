@@ -1,4 +1,4 @@
-<!-- source: 55a9e1f3e55c -->
+<!-- source: 626326640964 -->
 # 主页
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -15,7 +15,7 @@
 | # | 组件 | 说明 |
 |---|---|---|
 | 1 | 导航栏 | [组件 › 导航栏](components.md#nav-bar)：后退、前进、面包屑（这里只有 **主页**，Home）、**跳转到…**（Jump to…）、**添加**（Add） |
-| 2 | 顶部卡片 | [组件 › 顶部卡片](components.md#head-card)：LayerFS × DSH、运行时、需要你关注的事项，以及预设和刷新按钮 |
+| 2 | 概览头部 | [组件 › 概览头部](components.md#overview-head)：标题、固定使用的运行时、需要你关注的事项，以及预设和刷新按钮 |
 | 3 | 标签页 | **项目**（Projects）*n* · **Store**（Stores）*n* · **机器**（Machines）*n*，每个都带计数；里面有东西需要你处理时还会有一个彩色圆点 |
 | 4 | 搜索和排序 | 筛选项目表，并决定它的顺序 |
 | 5 | 项目行 | 一个项目：它的 Store、会话、Sandbox、最近会话和最近提交、大小 |
@@ -23,36 +23,36 @@
 ## 布局
 
 [导航栏](components.md#nav-bar)横在每个 Center 页面的最上方。导航栏下面，
-[顶部卡片](components.md#head-card)告诉你有没有需要处理的事，然后是三个标签页：
-项目、Store 和机器。每个标签页的操作（**新建项目**，New project；**新建机器**，New machine）放在标签栏的
-右端。主页在两次访问之间什么都不记，只记住 Store 标签页选中的种类和视图，以及哪些行是展开的。
+[概览头部](components.md#overview-head)告诉你有没有需要处理的事，然后是三个标签页：
+项目、Store 和机器。每个标签页的操作（**新建项目**，New project；**新建 Store**，New Store；
+**连接数据库**，Connect a database；**新建机器**，New machine；**诊断这台主机**，Diagnose this host）
+放在标签栏的右端。主页在两次访问之间什么都不记，只记住 Store 标签页选中的种类和视图，以及哪些行是展开的。
 
 主页打开时会读取存储视图（`GET /api/storage`：`home get`、`project list`、`store auths`、
 `store list`）和项目目录（`GET /api/projects`：`project list`）；页面可见时每 15 秒再读一次，
 数据变更后也会重新读取。500 毫秒内的存储和项目通知会合并处理。项目有变更时，项目目录和存储视图都会刷新。操作失败时，
-顶部卡片下方会出现一条红色提示条，带 **关闭**（Dismiss）。
+概览头部下方会出现一条红色提示条，带 **关闭**（Dismiss）。
 
-## 顶部卡片与提示
+## 概览头部与提示
 
-![顶部卡片（隔离测试数据，当前界面）](../img/home-head-card.png)
+![概览头部（隔离测试数据，当前界面）](../img/home-overview-head.png)
 
 *隔离测试数据。*
 
-顶部卡片是一个共用组件；完整的表格见
-[组件 › 顶部卡片](components.md#head-card)，它列出的提示见
+概览头部是一个共用组件；完整的表格见
+[组件 › 概览头部](components.md#overview-head)，它列出的提示见
 [组件 › 待处理提示](components.md#needs-you-notices)。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 1 LayerFS × DSH | LayerFS × DSH 标志 | — | —（静态） | — |
-| 2 运行时 | `LayerFS 2.0.0 · 12345678`，固定使用的构建 | 按下 → 打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取，运行时发现) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
-| 3 标题行 | 最紧急的那件事，或者带绿点的 **没有需要处理的事项**（Nothing needs your attention） | 每件事各自的按钮（见[待处理提示](components.md#needs-you-notices)） | 按钮自己的调用 | 按 **还有 {n} 个**（+{n} more）可展开或收起其余待处理事项及其操作按钮 |
+| 1 概览 | 页面的标题 | — | —（静态） | — |
+| 2 运行时 | `LayerFS 2.0.0 · 12345678`，固定使用的构建和它的提交号 | 按下 → 打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取，运行时发现) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
+| 3 状态行 | 最紧急的那件事和它的修复，或者 **没有需要处理的事项**（Nothing needs your attention） | 每件事各自的按钮（见[待处理提示](components.md#needs-you-notices)） | 按钮自己的调用 | 事项前有圆点（故障红、警告琥珀）；按 **还有 {n} 个**（+{n} more）可展开或收起其余待处理事项及其操作按钮 |
 | 4 试用预设 | 智能体预设图标 | 按下 → 预设对话框（[预设](presets.md)） | —（打开对话框） | — |
-| 5 刷新 | 一个环形箭头；它的提示写着上次检查的时间 | 按下 → 重新读取 Store、项目和机器，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list`、`project list` (读取)，然后 `home doctor` | 检查运行期间不可用 |
+| 5 刷新 | 一个环形箭头；它的提示写着上次检查的时间 | 按下 → 重新读取 Store、项目和机器，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list`、`project list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
 
-![展开后的待处理提示（隔离测试数据，当前界面）](../img/home-notices.png)
-
-*隔离测试数据。*
+Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker unavailable）胶囊；按它可以查看原因和它
+点名的 docker 机器。诊断发现的问题只计在导航栏的诊断按钮上，从未备份过的 Store 也不算待处理事项。
 
 ## 导航栏
 
@@ -139,18 +139,18 @@
 |---|---|---|---|---|
 | 1 种类 | 两个磁贴：**SQLite** *{n} 个 Store · 大小* 和 **PostgreSQL** *{n} 个数据库* | 按下 → 该种类的 Store；会被记住 | —（本地视图状态） | — |
 | 2 显示 | **Store {n}**（Stores {n}） / **存储桶 {n}**（Buckets {n}）（仅 SQLite） | 按下 → Store 卡片或存储桶卡片；会被记住 | —（本地视图状态） | — |
-| 3 新建 Store | **新建 Store**（New Store，SQLite）或 **连接数据库**（Connect a database，PostgreSQL） | 按下 → 新建 Store / 连接数据库对话框 | `store create` / `store save-auth`、`store connect`、`store get` | — |
+| 3 新建 Store | **新建 Store**（New Store，SQLite）或 **连接数据库**（Connect a database，PostgreSQL），在标签栏右端 | 按下 → 新建 Store / 连接数据库对话框 | `store create` / `store save-auth`、`store connect`、`store get` | — |
 | 4 Store 卡片 | 名称、大小、最近写入、**存放于**（Stored on）哪台机器、最多三个项目、状态、备份 | 见[组件 › Store 卡片](components.md#store-card)和 [Store 菜单](components.md#store-menu)；**推送到…**（Push to…，在本机上时） / **拉取**（Pull，在机器上时） | `GET /api/storage` (读取)；**推送到…**/**拉取** 用 `store move` | 迁移或备份进行时显示一张[任务卡片](components.md#job-card) |
 
-没有 Store 时：**还没有 SQLite Store。**（No SQLite Store yet.） / **还没有连接 PostgreSQL 数据库。**（No PostgreSQL database connected yet.）
+没有 Store 时：**还没有 SQLite Store。**（No SQLite Store yet.） / **还没有连接 PostgreSQL 数据库。**（No PostgreSQL database connected yet.）整个主页既没有 Store 也没有存储桶时，标签页显示 **还没有 Store**（No Stores yet）——“在 Home 中新建 Store、从备份恢复，或连接 PostgreSQL 数据库。”——并给出 **新建 Store**（New Store）和 **连接数据库**（Connect a database）。
 
 ![存储桶](../img/home-buckets.png)
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 1 显示 | 选中了 **存储桶**（Buckets） | — | — | — |
-| 2 列出存储桶文件 | 一个刷新按钮 | 按下 → 重新列出每个存储桶 | `backup list`（每个存储桶一次），然后读取存储视图 | 列出时显示一个圆点 |
-| 3 添加存储桶 | **添加存储桶**（Add bucket） | 按下 → 添加存储桶对话框（[存储桶](bucket.md)） | `backup connect`（密钥通过 stdin 传入） | — |
+| 2 列出存储桶文件 | **列出存储桶文件**（List bucket files），在标签栏右端 | 按下 → 重新列出每个存储桶 | `backup list`（每个存储桶一次），然后读取存储视图 | 列出时显示一个圆点 |
+| 3 添加存储桶 | **添加存储桶**（Add bucket），就在旁边 | 按下 → 添加存储桶对话框（[存储桶](bucket.md)） | `backup connect`（密钥通过 stdin 传入） | — |
 | 4 存储桶卡片 | 服务商、名称、`MinIO · 1 Store file · 385 KB · listed {ago}`、其中的文件及其 Store 和日期、**{n} from this home** | 按名称或 **打开存储桶**（Open bucket） → [存储桶](bucket.md)页；对不属于这个主目录的文件按 **恢复…**（Restore…） → 恢复对话框 | `backup list` (读取)；**恢复…** 用 `backup restore` | **文件未知**（Files unknown），带 **重新连接…**（Connect again…） / **重新列出**（List again）；**尚未列出**（not listed yet），带 **列出文件**（List files） |
 | 5 ⋯ | **{bucket} 的更多操作**（More actions for {bucket}） | **列出文件**（List files）、**打开存储桶**（Open bucket） | `backup list` | — |
 
@@ -172,18 +172,16 @@
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 1 新建机器 | **+ 新建机器**（+ New machine） | 按下 → 新建机器对话框（[机器](machine.md)） | `home get`、`machine create` | 只有某个平台能创建机器时才出现 |
-| 2 ⋯ | **更多机器操作**（More machine actions） | 按下 → **诊断此主机**（Diagnose this host） → 运行主目录检查，并在[诊断](health.md)页打开结果 | `home doctor` | — |
+| 2 诊断这台主机 | 旁边的 **</>** 按钮（Diagnose this host） | 按下 → 运行主目录检查，并在[诊断](health.md)页打开结果 | `home doctor` | — |
 | 3 行展开 | 一个箭头 | 按下 → 它上面有什么；会被记住 | — | 需要你处理、正在启动或只有这一台机器时默认展开 |
 | 4 名称 | **docker**、`Docker · Linux namespaces`（或 `This Mac · Host processes`） | 按下 → [机器](machine.md)页 | `home get`、`machine get`、`machine list`、`sandbox list`、`store list` (读取) | — |
 | 状态 | 一个标签：**运行中**（Running）、**已停止**（Stopped）、**启动中**（Starting）…… | — | 同上 | **受阻**（Blocked）的行会说明原因，并给出修复 |
 | 内存 · 磁盘 | 进度条 | — | 内存：`GET /api/metrics` (读取，主机内存)；磁盘：`machine stats` (读取) | 停止时显示 `—` |
 | 包含 | **1 个 Store**（1 Store）、**1 个 Sandbox**（1 Sandbox） | — | 同上 | — |
-| 5 电源 | **停止**（Stop） / **启动**（Start）（This Mac 上没有） | **启动** → 机器启动。**停止** 需要再按一次：按钮会在几秒内变成 **确认：停止**（Confirm: Stop；docker 上是 **确认：停止 worker**，Confirm: Stop worker），和顶部卡片上的停止一样 | `machine stop` / `machine start` | 状态切换期间不可用 |
+| 5 电源 | **停止**（Stop） / **启动**（Start）（This Mac 上没有） | **启动** → 机器启动。**停止** 需要再按一次：按钮会在几秒内变成 **确认：停止**（Confirm: Stop；docker 上是 **确认：停止 worker**，Confirm: Stop worker） | `machine stop` / `machine start` | 状态切换期间不可用 |
 | 6 ⋯ | **{name} 的更多操作**（More for {name}） | [组件 › 机器菜单](components.md#machine-menu) | 见该处 | — |
 | 7 添加 Store | **添加 Store**（Add Store） | 按下 → 一个对话框，把 SQLite Store 放到这台机器上 | `store move`（一个任务） | — |
 | 8 新建 Sandbox | **新建 Sandbox**（New Sandbox） | 按下 → 新建 Sandbox 对话框（[Sandbox](sandbox.md)） | `sandbox create` | — |
-
-![更多机器操作](../img/home-machines-more.png)
 
 ## 变体
 
@@ -194,8 +192,7 @@
   而不是这些标签页。
 - **还没有存储视图。** 加载时显示 **正在读取 Store…**（Reading the Stores…）；读取失败时显示 **无法读取存储**（Could not read the storage），
   带 **重试**（Retry）。
-- **导航栏里的刷新按钮** 在除主页外的每个 Center 页面上都有；在主页上，顶部
-  卡片的刷新按钮做同样的事，还会重新运行检查。
+- **导航栏里的刷新按钮** 在除主页外的每个 Center 页面上都有；在主页上，概览头部的刷新按钮做同样的事，还会重新运行检查。
 
 ## 在此打开的对话框
 
@@ -232,7 +229,7 @@
 ## 源码
 
 `src/client/storage/StoragePage.tsx`（Center、路由、跳转项、添加菜单、轮询） ·
-`src/client/storage/Nav.tsx` · `src/client/storage/HomeOverview.tsx`、`HomeHero.tsx`（顶部
-卡片、待处理事项） · `src/client/storage/ProjectTable.tsx`、`ProjectFinder.tsx` ·
+`src/client/storage/Nav.tsx` · `src/client/storage/HomeOverview.tsx`、`HomeHero.tsx`（概览
+头部、待处理事项） · `src/client/storage/ProjectTable.tsx`、`ProjectFinder.tsx` ·
 `src/client/storage/MachineStores.tsx`、`BucketCards.tsx` · `src/client/machines/Board.tsx` ·
 `src/client/doctor/use-doctor-count.ts` · 截图：`tools/guide/shots/home.mjs`

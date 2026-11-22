@@ -1,4 +1,4 @@
-<!-- source: a3f0bff92b9d -->
+<!-- source: cfe7bd7e2278 -->
 # 机器
 
 > **位置：** `LayerFS › 主页 › 机器 › <machine>` · **打开方式：** 主页 › 机器 中的机器名、导航栏的面包屑切换器、跳转到（**机器**（Machines）分组）、Store 的位置链接、Sandbox 的 **机器**（Machine）一项 · **源码：** 见文末
@@ -9,21 +9,19 @@
 
 | # | 组件 | 说明 |
 |---|---|---|
-| 1 | 标签栏 | **概览**（Overview）· **Sandbox** *n* · **Store** *n* · **镜像**（Images）· **文件**（Files）· **Worker 日志**（Worker log）。后三个只在提供时出现（见[变体](#variants)） |
-| 2 | 头部 | 机器的图标、名称（`native` 显示为 **LayerFS Home**）、状态标签和类型行（**Docker · Linux 命名空间**（Docker · Linux namespaces）） |
-| 3 | 电源按钮 | **停止 worker**（Stop worker）/ **启动 worker**（Start worker）（docker），**停止**（Stop）/ **启动**（Start）（虚拟机），**启动 Docker 和 worker**（Start Docker and worker），或当前状态对应的唯一修复（**重启 worker**（Restart worker）、**检查**（Check））。LayerFS Home 上没有 |
-| 4 | ⋯ | 机器菜单：[组件 › 机器菜单](components.md#machine-menu) |
-| 5 | 用量卡片 | 当前的处理器、内存和数据盘，附 **运行良好**（Healthy）和读取时间 |
-| 6 | **空间去向**（Where it goes） | 打开[磁盘空间对话框](#disk-space-dialog) |
-| 7 | 详情卡片 | 机器的信息，分三组：机器、Sandbox、Store 调用与连接 |
-| 8 | **运行诊断**（Run diagnostics） | 在诊断页上运行这台机器的检查 |
-| 9 | **更新设置…**（Update settings…） | 仅 docker：[设置对话框](#settings-dialog) |
+| 1 | 头部 | 机器的图标、名称（`native` 显示为 **LayerFS Home**）、状态标签、类型行（**Docker · Linux 命名空间**（Docker · Linux namespaces）），以及它的电源按钮和 ⋯ 菜单。在每个标签页上方，每种机器的布局都一样 |
+| 2 | 标签栏 | **概览**（Overview）· **镜像**（Images）· **文件**（Files）· **Sandbox** *n* · **Store** *n* · **Worker 日志**（Worker log）。镜像、文件和 Worker 日志只在提供时出现（见[变体](#variants)） |
+| 3 | 用量卡片 | 当前的处理器、内存和数据盘，附 **运行良好**（Healthy）和读取时间 |
+| 4 | **空间去向**（Where it goes） | 打开[磁盘空间对话框](#disk-space-dialog) |
+| 5 | 详情卡片 | 机器的信息，分三组：机器、Sandbox、Store 调用与连接 |
+| 6 | **运行诊断**（Run diagnostics） | 在诊断页上运行这台机器的检查 |
+| 7 | **更新设置…**（Update settings…） | 仅 docker：[设置对话框](#settings-dialog) |
 
-标签栏上方是[导航栏](components.md#nav-bar)：`主页 › 机器 › docker`，最后一段面包屑可以切换到另一台机器。
+头部上方是[导航栏](components.md#nav-bar)：`主页 › 机器 › docker`，最后一段面包屑可以切换到另一台机器。
 
 ## 布局
 
-标签栏在最前面；机器的头部（图标、名称、状态、电源、⋯）属于概览标签页。关于这台机器的提示（正在启动、平台没就绪、操作被拒绝、为什么停机）在每个标签页的标签栏下方都会显示。页面会按机器记住标签页；别处的链接（Sandbox 卡片的 **终端**（Terminals）、**打开 Worker 日志**（Open worker log））可以切换它。
+头部在最前面，然后是标签栏。头部在每个标签页上都在，所以你翻看这台机器的 Sandbox、Store、镜像或日志时，它的状态、电源按钮和 ⋯ 菜单始终在手边。关于这台机器的提示（正在启动、平台没就绪、操作被拒绝、为什么停机）在每个标签页的标签栏下方都会显示。页面会按机器记住标签页；别处的链接（Sandbox 卡片的 **终端**（Terminals）、**打开 Worker 日志**（Open worker log））可以切换它。
 
 ### 提示（所有标签页）
 
@@ -42,8 +40,8 @@
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 头部 | 图标、名称、状态标签、类型 · 运行方式 | — | `home get`、`machine list`、`machine get --with live`、`sandbox list`、`store list`(读取：机器视图，页面显示期间轮询) | **运行中**（Running）、**已停止**（Stopped）、**正在启动…**（Starting…）、**正在启动 worker…**（Starting worker…）、**正在停止… *n* 秒**（Stopping… *n*s）、**需要修复**（Needs repair）、**Docker 未运行**（Docker not running）、**不可用**（Unavailable） |
-| 电源按钮 | 见要点表 (3) | **停止 worker**（Stop worker）/ **停止**（Stop）→ 停止它 | `machine stop` | 另一个电源操作运行时不可用；按钮刚变化时立即按下不起作用 |
+| 头部 | 图标、名称、状态标签、类型 · 运行方式（在标签栏上方） | — | `home get`、`machine list`、`machine get --with live`、`sandbox list`、`store list`(读取：机器视图，页面显示期间轮询) | **运行中**（Running）、**已停止**（Stopped）、**正在启动…**（Starting…）、**正在启动 worker…**（Starting worker…）、**正在停止… *n* 秒**（Stopping… *n*s）、**需要修复**（Needs repair）、**Docker 未运行**（Docker not running）、**不可用**（Unavailable） |
+| 电源按钮 | 见要点表 (1) | **停止 worker**（Stop worker）/ **停止**（Stop）→ 停止它 | `machine stop` | 另一个电源操作运行时不可用；按钮刚变化时立即按下不起作用 |
 | | | **启动 worker**（Start worker）/ **启动**（Start）→ 启动它，并显示启动进度 | `machine start` | |
 | | | **启动 Docker 和 worker**（Start Docker and worker）→ 打开 Docker Desktop，等待其引擎就绪，然后启动 | `machine start`（主机先启动 Docker Desktop） | macOS 上 docker 的引擎未运行时 |
 | | | **重启 worker**（Restart worker，worker 版本过旧时的修复） | `machine get`，然后 `machine stop`，再 `machine start` | 上面有 Sandbox 时被拒绝（InUse）：不可用，并提示 **复制修复命令以强制停止**（copy the fix to stop it anyway） |

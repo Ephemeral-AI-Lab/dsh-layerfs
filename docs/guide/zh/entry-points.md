@@ -1,4 +1,4 @@
-<!-- source: ef1b407fb9d2 -->
+<!-- source: 35bb640d0584 -->
 # 入口
 
 > 截图来自独立的指南环境，使用固定版本的 LayerFS 运行时和预置的 `handbook` 项目。
@@ -122,44 +122,48 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 
 ![新建项目](../img/entry-project-new.png)
 
+对话框是一个可滚动的表单，分三部分：**项目**（Project）、**存储**（Store）和 **机器**（Machine），
+**取消**（Cancel）和 **创建并打开**（Create and open）在底部。没有需要按顺序走完的步骤栏：按你的顺序填好需要的内容，
+按钮旁的一行会说明还缺什么、缺在哪一部分（**项目：尚未命名**（Project: Not named yet）、
+**存储：需要名称**（Store: Needs a name））。
+
+| # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
+|---|---|---|---|---|---|
+| 1 | 类型 | **SQLite**“一台机器上的一个文件。”（A file on one machine.）· **PostgreSQL**“任何机器都能使用的服务器。”（A server any machine can use.） | 选择 → 存储部分随之变化；选 PostgreSQL 时 **机器** 变成 **运行于**（Runs on） | — | — |
+| 起点 | **空项目**（Empty）· **本机上的文件夹**（Folder on this Mac；Linux 上是 Folder on this computer） | **本机上的文件夹** → 出现一个文件夹字段，带 **浏览…**（Browse…） | — | — |
+| 名称 | **也是它在存储中的文件夹名。**（Also the name of its folder in the Store.）/ **保存为 {slug}**（Saved as {slug}） | 输入 | — | 别的项目已经用过的名称会在这里被拒绝 |
+| 存储 | **新建存储**（New Store）· **已有 · {n}**（Existing · {n}）；新存储默认按项目 slug 命名，当这个名字已被占用或被改过时，旁边才出现 **存储名称**（Store name）字段 | 选择或输入 | `GET /api/storage` (读取) | 名称已被占用时预填一个可用的名字（如 `demo-store-2`），并显示“存储名 {taken} 已被占用，已自动改为 {store}。可直接在上方修改，或切换到“已有”。”；只能用的小写字母、数字、点、下划线和连字符，否则被拒绝 |
+| 2 | 取消（Cancel） | — | 关闭；什么都不会创建 | — | — |
+| 3 | 创建并打开（Create and open） | — | 按顺序执行各部分：检查文件夹、创建 Store、初始化项目、放置 Store、打开会话 | `store create`、`project init`（轮询的任务）、`store move`（任务，不在本机时才有）、`sessions.choose`；文件夹检查 `POST /api/project-sources/check`（仅主机） | 每一部分显示进度；被拒绝时显示 **创建已停止**（Create stopped），附 **修改{part}**（Edit {part}） |
+
+![存储部分](../img/entry-project-store.png)
+![机器部分](../img/entry-project-machine.png)
+
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 1 步骤栏 | **项目**（Project）· **存储**（Store）· **机器**（Machine），各带摘要（**尚未命名**（Not named yet）、**SQLite · 新建 · project**（SQLite · new · project）、**LayerFS Home**） | 按某一步 → 跳到那一部分 | — | 未完成时显示序号，设置好后显示勾，需要你处理时为橙色 |
-| 2 起点 | **空项目**（Empty）· **本机上的文件夹**（Folder on this Mac） | **本机上的文件夹**（Folder on this Mac）→ 出现一个文件夹字段，带 **浏览…**（Browse…） | — | — |
-| 名称 | **也是它在存储中的文件夹名。**（Also the name of its folder in the Store.）/ **保存为 {slug}**（Saved as {slug}） | 输入 | — | — |
-| 类型 | **SQLite**“一台机器上的一个文件。”（A file on one machine.）· **PostgreSQL**“任何机器都能使用的服务器。”（A server any machine can use.） | 选择 | — | — |
-| 存储 | **新建存储**（New Store）· **已有 · {n}**（Existing · {n}）；存储名称（Store name） | 选择或输入 | `GET /api/storage` (读取) | — |
-| 3 取消（Cancel） | — | 关闭；什么都不会创建 | — | — |
-| 4 创建并打开（Create and open） | — | 按顺序执行各步：检查文件夹、创建 Store、初始化项目、放置 Store、打开会话 | `store create`、`project init`（轮询的任务）、`store move`（任务，不在本机时才有）、`sessions.choose`；文件夹检查 `POST /api/project-sources/check`（仅主机） | 每一步显示进度；被拒绝时显示 **创建已停止**（Create stopped），附 **修改{part}**（Edit {part}） |
-
-![存储步骤](../img/entry-project-store.png)
-![机器步骤](../img/entry-project-machine.png)
-
-| 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
-|---|---|---|---|---|
-| 机器 | 磁贴：**docker**（当前无法运行）、**LayerFS Home**（本机，无隔离（This Mac, unisolated），**默认**（Default））、**新建机器**（New machine） | 选择 Store 文件放在哪里：“存储文件所在的位置，其中项目的会话也在那里运行。”（Where the Store file lives. Its projects’ sessions run there.）· **新建机器**（New machine）→ 关闭对话框，打开 主页 › 机器，并展开添加机器（Add a machine） | `GET /api/platforms`：`home get` (读取) | 已停止的机器会先提供 **启动 {machine}**（Start {machine}）（`machine start`） |
+| 机器 | 磁贴：**docker**、**LayerFS Home**（本机，无隔离（This Mac, unisolated），或这台电脑，已沙箱化（This computer, sandboxed）；**默认**（Default））、**新建机器**（New machine） | 选择 Store 文件放在哪里：“存储文件所在的位置，其中项目的会话也在那里运行。”（Where the Store file lives. Its projects’ sessions run there.）· **新建机器**（New machine）→ 关闭对话框，打开 主页 › 机器，并展开添加机器（Add a machine） | `GET /api/platforms`：`home get` (读取) | 磁贴上写 **运行中**（Running）/ **已停止**（Stopped）；已停止的机器会先提供 **启动 {machine}**（Start {machine}）（`machine start`） |
 
 ![PostgreSQL](../img/entry-project-pg.png)
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 存储 | **新建连接**（New connection）· **已有 · {n}**（Existing · {n}） | — | `GET /api/store-auths` (读取，仅主机) | — |
-| 数据库 URL | “不含用户和密码，例如 postgres://db.lan:5432/app。”（Without a user or password, for example postgres://db.lan:5432/app.） | 输入 | — | 步骤栏上显示 **需要数据库 URL**（Needs a database URL） |
+| 数据库 URL | “不含用户和密码，例如 postgres://db.lan:5432/app。”（Without a user or password, for example postgres://db.lan:5432/app.） | 输入 | — | 按钮旁显示 **存储：需要数据库 URL**（Store: Needs a database URL） |
 | 登录 | **新建登录**（New login）· **已保存 · {n}**（Saved · {n}）；登录名（Login name）、用户（User）、密码（Password）（“只输入一次，经标准输入交给 LayerFS，之后不再显示。”（Typed once. It goes to LayerFS on stdin and is never shown again.）） | 输入 | 创建时 `store save-auth`、`store connect`、`store get` | — |
-| 运行于 | 会话运行的机器（步骤栏上仍写 **机器**（Machine）） | 选择 | — | — |
+| 运行于 | 会话运行的机器（PostgreSQL 下这一部分就叫 **运行于**（Runs on）） | 选择 | — | — |
 
 ### 导入文件夹
 
 ![导入文件夹](../img/entry-project-import.png)
 
-步骤相同，只是选了 **本机上的文件夹**（Folder on this Mac）：“复制其中的全部内容，包括 .git 和被忽略的文件。原文件夹不会被修改。”
+同样的表单，只是选了 **本机上的文件夹**（Folder on this Mac）：“复制其中的全部内容，包括 .git 和被忽略的文件。原文件夹不会被修改。”
 （Copies everything in it, including .git and ignored files. The folder itself isn’t changed.）名称会跟着文件夹变，
 直到你自己输入一个。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 1 浏览…（Browse…） | — | DSH 的文件夹选择器 → 文件夹字段 | — | — |
-| 2 导入并打开（Import and open） | — | 和 **创建并打开**（Create and open）一样，只是把文件夹复制进来 | `store create`、`project init <folder>`、`store move`、`sessions.choose` | 选好文件夹之前，步骤栏上显示 **请选择文件夹**（Pick a folder） |
+| 2 导入并打开（Import and open） | — | 和 **创建并打开**（Create and open）一样，只是把文件夹复制进来 | `store create`、`project init <folder>`、`store move`、`sessions.choose` | 选好文件夹之前，按钮旁显示 **项目：请选择文件夹**（Project: Pick a folder） |
 
 ### 挑选
 
@@ -201,7 +205,7 @@ Store 已经不在的项目会显示：“此项目的存储已不在这个 Laye
 | 运行时 | **LayerFS 2.0.0** `ed911896`（Incomplete，缺少 Linux 包） | 1 **更改…**（Change…）（或 **选择…**（Choose…））→ 运行时选择器 · **详情**（Details）→ 它的各个部分（CLI、本机守护进程（Native daemon）、Linux 包（Linux bundle）、Node SDK、终端（Terminal）命令行），带复制按钮 | `--version --json`、`help --json` (读取) | 本机机器记录的是另一个守护进程时，显示 **使用此守护进程**（Use this daemon）：`machine get native`、`machine update native --daemon` |
 | 机器 | **{n}/{total} 可用**（{n} of {total} available）：本机、Docker、Lima、Apple Container | **安装…**（Install…）/ **设置…**（Set up…）→ 操作说明；**检查**（Check）→ 重新读取 | `GET /api/machines?fresh=1`：`home get`、`machine get`、`machine list` (读取) | **就绪**（Ready）、**可用**（Available）、**未安装**（Not installed）、**未运行**（Not running）、**需要设置**（Needs setup）、**需要 Linux 包**（Needs the Linux bundle） |
 | 2 重新检查（Check again） | — | 全部重新读取 | 同上 | — |
-| **稍后**（Later） | 只在缺东西时出现 | 关闭；待办挪到主页的头部卡片上 | —（记在这个浏览器里） | — |
+| **稍后**（Later） | 只在缺东西时出现 | 关闭；待办挪到主页的概览头部上 | —（记在这个浏览器里） | — |
 | 3 完成（Done） | — | 关闭 | — | 缺东西时不可用 |
 
 ![选择运行时](../img/entry-setup-runtime.png)

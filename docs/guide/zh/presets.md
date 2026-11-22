@@ -1,11 +1,11 @@
-<!-- source: 850a207c5552 -->
+<!-- source: 18110cd8278e -->
 # 预设
 
-> **位置：** `LayerFS › 主页 ›` **试用预设**（Try a preset）· **打开方式：** 主页[头部卡片](components.md#head-card)上的预设按钮（刷新按钮旁）· **源码：** 见文末
+> **位置：** `LayerFS › 主页 ›` **试用预设**（Try a preset）· **打开方式：** 主页[概览头部](components.md#overview-head)上的预设按钮（刷新按钮旁）· **源码：** 见文末
 
 当前入口下方的详情图来自早期演示环境。
 
-![预设在刷新旁边（隔离测试数据）](../img/home-head-card.png)
+![预设在刷新旁边（隔离测试数据）)](../img/home-overview-head.png)
 
 *隔离测试数据。*
 

@@ -1,4 +1,4 @@
-<!-- source: de7961d62f7f -->
+<!-- source: ac2dc2bf1d13 -->
 # DSH 中的 LayerFS：界面指南
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -68,11 +68,12 @@ LayerFS 在 DSH 侧边栏里只有一行。它打开 **Center**：一个页面�
 
 | # | 组件 | 说明 | 页面 |
 |---|---|---|---|
-| 1 | 导航栏 | 后退、前进、面包屑、跳转和添加 | [导航栏](components.md#nav-bar) |
-| 2 | 诊断 | 打开诊断页查看检查结果。按钮上会显示发现数量 | [诊断](health.md) |
-| 3 | 顶部卡片 | 运行时、最紧急的提示、预设和刷新 | [主页](home.md) |
-| 4 | 标签页 | 项目、Store、机器 | [主页](home.md) |
-| 5 | 项目表 | 项目及其 Store、会话和 Sandbox | [项目](home.md#projects) |
+| 1 | LayerFS 行 | 侧边栏里打开 Center 的那一行 | [入口](entry-points.md#sidebar-layerfs-row) |
+| 2 | 导航栏 | 后退、前进、面包屑、跳转、诊断、日志、设置和添加 | [导航栏](components.md#nav-bar) |
+| 3 | 诊断 | 打开诊断页查看检查结果。按钮上会显示发现数量 | [诊断](health.md) |
+| 4 | 概览头部 | 标题、固定使用的运行时、最紧急的提示、预设和刷新 | [主页](home.md) |
+| 5 | 标签页 | 项目、Store、机器 | [主页](home.md) |
+| 6 | 项目表 | 项目及其 Store、会话和 Sandbox | [项目](home.md#projects) |
 
 ```mermaid
 flowchart TD
@@ -81,7 +82,7 @@ flowchart TD
   NS["新会话行"] --> PC["项目控件"]
   L --> H["主页<br/><small>项目 · Store · 机器</small>"]
   H --> ST["Store<br/><small>概览 · 项目 · 备份或连接</small>"]
-  H --> MA["机器<br/><small>概览 · Sandbox · Store · 镜像 · 文件 · Worker 日志</small>"]
+  H --> MA["机器<br/><small>概览 · 镜像 · 文件 · Sandbox · Store · Worker 日志</small>"]
   H --> PR["项目<br/><small>文件 · 历史 · Sandbox · 会话 · 统计</small>"]
   ST --> PR
   ST --> BK["存储桶"]

@@ -14,7 +14,7 @@ what needs you, to find a project, Store or machine, and to add a new one.
 | # | Component | What it is |
 |---|---|---|
 | 1 | Nav bar | [Components › Nav bar](components.md#nav-bar): Back, Forward, the crumbs (just **Home** here), **Jump to…**, **Add** |
-| 2 | Head card | [Components › Head card](components.md#head-card): LayerFS × DSH, the runtime, what needs your attention, and the preset and Refresh buttons |
+| 2 | Overview head | [Components › Overview head](components.md#overview-head): the title, the pinned runtime, what needs your attention, and the preset and Refresh buttons |
 | 3 | Tabs | **Projects** *n* · **Stores** *n* · **Machines** *n*, each with a count and a coloured dot when something in it needs you |
 | 4 | Search and sort | Filters the projects table and orders it |
 | 5 | Project row | One project: its Store, sessions, Sandboxes, last session and commit, size |
@@ -22,36 +22,37 @@ what needs you, to find a project, Store or machine, and to add a new one.
 ## Layout
 
 The [nav bar](components.md#nav-bar) runs across the top of every Center page. Under it,
-the [head card](components.md#head-card) says whether anything needs you, then three tabs:
-Projects, Stores and Machines. Each tab's action (**New project**, **New machine**) sits at
-the right end of the tab bar. Home remembers nothing between visits except the Stores tab's
-kind and view and which rows are open.
+the [Overview head](components.md#overview-head) says whether anything needs you, then
+three tabs: Projects, Stores and Machines. Each tab's action (**New project**, **New
+Store**, **Connect a database**, **New machine**, **Diagnose this host**) sits at the right
+end of the tab bar. Home remembers nothing between visits except the Stores tab's kind and
+view and which rows are open.
 
 Home reads the Storage view (`GET /api/storage`: `home get`, `project list`, `store auths`,
 `store list`) and the project catalog (`GET /api/projects`: `project list`) when it opens,
-again every 15 s while it is visible, and after changes. Storage and project notifications are coalesced over 500 ms. Project changes refresh the catalog as well as storage. A failed action shows a red bar under the head card with **Dismiss**.
+again every 15 s while it is visible, and after changes. Storage and project notifications are coalesced over 500 ms. Project changes refresh the catalog as well as storage. A failed action shows a red bar under the Overview head with **Dismiss**.
 
-## Head card and notices
+## Overview head and notices
 
-![The head card (current UI, isolated fixture data)](img/home-head-card.png)
+![The Overview head (current UI, isolated fixture data)](img/home-overview-head.png)
 
 *Isolated fixture data.*
 
-The head card is a shared component; its full table is in
-[Components › Head card](components.md#head-card), and the notices it lists are in
+The Overview head is a shared component; its full table is in
+[Components › Overview head](components.md#overview-head), and the notices it lists are in
 [Components › Needs-you notices](components.md#needs-you-notices).
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| 1 LayerFS × DSH | The LayerFS × DSH wordmark | — | — (static) | — |
-| 2 Runtime | `LayerFS 2.0.0 · 12345678`, the pinned build | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (read, runtime discovery) | **LayerFS unavailable**, **Reading LayerFS…** |
-| 3 Headline | The most urgent need, or **Nothing needs your attention** with a green dot | Each need's own button (see [Needs-you notices](components.md#needs-you-notices)) | the button's own call | **+{n} more** expands or collapses the remaining needs and their actions |
+| 1 Overview | The page's title | — | — (static) | — |
+| 2 Runtime | `LayerFS 2.0.0 · 12345678`, the pinned build and its commit | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (read, runtime discovery) | **LayerFS unavailable**, **Reading LayerFS…** |
+| 3 Status line | The most urgent need with its fix, or **Nothing needs your attention** | Each need's own button (see [Needs-you notices](components.md#needs-you-notices)) | the button's own call | a dot before a need (red problem, amber warning); **+{n} more** expands or collapses the remaining needs and their actions |
 | 4 Try a preset | The agent-preset icon | Press → the Presets dialog ([Presets](presets.md)) | — (opens a dialog) | — |
-| 5 Refresh | A circular arrow; its tip says when the checks last ran | Press → reads Stores, projects and machines again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list`, `project list` (read), then `home doctor` | disabled while the checks run |
+| 5 Refresh | A circular arrow; its tip says when the checks last ran | Press → reads Stores, projects and machines again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list`, `project list` (read), then `home doctor` | a dot while the checks run |
 
-![Expanded Home notices and their actions (current UI, isolated fixture data)](img/home-notices.png)
-
-*Isolated fixture data.*
+A **Docker unavailable** chip sits beside the title while Docker cannot run here; press it
+for the reason and for the docker machines it names. Doctor findings are counted on the
+Doctor button in the nav bar, and a Store that was never backed up is not a need.
 
 ## Nav bar
 
@@ -138,18 +139,21 @@ backed up".
 |---|---|---|---|---|
 | 1 Kind | Two tiles: **SQLite** *{n} Stores · size* and **PostgreSQL** *{n} databases* | Press → that kind's Stores; remembered | — (local view state) | — |
 | 2 Show | **Stores {n}** / **Buckets {n}** (SQLite only) | Press → Store cards or bucket cards; remembered | — (local view state) | — |
-| 3 New Store | **New Store** (SQLite) or **Connect a database** (PostgreSQL) | Press → the New Store / Connect a database dialog | `store create` / `store save-auth`, `store connect`, `store get` | — |
+| 3 New Store | **New Store** (SQLite) or **Connect a database** (PostgreSQL), at the right end of the tab bar | Press → the New Store / Connect a database dialog | `store create` / `store save-auth`, `store connect`, `store get` | — |
 | 4 Store card | Name, size, last write, **Stored on** machine, up to three projects, status, backups | See [Components › Store card](components.md#store-card) and [Store menu](components.md#store-menu); **Push to…** (on native) / **Pull** (on a machine) | `GET /api/storage` (read); **Push to…**/**Pull** `store move` | a [job card](components.md#job-card) while a move or backup runs |
 
-Empty: **No SQLite Store yet.** / **No PostgreSQL database connected yet.**
+Empty: **No SQLite Store yet.** / **No PostgreSQL database connected yet.** With neither a
+Store nor a bucket in the home, the tab reads **No Stores yet** — "Create a Store in the home,
+restore one from a backup, or connect a PostgreSQL database." — with **New Store** and
+**Connect a database**.
 
 ![Buckets](img/home-buckets.png)
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | 1 Show | **Buckets** selected | — | — | — |
-| 2 List bucket files | A refresh button | Press → every bucket is listed again | `backup list` (one per bucket), then the Storage view | a dot while listing |
-| 3 Add bucket | **Add bucket** | Press → the Add bucket dialog ([Bucket](bucket.md)) | `backup connect` (keys on stdin) | — |
+| 2 List bucket files | **List bucket files**, at the right end of the tab bar | Press → every bucket is listed again | `backup list` (one per bucket), then the Storage view | a dot while listing |
+| 3 Add bucket | **Add bucket**, beside it | Press → the Add bucket dialog ([Bucket](bucket.md)) | `backup connect` (keys on stdin) | — |
 | 4 Bucket card | Provider, name, `MinIO · 1 Store file · 385 KB · listed {ago}`, its files with their Store and date, **{n} from this home** | Press the name or **Open bucket** → the [Bucket](bucket.md) page; **Restore…** on a file not from this home → the restore dialog | `backup list` (read); **Restore…** `backup restore` | **Files unknown** with **Connect again…** / **List again**; **not listed yet** with **List files** |
 | 5 ⋯ | **More actions for {bucket}** | **List files**, **Open bucket** | `backup list` | — |
 
@@ -158,7 +162,7 @@ Empty: **No SQLite Store yet.** / **No PostgreSQL database connected yet.**
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | 1 PostgreSQL | The tile, selected | — | — | — |
-| 2 Connect a database | The kind's add button | Press → Connect a database | `store save-auth`, `store connect`, `store get` | — |
+| 2 Connect a database | The kind's add button, at the right end of the tab bar | Press → Connect a database | `store save-auth`, `store connect`, `store get` | — |
 | 3 Cards | One card per database, grouped by login; each group has **Rotate password…** and ⋯ **Remove login**; **Connected from** chips name the machines that reach it | Press a card → the Store page | `GET /api/store-auths` (read, host only); sizes `store get` (read); projects `GET /api/stores/:id/projects` (read); **Rotate password…** `store save-auth`, `store doctor`; **Remove login** `store remove-auth` | **No PostgreSQL database connected yet.** (shown: the fixture has none) |
 
 ## Machines
@@ -170,19 +174,17 @@ hold".
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| 1 New machine | **+ New machine** | Press → the New machine dialog ([Machine](machine.md)) | `home get`, `machine create` | only when a platform can create one |
-| 2 ⋯ | **More machine actions** | Press → **Diagnose this host** → the home checks run and the [Doctor](health.md) page opens on them | `home doctor` | — |
+| 1 New machine | **+ New machine**, at the right end of the tab bar | Press → the New machine dialog ([Machine](machine.md)) | `home get`, `machine create` | only when a platform can create one; otherwise off with the reason as its tip |
+| 2 Diagnose this host | The **</>** button beside it | Press → the home checks run and the [Doctor](health.md) page opens on them | `home doctor` | — |
 | 3 Row toggle | A chevron | Press → what it holds; remembered | — | open by default when it needs you, is starting, or is the only machine |
 | 4 Name | **docker**, `Docker · Linux namespaces` (or `This Mac · Host processes`) | Press → the [Machine](machine.md) page | `home get`, `machine get`, `machine list`, `sandbox list`, `store list` (read) | — |
 | State | A chip: **Running**, **Stopped**, **Starting**, … | — | as above | **Blocked** rows say why, with a fix |
 | Memory · Disk | Bars | — | memory: `GET /api/metrics` (read, host memory); disk: `machine stats` (read) | `—` while stopped |
 | Holds | **1 Store**, **1 Sandbox** | — | as above | — |
-| 5 Power | **Stop** / **Start** (not on This Mac) | **Start** → the machine starts. **Stop** asks a second press: the button becomes **Confirm: Stop** (**Confirm: Stop worker** for docker) for a few seconds, like the head card's Stop | `machine stop` / `machine start` | disabled while it settles |
+| 5 Power | **Stop** / **Start** (not on This Mac) | **Start** → the machine starts. **Stop** asks a second press: the button becomes **Confirm: Stop** (**Confirm: Stop worker** for docker) for a few seconds | `machine stop` / `machine start` | disabled while it settles |
 | 6 ⋯ | **More for {name}** | [Components › Machine menu](components.md#machine-menu) | see there | — |
 | 7 Add Store | **Add Store** | Press → a dialog to put a SQLite Store on this machine | `store move` (a job) | — |
 | 8 New Sandbox | **New Sandbox** | Press → the New Sandbox dialog ([Sandbox](sandbox.md)) | `sandbox create` | — |
-
-![More machine actions](img/home-machines-more.png)
 
 ## Variants
 
@@ -193,8 +195,8 @@ hold".
   in place of the tabs.
 - **No storage view yet.** **Reading the Stores…** while loading; **Could not read the storage**
   with **Retry** when the read failed.
-- **The Refresh button** in the nav bar shows on every Center page but Home, where the head
-  card's Refresh does the same and also reruns the checks.
+- **The Refresh button** in the nav bar shows on every Center page but Home, where the
+  Overview head's Refresh does the same and also reruns the checks.
 
 ## Modals opened here
 
@@ -232,7 +234,7 @@ hold".
 ## Source
 
 `src/client/storage/StoragePage.tsx` (Center, routing, Jump items, Add menu, polling) ·
-`src/client/storage/Nav.tsx` · `src/client/storage/HomeOverview.tsx`, `HomeHero.tsx` (head
-card, needs) · `src/client/storage/ProjectTable.tsx`, `ProjectFinder.tsx` ·
+`src/client/storage/Nav.tsx` · `src/client/storage/HomeOverview.tsx`, `HomeHero.tsx`
+(Overview head, needs) · `src/client/storage/ProjectTable.tsx`, `ProjectFinder.tsx` ·
 `src/client/storage/MachineStores.tsx`, `BucketCards.tsx` · `src/client/machines/Board.tsx` ·
 `src/client/doctor/use-doctor-count.ts` · shots: `tools/guide/shots/home.mjs`

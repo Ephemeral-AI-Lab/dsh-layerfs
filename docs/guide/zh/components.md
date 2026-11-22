@@ -1,4 +1,4 @@
-<!-- source: 09ed2fb907fc -->
+<!-- source: 84c1e84854e7 -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -28,7 +28,7 @@
 | 4 | 面包屑切换 | 面包屑后面的一个箭头（**从 {name} 切换**，Switch from {name}），或当前面包屑上的一个小三角，在那个位置有同级项时出现 | 按下 → 列出它的同级项（每个 Store、这个 Store 里的每个项目……），带上种类和位置 → 打开其中一个 | —（使用 Center 已读到的内容） | 只有同级项多于一个时才出现 |
 | | 传输 | **{n} 个传输**（{n} transfers），带百分比和进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个任务时），或一个列出它们的菜单（有多个时） | —（Center 已在跟踪的任务） | 没有任务运行时隐藏 |
 | 5 | **跳转到…**（Jump to…） | 一个带 **⌘K**（**Ctrl+K**）的输入框 | 点它或按快捷键 → **跳转到会话、项目、Store、机器、Sandbox 或存储桶**（Jump to a session, project, Store, machine, Sandbox or bucket），按项目、Store、机器、Sandbox、存储桶、页面和会话分组。会话结果显示标题与 ID，选中后打开对话。**↑ ↓ 移动 · Enter 打开 · Esc 关闭**（↑ ↓ to move · Enter to open · Esc to close） | —（在 Center 已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）。最多 60 条结果。有对话框打开时快捷键不可用 |
-| 6 | 刷新 | 一个环形箭头，除主页外每个页面都有 | 按下 → 页面重新读取它的数据 | 页面自己的读取 | 读取时显示一个圆点 |
+| 6 | 刷新 | 一个环形箭头，除主页、诊断和日志外每个页面都有（这三页各自有刷新） | 按下 → 页面重新读取它的数据 | 页面自己的读取 | 读取时显示一个圆点 |
 | 7 | **+ 添加**（+ Add） | **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 打开对应的对话框 | `store create` · `store save-auth`、`store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 新建机器和新建 Sandbox 不可用时仍显示，并说明原因 |
 | | 诊断 | 带计数的盾牌图标，提示为 **诊断：{n} 项发现**（Doctor: {n} findings） | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 读取主机保存的结果。如果还没有结果，打开主页时会运行一次 `home doctor` | 有错误时计数为红色，有警告时为橙色 |
 | | 日志 | 列表图标 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | — | |
@@ -48,29 +48,33 @@
 
 *隔离测试数据。*
 
-## 顶部卡片
+## 概览头部
 
-主页的最上方。它告诉你这是哪个 LayerFS，以及有没有需要你处理的事。
+<a id="overview-head"></a>
 
-![顶部卡片（隔离测试数据，当前界面）](../img/home-head-card.png)
+主页的最上方：页面标题、这是哪个 LayerFS，以及有没有需要你处理的事。它是一行文字，
+不是卡片：没有标志，也没有外框。
+
+![概览头部（隔离测试数据，当前界面）](../img/home-overview-head.png)
 
 *隔离测试数据。*
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
-| 1 | LayerFS × DSH | LayerFS × DSH 标志 | — | — | |
-| 2 | 运行时 | `LayerFS 2.0.0 · 12345678`（**显示固定的运行时**，Show the pinned runtime） | 按下 → 打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…） |
-| 3 | 标题行 | 一个圆点和最紧急的那件事，或者绿色的 **没有需要处理的事项**（Nothing needs your attention） | 那件事的按钮（见[待处理提示](#needs-you-notices)） | 按钮的调用 | 有好几件时显示 **还有 {n} 个**（+{n} more） |
+| 1 | 标题 | **概览**（Overview），页面的名字 | — | — | |
+| 2 | 运行时 | `LayerFS 2.0.0 · 12345678`，固定的构建和它的提交号（**显示固定的运行时**，Show the pinned runtime；提示里是 LayerFS 目录） | 按下 → 在运行时这一步打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…）；读取时显示进行中圆点，运行时不可用时有红点 |
+| 3 | 状态行 | 最紧急的那件事，或者 **没有需要处理的事项**（Nothing needs your attention） | 那件事的按钮（见[待处理提示](#needs-you-notices)） | 按钮的调用 | 事项前有圆点：故障为红点、警告为琥珀点；无需处理时没有圆点 |
 | 4 | 试用预设 | 预设图标 | 按下 → [预设](presets.md) | — | |
-| 5 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list` (读取)，然后 `home doctor` | 检查运行期间不可用 |
+| 5 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
 
-按 **还有 {n} 个**（+{n} more）可在卡片下方展开或收起其余待处理事项及对应的修复按钮。被拒绝的操作显示在卡片下方，可按 **关闭**（Dismiss）收起。
+Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker unavailable）胶囊；按它可以查看原因和它点名的 docker 机器。
+按 **还有 {n} 个**（+{n} more）可在状态行下方展开或收起其余待处理事项及对应的修复按钮。被拒绝的操作显示在那里，可按 **关闭**（Dismiss）收起。
 
 ## 待处理提示
 
-顶部卡片的标题行和它的 **还有 {n} 个**（+{n} more）列表里放的东西，最紧急的排在前面。每条
+概览头部的状态行和它的 **还有 {n} 个**（+{n} more）列表里放的东西，最紧急的排在前面。每条
 提示都会点名是哪一项，用 LayerFS 的原话说明原因（在它的提示里），并给出修复。
-双击也只算按一次。如果修复被拒绝，拒绝信息会显示在顶部卡片下方。
+双击也只算按一次。如果修复被拒绝，拒绝信息会显示在状态行下方。
 
 | 组件 | 级别 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
@@ -84,9 +88,38 @@
 | **{store} 不可用**（{store} is down） / **无法连接**（is unreachable） / **需要更新**（needs its update） / **需要登录信息**（needs its login） | 危险 | 修复，或 **打开**（Open） → 这个 Store | 修复的调用（`store update`、`store save-auth` 等） | Store 就绪后消失 |
 | **{machine} 已停止，存放着 {stores}**（{machine} is stopped and holds {stores}）：机器运行之前，它的项目都打不开 | 警告 | **打开**（Open） | — | 机器运行后消失 |
 
-悬停在圆点上会显示 **故障**（Problem）、**警告**（Warning）或 **提示**（Note）。诊断发现的问题只计在
+悬停在提示的圆点上会显示 **故障**（Problem）、**警告**（Warning）或 **提示**（Note）。诊断发现的问题只计在
 诊断按钮上。没有备份的 Store 不算待处理事项。这些提示来自 Center 已经读到的
 Store、机器和平台信息（`home get`、`machine get`、`machine list`、`store list`，都是读取）。
+
+## 状态词与圆点
+
+状态写成词，圆点只出现在出问题的地方。规则一句话：**正常的东西保持安静，故障保留自己的红点。**
+
+| 位置 | 平时的状态 | 出故障时 |
+|---|---|---|
+| 概览头部的状态行 | **没有需要处理的事项**（Nothing needs your attention），没有圆点 | 事项前有圆点：故障为红点、警告为琥珀点 |
+| Store 卡片的状态行 | Store 就绪时什么都不显示；**docker 已停止。**（docker is stopped.）只是一个词，没有圆点（停机就是停机，不是损坏） | **损坏 · …**（Broken · …）保留红点 |
+| 备份徽标 | **没有备份**（No backup）只是普通文字，没有圆点；备份是最新的时候圆点是绿色 | 备份有问题时红点，文件已过时且读不到时灰点 |
+| 诊断（Doctor）行 | **正常**（OK）是一个词，前面没有圆点 | 行内的检查点保留圆点（绿色通过、琥珀提醒、红色失败、灰色未检查） |
+| 机器行或卡片 | **运行中**（Running） / **已停止**（Stopped）都是词 | **需要修复**（Needs repair）、**Docker 未运行**（Docker not running）、**不可用**（Unavailable）保留状态色 |
+
+## 会说明原因的禁用按钮
+
+一个变灰、原因却只存在于读屏器里的按钮是死路，所以 Center 的禁用操作把原因留在手边：
+`ExplainedButton`（以及带 `disabledReason` 的菜单项）仍可获得焦点，标为 `aria-disabled` 而不是
+`disabled`，悬停或用键盘聚焦时用提示框说明原因。它出现在 Store 卡片（**推送到…**，Push to…；
+**拉取**，Pull；**立即备份**，Back up now）、Store 菜单（**推送到…**、**移到另一台机器…**、
+**备份到…**、**压缩…**、**移除登录**、**断开**）、Store 页的 **添加项目**（Add project），
+以及存储桶页的 **立即备份** 上。只是“要等另一边先动”的按钮会直接说出等谁，比如 **先启动 docker**
+（Start docker first）。
+
+## 等宽字体
+
+命令、文件路径、提交 ID、版本号和源码使用 DSH 的代码字体（`--ds-font-family-code`），绝不使用正文字体：
+它们正是读者要复制的内容。这覆盖[修复](components.md#fix-buttons)里的 CLI 命令行、诊断行里的 **调用**（Call）、
+[设置 LayerFS](entry-points.md#set-up-layerfs) 里的固定版本、[文件标签页](project.md#files)上的路径与 ID、
+运行时或提交号徽标，以及 **提交信息**（Commit message）输入框。
 
 ## 文件视图
 
@@ -158,7 +191,7 @@ LayerFS 拒绝读取时，视图会显示拒绝的关键词，并把 LayerFS 的
 | 1 | 名称 | 图标和 Store 名 | 点击 → [Store 页](store.md) | `store list` (读取) | |
 | 2 | ⋯ | [Store 菜单](#store-menu) | 见 Store 菜单 | 每项各不相同 | |
 | | 数字 | SQLite：文件大小和 **最近写入**（last write）*时间*。PostgreSQL：打包后的字节数（或 **n 个项目**）和数据库名。悬停可看服务器和 **数据库 ID**（Database id） | — | `store list`；PostgreSQL 还有 `store get --with stats` (读取) | **大小未知**（Size unknown）。可能过时的大小显示为 **大小读取于**（size seen）*时间*，提示为 **……它的机器已停止**（…its machine is stopped）或 **……现在没有响应**（…does not answer now）。统计被拒绝时显示 `—` |
-| 3 | **存放于**（Stored on）标签（SQLite，仅在主页上） | 所在机器（或 **LayerFS Home**），带一个表示它是否在运行的圆点 | 点击 → 机器页 | `home get` (读取) | 灰点表示机器没在运行 |
+| 3 | **存放于**（Stored on）标签（SQLite，仅在主页上） | 所在机器（或 **LayerFS Home**）及其图标 | 点击 → 机器页 | `home get` (读取) | 机器损坏时有红点，其余情况没有圆点（停机的状态写在标签的提示里，不用圆点） |
 | | **连接自**（Connected from）标签（PostgreSQL） | 每个连接方一个标签，**这台电脑**（This computer）排第一：能否连到这个 Store，以及带线框图标的 Sandbox 数量。提示：它自己的地址或默认地址、**检查**（checked）*时间*、PostgreSQL 版本、延迟 | 点击 → 从那台机器发起的检查界面。出故障的机器的标签会改为打开那台机器。最后一个标签 **+ 连接一台机器**（+ Connect a machine）会从第一台还没连接的运行中机器打开检查 | `store doctor --machine` | 红色：检查失败，或机器出了故障。灰色：**未检查**（not checked） |
 | 4 | 项目行 | 最多三个项目（有状态显示时只有一个），各带打包后的字节数和占比条 | 点击 → 项目页 | `project list`、`project stats`、`branch get` (读取；统计期间每 2 秒轮询一次) | **读取中…**（Reading…）、`—` 加 **此处未统计**（Not counted here）、**初始化后尚无提交**（No commits since Init）、**没有项目 · 添加项目**（No projects · Add project，`project init`） |
 | | 状态行 | 只在有事发生时出现：一张正在运行或刚结束的[任务卡片](#job-card)、**另一个客户端正在运行 …**（Another client runs …），或者一个说明需要你处理什么的词（**Waiting on docker**、**Broken · …**），加上它唯一的操作（**启动**（Start）*m*、一个[修复](#fix-buttons)，或 **修复**（Repair）*m*） | 那个操作 | `machine start`，或修复的调用 | |

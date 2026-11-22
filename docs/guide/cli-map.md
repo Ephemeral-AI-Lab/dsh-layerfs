@@ -22,9 +22,9 @@ Pages: [Home](home.md) · [Entry points](entry-points.md)
 | Interaction | Where | Host route or op | LayerFS call(s) |
 |---|---|---|---|
 | Home draws | `LayerFS › Home` | `GET /api/storage`, `GET /api/projects` | `home get`, `project list`, `store auths`, `store list` (read) |
-| Doctor count, home checks | Home › head card | `GET /api/doctor/results`, `POST /api/doctor/runs` `{kind: home}` | host memory; `home doctor` |
-| Head card Refresh | Home › head card | the Storage view, projects and a doctor run | the reads above, then `home doctor` |
-| Runtime, Settings | Home › head card | ops `setup.status`, `runtime.status` | `home get` (+ `home init` if missing); `--version --json` |
+| Doctor count, home checks | Home › Overview head | `GET /api/doctor/results`, `POST /api/doctor/runs` `{kind: home}` | host memory; `home doctor` |
+| Overview head Refresh | Home › Overview head | the Storage view, projects and a doctor run | the reads above, then `home doctor` |
+| Runtime, Settings | Home › Overview head | ops `setup.status`, `runtime.status` | `home get` (+ `home init` if missing); `--version --json` |
 | Jump to, crumb switcher, Back, Forward | nav bar | — | — |
 | **Add › New Store** | nav bar | `POST /api/stores` | `store create` |
 | **Add › Connect a database** | nav bar | `POST /api/stores/postgresql` | `store save-auth`, `store connect`, `store get` |

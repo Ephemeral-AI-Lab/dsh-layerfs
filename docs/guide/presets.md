@@ -1,10 +1,10 @@
 # Presets
 
-> **Where:** `LayerFS › Home ›` **Try a preset** · **Opens from:** the Presets button on Home's [head card](components.md#head-card) · **Source:** see the end
+> **Where:** `LayerFS › Home ›` **Try a preset** · **Opens from:** the Presets button on Home's [Overview head](components.md#overview-head) · **Source:** see the end
 
 The detail views below the current entry point come from the earlier demo setup.
 
-![Presets beside Refresh (isolated fixture data)](img/home-head-card.png)
+![Presets beside Refresh (isolated fixture data)](img/home-overview-head.png)
 
 *Isolated fixture data.*
 
