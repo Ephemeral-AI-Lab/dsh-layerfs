@@ -198,7 +198,8 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
               // a daemon.log in a run folder: the Daemon log tab of the Sandbox that folder is of, when this machine has it
               const sandbox = sandboxOfRunFolder(folder)
               return sandbox && sandboxesOn(view, m).some((sb) => sb.name === sandbox) ? () => go({ kind: 'sandbox', machine: m.name, name: sandbox, tab: 'log' }) : null
-            } : undefined} />
+            } : undefined}
+            stopped={state.state === 'stopped' || engine} />
         </div>
       ) : tab === 'log' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
