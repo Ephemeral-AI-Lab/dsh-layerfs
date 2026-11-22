@@ -322,7 +322,7 @@ function MachineChip({ name, view, t, health, title, onOpen }: {
 export function MachineLine({ s, view, t, on }: { s: StoreRow, view: StorageView, t: StorageT, on: StoreActions }): ReactNode {
   const machine = s.machine
   const state = view.machines.find((m) => m.name === machine)?.state ?? null
-  const health = machine === 'native' || state === 'ready' ? 'current' : state ? 'unknown' : null
+  const health = state === 'broken' ? 'problem' : null
   return (
     <div className={css.machines}>
       <span className={css.machinesLabel}>{t('hsStoredOn')}</span>
@@ -475,7 +475,7 @@ function StoreStatus({ s, t, words, onStart }: { s: StoreRow, t: StorageT, words
   const tip = useStoreTip(s, t) ?? s.fix ?? undefined
   return (
     <div className={css.statusRow} data-tone={s.state === 'broken' ? 'danger' : 'warning'}>
-      <StateDot state={s.state === 'broken' ? 'error' : 'idle'} size={8} />
+      {s.state === 'broken' ? <StateDot state="error" size={8} /> : null}
       <span className={css.statusText} title={tip}>{words}</span>
       <StoreAction store={s} t={t} onStart={onStart} />
     </div>

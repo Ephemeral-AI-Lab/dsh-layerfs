@@ -383,9 +383,6 @@
   font-size: 12px;
   line-height: 16px;
 }
-.statusRow > :first-child:not(.statusText) {
-  display: none;
-}
 .statusText {
   flex: 1 1 auto;
   min-width: 0;
@@ -482,7 +479,11 @@
   margin-inline-start: 0;
 }
 .dot {
-  display: none;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-border-l3);
 }
 .dot[data-health='problem'] {
   background: var(--dsw-alias-state-error-primary);

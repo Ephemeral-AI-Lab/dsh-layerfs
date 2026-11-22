@@ -16,7 +16,17 @@ const WORD: Record<RowState, string> = { ok: 'dpWordOk', run: 'dpWordRun', nc: '
 const RES: Record<CheckMark['r'], string> = { ok: 'dpResOk', bad: 'dpResBad', warn: 'dpResWarn', nc: 'dpResNc' }
 const FIX: Record<NonNullable<RowFix['button']>, string> = { start: 'dpFixStart', restart: 'dpFixRestart', delete: 'dpFixDelete', backup: 'dpFixBackup' }
 const STEP: Record<string, string> = { stop: 'dpStepStop', start: 'dpStepStart', delete: 'dpStepDelete', create: 'dpStepCreate' }
-const COULD = ['timeout', 'busy', 'lost']
+const REASON_SHORT: Record<string, string> = {
+  timeout: 'dpShortTimeout',
+  busy: 'dpShortBusy',
+  lost: 'dpShortLost',
+  failed: 'dpShortFailed',
+  stopped: 'dpShortStopped',
+  skipped: 'dpShortSkipped',
+  unavailable: 'dpShortUnavailable',
+  missing: 'dpShortMissing',
+  unsupported: 'dpShortUnsupported',
+}
 const cap = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
 export const clock = (at: number): string => { const d = new Date(at); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
@@ -45,7 +55,8 @@ export function wordsOf(t: DoctorT) {
   const callFor = (x: Thing, full = false): string => (x.kind === 'workspace' ? doctorCommand({ kind: 'sandbox', name: x.sandbox ?? '' }) : doctorCommand(callOf(x, full)))
   const checkName = (c: CheckMark): string => (c.from ? tt('dpCheckFrom', { check: c.check, machine: c.from }) : c.check)
   const checkText = (c: CheckMark): string => {
-    const note = c.r === 'nc' ? (c.reason ? (COULD.includes(c.reason) ? tt(`dpShort${cap(c.reason)}`) : human(c.reason).toLowerCase()) : '') : c.message ?? ''
+    const code = c.reason?.toLowerCase() ?? ''
+    const note = c.r === 'nc' ? (c.reason ? (REASON_SHORT[code] ? tt(REASON_SHORT[code]!) : human(c.reason).toLowerCase()) : '') : c.message ?? ''
     return note ? tt('dpResNote', { result: tt(RES[c.r]), note }) : tt(RES[c.r])
   }
   const tipChecks = (checks: readonly CheckMark[]): TipCheck[] => checks.map((c) => ({ r: c.r, name: checkName(c), text: checkText(c) }))

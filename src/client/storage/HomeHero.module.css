@@ -32,8 +32,8 @@
 }
 
 .heading {
-  align-items: flex-end;
-  gap: 4px 12px;
+  align-items: center;
+  gap: 6px 10px;
   min-width: 0;
 }
 
@@ -210,11 +210,12 @@
   border: 0;
   border-radius: var(--ov-radius-sm, 6px);
   background: transparent;
-  font-family: inherit;
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
   line-height: 18px;
   font-variant-numeric: tabular-nums;
   color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  white-space: nowrap;
   cursor: pointer;
   transition: background-color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1)),
     color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1));

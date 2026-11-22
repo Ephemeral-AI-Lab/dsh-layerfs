@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
-import { HoverCard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { HoverCard, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './Signal.module.css'
 
 export type SignalState = 'ok' | 'warning' | 'error' | 'idle' | 'ongoing'
 
-export function Signal({ state, title, anchorText, detail, action, label, fid }: {
+const DOT = { ok: 'done', warning: 'warning', error: 'error', idle: 'idle', ongoing: 'ongoing' } as const
+
+export function Signal({ state, title, anchorText, detail, action, size = 8, label, fid }: {
   state: SignalState
   /** The state in a few words (also the dot's accessible name unless `label` names it). */
   title: string
@@ -20,12 +22,13 @@ export function Signal({ state, title, anchorText, detail, action, label, fid }:
   action?: ReactNode
   size?: number
 }): ReactNode {
+  const dotOnly = anchorText === undefined
   return (
     <span className={css.root} onClick={(e) => e.stopPropagation()}>
       <HoverCard inline fitContent openDelayMs={120}
         anchor={(
-          <button type="button" className={css.signal} data-state={state} aria-label={label ?? title} data-fid={fid}>
-            {anchorText ?? title}
+          <button type="button" className={css.signal} data-state={state} data-dot={dotOnly ? '' : undefined} aria-label={label ?? title} data-fid={fid}>
+            {dotOnly ? <StateDot state={DOT[state]} size={state === 'ongoing' ? size + 3 : size} /> : anchorText}
           </button>
         )}
         content={(

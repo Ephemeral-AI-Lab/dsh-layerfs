@@ -319,3 +319,9 @@ button.storeName {
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
+
+.emptyBody {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
+}

@@ -17,7 +17,7 @@
  * LayerFS's backup.list skips every other object, so nothing is filtered here.
  */
 import { useState, type ReactNode } from 'react'
-import { MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MoreMenu } from '../ui/index.tsx'
@@ -47,11 +47,12 @@ function whereOf(b: BucketRow, t: StorageT): string {
   return providerWords(b.provider, t)
 }
 
-export function BucketCards({ view, t, now, jobs, onOpen, onList, onReconnect, onRestore }: {
+export function BucketCards({ view, t, now, jobs, onOpen, onAddBucket, onList, onReconnect, onRestore }: {
   view: StorageView, t: StorageT, now: number
   /** Running jobs. */
   jobs: readonly StorageJob[]
   onOpen: (id: TabId) => void
+  onAddBucket: () => void
   /** Lists a bucket's files again. */
   onList: (bucket: string) => void
   /** Connect again… (a refused key, or a record with no key): the Connect dialog with its name and URL. */
@@ -66,7 +67,9 @@ export function BucketCards({ view, t, now, jobs, onOpen, onList, onReconnect, o
         <span className={css.emptyIcon}><BucketGlyph size={16} /></span>
         <span className={css.emptyText}>
           <span className={css.emptyTitle}>{t('ovNoBuckets')}</span>
+          <span className={css.emptyBody}>{t('ovNoBucketsBody')}</span>
         </span>
+        <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={12} />} onClick={onAddBucket}>{t('ovAddBucket')}</Button>
       </div>
     )
   }

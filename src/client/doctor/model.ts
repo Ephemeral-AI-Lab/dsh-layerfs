@@ -180,7 +180,7 @@ function resultOfNode(node: DoctorNode, findings: readonly DoctorFinding[], notC
   return {
     status: node.status, coverage: node.coverage ?? 'shallow', checks,
     blockedBy: blockOf(node.blocked_by) ?? blockOf(whole?.blocked_by),
-    reason: node.reason ?? (node.status === 'not_checked' ? (notChecked.find((n) => n.reason)?.reason ?? null) : null),
+    reason: node.reason ?? (node.status === 'not_checked' ? (whole?.reason ?? (!checks.some((c) => c.r !== 'nc') ? notChecked.find((n) => n.reason)?.reason ?? null : null)) : null),
     code: null, findings: [...findings].sort(bySeverity), at,
   }
 }
@@ -702,7 +702,7 @@ export function viewOf(state: DoctorState, thing: Thing, depth: number, open: bo
     fix: blocked ? null : fixOf(thing, base),
     folder: kids.length > 0,
     inside: kids.length && !open ? within(state, thing) : { bad: 0, warn: 0 },
-    canCheck: DOCTOR_KINDS.includes(thing.kind) && !blocked && !base.stopped,
+    canCheck: DOCTOR_KINDS.includes(thing.kind) && !blocked,
     canFull: FULL_KINDS.includes(thing.kind) && !blocked,
     ownTrouble: seen.st === 'notice' || seen.st === 'problem' || (seen.st === 'nc' && seen.why === 'could') || (seen.stopped && seen.st !== 'run') || !!state.refusals[thing.key],
   }

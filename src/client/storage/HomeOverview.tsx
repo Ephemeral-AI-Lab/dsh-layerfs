@@ -286,19 +286,19 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       </>
     )
      : <span className={heroCss.storeActions} ref={setStoreActionsHost}>
-        {stores.length === 0 && view.buckets.length === 0 && <Button variant="outline" size="sm" className={heroCss.actionButton} icon={plus} onClick={props.onNewStore}>{t('newStore')}</Button>}
+        {stores.length === 0 && view.buckets.length === 0 ? null : null}
       </span>
   // SQLite's second view: the backup buckets (once the Backups tab). PostgreSQL has one view: its databases under their server.
   const storesAlt = {
     main: { label: t('hsViewStores'), count: sqlite.length },
     other: { label: t('hsViewBuckets'), count: view.buckets.length },
-    view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} onList={props.onListBucket} onReconnect={props.onReconnect} onRestore={props.onRestore} />,
-    add: (
+    view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onReconnect={props.onReconnect} onRestore={props.onRestore} />,
+    add: view.buckets.length > 0 ? (
       <>
-        {view.buckets.length > 0 ? <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}>{t('ovListBuckets')}</Button> : null}
+        <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}>{t('ovListBuckets')}</Button>
         <Button variant="outline" size="sm" icon={plus} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>
       </>
-    ),
+    ) : null,
   }
   // A Store row's menu on the board: the Store card's own menu (a PostgreSQL Store's checks from this machine).
   const storeMenuOn = (machine: string) => ({ name }: { name: string }) => {
@@ -306,11 +306,24 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     return s ? <StoreMenu store={s} on={props.actionsFor(s)} t={t} machine={s.kind === 'postgresql' ? machine : undefined} /> : null
   }
   const checked = doctor.data?.at ? t('ovChecked', { ago: ago(doctor.data.at, now, t as Translate) }) : null
+  const rt = setup?.runtime
+  const runtimeWords = !rt ? t('ovRuntimeChecking') : rt.ok && rt.version ? t('ovRuntimeReady', { version: rt.version }) : t('ovRuntimeDown')
+  const runtimeTone = !rt ? undefined : rt.ok ? undefined : 'danger'
+  const runtimeBadge = (
+    <button type="button" className={heroCss.runtime} data-tone={runtimeTone} aria-label={runtimeWords}
+      title={[t('ovRuntimeToggle'), rt?.home].filter(Boolean).join(' · ')}
+      onClick={() => setupDialog.open('runtime')}>
+      {!rt ? <StateDot state="ongoing" size={9} /> : rt.ok ? null : <StateDot state="error" size={6} />}
+      <span>{runtimeWords}</span>
+      {rt?.commit ? <span>· {rt.commit.slice(0, 8)}</span> : null}
+    </button>
+  )
 
   return (
     <div className={css.page}>
       <HomeHero
         title={t('overview')}
+        identity={runtimeBadge}
         tone={top?.tone}
         signal={top
           ? <Signal state={top.tone === 'danger' ? 'error' : top.tone === 'warning' ? 'warning' : 'idle'} title={top.tone === 'danger' ? t('ovSignalProblem') : top.tone === 'warning' ? t('ovSignalWarning') : t('ovSignalNote')} detail={top.detail} />
@@ -389,7 +402,15 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         <section id={panelId('stores')} role="tabpanel" className={css.section} aria-label={t('ovStores')}>
           {stores.length === 0 && view.buckets.length === 0 ? (
             <Card>
-              <EmptyState title={t('noStores')} icon={<StoreGlyph kind="sqlite" size={20} />} />
+              <EmptyState title={t('noStores')} icon={<StoreGlyph kind="sqlite" size={20} />}
+                action={(
+                  <>
+                    <Button variant="primary" size="sm" icon={plus} onClick={props.onNewStore}>{t('newStore')}</Button>
+                    <Button variant="outline" size="sm" onClick={props.onConnect}>{t('connectDatabase')}</Button>
+                  </>
+                )}>
+                {t('noStoresBody')}
+              </EmptyState>
             </Card>
           ) : (
             <HomeStores actionHost={storeActionsHost} api={mc.api} stores={stores} view={view} t={t} now={now} jobs={props.jobs} dismissed={props.dismissed} actionsFor={props.actionsFor} loginActions={props.loginActions} sandboxes={props.sandboxes}

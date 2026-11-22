@@ -233,6 +233,11 @@
 /* the width of the longest status word, so what follows lines up */
 .line > .sig { min-width: 104px; }
 
+.moreSep {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .headSig {
   height: 28px;
   gap: 8px;
