@@ -588,5 +588,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.table[data-store-column] :is(.branch, .mono, .sessionId) { font-family: inherit; }

@@ -155,11 +155,10 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
       )}
       {(reason || error !== null || state.state === 'unresolved') && (
         <Notice tone={attention === 'danger' || (error !== null && !inUse) ? 'danger' : inUse ? 'warning' : undefined}>
-          {/* why: the state's word with LayerFS's message as the tip; off the Overview (whose head has it) its fix is the one action */}
+          {/* why: the state's word with LayerFS's message as the tip; the page head stays above every tab */}
           {reason && (unreadableRecord(m) ? <p title={reason}>{t('recordUnreadable')}</p> : (
             <p className={css.reasonLine} data-reason-word>
               <span title={reason}>{stateWord(state)}</span>
-              {m.platform !== 'docker' && tab !== 'overview' && fixAction(m) ? power : null}
             </p>
           ))}
           {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
@@ -172,7 +171,6 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
       )}
     </>
   )
-  const docker = m.platform === 'docker'
   const machineHead = (
     <PageHead
       icon={<MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={22} />}
@@ -188,8 +186,8 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
   )
   return (
     <Page wide label={name}>
-      {docker && machineHead}
-      <TabBar className={docker ? undefined : logCss.tabsTop} label={t('machineTabs', { name })} active={tab} onSelect={(key) => setTab(key as MachineTab)}
+      {machineHead}
+      <TabBar label={t('machineTabs', { name })} active={tab} onSelect={(key) => setTab(key as MachineTab)}
         tabs={tabs.map((x) => ({ key: x.value, label: x.label, count: counts[x.value], id: `${ids}-${x.value}`, controls: `${ids}-${x.value}-panel` }))} />
 
       {tab === 'files' ? (
@@ -218,13 +216,12 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
         </div>
       ) : (
       <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
-        {!docker && <div className={logCss.panelHead}>{machineHead}</div>}
         <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} onDisk={hasDisk ? () => setSpaceOpen(true) : null}
           troubled={!!(reason || block || error !== null || state.state === 'unresolved')}
           notices={notices}
           fallback={(
             // without the sampler's read (no machine.stats, or not read yet): the facts as the record has them
-            <dl data-docker={docker || undefined} className={css.factRow} aria-label={t('resources')}>
+            <dl className={css.factRow} aria-label={t('resources')}>
               <div><dt>{t(observed.offered ? 'disk' : 'freeDisk')}</dt><dd><DiskLine m={m} view={view} /></dd></div>
               <div><dt>{t('cpuMemory')}</dt><dd>{observed.offered && observed.read?.stats ? <ObservedCpuMemory read={observed.read} /> : resourcesOf(m, t)}</dd></div>
               {live?.toolVersion && <div><dt>{t('toolVersionOf', { kind: kind(m.platform) })}</dt><dd className={css.mono}>{live.toolVersion}</dd></div>}

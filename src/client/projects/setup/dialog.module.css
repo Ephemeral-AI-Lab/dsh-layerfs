@@ -300,7 +300,7 @@
 }
 
 .mono {
-  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--ds-font-family-code);
 }
 
 .notice,
@@ -456,6 +456,29 @@
 
 .modes {
   align-self: flex-start;
+  flex: none;
+}
+
+.storeModeRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.storeNameInput {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.storeConflictNotice {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 /* Existing Stores: a search and rows in one bordered list; the step pane scrolls, the list does not. */

@@ -636,7 +636,7 @@
 }
 
 .blameMeta code {
-  font-family: inherit;
+  font-family: var(--ds-font-family-code);
 }
 
 /* Long branch names stay on their line instead of pushing into the next column. */
@@ -673,13 +673,13 @@
   flex: none;
   width: 36px;
   text-align: right;
-  font-family: inherit;
+  font-family: var(--ds-font-family-code);
   color: var(--dsw-alias-label-tertiary);
   user-select: none;
 }
 
 .blameText {
-  font-family: inherit;
+  font-family: var(--ds-font-family-code);
   color: var(--dsw-alias-label-primary);
 }
 

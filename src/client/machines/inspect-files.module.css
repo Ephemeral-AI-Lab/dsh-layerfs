@@ -251,7 +251,7 @@
   border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-state-error-primary);
-  font-family: inherit;
+  font-family: var(--ds-font-family-code);
   font-size: 11.5px;
 }
 

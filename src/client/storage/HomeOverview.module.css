@@ -78,4 +78,4 @@
   }
 }
 
-.page :is(button, input, select, textarea, summary) { font-family: inherit; }
+:where(.page) :where(button, input, select, textarea, summary) { font-family: inherit; }

@@ -94,6 +94,27 @@ export function freeStoreName(base: string, view: Pick<StorageView, 'stores'> | 
   for (let n = 2; ; n++) if (!taken.has(`${root}-${n}`.slice(0, 63))) return `${root}-${n}`.slice(0, 63)
 }
 
+export interface NewStoreResolution {
+  slugTaken: boolean
+  autoName: string
+  chosenName: string
+  showField: boolean
+  conflictNotice: boolean
+}
+
+/** Resolve the Store name for a new Store: follows `slug` quietly until `slug` collides with an existing Store, then suggests a free name and exposes the editable field + notice. */
+export function resolveNewStoreName(
+  slug: string,
+  typedStoreName: string | null,
+  view: Pick<StorageView, 'stores'> | undefined,
+): NewStoreResolution {
+  const slugTaken = !!slug && !!view?.stores.some((s) => s.name === slug)
+  const autoName = slugTaken ? freeStoreName(slug, view) : slug
+  const chosenName = (typedStoreName ?? autoName).trim()
+  const showField = slugTaken || typedStoreName !== null
+  return { slugTaken, autoName, chosenName, showField, conflictNotice: slugTaken && typedStoreName === null }
+}
+
 /**
  * A new PostgreSQL Store's login (LayerFS 2.0 saved logins): one saved before,
  * by name (`store auths`), or a new one the host saves now under `authName`

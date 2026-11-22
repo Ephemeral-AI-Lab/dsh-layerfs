@@ -31,7 +31,7 @@ import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
 import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
-import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, runsOn, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
+import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, resolveNewStoreName, runsOn, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
 import { pgDefaultMachine, pgPlaceable } from '../../storage/model.ts'
 import { LocationPicker, placeName, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
 import { placeStore, runStep, startMachine } from './run.ts'
@@ -262,6 +262,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [mode, setMode] = useState<StoreMode>('new')
   const [picked, setPicked] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [storeName, setStoreName] = useState<string | null>(null)
   const [url, setUrl] = useState('')
   // a PostgreSQL Store's login: a new one (name, user, password typed once) or one saved before
   const [loginMode, setLoginMode] = useState<LoginMode>('new')
@@ -321,12 +322,20 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     if (next === 'empty' && !nameTyped) setName('')
   }
 
-  const storeTaken = mode === 'new' && data?.stores.some((store) => store.name === slug)
-  const nameError = name.trim() && !NAME.test(slug) ? t('nameInvalid') : storeTaken ? t('storeTaken', { store: slug }) : null
+  const storeRes = resolveNewStoreName(slug, storeName, data)
+  const autoStoreName = storeRes.autoName
+  const chosenStoreName = storeRes.chosenName
+  const showStoreName = mode === 'new' && storeRes.showField
+  const storeConflictNotice = mode === 'new' && storeRes.conflictNotice
+  const storeNameTaken = mode === 'new' && !!chosenStoreName && !!data?.stores.some((store) => store.name === chosenStoreName)
+  const nameError = name.trim() && !NAME.test(slug) ? t('nameInvalid') : null
+  const storeNameError = showStoreName && chosenStoreName
+    ? (!NAME.test(chosenStoreName) ? t('storeNameInvalid') : storeNameTaken ? t('storeTaken', { store: chosenStoreName }) : null)
+    : null
   const folderError = importing && source.trim() && !source.trim().startsWith('/') ? t('folderInvalid') : null
   const urlError = kind === 'postgresql' && mode === 'new' && url.trim() ? (!PG_URL.test(url.trim()) || PG_URL_LOGIN.test(url.trim()) ? t('urlInvalid') : null) : null
   // a new login is named after the Store unless a saved login has that name; it is never saved over one
-  const newLoginName = loginName ?? (authNames.includes(slug) ? '' : slug)
+  const newLoginName = loginName ?? (authNames.includes(chosenStoreName) ? '' : chosenStoreName)
   const login: PgLogin = loginMode === 'saved' ? { auth: pickedAuth ?? '' } : { authName: newLoginName, user: pgUser, password: pgPassword }
   const loginProblem = kind === 'postgresql' && mode === 'new' ? pgLoginProblem(login, authNames) : null
   const loginNameError = loginMode === 'new' && loginProblem === 'nameInvalid' ? t('loginNameInvalid') : loginMode === 'new' && loginProblem === 'nameTaken' ? t('loginNameTaken', { auth: newLoginName.trim() }) : null
@@ -335,14 +344,14 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const startWords = startWordsOf(t)
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
-    1: mode === 'existing' ? !!existing : NAME.test(slug) && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
+    1: mode === 'existing' ? !!existing : NAME.test(chosenStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
     2: chosen.length > 0 && chosen.every((m) => offered.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0,
   }
   const valid = !!data && parts.every((i) => ok[i])
 
   const plan = (): CreatePlan => ({
     name: slug, kind, store: existing,
-    ...(existing ? {} : { newStore: { name: slug, ...(kind === 'postgresql' ? { url: url.trim(), login } : {}) } }),
+    ...(existing ? {} : { newStore: { name: chosenStoreName, ...(kind === 'postgresql' ? { url: url.trim(), login } : {}) } }),
     machines: chosen,
     ...(importing && source.trim() ? { source: source.trim() } : {}),
   })
@@ -375,10 +384,10 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     projectDialog.close()
   }
 
-  const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setPgChoice(null); setSqliteMachine(null) }
+  const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setStoreName(null); setPgChoice(null); setSqliteMachine(null) }
   const chooseLoginMode = (next: LoginMode) => { setLoginMode(next); if (next === 'saved' && !authNames.includes(pickedAuth ?? '')) setPickedAuth(authNames[0] ?? null) }
   const chooseMode = (next: StoreMode) => {
-    setMode(next); setPgChoice(null); setSqliteMachine(null)
+    setMode(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null)
     if (next === 'existing' && !stores.some((s) => s.name === picked)) setPicked(stores[0]?.name ?? null)
   }
   const head = <Head title={importing ? t('importTitle') : t('newTitle')} sub={importing ? t('importSub') : t('newSub')} t={t} back={running ? undefined : back} />
@@ -387,8 +396,8 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const kindWord = kind === 'sqlite' ? t('kindSqliteTitle') : t('kindPgTitle')
   const summaries: Record<Part, string> = {
     0: ok[0] ? (importing ? t('fromSummary', { name: slug, source: shortPath(source.trim()) }) : slug) : importing && !source.trim() ? t('needFolder') : t('notNamed'),
-    1: !ok[1] ? (mode === 'existing' ? t('pickStore') : kind === 'postgresql' && NAME.test(slug) ? pgMissing(url.trim() && !urlError ? loginProblem : 'url', t) : t('needStoreName'))
-      : existing ? `${kindWord} · ${existing.name}` : `${kindWord} · ${t('newWord')} · ${slug}`,
+    1: !ok[1] ? (mode === 'existing' ? t('pickStore') : storeNameError ? t('renameStore') : kind === 'postgresql' && NAME.test(chosenStoreName) ? pgMissing(url.trim() && !urlError ? loginProblem : 'url', t) : t('needStoreName'))
+      : existing ? `${kindWord} · ${existing.name}` : `${kindWord} · ${t('newWord')} · ${chosenStoreName}`,
     2: ok[2] ? chosen.map((m) => placeName(m, words)).join(', ') : stopped.length ? t('needsStart', { machine: stopped.join(', ') }) : t('noneChosen'),
   }
   const railTitles: Record<Part, string> = { 0: t('stepProject'), 1: t('store'), 2: t('stepMachine') }
@@ -439,13 +448,26 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
               {(['sqlite', 'postgresql'] as const).map((k) => <KindCard key={k} kind={k} t={t} selected={kind === k} onSelect={() => chooseKind(k)} />)}
             </div>
           </Group>
-          <Group label={t('store')}>
-            <SegmentedControl<StoreMode> id={`${id}-mode`} className={css.modes} value={mode} label={t('store')} onChange={chooseMode}
-              options={[
-                { value: 'new', label: kind === 'sqlite' ? t('newStore') : t('newConnection') },
-                { value: 'existing', label: t('existingCount', { n: stores.length }) },
-              ]} />
-          </Group>
+          <div className={css.field} data-invalid={storeNameError ? '' : undefined}>
+            <h3 className={css.label}>{t('store')}</h3>
+            <div className={css.storeModeRow}>
+              <SegmentedControl<StoreMode> id={`${id}-mode`} className={css.modes} value={mode} label={t('store')} onChange={chooseMode}
+                options={[
+                  { value: 'new', label: kind === 'sqlite' ? t('newStore') : t('newConnection') },
+                  { value: 'existing', label: t('existingCount', { n: stores.length }) },
+                ]} />
+              {showStoreName ? <Input value={storeName ?? autoStoreName} className={clsx(css.mono, css.storeNameInput)} aria-label={t('storeName')}
+                placeholder={autoStoreName} autoComplete="off" spellCheck={false}
+                onChange={(e) => setStoreName(e.target.value)} /> : null}
+            </div>
+            {showStoreName ? (
+              storeNameError
+                ? <span className={css.error} role="alert">{storeNameError}</span>
+                : storeConflictNotice
+                  ? <p className={css.storeConflictNotice} role="status">{t('storeNameAutoHint', { taken: slug, store: chosenStoreName })}</p>
+                  : <span className={css.hint}>{t('storeNameHint')}</span>
+            ) : null}
+          </div>
           {mode === 'new' ? <>
             {kind === 'postgresql' ? <>
               <Field label={t('url')} hint={t('urlHint')} error={urlError}>
