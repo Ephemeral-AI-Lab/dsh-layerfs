@@ -112,7 +112,7 @@ test('a PostgreSQL Store naming no saved login is broken: its words, its tip and
   // a Store with a login, or a sqlite Store from another build, is not this case
   assert.equal(M.needsLogin({ ...pg, postgresql: { auth: 'team' } }), false)
   assert.equal(M.needsLogin(store({ state: 'broken', reason: 'outdated' })), false)
-  assert.equal(M.brokenWords(store({ state: 'broken', reason: 'not_answering' }), t), 'stateBroken · not answering')
+  assert.equal(M.brokenWords(store({ state: 'broken', reason: 'not_answering' }), t), 'stateBroken · reasonNotAnswering')
   assert.equal(M.brokenWords(store({ state: 'broken', reason: 'unresolved' }), t), 'unresolved')
   assert.equal(M.storeTip(store({ state: 'broken', reason: 'missing', fix: 'layerfs store remove s1' }), t), 'layerfs store remove s1')
 })

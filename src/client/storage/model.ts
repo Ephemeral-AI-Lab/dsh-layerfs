@@ -1,7 +1,7 @@
 /** Storage's pure rules: placement, attention and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
 import type { BackupFile, BucketRow, JobKind, PgConnection, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
-import type { StorageT } from './locale.ts'
+import type { StorageKey, StorageT } from './locale.ts'
 import { connectBucketFix } from '../../shared/doctor.ts'
 
 /** A sqlite Store saved under the LayerFS home (`native`). */
@@ -223,7 +223,20 @@ export function storeTone(state: string, blockedBy?: StoreRow['blockedBy']): Ton
   return 'neutral'
 }
 
-/** A Store's state in words (one of the six), with its reason code when given: `Broken · unresolved`. */
+const REASON_KEYS: Record<string, StorageKey> = {
+  corrupt: 'reasonCorrupt',
+  outdated: 'reasonOutdated',
+  missing: 'reasonMissing',
+  unreachable: 'reasonUnreachable',
+  failed: 'reasonFailed',
+  unresolved: 'reasonUnresolved',
+  lost: 'reasonLost',
+  engine_down: 'reasonEngineDown',
+  unsupported: 'reasonUnsupported',
+  not_answering: 'reasonNotAnswering',
+}
+
+/** A Store's state in words (one of the six), with its localized reason when given: `Broken · corrupt` / `损坏 · 数据损坏`. */
 export function storeStateWords(state: string, t: StorageT, reason?: string | null): string {
   const word = (() => {
     switch (state) {
@@ -235,7 +248,10 @@ export function storeStateWords(state: string, t: StorageT, reason?: string | nu
       default: return t('stateUnknown')
     }
   })()
-  return reason ? `${word} · ${reason.replace(/_/g, ' ')}` : word
+  if (!reason) return word
+  const key = REASON_KEYS[reason.toLowerCase()]
+  const text = key ? t(key) : reason.replace(/_/g, ' ')
+  return `${word} · ${text}`
 }
 
 /**

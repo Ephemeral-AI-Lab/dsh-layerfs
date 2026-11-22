@@ -394,10 +394,10 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
         </p>
       ) : null}
       {check.state === 'failed' ? (
-        <>
-          {check.connected ? <p className={scss.formNote}>{t('cdConnectedNotReached', { store: check.store, machine: place(machine) })}</p> : null}
-          {stopped ? <p className={scss.formNote} role="status">{t('cdMachineStopped', { machine: place(machine) })}</p> : null}
-          {guidance ? <p className={scss.formNote} data-check-failure={kind ?? undefined}>{guidance}</p> : null}
+        <div className={css.checkFailure}>
+          {check.connected ? <p className={css.checkFailureNote}>{t('cdConnectedNotReached', { store: check.store, machine: place(machine) })}</p> : null}
+          {stopped ? <p className={css.checkFailureNote} role="status">{t('cdMachineStopped', { machine: place(machine) })}</p> : null}
+          {guidance ? <p className={css.checkFailureNote} data-check-failure={kind ?? undefined}>{guidance}</p> : null}
           <Refusal error={check.error} labels={refusalLabels(t)} />
           {!stopped && kind === 'server' && machine !== 'native' && !own ? (
             <Button variant="outline" size="sm" className={scss.selfStart} onClick={onOwn}>{t('cdOwnAddress', { machine: place(machine) })}</Button>
@@ -428,7 +428,7 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
                 onClick={onRetryOwn}>{t('cdSaveAndCheck')}</Button>
             </>
           ) : null}
-        </>
+        </div>
       ) : null}
     </>
   )

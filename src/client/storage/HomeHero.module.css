@@ -182,7 +182,7 @@
   color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
 }
 
-.tab[data-active] .count {
+.tab[data-active] .count:not([data-tone]) {
   color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
 }
 

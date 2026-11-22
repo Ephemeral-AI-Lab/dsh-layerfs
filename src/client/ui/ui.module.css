@@ -322,7 +322,7 @@
 }
 
 .chip[data-tone='success'] {
-  color: var(--dsw-alias-state-success-primary);
+  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary));
 }
 
 .chip[data-tone='info'] {

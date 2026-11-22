@@ -45,7 +45,7 @@ Which Stores are backed up here, and is each copy current.
 | Linked Store | The Store and where it is (**LayerFS Home**, a machine, **PostgreSQL**) | The Store name → its Store page | — | **Not linked**; `—` for files not in this home |
 | State | **Backed up**, **Store changed**, **Bucket changed**, **Both changed**, **Missing**, **Not checked**, **Not listed**; LayerFS's reason on hover | — | `backup list` (read: `behind`, `changed`, `missing`) | dashed chip until listed |
 | Size, Written | Bytes, and when the object was written | Hover → the exact time | `backup list` (read) | |
-| **Back up now** | | Press → a backup job over that file starts at once; its card shows on the Store | `backup create <store> <bucket> --file`, then `backup list` | only for **Store changed**, **Missing**, or a link not listed yet, on a SQLite Store that is not busy |
+| **Back up now** | | Press → a backup job over that file starts at once; its card shows on the Store | `backup create <store> <bucket> --file`, then `backup list` | only for **Store changed**, **Missing**, or a link not listed yet, on a SQLite Store; disabled with an explanation tip when the Store is stopped, busy, blocked, or broken |
 | **Restore…** | | Press → [Restore](#modals-opened-here) | `backup restore`, then `backup list` | not for **Missing** or unlisted rows |
 | Empty | **No Store files here** / **Not listed yet** | — | — | |
 

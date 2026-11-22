@@ -43,7 +43,7 @@
 | 关联的 Store | Store 及其所在位置（**LayerFS Home**、某台机器、**PostgreSQL**） | Store 名称 → 它的 Store 页面 | — | **未关联**（Not linked）；不在此主目录中的文件显示 `—` |
 | 状态 | **已备份**（Backed up）、**Store 已更改**（Store changed）、**存储桶已更改**（Bucket changed）、**双方都已更改**（Both changed）、**缺失**（Missing）、**未检查**（Not checked）、**未列出**（Not listed）；悬停可看 LayerFS 给出的原因 | — | `backup list` (读取：`behind`、`changed`、`missing`) | 列出之前是虚线标签 |
 | 大小、写入时间 | 字节数，以及对象写入的时间 | 悬停 → 精确时间 | `backup list` (读取) | |
-| **立即备份**（Back up now） | | 按下 → 立即开始一个覆盖该文件的备份任务；任务卡片显示在 Store 上 | `backup create <store> <bucket> --file`，然后 `backup list` | 仅用于 **Store 已更改**（Store changed）、**缺失**（Missing），或尚未列出的关联，且 SQLite Store 不忙时 |
+| **立即备份**（Back up now） | | 按下 → 立即开始一个覆盖该文件的备份任务；任务卡片显示在 Store 上 | `backup create <store> <bucket> --file`，然后 `backup list` | 仅用于 **Store 已更改**（Store changed）、**缺失**（Missing），或尚未列出的关联；当关联的 SQLite Store 停机、正忙、受阻或损坏时按钮置灰并附悬停原因 |
 | **恢复…**（Restore…） | | 按下 → [恢复](#modals-opened-here) | `backup restore`，然后 `backup list` | **缺失**（Missing）或未列出的行没有 |
 | 空 | **这里还没有 Store 文件**（No Store files here）/ **尚未列出**（Not listed yet） | — | — | |
 

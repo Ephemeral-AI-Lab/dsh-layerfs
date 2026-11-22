@@ -109,7 +109,7 @@
   font-size: 11.5px;
   line-height: 18px;
   font-weight: 400;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   text-align: center;
   font-variant-numeric: tabular-nums;
 }

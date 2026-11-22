@@ -26,6 +26,11 @@ const REASON_SHORT: Record<string, string> = {
   unavailable: 'dpShortUnavailable',
   missing: 'dpShortMissing',
   unsupported: 'dpShortUnsupported',
+  outdated: 'dpShortOutdated',
+  corrupt: 'dpShortCorrupt',
+  unreachable: 'dpShortUnreachable',
+  unresolved: 'dpShortUnresolved',
+  not_answering: 'dpShortNotAnswering',
 }
 const cap = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
@@ -49,9 +54,16 @@ export function wordsOf(t: DoctorT) {
   }
   /** A finding's own word: the locale's for its check id, else the id's last part spelled out. */
   const checkWord = (id: string): string => { const key = `chk_${id.replace(/[^A-Za-z0-9]/g, '_')}`; return key in locales.en ? tt(key) : humanCheck(id) }
-  const rowWord = (code: string | null): string => (!code ? '' : code === 'stopped' ? tt('dpWordStopped') : code === 'could' ? tt('dpWordCould')
-    : code.startsWith('check:') ? checkWord(code.slice(6)) : human(code.slice(code.indexOf(':') + 1)))
-  const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.name)
+  const rowWord = (code: string | null): string => {
+    if (!code) return ''
+    if (code === 'stopped') return tt('dpWordStopped')
+    if (code === 'could') return tt('dpWordCould')
+    if (code.startsWith('check:')) return checkWord(code.slice(6))
+    const raw = code.slice(code.indexOf(':') + 1)
+    const key = REASON_SHORT[raw.toLowerCase()]
+    return key ? cap(tt(key)) : human(raw)
+  }
+  const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.kind === 'machine' && x.name === 'native' ? tt('dpHomeMachine') : x.name)
   const platform = (p: string | null | undefined): string => (p === 'native' ? tt('dpThisComputer') : p ?? '')
   const engine = (e: string | null | undefined): string => (e === 'postgresql' ? 'PostgreSQL' : 'SQLite')
   const provider = (p: string | null | undefined): string => (p === 'r2' ? 'Cloudflare R2' : p === 'minio' ? 'MinIO' : p === 's3' ? 'S3' : p ?? '')
@@ -86,7 +98,7 @@ export function wordsOf(t: DoctorT) {
     const bits: string[] = []
     if (x.kind === 'home') bits.push(x.name)
     else if (x.kind === 'machine') {
-      bits.push(x.platform ?? '')
+      bits.push(platform(x.platform))
       if (x.cpus) bits.push(tt('dpFactCpu', { n: x.cpus }))
       if (x.memoryBytes) bits.push(tt('dpFactMemory', { n: Math.round(x.memoryBytes / 1024 ** 3) }))
       const stores = kids.filter((k) => k.kind === 'store').length, boxes = kids.filter((k) => k.kind === 'sandbox').length

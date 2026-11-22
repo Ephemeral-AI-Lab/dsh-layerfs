@@ -48,7 +48,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
 
   return (
     <div className={css.stack}>
-      <dl className={css.tiles} aria-label={t('storeFacts')}>
+      <div className={css.tiles} role="group" aria-label={t('storeFacts')}>
         {pg ? (
           <Tile label={t('spServer')} value={s.state === 'ready' ? t('spReachable') : s.state === 'broken' ? t('spUnreachable') : t('unknown')}
             tone={s.state === 'broken' ? 'danger' : undefined} sub={s.state === 'broken' ? storeStateWords(s.state, t, s.reason) : undefined} title={s.fix ?? undefined} />
@@ -65,7 +65,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           <Tile label={t('factLastBackup')} value={latest !== null ? ago(latest, now, tt) : t('noBackup')} title={latest !== null ? when(latest) : undefined}
             onOpen={() => onTab('backups')} tone={latest === null ? 'muted' : undefined} sub={s.links[0] ? s.links[0].bucket : undefined} />
         )}
-      </dl>
+      </div>
 
       <FileCard stats={stats} error={stats ? undefined : statsError} pg={pg} t={t} />
       {/* The host journals a read only when store.stats names the Store's identity
@@ -102,15 +102,15 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
 
 function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value: string, sub?: string | undefined, onOpen?: () => void, tone?: 'muted' | 'warning' | 'danger' | undefined, title?: string | undefined }): ReactNode {
   const body = (
-    <>
-      <dt>{label}</dt>
-      <dd className={css.tileValue} data-tone={tone} title={title}>{value}</dd>
-      {sub ? <dd className={css.tileSub}>{sub}</dd> : null}
-    </>
+    <span className={css.tileInner}>
+      <span className={css.tileLabel}>{label}</span>
+      <span className={css.tileValue} data-tone={tone} title={title}>{value}</span>
+      {sub ? <span className={css.tileSub}>{sub}</span> : null}
+    </span>
   )
   return onOpen
-    ? <div className={css.tile}><button type="button" className={css.tileButton} onClick={onOpen}><dl className={css.tileInner}>{body}</dl></button></div>
-    : <div className={css.tile}><dl className={css.tileInner}>{body}</dl></div>
+    ? <div className={css.tile}><button type="button" className={css.tileButton} onClick={onOpen}>{body}</button></div>
+    : <div className={css.tile}>{body}</div>
 }
 
 /** The database file's pages by part, and unique content over its packed bytes. */

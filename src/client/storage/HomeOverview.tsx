@@ -281,7 +281,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     : tab === 'machines' ? (
       <>
         <Button title={machineReason} disabled={!!machineReason} variant="outline" size="sm" className={heroCss.actionButton} icon={plus} onClick={props.onNewMachine}>{t('newMachine')}</Button>
-        <Button variant="ghost" size="sm" icon={<IconInspectOutlineRegular size={14} />}
+        <Button variant="outline" size="sm" className={heroCss.actionButton} icon={<IconInspectOutlineRegular size={14} />}
           onClick={() => { void startDoctor('host').catch(() => props.onOpen('health')) }}>{mc.doctorT('diagnoseHost')}</Button>
       </>
     )

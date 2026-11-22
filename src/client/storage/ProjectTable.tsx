@@ -338,10 +338,12 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
   return (
     <div className={css.group} data-project={key} data-project-card={p.name} data-open={open || undefined} role="rowgroup" aria-label={p.name}>
       <div className={css.row} role="row" onClick={(e) => { if (!fromControl(e)) toggle() }}>
-        <button type="button" className={css.toggle} aria-expanded={!!open} aria-controls={detailId}
-          aria-label={t(open ? 'ptCollapse' : 'ptExpand', { name: p.name })} title={t(open ? 'ptCollapse' : 'ptExpand', { name: p.name })} onClick={toggle}>
-          <IconChevronRightOutlineRegular size={12} />
-        </button>
+        <span role="cell" className={css.toggleCell}>
+          <button type="button" className={css.toggle} aria-expanded={!!open} aria-controls={detailId}
+            aria-label={t(open ? 'ptCollapse' : 'ptExpand', { name: p.name })} title={t(open ? 'ptCollapse' : 'ptExpand', { name: p.name })} onClick={toggle}>
+            <IconChevronRightOutlineRegular size={12} />
+          </button>
+        </span>
         <span className={css.identity} role="cell">
           <span className={css.mark} aria-hidden="true"><LayerfsGlyph size={20} /></span>
           <span className={css.main}>
@@ -484,7 +486,7 @@ function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: numb
 function ListHead({ title, count, other, onSwitch, action }: { title: string, count: number | null, other: string, onSwitch: () => void, action?: ReactNode }): ReactNode {
   return (
     <div className={css.listHead}>
-      <h3 className={css.listTitle}>{title}</h3>
+      <h2 className={css.listTitle}>{title}</h2>
       {count != null ? <span className={css.muted}>{count}</span> : null}
       <span className={css.spacer} />
       <button type="button" className={css.add} onClick={onSwitch} data-list-switch>

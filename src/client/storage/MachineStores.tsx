@@ -45,7 +45,7 @@ import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { loginGroups, machineStores, projectSplit, startKind, type PgLoginGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
 import { cardJob, pgStoreBytes, rowMachine, storeNoticeTone, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
-import { MachineGlyph } from '../machines/icons.tsx'
+import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
 import { StoreAction, StoreMenu, stoppedBlock, storeNotice, useStoreTip, type LoginActions, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
@@ -369,7 +369,7 @@ function ConnectedFrom({ s, view, t, on, now, sandboxes }: { s: StoreRow, view: 
               <span className={css.metaMark}>{c.machine === null ? <HomeGlyph size={12} /> : <MachineGlyph platform={record?.platform ?? ''} size={12} />}</span>
               <span className={css.chipName}>{c.machine === null ? t('pgThisComputer') : name}</span>
               <span className={css.dot} data-health={health} />
-              {boxes ? <span className={css.chipCount} aria-label={t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes })}>{boxes} ▣</span> : null}
+              {boxes ? <span className={css.chipCount} aria-label={t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes })}>{boxes}<SandboxGlyph size={11} /></span> : null}
             </button>
           )
         })}
@@ -493,8 +493,8 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   const machineState = view.machines.find((m) => m.name === s.machine)?.state
   // Shown only when something is happening: ready says nothing. A state word with its reason; the fix line is the tip (the one action).
   const notice = storeNotice(s, machineState, t)
-  const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
-    : s.op ? <OpPanel store={s} t={t} />
+  const status = job ? <JobPanel job={job} compact t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
+    : s.op ? <OpPanel store={s} compact t={t} />
       : notice ? <StoreStatus s={s} t={t} words={notice} onStart={on.start} machineState={machineState} />
         : null
   return (
@@ -584,8 +584,8 @@ function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, sa
   const job = cardJob(jobs, s.name, dismissed, now)
   // a broken database: its words, LayerFS's sentence as the tip, its fix as the one action (Save a login…, Update)
   const notice = storeNotice(s, null, t)
-  const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
-    : s.op ? <OpPanel store={s} t={t} />
+  const status = job ? <JobPanel job={job} compact t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
+    : s.op ? <OpPanel store={s} compact t={t} />
       : notice ? <StoreStatus s={s} t={t} words={notice} /> : null
   // The database's size as LayerFS measures it (store get --with stats), read again when its projects change or a job ends.
   const stats = useQuery(() => api.call<StoreStats>('GET', `/api/stores/${enc(s.name)}/stats`), [api, s.name],
@@ -596,7 +596,7 @@ function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, sa
   // Until the size is read: the projects' Commit counters, which leave out what Init saved.
   const counted = split?.rows.filter((r) => r.bytes !== null) ?? []
   const total = size ?? (counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null)
-  const more = s.projects.length > ROWS
+  const shown = status ? 1 : ROWS
   return (
     <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={s.state === 'broken' ? 'danger' : undefined}>
       <Head s={s} on={on} t={t} machine={machine ?? undefined} runningJob={!!job && !job.ended} onOpenStore={onOpenStore} />
@@ -606,9 +606,9 @@ function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, sa
         meta={pg?.database ? <span className={css.metaText}>{pg.database}</span> : null} />
       <ConnectedFrom s={s} view={view} t={t} on={on} now={now} sandboxes={sandboxes} />
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />
-      {more || status ? (
+      {s.projects.length > shown ? (
         <div className={css.foot}>
-          <More s={s} shown={status ? 1 : ROWS} t={t} onOpenStore={onOpenStore} />
+          <More s={s} shown={shown} t={t} onOpenStore={onOpenStore} />
         </div>
       ) : null}
     </Card>

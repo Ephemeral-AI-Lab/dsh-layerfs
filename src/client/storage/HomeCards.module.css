@@ -89,6 +89,11 @@
   font-size: 13px;
 }
 
+.finderSearch input::placeholder {
+  color: var(--dsw-alias-label-secondary);
+  opacity: 1;
+}
+
 .finderSort {
   width: auto;
   min-width: 172px;

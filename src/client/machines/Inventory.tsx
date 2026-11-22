@@ -200,7 +200,7 @@ export function CreatingRow({ c, showProject, bare }: { c: Creation, showProject
 function ColumnHead({ label, count, action }: { label: string, count: number, action?: ReactNode }): ReactNode {
   return (
     <header className={css.columnHead}>
-      <h3 className={css.columnTitle}>{label}</h3>
+      <h2 className={css.columnTitle}>{label}</h2>
       <span className={css.columnCount}>{count}</span>
       <span className={css.columnSpacer} />
       {action}
