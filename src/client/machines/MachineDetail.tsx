@@ -198,14 +198,13 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
               // a daemon.log in a run folder: the Daemon log tab of the Sandbox that folder is of, when this machine has it
               const sandbox = sandboxOfRunFolder(folder)
               return sandbox && sandboxesOn(view, m).some((sb) => sb.name === sandbox) ? () => go({ kind: 'sandbox', machine: m.name, name: sandbox, tab: 'log' }) : null
-            } : undefined}
-            unavailableAction={state.state === 'stopped' || engine ? power : undefined} />
+            } : undefined} />
         </div>
       ) : tab === 'log' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
           {notices}
           <LogPane kind="machine" name={m.name} label={t('workerLogOf', { name })}
-            unavailable={state.state === 'stopped' ? { message: t('logMachineStopped'), action: power } : null} />
+            unavailable={state.state === 'stopped' ? { message: t('logMachineStopped') } : null} />
         </div>
       ) : tab !== 'overview' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>

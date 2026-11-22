@@ -4,11 +4,14 @@
 //   node --test test/pb03-p1-polish.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as setupModel from '../src/client/projects/setup/model.ts'
 import { locales as setupLocales } from '../src/client/projects/setup/locale.ts'
+
+const PROJECT_NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const src = (rel) => readFileSync(join(root, rel), 'utf8')
@@ -128,4 +131,50 @@ test('P1-1: e2e-crawl navigates to Doctor/Logs/Settings through the NavBar inste
   assert.doesNotMatch(crawl, /centerPage\('Health'\)/, 'must not click renamed Health button')
   assert.match(crawl, /centerPage\('Doctor'\)/, 'opens Doctor via NavBar')
   assert.match(crawl, /getByRole\('region',\s*\{\s*name:\s*'Doctor'\s*\}\)/, 'waits for Doctor region landmark')
+})
+
+test('P1-3 (FIX1): freeStoreName and resolveNewStoreName handle 62/63-char names and multi-suffix collisions validly without hanging', () => {
+  const name62 = 'a'.repeat(62)
+  const res62 = setupModel.resolveNewStoreName(name62, null, { stores: [{ name: name62 }] })
+  assert.equal(res62.slugTaken, true)
+  assert.equal(res62.conflictNotice, true)
+  assert.ok(res62.chosenName.length <= 63, `62-char candidate <= 63 chars: ${res62.chosenName}`)
+  assert.match(res62.chosenName, PROJECT_NAME, `62-char candidate must satisfy NAME regex: ${res62.chosenName}`)
+  assert.notEqual(res62.chosenName, name62)
+
+  // Guard 63-char collision in a short-timeout subprocess so an infinite loop fails fast instead of hanging the test runner.
+  const modelUrl = pathToFileURL(join(root, 'src/client/projects/setup/model.ts')).href
+  const script = `
+    import { freeStoreName, resolveNewStoreName } from ${JSON.stringify(modelUrl)};
+    const name63 = 'a'.repeat(63);
+    const r63 = resolveNewStoreName(name63, null, { stores: [{ name: name63 }] });
+    const takenSingleDigit = [
+      name63,
+      ...Array.from({ length: 8 }, (_, i) => 'a'.repeat(61) + '-' + (i + 2)),
+    ].map((name) => ({ name }));
+    const multi10 = freeStoreName(name63, { stores: takenSingleDigit });
+    const multi11 = freeStoreName(name63, { stores: [...takenSingleDigit, { name: 'a'.repeat(60) + '-10' }] });
+    const sepBase = 'a'.repeat(60) + '-b';
+    const sepRes = freeStoreName(sepBase, { stores: [{ name: sepBase }] });
+    console.log(JSON.stringify({ r63, multi10, multi11, sepRes }));
+  `
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 3000 })
+  const { r63, multi10, multi11, sepRes } = JSON.parse(out.trim())
+  assert.equal(r63.slugTaken, true)
+  assert.equal(r63.conflictNotice, true)
+  assert.equal(r63.chosenName, `${'a'.repeat(61)}-2`)
+  assert.match(r63.chosenName, PROJECT_NAME)
+  assert.equal(multi10, `${'a'.repeat(60)}-10`)
+  assert.match(multi10, PROJECT_NAME)
+  assert.equal(multi11, `${'a'.repeat(60)}-11`)
+  assert.match(multi11, PROJECT_NAME)
+  assert.equal(sepRes, `${'a'.repeat(60)}-2`)
+  assert.match(sepRes, PROJECT_NAME)
+})
+
+test('P1-4 (FIX1): MachineDetail keeps one PowerButton in PageHead and omits duplicate power actions in LogPane and InspectFiles', () => {
+  const detail = src('src/client/machines/MachineDetail.tsx')
+  assert.doesNotMatch(detail, /unavailableAction\s*=/, 'InspectFiles must not render a second power button when PageHead already stays on top')
+  assert.doesNotMatch(detail, /unavailable=\{state\.state === 'stopped' \? \{[^}]*action:\s*power/, 'LogPane unavailable banner must not render a second power button')
+  assert.match(detail, /unavailable=\{state\.state === 'stopped' \? \{ message: t\('logMachineStopped'\) \} : null\}/, 'LogPane keeps the stopped explanation banner without duplicating power')
 })
