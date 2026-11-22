@@ -150,7 +150,7 @@ export const stoppedBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): boolean 
 export const brokenBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): string | null =>
   s.state === 'blocked' && s.blockedBy?.machine && !['', 'stopped', 'busy'].includes(s.blockedBy.reason) ? s.blockedBy.machine : null
 
-/** Whether a SQLite Store's machine is stopped (normal state, never a failure). */
+/** Whether a SQLite Store's banner/action should treat it as waiting on a stopped machine (a broken Store keeps priority). */
 export const storeMachineStopped = (s: Pick<StoreRow, 'kind' | 'state' | 'blockedBy'>, machineState?: string | null): boolean =>
   s.state !== 'broken' && !brokenBlock(s) && (stoppedBlock(s) || (s.kind === 'sqlite' && machineState === 'stopped'))
 
@@ -166,12 +166,12 @@ export function storeNoticeTone(s: Pick<StoreRow, 'kind' | 'state' | 'blockedBy'
 
 export type MachineHealthKey = 'spMachineRunning' | 'spMachineStopped' | 'spMachineBroken' | 'spMachineUnreadable' | 'spMachineBusy' | 'spMachineUnknown'
 
-/** Overview Health › Machine row: green when running, neutral grey when stopped/busy/unknown, red when broken/unreadable. */
+/** Overview Health › Machine row: grades the machine by its own state (even when the Store itself is broken). */
 export function overviewMachineHealth(s: Pick<StoreRow, 'kind' | 'machine' | 'state' | 'blockedBy'>, machineState?: string | null): { tone: 'ok' | 'info' | 'danger', key: MachineHealthKey } {
   if (storeMachineBroken(s, machineState)) {
     return { tone: 'danger', key: s.blockedBy?.reason === 'failed' ? 'spMachineUnreadable' : 'spMachineBroken' }
   }
-  if (storeMachineStopped(s, machineState)) return { tone: 'info', key: 'spMachineStopped' }
+  if (stoppedBlock(s) || (s.kind === 'sqlite' && machineState === 'stopped')) return { tone: 'info', key: 'spMachineStopped' }
   if (machineState === 'busy' || (s.state === 'blocked' && s.blockedBy?.reason === 'busy')) return { tone: 'info', key: 'spMachineBusy' }
   if (machineState === 'ready' || (s.machine === 'native' && machineState !== 'broken')) return { tone: 'ok', key: 'spMachineRunning' }
   return { tone: 'info', key: 'spMachineUnknown' }

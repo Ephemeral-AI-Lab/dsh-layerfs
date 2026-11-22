@@ -36,7 +36,7 @@ const testPlugin = {
         }
       }
       const rich = {
-        Button: `({ variant, size, type = 'button', icon, children, className, title, 'aria-label': ariaLabel, 'aria-disabled': ariaDisabled, 'aria-describedby': ariaDescribedBy, disabled, onClick }) => { globalThis.__u204Captured.buttons.push({ label: typeof children === 'string' ? children : ariaLabel ?? '', variant, type, disabled: !!disabled, ariaDisabled: !!ariaDisabled, ariaDescribedBy, onClick }); return createElement('button', { type, 'data-primitive': 'Button', 'data-variant': variant, className, title, 'aria-label': ariaLabel, 'aria-disabled': ariaDisabled ? 'true' : undefined, 'aria-describedby': ariaDescribedBy, disabled: !!disabled }, icon, children) }`,
+        Button: `({ variant, size, type = 'button', icon, children, className, title, tabIndex, 'aria-label': ariaLabel, 'aria-disabled': ariaDisabled, 'aria-describedby': ariaDescribedBy, disabled, onClick }) => { globalThis.__u204Captured.buttons.push({ label: typeof children === 'string' ? children : ariaLabel ?? '', variant, type, tabIndex, disabled: !!disabled, ariaDisabled: !!ariaDisabled, ariaDescribedBy, onClick }); return createElement('button', { type, 'data-primitive': 'Button', 'data-variant': variant, className, title, tabIndex, 'aria-label': ariaLabel, 'aria-disabled': ariaDisabled ? 'true' : undefined, 'aria-describedby': ariaDescribedBy, disabled: !!disabled }, icon, children) }`,
         Tooltip: `({ label, disabled, side, portal, children }) => { globalThis.__u204Captured.tooltips.push({ label, disabled: !!disabled, side, portal: !!portal }); return createElement('span', { 'data-primitive': 'Tooltip', 'data-tooltip-disabled': disabled ? 'true' : 'false', 'data-tooltip-label': label }, children) }`,
         Menu: `({ anchor, children }) => createElement('div', { 'data-primitive': 'Menu' }, anchor, createElement('div', { 'data-menu-body': 'true' }, children))`,
         MenuItemButton: `({ children, disabled, disabledReason, danger, onSelect }) => { globalThis.__u204Captured.menuItems.push({ label: typeof children === 'string' ? children : String(children), disabled: !!disabled, disabledReason, danger: !!danger, onSelect }); return createElement('button', { type: 'button', role: 'menuitem', 'data-primitive': 'MenuItemButton', disabled: !!disabled, 'data-disabled-reason': disabledReason }, children) }`,
@@ -165,6 +165,8 @@ test('ui/204 ExplainedButton: uses aria-disabled + Tooltip + aria-describedby + 
   const btn = globalThis.__u204Captured.buttons[0]
   assert.equal(btn.disabled, false, 'ExplainedButton must NOT pass native disabled when disabledReason is present')
   assert.equal(btn.ariaDisabled, true, 'ExplainedButton must set aria-disabled=true')
+  assert.ok(btn.tabIndex === undefined || btn.tabIndex >= 0, 'ExplainedButton must stay Tab-focusable (tabIndex must not be negative)')
+  assert.ok(!/tabindex="-/i.test(html), 'rendered ExplainedButton HTML must not take the button out of Tab order')
   assert.equal(btn.type, 'button', 'ExplainedButton must neutralize type=submit while explained')
   assert.equal(btn.onClick, undefined, 'ExplainedButton must omit onClick while explained')
   assert.ok(btn.ariaDescribedBy, 'ExplainedButton must wire aria-describedby')
@@ -262,6 +264,7 @@ test('ui/204 StoreMenu, StoreProjects, StoreBackups, and Store card foot wire di
     }))
     const addBtnStopped = globalThis.__u204Captured.buttons.find((b) => b.label === t('addProject'))
     assert.equal(addBtnStopped?.ariaDisabled, true, `Add project must be aria-disabled when stopped (${lang})`)
+    assert.ok(addBtnStopped && (addBtnStopped.tabIndex === undefined || addBtnStopped.tabIndex >= 0), `Add project must remain Tab-focusable (${lang})`)
     assert.equal(addBtnStopped?.onClick, undefined)
     assert.ok(globalThis.__u204Captured.tooltips.some((tp) => !tp.disabled && tp.label === stoppedReason), `Add project Tooltip must carry stoppedReason (${lang})`)
 
@@ -303,7 +306,9 @@ test('ui/204 StoreMenu, StoreProjects, StoreBackups, and Store card foot wire di
     resetCaptured()
     renderToStaticMarkup(createElement(M.StoreBackups, { store: busyStore, view, t, now: 61000, on: noopActions() }))
     for (const label of [t('backupTo'), t('backupNow'), t('restore')]) {
-      assert.equal(globalThis.__u204Captured.buttons.find((b) => b.label === label)?.ariaDisabled, true, `${label} must be disabled when busy (${lang})`)
+      const btn = globalThis.__u204Captured.buttons.find((b) => b.label === label)
+      assert.equal(btn?.ariaDisabled, true, `${label} must be disabled when busy (${lang})`)
+      assert.ok(btn && (btn.tabIndex === undefined || btn.tabIndex >= 0), `${label} must remain Tab-focusable when busy (${lang})`)
     }
     assert.equal(globalThis.__u204Captured.tooltips.filter((tp) => !tp.disabled && tp.label === busyReason).length, 3)
 
@@ -330,12 +335,14 @@ test('ui/204 StoreMenu, StoreProjects, StoreBackups, and Store card foot wire di
     }))
     const pullFoot = globalThis.__u204Captured.buttons.find((b) => b.label === t('msPull'))
     assert.equal(pullFoot?.ariaDisabled, true, `stopped card foot Pull must be aria-disabled (${lang})`)
+    assert.ok(pullFoot && (pullFoot.tabIndex === undefined || pullFoot.tabIndex >= 0), `stopped card foot Pull must remain Tab-focusable (${lang})`)
     assert.equal(pullFoot?.onClick, undefined)
     assert.ok(globalThis.__u204Captured.tooltips.some((tp) => !tp.disabled && tp.label === stoppedReason))
 
     const pushButtons = globalThis.__u204Captured.buttons.filter((b) => b.label === t('pushTo'))
     assert.equal(pushButtons.length, 2)
     assert.equal(pushButtons[0].ariaDisabled, true, `busy card foot Push to… must be aria-disabled (${lang})`)
+    assert.ok(pushButtons[0].tabIndex === undefined || pushButtons[0].tabIndex >= 0, `busy card foot Push to… must remain Tab-focusable (${lang})`)
     assert.equal(pushButtons[0].onClick, undefined)
     assert.ok(globalThis.__u204Captured.tooltips.some((tp) => !tp.disabled && tp.label === busyReason))
     assert.equal(pushButtons[1].ariaDisabled, false, `ready card foot Push to… must be enabled (${lang})`)

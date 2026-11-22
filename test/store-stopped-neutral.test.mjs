@@ -130,6 +130,11 @@ const fixtureStores = [
     reason: 'corrupt', message: 'Store header unreadable', fix: 'layerfs store compact broken-store',
     projects: ['legacy'], projectsCount: 1, size: { bytes: 1024 }, links: [], ownConnections: [],
   },
+  {
+    name: 'broken-on-stopped', kind: 'sqlite', machine: 'docker', state: 'broken',
+    reason: 'corrupt', message: 'Store header unreadable', fix: 'layerfs store compact broken-on-stopped',
+    projects: ['legacy'], projectsCount: 1, size: { bytes: 1024, stale: true, seen: 1000 }, links: [], ownConnections: [],
+  },
 ]
 
 const fixtureView = { stores: fixtureStores, machines: fixtureMachines, buckets: [], jobs: [], auths: [], at: 61000 }
@@ -168,6 +173,13 @@ test('ui/205 model: three-state grading separates ok, stopped (neutral), and bro
   assert.deepEqual(M.sm.overviewMachineHealth({ kind: 'sqlite', machine: 'vm1', state: 'blocked', blockedBy: { machine: 'vm1', reason: 'busy' } }, 'busy'), { tone: 'info', key: 'spMachineBusy' })
   assert.deepEqual(M.sm.overviewMachineHealth(mbroken, 'broken'), { tone: 'danger', key: 'spMachineBroken' })
   assert.deepEqual(M.sm.overviewMachineHealth({ kind: 'sqlite', machine: 'vm1', state: 'blocked', blockedBy: { machine: 'vm1', reason: 'failed' } }, 'broken'), { tone: 'danger', key: 'spMachineUnreadable' })
+
+  // 3b. Combined state: broken Store on a stopped machine keeps Store banner danger while Machine health reports stopped
+  const brokenOnStopped = fixtureStores[4]
+  assert.deepEqual(M.sm.overviewMachineHealth(brokenOnStopped, 'stopped'), { tone: 'info', key: 'spMachineStopped' })
+  assert.equal(M.sm.storeNoticeTone(brokenOnStopped, 'stopped'), 'danger')
+  assert.match(M.storePageNotice(brokenOnStopped, 'stopped', t), /Broken · corrupt/)
+  assert.equal(M.sm.storeSignal(brokenOnStopped, undefined, 'stopped', [], t)?.state, 'error')
 
   // 4. Notices & signals: stopped uses cardMachineStopped / storeStoppedNotice and emits no RowSignal
   assert.equal(M.storeNotice(stopped, 'stopped', t), 'docker is stopped')
@@ -216,6 +228,7 @@ test('ui/205 HomeStores cards: stopped card stays neutral without grey dot, whil
     const statusIdx = stoppedCard.indexOf('statusRow')
     assert.ok(statusIdx >= 0, `stopped-store must render statusRow (${lang})`)
     const statusOpenTag = stoppedCard.slice(stoppedCard.lastIndexOf('<div', statusIdx), stoppedCard.indexOf('>', statusIdx) + 1)
+    assert.match(statusOpenTag, /\bMachineStores_statusRow\b/, `stopped-store statusRow must carry MachineStores_statusRow class (${lang})`)
     assert.ok(!statusOpenTag.includes('data-tone="danger"'), `stopped-store statusRow must not be danger (${lang})`)
     assert.ok(!statusOpenTag.includes('data-tone="warning"'), `stopped-store statusRow must not be warning (${lang})`)
     const statusBlock = stoppedCard.slice(stoppedCard.lastIndexOf('<div', statusIdx), stoppedCard.indexOf('</div>', statusIdx))
@@ -260,8 +273,9 @@ test('ui/205 StorePage: header chip, notice banner, and Health › Machine match
     // 1. Stopped store: neutral chip ("Machine stopped" / "机器已停止"), neutral status notice with Start docker, neutral info Health › Machine
     const stoppedHtml = renderStore('stopped-store')
     assert.match(stoppedHtml, new RegExp(`<span[^>]*data-tone="neutral"[^>]*>[^]*?${t('stateMachineStopped')}</span>`), `stopped StorePage chip must be neutral Machine stopped (${lang})`)
-    const noticeMatch = /<div[^>]*role="([^"]+)"[^>]*>/.exec(stoppedHtml)
-    assert.ok(noticeMatch && noticeMatch[1] === 'status', `stopped StorePage notice must have role="status" (${lang})`)
+    const noticeMatch = /<div[^>]*class="([^"]+)"[^>]*role="([^"]+)"[^>]*>/.exec(stoppedHtml)
+    assert.ok(noticeMatch && noticeMatch[2] === 'status', `stopped StorePage notice must have role="status" (${lang})`)
+    assert.match(noticeMatch[1], /\bStorePage_noticeRow\b/, `rendered stopped Notice must carry StorePage_noticeRow class (${lang})`)
     assert.ok(!noticeMatch[0].includes('data-tone="danger"') && !noticeMatch[0].includes('data-tone="warning"'), `stopped notice must not carry danger/warning tone (${lang})`)
     assert.ok(stoppedHtml.includes(t('storeStoppedNotice', { machine: 'docker' })), `stopped StorePage notice must show storeStoppedNotice (${lang})`)
     assert.ok(stoppedHtml.includes('data-start-machine="docker"'), `stopped StorePage notice must include Start docker (${lang})`)
@@ -273,7 +287,7 @@ test('ui/205 StorePage: header chip, notice banner, and Health › Machine match
     // 2. Machine broken store: red danger chip, red alert notice, red Health › Machine ("is broken" / "已损坏", never "is running")
     const mbrokenHtml = renderStore('mbroken-store')
     assert.match(mbrokenHtml, /<span[^>]*data-tone="danger"[^>]*>/, `broken machine StorePage chip must be danger (${lang})`)
-    assert.match(mbrokenHtml, /<div[^>]*data-tone="danger"[^>]*role="alert"/, `broken machine StorePage notice must be danger alert (${lang})`)
+    assert.match(mbrokenHtml, /<div[^>]*class="[^"]*\bStorePage_noticeRow\b[^"]*"[^>]*data-tone="danger"[^>]*role="alert"/, `broken machine StorePage notice must be danger alert with StorePage_noticeRow (${lang})`)
     const mbHealthIdx = mbrokenHtml.indexOf('data-store-health')
     const mbHealth = mbrokenHtml.slice(mbHealthIdx, mbrokenHtml.indexOf('</ul>', mbHealthIdx))
     assert.ok(mbHealth.includes('data-tone="danger"'), `broken machine Health › Machine row must be danger (${lang})`)
@@ -283,7 +297,17 @@ test('ui/205 StorePage: header chip, notice banner, and Health › Machine match
     // 3. Broken store: red danger chip, red alert notice
     const brokenHtml = renderStore('broken-store')
     assert.match(brokenHtml, /<span[^>]*data-tone="danger"[^>]*>/, `broken StorePage chip must be danger (${lang})`)
-    assert.match(brokenHtml, /<div[^>]*data-tone="danger"[^>]*role="alert"/, `broken StorePage notice must be danger alert (${lang})`)
+    assert.match(brokenHtml, /<div[^>]*class="[^"]*\bStorePage_noticeRow\b[^"]*"[^>]*data-tone="danger"[^>]*role="alert"/, `broken StorePage notice must be danger alert with StorePage_noticeRow (${lang})`)
+
+    // 3b. Combined broken Store + stopped machine: Store banner stays danger alert while Health › Machine reports stopped (info)
+    const comboHtml = renderStore('broken-on-stopped')
+    assert.match(comboHtml, /<span[^>]*data-tone="danger"[^>]*>/, `broken-on-stopped chip must stay danger (${lang})`)
+    assert.match(comboHtml, /<div[^>]*class="[^"]*\bStorePage_noticeRow\b[^"]*"[^>]*data-tone="danger"[^>]*role="alert"/, `broken-on-stopped banner must stay danger alert (${lang})`)
+    const comboHealthIdx = comboHtml.indexOf('data-store-health')
+    const comboHealth = comboHtml.slice(comboHealthIdx, comboHtml.indexOf('</ul>', comboHealthIdx))
+    assert.ok(comboHealth.includes('data-tone="info"'), `broken-on-stopped Health › Machine must be info (${lang})`)
+    assert.ok(comboHealth.includes(t('spMachineStopped', { machine: 'docker' })), `broken-on-stopped Health › Machine must report docker stopped (${lang})`)
+    assert.ok(!comboHealth.includes(t('spMachineUnknown', { machine: 'docker' })), `broken-on-stopped Health › Machine must never fall back to unknown (${lang})`)
 
     // 4. Ok store: no chip, no notice, green Health › Machine
     const okHtml = renderStore('ok-store')
@@ -295,7 +319,21 @@ test('ui/205 StorePage: header chip, notice banner, and Health › Machine match
   }
 })
 
-test('ui/205 CSS & locale: single-row notice layout, neutral info health dot, and EN/ZH copy integrity', () => {
+test('ui/205 CSS & locale: compiled statusRow and notice default colors stay neutral, single-row notice layout, neutral info health dot, and EN/ZH copy integrity', () => {
+  const builtCss = readFileSync(join(out, 'u205.css'), 'utf8')
+  const statusRule = /\.MachineStores_statusRow\s*\{([^}]*)\}/.exec(builtCss)
+  assert.ok(statusRule, 'compiled CSS must contain .MachineStores_statusRow rule')
+  assert.match(statusRule[1], /color:\s*var\(--dsw-alias-label-secondary\)/, 'default .statusRow text color must use neutral secondary label token')
+  assert.doesNotMatch(statusRule[1], /state-error|state-warn|#[0-9a-f]{3,8}/i, 'default .statusRow must never paint text red or amber')
+  const statusDangerRule = /\.MachineStores_statusRow\[data-tone=["']?danger["']?\]\s*\{([^}]*)\}/.exec(builtCss)
+  assert.ok(statusDangerRule, 'compiled CSS must contain .MachineStores_statusRow[data-tone=danger]')
+  assert.match(statusDangerRule[1], /color:\s*var\(--dsw-alias-state-error-primary\)/)
+
+  const noticeRule = /\.ui_notice\s*\{([^}]*)\}/.exec(builtCss)
+  assert.ok(noticeRule, 'compiled CSS must contain .ui_notice rule')
+  assert.match(noticeRule[1], /color:\s*var\(--dsw-alias-label-secondary\)/, 'default .notice text color must use neutral secondary label token')
+  assert.doesNotMatch(noticeRule[1], /state-error|state-warn/i, 'default .notice must never use error or warn token')
+
   const spCss = src('src/client/storage/StorePage.module.css')
   assert.match(spCss, /\.noticeRow\s*\{[^}]*flex-direction:\s*row;[^}]*justify-content:\s*space-between;/)
   assert.match(spCss, /\.health li\[data-tone='info'\] > i\s*\{\s*background:\s*var\(--dsw-alias-border-l3\);/)
