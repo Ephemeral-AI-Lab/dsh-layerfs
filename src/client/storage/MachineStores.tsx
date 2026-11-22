@@ -44,7 +44,7 @@ import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { loginGroups, machineStores, projectSplit, startKind, type PgLoginGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { cardJob, pgStoreBytes, rowMachine, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
+import { cardJob, pgStoreBytes, rowMachine, storeNoticeTone, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
 import { StoreAction, StoreMenu, stoppedBlock, storeNotice, useStoreTip, type LoginActions, type StoreActions } from './StoreCard.tsx'
@@ -471,13 +471,14 @@ function SizeFigure({ s, t, now, last }: { s: StoreRow, t: StorageT, now: number
 
 /** A Store's state in words on its card (LayerFS's sentence as the tip) and its fix as the one action. */
 /** The card's status: dot and word, LayerFS's sentence (or its fix) as the tip, and the one fix (R2-2: never a bare sentence). */
-function StoreStatus({ s, t, words, onStart }: { s: StoreRow, t: StorageT, words: string, onStart?: (() => void) | undefined }): ReactNode {
+function StoreStatus({ s, t, words, onStart, machineState }: { s: StoreRow, t: StorageT, words: string, onStart?: (() => void) | undefined, machineState?: string | null | undefined }): ReactNode {
   const tip = useStoreTip(s, t) ?? s.fix ?? undefined
+  const tone = storeNoticeTone(s, machineState)
   return (
-    <div className={css.statusRow} data-tone={s.state === 'broken' ? 'danger' : 'warning'}>
-      {s.state === 'broken' ? <StateDot state="error" size={8} /> : null}
+    <div className={css.statusRow} data-tone={tone}>
+      {tone === 'danger' ? <StateDot state="error" size={8} /> : null}
       <span className={css.statusText} title={tip}>{words}</span>
-      <StoreAction store={s} t={t} onStart={onStart} />
+      <StoreAction store={s} t={t} onStart={onStart} machineState={machineState} />
     </div>
   )
 }
@@ -489,11 +490,12 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   const running = !!job && !job.ended
   const footReason = storeWaitsFor(s, t, running)
   const last = split?.lastWrite ? ago(split.lastWrite, now, t as Translate) : null
+  const machineState = view.machines.find((m) => m.name === s.machine)?.state
   // Shown only when something is happening: ready says nothing. A state word with its reason; the fix line is the tip (the one action).
-  const notice = storeNotice(s, null, t)
+  const notice = storeNotice(s, machineState, t)
   const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
     : s.op ? <OpPanel store={s} t={t} />
-      : notice ? <StoreStatus s={s} t={t} words={notice} onStart={on.start} />
+      : notice ? <StoreStatus s={s} t={t} words={notice} onStart={on.start} machineState={machineState} />
         : null
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">

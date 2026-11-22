@@ -13,7 +13,7 @@ import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, backupStateOf, latestBackup, storeStateWords, type BackupState } from './model.ts'
+import { backupChip, backupStateOf, latestBackup, overviewMachineHealth, storeStateWords, type BackupState } from './model.ts'
 import { overviewBackupHealth } from './store-backups.ts'
 import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
 import type { StorageView, StoreRow } from './types.ts'
@@ -232,7 +232,8 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
     rows.push({ key: 'backups', tone: 'info', label: t('backupsSection'), text: t('spPgBackups') })
   } else {
     const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')
-    rows.push({ key: 'machine', tone: machineState === 'stopped' ? 'danger' : machineState === 'ready' ? 'ok' : 'info', label: t('spMachine'), text: t(machineState === 'stopped' ? 'spMachineStopped' : 'spMachineRunning', { machine: place }) })
+    const mh = overviewMachineHealth(s, machineState)
+    rows.push({ key: 'machine', tone: mh.tone, label: t('spMachine'), text: t(mh.key, { machine: place }) })
     const latest = latestBackup(s)
     const states = s.links
       .map((link) => backupStateOf(view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name)))
