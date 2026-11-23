@@ -40,7 +40,7 @@ export function SandboxDetail({ machine, name, go, refreshKey }: { refreshKey?: 
   const hasLog = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.sandboxLog === true : false))
   const hasFiles = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.files === true : false))
   // the Workspace whose terminal Files asked for ("Open terminal")
-  const detail = useSandboxRead(name, listed?.state, listed?.workspaces)
+  const detail = useSandboxRead(name, listed?.state, listed?.workspaces, refreshKey)
   usePageReading(detail.loading)
   const closing = useClose(name)
   const title = useMachineTitle()

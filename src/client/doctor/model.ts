@@ -722,19 +722,23 @@ export interface Head {
 export function headOf(state: DoctorState): Head {
   const world = state.world!
   const counts: Record<RowState, number> = { ok: 0, notice: 0, problem: 0, run: 0, nc: 0 }
+  // a machine stopped on purpose reads Stopped on its row whether or not a doctor has looked (Row's stoppedNeutral):
+  // the head counts it as stopped, and one not yet checked still keeps the headline at Not checked
   let stopped = 0
+  let stoppedNc = 0
   for (const thing of world.things) {
     const o = stateOf(state, thing)
-    if (o.stopped && o.st === 'ok') stopped += 1
+    if (o.stopped && (o.st === 'ok' || o.st === 'nc')) { stopped += 1; if (o.st === 'nc') stoppedNc += 1 }
     else counts[o.st] += 1
   }
   const total = world.things.length
+  const unchecked = counts.nc + stoppedNc
   const headline: Head['headline'] = state.all ? { kind: 'checking', done: Object.keys(state.all.done).length, total: Object.keys(state.all.total).length }
     : counts.problem ? { kind: 'problems', n: counts.problem }
-      : counts.nc === total ? { kind: 'notChecked' }
+      : unchecked === total ? { kind: 'notChecked' }
         : counts.notice ? { kind: 'notices', n: counts.notice }
-          : counts.nc || counts.run ? { kind: 'noProblems' } : { kind: 'allClear' }
-  const st: RowState = state.all || counts.run ? 'run' : counts.problem ? 'problem' : counts.nc === total ? 'nc' : counts.notice ? 'notice' : counts.nc ? 'nc' : 'ok'
+          : unchecked || counts.run ? { kind: 'noProblems' } : { kind: 'allClear' }
+  const st: RowState = state.all || counts.run ? 'run' : counts.problem ? 'problem' : unchecked === total ? 'nc' : counts.notice ? 'notice' : unchecked ? 'nc' : 'ok'
   return { counts, stopped, total, headline, state: st }
 }
 

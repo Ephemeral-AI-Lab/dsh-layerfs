@@ -5,7 +5,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Query } from '../files/use-query.ts'
 import type { Translate } from '../files/types.ts'
 import { useMachinesContext } from '../machines/context.tsx'
-import { VM_KINDS, downReason, machineOrder, machineState, recordOutdated, vmGone, workerDown, type AvailableView } from '../machines/model.ts'
+import { canAddMachine, downReason, machineOrder, machineState, recordOutdated, vmGone, workerDown, type AvailableView } from '../machines/model.ts'
 import { machineBlock, stepReasons } from '../machines/needs.ts'
 import type { SetupModalT } from '../setup/locale.ts'
 import { SetupCard, unset } from '../setup/SetupCard.tsx'
@@ -271,8 +271,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const machineTone = worstTone(needs.filter(n => /^(unavailable|unreachable|gone|record|needs|stopped):/.test(n.key))
     .map(n => n.tone === 'neutral' ? undefined : n.tone))
   const machineReason = !fleet ? t(fleetRead.status === 'error' || fleetRead.data?.available === false ? 'addFleetUnavailable' : 'readingMachines')
-    : fleet.platforms.some(p => p.how === 'created' && p.ready && !p.missing.length && (VM_KINDS as readonly string[]).includes(p.platform))
-      ? undefined : t('addNoMachinePlatform')
+    : canAddMachine(fleet.platforms) ? undefined : t('addNoMachinePlatform')
   const refreshAll = () => { if (!doctor.loading) { onRefresh(); props.onCheckAgain() } }
   const newProject = () => projectDialog.open({ mode: 'new' })
   // The selected tab's actions, at the right end of the tab bar (an empty tab carries its own call to action instead).

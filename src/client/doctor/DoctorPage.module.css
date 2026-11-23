@@ -609,7 +609,7 @@ span.marks { visibility: hidden; }
   border-radius: var(--dsw-radius-sm);
   background: var(--doc-tip-bg);
   color: var(--doc-tip-fg);
-  box-shadow: 0 1px 2px rgba(24, 24, 27, 0.08), 0 8px 24px -4px rgba(0, 0, 0, 0.36);
+  box-shadow: var(--dsw-elevation-prominent);
   font-size: 12px;
   line-height: 18px;
   text-align: left;

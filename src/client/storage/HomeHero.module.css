@@ -120,7 +120,7 @@
   justify-content: space-between;
   align-items: flex-end;
   gap: 8px 16px;
-  border-bottom: 1px solid var(--ov-border, var(--dsw-alias-border-l2, rgba(24, 24, 27, 0.08)));
+  border-bottom: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
   padding-bottom: 0;
 }
 
@@ -137,7 +137,7 @@
   padding: 0 2px;
   border: 0;
   border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  margin-bottom: -0.5px;
   background: none;
   font: inherit;
   font-size: 13.5px;
@@ -283,9 +283,9 @@
   list-style: none;
   margin: 0;
   padding: 0 14px;
-  border: 1px solid var(--ov-border, var(--dsw-alias-border-l2, rgba(24, 24, 27, 0.08)));
+  border: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
   border-radius: var(--ov-radius-lg, 8px);
-  background: var(--ov-surface, var(--dsw-alias-bg-layer-1, #FCFCFD));
+  background: var(--ov-surface, var(--dsw-alias-bg-layer-1));
   box-shadow: var(--ov-shadow);
 }
 
@@ -298,7 +298,7 @@
 }
 
 .notice + .notice {
-  border-top: 1px solid var(--ov-border, var(--dsw-alias-border-l2, rgba(24, 24, 27, 0.08)));
+  border-top: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
 }
 
 .noticeTitle {
@@ -333,7 +333,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: var(--dsw-alias-label-primary);
@@ -358,14 +358,16 @@
   transform: rotate(45deg) translate(-1px, -1px);
 }
 .dockerNotice[aria-expanded='true']::after { transform: rotate(225deg); }
-.dockerNotice:hover { background: var(--dsw-alias-interactive-bg-hover); }
+@media (hover: hover) {
+  .dockerNotice:hover { background: var(--dsw-alias-interactive-bg-hover); }
+}
 .dockerDetail {
   align-self: flex-start;
   box-sizing: border-box;
   max-width: min(100%, 64ch);
   margin-top: 6px;
   padding: 8px 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-sm);
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;

@@ -1,22 +1,22 @@
 /* Overview page tokens & shell — Semantic Multi-Color Open Layout (docs/design/DESIGN-overview.md) */
 
 .page {
-  --ov-canvas: var(--dsw-alias-bg-base, #F7F7F8);
-  --ov-surface: var(--dsw-alias-bg-layer-1, #FCFCFD);
-  --ov-surface-subtle: var(--dsw-alias-bg-module-platform, #F1F2F4);
-  --ov-accent: var(--dsw-alias-state-business-primary, #2F5BB5);
-  --ov-ink-primary: var(--dsw-alias-label-primary, #141517);
-  --ov-ink-secondary: var(--dsw-alias-label-secondary, #5A5F6B);
-  --ov-ink-tertiary: var(--dsw-alias-label-tertiary, #8A909E);
-  --ov-border: var(--dsw-alias-border-l2, rgba(24, 24, 27, 0.08));
-  --ov-border-hover: var(--dsw-alias-border-l3, rgba(24, 24, 27, 0.16));
-  --ov-hover: var(--dsw-alias-interactive-bg-hover, rgba(24, 24, 27, 0.04));
-  --ov-success: var(--dsw-alias-state-success-primary, #16A34A);
-  --ov-warning: var(--dsw-alias-state-warn-primary, #D97706);
-  --ov-danger: var(--dsw-alias-state-error-primary, #DC2626);
+  --ov-canvas: var(--dsw-alias-bg-base);
+  --ov-surface: var(--dsw-alias-bg-layer-1);
+  --ov-surface-subtle: var(--dsw-alias-bg-module-platform);
+  --ov-accent: var(--dsw-alias-state-business-primary);
+  --ov-ink-primary: var(--dsw-alias-label-primary);
+  --ov-ink-secondary: var(--dsw-alias-label-secondary);
+  --ov-ink-tertiary: var(--dsw-alias-label-tertiary);
+  --ov-border: var(--dsw-alias-border-l2);
+  --ov-border-hover: var(--dsw-alias-border-l3);
+  --ov-hover: var(--dsw-alias-interactive-bg-hover);
+  --ov-success: var(--dsw-alias-state-success-primary);
+  --ov-warning: var(--dsw-alias-state-warn-primary);
+  --ov-danger: var(--dsw-alias-state-error-primary);
   --ov-radius-lg: 8px;
   --ov-radius-sm: 6px;
-  --ov-shadow: 0 1px 2px rgba(24, 24, 27, 0.03), 0 4px 12px -4px rgba(24, 24, 27, 0.04);
+  --ov-shadow: var(--dsw-elevation-soft);
   --ov-ease: cubic-bezier(0.16, 1, 0.3, 1);
 
   display: flex;
@@ -28,16 +28,6 @@
   font-size: 13px;
   line-height: 18px;
   color: var(--ov-ink-primary);
-}
-
-@media (prefers-color-scheme: dark) {
-  .page {
-    --ov-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 16px -6px rgba(0, 0, 0, 0.35);
-  }
-}
-
-:global([data-theme='dark']) .page {
-  --ov-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 6px 16px -6px rgba(0, 0, 0, 0.35);
 }
 
 .link {
