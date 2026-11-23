@@ -356,7 +356,8 @@ test('P0-2 (Option A) & P1-2: Hero identity shows LayerFS version + 8-char SHA; 
   }
 
   const heroTsx = src('src/client/storage/HomeHero.tsx')
-  assert.match(heroTsx, /<h1 className=\{css\.title\}>\{title\}<\/h1>\s*\{identity\}/)
+  // the LayerFS × DSH lockup is the h1's visible face; the page's name stays for assistive technology
+  assert.match(heroTsx, /<h1 className=\{css\.title\}><span className=\{css\.srOnly\}>\{title\}<\/span><BrandLockup \/><\/h1>\s*\{identity\}/)
   const heroCss = src('src/client/storage/HomeHero.module.css')
   assert.match(heroCss, /\.heading\s*\{[^}]*align-items:\s*center;/)
   assert.match(heroCss, /\.runtime\s*\{[^}]*white-space:\s*nowrap;/)

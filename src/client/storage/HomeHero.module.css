@@ -46,6 +46,47 @@
   color: var(--ov-ink-primary, var(--dsw-alias-label-primary));
 }
 
+/* The LayerFS × DSH lockup that heads Home (the h1's visible face). */
+.lockup {
+  /* Brand inks: LayerFS's rail blue (as its mark draws it) and DeepSeek's blue. */
+  --lfs-ink: color-mix(in oklab, #2F5BB5 82%, var(--dsw-alias-label-primary));
+  --dsh-ink: #4D6BFE;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(24px, 2.4vw, 28px);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.word {
+  display: inline-flex;
+}
+
+.fs {
+  color: var(--lfs-ink);
+}
+
+.times {
+  margin: 0 2px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fish {
+  display: inline-flex;
+  color: var(--dsh-ink);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* Clean open status line with native semantic status dot colors. */
 .status {
   gap: 6px 8px;
