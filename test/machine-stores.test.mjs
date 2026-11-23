@@ -13,7 +13,7 @@ import { build } from 'esbuild'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(root, 'lib', '.test-machine-stores-'))
-await build({ absWorkingDir: root, stdin: { contents: "export * from './src/client/storage/machine-stores.ts'; export * from './src/client/storage/store-backups.ts'; export { pgUsable } from './src/client/machines/model.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'ms.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
+await build({ absWorkingDir: root, stdin: { contents: "export * from './src/client/storage/machine-stores.ts'; export * from './src/client/storage/store-backups.ts'; export { loopbackAlias } from './src/client/storage/model.ts'; export { pgUsable } from './src/client/machines/model.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'ms.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })
 const M = await import(pathToFileURL(join(out, 'ms.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
@@ -120,7 +120,21 @@ test('connection URLs: parsed from a URL or a bare target, built back without a 
   assert.equal(M.routedServer('localhost:5432', 'host.docker.internal'), 'host.docker.internal:5432')
   assert.equal(M.routedServer('127.0.0.1:5432', '192.168.5.2'), '192.168.5.2:5432')
   assert.equal(M.routedServer('db.internal:5432', 'host.docker.internal'), 'db.internal:5432', 'a remote server is dialled as it is')
+  assert.equal(M.routedServer('127.0.0.2:15432', 'host.docker.internal'), '127.0.0.2:15432', 'non-127.0.0.1 loopback is never rewritten')
   assert.equal(M.routedServer('localhost:5432', null), 'localhost:5432', 'native dials the host itself')
+  assert.equal(M.loopbackAlias('docker', 'linux'), null, 'Linux docker uses --network host')
+  assert.equal(M.loopbackAlias('docker', 'macos'), 'host.docker.internal')
+  assert.equal(M.loopbackAlias('lima', 'macos'), '192.168.5.2')
+})
+
+test('serverGroups: mixed logins on one server clear the header login and record every distinct auth', () => {
+  const groups = M.serverGroups([
+    pg('a', '127.0.0.1:5432/a', 'native', { postgresql: { auth: 'auth-a', server: '127.0.0.1:5432', database: 'a', target: '127.0.0.1:5432/a', url: null, synchronousCommit: null } }),
+    pg('b', '127.0.0.1:5432/b', 'native', { postgresql: { auth: 'auth-b', server: '127.0.0.1:5432', database: 'b', target: '127.0.0.1:5432/b', url: null, synchronousCommit: null } }),
+  ])
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].user, '')
+  assert.deepEqual(groups[0].auths, ['auth-a', 'auth-b'])
 })
 
 test('the step and failure kind a failed check stopped at: server unreachable, wrong login (incl. Rejected), missing privilege, outdated record; ambiguous and unknown refusals never guess', () => {

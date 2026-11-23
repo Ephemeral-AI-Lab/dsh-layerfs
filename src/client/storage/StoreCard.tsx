@@ -8,7 +8,7 @@ import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { FixAction, FixContext, LinkButton, MoreMenu, resolveFix, usePressGuard } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { blockedWords, brokenBlock, brokenWords, compactWaitsFor, inHome, latestBackup, stoppedBlock, storeMachineStopped, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
+import { blockedWords, brokenBlock, brokenWords, compactWaitsFor, inHome, latestBackup, needsLogin, stoppedBlock, storeMachineStopped, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 export { brokenBlock, stoppedBlock }
 import { useMachinesMaybe } from '../machines/context.tsx'
 import type { MachineInfo } from '../machines/model.ts'
@@ -38,8 +38,8 @@ export interface StoreActions {
   check: (machine?: string) => void
   /** PostgreSQL: Connect a machine: the check from a machine not yet connected, then its own address if it fails (spec v23). */
   connectMachine: () => void
-  /** PostgreSQL: confirm, then remove a machine's own connection (it dials the Store's again). */
-  removeOwn: (machine: string) => void
+  /** PostgreSQL: confirm, then remove a machine's own address (`own: true`) or forget its recorded check (`own: false`). */
+  removeOwn: (machine: string, own?: boolean) => void
   /** PostgreSQL: Connect a database on this Store's server, with its user and password. */
   newOnServer: () => void
 }
@@ -76,9 +76,9 @@ export function StoreMenu({ store: s, on, t, machine, runningJob }: { store: Sto
         return pg ? (
           <>
             <MenuItemButton onSelect={run(() => on.check(machine))}>{t('pgCheck')}</MenuItemButton>
-            <MenuItemButton onSelect={run(() => on.editConnection())}>{t('pgChangeLogin')}</MenuItemButton>
+            <MenuItemButton onSelect={run(() => on.editConnection())}>{needsLogin(s) ? t('fixRunSaveLogin') : t('pgEditConnectionMenu')}</MenuItemButton>
             {(s.ownConnections ?? []).map((c) => (
-              <MenuItemButton key={c.machine} onSelect={run(() => on.removeOwn(c.machine))}>{t('pgDisconnectMachine', { machine: c.machine === 'native' ? t('layerfsHome') : c.machine })}</MenuItemButton>
+              <MenuItemButton key={c.machine} onSelect={run(() => on.removeOwn(c.machine, true))}>{t('pgRemoveOwnMenu', { machine: c.machine === 'native' ? t('layerfsHome') : c.machine })}</MenuItemButton>
             ))}
             {compact}
             <MenuItemButton danger separatorBefore onSelect={run(on.disconnect)}>{t('disconnect')}</MenuItemButton>

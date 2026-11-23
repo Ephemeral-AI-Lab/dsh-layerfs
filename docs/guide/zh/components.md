@@ -1,4 +1,4 @@
-<!-- source: 3dad6d8a852a -->
+<!-- source: f4d647bd73d2 -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -230,8 +230,8 @@ Store 页面头部和每张 Store 卡片上的 ⋯。
 | **压缩…**（Compact…） | 两种都有，前提是运行时支持 `store compact` | 普通确认 → 一个任务 | `store get`、`store compact` | 未就绪时不可用。提示：**请先启动机器** *m*（Start machine *m* first）、**请先修复机器** *m*（Repair machine *m* first）、**Store 当前未就绪**（The Store is not ready）。如果某个故障 Store 的修复就是压缩，也会在它上面提供 |
 | **移除…**（Remove…，红色） | SQLite | 输入名称确认 | `store remove` | |
 | **检查**（Check） | PostgreSQL | 从这台电脑发起的检查界面（在机器页上则从那台机器发起）。在你按下 **从** *machine* **检查** *store*（Check *store* from *machine*）之前什么都不会运行 | `store doctor --machine`、`store get` | |
-| **更换登录…**（Change login…） | PostgreSQL | 编辑连接；如果 Store 没有指定登录，则是保存登录 | `store connect` / `store save-auth` / `store update` | |
-| **断开** *machine*（Disconnect *machine*） | PostgreSQL，每台有自己地址的机器一行 | 确认 → 那台机器改回使用 Store 的默认地址 | `store disconnect --machine` | |
+| **编辑连接…**（Edit connection…） / **保存登录…**（Save a login…） | PostgreSQL | 编辑连接；如果 Store 没有指定登录，则是保存登录 | `store connect` / `store save-auth` / `store update` | |
+| **移除 *machine* 的专属地址…**（Remove *machine*’s own address…） | PostgreSQL，每台有自己地址的机器一行 | 确认 → 那台机器改回使用 Store 的默认地址 | `store disconnect --machine` | |
 | **断开连接…**（Disconnect…，红色） | PostgreSQL | 确认（不用输入名称）。数据库本身保留 | `store disconnect` | |
 
 ## 任务卡片
@@ -269,7 +269,7 @@ Store 页面头部下方，以及 Store 卡片的状态行里。
 
 - 移除 Store（输入名称，`store remove`）。
 - PostgreSQL 的 **断开连接…**（Disconnect…，`store disconnect`）。
-- **断开** *machine*（Disconnect *machine*） / **忘记**（Forget）（`store disconnect --machine`）。
+- **移除 *machine* 的专属地址…**（Remove *machine*’s own address…） / **忘记**（Forget）（`store disconnect --machine`；仅忘记检查记录时为普通确认）。
 - **移除登录**（Remove login，输入名称，`store remove-auth`）。
 - **压缩…**（Compact…，普通确认，`store compact`）。
 - 存储桶的 **断开连接**（Disconnect，`backup disconnect`）。

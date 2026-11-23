@@ -21,7 +21,7 @@ import { Signal } from './Signal.tsx'
 import { FormModal, locationWords, refusalLabels, StoreGlyph, TextField, TileChoice } from './parts.tsx'
 import type { MachinesView, PgRotation, ProjectInitJob, StorageJob, StorageView, StoreRow } from './types.ts'
 import { ConnectDatabaseDialog } from './ConnectDatabase.tsx'
-import { PG_URL_LOGIN, PgPasswordFields, usePgAuths, usePgPassword } from './pg-fields.tsx'
+import { hasPgUrlLogin, isLinuxLocalhostUrl, PgLocalhostNotice, PgLoginInUrlFix, PgPasswordFields, replaceLocalhostWithIpv4, usePgAuths, usePgPassword } from './pg-fields.tsx'
 import { parsePgUrl } from './machine-stores.ts'
 import { BackUpDialog, BackupsDialog } from './BackupDialogs.tsx'
 import css from './Storage.module.css'
@@ -255,19 +255,21 @@ function ConnectionDialog({ api, t, view, store, machine, onClose, done }: {
   const own = machine ? s?.ownConnections?.find((c) => c.machine === machine) : undefined
   const before = machine ? own?.url ?? '' : s?.postgresql?.url ?? ''
   const [url, setUrl] = useState(before)
-  // the current login is shown picked; a new password rotates it (its user is the login's), another login replaces it
   const authBefore = s?.postgresql?.auth ?? ''
   const auths = usePgAuths(api)
-  const pw = usePgPassword(authBefore ? 'saved' : 'entered', authBefore)
+  const savedUser = auths.find((a) => a.auth === authBefore)?.user ?? ''
+  const pw = usePgPassword(authBefore ? 'saved' : 'entered', authBefore, null, savedUser)
   const syncBefore = s?.postgresql?.synchronousCommit ?? ''
   const [sync, setSync] = useState(syncBefore)
   if (!s || !view) return null
   const place = machine === 'native' ? t('layerfsHome') : machine
   const urlChanged = url.trim() !== before && !!url.trim()
-  const loginUser = pw.user.trim() || auths.find((a) => a.auth === authBefore)?.user || ''
+  const loginUser = pw.user.trim() || savedUser
   const pwChanged = !machine && (pw.how === 'entered' ? !!pw.value && !!loginUser : !pw.missing && !(pw.how === 'saved' && pw.auth === authBefore))
   const syncChanged = !machine && !!sync && sync !== syncBefore
-  const urlError = PG_URL_LOGIN.test(url.trim()) ? t('pgPasswordInUrl') : null
+  const loginInUrl = hasPgUrlLogin(url)
+  const linuxLocalhost = !loginInUrl && isLinuxLocalhostUrl(url, view.computer?.os)
+  const urlError = loginInUrl ? t(machine ? 'cdLoginInUrlOwn' : 'cdLoginInUrl') : null
   const login = () => (pw.how === 'entered' ? { user: loginUser, passwordValue: pw.value } : pw.body())
   const body = () => ({
     ...(machine ? { machine } : {}), ...(urlChanged ? { url: url.trim() } : {}), ...(pwChanged ? login() : {}), ...(syncChanged ? { synchronousCommit: sync } : {}),
@@ -276,13 +278,16 @@ function ConnectionDialog({ api, t, view, store, machine, onClose, done }: {
     <FormModal open onClose={onClose} t={t} title={machine ? t('pgEditOwnTitle', { store, machine: place ?? '' }) : t('pgEditTitle', { store })}
       description={machine ? t('pgEditOwnBody', { machine: place ?? '' }) : t('pgEditBody')} action={machine ? t('cdSaveAndCheck') : t('save')}
       valid={(urlChanged || pwChanged || syncChanged) && !urlError && !pw.error(t) && (!!machine || !!url.trim())}
-      hint={!urlChanged && !pwChanged && !syncChanged ? t('pgEditNothing') : undefined}
+      hint={!urlChanged && !pwChanged && !syncChanged ? t(machine ? 'pgEditOwnNothing' : 'pgEditNothing') : undefined}
       busyHint={machine ? t('checkingFrom', { machine: place ?? '' }) : undefined}
       submit={() => api.call('POST', `/api/stores/${enc(store)}/connection`, body()).then(done)}>
       {machine ? <p className={css.formNote}>{t('pgOwnNote', { machine: place ?? '', target: s.postgresql?.target ?? '' })}</p> : null}
-      <TextField label={machine ? t('cdOwnUrl', { machine: place ?? '' }) : t('pgUrl')} value={url} onChange={setUrl} mono placeholder="postgresql://user@host:5432/db"
-        hint={machine ? t('pgUrlHint') : undefined} error={urlError} autoFocus />
-      {machine ? null : <PgPasswordFields id="lfs-pg-edit-password" pw={pw} t={t} auths={auths} />}
+      <TextField label={machine ? t('cdOwnUrl', { machine: place ?? '' }) : t('pgUrl')} value={url} onChange={setUrl} mono
+        placeholder={machine ? 'postgresql://10.0.0.12:5432/orders' : 'postgresql://db.internal:5432/orders'}
+        hint={machine ? t('pgUrlHint') : t('cdUrlHint')} error={urlError} autoFocus />
+      {loginInUrl ? <PgLoginInUrlFix url={url} store={store} machine={machine} label={t('cdLoginFix')} copyLabel={t('cdCopyFix')} copiedLabel={t('ovCopied')} /> : null}
+      {linuxLocalhost ? <PgLocalhostNotice message={t('pgLocalhostWarn')} actionLabel={t('pgLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
+      {machine ? null : <PgPasswordFields id="lfs-pg-edit-password" pw={pw} t={t} auths={auths} enteredNote={authBefore ? t('pgEditRotateNote', { auth: authBefore }) : undefined} />}
       {!machine && authBefore && !pwChanged ? <p className={css.formNote}>{t('pgPasswordKept')}</p> : null}
       {machine ? null : (
         <Field label={t('syncCommit')}>

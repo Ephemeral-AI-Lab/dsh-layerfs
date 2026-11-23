@@ -553,19 +553,20 @@ export class Storage {
     const record: any = await this.lfs.store.get(name, { detail: true })
     const row = connectionRows(record).find((c: any) => c.machine === from)
     const host = row?.server?.host ?? null
+    const port = row?.server?.port ?? null
     const who = from ?? 'native'
     const findings: any[] = Array.isArray(report?.findings) ? report.findings : []
     const recordFailed = findings.some((f) => f?.check === 'store.record' && f?.severity === 'error')
       || (record?.state === 'broken' && (record?.reason === 'outdated' || record?.reason === 'missing'))
     if (recordFailed) {
-      return { machine: who, host, ok: false as const, error: pgCheckError(report, record, from, row?.reach?.error ?? null) }
+      return { machine: who, host, port, ok: false as const, error: pgCheckError(report, record, from, row?.reach?.error ?? null) }
     }
     if (row?.reach) return row.reach.ok
-      ? { machine: who, host, ok: true as const, at: row.reach.at ?? Date.now(), version: row.reach.version, latencyMs: row.reach.latencyMs }
-      : { machine: who, host, ok: false as const, error: pgCheckError(report, record, from, row.reach.error) }
+      ? { machine: who, host, port, ok: true as const, at: row.reach.at ?? Date.now(), version: row.reach.version, latencyMs: row.reach.latencyMs }
+      : { machine: who, host, port, ok: false as const, error: pgCheckError(report, record, from, row.reach.error) }
     // a not_checked entry is `{ check, blocked_by, reason }`: no message of its own
     const skipped = (Array.isArray(report?.not_checked) ? report.not_checked : []).find((n: any) => (n?.check === 'store.connection' || !n?.check) && (n?.from === from || !n?.from))
-    return { machine: who, host, ok: false as const, error: { code: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'Unknown'), message: `machine ${who} was not checked` } }
+    return { machine: who, host, port, ok: false as const, error: { code: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'Unknown'), message: `machine ${who} was not checked` } }
   }
 
   async disconnectStore(name: string) {
