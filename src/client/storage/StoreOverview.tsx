@@ -5,7 +5,7 @@
  * its details with removal folded at the bottom. No activity feed: a job in
  * flight is the page's own panel.
  */
-import { useState, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes, when } from '../files/format.ts'
@@ -128,10 +128,52 @@ function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value
 /** The database file's pages by part, and unique content over its packed bytes. */
 function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, error: unknown, pg: boolean, t: StorageT }): ReactNode {
   const [hovered, setHovered] = useState<string | null>(null)
+  const barId = useId()
+  const barRef = useRef<HTMLDivElement>(null)
+  const styleRef = useRef<HTMLStyleElement>(null)
   const parts = fileParts(stats)
   const ratio = compressionOf(stats)
   const words: Record<string, string> = { stored: t('spPartStored'), metadata: t('spPartMetadata'), free: t('spPartFree') }
   const barParts = parts?.filter((p) => p.bytes > 0) ?? []
+  const labelKey = barParts.map((p) => `${p.key}:${words[p.key]} ${Math.round(p.share * 100)}%`).join('|')
+  useLayoutEffect(() => {
+    const bar = barRef.current, styleEl = styleRef.current
+    if (!bar || !styleEl) return
+    const fontKey = () => {
+      const cs = getComputedStyle(bar)
+      return `${cs.fontFamily}|${cs.fontSize}`
+    }
+    const measure = () => {
+      styleEl.textContent = ''
+      const scope = `[data-bar="${CSS.escape(barId)}"]`
+      const rules: string[] = []
+      for (const seg of bar.children) {
+        const part = (seg as HTMLElement).dataset.part
+        const label = seg.firstElementChild as HTMLElement | null
+        if (!part || !label) continue
+        label.style.maxWidth = 'none'
+        label.style.flexShrink = '0'
+        const need = Math.max(label.scrollWidth, label.getBoundingClientRect().width)
+        label.style.maxWidth = ''
+        label.style.flexShrink = ''
+        if (need > 0) rules.push(`@container (max-width: ${Math.max(0, need - 0.01).toFixed(2)}px){${scope} [data-part="${CSS.escape(part)}"]>span{display:none}}`)
+      }
+      styleEl.textContent = rules.join('\n')
+    }
+    let lastFont = fontKey()
+    measure()
+    const onResize = () => {
+      const next = fontKey()
+      if (next !== lastFont) { lastFont = next; measure() }
+    }
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(onResize) : null
+    observer?.observe(bar)
+    document.fonts?.addEventListener('loadingdone', measure)
+    return () => {
+      observer?.disconnect()
+      document.fonts?.removeEventListener('loadingdone', measure)
+    }
+  }, [barId, labelKey])
   return (
     <Card className={css.panel} data-store-file>
       <header className={css.panelHead}>
@@ -140,7 +182,8 @@ function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, erro
       </header>
       {parts ? (
         <>
-          <div className={css.partsBar} role="img" aria-label={parts.map((p) => `${words[p.key]} ${bytes(p.bytes)} (${Math.round(p.share * 100)}%)`).join(', ')}>
+          <style ref={styleRef} />
+          <div ref={barRef} data-bar={barId} className={css.partsBar} role="img" aria-label={parts.map((p) => `${words[p.key]} ${bytes(p.bytes)} (${Math.round(p.share * 100)}%)`).join(', ')}>
             {barParts.map((p) => {
               const pct = Math.round(p.share * 100)
               return (
