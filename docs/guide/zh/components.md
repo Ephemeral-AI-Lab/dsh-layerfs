@@ -1,4 +1,4 @@
-<!-- source: 3dad6d8a852a -->
+<!-- source: 71e2bb6038e2 -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -111,8 +111,9 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
 `disabled`，悬停或用键盘聚焦时用提示框说明原因。
 
 - **按钮**：Store 卡片的 **推送到…**（Push to…）和 **拉取**（Pull）；Store 页的 **添加项目**
-  （Add project）；备份标签页的 **备份到…**（Back up to…）、**立即备份**（Back up now）和
-  **恢复…**（Restore…）；存储桶页的 **立即备份**。
+  （Add project）；备份标签页的 **备份到…**（Back up to…）、**立即备份**（Back up now）、
+  **另存为新文件…**（Back up as new file…）和 **恢复…**（Restore…）；备份对话框的行内按钮与底部
+  **备份到另一个存储桶**（Back up to another bucket）；存储桶页的 **立即备份**。
 - **菜单项**：Store 菜单的 **推送到…**、**拉回 Home**（Pull to home）、**迁移到其他机器…**
   （Move to another machine…）、**备份到…**、**立即备份 · *存储桶*/*文件***（Back up now · …）和
   **压缩…**（Compact…）；PostgreSQL 登录组的 **移除登录**（Remove login，有 Store 在用时不可用）；
@@ -237,7 +238,7 @@ Store 页面头部和每张 Store 卡片上的 ⋯。
 ## 任务卡片
 
 一个 Store 任务（推送、拉取、迁移、备份、恢复或压缩）的进度。它显示在
-Store 页面头部下方，以及 Store 卡片的状态行里。
+Store 页面头部下方、Store 卡片的状态行里，以及在[诊断](health.md)页执行 **立即备份** 修复期间与结束后的对应 Store 行下方（紧凑形式）。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|

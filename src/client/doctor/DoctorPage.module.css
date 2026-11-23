@@ -584,6 +584,11 @@ span.marks { visibility: hidden; }
   overflow-wrap: anywhere;
 }
 
+/* ---------- inline backup job card (Doctor Back up now fix) ---------- */
+.jobBand {
+  padding: 6px 14px 10px calc(38px + var(--depth, 0) * 18px);
+}
+
 /* ---------- the delete confirmation ---------- */
 .modalBody { max-width: 65ch; margin: 0; line-height: 20px; overflow-wrap: anywhere; }
 .modalActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }

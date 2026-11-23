@@ -17,7 +17,7 @@ import { Empty, Notice, PageHead, StateChip } from '../ui/index.tsx'
 import { useHostEvents } from './hooks.ts'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { brokenBlock, canAddProject, stoppedBlock, storeNoticeTone, storeStateWords, storeTip, storeTone, storeWaitsFor } from './model.ts'
+import { brokenBlock, canAddProject, stoppedBlock, storeNoticeTone, storeStateWords, storeTip, storeTone, storeWaitsFor, type Reconnect } from './model.ts'
 import { StoreGlyph } from './parts.tsx'
 import { Location, MachineStartAction, StoreAction, StoreMenu, storePageNotice, useStoreTip, type StoreActions } from './StoreCard.tsx'
 import { StoreBackups, StoreConnection } from './StoreLinks.tsx'
@@ -47,6 +47,9 @@ export interface StorePageProps {
   onOpenProject: (key: string) => void
   /** Open any page by its id (a Store, a Sandbox, a project), for the project table's links. */
   onOpen?: (id: TabId) => void
+  onListBucket?: (bucket: string) => void | Promise<unknown>
+  listingBucket?: string | null
+  onReconnect?: (again: Reconnect) => void
 }
 
 /** The notice's words: the state word and its reason, with LayerFS's sentence (or the blocking machine's) as the tip. */
@@ -54,7 +57,7 @@ function StoreNoticeWords({ s, t, notice }: { s: StoreRow, t: StorageT, notice: 
   return <span title={useStoreTip(s, t)}>{notice}</span>
 }
 
-export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen }: StorePageProps): ReactNode {
+export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, job, on, onOpenProject, onOpen, onListBucket, listingBucket, onReconnect }: StorePageProps): ReactNode {
   const ids = useId()
   const s = view.stores.find((x) => x.name === name)
   const kind = s?.kind ?? 'sqlite'
@@ -126,7 +129,8 @@ export function StorePage({ refreshKey = 0, name, view, t, api, doctorT, now, jo
             stores={view.stores} fleet={machines.data?.available ? machines.data : null} t={t} now={now} tick={tick}
             canAdd={canAddProject(s) && !runningJob} addDisabledReason={addDisabledReason} onAdd={on.addProject} onOpen={(id) => (onOpen ? onOpen(id) : id.startsWith('project:') ? onOpenProject(id.slice('project:'.length)) : undefined)} />
         ) : tab === 'backups' ? (
-          <StoreBackups store={s} view={view} t={t} now={now} on={on} runningJob={runningJob} />
+          <StoreBackups store={s} view={view} t={t} now={now} on={on} runningJob={runningJob}
+            onOpen={onOpen} onListBucket={onListBucket} listingBucket={listingBucket} onReconnect={onReconnect} />
         ) : tab === 'connections' ? (
           <StoreConnection store={s} view={view} t={t} on={on} now={now} sandboxes={machines.data?.available ? machines.data.sandboxes : undefined} />
         ) : (

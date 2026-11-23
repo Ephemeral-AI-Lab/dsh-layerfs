@@ -141,7 +141,7 @@ test('minor: a busy machine says its op once ("Stopping", not "Stopping · stop 
 test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row shows no old "data read"', () => {
   const page = src('src/client/storage/StoragePage.tsx')
   assert.match(page, /const refresh = \(\) => \{[^}]*setPageRefresh\(\(n\) => n \+ 1\)/)
-  assert.match(page, /<HealthView api=\{api\} t=\{doctorT\} ts=\{t\} refreshKey=\{pageRefresh\} \/>/)
+  assert.match(page, /<HealthView api=\{api\} t=\{doctorT\} ts=\{t\} refreshKey=\{pageRefresh\}[\s\S]*?\/>/)
   const hook = src('src/client/doctor/use-doctor.ts')
   assert.match(hook, /if \(lastKey\.current === refreshKey\) return[\s\S]*readTree\(\)\.then\(\(\) => resync\(\)\)/)
   const t = (key, vars) => fill(M.doctorLocales.en[key] ?? key, vars)

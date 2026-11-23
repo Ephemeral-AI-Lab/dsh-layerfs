@@ -72,7 +72,7 @@ test('6: the Store\'s Backups tab says a backup\'s state and provider in the wor
   assert.deepEqual(['current', 'store_changed', 'bucket_changed'].map((s) => M.backupChip(s, t).label), ['Backed up', 'Store changed', 'Bucket changed'])
   assert.equal(M.providerWords('minio', t), 'MinIO')
   const links = src('src/client/storage/StoreLinks.tsx')
-  assert.match(links, /\{backupChip\(state, t\)\.label\}/)
+  assert.match(links, /backupChip\(state, t\)/)
   assert.match(links, /providerWords\(bucket\.provider, t\)/)
   for (const lang of ['en', 'zh']) assert.equal(Object.keys(M.storageLocales[lang]).some((k) => k.startsWith('spBackupState_')), false)
 })

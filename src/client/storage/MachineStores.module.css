@@ -609,12 +609,19 @@
   white-space: nowrap;
 }
 .dbSub {
-  overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
-  line-height: 16px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 18px;
+}
+.dbActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
 }
 .addRow {
   all: unset;
@@ -629,6 +636,12 @@
   font-size: 12.5px;
   cursor: pointer;
 }
+.addRow[aria-disabled='true'],
+.addRow:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
 .addRow.addServer {
   border: 0.5px dashed var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-m, 8px);
@@ -638,7 +651,7 @@
   outline-offset: -2px;
 }
 @media (hover: hover) {
-  .addRow:hover {
+  .addRow:hover:not([aria-disabled='true']):not(:disabled) {
     background: var(--dsw-alias-interactive-bg-hover);
   }
 }
@@ -778,12 +791,13 @@
   font-size: 11.5px;
   line-height: 18px;
 }
+.pill[data-dashed] {
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  background: transparent;
+}
 .pill[data-tone='success'] { color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary)); }
 .pill[data-tone='warning'] { color: var(--dsw-alias-state-warn-primary); }
 .pill[data-tone='danger'] { color: var(--dsw-alias-state-error-primary); }
-.dbSub .pill + .mono {
-  margin-inline: 6px;
-}
 .pick {
   all: unset;
   box-sizing: border-box;

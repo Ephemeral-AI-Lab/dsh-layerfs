@@ -114,8 +114,9 @@ disabled actions keep their reason in reach: an `ExplainedButton` (and a menu it
 shows its reason in a tooltip on hover or keyboard focus.
 
 - **Buttons:** a Store card's **Push to…** and **Pull**; a Store page's **Add project**;
-  the Backups tab's **Back up to…**, **Back up now** and **Restore…**; a bucket's
-  **Back up now**.
+  the Backups tab's **Back up to…**, **Back up now**, **Back up as new file…** and
+  **Restore…**; the Backups dialog's row actions and **Back up to another bucket**; a
+  bucket's **Back up now**.
 - **Menu items:** the Store menu's **Push to…**, **Pull to home**, **Move to another
   machine…**, **Back up to…**, **Back up now · *bucket*/*file*** and **Compact…**; the
   PostgreSQL login group's **Remove login** (off while a Store uses the login); the
@@ -247,7 +248,8 @@ The ⋯ in a Store page's head and on every Store card.
 ## Job card
 
 The progress of one Store job (a push, pull, move, backup, restore or compaction). It shows
-under a Store page's head and in a Store card's status row.
+under a Store page's head, in a Store card's status row, and compactly under a Store row on
+the [Doctor](health.md) page during and after a **Back up now** fix.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|

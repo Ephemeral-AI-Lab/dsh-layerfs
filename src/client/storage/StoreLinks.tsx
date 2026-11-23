@@ -4,25 +4,69 @@
  * Restore. A PostgreSQL Store's Connection: its database, and every machine
  * that connects to it (spec v23).
  */
-import type { ReactNode } from 'react'
-import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { Button, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
-import { Card, ExplainedButton } from '../ui/index.tsx'
+import { Card, ExplainedButton, LinkButton } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, backupStateOf, brokenWords, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
-import { providerWords } from './BucketPage.tsx'
+import { backupChip, backupStateOf, brokenWords, listStatusWords, reconnectOf, storeStateWords, storeTip, storeWaitsFor, type Reconnect } from './model.ts'
+import { BucketMark, providerWords } from './BucketPage.tsx'
 import { StoreAction, type StoreActions } from './StoreCard.tsx'
+import type { TabId } from './tabs.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import clsx from 'clsx'
 import css from './StorePage.module.css'
 
-export function StoreBackups({ store: s, view, t, now, on, runningJob }: { store: StoreRow, view: StorageView, t: StorageT, now: number, on: StoreActions, runningJob?: boolean | undefined }): ReactNode {
+export function StoreBackups({ store: s, view, t, now, on, runningJob, onOpen, onListBucket, listingBucket, onReconnect }: {
+  store: StoreRow
+  view: StorageView
+  t: StorageT
+  now: number
+  on: StoreActions
+  runningJob?: boolean | undefined
+  onOpen?: ((id: TabId) => void) | undefined
+  onListBucket?: ((bucket: string) => void | Promise<unknown>) | undefined
+  listingBucket?: string | null | undefined
+  onReconnect?: ((again: Reconnect) => void) | undefined
+}): ReactNode {
   const tt = t as Translate
   const reason = storeWaitsFor(s, t, !!runningJob)
   const busyReason = s.state === 'busy' || !!runningJob || !!s.job ? reason : null
+  const autoListed = useRef(new Set<string>())
+  const mounted = useRef(true)
+  const storeRef = useRef(s.name)
+  storeRef.current = s.name
+  const listRef = useRef(onListBucket)
+  listRef.current = onListBucket
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+  const pendingKey = onListBucket
+    ? s.links
+      .map((l) => l.bucket)
+      .filter((name, i, arr) => arr.indexOf(name) === i)
+      .filter((name) => {
+        const b = view.buckets.find((x) => x.name === name)
+        return !!b && b.files === null && !b.error && !autoListed.current.has(`${s.name}:${name}`)
+      })
+      .join('\0')
+    : ''
+  useEffect(() => {
+    if (!pendingKey) return
+    const storeName = s.name
+    const names = pendingKey.split('\0')
+    for (const name of names) autoListed.current.add(`${storeName}:${name}`)
+    void (async () => {
+      for (const name of names) {
+        if (!mounted.current || storeRef.current !== storeName) break
+        await listRef.current?.(name)
+      }
+    })()
+  }, [s.name, pendingKey])
   return (
     <div className={css.stack}>
       <div className={css.toolbar}>
@@ -32,19 +76,35 @@ export function StoreBackups({ store: s, view, t, now, on, runningJob }: { store
       </div>
       {s.links.length ? s.links.map((link) => {
         const bucket = view.buckets.find((b) => b.name === link.bucket)
+        const listed = bucket?.files !== null && bucket?.files !== undefined
         const file = bucket?.files?.find((f) => f.file === link.file && f.store === s.name)
         const at = file?.modified ?? link.last?.at
         const size = file?.bytes ?? link.last?.bytes
         const state = backupStateOf(file)
-        const chipTone = state ? backupChip(state, t).tone : undefined
-        const tone = chipTone === 'success' ? 'ok' : chipTone === 'danger' ? 'danger' : undefined
+        const err = bucket?.error ?? null
+        const again = bucket && err ? reconnectOf(bucket) : null
+        const isListing = listingBucket === link.bucket || listingBucket === '*'
+        const chip = err
+          ? { label: listStatusWords(err.code, t), tone: 'danger' as const, dashed: false, tip: err.message }
+          : (() => {
+            const c = backupChip(state, t)
+            const tone = c.tone === 'success' ? 'ok' as const : c.tone === 'danger' ? 'danger' as const : undefined
+            return { label: c.label, tone, dashed: !!c.dashed, tip: file?.message ?? undefined }
+          })()
+        const canOpenFile = !!onOpen && listed && state !== 'missing'
+        const pickNew = () => (on.backupPick ? on.backupPick(link.bucket) : on.backup())
         return (
           <Card key={link.bucket} className={css.linkCard} data-backup-link={link.bucket}>
             <div className={css.linkHead}>
-              <span className={css.linkName}>{link.bucket}</span>
-              <span className={css.mono}>{link.file}</span>
+              <span className={css.linkMark} aria-hidden="true"><BucketMark provider={bucket?.provider} size={15} /></span>
+              {onOpen
+                ? <LinkButton className={css.linkName} onClick={() => onOpen(`bucket:${link.bucket}`)}>{link.bucket}</LinkButton>
+                : <span className={css.linkName}>{link.bucket}</span>}
+              {canOpenFile
+                ? <LinkButton className={css.mono} onClick={() => onOpen!(`backup:${link.bucket}/${link.file}`)}>{link.file}</LinkButton>
+                : <span className={css.mono}>{link.file}</span>}
               <span className={css.spacer} />
-              {state ? <span className={css.statePill} data-tone={tone} title={file?.message ?? undefined}>{backupChip(state, t).label}</span> : null}
+              <span className={css.statePill} data-tone={chip.tone} data-dashed={chip.dashed || undefined} title={chip.tip}>{chip.label}</span>
             </div>
             <dl className={css.linkFacts}>
               <div><dt>{t('spLastSaved')}</dt><dd title={when(at)}>{at ? ago(at, now, tt) : t('noBackupTime')}</dd></div>
@@ -52,8 +112,36 @@ export function StoreBackups({ store: s, view, t, now, on, runningJob }: { store
               {bucket?.provider ? <div><dt>{t('spProvider')}</dt><dd>{providerWords(bucket.provider, t)}</dd></div> : null}
             </dl>
             <div className={css.linkActions}>
-              <ExplainedButton variant="outline" size="sm" disabled={reason !== null} disabledReason={reason ?? undefined} onClick={() => on.backupTo(link)}>{t('backupNow')}</ExplainedButton>
-              {file ? <ExplainedButton variant="ghost" size="sm" disabled={busyReason !== null} disabledReason={busyReason ?? undefined} onClick={() => on.restore(link.bucket, link.file)}>{t('restore')}</ExplainedButton> : null}
+              {err && again && onReconnect ? (
+                <Button variant="outline" size="sm" onClick={() => onReconnect(again)}>{t('connectAgain')}</Button>
+              ) : state === 'missing' ? (
+                <ExplainedButton variant="outline" size="sm" disabled={reason !== null} disabledReason={reason ?? undefined} onClick={pickNew}>{t('bkAgain')}</ExplainedButton>
+              ) : state === 'both_changed' ? (
+                <>
+                  <ExplainedButton variant="outline" size="sm" disabled={reason !== null} disabledReason={reason ?? undefined} onClick={pickNew}>{t('bkAgain')}</ExplainedButton>
+                  <ExplainedButton variant="ghost" size="sm" disabled={busyReason !== null} disabledReason={busyReason ?? undefined} onClick={() => on.restore(link.bucket, link.file)}>{t('restore')}</ExplainedButton>
+                </>
+              ) : state === 'bucket_changed' ? (
+                <>
+                  <ExplainedButton variant="outline" size="sm" disabled={busyReason !== null} disabledReason={busyReason ?? undefined} onClick={() => on.restore(link.bucket, link.file)}>{t('restore')}</ExplainedButton>
+                  <ExplainedButton variant="ghost" size="sm" disabled={reason !== null} disabledReason={reason ?? undefined} onClick={pickNew}>{t('bkAgain')}</ExplainedButton>
+                </>
+              ) : (
+                <>
+                  <ExplainedButton variant="outline" size="sm" disabled={reason !== null} disabledReason={reason ?? undefined} onClick={() => on.backupTo(link)}>{t('backupNow')}</ExplainedButton>
+                  {listed && file ? (
+                    <ExplainedButton variant="ghost" size="sm" disabled={busyReason !== null} disabledReason={busyReason ?? undefined} onClick={() => on.restore(link.bucket, link.file)}>{t('restore')}</ExplainedButton>
+                  ) : !listed ? (
+                    <ExplainedButton variant="ghost" size="sm" disabled disabledReason={t('spListFirstToRestore')} onClick={() => {}}>{t('restore')}</ExplainedButton>
+                  ) : null}
+                </>
+              )}
+              {onListBucket ? (
+                <Button variant="ghost" size="sm" className={css.linkListBtn} disabled={isListing} onClick={() => onListBucket(link.bucket)}
+                  icon={isListing ? <StateDot state="ongoing" size={12} /> : <IconRefreshOutlineRegular size={12} />}>
+                  {listed ? t('listAgain') : t('listBucket')}
+                </Button>
+              ) : null}
             </div>
           </Card>
         )
