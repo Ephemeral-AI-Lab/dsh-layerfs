@@ -1,4 +1,4 @@
-<!-- source: 9bede6dbce27 -->
+<!-- source: f3bc181c9c3d -->
 # Store
 
 > **位置：** `LayerFS › 主页 › Store › <store>` · **打开方式：** 主页 › Store 或某台机器的 Store 标签页上 Store 卡片的名称、导航栏的层级切换器、跳转到、项目页上的 Store 链接、存储桶的关联 Store · **源码：** 见文末
@@ -102,22 +102,23 @@ Store 里的所有项目，和主页 › 项目里的表格一样，只是少了
 
 示例数据里没有 PostgreSQL Store，所以这个标签页是根据代码描述的。
 
-两张卡片。**数据库**（Database）：服务器和数据库（`host:port/db`）、**登录**（Login）（已保存的登录，或
-**没有已保存的登录**（No saved login））、**ID**（Id，LayerFS 识别它所用的数据库 id）、**synchronous_commit**
-（或 **数据库默认值**（Database default）），以及一条状态行（圆点、状态、**检查于** *时间*（checked *when*）、
-PostgreSQL 版本和 **可连接 · n 毫秒**（Reachable · n ms））。**机器**（Machines）：每个连接方一行，
-**这台电脑**（This computer）排在最前，每行显示 **专属地址**（own address）或 **默认地址**（default address）、
-最近一次连通情况及时间、它在这个 Store 上的 Sandbox，以及几个按钮。
+两张卡片。**数据库**（Database）：服务器和数据库（`host:port/db`）、**登录**（Login）（已保存的登录
+及用户 `auth (user)`，或 **没有已保存的登录**（No saved login））、**ID**（Id，LayerFS 识别它所用的数据库 id）、
+**synchronous_commit**（或 **默认（local）**（Default (local)）），以及一条状态行（圆点、状态——最近一次检查失败时为
+**未连上 · 上次检查失败**（Not reached · last check failed）——**检查于** *时间*（checked *when*）、
+`PG x.y` 和 **可连接 · n 毫秒**（Reachable · n ms））。**机器**（Machines）：每个连接方一行，
+**这台电脑**（This computer）排在最前，每行显示 **专属地址**（own address）及其 `host:port` 或 **默认地址**（default address）、
+已停止机器带 **已停止**（stopped）标签、最近一次连通情况（失败时悬停显示真实原因）及时间、它在这个 Store 上的 Sandbox，以及几个按钮。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 数据库卡片 | 服务器、登录、id、synchronous_commit、最近一次检查 | — | `store list` (读取)、`store auths` (读取) | 损坏时为红色，并带修复按钮 |
-| **更换登录…**（Change login…） | | 按下 → [编辑连接](#modals-opened-here)；Store 没有指定已保存的登录时打开[保存登录](#modals-opened-here) | `store update`、`store save-auth`、`store connect` | |
+| 数据库卡片 | 服务器、登录（`auth (user)`）、id、synchronous_commit、最近一次检查 | — | `store list` (读取)、`store auths` (读取) | 损坏时为红色并带修复按钮；最近一次检查失败时圆点报错并显示 **未连上 · 上次检查失败**（Not reached · last check failed） |
+| **编辑连接…**（Edit connection…） / **保存登录…**（Save a login…） | | 按下 → [编辑连接](#modals-opened-here)；Store 没有指定已保存的登录时打开[保存登录](#modals-opened-here) | `store update`、`store save-auth`、`store connect` | |
 | **检查**（Check）（数据库） | | 按下 → 打开[连接数据库](#modals-opened-here)的检查界面，从这台电脑检查；在按下那个具名的 **从 … 检查 …**（Check … from …）之前什么都不会运行 | `store doctor --machine`，然后 `store get` | |
-| 机器行 | 机器、**专属地址**（own address）/ **默认地址**（default address）、连通圆点（**可连接 · n 毫秒**（Reachable · n ms）、**可访问**（reached）、**检查失败**（check failed）、**未检查**（not checked））、时间、**n 个 Sandbox**（n Sandboxes） | — | `store list` (读取：`connections`) | 机器损坏或最近一次检查失败时为红点 |
+| 机器行 | 机器（已停止时带 **已停止**（stopped）标签）、**专属地址**（own address）`host:port` / **默认地址**（default address）、连通圆点（**可连接 · n 毫秒**（Reachable · n ms）、**可访问**（reached）、**检查失败**（check failed，悬停显示错误）、**未检查**（not checked））、时间、**n 个 Sandbox**（n Sandboxes） | — | `store list` (读取：`connections`) | 机器损坏或最近一次检查失败时为红点 |
 | **检查**（Check）（行） | | 按下 → 检查界面，从那台机器检查 | `store doctor --machine` | |
 | **编辑**（Edit）（行） | | 按下 → 那台机器的专属连接 | `store connect --machine`（LayerFS 会先从那台机器检查） | 只对有专属地址的机器出现 |
-| **忘记**（Forget）（行） | | 按下 → 确认 **移除** *机器* **到** *store* **的专属连接？**（Remove *machine*'s own connection to *store*?） | `store disconnect --machine` ↻ | 只对有专属地址或有检查记录的机器出现 |
+| **忘记**（Forget）（行） | | 按下 → 专属地址时确认 **移除 *机器* 到 *store* 的专属地址？**（Remove *machine*’s own address for *store*?）；仅检查记录时普通确认 **忘记 *机器* 对 *store* 的检查记录？**（Forget *machine*’s check record for *store*?） | `store disconnect --machine` ↻ | 只对有专属地址或有检查记录的机器出现 |
 | **连接一台机器**（Connect a machine） | | 按下 → 检查界面，从第一台还没连接的运行中机器检查（没有的话从这台电脑） | `store doctor --machine` | |
 
 ## Store 菜单
@@ -139,8 +140,8 @@ PostgreSQL 版本和 **可连接 · n 毫秒**（Reachable · n ms））。**机
 | **压缩…**（Compact…） | 两种都有，前提是 LayerFS 运行时支持 `store compact` | [确认](#modals-opened-here) → 任务卡片 | `store get`，然后 `store compact` | 未就绪（提示：**请先启动机器** *m*（Start machine *m* first）、**请先修复机器** *m*（Repair machine *m* first）、**Store 当前未就绪**（The Store is not ready））；Store 损坏且修复方式就是压缩时仍然提供 |
 | **移除…**（Remove…） | SQLite | [输入名称确认](#modals-opened-here) | `store remove` ↻ | 从不 |
 | **检查**（Check） | PostgreSQL | 从这台电脑打开检查界面（在机器页上：从那台机器） | `store doctor --machine` | |
-| **更换登录…**（Change login…） | PostgreSQL | 编辑连接 / 保存登录 | `store update` / `store save-auth` | |
-| **断开** *机器*（Disconnect *machine*） | PostgreSQL，每台有专属地址的机器一行 | 确认 → 那台机器重新使用 Store 的默认地址 | `store disconnect --machine` ↻ | |
+| **编辑连接…**（Edit connection…） / **保存登录…**（Save a login…） | PostgreSQL | 编辑连接；未指定登录时保存登录 | `store update` / `store save-auth` / `store connect` | |
+| **移除 *机器* 的专属地址…**（Remove *machine*’s own address…） | PostgreSQL，每台有专属地址的机器一行 | 确认 → 那台机器重新使用 Store 的默认地址 | `store disconnect --machine` ↻ | |
 | **断开连接…**（Disconnect…） | PostgreSQL | 确认（无需输入名称）→ 主目录忘掉这个 Store；数据库本身保留 | `store disconnect` ↻ | 从不 |
 
 ## 机器 › Store 标签页
@@ -166,10 +167,13 @@ PostgreSQL 版本和 **可连接 · n 毫秒**（Reachable · n ms））。**机
 
 ![docker › Store › PostgreSQL，空](../img/store-machine-board-pg.png)
 
-在 PostgreSQL 一侧，卡片按已保存的登录分组，每个登录一个标题：登录名、用户、使用它的 Store 数、
-最差的状态（改密码后检查失败时为 **未连上**（Not reached））、**更换密码…**（Rotate password…），
-以及它 ⋯ 里的 **移除登录**（Remove login）（只要还有 Store 在用它，就不可用，并显示
-**使用者：** *stores*（Used by *stores*））。机器页只列出从这台机器连接的 Store 所用的登录。
+在 PostgreSQL 一侧，卡片按已保存的登录分组，每个登录一个标题：登录名、用户、更换密码会影响哪些
+Store（在单台机器页上，若还有其他机器的 Store 共用该登录，会以胶囊标出本机数与总数）、最差的状态
+（检查失败时为 **未连上**（Not reached））、**更换密码…**（Rotate password…），以及它 ⋯ 里的
+**移除登录**（Remove login）（只要整个主目录里还有 Store 在用它，就不可用，并完整显示
+**使用者：** *stores*（Used by *stores*））。在主页上，即使尚未连接任何 PostgreSQL Store，未使用的已保存登录
+仍会继续列出；机器页只列出从这台机器连接的 Store 所用的登录。每张 Store 卡片显示 `host:port/database`，
+当所有已检查连接均失败时，卡片内联显示归类后的故障原因与对应修复按钮（**更换登录…**、**更换密码…** 或 **检查**）。
 
 | 组件 | 操作 → 结果 | LayerFS 调用 |
 |---|---|---|
@@ -185,7 +189,7 @@ PostgreSQL 版本和 **可连接 · n 毫秒**（Reachable · n ms））。**机
   大小显示为 **大小读取于** *时间*（size seen *when*）。
 - **PostgreSQL。** 位置是服务器（`host:port/db`）；头部多一个 **测试连接**（Test connection）；第一个磁贴
   是 **服务器**（Server），最后一个是 **连接自**（Connected from）；第三个标签页是 **连接**（Connection）；
-  健康状况说明备份由服务器自己负责；菜单是 检查 / 更换登录… / 断开 *机器* / 压缩… / 断开连接…。
+  健康状况说明备份由服务器自己负责；菜单是 检查 / 编辑连接…（或 保存登录…） / 移除 *机器* 的专属地址… / 压缩… / 断开连接…。
   PostgreSQL Store 不属于任何机器：每个会话自己选择在哪台机器上运行。
 - **压缩…**（Compact…）只在所选的 LayerFS 运行时支持 `store compact` 时出现。
 
@@ -203,14 +207,14 @@ PostgreSQL 版本和 **可连接 · n 毫秒**（Reachable · n ms））。**机
 | [移除 *store*？](../img/store-remove.png)（Remove *store*?） | ⋯ › **移除…**（Remove…）、Store 详情里的 **移除…**（Remove…） | [输入名称确认](components.md#confirm-dialog)：**输入** *名称* **以确认**（Type *name* to confirm） | `store remove` ↻ | 无（备份仍留在存储桶里） |
 | 断开 PostgreSQL Store *store*？（Disconnect the PostgreSQL Store *store*?） | ⋯ › **断开连接…**（Disconnect…）（PostgreSQL） | 确认；数据库及其数据保留 | `store disconnect` ↻ | 重新连接数据库 |
 | [新建 Store](../img/store-new.png)（New Store） | 导航栏 **添加 › 新建 Store**（Add › New Store）；主页 › Store 的 **新建 Store**（New Store）；native 的 **添加 Store › 新建 Store**（Add Store › New Store） | **SQLite** 或 **PostgreSQL**（后者转到连接数据库）；**空 Store**（Empty Store）或 [**从备份恢复**](../img/store-new-restore.png)（Restore from a backup）（对未列出桶自动列出一次、过滤已丢失文件、展示桶列出错误并支持 **重新连接…**、无存储桶时直接提供 **添加存储桶…**，以及 **重新列出**、文件列表与 **新 Store 的名称**（New Store's name））；**位置**（Location）磁贴，已停止的机器旁有 **启动** *m*（Start *m*）。先在 LayerFS Home 创建，再迁移过去 | `store create` ↻（或 `backup restore`），然后用 `store move` 迁移到其他机器 | 移除 |
-| [连接数据库](../img/store-connect-new.png)（Connect a database） | 导航栏 **添加 › 连接数据库**（Add › Connect a database）；主页 › Store 的 PostgreSQL 一侧 **连接数据库**（Connect a database） | 还没有 PostgreSQL Store 时直接打开新服务器表单：**连接 URL**（Connection URL）（不含登录信息）、**Store 名称**（Store name）、**登录**（Login）（**用户**（User）/**密码**（Password），或 **已保存的登录**（Saved login））、[**更多选项**](../img/store-connect-options.png)（More options）（**synchronous_commit**）。**取消**（Cancel）关闭对话框；有列表时 **返回**（Back）回到列表。之后进入检查界面 | `store save-auth`（新登录）、`store connect`、`store get`，然后 `store doctor --machine` | **断开连接…**（Disconnect…） |
-| 连接数据库：选择 | 同上，已有 PostgreSQL Store 时 | 所有已连接的 Store 按服务器分组，各带 **检查**（Check）（在机器页上为 **连接**（Connect））；**+ 此服务器上的新数据库**（+ New database on this server）（沿用主机和登录）；**+ 新服务器**（+ New server） | 同上 | |
-| 连接数据库：检查 | **检查**（Check）、**连接一台机器**（Connect a machine）、一个状态标签 | **检查来源**（Check from）（一台机器）、机器 → 服务器 → Store 的路径，以及五个步骤 **Store 记录为最新格式**（Store record is up to date）、**能连到服务器**（Reaches the server）、**通过登录验证**（Signs in）、**能找到此 Store**（Finds the Store）、**可以写入**（May write it）；按下 **从** *机器* **检查** *store*（Check *store* from *machine*）时运行。当 LayerFS 明确指出原因时，失败会标出停在哪一步并给出对应修法：[服务器连不上](../img/store-check-server.png)（**为** *机器* **设置专属地址**（Give *machine* its own address）→ ***机器* 连接的 URL**（URL *machine* dials）→ **保存并检查**（Save and check）；在 LayerFS Home 上为 **编辑连接**（Edit connection））、[登录错误](../img/store-check-login.png)（**更换登录…**（Change login…）、**更换密码…**（Rotate password…））、[缺少权限](../img/store-check-privilege.png)（列出缺失权限并提供 **更换登录…**（Change login…））、[记录过旧](../img/store-check-record.png)（**更新**（Update）或 **保存登录…**（Save a login…））。若 LayerFS 未提供足以定位具体步骤的证据，步骤与连线保持中性，仅展示原始拒绝而不猜测修法。修完后可点 **重新检查**（Check again） | `store doctor --machine` (读取并记录)、`store connect --machine`、`store update` | 忘记 |
+| [连接数据库](../img/store-connect-new.png)（Connect a database） | 导航栏 **添加 › 连接数据库**（Add › Connect a database）；主页 › Store 的 PostgreSQL 一侧 **连接数据库**（Connect a database） | 还没有 PostgreSQL Store 时直接打开新服务器表单：**数据库 URL**（Database URL）（不含用户、密码或 passfile；URL 含登录信息时拒绝并附 **LayerFS 的修复**（LayerFS’s fix）+ **复制**（Copy）；Linux 上填 `localhost` 时给出警告和 **改用 127.0.0.1**（Use 127.0.0.1））、**Store 名称**（Store name）、**登录**（Login）（**输入**（Type）用户/密码，或 **已保存的登录**（Saved login）；默认登录名已被占用时显示 **登录名称**（Login name））、[**更多选项**](../img/store-connect-options.png)（More options）（**synchronous_commit**）。**取消**（Cancel）关闭对话框；有列表时 **返回**（Back）回到列表。之后进入检查界面 | `store save-auth`（新登录）、`store connect`、`store get`，然后 `store doctor --machine` | **断开连接…**（Disconnect…） |
+| 连接数据库：选择 | 同上，已有 PostgreSQL Store 时 | 所有已连接的 Store 按服务器分组（共用同一登录时在服务器标题显示 `auth (user)`，混用时逐行标注；损坏或上次检查失败时圆点报错），各带 **检查**（Check）（在机器页上为 **连接**（Connect））；**+ 此服务器上的新数据库**（+ New database on this server）（沿用主机和健康登录）；**+ 新服务器**（+ New server） | 同上 | |
+| 连接数据库：检查 | **检查**（Check）、**连接一台机器**（Connect a machine）、一个状态标签 | **检查来源**（Check from）（一台机器）、机器 → 服务器（`host:port`，专属地址时标注 **专属地址**（own address）；Linux docker 不把回环改写为 `host.docker.internal`） → Store 的路径，以及五个步骤 **Store 记录为最新格式**（Store record is up to date）、**能连到服务器**（Reaches the server）、**通过登录验证**（Signs in）、**能找到此 Store**（Finds the Store）、**可以写入**（May write it）；按下 **从** *机器* **检查** *store*（Check *store* from *machine*）时运行。Linux 上若对 `localhost` 检查通过，给出警告并提供 **为 *机器* 改用 127.0.0.1**（Use 127.0.0.1 on *machine*）或 **编辑连接**（Edit connection）。当 LayerFS 明确指出原因时，失败会标出停在哪一步并给出对应修法：[服务器连不上](../img/store-check-server.png)（**为** *机器* **设置专属地址**（Give *machine* its own address）→ ***机器* 连接的 URL**（URL *machine* dials），统一拒绝含登录信息的 URL 并给出带 `--machine` 的修复命令、Linux `localhost` 警告、**保存并检查**（Save and check）和 **取消**（Cancel）；在 LayerFS Home 上为 **编辑连接**（Edit connection））、[登录错误](../img/store-check-login.png)（**更换登录…**（Change login…）、**更换密码…**（Rotate password…））、[缺少权限](../img/store-check-privilege.png)（列出缺失权限并提供 **更换登录…**（Change login…））、[记录过旧](../img/store-check-record.png)（**更新**（Update）或 **保存登录…**（Save a login…））。若 LayerFS 未提供足以定位具体步骤的证据，步骤与连线保持中性，仅展示原始拒绝而不猜测修法。修完后可点 **重新检查**（Check again） | `store doctor --machine` (读取并记录)、`store connect --machine`、`store update` | 忘记 |
 | [在 *机器* 上连接数据库](../img/store-connect-machine.png)（Connect a database on *machine*） | 机器 › Store › PostgreSQL 的 **连接数据库**（Connect a database） | 和连接数据库一样；检查从那台机器运行 | 同上 | |
-| 编辑 *store* 的连接（Edit *store*'s connection） | **更换登录…**（Change login…） | **URL（不含密码）**（URL (no password)）、**登录**（Login）（保留、输入新的，或选一个已保存的）、**synchronous_commit**；只发送改动过的部分 | `store connect`、`store save-auth`、`store update` ↻ | 再编辑一次 |
-| *机器* 到 *store* 的专属连接（*machine*'s own connection to *store*） | 连接 › **编辑**（Edit） | 一个 URL；**保存并检查**（Save and check） | `store connect --machine`（LayerFS 先检查） | **忘记**（Forget） |
-| 为 *store* 保存登录（Save a login for *store*） | **更换登录…**（Change login…）/ Store 没有指定已保存登录时的 **保存登录…**（Save a login…）修复 | **用户**（User）、**密码**（Password）、**登录名称**（Login name），或一个已保存的登录 | `store save-auth`、`store update --auth` ↻ | — |
-| *auth* 的新密码（New password for *auth*） | 登录标题的 **更换密码…**（Rotate password…） | **用户**（User）、**密码**（Password）；然后每个使用它的 Store 一个圆点（**可访问**（reached）/ **检查失败**（check failed）） | `store save-auth`、对每个 Store `store doctor`、`store get` ↻ | 再更换一次 |
+| 编辑 *store* 的连接（Edit *store*'s connection） | **编辑连接…**（Edit connection…） | **数据库 URL**（Database URL）（不含用户、密码或 passfile；统一的 **LayerFS 的修复**（LayerFS’s fix）+ **复制**（Copy）和 Linux `localhost` 警告）、**登录**（Login）（保留已保存的登录、输入新密码——预填当前用户并提示共用 Store 会一起生效——或选一个已保存的登录）、**synchronous_commit**（`local（LayerFS 默认）` 可切回 LayerFS 默认值）；只发送改动过的部分 | `store connect`、`store save-auth`、`store update` ↻ | 再编辑一次 |
+| *机器* 到 *store* 的专属连接（*machine*'s own connection to *store*） | 连接 › **编辑**（Edit） | **数据库 URL**（Database URL）（沿用 Store 的已保存登录；统一的含登录 URL 拒绝与 `--machine` 修复、Linux `localhost` 警告）；**保存并检查**（Save and check） | `store connect --machine`（LayerFS 先检查） | **忘记**（Forget） |
+| 为 *store* 保存登录（Save a login for *store*） | Store 没有指定已保存登录时的 **保存登录…**（Save a login…） | **用户**（User）、**密码**（Password）、**登录名称**（Login name），或一个已保存的登录 | `store save-auth`、`store update --auth` ↻ | — |
+| *auth* 的新密码（New password for *auth*） | 登录标题的 **更换密码…**（Rotate password…） | **用户**（User）、**密码**（Password）；保存后按 Store 卡片展示所有连接地址（本机、专属地址机器、活跃 Sandbox）的检查结论（**可访问**、**经 *机器* 连通** 或分类失败原因）与逐地址错误详情 | `store save-auth`、对每个 Store `store doctor`、`store get` ↻ | 再更换一次 |
 | [向 *机器* 添加 Store](../img/store-to-machine.png)（Add a Store to *machine*） | 机器 › Store 的 **推送 Store 到这里**（Push a Store here）/ **添加 Store**（Add Store） | **SQLite**（**移动一个到这里**（Move one here））或 **PostgreSQL**（**连接一个，或让已有的在此运行**（Connect one, or run one here））；列出其他机器上的 SQLite Store（含大小与来源，不可移动项显示真实原因如 **请先启动机器** *m*（Start machine *m* first））；检查目标剩余磁盘（小于 Store 红框拒绝、不足 1.15× 黄框警告）、带按键保护的 **启动** *m*、**当前被占用** 阻止，跨非 Home 机器迁移附两步操作说明；**移动到这里**（Move here）；在 LayerFS Home 上附 **或者直接在此新建：新建 Store**（Or create an empty Store here: New Store） | `store get`，然后 `store move`（推送、拉回，或先拉回再推送） | 移回去 |
 | [添加存储桶](../img/store-bucket-add.png)（Add bucket） | 导航栏 **添加 › 添加存储桶**（Add › Add bucket）；备份对话框里的 **添加存储桶**（Add a bucket）；备份标签页的 **添加存储桶…**（Add bucket…） | **MinIO** 或 **Cloudflare R2**、**名称**（Name）、**存储桶**（Bucket）、**端点**（Endpoint）或 **账户 ID**（Account ID）+ **辖区**（Jurisdiction）、**前缀**（Prefix）、**访问密钥**（Access key）、**私密密钥**（Secret key）；从备份对话框打开时，完成后回到备份对话框 | `backup connect`（密钥经 stdin 传入）↻ | 断开存储桶 |
 | 重新连接 *bucket*（Connect *bucket* again） | 密钥被拒绝的存储桶上的 **重新连接…**（Connect again…） | 同一个表单，名称锁定、URL 已填好；同一个 URL 会替换密钥（**密钥已替换；Store 关联保留**（Key replaced; links kept））并仅重列该存储桶 | `backup connect`，然后 `backup list` | — |

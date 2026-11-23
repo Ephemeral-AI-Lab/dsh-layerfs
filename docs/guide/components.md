@@ -241,8 +241,8 @@ The ⋯ in a Store page's head and on every Store card.
 | **Compact…** | Both kinds, when the runtime has `store compact` | Plain confirm → a job | `store get`, `store compact` | Off unless Ready. Tips: **Start machine** *m* **first**, **Repair machine** *m* **first**, **The Store is not ready**. Also offered on a Broken Store whose fix is a compaction |
 | **Remove…** (red) | SQLite | Confirm by typing the name | `store remove` | |
 | **Check** | PostgreSQL | The check screen from this computer (from that machine, on a machine page). Nothing runs until you press **Check** *store* **from** *machine* | `store doctor --machine`, `store get` | |
-| **Change login…** | PostgreSQL | Edit connection, or Save a login when the Store names none | `store connect` / `store save-auth` / `store update` | |
-| **Disconnect** *machine* | PostgreSQL, one row per machine with its own address | Confirm → that machine goes back to the Store's default address | `store disconnect --machine` | |
+| **Edit connection…** / **Save a login…** | PostgreSQL | Edit connection, or Save a login when the Store names none | `store connect` / `store save-auth` / `store update` | |
+| **Remove *machine*’s own address…** | PostgreSQL, one row per machine with its own address | Confirm → that machine goes back to the Store's default address | `store disconnect --machine` | |
 | **Disconnect…** (red) | PostgreSQL | Confirm (no typed name). The database itself stays | `store disconnect` | |
 
 ## Job card
@@ -281,7 +281,7 @@ Used by:
 
 - Remove a Store (typed name, `store remove`).
 - PostgreSQL **Disconnect…** (`store disconnect`).
-- **Disconnect** *machine* / **Forget** (`store disconnect --machine`).
+- **Remove *machine*’s own address…** / **Forget** (`store disconnect --machine`; plain confirm when forgetting only a recorded check).
 - **Remove login** (typed name, `store remove-auth`).
 - **Compact…** (plain, `store compact`).
 - Bucket **Disconnect** (`backup disconnect`).

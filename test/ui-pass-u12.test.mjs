@@ -60,7 +60,7 @@ await build({
       "export { refusalOf as cliRefusalOf } from './src/host/layerfs/cli.ts'",
       "export { refusedInUse } from './src/client/machines/MachineImages.tsx'",
       "export { classifyStore } from './src/host/sessions/availability.ts'",
-      "export { PG_URL_LOGIN, loginInUrlFix } from './src/client/storage/pg-fields.tsx'",
+      "export { PG_URL_LOGIN, hasPgUrlLogin, isLinuxLocalhostUrl, replaceLocalhostWithIpv4, formatHostPort, loginInUrlFix } from './src/client/storage/pg-fields.tsx'",
       "export * as ms from './src/client/storage/machine-stores.ts'",
       "export { stoppedBlock, storeNotice } from './src/client/storage/StoreCard.tsx'",
       "export { locales as machineLocales } from './src/client/machines/locale.ts'",
@@ -267,7 +267,8 @@ test('F12: a check the host has not started reads Waiting to start with Stop, ne
 
 test('F5: Store and connection controls and every fix button name what they act on (visible words stay short)', () => {
   const links = src('src/client/storage/StoreLinks.tsx')
-  for (const key of ['pgChangeLogin', 'pgCheck']) assert.match(links, new RegExp(`aria-label=\\{t\\('ariaFor', \\{ action: t\\('${key}'\\), name: s\\.name \\}\\)\\}`), key)
+  assert.match(links, /aria-label=\{t\('ariaFor', \{ action: editLabel, name: s\.name \}\)\}/, 'editLabel')
+  assert.match(links, /aria-label=\{t\('ariaFor', \{ action: t\('pgCheck'\), name: s\.name \}\)\}/, 'pgCheck')
   for (const key of ['pgCheck', 'edit', 'pgForget']) assert.match(links, new RegExp(`aria-label=\\{t\\('ariaForOn', \\{ action: t\\('${key}'\\), name: place\\(name\\), store: s\\.name \\}\\)\\}`), key)
   // the PostgreSQL Store card's Update (and every other fix button) goes through FixAction, whose name comes from the runner
   assert.match(src('src/client/ui/index.tsx'), /aria-label=\{runner\.named\?\.\(fix, words\) \?\? words\}/)
@@ -603,13 +604,25 @@ test('M2 (V23-13): Connect a database refuses a URL naming a login, with LayerFS
   assert.equal(M.loginInUrlFix('postgresql://app:pw@db:5432/orders?sslmode=require&passfile=/x', 'orders'),
     'layerfs store save-auth <auth> --user app --password-stdin && layerfs store connect orders postgresql://db:5432/orders?sslmode=require --auth <auth>')
   assert.equal(M.loginInUrlFix(base + '?sslpassword=s&user=u', ''), `layerfs store save-auth <auth> --user u --password-stdin && layerfs store connect <store> ${base} --auth <auth>`)
+  assert.equal(M.loginInUrlFix('postgresql://app:pw@10.0.0.5:5432/orders?sslmode=require', 'orders', { machine: 'docker' }),
+    'layerfs store connect orders postgresql://10.0.0.5:5432/orders?sslmode=require --machine docker')
   const cd = src('src/client/storage/ConnectDatabase.tsx')
-  assert.match(cd, /const loginInUrl = !server && PG_URL_LOGIN\.test\(withScheme\(url\)\)/)
+  assert.match(cd, /const loginInUrl = !server && hasPgUrlLogin\(url\)/)
   assert.match(cd, /const urlError = loginInUrl \? t\('cdLoginInUrl'\)/)
   assert.match(cd, /const valid = [^\n]*!urlError/, 'Connect stays off: nothing is created')
-  assert.match(cd, /\{loginInUrl \? <p className=\{scss\.formNote\} data-login-fix>[^\n]*loginInUrlFix\(url, storeName\)/)
+  assert.match(cd, /\{loginInUrl \? <PgLoginInUrlFix url=\{url\} store=\{storeName\}/)
   assert.match(cd, /url: `\$\{pgUrl\(\{ user: '', host, database \}\)\}\$\{options\}`/, 'its other options are not dropped')
-  for (const lang of ['en', 'zh']) for (const key of ['cdLoginInUrl', 'cdLoginFix']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
+  for (const lang of ['en', 'zh']) for (const key of ['cdLoginInUrl', 'cdLoginInUrlShort', 'cdLoginFix']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
+  assert.equal(M.hasPgUrlLogin('app@db:5432/orders'), true)
+  assert.equal(M.hasPgUrlLogin('postgresql://db:5432/orders?sslmode=require'), false)
+  assert.equal(M.isLinuxLocalhostUrl('postgresql://localhost:15432/orders', 'linux'), true)
+  assert.equal(M.isLinuxLocalhostUrl('postgresql://localhost:15432/orders', 'macos'), false)
+  assert.equal(M.isLinuxLocalhostUrl('postgresql://127.0.0.1:15432/orders', 'linux'), false)
+  assert.equal(M.replaceLocalhostWithIpv4('postgresql://localhost:15432/orders?sslmode=disable'), 'postgresql://127.0.0.1:15432/orders?sslmode=disable')
+  assert.equal(M.replaceLocalhostWithIpv4('localhost:15432/orders'), '127.0.0.1:15432/orders')
+  assert.equal(M.formatHostPort('127.0.0.1', 15200), '127.0.0.1:15200')
+  assert.equal(M.formatHostPort('::1', 5432), '[::1]:5432')
+  assert.equal(M.formatHostPort('127.0.0.1:15200', 5432), '127.0.0.1:15200')
 })
 
 test('M3b: opening Connect a machine runs no check; the named "Check <store> from <machine>" does', () => {
@@ -682,7 +695,7 @@ test('M10: a login header follows its Stores\' worst reach (no green Ready over 
 test('K FAIL 2 (V23-13): a login URL leaves Connect disabled, with its reason beside it; the URL input is named', () => {
   const cd = src('src/client/storage/ConnectDatabase.tsx')
   assert.match(cd, /<Button variant="primary" type="submit" form="lfs-cd-new" disabled=\{!!why\} aria-disabled=\{!!why \|\| undefined\} title=\{why \?\? undefined\}>\{t\('connect'\)\}/)
-  assert.match(cd, /const why = valid \? null : urlError \?\?/, 'a login URL (urlError) is the first reason')
+  assert.match(cd, /const why = valid \? null : loginInUrl \? t\('cdLoginInUrlShort'\)/, 'a login URL is the first reason')
   assert.match(cd, /const valid = [^\n]*!urlError/, 'a login URL makes the form not valid')
   assert.match(cd, /useEffect\(\(\) => \{ onWhy\(why\) \}, \[why\]\)/)
   assert.match(cd, /screen\.kind === 'new' && why \? <span className=\{scss\.modalHint\} data-connect-why>\{why\}<\/span>/, 'the reason is shown, not only a tooltip')

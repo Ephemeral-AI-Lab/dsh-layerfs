@@ -826,23 +826,55 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 4px 0;
+  gap: 8px 14px;
+  min-height: 36px;
+  padding: 6px 0;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
+  font-size: 13px;
 }
 .connRow:first-child {
   border-top: none;
 }
+.connIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 112px;
+}
 .connName {
   min-width: 0;
   overflow: hidden;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.connTag {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-module-platform);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+.connAddr {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 168px;
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-tertiary);
+}
 .connReach {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  min-width: 110px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.connActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }

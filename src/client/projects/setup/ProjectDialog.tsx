@@ -19,9 +19,12 @@ import { LayerfsGlyph } from '../../overview/glyph.tsx'
 import { messageOf, NAME, type ProjectInitJob, type ProjectRow } from '../../picker/NewProjectForm.tsx'
 import { slugify } from '../../picker/location.ts'
 import { useHostEvents } from '../../storage/hooks.ts'
-import { PG_URL_LOGIN } from '../../storage/pg-fields.tsx'
+import { serverLogin } from '../../storage/ConnectDatabase.tsx'
+import { parsePgUrl } from '../../storage/machine-stores.ts'
+import { HomeGlyph } from '../../storage/parts.tsx'
+import { hasPgUrlLogin, isLinuxLocalhostUrl, PgLocalhostNotice, PgLoginInUrlFix, PgPasswordFields, replaceLocalhostWithIpv4, usePgAuthsQuery, usePgPassword, type PgFieldsCopy } from '../../storage/pg-fields.tsx'
 import { Signal } from '../../storage/Signal.tsx'
-import type { PgAuth, StorageView, StoreRow } from '../../storage/types.ts'
+import type { StorageView, StoreRow } from '../../storage/types.ts'
 import { refusalOf, usePressGuard } from '../../ui/index.tsx'
 import { projectDialog, type DialogRequest, type ProjectRef } from '../dialog.ts'
 import type { ListT } from '../list-locale.ts'
@@ -29,10 +32,11 @@ import { openStorage } from '../navigation.ts'
 import { useProjectData, useRecent, type ProjectItem } from '../ProjectList.tsx'
 import { sidebarStatus } from '../readiness.ts'
 import { sidebarHidden } from '../recent.ts'
+import { formatSessionFailure, pgStoreFailure } from '../session-failure.ts'
 import { setupStateWord, type SetupT } from './locale.ts'
 import type { MachinePlatformInfo } from '../../machines/model.ts'
 import { createSteps, defaultMachine, machinesFor, needsStart, pgLoginProblem, pickable, resolveNewStoreName, runsOn, stoppedOf, tileBlocks, type CreatePlan, type PgLogin, type PgLoginProblem, type Step, type StoreKind } from './model.ts'
-import { pgDefaultMachine, pgPlaceable } from '../../storage/model.ts'
+import { pgDefaultMachine, pgPlaceable, pgServerLogin, rowMachine } from '../../storage/model.ts'
 import { LocationPicker, placeName, StartFirst, Tick, type LocationWords } from './MachineTiles.tsx'
 import { placeStore, runStep, startMachine } from './run.ts'
 import css from './dialog.module.css'
@@ -218,8 +222,19 @@ function Progress({ steps, plan, t, failure, initJob, partTitle, onEdit }: {
 type Part = 0 | 1 | 2
 const PARTS = [0, 1, 2] as const
 type StoreMode = 'new' | 'existing'
-/** A new PostgreSQL Store's login: a new one saved now, or one saved before. */
-type LoginMode = 'new' | 'saved'
+
+const setupPgCopy = (t: SetupT, savedHint?: string): PgFieldsCopy => ({
+  loginField: t('login'),
+  passwordSame: t('loginSaved'),
+  passwordEntered: t('loginNew'),
+  passwordSaved: t('loginSaved'),
+  user: t('user'),
+  password: t('password'),
+  savedLabel: t('loginSavedLabel'),
+  sameNote: () => t('loginSavedHint'),
+  enteredNote: t('passwordHint'),
+  savedHint: savedHint ?? t('loginSavedHint'),
+})
 
 /** What a new PostgreSQL connection still needs, for the rail: its URL, else its login's problem. */
 function pgMissing(problem: PgLoginProblem | 'url' | null, t: SetupT): string {
@@ -264,12 +279,8 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [query, setQuery] = useState('')
   const [storeName, setStoreName] = useState<string | null>(null)
   const [url, setUrl] = useState('')
-  // a PostgreSQL Store's login: a new one (name, user, password typed once) or one saved before
-  const [loginMode, setLoginMode] = useState<LoginMode>('new')
-  const [pickedAuth, setPickedAuth] = useState<string | null>(null)
+  const pw = usePgPassword('entered')
   const [loginName, setLoginName] = useState<string | null>(null)
-  const [pgUser, setPgUser] = useState('')
-  const [pgPassword, setPgPassword] = useState('')
   const [sqliteMachine, setSqliteMachine] = useState<string | null>(null)
   const [pgChoice, setPgChoice] = useState<string | null>(null)
   const [steps, setSteps] = useState<StepState[] | null>(null)
@@ -277,13 +288,27 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [error, setError] = useState<string | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
   const scratchStore = scratch.data?.scratchKey?.split('/')[0]
-  // the home's saved logins (store auths, never a password), read only for PostgreSQL
-  const authsRead = useQuery(() => (kind === 'postgresql' ? api.call<{ items: PgAuth[] }>('GET', '/api/store-auths').then((r) => (Array.isArray(r?.items) ? r.items : [])) : Promise.resolve([] as PgAuth[])),
-    [api, kind], { cache: kind === 'postgresql' ? 'GET /api/store-auths' : 'setup-auths-off' })
-  const auths = authsRead.data ?? []
-  const authNames = auths.map((a) => a.auth)
-
   const data = view.data
+  const { auths: fetchedAuths, reload: reloadAuths } = usePgAuthsQuery(api, kind === 'postgresql', data?.auths)
+  const auths = fetchedAuths.length ? fetchedAuths : (data?.auths ?? [])
+  const authNames = auths.map((a) => a.auth)
+  const parsedPg = kind === 'postgresql' && mode === 'new' ? parsePgUrl(url) : null
+  const pgServer = parsedPg?.host ? (/:\d+$/.test(parsedPg.host) ? parsedPg.host.toLowerCase() : `${parsedPg.host.toLowerCase()}:5432`) : ''
+  const knownAuth = data && pgServer ? serverLogin(data, auths, pgServer) : null
+  const loginChose = useRef(false)
+  const autoAuth = useRef<string | null>(null)
+  useEffect(() => {
+    if (loginChose.current) return
+    if (knownAuth) {
+      pw.setHow('saved')
+      pw.setAuth(knownAuth)
+      autoAuth.current = knownAuth
+    } else if (autoAuth.current !== null) {
+      pw.setHow('entered')
+      pw.setAuth('')
+      autoAuth.current = null
+    }
+  }, [knownAuth])
   const platforms = usePlatforms(api)
   const machines = machinesFor(data, kind)
   // a machine whose platform is not ready here shows blocked; the default is native when docker cannot run now
@@ -333,18 +358,23 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     ? (!NAME.test(chosenStoreName) ? t('storeNameInvalid') : storeNameTaken ? t('storeTaken', { store: chosenStoreName }) : null)
     : null
   const folderError = importing && source.trim() && !source.trim().startsWith('/') ? t('folderInvalid') : null
-  const urlError = kind === 'postgresql' && mode === 'new' && url.trim() ? (!PG_URL.test(url.trim()) || PG_URL_LOGIN.test(url.trim()) ? t('urlInvalid') : null) : null
-  // a new login is named after the Store unless a saved login has that name; it is never saved over one
-  const newLoginName = loginName ?? (authNames.includes(chosenStoreName) ? '' : chosenStoreName)
-  const login: PgLogin = loginMode === 'saved' ? { auth: pickedAuth ?? '' } : { authName: newLoginName, user: pgUser, password: pgPassword }
+  const loginInUrl = kind === 'postgresql' && mode === 'new' && hasPgUrlLogin(url)
+  const linuxLocalhost = kind === 'postgresql' && mode === 'new' && !loginInUrl && isLinuxLocalhostUrl(url, data?.computer?.os)
+  const urlError = kind === 'postgresql' && mode === 'new' && url.trim()
+    ? (loginInUrl ? t('urlLoginInUrl') : !PG_URL.test(url.trim()) ? t('urlInvalid') : null)
+    : null
+  // A new login is named for its server (spec v23 V23-12: pg-<host>-<port>), never the Store's name once a host is known.
+  const suggestedLoginName = pgServerLogin(parsedPg?.host ?? null) ?? chosenStoreName
+  const newLoginName = loginName ?? (authNames.includes(suggestedLoginName) ? '' : suggestedLoginName)
+  const login: PgLogin = pw.how === 'saved' ? { auth: pw.auth } : { authName: newLoginName, user: pw.user, password: pw.value }
   const loginProblem = kind === 'postgresql' && mode === 'new' ? pgLoginProblem(login, authNames) : null
-  const loginNameError = loginMode === 'new' && loginProblem === 'nameInvalid' ? t('loginNameInvalid') : loginMode === 'new' && loginProblem === 'nameTaken' ? t('loginNameTaken', { auth: newLoginName.trim() }) : null
+  const loginNameError = pw.how === 'entered' && loginProblem === 'nameInvalid' ? t('loginNameInvalid') : pw.how === 'entered' && loginProblem === 'nameTaken' ? t('loginNameTaken', { auth: newLoginName.trim() }) : null
   // the machines Create needs that are not running: each is started by its own Start below, never by Create
   const stopped = needsStart({ kind, store: existing, machines: chosen }, data)
   const startWords = startWordsOf(t)
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
-    1: mode === 'existing' ? !!existing : NAME.test(chosenStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
+    1: mode === 'existing' ? !!existing && existing.state === 'ready' : NAME.test(chosenStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
     2: chosen.length > 0 && chosen.every((m) => offered.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0,
   }
   const valid = !!data && parts.every((i) => ok[i])
@@ -376,7 +406,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
         setFailure({ step, error: e })
         view.reload()
         // a login saved before an unknown outcome stays: its name reads taken until another is given
-        if (step.id === 'connect') authsRead.reload()
+        if (step.id === 'connect') reloadAuths()
         return
       }
     }
@@ -384,11 +414,10 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     projectDialog.close()
   }
 
-  const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setStoreName(null); setPgChoice(null); setSqliteMachine(null) }
-  const chooseLoginMode = (next: LoginMode) => { setLoginMode(next); if (next === 'saved' && !authNames.includes(pickedAuth ?? '')) setPickedAuth(authNames[0] ?? null) }
+  const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setStoreName(null); setPgChoice(null); setSqliteMachine(null); loginChose.current = false }
   const chooseMode = (next: StoreMode) => {
     setMode(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null)
-    if (next === 'existing' && !stores.some((s) => s.name === picked)) setPicked(stores[0]?.name ?? null)
+    if (next === 'existing' && !stores.some((s) => s.name === picked && s.state === 'ready')) setPicked(stores.find((s) => s.state === 'ready')?.name ?? null)
   }
   const head = <Head title={importing ? t('importTitle') : t('newTitle')} sub={importing ? t('importSub') : t('newSub')} t={t} back={running ? undefined : back} />
   if (!data) return <>{head}<div className={css.body}><Loading read={view} t={t} /></div></>
@@ -471,41 +500,23 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
           {mode === 'new' ? <>
             {kind === 'postgresql' ? <>
               <Field label={t('url')} hint={t('urlHint')} error={urlError}>
-                <Input value={url} className={css.mono} placeholder="postgres://db.lan:5432/app" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
+                <Input value={url} className={css.mono} placeholder="postgresql://db.internal:5432/app" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
               </Field>
-              <Group label={t('login')} hint={loginMode === 'saved' && auths.length ? t('loginSavedHint') : undefined}>
-                <SegmentedControl<LoginMode> id={`${id}-login`} className={css.modes} value={loginMode} label={t('login')} onChange={chooseLoginMode}
-                  options={[
-                    { value: 'new', label: t('loginNew') },
-                    { value: 'saved', label: t('loginSaved', { n: auths.length }) },
-                  ]} />
-              </Group>
-              {loginMode === 'saved'
-                ? auths.length === 0
-                  ? <p className={css.empty}>{t('noLogins')}</p>
-                  : <div className={css.storeList}>
-                    <div role="radiogroup" aria-label={t('login')}>
-                      {auths.map((a) => <button key={a.auth} type="button" role="radio" aria-checked={pickedAuth === a.auth} data-login={a.auth}
-                        className={clsx(css.storeRow, pickedAuth === a.auth && css.storeRowOn)} onClick={() => setPickedAuth(a.auth)}>
-                        <span className={css.storeName}>{a.auth}</span>
-                        <span className={css.storeNote}>
-                          {[a.user, a.stores.length === 1 ? t('loginStoresOne') : a.stores.length ? t('loginStores', { n: a.stores.length }) : t('loginUnused')].filter(Boolean).join(' · ')}
-                        </span>
-                        {pickedAuth === a.auth ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}
-                      </button>)}
-                    </div>
-                  </div>
-                : <>
-                  <Field label={t('loginName')} hint={t('loginNameHint')} error={loginNameError}>
-                    <Input value={newLoginName} className={css.mono} autoComplete="off" spellCheck={false} onChange={(e) => setLoginName(e.target.value)} />
-                  </Field>
-                  <Field label={t('user')}>
-                    <Input value={pgUser} className={css.mono} placeholder="app" autoComplete="off" spellCheck={false} onChange={(e) => setPgUser(e.target.value)} />
-                  </Field>
-                  <Field label={t('password')} hint={t('passwordHint')}>
-                    <Input value={pgPassword} type="password" autoComplete="new-password" onChange={(e) => setPgPassword(e.target.value)} />
-                  </Field>
-                </>}
+              {loginInUrl ? <PgLoginInUrlFix url={url} store={chosenStoreName} label={t('urlLoginFix')} copyLabel={t('copyFix')} copiedLabel={t('copied')} /> : null}
+              {linuxLocalhost ? <PgLocalhostNotice message={t('urlLocalhostWarn')} actionLabel={t('urlLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
+              <PgPasswordFields id={`${id}-login`} pw={{
+                ...pw,
+                setHow: (h: Parameters<typeof pw.setHow>[0]) => { loginChose.current = true; pw.setHow(h); if (h === 'saved' && !pw.auth && auths[0]) pw.setAuth(auths[0].auth) },
+                setAuth: (a: Parameters<typeof pw.setAuth>[0]) => { loginChose.current = true; pw.setAuth(a) },
+                setUser: (u: Parameters<typeof pw.setUser>[0]) => { loginChose.current = true; pw.setUser(u) },
+                setValue: (v: Parameters<typeof pw.setValue>[0]) => { loginChose.current = true; pw.setValue(v) },
+              }}
+                copy={setupPgCopy(t, knownAuth && pw.auth === knownAuth && pgServer ? t('loginAutoMatched', { auth: knownAuth, server: pgServer }) : undefined)} auths={auths} />
+              {pw.how === 'entered' ? (
+                <Field label={t('loginName')} hint={t('loginNameHint')} error={loginNameError}>
+                  <Input value={newLoginName} className={css.mono} autoComplete="off" spellCheck={false} onChange={(e) => setLoginName(e.target.value)} />
+                </Field>
+              ) : null}
             </> : null}
           </> : stores.length === 0
             ? <p className={css.empty}>{kind === 'sqlite' ? t('noSqlite') : t('noPg')}</p>
@@ -516,16 +527,26 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
                   onChange={(e) => setQuery(e.target.value)} />
               </div>
               <div role="radiogroup" aria-label={t('store')}>
-                {listed.map((s) => <button key={s.name} type="button" role="radio" aria-checked={existing?.name === s.name}
-                  className={clsx(css.storeRow, existing?.name === s.name && css.storeRowOn)}
-                  onClick={() => { setPicked(s.name); setPgChoice(null); setSqliteMachine(null) }}>
-                  <span className={css.storeName}>{s.name}</span>
-                  <span className={css.storeNote}>
-                    {kind === 'sqlite' ? placeName(s.machine ?? 'native', wordsOf(t)) : s.postgresql?.target ?? ''}
-                    {' · '}{s.projects.length === 1 ? t('oneProject') : t('projects', { n: s.projects.length })}
-                  </span>
-                  {existing?.name === s.name ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}
-                </button>)}
+                {listed.map((s) => {
+                  const storeFail = kind === 'postgresql' ? formatSessionFailure(pgStoreFailure(s), null, t, s.name, s) : null
+                  const broken = s.state !== 'ready'
+                  return <div key={s.name} className={clsx(css.storeRowWrap, existing?.name === s.name && css.storeRowOn, broken && css.storeRowDisabled)}>
+                    <button type="button" role="radio" aria-checked={existing?.name === s.name} disabled={broken}
+                      className={css.storeRowBtn}
+                      title={storeFail?.message}
+                      onClick={() => { setPicked(s.name); setPgChoice(null); setSqliteMachine(null) }}>
+                      <span className={css.storeName}>{s.name}</span>
+                      {storeFail ? <span className={clsx(css.storeStatusTag, broken ? css.storeStatusError : css.storeStatusWarn)}>{storeFail.short}</span> : null}
+                      <span className={css.storeNote}>
+                        {kind === 'sqlite' ? placeName(s.machine ?? 'native', wordsOf(t)) : s.postgresql?.target ?? ''}
+                        {' · '}{s.projects.length === 1 ? t('oneProject') : t('projects', { n: s.projects.length })}
+                      </span>
+                      {existing?.name === s.name ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}
+                    </button>
+                    {broken ? <Button type="button" variant="ghost" size="sm" className={css.storeFixBtn}
+                      onClick={() => { projectDialog.close(); openStorage(api, `store:${s.name}`) }}>{t('sfOpenStore')}</Button> : null}
+                  </div>
+                })}
                 {listed.length === 0 ? <p className={css.empty}>{t('noStoreMatch')}</p> : null}
               </div>
             </div>}
@@ -605,14 +626,22 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
   const blocks = tileBlocks(view.data.machines, platforms, view.data.computer?.os)
   const startWords = startWordsOf(t)
   const kindWords = pg ? t('kindPg') : t('kindSqlite')
+  const pgFail = pg ? formatSessionFailure(pgStoreFailure(store), null, t, store.name, store) : null
   const storeCard = <Group label={t('store')}>
     <div className={css.storeCard}>
       <span className={css.kindMark}><StoreKindGlyph kind={store.kind} size={20} /></span>
       <span className={css.kindText}>
-        <span className={css.kindName}>{store.name}</span>
+        <span className={css.storeCardHead}>
+          <span className={css.kindName}>{store.name}</span>
+          {pg && pgFail ? <span className={clsx(css.storeStatusTag, store.state === 'broken' ? css.storeStatusError : css.storeStatusWarn)}>{pgFail.short}</span>
+            : pg && store.state === 'ready' ? <span className={css.storeStatusReady}>{t('pgReadyBadge')}</span> : null}
+        </span>
         <span className={css.kindBlurb}>{[kindWords, pg ? store.postgresql?.target : null, others === 1 ? t('sharedOne') : others ? t('shared', { n: others }) : t('alone')].filter(Boolean).join(' · ')}</span>
       </span>
+      <Button type="button" variant="outline" size="sm" className={css.openStoreBtn}
+        onClick={() => { projectDialog.close(); openStorage(api, `store:${store.name}`) }}>{t('sfOpenStore')}</Button>
     </div>
+    {pgFail ? <p className={clsx(css.pgStoreNotice, store.state === 'broken' && css.pgStoreNoticeError)} role="alert">{pgFail.message}</p> : null}
   </Group>
 
   const words = wordsOf(t, view.data?.computer?.os)
@@ -649,11 +678,33 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
     </>
   }
   // a PostgreSQL Store has no machine of its own: each session picks one when it starts (spec v23)
+  const reaches = store.connectedFrom ?? []
   return <>{head}
     <div className={css.body}><div className={css.fields}>
       {storeCard}
       <Group label={t('runsOn')} hint={t('pgPlacedPerSession')}>
-        <p className={css.notice}>{runsOn(store).length ? t('pgConnectedFrom', { machines: runsOn(store).map((m) => placeName(m, words)).join(', ') }) : t('pgNotConnectedYet')}</p>
+        {reaches.length ? (
+          <div className={css.reachList}>
+            {reaches.map((c) => {
+              const machine = rowMachine(c)
+              const mInfo = view.data?.machines.find((m) => m.name === machine)
+              const err = c.reach?.error ?? null
+              const statusText = c.reached === 'ok'
+                ? (c.reach?.latencyMs != null ? t('pgReachOk', { ms: c.reach.latencyMs }) : t('pgReachOkPlain'))
+                : c.reached === 'failed'
+                  ? t('pgReachFailed')
+                  : t('pgReachUnchecked')
+              return <span key={machine} className={css.reachChip} data-reach={c.reached} title={err ?? undefined}>
+                {machine === 'native'
+                  ? <HomeGlyph size={12} />
+                  : <MachineGlyph platform={mInfo?.platform ?? 'unknown'} size={12} mono />}
+                <span>{placeName(machine, words)}</span>
+                <span className={css.reachSep} aria-hidden="true">·</span>
+                <span className={css.reachState}>{statusText}</span>
+              </span>
+            })}
+          </div>
+        ) : <p className={css.notice}>{t('pgNotConnectedYet')}</p>}
       </Group>
       {error ? <p className={css.error} role="alert">{error}</p> : null}
     </div></div>

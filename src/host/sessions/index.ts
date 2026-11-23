@@ -426,7 +426,7 @@ export function apply(ctx: Context): void {
           const snap = await persistence?.stat(b.sessionId).catch(() => undefined)
           rows.set(b.sessionId, {
             sessionId: b.sessionId, title: snap ? await localTitle(b.sessionId) : null, branch: b.branch ?? null, state: b.state, local: !!snap,
-            executionState: b.executionState ?? (b.state === 'bound' ? 'active' : 'inactive'), error: b.error ?? null,
+            executionState: b.executionState ?? (b.state === 'bound' ? 'active' : 'inactive'), error: b.error ?? null, failure: b.failure ?? null,
             checkpoints: (state.checkpoints[b.sessionId] ?? []).filter((c) => c.commit && c.changed > 0).length,
             updatedAt: b.updatedAt, stored: !!state.mirror[b.sessionId] && !state.mirror[b.sessionId].error,
           })

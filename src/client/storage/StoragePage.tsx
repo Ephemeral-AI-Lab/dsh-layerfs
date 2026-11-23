@@ -333,11 +333,17 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       const next = (view?.machines ?? []).find((m) => !connected.has(m.name) && pgPlaceable(m))?.name ?? 'native'
       setDialog({ kind: 'connect', check: { store: s.name, machine: next } })
     },
-    removeOwn: (machine) => setDialog({
-      kind: 'confirm', title: t('pgRemoveOwnTitle', { store: s.name, machine: machine === 'native' ? t('layerfsHome') : machine }),
-      body: t('pgRemoveOwnBody', { machine: machine === 'native' ? t('layerfsHome') : machine }), action: t('pgRemoveOwn'),
-      run: () => api.call('POST', `/api/stores/${enc(s.name)}/connection`, { machine, clear: true }),
-    }),
+    removeOwn: (machine, own = true) => {
+      const place = machine === 'native' ? t('layerfsHome') : machine
+      setDialog({
+        kind: 'confirm',
+        title: own ? t('pgRemoveOwnTitle', { store: s.name, machine: place }) : t('pgForgetCheckTitle', { store: s.name, machine: place }),
+        body: own ? t('pgRemoveOwnBody', { machine: place }) : t('pgForgetCheckBody', { machine: place }),
+        action: own ? t('pgRemoveOwn') : t('pgForget'),
+        plain: !own,
+        run: () => api.call('POST', `/api/stores/${enc(s.name)}/connection`, { machine, clear: true }),
+      })
+    },
     newOnServer: () => setDialog({ kind: 'connect', server: serverKey(s) }),
     retry: (j) => { dismiss(j.id); act(() => retry(j)) },
     dismiss: (j) => dismiss(j.id),

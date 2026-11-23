@@ -9,6 +9,8 @@
  *   pending[id]       where a not-yet-bound session's files start (a fork from a checkpoint)
  */
 
+import type { SessionFailure } from '../../shared/pg-failure.ts'
+
 /** One project's scratch-folder workspace. */
 export interface ProjectWorkspace {
   readonly project: string
@@ -43,6 +45,7 @@ export interface Binding {
   executionState?: 'inactive' | 'activating' | 'active' | 'interrupted'
   state: 'bound' | 'closed' | 'failed'
   error?: string
+  failure?: SessionFailure
   /** Why execution was interrupted. Only `availability` clears its error once the Store answers again. */
   interruption?: { kind: 'availability' | 'sandbox' | 'removed' | 'blocked', at: number }
   /** Branch generations made by restores. */

@@ -86,8 +86,10 @@ export function serverKey(s: Pick<StoreRow, 'name' | 'postgresql'>): string {
 export interface PgServerGroup {
   /** `host:port`, or the whole target when it cannot be read. */
   server: string
-  /** The user its Stores log in as (the first that names one). */
+  /** The saved login name shared by its Stores (empty when mixed or none). */
   user: string
+  /** Distinct saved login names used by Stores on this server. */
+  auths: string[]
   /** By name. */
   stores: StoreRow[]
   /**
@@ -110,13 +112,13 @@ export function serverGroups(stores: readonly StoreRow[]): PgServerGroup[] {
   }
   return [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([server, list]) => {
     const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name))
-    // 2.0: a ready Store reached its server; a broken one with reason `unreachable` did not (no version or latency on a list row)
     const reached = sorted.find((s) => s.state === 'ready')
     const failing = sorted.find((s) => s.state === 'broken' && s.reason === 'unreachable')
+    const auths = [...new Set(sorted.map((s) => s.postgresql?.auth ?? '').filter(Boolean))]
     return {
       server,
-      // the saved login's name (2.0 keeps no user beside the Store)
-      user: sorted.map((s) => s.postgresql?.auth ?? '').find(Boolean) ?? '',
+      user: auths.length === 1 ? auths[0]! : '',
+      auths,
       stores: sorted,
       state: reached ? 'ok' : failing ? 'failed' : 'unknown',
       version: null,
@@ -131,8 +133,10 @@ export interface PgLoginGroup {
   /** The saved login's name; null for "No login". */
   auth: string | null
   user: string | null
-  /** Its Stores, by name. */
+  /** Its Stores shown on this page, by name. */
   stores: StoreRow[]
+  /** Every Store in this home that names this login (including those not on the current machine page). */
+  allStores: string[]
   /** The worst state of its Stores, or the login's own when its file cannot be read. */
   state: string
   /** The servers its Stores are on (`host:port`), for the tip. */
@@ -149,18 +153,14 @@ const worst = (states: readonly string[]): string => WORST.find((w) => states.in
 /** Whether Store `s`'s login is missing: it names none, or one the home does not hold. */
 const loginMissing = (s: StoreRow, saved: ReadonlySet<string>): boolean => !s.postgresql?.auth || !saved.has(s.postgresql.auth)
 
-/**
- * PostgreSQL Stores under their saved login (spec v23 V23-1): every login the
- * home holds (one no Store names too, so it can be removed), each with its
- * Stores, then "No login" for Stores whose login is missing. Logins by name.
- */
 export function loginGroups(stores: readonly StoreRow[], auths: readonly PgAuth[]): PgLoginGroup[] {
   const pg = stores.filter((s) => s.kind === 'postgresql').sort((a, b) => a.name.localeCompare(b.name))
   const saved = new Set(auths.map((a) => a.auth))
   const groups: PgLoginGroup[] = [...auths].sort((a, b) => a.auth.localeCompare(b.auth)).map((a) => {
     const mine = pg.filter((s) => s.postgresql?.auth === a.auth)
+    const allStores = [...new Set([...(a.stores ?? []), ...mine.map((s) => s.name)])].sort()
     return {
-      auth: a.auth, user: a.user, stores: mine,
+      auth: a.auth, user: a.user, stores: mine, allStores,
       state: (a.state ?? 'ready') !== 'ready' ? a.state! : worst(mine.map((s) => s.state)),
       servers: [...new Set(mine.map((s) => s.postgresql?.server).filter((x): x is string => !!x))].sort(),
       saved: a.updated ?? a.created ?? null,
@@ -168,7 +168,14 @@ export function loginGroups(stores: readonly StoreRow[], auths: readonly PgAuth[
     }
   })
   const lost = pg.filter((s) => loginMissing(s, saved))
-  if (lost.length) groups.push({ auth: null, user: null, stores: lost, state: worst(lost.map((s) => s.state)), servers: [...new Set(lost.map((s) => s.postgresql?.server).filter((x): x is string => !!x))].sort(), saved: null })
+  if (lost.length) {
+    groups.push({
+      auth: null, user: null, stores: lost, allStores: lost.map((s) => s.name),
+      state: worst(lost.map((s) => s.state)),
+      servers: [...new Set(lost.map((s) => s.postgresql?.server).filter((x): x is string => !!x))].sort(),
+      saved: null,
+    })
+  }
   return groups
 }
 
@@ -189,10 +196,10 @@ export function storeOffServer(s: StoreRow, group: Pick<PgServerGroup, 'state'> 
   return group && group.state === 'failed' && s.reason === 'unreachable' ? null : s.reason ?? ''
 }
 
-/** The address `machine` dials for a server on this host: a loopback server becomes the machine's alias for the host. */
+/** The address `machine` dials for a server on this host: matches LayerFS `postgres_url.rs` (only localhost, 127.0.0.1, [::1]). */
 export function routedServer(server: string, alias: string | null): string {
   if (!alias) return server
-  return server.replace(/^(localhost|127\.[0-9.]+|\[::1\])(?=:|$)/, alias)
+  return server.replace(/^(localhost|127\.0\.0\.1|\[::1\])(?=:|$)/i, alias)
 }
 
 /** The five things a check from a machine verifies, in order (`store doctor <s> --machine M`). */

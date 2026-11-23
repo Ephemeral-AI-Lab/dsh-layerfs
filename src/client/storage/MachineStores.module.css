@@ -65,7 +65,7 @@
 .tileFigure {
   min-width: 0;
   overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
@@ -113,7 +113,7 @@
   }
 }
 .viewCount {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -245,7 +245,7 @@
 .machinesLabel {
   flex: none;
   margin-inline-end: 2px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 11.5px;
 }
 .chip {
@@ -339,7 +339,7 @@
   white-space: nowrap;
 }
 .projectMeta {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -366,7 +366,7 @@
   margin: 0;
   border: 0.5px dashed var(--dsw-alias-border-l3);
   border-radius: 8px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
 }
 .noneAction {
@@ -409,7 +409,7 @@
 /* "+N projects": the rest are on the Store page. */
 .more {
   flex: none;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -496,7 +496,7 @@
   background: var(--dsw-alias-state-success-primary);
 }
 .muted {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 .mono {
   font-family: var(--dsw-font-mono, ui-monospace, monospace);
@@ -541,9 +541,25 @@
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pgServerImpact {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pgServerImpact[data-cross-machine] {
+  padding: 1px 7px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-primary);
 }
 .pgServerAdd {
   flex: none;
@@ -696,6 +712,20 @@
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   line-height: 16px;
+}
+.hopSub {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 14px;
+}
+.ownForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-module-platform);
 }
 .wire {
   flex: 1;

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { LayerfsApi } from '../api.ts'
+import type { SessionFailure } from '../../shared/pg-failure.ts'
 import { useQuery } from '../files/use-query.ts'
 import type { MachinesView } from '../machines/model.ts'
 import { useHostEvents } from '../storage/hooks.ts'
@@ -31,6 +32,7 @@ export interface ProjectSession {
   /** Local bindings only: `interrupted` when its Store became unavailable or its context was lost. */
   executionState?: 'inactive' | 'activating' | 'active' | 'interrupted'
   error?: string | null
+  failure?: SessionFailure | null
 }
 interface SessionList { sessions: ProjectSession[], discoveryError?: { code: string, message: string } | null }
 

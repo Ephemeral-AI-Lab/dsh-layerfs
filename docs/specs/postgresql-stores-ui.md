@@ -148,6 +148,9 @@ PostgreSQL Sandboxes.
 
 - A check runs only when asked for; the Overview does not show that a
   machine cannot reach a Store until a session or a check finds out.
-- synchronous_commit cannot be set back to "database default" from Edit
-  connection (`store.update` has no way to clear it).
+- `synchronous_commit` defaults to `local` in LayerFS 2.0 (`store connect`
+  writes `local` and `open` sends `SET synchronous_commit = local`); Edit
+  connection labels `local` as `local (LayerFS default)` so users can revert to
+  LayerFS's default. Leaving `synchronous_commit` unset for the PostgreSQL
+  server's own default is not supported by upstream `store update`.
 - `environment-reset.js` (copied from Connect) still leaves `pg-*.pw` files.

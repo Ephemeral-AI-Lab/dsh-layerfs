@@ -74,7 +74,7 @@ export interface FormModalProps {
   danger?: boolean
   /** The action leads on to another step (it does not close the form). */
   keepOpen?: boolean | undefined
-  /** Hide the secondary Cancel button once the dialog is in a completed confirmation state. */
+  /** Hide the secondary Cancel button when the modal only reports a completed result. */
   hideCancel?: boolean | undefined
   children: ReactNode
 }

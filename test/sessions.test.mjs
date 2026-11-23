@@ -692,7 +692,11 @@ test('classifyStore: the 2.0 six states: blocked and broken are unavailable, bus
   assert.equal(S.classifyStore({ store: 's', state: 'busy', op: { name: 'move' } }).state, 'transient')
   assert.equal(S.classifyStore({ store: 's', state: 'ready', op: { name: 'compact' } }).state, 'transient')
   const blocked = S.classifyStore({ store: 's', state: 'blocked', blocked_by: { machine: 'vm', reason: 'stopped' } })
-  assert.deepEqual(blocked, { state: 'unavailable', reason: 'The machine of Store s (vm) is stopped.' })
+  assert.deepEqual(blocked, {
+    state: 'unavailable',
+    reason: 'The machine of Store s (vm) is stopped.',
+    failure: { code: 'machine_blocked', store: 's', machine: 'vm', reason: 'stopped' },
+  })
   assert.equal(S.classifyStore({ store: 's', state: 'broken', reason: 'unresolved', fix: 'layerfs store move s vm' }).state, 'unavailable')
   assert.match(S.classifyStore({ store: 's', state: 'broken', reason: 'unresolved', fix: 'layerfs store move s vm' }).reason, /Fix: layerfs store move s vm/)
   assert.equal(S.classifyStore(undefined).state, 'removed')
@@ -704,7 +708,19 @@ test('classifyStore: the 2.0 six states: blocked and broken are unavailable, bus
   // CUT: a PostgreSQL Store naming no saved login is unavailable, and says what fixes it
   const noLogin = S.classifyStore({ store: 'old', engine: 'postgresql', auth: null, state: 'broken', reason: 'outdated', fix: 'layerfs store save-auth <auth> --user <user> --password-stdin && layerfs store update old --auth <auth>' })
   assert.equal(noLogin.state, 'unavailable')
-  assert.match(noLogin.reason, /PostgreSQL Store old names no saved login; save one with Save a login/)
+  assert.equal(noLogin.failure?.code, 'pg_no_login')
+  assert.match(noLogin.reason, /PostgreSQL Store old has no saved login; save one with Save a login… on its Store page/)
+  // PG broken + reason=missing must never be misreported as a missing SQLite file or point to "Storage page"
+  const missingLogin = S.classifyStore({ store: 'orders', engine: 'postgresql', state: 'broken', reason: 'missing', message: 'no saved login named pg-orders' })
+  assert.equal(missingLogin.state, 'unavailable')
+  assert.equal(missingLogin.failure?.code, 'pg_no_login')
+  assert.doesNotMatch(missingLogin.reason, /file of Store|Storage page/i)
+  assert.match(missingLogin.reason, /Store page/)
+  const priv = S.classifyStore({ store: 'billing', engine: 'postgresql', state: 'broken', reason: 'unreachable', message: 'role app lacks USAGE on schema layerfs (2 privilege(s) missing in all)' })
+  assert.equal(priv.failure?.code, 'pg_privilege')
+  assert.match(priv.reason, /lacks USAGE on schema layerfs/)
+  const dns = S.classifyStore({ store: 'dev', engine: 'postgresql', state: 'broken', reason: 'unreachable', message: 'pack persistence: Refused { status: "Closed" }' })
+  assert.equal(dns.failure?.code, 'pg_daemon_dns')
 })
 
 /** Store health poll fixture: an active owner + its subagent on `st`, another active session on `ok`. */
@@ -779,7 +795,8 @@ test('a removed Store and an unreachable PostgreSQL server deactivate their conv
   await pg.s.refreshAvailability()
   await pg.s.settled('owner')
   assert.equal(pg.state().sessions.owner.executionState, 'interrupted')
-  assert.match(pg.state().sessions.owner.error, /PostgreSQL server of Store st cannot be reached from this computer/)
+  assert.equal(pg.state().sessions.owner.failure?.code, 'pg_unreachable')
+  assert.match(pg.state().sessions.owner.error, /PostgreSQL Store st could not reach its server; check its connection on its Store page/)
   assert.ok(pg.calls.includes('get:st'), 'its server is read live')
 })
 

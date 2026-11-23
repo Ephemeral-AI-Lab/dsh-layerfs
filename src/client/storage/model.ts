@@ -663,10 +663,10 @@ export function pgDefaultMachine(s: Pick<StoreRow, 'connectedFrom'> | undefined,
   return (s?.connectedFrom ?? []).filter((c) => c.reached === 'ok').map(rowMachine).find(ok) ?? 'native'
 }
 
-/** What a machine of `platform` dials for a server on this host's localhost (LayerFS's reach rewrite). */
-export function loopbackAlias(platform: string): string | null {
+/** What a machine of `platform` dials for a server on this host's localhost (LayerFS's reach rewrite). Linux docker uses `--network host` (no rewrite). */
+export function loopbackAlias(platform: string, hostOs?: 'macos' | 'linux' | 'windows' | 'other'): string | null {
   switch (platform) {
-    case 'docker': return 'host.docker.internal'
+    case 'docker': return hostOs === 'linux' ? null : 'host.docker.internal'
     case 'lima': return '192.168.5.2'
     case 'apple-container': return '192.168.64.1'
     default: return null

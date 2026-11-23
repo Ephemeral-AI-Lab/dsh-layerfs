@@ -114,6 +114,18 @@ export function connectionRows(s: any) {
   })
 }
 
+const normMachine = (m: unknown): string | null => (typeof m === 'string' && m && m !== 'native' ? m : null)
+
+const skippedMachine = (n: any): string | null | undefined => {
+  if (n?.from !== undefined) return normMachine(n.from)
+  if (typeof n?.blocked_by?.machine === 'string') return normMachine(n.blocked_by.machine)
+  return undefined
+}
+
+const skippedConnection = (report: any, machine: string | null) =>
+  (Array.isArray(report?.not_checked) ? report.not_checked : [])
+    .find((n: any) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === machine)
+
 /** A bucket URL from its parts: MinIO `<endpoint>/<bucket>/<prefix>`, R2 `r2://<account>/<bucket>/<prefix>[?jurisdiction=…]`. */
 export function bucketUrl({ provider, endpoint, account, jurisdiction, bucket, prefix }: any = {}): string {
   const path = [bucket, ...(prefix ? [String(prefix).replace(/^\/+|\/+$/g, '')] : [])].filter(Boolean).join('/')
@@ -256,7 +268,7 @@ export function pgCheckError(
       step: 'record',
     }
   }
-  const connFinding = findings.find((f) => f?.check === 'store.connection' && (f?.from ?? null) === from)
+  const connFinding = findings.find((f) => f?.check === 'store.connection' && normMachine(f?.from) === from)
   const evidenceStep = typeof connFinding?.evidence?.step === 'string' ? connFinding.evidence.step : undefined
   const fix = typeof connFinding?.fix === 'string' && connFinding.fix ? connFinding.fix : undefined
   const message = String(reachError ?? connFinding?.message ?? 'the check failed')
@@ -560,19 +572,20 @@ export class Storage {
     const record: any = await this.lfs.store.get(name, { detail: true })
     const row = connectionRows(record).find((c: any) => c.machine === from)
     const host = row?.server?.host ?? null
+    const port = row?.server?.port ?? null
     const who = from ?? 'native'
     const findings: any[] = Array.isArray(report?.findings) ? report.findings : []
     const recordFailed = findings.some((f) => f?.check === 'store.record' && f?.severity === 'error')
       || (record?.state === 'broken' && (record?.reason === 'outdated' || record?.reason === 'missing'))
     if (recordFailed) {
-      return { machine: who, host, ok: false as const, error: pgCheckError(report, record, from, row?.reach?.error ?? null) }
+      return { machine: who, host, port, ok: false as const, error: pgCheckError(report, record, from, row?.reach?.error ?? null) }
     }
     if (row?.reach) return row.reach.ok
-      ? { machine: who, host, ok: true as const, at: row.reach.at ?? Date.now(), version: row.reach.version, latencyMs: row.reach.latencyMs }
-      : { machine: who, host, ok: false as const, error: pgCheckError(report, record, from, row.reach.error) }
+      ? { machine: who, host, port, ok: true as const, at: row.reach.at ?? Date.now(), version: row.reach.version, latencyMs: row.reach.latencyMs }
+      : { machine: who, host, port, ok: false as const, error: pgCheckError(report, record, from, row.reach.error) }
     // a not_checked entry is `{ check, blocked_by, reason }`: no message of its own
-    const skipped = (Array.isArray(report?.not_checked) ? report.not_checked : []).find((n: any) => (n?.check === 'store.connection' || !n?.check) && (n?.from === from || !n?.from))
-    return { machine: who, host, ok: false as const, error: { code: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'Unknown'), message: `machine ${who} was not checked` } }
+    const skipped = skippedConnection(report, from)
+    return { machine: who, host, port, ok: false as const, error: { code: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'Unknown'), message: `machine ${who} was not checked` } }
   }
 
   async disconnectStore(name: string) {
@@ -615,15 +628,80 @@ export class Storage {
     const answer: any = await this.lfs.store.save_auth(auth, { user, password: input.passwordValue, detail: true })
     this.changed()
     const stores: string[] = Array.isArray(answer?.stores) ? answer.stores.map(String) : saved.stores
-    const checks = await Promise.all(stores.map(async (store) => {
-      try {
-        const check: any = await this.checkStore(store, null)
-        return check.ok ? { store, ok: true } : { store, ok: false, error: check.error }
-      } catch (error: any) {
-        return { store, ok: false, error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } }
-      }
-    }))
+    const checks = await Promise.all(stores.map((store) => this.checkStoreAfterRotate(store)))
     return { auth, checks }
+  }
+
+  /**
+   * Checks a PostgreSQL Store across all of its connection addresses (this computer
+   * plus every machine with its own address or an active Sandbox, which `store doctor`
+   * probes in one pass) so a Store reached via a machine's own address is not falsely
+   * reported as failed.
+   */
+  private async checkStoreAfterRotate(store: string) {
+    try {
+      const started = Date.now()
+      const report: any = await this.lfs.store.doctor(store, { detail: true, timeout_ms: CHECK_TIMEOUT_MS })
+      this.changed()
+      const record: any = await this.lfs.store.get(store, { detail: true })
+      const findings: any[] = Array.isArray(report?.findings) ? report.findings : []
+      const recordFailed = findings.some((f) => f?.check === 'store.record' && f?.severity === 'error')
+        || (record?.state === 'broken' && (record?.reason === 'outdated' || record?.reason === 'missing'))
+      if (recordFailed) {
+        return { store, ok: false, sides: [], error: pgCheckError(report, record, null, null) }
+      }
+      type RotateSide =
+        | { machine: string | null, own: boolean, host: string | null, status: 'ok', latencyMs: number | null }
+        | { machine: string | null, own: boolean, host: string | null, status: 'failed', error: { code: string, message: string, step?: string, fix?: string } }
+        | { machine: string | null, own: boolean, host: string | null, status: 'skipped', reason: string }
+      const treeChecks: any[] = Array.isArray(report?.tree?.checks)
+        ? report.tree.checks.filter((t: any) => t?.check === 'store.connection')
+        : []
+      const hasTree = treeChecks.length > 0
+      const treeMatch = (machine: string | null) => treeChecks.find((t) => normMachine(t?.from) === machine)
+      const rows = connectionRows(record)
+      const sides: RotateSide[] = rows
+        .filter((c: any) => {
+          if (hasTree) {
+            return !!treeMatch(c.machine)
+              || findings.some((f) => f?.check === 'store.connection' && normMachine(f?.from) === c.machine)
+              || !!skippedConnection(report, c.machine)
+          }
+          return c.machine === null
+            || findings.some((f) => f?.check === 'store.connection' && normMachine(f?.from) === c.machine)
+            || !!skippedConnection(report, c.machine)
+            || (c.reach?.at != null && c.reach.at >= started - 500)
+        })
+        .map((c: any): RotateSide => {
+          const host = c.server?.host ? `${c.server.host}${c.server.port ? `:${c.server.port}` : ''}` : null
+          const treeEntry = treeMatch(c.machine)
+          const skipped = skippedConnection(report, c.machine)
+          if (skipped || treeEntry?.outcome === 'not_checked') {
+            return {
+              machine: c.machine, own: c.own, host, status: 'skipped',
+              reason: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'not_ready'),
+            }
+          }
+          const failedInReport = findings.some((f) => f?.check === 'store.connection' && f?.severity === 'error' && normMachine(f?.from) === c.machine)
+            || treeEntry?.outcome === 'error' || treeEntry?.outcome === 'fail'
+          if (!failedInReport && c.reach?.ok) {
+            return { machine: c.machine, own: c.own, host, status: 'ok', latencyMs: c.reach.latencyMs ?? null }
+          }
+          return {
+            machine: c.machine, own: c.own, host, status: 'failed',
+            error: pgCheckError(report, record, c.machine, c.reach?.error ?? null),
+          }
+        })
+      const okCount = sides.filter((s) => s.status === 'ok').length
+      const failedSides = sides.filter((s): s is Extract<RotateSide, { status: 'failed' }> => s.status === 'failed')
+      if (okCount > 0) {
+        return { store, ok: true, ...(failedSides.length ? { partial: true } : {}), sides }
+      }
+      const primaryError = failedSides[0]?.error ?? { code: 'Failed', message: 'no connection was checked' }
+      return { store, ok: false, sides, error: primaryError }
+    } catch (error: any) {
+      return { store, ok: false, sides: [], error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } }
+    }
   }
 
   /** Removes saved login `auth` (`store remove-auth`): LayerFS refuses `InUse` while a Store names it. */

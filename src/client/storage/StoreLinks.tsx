@@ -12,7 +12,8 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { Card, ExplainedButton, LinkButton } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, backupStateOf, brokenWords, listStatusWords, reconnectOf, storeStateWords, storeTip, storeWaitsFor, type Reconnect } from './model.ts'
+import { backupChip, backupStateOf, brokenWords, listStatusWords, needsLogin, reconnectOf, storeStateWords, storeTip, storeWaitsFor, type Reconnect } from './model.ts'
+import { formatHostPort } from './pg-fields.tsx'
 import { BucketMark, providerWords } from './BucketPage.tsx'
 import { StoreAction, type StoreActions } from './StoreCard.tsx'
 import type { TabId } from './tabs.ts'
@@ -176,6 +177,10 @@ export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
   const broken = s.state === 'broken'
   const server = pg?.server ? `${pg.server}${pg.database ? `/${pg.database}` : ''}` : pg?.target ?? '—'
   const checked = here?.reach
+  const reachFailed = !broken && checked?.ok === false
+  const authRecord = pg?.auth ? view.auths?.find((a) => a.auth === pg.auth) : undefined
+  const loginDisplay = pg?.auth ? (authRecord?.user ? `${pg.auth} (${authRecord.user})` : pg.auth) : t('pgNoLogin')
+  const editLabel = needsLogin(s) ? t('fixRunSaveLogin') : t('pgEditConnectionMenu')
   return (
     <div className={css.stack}>
       <Card className={css.linkCard} data-tone={broken ? 'danger' : undefined} data-connection={s.name}>
@@ -184,21 +189,22 @@ export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
           <span className={css.mono} title={pg?.binding ? t('pgDatabaseIdTip', { id: pg.binding.slice(0, 8) }) : undefined}>{server}</span>
         </div>
         <dl className={css.linkFacts}>
-          <div><dt>{t('pgLogin')}</dt><dd className={pg?.auth ? css.mono : undefined}>{pg?.auth ?? t('pgNoLogin')}</dd></div>
+          <div><dt>{t('pgLogin')}</dt><dd className={pg?.auth ? css.mono : undefined}>{loginDisplay}</dd></div>
           <div><dt>{t('pgDatabaseIdLabel')}</dt><dd className={css.mono} title={t('pgDatabaseIdTip', { id: pg?.binding?.slice(0, 8) ?? '—' })}>{pg?.binding?.slice(0, 8) ?? '—'}</dd></div>
           <div><dt>{t('syncCommit')}</dt><dd>{pg?.synchronousCommit ?? t('syncCommitDefault')}</dd></div>
         </dl>
-        <div className={css.linkCheck} data-state={broken ? 'failed' : undefined}>
-          <StateDot state={broken ? 'error' : s.state === 'ready' ? 'done' : 'idle'} size={10} />
-          <span className={css.linkPart} title={broken ? storeTip(s, t) : undefined}>{broken ? brokenWords(s, t) : storeStateWords(s.state, t)}</span>
+        <div className={css.linkCheck} data-state={broken || reachFailed ? 'failed' : undefined}>
+          <StateDot state={broken || reachFailed ? 'error' : s.state === 'ready' ? 'done' : 'idle'} size={10} />
+          <span className={css.linkPart} title={broken ? storeTip(s, t) : reachFailed ? checked?.error ?? undefined : undefined}>
+            {broken ? brokenWords(s, t) : reachFailed ? t('pgNotReachedCard') : storeStateWords(s.state, t)}
+          </span>
           {checked?.at ? <span className={clsx(css.linkPart, css.muted)}>{t('pgCheckedAgo', { when: ago(checked.at, now, tt) })}</span> : null}
-          {checked?.ok && checked.version ? <span className={clsx(css.linkPart, css.muted)}>{checked.version.split(' ')[0]}</span> : null}
+          {checked?.ok && checked.version ? <span className={clsx(css.linkPart, css.muted)}>{t('msPgShort', { version: checked.version.split(' ')[0]! })}</span> : null}
           {checked?.ok && checked.latencyMs != null ? <span className={clsx(css.linkPart, css.muted)}>{t('msReachableMs', { latency: checked.latencyMs })}</span> : null}
         </div>
         <div className={css.linkActions}>
           {broken ? <StoreAction store={s} t={t} /> : null}
-          {/* accessible names name the Store they act on (UI pass 3 F5); the visible words stay short */}
-          <Button variant="ghost" size="sm" aria-label={t('ariaFor', { action: t('pgChangeLogin'), name: s.name })} onClick={() => on.editConnection()}>{t('pgChangeLogin')}</Button>
+          <Button variant="ghost" size="sm" aria-label={t('ariaFor', { action: editLabel, name: s.name })} onClick={() => on.editConnection()}>{editLabel}</Button>
           <Button variant="outline" size="sm" aria-label={t('ariaFor', { action: t('pgCheck'), name: s.name })} onClick={() => on.check()}>{t('pgCheck')}</Button>
         </div>
       </Card>
@@ -210,23 +216,37 @@ export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
             const record = view.machines.find((m) => m.name === name)
             const reach = c.reach
             const boxes = (sandboxes ?? []).filter((b) => (b.machine ?? 'native') === name && b.project?.startsWith(`${s.name}/`)).length
-            const state = record?.state === 'broken' || c.reached === 'failed' ? 'error' : c.reached === 'ok' ? 'done' : 'idle'
+            const failed = record?.state === 'broken' || c.reached === 'failed'
+            const stopped = record?.state === 'stopped'
+            const state = failed ? 'error' : stopped ? 'idle' : c.reached === 'ok' ? 'done' : 'idle'
+            const ownServer = c.own && c.server?.host ? formatHostPort(c.server.host, c.server.port) : null
             return (
               <li key={c.machine ?? '(here)'} className={css.connRow} data-conn={name} data-reached={c.reached ?? 'none'}>
-                {mark(name)}
-                <span className={css.connName}>{place(name)}</span>
-                <span className={css.muted} title={c.url ?? undefined}>{c.own ? t('pgOwnAddressShort') : t('pgDefaultAddress')}</span>
-                <span className={css.connReach} title={reach?.ok === false ? t('pgCheckFailed') : undefined}>
+                <span className={css.connIdentity}>
+                  {mark(name)}
+                  <span className={css.connName}>{place(name)}</span>
+                  {stopped ? <span className={css.connTag}>{t('pgMachineStoppedShort')}</span> : null}
+                </span>
+                <span className={css.connAddr} title={c.url ?? undefined}>
+                  {c.own ? (
+                    <>
+                      <span>{t('pgOwnAddressShort')}</span>
+                      {ownServer ? <span className={css.mono}>{ownServer}</span> : null}
+                    </>
+                  ) : t('pgDefaultAddress')}
+                </span>
+                <span className={css.connReach} title={reach?.ok === false ? (reach.error ?? t('pgCheckFailed')) : undefined}>
                   <StateDot state={state} size={9} />
                   {reach ? (reach.ok ? (reach.latencyMs != null ? t('msReachableMs', { latency: reach.latencyMs }) : t('pgReached')) : t('pgCheckFailed')) : t('pgNotChecked')}
                 </span>
                 <span className={css.muted}>{reach?.at ? ago(reach.at, now, tt) : ''}</span>
-                <span className={css.muted}>{boxes ? t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes }) : ''}</span>
+                {boxes ? <span className={css.muted}>{t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes })}</span> : null}
                 <span className={css.spacer} />
-                {/* each names its machine row and the Store (F5) */}
-                <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('pgCheck'), name: place(name), store: s.name })} onClick={() => on.check(c.machine ?? undefined)}>{t('pgCheck')}</Button>
-                {c.machine && c.own ? <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('edit'), name: place(name), store: s.name })} onClick={() => on.editConnection(c.machine!)}>{t('edit')}</Button> : null}
-                {c.machine && (c.own || reach) ? <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('pgForget'), name: place(name), store: s.name })} onClick={() => on.removeOwn(c.machine!)}>{t('pgForget')}</Button> : null}
+                <span className={css.connActions}>
+                  <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('pgCheck'), name: place(name), store: s.name })} onClick={() => on.check(c.machine ?? undefined)}>{t('pgCheck')}</Button>
+                  {c.machine && c.own ? <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('edit'), name: place(name), store: s.name })} onClick={() => on.editConnection(c.machine!)}>{t('edit')}</Button> : null}
+                  {c.machine && (c.own || reach) ? <Button variant="ghost" size="sm" aria-label={t('ariaForOn', { action: t('pgForget'), name: place(name), store: s.name })} onClick={() => on.removeOwn(c.machine!, c.own)}>{t('pgForget')}</Button> : null}
+                </span>
               </li>
             )
           })}

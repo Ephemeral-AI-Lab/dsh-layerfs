@@ -1,4 +1,4 @@
-<!-- source: 35bb640d0584 -->
+<!-- source: 62253ded5c99 -->
 # 入口
 
 > 截图来自独立的指南环境，使用固定版本的 LayerFS 运行时和预置的 `handbook` 项目。
@@ -148,8 +148,8 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | 存储 | **新建连接**（New connection）· **已有 · {n}**（Existing · {n}） | — | `GET /api/store-auths` (读取，仅主机) | — |
-| 数据库 URL | “不含用户和密码，例如 postgres://db.lan:5432/app。”（Without a user or password, for example postgres://db.lan:5432/app.） | 输入 | — | 按钮旁显示 **存储：需要数据库 URL**（Store: Needs a database URL） |
-| 登录 | **新建登录**（New login）· **已保存 · {n}**（Saved · {n}）；登录名（Login name）、用户（User）、密码（Password）（“只输入一次，经标准输入交给 LayerFS，之后不再显示。”（Typed once. It goes to LayerFS on stdin and is never shown again.）） | 输入 | 创建时 `store save-auth`、`store connect`、`store get` | — |
+| 数据库 URL | “不含用户、密码或 passfile，例如 postgresql://db.lan:5432/app。”（Without a user, password or passfile, for example postgresql://db.lan:5432/app.） | 输入；含登录信息的 URL 会被拒绝并附 **LayerFS 的修复**（LayerFS’s fix）和 **复制**（Copy）；Linux 上填 `localhost` 会给出警告并提供 **改用 127.0.0.1**（Use 127.0.0.1） | — | 按钮旁显示 **存储：需要数据库 URL**（Store: Needs a database URL） |
+| 登录 | **输入**（Type）· **已保存的登录**（Saved login）（按所填服务器自动预选健康的已保存登录）；登录名（Login name）、用户（User）、密码（Password）（“保存为 LayerFS 登录（store save-auth）：密码经标准输入发送给 LayerFS，不再显示。”（Saved as a LayerFS login (store save-auth): the password goes to LayerFS on stdin and is never shown again.）） | 输入或选择 | 创建时 `store save-auth`、`store connect`、`store get` | — |
 | 运行于 | 会话运行的机器（PostgreSQL 下这一部分就叫 **运行于**（Runs on）） | 选择 | — | — |
 
 ### 导入文件夹

@@ -30,6 +30,7 @@ import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { shortSandbox, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { sandboxRuns } from '../machines/stats.ts'
 import { useProjectSessions, type ProjectSession } from '../projects/hooks.ts'
+import { formatSessionFailure } from '../projects/session-failure.ts'
 import { Card, FixAction, FixContext, MoreMenu, resolveFix } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
 import { enc, type LayerfsApi } from '../api.ts'
@@ -536,10 +537,12 @@ function SessionList({ api, project, t, other, onSwitch, down }: { api: LayerfsA
           <ul className={css.lines}>
             {sessions.map((x) => {
               const look = state(x)
+              const storeName = project.split('/')[0] ?? ''
+              const fail = x.executionState === 'interrupted' ? formatSessionFailure(x.failure, x.error, t, storeName) : null
               return (
                 <li key={x.sessionId}>
                   <button type="button" className={clsx(css.line, css.sessionLine)} disabled={down} onClick={() => openSession(x.sessionId)} data-session={x.sessionId}
-                    title={down ? t('ovSessionBlocked') : x.error ?? x.title ?? x.sessionId}>
+                    title={down ? (fail?.message ?? t('ovSessionBlocked')) : fail?.message ?? x.error ?? x.title ?? x.sessionId}>
                     <span className={css.lineIcon} aria-hidden="true">{x.local ? <ChatGlyph /> : <CloudGlyph />}</span>
                     <span className={clsx(css.ellipsis, (!x.local || !x.title) && css.dim)}>
                       {x.title || t('ptUntitled')}{x.title ? null : <span className={css.sessionId}>{x.sessionId.replace(/^session-/, '').slice(0, 8)}</span>}
