@@ -733,10 +733,15 @@
 
 .linkActions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding-top: 10px;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.linkListBtn {
+  margin-inline-start: auto;
 }
 
 /* ---------- narrow panes ---------- */

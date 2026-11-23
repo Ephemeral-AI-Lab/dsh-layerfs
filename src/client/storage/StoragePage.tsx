@@ -305,6 +305,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     move: () => setDialog({ kind: 'move', store: s }),
     // With no bucket yet there is nowhere to back up to: add one first.
     backup: () => setDialog(view && view.buckets.length === 0 ? { kind: 'bucket', then: { kind: 'backup', store: s, known: [] } } : { kind: 'backup', store: s }),
+    backupPick: (bucket) => setDialog({ kind: 'backup', store: s, pick: bucket }),
     backupTo: (l) => act(() => api.call('POST', `/api/stores/${enc(s.name)}/backup`, { bucket: l.bucket, file: l.file })),
     restore: (bucket, file) => setDialog({ kind: 'restore', bucket, file, store: s.name }),
     // only a runtime that has store.compact gets the menu row
@@ -352,7 +353,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   }
   const listBucket = (name: string) => {
     setListing((prev) => new Set(prev).add(name))
-    api.call('GET', `/api/buckets/${enc(name)}/files`).catch(setFailed).finally(() => {
+    return api.call('GET', `/api/buckets/${enc(name)}/files`).catch(setFailed).finally(() => {
       setListing((prev) => { if (!prev.has(name)) return prev; const next = new Set(prev); next.delete(name); return next })
       reload()
     })
@@ -484,7 +485,13 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   ) : null
 
   const pageOf = (id: TabId): ReactNode => {
-    if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} refreshKey={pageRefresh} />
+    if (id === 'health') {
+      return (
+        <HealthView api={api} t={doctorT} ts={t} refreshKey={pageRefresh}
+          jobs={jobs} dismissed={dismissed} now={now}
+          onRetry={(j) => { dismiss(j.id); act(() => retry(j)) }} onDismiss={(j) => dismiss(j.id)} />
+      )
+    }
     if (id === 'logs') return <LogsPage refreshKey={pageRefresh} api={api} t={more.logs} />
     if (id.startsWith('machine:')) {
       return (
@@ -528,7 +535,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       return (
         <Page wide label={t('title')}>
           <StorePage refreshKey={pageRefresh} name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, name, dismissed, now)} jobs={jobs.filter((j) => j.store === name)}
-            catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} onOpen={open} />
+            catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} onOpen={open}
+            onListBucket={listBucket} listingBucket={listingAll ? '*' : listing} onReconnect={reconnect} />
         </Page>
       )
     }

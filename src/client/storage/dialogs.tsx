@@ -4,7 +4,7 @@
  * a typed secret goes to the host, which keeps it in an owner-only file and
  * gives LayerFS that file's reference.
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Button, Checkbox, Input, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
@@ -12,7 +12,7 @@ import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
 import { Contained, Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, bucketParts, canMove, diskFit, inHome, needsLogin, pgServerLogin, storeStateWords, storeWaitsFor, type BackupState, type Reconnect } from './model.ts'
+import { backupStateOf, bucketParts, canMove, diskFit, inHome, listStatusWords, needsLogin, pgServerLogin, reconnectOf, storeStateWords, storeWaitsFor, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { LocationPicker, placeName, StartFirst } from '../projects/setup/MachineTiles.tsx'
 import { defaultMachine, machinesFor, stoppedOf } from '../projects/setup/model.ts'
@@ -30,7 +30,7 @@ const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 
 /** Which dialog is open, and on what. */
 export type StorageDialog =
-  | { kind: 'new-store', machine?: string | undefined }
+  | { kind: 'new-store', machine?: string | undefined, pane?: 'empty' | 'restore' | undefined }
   /**
    * Connect a database (ConnectDatabase.tsx), the one PostgreSQL connect dialog. `machine`: a machine page's
    * (new databases run on it); `server`: open on a new database on that server (`host:port`); `check`: open
@@ -80,7 +80,7 @@ function OpenDialog({ api, t, dialog, view, onClose, done, onDialog }: DialogsPr
   if (!dialog) return null
   const after = <T,>(p: Promise<T>) => p.then((v) => { done(); return v })
   switch (dialog.kind) {
-    case 'new-store': return <NewStoreDialog api={api} t={t} view={view} opened={dialog.machine} onClose={onClose} done={done} onDialog={onDialog} />
+    case 'new-store': return <NewStoreDialog api={api} t={t} view={view} opened={dialog.machine} initialPane={dialog.pane} onClose={onClose} done={done} onDialog={onDialog} />
     case 'connect': return (
       <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} server={dialog.server} check={dialog.check} onClose={onClose} done={done}
         onEditLogin={onDialog ? (store) => onDialog({ kind: 'pg-edit', store }) : undefined}
@@ -106,19 +106,27 @@ function OpenDialog({ api, t, dialog, view, onClose, done, onDialog }: DialogsPr
 type NewPane = 'empty' | 'restore'
 
 /** A new SQLite Store, empty or restored from a bucket. PostgreSQL goes on to Connect a database. */
-function NewStoreDialog({ api, t, view, opened, onClose, done, onDialog }: {
+function NewStoreDialog({ api, t, view, opened, initialPane, onClose, done, onDialog }: {
   api: LayerfsApi, t: StorageT, view: StorageView | undefined, onClose: () => void, done: () => void
   /** The machine whose page opened the dialog: the default place when it runs and is not broken. */
   opened?: string | undefined
+  initialPane?: NewPane | undefined
   onDialog?: ((dialog: StorageDialog) => void) | undefined
 }): ReactNode {
-  const [pane, setPane] = useState<NewPane>('empty')
+  const [pane, setPane] = useState<NewPane>(initialPane ?? 'empty')
   const [name, setName] = useState('')
   const buckets = view?.buckets ?? []
-  const [bucket, setBucket] = useState(buckets[0]?.name ?? '')
-  const [file, setFile] = useState('')
-  const [listing, setListing] = useState(false)
-  const [listError, setListError] = useState<unknown>(undefined)
+  const [bucketChoice, setBucket] = useState(buckets[0]?.name ?? '')
+  const bucket = bucketChoice && buckets.some((b) => b.name === bucketChoice) ? bucketChoice : (buckets[0]?.name ?? '')
+  const [pickedFile, setPickedFile] = useState<{ bucket: string, file: string } | null>(null)
+  const file = pickedFile && pickedFile.bucket === bucket ? pickedFile.file : ''
+  const [listingBucket, setListingBucket] = useState<string | null>(null)
+  const listing = listingBucket === bucket
+  const [listError, setListError] = useState<{ bucket: string, code: string, message: string } | null>(null)
+  const bucketRef = useRef(bucket)
+  bucketRef.current = bucket
+  const listSeq = useRef(0)
+  const autoListed = useRef(new Set<string>())
   // Where the new Store lives. LayerFS makes it in the home; another machine is a move after.
   const machines = machinesFor(view, 'sqlite')
   // never a broken machine or one Create would start: such a machine is the person's pick, its start named (StartFirst)
@@ -131,18 +139,47 @@ function NewStoreDialog({ api, t, view, opened, onClose, done, onDialog }: {
   const [made, setMade] = useState<string | null>(null)
   const [stage, setStage] = useState<string | undefined>(undefined)
   const chosen = buckets.find((b) => b.name === bucket)
-  const files = chosen?.files ? [...new Set(chosen.files.map((f) => f.file))].map((f) => ({ file: f, bytes: chosen.files!.find((x) => x.file === f)?.bytes ?? null, stores: chosen.files!.filter((x) => x.file === f && x.store).map((x) => x.store!) })) : null
+  const present = chosen?.files ? chosen.files.filter((f) => !f.missing) : null
+  const files = present ? [...new Set(present.map((f) => f.file))].map((f) => ({ file: f, bytes: present.find((x) => x.file === f)?.bytes ?? null, stores: present.filter((x) => x.file === f && x.store).map((x) => x.store!) })) : null
   const taken = !!name.trim() && name.trim() !== made && !!view?.stores.some((s) => s.name === name.trim())
-  const list = async () => {
-    setListing(true)
-    setListError(undefined)
-    try { await api.call('GET', `/api/buckets/${enc(bucket)}/files`) } catch (e) { setListError(e) } finally { setListing(false); done() }
+  const list = async (targetBucket = bucket) => {
+    if (!targetBucket) return
+    const seq = ++listSeq.current
+    setListingBucket(targetBucket)
+    setListError((prev) => (prev?.bucket === targetBucket ? null : prev))
+    try {
+      const res = await api.call<{ error?: { code?: string, message?: string } | null }>('GET', `/api/buckets/${enc(targetBucket)}/files`)
+      if (bucketRef.current === targetBucket && listSeq.current === seq && res?.error) {
+        setListError({ bucket: targetBucket, code: res.error.code ?? 'Failed', message: res.error.message ?? res.error.code ?? 'Failed' })
+      }
+    } catch (e: any) {
+      if (bucketRef.current === targetBucket && listSeq.current === seq) {
+        setListError({ bucket: targetBucket, code: e?.code ?? 'Failed', message: e?.message ?? String(e) })
+      }
+    } finally {
+      setListingBucket((cur) => (cur === targetBucket ? null : cur))
+      done()
+    }
   }
+  useEffect(() => {
+    setPickedFile((prev) => (prev && prev.bucket !== bucket ? null : prev))
+    setListError((prev) => (prev && prev.bucket !== bucket ? null : prev))
+  }, [bucket])
+  useEffect(() => {
+    if (pane !== 'restore' || !chosen || chosen.files !== null || chosen.error || listingBucket === chosen.name) return
+    if (autoListed.current.has(chosen.name)) return
+    autoListed.current.add(chosen.name)
+    void list(chosen.name)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pane, chosen?.name, chosen?.files, chosen?.error])
   const choose = (f: string) => {
-    setFile(f)
+    setPickedFile({ bucket, file: f })
     const base = f.replace(/\.[^.]+$/, '')
     setName(view?.stores.some((s) => s.name === base) ? `${base}-restored` : base)
   }
+  const scopedError = listError && listError.bucket === bucket ? listError : null
+  const activeError = scopedError ?? chosen?.error ?? null
+  const again = chosen && activeError ? reconnectOf({ ...chosen, error: activeError }) : null
   const nameOk = NAME.test(name.trim()) && !taken
   const missing = [
     !name.trim() && t('name'),
@@ -180,9 +217,10 @@ function NewStoreDialog({ api, t, view, opened, onClose, done, onDialog }: {
   const stopped = stoppedOf([place], view)
   // The name's rule shows only once a typed name breaks it.
   const nameError = taken ? t('nameTaken') : name.trim() && !NAME.test(name.trim()) ? t('storeNameHint') : null
+  const noBuckets = pane === 'restore' && buckets.length === 0
   return (
     <FormModal open onClose={onClose} t={t} title={t('newStore')} description={form.description} action={form.action}
-      valid={!missing.length && nameOk && stopped.length === 0} hint={missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
+      valid={!noBuckets && !missing.length && nameOk && stopped.length === 0} hint={!noBuckets && missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
       busyHint={stage}
       submit={() => form.submit().then(done)}>
       {/* a PostgreSQL Store is connected, not made: its tile opens Connect a database */}
@@ -193,38 +231,65 @@ function NewStoreDialog({ api, t, view, opened, onClose, done, onDialog }: {
       <SegmentedControl<NewPane> id="lfs-new-store-sqlite" className={css.selfStart} value={pane} onChange={setPane} label={t('sqlite')}
         options={[{ value: 'empty', label: t('storeEmpty') }, { value: 'restore', label: t('storeRestore') }]} />
       {pane === 'restore' ? (
-        buckets.length === 0 ? <Notice tone="warning">{t('noBucketForRestore')}</Notice> : (
+        noBuckets ? (
+          <Notice>
+            <span>{t('noBucketForRestore')}</span>
+            {onDialog ? (
+              <Button type="button" variant="outline" size="sm" className={css.selfStart}
+                onClick={() => onDialog({ kind: 'bucket', then: { kind: 'new-store', machine: opened, pane: 'restore' } })}>
+                {t('addBucketEllipsis')}
+              </Button>
+            ) : null}
+          </Notice>
+        ) : (
           <>
             <Field label={t('bucket')}>
               <div className={css.inline}>
                 <MenuSelect value={bucket} label={t('bucket')} placeholder={t('chooseBucket')} className={css.grow}
-                  options={buckets.map((b) => ({ value: b.name, label: b.name }))} onChange={(v) => { setBucket(v); setFile('') }} />
+                  options={buckets.map((b) => ({ value: b.name, label: b.name }))} onChange={(v) => { setBucket(v); setPickedFile(null); setListError(null) }} />
                 <Button variant="outline" size="sm" disabled={!bucket || listing} onClick={() => { void list() }}
-                  icon={listing ? <StateDot state="ongoing" size={13} /> : undefined}>{t('listBucket')}</Button>
+                  icon={listing ? <StateDot state="ongoing" size={13} /> : undefined}>{chosen?.files !== null ? t('listAgain') : t('listBucket')}</Button>
               </div>
             </Field>
-            {listError !== undefined ? <Refusal error={listError} labels={refusalLabels(t)} compact /> : null}
-            <div className={css.choiceList} role="radiogroup" aria-label={t('storeFile')}>
-              {!files?.length ? <p className={css.choiceEmpty}>{t('noFilesListed')}</p> : files.map((f) => (
-                <button key={f.file} type="button" role="radio" aria-checked={file === f.file} className={css.choiceRow} data-checked={file === f.file || undefined} onClick={() => choose(f.file)}>
-                  <span className={css.radio} aria-hidden="true" />
-                  <span className={css.choiceMain}>{f.file}</span>
-                  {f.stores.length ? <span className={css.choiceMeta}>{f.stores.join(', ')}</span> : null}
-                  <span className={css.choiceMeta}>{bytes(f.bytes)}</span>
-                </button>
-              ))}
-            </div>
+            {activeError ? (
+              <div className={css.bucketStatus} data-tone="danger" role="alert">
+                <Signal state="error" size={7} title={listStatusWords(activeError.code, t)} detail={activeError.message} />
+                {again && onDialog ? <Button type="button" size="sm" variant="outline" onClick={() => onDialog({ kind: 'bucket', again, then: { kind: 'new-store', machine: opened, pane: 'restore' } })}>{t('connectAgain')}</Button> : null}
+              </div>
+            ) : null}
+            {activeError && chosen?.files === null && !listing ? null : (
+              <div className={css.choiceList} role="radiogroup" aria-label={t('storeFile')}>
+                {listing && !files?.length
+                  ? <p className={css.choiceEmpty}>{t('bucketListingNow', { bucket })}</p>
+                  : chosen?.files === null
+                    ? <p className={css.choiceEmpty}>{t('bucketNotListedYet', { bucket })}</p>
+                    : !files?.length
+                      ? <p className={css.choiceEmpty}>{t('noFilesListed', { bucket })}</p>
+                      : files.map((f) => (
+                        <button key={f.file} type="button" role="radio" aria-checked={file === f.file} className={css.choiceRow} data-checked={file === f.file || undefined} onClick={() => choose(f.file)}>
+                          <span className={css.radio} aria-hidden="true" />
+                          <span className={css.choiceMain}>{f.file}</span>
+                          {f.stores.length ? <span className={css.choiceMeta}>{f.stores.join(', ')}</span> : null}
+                          <span className={css.choiceMeta}>{bytes(f.bytes)}</span>
+                        </button>
+                      ))}
+              </div>
+            )}
           </>
         )
       ) : null}
-      <TextField label={pane === 'restore' ? t('newStoreName') : t('name')} value={name} onChange={setName} mono autoFocus={pane !== 'restore'} placeholder="work" error={nameError} />
-      <Field label={t('nsLocation')} hint={t('nsLocationHint')} group>
-        <LocationPicker machines={machines} value={place} onChange={setPlace} words={words} label={t('nsLocation')} fallback={fallback} compact />
-      </Field>
-      {/* creating starts no machine: a stopped one has its own Start here */}
-      <StartFirst names={stopped} start={(m) => startMachine(api, m)} onStarted={done}
-        words={{ stopped: (machine) => t('nsStoppedFirst', { machine }), start: (machine) => t('startMachine', { machine }), refused: (machine) => t('nsStartRefused', { machine }) }} />
-      {moveOnly ? <p className={css.formNote}>{t('nsMade', { store: made, machine: where })}</p> : null}
+      {!noBuckets ? (
+        <>
+          <TextField label={pane === 'restore' ? t('newStoreName') : t('name')} value={name} onChange={setName} mono autoFocus={pane !== 'restore'} placeholder={pane === 'restore' ? (file ? `${file}-restored` : t('restorePlaceholder')) : 'work'} error={nameError} />
+          <Field label={t('nsLocation')} hint={t('nsLocationHint')} group>
+            <LocationPicker machines={machines} value={place} onChange={setPlace} words={words} label={t('nsLocation')} fallback={fallback} compact />
+          </Field>
+          {/* creating starts no machine: a stopped one has its own Start here */}
+          <StartFirst names={stopped} start={(m) => startMachine(api, m)} onStarted={done}
+            words={{ stopped: (machine) => t('nsStoppedFirst', { machine }), start: (machine) => t('startMachine', { machine }), refused: (machine) => t('nsStartRefused', { machine }) }} />
+          {moveOnly ? <p className={css.formNote}>{t('nsMade', { store: made, machine: where })}</p> : null}
+        </>
+      ) : null}
     </FormModal>
   )
 }
@@ -585,37 +650,82 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
 
 // ---------- Restore ----------
 
+export interface ReplaceContext {
+  listed: boolean
+  bucketError?: { code: string, message: string } | null | undefined
+  file?: string | undefined
+  heldBy?: readonly string[] | undefined
+}
+
 /** Why backup.restore would refuse replacing `s` with the bucket's file, or null. */
-function replaceRefusal(s: StoreRow, state: BackupState | undefined, bucket: string, t: StorageT): string | null {
+export function replaceRefusal(
+  s: StoreRow,
+  state: BackupState | undefined,
+  bucket: string,
+  t: StorageT,
+  ctx: ReplaceContext = { listed: state !== undefined },
+): string | null {
   if (!inHome(s)) return t('replaceNotHome', { store: s.name, machine: s.machine ?? '?' })
-  if (s.state !== 'ready' || s.job) return t('replaceNotIdle', { store: s.name })
+  if (s.state !== 'ready' || s.job) {
+    if (s.state === 'busy' || s.job) return t('replaceBusy', { store: s.name })
+    const why = storeWaitsFor(s, t)
+    return why ? t('replaceNotIdle', { store: s.name, why }) : t('replaceBusy', { store: s.name })
+  }
+  if (ctx.heldBy?.length) {
+    return t('replaceInUse', { store: s.name, sandboxes: ctx.heldBy.map((name) => t('heldSandbox', { name })).join(' · ') })
+  }
   if (!s.links.some((l) => l.bucket === bucket)) return t('replaceNoLink', { store: s.name, bucket })
+  if (ctx.bucketError) return t('replaceListFailed', { bucket, status: listStatusWords(ctx.bucketError.code, t), store: s.name })
+  if (!ctx.listed) return t('replaceNotListed', { bucket, store: s.name })
+  if (state === 'missing') return t('replaceMissing', { bucket, file: ctx.file ?? s.name })
+  if (state === 'unknown' || state === undefined) return t('replaceUnknown', { store: s.name })
   if (state === 'store_changed' || state === 'both_changed') return t('replaceChanged', { store: s.name, bucket })
   return null
 }
 
 function RestoreDialog({ api, t, dialog, view, onClose, done }: { api: LayerfsApi, t: StorageT, dialog: Extract<StorageDialog, { kind: 'restore' }>, view: StorageView | undefined, onClose: () => void, done: () => void }): ReactNode {
+  const machines = useQuery(() => api.call<MachinesView>('GET', '/api/machines'), [api], { cache: 'GET /api/machines' })
   const linked = dialog.store ? view?.stores.find((s) => s.name === dialog.store && s.kind === 'sqlite') : undefined
-  const state = backupStateOf(view?.buckets.find((b) => b.name === dialog.bucket)?.files?.find((f) => f.file === dialog.file && f.store === dialog.store)) ?? undefined
-  const refusal = linked ? replaceRefusal(linked, state, dialog.bucket, t) : null
+  const bucketRow = view?.buckets.find((b) => b.name === dialog.bucket)
+  const listed = bucketRow?.files !== null && bucketRow?.files !== undefined
+  const entry = bucketRow?.files?.find((f) => f.file === dialog.file && f.store === dialog.store)
+  const state = backupStateOf(entry) ?? undefined
+  const fleet = machines.data?.available ? machines.data : null
+  const heldBy = linked
+    ? (fleet?.sandboxes ?? []).filter((b) => b.project?.startsWith(`${linked.name}/`) && b.state !== 'gone').map((b) => b.name)
+    : []
+  const refusal = linked ? replaceRefusal(linked, state, dialog.bucket, t, { listed, bucketError: bucketRow?.error, file: dialog.file, heldBy }) : null
   const [mode, setMode] = useState<'new' | 'replace'>(linked && !refusal && state === 'bucket_changed' ? 'replace' : 'new')
   const [name, setName] = useState('')
+  const [listing, setListing] = useState(false)
   const taken = !!name.trim() && !!view?.stores.some((s) => s.name === name.trim())
-  const replacing = mode === 'replace' && !!linked
+  const nameError = taken ? t('nameTaken') : name.trim() && !NAME.test(name.trim()) ? t('storeNameHint') : null
+  const replacing = mode === 'replace' && !!linked && !refusal
+  const listNow = async () => {
+    setListing(true)
+    try { await api.call('GET', `/api/buckets/${enc(dialog.bucket)}/files`) } finally { setListing(false); done() }
+  }
   return (
     <FormModal open onClose={onClose} t={t} title={t('restoreTitle', { bucket: dialog.bucket, file: dialog.file })} description={t('restoreBody')}
       action={replacing ? t('restoreReplace', { store: linked!.name }) : t('restoreStore')}
       valid={replacing ? !refusal : NAME.test(name.trim()) && !taken}
+      hint={!replacing && !name.trim() ? t('stillNeeded', { what: t('newStoreName') }) : undefined}
       submit={() => api.call('POST', `/api/buckets/${enc(dialog.bucket)}/restore`, { store: replacing ? linked!.name : name.trim(), file: dialog.file }).then(done)}>
       {linked ? (
-        <TileChoice label={t('restore')} value={mode} onChange={setMode} options={[
+        <TileChoice label={t('restore')} value={replacing ? 'replace' : 'new'} onChange={setMode} options={[
           { value: 'new', label: t('restoreAsNew'), body: t('restoreAsNewBody') },
           { value: 'replace', label: t('restoreReplace', { store: linked.name }), body: t('restoreReplaceBody', { store: linked.name }), disabled: refusal },
         ]} />
       ) : null}
+      {linked && (!listed || !!bucketRow?.error) ? (
+        <Button type="button" variant="outline" size="sm" className={css.selfStart} disabled={listing}
+          icon={listing ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => { void listNow() }}>
+          {bucketRow?.error ? t('listAgain') : t('listBucket')}
+        </Button>
+      ) : null}
       {replacing
         ? <Notice tone="warning">{t('restoreReplaceWarn', { store: linked!.name })}</Notice>
-        : <TextField label={t('newStoreName')} value={name} onChange={setName} mono autoFocus placeholder={`${dialog.file}-restored`} error={taken ? t('nameTaken') : null} />}
+        : <TextField label={t('newStoreName')} value={name} onChange={setName} mono autoFocus placeholder={`${dialog.file}-restored`} error={nameError} />}
     </FormModal>
   )
 }

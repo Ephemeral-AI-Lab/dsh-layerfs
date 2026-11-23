@@ -50,14 +50,18 @@ export type BackupAction = 'again' | 'update' | 'restore' | 'now'
 
 export function actionOf(state: BackupState | null | undefined): BackupAction {
   switch (state) {
-    case 'missing': return 'again'
-    case 'store_changed':
-    case 'both_changed': return 'update'
+    case 'missing':
+    case 'both_changed': return 'again'
+    case 'store_changed': return 'update'
     case 'current':
     case 'bucket_changed': return 'restore'
     default: return 'now'
   }
 }
+
+/** LayerFS refuses overwriting a missing or diverged bucket object under the same file name. */
+export const needsNewFileName = (state: BackupState | null | undefined): boolean =>
+  state === 'missing' || state === 'both_changed' || state === 'bucket_changed'
 
 export interface StoreBackup {
   link: StoreBackupLink
@@ -67,6 +71,10 @@ export interface StoreBackup {
   /** When it was written: the listing's time, else the last backup this host ran. */
   at: number | null
   bytes: number | null
+  /** LayerFS's note for this entry (for example when state is `unknown`). */
+  message: string | null
+  /** The bucket's last listing failure, when listing was refused or failed. */
+  bucketError: BucketRow['error']
 }
 
 export interface ProviderGroup<T> { provider: string | null, items: T[] }
@@ -84,13 +92,16 @@ function byProvider<T>(items: readonly T[], provider: (x: T) => string | null, r
 /** Every backup of `s`, most urgent first, then newest. */
 export function storeBackups(s: StoreRow, buckets: readonly BucketRow[]): StoreBackup[] {
   return s.links.map((link) => {
+    const bucket = buckets.find((b) => b.name === link.bucket)
     const listed = listedOf(s, link.bucket, link.file, buckets)
     const state = backupStateOf(listed)
     return {
       link, state, health: healthOf(state),
-      provider: buckets.find((b) => b.name === link.bucket)?.provider ?? null,
+      provider: bucket?.provider ?? null,
       at: listed?.modified ?? link.last?.at ?? null,
       bytes: listed?.bytes ?? link.last?.bytes ?? null,
+      message: listed?.message ?? null,
+      bucketError: bucket?.error ?? null,
     }
   }).sort((a, b) => RANK[a.health] - RANK[b.health] || (b.at ?? 0) - (a.at ?? 0) || a.link.bucket.localeCompare(b.link.bucket))
 }

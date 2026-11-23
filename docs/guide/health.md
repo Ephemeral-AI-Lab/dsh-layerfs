@@ -75,7 +75,9 @@ and only these four. Any other fix line stays a line to copy.
 | **Start** | A machine is stopped (on purpose or not) | `machine start <m>` | `machine doctor <m>` and what is on it | `machine stop` |
 | **Restart worker** | A machine's worker is outdated (`machine.worker.compatibility`) | `machine stop <m>` then `machine start <m>` | the machine's checks | — |
 | **Delete project** | A project's record names it but its Store does not list it (`project.listed`) | confirm, then `project delete <s/p>` | its Store's doctor | None |
-| **Back up now** | A Store's backup in a bucket is behind (`store.backups`) | `backup create <store> <bucket>` (as a Storage job) | `store doctor <store>` | — |
+| **Back up now** | A Store's backup in a bucket is behind (`store.backups`) | `backup create <store> <bucket> [--file]` (as a Storage job; preserves the linked custom file name and shows the compact [job card](components.md#job-card) directly under the Store row) | `store doctor <store>` | — |
+
+![Inline backup job card under a Store row after running Back up now](img/health-store-job.png)
 
 Each step is one attempt. A refusal is certain (nothing changed; the button tries again); a
 lost reply may have worked, so nothing runs it again: check the row to see where it stands.

@@ -18,6 +18,9 @@ import { causeOf, kidsOf, offWhy, running, stateOf, viewOf, waitingRun, type Doc
 import { markDot, TipBody, useTip, type MarkKind, type TipData } from './tips.tsx'
 import { DOT, mmss, type Words } from './words.ts'
 import { Signal, type SignalState } from '../storage/Signal.tsx'
+import { JobPanel } from '../storage/JobProgress.tsx'
+import type { StorageT } from '../storage/locale.ts'
+import type { StorageJob } from '../storage/types.ts'
 import { usePressGuard } from '../ui/index.tsx'
 import { BucketProviderGlyph, MachineGlyph, SandboxGlyph, StoreKindGlyph } from '../machines/icons.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -37,6 +40,10 @@ export interface RowActions {
 export interface RowContext {
   state: DoctorState
   w: Words
+  ts?: StorageT | undefined
+  storeJob?: ((store: string) => StorageJob | undefined) | undefined
+  onJobRetry?: ((job: StorageJob) => void) | undefined
+  onJobDismiss?: ((job: StorageJob) => void) | undefined
   open: Readonly<Record<string, boolean>>
   flash: string | null
   /** Ticks while a Full check runs (its elapsed time). */
@@ -331,11 +338,18 @@ export function Row({ v, open, ctx }: { v: RowView, open: boolean, ctx: RowConte
 export function Node({ thing, depth, ctx }: { thing: Thing, depth: number, ctx: RowContext }): ReactNode {
   const open = !!ctx.open[thing.key]
   const v = viewOf(ctx.state, thing, depth, open)
-  if (!open) return <Row v={v} open={false} ctx={ctx} />
-  if (!v.folder) return <><Row v={v} open ctx={ctx} /><Detail v={v} ctx={ctx} /></>
+  const job = thing.kind === 'store' ? ctx.storeJob?.(thing.name) : undefined
+  const jobBand = job && ctx.ts ? (
+    <div className={css.jobBand} style={{ '--depth': depth } as CSSProperties} data-doctor-job={job.store}>
+      <JobPanel job={job} compact t={ctx.ts} onRetry={() => ctx.onJobRetry?.(job)} onDismiss={() => ctx.onJobDismiss?.(job)} />
+    </div>
+  ) : null
+  if (!open) return <><Row v={v} open={false} ctx={ctx} />{jobBand}</>
+  if (!v.folder) return <><Row v={v} open ctx={ctx} />{jobBand}<Detail v={v} ctx={ctx} /></>
   return (
     <>
       <Row v={v} open ctx={ctx} />
+      {jobBand}
       {v.ownTrouble ? <Detail v={v} ctx={ctx} /> : null}
       <div className={css.kids} role="group" id={kidsId(thing.key)} aria-label={ctx.w.t('dpOnGroup', { name: ctx.w.nameOf(thing) })}>
         {v.kids.map((kid) => <Node key={kid.key} thing={kid} depth={depth + 1} ctx={ctx} />)}

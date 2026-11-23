@@ -21,6 +21,7 @@ export interface StoreActions {
   pull: () => void
   move: () => void
   backup: () => void
+  backupPick?: ((bucket: string) => void) | undefined
   backupTo: (link: StoreBackupLink) => void
   /** Confirm, then compact the Store; absent when the selected LayerFS runtime has no store.compact. */
   compact?: (() => void) | undefined

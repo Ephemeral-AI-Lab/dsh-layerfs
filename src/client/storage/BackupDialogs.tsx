@@ -12,22 +12,23 @@
  *   bucket opens the bucket form and comes back here with the new bucket
  *   chosen. The file name is the link's (or LayerFS's default) unless changed.
  */
-import { useEffect, useState, type ReactNode } from 'react'
-import { Button, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useId, useState, type ReactNode } from 'react'
+import { Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Refusal } from '../ui/index.tsx'
+import { ExplainedButton, Refusal } from '../ui/index.tsx'
 import { BucketMark, providerWords } from './BucketPage.tsx'
 import type { StorageDialog } from './dialogs.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, listStatusWords } from './model.ts'
+import { backupChip, listStatusWords, reconnectOf, storeWaitsFor } from './model.ts'
 import { FormModal, refusalLabels, TextField } from './parts.tsx'
-import { actionOf, backupCounts, backupGroups, backupTargets, firstTarget, freshName, storeBackups, type BackupHealth, type StoreBackup } from './store-backups.ts'
+import { actionOf, backupCounts, backupGroups, backupTargets, firstTarget, freshName, needsNewFileName, storeBackups, type BackupHealth, type StoreBackup } from './store-backups.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './MachineStores.module.css'
 import scss from './Storage.module.css'
 
+const NAME = /^[a-z0-9](?:[a-z0-9_.-]{0,61}[a-z0-9])?$/
 const HEALTH: readonly BackupHealth[] = ['problem', 'stale', 'unknown', 'current']
 
 interface Props {
@@ -50,6 +51,7 @@ export function HealthBar({ backups, t }: { backups: readonly StoreBackup[], t: 
 }
 
 export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: Props & { store: string }): ReactNode {
+  const anotherReasonId = useId()
   const s = view?.stores.find((x) => x.name === store && x.kind === 'sqlite')
   const [running, setRunning] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(undefined)
@@ -71,7 +73,9 @@ export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: 
   const now = Date.now()
   const backups = storeBackups(s, view.buckets)
   const groups = backupGroups(backups)
-  const blocked = s.state !== 'ready' || !!s.job
+  const waitReason = storeWaitsFor(s, t)
+  const busyReason = s.state === 'busy' || !!s.job ? waitReason : null
+  const blocked = waitReason !== null
   const sub = [
     s.size ? bytes(s.size.bytes) : null,
     backups.length === 1 ? t('bkCountOne') : t('bkCount', { n: backups.length }),
@@ -87,17 +91,34 @@ export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: 
     } catch (e) { setError(e) } finally { setRunning(null) }
   }
   const act = (b: StoreBackup): ReactNode => {
+    const bucket = view.buckets.find((x) => x.name === b.link.bucket)
+    const again = bucket ? reconnectOf(bucket) : null
+    if (b.bucketError && again && onDialog) {
+      return <ExplainedButton size="sm" variant="outline" onClick={() => onDialog({ kind: 'bucket', again })}>{t('connectAgain')}</ExplainedButton>
+    }
     const a = actionOf(b.state)
     if (a === 'again') {
-      return <Button size="sm" variant="outline" disabled={blocked || !onDialog} onClick={() => onDialog?.({ kind: 'backup', store: s, pick: b.link.bucket })}>{t('bkAgain')}</Button>
+      return (
+        <span className={css.dbActions}>
+          <ExplainedButton size="sm" variant="outline" disabled={blocked || !onDialog} disabledReason={waitReason ?? undefined}
+            onClick={() => onDialog?.({ kind: 'backup', store: s, pick: b.link.bucket })}>{t('bkAgain')}</ExplainedButton>
+          {b.state === 'both_changed' ? (
+            <ExplainedButton size="sm" variant="ghost" disabled={busyReason !== null || !onDialog} disabledReason={busyReason ?? undefined}
+              onClick={() => onDialog?.({ kind: 'restore', bucket: b.link.bucket, file: b.link.file, store: s.name })}>{t('restore')}</ExplainedButton>
+          ) : null}
+        </span>
+      )
     }
     if (a === 'restore') {
-      return <Button size="sm" variant="outline" disabled={s.state === 'busy' || !onDialog} onClick={() => onDialog?.({ kind: 'restore', bucket: b.link.bucket, file: b.link.file, store: s.name })}>{t('restore')}</Button>
+      return (
+        <ExplainedButton size="sm" variant="outline" disabled={busyReason !== null || !onDialog} disabledReason={busyReason ?? undefined}
+          onClick={() => onDialog?.({ kind: 'restore', bucket: b.link.bucket, file: b.link.file, store: s.name })}>{t('restore')}</ExplainedButton>
+      )
     }
     const label = a === 'update' ? t('bkUpdate') : t('backupNow')
     return (
-      <Button size="sm" variant="outline" disabled={blocked || running !== null} aria-busy={running === b.link.bucket}
-        icon={running === b.link.bucket ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => { void write(b) }}>{label}</Button>
+      <ExplainedButton size="sm" variant="outline" disabled={blocked || running !== null} disabledReason={blocked ? waitReason ?? undefined : undefined} aria-busy={running === b.link.bucket}
+        icon={running === b.link.bucket ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => { void write(b) }}>{label}</ExplainedButton>
     )
   }
   return (
@@ -114,16 +135,23 @@ export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: 
             </div>
             {g.items.map((b) => {
               const bucketRow = view.buckets.find((x) => x.name === b.link.bucket)
-              const listErr = bucketRow?.error ? listStatusWords(bucketRow.error.code, t) : bucketRow?.state === 'broken' ? t('bucketRecordBroken') : null
-              const chip = listErr ? { tone: 'danger' as const, label: listErr } : backupChip(b.state, t)
+              const listErr = b.bucketError
+                ? listStatusWords(b.bucketError.code, t)
+                : bucketRow?.state === 'broken'
+                  ? t('bucketRecordBroken')
+                  : null
+              const chip = listErr
+                ? { tone: 'danger' as const, label: listErr, dashed: false, tip: b.bucketError?.message ?? bucketRow?.message ?? bucketRow?.fix ?? undefined }
+                : { ...backupChip(b.state, t), tip: b.message ?? undefined }
+              const meta = [b.bytes != null ? bytes(b.bytes) : null, b.at ? ago(b.at, now, t as Translate) : null].filter(Boolean).join(' · ')
               return (
                 <div key={b.link.bucket} className={css.db} data-backup={b.link.bucket}>
                   <div className={css.dbMain}>
                     <span className={css.dbName}>{b.link.bucket}</span>
                     <span className={css.dbSub}>
-                      <span className={css.pill} data-tone={chip.tone} title={listErr ? (bucketRow?.error?.message ?? bucketRow?.message ?? undefined) : undefined}>{chip.label}</span>
+                      <span className={css.pill} data-tone={chip.tone} data-dashed={chip.dashed || undefined} title={chip.tip}>{chip.label}</span>
                       <span className={css.mono} title={b.link.file}>{b.link.file}</span>
-                      {[b.bytes != null ? bytes(b.bytes) : null, b.at ? ago(b.at, now, t as Translate) : null].filter(Boolean).join(' · ')}
+                      {meta ? <span>· {meta}</span> : null}
                     </span>
                   </div>
                   {act(b)}
@@ -134,10 +162,15 @@ export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: 
         ))}
         {error !== undefined ? <Refusal error={error} labels={refusalLabels(t)} /> : null}
         {onDialog ? (
-          <button type="button" className={`${css.addRow} ${css.addServer}`} disabled={blocked}
-            onClick={() => onDialog(view.buckets.length ? { kind: 'backup', store: s } : { kind: 'bucket', then: { kind: 'backup', store: s, known: [] } })}>
-            {t('bkAnother')}
-          </button>
+          <>
+            <Tooltip label={waitReason ?? ''} disabled={!blocked} side="bottom" delayMs={300} maxWidth={300} portal>
+              <button type="button" className={`${css.addRow} ${css.addServer}`} aria-disabled={blocked || undefined} aria-describedby={blocked ? anotherReasonId : undefined}
+                onClick={() => { if (!blocked) onDialog(view.buckets.length ? { kind: 'backup', store: s } : { kind: 'bucket', then: { kind: 'backup', store: s, known: [] } }) }}>
+                {t('bkAnother')}
+              </button>
+            </Tooltip>
+            {blocked ? <span id={anotherReasonId} hidden>{waitReason}</span> : null}
+          </>
         ) : null}
       </div>
     </Modal>
@@ -154,24 +187,30 @@ export function BackUpDialog({ api, t, view, onClose, done, onDialog, store: s, 
   const tt = t as Translate
   const what = (b: StoreBackup | null): string => {
     if (!b) return t('bkNewHere')
-    const when = b.at ? ago(b.at, now, tt) : '—'
-    switch (actionOf(b.state)) {
-      case 'again': return t('bkWritesAgain')
-      case 'update': return t('bkUpdates', { when })
-      case 'restore': return t('bkAlready', { when })
-      default: return t('bkUpdates', { when })
+    const when = b.at ? ago(b.at, now, tt) : null
+    switch (b.state) {
+      case 'missing': return t('bkWritesAgain')
+      case 'both_changed': return t('bkBothChanged')
+      case 'bucket_changed': return t('bkBucketChanged')
+      case 'store_changed': return t('bkUpdates', { when: when ?? '—' })
+      case 'current': return t('bkAlready', { when: when ?? '—' })
+      default: return when ? t('bkUnlistedSaved', { when }) : t('bkUnlistedLinked')
     }
   }
   const linkFile = target?.backup?.link.file
-  // A copy that went missing cannot be written again under its name: it starts under a new one.
-  const missing = target?.backup?.state === 'missing'
-  const shown = file ?? (missing && linkFile ? freshName(linkFile, (target?.bucket.files ?? []).map((f) => f.file)) : null)
-  const typed = shown?.trim()
-  const reused = missing && typed === linkFile
+  const state = target?.backup?.state
+  const needsNew = needsNewFileName(state)
+  const shown = file ?? (needsNew && linkFile ? freshName(linkFile, (target?.bucket.files ?? []).map((f) => f.file)) : null)
+  const typed = shown?.trim() ?? ''
+  const reused = needsNew && !!linkFile && typed === linkFile
+  const emptyRequired = needsNew && !typed
+  const badName = shown !== null && !!typed && !NAME.test(typed)
+  const fileError = emptyRequired ? t('bkFileNameRequired') : reused ? t('bkSameName', { file: linkFile }) : badName ? t('storeNameHint') : null
+  const fileHint = state === 'missing' ? t('bkNewNameHint') : needsNew && linkFile ? t('bkConflictNameHint', { file: linkFile }) : t('fileNameHint')
   return (
     <FormModal open onClose={onClose} t={t} title={t('backupTitle', { store: s.name })}
       description={s.size ? t('bkPick', { size: bytes(s.size.bytes) }) : t('bkPickNoSize')}
-      action={chosen ? t('bkBackUpTo', { bucket: chosen }) : t('backup')} valid={!!target && !reused}
+      action={chosen ? t('bkBackUpTo', { bucket: chosen }) : t('backup')} valid={!!target && !fileError}
       submit={() => api.call('POST', `/api/stores/${enc(s.name)}/backup`, { bucket: chosen, ...(typed ? { file: typed } : linkFile ? { file: linkFile } : {}) }).then(done)}>
       <div className={css.servers} role="radiogroup" aria-label={t('bucket')}>
         {groups.map((g) => (
@@ -182,7 +221,9 @@ export function BackUpDialog({ api, t, view, onClose, done, onDialog, store: s, 
             </div>
             {g.items.map(({ bucket, backup }) => {
               const on = bucket.name === chosen
-              const chip = backup?.state ? backupChip(backup.state, t) : null
+              const chip = backup?.bucketError
+                ? { tone: 'danger' as const, label: listStatusWords(backup.bucketError.code, t), dashed: false }
+                : backup ? backupChip(backup.state, t) : null
               return (
                 <button key={bucket.name} type="button" role="radio" aria-checked={on} className={css.pick} data-bucket={bucket.name}
                   onClick={() => { setPicked(bucket.name); setFile(null) }}>
@@ -191,7 +232,7 @@ export function BackUpDialog({ api, t, view, onClose, done, onDialog, store: s, 
                     <span className={css.dbName}>{bucket.name}</span>
                     <span className={css.dbSub}>{what(backup)}</span>
                   </span>
-                  {chip ? <span className={css.pill} data-tone={chip.tone}>{chip.label}</span> : null}
+                  {chip ? <span className={css.pill} data-tone={chip.tone} data-dashed={chip.dashed || undefined}>{chip.label}</span> : null}
                 </button>
               )
             })}
@@ -212,7 +253,7 @@ export function BackUpDialog({ api, t, view, onClose, done, onDialog, store: s, 
             <button type="button" className={css.textButton} onClick={() => setFile(linkFile ?? '')}>{t('bkChange')}</button>
           </p>
         )
-        : <TextField label={t('fileName')} value={shown} onChange={setFile} mono autoFocus={file !== null} placeholder={linkFile ?? s.name} error={reused ? t('bkSameName') : null} hint={missing ? t('bkNewNameHint') : t('fileNameHint')} />}
+        : <TextField label={t('fileName')} value={shown} onChange={setFile} mono autoFocus={file !== null} placeholder={linkFile ?? s.name} error={fileError} hint={fileHint} />}
     </FormModal>
   )
 }
