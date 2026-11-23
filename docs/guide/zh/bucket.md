@@ -1,4 +1,4 @@
-<!-- source: 6760ecf4074b -->
+<!-- source: 0aeeac1817e2 -->
 # 存储桶
 
 > **位置：** `LayerFS › 主页 › 存储桶 › <bucket>`（单个备份文件是 `… › <bucket> › <file>`） · **打开方式：** 主页 › Store › SQLite › 存储桶上的存储桶卡片、跳转到、Store 的备份标签页 · **源码：** 见文末
