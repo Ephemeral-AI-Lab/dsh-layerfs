@@ -418,10 +418,10 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
             {(close) => (
               <>
                 <MenuItemButton icon={<IconChevronRightOutlineRegular size={14} />} onSelect={() => { close(); openProject() }}>{t('ovOpen')}</MenuItemButton>
-                <span title={blockedSession}><MenuItemButton disabled={!!blockedSession} icon={<IconPlusOutlineRegular size={14} />} onSelect={() => {
+                <MenuItemButton disabled={!!blockedSession} disabledReason={blockedSession} icon={<IconPlusOutlineRegular size={14} />} onSelect={() => {
                   close(); setSessionError(null)
                   void api.openProjectSession(key).catch((e: unknown) => setSessionError(String((e as Error)?.message ?? e)))
-                }}>{t('ptNewSession')}</MenuItemButton></span>
+                }}>{t('ptNewSession')}</MenuItemButton>
                 {onRemove ? (
                   <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} onSelect={() => { close(); onRemove(store.name, p.name) }}>
                     {t('removeProject')}

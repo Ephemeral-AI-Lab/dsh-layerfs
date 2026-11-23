@@ -1,9 +1,38 @@
 /* Overview open header, quiet status line, notices & semantic multi-color underline tabs (docs/design/DESIGN-overview.md) */
 
+/* The head card: a soft accent glow in its top right over DSH's card fill, and a faint dot grid fading in from the right. */
 .hero {
+  --accent: var(--dsw-alias-state-business-primary);
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 18px 20px;
+  overflow: hidden;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background:
+    radial-gradient(60% 140% at 100% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+    var(--dsw-alias-settings-card-fill);
+  isolation: isolate;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(var(--dsw-alias-border-l3) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 45%, black 100%);
+  mask-image: linear-gradient(90deg, transparent 45%, black 100%);
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  .hero {
+    padding: 14px 16px;
+  }
 }
 
 .heroTop {
@@ -44,6 +73,47 @@
   font-weight: 600;
   letter-spacing: -0.03em;
   color: var(--ov-ink-primary, var(--dsw-alias-label-primary));
+}
+
+/* The LayerFS × DSH lockup that heads Home (the h1's visible face). */
+.lockup {
+  /* Brand inks: LayerFS's rail blue (as its mark draws it) and DeepSeek's blue. */
+  --lfs-ink: color-mix(in oklab, #2F5BB5 82%, var(--dsw-alias-label-primary));
+  --dsh-ink: #4D6BFE;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(24px, 2.4vw, 28px);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.word {
+  display: inline-flex;
+}
+
+.fs {
+  color: var(--lfs-ink);
+}
+
+.times {
+  margin: 0 2px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fish {
+  display: inline-flex;
+  color: var(--dsh-ink);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 /* Clean open status line with native semantic status dot colors. */
@@ -120,7 +190,7 @@
   justify-content: space-between;
   align-items: flex-end;
   gap: 8px 16px;
-  border-bottom: 1px solid var(--ov-border, var(--dsw-alias-border-l2, rgba(24, 24, 27, 0.08)));
+  border-bottom: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
   padding-bottom: 0;
 }
 
@@ -137,7 +207,7 @@
   padding: 0 2px;
   border: 0;
   border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  margin-bottom: -0.5px;
   background: none;
   font: inherit;
   font-size: 13.5px;
@@ -283,9 +353,9 @@
   list-style: none;
   margin: 0;
   padding: 0 14px;
-  border: 1px solid var(--ov-border, var(--dsw-alias-border-l2, rgba(24, 24, 27, 0.08)));
+  border: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
   border-radius: var(--ov-radius-lg, 8px);
-  background: var(--ov-surface, var(--dsw-alias-bg-layer-1, #FCFCFD));
+  background: var(--ov-surface, var(--dsw-alias-bg-layer-1));
   box-shadow: var(--ov-shadow);
 }
 
@@ -298,7 +368,7 @@
 }
 
 .notice + .notice {
-  border-top: 1px solid var(--ov-border, var(--dsw-alias-border-l2, rgba(24, 24, 27, 0.08)));
+  border-top: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
 }
 
 .noticeTitle {
@@ -333,7 +403,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: var(--dsw-alias-label-primary);
@@ -360,14 +430,16 @@
   transform: rotate(45deg) translate(-1px, -1px);
 }
 .dockerNotice[aria-expanded='true']::after { transform: rotate(225deg); }
-.dockerNotice:hover { background: var(--dsw-alias-interactive-bg-hover); }
+@media (hover: hover) {
+  .dockerNotice:hover { background: var(--dsw-alias-interactive-bg-hover); }
+}
 .dockerDetail {
   align-self: flex-start;
   box-sizing: border-box;
   max-width: min(100%, 64ch);
   margin-top: 6px;
   padding: 8px 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-sm);
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;

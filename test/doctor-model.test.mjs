@@ -88,7 +88,9 @@ test('opening the page: nothing is checked; a stopped machine and what is on it 
   const p = page('stopped')
   const head = M.headOf(p.state)
   assert.deepEqual(head.headline, { kind: 'notChecked' })
-  assert.equal(head.counts.nc, head.total)
+  // the docker machine stopped on purpose reads Stopped, not Not checked: the head counts it apart
+  assert.equal(head.stopped, 1)
+  assert.equal(head.counts.nc + head.stopped, head.total)
   assert.equal(st(p, 'machine:dev'), 'nc:never')
   assert.equal(st(p, 'machine:docker'), 'nc:stopped-self')
   assert.equal(st(p, 'store:sim-website-0ce'), 'nc:stopped')

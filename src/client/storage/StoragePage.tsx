@@ -24,7 +24,7 @@ import { AddMachineDialog } from '../machines/AddMachineDialog.tsx'
 import { MachinesProvider, useMachinesContext, type MachinesPageProps, type Translate as MachinesT } from '../machines/context.tsx'
 import { MachineDetail } from '../machines/MachineDetail.tsx'
 import { NewSandboxDialog } from '../machines/Sandboxes.tsx'
-import { shortSandbox, VM_KINDS, type MachineInfo } from '../machines/model.ts'
+import { canAddMachine, shortSandbox, type MachineInfo } from '../machines/model.ts'
 import { SandboxDetail } from '../machines/SandboxDetail.tsx'
 import { PresetsDialog, type PresetsT } from '../presets/index.tsx'
 import { projectDialog } from '../projects/dialog.ts'
@@ -451,8 +451,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   const fleetReason = fleetRead.status === 'error' ? t('addFleetUnavailable')
     : fleetRead.data?.available === false ? fleetRead.data.reason || t('addFleetUnavailable')
     : !fleet ? t('readingMachines') : undefined
-  const canCreate = fleet?.platforms.some((p) => p.how === 'created' && p.ready && !p.missing.length && (VM_KINDS as readonly string[]).includes(p.platform))
-  const machineReason = fleetReason ?? (canCreate ? undefined : t('addNoMachinePlatform'))
+  const machineReason = fleetReason ?? (fleet && canAddMachine(fleet.platforms) ? undefined : t('addNoMachinePlatform'))
   const candidates = useMemo(() => fleet && catalogRead.data ? sandboxMachines(fleet, catalogRead.data) : [], [fleet, catalogRead.data])
   const sandboxReason = fleetReason ?? (catalogRead.error ? t('addProjectsUnavailable') : !catalogRead.data ? t('loading')
     : !candidates.length ? t('addNoSandboxMachine') : undefined)

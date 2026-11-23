@@ -266,7 +266,7 @@ export const removesMachine = (fix: RunnableFix | null | undefined): string | nu
 }
 
 /** LayerFS's fix for a PostgreSQL Store that names no saved login (its placeholders are for the person). */
-const SAVE_AUTH = /^layerfs store save-auth <auth> --user (?:<user>|[A-Za-z0-9][\w.@-]*) --password-stdin && layerfs store update (\S+) --auth <auth>$/
+const SAVE_AUTH = /^layerfs store save-auth <auth> --user \S+ --password-stdin && layerfs store update (\S+) --auth <auth>(?: && layerfs store connect \1 \S+(?: --machine \S+)?)?$/
 /** The same fix for a login the home lacks (spec v23 `missing`): the login's name in both places, a user or `<user>`. */
 const SAVE_NAMED = /^layerfs store save-auth (\S+) --user \S+ --password-stdin && layerfs store update (\S+) --auth (\S+)$/
 

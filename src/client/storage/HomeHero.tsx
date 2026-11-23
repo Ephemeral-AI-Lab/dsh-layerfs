@@ -1,6 +1,21 @@
 /** Home identity, primary need, disclosure and underline inventory tabs. */
 import type { KeyboardEvent, ReactNode } from 'react'
+import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
+import { LayerfsGlyph } from '../overview/glyph.tsx'
 import css from './HomeHero.module.css'
+
+/** The LayerFS × DSH lockup: each mark beside its name (brand names, not copy). */
+export function BrandLockup(): ReactNode {
+  return (
+    <span className={css.lockup} aria-hidden="true">
+      <LayerfsGlyph size={30} />
+      <span className={css.word}>Layer<span className={css.fs}>FS</span></span>
+      <span className={css.times}>×</span>
+      <span className={css.fish}><FishLogo size={32} /></span>
+      <span className={css.word}>DSH</span>
+    </span>
+  )
+}
 
 export interface HeroTab {
   key: string
@@ -59,7 +74,8 @@ export function HomeHero({ title, identity, titleAside, titleDetail, tone, signa
       <header className={css.hero} data-tone={tone && tone !== 'neutral' ? tone : undefined}>
         <div className={css.heroTop}>
           <div className={css.heading}>
-            <h1 className={css.title}>{title}</h1>
+            {/* the page's name for assistive technology; the lockup is what shows */}
+            <h1 className={css.title}><span className={css.srOnly}>{title}</span><BrandLockup /></h1>
             {identity}
             {titleAside}
           </div>

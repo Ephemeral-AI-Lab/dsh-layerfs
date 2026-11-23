@@ -12,7 +12,7 @@ the local folder you are in. Use LayerFS as your filesystem:
    saved at once as a Commit.
 2. **Use a Workspace only to run commands** (build, test, install, git, a formatter, a
    batch edit): mount it, exec, commit, unmount.
-3. **Look at history** with `commit`, `branch` and `file revision` calls.
+3. **Look at history** with `commit`, `branch` and `file history` calls.
 
 You never set anything up: the project, its machine and its Sandbox are ready before
 your first call.
@@ -64,8 +64,8 @@ layerfs() { "$DSH_LAYERFS_CLI" "$@"; }; P=$DSH_LAYERFS_PROJECT B=$DSH_LAYERFS_BR
 variables don't survive between bash calls: repeat the line.
 
 **The SDK**, for loops, many calls and anything that needs to look at a result before
-the next call: one Node process instead of one per call. Feed the script to Node on
-stdin, so it needs no quoting:
+the next call: one Node process instead of one per call. Feed the script to Node as
+ESM (`--input-type=module` or `.mjs`), so it needs no quoting:
 
 ```bash
 node --input-type=module <<'EOF'
@@ -73,41 +73,50 @@ const { default: layerfs } = await import(process.env.DSH_LAYERFS_SDK);
 const P = process.env.DSH_LAYERFS_PROJECT, B = process.env.DSH_LAYERFS_BRANCH;
 const SB = process.env.DSH_LAYERFS_WS.split(":")[0];
 
-const page = await layerfs.file.glob(P, B, "/", "src/**/*.ts", { page_size: 1000 });
+const page = await layerfs.file.glob(P, B, "src/**/*.ts", "/", { limit: 1000 });
 for (const path of page.items) console.log(path);
 EOF
 ```
 
-Import it only as `await import(process.env.DSH_LAYERFS_SDK)`, never by package name.
-It has the six families (`project`, `branch`, `commit`, `file`, `sandbox`,
-`workspace`), `LayerFSError`, `table` (the calls) and `close()`. Its Stores close by
-themselves when the script ends.
-Every SDK example in this skill assumes the names above.
+Load it **only** with `await import(process.env.DSH_LAYERFS_SDK)` in ESM
+(`--input-type=module` or `.mjs`) — **never** `require(...)` (the generated module
+uses top-level `await` and throws `ERR_REQUIRE_ASYNC_MODULE` in Node 24), and never
+import by package name. It exposes the six agent-facing families (`project`,
+`branch`, `commit`, `file`, `sandbox`, `workspace`), `LayerFSError`, `table` (the
+calls), `commit_id` and `close()`. Its Stores close by themselves when the script
+ends. Every SDK example in this skill assumes the names above.
 
 | | Command | SDK |
 | --- | --- | --- |
-| A call | `layerfs file read "$P" "$B" /a.js --start-line 2` | `await layerfs.file.read(P, B, "/a.js", { start_line: 2 })` |
-| Arguments | positionals, then `--kebab-case` options | positionals, then one `{ snake_case }` options object |
-| Content | stdin, or `--from <file>` | a string or a `Buffer` argument |
-| Result | one line of JSON on stdout, exit 0 | the same value, resolved |
-| Refusal | `{"code","message","detail"}` on stderr, exit 125 | throws `LayerFSError` with `code`, `message`, `detail` |
+| A call | `layerfs file read "$P" "$B" /a.js --line 2` | `await layerfs.file.read(P, B, "/a.js", { line: 2 })` |
+| Arguments | positionals, then `--kebab-case` options | positionals, then one trailing `{ snake_case }` options object |
+| Content | stdin, or `--from <file>` (`--old-string-from <file>`, etc.) | a string or a `Buffer` / `Uint8Array` |
+| Result | one line of JSON on stdout when piped (`--text` is default on TTY; `--text --json` exits 2), exit 0 | the same value, resolved (short form by default; `{ detail: true }` for long form) |
+| Refusal | `{"error","message","fix?",...}` on stderr (`--json`/pipe), exit 125 (`detail` only with `--detail`) | throws `LayerFSError` with `error` (`code`), `message`, `fix`, `detail` (`null` unless `detail: true`), plus flat extra fields |
 | Wrong arguments | exit 2, nothing ran | throws `InvalidInput` naming the call |
 
-- Add `--text` to a command for a table. `layerfs help <family> [<call>]` shows a
-  call's arguments; in the SDK, `layerfs.table` lists every call with its `args` and
-  `options`.
-- Read `code` before your next call; nothing retries for you. An error without a
-  `code` (from your script, not LayerFS) means the outcome is unknown: look first.
+- Short form omits `null`, `false`, empty strings/arrays/objects and default states;
+  pass `--detail` (`{ detail: true }`) for every declared field in fixed order (and
+  `detail` on refusals, including the folded internal `detail.code`).
+- Add `--text` on a piped command for a table. `layerfs help <family> [<call>]`
+  shows a call's arguments; in the SDK, `layerfs.table` lists every call with its
+  `args`, `options`, `with` sections and forms.
+- Read `e.error` (`e.code` is an alias) before your next call; nothing retries for
+  you. An error without a LayerFS `error` code (from your script, not LayerFS) means
+  the outcome is unknown: look first.
 - **Paths:** `file` calls take project paths, absolute from the project root
   (`/src/app.js`). Inside a Workspace command, use paths relative to the Workspace
   root (`src/app.js`): each mount gets a new mount path, so never write one into a
   command, a script or a config file.
-- **Commit ids** are 66 hex characters. Pass full ids; a short prefix is refused.
-- **Pages:** most list calls answer `{ items, has_more, next_page_pos }`: while
-  `has_more` is true, call again with `--page-pos <next_page_pos>` (`page_pos`).
-  `branch commits` and `file revision` page by number (`--page N`); `sandbox list` and
-  `sandbox get` have no `has_more` and end when `next_page_pos` is `null`; the diffs
-  continue with `--cursor <next_cursor>`.
+- **Commit ids** are 66 hex characters. A full id **or a prefix of 8 or more
+  characters** is accepted everywhere a Commit is taken (an ambiguous prefix is
+  refused `InvalidInput` with `matches`).
+- **Pages:** list calls (`project list`, `branch list`, `commit list`, `commit diff`,
+  `file list`, `file glob`, `file grep`, `file history`, `sandbox list`,
+  `sandbox files`, `sandbox log`, `workspace list`) take `--limit` (1..1000, default
+  100; 200 for `sandbox log`) and `--cursor` (`{ limit, cursor }`), and answer
+  `{ items, next_cursor? }`: while `next_cursor` is present, call again with
+  `--cursor "$next"` (`{ cursor: page.next_cursor }`). `sandbox get` is unpaged.
 - **Messages:** `-m "<text>"` (`message`) names a Commit. Name the change or the step
   and its result, such as `"fewer retries"` or `"npm test (exit 1)"`.
 
@@ -126,7 +135,8 @@ Every SDK example in this skill assumes the names above.
 (unless the runtime context says checkpoints are off), dsh records a checkpoint: the
 point on `$B` the user can restore to. Your `file` writes and Workspace Commits are
 already saved on `$B`; the checkpoint only marks the turn. A subagent's turns record
-none.
+none. Keep `$DSH_LAYERFS_WS` quiet — never edit or exec in it, and during a team run
+keep `$B` clean of concurrent writes so checkpoints never conflict with `$B` moves.
 
 - **A restore or a branch moves the session to a new Branch** (the runtime context
   says the files were restored, and shows the new Branch). Always use `$B` as it is
@@ -145,11 +155,11 @@ none.
 | Change many files at once, all or nothing | `file apply` on `$B` |
 | A batch change with logic: a codemod, `sed -i` across files, a generator, a formatter | a command in a Workspace ([running commands](#running-commands)) |
 | Run a command: build, test, install, git | a Workspace: mount, exec, commit, unmount |
-| An older version, another Branch or `main` | `file …` with a Commit id, a Branch name or `main` |
+| An older version, another Branch or `main` | `file …` with `--at <commit>`, a Branch name or `main` |
 | History of the session | `commit list` on `$B`, `commit get`, `commit diff` |
-| History of one file | `file revision`, `file blame` |
-| Compare two versions | `file diff` (two files), `branch diff` (two Branches), `commit diff` (two Commits) |
-| What `main` holds and its publications | `file …` with `main`, `branch commits` on `main` |
+| History of one file | `file history`, `file blame` |
+| Compare two versions | `commit diff` (two Commits, two Branches, or one path via `--path` and `--with patch`) |
+| What `main` holds and its publications | `file …` with `main`, `commit list` on `main` |
 | Try something without touching the session | `branch fork`, then work on that Branch ([parallel work](references/rules/parallel.md)) |
 | Run work in parallel with subagents | [parallel work](references/rules/parallel.md); 4 or more at once: [team runs](references/rules/team.md) |
 | Publish to `main` | `branch publish`, **only when the user asks** ([publishing](#publishing)) |
@@ -162,7 +172,7 @@ Commit, but not a mounted Workspace's uncommitted changes.
 Change files with `file` calls on `$B`. Each one is a Commit, so give it a message.
 
 ```bash
-layerfs file edit "$P" "$B" /src/cart.js --old 'retries = 3' --new 'retries = 1' -m "one retry"
+layerfs file edit "$P" "$B" /src/cart.js --old-string 'retries = 3' --new-string 'retries = 1' -m "one retry"
 layerfs file write "$P" "$B" /src/tax.js -m "add the tax table" <<'EOF'
 export const TAX = 0.08;
 EOF
@@ -170,24 +180,27 @@ layerfs file write "$P" "$B" /assets/logo.png --from ./draft/logo.png -m "add th
 ```
 
 ```js
-await layerfs.file.edit(P, B, "/src/cart.js", { old: "retries = 3", new: "retries = 1", message: "one retry" });
+await layerfs.file.edit(P, B, "/src/cart.js", { old_string: "retries = 3", new_string: "retries = 1", message: "one retry" });
 await layerfs.file.apply(P, B, [
   { op: "mkdir", path: "/src/pricing" },
-  { op: "write", path: "/src/pricing/tax.js", content: "export const TAX = 0.08;\n" },
-  { op: "rm", path: "/src/old-tax.js" },
+  { op: "write", path: "/src/pricing/tax.js", content: "export const TAX = 0.08;\n", mode: "0644" },
+  { op: "mv", from: "/src/old-tax.js", to: "/src/legacy-tax.js" },
+  { op: "rm", path: "/src/legacy-tax.js" },
 ], { message: "move the tax table" });
 ```
 
-- `file edit` replaces one exact, unique piece of text (`NoMatch`, `AmbiguousMatch`
-  otherwise). Read the lines first with `file read`.
+- `file edit` replaces one exact, unique piece of text (`NotFound` when absent;
+  `InvalidInput` with `matches` and a `--replace-all` `fix` when ambiguous). Read
+  the lines first with `file read`.
 - A write needs its folder: `file mkdir` first, or `file apply` with a `mkdir` change.
 - `file apply` makes one Commit for many changes, all or nothing: use it for a change
-  that must land together.
+  that must land together. `mode` values are 4-digit octal strings (`"0644"`, `"0755"`).
 - Use a command in a Workspace instead when it is easier there: many files changed by
   one rule, a codemod, a generator, a formatter, `npm install`. Such a change is
   saved by the Workspace's Commit.
 - A Workspace mounted before a `file` write doesn't show that write until its next
-  Commit. Make the `file` changes a command needs before you mount for it.
+  Commit (`workspace status` sets `branch_moved: true`). Make the `file` changes a
+  command needs before you mount for it.
 
 ## Running commands
 
@@ -205,13 +218,13 @@ layerfs workspace commit "$ws" -m "npm test cart (exit $code)" >/dev/null
 ```
 
 ```js
-const { ws } = await layerfs.workspace.mount(SB, B, { name: "test-cart" });
+const { workspace } = await layerfs.workspace.mount(SB, B, { name: "test-cart" });
 try {
-  const run = await layerfs.workspace.exec(ws, "timeout 110 npm test -- cart 2>&1");
-  console.log(run.exit_code, run.stdout.slice(-4000));
-  await layerfs.workspace.commit(ws, { message: `npm test cart (exit ${run.exit_code})` });
+  const run = await layerfs.workspace.exec(workspace, "timeout 110 npm test -- cart 2>&1");
+  console.log(run.exit_code, (run.stdout ?? "").slice(-4000));
+  await layerfs.workspace.commit(workspace, { message: `npm test cart (exit ${run.exit_code})` });
 } finally {
-  await layerfs.workspace.unmount(ws);
+  await layerfs.workspace.unmount(workspace);
 }
 ```
 
@@ -230,22 +243,23 @@ try {
 - **At most 16 Workspaces per Sandbox**, dsh's own included. On `Capacity`, unmount
   Workspaces you're done with. For more at once, create a Sandbox of your own on the
   project's machine and mount there ([sandbox](references/methods/sandbox.md#sandbox-create)).
-  Close it when its work is done.
+  Remove it (`sandbox remove`) when its work is done.
 - A non-zero exit is a result, not a refusal. The command's `--stream` prints the
   output and exits with the command's exit code (125 still means LayerFS refused);
-  without it, and in the SDK, the answer is `{ exit_code, stdout, stderr }`, each
-  stream up to 1 MiB.
+  without it, and in the SDK, the answer is `{ exit_code }` with `stdout`/`stderr`
+  when non-empty, each stream up to 1 MiB (`stdout_file`/`stderr_file` when longer).
 - **No timeout of its own:** wrap long commands, `timeout 110 <command>`. A native
   macOS Sandbox has no `timeout` (exit 127, `command not found`): there use
   `perl -e 'alarm shift; exec @ARGV' 110 <command>`. Check once with
   `command -v timeout`. A bash call may run up to 600 s; longer work goes in a
-  `run_in_background` bash call with an `--exec-id` ([waiting](references/rules/team.md#waiting)).
-- **No stdin:** `… | layerfs workspace exec "$ws" 'cat > f'` writes an empty file.
-  Change files with `file` calls, or send content as base64 inside the command
-  ([workspace exec](references/methods/workspace.md#workspace-exec)).
-- The output comes when the command ends, not live. For long logs redirect to a file
-  in `/tmp` and read its tail in a second exec. Throwaway files go in `/tmp`, outside
-  the Workspace.
+  `run_in_background` bash call (LayerFS generates an `exec-...` id emitted in
+  `--progress` / `--detail`, and you can stop it with `workspace cancel "$ws"` or
+  `--exec <id>`; see [waiting](references/rules/team.md#waiting)).
+- **Stdin:** pass `--stdin` in the command (reads the command's stdin) or `{ stdin }`
+  in the SDK. Without `--stdin`/`stdin`, the command reads `/dev/null`.
+- Output is delivered after the command ends, never live. For long logs redirect to
+  a file in `/tmp` and read its tail in a second exec. Throwaway files go in `/tmp`,
+  outside the Workspace.
 - It waits for everything holding its output, background jobs included: start a
   server, probe it and stop it in one exec, with its output sent to `/tmp`.
 - Tools come from the Sandbox, not from your local machine. Check with
@@ -253,13 +267,14 @@ try {
 - **On a `docker` (Linux) Sandbox the image's environment is not applied:** `PATH` is
   the plain system one, so a tool installed under its own prefix is "not found" there.
   Rust is in `/usr/local/cargo/bin`: start every exec that uses it with
-  `export RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH`. Look for
-  other tools with `ls /usr/local/*/bin`. You are not root: install into the Workspace.
+  `export RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH` and keep
+  `CARGO_BUILD_JOBS=2`. Look for other tools with `ls /usr/local/*/bin`. You are not
+  root: install into the Workspace.
 - **`/tmp` is small there:** a memory-backed tmpfs (about half the machine's RAM),
   shared by every Workspace in the Sandbox. Keep logs and exit codes there; put large
   temporary data (test databases, sorter spills, link temp files) under
-  `$HOME/tmp/<your workspace name>` (`$HOME` is on the machine's disk): set
-  `TMPDIR` to it, `mkdir -p` it, and clear it at the end of the step.
+  `$HOME/tmp/$ME` (or `$HOME/tmp/<your workspace name>`; `$HOME` is on the machine's
+  disk): set `TMPDIR` to it, `mkdir -p` it, and clear it at the end of the step.
 
 ## Installs and caches belong in the Workspace
 
@@ -274,7 +289,7 @@ survive between calls):
 | npm, pnpm, yarn | `node_modules/` (as usual), plus `npm_config_cache=$PWD/.npm-cache` |
 | pip | `python3 -m venv .venv`, then `.venv/bin/pip install …`; `PIP_CACHE_DIR=$PWD/.pip-cache` |
 | uv | `UV_CACHE_DIR=$PWD/.uv-cache`, `uv venv .venv` |
-| Cargo | `CARGO_HOME=$PWD/.cargo-home`, `CARGO_TARGET_DIR=$PWD/target` ([Rust and Cargo](references/rules/cargo.md)) |
+| Cargo | `CARGO_HOME=$PWD/.cargo-home`, `CARGO_TARGET_DIR=$PWD/target`, `CARGO_BUILD_JOBS=2` ([Rust and Cargo](references/rules/cargo.md)) |
 | Go | `GOPATH=$PWD/.go`, `GOCACHE=$PWD/.go-cache` |
 | anything else | `XDG_CACHE_HOME=$PWD/.cache` |
 
@@ -295,33 +310,35 @@ layerfs workspace exec "$ws" 'export npm_config_cache=$PWD/.npm-cache; timeout 3
 
 ```bash
 layerfs file read "$P" "$B" /src/app.js --text                    # as saved now
-layerfs file read "$P" main /src/app.js --start-line 200 --text   # main, from line 200
-layerfs file read "$P" "$B" /src/app.js <commit-id> --text        # an older version
-layerfs file grep "$P" "$B" /src 'retries'                        # plain text, not a regex
+layerfs file read "$P" main /src/app.js --line 200 --text         # main, from line 200
+layerfs file read "$P" "$B" /src/app.js --at <commit-id> --text   # an older version (full id or >=8-char prefix)
+layerfs file grep "$P" "$B" 'retries' /src                        # plain text (pattern first, then optional path)
 ```
 
 ```js
 let line = 1, text = "";                          // a whole long file, window by window
 for (;;) {
-  const r = await layerfs.file.read(P, B, "/src/app.js", { start_line: line });
-  text += r.text;
+  const r = await layerfs.file.read(P, B, "/src/app.js", { line });
+  if (r.binary) throw new Error(`binary file (${r.size} bytes): inspect in a Workspace`);
+  text += r.text ?? "";
   if (r.next_line == null) break;
   line = r.next_line;
 }
 ```
 
 One `file read` answers at most 2000 lines or 48 KiB; `next_line` says where to
-continue. Binary files are refused `Binary`: look at them in a Workspace. `file grep`
-searches everything under the path, `node_modules` too, so keep it narrow.
+continue. Binary files do **not** error: `file read` returns `{ binary: true, size }`
+(look at their bytes in a Workspace). `file grep` searches everything under `path`,
+`node_modules` too, so pass a narrow path or `--exclude node_modules`.
 
 ## History
 
 ```bash
 layerfs commit list "$P" "$B" --text                    # the session's Commits, newest first
-layerfs commit diff "$P" <older-id> <newer-id> --paths-only
-layerfs file revision "$P" "$B" /src/app.js             # the saved changes to one path
+layerfs commit diff "$P" <newer-id> --from <older-id>   # changed paths between two Commits
+layerfs file history "$P" "$B" /src/app.js              # the saved changes to one path
 layerfs file blame "$P" "$B" /src/app.js                # the Commit of each line
-layerfs branch diff "$P" main "$B" --paths-only         # what the session changed against main
+layerfs commit diff "$P" "$B" --from main               # what the session changed against main
 ```
 
 ## Publishing
@@ -335,7 +352,7 @@ Never publish a side Branch the user has not reviewed.
 ## Rules
 
 - **Leave dsh's setup alone.** Never exec in, commit or unmount dsh's Workspace
-  `$DSH_LAYERFS_WS`, and never close the session Sandbox `$SB`. Never name a Branch
+  `$DSH_LAYERFS_WS`, and never remove the session Sandbox `$SB`. Never name a Branch
   you create `dsh.…`, and never write to a `dsh.…` Branch other than `$B` (forking
   *from* `$B` is fine). dsh owns those Branches: checkpoints, restores and the
   project's identity depend on them.
@@ -343,23 +360,27 @@ Never publish a side Branch the user has not reviewed.
   Stores, machines or backups; they are the user's setup, not part of the task.
 - **A Workspace you mount is yours.** Mount it in `$SB`, commit it, unmount it before
   your turn ends. Never `discard` or unmount another agent's Workspace.
-- **A refusal is information.** The project's Store takes one writer at a time, and
-  on a macOS host a second writer is refused at once instead of waiting. So a write
-  (`file` writes, Workspace Commits, merges, forks) can be refused while dsh or another
+- **A refusal is information.** The 13 public refusal codes are `NotFound`, `Exists`,
+  `InUse`, `Busy`, `Unresolved`, `Conflict`, `Dirty`, `Capacity`, `InvalidInput`,
+  `Unsupported`, `Unavailable`, `Failed`, `Unknown` (pass `--detail` / `{ detail: true }`
+  for `detail.code`). The project's Store takes one writer at a time, and on a macOS
+  host a second writer is refused at once instead of waiting. So a write (`file`
+  writes, Workspace Commits, merges, forks) can be refused while dsh or another
   agent writes:
   - `Busy`, or `Failed` whose message says `busy before effect` or `Storage(Busy)`:
     nothing happened. Wait `sleep $((2 + RANDOM % 6))` and run it again, at most 5
     times, then report it.
-  - `Unknown` whose message says `Busy`: it may or may not have landed. Look first
-    (`file read`, `commit list`, `workspace status`), then run it again only if it
-    did not.
+  - `Unknown` (outcome uncertain — e.g. a lost reply; daemon calls carry `attempted: true`,
+    `workspace.exec` carries `exec` & `fix`): it may or may not have happened! Inspect
+    state first (`commit list`, `file read`/`file stat`, `workspace status`, `sandbox get`)
+    and act again only if it did not land.
+  - `Unresolved`: an earlier `Unknown` operation on that entity is still open (`op`/`fix`),
+    and this call did nothing. Inspect state and clear it via `fix` before acting again.
   - `Failed` whose message is `Os { code: 2, kind: NotFound, … }` on a write: seen on
     `docker` Stores when several writers land at once (about 1 in 70). So far it has
     always been before effect, but check: `file stat` the path or `commit list` the
     Branch; if your change is not there, wait `sleep $((2 + RANDOM % 6))` and run it
     again (at most 5 times).
-  - Any other `Unknown` or `Failed` means the outcome is uncertain: look
-    (`commit list`, `workspace status`, `sandbox get`) before you act again.
 - **A merge conflict belongs to whoever merged or committed.** Resolve it or report
   it; never delete markers to make a Commit pass ([conflicts](references/rules/conflicts.md)).
 - **Generated files merge by `/.lww`.** In a new project's first step, make sure
@@ -375,11 +396,11 @@ command and SDK forms, results, refusals and examples.
 | Page | Calls |
 | --- | --- |
 | [project](references/methods/project.md) | `get`, `stats` |
-| [branch](references/methods/branch.md) | `list`, `get`, `commits`, `get-commit`, `fork`, `merge`, `publish`, `diff` |
+| [branch](references/methods/branch.md) | `list`, `get`, `fork`, `merge`, `publish`, `remove` |
 | [commit](references/methods/commit.md) | `list`, `get`, `diff` |
-| [file](references/methods/file.md) | reads: `read`, `stat`, `list`, `glob`, `grep`, `revision`, `blame`, `diff`; writes: `write`, `edit`, `rm`, `mkdir`, `mv`, `cp`, `apply` |
-| [sandbox](references/methods/sandbox.md) | `get`, `list`, `create`, `close` (only Sandboxes you created) |
-| [workspace](references/methods/workspace.md) | `mount`, `exec`, `exec-cancel`, `commit`, `unmount`, `status` |
+| [file](references/methods/file.md) | reads: `read`, `stat`, `list`, `glob`, `grep`, `history`, `blame`; writes: `write`, `edit`, `rm`, `mkdir`, `mv`, `cp`, `apply` |
+| [sandbox](references/methods/sandbox.md) | `get`, `list`, `create`, `remove` (only Sandboxes you created), `files`, `log`, `doctor` |
+| [workspace](references/methods/workspace.md) | `list`, `mount`, `exec`, `cancel`, `commit`, `unmount`, `status` |
 | [parallel work](references/rules/parallel.md) | side Branches, subagents, bringing work in |
 | [team runs](references/rules/team.md) | many workers in one Sandbox: slots, Branches, waiting, integrating, reports |
 | [conflicts](references/rules/conflicts.md) | Commit conflicts and Branch-merge conflicts |

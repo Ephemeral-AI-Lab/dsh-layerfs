@@ -594,6 +594,14 @@ export const GIB = 2 ** 30
 export const VM_KINDS = ['apple-container', 'microsandbox', 'lima'] as const
 export const BUILT_IN = new Set(['native', 'docker'])
 
+/**
+ * Whether New machine opens: some platform here creates machines (a VM kind),
+ * ready or not. A platform that is not ready yet still opens the dialog, which
+ * shows its readiness ladder and the fix (install, setup) that makes it ready.
+ */
+export const canAddMachine = (platforms: readonly Pick<MachinePlatformInfo, 'platform' | 'how'>[]): boolean =>
+  platforms.some((p) => p.how === 'created' && (VM_KINDS as readonly string[]).includes(p.platform))
+
 const KIND_LABEL: Record<string, MachinesKey> = {
   native: 'kindNative',
   docker: 'kindDocker',

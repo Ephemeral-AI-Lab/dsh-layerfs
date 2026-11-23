@@ -114,7 +114,8 @@ export function TabBar({ tabs, active, onSelect, label, actions, className }: {
                 {x.icon ? <span className={css.icon} aria-hidden="true">{x.icon}</span> : null}
                 <span className={css.label} data-text={x.label}><span>{x.label}</span></span>
                 {x.count != null ? <span className={css.count}>{x.count}</span> : null}
-                {x.tone === 'ongoing' ? <span className={css.dot} aria-hidden="true"><StatusDot state={TONE[x.tone]} size={9} /></span> : null}
+                {/* a tab's own mark (Doctor: a problem, a notice, a stopped machine or a check running in it); the reason is the hint */}
+                {x.tone ? <span className={css.dot} aria-hidden="true"><StatusDot state={TONE[x.tone]} size={x.tone === 'ongoing' ? 9 : 6} /></span> : null}
                 {x.hint ? <span className={css.sr}>, {x.hint}</span> : null}
               </button>
             )
