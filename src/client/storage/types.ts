@@ -162,6 +162,8 @@ export interface StorageJob {
   summary?: string | null
   /** A push placing a Store a New Store dialog just made. */
   made?: boolean
+  /** Client-side monotonic high-water progress share (0..1) so bars never jump backward. */
+  maxShare?: number
 }
 
 /** What a machine supports, as `machine list --detail` lists it (`sqlite`, `postgresql_sandbox`, `log`). */

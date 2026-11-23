@@ -816,11 +816,17 @@ export class Storage {
       const source = await this.lfs.store.get(store)
       step('pull', source.machine ?? null)
       await this.lfs.store.move(store, 'native', { on_progress, on_spawn, detail: true })
+      let pushPhase: string | null = null
+      const trackPush = (p: any) => {
+        if (typeof p?.phase === 'string') pushPhase = p.phase
+        on_progress(p)
+      }
       step('push')
       try {
-        return await this.lfs.store.move(store, machine, { on_progress, on_spawn, detail: true })
+        return await this.lfs.store.move(store, machine, { on_progress: trackPush, on_spawn, detail: true })
       } catch (error: any) {
-        if (failureOutcome(error, error?.detail?.phase) === 'failed' && error?.detail?.phase !== 'retire') error.note = 'pulled'
+        const failPhase = error?.detail?.phase ?? pushPhase
+        if (failureOutcome(error, failPhase) === 'failed' && failPhase !== 'retire') error.note = 'pulled'
         throw error
       }
     })

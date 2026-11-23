@@ -41,7 +41,7 @@ import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { MachineStores } from './MachineStores.tsx'
 import { serverKey } from './machine-stores.ts'
-import { bucketFiles, cardJob, connectedMachines, inHome, orderStores, pgPlaceable, type Reconnect } from './model.ts'
+import { bucketFiles, cardJob, connectedMachines, inHome, movePushFailed, orderStores, pgPlaceable, type Reconnect } from './model.ts'
 import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
@@ -289,7 +289,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     work().then((v) => { if (v && typeof v === 'object' && 'id' in v && 'kind' in v && 'store' in v) take([v as StorageJob]); reload() }, (e: unknown) => setFailed(e))
   }
   const retry = (j: StorageJob): Promise<unknown> => {
-    if (j.kind === 'push' || (j.kind === 'move' && j.error?.note === 'pulled')) return api.call('POST', `/api/stores/${enc(j.store)}/push`, { machine: j.target })
+    if (j.kind === 'push' || movePushFailed(j)) return api.call('POST', `/api/stores/${enc(j.store)}/push`, { machine: j.target })
     if (j.kind === 'pull') return api.call('POST', `/api/stores/${enc(j.store)}/pull`)
     if (j.kind === 'move') return api.call('POST', `/api/stores/${enc(j.store)}/move`, { machine: j.target })
     if (j.kind === 'backup') return api.call('POST', `/api/stores/${enc(j.store)}/backup`, { bucket: j.target, ...(j.file ? { file: j.file } : {}) })

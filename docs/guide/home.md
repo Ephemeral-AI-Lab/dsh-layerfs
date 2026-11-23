@@ -86,7 +86,7 @@ table: [Components › Nav bar](components.md#nav-bar).
 | 1 Back · 2 Forward | Arrows | Press → the previous or next Center page (up to 50 kept) | — (local history) | disabled at either end |
 | 3 Crumbs | `Home › Stores › demo-starter › bookshelf` | Press a crumb → that page | — (navigation) | the last crumb is the page you are on |
 | 4 Crumb switcher | A chevron after an ancestor crumb, a caret on the current one, when it has siblings | Press → a menu of its siblings (every Store, every project in the Store, …) → open one | — (from the Storage view already read) | only when there is more than one sibling |
-| — Transfers | **{n} transfers** with a progress bar, while moves, backups or restores run | Press → that Store's page (one), or a menu of them (several) | — (the jobs in the Storage view already read) | hidden when nothing runs |
+| — Transfers | **{n} transfers** with a monotonic percentage and progress bar (matching the Store page and Store cards), while moves, backups or restores run | Press → that Store's page (one), or a menu of them (several) | — (the jobs in the Storage view already read) | hidden when nothing runs |
 | 5 Jump to… | A search field with **⌘K** | Press or **⌘K** → the Jump to dialog: type, **↑ ↓** to move, **Enter** to open, **Esc** to close | — (searches what Home already read) | **Nothing matches “{q}”**; not while another dialog is open |
 | 6 Refresh | A circular arrow, on every page but Home | Press → the page reads again | the page's own reads | a dot while reading |
 | 7 Add | **+ Add** | Press → **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store**, **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | each item's dialog (see [Modals opened here](#modals-opened-here)) | New machine and New Sandbox stay visible with the reason when unavailable |
@@ -140,7 +140,7 @@ backed up".
 | 1 Kind | Two tiles: **SQLite** *{n} Stores · size* and **PostgreSQL** *{n} databases* | Press → that kind's Stores; remembered | — (local view state) | — |
 | 2 Show | **Stores {n}** / **Buckets {n}** (SQLite only) | Press → Store cards or bucket cards; remembered | — (local view state) | — |
 | 3 New Store | **New Store** (SQLite) or **Connect a database** (PostgreSQL), at the right end of the tab bar | Press → the New Store / Connect a database dialog | `store create` / `store save-auth`, `store connect`, `store get` | — |
-| 4 Store card | Name, size, last write, **Stored on** machine, up to three projects, status, backups | See [Components › Store card](components.md#store-card) and [Store menu](components.md#store-menu); **Push to…** (on native) / **Pull** (on a machine) | `GET /api/storage` (read); **Push to…**/**Pull** `store move` | a [job card](components.md#job-card) while a move or backup runs |
+| 4 Store card | Name, size, last write, **Stored on** machine, up to three projects, status, backups | See [Components › Store card](components.md#store-card) and [Store menu](components.md#store-menu); **Push to…** (on native) / **Pull** (on a machine) | `GET /api/storage` (read); **Push to…**/**Pull** `store move` | a compact two-row [job card](components.md#job-card) with percentage, step and bytes while a move or backup runs |
 
 Empty: **No SQLite Store yet.** / **No PostgreSQL database connected yet.** With neither a
 Store nor a bucket in the home, the tab reads **No Stores yet** — "Create a Store in the home,
@@ -183,7 +183,7 @@ hold".
 | Holds | **1 Store**, **1 Sandbox** | — | as above | — |
 | 5 Power | **Stop** / **Start** (not on This Mac) | **Start** → the machine starts. **Stop** asks a second press: the button becomes **Confirm: Stop** (**Confirm: Stop worker** for docker) for a few seconds | `machine stop` / `machine start` | disabled while it settles |
 | 6 ⋯ | **More for {name}** | [Components › Machine menu](components.md#machine-menu) | see there | — |
-| 7 Add Store | **Add Store** | Press → a dialog to put a SQLite Store on this machine | `store move` (a job) | — |
+| 7 Add Store | **Add Store** | Press → a dialog to move a SQLite Store onto this machine (shows size, target free disk, **Held now** and **Start** *m* checks; on LayerFS Home also **Or create an empty Store here: New Store**) | `store move` (a job) | — |
 | 8 New Sandbox | **New Sandbox** | Press → the New Sandbox dialog ([Sandbox](sandbox.md)) | `sandbox create` | — |
 
 ## Variants

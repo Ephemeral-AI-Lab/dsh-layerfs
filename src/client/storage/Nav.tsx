@@ -22,7 +22,7 @@ import { LogsPanelIcon } from '../logs/index.tsx'
 import { setupDialog } from '../setup/store.ts'
 import type { SessionsSource } from '../views/hooks.ts'
 import type { StorageT } from './locale.ts'
-import { doingWords, shareOf } from './model.ts'
+import { doingWords, jobPercent } from './model.ts'
 import { forgetPages, visitPage, type PageHistory, type TabId } from './tabs.ts'
 import type { StorageJob } from './types.ts'
 import css from './Nav.module.css'
@@ -231,7 +231,7 @@ function CrumbView({ crumb: c, current, t, onOpen }: { crumb: Crumb, current: bo
 function Jobs({ jobs, t, onOpen }: { jobs: readonly StorageJob[], t: StorageT, onOpen: (id: TabId) => void }): ReactNode {
   const [open, setOpen] = useState(false)
   const first = jobs[0]!
-  const pct = (j: StorageJob) => Math.round(shareOf(j) * 100)
+  const pct = (j: StorageJob) => jobPercent(j)
   const label = jobs.length === 1 ? `${first.store} · ${doingWords(first, t)}` : t('jobsMore', { n: jobs.length })
   const button = (
     <button type="button" className={css.jobs} title={jobs.map((j) => `${j.store} · ${doingWords(j, t)} ${pct(j)}%`).join('\n')}

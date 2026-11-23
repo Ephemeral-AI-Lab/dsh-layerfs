@@ -1,6 +1,7 @@
 /** Storage's live reads: the host's events, the jobs they move, and a clock. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { HostEvent, LayerfsApi } from '../api.ts'
+import { mergeJob } from './model.ts'
 import type { StorageJob } from './types.ts'
 
 const DISMISSED_KEY = 'dsh-layerfs.storage.dismissed-jobs'
@@ -68,10 +69,10 @@ export function useStorageJobs(api: LayerfsApi, seed: readonly StorageJob[] | un
       let next: Map<string, StorageJob> | null = null
       for (const j of list) {
         const old = had.get(j.id)
-        if (old?.ended && !j.ended) continue
-        if (old && old.ended === j.ended && old.phase === j.phase && old.done === j.done && old.half === j.half) continue
+        const merged = mergeJob(old, j)
+        if (merged === old) continue
         next ??= new Map(had)
-        next.set(j.id, j)
+        next.set(j.id, merged)
       }
       return next ?? had
     })
