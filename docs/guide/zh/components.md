@@ -1,4 +1,4 @@
-<!-- source: 6541cf2f13d1 -->
+<!-- source: 3dad6d8a852a -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -63,7 +63,7 @@
 |---|---|---|---|---|---|
 | 1 | 标题 | **概览**（Overview），页面的名字 | — | — | |
 | 2 | 运行时 | `LayerFS 2.0.0 · 12345678`，固定的构建和它的提交号（**显示固定的运行时**，Show the pinned runtime；提示里是 LayerFS 目录） | 按下 → 在运行时这一步打开[设置 LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (读取) | **LayerFS 不可用**（LayerFS unavailable）、**正在读取 LayerFS…**（Reading LayerFS…）；读取时显示进行中圆点，运行时不可用时有红点 |
-| 3 | 状态行 | 最紧急的那件事，或者 **没有需要处理的事项**（Nothing needs your attention） | 那件事的按钮（见[待处理提示](#needs-you-notices)） | 按钮的调用 | 事项前有圆点：故障为红点、警告为琥珀点；无需处理时没有圆点 |
+| 3 | 状态行 | 最紧急的那件事，或者 **没有需要处理的事项**（Nothing needs your attention） | 那件事的按钮（见[待处理提示](#needs-you-notices)） | 按钮的调用 | 事项前有圆点：故障为红点、警告为琥珀点；无需处理时没有圆点。有多项时显示 **还有 {n} 个**（+{n} more） |
 | 4 | 试用预设 | 预设图标 | 按下 → [预设](presets.md) | — | |
 | 5 | 刷新 | 一个环形箭头。提示：**重新读取 Store、机器和存储桶，并重新运行 Home 检查 · Checked {ago}**（Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}） | 按下 → 重新读取 Store、机器和存储桶，并重新运行主目录检查 | `home get`、`project list`、`store auths`、`store list` (读取)，然后 `home doctor` | 检查运行期间显示进行中圆点 |
 
@@ -99,8 +99,8 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
 | 位置 | 平时的状态 | 出故障时 |
 |---|---|---|
 | 概览头部的状态行 | **没有需要处理的事项**（Nothing needs your attention），没有圆点 | 事项前有圆点：故障为红点、警告为琥珀点 |
-| Store 卡片的状态行 | Store 就绪时什么都不显示；**docker 已停止。**（docker is stopped.）只是一个词，没有圆点（停机就是停机，不是损坏） | **损坏 · …**（Broken · …）保留红点 |
-| 备份徽标 | **没有备份**（No backup）只是普通文字，没有圆点；备份是最新的时候圆点是绿色 | 备份有问题时红点，文件已过时且读不到时灰点 |
+| Store 卡片的状态行 | Store 就绪时什么都不显示；**docker 已停止**（docker is stopped）只是一个词，没有圆点（停机就是停机，不是损坏） | **损坏 · …**（Broken · …）保留红点 |
+| 备份徽标 | **没有备份**（No backup）只是普通文字，没有圆点；备份是最新的时候圆点是绿色 | 备份有问题时红点，备份过时或读不到时灰点 |
 | 诊断（Doctor）行 | **正常**（OK）是一个词，前面没有圆点 | 行内的检查点保留圆点（绿色通过、琥珀提醒、红色失败、灰色未检查） |
 | 机器行或卡片 | **运行中**（Running） / **已停止**（Stopped）都是词 | **需要修复**（Needs repair）、**Docker 未运行**（Docker not running）、**不可用**（Unavailable）保留状态色 |
 
@@ -113,7 +113,7 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
 - **按钮**：Store 卡片的 **推送到…**（Push to…）和 **拉取**（Pull）；Store 页的 **添加项目**
   （Add project）；备份标签页的 **备份到…**（Back up to…）、**立即备份**（Back up now）和
   **恢复…**（Restore…）；存储桶页的 **立即备份**。
-- **菜单项**：Store 菜单的 **推送到…**、**拉取回本机**（Pull to home）、**移到另一台机器…**
+- **菜单项**：Store 菜单的 **推送到…**、**拉回 Home**（Pull to home）、**迁移到其他机器…**
   （Move to another machine…）、**备份到…**、**立即备份 · *存储桶*/*文件***（Back up now · …）和
   **压缩…**（Compact…）；PostgreSQL 登录组的 **移除登录**（Remove login，有 Store 在用时不可用）；
   机器菜单的 **重启 worker**（Restart worker，它的修复需要 `--force` 时）和 **移除…**（Remove…）；

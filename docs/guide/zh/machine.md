@@ -1,4 +1,4 @@
-<!-- source: b34a7e2c2897 -->
+<!-- source: 7a023f137cb2 -->
 # 机器
 
 > **位置：** `LayerFS › 主页 › 机器 › <machine>` · **打开方式：** 主页 › 机器 中的机器名、导航栏的面包屑切换器、跳转到（**机器**（Machines）分组）、Store 的位置链接、Sandbox 的 **机器**（Machine）一项 · **源码：** 见文末
@@ -97,7 +97,7 @@
 |---|---|---|---|
 | **项目**（Project） | 选择 → 建议一个可用的名称（*项目*-1） | `project list`(读取) | **没有符合条件的项目……**（No eligible projects…），附 **打开存储**（Open Storage） |
 | **名称**（Name） | 1–63 个小写字母、数字、点、下划线或连字符 | — | 已占用的名称会被拒绝 |
-| **镜像**（Image） | Sandbox 在这里可以直接启动的镜像，以及 LayerFS 能从这台电脑的 Docker 复制的镜像（**来自本机 Docker**（From Docker on this Mac））；灰色的行会说明原因 | `machine get`、`machine images --with docker`、`sandbox list`(读取) | 在 LayerFS Home 上改为显示 **此 Mac 上的 Sandbox 使用它自己的系统。**（Sandboxes on this Mac use its own system.） |
+| **镜像**（Image） | Sandbox 在这里可以直接启动的镜像，以及 LayerFS 能从这台电脑的 Docker 复制的镜像（**来自本机 Docker**（From Docker on this Mac））；灰色的行会说明原因 | `machine get`、`machine images --with docker`、`sandbox list`(读取) | 在 macOS 的 LayerFS Home（主机进程，`backend: native`）上改为显示 **此 Mac 上的 Sandbox 使用它自己的系统。**（Sandboxes on this Mac use its own system.）；Linux 上的 LayerFS Home 使用镜像 |
 | **创建**（Create）/ **启动并创建**（Start and create）/ **释放空间**（Free space） | 在后台创建：对话框关闭，卡片区显示一行创建中 | `sandbox create`（**启动并创建** 会先 `machine start`） | 所选 Docker 镜像放不下时显示 **释放空间**：在对话框上方打开[释放空间](#free-space-dialog) |
 | **读取 Sandbox**（Read Sandbox） | 创建结果不确定时：先读取这个 Sandbox，再决定是否创建另一个 | `sandbox get`(读取) | |
 | **取消**（Cancel） | 关闭 | — | |

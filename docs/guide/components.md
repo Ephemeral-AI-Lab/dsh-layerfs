@@ -101,8 +101,8 @@ one line: **a working thing is quiet, a failure keeps its red dot.**
 | Where | Everyday state | A failure |
 |---|---|---|
 | The Overview head's status line | **Nothing needs your attention**, no dot | A dot before the need: red for a problem, amber for a warning |
-| A Store card's status row | Nothing at all while the Store is ready; **docker is stopped.** as a word, no dot (a stopped machine is stopped, not broken) | **Broken · …** keeps its red dot |
-| The backups badge | **No backup** as a plain word, no dot; a current backup's dot is green | A red dot for a problem backup, a grey one for an out-of-date file it could not read |
+| A Store card's status row | Nothing at all while the Store is ready; **docker is stopped** as a word, no dot (a stopped machine is stopped, not broken) | **Broken · …** keeps its red dot |
+| The backups badge | **No backup** as a plain word, no dot; a current backup's dot is green | A red dot for a problem backup, a grey one when a backup is out of date or could not be read |
 | A Doctor row | **OK** as a word, no dot before it | The row's check marks keep their dots (green passed, amber notice, red failed, grey not checked) |
 | A machine row or card | **Running** / **Stopped** as words | **Needs repair**, **Docker not running**, **Unavailable** keep their state colour |
 

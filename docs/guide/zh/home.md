@@ -1,4 +1,4 @@
-<!-- source: 60ecc1a95198 -->
+<!-- source: 888b7b77d185 -->
 # 主页
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -108,7 +108,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 1 行展开 | 一个箭头 | 按下 → 这一行展开，显示它的会话（或 Sandbox） | 会话：`sessions.list`（只在本地，不调用 LayerFS）；Sandbox：`sandbox list` (读取，在 `GET /api/machines` 中) | 展开的行保持展开 |
 | 2 项目名 | **handbook**、绿色的 **{n} 个运行中**（{n} running）标签，以及最新提交那一行（`Session ef98eca3 · events 0–59`，或者一条提交说明和分支） | 按下 → [项目](project.md)页 | `project list` (读取)；提交那一行用 `branch get`、`project stats` (读取，`GET /api/stores/:id/projects`) | — |
 | 3 Store | Store 的图标和名称 | 按下 → [Store](store.md) 页 | —（页面跳转） | — |
-| 会话 · Sandbox | 只有计数；数字的悬停提示会说明现在在跑什么（绿色的 **{n} 个运行中**（{n} running）标签在项目名旁边） | 按一个计数 → 这一行展开到那个列表 | 同行展开 | 没有时显示 `—` |
+| 会话 · Sandbox | 只有计数（绿色的 **{n} 个运行中**（{n} running）标签在项目名旁边）；会话数只在有活动会话时才有悬停提示，Sandbox 数的悬停提示列出每个 Sandbox 的名称和位置（有运行中的还会注明运行数量） | 按一个计数 → 这一行展开到那个列表 | 同行展开 | 没有时显示 `—` |
 | 最近会话 · 最近提交 | 相对时间 | — | `branch get` (读取) | 没有时显示 `—` |
 | 提交 · 分支 · 大小 | 数字 | — | `project stats` (读取)；大小用 `GET /api/projects/:key/size`：`project get`、`project stats`、`store get` (读取) | — |
 | 4 会话行 | **Fake session**、它的状态词——**活动中**（Active）、**已中断**（Interrupted）或 **在 Store 中**（In Store），空闲的会话不显示状态词——以及时间 | 按下 → 在 DSH 中打开这个对话 | `sessions.open`：日志在本地时不调用；否则 `branch list`、`project export`（从 Store 导入） | — |

@@ -5,7 +5,7 @@
 
 当前入口下方的详情图来自早期演示环境。
 
-![预设在刷新旁边（隔离测试数据）)](../img/home-overview-head.png)
+![预设在刷新旁边（隔离测试数据）](../img/home-overview-head.png)
 
 *隔离测试数据。*
 

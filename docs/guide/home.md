@@ -108,7 +108,7 @@ it, when did it last change".
 | 1 Row toggle | A chevron | Press → the row opens on its sessions (or Sandboxes) | sessions: `sessions.list` (local only, no call); Sandboxes: `sandbox list` (read, in `GET /api/machines`) | rows that are open stay open |
 | 2 Project name | **handbook**, a green **{n} running** pill, and the newest commit's line (`Session ef98eca3 · events 0–59`, or a message and Branch) | Press → the [Project](project.md) page | `project list` (read); commit line `branch get`, `project stats` (read, `GET /api/stores/:id/projects`) | — |
 | 3 Store | The Store's glyph and name | Press → the [Store](store.md) page | — (navigation) | — |
-| Sessions · Sandboxes | Counts only; each number's tip names what runs now (the project name carries the green **{n} running** pill) | Press a count → the row opens on that list | as the row toggle | `—` for none |
+| Sessions · Sandboxes | Counts only (the project name carries the green **{n} running** pill); the sessions count has a tip only when one is active, and the Sandboxes count's tip lists every Sandbox's name and place (with how many run when any do) | Press a count → the row opens on that list | as the row toggle | `—` for none |
 | Last session · Last commit | Relative times | — | `branch get` (read) | `—` for none |
 | Commits · Branches · Size | Numbers | — | `project stats` (read); size `GET /api/projects/:key/size`: `project get`, `project stats`, `store get` (read) | — |
 | 4 Session line | **Fake session**, its state word — **Active**, **Interrupted** or **In Store**; an idle session shows none — and when | Press → the conversation opens in DSH | `sessions.open`: none when its log is here; else `branch list`, `project export` (imports it from the Store) | — |

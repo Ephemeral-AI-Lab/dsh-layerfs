@@ -114,7 +114,7 @@ whose Store is on this machine, PostgreSQL projects when the machine supports th
 |---|---|---|---|
 | **Project** | Pick → suggests a free name (*project*-1) | `project list` (read) | **No eligible projects…** with **Open Storage** |
 | **Name** | 1–63 lowercase letters, digits, dots, underscores or hyphens | — | A taken name is refused |
-| **Image** | The images a Sandbox here starts from at once, and this computer's Docker images LayerFS can copy (**From Docker on this Mac**); greyed rows say why | `machine get`, `machine images --with docker`, `sandbox list` (read) | On LayerFS Home: **Sandboxes on this Mac use its own system.** instead |
+| **Image** | The images a Sandbox here starts from at once, and this computer's Docker images LayerFS can copy (**From Docker on this Mac**); greyed rows say why | `machine get`, `machine images --with docker`, `sandbox list` (read) | On a macOS LayerFS Home (host processes, `backend: native`): **Sandboxes on this Mac use its own system.** instead; a Linux LayerFS Home uses images |
 | **Create** / **Start and create** / **Free space** | Creates in the background: the dialog closes and the card shows a creating row | `sandbox create` (`machine start` first for **Start and create**) | **Free space** when the chosen Docker image does not fit: opens [Free space](#free-space-dialog) over the dialog |
 | **Read Sandbox** | After an uncertain create: reads the Sandbox before creating another | `sandbox get` (read) | |
 | **Cancel** | Closes | — | |
