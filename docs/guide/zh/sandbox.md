@@ -1,4 +1,4 @@
-<!-- source: 1bc87dc0162b -->
+<!-- source: cbbc25ce3785 -->
 # Sandbox
 
 > **位置：** `LayerFS › 主页 › 机器 › <machine> › <sandbox>` · **打开方式：** 机器 Sandbox 标签页上的 Sandbox 卡片或行、机器看板、项目的 Sandbox 标签页、跳转到（**Sandbox**（Sandboxes）分组）、磁盘空间对话框里的 **最大的 Sandbox**（Largest Sandboxes） · **源码：** 见文末
@@ -157,7 +157,7 @@ Sandbox daemon 的日志，实时跟随：一个[日志窗格](components.md#log
 
 ![Sandbox 菜单](../img/sandbox-menu.png)
 
-如果因为有 Workspace 挂载着或有命令在运行而被拒绝，删除操作会留在页面上；如果返回的结果不确定，菜单会提供
+如果因为有 Workspace 挂载着或有命令在运行而被拒绝，拒绝信息会留在[确认对话框](components.md#confirm-dialog)表单下方；如果返回的结果不确定，菜单会提供
 **读取 Sandbox**（Read Sandbox），而不是让你再删一次。删除成功后页面回到机器。
 
 ## 状态与提示

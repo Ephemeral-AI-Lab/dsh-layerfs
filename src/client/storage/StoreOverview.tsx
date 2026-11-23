@@ -5,7 +5,7 @@
  * its details with removal folded at the bottom. No activity feed: a job in
  * flight is the page's own panel.
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes, when } from '../files/format.ts'
@@ -13,8 +13,8 @@ import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, backupStateOf, latestBackup, overviewMachineHealth, storeStateWords, type BackupState } from './model.ts'
-import { overviewBackupHealth } from './store-backups.ts'
+import { backupChip, overviewMachineHealth, storeStateWords } from './model.ts'
+import { latestBackupCopy, overviewBackupHealth, storeBackups } from './store-backups.ts'
 import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
@@ -44,7 +44,19 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
   const journal = useQuery(() => api.call<ObservationJournal>('GET', `/api/stores/${enc(s.name)}/observations`), [api, s.name], { refresh: [stats], cache: `store-observations:${s.name}` })
   const sandboxes = [...running.values()].reduce((a, n) => a + n, 0)
   const commits = projects ? commitTotal(projects) : null
-  const latest = latestBackup(s)
+  const backups = pg ? [] : storeBackups(s, view.buckets)
+  const latestCopy = latestBackupCopy(backups)
+  const bh = overviewBackupHealth(backups)
+  const backupTileValue = latestCopy?.at != null
+    ? ago(latestCopy.at, now, tt)
+    : bh.kind === 'none' ? t('noBackup')
+      : bh.kind === 'ok' ? t('backupCurrent')
+        : bh.kind === 'problem' ? backupChip(bh.state, t).label
+          : backupChip(backups[0]?.state, t).label
+  const backupTileTone = latestCopy?.at != null ? undefined
+    : bh.kind === 'problem' ? 'danger'
+      : bh.kind === 'ok' ? undefined : 'muted'
+  const backupTileSub = latestCopy?.link.bucket ?? backups[0]?.link.bucket
 
   return (
     <div className={css.stack}>
@@ -62,8 +74,8 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
           <Tile label={t('pgConnectedFromLabel')} value={String((s.connectedFrom ?? []).length)} onOpen={() => onTab('connections')}
             sub={(s.connectedFrom ?? []).map((c) => (c.machine === null ? t('pgThisComputer') : c.machine)).join(', ') || undefined} />
         ) : (
-          <Tile label={t('factLastBackup')} value={latest !== null ? ago(latest, now, tt) : t('noBackup')} title={latest !== null ? when(latest) : undefined}
-            onOpen={() => onTab('backups')} tone={latest === null ? 'muted' : undefined} sub={s.links[0] ? s.links[0].bucket : undefined} />
+          <Tile label={t('factLastBackup')} value={backupTileValue} title={latestCopy?.at != null ? when(latestCopy.at) : undefined}
+            onOpen={() => onTab('backups')} tone={backupTileTone} sub={backupTileSub} />
         )}
       </div>
 
@@ -115,9 +127,11 @@ function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value
 
 /** The database file's pages by part, and unique content over its packed bytes. */
 function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, error: unknown, pg: boolean, t: StorageT }): ReactNode {
+  const [hovered, setHovered] = useState<string | null>(null)
   const parts = fileParts(stats)
   const ratio = compressionOf(stats)
   const words: Record<string, string> = { stored: t('spPartStored'), metadata: t('spPartMetadata'), free: t('spPartFree') }
+  const barParts = parts?.filter((p) => p.bytes > 0) ?? []
   return (
     <Card className={css.panel} data-store-file>
       <header className={css.panelHead}>
@@ -126,12 +140,33 @@ function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, erro
       </header>
       {parts ? (
         <>
-          <div className={css.partsBar} role="img" aria-label={parts.map((p) => `${words[p.key]} ${bytes(p.bytes)}`).join(', ')}>
-            {parts.map((p) => <span key={p.key} data-part={p.key} style={{ width: `${(p.share * 100).toFixed(2)}%` }} />)}
+          <div className={css.partsBar} role="img" aria-label={parts.map((p) => `${words[p.key]} ${bytes(p.bytes)} (${Math.round(p.share * 100)}%)`).join(', ')}>
+            {barParts.map((p) => {
+              const pct = Math.round(p.share * 100)
+              return (
+                <span
+                  key={p.key}
+                  className={css.partSeg}
+                  data-part={p.key}
+                  data-dim={hovered && hovered !== p.key ? '' : undefined}
+                  style={{ width: `${(p.share * 100).toFixed(2)}%` }}
+                  title={`${words[p.key]} · ${bytes(p.bytes)} (${pct}%)`}
+                  onMouseEnter={() => setHovered(p.key)}
+                  onMouseLeave={() => setHovered(null)}
+                >
+                  <span className={css.partLabel}>{words[p.key]} {pct}%</span>
+                </span>
+              )
+            })}
           </div>
           <ul className={css.partsLegend}>
             {parts.map((p) => (
-              <li key={p.key}>
+              <li
+                key={p.key}
+                data-dim={hovered && hovered !== p.key ? '' : undefined}
+                onMouseEnter={() => setHovered(p.key)}
+                onMouseLeave={() => setHovered(null)}
+              >
                 <span className={css.legendName}><i data-part={p.key} />{words[p.key]}</span>
                 <span className={css.legendValue}>{bytes(p.bytes)} <span className={css.muted}>{Math.round(p.share * 100)}%</span></span>
               </li>
@@ -234,16 +269,18 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
     const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')
     const mh = overviewMachineHealth(s, machineState)
     rows.push({ key: 'machine', tone: mh.tone, label: t('spMachine'), text: t(mh.key, { machine: place }) })
-    const latest = latestBackup(s)
-    const states = s.links
-      .map((link) => backupStateOf(view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name)))
-      .filter((x): x is BackupState => x !== null)
-    const bh = overviewBackupHealth(states, latest)
+    const backups = storeBackups(s, view.buckets)
+    const bh = overviewBackupHealth(backups)
+    const behindText = bh.kind === 'store_changed'
+      ? (bh.at !== null ? t('spBackupBehind', { ago: ago(bh.at, now, tt) }) : t('spBackupBehindUndated'))
+      : ''
     const backupText = bh.kind === 'problem' ? backupChip(bh.state, t).label
       : bh.kind === 'none' ? t('noBackup')
-      : bh.kind === 'store_changed' ? t('spBackupBehind', { ago: ago(latest!, now, tt) })
+      : bh.kind === 'store_changed' ? (bh.bucket ? `${bh.bucket} · ${behindText}` : behindText)
       : bh.kind === 'bucket_changed' ? backupChip('bucket_changed', t).label
-      : t('spBackupOk', { ago: ago(latest!, now, tt) })
+      : bh.kind === 'not_checked' ? backupChip('unknown', t).label
+      : bh.kind === 'not_listed' ? backupChip(null, t).label
+      : bh.at !== null ? t('spBackupOk', { ago: ago(bh.at, now, tt) }) : t('spBackupOkUndated')
     rows.push({ key: 'backup', tone: bh.tone, label: t('backupsSection'), text: backupText })
     if (stats?.reusable_bytes != null && stats.file_bytes) rows.push({ key: 'free', tone: 'ok', label: t('spPartFree'), text: t('spFreeText', { free: bytes(stats.reusable_bytes), n: String(Math.round(stats.reusable_bytes / stats.file_bytes * 100)) }) })
   }

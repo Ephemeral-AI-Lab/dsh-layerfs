@@ -586,8 +586,6 @@ span.marks { visibility: hidden; }
 
 /* ---------- the delete confirmation ---------- */
 .modalBody { max-width: 65ch; margin: 0; line-height: 20px; overflow-wrap: anywhere; }
-.modalActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.modalActions button { display: inline-flex; align-items: center; justify-content: center; height: 30px; min-width: 72px; padding: 0 14px; line-height: 1; }
 
 /* ---------- tip ---------- */
 .tip {

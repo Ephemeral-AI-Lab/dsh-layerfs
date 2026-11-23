@@ -98,16 +98,24 @@ test('storeSignal and bucketSignal: no backup, store_changed and bucket_changed 
   }
 })
 
-test('overviewBackupHealth: neutral for none/store_changed/bucket_changed, green for current, red only for missing/both_changed', () => {
-  assert.deepEqual(M.overviewBackupHealth([], null), { tone: 'info', kind: 'none' })
-  assert.deepEqual(M.overviewBackupHealth(['current'], 100), { tone: 'ok', kind: 'ok' })
-  assert.deepEqual(M.overviewBackupHealth(['store_changed'], 100), { tone: 'info', kind: 'store_changed' })
-  assert.deepEqual(M.overviewBackupHealth(['bucket_changed'], 100), { tone: 'info', kind: 'bucket_changed' })
-  assert.deepEqual(M.overviewBackupHealth(['missing'], 100), { tone: 'danger', kind: 'problem', state: 'missing' })
-  assert.deepEqual(M.overviewBackupHealth(['missing'], null), { tone: 'danger', kind: 'problem', state: 'missing' })
-  assert.deepEqual(M.overviewBackupHealth(['both_changed'], 100), { tone: 'danger', kind: 'problem', state: 'both_changed' })
-  assert.deepEqual(M.overviewBackupHealth(['current', 'store_changed'], 100), { tone: 'info', kind: 'store_changed' })
-  assert.deepEqual(M.overviewBackupHealth(['store_changed', 'missing'], 100), { tone: 'danger', kind: 'problem', state: 'missing' })
+test('overviewBackupHealth: neutral for none/store_changed/bucket_changed/unchecked/unlisted, green only when all current, red only for missing/both_changed', () => {
+  const b = (state, at = 100, bucket = 'b1') => ({ state, at, link: { bucket } })
+  assert.deepEqual(M.overviewBackupHealth([]), { tone: 'info', kind: 'none', at: null })
+  assert.deepEqual(M.overviewBackupHealth([b('current', 100)]), { tone: 'ok', kind: 'ok', at: 100 })
+  assert.deepEqual(M.overviewBackupHealth([b('current', null)]), { tone: 'ok', kind: 'ok', at: null })
+  assert.deepEqual(M.overviewBackupHealth([b('store_changed', 100)]), { tone: 'info', kind: 'store_changed', at: 100, bucket: null })
+  assert.deepEqual(M.overviewBackupHealth([b('store_changed', null)]), { tone: 'info', kind: 'store_changed', at: null, bucket: null })
+  assert.deepEqual(M.overviewBackupHealth([b('bucket_changed', 100)]), { tone: 'info', kind: 'bucket_changed', at: 100 })
+  assert.deepEqual(M.overviewBackupHealth([b('bucket_changed', null)]), { tone: 'info', kind: 'bucket_changed', at: null })
+  assert.deepEqual(M.overviewBackupHealth([b(null, 100)]), { tone: 'info', kind: 'not_listed', at: 100 })
+  assert.deepEqual(M.overviewBackupHealth([b('unknown', 100)]), { tone: 'info', kind: 'not_checked', at: 100 })
+  assert.deepEqual(M.overviewBackupHealth([b('current', 200, 'b2'), b(null, 100, 'b1')]), { tone: 'info', kind: 'not_listed', at: 100 })
+  assert.deepEqual(M.overviewBackupHealth([b('missing', 100)]), { tone: 'danger', kind: 'problem', state: 'missing', at: 100 })
+  assert.deepEqual(M.overviewBackupHealth([b('missing', null)]), { tone: 'danger', kind: 'problem', state: 'missing', at: null })
+  assert.deepEqual(M.overviewBackupHealth([b('both_changed', 100)]), { tone: 'danger', kind: 'problem', state: 'both_changed', at: 100 })
+  // Mixed current + store_changed uses only the store_changed copy's timestamp and names it
+  assert.deepEqual(M.overviewBackupHealth([b('current', 500, 'b2'), b('store_changed', 100, 'b1')]), { tone: 'info', kind: 'store_changed', at: 100, bucket: 'b1' })
+  assert.deepEqual(M.overviewBackupHealth([b('store_changed', 100), b('missing', 50)]), { tone: 'danger', kind: 'problem', state: 'missing', at: 50 })
 })
 
 test('StoreOverview and StoreLinks: no warning/amber tone for missing or older backups, red for missing and both_changed', () => {

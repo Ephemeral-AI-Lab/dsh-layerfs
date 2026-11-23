@@ -5,12 +5,11 @@
  * gives LayerFS that file's reference.
  */
 import { useState, type ReactNode } from 'react'
-import clsx from 'clsx'
-import { Button, Checkbox, Input, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
-import { Contained, Field, MenuSelect, Notice, Refusal, usePressGuard } from '../ui/index.tsx'
+import { ConfirmDialog as SharedConfirmDialog, Contained, Field, MenuSelect, Notice, Refusal, usePressGuard } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { backupStateOf, bucketParts, canMove, inHome, needsLogin, pgServerLogin, storeStateWords, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
@@ -650,16 +649,19 @@ function BucketDialog({ api, t, again, onClose, done }: { api: LayerfsApi, t: St
 function ConfirmDialog({ t, title, body, action, name, force, plain, steps, onClose, run }: {
   t: StorageT, title: string, body: string, action: string, name?: string | undefined, force?: ConfirmForce | undefined, plain?: boolean | undefined, steps?: string[] | undefined, onClose: () => void, run: (force: boolean) => Promise<unknown>
 }): ReactNode {
-  const [typed, setTyped] = useState('')
-  const [forced, setForced] = useState(false)
-  const on = !!force && forced
   return (
-    <FormModal open onClose={onClose} t={t} title={title} description={body} action={on ? force.action : action} danger={!plain} valid={!name || typed === name} submit={() => run(on)}>
-      {steps?.length ? <ol data-steps={steps.length}>{steps.map((x, i) => <li key={i}>{x}</li>)}</ol> : null}
-      {name ? <TextField label={t('typeToConfirm', { name })} value={typed} onChange={setTyped} mono autoFocus placeholder={name} /> : null}
-      {force ? <Checkbox checked={forced} onChange={setForced} label={force.label} /> : null}
-      {!name && !force ? <span className={clsx(css.hidden)} /> : null}
-    </FormModal>
+    <SharedConfirmDialog
+      onClose={onClose}
+      title={title}
+      body={body}
+      action={action}
+      name={name}
+      force={force}
+      plain={plain}
+      steps={steps}
+      labels={{ cancel: t('cancel'), close: t('close'), typeToConfirm: name ? t('typeToConfirm', { name }) : undefined, refusal: refusalLabels(t) }}
+      run={run}
+    />
   )
 }
 

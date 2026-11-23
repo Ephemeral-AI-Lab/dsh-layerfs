@@ -10,14 +10,14 @@ import { usePageReading } from '../storage/PaneBar.tsx'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  Button, Checkbox, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, Modal, SegmentedControl, Tag, Tooltip,
+  Button, Checkbox, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, SegmentedControl, Tag, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import {
   LOGS_EVENT, operationOf, parseTag,
   type CallClient, type CallLabel, type LabeledLine, type LogsListAnswer, type LogsListArgs, type LogsResetAnswer,
 } from '../../shared/logs.ts'
-import { Card, Empty, LinkButton, LoadError, Loading, MenuSelect, Page, PageHead, Refusal, type RefusalLabels } from '../ui/index.tsx'
+import { Card, ConfirmDialog, Empty, LinkButton, LoadError, Loading, MenuSelect, Page, PageHead, Refusal, type RefusalLabels } from '../ui/index.tsx'
 import { CallDetail } from './CallDetail.tsx'
 import { CommandCell } from './Command.tsx'
 import { shortId } from '../files/format.ts'
@@ -93,8 +93,6 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
   const [more, setMore] = useState(false)
   const [ops, setOps] = useState<ReadonlySet<string>>(() => new Set())
   const [confirming, setConfirming] = useState(false)
-  const [resetting, setResetting] = useState(false)
-  const [resetError, setResetError] = useState<unknown>()
   const [removed, setRemoved] = useState<number>()
   const [now, setNow] = useState(() => Date.now())
   /** The row whose detail is open, by key (it survives reloads that keep the line). */
@@ -237,13 +235,9 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
   }, [api, data, filters])
 
   const reset = async () => {
-    setResetting(true); setResetError(undefined)
-    try {
-      const answer = await api.op<LogsResetAnswer>('logs.reset', {})
-      setRemoved(answer.removed)
-      setConfirming(false)
-      await load('replace')
-    } catch (e) { setResetError(e) } finally { setResetting(false) }
+    const answer = await api.op<LogsResetAnswer>('logs.reset', {})
+    setRemoved(answer.removed)
+    await load('replace')
   }
 
   const opOptions = useMemo(() => [
@@ -257,7 +251,7 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
         actions={(
           <>
             <Button variant="ghost" size="sm" icon={<IconRefreshOutlineRegular size={14} />} disabled={loading} onClick={() => { void load('replace') }}>{t('refresh')}</Button>
-            <Button variant="outline" size="sm" disabled={resetting || !data || logEmpty === true} onClick={() => { setResetError(undefined); setConfirming(true) }}>{t('reset')}</Button>
+            <Button variant="outline" size="sm" disabled={!data || logEmpty === true} onClick={() => setConfirming(true)}>{t('reset')}</Button>
           </>
         )} />
       {removed !== undefined && <p className={css.note} role="status">{t('resetDone', { n: removed })}</p>}
@@ -325,19 +319,16 @@ export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api:
           next: detailIndex >= 0 && detailIndex < shown.length - 1 ? () => setDetail(lineKey(shown[detailIndex + 1]!)) : undefined,
         }} />
 
-      <Modal open={confirming} onClose={() => { if (!resetting) setConfirming(false) }} closeLabel={t('close')} className={css.confirmModal}
-        title={t('confirmReset')}
-        description={t(data?.source === 'layerfs' ? 'confirmResetLayerfs' : 'confirmResetPlugin')}
-        footer={(
-          <div className={css.modalFooter}>
-            <Button variant="outline" disabled={resetting} data-modal-autofocus="" onClick={() => setConfirming(false)}>{t('cancel')}</Button>
-            <Button variant="primary" className={css.dangerPrimary} disabled={resetting} aria-busy={resetting} onClick={() => { void reset() }}>
-              {resetting ? t('resetting') : t('resetAction')}
-            </Button>
-          </div>
-        )}>
-        {resetError !== undefined ? <Refusal error={resetError} labels={refusalLabels(t)} /> : null}
-      </Modal>
+      {confirming ? (
+        <ConfirmDialog
+          onClose={() => setConfirming(false)}
+          title={t('confirmReset')}
+          body={t(data?.source === 'layerfs' ? 'confirmResetLayerfs' : 'confirmResetPlugin')}
+          action={t('resetAction')}
+          labels={{ cancel: t('cancel'), close: t('close'), refusal: labels }}
+          run={reset}
+        />
+      ) : null}
     </Page>
   )
 }

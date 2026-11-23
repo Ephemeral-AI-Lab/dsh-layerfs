@@ -215,7 +215,8 @@ test('F6: a press only acts for the identity it was drawn for, after the control
   for (const lang of ['en', 'zh']) assert.ok(M.storageLocales[lang].ovStopConfirm.includes('{machine}'), lang)
   // dialogs keep their clicks: a portal's press never reaches the row or card that rendered it
   assert.match(src('src/client/storage/dialogs.tsx'), /props\.dialog \? <Contained><OpenDialog \{\.\.\.props\} \/><\/Contained> : null/)
-  assert.match(src('src/client/doctor/DoctorPage.tsx'), /<Contained><Modal open/)
+  assert.match(src('src/client/ui/ConfirmDialog.tsx'), /<Contained>\s*<Modal/)
+  assert.match(src('src/client/doctor/DoctorPage.tsx'), /<ConfirmDialog/)
   assert.equal((src('src/client/machines/parts.tsx').match(/return <Contained><(Settings|ForceStop|Remove)Dialog/g) ?? []).length, 3)
 })
 
@@ -307,9 +308,11 @@ test('review FAIL-1: a chain that removes data asks the Store Remove\'s typed-na
   assert.match(center, /kind: 'confirm', title: t\('fixChainTitle', \{ n: fix\.steps\.length \}\), body: t\('fixChainBody'\), action: t\('fixChainAction'\), name: typed,/)
   assert.match(center, /steps: chainSteps\(fix, label, t\), cancelled: \(\) => resolve\(false\), run: async \(\) => \{ resolve\(true\) \}/)
   const dialogs = src('src/client/storage/dialogs.tsx')
-  assert.match(dialogs, /\{steps\?\.length \? <ol data-steps=\{steps\.length\}>/)
+  const confirmDlg = src('src/client/ui/ConfirmDialog.tsx')
+  assert.match(confirmDlg, /steps\?\.length \? \(\s*<ol[^>]*data-steps=\{steps\.length\}>/)
   assert.match(dialogs, /onClose=\{\(\) => \{ dialog\.cancelled\?\.\(\); onClose\(\) \}\}/)
-  assert.match(dialogs, /<TextField label=\{t\('typeToConfirm', \{ name \}\)\}/, 'the same typed-name field as Store Remove')
+  assert.match(dialogs, /typeToConfirm: name \? t\('typeToConfirm', \{ name \}\) : undefined/, 'the same typed-name field as Store Remove')
+  assert.match(confirmDlg, /value=\{typed\}/)
   for (const lang of ['en', 'zh']) for (const key of ['fixChainTitle', 'fixChainBody', 'fixChainAction', 'fixStepRemoveStore', 'fixStepDelete']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
 })
 

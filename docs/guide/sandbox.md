@@ -161,7 +161,7 @@ gone, a refused read stops polling (**Stopped reading**).
 
 ![The Sandbox menu](img/sandbox-menu.png)
 
-A delete refused because Workspaces are mounted or a command runs stays on the page; after an
+A delete refused because Workspaces are mounted or a command runs stays under the form in the [confirm dialog](components.md#confirm-dialog); after an
 uncertain answer the menu offers **Read Sandbox** instead of a second delete. After a delete
 the page returns to the machine.
 
