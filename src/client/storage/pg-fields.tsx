@@ -33,14 +33,18 @@ export const hasPgUrlLogin = (raw: string): boolean => {
  * only the machine's clean address command is needed.
  */
 export function loginInUrlFix(url: string, store: string, opts?: { machine?: string | undefined }): string {
-  let address = url.trim(), user = ''
+  let address = '', user = ''
   try {
-    const u = new URL(withPgScheme(address))
-    user = decodeURIComponent(u.username) || u.searchParams.get('user') || ''
+    const u = new URL(withPgScheme(url))
+    const rawUser = u.username
+    const paramUser = u.searchParams.get('user') ?? ''
     u.username = ''; u.password = ''
     for (const key of [...u.searchParams.keys()]) if (/password|^user$|^passfile$/i.test(key)) u.searchParams.delete(key)
     address = u.toString()
-  } catch { /* the address as typed */ }
+    try { user = (rawUser ? decodeURIComponent(rawUser) : '') || paramUser } catch { user = rawUser || paramUser }
+  } catch {
+    return ''
+  }
   const target = store || '<store>'
   if (opts?.machine) return `layerfs store connect ${target} ${address} --machine ${opts.machine}`
   return `layerfs store save-auth <auth> --user ${user || '<user>'} --password-stdin && layerfs store connect ${target} ${address} --auth <auth>`
@@ -81,6 +85,7 @@ export function PgLoginInUrlFix({ url, store, machine, label, copyLabel, copiedL
 }): ReactNode {
   const [copied, setCopied] = useState(false)
   const cmd = loginInUrlFix(url, store, machine ? { machine } : undefined)
+  if (!cmd) return null
   const copy = () => {
     void navigator.clipboard?.writeText(cmd).then(() => {
       setCopied(true)

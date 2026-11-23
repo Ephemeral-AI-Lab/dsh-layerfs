@@ -201,10 +201,15 @@ export function serverLogin(view: Pick<StorageView, 'stores'>, auths: readonly P
 }
 
 function freeLoginName(base: string, taken: ReadonlySet<string>): string {
-  if (base && !taken.has(base)) return base
-  const root = base || 'pg-login'
+  const MAX_NAME = 63
+  const cleaned = base.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').slice(0, MAX_NAME).replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '')
+  const root = cleaned || 'pg-login'
+  if (!taken.has(root)) return root
   for (let i = 2; ; i++) {
-    const candidate = `${root}-${i}`
+    const suffix = `-${i}`
+    const maxPrefix = MAX_NAME - suffix.length
+    const prefix = maxPrefix > 0 ? root.slice(0, maxPrefix).replace(/[^a-z0-9]+$/, '') : ''
+    const candidate = prefix ? `${prefix}${suffix}` : String(i)
     if (!taken.has(candidate)) return candidate
   }
 }
@@ -228,7 +233,19 @@ function NewDatabase({ api, t, view, server, onConnected, onWhy }: {
   const takenAuths = new Set(auths.map((a) => a.auth))
   const known = server ? null : serverLogin(view, auths, serverOf(host))
   const chose = useRef(false)
-  useEffect(() => { if (known && !chose.current) { pw.setHow('saved'); pw.setAuth(known) } }, [known])
+  const autoAuth = useRef<string | null>(null)
+  useEffect(() => {
+    if (chose.current) return
+    if (known) {
+      pw.setHow('saved')
+      pw.setAuth(known)
+      autoAuth.current = known
+    } else if (autoAuth.current !== null) {
+      pw.setHow('entered')
+      pw.setAuth('')
+      autoAuth.current = null
+    }
+  }, [known])
   const [typedAuthName, setTypedAuthName] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(undefined)
@@ -280,7 +297,13 @@ function NewDatabase({ api, t, view, server, onConnected, onWhy }: {
       {loginInUrl ? <PgLoginInUrlFix url={url} store={storeName} label={t('cdLoginFix')} copyLabel={t('cdCopyFix')} copiedLabel={t('ovCopied')} /> : null}
       {linuxLocalhost ? <PgLocalhostNotice message={t('pgLocalhostWarn')} actionLabel={t('pgLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
       <TextField label={t('cdStoreName')} value={named ? name : storeName} onChange={(v) => { setNamed(true); setName(v) }} mono error={nameError} />
-      <PgPasswordFields id="lfs-cd-password" pw={{ ...pw, setHow: (h: Parameters<typeof pw.setHow>[0]) => { chose.current = true; pw.setHow(h) } }} t={t} auths={auths} />
+      <PgPasswordFields id="lfs-cd-password" pw={{
+        ...pw,
+        setHow: (h: Parameters<typeof pw.setHow>[0]) => { chose.current = true; pw.setHow(h) },
+        setAuth: (a: Parameters<typeof pw.setAuth>[0]) => { chose.current = true; pw.setAuth(a) },
+        setUser: (u: Parameters<typeof pw.setUser>[0]) => { chose.current = true; pw.setUser(u) },
+        setValue: (v: Parameters<typeof pw.setValue>[0]) => { chose.current = true; pw.setValue(v) },
+      }} t={t} auths={auths} />
       {needExplicitAuthName ? <TextField label={t('pgLoginName')} value={typedAuthName ?? authName} onChange={setTypedAuthName} mono hint={t('pgLoginNameHint')} error={authNameError} /> : null}
       <details className={scss.storeDetails}>
         <summary className={scss.storeDetailsSummary}>
@@ -362,7 +385,7 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
   const from = machinesFor(view, 'postgresql')
   const ok = check.result?.ok ? check.result : null
   const activeUrl = s?.ownConnections?.find((c) => c.machine === machine)?.url ?? s?.postgresql?.url ?? ''
-  const showLinuxLocalhostCheckWarn = !!ok && (machine === 'docker' || machine === 'native') && isLinuxLocalhostUrl(activeUrl, hostOs)
+  const showLinuxLocalhostCheckWarn = !!ok && (platform === 'docker' || machine === 'native') && isLinuxLocalhostUrl(activeUrl, hostOs)
   const ownLoginInUrl = hasPgUrlLogin(ownUrl)
   const ownLinuxLocalhost = !ownLoginInUrl && isLinuxLocalhostUrl(ownUrl, hostOs)
   return (

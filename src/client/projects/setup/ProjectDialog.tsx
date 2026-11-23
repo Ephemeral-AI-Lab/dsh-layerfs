@@ -294,7 +294,19 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const pgServer = parsedPg?.host ? (/:\d+$/.test(parsedPg.host) ? parsedPg.host.toLowerCase() : `${parsedPg.host.toLowerCase()}:5432`) : ''
   const knownAuth = data && pgServer ? serverLogin(data, auths, pgServer) : null
   const loginChose = useRef(false)
-  useEffect(() => { if (knownAuth && !loginChose.current) { pw.setHow('saved'); pw.setAuth(knownAuth) } }, [knownAuth])
+  const autoAuth = useRef<string | null>(null)
+  useEffect(() => {
+    if (loginChose.current) return
+    if (knownAuth) {
+      pw.setHow('saved')
+      pw.setAuth(knownAuth)
+      autoAuth.current = knownAuth
+    } else if (autoAuth.current !== null) {
+      pw.setHow('entered')
+      pw.setAuth('')
+      autoAuth.current = null
+    }
+  }, [knownAuth])
   const platforms = usePlatforms(api)
   const machines = machinesFor(data, kind)
   // a machine whose platform is not ready here shows blocked; the default is native when docker cannot run now
@@ -488,7 +500,13 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
               </Field>
               {loginInUrl ? <PgLoginInUrlFix url={url} store={chosenStoreName} label={t('urlLoginFix')} copyLabel={t('copyFix')} copiedLabel={t('copied')} /> : null}
               {linuxLocalhost ? <PgLocalhostNotice message={t('urlLocalhostWarn')} actionLabel={t('urlLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
-              <PgPasswordFields id={`${id}-login`} pw={{ ...pw, setHow: (h: Parameters<typeof pw.setHow>[0]) => { loginChose.current = true; pw.setHow(h); if (h === 'saved' && !pw.auth && auths[0]) pw.setAuth(auths[0].auth) } }}
+              <PgPasswordFields id={`${id}-login`} pw={{
+                ...pw,
+                setHow: (h: Parameters<typeof pw.setHow>[0]) => { loginChose.current = true; pw.setHow(h); if (h === 'saved' && !pw.auth && auths[0]) pw.setAuth(auths[0].auth) },
+                setAuth: (a: Parameters<typeof pw.setAuth>[0]) => { loginChose.current = true; pw.setAuth(a) },
+                setUser: (u: Parameters<typeof pw.setUser>[0]) => { loginChose.current = true; pw.setUser(u) },
+                setValue: (v: Parameters<typeof pw.setValue>[0]) => { loginChose.current = true; pw.setValue(v) },
+              }}
                 copy={setupPgCopy(t)} auths={auths} />
               {pw.how === 'entered' ? (
                 <Field label={t('loginName')} hint={t('loginNameHint')} error={loginNameError}>
