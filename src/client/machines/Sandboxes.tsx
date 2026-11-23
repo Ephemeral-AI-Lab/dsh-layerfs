@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRightUpOutlineRegular, Input, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Card, Field, MenuSelect, MoreMenu, Notice, Refusal, StateChip, type Choice } from '../ui/index.tsx'
+import { Card, ConfirmDialog, Field, MenuSelect, MoreMenu, Notice, Refusal, StateChip, type Choice } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
 import { ImageMenu, defaultPick, findPick, imagePlan, useSandboxImages } from './ImageMenu.tsx'
@@ -56,13 +56,13 @@ export function useSandboxRead(name: string, state: string | undefined, count: n
 }
 
 /** Normal close reconciles unknown results; explicit force bypasses worker reads. */
-export function useClose(name: string): { busy: boolean, error: unknown, unknown: string[] | null, close: (force: boolean) => Promise<boolean>, forceAllowed: boolean, uncertain: boolean } {
+export function useClose(name: string): { busy: boolean, error: unknown, unknown: string[] | null, close: (force: boolean, opts?: { rethrow?: boolean }) => Promise<boolean>, forceAllowed: boolean, uncertain: boolean } {
   const { closeSandbox, readSandbox } = useMachinesContext()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [unknown, setUnknown] = useState<string[] | null>(null)
   const refusal = error as { code?: string, detail?: { running?: unknown[] } } | null
-  const close = async (force: boolean): Promise<boolean> => {
+  const close = async (force: boolean, opts?: { rethrow?: boolean }): Promise<boolean> => {
     setBusy(true)
     try {
       if (!force && refusal?.code === 'Unknown') { await readSandbox(name); setError(null); return false }
@@ -71,6 +71,7 @@ export function useClose(name: string): { busy: boolean, error: unknown, unknown
       return true
     } catch (e) {
       setError(e)
+      if (opts?.rethrow) throw e
       return false
     } finally {
       setBusy(false)
@@ -82,7 +83,7 @@ export function useClose(name: string): { busy: boolean, error: unknown, unknown
 
 /** Normal Delete, Read after uncertainty, and explicit Force delete. */
 export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: string, op: MachineSandbox['op'], closing: ReturnType<typeof useClose>, onOpen?: () => void, onDeleted?: () => void }): ReactNode {
-  const { t } = useMachinesContext()
+  const { t, refusal } = useMachinesContext()
   const { busy, close, uncertain } = closing
   const [confirm, setConfirm] = useState<'normal' | 'force' | null>(null)
   return (
@@ -103,17 +104,17 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
         )}
       </MoreMenu>
       {confirm && (
-        <Modal open onClose={() => { if (!busy) setConfirm(null) }} title={t(confirm === 'force' ? 'forceDeleteTitle' : 'deleteTitle', { name })} closeLabel={t('close')} className={css.dialog}
-          description={t(confirm === 'force' ? 'forceDeleteBody' : 'deleteBody', { name })}
-          footer={(
-            <>
-              <Button variant="outline" disabled={busy} onClick={() => setConfirm(null)}>{t('cancel')}</Button>
-              <Button variant="primary" className={css.danger} disabled={busy}
-                onClick={() => void close(confirm === 'force').then((ok) => { setConfirm(null); if (ok) onDeleted?.() })}>
-                {busy ? t('deleting') : t(confirm === 'force' ? 'forceDeleteAction' : 'deleteAction')}
-              </Button>
-            </>
-          )} />
+        <ConfirmDialog
+          onClose={() => setConfirm(null)}
+          title={t(confirm === 'force' ? 'forceDeleteTitle' : 'deleteTitle', { name })}
+          body={t(confirm === 'force' ? 'forceDeleteBody' : 'deleteBody', { name })}
+          action={t(confirm === 'force' ? 'forceDeleteAction' : 'deleteAction')}
+          labels={{ cancel: t('cancel'), close: t('close'), refusal }}
+          run={async () => {
+            const ok = await close(confirm === 'force', { rethrow: true })
+            if (ok) onDeleted?.()
+          }}
+        />
       )}
     </>
   )

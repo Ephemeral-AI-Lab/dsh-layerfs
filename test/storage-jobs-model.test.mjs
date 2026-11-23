@@ -30,9 +30,71 @@ test('a compaction shows its named steps from the start and moves through them',
   // a failed run marks the step it stopped in
   const failed = job({ ended: 9, phase: 'build', error: { code: 'Capacity', message: 'no space', phase: 'build' } })
   assert.deepEqual(M.stepsOf(failed).map((s) => s.state), ['done', 'failed', 'todo', 'todo'])
-  // a job without named steps keeps the phases it saw (push, pull, backup)
+  // a job without host-named steps anchors to its full canonical STEPS list (never shrinking the denominator)
   const push = job({ kind: 'push', steps: undefined, phase: 'send', phases: [{ phase: 'check', half: null, at: 1 }, { phase: 'send', half: null, at: 2 }] })
-  assert.deepEqual(M.stepsOf(push).map((s) => s.step), ['check', 'send'])
+  assert.deepEqual(M.stepsOf(push).map((s) => `${s.step}:${s.state}`), [
+    'check:done', 'snapshot:done', 'send:now', 'verify:todo', 'install:todo', 'record:todo', 'retire:todo',
+  ])
+})
+
+test('shareOf / jobPercent stay monotonic across 7 equal steps, cap at 99% until ended, and resist stale polls via mergeJob', () => {
+  const frames = [
+    job({ kind: 'push', steps: undefined, phase: 'check', phases: [{ phase: 'check', half: null, at: 1 }] }),
+    job({ kind: 'push', steps: undefined, phase: 'snapshot', done: 50, total: 100, phases: [{ phase: 'check', half: null, at: 1 }, { phase: 'snapshot', half: null, at: 2 }] }),
+    job({ kind: 'push', steps: undefined, phase: 'snapshot', done: 100, total: 100, phases: [{ phase: 'check', half: null, at: 1 }, { phase: 'snapshot', half: null, at: 2 }] }),
+    job({ kind: 'push', steps: undefined, phase: 'send', done: 0, total: 100, phases: [{ phase: 'check', half: null, at: 1 }, { phase: 'snapshot', half: null, at: 2 }, { phase: 'send', half: null, at: 3 }] }),
+    job({ kind: 'push', steps: undefined, phase: 'send', done: 50, total: 100, phases: [{ phase: 'check', half: null, at: 1 }, { phase: 'snapshot', half: null, at: 2 }, { phase: 'send', half: null, at: 3 }] }),
+    job({ kind: 'push', steps: undefined, phase: 'verify', done: 100, total: 100, phases: [{ phase: 'check', half: null, at: 1 }, { phase: 'snapshot', half: null, at: 2 }, { phase: 'send', half: null, at: 3 }, { phase: 'verify', half: null, at: 4 }] }),
+    job({ kind: 'push', steps: undefined, phase: 'retire', phases: [{ phase: 'check', half: null, at: 1 }, { phase: 'snapshot', half: null, at: 2 }, { phase: 'send', half: null, at: 3 }, { phase: 'verify', half: null, at: 4 }, { phase: 'install', half: null, at: 5 }, { phase: 'record', half: null, at: 6 }, { phase: 'retire', half: null, at: 7 }] }),
+  ]
+  let cur
+  let prev = -1
+  for (const f of frames) {
+    cur = M.mergeJob(cur, f)
+    const pct = M.jobPercent(cur)
+    assert.ok(pct >= prev, `regressed ${prev} -> ${pct} at ${f.phase}`)
+    assert.ok(pct <= 99, `hit ${pct}% before ended`)
+    prev = pct
+  }
+  // send at 50% of 7 equal steps: (2 + 0.5) / 7 = 36%
+  assert.equal(M.jobPercent(frames[4]), 36)
+  // stale poll with earlier phase/bytes is ignored
+  const stale = M.mergeJob(cur, frames[3])
+  assert.equal(stale, cur)
+  // ended reaches 100%
+  const done = M.mergeJob(cur, { ...frames.at(-1), ended: 99 })
+  assert.equal(M.jobPercent(done), 100)
+})
+
+test('diskFit distinguishes full (<1.0x), tight (1.0x..1.15x), ok (>=1.15x) and unknown', () => {
+  assert.deepEqual(M.diskFit(100, 500), { state: 'full', free: 100, need: 500, shortBy: 400 })
+  assert.deepEqual(M.diskFit(520, 500), { state: 'tight', free: 520, need: 500, shortBy: 0 })
+  assert.deepEqual(M.diskFit(600, 500), { state: 'ok', free: 600, need: 500, shortBy: 0 })
+  assert.deepEqual(M.diskFit(null, 500), { state: 'unknown', free: null, need: 500, shortBy: 0 })
+})
+
+test('movePushFailed, localized endedWords (ignoring raw summary) and cross-kind failureSuperseded', () => {
+  const pushFail = job({
+    kind: 'move', half: 'push', from: 'lima1', target: 'docker', ended: 10, phase: 'send',
+    summary: 'Pulled to Home; push failed (certain)',
+    error: { code: 'Capacity', message: 'no space', phase: 'send', note: 'pulled' },
+  })
+  assert.equal(M.movePushFailed(pushFail), true)
+  assert.equal(M.endedWords(pushFail, t), 'jobMovePushFailed {"place":"docker","phase":"stepSend"}')
+  const retireFail = job({
+    kind: 'move', half: 'push', from: 'lima1', target: 'docker', ended: 10, phase: 'retire',
+    error: { code: 'Failed', message: 'busy', phase: 'retire' },
+  })
+  assert.equal(M.movePushFailed(retireFail), false)
+  assert.equal(M.endedWords(retireFail, t), 'jobRetireTarget {"place":"docker"}')
+  const pullFail = job({
+    kind: 'move', half: 'pull', from: 'lima1', target: 'docker', ended: 10, phase: 'send',
+    error: { code: 'Failed', message: 'io', phase: 'send' },
+  })
+  assert.equal(M.movePushFailed(pullFail), false)
+  assert.equal(M.endedWords(pullFail, t), 'jobMovePullFailed {"place":"docker","from":"lima1","phase":"stepSend"}')
+  // a later push success supersedes a failed move on the same Store
+  assert.equal(M.failureSuperseded(pushFail, [pushFail, { id: 'j2', kind: 'push', store: 's1', ended: 20, error: null }], [{ name: 's1' }]), true)
 })
 
 test('a compaction ends in the words of its 2.0 report (`outcome`, `freed_bytes`)', () => {

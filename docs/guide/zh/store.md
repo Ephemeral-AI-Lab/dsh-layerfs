@@ -1,4 +1,4 @@
-<!-- source: 33b065162b19 -->
+<!-- source: f3bc181c9c3d -->
 # Store
 
 > **位置：** `LayerFS › 主页 › Store › <store>` · **打开方式：** 主页 › Store 或某台机器的 Store 标签页上 Store 卡片的名称、导航栏的层级切换器、跳转到、项目页上的 Store 链接、存储桶的关联 Store · **源码：** 见文末
@@ -43,7 +43,7 @@ Store 是存放项目的数据库：某台机器上的一个 SQLite 文件，或
 | **测试连接**（Test connection）（PostgreSQL） | 同一个诊断，只是以连接来命名 | 按下 → 同上 | `store doctor` | |
 | ⋯ | [Store 菜单](components.md#store-menu) | 见下文 [Store 菜单](#store-menu) | 各行不同 | Store 未就绪时各行禁用 |
 | 待处理提示 | 状态词及原因：**已损坏 · …**（Broken · …）、**等待 docker**（Waiting on docker）、**docker 已停止。**（docker is stopped.）、**已阻塞 · docker 已损坏**（Blocked · docker broken）；悬停显示 LayerFS 的原句 | 旁边唯一的操作：**启动 docker**（Start docker）（机器已停止时）、Store 的[修复按钮](components.md#fix-buttons)，或 **修复 docker**（Repair docker）（打开损坏的机器） | `machine start`，或修复本身的调用 | Store 就绪且机器在运行时隐藏 |
-| 任务卡片 | 这个 Store 上正在运行或刚结束的任务 | [组件 › 任务卡片](components.md#job-card)：**重试**（Retry）、**关闭**（Dismiss）、**打开**（Open）*Sandbox* | 见任务卡片 | 成功后保留一分钟，失败后保留到你关闭为止 |
+| 任务卡片 | 这个 Store 上正在运行或刚结束的任务 | [组件 › 任务卡片](components.md#job-card)：**重试**（Retry，迁移的推送半程失败时为 **重试推送**，Retry push）、**关闭**（Dismiss）、**打开**（Open）*Sandbox* | 见任务卡片 | 成功后保留一分钟，失败后保留到你关闭为止 |
 | 其他客户端的操作 | **另一个客户端正在此 Store 上运行** *op*（Another client runs *op* on this Store） | — | `store list` (读取：其 `op`) | 只在另一个进程占用这个 Store 时出现 |
 | 标签页 | **概览**（Overview）、**项目**（Projects）*n*、**备份**（Backups）*n* / **连接**（Connection） | 点击 → 该标签页 | —（标签页记在浏览器里） | |
 
@@ -59,12 +59,12 @@ Store 有多大、是谁写的、有没有需要你留意的地方。
 | **服务器**（Server）磁贴（PostgreSQL） | **可连接**（Reachable）、**无法连接**（Unreachable，附原因）或 **未知**（Unknown）；悬停显示修复行 | — | `store list` (读取) | 损坏时为红色 |
 | **项目**（Projects）磁贴 | 项目数和 **n 次提交**（n commits）（账本统计中时为 **已统计 n 次提交**（n commits so far）） | 点击 → 项目标签页 | `project list`、`project stats`、`branch get` (读取) | Store 拒绝时显示 **未读取：…**（Not read: …） |
 | **正在运行**（Running now）磁贴 | 这个 Store 的项目中 daemon 正在运行的 Sandbox | — | `machine list`、`sandbox list` (读取，`GET /api/machines`) | |
-| **上次备份**（Last backup）磁贴（SQLite） | 距今多久，以及存储桶 | 点击 → 备份标签页 | `store list` (读取：其链接) | 灰色 **尚未备份**（No backup yet） |
+| **上次备份**（Last backup）磁贴（SQLite） | 最近一次有时间记录的副本距今多久及其对应存储桶；若无时间戳则显示已知状态 | 点击 → 备份标签页 | `store list` (读取：其链接)、`backup list` (读取) | 未关联备份时显示灰色 **尚未备份**（No backup yet） |
 | **连接自**（Connected from）磁贴（PostgreSQL） | 有几台机器连接，以及它们的名称 | 点击 → 连接标签页 | `store list` (读取：`connections`) | |
-| 数据库文件的构成 | 一条横条，显示 **内容**（Content）、**元数据**（Metadata）、**空闲页**（Free pages）的大小和占比；**唯一内容** *x* **打包为** *y*（Unique content *x* packs into *y*）以及 **×** 比例 | — | `store get --with stats` (读取) | **读取中…**（Reading…）、**未读取：…**（Not read: …）、**LayerFS 未报告此 Store 的构成。**（LayerFS did not report this Store's parts.） |
+| 数据库文件的构成 | 一条堆叠构成条，展示 **内容**（Content）、**元数据**（Metadata，采用中性蓝灰，不用警告橙）和 **空闲页**（Free pages），宽分段直接在条内标出名称与占比、下方列出详细大小，0 字节分段不在条内占位；**唯一内容** *x* **打包为** *y*（Unique content *x* packs into *y*）以及 **×** 比例 | 悬停 → 分段详情与联动高亮 | `store get --with stats` (读取) | **读取中…**（Reading…）、**未读取：…**（Not read: …）、**LayerFS 未报告此 Store 的构成。**（LayerFS did not report this Store's parts.） |
 | Store 的增长 | 文件、内容和元数据在本机过去各次读取中的变化；间隔超过日志记录间隔的地方显示为断开 | — | —（本机对早先 `store get --with stats` 读取的记录） | 至少记录过一次读取后才显示；**图表从本机对此 Store 的读取开始：目前只有一次。**（The chart starts with this host's reads of the Store: one so far.） |
-| 由哪些项目写入 | 每个项目一个方块，大小按打包字节；没有被任何提交计入的字节归为 **初始化及更早**（Init and earlier） | 悬停 → 名称和大小 | `project stats` (读取)、`store get --with stats` (读取) | **还没有项目提交内容。**（No project has committed content yet.） |
-| 健康状况 | **机器**（Machine）（*docker* **正在运行**（is running）/ 已停止）、**备份**（Backups）（最新、自上次备份后已更改、存储桶已更改、缺失/冲突、无）、**空闲页**（Free pages）（可重用的比例）；PostgreSQL：**服务器**（Server）、**备份**（Backups）**由服务器自身的备份负责，而非 LayerFS**（covered by the server's own backups, not LayerFS） | — | 来自上面的读取 | 绿、灰、红色圆点 |
+| 由哪些项目写入 | 纵向列表，展示每个项目的打包字节与占比；没有被任何提交计入的字节归为 **初始化及更早**（Init and earlier） | — | `project stats` (读取)、`store get --with stats` (读取) | **还没有项目提交内容。**（No project has committed content yet.） |
+| 健康状况 | **机器**（Machine）（*docker* **正在运行**（is running）/ 已停止）、**备份**（Backups）（仅全部副本核验最新时亮绿点 **已是最新**；落后副本只用自身时间并标明桶名显示灰色 **自上次备份后已更改**、**桶已更改**、**未检查**、**未列出** 或 **尚未备份**；仅 **缺失** / **两侧均已更改** 标红）、**空闲页**（Free pages）（可重用的比例）；PostgreSQL：**服务器**（Server）、**备份**（Backups）**由服务器自身的备份负责，而非 LayerFS**（covered by the server's own backups, not LayerFS） | — | 来自上面的读取 | 绿、灰、红色圆点 |
 | Store 详情 | **创建时间**（Created）、**数据库文件**（Database file）或 **服务器**（Server）；然后是 **移除 Store**（Remove Store）/ **断开 Store**（Disconnect Store） | **移除…**（Remove…）→ [输入名称确认](#modals-opened-here)；**断开连接…**（Disconnect…）→ 确认 | `store remove` ↻ / `store disconnect` ↻ | 默认折叠 |
 
 ![展开的 Store 详情](../img/store-details.png)
@@ -86,16 +86,17 @@ Store 里的所有项目，和主页 › 项目里的表格一样，只是少了
 
 ![备份](../img/store-backups.png)
 
-这个 Store 的副本存在哪里、每份有多新，以及刷新或恢复某一份的按钮。
+这个 Store 的副本存在哪里、每份有多新，以及刷新或恢复某一份的按钮。打开此标签页时，会自动对尚未列出且未报错的关联存储桶执行一次列出。
 
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
 | | 数量 | **n 个备份目标**（n destination(s)） | — | — | |
-| 1 | **备份到…**（Back up to…） | | 按下 → [备份](#modals-opened-here)（还没有存储桶时：**添加存储桶…**（Add bucket…）→ 添加存储桶，然后备份） | `backup create` | 未就绪时不可用 |
-| 2 | 备份目标卡片 | 存储桶、文件名、**上次保存**（Last saved）、**大小**（Size）、**服务商**（Provider）（**MinIO**、**Cloudflare R2**） | — | `store list` (读取：链接)，以及该存储桶最近一次 `backup list` | **尚未配置备份目标。**（No backup destinations configured.） |
-| 3 | 状态标签 | **已备份**（Backed up）、**Store 已更改**（Store changed）、**存储桶已更改**（Bucket changed）、**双方都已更改**（Both changed）、**缺失**（Missing）、**未检查**（Not checked）（与存储桶页用词相同）；悬停显示 LayerFS 的原句 | — | `backup list` (读取) | 列出存储桶之前不显示标签 |
-| 4 | **立即备份**（Back up now） | | 按下 → 立即开始一个备份任务（没有对话框） | `backup create`，然后 `backup list` | 未就绪时不可用 |
-| 5 | **恢复…**（Restore…） | | 按下 → 针对这个文件打开[恢复](#modals-opened-here) | `backup restore`，然后 `backup list` | 只有存储桶列出了这个文件时才出现；忙碌时不可用 |
+| 1 | **备份到…**（Back up to…） | | 按下 → [备份](#modals-opened-here)（还没有存储桶时：**添加存储桶…**（Add bucket…）→ 添加存储桶，然后备份） | `backup create` | 未就绪时不可用（悬停说明原因） |
+| 2 | 备份目标卡片 | 服务商图标、可点击的存储桶名、可点击的文件名（已列出且未缺失时）、**上次保存**（Last saved）、**大小**（Size）、**服务商**（Provider）（**MinIO**、**Cloudflare R2**） | 点击存储桶 → [存储桶页](bucket.md)；点击文件 → 备份文件页 | `store list` (读取：链接)，以及该存储桶最近一次 `backup list` | **尚未配置备份目标。**（No backup destinations configured.） |
+| 3 | 状态标签 | **已备份**（Backed up）、**Store 已更改**（Store changed）、**存储桶已更改**（Bucket changed）、**双方都已更改**（Both changed）、**缺失**（Missing）、**未检查**（Not checked）、虚线 **未列出**（Not listed），或列表失败（**未列出 · 密钥被拒绝**等）——与存储桶页用词完全相同；悬停显示 LayerFS 的原句 | — | `backup list` (读取) | 列出前显示虚线 **未列出**；列表失败时显示红色标签 |
+| 4 | 主备份 / 恢复动作 | **立即备份**（Back up now，最新、Store 已更改或未列出时）、**另存为新文件…**（Back up as new file…，**缺失**、**双方都已更改**、**存储桶已更改** 时），或 **重新连接…**（Connect again…，密钥被拒时） | **立即备份** → 立即开始一个备份任务；**另存为新文件…** → 打开[备份](#modals-opened-here)并预填新文件名；**重新连接…** → 重新连接存储桶 | `backup create`，然后 `backup list` | 未就绪时不可用（悬停说明原因） |
+| 5 | **恢复…**（Restore…） | | 按下 → 针对这个文件打开[恢复](#modals-opened-here) | `backup restore`，然后 `backup list` | **缺失** 时隐藏；存储桶未列出时禁用并说明需先列出；忙碌时不可用 |
+| | **列出存储桶** / **重新列出**（List the bucket / List again） | | 按下 → 立即列出该存储桶 | `backup list` (读取) | 列出时显示加载圆点 |
 
 ## 连接（PostgreSQL）
 
@@ -153,10 +154,10 @@ Store 里的所有项目，和主页 › 项目里的表格一样，只是少了
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
 | 1 | 类型切换 | **SQLite** *n* **个 Store · 大小**（Stores · size）和 **PostgreSQL** *n* **个数据库**（databases）；悬停显示说明（**Store 文件位于 docker 的磁盘上。拉回可将其带回 LayerFS Home。**（The Store file lives on docker's disk. Pull brings it back to the LayerFS Home.）） | 点击或 ←/→ → 切换到该类型 | —（按机器记在浏览器里） | 机器不能存放的类型会在悬停时说明原因 |
-| 2 | **推送 Store 到这里**（Push a Store here）（SQLite；在 LayerFS Home 上为 **添加 Store**（Add Store）） | | 按下 → [向 *机器* 添加 Store](#modals-opened-here) | `store move`（推送、拉回，或先拉回再推送） | 机器不能存放 SQLite Store 时不可用，并说明原因 |
+| 2 | **推送 Store 到这里**（Push a Store here）（SQLite；在 LayerFS Home 上为 **添加 Store**（Add Store）） | | 按下 → [向 *机器* 添加 Store](#modals-opened-here) | `store move`（推送、拉回，或先拉回再推送） | 机器不能存放 SQLite Store 时通过 `ExplainedButton` 禁用并说明原因（**此机器无法存放 SQLite Store。**，This machine cannot hold SQLite Stores.） |
 | 2 | **连接数据库**（Connect a database）（PostgreSQL） | | 按下 → [在 *机器* 上连接数据库](#modals-opened-here) | `store connect`，然后 `store doctor --machine` | |
-| 3 | Store 卡片 | [组件 › Store 卡片](components.md#store-card) | 名称 → Store 页；⋯ → Store 菜单；**拉取**（Pull）/ **推送到…**（Push to…） | `store move` | |
-| | 空状态行 | **docker 上没有 SQLite Store。推送一个到这里，即可在此运行其 Sandbox。**（No SQLite Store is on docker. Push one here to run its Sandboxes on it.）/ **没有 PostgreSQL Store 运行于 docker。连接一个数据库，即可在此运行其会话。**（No PostgreSQL Store runs on docker. Connect a database to run its sessions here.） | — | — | |
+| 3 | Store 卡片 | [组件 › Store 卡片](components.md#store-card) | 名称 → Store 页；⋯ → Store 菜单；**拉回**（Pull）/ **推送到…**（Push to…） | `store move` | |
+| | 空状态行 | **docker 上没有 SQLite Store。推送一个到这里，即可在此运行其 Sandbox。**（No SQLite Store is on docker. Push one here to run its Sandboxes on it.；LayerFS Home 上为 **LayerFS Home 中没有 SQLite Store。可新建一个，或从其他机器拉回。**，No SQLite Store is in LayerFS Home. Create one or pull one back from a machine.）/ **没有 PostgreSQL Store 运行于 docker。连接一个数据库，即可在此运行其会话。**（No PostgreSQL Store runs on docker. Connect a database to run its sessions here.） | — | — | |
 
 主页 › Store 上的 Store 卡片（和机器标签页上的卡片相同，多了 **存放于**（Stored on））：
 
@@ -196,16 +197,16 @@ Store（在单台机器页上，若还有其他机器的 Store 共用该登录�
 
 | 对话框 | 打开方式 | 作用 | LayerFS 调用 | 撤销 |
 |---|---|---|---|---|
-| [将 *store* 推送到…](../img/store-push.png)（Push *store* to…） | ⋯ › **推送到…**（Push to…）；卡片上的 **推送到…**（Push to…） | 选一台机器（显示它的剩余磁盘和 Store 的大小；已停止的机器旁有 **启动** *m*（Start *m*））；**当前被占用：以下项仍存在时 LayerFS 会拒绝移动该 Store**（Held now: LayerFS refuses to move the Store while these remain）列出挡路的 Sandbox | `store move <s> <m>`（作为任务） | **拉回 Home**（Pull to home） |
-| [将 *store* 迁移到其他机器](../img/store-move.png)（Move *store* to another machine） | ⋯ › **迁移到其他机器…**（Move to another machine…） | **先拉回 Home，再推送到目标机器：两个操作。**（A pull to the home, then a push to the machine: two operations.）推送失败时，Store 留在 LayerFS Home | `store get`、`store move <s> native`、`store move <s> <m>` | 迁移回去 |
-| [将 *store* 备份到…](../img/store-backup.png)（Back up *store* to…） | ⋯ › **备份到…**（Back up to…）；备份标签页的 **备份到…**（Back up to…） | 按服务商列出存储桶，每个都说明写到那里会发生什么（**已是最新**（Already current）、**更新 … 的副本**（Updates the copy from…）、**在此存储桶新建备份**（New backup in this bucket）、**副本已丢失…**（The copy is gone…））；**文件**（File）附 **更改**（Change）；**添加存储桶**（Add a bucket） | `backup create <s> <b> [--file]`，然后 `backup list` | 旧副本被替换；无法撤销 |
-| [*store* 的备份](../img/store-backups-dialog.png)（Backups of *store*） | 卡片上的备份徽标 | 所有副本按服务商分组，放在一条健康状况条下面；每行一个操作：**更新**（Update）、**立即备份**（Back up now）、**恢复…**（Restore…）、**另存为新文件…**（Back up as new file…）；**备份到另一个存储桶**（Back up to another bucket）。打开时会重新列出每个关联的存储桶 | 每个关联存储桶 `backup list` (读取)；`backup create` | — |
-| [恢复 *bucket*/*file*](../img/store-restore.png)（Restore *bucket*/*file*） | 备份标签页、存储桶页或备份对话框里的 **恢复…**（Restore…） | **作为新 Store**（As a new Store）（填一个名称）或 **替换** *store*（Replace *store*）（除非 Store 在 LayerFS Home、已就绪、关联了那个存储桶且此后没有改动，否则会被拒绝并说明原因） | `backup restore <b> <file> <store>`，然后 `backup list` | 移除新 Store |
+| [将 *store* 推送到…](../img/store-push.png)（Push *store* to…） | ⋯ › **推送到…**（Push to…）；卡片上的 **推送到…**（Push to…） | 选一台机器（显示它的剩余磁盘和 Store 的大小；剩余空间小于 Store 时红色提示并禁用 **推送**（Push），余量不足 1.15× 时黄色警告；已停止的机器通过带按键保护的 `StartFirst` 提供 **启动** *m*（Start *m*））；**当前被占用：以下项仍存在时 LayerFS 会拒绝移动该 Store**（Held now: LayerFS refuses to move the Store while these remain）列出挡路的 Sandbox，禁用 **推送** 并在页脚提示原因 | `store move <s> <m>`（作为任务） | **拉回 Home**（Pull to home） |
+| [将 *store* 迁移到其他机器](../img/store-move.png)（Move *store* to another machine） | ⋯ › **迁移到其他机器…**（Move to another machine…） | **先拉回 LayerFS Home，再推送到目标机器：两个操作。如果推送失败，Store 会留在 LayerFS Home。**（A pull to LayerFS Home, then a push to the machine: two operations. If the push fails, the Store stays in LayerFS Home.）与推送共用磁盘拒绝/警告、带按键保护的 **启动** *m* 与 **当前被占用** 阻止 | `store get`、`store move <s> native`、`store move <s> <m>` | 迁移回去 |
+| [将 *store* 备份到…](../img/store-backup.png)（Back up *store* to…） | ⋯ › **备份到…**（Back up to…）；备份标签页的 **备份到…** 或 **另存为新文件…** | 按服务商列出存储桶，每个都说明写到那里会发生什么（**已是最新**（Already current）、**更新 … 的副本**（Updates the copy from…）、**在此存储桶新建备份**（New backup in this bucket）、**副本已丢失…**（The copy is gone…）、**两侧均已更改…**（Both sides changed…）、**存储桶副本已被其他位置改写…**（Bucket copy was rewritten elsewhere…）、**未列出…**（Not listed…））；**文件**（File）附 **更改**（Change）（**缺失**、**双方都已更改**、**存储桶已更改** 三态均强制要求合法的新文件名）；**添加存储桶**（Add a bucket） | `backup create <s> <b> [--file]`，然后 `backup list` | 旧副本被替换；无法撤销 |
+| [*store* 的备份](../img/store-backups-dialog.png)（Backups of *store*） | 卡片上的备份徽标 | 所有副本按服务商分组，放在一条健康状况条下面；每行提供对应操作（**更新**（Update）、**立即备份**（Back up now）、**恢复…**（Restore…）、**双方都已更改** 时提供 **另存为新文件…** + **恢复…**，或密钥被拒时提供 **重新连接…**）；底部 **备份到另一个存储桶**（Back up to another bucket）；所有禁用的行内与底部按钮均说明原因。打开时会重新列出每个关联的存储桶 | 每个关联存储桶 `backup list` (读取)；`backup create` | — |
+| [恢复 *bucket*/*file*](../img/store-restore.png)（Restore *bucket*/*file*） | 备份标签页、存储桶页或备份对话框里的 **恢复…**（Restore…） | **作为新 Store**（As a new Store，实时校验名称合法性）或 **替换** *store*（Replace *store*）（除非 Store 位于 LayerFS Home、已就绪且空闲、无运行中 Sandbox 占用、已关联该存储桶、该存储桶已成功列出且副本存在并确认自上次传输后本地未改，否则会被拒绝并写清具体原因；桶尚未列出时弹窗内提供一键 **列出存储桶** 按钮） | `backup restore <b> <file> <store>`，然后 `backup list` | 移除新 Store |
 | [向 *store* 添加项目](../img/store-add-project.png)（Add project to *store*） | 项目标签页的 **添加项目**（Add project） | 名称，可选的绝对路径 **源文件夹**（Source folder）；显示 **正在创建** *名称* · *步骤*（Creating *name* · *step*）及计数 | `project init`（主机任务，轮询 `GET /api/project-inits/:id`） | 删除这个项目 |
 | [压缩 *store*？](../img/store-compact.png)（Compact *store*?） | ⋯ › **压缩…**（Compact…） | 普通确认；**压缩**（Compact）开始一个任务 | `store compact` | — |
 | [移除 *store*？](../img/store-remove.png)（Remove *store*?） | ⋯ › **移除…**（Remove…）、Store 详情里的 **移除…**（Remove…） | [输入名称确认](components.md#confirm-dialog)：**输入** *名称* **以确认**（Type *name* to confirm） | `store remove` ↻ | 无（备份仍留在存储桶里） |
 | 断开 PostgreSQL Store *store*？（Disconnect the PostgreSQL Store *store*?） | ⋯ › **断开连接…**（Disconnect…）（PostgreSQL） | 确认；数据库及其数据保留 | `store disconnect` ↻ | 重新连接数据库 |
-| [新建 Store](../img/store-new.png)（New Store） | 导航栏 **添加 › 新建 Store**（Add › New Store）；主页 › Store 的 **新建 Store**（New Store）；native 的 **添加 Store › 新建 Store**（Add Store › New Store） | **SQLite** 或 **PostgreSQL**（后者转到连接数据库）；**空 Store**（Empty Store）或 [**从备份恢复**](../img/store-new-restore.png)（Restore from a backup）（存储桶、**列出存储桶**（List the bucket）、一个文件、**新 Store 的名称**（New Store's name））；**位置**（Location）磁贴，已停止的机器旁有 **启动** *m*（Start *m*）。先在 LayerFS Home 创建，再迁移过去 | `store create` ↻（或 `backup restore`），然后用 `store move` 迁移到其他机器 | 移除 |
+| [新建 Store](../img/store-new.png)（New Store） | 导航栏 **添加 › 新建 Store**（Add › New Store）；主页 › Store 的 **新建 Store**（New Store）；native 的 **添加 Store › 新建 Store**（Add Store › New Store） | **SQLite** 或 **PostgreSQL**（后者转到连接数据库）；**空 Store**（Empty Store）或 [**从备份恢复**](../img/store-new-restore.png)（Restore from a backup）（对未列出桶自动列出一次、过滤已丢失文件、展示桶列出错误并支持 **重新连接…**、无存储桶时直接提供 **添加存储桶…**，以及 **重新列出**、文件列表与 **新 Store 的名称**（New Store's name））；**位置**（Location）磁贴，已停止的机器旁有 **启动** *m*（Start *m*）。先在 LayerFS Home 创建，再迁移过去 | `store create` ↻（或 `backup restore`），然后用 `store move` 迁移到其他机器 | 移除 |
 | [连接数据库](../img/store-connect-new.png)（Connect a database） | 导航栏 **添加 › 连接数据库**（Add › Connect a database）；主页 › Store 的 PostgreSQL 一侧 **连接数据库**（Connect a database） | 还没有 PostgreSQL Store 时直接打开新服务器表单：**数据库 URL**（Database URL）（不含用户、密码或 passfile；URL 含登录信息时拒绝并附 **LayerFS 的修复**（LayerFS’s fix）+ **复制**（Copy）；Linux 上填 `localhost` 时给出警告和 **改用 127.0.0.1**（Use 127.0.0.1））、**Store 名称**（Store name）、**登录**（Login）（**输入**（Type）用户/密码，或 **已保存的登录**（Saved login）；默认登录名已被占用时显示 **登录名称**（Login name））、[**更多选项**](../img/store-connect-options.png)（More options）（**synchronous_commit**）。**取消**（Cancel）关闭对话框；有列表时 **返回**（Back）回到列表。之后进入检查界面 | `store save-auth`（新登录）、`store connect`、`store get`，然后 `store doctor --machine` | **断开连接…**（Disconnect…） |
 | 连接数据库：选择 | 同上，已有 PostgreSQL Store 时 | 所有已连接的 Store 按服务器分组（共用同一登录时在服务器标题显示 `auth (user)`，混用时逐行标注；损坏或上次检查失败时圆点报错），各带 **检查**（Check）（在机器页上为 **连接**（Connect））；**+ 此服务器上的新数据库**（+ New database on this server）（沿用主机和健康登录）；**+ 新服务器**（+ New server） | 同上 | |
 | 连接数据库：检查 | **检查**（Check）、**连接一台机器**（Connect a machine）、一个状态标签 | **检查来源**（Check from）（一台机器）、机器 → 服务器（`host:port`，专属地址时标注 **专属地址**（own address）；Linux docker 不把回环改写为 `host.docker.internal`） → Store 的路径，以及五个步骤 **Store 记录为最新格式**（Store record is up to date）、**能连到服务器**（Reaches the server）、**通过登录验证**（Signs in）、**能找到此 Store**（Finds the Store）、**可以写入**（May write it）；按下 **从** *机器* **检查** *store*（Check *store* from *machine*）时运行。Linux 上若对 `localhost` 检查通过，给出警告并提供 **为 *机器* 改用 127.0.0.1**（Use 127.0.0.1 on *machine*）或 **编辑连接**（Edit connection）。当 LayerFS 明确指出原因时，失败会标出停在哪一步并给出对应修法：[服务器连不上](../img/store-check-server.png)（**为** *机器* **设置专属地址**（Give *machine* its own address）→ ***机器* 连接的 URL**（URL *machine* dials），统一拒绝含登录信息的 URL 并给出带 `--machine` 的修复命令、Linux `localhost` 警告、**保存并检查**（Save and check）和 **取消**（Cancel）；在 LayerFS Home 上为 **编辑连接**（Edit connection））、[登录错误](../img/store-check-login.png)（**更换登录…**（Change login…）、**更换密码…**（Rotate password…））、[缺少权限](../img/store-check-privilege.png)（列出缺失权限并提供 **更换登录…**（Change login…））、[记录过旧](../img/store-check-record.png)（**更新**（Update）或 **保存登录…**（Save a login…））。若 LayerFS 未提供足以定位具体步骤的证据，步骤与连线保持中性，仅展示原始拒绝而不猜测修法。修完后可点 **重新检查**（Check again） | `store doctor --machine` (读取并记录)、`store connect --machine`、`store update` | 忘记 |
@@ -214,9 +215,9 @@ Store（在单台机器页上，若还有其他机器的 Store 共用该登录�
 | *机器* 到 *store* 的专属连接（*machine*'s own connection to *store*） | 连接 › **编辑**（Edit） | **数据库 URL**（Database URL）（沿用 Store 的已保存登录；统一的含登录 URL 拒绝与 `--machine` 修复、Linux `localhost` 警告）；**保存并检查**（Save and check） | `store connect --machine`（LayerFS 先检查） | **忘记**（Forget） |
 | 为 *store* 保存登录（Save a login for *store*） | Store 没有指定已保存登录时的 **保存登录…**（Save a login…） | **用户**（User）、**密码**（Password）、**登录名称**（Login name），或一个已保存的登录 | `store save-auth`、`store update --auth` ↻ | — |
 | *auth* 的新密码（New password for *auth*） | 登录标题的 **更换密码…**（Rotate password…） | **用户**（User）、**密码**（Password）；保存后按 Store 卡片展示所有连接地址（本机、专属地址机器、活跃 Sandbox）的检查结论（**可访问**、**经 *机器* 连通** 或分类失败原因）与逐地址错误详情 | `store save-auth`、对每个 Store `store doctor`、`store get` ↻ | 再更换一次 |
-| [向 *机器* 添加 Store](../img/store-to-machine.png)（Add a Store to *machine*） | 机器 › Store 的 **推送 Store 到这里**（Push a Store here）/ **添加 Store**（Add Store） | **SQLite**（**移动一个到这里**（Move one here））或 **PostgreSQL**（**连接一个，或让已有的在此运行**（Connect one, or run one here））；其他机器上的 SQLite Store（忙碌的禁用）；**移动到这里**（Move here）；在 native 上还有 **新建 Store**（New Store） | `store get`，然后 `store move`（推送、拉回，或先拉回再推送） | 移回去 |
+| [向 *机器* 添加 Store](../img/store-to-machine.png)（Add a Store to *machine*） | 机器 › Store 的 **推送 Store 到这里**（Push a Store here）/ **添加 Store**（Add Store） | **SQLite**（**移动一个到这里**（Move one here））或 **PostgreSQL**（**连接一个，或让已有的在此运行**（Connect one, or run one here））；列出其他机器上的 SQLite Store（含大小与来源，不可移动项显示真实原因如 **请先启动机器** *m*（Start machine *m* first））；检查目标剩余磁盘（小于 Store 红框拒绝、不足 1.15× 黄框警告）、带按键保护的 **启动** *m*、**当前被占用** 阻止，跨非 Home 机器迁移附两步操作说明；**移动到这里**（Move here）；在 LayerFS Home 上附 **或者直接在此新建：新建 Store**（Or create an empty Store here: New Store） | `store get`，然后 `store move`（推送、拉回，或先拉回再推送） | 移回去 |
 | [添加存储桶](../img/store-bucket-add.png)（Add bucket） | 导航栏 **添加 › 添加存储桶**（Add › Add bucket）；备份对话框里的 **添加存储桶**（Add a bucket）；备份标签页的 **添加存储桶…**（Add bucket…） | **MinIO** 或 **Cloudflare R2**、**名称**（Name）、**存储桶**（Bucket）、**端点**（Endpoint）或 **账户 ID**（Account ID）+ **辖区**（Jurisdiction）、**前缀**（Prefix）、**访问密钥**（Access key）、**私密密钥**（Secret key）；从备份对话框打开时，完成后回到备份对话框 | `backup connect`（密钥经 stdin 传入）↻ | 断开存储桶 |
-| 重新连接 *bucket*（Connect *bucket* again） | 密钥被拒绝的存储桶上的 **重新连接…**（Connect again…） | 同一个表单，名称和 URL 已填好；同一个 URL 会替换密钥（**密钥已替换；链接保留**（Key replaced; links kept）） | `backup connect`，然后 `backup list` | — |
+| 重新连接 *bucket*（Connect *bucket* again） | 密钥被拒绝的存储桶上的 **重新连接…**（Connect again…） | 同一个表单，名称锁定、URL 已填好；同一个 URL 会替换密钥（**密钥已替换；Store 关联保留**（Key replaced; links kept））并仅重列该存储桶 | `backup connect`，然后 `backup list` | — |
 
 ## 状态与信号
 

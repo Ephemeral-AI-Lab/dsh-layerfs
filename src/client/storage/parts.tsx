@@ -74,7 +74,7 @@ export interface FormModalProps {
   danger?: boolean
   /** The action leads on to another step (it does not close the form). */
   keepOpen?: boolean | undefined
-  /** Hide the Cancel button when the modal only reports a completed result. */
+  /** Hide the secondary Cancel button when the modal only reports a completed result. */
   hideCancel?: boolean | undefined
   children: ReactNode
 }
@@ -118,7 +118,7 @@ export function FormModal({ open, onClose, title, description, action, valid, su
 }
 
 /** A labelled text input. */
-export function TextField({ label, value, onChange, hint, error, placeholder, mono, autoFocus, type }: {
+export function TextField({ label, value, onChange, hint, error, placeholder, mono, autoFocus, type, disabled }: {
   label: string
   value: string
   onChange: (v: string) => void
@@ -128,10 +128,11 @@ export function TextField({ label, value, onChange, hint, error, placeholder, mo
   mono?: boolean
   autoFocus?: boolean
   type?: string
+  disabled?: boolean | undefined
 }): ReactNode {
   return (
     <Field label={label} hint={hint} error={error}>
-      <Input className={mono ? css.monoInput : undefined} value={value} placeholder={placeholder} type={type} autoComplete="off" spellCheck={false} aria-label={label}
+      <Input className={mono ? css.monoInput : undefined} value={value} placeholder={placeholder} type={type} disabled={disabled} autoComplete="off" spellCheck={false} aria-label={label}
         data-modal-autofocus={autoFocus ? '' : undefined} onChange={(e) => onChange(e.target.value)} />
     </Field>
   )

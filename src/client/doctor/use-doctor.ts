@@ -35,7 +35,7 @@ export interface Doctor {
   full(thing: Thing): void
   stop(thing: Thing): void
   checkAll(): void
-  fix(thing: Thing, fix: RowFix): void
+  fix(thing: Thing, fix: RowFix, opts?: { rethrow?: boolean }): Promise<void>
 }
 
 const newId = (): string => {
@@ -245,7 +245,7 @@ export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey 
     })()
   }, [start])
 
-  const fix = useCallback((thing: Thing, row: RowFix) => {
+  const fix = useCallback(async (thing: Thing, row: RowFix, opts?: { rethrow?: boolean }): Promise<void> => {
     if (!row.fix || ref.current.fixes[thing.key]) return
     // click safety (UI pass 3 F6): the press runs only the fix its row offers now, for that very thing,
     // and not while the row is being checked or re-read (a stale handler never runs another row's fix)
@@ -253,18 +253,19 @@ export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey 
     const id = newId()
     const key = thing.key
     const name = thing.name
+    setState((s) => fixStep(s, key, id, row.fix!.steps[0]!.call))
+    const ended = new Promise<DoctorFixRun | null>((resolve) => { fixWaits.current.set(id, resolve) })
+    try {
+      await api.call('POST', '/api/doctor/fixes', { id, kind: thing.kind, name, fix: row.line })
+    } catch (e) {
+      fixWaits.current.delete(id)
+      const refused = e as HostError
+      setState((s) => fixEnd(s, key, { code: refused?.code ?? 'Unknown', message: refused?.message ?? String(e) }))
+      sayRef.current({ kind: 'refused', name, fix: row.button })
+      if (opts?.rethrow) throw e
+      return
+    }
     void (async () => {
-      setState((s) => fixStep(s, key, id, row.fix!.steps[0]!.call))
-      const ended = new Promise<DoctorFixRun | null>((resolve) => { fixWaits.current.set(id, resolve) })
-      try {
-        await api.call('POST', '/api/doctor/fixes', { id, kind: thing.kind, name, fix: row.line })
-      } catch (e) {
-        fixWaits.current.delete(id)
-        const refused = e as HostError
-        setState((s) => fixEnd(s, key, { code: refused?.code ?? 'Unknown', message: refused?.message ?? String(e) }))
-        sayRef.current({ kind: 'refused', name, fix: row.button })
-        return
-      }
       const end = await ended
       if (!alive.current) return
       if (end?.state === 'refused') {

@@ -25,18 +25,36 @@ export function healthOf(state: BackupState | null | undefined): BackupHealth {
 }
 
 export type OverviewBackupHealth =
-  | { tone: 'danger', kind: 'problem', state: 'missing' | 'both_changed' }
-  | { tone: 'info', kind: 'none' | 'store_changed' | 'bucket_changed' }
-  | { tone: 'ok', kind: 'ok' }
+  | { tone: 'danger', kind: 'problem', state: 'missing' | 'both_changed', at: number | null }
+  | { tone: 'info', kind: 'none' | 'bucket_changed' | 'not_checked' | 'not_listed', at: number | null }
+  | { tone: 'info', kind: 'store_changed', at: number | null, bucket: string | null }
+  | { tone: 'ok', kind: 'ok', at: number | null }
 
-/** Store Overview › Health › Backups row: red only for missing/conflict, neutral for none or changed, green when current. */
-export function overviewBackupHealth(states: readonly BackupState[], latest: number | null): OverviewBackupHealth {
-  const problem = states.find((x): x is 'missing' | 'both_changed' => x === 'both_changed' || x === 'missing')
-  if (problem) return { tone: 'danger', kind: 'problem', state: problem }
-  if (latest === null) return { tone: 'info', kind: 'none' }
-  if (states.includes('store_changed')) return { tone: 'info', kind: 'store_changed' }
-  if (states.includes('bucket_changed')) return { tone: 'info', kind: 'bucket_changed' }
-  return { tone: 'ok', kind: 'ok' }
+const newestAt = (items: readonly { at: number | null }[]): number | null =>
+  items.reduce<number | null>((n, x) => (x.at != null && (n === null || x.at > n) ? x.at : n), null)
+
+/** Store Overview › Health › Backups row: red only for missing/conflict, neutral for none/changed/unchecked, green only when every copy is verified current. */
+export function overviewBackupHealth(backups: readonly (Pick<StoreBackup, 'state' | 'at'> & { link?: { bucket: string } })[]): OverviewBackupHealth {
+  if (!backups.length) return { tone: 'info', kind: 'none', at: null }
+  const problem = backups.find((b): b is Pick<StoreBackup, 'at'> & { state: 'missing' | 'both_changed' } => b.state === 'both_changed' || b.state === 'missing')
+  if (problem) return { tone: 'danger', kind: 'problem', state: problem.state, at: problem.at }
+  const storeChanged = backups.filter((b) => b.state === 'store_changed')
+  if (storeChanged.length) {
+    const bucket = backups.length > 1 && storeChanged.length === 1 ? (storeChanged[0]!.link?.bucket ?? null) : null
+    return { tone: 'info', kind: 'store_changed', at: newestAt(storeChanged), bucket }
+  }
+  const bucketChanged = backups.filter((b) => b.state === 'bucket_changed')
+  if (bucketChanged.length) return { tone: 'info', kind: 'bucket_changed', at: newestAt(bucketChanged) }
+  const notChecked = backups.filter((b) => b.state === 'unknown')
+  if (notChecked.length) return { tone: 'info', kind: 'not_checked', at: newestAt(notChecked) }
+  const notListed = backups.filter((b) => b.state !== 'current')
+  if (notListed.length) return { tone: 'info', kind: 'not_listed', at: newestAt(notListed) }
+  return { tone: 'ok', kind: 'ok', at: newestAt(backups) }
+}
+
+/** The copy with the newest known backup time (`listed.modified ?? link.last.at`), or null if none is dated. */
+export function latestBackupCopy(backups: readonly StoreBackup[]): StoreBackup | null {
+  return backups.reduce<StoreBackup | null>((best, b) => (b.at != null && (!best || b.at > best.at!) ? b : best), null)
 }
 
 const RANK: Record<BackupHealth, number> = { problem: 0, stale: 1, unknown: 2, current: 3 }
@@ -50,14 +68,18 @@ export type BackupAction = 'again' | 'update' | 'restore' | 'now'
 
 export function actionOf(state: BackupState | null | undefined): BackupAction {
   switch (state) {
-    case 'missing': return 'again'
-    case 'store_changed':
-    case 'both_changed': return 'update'
+    case 'missing':
+    case 'both_changed': return 'again'
+    case 'store_changed': return 'update'
     case 'current':
     case 'bucket_changed': return 'restore'
     default: return 'now'
   }
 }
+
+/** LayerFS refuses overwriting a missing or diverged bucket object under the same file name. */
+export const needsNewFileName = (state: BackupState | null | undefined): boolean =>
+  state === 'missing' || state === 'both_changed' || state === 'bucket_changed'
 
 export interface StoreBackup {
   link: StoreBackupLink
@@ -67,6 +89,10 @@ export interface StoreBackup {
   /** When it was written: the listing's time, else the last backup this host ran. */
   at: number | null
   bytes: number | null
+  /** LayerFS's note for this entry (for example when state is `unknown`). */
+  message: string | null
+  /** The bucket's last listing failure, when listing was refused or failed. */
+  bucketError: BucketRow['error']
 }
 
 export interface ProviderGroup<T> { provider: string | null, items: T[] }
@@ -84,13 +110,16 @@ function byProvider<T>(items: readonly T[], provider: (x: T) => string | null, r
 /** Every backup of `s`, most urgent first, then newest. */
 export function storeBackups(s: StoreRow, buckets: readonly BucketRow[]): StoreBackup[] {
   return s.links.map((link) => {
+    const bucket = buckets.find((b) => b.name === link.bucket)
     const listed = listedOf(s, link.bucket, link.file, buckets)
     const state = backupStateOf(listed)
     return {
       link, state, health: healthOf(state),
-      provider: buckets.find((b) => b.name === link.bucket)?.provider ?? null,
+      provider: bucket?.provider ?? null,
       at: listed?.modified ?? link.last?.at ?? null,
       bytes: listed?.bytes ?? link.last?.bytes ?? null,
+      message: listed?.message ?? null,
+      bucketError: bucket?.error ?? null,
     }
   }).sort((a, b) => RANK[a.health] - RANK[b.health] || (b.at ?? 0) - (a.at ?? 0) || a.link.bucket.localeCompare(b.link.bucket))
 }

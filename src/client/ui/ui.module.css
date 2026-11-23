@@ -761,3 +761,56 @@
     background: var(--dsw-alias-button-tool-bar-fill);
   }
 }
+
+/* ---------- shared confirm dialog ---------- */
+
+.confirmModal {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.confirmModalBusy > div:first-child > div:first-child > button {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
+}
+
+.confirmForm {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.confirmSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-inline-start: 20px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.confirmMono input {
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+}
+
+.confirmFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+.dangerPrimary {
+  color: var(--dsw-alias-label-primary-inverted, var(--dsw-alias-label-primary-foreground));
+  background: var(--dsw-alias-state-error-primary);
+}
+
+@media (hover: hover) {
+  .dangerPrimary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 88%, var(--dsw-alias-label-primary));
+  }
+}

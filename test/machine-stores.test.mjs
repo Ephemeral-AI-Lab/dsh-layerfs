@@ -233,7 +233,7 @@ test('a Store\'s backups: most urgent first, grouped by provider with the urgent
   assert.deepEqual(M.backupGroups(backups).map((g) => [g.provider, g.items.map((b) => b.link.bucket)]), [['minio', ['m2', 'm1']], ['r2', ['r1']], [null, ['x']]])
   assert.deepEqual(M.backupCounts(backups), { problem: 1, stale: 1, current: 1, unknown: 1 })
   assert.deepEqual(M.backupProviders(backups), ['minio', 'r2', null])
-  assert.deepEqual(['missing', 'store_changed', 'both_changed', 'current', 'bucket_changed', 'unknown', null].map(M.actionOf), ['again', 'update', 'update', 'restore', 'restore', 'now', 'now'])
+  assert.deepEqual(['missing', 'store_changed', 'both_changed', 'current', 'bucket_changed', 'unknown', null].map(M.actionOf), ['again', 'update', 'again', 'restore', 'restore', 'now', 'now'])
 })
 
 test('Back up: every bucket by provider with the backup it would update; it starts on a bucket just added, else the copy most in need', () => {
