@@ -727,6 +727,9 @@ test('every machine start/stop/restart press sits behind the press guard (no exc
     ['src/client/presets/PresetsSection.tsx', /disabled=\{waiting \|\| data\.busy \|\| confirmGuard\.settling\} aria-disabled=\{confirmGuard\.settling \|\| undefined\} aria-busy=\{waiting\} onClick=\{confirmGuard\(\(\) => \{ void execute\(\) \}\)\}/],
   ]
   for (const [file, re] of sites) assert.match(src(file), re, file)
+  const dialogs = src('src/client/storage/dialogs.tsx')
+  assert.equal(dialogs.match(/<StartFirst names=\{stopped\} start=\{\((?:m|name)\) => startMachine\(api, (?:m|name)\)\}/g)?.length, 3)
+  assert.doesNotMatch(dialogs, /\/machines\/[^`'"\n]*\/start\b/, 'no raw /start request bypassing StartFirst')
   // the machine menu's power items: every onSelect that runs start/stop/restart goes through guarded()
   const parts = src('src/client/machines/parts.tsx')
   const menu = parts.slice(parts.indexOf('export function MachineMenu'), parts.indexOf('{forceStopOf('))

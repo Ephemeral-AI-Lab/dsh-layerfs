@@ -319,8 +319,9 @@ test('machine.start: no Create, Move, New Store or Home hero starts a machine; e
   const store = src('src/client/storage/dialogs.tsx')
   const starts = store.match(/startMachine\(/g)?.length ?? 0
   const startFirsts = store.match(/<StartFirst\b/g)?.length ?? 0
-  assert.equal(starts, startFirsts, 'every start in storage dialogs sits behind StartFirst\'s own button')
-  assert.ok(starts >= 1)
+  assert.equal(starts, 3, 'NewStore, PlaceDialog and ToMachineDialog all start via StartFirst')
+  assert.equal(startFirsts, 3)
+  assert.doesNotMatch(store, /\/machines\/[^`'"\n]*\/start\b/, 'no raw /start request bypassing StartFirst')
   assert.match(store, /start=\{\((?:m|name)\) => startMachine\(api, (?:m|name)\)\}/)
   const tiles = src('src/client/projects/setup/MachineTiles.tsx')
   assert.match(tiles, /aria-label=\{words\.start\(m\)\}[\s\S]{0,200}?onClick=\{guard\(\(\) => press\(m\)\)\}/, 'one Start per machine, named')

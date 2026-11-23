@@ -484,9 +484,14 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
 }): ReactNode {
   const machines = useQuery(() => api.call<MachinesView>('GET', '/api/machines'), [api])
   const liveView = machines.data?.available ? machines.data : null
-  const m = liveView?.machines.find((x) => x.name === machine) ?? view?.machines.find((x) => x.name === machine)
-  const noSqlite = m?.supports && !m.supports.includes('sqlite') ? t('msNoSqlite') : null
-  const noPg = m?.supports && !m.supports.includes('postgresql_sandbox') ? t('msNoPostgresql') : null
+  const liveMachine = liveView?.machines.find((x) => x.name === machine)
+  const viewMachine = view?.machines.find((x) => x.name === machine)
+  const m = liveMachine ?? viewMachine
+  const supports = (cap: string) =>
+    (!viewMachine?.supports || viewMachine.supports.includes(cap)) &&
+    (!liveMachine?.supports || liveMachine.supports.includes(cap))
+  const noSqlite = !supports('sqlite') ? t('msNoSqlite') : null
+  const noPg = !supports('postgresql_sandbox') ? t('msNoPostgresql') : null
   const [chosen, setChosen] = useState('')
   if (!view) return null
   const placeName = (name: string | null) => (name === 'native' ? t('layerfsHome') : name ?? '')
@@ -509,7 +514,7 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
     : stopped.length ? t('compactNeedsMachine', { machine: placeName(machine) })
       : targetNotReady ? t('pushHintMachineNotReady', { machine: placeName(machine), state: storeStateWords(mState, t) })
         : tooLarge ? t('pushHintNoSpace', { machine: placeName(machine) })
-          : undefined
+          : noSqlite ?? undefined
   const swap = (next: StorageDialog) => { onClose(); onDialog?.(next) }
   return (
     <FormModal open onClose={onClose} t={t} title={t('addStoreTitle', { machine: placeName(machine) })}

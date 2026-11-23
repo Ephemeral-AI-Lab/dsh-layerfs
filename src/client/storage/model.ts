@@ -454,9 +454,10 @@ export function mergeJob(old: StorageJob | undefined, incoming: StorageJob): Sto
 
 export function movePushFailed(j: Pick<StorageJob, 'kind' | 'half' | 'phase' | 'outcome' | 'error'>): boolean {
   if (j.kind !== 'move' || !j.error) return false
-  if (j.error.note === 'pulled') return true
   const phase = j.error.phase ?? j.phase ?? null
-  return j.half === 'push' && j.outcome !== 'unknown' && j.outcome !== 'interrupted' && phase !== 'retire'
+  if (phase === 'retire' || j.outcome === 'unknown' || j.outcome === 'interrupted') return false
+  if (j.error.note === 'pulled') return true
+  return j.half === 'push'
 }
 
 export const DISK_HEADROOM_RATIO = 1.15
