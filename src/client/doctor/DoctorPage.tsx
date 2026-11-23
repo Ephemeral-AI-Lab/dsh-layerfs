@@ -11,7 +11,7 @@
  */
 import { usePageReading } from '../storage/PaneBar.tsx'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, IconRefreshOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostError, LayerfsApi } from '../api.ts'
 import { MachinesGlyph, SandboxesGlyph, StoreGlyph } from '../machines/icons.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -19,7 +19,7 @@ import type { StorageT } from '../storage/locale.ts'
 import { cardJob } from '../storage/model.ts'
 import { BucketGlyph, refusalLabels } from '../storage/parts.tsx'
 import type { StorageJob } from '../storage/types.ts'
-import { Contained, Empty, LoadError, Loading, Page } from '../ui/index.tsx'
+import { ConfirmDialog, Empty, LoadError, Loading, Page } from '../ui/index.tsx'
 import { TabBar } from '../ui/TabBar.tsx'
 import type { DoctorT } from './locale.ts'
 import { allOffWhy, allPlan, headOf, tabOf, tabsOf, viewOf, TABS, type RowFix, type TabKey, type Thing } from './model.ts'
@@ -119,7 +119,7 @@ function Body({ api, t, ts, refreshKey, jobs, dismissed, jobNow, onJobRetry, onJ
     },
     full: doctor.full,
     stop: (thing: Thing) => { focusNext.current = `full:${thing.key}`; doctor.stop(thing) },
-    fix: (thing: Thing, fix: RowFix) => { if (fix.fix?.kind === 'delete') setConfirm({ thing, fix }); else doctor.fix(thing, fix) },
+    fix: (thing: Thing, fix: RowFix) => { if (fix.fix?.kind === 'delete') setConfirm({ thing, fix }); else void doctor.fix(thing, fix) },
     /** A waiting row's root cause: open the path to its row and focus it. */
     goTo: (key: string) => {
       const thing = state.world?.by[key]
@@ -210,15 +210,20 @@ function Body({ api, t, ts, refreshKey, jobs, dismissed, jobNow, onJobRetry, onJ
       </div>
 
       {confirm ? (
-        <Contained><Modal open onClose={() => setConfirm(null)} title={w.t('dpDeleteTitle', { name: confirm.thing.name })} closeLabel={w.t('close')}
-          footer={(
-            <div className={css.modalActions}>
-              <Button variant="outline" onClick={() => setConfirm(null)}>{w.t('dpCancel')}</Button>
-              <Button variant="primary" data-fid="confirm-delete" onClick={() => { const c = confirm; setConfirm(null); focusNext.current = `row:${c.thing.parent ?? c.thing.key}`; doctor.fix(c.thing, c.fix) }}>{w.t('dpFixDelete')}</Button>
-            </div>
-          )}>
+        <ConfirmDialog
+          onClose={() => setConfirm(null)}
+          title={w.t('dpDeleteTitle', { name: confirm.thing.name })}
+          action={w.t('dpFixDelete')}
+          actionFid="confirm-delete"
+          labels={{ cancel: w.t('dpCancel'), close: w.t('close'), refusal: refusalLabels(ts) }}
+          run={async () => {
+            const c = confirm
+            await doctor.fix(c.thing, c.fix, { rethrow: true })
+            focusNext.current = `row:${c.thing.parent ?? c.thing.key}`
+          }}
+        >
           <p className={css.modalBody}>{splitOn(w.t('dpDeleteBody', { command: '\u0000' }), <code>{confirm.fix.line}</code>)}</p>
-        </Modal></Contained>
+        </ConfirmDialog>
       ) : null}
     </div>
   )

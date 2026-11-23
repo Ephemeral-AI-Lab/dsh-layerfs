@@ -286,6 +286,9 @@ Used by:
 - **Compact…** (plain, `store compact`).
 - Bucket **Disconnect** (`backup disconnect`).
 - Project **Delete** (typed name, `project delete`).
+- **Close Sandbox** / **Delete Sandbox** / **Force delete Sandbox** (Project › Sandboxes, Machine › Sandboxes, Sandbox page; `sandbox remove` / `sandbox remove --force`).
+- Logs **Reset…** (`logs.reset`).
+- Doctor **Delete project** (`project delete`).
 - Fix chains that remove data (typed name).
 
 ## Fix buttons

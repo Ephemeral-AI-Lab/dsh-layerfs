@@ -1,4 +1,4 @@
-<!-- source: 6fb475e1fd11 -->
+<!-- source: 69e85d5aaaba -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -275,6 +275,9 @@ Store 页面头部下方、Store 卡片的状态行里，以及在[诊断](healt
 - **压缩…**（Compact…，普通确认，`store compact`）。
 - 存储桶的 **断开连接**（Disconnect，`backup disconnect`）。
 - 项目的 **删除**（Delete，输入名称，`project delete`）。
+- **关闭 Sandbox** / **删除 Sandbox** / **强制删除 Sandbox**（Close Sandbox / Delete Sandbox / Force delete Sandbox，项目 › Sandboxes、机器 › Sandboxes 与 Sandbox 页，`sandbox remove` / `sandbox remove --force`）。
+- 日志的 **重置…**（Reset…，`logs.reset`）。
+- 诊断页的 **删除项目**（Delete project，`project delete`）。
 - 会删除数据的修复链（输入名称）。
 
 ## 修复按钮
