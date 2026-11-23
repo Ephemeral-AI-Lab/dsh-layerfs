@@ -103,8 +103,27 @@ export type PgCheck =
 /** GET /api/store-auths: one saved PostgreSQL login (never its password); a file LayerFS cannot read is `broken` with its fix. */
 export interface PgAuth { auth: string, user: string | null, stores: string[], state?: string, reason?: string, fix?: string, created?: number | null, updated?: number | null }
 
-/** POST /api/store-auths/:a/rotate: the login's Stores, each checked from this computer after the new password was saved. */
-export interface PgRotation { auth: string, checks: { store: string, ok: boolean, error?: { code: string, message: string } }[] }
+export interface PgRotationSide {
+  machine: string | null
+  own: boolean
+  host: string | null
+  status: 'ok' | 'failed' | 'skipped'
+  latencyMs?: number | null
+  reason?: string
+  error?: { code: string, message: string, fix?: string, step?: string }
+}
+
+/** POST /api/store-auths/:a/rotate: the login's Stores, each checked across its addresses after the new password was saved. */
+export interface PgRotation {
+  auth: string
+  checks: {
+    store: string
+    ok: boolean
+    partial?: boolean
+    sides?: PgRotationSide[]
+    error?: { code: string, message: string, fix?: string, step?: string }
+  }[]
+}
 
 /**
  * One file in a bucket (2.0 `backup list --detail`): its Store link, whether

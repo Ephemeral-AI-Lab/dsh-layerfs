@@ -1,48 +1,139 @@
-/**
- * Whether a project conversation's Store can execute right now, from read-only
- * LayerFS 2.0 facts. LayerFS has no change events, so the host polls
- * `store list --detail` (records: one call for every Store; it starts no
- * machine) and, for a PostgreSQL Store now and then, `store get --with live`
- * (a live read of its server from this computer).
- *
- *   available    ready, no op
- *   transient    busy (move, remove, compact, backup, restore): wait, never deactivate
- *   unavailable  blocked by its machine, or broken (unresolved, missing, unreachable, a PostgreSQL Store with no saved login)
- *   removed      the Store is no longer listed
- *   unknown      unknown (its machine did not answer), or a word this build does not name: never deactivate on it
- */
+import { classifyPgFailure, missingPrivilege, type SessionFailure } from '../../shared/pg-failure.ts'
 
 export type StoreHealthState = 'available' | 'transient' | 'unavailable' | 'removed' | 'unknown'
-export interface StoreHealth { readonly state: StoreHealthState, readonly reason?: string }
+export interface StoreHealth {
+  readonly state: StoreHealthState
+  readonly reason?: string
+  readonly failure?: SessionFailure
+}
 
-/** A `store list --detail` row, or a `store get` answer (with `--with live`, its state is the live read's). */
+function firstFailedReachError(row: any): string | undefined {
+  const conns = Array.isArray(row?.connections) ? row.connections : []
+  for (const c of conns) {
+    if (c?.reached === 'failed' && typeof c?.reach?.error === 'string' && c.reach.error) return c.reach.error
+  }
+  return undefined
+}
+
 export function classifyStore(row: any | undefined, live?: any): StoreHealth {
-  if (!row) return { state: 'removed', reason: 'The project Store is no longer listed in this LayerFS home. Conversation history is retained.' }
-  const name = row.store ? `Store ${row.store}` : 'the project Store'
-  // the live read answers reach; a record broken for another reason (outdated, missing, unresolved) holds until its fix (owner Q-R3)
+  if (!row) {
+    return {
+      state: 'removed',
+      reason: 'The project Store is no longer listed in this LayerFS home. Conversation history is retained.',
+      failure: { code: 'store_removed' },
+    }
+  }
+  const storeName = typeof row.store === 'string' ? row.store : undefined
+  const name = storeName ? `Store ${storeName}` : 'the project Store'
   const recordBroken = row.state === 'broken' && row.reason !== 'unreachable'
   const x = live && !(recordBroken && (live.state ?? 'ready') === 'ready') ? live : row
   const state = typeof x.state === 'string' ? x.state : 'ready'
   const op = x.op
-  const fix = typeof x.fix === 'string' && x.fix ? ` Fix: ${x.fix}` : ''
+  const fixLine = typeof x.fix === 'string' && x.fix ? x.fix : undefined
+  const fix = fixLine ? ` Fix: ${fixLine}` : ''
+  const isPg = row.engine === 'postgresql' || x.engine === 'postgresql'
+
   if (state === 'blocked') {
-    // blocked_by names the machine with its state (stopped, busy) or its broken reason; `failed` is a record LayerFS cannot read
     const why = x.blocked_by?.reason
+    const machine = typeof x.blocked_by?.machine === 'string' ? x.blocked_by.machine : undefined
     const words = !why ? 'not ready' : why === 'failed' ? 'unreadable: LayerFS cannot read its record' : String(why).replace(/_/g, ' ')
-    return { state: 'unavailable', reason: `The machine of ${name}${x.blocked_by?.machine ? ` (${x.blocked_by.machine})` : ''} is ${words}.` }
+    return {
+      state: 'unavailable',
+      reason: `The machine of ${name}${machine ? ` (${machine})` : ''} is ${words}.`,
+      failure: { code: 'machine_blocked', ...(storeName ? { store: storeName } : {}), ...(machine ? { machine } : {}), ...(why ? { reason: String(why) } : {}) },
+    }
   }
+
   if (state === 'broken') {
-    if (x.reason === 'unresolved') return { state: 'unavailable', reason: `An earlier operation on ${name} left an uncertain outcome; resolve it on the Storage page.${fix}` }
-    if (x.reason === 'unreachable') return { state: 'unavailable', reason: `The PostgreSQL server of ${name} cannot be reached from this computer.${fix}` }
-    if (x.reason === 'missing') return { state: 'unavailable', reason: `The file of ${name} is missing.${fix}` }
-    // a PostgreSQL Store naming no saved login: LayerFS refuses its calls until one is saved and named
-    if (x.reason === 'outdated' && row.engine === 'postgresql' && typeof row.auth !== 'string') return { state: 'unavailable', reason: `PostgreSQL ${name} names no saved login; save one with Save a login… on its Storage page.${fix}` }
-    return { state: 'unavailable', reason: `${name} needs repair (${String(x.reason ?? 'broken')}).${fix}` }
+    if (x.reason === 'unresolved') {
+      return {
+        state: 'unavailable',
+        reason: `An earlier operation on ${name} left an uncertain outcome; resolve it on its Store page.${fix}`,
+        failure: { code: 'store_unresolved', ...(storeName ? { store: storeName } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+      }
+    }
+    if (isPg) {
+      if ((x.reason === 'outdated' && typeof row.auth !== 'string') || x.reason === 'missing') {
+        return {
+          state: 'unavailable',
+          reason: `PostgreSQL ${name} has no saved login; save one with Save a login… on its Store page.${fix}`,
+          failure: { code: 'pg_no_login', ...(storeName ? { store: storeName } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+        }
+      }
+      if (x.reason === 'outdated') {
+        return {
+          state: 'unavailable',
+          reason: `PostgreSQL ${name}’s record is out of date; update it on its Store page.${fix}`,
+          failure: { code: 'pg_outdated', ...(storeName ? { store: storeName } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+        }
+      }
+      const rawDetail = (typeof x.message === 'string' && x.message) || firstFailedReachError(x) || firstFailedReachError(row)
+      const kind = classifyPgFailure(undefined, rawDetail)
+      if (kind === 'login') {
+        return {
+          state: 'unavailable',
+          reason: `PostgreSQL ${name} failed to sign in (wrong user or password); change its login or rotate the password on its Store page.${fix}`,
+          failure: { code: 'pg_wrong_login', ...(storeName ? { store: storeName } : {}), ...(rawDetail ? { detail: rawDetail } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+        }
+      }
+      if (kind === 'privilege') {
+        const priv = missingPrivilege(rawDetail)
+        const detail = priv ? `${priv.role} lacks ${priv.privilege}` : rawDetail
+        return {
+          state: 'unavailable',
+          reason: `PostgreSQL ${name} is missing a required database privilege${detail ? ` (${detail})` : ''}; grant it or change login on its Store page.${fix}`,
+          failure: { code: 'pg_privilege', ...(storeName ? { store: storeName } : {}), ...(detail ? { detail } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+        }
+      }
+      if (kind === 'store') {
+        return {
+          state: 'unavailable',
+          reason: `PostgreSQL ${name}’s database does not match this Store; edit its connection on its Store page.${fix}`,
+          failure: { code: 'pg_store_mismatch', ...(storeName ? { store: storeName } : {}), ...(rawDetail ? { detail: rawDetail } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+        }
+      }
+      if (kind === 'daemon_dns') {
+        return {
+          state: 'unavailable',
+          reason: `Sessions cannot resolve the database hostname of PostgreSQL ${name}; switch localhost to 127.0.0.1 on its Store page.${fix}`,
+          failure: { code: 'pg_daemon_dns', ...(storeName ? { store: storeName } : {}), ...(rawDetail ? { detail: rawDetail } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+        }
+      }
+      if (x.reason === 'unreachable' || kind === 'server') {
+        return {
+          state: 'unavailable',
+          reason: `PostgreSQL ${name} could not reach its server; check its connection on its Store page.${fix}`,
+          failure: { code: 'pg_unreachable', ...(storeName ? { store: storeName } : {}), ...(rawDetail ? { detail: rawDetail } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+        }
+      }
+    }
+    if (x.reason === 'missing') {
+      return {
+        state: 'unavailable',
+        reason: `The file of ${name} is missing.${fix}`,
+        failure: { code: 'store_missing_file', ...(storeName ? { store: storeName } : {}), ...(fixLine ? { fix: fixLine } : {}) },
+      }
+    }
+    return {
+      state: 'unavailable',
+      reason: `${name} needs repair (${String(x.reason ?? 'broken')}). Check its Store page.${fix}`,
+      failure: { code: 'store_broken', ...(storeName ? { store: storeName } : {}), reason: String(x.reason ?? 'broken'), ...(fixLine ? { fix: fixLine } : {}) },
+    }
   }
-  if (state === 'busy' || op) return { state: 'transient', reason: `The project Store is busy${op?.name ? ` (${op.name})` : ''}.` }
+
+  if (state === 'busy' || op) {
+    return {
+      state: 'transient',
+      reason: `The project Store is busy${op?.name ? ` (${op.name})` : ''}.`,
+      failure: { code: 'store_busy', ...(storeName ? { store: storeName } : {}), ...(op?.name ? { detail: String(op.name) } : {}) },
+    }
+  }
   if (state === 'ready') return { state: 'available' }
-  return { state: 'unknown', reason: `The project Store reads ${String(state)}.` }
+  return {
+    state: 'unknown',
+    reason: `The project Store reads ${String(state)}.`,
+    failure: { code: 'store_unknown', ...(storeName ? { store: storeName } : {}), reason: String(state) },
+  }
 }
 
-/** The Store name a project key (`<store>/<project>`) lives in. */
 export const storeOf = (project: string | undefined): string | undefined => project?.split('/')[0] || undefined

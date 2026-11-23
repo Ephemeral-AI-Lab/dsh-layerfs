@@ -608,15 +608,66 @@ export class Storage {
     const answer: any = await this.lfs.store.save_auth(auth, { user, password: input.passwordValue, detail: true })
     this.changed()
     const stores: string[] = Array.isArray(answer?.stores) ? answer.stores.map(String) : saved.stores
-    const checks = await Promise.all(stores.map(async (store) => {
-      try {
-        const check: any = await this.checkStore(store, null)
-        return check.ok ? { store, ok: true } : { store, ok: false, error: check.error }
-      } catch (error: any) {
-        return { store, ok: false, error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } }
-      }
-    }))
+    const checks = await Promise.all(stores.map((store) => this.checkStoreAfterRotate(store)))
     return { auth, checks }
+  }
+
+  /**
+   * Checks a PostgreSQL Store across all of its connection addresses (this computer
+   * plus every machine with its own address or an active Sandbox, which `store doctor`
+   * probes in one pass) so a Store reached via a machine's own address is not falsely
+   * reported as failed.
+   */
+  private async checkStoreAfterRotate(store: string) {
+    try {
+      const started = Date.now()
+      const report: any = await this.lfs.store.doctor(store, { detail: true, timeout_ms: CHECK_TIMEOUT_MS })
+      this.changed()
+      const record: any = await this.lfs.store.get(store, { detail: true })
+      const findings: any[] = Array.isArray(report?.findings) ? report.findings : []
+      const skippedList: any[] = Array.isArray(report?.not_checked) ? report.not_checked : []
+      const recordFailed = findings.some((f) => f?.check === 'store.record' && f?.severity === 'error')
+        || (record?.state === 'broken' && (record?.reason === 'outdated' || record?.reason === 'missing'))
+      if (recordFailed) {
+        return { store, ok: false, sides: [], error: pgCheckError(report, record, null, null) }
+      }
+      type RotateSide =
+        | { machine: string | null, own: boolean, host: string | null, status: 'ok', latencyMs: number | null }
+        | { machine: string | null, own: boolean, host: string | null, status: 'failed', error: { code: string, message: string, step?: string, fix?: string } }
+        | { machine: string | null, own: boolean, host: string | null, status: 'skipped', reason: string }
+      const rows = connectionRows(record)
+      const sides: RotateSide[] = rows
+        .filter((c: any) => c.machine === null || c.own
+          || findings.some((f) => f?.check === 'store.connection' && f?.from === c.machine)
+          || skippedList.some((n) => n?.check === 'store.connection' && n?.from === c.machine)
+          || (c.reach?.at != null && c.reach.at >= started - 2000))
+        .map((c: any): RotateSide => {
+          const host = c.server?.host ? `${c.server.host}${c.server.port ? `:${c.server.port}` : ''}` : null
+          const skipped = skippedList.find((n) => n?.check === 'store.connection' && (n?.from ?? null) === c.machine)
+          if (skipped) {
+            return {
+              machine: c.machine, own: c.own, host, status: 'skipped',
+              reason: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'not_ready'),
+            }
+          }
+          if (c.reach?.ok) {
+            return { machine: c.machine, own: c.own, host, status: 'ok', latencyMs: c.reach.latencyMs ?? null }
+          }
+          return {
+            machine: c.machine, own: c.own, host, status: 'failed',
+            error: pgCheckError(report, record, c.machine, c.reach?.error ?? null),
+          }
+        })
+      const okCount = sides.filter((s) => s.status === 'ok').length
+      const failedSides = sides.filter((s): s is Extract<RotateSide, { status: 'failed' }> => s.status === 'failed')
+      if (okCount > 0) {
+        return { store, ok: true, ...(failedSides.length ? { partial: true } : {}), sides }
+      }
+      const primaryError = failedSides[0]?.error ?? { code: 'Failed', message: 'no connection was checked' }
+      return { store, ok: false, sides, error: primaryError }
+    } catch (error: any) {
+      return { store, ok: false, sides: [], error: { code: String(error?.code ?? 'Failed'), message: String(error?.message ?? error) } }
+    }
   }
 
   /** Removes saved login `auth` (`store remove-auth`): LayerFS refuses `InUse` while a Store names it. */

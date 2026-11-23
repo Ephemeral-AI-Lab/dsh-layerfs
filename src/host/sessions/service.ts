@@ -26,6 +26,7 @@ import { initialState, type Binding, type Checkpoint, type SessionsState, type S
 import type { SessionStore } from './store.ts'
 import { withTraceContext, type Invocation } from '../layerfs/tracing.ts'
 import { classifyStore, storeOf, type StoreHealth } from './availability.ts'
+import type { SessionFailure } from '../../shared/pg-failure.ts'
 import { lastUsed, pgPlacement, reachedFrom } from '../placement.ts'
 import { machineRows } from '../layerfs/machine-records.ts'
 
@@ -1050,11 +1051,11 @@ export class LayerfsSessions extends Service {
    * ownership. Nothing is closed, saved or replayed; the next message re-activates
    * (re-mounting the retained branch, or recreating a gone Sandbox).
    */
-  private interrupt(ownerId: string, reason: string, kind: NonNullable<Binding['interruption']>['kind']): void {
+  private interrupt(ownerId: string, reason: string, kind: NonNullable<Binding['interruption']>['kind'], failure?: SessionFailure): void {
     const bindings = this.state.read().sessions
     for (const binding of Object.values(bindings)) {
       if (binding.sessionId !== ownerId && !(binding.kind === 'shared' && binding.parent === ownerId)) continue
-      this.save({ ...binding, state: 'closed', executionState: 'interrupted', mount: undefined, ws: undefined, error: reason, interruption: { kind, at: Date.now() } })
+      this.save({ ...binding, state: 'closed', executionState: 'interrupted', mount: undefined, ws: undefined, error: reason, failure, interruption: { kind, at: Date.now() } })
     }
   }
 
@@ -1131,12 +1132,13 @@ export class LayerfsSessions extends Service {
         if ((health.state === 'unavailable' || health.state === 'removed') && owner.state === 'bound') {
           // Queued behind the session's own work (a bind or save in flight), never blocking the next poll.
           const reason = `${health.reason ?? 'The project Store is unavailable.'} Execution was interrupted; history is retained and a new message re-activates it after access returns.`
+          const failure = health.failure ? { ...health.failure, interrupted: true } : undefined
           void this.lane(owner.sessionId, async () => {
-            if (this.binding(owner.sessionId)?.state === 'bound') this.interrupt(owner.sessionId, reason, 'availability')
+            if (this.binding(owner.sessionId)?.state === 'bound') this.interrupt(owner.sessionId, reason, 'availability', failure)
           }).catch((error) => this.ctx.logger('layerfs').warn('availability: interrupt %s: %s', owner.sessionId, String(error?.message ?? error)))
         } else if (health.state === 'available' && owner.state !== 'bound' && owner.interruption?.kind === 'availability' && owner.error) {
           const current = this.binding(owner.sessionId)
-          if (current && current.state !== 'bound' && current.interruption?.kind === 'availability') this.save({ ...current, error: undefined })
+          if (current && current.state !== 'bound' && current.interruption?.kind === 'availability') this.save({ ...current, error: undefined, failure: undefined })
         }
       }
     }

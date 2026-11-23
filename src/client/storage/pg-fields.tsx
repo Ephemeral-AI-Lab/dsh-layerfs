@@ -39,9 +39,9 @@ export const PG_URL_LOGIN = /^postgres(?:ql)?:\/\/[^/@?]*@|[?&]([^=&]*password|u
 
 type How = 'same' | 'entered' | 'saved'
 
-/** GET /api/store-auths once: the saved logins (never a password); empty when the read failed. */
-export function usePgAuths(api: LayerfsApi): PgAuth[] {
-  const [auths, setAuths] = useState<PgAuth[]>([])
+/** GET /api/store-auths once: the saved logins (never a password); seeded from StorageView when already read. */
+export function usePgAuths(api: LayerfsApi, seed?: readonly PgAuth[]): PgAuth[] {
+  const [auths, setAuths] = useState<PgAuth[]>(() => (seed ? [...seed] : []))
   useEffect(() => {
     let live = true
     api.call<{ items: PgAuth[] }>('GET', '/api/store-auths').then((r) => { if (live) setAuths(Array.isArray(r?.items) ? r.items : []) }, () => {})

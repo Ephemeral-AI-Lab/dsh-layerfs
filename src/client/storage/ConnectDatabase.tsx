@@ -297,7 +297,7 @@ function NewDatabase({ api, t, view, server, onConnected, onWhy }: {
         </summary>
         <Field label={t('syncCommit')}>
           <MenuSelect value={sync} label={t('syncCommit')} placeholder={t('syncCommitDefault')}
-            options={[{ value: '', label: t('syncCommitDefault') }, ...SYNC.map((v) => ({ value: v, label: v }))]} onChange={setSync} />
+            options={SYNC.map((v) => ({ value: v, label: v === 'local' ? t('syncCommitLocalDefault') : v }))} onChange={setSync} />
         </Field>
       </details>
       {busy ? <p className={scss.formNote} role="status">{t('cdConnecting')}</p> : null}
