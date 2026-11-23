@@ -43,7 +43,8 @@ import { useQuery } from '../ui/use-query.ts'
 import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
-import { loginGroups, machineStores, projectSplit, startKind, type PgLoginGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
+import { checkFailureKind, loginGroups, machineStores, projectSplit, startKind, type CheckFailureKind, type PgLoginGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
+import { classifyPgFailure } from '../../shared/pg-failure.ts'
 import { cardJob, pgStoreBytes, rowMachine, storeNoticeTone, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
@@ -201,7 +202,9 @@ function StoresBoard(props: BoardProps): ReactNode {
             : <p className={css.empty}>{words.sqlite.empty}</p>
           : props.postgresql.length
             ? <PgGroups {...props} stores={props.postgresql} />
-            : <p className={css.empty}>{words.postgresql.empty}</p>}
+            : props.machine === null && (props.view.auths?.length ?? 0) > 0
+              ? <><p className={css.empty}>{words.postgresql.empty}</p><PgGroups {...props} stores={props.postgresql} /></>
+              : <p className={css.empty}>{words.postgresql.empty}</p>}
       </section>
     </div>
   )
@@ -342,6 +345,28 @@ export function MachineLine({ s, view, t, on }: { s: StoreRow, view: StorageView
  * error. A chip checks from its machine again; the last chip is Connect a
  * machine.
  */
+function pgReachKind(error: string | null | undefined): CheckFailureKind | 'daemon_dns' | null {
+  if (!error) return null
+  return checkFailureKind(undefined, error) ?? classifyPgFailure(undefined, error)
+}
+
+function pgReachWord(error: string | null | undefined, t: StorageT): string {
+  switch (pgReachKind(error)) {
+    case 'server': return t('pgFailServer')
+    case 'login': return t('pgFailLogin')
+    case 'privilege': return t('pgFailPrivilege')
+    case 'record': return t('pgFailRecord')
+    case 'store': return t('pgFailStore')
+    case 'daemon_dns': return t('pgFailDaemonDns')
+    default: return t('pgCheckFailed')
+  }
+}
+
+function formatStoreList(names: readonly string[], max = 3): string {
+  if (names.length <= max) return names.join(', ')
+  return `${names.slice(0, max).join(', ')} +${names.length - max}`
+}
+
 function ConnectedFrom({ s, view, t, on, now, sandboxes }: { s: StoreRow, view: StorageView, t: StorageT, on: StoreActions, now: number, sandboxes?: CardProps['sandboxes'] }): ReactNode {
   const rows = s.connectedFrom ?? []
   return (
@@ -359,7 +384,7 @@ function ConnectedFrom({ s, view, t, on, now, sandboxes }: { s: StoreRow, view: 
             c.machine === null ? t('pgThisComputer') : name,
             c.own ? t('pgOwnAddress', { server: c.server ? `${c.server.host}:${c.server.port ?? 5432}` : '' }) : t('pgDefaultAddress'),
             reach?.at ? t('pgCheckedAgo', { when: ago(reach.at, now, t as Translate) }) : t('pgNotChecked'),
-            reach?.ok ? [reach.version ? t('msPgShort', { version: reach.version.split(' ')[0]! }) : null, reach.latencyMs != null ? t('msReachableMs', { latency: reach.latencyMs }) : null].filter(Boolean).join(' · ') || null : reach ? t('pgCheckFailed') : null,
+            reach?.ok ? [reach.version ? t('msPgShort', { version: reach.version.split(' ')[0]! }) : null, reach.latencyMs != null ? t('msReachableMs', { latency: reach.latencyMs }) : null].filter(Boolean).join(' · ') || null : reach ? pgReachWord(reach.error, t) : null,
             broken && record ? storeStateWords(record.state ?? 'broken', t) : null,
             boxes ? t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes }) : null,
           ].filter(Boolean).join(' · ')
@@ -523,36 +548,37 @@ function loginTip(g: PgLoginGroup, t: StorageT, now: number): string {
   return [
     g.servers.length ? g.servers.join(', ') : null,
     g.saved ? t('pgSavedAgo', { when: ago(g.saved, now, t as Translate) }) : null,
-    g.stores.length ? t('pgUsedBy', { stores: g.stores.map((s) => s.name).join(', ') }) : t('pgLoginUnused'),
+    g.allStores.length ? t('pgUsedBy', { stores: g.allStores.join(', ') }) : t('pgLoginUnused'),
     g.fix ?? null,
   ].filter(Boolean).join(' · ')
 }
 
-/**
- * PostgreSQL (spec v23 §5.1): the cards under one header per saved login
- * (V23-1), a login no Store names too, then "No login" for Stores whose
- * login is missing. The header is the login, its user, its Store count and
- * one state word (its Stores' worst) with a dot, Rotate password… as its one
- * action and Remove login in its ⋯ (only while no Store names it). A
- * machine page shows only the logins of the Stores connected from it.
- */
 function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
   const { t, view, loginActions, now, machine } = props
   const groups = loginGroups(props.stores, view.auths ?? []).filter((g) => machine === null || g.stores.length > 0)
   return (
     <div className={css.pgGroups}>
       {groups.map((g) => {
-        const count = g.stores.length === 1 ? t('msStoreOne', { n: 1 }) : t('msStores', { n: g.stores.length })
-        // a ready login whose Stores' last reach failed (a wrong password after a rotation) is not "Ready": the header follows its chips (M FAIL 10)
         const failed = g.state === 'ready' ? g.stores.flatMap((st) => (st.connectedFrom ?? []).filter((c) => c.reached === 'failed')) : []
         const state = failed.length ? 'broken' : g.state
         const causes = [...new Set(failed.map((c) => c.reach?.error).filter((e): e is string => !!e))]
+        const offMachine = machine !== null && g.allStores.length > g.stores.length
+        const impact = !g.auth ? null
+          : offMachine
+            ? t('pgRotateAffectsMachine', { here: g.stores.length, total: g.allStores.length, stores: formatStoreList(g.allStores) })
+            : g.allStores.length > 1
+              ? t('pgRotateAffectsMany', { stores: formatStoreList(g.allStores) })
+              : g.allStores.length === 1
+                ? t('pgRotateAffectsOne', { stores: g.allStores[0]! })
+                : null
+        const facts = [g.user, !impact ? (g.allStores.length === 1 ? t('msStoreOne', { n: 1 }) : t('msStores', { n: g.allStores.length })) : null].filter(Boolean).join(' · ')
         return (
           <section key={g.auth ?? '(no login)'} className={css.pgGroup} data-pg-login={g.auth ?? ''} aria-label={g.auth ?? t('pgNoLogin')}>
             <header className={css.pgServer} title={[loginTip(g, t, now), ...causes].join('\n')}>
               <StoreGlyph kind="postgresql" size={14} />
               <span className={css.pgServerName}>{g.auth ?? t('pgNoLogin')}</span>
-              <span className={css.pgServerFacts}>{[g.user, count].filter(Boolean).join(' · ')}</span>
+              {facts ? <span className={css.pgServerFacts}>{facts}</span> : null}
+              {impact ? <span className={css.pgServerImpact} data-cross-machine={offMachine || undefined}>{impact}</span> : null}
               <span className={css.check} data-state={state === 'broken' ? 'failed' : undefined}>
                 <span className={css.dot} data-health={healthOf(state)} />{failed.length ? t('pgLoginNotReached') : storeStateWords(g.state, t)}
               </span>
@@ -561,7 +587,7 @@ function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
                   <Button size="sm" variant="ghost" onClick={() => loginActions.rotate(g.auth!)}>{t('pgRotate')}</Button>
                   <MoreMenu label={t('pgLoginActions', { auth: g.auth })}>
                     {(close) => (
-                      <MenuItemButton danger disabled={g.stores.length > 0} disabledReason={g.stores.length ? t('pgLoginInUse', { stores: g.stores.map((s) => s.name).join(', ') }) : undefined}
+                      <MenuItemButton danger disabled={g.allStores.length > 0} disabledReason={g.allStores.length ? t('pgLoginInUse', { stores: g.allStores.join(', ') }) : undefined}
                         onSelect={() => { close(); loginActions.remove(g.auth!) }}>{t('pgRemoveLogin')}</MenuItemButton>
                     )}
                   </MoreMenu>
@@ -578,32 +604,46 @@ function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
   )
 }
 
-function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, sandboxes, onOpenStore, onOpenProject }: CardProps & { s: StoreRow }): ReactNode {
+function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, loginActions, sandboxes, onOpenStore, onOpenProject }: CardProps & { s: StoreRow }): ReactNode {
   const on = actionsFor(s)
-  // A compaction on this database shows its steps and result here, as on a sqlite card.
   const job = cardJob(jobs, s.name, dismissed, now)
-  // a broken database: its words, LayerFS's sentence as the tip, its fix as the one action (Save a login…, Update)
   const notice = storeNotice(s, null, t)
+  const rows = s.connectedFrom ?? []
+  const anyOk = rows.some((c) => c.reached === 'ok')
+  const firstFailed = !anyOk ? rows.find((c) => c.reached === 'failed') : undefined
+  const reachKind = firstFailed ? pgReachKind(firstFailed.reach?.error) : null
+  const reachStatus = firstFailed ? (
+    <div className={css.statusRow} data-tone="danger">
+      <StateDot state="error" size={8} />
+      <span className={css.statusText} title={firstFailed.reach?.error ?? undefined}>{pgReachWord(firstFailed.reach?.error, t)}</span>
+      {reachKind === 'login' && s.postgresql?.auth && loginActions ? (
+        <Button size="sm" variant="outline" onClick={() => loginActions.rotate(s.postgresql!.auth!)}>{t('pgRotate')}</Button>
+      ) : reachKind === 'privilege' || reachKind === 'login' || reachKind === 'store' ? (
+        <Button size="sm" variant="outline" onClick={() => on.editConnection()}>{t('pgChangeLogin')}</Button>
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => on.check(machine ?? undefined)}>{t('pgCheck')}</Button>
+      )}
+    </div>
+  ) : null
   const status = job ? <JobPanel job={job} compact t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
     : s.op ? <OpPanel store={s} compact t={t} />
-      : notice ? <StoreStatus s={s} t={t} words={notice} /> : null
-  // The database's size as LayerFS measures it (store get --with stats), read again when its projects change or a job ends.
+      : notice ? <StoreStatus s={s} t={t} words={notice} />
+        : reachStatus
   const stats = useQuery(() => api.call<StoreStats>('GET', `/api/stores/${enc(s.name)}/stats`), [api, s.name],
     { refresh: [s.projects.length, job?.ended], cache: `store-stats:${s.name}` })
   const size = pgStoreBytes(stats.data)
   const split = useSplit(api, s, size)
   const pg = s.postgresql
-  // Until the size is read: the projects' Commit counters, which leave out what Init saved.
   const counted = split?.rows.filter((r) => r.bytes !== null) ?? []
   const total = size ?? (counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null)
   const shown = status ? 1 : ROWS
+  const targetLabel = pg?.server && pg?.database ? `${pg.server}/${pg.database}` : pg?.database ?? pg?.server ?? null
   return (
-    <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={s.state === 'broken' ? 'danger' : undefined}>
+    <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={s.state === 'broken' || !!firstFailed ? 'danger' : undefined}>
       <Head s={s} on={on} t={t} machine={machine ?? undefined} runningJob={!!job && !job.ended} onOpenStore={onOpenStore} />
-      {/* refused stats (a broken database): its size is unknown, "—", never the 0 B of its uncounted projects */}
       <Figure big={stats.error && size === null ? '—' : total !== null ? bytes(total) : projectsWords(s.projects.length, t)}
         title={[pg?.server, pg?.binding ? t('pgDatabaseId', { id: pg.binding.slice(0, 8) }) : null].filter(Boolean).join(' · ') || undefined}
-        meta={pg?.database ? <span className={css.metaText}>{pg.database}</span> : null} />
+        meta={targetLabel ? <span className={`${css.metaText} ${css.mono}`}>{targetLabel}</span> : null} />
       <ConnectedFrom s={s} view={view} t={t} on={on} now={now} sandboxes={sandboxes} />
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />
       {s.projects.length > shown ? (

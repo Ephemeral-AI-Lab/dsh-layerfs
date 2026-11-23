@@ -74,11 +74,13 @@ export interface FormModalProps {
   danger?: boolean
   /** The action leads on to another step (it does not close the form). */
   keepOpen?: boolean | undefined
+  /** Hide the Cancel button when the modal only reports a completed result. */
+  hideCancel?: boolean | undefined
   children: ReactNode
 }
 
 /** A form in a DSH modal: its fields, one submit whose refusal shows under them. */
-export function FormModal({ open, onClose, title, description, action, valid, submit, hint, busyHint, t, danger, keepOpen, children }: FormModalProps): ReactNode {
+export function FormModal({ open, onClose, title, description, action, valid, submit, hint, busyHint, t, danger, keepOpen, hideCancel, children }: FormModalProps): ReactNode {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(undefined)
   const go = async () => {
@@ -100,7 +102,7 @@ export function FormModal({ open, onClose, title, description, action, valid, su
         <div className={css.modalFooter}>
           {busy && busyHint ? <span className={css.modalHint} role="status">{busyHint}</span> : hint ? <span className={css.modalHint}>{hint}</span> : <span />}
           <div className={css.modalActions}>
-            <Button variant="outline" onClick={onClose} disabled={busy}>{t('cancel')}</Button>
+            {hideCancel ? null : <Button variant="outline" onClick={onClose} disabled={busy}>{t('cancel')}</Button>}
             <Button variant="primary" className={danger ? css.dangerPrimary : undefined} disabled={!valid || busy} aria-busy={busy}
               icon={busy ? <StateDot state="ongoing" size={13} /> : undefined} onClick={() => { void go() }}>{action}</Button>
           </div>

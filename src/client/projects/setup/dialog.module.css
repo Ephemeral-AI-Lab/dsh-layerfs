@@ -562,6 +562,87 @@
   color: var(--dsw-alias-state-business-primary);
 }
 
+.storeRowWrap {
+  display: flex;
+  align-items: center;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+[role='radiogroup'] > .storeRowWrap:first-child {
+  border-top: 0;
+}
+
+[role='radiogroup'] > .storeRowWrap:last-child {
+  border-radius: 0 0 var(--dsw-radius-md) var(--dsw-radius-md);
+}
+
+.storeRowBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.storeRowBtn:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);
+  outline-offset: -2px;
+}
+
+.storeRowBtn:disabled {
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .storeRowWrap:not(.storeRowDisabled):hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.storeRowDisabled .storeName,
+.storeRowDisabled .storeNote {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.storeFixBtn {
+  flex: none;
+  margin-inline-end: 8px;
+}
+
+.storeStatusTag,
+.storeStatusReady {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.storeStatusError {
+  color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+}
+
+.storeStatusWarn {
+  color: var(--dsw-alias-state-warn-label);
+  background: var(--dsw-alias-state-warn-tertiary);
+}
+
+.storeStatusReady {
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
 .storeCard {
   display: flex;
   align-items: center;
@@ -569,6 +650,64 @@
   padding: 12px;
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-md);
+}
+
+.storeCardHead {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.openStoreBtn {
+  margin-left: auto;
+  flex: none;
+}
+
+.pgStoreNotice {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.pgStoreNoticeError {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.reachList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reachChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.reachSep {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.reachState {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.reachChip[data-reach='failed'] .reachState {
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* Machines */

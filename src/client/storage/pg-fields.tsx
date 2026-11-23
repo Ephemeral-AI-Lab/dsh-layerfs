@@ -119,9 +119,9 @@ export function PgLocalhostNotice({ message, actionLabel, onReplace }: {
 
 type How = 'same' | 'entered' | 'saved'
 
-/** GET /api/store-auths with optional gating and reload (shared by Storage dialogs and ProjectDialog). */
-export function usePgAuthsQuery(api: LayerfsApi, enabled = true): { auths: PgAuth[], reload: () => void } {
-  const [auths, setAuths] = useState<PgAuth[]>([])
+/** GET /api/store-auths with optional gating, initial seed and reload (shared by Storage dialogs and ProjectDialog). */
+export function usePgAuthsQuery(api: LayerfsApi, enabled = true, seed?: readonly PgAuth[]): { auths: PgAuth[], reload: () => void } {
+  const [auths, setAuths] = useState<PgAuth[]>(() => (seed ? [...seed] : []))
   const [tick, setTick] = useState(0)
   const reload = useCallback(() => setTick((n) => n + 1), [])
   useEffect(() => {
@@ -133,9 +133,9 @@ export function usePgAuthsQuery(api: LayerfsApi, enabled = true): { auths: PgAut
   return { auths, reload }
 }
 
-/** GET /api/store-auths once: the saved logins (never a password); empty when the read failed. */
-export function usePgAuths(api: LayerfsApi): PgAuth[] {
-  return usePgAuthsQuery(api, true).auths
+/** GET /api/store-auths once: the saved logins (never a password); seeded from StorageView when already read. */
+export function usePgAuths(api: LayerfsApi, seed?: readonly PgAuth[]): PgAuth[] {
+  return usePgAuthsQuery(api, true, seed).auths
 }
 
 export type PgLoginBody = { passwordFrom: string } | { authName?: string, user: string, passwordValue: string } | { auth: string }

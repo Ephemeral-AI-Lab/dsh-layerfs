@@ -107,7 +107,7 @@ test('the PostgreSQL tab groups by saved login, unused logins and No login inclu
   const groups = U.ms.loginGroups([st('a', 'demo-pg'), st('b', 'demo-pg', 'broken', 'outdated'), st('c', 'gone', 'broken', 'missing')], [{ auth: 'demo-pg', user: 'postgres', stores: ['a', 'b'] }, { auth: 'old', user: 'u', stores: [] }])
   assert.deepEqual(groups.map((g) => [g.auth, g.state, g.stores.map((s) => s.name)]), [['demo-pg', 'broken', ['a', 'b']], ['old', 'ready', []], [null, 'broken', ['c']]])
   assert.match(src('src/client/storage/MachineStores.tsx'), /loginActions\.rotate/)
-  assert.match(src('src/client/storage/MachineStores.tsx'), /disabled=\{g\.stores\.length > 0\}/, 'Remove login only while no Store names it')
+  assert.match(src('src/client/storage/MachineStores.tsx'), /disabled=\{g\.allStores\.length > 0\}/, 'Remove login only while no Store names it (across all machines)')
 })
 
 test('a new login is named after its server; Connect a database picks the server\'s saved login (V23-12)', () => {

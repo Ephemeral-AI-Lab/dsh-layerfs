@@ -20,11 +20,12 @@ import { projectAvailability, type ProjectAvailability } from './availability.ts
 import { EVENT_COALESCE_MS, SIDEBAR_POLL_MS, useProjectMachines, useProjectSessions, type ProjectSession } from './hooks.ts'
 import type { ListT } from './list-locale.ts'
 import css from './list.module.css'
-import { openMachineHome } from './navigation.ts'
+import { openMachineHome, openStorage } from './navigation.ts'
 import { projectDialog } from './dialog.ts'
 import { ReadDeadlineError, readWithDeadline, steadyRead } from './read-deadline.ts'
 import { sidebarStatus } from './readiness.ts'
 import { sidebarHidden, sidebarProjects, type RecentProject } from './recent.ts'
+import { formatSessionFailure, pgStoreFailure, type LocalizedFailure } from './session-failure.ts'
 import { archivable, visibleProjectSessions } from './session-visibility.ts'
 import { primaryMachine, runsOn } from './setup/model.ts'
 
@@ -115,11 +116,16 @@ function useActions(api: LayerfsApi, onDone: () => void) {
   }
 }
 
-function ActionError({ api, t, error }: { api: LayerfsApi, t: ListT, error: { kind: 'open' | 'start', message: string } | null }): ReactNode {
+function ActionError({ api, t, error, store, storeRow }: { api: LayerfsApi, t: ListT, error: { kind: 'open' | 'start', message: string } | null, store: string, storeRow?: StoreRow }): ReactNode {
   if (!error) return null
+  const localized = error.kind === 'open' ? formatSessionFailure(null, error.message, t, store, storeRow) : null
   return <div className={clsx(css.notice, css.error)}>
-    <span role="alert">{t(error.kind === 'start' ? 'startFailed' : 'actionFailed')}</span>
-    <Button variant="ghost" size="sm" onClick={() => openMachineHome(api, null)}>{t('machines')}</Button>
+    <span role="alert">{localized ? localized.message : t(error.kind === 'start' ? 'startFailed' : 'actionFailed')}</span>
+    <div className={css.noticeActions}>
+      {localized?.openStore
+        ? <Button variant="ghost" size="sm" onClick={() => openStorage(api, `store:${localized.store ?? store}`)}>{t('sfOpenStore')}</Button>
+        : <Button variant="ghost" size="sm" onClick={() => openMachineHome(api, null)}>{t('machines')}</Button>}
+    </div>
     <details><summary>{t('details')}</summary><div className={css.errorDetails}>{error.message}</div></details>
   </div>
 }
@@ -135,27 +141,34 @@ export function archiveConversation(api: Pick<LayerfsApi, 'op'>, sessionId: stri
  * refused Archive reads "Not archived" with DSH's message as the tip and one
  * action, Try again (RV4 FAIL 2: no refusal is dropped).
  */
-export function SessionLine({ session, title, selected, t, onOpen, onArchive }: {
+export function SessionLine({ session, title, selected, t, failure, onOpen, onArchive, onOpenStore }: {
   session: ProjectSession, title: string, selected: boolean, t: ListT
+  failure?: LocalizedFailure | null
   onOpen: () => void
   /** Archives it: null when done, else the refusal's message. */
   onArchive: () => Promise<string | null>
+  onOpenStore?: (() => void) | undefined
 }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
   const archive = () => { setBusy(true); setRefusal(null); void onArchive().then(setRefusal).finally(() => setBusy(false)) }
+  const interruptedTip = failure?.message ?? session.error ?? t('interruptedHint')
   return <>
     <li className={css.sessionItem}>
       <button type="button" className={css.session} data-selected={selected || undefined} onClick={onOpen}>
         <span className={css.slot} aria-hidden="true" />
         <span className={css.title}>{title}</span>
-        {session.executionState === 'interrupted' ? <span className={css.interrupted} title={session.error ?? t('interruptedHint')}>{t('interrupted')}</span> : null}
+        {session.executionState === 'interrupted' ? <span className={css.interrupted} title={interruptedTip}>{t('interrupted')}</span> : null}
       </button>
       {/* B2 #7: the row's one action, Archive (DSH's archive set; DSH's archived list unarchives it), only where DSH can */}
       {archivable(session) ? <Button className={clsx(css.iconButton, css.sessionAction)} variant="ghost" size="sm" icon={<IconArchiveOutlineRegular size={14} />} disabled={busy}
         aria-label={t('archiveSession', { session: title })} title={t('archiveSession', { session: title })} data-archive-session={session.sessionId}
         onClick={archive} /> : null}
     </li>
+    {session.executionState === 'interrupted' && failure ? <li className={css.sessionReason} data-session-failure={failure.code}>
+      <span>{failure.message}</span>
+      {failure.openStore && onOpenStore ? <button type="button" className={css.inlineLink} onClick={onOpenStore}>{t('sfOpenStore')}</button> : null}
+    </li> : null}
     {refusal !== null ? <li className={clsx(css.notice, css.error)} data-archive-refused={session.sessionId}>
       <span role="alert" title={refusal}>{t('archiveRefused')}</span>
       <Button variant="ghost" size="sm" disabled={busy} onClick={archive}>{t('archiveAgain')}</Button>
@@ -168,31 +181,36 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
   const { row: project, availability } = item
   const [open, setOpen] = useState(false)
   const actions = useActions(api, onChanged)
+  const storeName = storeOf(project)
   // A name two listed projects share carries its Store, on screen and in every accessible name.
-  const label = showStore ? `${nameOf(project)} · ${storeOf(project)}` : nameOf(project)
+  const label = showStore ? `${nameOf(project)} · ${storeName}` : nameOf(project)
   const read = useProjectSessions(api, project.key, open, project.projectId)
   // its Start <machine> behind the press guard, like every power control
   const startGuard = usePressGuard(`start:${availability.machine ?? ''}:${availability.state}`)
   const selected = api.selectedSessionId()
   const sessions = visibleProjectSessions(read.sessions, titles, selected)
   const status = sidebarStatus(project, availability)
-  const reason = availability.reason || t(status.key)
+  const storeFail = formatSessionFailure(pgStoreFailure(item.store), null, t, storeName, item.store)
+  const statusWord = !availability.canRun && status.key === 'storeUnavailable' && storeFail ? storeFail.short : t(status.key)
+  const reason = storeFail?.message || availability.reason || t(status.key)
   const blockedTip = t('cannotRun', { reason })
   const sessionReason = !availability.canRun ? blockedTip : actions.busy ? t('openingSession') : undefined
   const startReason = actions.busy ? t('starting') : startGuard.settling ? t('reviewStart') : undefined
   const resume = (sessionId: string) => { void api.op('sessions.open', { sessionId, project: project.key }).catch(() => {}) }
   const where = item.runsOn.join(', ')
+  const archiveFail = read.error ? formatSessionFailure(null, errorMessage(read.error, t), t, storeName, item.store) : null
+  const hasInterruptedFailure = sessions.some((s) => s.executionState === 'interrupted' && !!formatSessionFailure(s.failure, s.error, t, storeName, item.store))
   return <li data-layerfs-project={idOf(project)} data-ready={availability.canRun || undefined} className={css.projectItem}>
     <div className={clsx(css.projectRow, !availability.canRun && css.inactive)} data-open={open || undefined} data-actions={availability.canStart ? 1 : 2}>
       <button className={css.projectToggle} type="button"
-        title={`${nameOf(project)} · ${storeOf(project)}${where ? ` · ${where}` : ''}`} aria-expanded={open} aria-label={t('expandProject', { project: label })} onClick={() => setOpen(!open)}>
+        title={`${nameOf(project)} · ${storeName}${where ? ` · ${where}` : ''}`} aria-expanded={open} aria-label={t('expandProject', { project: label })} onClick={() => setOpen(!open)}>
         <LeadingSlot open={open} />
-        <span className={css.title}>{nameOf(project)}{showStore ? <span className={css.store}> · {storeOf(project)}</span> : null}</span>
-        {!availability.canRun && availability.state !== 'checking' ? <span className={css.why} title={blockedTip}>{t(status.key)}</span> : null}
+        <span className={css.title}>{nameOf(project)}{showStore ? <span className={css.store}> · {storeName}</span> : null}</span>
+        {!availability.canRun && availability.state !== 'checking' ? <span className={clsx(css.why, storeFail && css.whyError)} title={blockedTip}>{statusWord}</span> : null}
       </button>
       <span className={css.rowActions}>
         <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={14} />} aria-label={t('configure', { project: label })} title={t('configure', { project: label })}
-          onClick={() => projectDialog.open({ mode: 'configure', project: { key: project.key, projectId: project.projectId, name: nameOf(project), store: storeOf(project) } })} />
+          onClick={() => projectDialog.open({ mode: 'configure', project: { key: project.key, projectId: project.projectId, name: nameOf(project), store: storeName } })} />
         {availability.canStart ? null : <Button className={css.iconButton} variant="ghost" size="sm" disabled={actions.busy || !availability.canRun} icon={<IconPlusOutlineRegular size={14} />}
           aria-label={t('newSession', { project: label })} aria-description={sessionReason} title={sessionReason ?? t('newSession', { project: label })}
           onClick={() => { setOpen(true); void actions.create(project) }} />}
@@ -201,15 +219,21 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
           : null}
       </span>
     </div>
-    <ActionError api={api} t={t} error={actions.error} />
+    <ActionError api={api} t={t} error={actions.error} store={storeName} storeRow={item.store} />
     {open ? <ul className={css.sessions}>
       {read.error ? <li className={css.notice}>
-        <span role="alert">{t('archiveFailed', { message: errorMessage(read.error, t) })}</span>
-        <Button variant="ghost" size="sm" onClick={read.reload}>{t('retry')}</Button>
+        <span role="alert">{t('archiveFailed', { message: archiveFail ? (hasInterruptedFailure ? archiveFail.short : archiveFail.message) : errorMessage(read.error, t) })}</span>
+        <span className={css.noticeActions}>
+          {archiveFail?.openStore && !hasInterruptedFailure ? <button type="button" className={css.inlineLink} onClick={() => openStorage(api, `store:${archiveFail.store ?? storeName}`)}>{t('sfOpenStore')}</button> : null}
+          <button type="button" className={css.inlineLink} onClick={read.reload}>{t('retry')}</button>
+        </span>
       </li> : read.loading ? <li className={css.notice}>{t('archiveLoading')}</li> : null}
       {sessions.length ? sessions.map((session) => {
         const title = titles[session.sessionId]?.title || session.title || t('untitled')
+        const sessionFail = session.executionState === 'interrupted' ? formatSessionFailure(session.failure, session.error, t, storeName, item.store) : null
         return <SessionLine key={session.sessionId} session={session} title={title} selected={selected === session.sessionId} t={t}
+          failure={sessionFail}
+          onOpenStore={sessionFail?.openStore ? () => openStorage(api, `store:${sessionFail.store ?? storeName}`) : undefined}
           onOpen={() => resume(session.sessionId)}
           onArchive={() => archiveConversation(api, session.sessionId).then((refusal) => { if (refusal === null) read.reload(); return refusal })} />
       }) : !read.error && !read.loading ? <li className={css.notice}>{t('noSessions')}</li> : null}

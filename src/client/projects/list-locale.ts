@@ -1,6 +1,9 @@
 /** Copy of the sidebar's LayerFS project list (namespace `layerfsProjectList`). */
+import { SESSION_FAILURE_EN, SESSION_FAILURE_ZH } from './session-failure.ts'
+
 export const NS = 'layerfsProjectList'
 const en = {
+  ...SESSION_FAILURE_EN,
   configure: 'Set up {project}', kindSqlite: 'SQLite', kindPg: 'PostgreSQL', search: 'Search projects', noMatch: 'No project matches.', colStore: 'Store', openProject: 'Open project', hide: 'Hide from sidebar',
   emptyRecent: 'No project sessions yet', newProject: 'New project',
   newSessionMenu: 'New session or project', newSessionIn: 'New session in', otherProject: 'Other project…', importFolder: 'Import a folder…', importTitle: 'Import a folder', cancel: 'Cancel', close: 'Close', openFailed: 'Could not start the session: {message}',
@@ -19,6 +22,7 @@ const en = {
   start: 'Start', startNamed: 'Start {machine}', startFailed: 'Could not start the project’s machine.', startMachineFor: 'Start machine {machine} for {project}',
 }
 const zh: typeof en = {
+  ...SESSION_FAILURE_ZH,
   configure: '设置 {project}', kindSqlite: 'SQLite', kindPg: 'PostgreSQL', search: '搜索项目', noMatch: '没有匹配的项目。', colStore: '存储', openProject: '打开项目', hide: '从侧边栏隐藏',
   emptyRecent: '还没有项目会话', newProject: '新建项目',
   newSessionMenu: '新建会话或项目', newSessionIn: '新建会话于', otherProject: '其他项目…', importFolder: '导入文件夹…', importTitle: '导入文件夹', cancel: '取消', close: '关闭', openFailed: '无法开始会话：{message}',

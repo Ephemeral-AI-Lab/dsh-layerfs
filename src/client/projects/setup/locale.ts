@@ -1,7 +1,10 @@
 /** Copy of the project dialog (namespace `layerfsSetup`). */
+import { SESSION_FAILURE_EN, SESSION_FAILURE_ZH } from '../session-failure.ts'
+
 export const NS = 'layerfsSetup'
 
 const en = {
+  ...SESSION_FAILURE_EN,
   backToProjects: 'Projects', steps: 'Steps', stepProject: 'Project', notNamed: 'Not named yet', newWord: 'new', noneChosen: 'Pick a machine',
   nameHint: 'Also the name of its folder in the Store.', storeKind: 'Kind', newStore: 'New Store', existingCount: 'Existing · {n}',
   noSqlite: 'No SQLite Stores yet. Make a new one.', noPg: 'No PostgreSQL connections yet. Add a new one.',
@@ -26,14 +29,14 @@ const en = {
   storeName: 'Store name', storeNameInvalid: 'Use lowercase letters, numbers, dots, underscores and hyphens.', storeTaken: 'A Store named {store} exists.',
   storeNameAutoHint: 'Store {taken} is already taken — automatically renamed to {store}. Edit it above, or switch to Existing.',
   storeNameHint: 'Name of the new Store.', renameStore: 'Change the Store name',
-  url: 'Database URL', urlHint: 'Without a user, password or passfile, for example postgresql://db.lan:5432/app.', urlInvalid: 'Give it as postgresql://host:port/database.',
+  url: 'Database URL', urlHint: 'Without a user, password or passfile, for example postgresql://db.internal:5432/app.', urlInvalid: 'Give it as postgresql://host:port/database.',
   urlLoginInUrl: 'The URL names a login (a user, password or passfile). LayerFS keeps the login apart: give it below, or pick a saved login.',
   urlLoginFix: 'LayerFS’s fix', copyFix: 'Copy', copied: 'Copied',
   urlLocalhostWarn: 'On Linux, Sandboxes have no /etc/hosts and may fail to resolve localhost. Use 127.0.0.1 instead.',
   urlLocalhostUseIpv4: 'Use 127.0.0.1',
   login: 'Login', loginNew: 'Type', loginSaved: 'Saved login', loginSavedLabel: 'Saved login', noLogins: 'No saved logins yet. Make a new one.',
-  loginSavedHint: 'A login LayerFS saved before (store auths). Stores that share it change together when its password changes.', loginStores: 'used by {n} Stores', loginStoresOne: 'used by 1 Store', loginUnused: 'not used yet',
-  loginName: 'Login name', loginNameHint: 'LayerFS saves the user and password under this name. Other Stores can use it later.',
+  loginSavedHint: 'A login LayerFS saved before (store auths). Stores that share it change together when its password changes.', loginAutoMatched: 'Auto-selected saved login {auth}, already used for {server}.', loginStores: 'used by {n} Stores', loginStoresOne: 'used by 1 Store', loginUnused: 'not used yet',
+  loginName: 'Login name', loginNameHint: 'Named for the server by default; other Stores on the same server can reuse it.',
   loginNameInvalid: 'Use lowercase letters, numbers, dots, underscores and hyphens.', loginNameTaken: 'A saved login named {auth} exists: pick it, or name another.',
   user: 'User', password: 'Password', passwordHint: 'Saved as a LayerFS login (store save-auth): the password goes to LayerFS on stdin and is never shown again.',
   runsOn: 'Runs on', locationHint: 'Where the Store file lives. Its projects’ sessions run there.', layerfsHome: 'LayerFS Home', runsOnPg: 'Where this session runs. It changes nothing for the Store: each session picks its own machine.',
@@ -48,6 +51,7 @@ const en = {
   kindSqlite: 'SQLite Store', kindPg: 'PostgreSQL Store', shared: 'Shared with {n} other projects', sharedOne: 'Shared with 1 other project', alone: 'Only this project',
   moveTo: 'Move to {machine}', moving: 'Moving…',
   pgPlacedPerSession: 'A PostgreSQL Store is on no machine. Each session picks where it runs when it starts.', pgConnectedFrom: 'Connected from {machines}', pgNotConnectedYet: 'No machine has connected yet', saving: 'Saving…',
+  pgReachOk: '{ms} ms', pgReachOkPlain: 'Reachable', pgReachFailed: 'Failed', pgReachUnchecked: 'Not checked', pgReadyBadge: 'Ready',
   hide: 'Hide from sidebar', hidden: 'Hidden until its next session',
   storeMissing: 'This project’s Store is not in this LayerFS home any more. Its conversations are kept.', openResources: 'Open Home',
   search: 'Search projects or Stores', noProjects: 'No projects yet.', noMatch: 'No project matches.',
@@ -58,6 +62,7 @@ const en = {
 }
 
 const zh: typeof en = {
+  ...SESSION_FAILURE_ZH,
   backToProjects: '项目', steps: '步骤', stepProject: '项目', notNamed: '尚未命名', newWord: '新建', noneChosen: '请选择机器',
   nameHint: '也是它在存储中的文件夹名。', storeKind: '类型', newStore: '新建存储', existingCount: '已有 · {n}',
   noSqlite: '还没有 SQLite 存储，请新建一个。', noPg: '还没有 PostgreSQL 连接，请新建一个。',
@@ -82,14 +87,14 @@ const zh: typeof en = {
   storeName: '存储名称', storeNameInvalid: '请使用小写字母、数字、点、下划线和连字符。', storeTaken: '已存在名为 {store} 的存储。',
   storeNameAutoHint: '存储名 {taken} 已被占用，已自动改为 {store}。可直接在上方修改，或切换到“已有”。',
   storeNameHint: '新存储的名称。', renameStore: '请修改存储名称',
-  url: '数据库 URL', urlHint: '不含用户、密码或 passfile，例如 postgresql://db.lan:5432/app。', urlInvalid: '请按 postgresql://host:port/database 填写。',
+  url: '数据库 URL', urlHint: '不含用户、密码或 passfile，例如 postgresql://db.internal:5432/app。', urlInvalid: '请按 postgresql://host:port/database 填写。',
   urlLoginInUrl: 'URL 中包含登录信息（user、password 或 passfile）。LayerFS 将登录信息分开保存：请在下方填写，或选择已保存的登录。',
   urlLoginFix: 'LayerFS 的修复', copyFix: '复制', copied: '已复制',
   urlLocalhostWarn: 'Linux 上 Sandbox 没有 /etc/hosts，填 localhost 可能导致会话解析失败，建议改用 127.0.0.1。',
   urlLocalhostUseIpv4: '改用 127.0.0.1',
   login: '登录', loginNew: '输入', loginSaved: '已保存的登录', loginSavedLabel: '已保存的登录', noLogins: '还没有已保存的登录，请新建一个。',
-  loginSavedHint: 'LayerFS 之前保存的登录（store auths）。共用它的 Store 会在其密码更改时一起更改。', loginStores: '{n} 个存储在用', loginStoresOne: '1 个存储在用', loginUnused: '尚未使用',
-  loginName: '登录名', loginNameHint: 'LayerFS 以此名称保存用户和密码，之后其他存储也能使用。',
+  loginSavedHint: 'LayerFS 之前保存的登录（store auths）。共用它的 Store 会在其密码更改时一起更改。', loginAutoMatched: '已为 {server} 自动选中已保存的登录 {auth}。', loginStores: '{n} 个存储在用', loginStoresOne: '1 个存储在用', loginUnused: '尚未使用',
+  loginName: '登录名', loginNameHint: '默认按服务器命名；同一服务器上的其他存储可直接复用。',
   loginNameInvalid: '请使用小写字母、数字、点、下划线和连字符。', loginNameTaken: '已存在名为 {auth} 的已保存登录：请选择它，或换一个名称。',
   user: '用户', password: '密码', passwordHint: '保存为 LayerFS 登录（store save-auth）：密码经标准输入交给 LayerFS，之后不再显示。',
   runsOn: '运行于', locationHint: '存储文件所在的位置，其中项目的会话也在那里运行。', layerfsHome: 'LayerFS Home', runsOnPg: '此会话运行的位置。不会改变 Store：每个会话各自选择机器。',
@@ -104,6 +109,7 @@ const zh: typeof en = {
   kindSqlite: 'SQLite 存储', kindPg: 'PostgreSQL 存储', shared: '与另外 {n} 个项目共用', sharedOne: '与另外 1 个项目共用', alone: '仅此项目',
   moveTo: '移到 {machine}', moving: '正在移动…',
   pgPlacedPerSession: 'PostgreSQL Store 不在任何机器上。每个会话启动时各自选择运行位置。', pgConnectedFrom: '连接自 {machines}', pgNotConnectedYet: '尚无机器连接', saving: '保存中…',
+  pgReachOk: '{ms} ms', pgReachOkPlain: '可达', pgReachFailed: '失败', pgReachUnchecked: '未检查', pgReadyBadge: '就绪',
   hide: '从侧边栏隐藏', hidden: '已隐藏，直到它有新会话',
   storeMissing: '此项目的存储已不在这个 LayerFS 主目录中。它的对话仍然保留。', openResources: '打开主页',
   search: '搜索项目或存储', noProjects: '还没有项目。', noMatch: '没有匹配的项目。',
