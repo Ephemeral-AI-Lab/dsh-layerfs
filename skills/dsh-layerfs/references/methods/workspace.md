@@ -6,24 +6,26 @@ script that imported `layerfs` from `$DSH_LAYERFS_SDK` and set `P`, `B`, `SB`.
 
 | Call | Command | SDK |
 | --- | --- | --- |
+| list | `layerfs workspace list [--sandbox S] [--limit 100] [--cursor C]` | `workspace.list({ sandbox, limit, cursor })` |
 | mount | `layerfs workspace mount <sandbox> <branch> [--name <name>]` | `workspace.mount(sandbox, branch, { name })` |
-| exec | `layerfs workspace exec <ws> <command> [-m <msg>] [--stream] [--exec-id <id>]` | `workspace.exec(ws, command, { message, stream, stdout, stderr, exec_id })` |
-| exec-cancel | `layerfs workspace exec-cancel <ws> <exec-id> [--grace-ms N]` | `workspace.exec_cancel(ws, exec_id, { grace_ms })` |
-| commit | `layerfs workspace commit <ws> [-m <msg>]` | `workspace.commit(ws, { message })` |
-| unmount | `layerfs workspace unmount <ws> [--discard]` | `workspace.unmount(ws, { discard })` |
-| status | `layerfs workspace status <ws>` | `workspace.status(ws)` |
+| exec | `layerfs workspace exec <workspace> <command> [--cwd D] [--env K=V]... [--stdin] [--stream] [--progress]` | `workspace.exec(workspace, command, { cwd, env, stdin, stream, stdout, stderr, on_progress })` |
+| cancel | `layerfs workspace cancel <workspace> [--exec E]` | `workspace.cancel(workspace, { exec })` |
+| commit | `layerfs workspace commit <workspace> [-m <msg>] [--expected C] [--force]` | `workspace.commit(workspace, { message, expected, force })` |
+| unmount | `layerfs workspace unmount <workspace> [--discard] [--force]` | `workspace.unmount(workspace, { discard, force })` |
+| status | `layerfs workspace status <workspace> [--path P]` | `workspace.status(workspace, { path })` |
 
 A Workspace is a complete, writable view of one Branch where ordinary commands run.
 You need one only to run commands; read and change files with `file` calls. Each use
 goes **mount, exec, commit, unmount**. Everything a command changes in it is saved by
-its Commit and nothing else.
+its Commit and nothing else. (`workspace.exec_cancel` is removed in 2.0 — use
+`workspace.cancel`.)
 
 ## dsh's Workspace and yours
 
 | | dsh's Workspace `$DSH_LAYERFS_WS` (`<sandbox>:main`) | A Workspace you mount |
 | --- | --- | --- |
 | Mounted by | dsh, for the whole session | You, with `workspace mount` |
-| Branch | The session Branch `$B` | `$B`, or any Branch of the project but `main` and other `dsh.…` Branches |
+| Branch | The session Branch `$B` | `$B`, or any Branch of the project except `main` and other `dsh.…` Branches |
 | Committed by | dsh, to record each checkpoint | You, after the commands that changed files |
 | You may | `status`, nothing else | Every call |
 | Lives | The whole session | One step: unmount it before your turn ends, or it is lost with its changes when the session's Sandbox stops |
@@ -31,23 +33,25 @@ its Commit and nothing else.
 
 ## Shared rules
 
-- A Workspace is named `<sandbox>:<name>`: the `ws` field of `mount`'s result. Give
-  every mount a `name` for its step (`test-cart`, `w-p1`), so its handle is
-  `$SB:<name>` without parsing. Without a name it is `<sandbox>:<path>`. Never use a
-  handle after its unmount.
+- A Workspace is named `<sandbox>:<name>`: the `workspace` field of `mount`'s result.
+  Give every mount a `name` for its step (`test-cart`, `w-p1`), so its handle is
+  `$SB:<name>` without parsing. Without `--name`, the default name is the Branch's
+  lowercased/sanitized name (`<sandbox>:<sanitized-branch>`, never `<sandbox>:<path>`).
+  Never use a handle after its unmount.
 - **The mount path is new for every mount** (`mount` answers it as `path`). Commands
-  run at the Workspace root: use relative paths, and never write the mount path into a
-  command, a script, a config file or a build flag.
+  run at the Workspace root (or `cwd`): use relative paths, and never write the mount
+  path into a command, a script, a config file or a build flag.
 - **Each mount is a new Workspace**, even on the same Branch, with its own uncommitted
   changes. Mounting is cheap: it copies nothing.
 - **The view moves only at a Commit.** Between Commits it shows the Branch as it was
   when mounted (or last committed): later `file` writes and other Workspaces' Commits
-  don't appear. A `commit` merges in what moved and leaves the Workspace showing the
-  new head, also when it answers `UpToDate`.
+  don't appear (`workspace status` sets `branch_moved: true`). A `commit` merges in
+  what moved and leaves the Workspace showing the new head, also when it answers
+  `unchanged: true`.
 - **Everything in it is committed:** sources, `.git`, `node_modules`, build output and
   caches. Throwaway files belong in `/tmp`, outside it.
 - Keep each Workspace's calls one after another, never two at once.
-- While its Sandbox is being created or closed, `mount`, `exec`, `commit` and
+- While its Sandbox is being created or removed, `mount`, `exec`, `commit` and
   `unmount` are refused `Busy`: wait and try again.
 
 ## A step: mount, exec, commit, unmount
@@ -63,12 +67,12 @@ layerfs workspace commit "$ws" -m "npm test (exit $code)" >/dev/null
 ```
 
 ```js
-const { ws } = await layerfs.workspace.mount(SB, B, { name: "test-all" });
+const { workspace } = await layerfs.workspace.mount(SB, B, { name: "test-all" });
 try {
-  const run = await layerfs.workspace.exec(ws, "timeout 110 npm test 2>&1");
-  await layerfs.workspace.commit(ws, { message: `npm test (exit ${run.exit_code})` });
+  const run = await layerfs.workspace.exec(workspace, "timeout 110 npm test 2>&1");
+  await layerfs.workspace.commit(workspace, { message: `npm test (exit ${run.exit_code})` });
 } finally {
-  await layerfs.workspace.unmount(ws);
+  await layerfs.workspace.unmount(workspace);
 }
 ```
 
@@ -80,129 +84,135 @@ work is done.
 ## `workspace mount`
 
 Mounts the Branch's head as it is now in the named Sandbox. Mount in the session
-Sandbox `$SB` unless it is full. It never starts a Sandbox. `main` is refused: fork a
-Branch from it and mount that. `name` is 1 to 63 lowercase letters, digits, `_ . -`,
-unique in the Sandbox while mounted; `main` is dsh's.
+Sandbox `$SB` unless it is full. It never starts a Sandbox. `main` is refused
+`InvalidInput`: fork a Branch from it and mount that. `name` is 1 to 63 lowercase
+letters, digits, `_ . -`, unique in the Sandbox while mounted; `main` is dsh's.
 
-**Answers:** `ws` (pass this on), `name`, `kind: "Mounted"`, `path` (inside the
-Sandbox; don't use it in commands), `branch`, `base` (the Commit it shows),
-`base_layer`, `root`, `sandbox`, `image`, `platform`.
+Short answer: `{"workspace":"<sandbox>:<name>","path":"..."}`. Long form (`--detail`)
+adds `outcome: "mounted"`, `branch`, `commit`, `base_layer`, `root`, `id`, `namespace`.
 
-| Code | Meaning | Do |
+| `error` | Meaning | Do |
 | --- | --- | --- |
-| `NoSuchSandbox` | No Sandbox of that name, or its daemon ended | Check the name; `sandbox get` |
-| `InvalidInput` | `main` ("the project's published line"), or a name that is no Branch | Fork a Branch and mount that; `branch list` |
+| `NotFound` | No Sandbox or Branch of that name (`NoSuchSandbox`, `NoSuchBranch`) | Check the name; `sandbox get`, `branch list` |
+| `InvalidInput` | `main` (refusal carries runnable `fix`), or bad `name` | Fork a Branch and mount that; pass `--name` |
 | `Exists` | A Workspace of that `name` is mounted | Pick another name |
-| `Capacity` | The Sandbox holds 16 Workspaces, dsh's included | Unmount Workspaces of yours you're done with; if it is still full, stop and tell the user ([sandbox](sandbox.md)) |
+| `Capacity` | The Sandbox holds 16 Workspaces, dsh's included | Unmount Workspaces of yours you're done with, or create another Sandbox |
+| `Unavailable` | The Sandbox's machine worker is down | Stop and tell the user; don't start machines |
 | `Failed` | The mount failed | Stop and report |
 
 ## `workspace exec`
 
-Runs one command with `bash -c` in the Workspace root and waits for it to end. Use
-relative paths (`src/cart.js`), never the mount path. `HOME` is a private folder of
-the Sandbox.
+Runs one command with `bash -c` in the Workspace root (or `cwd`, relative to the
+Workspace root) and waits for it to end. Use relative paths (`src/cart.js`), never
+the mount path. `HOME` is a private folder of the Sandbox.
 
-- **Answer:** `{ kind: "exit:<code>", exit_code, stdout, stderr, exec_id }`. Each
-  stream comes back whole up to 1 MiB; a bigger stream is `null` there and arrives
-  only through streaming. A non-zero `exit_code` is a result, not a refusal.
-- **Command:** `--stream` writes the command's output to your stdout and stderr and
-  exits with the command's own exit code (125 still means LayerFS refused). Without
-  it the answer is printed as JSON and the exit code is 0.
-- **SDK:** `stream: true` writes the output to this process's stdout and stderr;
-  `stdout` and `stderr` functions get each piece (a string, or a `Buffer` when not
-  UTF-8) instead.
-- `message` labels the step in the call log; it creates no Commit.
+- **Answer:** `{ exit_code }`, plus `stdout` and `stderr` when non-empty. Each
+  stream comes back whole up to 1 MiB; a longer stream returns its last 1 MiB and
+  names `stdout_file` / `stderr_file` (in the Sandbox's run folder, readable with
+  `sandbox files`). `--detail` adds `exec`, `stop`, `stdout_bytes`, `stderr_bytes`,
+  `duration_ms`, `cancelled`. A non-zero `exit_code` is a result, not a refusal.
+- **Command:** `--stream` writes the command's output to stdout and stderr and exits
+  with the command's own exit code (125 still means LayerFS refused). Without it, the
+  result JSON is printed on stdout and the CLI exits with the command's exit code.
+  Note: there is **no** `--exec-id` and **no** `-m`/`--message` on `workspace exec`.
+- **SDK:** `stream: true` writes output to this process's stdout and stderr;
+  `stdout` / `stderr` callbacks receive chunks (`string` or `Buffer`).
+- **Stdin:** pass `--stdin` (CLI reads stdin whole) or `{ stdin }` (SDK string or
+  `Buffer`). Without it, the command reads `/dev/null`.
+- LayerFS generates every exec id (`exec-` + 16 hex chars); `--progress` /
+  `on_progress` emits `{ phase: "start", done: 0, total: 1, exec: "exec-…" }` before
+  the command starts.
 
 **Limits**
 
-- **No stdin.** The command does not get your stdin: `… | layerfs workspace exec
-  "$ws" 'cat > f'` writes an empty file. Send content as base64 (below).
 - **No timeout:** put `timeout 110` inside the command, or run the exec with bash's
   `run_in_background` and collect it later. A native macOS Sandbox has no `timeout`:
   use `perl -e 'alarm shift; exec @ARGV' 110 <command>` there (`command -v timeout`
   tells you which).
-- **Output comes when the command ends**, not live. For long logs, redirect to `/tmp`
-  and read the end in a second exec:
+- **Output is delivered after the command ends**, never live. For long logs, redirect
+  to `/tmp` and read the tail in a second exec:
 
   ```js
-  await layerfs.workspace.exec(ws, "mkdir -p /tmp/build && timeout 110 npm run build >/tmp/build/log 2>&1; echo $? >/tmp/build/code");
-  const tail = await layerfs.workspace.exec(ws, "cat /tmp/build/code; tail -n 60 /tmp/build/log");
+  await layerfs.workspace.exec(workspace, "mkdir -p /tmp/build && timeout 110 npm run build >/tmp/build/log 2>&1; echo $? >/tmp/build/code");
+  const tail = await layerfs.workspace.exec(workspace, "cat /tmp/build/code; tail -n 60 /tmp/build/log");
   ```
 
 - It waits until everything holding its output has ended, background jobs included.
   Start a server, probe it and stop it in **one** exec, its output redirected to `/tmp`.
 - Tools come from the Sandbox: check with `command -v node python3 git rg`.
 
-**Files:** write them with `file` calls before you mount. When a command really needs
-content from your local folder (a script to run, a fixture), send it as base64 inside
-the command:
+**Refusals:** `NotFound` (`NoSuchSandbox` or `NotMounted`), `Unknown` (the reply was
+lost — the command may have started and may still run; refusal carries `exec` and a
+`fix` naming `workspace cancel --exec`), `Unavailable`.
+
+## `workspace cancel`
+
+Ends every command running in the Workspace, or the one `--exec <id>` names:
+SIGTERM, then SIGKILL after 5 s (there is no `--grace-ms`). Short answers:
+`{ signal: "SIGTERM" | "SIGKILL" }`, `{ already_ended: true }`, or `{ unknown: true }`.
+Long form adds `outcome` and `commands`.
 
 ```bash
-b64=$(base64 < ./draft/migrate.sh | tr -d '\n')
-layerfs workspace exec "$ws" "printf %s '$b64' | base64 -d > /tmp/migrate.sh && bash /tmp/migrate.sh"
-```
-
-**Refusals:** `NoSuchSandbox` (the Sandbox is gone, and its Workspaces with it),
-`NotMounted`, `Unknown` (the exit code is not known: the command may or may not have
-run; look before running it again).
-
-## `workspace exec-cancel`
-
-Ends a running command: SIGTERM, then SIGKILL after `grace_ms`. Give a command your
-own `exec_id` when you start it, so you can stop it from another call.
-
-```bash
-layerfs workspace exec "$ws" 'npm run watch' --exec-id watch-1 --stream   # in a background bash call
-layerfs workspace exec-cancel "$ws" watch-1 --grace-ms 2000
+layerfs workspace cancel "$ws"
+layerfs workspace cancel "$ws" --exec exec-0123456789abcdef
 ```
 
 ## `workspace commit`
 
-**Only for Workspaces you mounted**; dsh commits its own. Saves everything changed in the Workspace as one Commit on its Branch. If
-the Branch moved since the mount, it merges first. The Workspace stays mounted.
+**Only for Workspaces you mounted**; dsh commits its own. Saves everything changed in
+the Workspace as one Commit on its Branch. If the Branch moved since the mount, it
+merges first (unless `--force` is passed). The Workspace stays mounted.
 
-| `kind` | Fields | Meaning |
-| --- | --- | --- |
-| `Committed` | `head`, `commit`, `merged`, `lww` | A new Commit. `merged` is `{ from, head }` when a merge ran. `lww` lists files decided by [`/.lww`](../rules/lww.md) |
-| `UpToDate` | `head`, `root`, `merged`, `lww` | Nothing changed; no Commit |
+Short answer: `{ commit }` plus, when set, `unchanged: true`, `merged: true`,
+`overwritten` (first 20 `/.lww` paths), `overwritten_count` (when past 20). Long form
+(`--detail` / `{ detail: true }`) adds `outcome`, `branch`, `parent`, `root`,
+`message`, `created_at`, `merged_from`, `displaced`.
 
-| Code | Meaning | Do |
+| `error` | Meaning | Do |
 | --- | --- | --- |
-| `Conflict` | The merge with the moved head overlaps. Markers are written into the Workspace; nothing is committed | [Resolve it](../rules/conflicts.md#commit-conflicts) in that Workspace, then commit again |
-| `NotMounted` | Not mounted | Use the `ws` from `mount` |
+| `Conflict` | The merge with the moved head overlaps (markers are written into the Workspace; nothing is committed) or `expected` missed. Flat: `commit`, `conflicts` (first 20 paths), `conflicts_count` | [Resolve it](../rules/conflicts.md#commit-conflicts) in that Workspace, then commit again |
+| `NotFound` | Not mounted (`detail.code: "NotMounted"`) | Use the `workspace` handle from `mount` |
 
 Commit before you unmount, a failing step too, with a message naming the step and its
 result: the Commit is the only way what the commands wrote is saved.
 
 ## `workspace unmount`
 
-**Only for Workspaces you mounted**; never dsh's. Ends the Workspace.
+**Only for Workspaces you mounted**; never dsh's. Ends the Workspace (`{"ok":true}`).
 The Sandbox keeps running.
 
-| Code | Meaning | Do |
+| `error` | Meaning | Do |
 | --- | --- | --- |
-| `Dirty` | Uncommitted changes (`detail.changed` lists paths) | Commit them so the step is recorded; `discard` only a Workspace you are abandoning |
-| `Busy` | A process still runs there | Wait for it, or end it (`exec-cancel`) |
-| `NotMounted` | Already unmounted, or the wrong `ws` | Nothing to do |
+| `Dirty` | Uncommitted changes (flat `changes`, `changes_count`, `pending_merge`, `fix`) | Commit them so the step is recorded; `--discard` only a Workspace you are abandoning |
+| `Busy` | A process still runs there (flat `running` exec ids) | Wait for it, or end it (`workspace cancel`) |
+| `NotFound` | Already unmounted, or the wrong `workspace` | Nothing to do |
 
-Never pass `discard` for a Workspace another agent mounted.
+Never pass `discard` or `force` for a Workspace another agent mounted.
 
 ## `workspace status`
 
 What a Workspace holds before its next Commit: use it on yours before committing, and
-to find a Workspace you lost track of (`$SB:<name>`).
+pass `--detail` (`{ detail: true }`) when checking `branch`, `activity`, `overlay`, or
+`pending_merge`.
+
+Short answer:
 
 ```json
-{"kind":"ok","branch":"work","base":"12a42768…","base_layer":"32fe4d4e…","branch_head":"12a42768…",
- "head_moved_since_mount":false,"activity":"Idle","overlay":{"inodes":2,"entries":1,"pending_merge":false}}
+{"changes":[{"path":"/out.txt","change":"added"}],"branch_moved":false}
 ```
 
-| Field | Meaning |
-| --- | --- |
-| `branch`, `base` | The Branch and the Commit it was mounted at |
-| `branch_head` | The Branch's head now |
-| `head_moved_since_mount` | `true` when its next Commit merges first |
-| `activity` | `Idle`, or `Busy` while a Commit or mount runs. Capitalized here, lowercase in `sandbox get`: compare with `.toLowerCase()` |
-| `overlay` | Changed files (`inodes`) and folder entries (`entries`); `pending_merge` after a Conflict |
+With `--detail` (`{ detail: true }`):
+
+```json
+{"changes":[{"path":"/out.txt","change":"added","type":"file"}],"changes_count":null,"partial":false,"branch_moved":false,"state":"ready","op":null,"reason":null,"fix":null,"branch":"work","commit":"12a42768…","base_layer":"32fe4d4e…","branch_head":"12a42768…","activity":"idle","overlay":{"inode_count":2,"entry_count":1},"pending_merge":false}
+```
+
+| Field | Availability | Meaning |
+| --- | --- | --- |
+| `changes`, `changes_count`, `partial`, `branch_moved`, `state`, `op`, `reason`, `fix` | Short (when set) & Long | Pending overlay changes (`added`, `modified`, `removed`), head move flag, state |
+| `branch`, `commit`, `base_layer`, `branch_head` | `--detail` only | Mounted Branch, base Commit, and current Branch head |
+| `activity` | `--detail` only | `"idle"` or `"busy"` (lowercase) |
+| `overlay` | `--detail` only | `{ inode_count, entry_count }` |
+| `pending_merge` | `--detail` only | `true` after a `Conflict` while markers remain |
 
 `Unavailable` when the Sandbox's machine is down: tell the user; don't start machines.

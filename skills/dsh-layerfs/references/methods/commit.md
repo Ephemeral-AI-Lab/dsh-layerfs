@@ -6,84 +6,108 @@ script that imported `layerfs` from `$DSH_LAYERFS_SDK` and set `P`, `B`, `SB`.
 
 | Call | Command | SDK |
 | --- | --- | --- |
-| list | `layerfs commit list <project> <branch> [--page-size N] [--page-pos N]` | `commit.list(project, branch, { page_size, page_pos })` |
-| get | `layerfs commit get <project> <branch> <commit>` | `commit.get(project, branch, commit)` |
-| diff | `layerfs commit diff <project> <from-commit> <to-commit> [--paths-only] [--cursor <c>]` | `commit.diff(project, from_commit, to_commit, { paths_only, cursor })` |
+| list | `layerfs commit list <project> <branch> [--at C] [--limit 100] [--cursor C]` | `commit.list(project, branch, { at, limit, cursor })` |
+| get | `layerfs commit get <project> <commit> [--branch B]` | `commit.get(project, commit, { branch })` |
+| diff | `layerfs commit diff <project> <ref> [--from R] [--path P] [--with patch] [--limit 100] [--cursor C]` | `commit.diff(project, ref, { from, path, limit, cursor, with: ["patch"] })` |
 
-A Commit id is 66 hex characters and unique in its project. On the session Branch
-`$B`, `file` writes make Commits with `via: "fs"` and Workspace Commits (yours, and
-dsh's checkpoints) have `via: "exec"`. dsh's carry its messages: `dsh turn <n>`,
+A Commit id is 66 hex characters and unique in its project. Anywhere a Commit is taken,
+a full 66-hex id **or a prefix of 8 or more characters** is accepted (an ambiguous prefix
+is refused `InvalidInput` with `matches`). On the session Branch `$B`, `file` writes
+make Commits with `via: "file"` and Workspace Commits (yours, and dsh's checkpoints)
+have `via: "workspace"`. dsh's checkpoints carry messages such as `dsh turn <n>`,
 `Saved before restore`, `Saved before closing`.
 
 ## `commit list`
 
-A Branch's Commits, newest first along first parents. The page size is 1 to 1000,
-default 50.
+A Branch's Commits, newest first along first parents (or starting from `--at C`). The
+page limit is 1 to 1000, default 100, returning `{ items, next_cursor? }`.
 
 ```bash
-layerfs commit list "$P" "$B" --page-size 10 --text
+layerfs commit list "$P" "$B" --limit 10 --text
 ```
 
 ```js
-const log = await layerfs.commit.list(P, B, { page_size: 10 });
-console.log(log.items.map((c) => `${c.id.slice(0, 12)} ${c.message}`).join("\n"));
+const log = await layerfs.commit.list(P, B, { limit: 10, detail: true });
+console.log(log.items.map((c) => `${c.commit.slice(0, 12)} ${c.via} ${c.message ?? ""}`).join("\n"));
 ```
+
+Short item keys: `commit`, plus `message`, `message_truncated`, `source_branch` when
+present. Long form (`--detail` / `{ detail: true }`) adds:
 
 | Field | Meaning |
 | --- | --- |
-| `id` | Commit id |
+| `commit` | Commit id (66 hex chars) |
 | `branch` | Branch name |
 | `parent`, `second_parent` | Parents (`second_parent` only for merges) |
 | `base` | The `main` Layer underneath |
-| `via` | `exec` for a Workspace Commit (a checkpoint), `fs` for a `file` write |
+| `root` | Root tree id |
+| `via` | `workspace`, `file`, `merge`, `publish`, or `init` |
 | `message` | Commit message |
 | `merged_from` | Merge source, for merge Commits |
-| `time` | Commit time, ms since the epoch |
+| `created_at` | RFC-3339 UTC timestamp |
+| `source_branch`, `source_commit` | Source Branch/Commit on `main` publications |
+| `size`, `new_canonical_bytes`, `new_stored_bytes`, `new_metadata_bytes` | Tree and new delta byte sizes |
 
-On `main`, `commit list` lists `main`'s Layers (its publications: `source_branch`,
-`overwrote_count`, …) instead of Commits; `branch commits` on `main` is the same list
-with each publication's source. After an uncertain outcome (`Unknown`, `Failed`),
-`commit list` is how you check whether a Commit happened.
+On `main`, `commit list` lists `main`'s Layers (its publications, with `source_branch`
+and `source_commit`). After an uncertain outcome (`Unknown`, `Unresolved`), `commit list`
+is how you check whether a Commit happened.
 
 ## `commit get`
 
-One Commit of that Branch. It accepts an id prefix of 8 or more characters, but it
-pages the Branch's history to find it, so it is slower on a long Branch. A Commit not
-on the Branch's first-parent line is refused `NoSuchCommit`.
+Reads one Commit in the project by full id or >=8-char prefix. Pass `--branch B`
+(`{ branch }`) only if you want to verify or resolve within that Branch. Notice
+`<branch>` is an **option**, not a positional argument!
 
 ```bash
-layerfs commit get "$P" "$B" 12c7ef811a
+layerfs commit get "$P" 12c7ef811a --detail
 ```
+
+Short answer includes `branch`, `parent`, `message` when present; `--detail` adds
+`commit`, `second_parent`, `base`, `root`, `via`, `created_at`, `merged_from`,
+`displaced`, `overwritten`, `overwritten_count`, `units`, `source_branch`,
+`source_commit` and size fields. `NotFound` (`detail.code: "NoSuchCommit"`) when the
+Commit does not exist.
 
 ## `commit diff`
 
-Files that differ between two Commits. No Branch is needed. Use `branch diff` for two
-Branch heads.
+Files that differ between `<ref>` and `--from <from>` (defaults to `<ref>`'s parent
+when omitted). Both `<ref>` and `--from` can be any Branch name (including `main`),
+Commit id, or >=8-char prefix. Pass `--path P` to restrict to one path/prefix, and
+`--with patch` (`with: ["patch"]`) to include line diff `hunks`.
+
+```bash
+layerfs commit diff "$P" "$B" --from main
+layerfs commit diff "$P" "$B" --from main --path /src/index.js --with patch
+```
 
 ```js
-const [newest, previous] = (await layerfs.commit.list(P, B, { page_size: 2 })).items;
-const d = await layerfs.commit.diff(P, previous.id, newest.id, { paths_only: true });   // what the last checkpoint changed
-console.log(d.items.map((c) => `${c.kind} ${c.path}`).join("\n"));
+const [newest, previous] = (await layerfs.commit.list(P, B, { limit: 2 })).items;
+const d = await layerfs.commit.diff(P, newest.commit, { from: previous.commit });
+console.log(d.items.map((c) => `${c.change} ${c.path}`).join("\n"));
 ```
 
 ```json
-{"kind":"ok","from":{"commit":"12c7ef811a49…"},"to":{"commit":"12a99d99faf5…"},
- "items":[{"path":"/src/index.js","kind":"Modified","type":"file","content":true,"metadata":true,
+{"items":[{"path":"/src/index.js","change":"modified","hunks":[{"op":"-","text":"export const retries = 3;"},{"op":"+","text":"export const retries = 1;"}],"hunks_omitted":false}]}
+```
+
+With `--detail`:
+
+```json
+{"from":"12c7ef811a49…","to":"12a99d99faf5…","from_root":"…","to_root":"…",
+ "items":[{"path":"/src/index.js","change":"modified","type":"file","content":true,"metadata":true,"identity":false,
    "hunks":[{"op":"-","text":"export const retries = 3;"},{"op":"+","text":"export const retries = 1;"}],
    "hunks_omitted":false}],
- "has_more":false,"next_page_pos":null,"next_cursor":null}
+ "next_cursor":null}
 ```
 
 | Item field | Meaning |
 | --- | --- |
 | `path` | Changed path |
-| `kind` | `Added`, `Removed` or `Modified` |
-| `type` | `file`, `dir` or `symlink` |
-| `content`, `metadata` | Whether the bytes, or the mode and attributes, changed |
-| `hunks`, `hunks_omitted` | Line diff for text files (`null` with `paths_only`) |
+| `change` | `added`, `removed`, or `modified` (lowercase) |
+| `type` | `file`, `dir`, or `symlink` (**only with `--detail` / `{ detail: true }`**) |
+| `content`, `metadata`, `identity` | Which parts changed (`--detail` only) |
+| `hunks`, `hunks_omitted` | Line diff for text files (only when `--with patch` / `{ with: ["patch"] }` is passed) |
 
-Folders show up as items too. Resume a long diff with `cursor: next_cursor`.
-
-**Refusals:** `NoSuchCommit` for a full id that doesn't exist; `InvalidInput` ("not a
-Branch, and not a full Commit or Layer identity") for Branch names and short id
-prefixes. Pass full ids.
+Folders show up as items too. Resume a long diff with `--cursor` (`{ cursor: d.next_cursor }`).
+`InvalidInput` for a prefix shorter than 8 characters or an unknown ref; `NotFound` for
+a missing Commit.
