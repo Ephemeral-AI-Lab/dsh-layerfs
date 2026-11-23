@@ -90,11 +90,16 @@ export function createFiles(v) {
     if (r.error) return `<div class="fempty">${esc(r.error.message)}</div>`;
     if (!w) return `<div class="fempty">Reading ${esc(p.path)}…</div>`;
     if (w.binary) return `<div class="fempty">A binary file${w.size != null ? ` of ${fmtBytes(w.size)}` : ""}: it has no text to show.</div>`;
+    // An SVG is text, so the window already read can draw it: an image element
+    // refuses the scripts an inline SVG could carry, and the code stays below.
+    const picture = w.startLine === 1 && w.nextLine == null && /\.svg$/i.test(p.path)
+      ? `<div class="fimg"><img alt="${esc(p.path)}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(w.text)}"></div>`
+      : "";
     const text = w.text.endsWith("\n") ? w.text.slice(0, -1) : w.text, last = w.startLine + text.split("\n").length - 1;
     const nav = (dir, label, on) => `<button class="fseg" data-fwin="${esc(tab)}|${dir}"${on ? "" : " disabled"}>${label}</button>`;
     const bar = w.startLine > 1 || w.nextLine != null
       ? `<div class="fmodes">${nav("prev", "‹ Earlier", w.startLine > 1)}<span class="fstat">lines ${w.startLine.toLocaleString()}–${last.toLocaleString()}${w.size != null ? ` of ${fmtBytes(w.size)}` : ""}${w.lineTruncated ? " · a long line is cut short" : ""}</span>${nav("next", "Later ›", w.nextLine != null)}<span class="sp"></span><input class="fline" data-fline="${esc(tab)}" type="number" min="1" step="1" placeholder="Go to line"></div>` : "";
-    return bar + `<div class="code">${codeLines(text, p.path, w.startLine)}</div>`;
+    return picture + bar + `<div class="code">${codeLines(text, p.path, w.startLine)}</div>`;
   }
   // Which Commit wrote each line (fs.blame), a window at a time like the file
   function lazyBlameHtml(subject, sub, p, tab) {
