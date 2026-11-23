@@ -130,12 +130,12 @@
 }
 
 .line[data-current] {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
+  background: var(--lf-tone-warning-bg);
 }
 
 .hit {
   border-radius: 2px;
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 38%, transparent);
+  background: var(--lf-tone-warning-bg);
   color: inherit;
 }
 

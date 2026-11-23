@@ -9,7 +9,8 @@
  * linked Store's projects when the copy is still that Store's, else a Restore.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, IconRefreshOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconRefreshOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../api.ts'
 import { DoctorAction } from '../doctor/Doctor.tsx'
 import type { DoctorT } from '../doctor/locale.ts'
@@ -107,7 +108,7 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, runningS
           <>
             <DoctorAction api={api} t={doctorT} target="backup.connection" name={b.name} label={doctorT('testConnection')} />
             <Button variant="outline" size="sm" disabled={listing} onClick={onList}
-              icon={listing ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{listed ? t('listAgain') : t('list')}</Button>
+              icon={listing ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{listed ? t('listAgain') : t('list')}</Button>
             <MoreMenu label={b.name}>{(close) => <MenuItemButton danger onSelect={() => { close(); onDisconnect() }}>{t('disconnectBucket')}</MenuItemButton>}</MoreMenu>
           </>
         )}>
@@ -203,7 +204,7 @@ export function BackupFilePage({ bucket, file, view, t, now, listing, runningSto
         <PaneBar title={file} actions={(
           <>
             <Button variant="outline" size="sm" disabled={listing} onClick={onList}
-              icon={listing ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{listed ? t('listAgain') : t('list')}</Button>
+              icon={listing ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{listed ? t('listAgain') : t('list')}</Button>
             <Button variant="outline" size="sm" onClick={onOpenBucket}>{t('openBucket')}</Button>
           </>
         )} />
@@ -229,7 +230,7 @@ export function BackupFilePage({ bucket, file, view, t, now, listing, runningSto
         actions={(
           <>
             <Button variant="outline" size="sm" disabled={listing} onClick={onList}
-              icon={listing ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{listed ? t('listAgain') : t('list')}</Button>
+              icon={listing ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{listed ? t('listAgain') : t('list')}</Button>
             <ExplainedButton variant="outline" size="sm" disabled={!!restoreWhy} disabledReason={restoreWhy ?? undefined} onClick={() => onRestore(file, null)}>{t('restoreAsNewStore')}</ExplainedButton>
           </>
         )}>

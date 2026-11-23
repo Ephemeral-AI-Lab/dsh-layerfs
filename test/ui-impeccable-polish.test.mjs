@@ -184,11 +184,11 @@ test('#3: contrast fixes use DSH token color-mix for green labels and secondary 
   const navCss = readSrc('src/client/storage/Nav.module.css')
   const tbCss = readSrc('src/client/ui/TabBar.module.css')
 
-  const greenMix = /color-mix\(in srgb,\s*var\(--dsw-alias-state-success-primary\)\s+68%,\s*var\(--dsw-alias-label-primary\)\)/
-  assert.match(uiCss, new RegExp(`\\.chip\\[data-tone='success'\\][^}]*${greenMix.source}`))
-  assert.match(ptCss, new RegExp(`\\.runningPill\\s*\\{[^}]*${greenMix.source}`))
-  assert.match(spCss, new RegExp(`\\.statePill\\[data-tone='ok'\\][^}]*${greenMix.source}`))
-  assert.match(msCss, new RegExp(`\\.pill\\[data-tone='success'\\][^}]*${greenMix.source}`))
+  const greenFg = /color:\s*var\(--lf-tone-success-fg\)/
+  assert.match(uiCss, new RegExp(`\\.chip\\[data-tone='success'\\][^}]*${greenFg.source}`))
+  assert.match(ptCss, new RegExp(`\\.runningPill\\s*\\{[^}]*${greenFg.source}`))
+  assert.match(spCss, new RegExp(`\\.statePill\\[data-tone='ok'\\][^}]*${greenFg.source}`))
+  assert.match(msCss, new RegExp(`\\.pill\\[data-tone='success'\\][^}]*${greenFg.source}`))
   assert.match(hcCss, /\.finderSearch\s+input::placeholder\s*\{[^}]*color:\s*var\(--dsw-alias-label-secondary\)/)
   assert.match(navCss, /\.jumpField\s*\{[^}]*color:\s*var\(--dsw-alias-label-secondary\)/)
   assert.match(navCss, /\.jumpKeys\s*\{[^}]*color:\s*var\(--dsw-alias-label-secondary\)/)
@@ -397,7 +397,7 @@ test('#12: PG check failure wraps errors in semantic callout and Inventory/Proje
   const cdTsx = readSrc('src/client/storage/ConnectDatabase.tsx')
   const msCss = readSrc('src/client/storage/MachineStores.module.css')
   assert.match(cdTsx, /<div className=\{css\.checkFailure\}>/)
-  assert.match(msCss, /\.checkFailure\s*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--dsw-alias-state-error-primary\)/)
+  assert.match(msCss, /\.checkFailure\s*\{[^}]*background:\s*var\(--lf-tone-danger-bg\)/)
 
   const invHtml = renderToStaticMarkup(createElement(M.Inventory, {
     m: { name: 'native', platform: 'native', state: 'ready', stores: [], sandboxes: [] },

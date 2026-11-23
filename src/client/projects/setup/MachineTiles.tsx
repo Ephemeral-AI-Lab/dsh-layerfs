@@ -9,7 +9,8 @@
  */
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconCheckOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../../ui/StatusDot.tsx'
 import { MachineGlyph } from '../../machines/icons.tsx'
 import { usePressGuard } from '../../ui/index.tsx'
 import { isRunning, type Machine, type TileBlock } from './model.ts'
@@ -82,10 +83,10 @@ export function StartFirst({ names, words, start, onStarted, className }: {
       {names.map((m) => (
         <p key={m} className={css.startFirstRow} data-start-first={m}>
           {failed?.machine === m
-            ? <span className={clsx(css.startFirstWord, css.startFirstFailed)} role="alert" title={failed.message} data-start-refused={m}><StateDot state="error" size={6} />{words.refused(m)}</span>
-            : <span className={css.startFirstWord}><StateDot state="idle" size={6} />{words.stopped(m)}</span>}
+            ? <span className={clsx(css.startFirstWord, css.startFirstFailed)} role="alert" title={failed.message} data-start-refused={m}><StatusDot state="error" size={6} />{words.refused(m)}</span>
+            : <span className={css.startFirstWord}><StatusDot state="idle" size={6} />{words.stopped(m)}</span>}
           <Button type="button" size="sm" variant="outline" disabled={busy !== null || guard.settling} aria-disabled={guard.settling || undefined} aria-label={words.start(m)}
-            icon={busy === m ? <StateDot state="ongoing" size={12} /> : undefined} onClick={guard(() => press(m))}>{words.start(m)}</Button>
+            icon={busy === m ? <StatusDot state="ongoing" size={12} /> : undefined} onClick={guard(() => press(m))}>{words.start(m)}</Button>
         </p>
       ))}
     </div>

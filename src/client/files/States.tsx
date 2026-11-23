@@ -1,7 +1,8 @@
 /** Loading, refusal and empty states shared by the LayerFS pages. */
 import { useContext, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import type { RunnableFix } from '../../shared/doctor.ts'
 import { FixAction, FixContext, refusalOf, resolveFix, type RefusalLabels } from '../ui/index.tsx'
 import { errorCode, errorText } from './use-query.ts'
@@ -9,7 +10,7 @@ import css from './States.module.css'
 
 /** A read in progress: a spinning dot and its words. */
 export function Loading({ label, className }: { label: string, className?: string }): ReactNode {
-  return <p className={clsx(css.status, className)} role="status"><StateDot state="ongoing" size={13} />{label}</p>
+  return <p className={clsx(css.status, className)} role="status"><StatusDot state="ongoing" size={13} />{label}</p>
 }
 
 /**
@@ -40,7 +41,7 @@ export function ErrorState({ title, error, retryLabel, onRetry, className, fixWo
     return (
       <div className={clsx(css.failure, className)} role="alert" data-fix={resolved.fix.kind}>
         <div className={css.failureText}>
-          <p className={css.failureTitle} title={errorText(error)}><StateDot state="error" />{fixWord?.(resolved.fix) ?? title}</p>
+          <p className={css.failureTitle} title={errorText(error)}><StatusDot state="error" />{fixWord?.(resolved.fix) ?? title}</p>
         </div>
         <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={compactLabels(inTheWay ?? '')} />
       </div>
@@ -54,7 +55,7 @@ export function ErrorState({ title, error, retryLabel, onRetry, className, fixWo
   return (
     <div className={clsx(css.failure, className)} role="alert" data-code={code || undefined}>
       <div className={css.failureText}>
-        <p className={css.failureTitle} title={tip}><StateDot state="error" />{title}</p>
+        <p className={css.failureTitle} title={tip}><StatusDot state="error" />{title}</p>
       </div>
       {onRetry && retryLabel ? <Button variant="outline" size="sm" onClick={onRetry}>{retryLabel}</Button> : null}
     </div>

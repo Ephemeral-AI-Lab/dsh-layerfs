@@ -1,8 +1,9 @@
 /** Small pieces Storage's views share: refusal words, the Store glyph, and a form in a DSH modal. */
 import { useState, type CSSProperties, type ReactNode } from 'react'
-import { Button, Input, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { StoreKindGlyph } from '../machines/icons.tsx'
-import { Field, Refusal, type RefusalLabels } from '../ui/index.tsx'
+import { DangerButton, Field, Refusal, type RefusalLabels } from '../ui/index.tsx'
 import type { LocationWords } from '../projects/setup/MachineTiles.tsx'
 import type { StorageT } from './locale.ts'
 import { storeStateWords } from './model.ts'
@@ -103,8 +104,11 @@ export function FormModal({ open, onClose, title, description, action, valid, su
           {busy && busyHint ? <span className={css.modalHint} role="status">{busyHint}</span> : hint ? <span className={css.modalHint}>{hint}</span> : <span />}
           <div className={css.modalActions}>
             {hideCancel ? null : <Button variant="outline" onClick={onClose} disabled={busy}>{t('cancel')}</Button>}
-            <Button variant="primary" className={danger ? css.dangerPrimary : undefined} disabled={!valid || busy} aria-busy={busy}
-              icon={busy ? <StateDot state="ongoing" size={13} /> : undefined} onClick={() => { void go() }}>{action}</Button>
+            {danger ? (
+              <DangerButton disabled={!valid || busy} aria-busy={busy} icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined} onClick={() => { void go() }}>{action}</DangerButton>
+            ) : (
+              <Button variant="primary" disabled={!valid || busy} aria-busy={busy} icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined} onClick={() => { void go() }}>{action}</Button>
+            )}
           </div>
         </div>
       )}>

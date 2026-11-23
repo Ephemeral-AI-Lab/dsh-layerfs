@@ -9,9 +9,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import {
-  Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconDatabaseOutlineRegular, IconSearchOutlineRegular, StateDot,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconDatabaseOutlineRegular, IconSearchOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../api.ts'
 import { EmptyState, ErrorState, Loading } from '../files/States.tsx'
 import { useQuery } from '../files/use-query.ts'
@@ -93,7 +92,7 @@ function RecordText({ record, t }: { record: TrajectoryRecord, t: Translate }): 
         <span className={clsx(css.toolName, record.isError && css.errorText)}>{record.name}</span>
         {record.summary ? <span className={css.summary}>{record.summary}</span> : null}
         {running
-          ? <span className={css.running}><StateDot state="ongoing" size={10} />{t('trajRunning')}</span>
+          ? <span className={css.running}><StatusDot state="ongoing" size={10} />{t('trajRunning')}</span>
           : record.result ? <span className={clsx(css.result, record.isError && css.errorText)}><span className={css.arrow} aria-hidden="true">→</span>{record.result}</span> : null}
       </span>
     )

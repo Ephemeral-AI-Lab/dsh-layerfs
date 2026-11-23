@@ -3,7 +3,8 @@
  * checked with. Three screens: pick, new, check.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, IconChevronRightOutlineRegular, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronRightOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc, type LayerfsApi } from '../api.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
 import { machinesFor } from '../projects/setup/model.ts'
@@ -167,7 +168,7 @@ function Pick({ t, groups, auths, fixed, place, onCheck, onNew }: {
               const authTag = mixedAuths && s.postgresql?.auth ? t('cdUser', { user: s.postgresql.auth }) : null
               return (
                 <div key={s.name} className={css.db} data-pg-store={s.name}>
-                  <StateDot state={pickDotState(s, fixed)} size={8} />
+                  <StatusDot state={pickDotState(s, fixed)} size={8} />
                   <span className={css.dbMain}>
                     <span className={css.dbName}>{s.name}</span>
                     <span className={css.dbSub}>{[database && database !== s.name ? database : null, authTag, from.length ? t('pgFrom', { machines: from.map(place).join(', ') }) : null, s.projects.join(', ') || t('msNoProjects')].filter(Boolean).join(' · ')}</span>
@@ -410,7 +411,7 @@ function CheckView({ t, view, check, place, own, ownUrl, setOwnUrl, onFrom, onOw
           const state = stepState(step)
           return (
             <li key={step} className={css.step} data-state={state} data-step={step}>
-              <span className={css.stepMark}>{state === 'running' ? <StateDot state="ongoing" size={12} /> : state === 'ok' ? <StateDot state="done" size={9} /> : state === 'failed' ? <StateDot state="error" size={9} /> : <StateDot state="idle" size={9} />}</span>
+              <span className={css.stepMark}>{state === 'running' ? <StatusDot state="ongoing" size={12} /> : state === 'ok' ? <StatusDot state="done" size={9} /> : state === 'failed' ? <StatusDot state="error" size={9} /> : <StatusDot state="idle" size={9} />}</span>
               {words[step]}
             </li>
           )

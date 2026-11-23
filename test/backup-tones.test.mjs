@@ -80,7 +80,7 @@ test('healthOf: only missing and both_changed are problem; store_changed and buc
     const staleRules = css.match(/\[data-health='stale'\][^}]*\}/g) ?? []
     assert.ok(staleRules.length > 0, `${cssPath} styles data-health='stale'`)
     for (const rule of staleRules) {
-      assert.doesNotMatch(rule, /state-warn/, `${cssPath} stale rule must not use amber warn token: ${rule}`)
+      assert.doesNotMatch(rule, /state-warn|tone-warning/, `${cssPath} stale rule must not use amber warn token: ${rule}`)
     }
   }
 })

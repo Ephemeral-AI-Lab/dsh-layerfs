@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { downReason, workerDown, type AvailableView, type MachineInfo, type MachineSandbox } from '../machines/model.ts'
 import { machineBlock } from '../machines/needs.ts'
 import { usePressGuard } from '../ui/index.tsx'
@@ -69,7 +70,7 @@ export function JobLine({ job, t, label }: { job: StorageJob, t: StorageT, label
   const share = jobPercent(job)
   return (
     <span className={css.job}>
-      <span className={css.jobLine}><StateDot state="ongoing" size={10} /><span className={css.statusText}>{label ?? doingWords(job, t)}</span><span className={css.num}>{`${share}%`}</span></span>
+      <span className={css.jobLine}><StatusDot state="ongoing" size={10} /><span className={css.statusText}>{label ?? doingWords(job, t)}</span><span className={css.num}>{`${share}%`}</span></span>
       <span className={css.bar}><span style={{ width: `${share}%` }} /></span>
     </span>
   )

@@ -6,12 +6,12 @@
  * flight is the page's own panel.
  */
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronRightOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
-import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
+import { Card, DangerButton, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { backupChip, overviewMachineHealth, storeStateWords } from './model.ts'
 import { latestBackupCopy, overviewBackupHealth, storeBackups } from './store-backups.ts'
@@ -104,7 +104,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
               <p className={storageCss.dangerTitle}>{pg ? t('disconnectStoreTitle') : t('removeStoreTitle')}</p>
               <p className={storageCss.sectionNote}>{pg ? t('disconnectStoreBody') : t('removeStoreBody')}</p>
             </div>
-            <Button variant="outline" size="sm" className={storageCss.dangerButton} onClick={onRemove}>{pg ? t('disconnect') : t('remove')}</Button>
+            <DangerButton appearance="outline" size="sm" onClick={onRemove}>{pg ? t('disconnect') : t('remove')}</DangerButton>
           </div>
         </div>
       </details>

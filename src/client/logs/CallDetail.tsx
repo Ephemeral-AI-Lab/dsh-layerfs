@@ -6,13 +6,14 @@
  * headless and sized large, with prev/next between the table's rows.
  */
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
+import clsx from 'clsx'
 import {
   Button, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, IconCloseOutlineRegular, IconCopyOutlineRegular,
   Modal, Tag, fileSizeText, useClipboardCopy,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
 import { OUTPUT_MAX, type CallLabel, type CallOutput, type LabeledLine, type LogsOutputAnswer } from '../../shared/logs.ts'
-import { Card, Fact, Facts, LinkButton, Notice, Refusal, type RefusalLabels } from '../ui/index.tsx'
+import { Card, Fact, Facts, LinkButton, Notice, Refusal, toneScope, type RefusalLabels } from '../ui/index.tsx'
 import { absoluteTime, commandParts, duration, jsonText, operationWords, readable } from './format.ts'
 import { CommandWords } from './Command.tsx'
 import type { LogsT } from './locale.ts'
@@ -80,7 +81,7 @@ export function CallDetail({ api, t, line, nav, labels, onClose, onCalls }: {
     go()
   }
   return (
-    <Modal open={!!line} onClose={onClose} headless title={t('detailLabel', { op })} className={css.detailModal} onKeyDownCapture={onKey}>
+    <Modal open={!!line} onClose={onClose} headless title={t('detailLabel', { op })} className={clsx(toneScope, css.detailModal)} onKeyDownCapture={onKey}>
       {line && (
         <>
           <header className={css.detailHead}>

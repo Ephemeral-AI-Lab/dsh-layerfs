@@ -4,7 +4,8 @@
  */
 import { useId, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, IconRefreshOutlineRegular, MenuItemButton, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc, HostError, type LayerfsApi } from '../api.ts'
 import { ProjectFiles } from '../files/ProjectFiles.tsx'
 import { ProjectHistory } from '../files/ProjectHistory.tsx'
@@ -52,7 +53,7 @@ export interface ProjectPageProps {
 function StoreBroken({ s, t }: { s: StoreRow, t: StorageT }): ReactNode {
   return (
     <div className={css.storeBroken} role="alert" data-store-broken={s.reason ?? ''}>
-      <p className={css.storeBrokenWord} title={storeTip(s, t)}><StateDot state="error" />{brokenWords(s, t)}</p>
+      <p className={css.storeBrokenWord} title={storeTip(s, t)}><StatusDot state="error" />{brokenWords(s, t)}</p>
       <StoreFixAction store={s} t={t} />
     </div>
   )
@@ -143,7 +144,7 @@ function Sessions({ api, t, project, tick, store }: { api: LayerfsApi, t: Storag
   // a broken or blocked Store: its sessions are unavailable until the fix (owner Q-R3): the word, its tip and the one fix; no Open or New session
   const down = sessionsUnavailable(store)
   const create = down ? undefined : (
-    <Button variant="primary" size="sm" icon={busy === 'new' ? <StateDot state="ongoing" size={13} /> : <IconPlusOutlineRegular size={13} />} disabled={busy !== null}
+    <Button variant="primary" size="sm" icon={busy === 'new' ? <StatusDot state="ongoing" size={13} /> : <IconPlusOutlineRegular size={13} />} disabled={busy !== null}
       onClick={() => act('new', () => api.openProjectSession(project))}>{t('sessionsNew')}</Button>
   )
   return (
@@ -164,7 +165,7 @@ function Sessions({ api, t, project, tick, store }: { api: LayerfsApi, t: Storag
                   <td className={`${css.num} ${css.wide} ${css.muted}`}>{s.checkpoints ?? '—'}</td>
                   <td className={`${css.num} ${css.muted}`} title={when(s.updatedAt)}>{s.updatedAt ? ago(s.updatedAt, now, t as Translate) : '—'}</td>
                   <td className={css.actionsCell}>
-                    {down ? null : <Button variant="outline" size="sm" disabled={busy !== null} icon={busy === s.sessionId ? <StateDot state="ongoing" size={13} /> : undefined}
+                    {down ? null : <Button variant="outline" size="sm" disabled={busy !== null} icon={busy === s.sessionId ? <StatusDot state="ongoing" size={13} /> : undefined}
                       onClick={() => act(s.sessionId, () => api.op('sessions.open', { sessionId: s.sessionId }))}>{t('sessionsOpen')}</Button>}
                   </td>
                 </tr>

@@ -109,7 +109,7 @@
 }
 
 .error {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;

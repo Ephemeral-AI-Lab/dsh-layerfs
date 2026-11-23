@@ -5,7 +5,8 @@
  * that connects to it (spec v23).
  */
 import { useEffect, useRef, type ReactNode } from 'react'
-import { Button, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MachineGlyph } from '../machines/icons.tsx'
@@ -142,7 +143,7 @@ export function StoreBackups({ store: s, view, t, now, on, runningJob, onOpen, o
               )}
               {onListBucket ? (
                 <Button variant="ghost" size="sm" className={css.linkListBtn} disabled={isListing} onClick={() => onListBucket(link.bucket)}
-                  icon={isListing ? <StateDot state="ongoing" size={12} /> : <IconRefreshOutlineRegular size={12} />}>
+                  icon={isListing ? <StatusDot state="ongoing" size={12} /> : <IconRefreshOutlineRegular size={12} />}>
                   {listed ? t('listAgain') : t('listBucket')}
                 </Button>
               ) : null}
@@ -194,7 +195,7 @@ export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
           <div><dt>{t('syncCommit')}</dt><dd>{pg?.synchronousCommit ?? t('syncCommitDefault')}</dd></div>
         </dl>
         <div className={css.linkCheck} data-state={broken || reachFailed ? 'failed' : undefined}>
-          <StateDot state={broken || reachFailed ? 'error' : s.state === 'ready' ? 'done' : 'idle'} size={10} />
+          <StatusDot state={broken || reachFailed ? 'error' : s.state === 'ready' ? 'done' : 'idle'} size={10} />
           <span className={css.linkPart} title={broken ? storeTip(s, t) : reachFailed ? checked?.error ?? undefined : undefined}>
             {broken ? brokenWords(s, t) : reachFailed ? t('pgNotReachedCard') : storeStateWords(s.state, t)}
           </span>
@@ -236,7 +237,7 @@ export function StoreConnection({ store: s, view, t, on, now, sandboxes }: {
                   ) : t('pgDefaultAddress')}
                 </span>
                 <span className={css.connReach} title={reach?.ok === false ? (reach.error ?? t('pgCheckFailed')) : undefined}>
-                  <StateDot state={state} size={9} />
+                  <StatusDot state={state} size={9} />
                   {reach ? (reach.ok ? (reach.latencyMs != null ? t('msReachableMs', { latency: reach.latencyMs }) : t('pgReached')) : t('pgCheckFailed')) : t('pgNotChecked')}
                 </span>
                 <span className={css.muted}>{reach?.at ? ago(reach.at, now, tt) : ''}</span>

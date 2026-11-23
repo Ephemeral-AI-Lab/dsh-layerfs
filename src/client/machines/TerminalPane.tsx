@@ -9,9 +9,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
-import {
-  Button, IconCloseOutlineRegular, IconCopyOutlineRegular, IconFullscreenOutlineRegular, Input, MenuItemButton, Modal, StateDot, Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCloseOutlineRegular, IconCopyOutlineRegular, IconFullscreenOutlineRegular, Input, MenuItemButton, Modal, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc } from '../api.ts'
 import { bytes, shortId } from '../files/format.ts'
 import { MoreMenu, Refusal } from '../ui/index.tsx'
@@ -202,7 +201,7 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
         {ws.branch && <span className={css.branch}>{ws.branch}</span>}
         <span className={css.path} title={ws.path}>{label}</span>
         {changes && <span className={css.changes} data-ws-changes data-tone={changes.tone} title={overlayTip}>{tw(changes)}</span>}
-        {busy && <StateDot state="ongoing" size={7} />}
+        {busy && <StatusDot state="ongoing" size={7} />}
         <span className={css.spacer} />
         <Tooltip label={maximized ? t('termRestore') : t('termMaximize')}>
           <Button size="sm" className={css.iconButton} aria-label={maximized ? t('termRestore') : t('termMaximize')} aria-pressed={maximized}
@@ -225,7 +224,7 @@ export function TerminalPane({ sandbox, ws, canRun, maximized, active, onFocus, 
       {others.length > 0 && (
         // view-only (layerfs-project#178 D3): this page cancels only the commands it started
         <div className={css.also} data-also-running={others.length} title={[t('alsoViewOnly'), ...(others.length > 1 ? others.map(alsoLine) : [])].join('\n')}>
-          <StateDot state="ongoing" size={7} />
+          <StatusDot state="ongoing" size={7} />
           <span className={css.alsoText}>{alsoLine(others[0]!)}</span>
           {others.length > 1 && <span className={css.alsoMore}>{t('alsoRunningMore', { n: String(others.length - 1) })}</span>}
         </div>

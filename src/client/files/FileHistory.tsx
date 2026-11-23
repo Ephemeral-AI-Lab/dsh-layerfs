@@ -5,8 +5,10 @@
  * (before a fork, or merged in) are included unless the reader turns them off.
  */
 import { useEffect, useState, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { Button, Checkbox, IconChevronDownOutlineRegular, Menu, Tag, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LayerfsApi } from '../api.ts'
+import { toneScope } from '../ui/index.tsx'
 import { filesApi } from './api.ts'
 import { PathDiff } from './CommitDiff.tsx'
 import { ago, shortId, toMs, when } from './format.ts'
@@ -78,7 +80,7 @@ export function FileHistory({ api, project, branch, path, pin, t, focus }: FileH
     </div>
   )
   return (
-    <div className={css.historyFrame}>
+    <div className={clsx(toneScope, css.historyFrame)}>
       <div className={css.revisionList}>
         <ul className={css.tree} aria-label={t('files_modeHistory')}>
           {items.map((v) => {

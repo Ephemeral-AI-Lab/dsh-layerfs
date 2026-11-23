@@ -13,7 +13,8 @@
  *   chosen. The file name is the link's (or LayerFS's default) unless changed.
  */
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Modal, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
@@ -118,7 +119,7 @@ export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: 
     const label = a === 'update' ? t('bkUpdate') : t('backupNow')
     return (
       <ExplainedButton size="sm" variant="outline" disabled={blocked || running !== null} disabledReason={blocked ? waitReason ?? undefined : undefined} aria-busy={running === b.link.bucket}
-        icon={running === b.link.bucket ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => { void write(b) }}>{label}</ExplainedButton>
+        icon={running === b.link.bucket ? <StatusDot state="ongoing" size={12} /> : undefined} onClick={() => { void write(b) }}>{label}</ExplainedButton>
     )
   }
   return (

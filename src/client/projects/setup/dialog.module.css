@@ -178,6 +178,7 @@
   height: 18px;
   margin-top: 1px;
   border-radius: 50%;
+  corner-shape: round;
   border: 1px solid var(--dsw-alias-border-l4);
   box-sizing: border-box;
   font-size: 11px;
@@ -186,8 +187,8 @@
 }
 
 .railDone {
-  border-color: var(--dsw-alias-state-success-primary);
-  color: var(--dsw-alias-state-success-primary);
+  border-color: var(--lf-tone-success-dot);
+  color: var(--lf-tone-success-fg);
 }
 
 .railText {
@@ -319,15 +320,15 @@
   margin: 0;
   padding: 8px 12px;
   border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-state-warn-tertiary);
-  color: var(--dsw-alias-state-warn-label);
+  background: var(--lf-tone-warning-bg);
+  color: var(--lf-tone-warning-fg);
   font-size: 12px;
   line-height: 18px;
 }
 
 .error {
   margin: 0;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
@@ -364,7 +365,7 @@
 
 /* its platform is not ready here (Docker not answering, a tool removed): the note says why */
 .machine[data-blocked] .machineNote {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 @media (hover: hover) {
@@ -389,6 +390,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
+  corner-shape: round;
   border: 1px solid var(--dsw-alias-border-l4);
   box-sizing: border-box;
   color: var(--dsw-alias-label-primary-inverted);
@@ -475,8 +477,8 @@
   margin: 0;
   padding: 6px 10px;
   border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-state-warn-tertiary);
-  color: var(--dsw-alias-state-warn-label);
+  background: var(--lf-tone-warning-bg);
+  color: var(--lf-tone-warning-fg);
   font-size: 12px;
   line-height: 18px;
 }
@@ -622,6 +624,7 @@
   flex: none;
   padding: 1px 6px;
   border-radius: 999px;
+  corner-shape: round;
   font-size: 11px;
   line-height: 16px;
   font-weight: 500;
@@ -629,13 +632,13 @@
 }
 
 .storeStatusError {
-  color: var(--dsw-alias-state-error-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+  color: var(--lf-tone-danger-fg);
+  background: var(--lf-tone-danger-bg);
 }
 
 .storeStatusWarn {
-  color: var(--dsw-alias-state-warn-label);
-  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--lf-tone-warning-fg);
+  background: var(--lf-tone-warning-bg);
 }
 
 .storeStatusReady {
@@ -668,15 +671,15 @@
   margin: 0;
   padding: 8px 12px;
   border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-state-warn-tertiary);
-  color: var(--dsw-alias-state-warn-label);
+  background: var(--lf-tone-warning-bg);
+  color: var(--lf-tone-warning-fg);
   font-size: 12px;
   line-height: 18px;
 }
 
 .pgStoreNoticeError {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
-  color: var(--dsw-alias-state-error-primary);
+  background: var(--lf-tone-danger-bg);
+  color: var(--lf-tone-danger-fg);
 }
 
 .reachList {
@@ -707,7 +710,7 @@
 }
 
 .reachChip[data-reach='failed'] .reachState {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* Machines */
@@ -780,17 +783,20 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--dsw-alias-border-l4);
 }
 
 .dot[data-on] {
-  background: var(--dsw-alias-state-success-primary);
+  background: var(--lf-tone-success-dot);
+  box-shadow: var(--lf-tone-success-halo);
 }
 
 .badge {
   margin-left: auto;
   padding: 0 6px;
   border-radius: 999px;
+  corner-shape: round;
   font-size: 11px;
   line-height: 16px;
   font-weight: 500;
@@ -840,7 +846,7 @@
 
 .step[data-state='running'] { color: var(--dsw-alias-label-primary); }
 .step[data-state='done'] { color: var(--dsw-alias-label-secondary); }
-.step[data-state='failed'] { color: var(--dsw-alias-state-error-primary); }
+.step[data-state='failed'] { color: var(--lf-tone-danger-fg); }
 
 .stepMark {
   display: inline-flex;
@@ -849,13 +855,14 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
+  corner-shape: round;
   border: 1px solid var(--dsw-alias-border-l3);
   box-sizing: border-box;
 }
 
-.step[data-state='done'] .stepMark { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
+.step[data-state='done'] .stepMark { border-color: var(--lf-tone-success-dot); color: var(--lf-tone-success-fg); }
 .step[data-state='running'] .stepMark { border: 0; }
-.step[data-state='failed'] .stepMark { border-color: var(--dsw-alias-state-error-primary); }
+.step[data-state='failed'] .stepMark { border-color: var(--lf-tone-danger-dot); }
 
 /* a stopped Create: dot (LayerFS's words on hover), word and step, one action */
 .stopped {
@@ -865,7 +872,7 @@
   gap: 8px;
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .stoppedWord {
@@ -1046,13 +1053,13 @@
 }
 
 .why {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .pickError {
   flex-basis: 100%;
   margin: 0 0 8px 56px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   font-size: 12px;
 }
 
@@ -1085,7 +1092,7 @@
 
 /* A part that is not ready says what it misses in the warning ink. */
 .railStep:not([data-ready]) .railSummary {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 /* Compact machine tiles (Storage's New Store): one row each, three to a row. */
@@ -1151,5 +1158,5 @@
   margin: 0;
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }

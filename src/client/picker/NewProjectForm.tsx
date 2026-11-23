@@ -5,7 +5,8 @@
  * Session project control; the caller decides whether to wait for the Init job.
  */
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
-import { Button, Input, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../api.ts'
 import { Field, MenuSelect } from '../ui/index.tsx'
 import type { PickerKey } from './locale.ts'
@@ -166,7 +167,7 @@ export function NewProjectForm({ api, t, scratchKey, withSource, optionalSource 
   )
   const back = <Button variant={dialog ? 'outline' : 'ghost'} type="button" disabled={busy} onClick={onBack}>{backLabel ?? t('back')}</Button>
   const create = (
-    <Button variant="primary" type="submit" form={formId} disabled={!valid} aria-busy={busy} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}>
+    <Button variant="primary" type="submit" form={formId} disabled={!valid} aria-busy={busy} icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined}>
       {busy ? t('creating') : withSource ? t('import') : t('create')}
     </Button>
   )

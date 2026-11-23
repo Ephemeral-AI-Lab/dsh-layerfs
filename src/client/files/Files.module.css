@@ -305,7 +305,7 @@
 }
 
 .treeError {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .linkButton {

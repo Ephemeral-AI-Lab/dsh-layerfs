@@ -60,7 +60,7 @@
 }
 
 .dangerText {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 
@@ -135,11 +135,11 @@
 }
 
 .tileValue[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .tileValue[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .tileSub {
@@ -372,10 +372,10 @@
 
 /* one hue per project (share blocks and card lines) */
 [data-hue='0'] { --hue: var(--dsw-alias-link); }
-[data-hue='1'] { --hue: var(--dsw-alias-state-success-primary); }
+[data-hue='1'] { --hue: var(--lf-tone-success-dot); }
 [data-hue='2'] { --hue: var(--dsw-alias-state-business-primary); }
-[data-hue='3'] { --hue: var(--dsw-alias-state-warn-primary); }
-[data-hue='4'] { --hue: var(--dsw-alias-state-error-primary); }
+[data-hue='3'] { --hue: var(--lf-tone-warning-dot); }
+[data-hue='4'] { --hue: var(--lf-tone-danger-dot); }
 [data-hue='5'] { --hue: var(--dsw-alias-label-secondary); }
 [data-hue='rest'] { --hue: var(--dsw-alias-border-l3); }
 
@@ -432,12 +432,14 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--dsw-alias-state-success-primary);
+  corner-shape: round;
+  background: var(--lf-tone-success-dot);
+  box-shadow: var(--lf-tone-success-halo);
 }
 
-.health li[data-tone='warning'] > i { background: var(--dsw-alias-state-warn-primary); }
-.health li[data-tone='danger'] > i { background: var(--dsw-alias-state-error-primary); }
-.health li[data-tone='info'] > i { background: var(--dsw-alias-border-l3); }
+.health li[data-tone='warning'] > i { background: var(--lf-tone-warning-dot); box-shadow: var(--lf-tone-warning-halo); }
+.health li[data-tone='danger'] > i { background: var(--lf-tone-danger-dot); box-shadow: var(--lf-tone-danger-halo); }
+.health li[data-tone='info'] > i { background: var(--dsw-alias-border-l3); box-shadow: none; }
 
 .healthLabel {
   flex: none;
@@ -669,10 +671,11 @@
   gap: 4px;
   padding: 0 7px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+  corner-shape: round;
+  background: var(--lf-tone-success-bg);
   font-size: 11px;
   line-height: 16px;
-  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary));
+  color: var(--lf-tone-success-fg);
   white-space: nowrap;
 }
 
@@ -680,6 +683,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  corner-shape: round;
   background: currentColor;
 }
 
@@ -693,7 +697,7 @@
 }
 
 .linkCard[data-tone='danger'] {
-  border-color: var(--dsw-alias-state-error-primary);
+  border-color: var(--lf-tone-danger-border);
 }
 
 .linkHead {
@@ -718,6 +722,7 @@
 .statePill {
   padding: 1px 8px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--dsw-alias-settings-card-fill);
   font-size: 11px;
   color: var(--dsw-alias-label-secondary);
@@ -730,18 +735,18 @@
 }
 
 .statePill[data-tone='ok'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
-  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary));
+  background: var(--lf-tone-success-bg);
+  color: var(--lf-tone-success-fg);
 }
 
 .statePill[data-tone='warning'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 16%, transparent);
-  color: var(--dsw-alias-state-warn-label);
+  background: var(--lf-tone-warning-bg);
+  color: var(--lf-tone-warning-fg);
 }
 
 .statePill[data-tone='danger'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
-  color: var(--dsw-alias-state-error-primary);
+  background: var(--lf-tone-danger-bg);
+  color: var(--lf-tone-danger-fg);
 }
 
 .linkFacts {
@@ -852,6 +857,7 @@
 .connTag {
   padding: 0 6px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--dsw-alias-bg-module-platform);
   font-size: 11px;
   line-height: 18px;

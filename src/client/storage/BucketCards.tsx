@@ -17,7 +17,8 @@
  * LayerFS's backup.list skips every other object, so nothing is filtered here.
  */
 import { useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MoreMenu } from '../ui/index.tsx'
@@ -158,7 +159,7 @@ function BucketCard({ b, view, t, now, jobs, listing, onOpen, onList, onReconnec
       <div className={css.files}>
         {running.map((j) => <div key={j.id} className={css.job}><JobLine job={j} t={t} label={`${j.store} · ${doingWords(j, t)}`} /></div>)}
         {listing && (!listed || (failed && files.length === 0)) ? (
-          <p className={css.none}><StateDot state="ongoing" size={11} /><span>{t('bucketListing')}</span></p>
+          <p className={css.none}><StatusDot state="ongoing" size={11} /><span>{t('bucketListing')}</span></p>
         ) : failed && files.length === 0 ? (
           <p className={css.none}>{t('bcFilesUnknown')} · {again
             ? <button type="button" className={css.inline} data-reconnect={b.name} onClick={() => onReconnect(again)}>{t('connectAgain')}</button>

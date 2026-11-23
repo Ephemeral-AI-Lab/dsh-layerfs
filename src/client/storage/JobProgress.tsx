@@ -1,6 +1,7 @@
 /** A Storage job on its Store: what it does, its step, bytes and a bar; how it ended, with Retry and Dismiss. */
 import { useContext, type ReactNode } from 'react'
-import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import type { StorageT } from './locale.ts'
@@ -54,7 +55,7 @@ function JobPanelView({ job: j, t, compact, onRetry, onDismiss, sandboxes, onOpe
   return (
     <div className={css.job} data-state={running ? 'running' : failed ? 'failed' : 'done'} data-compact={compact || undefined} role="status">
       <div className={css.jobLine}>
-        <StateDot state={running ? 'ongoing' : failed ? 'error' : 'done'} size={running ? 13 : 10} />
+        <StatusDot state={running ? 'ongoing' : failed ? 'error' : 'done'} size={running ? 13 : 10} />
         {/* how it ended is the word; what holds the Store, LayerFS's code, words and fix are its tip (UI pass 3 F10: no raw refusal under it) */}
         <span className={css.jobTitle} title={tip ?? (compact ? label : undefined)}>{label}</span>
         {running && !compact ? <span className={css.jobMeta}>{stepText}</span> : null}
@@ -83,7 +84,7 @@ export function OpPanel({ store, t, compact }: { store: StoreRow, t: StorageT, c
   return (
     <div className={css.job} data-state="running" data-compact={compact || undefined} role="status">
       <div className={css.jobLine}>
-        <StateDot state="ongoing" size={compact ? 11 : 13} />
+        <StatusDot state="ongoing" size={compact ? 11 : 13} />
         <span className={css.jobTitle} title={label}>{label}</span>
       </div>
     </div>
@@ -96,7 +97,7 @@ export function JobList({ jobs, t, now }: { jobs: readonly StorageJob[], t: Stor
     <ul className={css.rows}>
       {jobs.map((j) => (
         <li key={j.id} className={css.row}>
-          <StateDot state={!j.ended ? 'ongoing' : j.error ? 'error' : 'done'} size={!j.ended ? 13 : 10} />
+          <StatusDot state={!j.ended ? 'ongoing' : j.error ? 'error' : 'done'} size={!j.ended ? 13 : 10} />
           <span className={css.rowMain}>
             <span className={css.rowTitle}>{j.ended ? endedWords(j, t, bytes) : doingWords(j, t)}</span>
             <span className={css.rowSub}>{kindWords(j.kind, t)} {j.target} · {ago(j.ended ?? j.started, now, t as Translate)}</span>

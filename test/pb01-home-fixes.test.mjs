@@ -165,7 +165,7 @@ test('P0-1 (Option A): opt-in Signal dot renders StateDot + full HoverCard body 
     assert.equal(appAction, undefined, `expected no action button for unavailable docker (${lang})`)
     const appHtml = renderToStaticMarkup(createElement(M.Signal, { dot: true, state: appTrouble.state, title: appTrouble.reason, detail: appTrouble.detail, action: appAction }))
     assert.match(appHtml, /data-dot=""/, `opt-in dot Signal must carry data-dot (${lang})`)
-    assert.match(appHtml, /data-primitive="StateDot" data-state="warning"/, `app Signal must render warning StateDot (${lang})`)
+    assert.match(appHtml, /StatusDot_dot[^"]*" data-state="warning"/, `app Signal must render warning StatusDot (${lang})`)
     const appHoverBody = appHtml.slice(appHtml.indexOf('data-hovercard-content'))
     const expectedAppReason = lang === 'zh' ? 'docker 现在无法在这台电脑上运行。' : 'docker can’t run on this computer now.'
     assert.ok(appHoverBody.includes(expectedAppReason), `HoverCard body itself must contain full reason (${lang})`)
@@ -184,7 +184,7 @@ test('P0-1 (Option A): opt-in Signal dot renders StateDot + full HoverCard body 
     }
     const webHtml = renderToStaticMarkup(createElement(M.FixContext.Provider, { value: runner }, createElement(M.Signal, { dot: true, state: webTrouble.state, title: webTrouble.reason, detail: webTrouble.detail, action: webAction })))
     assert.match(webHtml, /data-dot=""/)
-    assert.match(webHtml, /data-primitive="StateDot" data-state="error"/, `web Signal must render error StateDot (${lang})`)
+    assert.match(webHtml, /StatusDot_dot[^"]*" data-state="error"/, `web Signal must render error StatusDot (${lang})`)
     const webHoverBody = webHtml.slice(webHtml.indexOf('data-hovercard-content'))
     assert.ok(webHoverBody.includes('Store header unreadable'))
     const expectedFix = lang === 'zh' ? '压缩 broken-store' : 'Compact broken-store'
@@ -249,8 +249,8 @@ test('P0-3: MachineStores shows broken red dot and amber stale backup dot while 
     onConnect: () => {},
   }))
 
-  const statusDots = [...html.matchAll(/data-primitive="StateDot" data-state="([^"]+)"/g)].map((m) => m[1])
-  assert.deepEqual(statusDots, ['error'], 'only broken StoreStatus renders a StateDot; stopped machine alpha-store has none')
+  const statusDots = [...html.matchAll(/StatusDot_dot[^"]*" data-state="([^"]+)"/g)].map((m) => m[1])
+  assert.deepEqual(statusDots, ['error'], 'only broken StoreStatus renders a StatusDot; stopped machine alpha-store has none')
 
   assert.match(html, /data-health="stale"/, 'backup behind: true keeps amber stale health dot')
   const alphaMachineHtml = renderToStaticMarkup(createElement(M.MachineLine, { s: troubleView.stores[0], view: troubleView, t, on: noopStoreActions() }))

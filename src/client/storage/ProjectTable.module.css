@@ -172,20 +172,22 @@
   align-items: center;
   gap: 5px;
   padding: 0 7px;
-  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 24%, transparent);
+  border: 0.5px solid var(--lf-tone-success-border);
   border-radius: 999px;
-  background: var(--dsw-alias-state-success-bg, color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent));
+  corner-shape: round;
+  background: var(--lf-tone-success-bg);
   font-size: 11px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary));
+  color: var(--lf-tone-success-fg);
   white-space: nowrap;
 }
 
 .runningPill i {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
+  corner-shape: round;
   background: currentColor;
 }
 
@@ -415,7 +417,7 @@
   margin: 0 0 4px;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .lines {
@@ -492,11 +494,11 @@
 }
 
 .lineState[data-tone='success'] {
-  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary));
+  color: var(--lf-tone-success-fg);
 }
 
 .lineState[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 
 .machine {

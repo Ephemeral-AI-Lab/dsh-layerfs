@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, Checkbox, Input, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Contained, Field, Refusal, type RefusalLabels } from './index.tsx'
+import { Button, Checkbox, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Contained, DangerButton, Field, Refusal, StatusDot, toneScope, type RefusalLabels } from './index.tsx'
 import css from './ui.module.css'
 
 export interface ConfirmForce {
@@ -66,23 +66,34 @@ export function ConfirmDialog({
         title={title}
         description={body}
         closeLabel={labels.close}
-        className={clsx(css.confirmModal, busy && css.confirmModalBusy)}
+        className={clsx(toneScope, css.confirmModal, busy && css.confirmModalBusy)}
         footer={(
           <div className={css.confirmFooter}>
             <Button variant="outline" disabled={busy} data-modal-autofocus={!name ? '' : undefined} onClick={onClose}>
               {labels.cancel}
             </Button>
-            <Button
-              variant="primary"
-              className={!plain ? css.dangerPrimary : undefined}
-              disabled={!valid || busy}
-              aria-busy={busy || undefined}
-              data-fid={actionFid}
-              icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}
-              onClick={() => { void go() }}
-            >
-              {on ? force.action : action}
-            </Button>
+            {plain ? (
+              <Button
+                variant="primary"
+                disabled={!valid || busy}
+                aria-busy={busy || undefined}
+                data-fid={actionFid}
+                icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined}
+                onClick={() => { void go() }}
+              >
+                {on ? force.action : action}
+              </Button>
+            ) : (
+              <DangerButton
+                disabled={!valid || busy}
+                aria-busy={busy || undefined}
+                data-fid={actionFid}
+                icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined}
+                onClick={() => { void go() }}
+              >
+                {on ? force.action : action}
+              </DangerButton>
+            )}
           </div>
         )}
       >

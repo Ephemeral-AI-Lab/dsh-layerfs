@@ -17,7 +17,7 @@
 .errorText {
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   /* a long digest or path breaks instead of pushing the dialog wider */
   overflow-wrap: anywhere;
 }
@@ -133,7 +133,7 @@
 
 .runtimeBody > [role='alert'] {
   padding: 12px 16px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* Runtime values are mostly long paths: start-aligned they wrap as a readable
@@ -171,7 +171,7 @@
 }
 
 .rows td[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+  color: var(--lf-tone-warning-fg);
 }
 
 .tableCard {
@@ -227,7 +227,7 @@
 
 .zoneTitle {
   font-weight: 500;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* ---------- dialogs and forms ---------- */
@@ -270,21 +270,6 @@
 
 .footerSpacer {
   flex: 1;
-}
-
-.danger {
-  background: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-label-primary-inverted);
-}
-
-@media (hover: hover) {
-  .danger:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 88%, var(--dsw-alias-label-primary));
-  }
-}
-
-.dangerOutline {
-  color: var(--dsw-alias-state-error-primary);
 }
 
 .fieldset {
@@ -348,7 +333,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+  color: var(--lf-tone-warning-fg);
 }
 
 .platformMark {
@@ -510,7 +495,7 @@
 
 .progress[data-status='failed'],
 .progress[data-status='uncertain'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+  background: var(--lf-tone-danger-bg);
 }
 
 .progressHead {
@@ -528,12 +513,12 @@
 }
 
 .progress[data-status='success'] .progressTitle {
-  color: var(--dsw-alias-state-success-primary);
+  color: var(--lf-tone-success-fg);
 }
 
 .progress[data-status='failed'] .progressTitle,
 .progress[data-status='uncertain'] .progressTitle {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .progressElapsed {
@@ -688,7 +673,7 @@
   gap: 12px;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+  color: var(--lf-tone-warning-fg);
 }
 
 .blockedHelp {
@@ -712,7 +697,7 @@
   margin: -4px 16px 12px 42px;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .blockReasonText {
@@ -912,7 +897,7 @@
 }
 
 .line[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .line:focus-visible {
@@ -1175,7 +1160,7 @@
 
 .creatingFailed {
   min-width: 0;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   overflow: hidden;
   font-size: 12px;
   text-overflow: ellipsis;
@@ -1306,13 +1291,21 @@
   gap: 6px;
   max-width: 100%;
   padding: 0;
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: var(--lf-glow-room);
   border: 0;
   background: none;
   color: var(--dsw-alias-label-primary);
   font: inherit;
   text-align: start;
   cursor: pointer;
+}
+
+.mxRowName > :last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mxRowName:focus-visible {
@@ -1335,7 +1328,7 @@
 }
 
 .mxDanger {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   font-weight: 500;
 }
 
@@ -1420,13 +1413,13 @@
   white-space: nowrap;
 }
 .spaceChip[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 .spaceChip[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 .spaceHint {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
   font-size: 12px;
   line-height: 18px;
 }
@@ -1494,7 +1487,7 @@
   cursor: pointer;
 }
 .spaceGone {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1547,6 +1540,7 @@
   padding: 0 10px;
   border: 0.5px solid transparent;
   border-radius: 999px;
+  corner-shape: round;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font: inherit;
@@ -1559,7 +1553,7 @@
   color: var(--dsw-alias-label-primary);
 }
 .sbFilter[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 .sbFilter:focus-visible {
   outline: var(--dsw-focus-ring-width) solid var(--dsw-alias-link);
@@ -1607,7 +1601,7 @@
   min-height: 24px;
 }
 .sbCard[data-tone='warning'] .sbCardHead .mxRowName {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 .sbCardSub {
   margin: 0;
@@ -1640,7 +1634,7 @@
   gap: 10px;
   padding: 8px 10px;
   border-radius: var(--dsw-radius-m, 8px);
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
+  background: var(--lf-tone-warning-bg);
   font-size: 12.5px;
   line-height: 18px;
 }
@@ -1689,6 +1683,7 @@
   height: 4px;
   overflow: hidden;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--dsw-alias-bg-module-platform);
 }
 .sbBarSeg {
@@ -1746,10 +1741,11 @@
   gap: 5px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, transparent);
+  corner-shape: round;
+  background: var(--lf-tone-success-bg);
   font-size: 12px;
   line-height: 20px;
-  color: var(--dsw-alias-state-success-primary);
+  color: var(--lf-tone-success-fg);
 }
 
 .ovCols {
@@ -1977,11 +1973,11 @@
 }
 
 .dtItem[data-tone='success'] dd {
-  color: var(--dsw-alias-state-success-primary);
+  color: var(--lf-tone-success-fg);
 }
 
 .dtItem[data-tone='danger'] dd {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .dtItem[data-tone='muted'] dd {
@@ -2291,10 +2287,10 @@
 }
 /* one hue per repository (badge, bar segment, legend swatch); the bundle and "everything else" have their own */
 [data-hue='0'] { --img-hue: var(--dsw-alias-link); }
-[data-hue='1'] { --img-hue: var(--dsw-alias-state-success-primary); }
+[data-hue='1'] { --img-hue: var(--lf-tone-success-dot); }
 [data-hue='2'] { --img-hue: var(--dsw-alias-state-business-primary); }
-[data-hue='3'] { --img-hue: var(--dsw-alias-state-warn-primary); }
-[data-hue='4'] { --img-hue: var(--dsw-alias-state-error-primary); }
+[data-hue='3'] { --img-hue: var(--lf-tone-warning-dot); }
+[data-hue='4'] { --img-hue: var(--lf-tone-danger-dot); }
 [data-hue='5'] { --img-hue: var(--dsw-alias-label-secondary); }
 [data-hue='bundle'] { --img-hue: var(--dsw-alias-link); }
 [data-hue='off'] { --img-hue: var(--dsw-alias-label-tertiary); }
@@ -2357,7 +2353,7 @@
   color: var(--dsw-alias-label-tertiary);
 }
 .imgWarn {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 .imgStored {
   display: flex;
@@ -2407,6 +2403,7 @@
   flex: none;
   padding: 1px 8px;
   border-radius: 999px;
+  corner-shape: round;
   background: color-mix(in srgb, var(--dsw-alias-link) 12%, transparent);
   color: var(--dsw-alias-link);
   font-size: 11px;
@@ -2440,7 +2437,7 @@
   color: var(--dsw-alias-label-secondary);
 }
 .imgRemove:hover {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 .imgStoredFoot p {
   margin: 0;
@@ -2522,6 +2519,7 @@
 .imgPercent {
   padding: 1px 8px;
   border-radius: 999px;
+  corner-shape: round;
   background: color-mix(in srgb, var(--dsw-alias-link) 12%, transparent);
   color: var(--dsw-alias-link);
   font-size: 11px;
@@ -2620,7 +2618,7 @@
 }
 
 .ovValue[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .sbovNote {
@@ -2683,7 +2681,7 @@
 
 .sbovBar > span[data-part='files'],
 .sbovKey[data-part='files'] {
-  background: var(--dsw-alias-state-success-primary);
+  background: var(--lf-tone-success-dot);
 }
 
 .sbovBar > span[data-part='runtime'],
@@ -2714,11 +2712,11 @@
 }
 
 .sbovTone[data-tone='success'] {
-  color: var(--dsw-alias-state-success-primary);
+  color: var(--lf-tone-success-fg);
 }
 
 .sbovTone[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .sbovSlots {
@@ -2731,7 +2729,7 @@
   width: 10px;
   height: 10px;
   border-radius: 3px;
-  background: var(--dsw-alias-state-success-primary);
+  background: var(--lf-tone-success-dot);
 }
 
 .sbovSlots > i[data-used] {
@@ -2746,7 +2744,7 @@
 }
 
 .sbovLine[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 
 .sbovHead {
@@ -2937,11 +2935,11 @@
 }
 
 .cellText[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 
 .cellText[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* An open row's lists, at full length (no scroll box of their own). */
@@ -2995,7 +2993,7 @@
 }
 
 .roomWarn {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .vmMore {
@@ -3067,6 +3065,7 @@
   margin-top: 2px;
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: 50%;
+  corner-shape: round;
 }
 
 .socketRow[aria-checked='true'] .socketRadio {

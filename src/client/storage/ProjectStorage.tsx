@@ -7,7 +7,8 @@
  * the totals counted so far (`partial`) as they grow.
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
@@ -105,7 +106,7 @@ export function ProjectStorage({ api, t, project, tick, onOpenStore, hero = true
       ) : null}
       <footer className={css.footer}>
         <span>{view.updatedAt ? t('psCounted', { ago: ago(view.updatedAt, Date.now(), t as Translate) }) : t('psCountedNever')}</span>
-        <Button variant="outline" size="sm" disabled={!!building} icon={building ? <StateDot state="ongoing" size={13} /> : undefined} onClick={recount}>
+        <Button variant="outline" size="sm" disabled={!!building} icon={building ? <StatusDot state="ongoing" size={13} /> : undefined} onClick={recount}>
           {building ? t('psCounting') : t('psRecount')}
         </Button>
       </footer>
@@ -117,7 +118,7 @@ function Progress({ t, building, first }: { t: StorageT, building: NonNullable<P
   const pct = building.branchesTotal > 0 ? Math.round(building.branches / building.branchesTotal * 100) : 0
   return (
     <div className={css.progress} role="status">
-      <div><StateDot state="ongoing" size={13} /><span>{first ? t('psReadingFirst') : t('psReadingUpdate')}</span></div>
+      <div><StatusDot state="ongoing" size={13} /><span>{first ? t('psReadingFirst') : t('psReadingUpdate')}</span></div>
       <div className={css.track}><span style={{ width: `${pct}%` }} /></div>
       <span>{t('psReadingCounts', { branches: exactCount(building.branches), total: exactCount(building.branchesTotal), saves: exactCount(building.saves) })}</span>
     </div>

@@ -23,6 +23,7 @@ import { registerSimulation } from './simulation/index.tsx'
 import { registerViews } from './views/index.tsx'
 import { registerSetup } from './setup/index.tsx'
 import { syncLocale } from './ui/locale-sync.ts'
+import './ui/tones.module.css'
 
 export const inject = ['slots', 'locale', 'remote', 'layout']
 

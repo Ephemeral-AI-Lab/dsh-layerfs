@@ -57,7 +57,7 @@
 }
 
 .warn {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .empty {

@@ -5,7 +5,8 @@
  * gives LayerFS that file's reference.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Input, SegmentedControl, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc, type LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
@@ -248,7 +249,7 @@ function NewStoreDialog({ api, t, view, opened, initialPane, onClose, done, onDi
                 <MenuSelect value={bucket} label={t('bucket')} placeholder={t('chooseBucket')} className={css.grow}
                   options={buckets.map((b) => ({ value: b.name, label: b.name }))} onChange={(v) => { setBucket(v); setPickedFile(null); setListError(null) }} />
                 <Button variant="outline" size="sm" disabled={!bucket || listing} onClick={() => { void list() }}
-                  icon={listing ? <StateDot state="ongoing" size={13} /> : undefined}>{chosen?.files !== null ? t('listAgain') : t('listBucket')}</Button>
+                  icon={listing ? <StatusDot state="ongoing" size={13} /> : undefined}>{chosen?.files !== null ? t('listAgain') : t('listBucket')}</Button>
               </div>
             </Field>
             {activeError ? (
@@ -441,7 +442,7 @@ function RotateLoginDialog({ api, t, view, auth, onClose, done }: {
             return (
               <li key={c.store} className={css.rotateCheck} data-store={c.store} data-ok={c.ok || undefined} data-failed={!c.ok || undefined}>
                 <div className={css.rotateCheckHead}>
-                  <StateDot state={!c.ok ? 'error' : c.partial ? 'warning' : 'done'} size={9} />
+                  <StatusDot state={!c.ok ? 'error' : c.partial ? 'warning' : 'done'} size={9} />
                   <span className={css.rotateStore}>{c.store}</span>
                   <span className={css.rotateVerdict} data-tone={verdictTone}>{verdict}</span>
                 </div>
@@ -520,7 +521,7 @@ function NewProjectDialog({ api, t, store, onClose, done }: { api: LayerfsApi, t
       <TextField label={t('sourceFolder')} value={source} onChange={setSource} mono placeholder="/Users/me/code/my-project" hint={t('sourceFolderHint')} error={sourceError} />
       {job && !job.ended ? (
         <p className={css.progressLine} role="status">
-          <StateDot state="ongoing" size={13} />
+          <StatusDot state="ongoing" size={13} />
           {t('creating', { name: job.name, step: job.step })}
           {job.progress?.files != null ? ` · ${t('creatingCounts', { files: job.progress.files, bytes: bytes(job.progress.bytes ?? null) })}` : ''}
         </p>
@@ -776,7 +777,7 @@ function RestoreDialog({ api, t, dialog, view, onClose, done }: { api: LayerfsAp
       ) : null}
       {linked && (!listed || !!bucketRow?.error) ? (
         <Button type="button" variant="outline" size="sm" className={css.selfStart} disabled={listing}
-          icon={listing ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => { void listNow() }}>
+          icon={listing ? <StatusDot state="ongoing" size={12} /> : undefined} onClick={() => { void listNow() }}>
           {bucketRow?.error ? t('listAgain') : t('listBucket')}
         </Button>
       ) : null}

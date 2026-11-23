@@ -34,7 +34,8 @@
  */
 import { createPortal } from 'react-dom'
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
@@ -501,7 +502,7 @@ function StoreStatus({ s, t, words, onStart, machineState }: { s: StoreRow, t: S
   const tone = storeNoticeTone(s, machineState)
   return (
     <div className={css.statusRow} data-tone={tone}>
-      {tone === 'danger' ? <StateDot state="error" size={8} /> : null}
+      {tone === 'danger' ? <StatusDot state="error" size={8} /> : null}
       <span className={css.statusText} title={tip}>{words}</span>
       <StoreAction store={s} t={t} onStart={onStart} machineState={machineState} />
     </div>
@@ -580,7 +581,7 @@ function PgGroups(props: CardProps & { stores: StoreRow[] }): ReactNode {
               {facts ? <span className={css.pgServerFacts}>{facts}</span> : null}
               {impact ? <span className={css.pgServerImpact} data-cross-machine={offMachine || undefined}>{impact}</span> : null}
               <span className={css.check} data-state={state === 'broken' ? 'failed' : undefined}>
-                <span className={css.dot} data-health={healthOf(state)} />{failed.length ? t('pgLoginNotReached') : storeStateWords(g.state, t)}
+                <span className={css.dot} data-health={healthOf(state)} /><span className={css.checkText}>{failed.length ? t('pgLoginNotReached') : storeStateWords(g.state, t)}</span>
               </span>
               {g.auth && loginActions ? (
                 <span className={css.pgServerAdd}>
@@ -614,7 +615,7 @@ function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, lo
   const reachKind = firstFailed ? pgReachKind(firstFailed.reach?.error) : null
   const reachStatus = firstFailed ? (
     <div className={css.statusRow} data-tone="danger">
-      <StateDot state="error" size={8} />
+      <StatusDot state="error" size={8} />
       <span className={css.statusText} title={firstFailed.reach?.error ?? undefined}>{pgReachWord(firstFailed.reach?.error, t)}</span>
       {reachKind === 'login' && s.postgresql?.auth && loginActions ? (
         <Button size="sm" variant="outline" onClick={() => loginActions.rotate(s.postgresql!.auth!)}>{t('pgRotate')}</Button>

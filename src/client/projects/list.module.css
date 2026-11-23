@@ -136,7 +136,7 @@
 }
 
 .whyError {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* Trailing actions: ⚙ and + are transparent at rest and pulled over the title's
@@ -274,7 +274,7 @@
   flex: none;
   font-size: 12px;
   line-height: 16px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* Notices (no sessions, loading, errors) start where titles start. */

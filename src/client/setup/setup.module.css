@@ -38,7 +38,7 @@
 }
 
 .lineSub[data-blocked] {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .lineActions {
@@ -99,7 +99,7 @@
 
 .verdict[data-verdict='other'],
 .verdict[data-verdict='missing'] {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .verdict[data-verdict='unknown'],
@@ -133,7 +133,7 @@
   margin: 0;
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* ---------- the runtime picker ---------- */
@@ -250,7 +250,7 @@
 }
 
 .warning[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 /* ---------- the modal: one column ---------- */
@@ -293,7 +293,7 @@
 .sectionState {
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
   text-align: right;
 }
 
@@ -375,7 +375,7 @@
 }
 
 .rowState[data-warn] {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .rowAction {
@@ -392,7 +392,7 @@
 }
 
 .rowNote[data-warn] {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 /* a line under a row, aligned with its text, with one action */

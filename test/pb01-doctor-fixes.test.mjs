@@ -227,7 +227,7 @@ test('P0-4 (Option A): header separates stopped count from OK, Partial/Stopped r
     assert.ok(!dockerRowHtml.includes(`>${t('dpWordStopped')}</span><span`), '.more should omit redundant stopped word')
     const marksSlice = dockerRowHtml.slice(dockerRowHtml.indexOf('data-fid="marks:machine:docker"'))
     const marksBtn = marksSlice.slice(0, marksSlice.indexOf('</button>'))
-    assert.equal((marksBtn.match(/data-primitive="StateDot" data-state="done"/g) ?? []).length, 5, 'Option A keeps 5 static ok marks on stopped docker row')
+    assert.equal((marksBtn.match(/StatusDot_dot[^"]*" data-state="done"/g) ?? []).length, 5, 'Option A keeps 5 static ok marks on stopped docker row')
     assert.match(dockerRowHtml, new RegExp(`data-variant="outline"[^>]*data-fid="fix:machine:docker"[^>]*>[^<]*${t('dpFixStart')}<`))
     assert.match(dockerRowHtml, new RegExp(`data-variant="outline"[^>]*data-fid="check:machine:docker"[^>]*>[^<]*${t('dpCheck')}<`))
   }
