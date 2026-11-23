@@ -1289,6 +1289,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0; /* overflow: clip makes no scroll container, so the flex item would not shrink below its name */
   max-width: 100%;
   padding: 0;
   overflow: clip;

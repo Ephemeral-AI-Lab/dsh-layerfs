@@ -119,9 +119,11 @@ export function pgStoreFailure(store: StoreRow | undefined): SessionFailure | nu
 }
 
 /** Infer a SessionFailure from a raw/legacy error string when structured `failure` is absent. */
-export function inferSessionFailure(raw: string | null | undefined, store?: string | null, storeRow?: StoreRow): SessionFailure | null {
+export function inferSessionFailure(raw: string | null | undefined, store?: string | null, storeRow?: StoreRow, kind?: string | null): SessionFailure | null {
   const text = (raw ?? '').trim()
-  const allowPg = !storeRow || storeRow.kind === 'postgresql'
+  // PostgreSQL wording only for a PostgreSQL Store, or one of unknown kind (neither its row nor its kind given)
+  const storeKind = storeRow?.kind ?? kind
+  const allowPg = !storeKind || storeKind === 'postgresql'
   if (text) {
     if (allowPg) {
       const kind = classifyPgFailure(undefined, text)
@@ -148,8 +150,10 @@ export function formatSessionFailure(
   t: SessionFailureT,
   fallbackStore?: string,
   storeRow?: StoreRow,
+  /** The Store's kind where its row is not at hand (a project table row). */
+  kind?: string | null,
 ): LocalizedFailure | null {
-  const f = failure ?? inferSessionFailure(rawError, fallbackStore, storeRow)
+  const f = failure ?? inferSessionFailure(rawError, fallbackStore, storeRow, kind)
   if (!f) return null
   const store = f.store || fallbackStore || storeRow?.name || '?'
   const machine = f.machine || '?'

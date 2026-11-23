@@ -27,6 +27,11 @@ export const hasPgUrlLogin = (raw: string): boolean => {
   return !!s && PG_URL_LOGIN.test(withPgScheme(s))
 }
 
+/** One POSIX shell word: bare when it holds only safe characters, else single-quoted. */
+export function shellWord(value: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
+}
+
 /**
  * LayerFS's fix for a URL that names a login (V23-13): save the login apart,
  * then connect the address without it. When `machine` is set (own address),
@@ -45,9 +50,10 @@ export function loginInUrlFix(url: string, store: string, opts?: { machine?: str
   } catch {
     return ''
   }
-  const target = store || '<store>'
-  if (opts?.machine) return `layerfs store connect ${target} ${address} --machine ${opts.machine}`
-  return `layerfs store save-auth <auth> --user ${user || '<user>'} --password-stdin && layerfs store connect ${target} ${address} --auth <auth>`
+  // every value is quoted for the shell (as LayerFS's shell_word does): a URL's `&` or a user's `;` must stay one word
+  const target = store ? shellWord(store) : '<store>'
+  if (opts?.machine) return `layerfs store connect ${target} ${shellWord(address)} --machine ${shellWord(opts.machine)}`
+  return `layerfs store save-auth <auth> --user ${user ? shellWord(user) : '<user>'} --password-stdin && layerfs store connect ${target} ${shellWord(address)} --auth <auth>`
 }
 
 /** Whether `raw` points at `localhost` on Linux without an explicit `hostaddr=` (PG-CONN-REVIEW E5). */

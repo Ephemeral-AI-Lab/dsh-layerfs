@@ -111,8 +111,15 @@ export function SandboxMenu({ name, op, closing, onOpen, onDeleted }: { name: st
           action={t(confirm === 'force' ? 'forceDeleteAction' : 'deleteAction')}
           labels={{ cancel: t('cancel'), close: t('close'), refusal }}
           run={async () => {
-            const ok = await close(confirm === 'force', { rethrow: true })
-            if (ok) onDeleted?.()
+            try {
+              const ok = await close(confirm === 'force', { rethrow: true })
+              if (ok) onDeleted?.()
+            } catch (e) {
+              // an Unknown outcome is not a refusal to show here: the delete may have run, so the dialog closes and
+              // the card offers Read (a second press in the dialog would only have read, and closed as if deleted)
+              if ((e as { code?: string } | null)?.code === 'Unknown') { setConfirm(null); return }
+              throw e
+            }
           }}
         />
       )}

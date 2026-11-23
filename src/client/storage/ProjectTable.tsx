@@ -438,7 +438,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
         <div className={css.detail} id={detailId}>
           <div className={css.panel}>
             {open === 'sessions'
-              ? <SessionList api={api} project={key} t={t} other={boxes.length} onSwitch={() => onSetOpen('sandboxes')} down={sessionsUnavailable(store)} />
+              ? <SessionList api={api} project={key} kind={store.kind} t={t} other={boxes.length} onSwitch={() => onSetOpen('sandboxes')} down={sessionsUnavailable(store)} />
               : <SandboxList boxes={boxes} fleet={fleet} place={place} t={t} other={local?.length ?? null} onSwitch={() => onSetOpen('sessions')} onOpen={onOpen} />}
           </div>
         </div>
@@ -509,7 +509,7 @@ function SwapGlyph(): ReactNode {
 
 /** A project's sessions, newest first: this DSH's own and those only in the Store. */
 /** `down`: its Store is broken or blocked, so its sessions are listed but neither open nor start (owner Q-R3). */
-function SessionList({ api, project, t, other, onSwitch, down }: { api: LayerfsApi, project: string, t: StorageT, other: number, onSwitch: () => void, down: boolean }): ReactNode {
+function SessionList({ api, project, kind, t, other, onSwitch, down }: { api: LayerfsApi, project: string, kind: string, t: StorageT, other: number, onSwitch: () => void, down: boolean }): ReactNode {
   const { sessions, loading, error } = useProjectSessions(api, project)
   const [failed, setFailed] = useState<string | null>(null)
   const now = Date.now()
@@ -538,7 +538,8 @@ function SessionList({ api, project, t, other, onSwitch, down }: { api: LayerfsA
             {sessions.map((x) => {
               const look = state(x)
               const storeName = project.split('/')[0] ?? ''
-              const fail = x.executionState === 'interrupted' ? formatSessionFailure(x.failure, x.error, t, storeName) : null
+              // the Store's kind keeps SQLite errors out of the PostgreSQL wording
+              const fail = x.executionState === 'interrupted' ? formatSessionFailure(x.failure, x.error, t, storeName, undefined, kind) : null
               return (
                 <li key={x.sessionId}>
                   <button type="button" className={clsx(css.line, css.sessionLine)} disabled={down} onClick={() => openSession(x.sessionId)} data-session={x.sessionId}

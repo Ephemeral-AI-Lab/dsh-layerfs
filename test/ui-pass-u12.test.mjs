@@ -602,10 +602,13 @@ test('M2 (V23-13): Connect a database refuses a URL naming a login, with LayerFS
   assert.equal(M.PG_URL_LOGIN.test(base + '?sslkey=/k.pem'), false)
   assert.equal(M.PG_URL_LOGIN.test(base + '?sslmode=require'), false)
   assert.equal(M.loginInUrlFix('postgresql://app:pw@db:5432/orders?sslmode=require&passfile=/x', 'orders'),
-    'layerfs store save-auth <auth> --user app --password-stdin && layerfs store connect orders postgresql://db:5432/orders?sslmode=require --auth <auth>')
+    "layerfs store save-auth <auth> --user app --password-stdin && layerfs store connect orders 'postgresql://db:5432/orders?sslmode=require' --auth <auth>")
   assert.equal(M.loginInUrlFix(base + '?sslpassword=s&user=u', ''), `layerfs store save-auth <auth> --user u --password-stdin && layerfs store connect <store> ${base} --auth <auth>`)
   assert.equal(M.loginInUrlFix('postgresql://app:pw@10.0.0.5:5432/orders?sslmode=require', 'orders', { machine: 'docker' }),
-    'layerfs store connect orders postgresql://10.0.0.5:5432/orders?sslmode=require --machine docker')
+    'layerfs store connect orders \'postgresql://10.0.0.5:5432/orders?sslmode=require\' --machine docker')
+  // a URL's `&` and a user's `;` stay one shell word each (quoted), so a pasted fix runs one command
+  assert.equal(M.loginInUrlFix('postgresql://a%3Becho%20x:pw@db:5432/o?sslmode=require&connect_timeout=5', 'o'),
+    "layerfs store save-auth <auth> --user 'a;echo x' --password-stdin && layerfs store connect o 'postgresql://db:5432/o?sslmode=require&connect_timeout=5' --auth <auth>")
   const cd = src('src/client/storage/ConnectDatabase.tsx')
   assert.match(cd, /const loginInUrl = !server && hasPgUrlLogin\(url\)/)
   assert.match(cd, /const urlError = loginInUrl \? t\('cdLoginInUrl'\)/)

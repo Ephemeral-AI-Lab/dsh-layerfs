@@ -42,6 +42,12 @@ import css from './dialog.module.css'
 const PG_URL = /^postgres(?:ql)?:\/\//i
 const enc = encodeURIComponent
 
+/**
+ * A Store a new project can use: ready, or a SQLite Store LayerFS reports `blocked` because its machine is stopped
+ * or busy, which part 2 starts first (needsStart / StartFirst). A PostgreSQL Store must be ready.
+ */
+const storeUsable = (s: StoreRow): boolean => s.state === 'ready' || (s.kind === 'sqlite' && s.state === 'blocked')
+
 /** `/api/storage`, refreshed on storage and machine events. */
 export function useStorage(api: LayerfsApi) {
   const read = useQuery(() => api.call<StorageView>('GET', '/api/storage'), [api], { cache: 'GET /api/storage' })
@@ -362,7 +368,8 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     ? (loginInUrl ? t('urlLoginInUrl') : !PG_URL.test(url.trim()) ? t('urlInvalid') : null)
     : null
   // A new login is named for its server (spec v23 V23-12: pg-<host>-<port>), never the Store's name once a host is known.
-  const suggestedLoginName = pgServerLogin(parsedPg?.host ?? null) ?? chosenStoreName
+  // `host:port` with the default port filled in, as Connect database and the host name it (pg-<host>-5432)
+  const suggestedLoginName = pgServerLogin(pgServer) ?? chosenStoreName
   const newLoginName = loginName ?? (authNames.includes(suggestedLoginName) ? '' : suggestedLoginName)
   const login: PgLogin = pw.how === 'saved' ? { auth: pw.auth } : { authName: newLoginName, user: pw.user, password: pw.value }
   const loginProblem = kind === 'postgresql' && mode === 'new' ? pgLoginProblem(login, authNames) : null
@@ -372,7 +379,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const startWords = startWordsOf(t)
   const ok: Record<Part, boolean> = {
     0: NAME.test(slug) && !nameError && !folderError && (!importing || !!source.trim()),
-    1: mode === 'existing' ? !!existing && existing.state === 'ready' : NAME.test(chosenStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
+    1: mode === 'existing' ? !!existing && storeUsable(existing) : NAME.test(chosenStoreName) && !storeNameError && (kind === 'sqlite' || (!!url.trim() && !urlError && !loginProblem)),
     2: chosen.length > 0 && chosen.every((m) => offered.some((x) => x.name === m) && pickable(m, blocks)) && stopped.length === 0,
   }
   const valid = !!data && parts.every((i) => ok[i])
@@ -415,7 +422,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setStoreName(null); setPgChoice(null); setSqliteMachine(null); loginChose.current = false }
   const chooseMode = (next: StoreMode) => {
     setMode(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null)
-    if (next === 'existing' && !stores.some((s) => s.name === picked && s.state === 'ready')) setPicked(stores.find((s) => s.state === 'ready')?.name ?? null)
+    if (next === 'existing' && !stores.some((s) => s.name === picked && storeUsable(s))) setPicked(stores.find(storeUsable)?.name ?? null)
   }
   const head = <Head title={importing ? t('importTitle') : t('newTitle')} sub={importing ? t('importSub') : t('newSub')} t={t} back={running ? undefined : back} />
   if (!data) return <>{head}<div className={css.body}><Loading read={view} t={t} /></div></>
@@ -527,7 +534,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
               <div role="radiogroup" aria-label={t('store')}>
                 {listed.map((s) => {
                   const storeFail = kind === 'postgresql' ? formatSessionFailure(pgStoreFailure(s), null, t, s.name, s) : null
-                  const broken = s.state !== 'ready'
+                  const broken = !storeUsable(s)
                   return <div key={s.name} className={clsx(css.storeRowWrap, existing?.name === s.name && css.storeRowOn, broken && css.storeRowDisabled)}>
                     <button type="button" role="radio" aria-checked={existing?.name === s.name} disabled={broken}
                       className={css.storeRowBtn}

@@ -122,9 +122,14 @@ const skippedMachine = (n: any): string | null | undefined => {
   return undefined
 }
 
-const skippedConnection = (report: any, machine: string | null) =>
-  (Array.isArray(report?.not_checked) ? report.not_checked : [])
-    .find((n: any) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === machine)
+/**
+ * The not_checked entry for `machine`'s connection: one that names the machine (`from`, `blocked_by.machine`),
+ * else one that names none (a timeout, busy or lost check carries only its reason), never another machine's.
+ */
+const skippedConnection = (report: any, machine: string | null) => {
+  const entries = (Array.isArray(report?.not_checked) ? report.not_checked : []).filter((n: any) => n?.check === 'store.connection' || !n?.check)
+  return entries.find((n: any) => skippedMachine(n) === machine) ?? entries.find((n: any) => skippedMachine(n) === undefined)
+}
 
 /** A bucket URL from its parts: MinIO `<endpoint>/<bucket>/<prefix>`, R2 `r2://<account>/<bucket>/<prefix>[?jurisdiction=…]`. */
 export function bucketUrl({ provider, endpoint, account, jurisdiction, bucket, prefix }: any = {}): string {
@@ -732,7 +737,8 @@ export class Storage {
     if (!access || !secret || /\s/.test(access + secret)) throw refuse(400, 'InvalidInput', 'Give both the access key and the secret key (no spaces)')
     // the long form says what happened: `rotated` when the name was already connected at this URL (spec v21: the key is replaced, links kept)
     const answer: any = await this.lfs.backup.connect(name, url, { access_key: access, secret_key: secret, detail: true })
-    this.invalidateListing(name)
+    // a listing read with the old key is dropped; one that was running or asked for runs again with the new key
+    if (this.invalidateListing(name)) void this.listBucket(name).catch(() => {})
     // a connect that succeeded answers a remembered refusal ("key refused"): it is no longer the bucket's word,
     // with or without List again (RV4 NOTE 6); its last files stay until the next listing
     const prior = this.listings.get(name)
@@ -746,15 +752,17 @@ export class Storage {
   async disconnectBucket(name: string) {
     const done = await this.lfs.backup.disconnect(name, { detail: true })
     this.invalidateListing(name)
-    this.listingPending.delete(name)
     this.listings.delete(name)
     this.changed()
     return { unlinked: done?.unlinked ?? [], view: await this.view() }
   }
 
-  private invalidateListing(name: string) {
+  /** Drops the bucket's running listing (its answer is discarded) and any relist queued behind it; answers whether there was one. */
+  private invalidateListing(name: string): boolean {
     this.listingEpoch.set(name, (this.listingEpoch.get(name) ?? 0) + 1)
-    this.listingInFlight.delete(name)
+    const running = this.listingInFlight.delete(name)
+    const queued = this.listingPending.delete(name)
+    return running || queued
   }
 
   /**
@@ -969,7 +977,8 @@ export class Storage {
     checkName(store, 'A backup')
     checkName(bucket, 'A backup')
     const record: any = await this.lfs.store.get(store, { detail: true })
-    const linked = record?.backups?.[bucket]?.file
+    // `store get --detail` answers `backups` as a list of links ({ bucket, file, … }), as `storeRow` reads it
+    const linked = (Array.isArray(record?.backups) ? record.backups : []).find((b: any) => b?.bucket === bucket)?.file
     const file = typeof linked === 'string' && linked ? linked : undefined
     const job = this.backup(store, { bucket, ...(file ? { file } : {}) })
     return await (this.running.get(job.id) ?? Promise.resolve(null))

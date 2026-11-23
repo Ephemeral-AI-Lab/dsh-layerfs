@@ -402,6 +402,11 @@ export class LayerfsSessions extends Service {
   }
 
   private save(binding: Binding): Binding {
+    // a classified failure belongs to the error it was read from: a binding saved with another error (or none)
+    // drops the failure it carried over (`...binding`), unless the caller set a new one with it
+    const prior = this.binding(binding.sessionId)
+    if (binding.failure && prior !== binding && prior?.failure === binding.failure && prior.error !== binding.error) delete binding.failure
+    if (!binding.error) delete binding.failure
     binding.updatedAt = Date.now()
     this.state.update((s) => { s.sessions[binding.sessionId] = binding })
     this.ctx.layerfs.emit('layerfs-session', { sessionId: binding.sessionId })
@@ -684,8 +689,10 @@ export class LayerfsSessions extends Service {
         return
       }
       // An active context is deactivated; an inactive one only records why it cannot start.
-      if (current?.state === 'bound') this.interrupt(current.sessionId, message, kind)
-      else if (current) this.save({ ...current, error: message, interruption: { kind, at: Date.now() } })
+      // the Store's classified failure (assertReady) travels with its reason, so the row names it without parsing text
+      const failure: SessionFailure | undefined = error?.failure
+      if (current?.state === 'bound') this.interrupt(current.sessionId, message, kind, failure ? { ...failure, interrupted: true } : undefined)
+      else if (current) this.save({ ...current, error: message, failure, interruption: { kind, at: Date.now() } })
       throw error
     }
   }
@@ -814,6 +821,7 @@ export class LayerfsSessions extends Service {
     binding.executionState = 'active'
     binding.projectId = persistence?.projectIdOf?.(sessionId)
     delete binding.error
+    delete binding.failure
     delete binding.interruption
     this.save(binding)
     if (!this.checkpoints(sessionId).length) {
@@ -1156,7 +1164,9 @@ export class LayerfsSessions extends Service {
     const store = await this.lfs.store.get(row.store, { detail: true })
     const health = classifyStore(store)
     this.storeHealth.set(row.store, health)
-    if (health.state !== 'available') throw new CliError('Unavailable', health.reason ?? 'The project Store is not ready. Restore access, then send the message again.')
+    if (health.state !== 'available') {
+      throw Object.assign(new CliError('Unavailable', health.reason ?? 'The project Store is not ready. Restore access, then send the message again.'), health.failure ? { failure: health.failure } : {})
+    }
   }
 
   /** Save and close execution resources; a new message activates them again. */

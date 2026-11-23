@@ -219,7 +219,7 @@ test('host Storage.backupAndWait preserves custom linked file name', async () =>
   const calls = []
   const lfs = {
     store: {
-      get: async (store) => ({ name: store, backups: { lab: { file: 'custom-v2' } } }),
+      get: async (store) => ({ store, backups: [{ bucket: 'other', file: 'wrong' }, { bucket: 'lab', file: 'custom-v2' }] }),
     },
     backup: {
       create: async (store, bucket, opts) => { calls.push({ store, bucket, file: opts.file }); return { ok: true } },
@@ -237,4 +237,28 @@ test('host Storage.backupAndWait preserves custom linked file name', async () =>
   await svc.backupAndWait('custom-name', 'lab')
   assert.equal(calls.length, 1)
   assert.deepEqual(calls[0], { store: 'custom-name', bucket: 'lab', file: 'custom-v2' })
+})
+
+test('host Storage: a reconnect drops the running listing and lists again with the new key', async () => {
+  const gates = []
+  let lists = 0
+  const lfs = {
+    backup: {
+      list: () => { lists++; return new Promise((resolve) => gates.push(resolve)) },
+      connect: async () => ({ outcome: 'rotated' }),
+    },
+    store: { list: async () => ({ items: [] }) },
+  }
+  const svc = new Storage({ home: join(out, 'home-relist'), jobs: join(out, 'jobs-relist'), stats: join(out, 'stats-relist'), lfs: () => lfs, emit: () => {}, log: () => {} })
+  svc.view = async () => ({})
+  const first = svc.listBucket('lab')
+  void svc.listBucket('lab', { force: true }) // a relist asked behind the running one
+  await svc.connectBucket({ name: 'lab', url: 'http://minio:9000/lab', accessKey: 'a', secretKey: 'b' })
+  assert.equal(lists, 2, 'the reconnect starts a fresh listing at once')
+  gates[0]({ items: [{ bucket: 'lab', file: 'old-key' }] })
+  await first
+  gates[1]({ items: [{ bucket: 'lab', file: 'new-key' }] })
+  await new Promise((r) => setTimeout(r, 0))
+  assert.equal(lists, 2, 'the dropped relist does not fire again later')
+  assert.deepEqual(svc.listings.get('lab').items.map((i) => i.file), ['new-key'], 'the old key\'s answer is dropped')
 })
