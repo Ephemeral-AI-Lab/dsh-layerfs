@@ -203,7 +203,6 @@
   align-items: center;
   justify-content: center;
   min-width: 4px;
-  padding: 0 8px;
   overflow: hidden;
   border-radius: 3px;
   transition: opacity 120ms ease;
@@ -231,6 +230,9 @@
 }
 
 .partLabel {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0 8px;
   overflow: hidden;
   font-size: 12px;
   font-weight: 500;
@@ -239,7 +241,7 @@
   white-space: nowrap;
 }
 
-@container (max-width: 82px) {
+@container (max-width: 124px) {
   .partLabel {
     display: none;
   }
