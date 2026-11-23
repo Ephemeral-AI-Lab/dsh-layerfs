@@ -17,7 +17,7 @@
  * LayerFS's backup.list skips every other object, so nothing is filtered here.
  */
 import { useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular, MenuItemButton } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
 import { MoreMenu } from '../ui/index.tsx'
@@ -47,10 +47,12 @@ function whereOf(b: BucketRow, t: StorageT): string {
   return providerWords(b.provider, t)
 }
 
-export function BucketCards({ view, t, now, jobs, onOpen, onAddBucket, onList, onReconnect, onRestore }: {
+export function BucketCards({ view, t, now, jobs, listingBuckets, listingAll, onOpen, onAddBucket, onList, onReconnect, onRestore }: {
   view: StorageView, t: StorageT, now: number
   /** Running jobs. */
   jobs: readonly StorageJob[]
+  listingBuckets?: ReadonlySet<string> | undefined
+  listingAll?: boolean | undefined
   onOpen: (id: TabId) => void
   onAddBucket: () => void
   /** Lists a bucket's files again. */
@@ -94,24 +96,23 @@ export function BucketCards({ view, t, now, jobs, onOpen, onAddBucket, onList, o
         </div>
       ) : null}
       <div className={css.grid}>
-        {shown.map((b) => <BucketCard key={b.name} b={b} view={view} t={t} now={now} jobs={jobs} onOpen={onOpen} onList={onList} onReconnect={onReconnect} onRestore={onRestore} />)}
+        {shown.map((b) => <BucketCard key={b.name} b={b} view={view} t={t} now={now} jobs={jobs} listing={!!listingAll || !!listingBuckets?.has(b.name)} onOpen={onOpen} onList={onList} onReconnect={onReconnect} onRestore={onRestore} />)}
       </div>
     </div>
   )
 }
 
-function BucketCard({ b, view, t, now, jobs, onOpen, onList, onReconnect, onRestore }: {
-  b: BucketRow, view: StorageView, t: StorageT, now: number, jobs: readonly StorageJob[]
+function BucketCard({ b, view, t, now, jobs, listing, onOpen, onList, onReconnect, onRestore }: {
+  b: BucketRow, view: StorageView, t: StorageT, now: number, jobs: readonly StorageJob[], listing: boolean
   onOpen: (id: TabId) => void, onList: (bucket: string) => void, onReconnect: (again: Reconnect) => void, onRestore: (bucket: string, file: string) => void
 }): ReactNode {
   const tt = t as Translate
-  // a bucket that did not list, or whose record is broken: its word, LayerFS's sentence as the tip, one action
   const failed = b.error ? listStatusWords(b.error.code, t) : b.state === 'broken' ? t('bucketRecordBroken') : null
   const tip = b.error?.message ?? b.message ?? b.fix ?? undefined
   const again = failed ? reconnectOf(b) : null
-  const unlisted = b.files === null && !failed
-  // this home's copies first, then the rest, each by name
-  const files = failed ? [] : [...bucketFiles(b, view.stores)].sort((x, y) => Number(x.state === 'unlinked') - Number(y.state === 'unlinked') || x.file.localeCompare(y.file))
+  const listed = b.files !== null
+  const unlisted = !listed && !failed
+  const files = failed && !listed ? [] : [...bucketFiles(b, view.stores)].sort((x, y) => Number(x.state === 'unlinked') - Number(y.state === 'unlinked') || x.file.localeCompare(y.file))
   const fromHome = files.filter((f) => f.state !== 'unlinked').length
   const size = files.reduce((n, f) => n + (f.bytes ?? 0), 0)
   const running = jobs.filter((j) => !j.ended && (j.kind === 'backup' || j.kind === 'restore') && j.target === b.name)
@@ -119,38 +120,51 @@ function BucketCard({ b, view, t, now, jobs, onOpen, onList, onReconnect, onRest
   const rows = files.slice(0, room)
   const open = () => onOpen(`bucket:${b.name}`)
 
-  const state = failed ? 'error' : unlisted ? 'idle' : 'ok'
-  const facts = failed ? failed
-    : unlisted ? t('ovBucketUnlisted')
-      : [files.length === 1 ? t('bcStoreFileOne') : t('bcStoreFiles', { n: files.length }), size ? bytes(size) : null, b.listed ? t('ovListedAgo', { ago: ago(b.listed, now, tt) }) : null].filter(Boolean).join(' · ')
+  const listedParts = [
+    files.length === 1 ? t('bcStoreFileOne') : t('bcStoreFiles', { n: files.length }),
+    size ? bytes(size) : null,
+    listing ? t('bucketListing') : b.listed ? t('bucketListed', { ago: ago(b.listed, now, tt) }) : null,
+  ].filter(Boolean).join(' · ')
 
   return (
-    <article className={css.card} data-bucket={b.name} data-state={failed ? 'error' : undefined}>
+    <article className={css.card} data-bucket={b.name} data-state={failed && !listing ? 'error' : undefined}>
       <header className={css.head}>
         <span className={css.mark}><BucketMark provider={b.provider} size={15} /></span>
         <button type="button" className={css.name} title={b.name} onClick={open}>{b.name}</button>
-        {failed ? <Signal state={state} size={6} title={failed} detail={tip} /> : null}
+        {failed && !listing ? <Signal dot state="error" size={6} title={failed} detail={tip} /> : null}
         <span className={css.menu}>
           <MoreMenu label={t('bcMore', { bucket: b.name })}>
             {(close) => (
               <>
-                <MenuItemButton onSelect={() => { close(); onList(b.name) }}>{t('ovListFiles')}</MenuItemButton>
+                <MenuItemButton disabled={listing} onSelect={() => { close(); onList(b.name) }}>{listed ? t('listAgain') : t('ovListFiles')}</MenuItemButton>
                 <MenuItemButton onSelect={() => { close(); open() }}>{t('bcOpenBucket')}</MenuItemButton>
               </>
             )}
           </MoreMenu>
         </span>
       </header>
-      <p className={css.line} data-tone={failed ? 'danger' : undefined} title={failed ? tip : undefined}>{whereOf(b, t)} · {facts}</p>
+      <p className={css.line} data-tone={failed && !listing ? 'danger' : undefined}>
+        {failed && !listing ? (
+          <>
+            <span>{whereOf(b, t)}</span>
+            <span aria-hidden="true">&nbsp;·&nbsp;</span>
+            <Signal state="error" title={failed} detail={tip} />
+          </>
+        ) : (
+          `${whereOf(b, t)} · ${listing && !listed ? t('bucketListing') : unlisted ? t('bucketNotListed') : listedParts}`
+        )}
+      </p>
 
       <div className={css.files}>
         {running.map((j) => <div key={j.id} className={css.job}><JobLine job={j} t={t} label={`${j.store} · ${doingWords(j, t)}`} /></div>)}
-        {failed ? (
+        {listing && (!listed || (failed && files.length === 0)) ? (
+          <p className={css.none}><StateDot state="ongoing" size={11} /><span>{t('bucketListing')}</span></p>
+        ) : failed && files.length === 0 ? (
           <p className={css.none}>{t('bcFilesUnknown')} · {again
             ? <button type="button" className={css.inline} data-reconnect={b.name} onClick={() => onReconnect(again)}>{t('connectAgain')}</button>
             : <button type="button" className={css.inline} onClick={() => onList(b.name)}>{t('listAgain')}</button>}</p>
         ) : unlisted ? (
-          <p className={css.none}>{t('ovBucketUnlisted')} · <button type="button" className={css.inline} onClick={() => onList(b.name)}>{t('ovListFiles')}</button></p>
+          <p className={css.none}>{t('bcUnlistedPrompt')} · <button type="button" className={css.inline} onClick={() => onList(b.name)}>{t('ovListFiles')}</button></p>
         ) : files.length === 0 && running.length === 0 ? (
           <p className={css.none}>{t('bcNoFiles')}</p>
         ) : (
@@ -160,7 +174,7 @@ function BucketCard({ b, view, t, now, jobs, onOpen, onList, onReconnect, onRest
               const health = healthOf(f.state)
               return (
                 <li key={`${f.file}:${f.storeName ?? ''}`} className={css.row}>
-                  <span className={css.file} title={f.reason ?? f.file}>{f.file}</span>
+                  <button type="button" className={css.file} title={f.reason ?? f.file} onClick={() => onOpen(`backup:${b.name}/${f.file}`)}>{f.file}</button>
                   <span className={css.size}>{f.bytes != null ? bytes(f.bytes) : ''}</span>
                   {f.state === 'unlinked' ? (
                     <button type="button" className={css.restore} onClick={() => onRestore(b.name, f.file)}>{t('ovRestore')}</button>
@@ -180,7 +194,11 @@ function BucketCard({ b, view, t, now, jobs, onOpen, onList, onReconnect, onRest
       </div>
 
       <footer className={css.foot}>
-        <span>{!failed && !unlisted && files.length ? t('bcFromHome', { n: fromHome }) : ''}</span>
+        <span>
+          {failed && !listing && files.length > 0 && again ? (
+            <button type="button" className={css.inline} data-reconnect={b.name} onClick={() => onReconnect(again)}>{t('connectAgain')}</button>
+          ) : listed && files.length ? t('bcFromHome', { n: fromHome }) : ''}
+        </span>
         <button type="button" className={css.inline} onClick={open}>
           {files.length > rows.length ? `${t(files.length - rows.length === 1 ? 'bcMoreFileOne' : 'bcMoreFiles', { n: files.length - rows.length })} · ${t('bcOpenBucket')}` : t('bcOpenBucket')}
         </button>

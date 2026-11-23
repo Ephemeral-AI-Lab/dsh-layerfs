@@ -650,9 +650,17 @@ function BucketDialog({ api, t, again, onClose, done }: { api: LayerfsApi, t: St
   const [provider, setProvider] = useState<'minio' | 'r2'>(draft.provider)
   const [v, setV] = useState<Record<string, string>>(draft.values)
   const set = (k: string) => (value: string) => setV((x) => ({ ...x, [k]: value }))
+  const trimmedName = v.name?.trim() ?? ''
+  const nameError = !again && trimmedName && !NAME.test(trimmedName) ? t('bucketNameHint') : null
+  const endpointError = provider === 'minio' && v.endpoint?.trim() && !/^https?:\/\//.test(v.endpoint.trim()) ? t('endpointInvalid') : null
   const accountError = provider === 'r2' && v.account && !ACCOUNT.test(v.account.trim().toLowerCase()) ? t('accountInvalid') : null
+  const accessError = v.accessKey?.trim() && /\s/.test(v.accessKey.trim()) ? t('keysNoSpaces') : null
+  const secretError = v.secretKey && /\s/.test(v.secretKey.trim()) ? t('keysNoSpaces') : null
+  const fieldError = nameError || endpointError || accountError || accessError || secretError
+  const cleanPrefix = (v.prefix ?? '').trim().replace(/^\/+|\/+$/g, '')
+  const hasAddress = !!again && !!(provider === 'minio' ? v.endpoint?.trim() && v.bucket?.trim() : v.account?.trim() && v.bucket?.trim())
   const missing = [
-    !v.name?.trim() && t('name'),
+    !trimmedName && t('name'),
     provider === 'minio' && !v.endpoint?.trim() && t('endpoint'),
     provider === 'r2' && !v.account?.trim() && t('account'),
     !v.bucket?.trim() && t('bucketName'),
@@ -660,54 +668,60 @@ function BucketDialog({ api, t, again, onClose, done }: { api: LayerfsApi, t: St
     !v.secretKey && t('secretKey'),
   ].filter(Boolean) as string[]
   const body = () => ({
-    name: v.name!.trim(),
+    name: again ? again.bucket : trimmedName,
     provider,
     ...(provider === 'minio' ? { endpoint: v.endpoint!.trim() } : { account: v.account!.trim().toLowerCase(), ...(v.jurisdiction ? { jurisdiction: v.jurisdiction } : {}) }),
     bucket: v.bucket!.trim(),
-    ...(v.prefix?.trim() ? { prefix: v.prefix.trim() } : {}),
+    ...(cleanPrefix ? { prefix: cleanPrefix } : {}),
     accessKey: v.accessKey!.trim(), secretKey: v.secretKey!,
   })
   return (
     <FormModal open onClose={onClose} t={t} title={again ? t('reconnectTitle', { bucket: again.bucket }) : t('bucketTitle')} description={again ? t('reconnectBody') : t('bucketBody')}
-      action={rotated ? t('close') : again ? t('reconnectAction') : t('connectBucket')} keepOpen
-      valid={rotated || (!missing.length && !accountError)} hint={!rotated && missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
+      action={rotated ? t('close') : again ? t('reconnectAction') : t('connectBucket')} keepOpen hideCancel={rotated}
+      valid={rotated || (!missing.length && !fieldError)} hint={!rotated && missing.length ? t('stillNeeded', { what: missing.join(', ') }) : undefined}
       submit={async () => {
         if (rotated) { onClose(); return }
-        const answer = await api.call<{ outcome?: unknown }>('POST', '/api/buckets', body())
-        // connecting again is a change: list the bucket once more (a refusal there shows on its page)
-        if (again) await api.call('GET', `/api/buckets/${enc(again.bucket)}/files`).catch(() => null)
+        const payload = body()
+        const answer = await api.call<{ outcome?: unknown }>('POST', '/api/buckets', payload)
+        if (again || connectOutcome(answer) === 'rotated') await api.call('GET', `/api/buckets/${enc(payload.name)}/files`).catch(() => null)
         done()
         if (connectOutcome(answer) === 'rotated') setRotated(true)
         else onClose()
       }}>
       {rotated ? (
-        <p className={css.bucketStatus} data-tone="ok" data-rotated role="status">
-          <Signal state="ok" size={7} title={t('keyRotated')} detail={t('keyRotatedTip')} />
-        </p>
-      ) : null}
-      <TileChoice label={t('provider')} value={provider} onChange={setProvider}
-        options={[{ value: 'minio', label: t('minio'), icon: <BucketProviderGlyph provider="minio" size={18} /> }, { value: 'r2', label: t('r2'), icon: <BucketProviderGlyph provider="r2" size={18} /> }]} />
-      <div className={css.fieldRow}>
-        <TextField label={t('name')} value={v.name ?? ''} onChange={set('name')} mono autoFocus placeholder="backups" />
-        <TextField label={t('bucketName')} value={v.bucket ?? ''} onChange={set('bucket')} mono placeholder="layerfs-backups" />
-      </div>
-      {provider === 'minio'
-        ? <TextField label={t('endpoint')} value={v.endpoint ?? ''} onChange={set('endpoint')} mono />
-        : (
-          <div className={css.fieldRow}>
-            <TextField label={t('account')} value={v.account ?? ''} onChange={set('account')} mono error={accountError} />
-            <Field label={t('jurisdiction')} className={css.fieldNarrow}>
-              <MenuSelect value={v.jurisdiction ?? ''} label={t('jurisdiction')} onChange={set('jurisdiction')}
-                options={[{ value: '', label: t('jurisdictionNone') }, { value: 'eu', label: 'EU' }, { value: 'fedramp', label: 'FedRAMP' }]} />
-            </Field>
+        <div className={css.bucketStatus} data-tone="ok" data-rotated role="status">
+          <div className={css.bucketStatusStack}>
+            <Signal state="ok" size={7} title={t('keyRotated')} detail={t('keyRotatedTip')} />
+            <span className={css.bucketStatusDetailWrap}>{t('keyRotatedTip')}</span>
           </div>
-        )}
-      <TextField label={t('prefix')} value={v.prefix ?? ''} onChange={set('prefix')} mono hint={t('objectNote', { prefix: v.prefix ? `${v.prefix}/` : '' })} />
-      <div className={css.fieldRow}>
-        <TextField label={t('accessKey')} value={v.accessKey ?? ''} onChange={set('accessKey')} mono />
-        <TextField label={t('secretKey')} value={v.secretKey ?? ''} onChange={set('secretKey')} mono type="password" />
-      </div>
-      <p className={css.formNote}>{t('keysNote')}</p>
+        </div>
+      ) : (
+        <>
+          <TileChoice label={t('provider')} value={provider} onChange={setProvider}
+            options={[{ value: 'minio', label: t('minio'), icon: <BucketProviderGlyph provider="minio" size={18} /> }, { value: 'r2', label: t('r2'), icon: <BucketProviderGlyph provider="r2" size={18} /> }]} />
+          <div className={css.fieldRow}>
+            <TextField label={t('name')} value={v.name ?? ''} onChange={set('name')} mono autoFocus={!again} disabled={!!again} placeholder="backups" error={nameError} />
+            <TextField label={t('bucketName')} value={v.bucket ?? ''} onChange={set('bucket')} mono autoFocus={!!again && !hasAddress} placeholder="layerfs-backups" />
+          </div>
+          {provider === 'minio'
+            ? <TextField label={t('endpoint')} value={v.endpoint ?? ''} onChange={set('endpoint')} mono placeholder="http://localhost:9000" error={endpointError} />
+            : (
+              <div className={css.fieldRow}>
+                <TextField label={t('account')} value={v.account ?? ''} onChange={set('account')} mono placeholder={t('accountPlaceholder')} error={accountError} />
+                <Field label={t('jurisdiction')} className={css.fieldNarrow}>
+                  <MenuSelect value={v.jurisdiction ?? ''} label={t('jurisdiction')} onChange={set('jurisdiction')}
+                    options={[{ value: '', label: t('jurisdictionNone') }, { value: 'eu', label: 'EU' }, { value: 'fedramp', label: 'FedRAMP' }]} />
+                </Field>
+              </div>
+            )}
+          <TextField label={t('prefix')} value={v.prefix ?? ''} onChange={set('prefix')} mono hint={t('objectNote', { prefix: cleanPrefix ? `${cleanPrefix}/` : '' })} />
+          <div className={css.fieldRow}>
+            <TextField label={t('accessKey')} value={v.accessKey ?? ''} onChange={set('accessKey')} mono autoFocus={hasAddress} error={accessError} />
+            <TextField label={t('secretKey')} value={v.secretKey ?? ''} onChange={set('secretKey')} mono type="password" error={secretError} />
+          </div>
+          <p className={css.formNote}>{t('keysNote')}</p>
+        </>
+      )}
     </FormModal>
   )
 }

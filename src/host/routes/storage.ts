@@ -223,7 +223,7 @@ export function storeRow(s: any, jobs: StorageJob[]) {
 /** The not_listed entry for a bucket as the page shows it: its reason, LayerFS's sentence and its fix line (`backup connect`, when the key was refused or the record has none). */
 const notListedError = (n: any) => ({ code: String(n?.reason ?? 'lost'), message: String(n?.message ?? 'the bucket could not be listed'), ...(typeof n?.fix === 'string' && n.fix ? { fix: n.fix } : {}) })
 
-type Listing = { at: number, items: any[] | null, error: { code: string, message: string, fix?: string } | null }
+type Listing = { at: number | null, items: any[] | null, error: { code: string, message: string, fix?: string } | null }
 
 /** A bucket as `home get --with tree` records it: its name, provider, and its state with its companions when it is not ready. */
 type BucketRecord = { name: string, provider: string | null, url?: string, state?: string, reason?: string, fix?: string, message?: string }
@@ -282,6 +282,9 @@ export class Storage {
   readonly jobs: Map<string, StorageJob>
   /** bucket name -> its last backup.list */
   readonly listings = new Map<string, Listing>()
+  private readonly listingInFlight = new Map<string, Promise<Listing>>()
+  private readonly listingPending = new Set<string>()
+  private readonly listingEpoch = new Map<string, number>()
   lastView: any = null
   /** The StorageView read in flight, shared by concurrent callers; a write (`changed`) bumps `generation` so later callers read anew. */
   private viewing: { promise: ReturnType<Storage['readView']>, generation: number } | null = null
@@ -410,8 +413,12 @@ export class Storage {
 
   async removeStore(name: string, { confirm }: { confirm?: string | null } = {}) {
     if (confirm !== name) throw refuse(400, 'InvalidInput', `type the Store's name (${name}) to remove it and every project in it`)
+    const affected = [...this.listings.entries()]
+      .filter(([, l]) => l.items?.some((i: any) => i?.store === name))
+      .map(([bucket]) => bucket)
     await this.lfs.store.remove(name)
     this.changed()
+    for (const bucket of affected) void this.listBucket(bucket, { force: true }).catch(() => {})
     return this.view()
   }
 
@@ -647,6 +654,7 @@ export class Storage {
     if (!access || !secret || /\s/.test(access + secret)) throw refuse(400, 'InvalidInput', 'Give both the access key and the secret key (no spaces)')
     // the long form says what happened: `rotated` when the name was already connected at this URL (spec v21: the key is replaced, links kept)
     const answer: any = await this.lfs.backup.connect(name, url, { access_key: access, secret_key: secret, detail: true })
+    this.invalidateListing(name)
     // a connect that succeeded answers a remembered refusal ("key refused"): it is no longer the bucket's word,
     // with or without List again (RV4 NOTE 6); its last files stay until the next listing
     const prior = this.listings.get(name)
@@ -659,9 +667,16 @@ export class Storage {
   /** Drops the bucket and its key; LayerFS drops every Store's link to it too. Answers which Stores lost theirs. */
   async disconnectBucket(name: string) {
     const done = await this.lfs.backup.disconnect(name, { detail: true })
+    this.invalidateListing(name)
+    this.listingPending.delete(name)
     this.listings.delete(name)
     this.changed()
     return { unlinked: done?.unlinked ?? [], view: await this.view() }
+  }
+
+  private invalidateListing(name: string) {
+    this.listingEpoch.set(name, (this.listingEpoch.get(name) ?? 0) + 1)
+    this.listingInFlight.delete(name)
   }
 
   /**
@@ -672,22 +687,42 @@ export class Storage {
    * with a `message` where LayerFS could not read it. A bucket that could not
    * be listed comes back in `not_listed`: its reason and message.
    */
-  async listBucket(name: string): Promise<Listing> {
+  async listBucket(name: string, { force = false }: { force?: boolean } = {}): Promise<Listing> {
     checkName(name, 'A bucket')
-    try {
-      const listed = await this.lfs.backup.list({ bucket: name, detail: true })
-      const failed = (Array.isArray(listed?.not_listed) ? listed.not_listed : []).find((n: any) => n?.bucket === name)
-      const items = (Array.isArray(listed?.items) ? listed.items : []).filter((i: any) => i?.bucket === name).map((i: any) => ({
-        file: String(i.file), store: typeof i.store === 'string' ? i.store : null, bytes: typeof i.size === 'number' ? i.size : null, modified: msAt(i.modified_at),
-        behind: typeof i.behind === 'boolean' ? i.behind : null, changed: typeof i.changed === 'boolean' ? i.changed : null, missing: i.missing === true,
-        message: typeof i.message === 'string' ? i.message : null,
-      }))
-      this.listings.set(name, failed ? { at: Date.now(), items: this.listings.get(name)?.items ?? null, error: notListedError(failed) } : { at: Date.now(), items, error: null })
-    } catch (error: any) {
-      this.listings.set(name, { at: Date.now(), items: this.listings.get(name)?.items ?? null, error: { code: error?.code ?? 'Failed', message: error?.message ?? String(error) } })
+    const inflight = this.listingInFlight.get(name)
+    if (inflight) {
+      if (force) this.listingPending.add(name)
+      return inflight
     }
-    this.changed()
-    return this.listings.get(name)!
+    const epoch = this.listingEpoch.get(name) ?? 0
+    const run = (async (): Promise<Listing> => {
+      let next: Listing
+      try {
+        const listed = await this.lfs.backup.list({ bucket: name, detail: true })
+        const failed = (Array.isArray(listed?.not_listed) ? listed.not_listed : []).find((n: any) => n?.bucket === name)
+        const items = (Array.isArray(listed?.items) ? listed.items : []).filter((i: any) => i?.bucket === name).map((i: any) => ({
+          file: String(i.file), store: typeof i.store === 'string' ? i.store : null, bytes: typeof i.size === 'number' ? i.size : null, modified: msAt(i.modified_at),
+          behind: typeof i.behind === 'boolean' ? i.behind : null, changed: typeof i.changed === 'boolean' ? i.changed : null, missing: i.missing === true,
+          message: typeof i.message === 'string' ? i.message : null,
+        }))
+        const prev = this.listings.get(name)
+        next = failed ? { at: prev?.at ?? null, items: prev?.items ?? null, error: notListedError(failed) } : { at: Date.now(), items, error: null }
+      } catch (error: any) {
+        const prev = this.listings.get(name)
+        next = { at: prev?.at ?? null, items: prev?.items ?? null, error: { code: error?.code ?? 'Failed', message: error?.message ?? String(error) } }
+      }
+      if ((this.listingEpoch.get(name) ?? 0) !== epoch) return this.listings.get(name) ?? next
+      this.listings.set(name, next)
+      this.changed()
+      return next
+    })().finally(() => {
+      if (this.listingInFlight.get(name) === run) {
+        this.listingInFlight.delete(name)
+        if (this.listingPending.delete(name)) void this.listBucket(name).catch(() => {})
+      }
+    })
+    this.listingInFlight.set(name, run)
+    return run
   }
 
   /** Lists every bucket (`bucket`: one), each on its own call. */
@@ -769,7 +804,7 @@ export class Storage {
         job.summary = transferSummary(job)
         emit()
         // the bucket's listing changed with a backup or restore
-        if (kind === 'backup' || kind === 'restore') void this.listBucket(target).catch(() => {})
+        if (kind === 'backup' || kind === 'restore') void this.listBucket(target, { force: true }).catch(() => {})
         this.changed()
       })
     emit()

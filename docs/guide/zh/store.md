@@ -1,4 +1,4 @@
-<!-- source: 8d86f7f0a891 -->
+<!-- source: 00eac4ae8e12 -->
 # Store
 
 > **位置：** `LayerFS › 主页 › Store › <store>` · **打开方式：** 主页 › Store 或某台机器的 Store 标签页上 Store 卡片的名称、导航栏的层级切换器、跳转到、项目页上的 Store 链接、存储桶的关联 Store · **源码：** 见文末
@@ -92,8 +92,8 @@ Store 里的所有项目，和主页 › 项目里的表格一样，只是少了
 |---|---|---|---|---|---|
 | | 数量 | **n 个备份目标**（n destination(s)） | — | — | |
 | 1 | **备份到…**（Back up to…） | | 按下 → [备份](#modals-opened-here)（还没有存储桶时：**添加存储桶…**（Add bucket…）→ 添加存储桶，然后备份） | `backup create` | 未就绪时不可用 |
-| 2 | 备份目标卡片 | 存储桶、文件名、**上次保存**（Last saved）、**大小**（Size）、**服务商**（Provider）（**MinIO**、**Cloudflare R2**） | — | `store list` (读取：链接)，以及该存储桶最近一次 `backup list` | **尚未配置备份目标。**（No backup destinations configured.） |
-| 3 | 状态标签 | **已备份**（Backed up）、**Store 已更改**（Store changed）、**存储桶已更改**（Bucket changed）、**双方都已更改**（Both changed）、**缺失**（Missing）、**未检查**（Not checked）（与存储桶页用词相同）；悬停显示 LayerFS 的原句 | — | `backup list` (读取) | 列出存储桶之前不显示标签 |
+| 2 | 备份目标卡片 | 存储桶、文件名、**上次保存**（Last saved）、**大小**（Size）、**提供方**（Provider）（**MinIO**、**Cloudflare R2**） | — | `store list` (读取：链接)，以及该存储桶最近一次 `backup list` | **尚未配置备份目标。**（No backup destinations configured.） |
+| 3 | 状态标签 | **已备份**（Backed up）、**Store 已更改**（Store changed）、**存储桶已更改**（Bucket changed）、**双方都已更改**（Both changed）、**缺失**（Missing）、**未检查**（Not checked）、**未列出**（Not listed），或列表失败（**未列出 · 密钥被拒绝**等）——与存储桶页用词完全相同；悬停显示 LayerFS 的原句 | — | `backup list` (读取) | 列出之前为虚线 **未列出** 标签；列表失败时显示红色标签 |
 | 4 | **立即备份**（Back up now） | | 按下 → 立即开始一个备份任务（没有对话框） | `backup create`，然后 `backup list` | 未就绪时不可用 |
 | 5 | **恢复…**（Restore…） | | 按下 → 针对这个文件打开[恢复](#modals-opened-here) | `backup restore`，然后 `backup list` | 只有存储桶列出了这个文件时才出现；忙碌时不可用 |
 
@@ -212,7 +212,7 @@ PostgreSQL 版本和 **可连接 · n 毫秒**（Reachable · n ms））。**机
 | *auth* 的新密码（New password for *auth*） | 登录标题的 **更换密码…**（Rotate password…） | **用户**（User）、**密码**（Password）；然后每个使用它的 Store 一个圆点（**可访问**（reached）/ **检查失败**（check failed）） | `store save-auth`、对每个 Store `store doctor`、`store get` ↻ | 再更换一次 |
 | [向 *机器* 添加 Store](../img/store-to-machine.png)（Add a Store to *machine*） | 机器 › Store 的 **推送 Store 到这里**（Push a Store here）/ **添加 Store**（Add Store） | **SQLite**（**移动一个到这里**（Move one here））或 **PostgreSQL**（**连接一个，或让已有的在此运行**（Connect one, or run one here））；列出其他机器上的 SQLite Store（含大小与来源，不可移动项显示真实原因如 **请先启动机器** *m*（Start machine *m* first））；检查目标剩余磁盘（小于 Store 红框拒绝、不足 1.15× 黄框警告）、带按键保护的 **启动** *m*、**当前被占用** 阻止，跨非 Home 机器迁移附两步操作说明；**移动到这里**（Move here）；在 LayerFS Home 上附 **或者直接在此新建：新建 Store**（Or create an empty Store here: New Store） | `store get`，然后 `store move`（推送、拉回，或先拉回再推送） | 移回去 |
 | [添加存储桶](../img/store-bucket-add.png)（Add bucket） | 导航栏 **添加 › 添加存储桶**（Add › Add bucket）；备份对话框里的 **添加存储桶**（Add a bucket）；备份标签页的 **添加存储桶…**（Add bucket…） | **MinIO** 或 **Cloudflare R2**、**名称**（Name）、**存储桶**（Bucket）、**端点**（Endpoint）或 **账户 ID**（Account ID）+ **辖区**（Jurisdiction）、**前缀**（Prefix）、**访问密钥**（Access key）、**私密密钥**（Secret key）；从备份对话框打开时，完成后回到备份对话框 | `backup connect`（密钥经 stdin 传入）↻ | 断开存储桶 |
-| 重新连接 *bucket*（Connect *bucket* again） | 密钥被拒绝的存储桶上的 **重新连接…**（Connect again…） | 同一个表单，名称和 URL 已填好；同一个 URL 会替换密钥（**密钥已替换；链接保留**（Key replaced; links kept）） | `backup connect`，然后 `backup list` | — |
+| 重新连接 *bucket*（Connect *bucket* again） | 密钥被拒绝的存储桶上的 **重新连接…**（Connect again…） | 同一个表单，名称锁定、URL 已填好；同一个 URL 会替换密钥（**密钥已替换；Store 关联保留**（Key replaced; links kept））并仅重列该存储桶 | `backup connect`，然后 `backup list` | — |
 
 ## 状态与信号
 

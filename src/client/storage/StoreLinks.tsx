@@ -12,7 +12,7 @@ import { MachineGlyph } from '../machines/icons.tsx'
 import { Card, ExplainedButton } from '../ui/index.tsx'
 import { HomeGlyph } from './parts.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip, backupStateOf, brokenWords, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
+import { backupChip, backupStateOf, brokenWords, listStatusWords, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
 import { providerWords } from './BucketPage.tsx'
 import { StoreAction, type StoreActions } from './StoreCard.tsx'
 import type { StorageView, StoreRow } from './types.ts'
@@ -36,15 +36,19 @@ export function StoreBackups({ store: s, view, t, now, on, runningJob }: { store
         const at = file?.modified ?? link.last?.at
         const size = file?.bytes ?? link.last?.bytes
         const state = backupStateOf(file)
-        const chipTone = state ? backupChip(state, t).tone : undefined
-        const tone = chipTone === 'success' ? 'ok' : chipTone === 'danger' ? 'danger' : undefined
+        const listErr = bucket?.error ? listStatusWords(bucket.error.code, t) : bucket?.state === 'broken' ? t('bucketRecordBroken') : null
+        const chip = listErr ? { tone: 'danger' as const, dashed: false } : backupChip(state, t)
+        const tone = chip.tone === 'success' ? 'ok' : chip.tone === 'danger' ? 'danger' : undefined
+        const pillTip = listErr ? (bucket?.error?.message ?? bucket?.message ?? bucket?.fix ?? undefined) : (file?.message ?? undefined)
         return (
           <Card key={link.bucket} className={css.linkCard} data-backup-link={link.bucket}>
             <div className={css.linkHead}>
               <span className={css.linkName}>{link.bucket}</span>
               <span className={css.mono}>{link.file}</span>
               <span className={css.spacer} />
-              {state ? <span className={css.statePill} data-tone={tone} title={file?.message ?? undefined}>{backupChip(state, t).label}</span> : null}
+              {listErr
+                ? <span className={css.statePill} data-tone="danger" title={pillTip}>{listErr}</span>
+                : <span className={css.statePill} data-tone={tone} data-dashed={chip.dashed || undefined} title={pillTip}>{backupChip(state, t).label}</span>}
             </div>
             <dl className={css.linkFacts}>
               <div><dt>{t('spLastSaved')}</dt><dd title={when(at)}>{at ? ago(at, now, tt) : t('noBackupTime')}</dd></div>

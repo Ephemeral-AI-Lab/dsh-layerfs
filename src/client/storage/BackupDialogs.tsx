@@ -21,7 +21,7 @@ import { Refusal } from '../ui/index.tsx'
 import { BucketMark, providerWords } from './BucketPage.tsx'
 import type { StorageDialog } from './dialogs.tsx'
 import type { StorageT } from './locale.ts'
-import { backupChip } from './model.ts'
+import { backupChip, listStatusWords } from './model.ts'
 import { FormModal, refusalLabels, TextField } from './parts.tsx'
 import { actionOf, backupCounts, backupGroups, backupTargets, firstTarget, freshName, storeBackups, type BackupHealth, type StoreBackup } from './store-backups.ts'
 import type { StorageView, StoreRow } from './types.ts'
@@ -113,13 +113,15 @@ export function BackupsDialog({ api, t, view, onClose, done, onDialog, store }: 
               <span>· {g.items.length}</span>
             </div>
             {g.items.map((b) => {
-              const chip = b.state ? backupChip(b.state, t) : null
+              const bucketRow = view.buckets.find((x) => x.name === b.link.bucket)
+              const listErr = bucketRow?.error ? listStatusWords(bucketRow.error.code, t) : bucketRow?.state === 'broken' ? t('bucketRecordBroken') : null
+              const chip = listErr ? { tone: 'danger' as const, label: listErr } : backupChip(b.state, t)
               return (
                 <div key={b.link.bucket} className={css.db} data-backup={b.link.bucket}>
                   <div className={css.dbMain}>
                     <span className={css.dbName}>{b.link.bucket}</span>
                     <span className={css.dbSub}>
-                      {chip ? <span className={css.pill} data-tone={chip.tone}>{chip.label}</span> : <span className={css.pill}>{t('bkNotListed')}</span>}
+                      <span className={css.pill} data-tone={chip.tone} title={listErr ? (bucketRow?.error?.message ?? bucketRow?.message ?? undefined) : undefined}>{chip.label}</span>
                       <span className={css.mono} title={b.link.file}>{b.link.file}</span>
                       {[b.bytes != null ? bytes(b.bytes) : null, b.at ? ago(b.at, now, t as Translate) : null].filter(Boolean).join(' · ')}
                     </span>
