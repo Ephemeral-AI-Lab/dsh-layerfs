@@ -4,7 +4,7 @@ import { downReason, workerDown, type AvailableView, type MachineInfo, type Mach
 import { machineBlock } from '../machines/needs.ts'
 import { usePressGuard } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { blockedWords, brokenWords, doingWords, shareOf, storeStateWords, storeTip, type RowSignal } from './model.ts'
+import { blockedWords, brokenWords, doingWords, jobPercent, storeStateWords, storeTip, type RowSignal } from './model.ts'
 import { brokenBlock, MachineRepair, StoreFixAction } from './StoreCard.tsx'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import css from './HomeCards.module.css'
@@ -66,7 +66,7 @@ export function RestartButton({ m, t, onRestart }: { m: MachineInfo, t: StorageT
 
 /** A running push, pull, move, backup or restore, with its progress. */
 export function JobLine({ job, t, label }: { job: StorageJob, t: StorageT, label?: string }): ReactNode {
-  const share = Math.round(shareOf(job) * 100)
+  const share = jobPercent(job)
   return (
     <span className={css.job}>
       <span className={css.jobLine}><StateDot state="ongoing" size={10} /><span className={css.statusText}>{label ?? doingWords(job, t)}</span><span className={css.num}>{`${share}%`}</span></span>

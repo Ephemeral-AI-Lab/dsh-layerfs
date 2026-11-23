@@ -1,4 +1,4 @@
-<!-- source: 888b7b77d185 -->
+<!-- source: b8a9e56d6be7 -->
 # 主页
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -86,7 +86,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 1 后退 · 2 前进 | 箭头 | 按下 → 上一个或下一个 Center 页面（最多保留 50 个） | —（本地历史） | 到头时不可用 |
 | 3 面包屑 | `主页 › Store › demo-starter › bookshelf` | 按一个面包屑 → 去那一页 | —（页面跳转） | 最后一个面包屑就是你所在的页面 |
 | 4 面包屑切换 | 上级面包屑后面的一个箭头，或当前面包屑上的一个小三角，在它有同级项时出现 | 按下 → 列出它的同级项（每个 Store、该 Store 里的每个项目……）→ 打开其中一个 | —（来自已经读到的存储视图） | 只有同级项多于一个时才出现 |
-| — 传输 | **{n} 个传输**（{n} transfers），带进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个时），或一个列出它们的菜单（有多个时） | —（已读到的存储视图里的任务） | 没有任务运行时隐藏 |
+| — 传输 | **{n} 个传输**（{n} transfers），带与 Store 页及卡片一致的单调百分比与进度条，在迁移、备份或恢复进行时出现 | 按下 → 那个 Store 的页面（只有一个时），或一个列出它们的菜单（有多个时） | —（已读到的存储视图里的任务） | 没有任务运行时隐藏 |
 | 5 跳转到… | 一个带 **⌘K** 的搜索框 | 按下或按 **⌘K** → 跳转到对话框：输入文字，**↑ ↓** 移动，**Enter** 打开，**Esc** 关闭 | —（在主页已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）；有其他对话框打开时不可用 |
 | 6 刷新 | 一个环形箭头，除主页外每个页面都有 | 按下 → 页面重新读取 | 页面自己的读取 | 读取时显示一个圆点 |
 | 7 添加 | **+ 添加**（+ Add） | 按下 → **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 各项对应的对话框（见[在此打开的对话框](#modals-opened-here)） | **新建机器**和**新建 Sandbox** 不可用时仍会显示，并说明原因 |
@@ -140,7 +140,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 1 种类 | 两个磁贴：**SQLite** *{n} 个 Store · 大小* 和 **PostgreSQL** *{n} 个数据库* | 按下 → 该种类的 Store；会被记住 | —（本地视图状态） | — |
 | 2 显示 | **Store {n}**（Stores {n}） / **存储桶 {n}**（Buckets {n}）（仅 SQLite） | 按下 → Store 卡片或存储桶卡片；会被记住 | —（本地视图状态） | — |
 | 3 新建 Store | **新建 Store**（New Store，SQLite）或 **连接数据库**（Connect a database，PostgreSQL），在标签栏右端 | 按下 → 新建 Store / 连接数据库对话框 | `store create` / `store save-auth`、`store connect`、`store get` | — |
-| 4 Store 卡片 | 名称、大小、最近写入、**存放于**（Stored on）哪台机器、最多三个项目、状态、备份 | 见[组件 › Store 卡片](components.md#store-card)和 [Store 菜单](components.md#store-menu)；**推送到…**（Push to…，在本机上时） / **拉取**（Pull，在机器上时） | `GET /api/storage` (读取)；**推送到…**/**拉取** 用 `store move` | 迁移或备份进行时显示一张[任务卡片](components.md#job-card) |
+| 4 Store 卡片 | 名称、大小、最近写入、**存放于**（Stored on）哪台机器、最多三个项目、状态、备份 | 见[组件 › Store 卡片](components.md#store-card)和 [Store 菜单](components.md#store-menu)；**推送到…**（Push to…，在本机上时） / **拉回**（Pull，在机器上时） | `GET /api/storage` (读取)；**推送到…**/**拉回** 用 `store move` | 迁移或备份进行时显示两行紧凑[任务卡片](components.md#job-card)（含百分比、步骤与字节数） |
 
 没有 Store 时：**还没有 SQLite Store。**（No SQLite Store yet.） / **还没有连接 PostgreSQL 数据库。**（No PostgreSQL database connected yet.）整个主页既没有 Store 也没有存储桶时，标签页显示 **还没有 Store**（No Stores yet）——“在 Home 中新建 Store、从备份恢复，或连接 PostgreSQL 数据库。”——并给出 **新建 Store**（New Store）和 **连接数据库**（Connect a database）。
 
@@ -180,7 +180,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 包含 | **1 个 Store**（1 Store）、**1 个 Sandbox**（1 Sandbox） | — | 同上 | — |
 | 5 电源 | **停止**（Stop） / **启动**（Start）（This Mac 上没有） | **启动** → 机器启动。**停止** 需要再按一次：按钮会在几秒内变成 **确认：停止**（Confirm: Stop；docker 上是 **确认：停止 worker**，Confirm: Stop worker） | `machine stop` / `machine start` | 状态切换期间不可用 |
 | 6 ⋯ | **{name} 的更多操作**（More for {name}） | [组件 › 机器菜单](components.md#machine-menu) | 见该处 | — |
-| 7 添加 Store | **添加 Store**（Add Store） | 按下 → 一个对话框，把 SQLite Store 放到这台机器上 | `store move`（一个任务） | — |
+| 7 添加 Store | **添加 Store**（Add Store） | 按下 → 将 SQLite Store 移动到这台机器的对话框（含大小、目标剩余磁盘、**当前被占用** 与 **启动** *m* 检查；在 LayerFS Home 上附 **或者直接在此新建：新建 Store**） | `store move`（一个任务） | — |
 | 8 新建 Sandbox | **新建 Sandbox**（New Sandbox） | 按下 → 新建 Sandbox 对话框（[Sandbox](sandbox.md)） | `sandbox create` | — |
 
 ## 变体

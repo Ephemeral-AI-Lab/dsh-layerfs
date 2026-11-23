@@ -217,15 +217,15 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
       sqlite: {
         role: t('msHeldHere'),
         note: machine === 'native' ? t('msSqliteBodyHome') : t('msSqliteBody', { machine: place }),
-        add: <Button variant="outline" size="sm" icon={plus} disabled={!!stores.noSqlite} title={stores.noSqlite ?? undefined}
-          onClick={() => props.onPushHere(machine)}>{machine === 'native' ? t('msAddSqliteHome') : t('msPushHere')}</Button>,
-        empty: stores.noSqlite ?? t('msSqliteEmpty', { machine: place }),
+        add: <ExplainedButton variant="outline" size="sm" icon={plus} disabled={!!stores.noSqlite} disabledReason={stores.noSqlite ?? undefined}
+          onClick={() => props.onPushHere(machine)}>{machine === 'native' ? t('msAddSqliteHome') : t('msPushHere')}</ExplainedButton>,
+        empty: stores.noSqlite ?? (machine === 'native' ? t('msSqliteEmptyHome') : t('msSqliteEmpty', { machine: place })),
       },
       postgresql: {
         role: t('msRunsHere'),
         note: t('msPgBody', { machine: place }),
-        add: <Button variant="outline" size="sm" icon={plus} disabled={!!stores.noPostgresql} title={stores.noPostgresql ?? undefined}
-          onClick={() => props.onConnect(machine)}>{t('connectDatabase')}</Button>,
+        add: <ExplainedButton variant="outline" size="sm" icon={plus} disabled={!!stores.noPostgresql} disabledReason={stores.noPostgresql ?? undefined}
+          onClick={() => props.onConnect(machine)}>{t('connectDatabase')}</ExplainedButton>,
         empty: stores.noPostgresql ?? t('msPgEmpty', { machine: place }),
       },
     }} />

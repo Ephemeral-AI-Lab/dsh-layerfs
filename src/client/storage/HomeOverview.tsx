@@ -29,7 +29,7 @@ import { compareNeeds, visibleFailures, worstTone } from './home-notices.ts'
 import { storeTrouble } from './HomeCards.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
-import { brokenWords, endedWords, holderTab, jobEnd, needsLogin, orderStores, type Reconnect } from './model.ts'
+import { brokenWords, endedWords, holderTab, jobEnd, movePushFailed, needsLogin, orderStores, type Reconnect } from './model.ts'
 import { refusalLabels, StoreGlyph } from './parts.tsx'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import type { DoctorCount } from '../../shared/doctor.ts'
@@ -157,7 +157,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       detail: <>{tip}<br />{ago(j.ended, now, t as Translate)}</>,
       action: fix && fixes ? { label: fixes.label(fix), run: () => fixes.run(fix) }
         : holder ? { label: t('jobOpenSandbox', { name: holder.name }), run: () => props.onOpen(holderTab(holder)) }
-          : { label: t('jobRetry'), run: () => props.onRetry(j) },
+          : { label: t(movePushFailed(j) ? 'jobRetryPush' : 'jobRetry'), run: () => props.onRetry(j) },
       extra: <Button variant="ghost" size="sm" onClick={() => props.onDismiss(j)}>{t('dismiss')}</Button>,
     })
   }

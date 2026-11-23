@@ -391,7 +391,7 @@ export const STEPS: Record<JobKind, readonly string[]> = {
   push: ['check', 'snapshot', 'send', 'verify', 'install', 'record', 'retire'],
   pull: ['check', 'snapshot', 'send', 'verify', 'install', 'record', 'retire'],
   move: ['check', 'snapshot', 'send', 'verify', 'install', 'record', 'retire'],
-  backup: ['check', 'snapshot', 'send', 'check', 'hash', 'upload'],
+  backup: ['check', 'snapshot', 'send', 'hash', 'upload'],
   restore: ['check', 'download', 'verify', 'install'],
   // a sqlite Store's; the host names a PostgreSQL Store's own (`steps`)
   compact: ['mark', 'build', 'verify', 'install'],
@@ -399,26 +399,78 @@ export const STEPS: Record<JobKind, readonly string[]> = {
 
 export type StepState = 'done' | 'now' | 'failed' | 'todo'
 
-/** One run of a call's steps with each step's state. */
 export function stepsOf(j: StorageJob): { step: string, state: StepState }[] {
-  const seen = j.phases?.filter((p) => p.half === (j.half ?? null)).map((p) => p.phase)
-  // a job that names its steps keeps them in that order from the start, plus any phase it did not name
-  const named = j.steps?.length ? [...j.steps, ...(seen ?? []).filter((p) => !j.steps!.includes(p))] : null
-  const steps = named ?? (seen?.length ? seen : [...STEPS[j.kind], ...(!STEPS[j.kind].includes(j.phase ?? '') && j.phase ? [j.phase] : [])])
-  const ok = j.ended !== null && j.error === null
-  const at = j.error ? steps.lastIndexOf(j.error.phase ?? '') : j.phase ? steps.lastIndexOf(j.phase) : j.ended ? -1 : 0
+  const seen = j.phases?.filter((p) => p.half === (j.half ?? null)).map((p) => p.phase) ?? []
+  const base = j.steps?.length ? j.steps : STEPS[j.kind]
+  const extras = seen.filter((p) => !base.includes(p))
+  const cur = j.error?.phase ?? j.phase ?? null
+  const steps = [...base, ...extras, ...(cur && !base.includes(cur) && !extras.includes(cur) ? [cur] : [])]
+  const ok = j.ended !== null && j.error === null && (!j.outcome || j.outcome === 'succeeded')
+  const at = j.error ? steps.lastIndexOf(j.error.phase ?? j.phase ?? '') : j.phase ? steps.lastIndexOf(j.phase) : j.ended ? -1 : 0
   return steps.map((step, i) => ({ step, state: ok || i < at ? 'done' : i === at ? (j.error ? 'failed' : 'now') : 'todo' }))
 }
 
-/** A running job's share done: its steps, and inside the current step its bytes. */
-export function shareOf(j: StorageJob): number {
+export function rawShareOf(j: StorageJob): number {
   if (j.ended) return 1
   const steps = stepsOf(j)
   const at = Math.max(0, steps.findIndex((s) => s.state === 'now'))
   const inner = j.total ? Math.min(1, Math.max(0, (j.done ?? 0) / j.total)) : 0
+  const halfShare = (at + inner) / Math.max(1, steps.length)
   const half = j.kind === 'move' ? (j.half === 'push' ? 1 : 0) : 0
   const runs = j.kind === 'move' ? 2 : 1
-  return (half + (at + inner) / Math.max(1, steps.length)) / runs
+  return Math.min(0.99, Math.max(0, (half + halfShare) / runs))
+}
+
+/** Monotonic share done (0..1): never regresses past `maxShare`, never reaches 1 until ended. */
+export function shareOf(j: StorageJob): number {
+  if (j.ended) return 1
+  return Math.min(0.99, Math.max(rawShareOf(j), j.maxShare ?? 0))
+}
+
+export function jobPercent(j: StorageJob): number {
+  return Math.round(shareOf(j) * 100)
+}
+
+const halfRank = (half: StorageJob['half']): number => (half === 'push' ? 2 : half === 'pull' ? 1 : 0)
+
+/** Merge an incoming job snapshot without letting stale polls regress progress or phases. */
+export function mergeJob(old: StorageJob | undefined, incoming: StorageJob): StorageJob {
+  if (!old) return incoming.ended ? incoming : { ...incoming, maxShare: rawShareOf(incoming) }
+  if (old.ended && !incoming.ended) return old
+  if (incoming.ended) return { ...incoming, maxShare: 1 }
+  const oldShare = shareOf(old)
+  const nextRaw = rawShareOf(incoming)
+  const oldHalf = halfRank(old.half)
+  const nextHalf = halfRank(incoming.half)
+  const oldPhases = old.phases?.length ?? 0
+  const nextPhases = incoming.phases?.length ?? 0
+  if (nextHalf < oldHalf) return old
+  if (nextHalf === oldHalf && nextPhases < oldPhases) return old
+  if (nextHalf === oldHalf && nextPhases === oldPhases && incoming.phase === old.phase && (incoming.done ?? -1) < (old.done ?? -1)) return old
+  const maxShare = Math.min(0.99, Math.max(oldShare, nextRaw, incoming.maxShare ?? 0))
+  if (old.ended === incoming.ended && old.phase === incoming.phase && old.done === incoming.done && old.total === incoming.total && old.half === incoming.half && old.maxShare === maxShare) return old
+  return { ...incoming, maxShare }
+}
+
+export function movePushFailed(j: Pick<StorageJob, 'kind' | 'half' | 'phase' | 'outcome' | 'error'>): boolean {
+  if (j.kind !== 'move' || !j.error) return false
+  if (j.error.note === 'pulled') return true
+  const phase = j.error.phase ?? j.phase ?? null
+  return j.half === 'push' && j.outcome !== 'unknown' && j.outcome !== 'interrupted' && phase !== 'retire'
+}
+
+export const DISK_HEADROOM_RATIO = 1.15
+export interface DiskFit {
+  state: 'ok' | 'tight' | 'full' | 'unknown'
+  free: number | null
+  need: number | null
+  shortBy: number
+}
+export function diskFit(free: number | null | undefined, size: number | null | undefined): DiskFit {
+  if (free == null || size == null || size <= 0) return { state: 'unknown', free: free ?? null, need: size ?? null, shortBy: 0 }
+  if (free < size) return { state: 'full', free, need: size, shortBy: size - free }
+  if (free < Math.ceil(size * DISK_HEADROOM_RATIO)) return { state: 'tight', free, need: size, shortBy: 0 }
+  return { state: 'ok', free, need: size, shortBy: 0 }
 }
 
 /** A step in words. */
@@ -482,13 +534,29 @@ export const holderTab = (b: Holder): `sandbox:${string}` => `sandbox:${b.machin
 
 /** How a job ended, in words. `size` writes a byte count (a compaction's freed space); without it the count is left out. */
 export function endedWords(j: StorageJob, t: StorageT, size?: (n: number) => string): string {
-  if (j.summary) return j.summary
   if (j.outcome === 'unknown') return t('jobUnknown')
   if (j.outcome === 'interrupted') return t('jobInterrupted')
   const place = j.kind === 'pull' ? placeWords(j.from, t) : j.kind === 'backup' || j.kind === 'restore' ? j.target : j.kind === 'compact' ? j.store : placeWords(j.target, t)
+  const failPhase = j.error?.phase ?? j.phase ?? null
+  if (j.error && failPhase === 'retire' && (j.kind === 'push' || j.kind === 'pull' || j.kind === 'move')) {
+    return j.kind === 'pull' || j.half === 'pull'
+      ? t('jobRetireHome', { from: placeWords(j.from, t) })
+      : t('jobRetireTarget', { place: placeWords(j.target, t) })
+  }
+  if (movePushFailed(j)) {
+    return inUseJob(j)
+      ? t('jobMovePushInUse', { place })
+      : t('jobMovePushFailed', { place, phase: failPhase ? stepWords(failPhase, t) : '—' })
+  }
+  if (j.error && j.kind === 'move' && j.half === 'pull' && j.from) {
+    const from = placeWords(j.from, t)
+    return inUseJob(j)
+      ? t('jobMovePullInUse', { place, from })
+      : t('jobMovePullFailed', { place, from, phase: failPhase ? stepWords(failPhase, t) : '—' })
+  }
   // in use is its own word; a failure names its step in words, never LayerFS's step code (UI pass 3 F10)
   if (j.error && inUseJob(j)) return t('jobInUse', { what: kindWords(j.kind, t), place })
-  if (j.error) return t('jobFailed', { what: kindWords(j.kind, t), place, phase: j.error.phase ? stepWords(j.error.phase, t) : '—' })
+  if (j.error) return t('jobFailed', { what: kindWords(j.kind, t), place, phase: failPhase ? stepWords(failPhase, t) : '—' })
   switch (j.kind) {
     case 'push': return t(j.made ? 'jobMade' : 'jobPushed', { place })
     case 'pull': return t('jobPulled', { place })
@@ -538,7 +606,8 @@ export function cardJob(jobs: readonly StorageJob[], store: string, dismissed: R
  */
 export function failureSuperseded(job: Pick<StorageJob, 'id' | 'kind' | 'store' | 'ended'>, jobs: readonly Pick<StorageJob, 'id' | 'kind' | 'store' | 'ended' | 'error'>[], stores: readonly { name: string }[]): boolean {
   if (job.kind !== 'restore' && !stores.some((s) => s.name === job.store)) return true
-  return jobs.some((j) => j.id !== job.id && j.store === job.store && j.kind === job.kind && j.ended != null && job.ended != null && j.ended > job.ended && !j.error)
+  const sameFamily = (kind: JobKind) => kind === job.kind || (job.kind === 'move' && (kind === 'push' || kind === 'pull'))
+  return jobs.some((j) => j.id !== job.id && j.store === job.store && sameFamily(j.kind) && j.ended != null && job.ended != null && j.ended > job.ended && !j.error)
 }
 
 /** How many jobs run, and how many failed and are not dismissed. */

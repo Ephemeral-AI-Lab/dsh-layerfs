@@ -317,8 +317,11 @@ test('machine.start: no Create, Move, New Store or Home hero starts a machine; e
   assert.doesNotMatch(dialog, /ensure\(/, 'Move no longer starts the current and the chosen machine')
   assert.match(dialog, /<StartFirst /)
   const store = src('src/client/storage/dialogs.tsx')
-  assert.equal(store.match(/startMachine\(/g)?.length ?? 0, 1, 'one start, behind StartFirst\'s own button')
-  assert.match(store, /start=\{\(m\) => startMachine\(api, m\)\}/)
+  const starts = store.match(/startMachine\(/g)?.length ?? 0
+  const startFirsts = store.match(/<StartFirst\b/g)?.length ?? 0
+  assert.equal(starts, startFirsts, 'every start in storage dialogs sits behind StartFirst\'s own button')
+  assert.ok(starts >= 1)
+  assert.match(store, /start=\{\((?:m|name)\) => startMachine\(api, (?:m|name)\)\}/)
   const tiles = src('src/client/projects/setup/MachineTiles.tsx')
   assert.match(tiles, /aria-label=\{words\.start\(m\)\}[\s\S]{0,200}?onClick=\{guard\(\(\) => press\(m\)\)\}/, 'one Start per machine, named')
   const hero = src('src/client/storage/HomeOverview.tsx')

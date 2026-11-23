@@ -10,9 +10,9 @@ import { Button, Checkbox, Input, SegmentedControl, StateDot } from '@deepseek-a
 import { enc, type LayerfsApi } from '../api.ts'
 import { bytes } from '../files/format.ts'
 import { useQuery } from '../files/use-query.ts'
-import { Contained, Field, MenuSelect, Notice, Refusal, usePressGuard } from '../ui/index.tsx'
+import { Contained, Field, MenuSelect, Notice, Refusal } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, bucketParts, canMove, inHome, needsLogin, pgServerLogin, storeStateWords, type BackupState, type Reconnect } from './model.ts'
+import { backupStateOf, bucketParts, canMove, diskFit, inHome, needsLogin, pgServerLogin, storeStateWords, storeWaitsFor, type BackupState, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { LocationPicker, placeName, StartFirst } from '../projects/setup/MachineTiles.tsx'
 import { defaultMachine, machinesFor, stoppedOf } from '../projects/setup/model.ts'
@@ -412,39 +412,54 @@ function NewProjectDialog({ api, t, store, onClose, done }: { api: LayerfsApi, t
 function PlaceDialog({ api, t, kind, store: s, onClose, done }: { api: LayerfsApi, t: StorageT, kind: 'push' | 'move', store: StoreRow, onClose: () => void, done: () => void }): ReactNode {
   const machines = useQuery(() => api.call<MachinesView>('GET', '/api/machines'), [api])
   const [target, setTarget] = useState('')
-  const [starting, setStarting] = useState(false)
-  const [startError, setStartError] = useState<unknown>(undefined)
   const view = machines.data?.available ? machines.data : null
-  // its Start <machine> behind the press guard, like every power control
-  const startGuard = usePressGuard(`start:${target}`)
   const targets = (view?.machines ?? []).filter((m) => m.name !== 'native' && m.name !== s.machine && (!m.supports || m.supports.includes('sqlite')))
   const chosen = targets.find((m) => m.name === target)
   const free = chosen ? view?.live[chosen.name]?.freeDisk ?? null : null
+  const fit = chosen ? diskFit(free, s.size?.bytes ?? null) : null
   const sandboxes = (view?.sandboxes ?? []).filter((b) => b.project?.startsWith(`${s.name}/`) && b.state !== 'gone')
   const push = kind === 'push'
+  const stopped = chosen?.state === 'stopped' ? [chosen.name] : []
+  const targetNotReady = !!chosen && chosen.state !== 'ready'
+  const held = sandboxes.length > 0
+  const tooLarge = fit?.state === 'full'
+  const valid = !!chosen && !targetNotReady && !tooLarge && !held
+  const hint = held ? t('pushHintHeld')
+    : stopped.length ? t('compactNeedsMachine', { machine: chosen!.name })
+      : targetNotReady ? t('pushHintMachineNotReady', { machine: chosen!.name, state: storeStateWords(chosen!.state, t) })
+        : tooLarge ? t('pushHintNoSpace', { machine: chosen!.name })
+          : undefined
   return (
     <FormModal open onClose={onClose} t={t} title={push ? t('pushTitle', { store: s.name }) : t('moveTitle', { store: s.name })}
-      description={push ? t('pushBody', { n: s.projects.length }) : t('moveBody')} action={push ? t('push') : t('move')} valid={!!target}
+      description={push ? t('pushBody', { n: s.projects.length }) : t('moveBody')} action={push ? t('push') : t('move')} valid={valid} hint={hint}
       submit={() => api.call('POST', `/api/stores/${enc(s.name)}/${kind}`, { machine: target }).then(done)}>
       <Field label={t('machine')} hint={machines.loading && !view ? t('readingMachines') : targets.length ? undefined : t('noTargets')}>
         <MenuSelect value={target} label={t('machine')} placeholder={t('chooseMachine')} onChange={setTarget}
           options={targets.map((m) => ({ value: m.name, label: `${m.name} · ${m.platform} · ${storeStateWords(m.state ?? 'unknown', t)}` }))} />
       </Field>
       {machines.error ? <Refusal error={machines.error} labels={refusalLabels(t)} compact /> : null}
-      {chosen ? (
+      {chosen && fit?.state === 'full' ? (
+        <Notice tone="danger" role="alert">
+          <strong>{t('diskNotEnoughTitle', { machine: chosen.name })}</strong>
+          <span>{t('diskNotEnoughBody', { free: bytes(fit.free), store: s.name, size: bytes(fit.need), short: bytes(fit.shortBy) })}</span>
+        </Notice>
+      ) : chosen && fit?.state === 'tight' ? (
+        <Notice tone="warning">
+          <strong>{t('diskTightTitle', { machine: chosen.name })}</strong>
+          <span>{t('diskTightBody', { free: bytes(fit.free), size: bytes(fit.need) })}</span>
+        </Notice>
+      ) : chosen ? (
         <p className={css.formNote}>
           {free !== null ? t('freeDisk', { free: bytes(free), machine: chosen.name, size: bytes(s.size?.bytes ?? null) }) : t('freeUnknown', { machine: chosen.name })}
-          {chosen.state !== 'ready' ? ` ${t('notRunning', { machine: chosen.name, state: chosen.state })}` : ''}
         </p>
       ) : null}
-      {chosen?.state === 'stopped' ? (
-        <Button variant="outline" size="sm" className={css.selfStart} disabled={starting || startGuard.settling} aria-disabled={startGuard.settling || undefined} icon={starting ? <StateDot state="ongoing" size={13} /> : undefined}
-          onClick={startGuard(() => { setStarting(true); api.call('POST', `/api/machines/${enc(chosen.name)}/start`).then(machines.reload, setStartError).finally(() => setStarting(false)) })}>
-          {t('startMachine', { machine: chosen.name })}
-        </Button>
+      {stopped.length ? (
+        <StartFirst names={stopped} start={(m) => startMachine(api, m)} onStarted={() => { machines.reload(); done() }}
+          words={{ stopped: (machine) => t('nsStoppedFirst', { machine }), start: (machine) => t('startMachine', { machine }), refused: (machine) => t('nsStartRefused', { machine }) }} />
+      ) : targetNotReady ? (
+        <Notice tone="danger" role="alert">{t('notRunning', { machine: chosen!.name, state: storeStateWords(chosen!.state, t) })}</Notice>
       ) : null}
-      {startError !== undefined ? <Refusal error={startError} labels={refusalLabels(t)} compact /> : null}
-      {sandboxes.length > 0 ? (
+      {held ? (
         <Notice tone="warning">
           <strong>{t('heldNow')}</strong>
           <span>{sandboxes.map((b) => t('heldSandbox', { name: b.name })).join(' · ')}</span>
@@ -467,21 +482,38 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
   api: LayerfsApi, t: StorageT, view: StorageView | undefined, machine: string
   onClose: () => void, done: () => void, onDialog?: ((dialog: StorageDialog) => void) | undefined
 }): ReactNode {
-  const m = view?.machines.find((x) => x.name === machine)
-  const noSqlite = m?.supports && !m.supports.includes('sqlite') ? t('noStoresHere') : null
-  const noPg = m?.supports && !m.supports.includes('postgresql_sandbox') ? t('postgresql') : null
+  const machines = useQuery(() => api.call<MachinesView>('GET', '/api/machines'), [api])
+  const liveView = machines.data?.available ? machines.data : null
+  const m = liveView?.machines.find((x) => x.name === machine) ?? view?.machines.find((x) => x.name === machine)
+  const noSqlite = m?.supports && !m.supports.includes('sqlite') ? t('msNoSqlite') : null
+  const noPg = m?.supports && !m.supports.includes('postgresql_sandbox') ? t('msNoPostgresql') : null
   const [chosen, setChosen] = useState('')
   if (!view) return null
   const placeName = (name: string | null) => (name === 'native' ? t('layerfsHome') : name ?? '')
   const rows = view.stores
     .filter((s) => s.kind === 'sqlite' && s.machine !== machine)
-    .map((s) => ({ s, why: noSqlite ?? (canMove(s) ? null : t('storeBusyNow')) }))
+    .map((s) => ({ s, why: noSqlite ?? (canMove(s) ? null : (storeWaitsFor(s, t) ?? t('storeBusyNow'))) }))
     .sort((a, b) => Number(!!a.why) - Number(!!b.why) || a.s.name.localeCompare(b.s.name))
   const pick = rows.find((r) => r.s.name === chosen && !r.why)
+  const free = liveView?.live[machine]?.freeDisk ?? null
+  const fit = pick ? diskFit(free, pick.s.size?.bytes ?? null) : null
+  const sandboxes = pick ? (liveView?.sandboxes ?? []).filter((b) => b.project?.startsWith(`${pick.s.name}/`) && b.state !== 'gone') : []
+  const mState = m?.state ?? 'ready'
+  const stopped = machine !== 'native' && mState === 'stopped' ? [machine] : []
+  const targetNotReady = machine !== 'native' && mState !== 'ready'
+  const held = sandboxes.length > 0
+  const tooLarge = fit?.state === 'full'
+  const crossMachine = !!pick && pick.s.machine !== 'native' && machine !== 'native'
+  const valid = !!pick && !targetNotReady && !tooLarge && !held
+  const hint = held ? t('pushHintHeld')
+    : stopped.length ? t('compactNeedsMachine', { machine: placeName(machine) })
+      : targetNotReady ? t('pushHintMachineNotReady', { machine: placeName(machine), state: storeStateWords(mState, t) })
+        : tooLarge ? t('pushHintNoSpace', { machine: placeName(machine) })
+          : undefined
   const swap = (next: StorageDialog) => { onClose(); onDialog?.(next) }
   return (
     <FormModal open onClose={onClose} t={t} title={t('addStoreTitle', { machine: placeName(machine) })}
-      description={t('addSqliteBody')} action={t('moveHere')} valid={!!pick}
+      description={t('addSqliteBody')} action={t('moveHere')} valid={valid} hint={hint}
       busyHint={pick ? t('movingFrom', { store: pick.s.name, from: placeName(pick.s.machine) }) : undefined}
       submit={async () => {
         if (!pick) return
@@ -501,13 +533,44 @@ function ToMachineDialog({ api, t, view, machine, onClose, done, onDialog }: {
             data-checked={chosen === s.name || undefined} onClick={() => setChosen(s.name)} title={why ?? undefined}>
             <span className={css.radio} aria-hidden="true" />
             <span className={css.choiceMain}>{s.name}</span>
-            <span className={css.choiceMeta}>{why ?? t('fromPlace', { place: placeName(s.machine) })}</span>
+            <span className={css.choiceMeta}>
+              {why ?? [s.size ? bytes(s.size.bytes) : null, t('fromPlace', { place: placeName(s.machine) })].filter(Boolean).join(' · ')}
+            </span>
           </button>
         )) : <p className={css.choiceEmpty}>{t('addSqliteNone', { machine: placeName(machine) })}</p>}
       </div>
-      {pick && m?.state && m.state !== 'ready' ? <p className={css.formNote}>{t('notRunning', { machine: placeName(machine), state: m.state })}</p> : null}
+      {machines.error ? <Refusal error={machines.error} labels={refusalLabels(t)} compact /> : null}
+      {pick && fit?.state === 'full' ? (
+        <Notice tone="danger" role="alert">
+          <strong>{t('diskNotEnoughTitle', { machine: placeName(machine) })}</strong>
+          <span>{t('diskNotEnoughBody', { free: bytes(fit.free), store: pick.s.name, size: bytes(fit.need), short: bytes(fit.shortBy) })}</span>
+        </Notice>
+      ) : pick && fit?.state === 'tight' ? (
+        <Notice tone="warning">
+          <strong>{t('diskTightTitle', { machine: placeName(machine) })}</strong>
+          <span>{t('diskTightBody', { free: bytes(fit.free), size: bytes(fit.need) })}</span>
+        </Notice>
+      ) : pick && free !== null ? (
+        <p className={css.formNote}>{t('freeDisk', { free: bytes(free), machine: placeName(machine), size: bytes(pick.s.size?.bytes ?? null) })}</p>
+      ) : pick && machine !== 'native' && !stopped.length && machines.data ? (
+        <p className={css.formNote}>{t('freeUnknown', { machine: placeName(machine) })}</p>
+      ) : null}
+      {crossMachine ? <p className={css.formNote}>{t('moveBody')}</p> : null}
+      {stopped.length ? (
+        <StartFirst names={stopped} start={(name) => startMachine(api, name)} onStarted={() => { machines.reload(); done() }}
+          words={{ stopped: (name) => t('nsStoppedFirst', { machine: name }), start: (name) => t('startMachine', { machine: name }), refused: (name) => t('nsStartRefused', { machine: name }) }} />
+      ) : targetNotReady ? (
+        <Notice tone="danger" role="alert">{t('notRunning', { machine: placeName(machine), state: storeStateWords(mState, t) })}</Notice>
+      ) : null}
+      {held ? (
+        <Notice tone="warning">
+          <strong>{t('heldNow')}</strong>
+          <span>{sandboxes.map((b) => t('heldSandbox', { name: b.name })).join(' · ')}</span>
+        </Notice>
+      ) : null}
       {onDialog && machine === 'native' ? (
         <p className={css.formNote}>
+          {t('addStoreOrNew')}{' '}
           <button type="button" className={css.textLink} onClick={() => swap({ kind: 'new-store', machine })}>{t('newStore')}</button>
         </p>
       ) : null}

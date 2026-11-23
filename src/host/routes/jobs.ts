@@ -56,7 +56,7 @@ export function transferSummary(job: StorageJob): string | null {
   if (job.phase === 'retire') return job.kind === 'pull' || job.half === 'pull'
     ? 'On Home; source copy not removed'
     : `Moved to ${job.target}; old copy on Home not removed`
-  if (job.kind === 'move' && job.half === 'push') return 'Pulled to Home; push failed (certain)'
+  if (job.kind === 'move' && job.half === 'push') return `Push to ${job.target} failed; Store stays in LayerFS Home`
   return null
 }
 
