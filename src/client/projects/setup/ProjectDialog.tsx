@@ -353,6 +353,9 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     if (matchedServerAuth) {
       setLoginMode('saved')
       setPickedAuth(matchedServerAuth)
+    } else {
+      setLoginMode('new')
+      setPickedAuth(null)
     }
   }, [kind, mode, loginModeManual, matchedServerAuth])
   // A new login is named for its server (spec v23 V23-12: pg-<host>-<port>), never the Store's name once a host is known.
@@ -645,7 +648,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
         <span className={css.storeCardHead}>
           <span className={css.kindName}>{store.name}</span>
           {pg && pgFail ? <span className={clsx(css.storeStatusTag, store.state === 'broken' ? css.storeStatusError : css.storeStatusWarn)}>{pgFail.short}</span>
-            : pg ? <span className={css.storeStatusReady}>{t('pgReadyBadge')}</span> : null}
+            : pg && store.state === 'ready' ? <span className={css.storeStatusReady}>{t('pgReadyBadge')}</span> : null}
         </span>
         <span className={css.kindBlurb}>{[kindWords, pg ? store.postgresql?.target : null, others === 1 ? t('sharedOne') : others ? t('shared', { n: others }) : t('alone')].filter(Boolean).join(' · ')}</span>
       </span>

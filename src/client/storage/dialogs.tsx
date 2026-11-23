@@ -350,12 +350,14 @@ function RotateLoginDialog({ api, t, view, auth, onClose, done }: {
   if (result) {
     const total = result.checks.length
     const failed = result.checks.filter((c) => !c.ok).length
-    const anyPartial = result.checks.some((c) => c.ok && c.partial)
+    const partial = result.checks.filter((c) => c.ok && c.partial).length
     const description = failed === 1
       ? t('pgRotateOneFailed', { total })
       : failed > 1
         ? t('pgRotateSomeFailed', { n: failed, total })
-        : anyPartial ? t('pgRotateDonePartial') : t('pgRotateDone')
+        : partial > 0
+          ? (total === 1 ? t('pgRotateDonePartialOne') : t('pgRotateDonePartial', { ok: total, total, partial }))
+          : t('pgRotateDone')
     return (
       <FormModal open onClose={onClose} t={t} title={t('pgRotateTitle', { auth })} description={description}
         action={t('cdDone')} valid hideCancel submit={async () => onClose()}>

@@ -114,6 +114,14 @@ export function connectionRows(s: any) {
   })
 }
 
+const normMachine = (m: unknown): string | null => (typeof m === 'string' && m && m !== 'native' ? m : null)
+
+const skippedMachine = (n: any): string | null | undefined => {
+  if (n?.from !== undefined) return normMachine(n.from)
+  if (typeof n?.blocked_by?.machine === 'string') return normMachine(n.blocked_by.machine)
+  return undefined
+}
+
 /** A bucket URL from its parts: MinIO `<endpoint>/<bucket>/<prefix>`, R2 `r2://<account>/<bucket>/<prefix>[?jurisdiction=…]`. */
 export function bucketUrl({ provider, endpoint, account, jurisdiction, bucket, prefix }: any = {}): string {
   const path = [bucket, ...(prefix ? [String(prefix).replace(/^\/+|\/+$/g, '')] : [])].filter(Boolean).join('/')
@@ -256,7 +264,7 @@ export function pgCheckError(
       step: 'record',
     }
   }
-  const connFinding = findings.find((f) => f?.check === 'store.connection' && (f?.from ?? null) === from)
+  const connFinding = findings.find((f) => f?.check === 'store.connection' && normMachine(f?.from) === from)
   const evidenceStep = typeof connFinding?.evidence?.step === 'string' ? connFinding.evidence.step : undefined
   const fix = typeof connFinding?.fix === 'string' && connFinding.fix ? connFinding.fix : undefined
   const message = String(reachError ?? connFinding?.message ?? 'the check failed')
@@ -635,22 +643,37 @@ export class Storage {
         | { machine: string | null, own: boolean, host: string | null, status: 'ok', latencyMs: number | null }
         | { machine: string | null, own: boolean, host: string | null, status: 'failed', error: { code: string, message: string, step?: string, fix?: string } }
         | { machine: string | null, own: boolean, host: string | null, status: 'skipped', reason: string }
+      const treeChecks: any[] = Array.isArray(report?.tree?.checks)
+        ? report.tree.checks.filter((t: any) => t?.check === 'store.connection')
+        : []
+      const hasTree = treeChecks.length > 0
+      const treeMatch = (machine: string | null) => treeChecks.find((t) => normMachine(t?.from) === machine)
       const rows = connectionRows(record)
       const sides: RotateSide[] = rows
-        .filter((c: any) => c.machine === null || c.own
-          || findings.some((f) => f?.check === 'store.connection' && f?.from === c.machine)
-          || skippedList.some((n) => n?.check === 'store.connection' && n?.from === c.machine)
-          || (c.reach?.at != null && c.reach.at >= started - 2000))
+        .filter((c: any) => {
+          if (hasTree) {
+            return !!treeMatch(c.machine)
+              || findings.some((f) => f?.check === 'store.connection' && normMachine(f?.from) === c.machine)
+              || skippedList.some((n) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === c.machine)
+          }
+          return c.machine === null
+            || findings.some((f) => f?.check === 'store.connection' && normMachine(f?.from) === c.machine)
+            || skippedList.some((n) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === c.machine)
+            || (c.reach?.at != null && c.reach.at >= started - 500)
+        })
         .map((c: any): RotateSide => {
           const host = c.server?.host ? `${c.server.host}${c.server.port ? `:${c.server.port}` : ''}` : null
-          const skipped = skippedList.find((n) => n?.check === 'store.connection' && (n?.from ?? null) === c.machine)
-          if (skipped) {
+          const treeEntry = treeMatch(c.machine)
+          const skipped = skippedList.find((n) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === c.machine)
+          if (skipped || treeEntry?.outcome === 'not_checked') {
             return {
               machine: c.machine, own: c.own, host, status: 'skipped',
               reason: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'not_ready'),
             }
           }
-          if (c.reach?.ok) {
+          const failedInReport = findings.some((f) => f?.check === 'store.connection' && f?.severity === 'error' && normMachine(f?.from) === c.machine)
+            || treeEntry?.outcome === 'error' || treeEntry?.outcome === 'fail'
+          if (!failedInReport && c.reach?.ok) {
             return { machine: c.machine, own: c.own, host, status: 'ok', latencyMs: c.reach.latencyMs ?? null }
           }
           return {

@@ -88,7 +88,7 @@ function codeFromPgKind(kind: PgFailureKind | null, raw: string): SessionFailure
   }
 }
 
-/** Infer a structured failure from a StoreRow when it is broken or all PostgreSQL reaches failed. */
+/** Infer a structured failure from a StoreRow when it is unavailable or all checked PostgreSQL reaches failed. */
 export function pgStoreFailure(store: StoreRow | undefined): SessionFailure | null {
   if (!store || store.kind !== 'postgresql') return null
   if (store.state === 'broken') {
@@ -100,10 +100,16 @@ export function pgStoreFailure(store: StoreRow | undefined): SessionFailure | nu
     const code = codeFromPgKind(kind, store.message ?? '') ?? 'store_broken'
     return { code, store: store.name, reason: store.reason ?? undefined, detail: store.message ?? undefined }
   }
+  if (store.state === 'blocked') {
+    const machine = store.blockedBy?.machine
+    if (machine) return { code: 'machine_blocked', store: store.name, machine, reason: store.blockedBy?.reason, detail: store.message ?? undefined }
+    return { code: 'store_unresolved', store: store.name, detail: store.message ?? undefined }
+  }
+  if (store.state === 'busy') return { code: 'store_busy', store: store.name, detail: store.message ?? undefined }
+  if (store.state !== 'ready') return { code: 'store_unresolved', store: store.name, detail: store.message ?? undefined }
   const rows = store.connectedFrom ?? []
-  const failed = rows.filter((c) => c.reached === 'failed')
-  if (rows.length > 0 && failed.length === rows.length) {
-    const first = failed[0]!
+  const first = !rows.some((c) => c.reached === 'ok') ? rows.find((c) => c.reached === 'failed') : undefined
+  if (first) {
     const err = first.reach?.error ?? undefined
     const kind = classifyPgFailure(undefined, err)
     const code = codeFromPgKind(kind, err ?? '') ?? 'pg_unreachable'
@@ -115,22 +121,23 @@ export function pgStoreFailure(store: StoreRow | undefined): SessionFailure | nu
 /** Infer a SessionFailure from a raw/legacy error string when structured `failure` is absent. */
 export function inferSessionFailure(raw: string | null | undefined, store?: string | null, storeRow?: StoreRow): SessionFailure | null {
   const text = (raw ?? '').trim()
-  if (storeRow) {
-    const fromStore = pgStoreFailure(storeRow)
-    if (fromStore && (!text || /file of Store|no saved login|names no saved login|outdated|PostgreSQL|SQLSTATE|lacks\s+|Storage page|Store page/i.test(text))) {
-      return fromStore
+  const allowPg = !storeRow || storeRow.kind === 'postgresql'
+  if (text) {
+    if (allowPg) {
+      const kind = classifyPgFailure(undefined, text)
+      const code = codeFromPgKind(kind, text)
+      if (code) return { code, store: store ?? storeRow?.name ?? undefined, detail: text }
     }
+    if (/was removed from this LayerFS home/i.test(text)) return { code: 'store_removed', store: store ?? undefined, detail: text }
+    if (/file of Store\s+.+\s+is missing/i.test(text)) {
+      if (storeRow?.kind === 'postgresql') return { code: 'pg_no_login', store: store ?? storeRow.name, detail: text }
+      return { code: 'store_missing_file', store: store ?? undefined, detail: text }
+    }
+    if (/is busy/i.test(text)) return { code: 'store_busy', store: store ?? undefined, detail: text }
   }
-  if (!text) return null
-  const kind = classifyPgFailure(undefined, text)
-  const code = codeFromPgKind(kind, text)
-  if (code) return { code, store: store ?? undefined, detail: text }
-  if (/was removed from this LayerFS home/i.test(text)) return { code: 'store_removed', store: store ?? undefined, detail: text }
-  if (/file of Store\s+.+\s+is missing/i.test(text)) {
-    if (storeRow?.kind === 'postgresql') return { code: 'pg_no_login', store: store ?? storeRow.name, detail: text }
-    return { code: 'store_missing_file', store: store ?? undefined, detail: text }
+  if (storeRow && (!text || /file of Store|no saved login|names no saved login|outdated|PostgreSQL|SQLSTATE|lacks\s+|Storage page|Store page/i.test(text))) {
+    return pgStoreFailure(storeRow)
   }
-  if (/is busy/i.test(text)) return { code: 'store_busy', store: store ?? undefined, detail: text }
   return null
 }
 
