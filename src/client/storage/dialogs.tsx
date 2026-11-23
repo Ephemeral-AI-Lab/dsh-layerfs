@@ -607,10 +607,8 @@ export function replaceRefusal(
     return t('replaceInUse', { store: s.name, sandboxes: ctx.heldBy.map((name) => t('heldSandbox', { name })).join(' · ') })
   }
   if (!s.links.some((l) => l.bucket === bucket)) return t('replaceNoLink', { store: s.name, bucket })
-  if (!ctx.listed) {
-    if (ctx.bucketError) return t('replaceListFailed', { bucket, status: listStatusWords(ctx.bucketError.code, t), store: s.name })
-    return t('replaceNotListed', { bucket, store: s.name })
-  }
+  if (ctx.bucketError) return t('replaceListFailed', { bucket, status: listStatusWords(ctx.bucketError.code, t), store: s.name })
+  if (!ctx.listed) return t('replaceNotListed', { bucket, store: s.name })
   if (state === 'missing') return t('replaceMissing', { bucket, file: ctx.file ?? s.name })
   if (state === 'unknown' || state === undefined) return t('replaceUnknown', { store: s.name })
   if (state === 'store_changed' || state === 'both_changed') return t('replaceChanged', { store: s.name, bucket })
@@ -651,7 +649,7 @@ function RestoreDialog({ api, t, dialog, view, onClose, done }: { api: LayerfsAp
           { value: 'replace', label: t('restoreReplace', { store: linked.name }), body: t('restoreReplaceBody', { store: linked.name }), disabled: refusal },
         ]} />
       ) : null}
-      {linked && !listed ? (
+      {linked && (!listed || !!bucketRow?.error) ? (
         <Button type="button" variant="outline" size="sm" className={css.selfStart} disabled={listing}
           icon={listing ? <StateDot state="ongoing" size={12} /> : undefined} onClick={() => { void listNow() }}>
           {bucketRow?.error ? t('listAgain') : t('listBucket')}

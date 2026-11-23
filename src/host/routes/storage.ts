@@ -847,12 +847,11 @@ export class Storage {
    * (its job row, `storage-job` events, one job per Store), awaited to its end.
    */
   async backupAndWait(store: string, bucket: string): Promise<unknown> {
-    let file: string | undefined
-    try {
-      const record: any = await this.lfs.store.get(store, { detail: true })
-      const linked = record?.backups?.[bucket]?.file
-      if (typeof linked === 'string' && linked) file = linked
-    } catch {}
+    checkName(store, 'A backup')
+    checkName(bucket, 'A backup')
+    const record: any = await this.lfs.store.get(store, { detail: true })
+    const linked = record?.backups?.[bucket]?.file
+    const file = typeof linked === 'string' && linked ? linked : undefined
     const job = this.backup(store, { bucket, ...(file ? { file } : {}) })
     return await (this.running.get(job.id) ?? Promise.resolve(null))
   }
