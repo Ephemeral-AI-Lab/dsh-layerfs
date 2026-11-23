@@ -10,37 +10,41 @@ export type TabId = 'overview' | 'machines' | 'health' | 'logs' | `machine:${str
 
 /** Whether `id` names a page the Storage page can show. */
 export function isTabId(id: string): id is TabId {
-  return id === 'overview' || id === 'machines' || id === 'health' || id === 'logs' || /^(machine|sandbox|store|project|bucket|backup):./.test(id)
+  return id === 'overview' || id === 'machines' || id === 'health' || id === 'logs'
+    || /^(machine|store|bucket):.+$/.test(id)
+    || /^(sandbox|project|backup):[^/]+\/.+$/.test(id)
 }
 
-/**
- * The Overview's sections. Buckets have no section of their own: they are a
- * view inside Stores, on SQLite (`openHomeStores`).
- */
+export interface PageHistory { stack: TabId[], at: number }
+
+export function visitPage(history: PageHistory, id: TabId): PageHistory {
+  if (history.stack[history.at] === id) return history
+  const stack = [...history.stack.slice(0, history.at + 1), id].slice(-50)
+  return { stack, at: stack.length - 1 }
+}
+
+/** Prune both directions without leaving duplicate stops on either side of a removal. */
+export function forgetPages(history: PageHistory, gone: (id: TabId) => boolean): PageHistory {
+  const stack: TabId[] = []
+  let at = 0
+  for (const [index, id] of history.stack.entries()) {
+    if (!gone(id) && stack.at(-1) !== id) stack.push(id)
+    if (index === history.at) at = Math.max(0, stack.length - 1)
+  }
+  if (stack.length === history.stack.length) return history
+  return { stack: stack.length ? stack : ['overview'], at }
+}
+
+export function underPage(id: TabId, parent: TabId): boolean {
+  if (id === parent) return true
+  const [kind] = parent.split(':')
+  const children: Record<string, string> = { store: 'project', bucket: 'backup', machine: 'sandbox' }
+  const child = children[kind ?? '']
+  return !!child && id.startsWith(`${child}:${parent.slice(parent.indexOf(':') + 1)}/`)
+}
+
 export type OverviewTab = 'projects' | 'stores' | 'machines'
-
-const TAB_KEY = 'dsh-layerfs:overview-tab'
-
 export const isOverviewTab = (v: unknown): v is OverviewTab => v === 'projects' || v === 'stores' || v === 'machines'
-
-/** The Overview section this viewer had open last (a per-browser convenience; storage may be blocked). */
-export function readOverviewTab(): OverviewTab {
-  try {
-    const v = localStorage.getItem(TAB_KEY)
-    // the former Backups and Connections sections: Stores, on Buckets or on PostgreSQL
-    if (v === 'backups' || v === 'connections') {
-      openHomeStores(v === 'backups' ? 'sqlite' : 'postgresql', v === 'backups')
-      localStorage.setItem(TAB_KEY, 'stores')
-      return 'stores'
-    }
-    return isOverviewTab(v) ? v : 'projects'
-  } catch { return 'projects' }
-}
-
-/** Remember the Overview section for this viewer. */
-export function writeOverviewTab(tab: OverviewTab): void {
-  try { localStorage.setItem(TAB_KEY, tab) } catch { /* the section still switches */ }
-}
 
 // ---------------------------------------------------------------- a Stores board's kind, and Home's second view
 

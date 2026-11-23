@@ -1,7 +1,7 @@
-/** Storage's pure rules: placement, attention, backup coverage and job words. No React. */
+/** Storage's pure rules: placement, attention and job words. No React. */
 import type { Tone } from '../ui/index.tsx'
 import type { BackupFile, BucketRow, JobKind, PgConnection, StorageJob, StorageView, StoreBackupLink, StoreRow } from './types.ts'
-import type { StorageT } from './locale.ts'
+import type { StorageKey, StorageT } from './locale.ts'
 import { connectBucketFix } from '../../shared/doctor.ts'
 
 /** A sqlite Store saved under the LayerFS home (`native`). */
@@ -27,20 +27,49 @@ export function backupStateOf(f: Pick<BackupFile, 'store' | 'behind' | 'changed'
 }
 
 /**
- * Why the Store menu's Compact waits, or null when it is offered. Only the
- * 2.0 state decides; placement does not (a sqlite Store on a machine is
- * compacted by that machine's worker). A Store `blocked` by its stopped
- * machine waits for that machine; a `broken` Store whose fix is
- * `layerfs store compact <store>` (an earlier run's outcome unknown) is
- * offered, since running it is that fix; any other state that is not
- * `ready` waits (LayerFS would refuse it `Busy` or `Unavailable`).
+ * Why an action that requires a Ready Store (Push, Pull, Move, Back up, Add
+ * project) waits, or null when the Store is ready.
  */
-export function compactWaitsFor(s: StoreRow, t: StorageT): string | null {
-  if (s.state === 'ready') return null
-  if (s.state === 'broken' && s.fix === `layerfs store compact ${s.name}`) return null
-  // a stopped machine is started; one that is broken (its worker does not answer, its record cannot be read) is repaired
-  if (s.state === 'blocked' && s.blockedBy?.machine) return t(!s.blockedBy.reason || s.blockedBy.reason === 'stopped' ? 'compactNeedsMachine' : 'compactNeedsMachineFixed', { machine: s.blockedBy.machine })
+export function storeWaitsFor(
+  s: Pick<StoreRow, 'name' | 'state' | 'blockedBy' | 'op' | 'fix' | 'job'>,
+  t: StorageT,
+  runningJob = false,
+): string | null {
+  const localBusy = runningJob || !!s.job
+  if (s.state === 'ready' && !localBusy) return null
+  if (localBusy) return t('storeNeedsOpFinish')
+  if (s.state === 'busy') {
+    if (s.op) {
+      const op = s.op.phase ? `${s.op.name} · ${s.op.phase}` : s.op.name
+      return t('opRunning', { op })
+    }
+    return t('storeNeedsOpFinish')
+  }
+  if (s.state === 'blocked' && s.blockedBy?.machine) {
+    const r = s.blockedBy.reason
+    if (!r || r === 'stopped') return t('compactNeedsMachine', { machine: s.blockedBy.machine })
+    if (r === 'busy') return t('storeNeedsMachineBusy', { machine: s.blockedBy.machine })
+    return t('compactNeedsMachineFixed', { machine: s.blockedBy.machine })
+  }
+  if (s.state === 'broken') {
+    return s.fix === `layerfs store compact ${s.name}` ? t('storeNeedsCompact') : t('storeNeedsRepair')
+  }
   return t('compactNeedsIdle')
+}
+
+/**
+ * Why the Store menu's Compact waits, or null when it is offered. Shares
+ * {@link storeWaitsFor}, except a `broken` Store whose fix is
+ * `layerfs store compact <store>` (an earlier run's outcome unknown) is
+ * offered, since running it is that fix.
+ */
+export function compactWaitsFor(
+  s: Pick<StoreRow, 'name' | 'state' | 'blockedBy' | 'op' | 'fix' | 'job'>,
+  t: StorageT,
+  runningJob = false,
+): string | null {
+  if (!runningJob && !s.job && s.state === 'broken' && s.fix === `layerfs store compact ${s.name}`) return null
+  return storeWaitsFor(s, t, runningJob)
 }
 
 /**
@@ -113,21 +142,55 @@ export function worstSignal(signals: readonly (RowSignal | null | undefined)[]):
   return signals.reduce<RowSignal | null>((w, s) => (s && (!w || SIGNAL_RANK[s.state] > SIGNAL_RANK[w.state]) ? s : w), null)
 }
 
+/** A Store waiting on its stopped machine (`blocked_by { machine, reason: stopped }`, LayerFS gives no fix). */
+export const stoppedBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): boolean =>
+  s.state === 'blocked' && ['', 'stopped'].includes(s.blockedBy?.reason ?? '')
+
+/** The machine a Store waits on while that machine is broken (not stopped or busy), or null (F3). */
+export const brokenBlock = (s: Pick<StoreRow, 'state' | 'blockedBy'>): string | null =>
+  s.state === 'blocked' && s.blockedBy?.machine && !['', 'stopped', 'busy'].includes(s.blockedBy.reason) ? s.blockedBy.machine : null
+
+/** Whether a SQLite Store's banner/action should treat it as waiting on a stopped machine (a broken Store keeps priority). */
+export const storeMachineStopped = (s: Pick<StoreRow, 'kind' | 'state' | 'blockedBy'>, machineState?: string | null): boolean =>
+  s.state !== 'broken' && !brokenBlock(s) && (stoppedBlock(s) || (s.kind === 'sqlite' && machineState === 'stopped'))
+
+/** Whether a SQLite Store's machine is broken or has an unreadable record. */
+export const storeMachineBroken = (s: Pick<StoreRow, 'kind' | 'state' | 'blockedBy'>, machineState?: string | null): boolean =>
+  !!brokenBlock(s) || (s.kind === 'sqlite' && machineState === 'broken')
+
+/** Notice / card status tone for a Store: red only for a broken Store or broken machine; stopped machine is neutral. */
+export function storeNoticeTone(s: Pick<StoreRow, 'kind' | 'state' | 'blockedBy'>, machineState?: string | null): 'danger' | undefined {
+  if (s.state === 'broken' || storeMachineBroken(s, machineState)) return 'danger'
+  return undefined
+}
+
+export type MachineHealthKey = 'spMachineRunning' | 'spMachineStopped' | 'spMachineBroken' | 'spMachineUnreadable' | 'spMachineBusy' | 'spMachineUnknown'
+
+/** Overview Health › Machine row: grades the machine by its own state (even when the Store itself is broken). */
+export function overviewMachineHealth(s: Pick<StoreRow, 'kind' | 'machine' | 'state' | 'blockedBy'>, machineState?: string | null): { tone: 'ok' | 'info' | 'danger', key: MachineHealthKey } {
+  if (storeMachineBroken(s, machineState)) {
+    return { tone: 'danger', key: s.blockedBy?.reason === 'failed' ? 'spMachineUnreadable' : 'spMachineBroken' }
+  }
+  if (stoppedBlock(s) || (s.kind === 'sqlite' && machineState === 'stopped')) return { tone: 'info', key: 'spMachineStopped' }
+  if (machineState === 'busy' || (s.state === 'blocked' && s.blockedBy?.reason === 'busy')) return { tone: 'info', key: 'spMachineBusy' }
+  if (machineState === 'ready' || (s.machine === 'native' && machineState !== 'broken')) return { tone: 'ok', key: 'spMachineRunning' }
+  return { tone: 'info', key: 'spMachineUnknown' }
+}
+
 /** How much a Store needs you, and why: its running or failed job first, then its own state, its backups, its machine. */
 export function storeSignal(s: StoreRow, job: StorageJob | undefined, machineState: string | null | undefined, buckets: readonly BucketRow[], t: StorageT): RowSignal | null {
   if (job && !job.ended) return { state: 'ongoing', reason: doingWords(job, t) }
   if (job?.error) return { state: 'error', reason: endedWords(job, t) }
   // the state's word and its reason; the fix is the card's one action
   if (s.state === 'broken') return { state: 'error', reason: brokenWords(s, t) }
-  if (s.state === 'blocked') return { state: 'warning', reason: s.blockedBy?.machine ? blockedWords(s.blockedBy, t) : storeStateWords(s.state, t, s.blockedBy?.reason) }
+  if (brokenBlock(s)) return { state: 'error', reason: blockedWords(s.blockedBy!, t) }
+  if (stoppedBlock(s)) return null
+  if (s.state === 'blocked') return s.blockedBy?.reason === 'busy' ? null : { state: 'warning', reason: s.blockedBy?.machine ? blockedWords(s.blockedBy, t) : storeStateWords(s.state, t, s.blockedBy?.reason) }
   if (s.state === 'unknown') return { state: 'warning', reason: storeStateWords(s.state, t) }
   const links = s.links.map((l) => ({ l, state: linkState(s, l.bucket, l.file, buckets) }))
   const linkReason = (x: typeof links[number]) => `${x.l.bucket}/${x.l.file}: ${backupChip(x.state, t).label}`
   const broken = links.find((x) => x.state === 'both_changed' || x.state === 'missing')
   if (broken) return { state: 'error', reason: linkReason(broken) }
-  const drifted = links.find((x) => x.state === 'store_changed' || x.state === 'bucket_changed')
-  if (drifted) return { state: 'warning', reason: linkReason(drifted) }
-  if (machineState === 'stopped' && s.machine) return { state: 'warning', reason: t('machineStopped', { machine: s.machine }) }
   return null
 }
 
@@ -146,16 +209,34 @@ export function sandboxStateWords(b: { state: string, reason?: string | null }, 
   return storeStateWords(b.state, t)
 }
 
-/** A Store's 2.0 state as a chip tone. */
-export function storeTone(state: string): Tone {
+/** A Store's 2.0 state as a chip tone. Stopped machines stay neutral; broken machines and broken Stores are red. */
+export function storeTone(state: string, blockedBy?: StoreRow['blockedBy']): Tone {
   if (state === 'ready') return 'success'
   if (state === 'busy') return 'info'
-  if (state === 'blocked' || state === 'stopped') return 'warning'
+  if (state === 'stopped') return 'neutral'
   if (state === 'broken') return 'danger'
+  if (state === 'blocked') {
+    if (brokenBlock({ state, blockedBy })) return 'danger'
+    if (stoppedBlock({ state, blockedBy }) || blockedBy?.reason === 'busy') return 'neutral'
+    return 'warning'
+  }
   return 'neutral'
 }
 
-/** A Store's state in words (one of the six), with its reason code when given: `Broken · unresolved`. */
+const REASON_KEYS = new Map<string, StorageKey>([
+  ['corrupt', 'reasonCorrupt'],
+  ['outdated', 'reasonOutdated'],
+  ['missing', 'reasonMissing'],
+  ['unreachable', 'reasonUnreachable'],
+  ['failed', 'reasonFailed'],
+  ['unresolved', 'reasonUnresolved'],
+  ['lost', 'reasonLost'],
+  ['engine_down', 'reasonEngineDown'],
+  ['unsupported', 'reasonUnsupported'],
+  ['not_answering', 'reasonNotAnswering'],
+])
+
+/** A Store's state in words (one of the six), with its localized reason when given: `Broken · corrupt` / `损坏 · 数据损坏`. */
 export function storeStateWords(state: string, t: StorageT, reason?: string | null): string {
   const word = (() => {
     switch (state) {
@@ -167,7 +248,10 @@ export function storeStateWords(state: string, t: StorageT, reason?: string | nu
       default: return t('stateUnknown')
     }
   })()
-  return reason ? `${word} · ${reason.replace(/_/g, ' ')}` : word
+  if (!reason) return word
+  const key = REASON_KEYS.get(reason.toLowerCase())
+  const text = key ? t(key) : reason.replace(/_/g, ' ')
+  return `${word} · ${text}`
 }
 
 /**
@@ -257,12 +341,12 @@ export function reconnectOf(b: Pick<BucketRow, 'name' | 'provider' | 'state' | '
   return { bucket: b.name, provider: fixed ? bucketParts(fixed.url)?.provider ?? b.provider : b.provider, url: fixed?.url ?? b.url ?? null }
 }
 
-/** A backup file's state: its tone and words. */
+/** A backup file's state: its tone and words. Backups are optional, so only real failures (missing, conflict) are red. */
 export function backupChip(state: BackupState | null | undefined, t: StorageT): { tone: Tone, label: string, dashed?: boolean } {
   switch (state) {
     case 'current': return { tone: 'success', label: t('backupCurrent') }
-    case 'store_changed': return { tone: 'warning', label: t('backupStoreChanged') }
-    case 'bucket_changed': return { tone: 'warning', label: t('backupBucketChanged') }
+    case 'store_changed': return { tone: 'neutral', label: t('backupStoreChanged') }
+    case 'bucket_changed': return { tone: 'neutral', label: t('backupBucketChanged') }
     case 'both_changed': return { tone: 'danger', label: t('backupBothChanged') }
     case 'unlinked': return { tone: 'neutral', label: t('backupUnlinked') }
     case 'missing': return { tone: 'danger', label: t('backupMissing') }
@@ -274,14 +358,6 @@ export function backupChip(state: BackupState | null | undefined, t: StorageT): 
 /** The newest backup time a Store's links recorded. */
 export const latestBackup = (s: StoreRow): number | null =>
   s.links.reduce<number | null>((n, l) => (l.last?.at != null && (n === null || l.last.at > n) ? l.last.at : n), null)
-
-/** Backup coverage of the SQLite Stores. */
-export function coverageOf(view: StorageView) {
-  const sqlite = view.stores.filter((s) => s.kind === 'sqlite')
-  const backed = sqlite.filter((s) => s.links.length > 0)
-  const latest = backed.map(latestBackup).filter((n): n is number => n !== null)
-  return { sqlite, backed, never: sqlite.filter((s) => s.links.length === 0), oldest: latest.length ? Math.min(...latest) : null }
-}
 
 /** Where a Store is, in words: the home, a machine, or PostgreSQL. */
 export const placeWords = (machine: string | null | undefined, t: StorageT): string => (machine === 'native' ? t('layerfsHome') : (machine ?? '?'))

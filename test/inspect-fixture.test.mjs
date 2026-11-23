@@ -3,6 +3,7 @@
 // against it check nothing. A stand-in for a CLI without logs.machine / logs.sandbox;
 // never evidence about a real build.
 //   node --test test/inspect-fixture.test.mjs
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -11,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pinned } from './routes-helper.mjs'
 
-const shim = new URL('./fixtures/cli-inspect-logs.mjs', import.meta.url).pathname
+const shim = fileURLToPath(new URL('./fixtures/cli-inspect-logs.mjs', import.meta.url))
 const pin = pinned()
 
 function fixture() {

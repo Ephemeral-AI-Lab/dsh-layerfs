@@ -1,4 +1,4 @@
-<!-- source: a3f0bff92b9d -->
+<!-- source: 7a023f137cb2 -->
 # 机器
 
 > **位置：** `LayerFS › 主页 › 机器 › <machine>` · **打开方式：** 主页 › 机器 中的机器名、导航栏的面包屑切换器、跳转到（**机器**（Machines）分组）、Store 的位置链接、Sandbox 的 **机器**（Machine）一项 · **源码：** 见文末
@@ -9,21 +9,19 @@
 
 | # | 组件 | 说明 |
 |---|---|---|
-| 1 | 标签栏 | **概览**（Overview）· **Sandbox** *n* · **Store** *n* · **镜像**（Images）· **文件**（Files）· **Worker 日志**（Worker log）。后三个只在提供时出现（见[变体](#variants)） |
-| 2 | 头部 | 机器的图标、名称（`native` 显示为 **LayerFS Home**）、状态标签和类型行（**Docker · Linux 命名空间**（Docker · Linux namespaces）） |
-| 3 | 电源按钮 | **停止 worker**（Stop worker）/ **启动 worker**（Start worker）（docker），**停止**（Stop）/ **启动**（Start）（虚拟机），**启动 Docker 和 worker**（Start Docker and worker），或当前状态对应的唯一修复（**重启 worker**（Restart worker）、**检查**（Check））。LayerFS Home 上没有 |
-| 4 | ⋯ | 机器菜单：[组件 › 机器菜单](components.md#machine-menu) |
-| 5 | 用量卡片 | 当前的处理器、内存和数据盘，附 **运行良好**（Healthy）和读取时间 |
-| 6 | **空间去向**（Where it goes） | 打开[磁盘空间对话框](#disk-space-dialog) |
-| 7 | 详情卡片 | 机器的信息，分三组：机器、Sandbox、Store 调用与连接 |
-| 8 | **运行诊断**（Run diagnostics） | 在诊断页上运行这台机器的检查 |
-| 9 | **更新设置…**（Update settings…） | 仅 docker：[设置对话框](#settings-dialog) |
+| 1 | 头部 | 机器的图标、名称（`native` 显示为 **LayerFS Home**）、状态标签、类型行（**Docker · Linux 命名空间**（Docker · Linux namespaces）），以及它的电源按钮和 ⋯ 菜单。在每个标签页上方，每种机器的布局都一样 |
+| 2 | 标签栏 | **概览**（Overview）· **镜像**（Images）· **文件**（Files）· **Sandbox** *n* · **Store** *n* · **Worker 日志**（Worker log）。镜像、文件和 Worker 日志只在提供时出现（见[变体](#variants)） |
+| 3 | 用量卡片 | 当前的处理器、内存和数据盘，附 **运行良好**（Healthy）和读取时间 |
+| 4 | **空间去向**（Where it goes） | 打开[磁盘空间对话框](#disk-space-dialog) |
+| 5 | 详情卡片 | 机器的信息，分三组：机器、Sandbox、Store 调用与连接 |
+| 6 | **运行诊断**（Run diagnostics） | 在诊断页上运行这台机器的检查 |
+| 7 | **更新设置…**（Update settings…） | 仅 docker：[设置对话框](#settings-dialog) |
 
-标签栏上方是[导航栏](components.md#nav-bar)：`主页 › 机器 › docker`，最后一段面包屑可以切换到另一台机器。
+头部上方是[导航栏](components.md#nav-bar)：`主页 › 机器 › docker`，最后一段面包屑可以切换到另一台机器。
 
 ## 布局
 
-标签栏在最前面；机器的头部（图标、名称、状态、电源、⋯）属于概览标签页。关于这台机器的提示（正在启动、平台没就绪、操作被拒绝、为什么停机）在每个标签页的标签栏下方都会显示。页面会按机器记住标签页；别处的链接（Sandbox 卡片的 **终端**（Terminals）、**打开 Worker 日志**（Open worker log））可以切换它。
+头部在最前面，然后是标签栏。头部在每个标签页上都在，所以你翻看这台机器的 Sandbox、Store、镜像或日志时，它的状态、电源按钮和 ⋯ 菜单始终在手边。关于这台机器的提示（正在启动、平台没就绪、操作被拒绝、为什么停机）在每个标签页的标签栏下方都会显示。页面会按机器记住标签页；别处的链接（Sandbox 卡片的 **终端**（Terminals）、**打开 Worker 日志**（Open worker log））可以切换它。
 
 ### 提示（所有标签页）
 
@@ -42,8 +40,8 @@
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 头部 | 图标、名称、状态标签、类型 · 运行方式 | — | `home get`、`machine list`、`machine get --with live`、`sandbox list`、`store list`(读取：机器视图，页面显示期间轮询) | **运行中**（Running）、**已停止**（Stopped）、**正在启动…**（Starting…）、**正在启动 worker…**（Starting worker…）、**正在停止… *n* 秒**（Stopping… *n*s）、**需要修复**（Needs repair）、**Docker 未运行**（Docker not running）、**不可用**（Unavailable） |
-| 电源按钮 | 见要点表 (3) | **停止 worker**（Stop worker）/ **停止**（Stop）→ 停止它 | `machine stop` | 另一个电源操作运行时不可用；按钮刚变化时立即按下不起作用 |
+| 头部 | 图标、名称、状态标签、类型 · 运行方式（在标签栏上方） | — | `home get`、`machine list`、`machine get --with live`、`sandbox list`、`store list`(读取：机器视图，页面显示期间轮询) | **运行中**（Running）、**已停止**（Stopped）、**正在启动…**（Starting…）、**正在启动 worker…**（Starting worker…）、**正在停止… *n* 秒**（Stopping… *n*s）、**需要修复**（Needs repair）、**Docker 未运行**（Docker not running）、**不可用**（Unavailable） |
+| 电源按钮 | 见要点表 (1) | **停止 worker**（Stop worker）/ **停止**（Stop）→ 停止它 | `machine stop` | 另一个电源操作运行时不可用；按钮刚变化时立即按下不起作用 |
 | | | **启动 worker**（Start worker）/ **启动**（Start）→ 启动它，并显示启动进度 | `machine start` | |
 | | | **启动 Docker 和 worker**（Start Docker and worker）→ 打开 Docker Desktop，等待其引擎就绪，然后启动 | `machine start`（主机先启动 Docker Desktop） | macOS 上 docker 的引擎未运行时 |
 | | | **重启 worker**（Restart worker，worker 版本过旧时的修复） | `machine get`，然后 `machine stop`，再 `machine start` | 上面有 Sandbox 时被拒绝（InUse）：不可用，并提示 **复制修复命令以强制停止**（copy the fix to stop it anyway） |
@@ -99,7 +97,7 @@
 |---|---|---|---|
 | **项目**（Project） | 选择 → 建议一个可用的名称（*项目*-1） | `project list`(读取) | **没有符合条件的项目……**（No eligible projects…），附 **打开存储**（Open Storage） |
 | **名称**（Name） | 1–63 个小写字母、数字、点、下划线或连字符 | — | 已占用的名称会被拒绝 |
-| **镜像**（Image） | Sandbox 在这里可以直接启动的镜像，以及 LayerFS 能从这台电脑的 Docker 复制的镜像（**来自本机 Docker**（From Docker on this Mac））；灰色的行会说明原因 | `machine get`、`machine images --with docker`、`sandbox list`(读取) | 在 LayerFS Home 上改为显示 **此 Mac 上的 Sandbox 使用它自己的系统。**（Sandboxes on this Mac use its own system.） |
+| **镜像**（Image） | Sandbox 在这里可以直接启动的镜像，以及 LayerFS 能从这台电脑的 Docker 复制的镜像（**来自本机 Docker**（From Docker on this Mac））；灰色的行会说明原因 | `machine get`、`machine images --with docker`、`sandbox list`(读取) | 在 macOS 的 LayerFS Home（主机进程，`backend: native`）上改为显示 **此 Mac 上的 Sandbox 使用它自己的系统。**（Sandboxes on this Mac use its own system.）；Linux 上的 LayerFS Home 使用镜像 |
 | **创建**（Create）/ **启动并创建**（Start and create）/ **释放空间**（Free space） | 在后台创建：对话框关闭，卡片区显示一行创建中 | `sandbox create`（**启动并创建** 会先 `machine start`） | 所选 Docker 镜像放不下时显示 **释放空间**：在对话框上方打开[释放空间](#free-space-dialog) |
 | **读取 Sandbox**（Read Sandbox） | 创建结果不确定时：先读取这个 Sandbox，再决定是否创建另一个 | `sandbox get`(读取) | |
 | **取消**（Cancel） | 关闭 | — | |
@@ -112,7 +110,7 @@
 
 ## 镜像
 
-只出现在自己保存 Sandbox 镜像副本的机器上（docker 和创建的虚拟机；LayerFS Home 没有，它的 Sandbox 使用这台 Mac 自己的系统）。
+只出现在用自己保存的镜像副本启动 Sandbox 的机器上：docker、创建的虚拟机，以及在 Linux 命名空间里运行 Sandbox 的 LayerFS Home。macOS 上的 LayerFS Home 没有 **镜像**（Images）标签页，因为它的 Sandbox 使用 Mac 自己的系统。
 
 ![docker › 镜像，带编号](../img/machine-images.png)
 
@@ -226,8 +224,8 @@ confirm），然后 **全部移除**（Remove everything）依次运行：每个
 | 10 | **新建 Sandbox**（New Sandbox） | 在 Sandbox 一栏里 | 按下 → [新建 Sandbox 对话框](#new-sandbox-dialog) | — | 启动或停止进行中时不可用 |
 | 11 | Sandbox 行 | 名称、**n/16 个 Workspace**（n/16 Workspaces）、状态 | 点击 → Sandbox 页；它的 ⋯ → **打开**（Open）、**删除 Sandbox…**（Delete Sandbox…）、**强制删除 Sandbox…**（Force delete Sandbox…） | `sandbox remove`（`--force`） | 需要你处理的排在前面，显示为红色 |
 | | Store 行 | 名称、大小或 **PostgreSQL** | 点击 → Store 页；它的 ⋯ → [Store 菜单](components.md#store-menu) | | |
-| 12 | **新建机器**（New machine） | 有可用的虚拟机平台时显示在标签栏上 | 按下 → [添加机器对话框](#add-machine-dialog) | — | |
-| | ⋯ **更多机器操作**（More machine actions） | **诊断此主机**（Diagnose this host） | → 诊断页运行主机的检查 | `home doctor`（在诊断页上） | |
+| 12 | **新建机器**（New machine） | 一直在标签栏上；没有能创建机器的平台时不可用，原因在悬停提示里 | 按下 → [添加机器对话框](#add-machine-dialog) | — | |
+| | **诊断此主机**（Diagnose this host） | 标签栏右端、**新建机器** 旁边的 **</>** 按钮 | → 诊断页运行主机的检查 | `home doctor`（在诊断页上） | |
 
 展开的行还会显示：机器为什么被阻塞（附修复步骤）、为什么停机（附 **运行诊断**（Run diagnostics））、被拒绝的操作，以及正在进行的启动。
 
@@ -250,10 +248,10 @@ created.）每个平台一行，显示它当前的就绪程度。
 
 ## 变体
 
-- **LayerFS Home（`native`）**（[截图](../img/machine-native.png)）：没有电源按钮（它就是这台电脑），macOS 上没有处理器一栏，没有 **镜像**（Images）标签页（它的 Sandbox 使用这台 Mac 自己的系统），没有 **Worker 日志**（Worker log，没有 worker），没有 **更新设置…**（Update settings…），**移除…**（Remove…）不可用并显示 **内置 · 无法移除**（Built in · can’t be removed）。上面有 Sandbox 时会显示 **强制停止…**（Force stop…），使用 native 版的说明文字。
+- **LayerFS Home（`native`）**（[截图](../img/machine-native.png)）：没有电源按钮（它就是这台电脑），macOS 上没有处理器一栏，没有 **Worker 日志**（Worker log，没有 worker），没有 **更新设置…**（Update settings…），**移除…**（Remove…）不可用并显示 **内置 · 无法移除**（Built in · can’t be removed）。**镜像**（Images）标签页取决于它的 Sandbox 怎么运行：macOS 上的 LayerFS Home 让 Sandbox 使用 Mac 自己的系统，没有这一页；Linux 上在命名空间里运行，有这一页。上面有 Sandbox 时会显示 **强制停止…**（Force stop…），使用 native 版的说明文字。
 - **docker**：电源按钮的文字提到 worker（**启动 worker**（Start worker）、**停止 worker**（Stop worker）、**重启 worker**（Restart worker））；**更新设置…**（Update settings…）用来设置套接字；macOS 上 Docker 引擎没运行时，状态是 **Docker 未运行**（Docker not running），启动按钮变成 **启动 Docker 和 worker**（Start Docker and worker）。除非 LayerFS 自己的修复要求移除它的记录，否则移除不可用。
 - **创建的虚拟机**（Lima、Apple Container）：**启动**（Start）/ **停止**（Stop）（worker 没有响应时为 **停止（关闭虚拟机）**（Stop (shut down the VM)）），有危险操作区和 **移除 *名称*…**（Remove *name*…），菜单里有 **移除…**（Remove…），没有设置。
-- **只在部分情况下出现的标签页**：**镜像**（Images）需要支持 Sandbox 镜像副本的 CLI（镜像阶段 1）以及能运行镜像的机器（不是 LayerFS Home）；**文件**（Files）需要 CLI 的 `machine files`；**Worker 日志**（Worker log）需要 CLI 的 `machine log`，以及 LayerFS 表示有 worker 日志的机器（`supports: log`）。这些都不按平台名称判断。
+- **只在部分情况下出现的标签页**：**镜像**（Images）需要支持 Sandbox 镜像副本的 CLI（镜像阶段 1）以及从镜像启动 Sandbox 的机器（不是 macOS 上的 LayerFS Home，它让 Sandbox 使用 Mac 自己的系统）；**文件**（Files）需要 CLI 的 `machine files`；**Worker 日志**（Worker log）需要 CLI 的 `machine log`，以及 LayerFS 表示有 worker 日志的机器（`supports: log`）。这些都不按平台名称判断。
 - **较旧的 CLI**（没有 `machine stats`）：用量卡片变成一行记录的大小；没有 `machine stats --with space` 时，就没有磁盘分段、**空间去向**（Where it goes）和 **磁盘占用**（On disk）。
 
 ## 从这里打开的对话框

@@ -2,29 +2,33 @@
  * The Storage page's navigation, in one bar over the page: Back and Forward
  * through the pages visited, a breadcrumb from Home (the Overview) down to
  * the page, Jump to (⌘K / Ctrl+K), the running transfers, Refresh and Add.
- * Health and Logs open from Home's head card (and Jump to); its Settings button opens the setup modal.
+ * Doctor and Logs open their pages. Settings opens the setup modal.
  *
  * A crumb with siblings carries a switcher: the current page's crumb opens a
  * menu of the pages beside it (the other Stores, machines, projects in the
  * Store…), and an ancestor's chevron does the same for its level, so you move
  * sideways without going back. Jump to lists every machine, Store, project,
- * Sandbox and bucket with where it lives, filtered as you type.
+ * Sandbox, bucket and available session with where it lives, filtered as you type.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconChevronDownOutlineRegular, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular,
-  IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Menu, MenuItemButton, Modal, ShortcutKeys, StateDot,
+  IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, IconShieldOutlineRegular, Menu, MenuItemButton, Modal, ShortcutKeys, StateDot,
   modalSelector,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { DoctorFinding } from '../../shared/doctor.ts'
+import { LogsPanelIcon } from '../logs/index.tsx'
+import { setupDialog } from '../setup/store.ts'
+import type { SessionsSource } from '../views/hooks.ts'
 import type { StorageT } from './locale.ts'
 import { doingWords, shareOf } from './model.ts'
-import type { TabId } from './tabs.ts'
+import { forgetPages, visitPage, type PageHistory, type TabId } from './tabs.ts'
 import type { StorageJob } from './types.ts'
 import css from './Nav.module.css'
 
-/** How many pages Back remembers. */
-const HISTORY_MAX = 50
+/** Keep the last visit when DSH remounts Center on the same connection. */
+const lastVisits = new WeakMap<object, PageHistory>()
 
 /** Back and Forward over the pages visited. */
 export interface NavHistory {
@@ -39,25 +43,13 @@ export interface NavHistory {
   forget: (gone: (id: TabId) => boolean) => void
 }
 
-export function useNavHistory(initial: TabId): NavHistory {
-  const [h, setH] = useState<{ stack: TabId[], at: number }>({ stack: [initial], at: 0 })
-  const open = useCallback((id: TabId) => setH((s) => {
-    if (s.stack[s.at] === id) return s
-    const stack = [...s.stack.slice(0, s.at + 1), id].slice(-HISTORY_MAX)
-    return { stack, at: stack.length - 1 }
-  }), [])
+export function useNavHistory(owner: object): NavHistory {
+  const [h, setH] = useState<PageHistory>(() => lastVisits.get(owner) ?? { stack: ['overview'], at: 0 })
+  useEffect(() => { lastVisits.set(owner, h) }, [owner, h])
+  const open = useCallback((id: TabId) => setH((s) => visitPage(s, id)), [])
   const back = useCallback(() => setH((s) => (s.at > 0 ? { ...s, at: s.at - 1 } : s)), [])
   const forward = useCallback(() => setH((s) => (s.at < s.stack.length - 1 ? { ...s, at: s.at + 1 } : s)), [])
-  const forget = useCallback((gone: (id: TabId) => boolean) => setH((s) => {
-    const stack: TabId[] = []
-    let at = -1
-    s.stack.forEach((id, i) => {
-      if (!gone(id) && stack[stack.length - 1] !== id) stack.push(id)
-      if (i === s.at) at = stack.length - 1
-    })
-    if (stack.length === 0) return { stack: ['overview'], at: 0 }
-    return { stack, at: Math.max(0, at) }
-  }), [])
+  const forget = useCallback((gone: (id: TabId) => boolean) => setH((s) => forgetPages(s, gone)), [])
   return {
     current: h.stack[h.at] ?? 'overview',
     canBack: h.at > 0,
@@ -105,9 +97,10 @@ export interface AddItem {
   label: string
   icon?: ReactNode
   run: () => void
+  disabledReason?: string | undefined
 }
 
-/** A page of its own under Home (Health, Logs), opened from Home's head card. */
+/** A page of its own under Home (Doctor, Logs), also listed in Jump to. */
 export interface NavPage {
   id: TabId
   label: string
@@ -117,8 +110,11 @@ export interface NavBarProps {
   t: StorageT
   history: NavHistory
   crumbs: readonly Crumb[]
+  sessions: SessionsSource | undefined
+  onSession: (id: string) => void
   jump: readonly JumpItem[]
   jobs: readonly StorageJob[]
+  findings: readonly DoctorFinding[]
   refreshing: boolean
   /** None on Home, whose head card has Refresh. */
   onRefresh?: (() => void) | undefined
@@ -128,7 +124,7 @@ export interface NavBarProps {
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
 
-export function NavBar({ t, history, crumbs, jump, jobs, refreshing, onRefresh, add, onOpen }: NavBarProps): ReactNode {
+export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, findings, refreshing, onRefresh, add, onOpen }: NavBarProps): ReactNode {
   const [jumping, setJumping] = useState(false)
   const barRef = useRef<HTMLElement>(null)
   // ⌘K / Ctrl+K opens Jump to while this page shows and nothing modal is open over it.
@@ -143,7 +139,7 @@ export function NavBar({ t, history, crumbs, jump, jobs, refreshing, onRefresh, 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-  const running = jobs.filter((j) => !j.ended)
+  const running = jobs.filter((j) => !j.ended && j.kind !== 'compact')
   return (
     <header ref={barRef} className={css.bar} aria-label={t('navLabel')}>
       <span className={css.history}>
@@ -164,18 +160,24 @@ export function NavBar({ t, history, crumbs, jump, jobs, refreshing, onRefresh, 
       </nav>
       <span className={css.tools}>
         {running.length > 0 ? <Jobs jobs={running} t={t} onOpen={onOpen} /> : null}
-        <button type="button" className={css.jumpField} onClick={() => setJumping(true)} aria-haspopup="dialog" aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}>
+        <button type="button" className={css.jumpField} onClick={() => setJumping(true)} aria-label={t('jumpTo')} title={t('jumpTo')} aria-haspopup="dialog" aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}>
           <IconSearchOutlineRegular size={14} className={css.jumpIcon} aria-hidden="true" />
           <span className={css.jumpText}>{t('jumpTo')}</span>
           <ShortcutKeys keys={[isMac ? '⌘' : 'Ctrl', 'K']} className={css.jumpKeys} />
         </button>
+        <Button variant="ghost" size="sm" className={findings.length ? css.countButton : css.iconButton} icon={<IconShieldOutlineRegular size={15} />}
+          onClick={() => onOpen('health')} aria-label={t('navHealth')} title={findings.length ? t('navHealthFindings', { n: findings.length }) : t('navHealth')}>
+          {findings.length ? <span className={css.toolCount} data-tone={findings.some((f) => f.severity === 'error') ? 'danger' : 'warning'}>{findings.length}</span> : null}
+        </Button>
+        <Button variant="ghost" size="sm" className={css.iconButton} icon={<LogsPanelIcon size={15} />} onClick={() => onOpen('logs')} aria-label={t('navLogs')} title={t('navLogs')} />
+        <Button variant="ghost" size="sm" className={css.iconButton} icon={<IconSettingsOutlineRegular size={15} />} onClick={() => setupDialog.open()} aria-label={t('navSettings')} title={t('navSettings')} />
         {onRefresh ? (
-          <Button variant="ghost" size="sm" className={css.iconButton} aria-label={t('refresh')} title={t('refresh')} disabled={refreshing}
+          <Button variant="ghost" size="sm" className={css.iconButton} aria-label={t('refresh')} title={t('refresh')} aria-busy={refreshing}
             icon={refreshing ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />} onClick={onRefresh} />
         ) : null}
         <AddMenu items={add} t={t} />
       </span>
-      {jumping ? <JumpDialog items={jump} t={t} onClose={() => setJumping(false)} onOpen={(id) => { setJumping(false); onOpen(id) }} /> : null}
+      {jumping ? <JumpDialog items={jump} sessions={sessions} onSession={(id) => { setJumping(false); onSession(id) }} t={t} onClose={() => setJumping(false)} onOpen={(id) => { setJumping(false); onOpen(id) }} /> : null}
     </header>
   )
 }
@@ -259,35 +261,50 @@ function AddMenu({ items, t }: { items: readonly AddItem[], t: StorageT }): Reac
   const [open, setOpen] = useState(false)
   return (
     <Menu open={open} onClose={() => setOpen(false)} portal autoFocus align="end"
-      items={items.map((x) => ({ id: x.id, label: x.label, icon: x.icon }))}
-      onSelect={(id) => { setOpen(false); items.find((x) => x.id === id)?.run() }}
       anchor={(
-        <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={13} />} aria-haspopup="menu" aria-expanded={open}
+        <Button variant="outline" size="sm" className={css.addButton} icon={<IconPlusOutlineRegular size={13} />} aria-haspopup="menu" aria-expanded={open}
           onClick={() => setOpen((v) => !v)}>{t('addMenu')}</Button>
-      )} />
+      )}>
+      {items.map((x) => <MenuItemButton key={x.id} icon={x.icon} disabled={!!x.disabledReason} disabledReason={x.disabledReason}
+        onSelect={() => { setOpen(false); x.run() }}>{x.label}</MenuItemButton>)}
+    </Menu>
   )
 }
 
 /** The most results Jump to lists at once. */
 const JUMP_MAX = 60
 
+const noSubscription = () => () => {}
+const noCatalog = () => undefined
+
 /** Jump to: a filtered list of everything, opened with Enter or a click. */
-function JumpDialog({ items, t, onClose, onOpen }: { items: readonly JumpItem[], t: StorageT, onClose: () => void, onOpen: (id: TabId) => void }): ReactNode {
+function JumpDialog({ items, sessions, onSession, t, onClose, onOpen }: { items: readonly JumpItem[], sessions: SessionsSource | undefined, onSession: (id: string) => void, t: StorageT, onClose: () => void, onOpen: (id: TabId) => void }): ReactNode {
   const [q, setQ] = useState('')
-  const [at, setAt] = useState(0)
+  const [cursor, setAt] = useState(0)
+  const catalog = useSyncExternalStore(sessions?.subscribe ?? noSubscription, sessions?.getSnapshot ?? noCatalog)
   const listRef = useRef<HTMLDivElement>(null)
   const hits = useMemo(() => {
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    const scored = items
+    // byId may retain summaries outside the selectable catalog (e.g. a focused session).
+    const available = (catalog?.ids ?? []).flatMap(id => {
+      const row = catalog?.byId?.[id]
+      if (!row) return []
+      const projected = catalog?.projectionsBySession?.[id]?.values?.title
+      const label = typeof projected === 'string' && projected.trim() ? projected : row.displayTitle || row.title || id
+      return [{ sessionId: id, id, group: t('jumpSessions'), label, where: id }]
+    })
+    const entries = [...items, ...available]
+    const scored = entries
       .filter((x) => { const hay = `${x.label} ${x.where}`.toLowerCase(); return words.every((w) => hay.includes(w)) })
       // a name that starts with the query first, then the rest in their groups' order
       .map((x, i) => ({ x, i, lead: words.length > 0 && x.label.toLowerCase().startsWith(words[0]!) ? 0 : 1 }))
-    const groups = [...new Set(items.map((x) => x.group))]
+    const groups = [...new Set(entries.map((x) => x.group))]
     return scored
       .sort((a, b) => groups.indexOf(a.x.group) - groups.indexOf(b.x.group) || a.lead - b.lead || a.i - b.i)
       .slice(0, JUMP_MAX).map((s) => s.x)
-  }, [items, q])
-  useEffect(() => { setAt(0) }, [q])
+  }, [items, catalog, q, t])
+  const at = Math.max(0, Math.min(cursor, hits.length - 1))
+  const activate = (hit: (typeof hits)[number]) => 'sessionId' in hit ? onSession(hit.sessionId) : onOpen(hit.id)
   useEffect(() => {
     listRef.current?.querySelector<HTMLElement>(`[data-index="${at}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [at])
@@ -299,11 +316,11 @@ function JumpDialog({ items, t, onClose, onOpen }: { items: readonly JumpItem[],
         <input className={css.jumpInput} value={q} autoFocus spellCheck={false} autoComplete="off" placeholder={t('jumpPlaceholder')}
           role="combobox" aria-expanded="true" aria-controls="lfs-jump-list" aria-label={t('jumpTitle')}
           aria-activedescendant={hits.length ? optionId(at) : undefined}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => { setQ(e.target.value); setAt(0) }}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowDown') { e.preventDefault(); setAt((i) => Math.min(hits.length - 1, i + 1)) }
-            else if (e.key === 'ArrowUp') { e.preventDefault(); setAt((i) => Math.max(0, i - 1)) }
-            else if (e.key === 'Enter') { e.preventDefault(); const hit = hits[at]; if (hit) onOpen(hit.id) }
+            if (e.key === 'ArrowDown') { e.preventDefault(); setAt(Math.min(at + 1, Math.max(0, hits.length - 1))) }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setAt(Math.max(0, at - 1)) }
+            else if (e.key === 'Enter') { e.preventDefault(); const hit = hits[at]; if (hit) activate(hit) }
           }} />
       </div>
       <div ref={listRef} id="lfs-jump-list" className={css.jumpList} role="listbox" aria-label={t('jumpTitle')}>
@@ -312,8 +329,8 @@ function JumpDialog({ items, t, onClose, onOpen }: { items: readonly JumpItem[],
           <div key={`${x.group}:${x.id}`} role="presentation">
             {i === 0 || hits[i - 1]!.group !== x.group ? <div className={css.jumpGroup} role="presentation">{x.group}</div> : null}
             <div id={optionId(i)} data-index={i} role="option" aria-selected={i === at} className={css.jumpItem} data-active={i === at || undefined}
-              onMouseMove={() => { if (i !== at) setAt(i) }} onClick={() => onOpen(x.id)}>
-              {x.icon ? <span className={css.jumpItemIcon} aria-hidden="true">{x.icon}</span> : null}
+              onMouseMove={() => { if (i !== at) setAt(i) }} onClick={() => activate(x)}>
+              {'icon' in x && x.icon ? <span className={css.jumpItemIcon} aria-hidden="true">{x.icon}</span> : null}
               <span className={css.jumpItemName}>{x.label}</span>
               <span className={css.jumpItemWhere}>{x.where}</span>
             </div>

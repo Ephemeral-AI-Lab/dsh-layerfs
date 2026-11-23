@@ -3,11 +3,11 @@
  * share so they read as native DSH pages. Every visible word arrives as a
  * prop from the caller's locale `t`; nothing here owns copy.
  */
-import { createContext, useContext, useEffect, useRef, useState, type HTMLAttributes, type ReactNode, type SyntheticEvent } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, useState, type ComponentProps, type HTMLAttributes, type ReactNode, type SyntheticEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconEllipsisOutlineRegular,
-  IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, StateDot,
+  IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, StateDot, Tooltip,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { removesSomething, runnableFix, typedNameOf, type RunnableFix } from '../../shared/doctor.ts'
@@ -171,7 +171,7 @@ export function StateChip({ tone, label, live, dashed, op, title, className }: {
 }): ReactNode {
   return (
     <span className={clsx(css.chip, className)} data-tone={tone} data-dashed={dashed || undefined} title={title}>
-      <span className={css.chipDot}><StateDot state={dotOf(tone, !!live)} /></span>
+      {live ? <span className={css.chipDot}><StateDot state={dotOf(tone, true)} /></span> : null}
       <span className={css.chipLabel}>{label}</span>
       {op && <span className={css.chipOp}>· {op}</span>}
     </span>
@@ -334,7 +334,7 @@ export function FixAction({ line, fix, runner, labels }: { line: string, fix: Ru
       setStep(opens ? 'idle' : 'done')
     } catch (error) { setFailed(error); setStep('idle') } finally { setAt(null) }
   }
-  if (step === 'done') return <p className={css.refusalFix} role="status"><StateDot state="done" />{runner.done}</p>
+  if (step === 'done') return <p className={css.refusalFix} role="status">{runner.done}</p>
   const running = step === 'busy' && at !== null && steps.length > 1
   const words = running ? (runner.step?.(at + 1, steps.length, steps[at]!) ?? `${at + 1}/${steps.length}`) : step === 'confirm' ? runner.confirm(fix) : runner.label(fix)
   return (
@@ -588,4 +588,35 @@ export function CopyId({ id, short, copyLabel, copiedLabel, failedLabel }: { id:
 /** A text button styled as a link. */
 export function LinkButton({ children, onClick, title, className }: { children: ReactNode, onClick: () => void, title?: string, className?: string }): ReactNode {
   return <button type="button" className={clsx(css.link, className)} onClick={onClick} title={title}>{children}</button>
+}
+
+/**
+ * A DSH Button that explains why it is off in a Tooltip, mirroring
+ * MenuItemButton's `disabledReason`: keeps `aria-disabled` instead of native
+ * `disabled` while a reason is given so hover and keyboard focus raise the
+ * Tooltip and assistive tech reads the reason via `aria-describedby`.
+ */
+export function ExplainedButton({ disabled, disabledReason, onClick, className, variant, type, ...rest }: ComponentProps<typeof Button> & {
+  disabledReason?: string | undefined
+}): ReactNode {
+  const reasonId = useId()
+  const explained = !!disabled && !!disabledReason
+  return (
+    <>
+      <Tooltip label={disabledReason ?? ''} disabled={!explained} side="bottom" delayMs={300} maxWidth={300} portal>
+        <Button
+          {...rest}
+          variant={variant}
+          type={explained ? 'button' : type}
+          className={clsx(className, explained && css.disabledButton)}
+          data-variant={explained ? (variant ?? 'ghost') : undefined}
+          disabled={disabled && !explained}
+          aria-disabled={explained || undefined}
+          aria-describedby={explained ? reasonId : undefined}
+          onClick={explained ? undefined : onClick}
+        />
+      </Tooltip>
+      {explained ? <span id={reasonId} hidden>{disabledReason}</span> : null}
+    </>
+  )
 }

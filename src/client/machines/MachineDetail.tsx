@@ -155,11 +155,10 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
       )}
       {(reason || error !== null || state.state === 'unresolved') && (
         <Notice tone={attention === 'danger' || (error !== null && !inUse) ? 'danger' : inUse ? 'warning' : undefined}>
-          {/* why: the state's word with LayerFS's message as the tip; off the Overview (whose head has it) its fix is the one action */}
+          {/* why: the state's word with LayerFS's message as the tip; the page head stays above every tab */}
           {reason && (unreadableRecord(m) ? <p title={reason}>{t('recordUnreadable')}</p> : (
             <p className={css.reasonLine} data-reason-word>
               <span title={reason}>{stateWord(state)}</span>
-              {tab !== 'overview' && fixAction(m) ? power : null}
             </p>
           ))}
           {state.state === 'unresolved' && <p><code>{t('clearingCall', { status: calls.status, clear: calls.clear })}</code></p>}
@@ -172,9 +171,23 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
       )}
     </>
   )
+  const machineHead = (
+    <PageHead
+      icon={<MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={22} />}
+      title={name}
+      badge={<MachineStateChip m={m} live={live} pending={pending} blocked={engine ? 'engine' : !!block} />}
+      actions={(
+        <>
+          {power}
+          <MachineMenu m={m} pending={pending} run={run} onDialog={setDialog} />
+        </>
+      )}
+    />
+  )
   return (
     <Page wide label={name}>
-      <TabBar className={logCss.tabsTop} label={t('machineTabs', { name })} active={tab} onSelect={(key) => setTab(key as MachineTab)}
+      {machineHead}
+      <TabBar label={t('machineTabs', { name })} active={tab} onSelect={(key) => setTab(key as MachineTab)}
         tabs={tabs.map((x) => ({ key: x.value, label: x.label, count: counts[x.value], id: `${ids}-${x.value}`, controls: `${ids}-${x.value}-panel` }))} />
 
       {tab === 'files' ? (
@@ -186,13 +199,13 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
               const sandbox = sandboxOfRunFolder(folder)
               return sandbox && sandboxesOn(view, m).some((sb) => sb.name === sandbox) ? () => go({ kind: 'sandbox', machine: m.name, name: sandbox, tab: 'log' }) : null
             } : undefined}
-            unavailableAction={state.state === 'stopped' || engine ? power : undefined} />
+            stopped={state.state === 'stopped' || engine} />
         </div>
       ) : tab === 'log' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-log-panel`} aria-labelledby={`${ids}-log`}>
           {notices}
           <LogPane kind="machine" name={m.name} label={t('workerLogOf', { name })}
-            unavailable={state.state === 'stopped' ? { message: t('logMachineStopped'), action: power } : null} />
+            unavailable={state.state === 'stopped' ? { message: t('logMachineStopped') } : null} />
         </div>
       ) : tab !== 'overview' ? (
         <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-${tab}-panel`} aria-labelledby={`${ids}-${tab}`}>
@@ -203,21 +216,6 @@ function MachineView({ view, m, go, onAddStore, storesTab }: { view: AvailableVi
         </div>
       ) : (
       <div className={logCss.tabPanel} role="tabpanel" id={`${ids}-overview-panel`} aria-labelledby={`${ids}-overview`}>
-        {/* the machine's head (glyph, name, state, kind, power and menu) belongs to the Overview tab */}
-        <div className={logCss.panelHead}>
-          <PageHead
-            icon={<MachineGlyph platform={m.platform} os={glyphOs(m, view)} size={22} />}
-            title={name}
-            badge={<MachineStateChip m={m} live={live} pending={pending} blocked={engine ? 'engine' : !!block} />}
-            intro={m.platform ? `${kind(m.platform)} · ${tw(runtimeOf(m))}` : t('platformUnknown')}
-            actions={(
-              <>
-                {power}
-                <MachineMenu m={m} pending={pending} run={run} onDialog={setDialog} />
-              </>
-            )}
-          />
-        </div>
         <MachineOverview m={m} view={view} live={live} pending={pending} onTab={setTab} onDisk={hasDisk ? () => setSpaceOpen(true) : null}
           troubled={!!(reason || block || error !== null || state.state === 'unresolved')}
           notices={notices}

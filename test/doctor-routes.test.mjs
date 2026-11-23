@@ -8,12 +8,12 @@ import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { testHost } from './routes-helper.mjs'
 import { freshState, thingKeys } from './fixtures/doctor-scenarios.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(tmpdir(), 'dsh-doctor-routes-'))
 await build({
   absWorkingDir: root,
@@ -142,7 +142,7 @@ test('Full check takes --full on a project and a bucket; a bucket reports no pro
   const b = await f.start('bucket', 'r2-main', { full: true })
   const [ea, eb] = [await f.ended(a.runId), await f.ended(b.runId)]
   assert.equal(ea.report.tree.coverage, 'full')
-  assert.deepEqual(ea.report.tree.checks.map((c) => c.check), ['project.record', 'project.listed', 'project.data'])
+  assert.deepEqual(ea.report.tree.checks.map((c) => c.check), ['project.record', 'project.listed', 'project.mount_holders', 'project.data'])
   assert.equal(eb.report.tree.coverage, 'full')
   assert.deepEqual(f.spawns('project', 'doctor'), [['project', 'doctor', '--detail', '--progress', '--full', '--', 'shop/api']])
   assert.deepEqual(f.spawns('backup', 'doctor'), [['backup', 'doctor', '--detail', '--full', '--', 'r2-main']])

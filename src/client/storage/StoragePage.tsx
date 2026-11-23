@@ -7,8 +7,8 @@
  * lives on the pages (Store menus push, pull and move; machine cards power and
  * add Sandboxes) and in the bar (running transfers, Refresh, Add).
  * The view is read again on the host's `storage` events, after each action
- * and on a poll; jobs move on `storage-job` events. Health, Logs and Settings
- * are Center pages too, opened from the bar's buttons (and Jump to). Machines and
+ * and on a poll; jobs move on `storage-job` events. Doctor and Logs open from
+ * the bar (and Jump to). Settings opens the setup modal. Machines and
  * Sandboxes come from the Machines controller, polled while the page shows.
  * A link from another page (`openStorage`) opens its page here.
  */
@@ -23,7 +23,8 @@ import { LogsPage, type LogsT } from '../logs/index.tsx'
 import { AddMachineDialog } from '../machines/AddMachineDialog.tsx'
 import { MachinesProvider, useMachinesContext, type MachinesPageProps, type Translate as MachinesT } from '../machines/context.tsx'
 import { MachineDetail } from '../machines/MachineDetail.tsx'
-import { shortSandbox } from '../machines/model.ts'
+import { NewSandboxDialog } from '../machines/Sandboxes.tsx'
+import { canAddMachine, shortSandbox, type MachineInfo } from '../machines/model.ts'
 import { SandboxDetail } from '../machines/SandboxDetail.tsx'
 import { PresetsDialog, type PresetsT } from '../presets/index.tsx'
 import { projectDialog } from '../projects/dialog.ts'
@@ -34,6 +35,7 @@ import { fleetFix, type RunnableFix } from '../../shared/doctor.ts'
 import { fixCall } from './fix-call.ts'
 import { BackupFilePage, BucketPage, providerWords } from './BucketPage.tsx'
 import { StorageDialogs, type StorageDialog } from './dialogs.tsx'
+import { SandboxMachinePicker, sandboxMachines } from './SandboxMachinePicker.tsx'
 import { HomeOverview } from './HomeOverview.tsx'
 import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
@@ -45,8 +47,9 @@ import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
 import type { ProjectMapShare } from './ProjectSandboxes.tsx'
 import type { LoginActions, StoreActions } from './StoreCard.tsx'
+import { PageReading } from './PaneBar.tsx'
 import { StorePage } from './StorePage.tsx'
-import { isTabId, openHomeStores, readOverviewTab, writeOverviewTab, type OverviewTab, type TabId } from './tabs.ts'
+import { isTabId, underPage, openHomeStores, type OverviewTab, type TabId } from './tabs.ts'
 import type { ProjectSummary, StorageJob, StorageView, StoreRow } from './types.ts'
 import { useDoctorCount } from '../doctor/use-doctor-count.ts'
 import css from './Storage.module.css'
@@ -169,14 +172,24 @@ function CenterFixes({ api, t, loginRef, reconnectRef, confirmRef, children }: {
 
 function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmRef, map, more }: { api: LayerfsApi, doctorT: DoctorT, t: StorageT, openRef: { current: (id: TabId) => void }, loginRef: { current: (store: string) => void }, reconnectRef: { current: (again: Reconnect) => void }, confirmRef: { current: (dialog: StorageDialog) => void }, map: ProjectMapShare, more: MoreT }): ReactNode {
   const mc = useMachinesContext()
-  useEffect(() => mc.activate(), [mc.activate])
+
   const fleetRead = mc.useMachines((s) => s)
   const fleet = fleetRead.data?.available ? fleetRead.data : null
-  const [tick, setTick] = useState(0)
+  const [detailReading, setDetailReading] = useState(false)
+  const [pageRefresh, setPageRefresh] = useState(0)
   const [checks, setChecks] = useState(0)
-  const reload = () => setTick((n) => n + 1)
-  const storage = useQuery(() => api.call<StorageView>('GET', '/api/storage'), [api], { refresh: [tick], cache: 'GET /api/storage' })
-  const catalogRead = useQuery(() => api.call<ProjectSummary[]>('GET', '/api/projects'), [api], { refresh: [tick], cache: 'GET /api/projects' })
+  const freshInventory = useRef(false)
+  const freshCatalog = useRef(false)
+  const storage = useQuery(() => {
+    const path = freshInventory.current ? '/api/storage?fresh=1' : '/api/storage'
+    freshInventory.current = false
+    return api.call<StorageView>('GET', path)
+  }, [api], { cache: 'GET /api/storage' })
+  const catalogRead = useQuery(() => {
+    const path = freshCatalog.current ? '/api/projects?fresh=1' : '/api/projects'
+    freshCatalog.current = false
+    return api.call<ProjectSummary[]>('GET', path)
+  }, [api], { cache: 'GET /api/projects' })
   const doctor = useDoctorCount(api, checks)
   const { jobs, dismissed, dismiss, take } = useStorageJobs(api, storage.data?.jobs)
   const now = useNow(10_000)
@@ -188,34 +201,53 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   const [failed, setFailed] = useState<unknown>(undefined)
   const [listing, setListing] = useState<string | null>(null)
   const [listingAll, setListingAll] = useState(false)
+  const [sandbox, setSandbox] = useState<'pick' | MachineInfo | null>(null)
   const [newMachine, setNewMachine] = useState(false)
   const [presetsOpen, setPresetsOpen] = useState(false)
 
   // One page at a time: Back and Forward over the pages visited, and the Overview's section.
-  const history = useNavHistory('overview')
+  const history = useNavHistory(api)
   const active = history.current
-  const [section, setSectionState] = useState<OverviewTab>(readOverviewTab)
-  const setSection = (next: OverviewTab) => { setSectionState(next); writeOverviewTab(next) }
+  const [section, setSection] = useState<OverviewTab>('projects')
 
-  useHostEvents(api, ['storage', 'projects', 'projects-changed', 'connection'], (e) => {
-    if (e.type !== 'connection' || (e.data as { connected?: boolean } | undefined)?.connected) reload()
+  const reload = storage.reload
+  const reloadCatalog = catalogRead.reload
+  const inventoryPage = active === 'overview' || /^(store|project|bucket|backup|machine):/.test(active)
+  const fleetPage = active === 'overview' || active === 'machines' || /^(machine|sandbox):/.test(active)
+  useEffect(() => { if (fleetPage) return mc.activate() }, [mc.activate, fleetPage])
+  useEffect(() => { if (!fleetPage && !fleetRead.data && fleetRead.status === 'idle') mc.reload() }, [fleetPage, fleetRead.data, fleetRead.status, mc.reload])
+  useHostEvents(api, ['storage', 'storage-changed'], reload, { coalesceMs: 500 })
+  useHostEvents(api, ['projects', 'projects-changed'], () => { reload(); reloadCatalog() }, { coalesceMs: 500 })
+  useHostEvents(api, ['connection'], (event) => {
+    if ((event.data as { connected?: boolean })?.connected) { reload(); reloadCatalog() }
   })
   useEffect(() => {
-    const id = setInterval(() => { if (document.visibilityState === 'visible') reload() }, POLL_MS)
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      if (inventoryPage) reload()
+      if (active === 'overview') reloadCatalog()
+    }, POLL_MS)
     return () => clearInterval(id)
-  }, [])
-  // A job that ended changed the Stores.
-  const endedCount = jobs.filter((j) => j.ended).length
-  useEffect(() => { if (endedCount) reload() }, [endedCount])
-
+  }, [active, inventoryPage, reload, reloadCatalog])
+  const completed = jobs.find((j) => j.ended)?.id
+  useEffect(() => { if (completed) reload() }, [completed, reload])
   const view = storage.data
   const catalog = useMemo(() => new Map((catalogRead.data ?? []).map((p) => [p.key, p])), [catalogRead.data])
-  const [manual, setManual] = useState(false)
-  useEffect(() => { if (!storage.loading) setManual(false) }, [storage.loading])
-  const refresh = () => { reload(); setChecks((n) => n + 1) }
+  const refresh = () => {
+    setPageRefresh((n) => n + 1)
+    if (inventoryPage) {
+      freshInventory.current = true
+      reload()
+    }
+    if (active === 'overview') {
+      freshCatalog.current = true
+      reloadCatalog()
+    }
+    if (fleetPage) mc.reload()
+  }
 
   // The machines board is the Overview's Machines tab: `machines` opens that tab.
-  const open = (id: TabId) => { if (id === 'machines') { setSection('machines'); history.open('overview') } else history.open(id) }
+  const open = (id: TabId) => { if (id === 'machines') { setSection('machines'); history.open('overview') } else { if (id === 'overview') setSection('projects'); history.open(id) } }
   openRef.current = open
   // A link from another page asked for a page: open it once.
   const request = useStorageRequest(api)
@@ -227,8 +259,29 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     takeStorageRequest(api)
   }, [request])
   // A page that went away (a removed Store, bucket or project) leaves the history; the one before it shows.
-  const close = (id: TabId) => history.forget((x) => x === id)
-  const closeStore = (name: string) => history.forget((id) => id === `store:${name}` || id.startsWith(`project:${name}/`))
+  const { forget } = history
+  const close = (id: TabId) => forget((page) => underPage(page, id))
+  const closeStore = (name: string) => close(`store:${name}`)
+  const previous = useRef(new Map<string, Set<TabId>>())
+  useEffect(() => {
+    const removed: TabId[] = []
+    const compare = (kind: string, ids: TabId[]) => {
+      const next = new Set(ids)
+      for (const id of previous.current.get(kind) ?? []) if (!next.has(id)) removed.push(id)
+      previous.current.set(kind, next)
+    }
+    if (view) {
+      compare('stores', view.stores.map<TabId>((s) => `store:${s.name}`))
+      if (view.bucketInventoryComplete) compare('buckets', view.buckets.map<TabId>((b) => `bucket:${b.name}`))
+      for (const b of view.buckets) if (b.files && !b.error) compare(`files:${b.name}`, b.files.map<TabId>((f) => `backup:${b.name}/${f.file}`))
+    }
+    if (catalogRead.data && !catalogRead.error) compare('projects', catalogRead.data.map<TabId>((p) => `project:${p.key}`))
+    if (fleet && !fleetRead.error) {
+      compare('machines', fleet.machines.map<TabId>((m) => `machine:${m.name}`))
+      if (!fleet.readErrors?.sandboxes) compare('sandboxes', fleet.sandboxes.map<TabId>((s) => `sandbox:${s.machine}/${s.name}`))
+    }
+    if (removed.length) forget((id) => removed.some((parent) => underPage(id, parent)))
+  }, [view, catalogRead.data, catalogRead.error, fleet, fleetRead.error, forget])
 
   /** An action that answers at once (a job starts): its refusal shows on the page. */
   const act = (work: () => Promise<unknown>) => {
@@ -324,16 +377,16 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     ? s.postgresql?.server ?? t('postgresql')
     : machineWord(inHome(s) ? 'native' : s.machine ?? '')
   const stores = orderStores(view?.stores ?? [])
-  const sandboxes = fleet?.sandboxes ?? []
+  const sandboxes = (fleet?.sandboxes ?? []).filter((s) => s.machine)
 
   const root: Crumb = { key: 'root', label: t('title'), go: () => open('overview') }
-  const sectionCrumb = (key: OverviewTab, label: string): Crumb => ({ key: `section:${key}`, label, go: () => { setSection(key); open('overview') } })
+  const sectionCrumb = (key: OverviewTab, label: string): Crumb => ({ key: `section:${key}`, label, go: () => { setSection(key); history.open('overview') } })
   // a bucket's way back: Home › Stores on SQLite's Buckets view (once the Backups tab)
-  const bucketsCrumb: Crumb = { key: 'section:buckets', label: t('hsViewBuckets'), go: () => { openHomeStores('sqlite', true); setSection('stores'); open('overview') } }
+  const bucketsCrumb: Crumb = { key: 'section:buckets', label: t('hsViewBuckets'), go: () => { openHomeStores('sqlite', true); setSection('stores'); history.open('overview') } }
   const machineSiblings: Sibling[] = places.map((p) => ({ id: `machine:${p.name}`, label: machineWord(p.name), meta: mc.kind(p.platform) }))
   const storeSiblings: Sibling[] = stores.map((s) => ({ id: `store:${s.name}`, label: s.name, meta: `${kindWord(s)} · ${storeWhere(s)}`, group: s.kind }))
   const bucketSiblings: Sibling[] = (view?.buckets ?? []).map((b) => ({ id: `bucket:${b.name}`, label: b.name, meta: providerWords(b.provider, t) }))
-  // Health and Logs: pages under Home, opened from its head card (and Jump to); Settings is the Set up LayerFS modal.
+  // Health and Logs: pages under Home, opened from the navigation bar (and Jump to); Settings is the Set up LayerFS modal.
   const pages: NavPage[] = [
     { id: 'health', label: t('navHealth') },
     { id: 'logs', label: t('navLogs') },
@@ -359,7 +412,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       const storeCrumb: Crumb = { key: `store:${storeName}`, label: storeName, id: `store:${storeName}`, siblings: storeSiblings }
       if (id.startsWith('store:')) return [root, sectionCrumb('stores', t('ovStores')), storeCrumb]
       const project = body.slice(body.indexOf('/') + 1)
-      const beside: Sibling[] = (storeNamed(storeName)?.projects ?? []).map((p) => ({ id: `project:${storeName}/${p}`, label: p }))
+      const beside: Sibling[] = (storeNamed(storeName)?.projects ?? []).map((p) => ({ id: `project:${storeName}/${p}`, label: p, meta: storeName }))
       return [root, sectionCrumb('stores', t('ovStores')), { ...storeCrumb, go: () => open(`store:${storeName}`) }, { key: id, label: project, id, siblings: beside }]
     }
     const bucket = id.startsWith('backup:') ? body.slice(0, body.indexOf('/')) : body
@@ -368,7 +421,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     const file = body.slice(body.indexOf('/') + 1)
     const b = view?.buckets.find((x) => x.name === bucket)
     const files = b ? [...new Set(bucketFiles(b, view?.stores ?? []).map((r) => r.file))] : []
-    const beside: Sibling[] = files.map((f) => ({ id: `backup:${bucket}/${f}`, label: f }))
+    const beside: Sibling[] = files.map((f) => ({ id: `backup:${bucket}/${f}`, label: f, meta: bucket }))
     return [root, bucketsCrumb, { ...bucketCrumb, go: () => open(`bucket:${bucket}`) }, { key: id, label: file, id, siblings: beside }]
   }
 
@@ -384,13 +437,22 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     ...pages.map((p) => ({ id: p.id, group: t('jumpPages'), label: p.label, where: t('title') })),
   ]
 
-  const canCreate = !!fleet && fleet.platforms.some((x) => x.how === 'created')
+  const fleetReason = fleetRead.status === 'error' ? t('addFleetUnavailable')
+    : fleetRead.data?.available === false ? fleetRead.data.reason || t('addFleetUnavailable')
+    : !fleet ? t('readingMachines') : undefined
+  const machineReason = fleetReason ?? (fleet && canAddMachine(fleet.platforms) ? undefined : t('addNoMachinePlatform'))
+  const candidates = useMemo(() => fleet && catalogRead.data ? sandboxMachines(fleet, catalogRead.data) : [], [fleet, catalogRead.data])
+  const sandboxReason = fleetReason ?? (catalogRead.error ? t('addProjectsUnavailable') : !catalogRead.data ? t('loading')
+    : !candidates.length ? t('addNoSandboxMachine') : undefined)
   const add: AddItem[] = [
+    { id: 'session', label: t('addNewSession'), run: () => projectDialog.open({ mode: 'pick' }) },
     { id: 'project', label: t('newProject'), run: () => projectDialog.open({ mode: 'new' }) },
+    { id: 'import', label: t('addImportFolder'), run: () => projectDialog.open({ mode: 'import' }) },
+    { id: 'sandbox', label: t('newSandbox'), disabledReason: sandboxReason, run: () => { if (!sandboxReason) setSandbox('pick') } },
     // from a machine's page the new Store defaults to that machine (when it runs and is not broken)
     { id: 'store', label: t('newStore'), run: () => setDialog({ kind: 'new-store', machine: active.startsWith('machine:') ? active.slice(8) : undefined }) },
     { id: 'database', label: t('connectDatabaseRow'), run: () => setDialog({ kind: 'connect' }) },
-    ...(canCreate ? [{ id: 'machine', label: t('newMachine'), run: () => setNewMachine(true) }] : []),
+    { id: 'machine', label: t('newMachine'), disabledReason: machineReason, run: () => { if (!machineReason) setNewMachine(true) } },
     { id: 'bucket', label: t('addBucket'), run: () => setDialog({ kind: 'bucket' }) },
     { id: 'presets', label: more.presets('openTitle'), run: () => setPresetsOpen(true) },
   ]
@@ -399,6 +461,11 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     <>
       <PresetsDialog api={api} t={more.presets} open={presetsOpen} onClose={() => setPresetsOpen(false)} />
       <StorageDialogs api={api} t={t} dialog={dialog} view={view} onClose={() => setDialog(null)} done={refresh} onDialog={setDialog} />
+      {sandbox === 'pick' ? (
+        <SandboxMachinePicker t={t} machines={candidates} reason={sandboxReason} onPick={setSandbox} onClose={() => setSandbox(null)} />
+      ) : sandbox ? (
+        <NewSandboxDialog machine={sandbox} taken={sandboxes.map((b) => b.name)} onClose={() => setSandbox(null)} />
+      ) : null}
       {newMachine && fleet ? (
         <AddMachineDialog view={fleet} platforms={fleet.platforms} onClose={() => setNewMachine(false)} onMade={(name) => { setNewMachine(false); open(`machine:${name}`) }} />
       ) : null}
@@ -412,8 +479,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   ) : null
 
   const pageOf = (id: TabId): ReactNode => {
-    if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} refreshKey={checks} />
-    if (id === 'logs') return <LogsPage api={api} t={more.logs} />
+    if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} refreshKey={pageRefresh} />
+    if (id === 'logs') return <LogsPage refreshKey={pageRefresh} api={api} t={more.logs} />
     if (id.startsWith('machine:')) {
       return (
         <MachineDetail key={id} name={id.slice(8)} go={mc.go} onAddStore={(machine) => setDialog({ kind: 'to-machine', machine })}
@@ -428,7 +495,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     }
     if (id.startsWith('sandbox:')) {
       const body = id.slice(8)
-      return <SandboxDetail key={id} machine={body.slice(0, body.indexOf('/'))} name={body.slice(body.indexOf('/') + 1)} go={mc.go} />
+      return <SandboxDetail refreshKey={pageRefresh} key={id} machine={body.slice(0, body.indexOf('/'))} name={body.slice(body.indexOf('/') + 1)} go={mc.go} />
     }
     if (id === 'overview') {
       return (
@@ -444,7 +511,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
             })}
             onRetry={(j) => { dismiss(j.id); act(() => retry(j)) }} onDismiss={(j) => dismiss(j.id)}
             onBackup={(name) => { const s = storeNamed(name); if (s) setDialog({ kind: 'backup', store: s }) }}
-            actionsFor={actionsFor} onAddBucket={() => setDialog({ kind: 'bucket' })} onListBucket={listBucket} onReconnect={reconnect} onRestore={(bucket, file) => setDialog({ kind: 'restore', bucket, file, store: null })} refreshKey={checks}
+            actionsFor={actionsFor} onAddBucket={() => setDialog({ kind: 'bucket' })} onListBucket={listBucket} onReconnect={reconnect} onRestore={(bucket, file) => setDialog({ kind: 'restore', bucket, file, store: null })} refreshKey={pageRefresh}
             tab={section} onTab={setSection} onListAll={listAll} listingAll={listingAll} />
         </Page>
       )
@@ -455,7 +522,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       if (!view) return <Page label={t('title')}><Loading label={t('readingStores')} /></Page>
       return (
         <Page wide label={t('title')}>
-          <StorePage name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, name, dismissed, now)} jobs={jobs.filter((j) => j.store === name)}
+          <StorePage refreshKey={pageRefresh} name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, name, dismissed, now)} jobs={jobs.filter((j) => j.store === name)}
             catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} onOpen={open} />
         </Page>
       )
@@ -465,8 +532,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       const store = key.slice(0, key.indexOf('/'))
       return (
         <Page wide label={t('title')}>
-          <ProjectPage api={api} t={t} map={map} project={key} store={view?.stores.find((x) => x.name === store)} onDialog={setDialog} onOpenStore={(store) => open(`store:${store}`)}
-            onRemoved={() => { refresh(); open(`store:${store}`); close(id) }} />
+          <ProjectPage refreshKey={pageRefresh} api={api} t={t} map={map} project={key} store={view?.stores.find((x) => x.name === store)} onDialog={setDialog} onOpenStore={(store) => open(`store:${store}`)}
+            onRemoved={() => { reload(); reloadCatalog(); close(id) }} />
         </Page>
       )
     }
@@ -505,11 +572,11 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
 
   return (
     <div className={css.shell}>
-      <NavBar t={t} history={history} crumbs={crumbsOf(active)} jump={jump} jobs={jobs} refreshing={manual || storage.loading}
-        onRefresh={active === 'overview' ? undefined : () => { setManual(true); refresh() }} add={add} onOpen={open} />
+      <NavBar t={t} history={history} crumbs={crumbsOf(active)} jump={jump} sessions={map.sessions} onSession={api.openSession} jobs={jobs} findings={doctor.data?.findings ?? []} refreshing={detailReading || (fleetPage && fleetRead.status === 'loading') || (inventoryPage && storage.loading) || (active === 'overview' && catalogRead.loading)}
+        onRefresh={active === 'overview' || active === 'health' || active === 'logs' ? undefined : refresh} add={add} onOpen={open} />
       {refusal}
       <div className={css.panels}>
-        <div key={active} className={css.tabBody} data-storage-page={active}>{pageOf(active)}</div>
+        <div key={active} className={css.tabBody} data-storage-page={active}><PageReading.Provider value={setDetailReading}>{pageOf(active)}</PageReading.Provider></div>
       </div>
       {dialogs}
     </div>

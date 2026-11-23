@@ -83,8 +83,8 @@ export interface InspectFilesProps {
   onOpenSandboxLog?: ((folder: string) => (() => void) | null) | undefined
   /** The name of that tab, for a log row's tooltip. */
   logTab?: string | undefined
-  /** What stands beside an `Unavailable` refusal (a stopped machine's Start). */
-  unavailableAction?: ReactNode
+  /** The machine is stopped (or waiting on Docker Engine): `Unavailable` refusals show stopped guidance while PageHead holds Start. */
+  stopped?: boolean | undefined
 }
 
 /** What one view shows: the folder at the tree's top (null: the view's root), the folders open under it, the file open. */
@@ -229,7 +229,7 @@ function useNarrow(): [(element: HTMLDivElement | null) => void, boolean] {
   return [ref, narrow]
 }
 
-export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog, onOpenSandboxLog, logTab, unavailableAction }: InspectFilesProps): ReactNode {
+export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog, onOpenSandboxLog, logTab, stopped }: InspectFilesProps): ReactNode {
   const { t, tw, api } = useMachinesContext()
   const ft = t as unknown as FilesTranslate
   // a path under a Workspace's mount is read from its saved files (LayerFS lists no mount); every other path from the files route
@@ -490,30 +490,49 @@ export function InspectFiles({ kind, name, label, workspaces, project, onOpenLog
       </span>
     )
   }
-  const refusal = (stale: { code: string, message: string }, again: () => void): ReactNode => (
-    <span className={css.refusal} data-files-refusal={stale.code}>
-      <code className={css.code}>{stale.code}</code>
-      <span>{stale.message}</span>
-      <LinkButton onClick={again}>{t('filesReadAgain')}</LinkButton>
-      {stale.code === 'Unavailable' && unavailableAction ? unavailableAction : null}
-    </span>
-  )
+  const refusal = (stale: { code: string, message: string }, again: () => void): ReactNode => {
+    if (stale.code === 'Unavailable' && stopped) {
+      return <div className={css.stoppedNotice} data-files-refusal={stale.code}>
+        <strong>{t('filesMachineStopped', { name })}</strong>
+        <span>{t('filesStartToRead')}</span>
+        <div className={css.stoppedActions}><LinkButton onClick={again}>{t('filesReadAgain')}</LinkButton></div>
+        <details><summary>{t('filesErrorDetails')}</summary><p>{stale.code} · {stale.message}</p></details>
+      </div>
+    }
+    return (
+      <span className={css.refusal} data-files-refusal={stale.code}>
+        <span className={css.code}>{stale.code}</span>
+        <span>{stale.message}</span>
+        <LinkButton onClick={again}>{t('filesReadAgain')}</LinkButton>
+      </span>
+    )
+  }
   const pendingNote = (key: string): ReactNode => (pending[key] ? waiting(pending[key]!.since, () => stopRead(key)) : t('files_reading'))
   const failedNote = (key: string, error: Error): ReactNode => refusal({ code: errorCode(error) ?? 'Unknown', message: error.message }, () => load(key, shown))
   const moreOf = (key: string): TreeMore => {
     const m = meta[key], p = pending[key]
     if (p?.more) return { label: t('files_reading'), busy: true, note: waitedSeconds(p.since, now) !== null ? waiting(p.since, () => stopRead(key)) : undefined }
-    if (m?.moreError) return { label: t('filesReadAgain'), note: <span className={css.refusal} data-files-refusal={m.moreError.code}><code className={css.code}>{m.moreError.code}</code><span>{m.moreError.message}</span></span> }
+    if (m?.moreError) return { label: t('filesReadAgain'), note: <span className={css.refusal} data-files-refusal={m.moreError.code}><span className={css.code}>{m.moreError.code}</span><span>{m.moreError.message}</span></span> }
     return { label: m?.reason === 'deadline' ? t('filesDeadline') : t('filesMore') }
   }
   const afterNote = (key: string): ReactNode => {
     const stale = meta[key]?.stale
     if (!stale) return null
+    const again = () => load(key, shown, null, true)
+    if (stale.code === 'Unavailable' && stopped) {
+      return (
+        <div className={css.stoppedNotice} data-files-stale={stale.code}>
+          <strong>{t('filesMachineStopped', { name })}</strong>
+          <span>{t('filesStartToRead')}</span>
+          <div className={css.stoppedActions}><LinkButton onClick={again}>{t('filesReadAgain')}</LinkButton></div>
+          <details><summary>{t('filesErrorDetails')}</summary><p>{t('filesStale', { time: stale.at ? clockTime(stale.at) : '—', code: stale.code, message: stale.message })}</p></details>
+        </div>
+      )
+    }
     return (
       <span className={css.refusal} data-files-stale={stale.code}>
         <span>{t('filesStale', { time: stale.at ? clockTime(stale.at) : '—', code: stale.code, message: stale.message })}</span>
-        <LinkButton onClick={() => load(key, shown, null, true)}>{t('filesReadAgain')}</LinkButton>
-        {stale.code === 'Unavailable' && unavailableAction ? unavailableAction : null}
+        <LinkButton onClick={again}>{t('filesReadAgain')}</LinkButton>
       </span>
     )
   }

@@ -328,7 +328,7 @@ export function LogPane({ kind, name, label, unavailable = null, final = false }
       {unavailable && (
         <Notice tone="warning" className={css.banner}>
           <div className={css.bannerRow} data-log-unavailable>
-            <p><code>Unavailable</code> · {unavailable.message}</p>
+            <p>Unavailable · {unavailable.message}</p>
             {unavailable.action}
           </div>
         </Notice>
@@ -337,7 +337,7 @@ export function LogPane({ kind, name, label, unavailable = null, final = false }
         <Notice tone={stopped ? 'danger' : 'warning'} className={css.banner} role="status">
           <div className={css.bannerRow} data-log-stale={stale.code}>
             <p>
-              {t(stopped ? 'logRefused' : 'logStale')} · <code>{stale.code}</code>{stale.message ? ` · ${stale.message}` : ''}
+              {t(stopped ? 'logRefused' : 'logStale')} · {stale.code}{stale.message ? ` · ${stale.message}` : ''}
               {rows.length > 0 && time(state.readAt) ? <> · {t('logShownFrom', { time: time(state.readAt)! })}</> : null}
             </p>
             <Button variant="outline" size="sm" disabled={reading} onClick={() => again(false)}>{reading ? t('logReading') : t('logReadAgain')}</Button>

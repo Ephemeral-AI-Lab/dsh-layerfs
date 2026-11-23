@@ -7,7 +7,9 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 import { join, resolve } from 'node:path'
 
-const root = new URL('..', import.meta.url).pathname
+import { fileURLToPath } from 'node:url'
+
+const root = fileURLToPath(new URL('..', import.meta.url))
 const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const watch = process.argv.includes('--watch')
 // Where every built file goes: `lib` (what the package serves), or DSH_LAYERFS_OUTDIR (absolute, or relative to the

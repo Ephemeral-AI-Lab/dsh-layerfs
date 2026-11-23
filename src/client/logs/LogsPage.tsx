@@ -6,6 +6,7 @@
  * from outside through `openLogs` (a checkpoint's Calls). A row opens the
  * call's detail (click or Enter; ↑/↓ move between rows).
  */
+import { usePageReading } from '../storage/PaneBar.tsx'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
@@ -82,12 +83,13 @@ function refusalLabels(t: LogsT): RefusalLabels {
   }
 }
 
-export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
+export function LogsPage({ api, t, refreshKey = 0 }: { refreshKey?: number, api: LayerfsApi, t: LogsT }): ReactNode {
   const [filters, setFilters] = useState<Filters>(() => { const r = peekLogsRequest(); return r ? fromRequest(r) : DEFAULTS })
   const [search, setSearch] = useState(filters.project)
   const [data, setData] = useState<Loaded>()
   const [error, setError] = useState<unknown>()
   const [loading, setLoading] = useState(true)
+  usePageReading(loading)
   const [more, setMore] = useState(false)
   const [ops, setOps] = useState<ReadonlySet<string>>(() => new Set())
   const [confirming, setConfirming] = useState(false)
@@ -155,6 +157,10 @@ export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
   }
 
   useEffect(() => { void load('replace') }, [load, filters])
+  const lastRefresh = useRef(refreshKey)
+  useEffect(() => {
+    if (lastRefresh.current !== refreshKey) { lastRefresh.current = refreshKey; void load('refresh') }
+  }, [load, refreshKey])
   // The search box settles before it filters.
   useEffect(() => {
     if (search === filters.project) return
@@ -261,7 +267,7 @@ export function LogsPage({ api, t }: { api: LayerfsApi, t: LogsT }): ReactNode {
           value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape' && search) { e.preventDefault(); setSearch('') } }} />
         <MenuSelect value={filters.op} label={t('op')} options={opOptions} onChange={(op) => set({ op })} className={css.opSelect} />
         <SegmentedControl<ClientChoice> id="lfs-logs-client" value={filters.client} label={t('client')} onChange={(client) => set({ client })}
-          options={[{ value: 'all', label: t('clientAll') }, { value: 'cli', label: 'cli' }, { value: 'node', label: 'node' }, { value: 'python', label: 'python' }, { value: 'rust', label: 'rust' }]} />
+          options={[{ value: 'all', label: t('clientAll') }, { value: 'cli', label: 'Cli' }, { value: 'node', label: 'Node' }, { value: 'python', label: 'Python' }, { value: 'rust', label: 'Rust' }]} />
         <SegmentedControl<OutcomeChoice> id="lfs-logs-outcome" value={filters.outcome} label={t('outcome')} onChange={(outcome) => set({ outcome })}
           options={[{ value: 'all', label: t('outcomeAll') }, { value: 'ok', label: t('outcomeOk') }, { value: 'refused', label: t('outcomeRefused') }]} />
         <Checkbox checked={filters.writes} onChange={(writes) => set({ writes })} label={t('writesOnly')} />

@@ -7,10 +7,10 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(tmpdir(), 'dsh-presets-pg-'))
 await build({
   absWorkingDir: root, entryPoints: { runner: 'src/host/presets/runner.js', build: 'src/host/presets/build.js', pg: 'src/host/presets/postgresql.js', presets: 'src/host/presets/recipe/presets.js' }, outdir: out,

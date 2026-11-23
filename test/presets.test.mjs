@@ -8,14 +8,14 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { loadRoutes, pinned, testHost } from './routes-helper.mjs'
 import { MachineStop } from '../src/host/presets/machine-stop.js'
 import { EnvironmentReset } from '../src/host/presets/environment-reset.js'
 import { CONTENT_VERSION } from '../src/host/presets/recipe/presets.js'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(tmpdir(), 'dsh-presets-'))
 await build({
   absWorkingDir: root, entryPoints: { presets: 'src/host/presets/manager.ts', cli: 'src/host/layerfs/cli.ts', driver: 'src/host/presets/driver.ts', stateDir: 'src/host/presets/state-dir.ts' }, outdir: out,
@@ -130,7 +130,7 @@ test('admission: confirmed reset is admitted with bound sessions', async () => {
 test('reset returns a durable queued job before a stalled CLI responds; duplicate requests share it', async () => {
   const d = dirs()
   const cli = join(d.base, 'slow-cli')
-  writeFileSync(cli, `#!${process.execPath}\nsetTimeout(() => process.exit(1), 1000)\n`)
+  writeFileSync(cli, `#!/usr/bin/env node\nsetTimeout(() => process.exit(1), 1000)\n`)
   chmodSync(cli, 0o700)
   const m = new PresetManager(fakeHost({ ...d, cli }).host, d.state, d.home)
   const body = { requestId: 'slow1', expectedPlan: 'sig', confirm: true, rebuild: false, sandboxes: false }
@@ -248,7 +248,7 @@ function stoppingFixture({ fail = null, forceSupport = true } = {}) {
   const machines = [{ machine: 'native', state: 'ready', created_at: '2026-11-01T00:00:00Z' }, { machine: 'docker', state: 'ready', created_at: '2026-11-01T00:00:00Z' }, { machine: 'vm', state: 'stopped', created_at: '2026-11-02T00:00:00Z' }]
   const inventory = join(base, 'machines.json'), commands = join(base, 'commands.jsonl'), cli = join(base, 'layerfs.mjs')
   writeFileSync(inventory, JSON.stringify(machines))
-  writeFileSync(cli, `#!${process.execPath}
+  writeFileSync(cli, `#!/usr/bin/env node
 import fs from 'node:fs'
 const args = process.argv.slice(2)
 const inventory = ${JSON.stringify(inventory)}, commands = ${JSON.stringify(commands)}, fail = ${JSON.stringify(fail)}

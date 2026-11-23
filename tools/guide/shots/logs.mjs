@@ -1,10 +1,10 @@
 // Shots for docs/guide/logs.md: Center's Logs page. Read only: Reset… is opened and closed, never confirmed.
 const SESSION_ROW = (p) => p.locator('tbody tr').filter({ hasText: 'workspace commit' }).filter({ hasText: 'turn 3' }).first()
 
-/** Center's Logs page, from Home's head card (its tool group). */
+/** Center's Logs page, from Center's navigation bar (its tool group). */
 async function logs(page, h) {
   await h.home()
-  await page.locator('nav[class*=tools]').getByRole('button', { name: 'Logs', exact: true }).click()
+  await page.locator('header[aria-label="Home navigation"]').getByRole('button', { name: 'Logs', exact: true }).click()
   await page.getByRole('table', { name: 'Calls' }).waitFor({ timeout: 20000 })
   await h.wait(1200)
   // later calls may push the fixture conversation's row onto an older page

@@ -39,6 +39,7 @@
 // Spawn totals per page are hard budgets against test/perf/baseline.json
 // (exit 1 on any page above its baseline or a window that never settled);
 // latency is recorded only. Results: <dev dir>/results/<git-short-sha>-<tier>.json.
+import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright-core'
 import { execSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
@@ -47,7 +48,7 @@ import { CHROME } from '../../tools/e2e-lib.mjs'
 import { devUrl } from '../../tools/ui.mjs'
 import { actionWindow, bootPage, countFile, groupHostCalls, groupSpawns, instrument, learnBackground, quiesce, spawnOffset, spawns } from '../../tools/perf-lib.mjs'
 
-const root = new URL('../..', import.meta.url).pathname
+const root = fileURLToPath(new URL('../..', import.meta.url))
 const args = process.argv.slice(2)
 const flag = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback }
 const tier = flag('--tier', 'S')

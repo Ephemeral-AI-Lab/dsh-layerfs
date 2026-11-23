@@ -6,7 +6,7 @@ import { rootOf, SESSION_POLL_MS, type MapBinding, type SessionRow } from './mod
 
 /** DSH's session list as an observable (`ctx.sessions.list`). */
 export interface SessionsSource {
-  getSnapshot: () => { byId?: Record<string, SessionRow>, projectionsBySession?: Record<string, { values?: { title?: unknown, subagent?: { label?: unknown } } }> } | undefined
+  getSnapshot: () => { ids?: readonly string[], byId?: Record<string, SessionRow>, projectionsBySession?: Record<string, { values?: { title?: unknown, subagent?: { label?: unknown } } }> } | undefined
   subscribe: (listener: () => void) => () => void
 }
 

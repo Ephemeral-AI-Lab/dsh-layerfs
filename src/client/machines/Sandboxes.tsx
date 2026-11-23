@@ -4,7 +4,7 @@
  * explicit action), and the New Sandbox dialog that creates one on a machine
  * from an eligible project.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRightUpOutlineRegular, Input, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Card, Field, MenuSelect, MoreMenu, Notice, Refusal, StateChip, type Choice } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
@@ -15,6 +15,7 @@ import {
   BUILT_IN, SANDBOX_NAME, clearingCall, opWords, projectRef, shortImage, stateLook, supports,
   type MachineInfo, type MachineSandbox, type ProjectSummary, type SandboxInfo,
 } from './model.ts'
+import { useQuery } from '../ui/use-query.ts'
 import css from './machines.module.css'
 
 const POLL_MS = 15_000
@@ -29,17 +30,10 @@ const STARTED_MS = 800
  * visible every 15 s, or every 5 s only while a command runs in one of its
  * Workspaces (sandbox.get dials the daemon: layerfs-project#179 B.2).
  */
-export function useSandboxRead(name: string, state: string | undefined, count: number | null | undefined): { data: SandboxInfo | null, error: unknown, loading: boolean, reload: () => void } {
+export function useSandboxRead(name: string, state: string | undefined, count: number | null | undefined, refreshKey = 0): { data: SandboxInfo | null, error: unknown, loading: boolean, reload: () => void } {
   const { readSandbox, api } = useMachinesContext()
-  const [data, setData] = useState<SandboxInfo | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [loading, setLoading] = useState(true)
-  const reader = useRef(readSandbox)
-  reader.current = readSandbox
-  const read = useCallback(async () => {
-    try { setData(await reader.current(name)); setError(null) } catch (e) { setError(e) } finally { setLoading(false) }
-  }, [name])
-  useEffect(() => { void read() }, [read, state, count])
+  const query = useQuery(() => readSandbox(name), [api, name], { cache: `sandbox:${name}`, refresh: [state, count, refreshKey] })
+  const { data, reload: read } = query
   // a command of this host started or ended here: what runs has changed
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -48,7 +42,7 @@ export function useSandboxRead(name: string, state: string | undefined, count: n
       if (data?.sandbox !== name || document.visibilityState !== 'visible') return
       clearTimeout(timer)
       // a start is read a moment later, once LayerFS has written the command's record
-      timer = setTimeout(() => void read(), data.state === 'ready' ? STARTED_MS : 0)
+      timer = setTimeout(() => void read(), data.state === 'ready' ? STARTED_MS : 500)
     })
     return () => { clearTimeout(timer); off() }
   }, [api, name, read])
@@ -58,7 +52,7 @@ export function useSandboxRead(name: string, state: string | undefined, count: n
     const timer = setInterval(() => { if (document.visibilityState === 'visible') void read() }, busy ? RUNNING_POLL_MS : POLL_MS)
     return () => clearInterval(timer)
   }, [read, state, busy])
-  return { data, error, loading, reload: () => void read() }
+  return { ...query, data: data ?? null }
 }
 
 /** Normal close reconciles unknown results; explicit force bypasses worker reads. */

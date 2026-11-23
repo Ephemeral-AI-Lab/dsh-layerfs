@@ -10,11 +10,11 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { CHECK_TABLE, EXAMPLES, HOME, SCENARIOS, checksFor, doctorAnswer, fixAnswer, freshState, thingKeys, treeAnswer } from './fixtures/doctor-scenarios.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const out = mkdtempSync(join(tmpdir(), 'dsh-doctor-model-'))
 await build({
   absWorkingDir: root,
@@ -88,15 +88,17 @@ test('opening the page: nothing is checked; a stopped machine and what is on it 
   const p = page('stopped')
   const head = M.headOf(p.state)
   assert.deepEqual(head.headline, { kind: 'notChecked' })
-  assert.equal(head.counts.nc, head.total)
+  // the docker machine stopped on purpose reads Stopped, not Not checked: the head counts it apart
+  assert.equal(head.stopped, 1)
+  assert.equal(head.counts.nc + head.stopped, head.total)
   assert.equal(st(p, 'machine:dev'), 'nc:never')
   assert.equal(st(p, 'machine:docker'), 'nc:stopped-self')
   assert.equal(st(p, 'store:sim-website-0ce'), 'nc:stopped')
   assert.equal(st(p, 'project:sim-website-0ce/website-0ce'), 'nc:stopped')
   assert.equal(p.seen('project:sim-website-0ce/website-0ce').by.key, 'machine:docker')
-  // Start is the stopped machine's only button; what is on it has none
+  // Start and static Check are both available on a stopped machine; what is on it has none
   const docker = p.view('machine:docker')
-  assert.deepEqual([docker.canCheck, docker.word, docker.fix.button, docker.fix.line], [false, 'stopped', 'start', 'layerfs machine start docker'])
+  assert.deepEqual([docker.canCheck, docker.word, docker.fix.button, docker.fix.line], [true, 'stopped', 'start', 'layerfs machine start docker'])
   const on = p.view('store:sim-website-0ce')
   assert.deepEqual([on.blocked, on.canCheck, on.fix], [true, false, null])
   const proj = p.view('project:sim-website-0ce/website-0ce')
@@ -110,7 +112,7 @@ test('a stopped machine whose own checks pass reads OK with Stopped beside it, a
   p.run('home')
   const docker = p.view('machine:docker')
   assert.deepEqual([docker.seen.st, docker.seen.why, docker.seen.stopped, docker.word], ['ok', null, true, 'stopped'])
-  assert.deepEqual([docker.canCheck, docker.fix.button, docker.fix.line, docker.ownTrouble], [false, 'start', 'layerfs machine start docker', true])
+  assert.deepEqual([docker.canCheck, docker.fix.button, docker.fix.line, docker.ownTrouble], [true, 'start', 'layerfs machine start docker', true])
   // the checks that apply to a stopped machine: its worker and its disk are not asked
   assert.deepEqual(docker.marks.map((m) => [m.check, m.r]), checksFor(p.world, 'machine', 'docker').map((c) => [c, 'ok']))
   assert.ok(!docker.marks.some((m) => /worker|capacity/.test(m.check)))
@@ -402,7 +404,7 @@ test('a Full check covers its thing alone; a stopped one says how long it ran', 
   assert.equal(p.state.notes['project:shop/api'].fullAt, undefined)
   // run to its end: the data check is on the node, and the row remembers when its data was read
   p.run('project', 'shop/api', { full: true })
-  assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed', 'project.data'])
+  assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed', 'project.mount_holders', 'project.data'])
   assert.ok(p.state.notes['project:shop/api'].fullAt > 0)
   p.run('project', 'shop/api')
   assert.deepEqual(p.view('project:shop/api').marks.map((m) => m.check), ['project.record', 'project.listed'])
@@ -542,9 +544,15 @@ test('the page\'s check table is the contract\'s doctor.checks', () => {
 test('the copied spec examples match calls.json when it is given', { skip: !process.env.LAYERFS_CALLS_JSON && 'set LAYERFS_CALLS_JSON to compare' }, () => {
   const spec = JSON.parse(readFileSync(process.env.LAYERFS_CALLS_JSON, 'utf8'))
   const rows = new Map(spec.families.flatMap((f) => f.calls).map((c) => [c.call, c]))
+  for (const key of ['version', 'frozen', 'base']) assert.equal(EXAMPLES[key], spec[key], key)
+  const tree = rows.get('home.get').with.tree.example
+  assert.deepEqual(EXAMPLES.calls['home.get'].tree, typeof tree === 'string' ? JSON.parse(tree) : tree)
   assert.deepEqual(EXAMPLES.doctor, spec.doctor, 'the doctor section (with doctor.checks) changed in calls.json')
   for (const [name, kept] of Object.entries(EXAMPLES.calls)) {
     const row = rows.get(name) ?? assert.fail(`calls.json has no ${name}`)
+    for (const key of ['cli', 'progress']) {
+      if (key in kept) assert.equal(kept[key], row[key], `${name}: ${key}`)
+    }
     const long = typeof row.examples?.long === 'string' ? JSON.parse(row.examples.long) : row.examples?.long
     assert.deepEqual(kept.long, long, `${name}: the long example changed in calls.json`)
   }

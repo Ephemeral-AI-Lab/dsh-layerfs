@@ -43,7 +43,7 @@
 .tabPanel {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: var(--lfs-section-gap);
   min-width: 0;
 }
 
@@ -90,15 +90,32 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 0 16px 12px;
-  padding: 10px 12px;
+  margin: 0;
+  padding: 10px 14px;
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-module-platform);
 }
 
-.tabPanel > .job,
-.job:only-child {
-  margin: 0;
+.job[data-compact] {
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--dsw-radius-m, 8px);
+}
+
+.job[data-compact] .jobLine {
+  flex-wrap: nowrap;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.job[data-compact] .jobTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .job[data-state='failed'] {
@@ -148,10 +165,6 @@
   border-radius: 2px;
   background: var(--dsw-alias-state-business-primary);
   transition: width 300ms ease;
-}
-
-.barFill[data-tone='warning'] {
-  background: var(--dsw-alias-state-warn-primary);
 }
 
 .jobError {
@@ -346,15 +359,6 @@
   .twoCol {
     grid-template-columns: minmax(0, 1fr);
   }
-}
-
-.coverage {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px 4px;
-  font-size: 13px;
-  line-height: 20px;
 }
 
 .cardNote {
@@ -767,11 +771,6 @@
 .tabBody {
   position: absolute;
   inset: 0;
-}
-
-/* The page sits closer to the bar. */
-.tabBody [role='region'] {
-  --lfs-page-top-inset: 18px;
 }
 
 /* ---------- pane bar: the top of an editor tab ---------- */

@@ -1,30 +1,29 @@
-/**
- * The DSH sidebar's own fold: the wide column vs the 56px icon rail. The
- * shell's `wide` owner share reaches plugins only through sidebar section
- * occupants, so a `sidebar.footer.action` probe reports it. `collapse` is the
- * mirror of the shell's expandSidebar (`if (collapsed) toggleSidebar()`).
- */
-import { useEffect, type ReactNode } from 'react'
+import { useLayoutEffect, useSyncExternalStore, type ReactNode } from 'react'
+import { Button, IconPanelLeftOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ListT } from '../projects/list-locale.ts'
 
-/** The rail's fold as last reported by the shell, and the collapse that folds it. */
-export interface SidebarRail {
-  /** Fold the sidebar to the icon rail; a no-op while already collapsed. */
-  collapse(): void
-  /** The component registered into `sidebar.footer.action` to observe `wide`. */
-  readonly Probe: (props: { wide?: boolean | undefined }) => ReactNode
+interface RailLayout {
+  toggleSidebar(): void
+  panelInfo: { getSnapshot(): { activePanelId: string | null }, subscribe(fn: () => void): () => void }
 }
 
-export function createSidebarRail(layout: { toggleSidebar?: (() => void) | undefined } | undefined): SidebarRail {
-  let wide = true
+/** `sidebar.panellist` supplies an icon. The footer supplies `wide` and owns an independent button. */
+export function createSidebarRail(layout: RailLayout, panelId: string) {
+  let wide = false
+  const active = () => layout.panelInfo.getSnapshot().activePanelId === panelId
+  const subscribe = (notify: () => void) => layout.panelInfo.subscribe(notify)
+  function collapse() {
+    if (!wide) return
+    layout.toggleSidebar()
+  }
   return {
-    collapse() {
-      if (!wide) return
-      wide = false // the rail is closing; don't let a same-click sync toggle back
-      layout?.toggleSidebar?.()
-    },
-    Probe: function RailProbe({ wide: w }): ReactNode {
-      useEffect(() => { wide = w !== false }, [w])
-      return null
+    collapse,
+    Footer({ wide: shown, t }: { wide: boolean, t: ListT }): ReactNode {
+      const selected = useSyncExternalStore(subscribe, active)
+      useLayoutEffect(() => { wide = shown; return () => { wide = false } }, [shown])
+      if (!selected || !shown) return null
+      return <Button variant="ghost" size="sm" icon={<IconPanelLeftOutlineRegular size={16} />}
+        aria-label={t('foldCenter')} title={t('foldCenter')} onClick={collapse} />
     },
   }
 }

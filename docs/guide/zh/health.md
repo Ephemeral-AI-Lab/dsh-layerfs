@@ -1,7 +1,13 @@
-<!-- source: e5fee486d21e -->
+<!-- source: 430d6a23ac8e -->
 # 诊断
 
-> **位置：** `LayerFS › 诊断` · **打开方式：** 主页[顶部卡片](components.md#head-card)上的诊断按钮（盾牌图标）；机器、Store 或 Sandbox 页面上的 **诊断**（Diagnose） · **源码：** 见文末
+> **位置：** `LayerFS › 诊断` · **打开方式：** Center [导航栏](components.md#nav-bar)上的诊断按钮（盾牌图标）；机器、Store 或 Sandbox 页面上的 **诊断**（Diagnose） · **源码：** 见文末
+
+当前入口下方的详情图来自早期演示环境。
+
+![1 诊断、2 日志和 3 设置（隔离测试数据）](../img/home-navigation.png)
+
+*隔离测试数据。*
 
 诊断页把整个 LayerFS 主目录画成一棵树（这次安装、它的机器、Store、项目、Sandbox 和备份存储桶），
 并显示 LayerFS 的诊断最近一次对每一项说了什么。觉得哪里不对劲时就来这里：检查一下，
@@ -15,17 +21,17 @@
 | 1 | 标题行 | 主目录里最糟的状况：**一切正常**（All clear）、**没有问题**（No problems）、***n* 条提示**（*n* notices）、***n* 个问题**（*n* problems）、**未检查**（Not checked）、**正在检查 *i*/*n***（Checking *i* of *n*），下方是计数（**11 项正常 · 1 条提示**，11 OK · 1 notice） |
 | 2 | **全部检查**（Check all） | 把每个诊断各运行一次，并行进行 |
 | 3 | 本安装 | **LayerFS *version***：主目录这一行（安装、主目录文件夹、可用磁盘） |
-| 4 | 种类标签页 | **机器**（Machines） · **Store**（Stores） · **项目**（Projects） · **Sandbox**（Sandboxes） · **备份**（Backups），每个都带计数，以及一个表示其中最糟一行的圆点 |
-| 5 | 一行 | 名称、状态词、相关信息；展开后是它上面的东西 |
+| 4 | 分类标签页 | **机器**（Machines） · **Store**（Stores） · **项目**（Projects） · **Sandbox**（Sandboxes） · **备份**（Backups），每个都带计数，以及一个表示其中最糟一行的圆点 |
+| 5 | 一行 | 名称、状态词、相关信息；展开后是它上面的东西。状态词本身前面没有圆点 |
 | 6 | 检查标记 | 上次诊断做过的每项检查各一个圆点：绿色通过，琥珀色提示，红色失败，灰色未检查 |
 | 7 | **检查**（Check） | 运行这一行的诊断 |
-| 8 | 来源行 | **从记录读取：`layerfs home get --with tree`。打开此页面不会运行任何医生。**（Read from records: `layerfs home get --with tree`. Opening this page runs no doctor.） |
+| 8 | **刷新**（Refresh） | 在页头里、**全部检查** 左边：重新读取这棵树（这一页不显示导航栏的刷新按钮） |
 
-页面上方是[导航栏](components.md#nav-bar)：`主页 › 诊断`。它的刷新按钮会重新读取这棵树。
+页面上方是[导航栏](components.md#nav-bar)：`主页 › 诊断`。
 
 ## 布局
 
-从上到下依次是：标题行和 **全部检查**（Check all）、主目录这一行、种类标签页、当前标签页的各行、来源行。
+从上到下依次是：标题行和 **全部检查**（Check all）及本页的 **刷新**（Refresh）、主目录这一行、分类标签页、当前标签页的各行。
 点一行的箭头（或点它的名字）就能展开，看到它的详情和直接挂在它上面的东西，所以一个
 Store 既能在它所在的机器下面找到，也能在 Store 标签页里找到。之前的检查结果由主机保存，
 所以页面打开或重新连上时会直接显示它们。
@@ -38,7 +44,7 @@ LayerFS 诊断调用，只尝试一次，并随着进度逐项报告。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 树 | 主目录里的机器、Store、项目、Sandbox（含 Workspace）和存储桶 | 展开一行 → 它的详情和它上面的东西 | `GET /api/doctor/tree` → `home get --with tree --detail` (读取) | **正在读取记录…**（Reading the records…）；**无法读取记录**（The records could not be read），带 **重试**（Try again）；**此 LayerFS 还没有医生**（This LayerFS has no Doctor yet，2.0 之前的运行时） |
+| 树 | 主目录里的机器、Store、项目、Sandbox（含 Workspace）和存储桶 | 展开一行 → 它的详情和它上面的东西 | `GET /api/doctor/tree` → `home get --with tree --detail` (读取) | **正在读取记录…**（Reading the records…）；**无法读取记录**（The records could not be read），带 **重试**（Try again）；**当前 LayerFS 版本暂不支持诊断视图**（This LayerFS has no Doctor yet，2.0 之前的运行时） |
 | 保存的结果 | 每一行最近一次的结果 | — | `GET /api/doctor/results`（不调用 LayerFS：主机内存） | |
 | **全部检查**（Check all） | | 按下 → 每个诊断各运行一次：`home doctor`，每个 Store 一次 `store doctor`，每个 Sandbox 一次 `sandbox doctor`（主目录诊断会快速检查每台机器、每个 PostgreSQL Store 和每个存储桶） | `home doctor`、`store doctor <store>` ×n、`sandbox doctor <sandbox>` ×n (读取) | 运行期间显示忙碌；完整检查或修复运行时不可用（提示会说明原因）。不包括：已停止或有故障的机器上的一切，以及项目数据。提示消息 **全部检查已完成**（Check all finished） |
 | **检查**（Check） | 它的提示说明会检查哪些内容，以及具体调用 | 按下 → 运行这一行的诊断；上面有东西的行会自动展开，让结果出现在眼前 | 主目录：`home doctor`；机器：`machine doctor <m>`；Store：`store doctor <s>`；项目：`project doctor <s/p>`；Sandbox：`sandbox doctor <b>`（也包括它的 Workspace）；存储桶：`backup doctor <b>` (读取) | **检查中**（Checking）；另一个调用占着它的执行机会时显示 **等待开始**（Waiting to start），带 **停止**（Stop） |
@@ -81,7 +87,7 @@ guide-notes`。**修复**（Fix）这一行（4）就是同一条命令，可以
 - **Sandbox**：Workspace 由它所在 Sandbox 的诊断来检查（**从未检查。由其 Sandbox 检查。**，Never checked. Its
   Sandbox checks it.）。
 - **存储桶**：**完整检查**（Full check）还会写入并删除一个小测试对象。
-- 记录里什么都没有的标签页显示 **记录中没有这一种类的内容。**（Nothing of this kind is on record.）
+- 记录里什么都没有的标签页显示 **记录中暂无此类项目。**（Nothing of this kind is on record.）
 
 ## 在此打开的对话框
 

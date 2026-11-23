@@ -3,7 +3,7 @@
 .bar {
   display: flex;
   flex: none;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px 8px;
   min-height: 48px;
@@ -20,8 +20,22 @@
   gap: 2px;
 }
 
+.bar button {
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+.bar button svg {
+  display: block;
+  flex: none;
+}
+
 .iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
+  min-width: 28px;
   height: 28px;
   padding: 0;
   color: var(--dsw-alias-label-secondary);
@@ -30,7 +44,7 @@
 /* ---------- breadcrumb ---------- */
 
 .crumbs {
-  flex: 1 1 280px;
+  flex: 1 1 120px;
   min-width: 0;
 }
 
@@ -178,26 +192,66 @@ button.crumb[aria-expanded='true'],
 
 .tools {
   display: inline-flex;
-  flex: none;
+  flex: 0 1 auto;
+  max-width: 100%;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-left: auto;
 }
 
-/* Health, Logs and Settings: one group of icon buttons beside Jump to. */
+.countButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 6px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.addButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Health's findings count: amber for warnings, red when a finding refuses calls. */
+.toolCount {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 16%, transparent);
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.toolCount[data-tone='danger'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+}
+
 .jumpField {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   width: 220px;
-  height: 30px;
+  margin-inline-end: 18px;
+  height: 28px;
   padding: 0 8px 0 10px;
   box-sizing: border-box;
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -207,7 +261,7 @@ button.crumb[aria-expanded='true'],
 @media (hover: hover) {
   .jumpField:hover {
     background: var(--dsw-alias-interactive-bg-hover);
-    color: var(--dsw-alias-label-secondary);
+    color: var(--dsw-alias-label-primary);
   }
 }
 
@@ -226,7 +280,7 @@ button.crumb[aria-expanded='true'],
 .jumpKeys {
   flex: none;
   font-size: 11.5px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .jobs {
@@ -234,7 +288,7 @@ button.crumb[aria-expanded='true'],
   align-items: center;
   gap: 8px;
   max-width: 300px;
-  height: 30px;
+  height: 28px;
   padding: 0 10px;
   box-sizing: border-box;
   border: 0.5px solid var(--dsw-alias-border-l3);
@@ -282,14 +336,22 @@ button.crumb[aria-expanded='true'],
   transition: width 300ms ease;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .jumpField {
     width: auto;
+    margin-inline-end: 2px;
+    padding: 0 8px;
   }
 
   .jumpText,
   .jumpKeys {
     display: none;
+  }
+}
+
+@media (max-width: 540px) {
+  .bar {
+    flex-wrap: wrap;
   }
 }
 

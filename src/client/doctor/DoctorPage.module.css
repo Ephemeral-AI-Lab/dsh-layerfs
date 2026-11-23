@@ -52,7 +52,7 @@
 .root {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
   min-width: 0;
   font-size: 13px;
   line-height: 20px;
@@ -86,16 +86,17 @@
 .head {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-top: 28px;
+  gap: 20px;
+  padding-top: 24px;
 }
 
 .headRow {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px 16px;
+  padding-right: 16px;
 }
 
 .title {
@@ -103,9 +104,11 @@
   font-size: 20px;
   font-weight: 500;
   line-height: 28px;
+  letter-spacing: -0.015em;
 }
 
 .intro {
+  max-width: 65ch;
   min-height: 20px;
   margin: 4px 0 0;
   color: var(--dsw-alias-label-secondary);
@@ -121,7 +124,7 @@
 
 .none {
   margin: 0;
-  padding: 14px 16px;
+  padding: 20px 16px;
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -130,18 +133,25 @@
    in the tab order, keeps focus and says why in its tip. */
 .btn {
   position: relative;
+  display: inline-flex;
   flex: none;
-  font-size: 13px;
-  line-height: 20px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 28px;
+  min-width: 68px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  line-height: 1;
   font-weight: 500;
   white-space: nowrap;
-  transition: color 120ms ease, background-color 120ms ease;
+  transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1), background-color 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.btn[data-w='check'] { width: 58px; padding: 0; }
-.btn[data-w='full'] { width: 88px; padding: 0; }
-.btn[data-w='copy'] { width: 64px; padding: 0; }
-.btn[data-w='all'] { height: 32px; min-width: 96px; padding: 0 14px; }
+.btn[data-w='check'] { min-width: 68px; }
+.btn[data-w='full'] { min-width: 88px; }
+.btn[data-w='copy'] { min-width: 68px; }
+.btn[data-w='all'] { height: 28px; min-width: 88px; padding: 0 12px; }
 
 .btn[aria-disabled='true'] { cursor: default; }
 .btn[aria-disabled='true']:not([aria-busy='true']) { color: var(--doc-off-fg); }
@@ -207,19 +217,31 @@
   gap: 6px;
   height: 24px;
   padding: 0 6px 0 2px;
+  line-height: 20px;
   white-space: nowrap;
+}
+
+.sigWord {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
 }
 
 .sig[data-st='problem'],
 .sig[data-st='notice'] { font-weight: 500; }
 
 /* the width of the longest status word, so what follows lines up */
-.line > .sig { min-width: 98px; }
+.line > .sig { min-width: 104px; }
+
+.moreSep {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
 
 .headSig {
   height: 28px;
-  gap: 10px;
-  padding: 0 6px 0 2px;
+  gap: 8px;
+  padding: 0;
   font-size: 20px;
   font-weight: 500;
   line-height: 28px;
@@ -230,15 +252,15 @@
 .sigCard {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
   max-width: min(360px, calc(100vw - 48px));
   white-space: normal;
 }
 
-.sigCard .tipLine { color: var(--dsw-alias-label-secondary); }
-.sigCard ul { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 0; padding: 0; list-style: none; }
-.sigCard li { display: flex; align-items: center; gap: 7px; }
+.sigCard .tipLine { color: var(--dsw-alias-label-secondary); line-height: 18px; }
+.sigCard ul { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
+.sigCard li { display: flex; align-items: center; gap: 7px; line-height: 18px; }
 .sigCard li i { font-style: normal; color: var(--dsw-alias-label-secondary); }
 .sigCard li code { font-size: 11.5px; }
 
@@ -259,10 +281,10 @@
 
 /* ---------- this install ---------- */
 .homeBox {
-  padding: 2px 0;
-  border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: var(--dsw-radius-lg);
-  background: var(--dsw-alias-bg-layer-2);
+  padding: 8px 0;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke, var(--dsw-alias-border-l3));
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill, var(--dsw-alias-bg-layer-2));
 }
 
 /* ---------- tabs: the shared tab bar (ui/TabBar.tsx) ---------- */
@@ -270,32 +292,33 @@
 /* ---------- list card and rows ---------- */
 .card {
   min-width: 0;
-  padding: 4px 0;
+  padding: 8px 0;
   border: 0.5px solid var(--dsw-alias-settings-card-stroke, var(--dsw-alias-border-l4));
   border-radius: var(--dsw-radius-xl);
   background: var(--dsw-alias-settings-card-fill, var(--dsw-alias-bg-layer-2));
 }
 
 .group {
-  padding: 4px 0;
+  padding: 6px 0;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
-.group:first-child { border-top: 0; }
+.group:first-child { padding-top: 0; border-top: 0; }
+.group:last-child { padding-bottom: 0; }
 
 .line {
   --depth: 0;
   display: flex;
   align-items: center;
-  gap: 2px 8px;
-  min-height: 40px;
-  margin: 0 4px;
-  padding: 0 8px 0 2px;
+  gap: 4px 12px;
+  min-height: 48px;
+  margin: 0 6px;
+  padding: 6px 10px 6px 4px;
   border-radius: var(--dsw-radius-md);
   cursor: pointer;
 }
 
-.line:not([data-depth='0']) { min-height: 36px; }
+.line:not([data-depth='0']) { min-height: 42px; padding-block: 4px; }
 .line[data-flash] { box-shadow: inset 0 0 0 2px var(--doc-run); }
 
 @media (hover: hover) {
@@ -310,7 +333,7 @@
   gap: 8px;
   min-width: 0;
   height: 32px;
-  padding: 0 4px 0 calc(8px + var(--depth) * 24px);
+  padding: 0 4px 0 calc(2px + var(--depth) * 24px);
   border: 0;
   border-radius: var(--dsw-radius-sm);
   background: none;
@@ -404,28 +427,29 @@
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
   height: 22px;
-  padding: 0 8px 0 4px;
+  padding: 0 8px 0 5px;
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: 999px;
   color: var(--doc-link);
   font-size: 12px;
+  line-height: 1;
   text-decoration: none;
   white-space: nowrap;
 }
 
-.causeName { overflow: hidden; text-overflow: ellipsis; }
+.causeName { overflow: hidden; line-height: 1; text-overflow: ellipsis; }
 
 @media (hover: hover) {
   .cause:hover .causeName { text-decoration: underline; }
 }
 
-.phase { flex: none; color: var(--dsw-alias-label-secondary); white-space: nowrap; }
+.phase { flex: none; line-height: 20px; color: var(--dsw-alias-label-secondary); white-space: nowrap; }
 .live { display: inline-flex; flex: none; align-items: center; gap: 8px; }
-.elapsed { min-width: 34px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
-.more .btn { height: 26px; }
+.elapsed { min-width: 36px; line-height: 20px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
+.more .btn { height: 28px; min-width: 68px; }
 
 /* the mark group: one mark per check, one focusable signal. Its width is kept
    from the number of checks its kind has, so nothing beside it moves when the marks land. */
@@ -456,8 +480,8 @@ span.marks { visibility: hidden; }
   flex: none;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  width: 152px;
+  gap: 8px;
+  min-width: 164px;
 }
 
 /* ---------- a row's detail: the call, the checks, the fix ---------- */
@@ -465,11 +489,12 @@ span.marks { visibility: hidden; }
 
 .detail {
   --depth: 0;
+  --doc-lbl-w: 44px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 2px 12px 8px calc(36px + var(--depth) * 24px);
-  padding: 10px 12px;
+  gap: 12px;
+  margin: 8px 14px 8px calc(38px + var(--depth) * 24px);
+  padding: 14px 16px;
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-module-platform);
 }
@@ -478,8 +503,11 @@ span.marks { visibility: hidden; }
 
 .cmdLine code {
   flex: 1 1 0;
+  box-sizing: border-box;
   min-width: 0;
-  padding: 5px 9px;
+  min-height: 28px;
+  padding: 5px 10px;
+  line-height: 18px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   border: 0.5px solid var(--dsw-alias-border-l2);
@@ -489,37 +517,56 @@ span.marks { visibility: hidden; }
 
 .lbl {
   flex: none;
-  width: 34px;
-  padding-top: 4px;
+  width: var(--doc-lbl-w);
+  padding-top: 5px;
   font-size: 12px;
+  line-height: 18px;
+  text-align: right;
   color: var(--dsw-alias-label-secondary);
 }
 
 .checks {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 8px;
   margin: 0;
-  padding: 0 0 0 42px;
+  padding: 0 0 0 calc(var(--doc-lbl-w) + 8px);
   list-style: none;
 }
 
-.checks li { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.checks li {
+  display: grid;
+  grid-template-columns: minmax(148px, 196px) minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+}
 
 /* each check is a small signal of its own: its tip says what the check is */
 .chk {
   display: inline-flex;
-  flex: none;
-  align-items: baseline;
+  align-items: center;
+  justify-self: start;
   gap: 8px;
+  max-width: 100%;
+  min-height: 22px;
   margin: 0 0 0 -4px;
   padding: 0 4px;
   border: 0;
   border-radius: 4px;
   background: none;
   font: inherit;
+  line-height: 18px;
   color: inherit;
+  text-align: left;
   cursor: default;
+}
+
+.chk code {
+  overflow: hidden;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chk .mk { align-self: center; }
@@ -529,15 +576,18 @@ span.marks { visibility: hidden; }
 }
 
 .res {
+  max-width: 65ch;
   min-width: 0;
   font-size: 12px;
+  line-height: 18px;
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
 }
 
 /* ---------- the delete confirmation ---------- */
-.modalBody { margin: 0; overflow-wrap: anywhere; }
-.modalActions { display: flex; justify-content: flex-end; gap: 8px; }
+.modalBody { max-width: 65ch; margin: 0; line-height: 20px; overflow-wrap: anywhere; }
+.modalActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.modalActions button { display: inline-flex; align-items: center; justify-content: center; height: 30px; min-width: 72px; padding: 0 14px; line-height: 1; }
 
 /* ---------- tip ---------- */
 .tip {
@@ -559,9 +609,9 @@ span.marks { visibility: hidden; }
   border-radius: var(--dsw-radius-sm);
   background: var(--doc-tip-bg);
   color: var(--doc-tip-fg);
-  box-shadow: 0 0 0 0.5px #ffffff2e, 0 4px 14px 0 #00000052;
+  box-shadow: var(--dsw-elevation-prominent);
   font-size: 12px;
-  line-height: 16px;
+  line-height: 18px;
   text-align: left;
   pointer-events: none;
 }
@@ -570,8 +620,8 @@ span.marks { visibility: hidden; }
 .tip[data-wide] { max-width: min(440px, calc(100vw - 16px)); }
 .tip b { display: flex; align-items: center; gap: 6px; font-weight: 500; overflow-wrap: anywhere; }
 .tipLine { color: var(--doc-tip-fg-2); overflow-wrap: anywhere; }
-.tip ul { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 0; padding: 0; list-style: none; }
-.tip li { display: flex; align-items: baseline; gap: 7px; }
+.tip ul { display: flex; flex-direction: column; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
+.tip li { display: flex; align-items: center; gap: 7px; line-height: 18px; }
 .tip li .mk { align-self: center; }
 .tip li i { font-style: normal; color: var(--doc-tip-fg-2); }
 .tip li code { font-size: 11.5px; }
@@ -623,7 +673,7 @@ span.marks { visibility: hidden; }
 /* ---------- narrow (a phone, a narrow column): name and status word on the first line, the rest below ---------- */
 @container (max-width: 760px) {
   .line { flex-wrap: wrap; padding: 4px 6px 4px 0; }
-  .rowBtn { flex: 1 1 0; gap: 7px; padding-left: calc(6px + var(--depth) * 14px); }
+  .rowBtn { flex: 1 1 0; gap: 8px; padding-left: calc(2px + var(--depth) * 14px); }
   .line > .sig { order: 1; min-width: 0; }
   .more { order: 2; flex: 1 1 100%; padding-left: calc(31px + var(--depth) * 14px); }
   /* nothing to say: still the line break before the marks */
@@ -631,14 +681,14 @@ span.marks { visibility: hidden; }
   .line[data-bare] .more[data-thin] { display: none; }
   .fact { display: none; }
   .marks { order: 3; flex: 0 1 auto; flex-wrap: wrap; height: auto; min-height: 24px; min-width: 0; margin-left: calc(27px + var(--depth) * 14px); }
-  .acts { order: 4; width: auto; margin-left: auto; }
+  .acts { order: 4; min-width: 0; width: auto; margin-left: auto; }
   .line[data-bare] .marks,
   .line[data-bare] .acts { display: none; }
-  .detail { margin: 2px 8px 8px calc(12px + var(--depth) * 14px); }
+  .detail { margin: 8px 8px 8px calc(12px + var(--depth) * 14px); }
   .checks { padding-left: 0; }
-  .checks li { flex-wrap: wrap; gap: 0 8px; }
+  .checks li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .cmdLine { flex-wrap: wrap; }
-  .lbl { width: 100%; padding: 0; }
+  .lbl { width: 100%; padding: 0; text-align: left; }
 }
 
 @media (max-width: 640px) {
@@ -650,3 +700,5 @@ span.marks { visibility: hidden; }
   .chev,
   .btn { transition: none; }
 }
+
+.headActions { display: flex; align-items: center; gap: 8px; }

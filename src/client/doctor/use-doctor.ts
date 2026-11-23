@@ -98,15 +98,23 @@ export function useDoctor(api: LayerfsApi, say: (what: Say) => void, refreshKey 
     for (const [id, done] of [...fixWaits.current]) if (!fixing.has(id)) { fixWaits.current.delete(id); done(null) }
   }, [api])
 
+  const inFlight = useRef(false)
+  const queued = useRef(false)
   const load = useCallback(async (): Promise<void> => {
+    if (inFlight.current) { queued.current = true; return }
+    inFlight.current = true
     setLoading(true)
     try {
-      await readTree()
-      await resync()
+      do {
+        queued.current = false
+        await readTree()
+        await resync()
+      } while (alive.current && queued.current)
       if (alive.current) setError(undefined)
     } catch (e) {
       if (alive.current) setError(e)
     } finally {
+      inFlight.current = false
       if (alive.current) setLoading(false)
     }
   }, [readTree, resync])

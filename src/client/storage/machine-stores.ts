@@ -195,29 +195,82 @@ export function routedServer(server: string, alias: string | null): string {
   return server.replace(/^(localhost|127\.[0-9.]+|\[::1\])(?=:|$)/, alias)
 }
 
-/** The three things a check from a machine tries, in order (`store doctor <s> --machine M`). */
-export type CheckStep = 'server' | 'store' | 'write'
-export const CHECK_STEPS: readonly CheckStep[] = ['server', 'store', 'write']
+/** The five things a check from a machine verifies, in order (`store doctor <s> --machine M`). */
+export type CheckStep = 'record' | 'server' | 'login' | 'store' | 'write'
+export const CHECK_STEPS: readonly CheckStep[] = ['record', 'server', 'login', 'store', 'write']
+
+/** Which failure class the check screen guides the user to fix; null when LayerFS gave nothing specific enough. */
+export type CheckFailureKind = 'record' | 'server' | 'login' | 'privilege' | 'store'
+
+/** Parsed missing privilege detail from LayerFS's `role <r> lacks <priv> (<n> privilege(s) missing in all)`. */
+export interface MissingPrivilege { role: string, privilege: string, count: number | null }
+
+export function missingPrivilege(message: string | undefined): MissingPrivilege | null {
+  const m = /\brole\s+(.+?)\s+lacks\s+(.+?)(?:\s+\((\d+)\s+privilege\(s\)\s+missing(?:\s+in\s+all)?\))?$/i.exec((message ?? '').trim())
+  if (!m) return null
+  return { role: m[1]!.trim(), privilege: m[2]!.trim(), count: m[3] ? Number(m[3]) : null }
+}
+
+const isLoginRejection = (code: string | undefined, text: string): boolean =>
+  code === 'Rejected'
+  || /\bRejected\b/i.test(text)
+  || /password authentication failed|authentication failed|SQLSTATE 28/i.test(text)
 
 /**
- * Which step a failed check stopped at, by LayerFS's documented refusals
- * (layerfs-store postgresql/check.rs): the server not
- * reached is `Unavailable`; another Store's schema is `Unavailable` naming
- * "holds another Store than"; a login refused is `Denied`; a privilege
- * missing is `Denied` "lacks …", on the schema (its Store cannot be read)
- * or on what a Sandbox writes. Any other refusal fails no step it can name:
- * null, and the path shows the refusal as it came.
+ * Which failure class a failed check belongs to, strictly from LayerFS's own
+ * codes, doctor evidence (`step`), and documented refusal messages:
+ * - `record`: outdated or missing-login Store record (`Outdated`, `step: 'record'`);
+ * - `server`: server unreachable or handshake timed out (`Unavailable` / timeout / `step: 'transport'`);
+ * - `login`: wrong user/password (`Rejected`, `step: 'authentication'`, or explicit authentication wording);
+ * - `privilege`: missing database/schema/table privilege (`Denied` with `lacks`);
+ * - `store`: another Store in that schema, or database does not exist (`step: 'database'` / `holds another Store than`).
+ * Ambiguous refusals (such as `PostgreSQL server refused the connection: db error`
+ * without `authentication`/`database` evidence, or `the server refused the session`)
+ * and anything else return null so the UI never guesses a fix.
  */
-export function failedStep(code: string | undefined, message: string | undefined): CheckStep | null {
+export function checkFailureKind(code: string | undefined, message: string | undefined, step?: string | undefined): CheckFailureKind | null {
   const text = message ?? ''
-  if (code === 'Unavailable') return text.includes('holds another Store than') ? 'store' : 'server'
+  if (step === 'record' || code === 'Outdated' || /its record is outdated|names no saved login|its record is missing/i.test(text)) return 'record'
+  if (step === 'database' || /SQLSTATE 3D000/i.test(text) || text.includes('holds another Store than')) return 'store'
+  if (step === 'authentication' || step === 'login') return 'login'
+  if (step === 'transport' || step === 'handshake') return 'server'
+  if (/\black(s)?\b/i.test(text) && (code === 'Denied' || step === 'write' || step === 'store')) return 'privilege'
+  if (isLoginRejection(code, text)) return 'login'
+  if (/the server refused the session|PostgreSQL server refused the connection/i.test(text)) return null
+  if (code === 'Unavailable') return 'server'
   // a check the host stopped because LayerFS did not answer in time: the server did not answer (M FAIL 4), so its own address is offered
   if (code === 'Unknown' && /did not answer in time|timed out/i.test(text)) return 'server'
-  if (code === 'Denied') {
-    if (!/\black(s)?\b/.test(text)) return 'server'
-    return text.includes(' on schema ') ? 'store' : 'write'
-  }
   return null
+}
+
+/**
+ * Which step a failed check stopped at, by LayerFS's documented refusals and
+ * doctor evidence (`store_target.rs`, `postgresql/check.rs`). Any refusal that
+ * does not name a step returns null so the check screen shows it as it came.
+ */
+export function failedStep(code: string | undefined, message: string | undefined, step?: string | undefined): CheckStep | null {
+  const text = message ?? ''
+  const kind = checkFailureKind(code, text, step)
+  if (!kind) return null
+  if (kind === 'privilege') return /\bUSAGE\s+on\s+schema\b/i.test(text) ? 'store' : 'write'
+  return kind
+}
+
+export type CheckWireState = 'pending' | 'running' | 'ok' | 'failed' | 'unknown'
+
+/**
+ * States of the two path wires (machine -> server, server -> Store) for a check run.
+ * When a check failed without a known step (`at === null`), both wires stay `unknown`
+ * rather than pointing red at either hop.
+ */
+export function checkWires(state: 'ready' | 'running' | 'ok' | 'failed', at: CheckStep | null): [CheckWireState, CheckWireState] {
+  if (state === 'ready') return ['pending', 'pending']
+  if (state === 'running') return ['running', 'running']
+  if (state === 'ok') return ['ok', 'ok']
+  if (!at) return ['unknown', 'unknown']
+  if (at === 'record') return ['pending', 'pending']
+  if (at === 'server') return ['failed', 'pending']
+  return ['ok', 'failed']
 }
 
 /**

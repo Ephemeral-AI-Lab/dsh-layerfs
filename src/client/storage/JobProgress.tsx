@@ -12,7 +12,7 @@ import { useMachinesMaybe, type MachinesContext } from '../machines/context.tsx'
 import type { MachineSandbox as Sandbox } from '../machines/model.ts'
 import css from './Storage.module.css'
 
-type JobPanelProps = { job: StorageJob, t: StorageT, onRetry?: (() => void) | undefined, onDismiss?: (() => void) | undefined }
+type JobPanelProps = { job: StorageJob, t: StorageT, compact?: boolean, onRetry?: (() => void) | undefined, onDismiss?: (() => void) | undefined }
 
 /** A job on its Store; where the page knows the Sandboxes (the Machines context), an in-use refusal names what holds the Store. */
 export function JobPanel(props: JobPanelProps): ReactNode {
@@ -27,7 +27,7 @@ function FleetJobPanel({ mc, ...props }: JobPanelProps & { mc: MachinesContext }
 
 const NONE: readonly Sandbox[] = []
 
-function JobPanelView({ job: j, t, onRetry, onDismiss, sandboxes, onOpen }: JobPanelProps & { sandboxes: readonly Sandbox[], onOpen?: (id: string) => void }): ReactNode {
+function JobPanelView({ job: j, t, compact, onRetry, onDismiss, sandboxes, onOpen }: JobPanelProps & { sandboxes: readonly Sandbox[], onOpen?: (id: string) => void }): ReactNode {
   const fixes = useContext(FixContext)
   const running = !j.ended
   const failed = !!j.ended && (!!j.error || j.outcome === 'failed' || j.outcome === 'unknown' || j.outcome === 'interrupted')
@@ -40,12 +40,13 @@ function JobPanelView({ job: j, t, onRetry, onDismiss, sandboxes, onOpen }: JobP
     : resolved?.fix && fixes ? <FixAction line={resolved.line} fix={resolved.fix} runner={fixes} labels={refusalLabels(t)} />
       : holder && onOpen ? <Button variant="outline" size="sm" onClick={() => onOpen(holderTab(holder))}>{t('jobOpenSandbox', { name: holder.name })}</Button>
         : onRetry ? <Button variant="outline" size="sm" onClick={onRetry}>{t('jobRetry')}</Button> : null
+  const label = running ? doingWords(j, t) : endedWords(j, t, bytes)
   return (
-    <div className={css.job} data-state={running ? 'running' : failed ? 'failed' : 'done'} role="status">
+    <div className={css.job} data-state={running ? 'running' : failed ? 'failed' : 'done'} data-compact={compact || undefined} role="status">
       <div className={css.jobLine}>
         <StateDot state={running ? 'ongoing' : failed ? 'error' : 'done'} size={running ? 13 : 10} />
         {/* how it ended is the word; what holds the Store, LayerFS's code, words and fix are its tip (UI pass 3 F10: no raw refusal under it) */}
-        <span className={css.jobTitle} title={tip}>{running ? doingWords(j, t) : endedWords(j, t, bytes)}</span>
+        <span className={css.jobTitle} title={tip ?? (compact ? label : undefined)}>{label}</span>
         {running ? <span className={css.jobMeta}>{t('jobStep', { at, of: steps.length, step: stepWords(j.phase, t) })}</span> : null}
         {running && j.total ? <span className={css.jobMeta}>{t('jobBytes', { done: bytes(j.done ?? 0), total: bytes(j.total) })}</span> : null}
         <span className={css.jobEnd}>
@@ -59,13 +60,14 @@ function JobPanelView({ job: j, t, onRetry, onDismiss, sandboxes, onOpen }: JobP
 }
 
 /** An operation another client runs on the Store (store.list's `op`). */
-export function OpPanel({ store, t }: { store: StoreRow, t: StorageT }): ReactNode {
+export function OpPanel({ store, t, compact }: { store: StoreRow, t: StorageT, compact?: boolean }): ReactNode {
   if (!store.op) return null
+  const label = t('opRunning', { op: `${store.op.name} · ${store.op.phase}` })
   return (
-    <div className={css.job} data-state="running" role="status">
+    <div className={css.job} data-state="running" data-compact={compact || undefined} role="status">
       <div className={css.jobLine}>
-        <StateDot state="ongoing" size={13} />
-        <span className={css.jobTitle}>{t('opRunning', { op: `${store.op.name} · ${store.op.phase}` })}</span>
+        <StateDot state="ongoing" size={compact ? 11 : 13} />
+        <span className={css.jobTitle} title={label}>{label}</span>
       </div>
     </div>
   )

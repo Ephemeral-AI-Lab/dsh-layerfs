@@ -15,10 +15,10 @@ import { DoctorAction } from '../doctor/Doctor.tsx'
 import type { DoctorT } from '../doctor/locale.ts'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Card, Empty, LinkButton, MoreMenu, StateChip } from '../ui/index.tsx'
+import { Card, Empty, ExplainedButton, LinkButton, MoreMenu, StateChip } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import { PaneBar } from './PaneBar.tsx'
-import { autoList, backupChip, bucketFiles, listStatusWords, placeWords, reconnectOf, type Reconnect } from './model.ts'
+import { autoList, backupChip, bucketFiles, listStatusWords, placeWords, reconnectOf, storeWaitsFor, type Reconnect } from './model.ts'
 import { BucketProviderGlyph } from '../machines/icons.tsx'
 import { BucketGlyph } from './parts.tsx'
 import { Signal } from './Signal.tsx'
@@ -66,7 +66,6 @@ function BucketStatus({ b, t, onReconnect }: { b: BucketRow, t: StorageT, onReco
   return (
     <div className={css.bucketStatus} data-tone="danger" data-bucket-status={b.error?.code ?? b.state ?? ''}>
       <Signal state="error" size={7} title={words} detail={tip} />
-      <span className={css.bucketStatusText} title={tip}>{words}</span>
       {again ? <Button size="sm" variant="outline" onClick={() => onReconnect(again)}>{t('connectAgain')}</Button> : null}
     </div>
   )
@@ -132,8 +131,8 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
                 {g.rows.map((r) => {
                   const chip = backupChip(r.state, t)
                   const s = r.store
-                  const canBackUp = !!s && s.kind === 'sqlite' && s.state !== 'busy' && s.state !== 'down'
-                  const backUp = (r.state === 'store_changed' || r.state === 'missing' || (r.state === null && !!r.link)) && canBackUp
+                  const wantsBackUp = !!s && s.kind === 'sqlite' && (r.state === 'store_changed' || r.state === 'missing' || (r.state === null && !!r.link))
+                  const backupWhy = wantsBackUp ? storeWaitsFor(s, t) : null
                   const restore = r.state !== null && r.state !== 'missing'
                   return (
                     <tr key={`${r.file}:${r.storeName ?? ''}`}>
@@ -143,7 +142,7 @@ export function BucketPage({ name, view, t, api, doctorT, now, listing, onList, 
                       <td className={`${css.num} ${css.wide} ${css.muted}`}>{bytes(r.bytes)}</td>
                       <td className={`${css.wide} ${css.muted}`} title={when(r.modified)}>{r.modified ? ago(r.modified, now, tt) : '—'}</td>
                       <td className={css.actionsCell}>
-                        {backUp ? <Button variant="outline" size="sm" onClick={() => onBackup(r.storeName!, r.file)}>{t('backupNow')}</Button> : null}
+                        {wantsBackUp ? <ExplainedButton variant="outline" size="sm" disabled={!!backupWhy} disabledReason={backupWhy ?? undefined} onClick={() => onBackup(r.storeName!, r.file)}>{t('backupNow')}</ExplainedButton> : null}
                         {restore ? <Button variant="outline" size="sm" onClick={() => onRestore(r.file, r.storeName)}>{t('restore')}</Button> : null}
                       </td>
                     </tr>
@@ -255,8 +254,8 @@ export function BackupFilePage({ bucket, file, view, t, now, listing, onList, on
                 const chip = backupChip(r.state, t)
                 const s = r.store!
                 const last = r.link?.last
-                const canBackUp = s.kind === 'sqlite' && s.state !== 'busy' && s.state !== 'down'
-                const backUp = (r.state === 'store_changed' || r.state === 'missing' || (r.state === null && !!r.link)) && canBackUp
+                const wantsBackUp = s.kind === 'sqlite' && (r.state === 'store_changed' || r.state === 'missing' || (r.state === null && !!r.link))
+                const backupWhy = wantsBackUp ? storeWaitsFor(s, t) : null
                 return (
                   <tr key={s.name}>
                     <td><span className={css.linkList}><LinkButton onClick={() => onOpenStore(s.name)}>{s.name}</LinkButton><span className={css.muted}>{placeWords(s.machine, t)}</span></span></td>
@@ -265,7 +264,7 @@ export function BackupFilePage({ bucket, file, view, t, now, listing, onList, on
                       {last?.at ? (last.op === 'restore' ? t('backupLastRestore', { ago: ago(last.at, now, tt) }) : t('backupLastCreate', { ago: ago(last.at, now, tt) })) : t('backupLastNone')}
                     </td>
                     <td className={css.actionsCell}>
-                      {backUp ? <Button variant="outline" size="sm" onClick={() => onBackup(s.name, file)}>{t('backupNow')}</Button> : null}
+                      {wantsBackUp ? <ExplainedButton variant="outline" size="sm" disabled={!!backupWhy} disabledReason={backupWhy ?? undefined} onClick={() => onBackup(s.name, file)}>{t('backupNow')}</ExplainedButton> : null}
                       {r.state !== null && r.state !== 'missing' ? <Button variant="outline" size="sm" onClick={() => onRestore(file, s.name)}>{t('restore')}</Button> : null}
                     </td>
                   </tr>

@@ -11,6 +11,7 @@
  * Delete is sandbox.remove, with an explicit Force delete action. A Sandbox
  * whose machine differs from the one it was opened from is refused here.
  */
+import { usePageReading } from '../storage/PaneBar.tsx'
 import { useId, type ReactNode } from 'react'
 import { Button, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DoctorAction } from '../doctor/Doctor.tsx'
@@ -32,14 +33,15 @@ import css from './machines.module.css'
 import logCss from './log.module.css'
 import term from './terminal.module.css'
 
-export function SandboxDetail({ machine, name, go }: { machine: string, name: string, go: (view: View) => void }): ReactNode {
+export function SandboxDetail({ machine, name, go, refreshKey }: { refreshKey?: number, machine: string, name: string, go: (view: View) => void }): ReactNode {
   const { t, tw, stateWord, refusal, kind, api, doctorT, useMachines } = useMachinesContext()
   const listed = useMachines((s) => (s.data?.available ? s.data.sandboxes.find((b) => b.name === name) : undefined))
   const parent = useMachines((s) => (s.data?.available ? s.data.machines.find((m) => m.name === machine) : undefined))
   const hasLog = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.sandboxLog === true : false))
   const hasFiles = useMachines((s) => (s.data?.available ? s.data.features?.inspect?.files === true : false))
   // the Workspace whose terminal Files asked for ("Open terminal")
-  const detail = useSandboxRead(name, listed?.state, listed?.workspaces)
+  const detail = useSandboxRead(name, listed?.state, listed?.workspaces, refreshKey)
+  usePageReading(detail.loading)
   const closing = useClose(name)
   const title = useMachineTitle()
   const machineTitle = title({ name: machine, platform: parent?.platform ?? (machine === 'native' ? 'native' : '') })

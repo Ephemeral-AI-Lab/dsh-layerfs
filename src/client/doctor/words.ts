@@ -15,8 +15,28 @@ export const DOT: Record<RowState, MarkKind> = { ok: 'ok', run: 'run', nc: 'nc',
 const WORD: Record<RowState, string> = { ok: 'dpWordOk', run: 'dpWordRun', nc: 'dpWordNc', notice: 'dpWordNotice', problem: 'dpWordProblem' }
 const RES: Record<CheckMark['r'], string> = { ok: 'dpResOk', bad: 'dpResBad', warn: 'dpResWarn', nc: 'dpResNc' }
 const FIX: Record<NonNullable<RowFix['button']>, string> = { start: 'dpFixStart', restart: 'dpFixRestart', delete: 'dpFixDelete', backup: 'dpFixBackup' }
-const STEP: Record<string, string> = { stop: 'dpStepStop', start: 'dpStepStart', delete: 'dpStepDelete', create: 'dpStepCreate' }
-const COULD = ['timeout', 'busy', 'lost']
+const STEP = new Map<string, string>([
+  ['stop', 'dpStepStop'],
+  ['start', 'dpStepStart'],
+  ['delete', 'dpStepDelete'],
+  ['create', 'dpStepCreate'],
+])
+const REASON_SHORT = new Map<string, string>([
+  ['timeout', 'dpShortTimeout'],
+  ['busy', 'dpShortBusy'],
+  ['lost', 'dpShortLost'],
+  ['failed', 'dpShortFailed'],
+  ['stopped', 'dpShortStopped'],
+  ['skipped', 'dpShortSkipped'],
+  ['unavailable', 'dpShortUnavailable'],
+  ['missing', 'dpShortMissing'],
+  ['unsupported', 'dpShortUnsupported'],
+  ['outdated', 'dpShortOutdated'],
+  ['corrupt', 'dpShortCorrupt'],
+  ['unreachable', 'dpShortUnreachable'],
+  ['unresolved', 'dpShortUnresolved'],
+  ['not_answering', 'dpShortNotAnswering'],
+])
 const cap = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
 export const clock = (at: number): string => { const d = new Date(at); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
@@ -30,11 +50,25 @@ export function wordsOf(t: DoctorT) {
   const tt = t as unknown as Loose
   const n = (key: string, count: number): string => (count === 1 ? tt(`${key}One`) : tt(key, { n: count }))
   const word = (st: RowState): string => tt(WORD[st])
+  /** Displayed & announced status word for a row (`Stopped` / `Partial` override raw `ok` / `nc`). */
+  const rowStatus = (v: RowView): string => {
+    const o = v.seen
+    if (o.stopped && (o.st === 'ok' || o.st === 'nc')) return tt('dpWordStopped')
+    if (o.st === 'nc' && o.why === 'partial') return tt('dpWordPartial')
+    return word(o.st)
+  }
   /** A finding's own word: the locale's for its check id, else the id's last part spelled out. */
-  const checkWord = (id: string): string => { const key = `chk_${id.replace(/[^A-Za-z0-9]/g, '_')}`; return key in locales.en ? tt(key) : humanCheck(id) }
-  const rowWord = (code: string | null): string => (!code ? '' : code === 'stopped' ? tt('dpWordStopped') : code === 'could' ? tt('dpWordCould')
-    : code.startsWith('check:') ? checkWord(code.slice(6)) : human(code.slice(code.indexOf(':') + 1)))
-  const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.name)
+  const checkWord = (id: string): string => { const key = `chk_${id.replace(/[^A-Za-z0-9]/g, '_')}`; return Object.hasOwn(locales.en, key) ? tt(key) : humanCheck(id) }
+  const rowWord = (code: string | null): string => {
+    if (!code) return ''
+    if (code === 'stopped') return tt('dpWordStopped')
+    if (code === 'could') return tt('dpWordCould')
+    if (code.startsWith('check:')) return checkWord(code.slice(6))
+    const raw = code.slice(code.indexOf(':') + 1)
+    const key = REASON_SHORT.get(raw.toLowerCase())
+    return key ? cap(tt(key)) : human(raw)
+  }
+  const nameOf = (x: Thing): string => (x.kind === 'home' ? tt('dpHomeName', { version: x.version ?? '' }).trim() : x.kind === 'machine' && x.name === 'native' ? tt('dpHomeMachine') : x.name)
   const platform = (p: string | null | undefined): string => (p === 'native' ? tt('dpThisComputer') : p ?? '')
   const engine = (e: string | null | undefined): string => (e === 'postgresql' ? 'PostgreSQL' : 'SQLite')
   const provider = (p: string | null | undefined): string => (p === 'r2' ? 'Cloudflare R2' : p === 'minio' ? 'MinIO' : p === 's3' ? 'S3' : p ?? '')
@@ -45,12 +79,14 @@ export function wordsOf(t: DoctorT) {
   const callFor = (x: Thing, full = false): string => (x.kind === 'workspace' ? doctorCommand({ kind: 'sandbox', name: x.sandbox ?? '' }) : doctorCommand(callOf(x, full)))
   const checkName = (c: CheckMark): string => (c.from ? tt('dpCheckFrom', { check: c.check, machine: c.from }) : c.check)
   const checkText = (c: CheckMark): string => {
-    const note = c.r === 'nc' ? (c.reason ? (COULD.includes(c.reason) ? tt(`dpShort${cap(c.reason)}`) : human(c.reason).toLowerCase()) : '') : c.message ?? ''
+    const code = c.reason?.toLowerCase() ?? ''
+    const short = REASON_SHORT.get(code)
+    const note = c.r === 'nc' ? (c.reason ? (short ? tt(short) : human(c.reason).toLowerCase()) : '') : c.message ?? ''
     return note ? tt('dpResNote', { result: tt(RES[c.r]), note }) : tt(RES[c.r])
   }
   const tipChecks = (checks: readonly CheckMark[]): TipCheck[] => checks.map((c) => ({ r: c.r, name: checkName(c), text: checkText(c) }))
   const fixLabel = (fix: RowFix | null): string => (fix?.button ? tt(FIX[fix.button]) : '')
-  const stepWord = (step: string | null | undefined): string => (step && STEP[step] ? tt(STEP[step]!) : '')
+  const stepWord = (step: string | null | undefined): string => { const key = step ? STEP.get(step) : undefined; return key ? tt(key) : '' }
   const offText = (off: Off | null): string | null => (!off ? null : off.why === 'all' ? tt('dpOffAll') : off.why === 'fix' ? tt('dpOffFix') : off.why === 'busy' ? tt('dpOffBusy')
     : off.n === 0 ? tt('dpOffForced') : n('dpOffSandboxes', off.n))
   const inside = (v: RowView): string => {
@@ -68,7 +104,7 @@ export function wordsOf(t: DoctorT) {
     const bits: string[] = []
     if (x.kind === 'home') bits.push(x.name)
     else if (x.kind === 'machine') {
-      bits.push(x.platform ?? '')
+      bits.push(platform(x.platform))
       if (x.cpus) bits.push(tt('dpFactCpu', { n: x.cpus }))
       if (x.memoryBytes) bits.push(tt('dpFactMemory', { n: Math.round(x.memoryBytes / 1024 ** 3) }))
       const stores = kids.filter((k) => k.kind === 'store').length, boxes = kids.filter((k) => k.kind === 'sandbox').length
@@ -113,7 +149,7 @@ export function wordsOf(t: DoctorT) {
       if (x.kind === 'bucket') lines.push(note?.fullAt ? tt('dpTipWriteTested', { time: clock(note.fullAt) }) : tt('dpTipWriteNever'))
       if (note?.stopped != null) lines.push(tt('dpTipFullStopped', { elapsed: mmss(note.stopped) }))
       // a machine stopped on purpose whose own checks pass
-      if (o.stopped) return { title: `${word('ok')} · ${tt('dpWordStopped')}`, lines: [...lines, tt('dpTipStoppedSelf')], cmds: fixCmds }
+      if (o.stopped) return { title: tt('dpTipStoppedStaticTitle'), lines: [...lines, tt('dpTipStoppedSelf')], cmds: fixCmds }
       return { title: word('ok'), lines }
     }
     if (o.st === 'notice' || o.st === 'problem') {
@@ -125,7 +161,7 @@ export function wordsOf(t: DoctorT) {
     if (o.why === 'waiting') return { title: nc, lines: [tt('dpTipWaiting', { name: o.by ? nameOf(o.by) : o.byName ?? '' })] }
     if (o.why === 'could') return { title: tt('dpWordCould'), lines: [tt(`dpReason${cap(o.reason ?? 'lost')}`), tt('dpTipAgain')], cmds: [callFor(x)] }
     if (o.why === 'parent') return { title: nc, lines: [tt('dpTipParent', { name: o.by ? nameOf(o.by) : '' })] }
-    if (o.why === 'partial') return { title: nc, lines: [tt('dpTipPartial')] }
+    if (o.why === 'partial') return { title: tt('dpWordPartial'), lines: [tt('dpTipPartial')] }
     if (o.why === 'working') return { title: nc, lines: [tt('dpTipWorking', { op: x.op?.name ?? '' })] }
     if (o.why === 'unknown') return { title: nc, lines: [tt('dpTipUnknown')] }
     return { title: nc, lines: [tt(x.kind === 'workspace' ? 'dpTipNeverWorkspace' : 'dpTipNever')] }
@@ -134,7 +170,8 @@ export function wordsOf(t: DoctorT) {
   /** What a screen reader gets for a row beside its name. */
   const said = (v: RowView, phase: string): string => {
     const waits = v.seen.st === 'nc' && v.seen.why === 'waiting' ? (v.seen.by ? nameOf(v.seen.by) : v.seen.byName) : null
-    return [kind(v.thing), word(v.seen.st), rowWord(v.word), phase, waits ? tt('dpWaitingOn', { name: waits }) : '', inside(v)].filter(Boolean).join(', ')
+    const stoppedNeutral = v.seen.stopped && (v.seen.st === 'ok' || v.seen.st === 'nc')
+    return [kind(v.thing), rowStatus(v), stoppedNeutral ? '' : rowWord(v.word), phase, waits ? tt('dpWaitingOn', { name: waits }) : '', inside(v)].filter(Boolean).join(', ')
   }
 
   const tabSaid = (tab: TabView): string[] => [
@@ -159,5 +196,5 @@ export function wordsOf(t: DoctorT) {
     }
   }
 
-  return { t: tt, n, word, rowWord, nameOf, kind, callFor, checkName, checkText, tipChecks, fixLabel, stepWord, offText, inside, fact, sigTip, said, tabSaid, toast }
+  return { t: tt, n, word, rowStatus, rowWord, nameOf, kind, callFor, checkName, checkText, tipChecks, fixLabel, stepWord, offText, inside, fact, sigTip, said, tabSaid, toast }
 }

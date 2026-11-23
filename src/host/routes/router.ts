@@ -160,7 +160,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   if (api === 'api' && group === 'doctor' && id) return g.checks.route(method, parts.slice(2), body)
   if (api !== 'api' || rest.length) return undefined
   // Stores, buckets and the moves, backups and restores this host started
-  if (group === 'storage' && !id && method === 'GET') return storage.view()
+  if (group === 'storage' && !id && method === 'GET') return storage.view(query.get('fresh') === '1')
   // lists the buckets' files again (backup.list, one call per bucket): { bucket? }, empty for all
   if (group === 'storage' && id === 'check' && !sub && method === 'POST') return storage.check(body ?? {})
   if (group === 'stores') {
@@ -251,7 +251,7 @@ export async function route(g: Groups, method: string, parts: string[], query: U
   // `id` is a project key, `<store>/<project>`, sent as one encoded segment
   if (group === 'projects') {
     if (!id) {
-      if (method === 'GET') return projects.list()
+      if (method === 'GET') return projects.list(query.get('fresh') === '1')
       if (method === 'POST') return projects.create(body)
       return undefined
     }

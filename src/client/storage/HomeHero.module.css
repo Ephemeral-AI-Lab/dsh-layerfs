@@ -1,189 +1,377 @@
-/* The Overview's one-row header and its sticky tab bar. DSH alias tokens only. */
+/* Overview open header, quiet status line, notices & semantic multi-color underline tabs (docs/design/DESIGN-overview.md) */
 
 .hero {
-  --accent: var(--dsw-alias-state-business-primary);
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 16px;
-  padding: 18px 20px;
-  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
-  border-radius: var(--dsw-radius-xl);
-  background: var(--dsw-alias-settings-card-fill);
-}
-
-.lockup {
-  /* Brand inks: LayerFS's rail blue (as its mark draws it) and DeepSeek's blue. */
-  --lfs-ink: color-mix(in oklab, #2F5BB5 82%, var(--dsw-alias-label-primary));
-  --dsh-ink: #4D6BFE;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 20px;
-  line-height: 28px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--dsw-alias-label-primary);
-  white-space: nowrap;
-}
-
-.word {
-  display: inline-flex;
-}
-
-.fs {
-  color: var(--lfs-ink);
-}
-
-.times {
-  margin: 0 4px;
-  font-weight: 400;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.fish {
-  display: inline-flex;
-  color: var(--dsh-ink);
-}
-
-/* The lockup over the pinned runtime. */
-.identity {
-  display: flex;
-  flex: none;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  gap: 6px;
+}
+
+.heroTop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.heading,
+.status,
+.tools,
+.actions,
+.toolbar,
+.tabList,
+.tabLabel {
+  display: flex;
+  align-items: center;
+}
+
+.heading,
+.status,
+.toolbar,
+.actions {
+  flex-wrap: wrap;
+}
+
+.heading {
+  align-items: center;
+  gap: 6px 10px;
   min-width: 0;
 }
 
-.name {
-  font-size: 15px;
-  line-height: 22px;
+.title {
+  margin: 0;
+  font-size: clamp(28px, 3vw, 34px);
+  line-height: 1.2;
   font-weight: 600;
-  color: var(--dsw-alias-label-primary);
+  letter-spacing: -0.03em;
+  color: var(--ov-ink-primary, var(--dsw-alias-label-primary));
 }
 
-/* The pinned runtime: version and commit; opens the runtime card. */
+/* Clean open status line with native semantic status dot colors. */
+.status {
+  gap: 6px 8px;
+  min-height: 24px;
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
+}
+
+.signalWrap {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.headline {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 65ch;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 400;
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
+  overflow-wrap: anywhere;
+}
+
+.status[data-alert] .headline {
+  font-weight: 500;
+  color: var(--ov-ink-primary, var(--dsw-alias-label-primary));
+}
+
+.tools,
+.actions {
+  gap: 6px;
+}
+
+.toolButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
+}
+
+.actionButton,
+.storeActions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.actionIconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+}
+
+/* Full-width bottom-ruled tab bar with brand accent active indicator & semantic status marks. */
+.toolbar {
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 8px 16px;
+  border-bottom: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
+  padding-bottom: 0;
+}
+
+.tabList {
+  gap: 20px;
+  min-width: 0;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -0.5px;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1)),
+    border-color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+@media (hover: hover) {
+  .tab:hover {
+    color: var(--ov-ink-primary, var(--dsw-alias-label-primary));
+  }
+}
+
+.tab[data-active] {
+  border-bottom-color: var(--ov-accent, var(--dsw-alias-state-business-primary));
+  color: var(--ov-ink-primary, var(--dsw-alias-label-primary));
+  font-weight: 600;
+}
+
+.tab:focus-visible {
+  border-radius: 4px 4px 0 0;
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--ov-accent));
+  outline-offset: -2px;
+}
+
+.tabLabel {
+  justify-content: center;
+  gap: 6px;
+}
+
+.count {
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+}
+
+.tab[data-active] .count:not([data-tone]) {
+  color: var(--ov-ink-secondary, var(--dsw-alias-label-secondary));
+}
+
+.count[data-tone='warning'] {
+  font-weight: 500;
+  color: var(--ov-warning, var(--dsw-alias-state-warn-primary));
+}
+
+.count[data-tone='danger'] {
+  font-weight: 500;
+  color: var(--ov-danger, var(--dsw-alias-state-error-primary));
+}
+
+.toolbar > .actions {
+  padding-bottom: 6px;
+}
+
+/* Quiet mono runtime metadata — clean without box clutter. */
 .runtime {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin: 0 -4px;
-  padding: 0 4px;
+  height: 24px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 4px;
-  background: none;
-  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  border-radius: var(--ov-radius-sm, 6px);
+  background: transparent;
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  color: var(--ov-ink-tertiary, var(--dsw-alias-label-tertiary));
+  white-space: nowrap;
   cursor: pointer;
+  transition: background-color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1)),
+    color 140ms var(--ov-ease, cubic-bezier(0.16, 1, 0.3, 1));
 }
 
 .runtime[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--ov-danger, var(--dsw-alias-state-error-primary));
 }
 
 @media (hover: hover) {
   .runtime:hover {
-    background: var(--dsw-alias-interactive-bg-hover);
-    color: var(--dsw-alias-label-secondary);
+    background: var(--ov-hover, var(--dsw-alias-interactive-bg-hover));
+    color: var(--ov-ink-primary, var(--dsw-alias-label-primary));
   }
 }
 
 .runtime:focus-visible {
-  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-link));
-  outline-offset: 1px;
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--ov-accent));
+  outline-offset: 2px;
 }
 
-.rule {
-  flex: none;
-  align-self: stretch;
-  width: 0.5px;
-  background: var(--dsw-alias-border-l2);
-}
-
-/* What needs you most: its dot, its name, its fix, and how many more. */
-.status {
-  display: flex;
-  flex: 1 1 260px;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-width: 0;
-}
-
-.signal {
+.statusActions {
   display: inline-flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
-.title {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary);
-  text-overflow: ellipsis;
+.statusActions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  line-height: 1;
   white-space: nowrap;
-}
-
-/* The headline names something that opens: it reads as the title, not as a link. */
-.title button {
-  color: inherit;
 }
 
 .acts {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
-.more {
-  flex: none;
-  padding: 0 2px;
-  border: 0;
-  background: none;
+.refusal {
+  display: flex;
+  flex: 0 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--ov-danger, var(--dsw-alias-state-error-primary)) 24%, transparent);
+  border-radius: var(--ov-radius-sm, 6px);
+  background: color-mix(in srgb, var(--ov-danger, var(--dsw-alias-state-error-primary)) 7%, transparent);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.notices {
+  list-style: none;
+  margin: 0;
+  padding: 0 14px;
+  border: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
+  border-radius: var(--ov-radius-lg, 8px);
+  background: var(--ov-surface, var(--dsw-alias-bg-layer-1));
+  box-shadow: var(--ov-shadow);
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 9px 0;
+}
+
+.notice + .notice {
+  border-top: 0.5px solid var(--ov-border, var(--dsw-alias-border-l2));
+}
+
+.noticeTitle {
+  flex: 1 1 16rem;
+  min-width: 0;
+  max-width: 65ch;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ov-ink-primary, var(--dsw-alias-label-primary));
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .tabList {
+    gap: 14px;
+  }
+
+  .statusActions {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .runtime {
+    transition: none;
+  }
+}
+
+.dockerNotice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
   font: inherit;
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  line-height: 18px;
+  cursor: pointer;
 }
-
-/* A refused fix: its own line under the headline. */
-.refusal {
-  flex: 0 0 100%;
-  font-size: 12px;
+.dockerNotice::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ov-warning);
 }
-
-.tools {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
+.dockerNotice::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border: solid var(--dsw-alias-label-secondary);
+  border-width: 0 1px 1px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
 }
-
-/* Health's findings count: amber for warnings, red when a finding refuses calls. */
-.toolCount {
-  min-width: 16px;
-  padding: 0 5px;
-  border-radius: 8px;
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 500;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 16%, transparent);
-  color: var(--dsw-alias-state-warn-primary);
+.dockerNotice[aria-expanded='true']::after { transform: rotate(225deg); }
+@media (hover: hover) {
+  .dockerNotice:hover { background: var(--dsw-alias-interactive-bg-hover); }
 }
-
-.toolCount[data-tone='danger'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 14%, transparent);
-  color: var(--dsw-alias-state-error-primary);
+.dockerDetail {
+  align-self: flex-start;
+  box-sizing: border-box;
+  max-width: min(100%, 64ch);
+  margin-top: 6px;
+  padding: 8px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
 }
+.dockerMachines { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; }
 
-/* the tabs: the shared tab bar (ui/TabBar.tsx) */
+.storeActions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

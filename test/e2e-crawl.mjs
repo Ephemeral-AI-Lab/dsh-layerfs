@@ -23,21 +23,25 @@
 // sessions.choose write, which a read-only crawl does not make).
 // Panels (for --only): resources, store, machine, sandbox, project, overview, health,
 // logs, settings, projects, hero, conversation.
+import { fileURLToPath } from 'node:url'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { openDev } from '../tools/e2e-lib.mjs'
+import { chromium } from 'playwright-core'
+import { CHROME } from '../tools/e2e-lib.mjs'
+import { devUrl, dismiss } from '../tools/ui.mjs'
 import { diff as lfsDiff, formatDiff, isWriteCall, snapshot } from '../tools/lfs-check.mjs'
 
 const argv = process.argv.slice(2)
 const opt = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback }
 const only = opt('--only') ? new Set(opt('--only').split(',')) : null
 const keepGoing = argv.includes('--keep-going')
+const noShots = argv.includes('--no-shots')
 const sizes = opt('--sizes', '1280x820,900x800').split(',')
 const schemes = opt('--schemes', 'light,dark').split(',')
-const devDir = process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname
+const devDir = process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url))
 const shots = join(devDir, 'shots')
 rmSync(shots, { recursive: true, force: true })
-mkdirSync(shots, { recursive: true })
+if (!noShots) mkdirSync(shots, { recursive: true })
 
 // ---------------------------------------------------------------- allow-lists
 /** 4xx host answers that are a page's normal state, by `METHOD path` pattern; each with its reason. */
@@ -66,7 +70,16 @@ const ALLOW_CONSOLE = [
 // ---------------------------------------------------------------- browser setup
 const [w0, h0] = sizes[0].split('x').map(Number)
 const before = await snapshot(devDir)
-const { browser, page, logs } = await openDev({ size: `${w0}x${h0}`, headless: !argv.includes('--headed') })
+const browser = await chromium.launch({ executablePath: CHROME, headless: !argv.includes('--headed'), args: ['--lang=en-US'] })
+const page = await browser.newPage({ viewport: { width: w0, height: h0 }, locale: 'en-US' })
+await page.addInitScript(() => { try { localStorage.setItem('dsh-layerfs:debug', '1') } catch {} })
+const logs = []
+page.on('console', (m) => { if (m.type() === 'error') logs.push(`[error] ${m.text()}`) })
+page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`))
+await page.goto(devUrl(), { waitUntil: 'networkidle' })
+await page.locator('[data-composer-input=true], [role=treeitem]').first().waitFor({ timeout: 30000 })
+await page.waitForTimeout(500)
+await dismiss(page)
 page.setDefaultTimeout(15000)
 await page.waitForFunction(() => window.__dshLayerfs, null, { timeout: 30000 })
 const cdp = await page.context().newCDPSession(page)
@@ -287,10 +300,10 @@ async function resources() {
   await bar().waitFor()
 }
 const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-/** A page with its own button on Home's head card: Health (its label may carry the findings count), Logs, Settings. */
+/** A top-bar tool page: Doctor (its label may carry the findings count), Logs, Settings. */
 async function centerPage(name) {
-  await home()
-  await page.getByRole('navigation', { name: 'Health, Logs and Settings' }).getByRole('button', { name: new RegExp(`^${name}\\b`) }).first().click()
+  await resources()
+  await bar().getByRole('button', { name: new RegExp(`^${name}\\b`) }).first().click()
   await sleep(400)
 }
 /** The Overview: the breadcrumb's Home crumb (absent when the Overview already shows). */
@@ -463,7 +476,7 @@ for (const project of projects) {
   view('project', `project ${project} actions menu`, async () => { await open(null); await openAndDismiss(btn(page, `${name} actions`), 'menu') })
 }
 
-view('health', 'Health', async () => { await centerPage('Health'); await page.getByRole('region', { name: 'Health' }).first().waitFor() })
+view('health', 'Doctor', async () => { await centerPage('Doctor'); await page.getByRole('region', { name: 'Doctor' }).first().waitFor() })
 view('logs', 'Logs', async () => {
   await centerPage('Logs'); await page.getByRole('heading', { name: 'Logs', level: 1 }).waitFor()
   // Content check: with "Writes only" the table lists no read call (tools/lfs-check.mjs isWriteCall).
@@ -604,7 +617,7 @@ outer: for (const size of sizes) {
         report('fail', 'crawler', `${v.panel}|${v.name}|${String(e.message).split('\n')[0].slice(0, 120)}`, `could not reach ${v.name}: ${String(e.message).split('\n')[0]}`)
       }
       await quiesce()
-      await page.screenshot({ path: currentShot }).catch(() => {})
+      if (!noShots) await page.screenshot({ path: currentShot }).catch(() => {})
       await checkView(mark).catch((e) => report('fail', 'crawler', `check|${e.message}`, `checks failed on ${v.name}: ${e.message}`))
       await escapeAll().catch(() => {})
       process.stdout.write(failuresIn(currentView) ? 'F' : '.')

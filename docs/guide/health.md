@@ -1,6 +1,12 @@
 # Doctor
 
-> **Where:** `LayerFS › Doctor` · **Opens from:** the Doctor button (shield icon) on Home's [head card](components.md#head-card); **Diagnose** on a machine, Store or Sandbox page · **Source:** see the end
+> **Where:** `LayerFS › Doctor` · **Opens from:** the Doctor button (shield icon) in the [Center nav bar](components.md#nav-bar); **Diagnose** on a machine, Store or Sandbox page · **Source:** see the end
+
+The detail views below the current entry point come from the earlier demo setup.
+
+![1 Doctor, 2 Logs and 3 Settings (isolated fixture data)](img/home-navigation.png)
+
+*Isolated fixture data.*
 
 The Doctor page shows the whole LayerFS home as one tree (this install, its machines, Stores,
 projects, Sandboxes and backup buckets) and what LayerFS's doctors last said about each. Come
@@ -16,20 +22,19 @@ Opening the page runs no doctor: every row reads **Not checked** until you press
 | 2 | **Check all** | Runs every doctor once, side by side |
 | 3 | This install | **LayerFS *version***: the home row (install, home folder, free disk) |
 | 4 | Kind tabs | **Machines** · **Stores** · **Projects** · **Sandboxes** · **Backups**, each with a count and a dot for its worst row |
-| 5 | A row | Name, status word, facts, then what is on it when opened |
+| 5 | A row | Name, status word, facts, then what is on it when opened. The status word carries no dot of its own |
 | 6 | Check marks | One dot per check the last doctor made: green passed, amber notice, red failed, grey not checked |
 | 7 | **Check** | Runs this row's doctor |
-| 8 | Source line | **Read from records: `layerfs home get --with tree`. Opening this page runs no doctor.** |
+| 8 | **Refresh** | In the page head, left of **Check all**: reads the tree again (the nav bar's Refresh is not shown on this page) |
 
-Above the page is the [nav bar](components.md#nav-bar): `Home › Doctor`. Its refresh button
-reads the tree again.
+Above the page is the [nav bar](components.md#nav-bar): `Home › Doctor`.
 
 ## Layout
 
-The headline and **Check all**, the home row, the kind tabs, the tab's rows, the source line.
-A row opens (chevron, or click its name) to its details and the things directly on it, so a
-Store is found both under its machine and on the Stores tab. Results of earlier checks are
-kept by the host, so the page shows them when it opens or reconnects.
+The headline and **Check all** with the page's **Refresh**, the home row, the kind tabs, the
+tab's rows. A row opens (chevron, or click its name) to its details and the things directly
+on it, so a Store is found both under its machine and on the Stores tab. Results of earlier
+checks are kept by the host, so the page shows them when it opens or reconnects.
 
 ## Body
 

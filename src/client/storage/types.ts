@@ -98,7 +98,7 @@ export interface PgOwnConnection {
 /** GET /api/stores/:s/check?machine=: what `machine` found (store doctor --machine: its store.connection check). Nothing keeps it. */
 export type PgCheck =
   | { machine: string, host: string | null, ok: true, at: number, version: string | null, latencyMs: number | null }
-  | { machine: string, host: string | null, ok: false, error: { code: string, message: string } }
+  | { machine: string, host: string | null, ok: false, error: { code: string, message: string, fix?: string, step?: string } }
 
 /** GET /api/store-auths: one saved PostgreSQL login (never its password); a file LayerFS cannot read is `broken` with its fix. */
 export interface PgAuth { auth: string, user: string | null, stores: string[], state?: string, reason?: string, fix?: string, created?: number | null, updated?: number | null }
@@ -176,6 +176,8 @@ export interface StorageView {
   /** The saved PostgreSQL logins, with those no Store names (absent from an older host). */
   auths?: PgAuth[]
   buckets: BucketRow[]
+  /** Whether the home tree read succeeded and includes unlinked buckets. */
+  bucketInventoryComplete?: boolean
   jobs: StorageJob[]
   /** Whether the selected LayerFS runtime has store.compact; absent from an older host. */
   compact?: boolean

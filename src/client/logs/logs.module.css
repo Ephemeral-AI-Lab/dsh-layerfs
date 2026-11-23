@@ -353,10 +353,10 @@ div.detailModal {
 .detailBody {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--lfs-section-gap);
   min-height: 0;
   overflow: auto;
-  padding: 20px 24px 24px;
+  padding: var(--lfs-section-gap) 24px;
 }
 
 .detailSection {

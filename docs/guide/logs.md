@@ -1,6 +1,12 @@
 # Logs
 
-> **Where:** `LayerFS › Logs` · **Opens from:** the Logs button (list icon) on Home's [head card](components.md#head-card); a call detail's **Calls of this session** / **Calls of this checkpoint** reopens it filtered · **Source:** see the end
+> **Where:** `LayerFS › Logs` · **Opens from:** the Logs button (list icon) in the [Center nav bar](components.md#nav-bar); a call detail's **Calls of this session** / **Calls of this checkpoint** reopens it filtered · **Source:** see the end
+
+The detail views below the current entry point come from the earlier demo setup.
+
+![1 Doctor, 2 Logs and 3 Settings (isolated fixture data)](img/home-navigation.png)
+
+*Isolated fixture data.*
 
 Logs lists every LayerFS call made on this LayerFS home, newest first: one row per call,
 with the exact CLI command, its outcome, what it saved and, for calls DSH made, the session,

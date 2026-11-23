@@ -34,7 +34,7 @@ test('calls on one Store never overlap; other Stores run alongside', { timeout: 
   const home = join(directory, 'home'), log = join(directory, 'spans.ndjson'), binary = join(directory, 'fake-cli.mjs')
   mkdirSync(home); writeFileSync(join(home, 'layerfs.json'), '{}')
   // Each call records its span; it sleeps so overlaps would show.
-  writeFileSync(binary, `#!${process.execPath}
+  writeFileSync(binary, `#!/usr/bin/env node
 import fs from 'node:fs'; const argv = process.argv.slice(2)
 const start = Date.now(); const until = start + 60; while (Date.now() < until) {}
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv, start, end: Date.now() }) + '\\n')

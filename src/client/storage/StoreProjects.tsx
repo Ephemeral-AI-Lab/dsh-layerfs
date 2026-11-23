@@ -6,11 +6,12 @@
  * opens to its sessions or Sandboxes, and its name opens the project page.
  */
 import { useState, type ReactNode } from 'react'
-import { Button, IconPlusOutlineRegular, IconSearchOutlineRegular, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconPlusOutlineRegular, IconSearchOutlineRegular, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import { bytes } from '../files/format.ts'
 import type { AvailableView, MachineSandbox } from '../machines/model.ts'
 import { sandboxRuns } from '../machines/stats.ts'
 import type { LayerfsApi } from '../api.ts'
+import { ExplainedButton } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
 import type { TabId } from './tabs.ts'
 import type { StoreRow } from './types.ts'
@@ -34,12 +35,13 @@ export interface StoreProjectsProps {
   now: number
   tick: number
   canAdd: boolean
+  addDisabledReason?: string | null | undefined
   onAdd: () => void
   /** Open a page by its id (the project, a Sandbox). */
   onOpen: (id: TabId) => void
 }
 
-export function StoreProjects({ api, store, names, projects, stored, stores, fleet, t, now, tick, canAdd, onAdd, onOpen }: StoreProjectsProps): ReactNode {
+export function StoreProjects({ api, store, names, projects, stored, stores, fleet, t, now, tick, canAdd, addDisabledReason, onAdd, onOpen }: StoreProjectsProps): ReactNode {
   const [query, setQuery] = useState('')
   const [order, setOrder] = useState<ProjectOrder>('session')
   // Until the host answers, a row per name with no figures.
@@ -70,7 +72,7 @@ export function StoreProjects({ api, store, names, projects, stored, stores, fle
           <Input className={css.search} icon={<IconSearchOutlineRegular size={13} />} placeholder={t('searchProjects')} aria-label={t('searchProjects')}
             value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.preventDefault(); setQuery('') } }} />
         ) : null}
-        <Button variant="primary" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canAdd} onClick={onAdd}>{t('addProject')}</Button>
+        <ExplainedButton variant="primary" size="sm" icon={<IconPlusOutlineRegular size={12} />} disabled={!canAdd || !!addDisabledReason} disabledReason={addDisabledReason ?? undefined} onClick={onAdd}>{t('addProject')}</ExplainedButton>
       </div>
       {shown.length ? (
         <ProjectGrid api={api} t={t} now={now} label={t('tabProjects')} showStore={false} order={order} onOrder={setOrder} fleet={fleet} place={place} tick={tick} onOpen={onOpen}

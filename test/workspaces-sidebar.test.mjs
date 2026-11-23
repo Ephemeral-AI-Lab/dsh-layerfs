@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 import { defaultStoreName, locationsOf, preferredStore, slugify } from '../src/client/picker/location.ts'
 import { sidebarProjects } from '../src/client/projects/recent.ts'
 
@@ -62,4 +63,12 @@ test('sidebar projects: projects with sessions, newest first, hidden ones out', 
   assert.equal(sidebarProjects(recent, catalog, {}, new Set(['s1'])).find((r) => r.row.key === 's1/gone').row.catalogState, undefined)
   // An unread catalog marks nothing removed.
   assert.equal(sidebarProjects(recent, null, {}).find((r) => r.row.key === 's1/gone').row.catalogState, undefined)
+})
+
+// DSH owns these nodes. Catch accidental reintroduction of either DOM workaround.
+test('the Workspaces switch and Center launcher stay inside public extension points', () => {
+  for (const path of ['projects/WorkspacesView.tsx', 'projects/workspaces.module.css', 'storage/index.tsx']) {
+    const source = readFileSync(new URL(`../src/client/${path}`, import.meta.url), 'utf8')
+    assert.doesNotMatch(source, /createPortal|MutationObserver|document\.(?:querySelector|addEventListener)|:global\(\[class\*=/, path)
+  }
 })

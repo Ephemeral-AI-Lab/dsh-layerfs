@@ -13,7 +13,8 @@ import type { Translate } from '../files/types.ts'
 import { useQuery } from '../ui/use-query.ts'
 import { Card, Fact, Facts, refusalOf } from '../ui/index.tsx'
 import type { StorageT } from './locale.ts'
-import { backupStateOf, latestBackup, storeStateWords } from './model.ts'
+import { backupChip, backupStateOf, latestBackup, overviewMachineHealth, storeStateWords, type BackupState } from './model.ts'
+import { overviewBackupHealth } from './store-backups.ts'
 import { commitTotal, commitTotalWords, compressionOf, fileParts, growthRuns, projectShares, type ObservationJournal, type StoreProject, type StoreStats } from './store-page.ts'
 import type { StorageView, StoreRow } from './types.ts'
 import css from './StorePage.module.css'
@@ -47,7 +48,7 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
 
   return (
     <div className={css.stack}>
-      <dl className={css.tiles} aria-label={t('storeFacts')}>
+      <div className={css.tiles} role="group" aria-label={t('storeFacts')}>
         {pg ? (
           <Tile label={t('spServer')} value={s.state === 'ready' ? t('spReachable') : s.state === 'broken' ? t('spUnreachable') : t('unknown')}
             tone={s.state === 'broken' ? 'danger' : undefined} sub={s.state === 'broken' ? storeStateWords(s.state, t, s.reason) : undefined} title={s.fix ?? undefined} />
@@ -62,9 +63,9 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
             sub={(s.connectedFrom ?? []).map((c) => (c.machine === null ? t('pgThisComputer') : c.machine)).join(', ') || undefined} />
         ) : (
           <Tile label={t('factLastBackup')} value={latest !== null ? ago(latest, now, tt) : t('noBackup')} title={latest !== null ? when(latest) : undefined}
-            onOpen={() => onTab('backups')} tone={latest === null ? 'warning' : undefined} sub={s.links[0] ? s.links[0].bucket : undefined} />
+            onOpen={() => onTab('backups')} tone={latest === null ? 'muted' : undefined} sub={s.links[0] ? s.links[0].bucket : undefined} />
         )}
-      </dl>
+      </div>
 
       <FileCard stats={stats} error={stats ? undefined : statsError} pg={pg} t={t} />
       {/* The host journals a read only when store.stats names the Store's identity
@@ -99,17 +100,17 @@ export function StoreOverview({ store: s, view, t, api, now, stats, statsError, 
   )
 }
 
-function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value: string, sub?: string | undefined, onOpen?: () => void, tone?: 'warning' | 'danger' | undefined, title?: string | undefined }): ReactNode {
+function Tile({ label, value, sub, onOpen, tone, title }: { label: string, value: string, sub?: string | undefined, onOpen?: () => void, tone?: 'muted' | 'warning' | 'danger' | undefined, title?: string | undefined }): ReactNode {
   const body = (
-    <>
-      <dt>{label}</dt>
-      <dd className={css.tileValue} data-tone={tone} title={title}>{value}</dd>
-      {sub ? <dd className={css.tileSub}>{sub}</dd> : null}
-    </>
+    <span className={css.tileInner}>
+      <span className={css.tileLabel}>{label}</span>
+      <span className={css.tileValue} data-tone={tone} title={title}>{value}</span>
+      {sub ? <span className={css.tileSub}>{sub}</span> : null}
+    </span>
   )
   return onOpen
-    ? <div className={css.tile}><button type="button" className={css.tileButton} onClick={onOpen}><dl className={css.tileInner}>{body}</dl></button></div>
-    : <div className={css.tile}><dl className={css.tileInner}>{body}</dl></div>
+    ? <div className={css.tile}><button type="button" className={css.tileButton} onClick={onOpen}>{body}</button></div>
+    : <div className={css.tile}>{body}</div>
 }
 
 /** The database file's pages by part, and unique content over its packed bytes. */
@@ -189,12 +190,7 @@ function GrowthCard({ journal, t, now }: { journal: ObservationJournal | undefin
   )
 }
 
-/**
- * Each project's packed bytes from its own Commits as a block sized by its
- * share of the Store's stored content. What no Commit counted (project Init
- * imports, and anything before the counters) is one neutral block, so the
- * blocks add up to the Store and a project is never shown as all of it.
- */
+/** Include bytes from before commit accounting so the shares add up to the stored content. */
 function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[] | undefined, stats: StoreStats | undefined, t: StorageT }): ReactNode {
   const shares = projects ? projectShares(projects) : []
   const counted = shares.reduce((a, p) => a + p.bytes, 0)
@@ -206,20 +202,20 @@ function WhoWroteCard({ projects, stats, t }: { projects: readonly StoreProject[
     <Card className={css.panel} data-store-shares>
       <header className={css.panelHead}><h2 className={css.panelTitle}>{t('spSharesTitle')}</h2></header>
       {whole > 0 ? (
-        <div className={css.shares}>
+        <ul className={css.shares}>
           {shares.map((p) => (
-            <div key={p.name} className={css.shareBlock} data-hue={p.hue} style={{ flexGrow: p.bytes }} title={`${p.name} ${bytes(p.bytes)}`}>
+            <li key={p.name} className={css.shareBlock} title={`${p.name} ${bytes(p.bytes)}`}>
               <span className={css.shareName}>{p.name}</span>
               <span className={css.shareValue}>{bytes(p.bytes)} · {Math.round(p.bytes / whole * 100)}%</span>
-            </div>
+            </li>
           ))}
           {rest > 0 ? (
-            <div className={css.shareBlock} data-hue="rest" style={{ flexGrow: rest }} title={`${t('spSharesRest')} ${bytes(rest)}`}>
+            <li className={css.shareBlock} title={`${t('spSharesRest')} ${bytes(rest)}`}>
               <span className={css.shareName}>{t('spSharesRest')}</span>
               <span className={css.shareValue}>{bytes(rest)} · {Math.round(rest / whole * 100)}%</span>
-            </div>
+            </li>
           ) : null}
-        </div>
+        </ul>
       ) : <p className={css.muted}>{!projects ? t('spReading') : refused ? t('spNotRead', { message: refused }) : t('spSharesNone')}</p>}
     </Card>
   )
@@ -236,12 +232,19 @@ function HealthCard({ store: s, view, t, now, stats, machineState }: { store: St
     rows.push({ key: 'backups', tone: 'info', label: t('backupsSection'), text: t('spPgBackups') })
   } else {
     const place = s.machine === 'native' ? t('layerfsHome') : (s.machine ?? '?')
-    rows.push({ key: 'machine', tone: machineState === 'stopped' ? 'danger' : machineState === 'ready' ? 'ok' : 'info', label: t('spMachine'), text: t(machineState === 'stopped' ? 'spMachineStopped' : 'spMachineRunning', { machine: place }) })
+    const mh = overviewMachineHealth(s, machineState)
+    rows.push({ key: 'machine', tone: mh.tone, label: t('spMachine'), text: t(mh.key, { machine: place }) })
     const latest = latestBackup(s)
-    const states = s.links.map((link) => backupStateOf(view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name))).filter(Boolean)
-    const behind = states.some((x) => x === 'store_changed' || x === 'both_changed')
-    rows.push({ key: 'backup', tone: latest === null ? 'warning' : behind ? 'warning' : 'ok', label: t('backupsSection'),
-      text: latest === null ? t('noBackup') : behind ? t('spBackupBehind', { ago: ago(latest, now, tt) }) : t('spBackupOk', { ago: ago(latest, now, tt) }) })
+    const states = s.links
+      .map((link) => backupStateOf(view.buckets.find((b) => b.name === link.bucket)?.files?.find((f) => f.file === link.file && f.store === s.name)))
+      .filter((x): x is BackupState => x !== null)
+    const bh = overviewBackupHealth(states, latest)
+    const backupText = bh.kind === 'problem' ? backupChip(bh.state, t).label
+      : bh.kind === 'none' ? t('noBackup')
+      : bh.kind === 'store_changed' ? t('spBackupBehind', { ago: ago(latest!, now, tt) })
+      : bh.kind === 'bucket_changed' ? backupChip('bucket_changed', t).label
+      : t('spBackupOk', { ago: ago(latest!, now, tt) })
+    rows.push({ key: 'backup', tone: bh.tone, label: t('backupsSection'), text: backupText })
     if (stats?.reusable_bytes != null && stats.file_bytes) rows.push({ key: 'free', tone: 'ok', label: t('spPartFree'), text: t('spFreeText', { free: bytes(stats.reusable_bytes), n: String(Math.round(stats.reusable_bytes / stats.file_bytes * 100)) }) })
   }
   return (

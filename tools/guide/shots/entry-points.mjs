@@ -1,9 +1,7 @@
 // Shots for docs/guide/entry-points.md: every place LayerFS shows outside Center (sidebar row, Workspaces
 // switch, New Session project control, session-row mark, project dialog, Set up LayerFS).
-// Read only: menus and dialogs are opened, shot and closed with Escape; nothing is chosen, created or started.
-// One page serves every shot in a run, so shots run in this order and each sets the view it needs.
-const SESSION = 'session-ef98eca3-a037-47dd-801a-4eb84d21d36b'
-
+// The two project-session views use the seeded handbook project in the private guide profile.
+// Choosing it on a blank draft creates a real placement without sending a message.
 const panels = (p) => p.getByRole('navigation', { name: 'Global panels' })
 const sw = (p) => p.locator('[data-layerfs-view-switch]').first()
 const lfsView = (p) => p.locator('[data-layerfs-workspaces-view]').first()
@@ -13,16 +11,26 @@ const dialog = (p) => p.getByRole('dialog').last()
 /** The sidebar's Workspaces list in LayerFS view (true) or DSH view (false). */
 async function view(page, h, layerfs) {
   await h.dismiss()
-  // Center folds the sidebar to a rail; a DSH conversation brings it back wide.
-  if (!(await sw(page).isVisible().catch(() => false))) { await h.session(SESSION); await h.wait(1500) }
+  if (!(await sw(page).isVisible())) await page.getByRole('button', { name: 'LayerFS Projects', exact: true }).click()
   const isLfs = (await sw(page).getAttribute('aria-label')) === 'Show DSH workspaces'
   if (isLfs !== layerfs) { await sw(page).click(); await h.wait(2500) }
+}
+
+async function handbookDraft(page, h) {
+  await view(page, h, false)
+  if (!(await chip(page).isVisible())) await page.getByRole('button', { name: 'New session', exact: true }).first().click()
+  if (await chip(page).getAttribute('aria-label') !== 'LayerFS project: handbook') {
+    await chip(page).click()
+    await page.getByRole('menuitem', { name: /^handbook / }).click()
+  }
+  await page.getByRole('button', { name: 'LayerFS project: handbook' }).waitFor()
+  await page.getByRole('button', { name: /^Scratch folder:/ }).waitFor()
 }
 
 /** The LayerFS view's + menu, then one of its items. */
 async function newMenu(page, h, item) {
   await view(page, h, true)
-  await page.locator('[data-layerfs-new-menu]').first().click(); await h.wait(500)
+  await page.getByRole('button', { name: 'New session or project' }).click(); await h.wait(500)
   if (item) { await page.getByRole('menuitem', { name: item }).click(); await h.wait(2500) }
 }
 
@@ -35,10 +43,10 @@ async function maskHome(page) {
   })
 }
 
-/** Settings on Home's head card opens Set up LayerFS. */
+/** Settings on Center's navigation bar opens Set up LayerFS. */
 async function setup(page, h) {
   await h.home()
-  await page.locator('nav[class*=tools]').getByRole('button', { name: 'Settings' }).click()
+  await page.locator('header[aria-label="Home navigation"]').getByRole('button', { name: 'Settings' }).click()
   await dialog(page).getByText('Machines').first().waitFor({ timeout: 20000 })
   await h.wait(2500)
 }
@@ -66,22 +74,18 @@ export default [
     callouts: [(p) => p.getByRole('menu').first()],
   },
   {
-    // A project session in DSH view: its row is marked and so left out of DSH's Workspaces list
-    // (it is listed under its project in LayerFS view), and the conversation runs the LayerFS agent preset.
     file: 'entry-project-session',
-    run: async (page, h) => {
-      await h.dismiss(); await h.session(SESSION)
-      if ((await sw(page).getAttribute('aria-label')) === 'Show DSH workspaces') { await sw(page).click(); await h.wait(2500) }
-      await page.locator('[title^="LayerFS project sessions"]').first().waitFor({ timeout: 15000 }); await h.wait(1000)
-    },
+    run: handbookDraft,
     callouts: [
-      (p) => p.getByRole('treeitem').filter({ hasText: /^Ungrouped/ }),
-      (p) => p.locator('[title^="LayerFS project sessions"]'),
+      (p) => p.getByRole('button', { name: /^Scratch folder:/ }),
+      (p) => chip(p),
+      (p) => p.getByRole('button', { name: 'LayerFS', exact: true }).last(),
     ],
   },
   {
     file: 'entry-layerfs-view',
     run: async (page, h) => {
+      await handbookDraft(page, h)
       await view(page, h, true)
       const toggle = lfsView(page).getByRole('button', { name: 'Toggle conversations in handbook' })
       if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
@@ -94,7 +98,7 @@ export default [
       (p) => lfsView(p).getByRole('button', { name: 'Toggle conversations in handbook' }),
       (p) => lfsView(p).getByRole('button', { name: 'Set up handbook' }),
       (p) => lfsView(p).getByRole('button', { name: 'New session in handbook' }),
-      (p) => lfsView(p).getByRole('button', { name: 'Fake session' }),
+      (p) => lfsView(p).getByRole('button', { name: 'New session', exact: true }),
     ],
   },
   {

@@ -22,7 +22,7 @@
 import { useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconChevronRightOutlineRegular, IconPlusOutlineRegular, IconTrashOutlineRegular, MenuItemButton, StateDot,
+  IconChevronRightOutlineRegular, IconPlusOutlineRegular, IconTrashOutlineRegular, MenuItemButton,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ago, bytes, when } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
@@ -258,11 +258,10 @@ export function useSessionOrder(scope: string, keys: readonly string[], sessions
 }
 
 /** Home › Projects: every Store's projects in the finder's order (project-list.ts: search, then Default / Size / Name). */
-export function ProjectTable({ api, tick, query, sort, frozen, onClearSearch, stores, view, fleet, t, now, jobs, place, onOpen, onRemove, onRestart }: {
+export function ProjectTable({ api, tick, query, sort, frozen, stores, view, fleet, t, now, jobs, place, onOpen, onRemove, onRestart }: {
   api: LayerfsApi
   /** The search and sort above the table (project-list.ts); `frozen` is the Size order. */
   query: string, sort: ProjectSort, frozen: readonly string[] | null
-  onClearSearch: () => void
   /** Bumped by the Overview's refresh: each row reads again. */
   tick: number
   stores: readonly StoreRow[], view: StorageView, fleet: AvailableView | null, t: StorageT, now: number
@@ -286,7 +285,6 @@ export function ProjectTable({ api, tick, query, sort, frozen, onClearSearch, st
     return (
       <div className={css.noMatch} role="status">
         <span>{t('ovNoMatch', { query: query.trim() })}</span>
-        <Button variant="outline" size="sm" onClick={onClearSearch}>{t('ovClearSearch')}</Button>
       </div>
     )
   }
@@ -320,6 +318,8 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
   const { key, p, store, boxes, trouble, job, share } = r
   const tt = t as Translate
   const routed = useProjectSize(api, key, r.sizeRoute?.alone ?? false, tick, !!r.sizeRoute)
+  const [sessionError, setSessionError] = useState<string | null>(null)
+  const blockedSession = sessionsUnavailable(store) ? t('ovSessionBlocked') : undefined
   const local = r.sessions
   const lastSession = lastSessionOf(local)
   const active = local?.filter((x) => x.executionState === 'active').length ?? 0
@@ -338,19 +338,21 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
   return (
     <div className={css.group} data-project={key} data-project-card={p.name} data-open={open || undefined} role="rowgroup" aria-label={p.name}>
       <div className={css.row} role="row" onClick={(e) => { if (!fromControl(e)) toggle() }}>
-        <button type="button" className={css.toggle} aria-expanded={!!open} aria-controls={detailId}
-          aria-label={t(open ? 'ptCollapse' : 'ptExpand', { name: p.name })} title={t(open ? 'ptCollapse' : 'ptExpand', { name: p.name })} onClick={toggle}>
-          <IconChevronRightOutlineRegular size={12} />
-        </button>
+        <span role="cell" className={css.toggleCell}>
+          <button type="button" className={css.toggle} aria-expanded={!!open} aria-controls={detailId}
+            aria-label={t(open ? 'ptCollapse' : 'ptExpand', { name: p.name })} title={t(open ? 'ptCollapse' : 'ptExpand', { name: p.name })} onClick={toggle}>
+            <IconChevronRightOutlineRegular size={12} />
+          </button>
+        </span>
         <span className={css.identity} role="cell">
           <span className={css.mark} aria-hidden="true"><LayerfsGlyph size={20} /></span>
           <span className={css.main}>
             <span className={css.nameLine}>
               <button type="button" className={css.name} onClick={openProject} title={t('ptOpenProject', { name: p.name })}>{p.name}</button>
-              {running ? <span className={css.runningPill}><i aria-hidden="true" />{t('spRunningN', { n: String(running) })}</span> : null}
+              {running ? <span className={css.runningPill}>{t('spRunningN', { n: String(running) })}</span> : null}
               {trouble ? (
                 <span data-signal>
-                  <Signal state={trouble.state} title={trouble.reason} detail={trouble.detail}
+                  <Signal dot state={trouble.state} title={trouble.reason} detail={trouble.detail}
                     action={troubleAction(trouble, t, onRestart)} />
                 </span>
               ) : null}
@@ -362,7 +364,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
                   {line.branch ? <code className={css.branch}>{line.branch}</code> : null}
                 </>
               ) : (
-                p.totals ? <span className={css.ellipsis}>{t('spNoCommits')}</span>
+                p.totals ? null
                   : counting ? <span className={css.ellipsis}>{t('spCounting', { n: String(p.building!.saves) })}</span>
                   : p.error ? <HistoryUnread error={p.error} t={t} />
                   : <span className={css.ellipsis}>{t('spReading')}</span>
@@ -384,7 +386,6 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
               <button type="button" className={css.cellLink} onClick={() => onSetOpen('sessions')}
                 title={active > 0 ? t('ptSessionsActive', { n: local.length, active }) : undefined}>
                 <span>{String(local.length)}</span>
-                {active > 0 ? <StateDot state="done" size={6} /> : null}
               </button>
             )}
         </span>
@@ -416,7 +417,10 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
             {(close) => (
               <>
                 <MenuItemButton icon={<IconChevronRightOutlineRegular size={14} />} onSelect={() => { close(); openProject() }}>{t('ovOpen')}</MenuItemButton>
-                {sessionsUnavailable(store) ? null : <MenuItemButton icon={<IconPlusOutlineRegular size={14} />} onSelect={() => { close(); void api.openProjectSession(key).catch(() => {}) }}>{t('ptNewSession')}</MenuItemButton>}
+                <MenuItemButton disabled={!!blockedSession} disabledReason={blockedSession} icon={<IconPlusOutlineRegular size={14} />} onSelect={() => {
+                  close(); setSessionError(null)
+                  void api.openProjectSession(key).catch((e: unknown) => setSessionError(String((e as Error)?.message ?? e)))
+                }}>{t('ptNewSession')}</MenuItemButton>
                 {onRemove ? (
                   <MenuItemButton separatorBefore danger icon={<IconTrashOutlineRegular size={14} />} onSelect={() => { close(); onRemove(store.name, p.name) }}>
                     {t('removeProject')}
@@ -427,6 +431,7 @@ function ProjectRow({ api, r, t, now, tick, showStore, fleet, place, open, lastL
           </MoreMenu>
         </span>
       </div>
+      {sessionError && <p role="alert" className={css.error}>{sessionError}</p>}
       {job ? <div className={css.job}><JobLine job={job} t={t} label={`${store.name} · ${doingWords(job, t)}`} /></div> : null}
       {open && (
         <div className={css.detail} id={detailId}>
@@ -459,7 +464,6 @@ function HistoryUnread({ error, t }: { error: { code: string, message: string, f
           detail={<>{error.message}{line && !fix ? <><br /><code>{fixes ? fixes.tip(line) : line}</code></> : null}</>}
           action={fix && fixes && line ? <FixAction line={line} fix={fix} runner={fixes} labels={refusalLabels(t)} /> : undefined} />
       </span>
-      <span className={css.ellipsis}>{word}</span>
     </span>
   )
 }
@@ -482,7 +486,7 @@ function useProjectSize(api: LayerfsApi, key: string, alone: boolean, tick: numb
 function ListHead({ title, count, other, onSwitch, action }: { title: string, count: number | null, other: string, onSwitch: () => void, action?: ReactNode }): ReactNode {
   return (
     <div className={css.listHead}>
-      <h3 className={css.listTitle}>{title}</h3>
+      <h2 className={css.listTitle}>{title}</h2>
       {count != null ? <span className={css.muted}>{count}</span> : null}
       <span className={css.spacer} />
       <button type="button" className={css.add} onClick={onSwitch} data-list-switch>
@@ -524,7 +528,7 @@ function SessionList({ api, project, t, other, onSwitch, down }: { api: LayerfsA
   return (
     <>
       <ListHead title={t('ptSessions')} count={sessions.length || (loading ? null : 0)} other={t('ptShowSandboxes', { n: other })} onSwitch={onSwitch}
-        action={down ? undefined : <button type="button" className={css.add} onClick={create}><IconPlusOutlineRegular size={11} />{t('ptNewSession')}</button>} />
+        action={<button type="button" disabled={down} title={down ? t('ovSessionBlocked') : undefined} className={css.add} onClick={create}><IconPlusOutlineRegular size={11} />{t('ptNewSession')}</button>} />
       {failed ? <p className={css.error} role="alert">{failed}</p> : null}
       {sessions.length === 0
         ? <p className={css.empty}>{loading ? t('ptReadingSessions') : error ? t('ptSessionsUnread') : t('ptNoSessions')}</p>
@@ -535,13 +539,13 @@ function SessionList({ api, project, t, other, onSwitch, down }: { api: LayerfsA
               return (
                 <li key={x.sessionId}>
                   <button type="button" className={clsx(css.line, css.sessionLine)} disabled={down} onClick={() => openSession(x.sessionId)} data-session={x.sessionId}
-                    title={x.error ?? x.title ?? x.sessionId}>
+                    title={down ? t('ovSessionBlocked') : x.error ?? x.title ?? x.sessionId}>
                     <span className={css.lineIcon} aria-hidden="true">{x.local ? <ChatGlyph /> : <CloudGlyph />}</span>
                     <span className={clsx(css.ellipsis, (!x.local || !x.title) && css.dim)}>
                       {x.title || t('ptUntitled')}{x.title ? null : <span className={css.sessionId}>{x.sessionId.replace(/^session-/, '').slice(0, 8)}</span>}
                     </span>
-                    <span className={css.lineState} data-tone={x.executionState === 'interrupted' ? 'warning' : undefined}>
-                      {look.live ? <StateDot state="done" size={6} /> : null}{look.quiet ? null : look.words}
+                    <span className={css.lineState} data-tone={look.live ? 'success' : x.executionState === 'interrupted' ? 'warning' : undefined}>
+                      {look.quiet ? null : look.words}
                     </span>
                     <span className={clsx(css.muted, css.num)}>{x.updatedAt ? ago(x.updatedAt, now, t as Translate) : ''}</span>
                   </button>
@@ -578,7 +582,7 @@ function SandboxList({ boxes, fleet, place, t, other, onSwitch, onOpen }: {
                       <span className={css.lineIcon} aria-hidden="true">{b.machine === 'native' ? <HomeGlyph size={12} /> : <MachineGlyph platform={platformOf(b.machine) ?? 'unknown'} size={12} />}</span>
                       <span className={css.ellipsis}>{place(b.machine)}</span>
                     </span>
-                    <span className={css.lineState}><StateDot state={runs ? 'done' : 'idle'} size={6} />{runs ? t('ptSandboxRunning') : t('ptSandboxStopped')}</span>
+                    <span className={css.lineState} data-tone={runs ? 'success' : undefined}>{runs ? t('ptSandboxRunning') : t('ptSandboxStopped')}</span>
                   </button>
                 </li>
               )

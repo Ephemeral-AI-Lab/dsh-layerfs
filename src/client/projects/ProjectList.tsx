@@ -62,9 +62,9 @@ function useSummaries(sessionSource?: SessionSource) {
  * the slow poll while visible. The sidebar shows it on every page, so each poll costs
  * every open tab a catalog, Store and machine read (Quarry v2 FIX-LOG F22).
  */
-function useSteady<T>(api: LayerfsApi, load: () => Promise<T>, events: readonly string[]) {
+function useSteady<T>(api: LayerfsApi, cache: string, load: () => Promise<T>, events: readonly string[]) {
   const last = useRef<{ value: T, failures: number } | null>(null)
-  const read = useQuery(() => steadyRead(last, () => readWithDeadline(load())), [api])
+  const read = useQuery(() => steadyRead(last, () => readWithDeadline(load())), [api], { cache })
   useHostEvents(api, events, read.reload, { coalesceMs: EVENT_COALESCE_MS })
   useEffect(() => {
     const timer = setInterval(() => { if (document.visibilityState === 'visible') read.reload() }, SIDEBAR_POLL_MS)
@@ -79,8 +79,8 @@ export interface ProjectItem { row: ProjectRow, store: StoreRow | undefined, run
 /** Catalog, machines and Stores, joined per project (§8: readiness follows the machine it runs on). */
 export function useProjectData(api: LayerfsApi) {
   const machines = useProjectMachines(api)
-  const catalog = useSteady(api, () => listProjects(api), ['storage', 'layerfs-availability', 'layerfs-workspaces-changed', 'machine-progress', 'connection'])
-  const storage = useSteady(api, () => api.call<StorageView>('GET', '/api/storage'), ['storage', 'storage-job', 'machine-progress', 'connection'])
+  const catalog = useSteady(api, 'projects.catalog', () => listProjects(api), ['storage', 'layerfs-availability', 'layerfs-workspaces-changed', 'machine-progress', 'connection'])
+  const storage = useSteady(api, 'GET /api/storage', () => api.call<StorageView>('GET', '/api/storage'), ['storage', 'storage-job', 'machine-progress', 'connection'])
   const item = (row: ProjectRow): ProjectItem => {
     const store = storage.data?.stores.find((s) => s.name === storeOf(row))
     const machine = primaryMachine(store, storage.data?.machines) ?? row.machine ?? null
@@ -97,7 +97,7 @@ export function useProjectData(api: LayerfsApi) {
 }
 
 export function useRecent(api: LayerfsApi) {
-  return useSteady(api, () => api.op<{ projects: RecentProject[] }>('projects.recent'), ['layerfs-session', 'layerfs-workspaces-changed', 'connection'])
+  return useSteady(api, 'projects.recent', () => api.op<{ projects: RecentProject[] }>('projects.recent'), ['layerfs-session', 'layerfs-workspaces-changed', 'connection'])
 }
 
 /** Start a project's machine, or open a session in it. */
@@ -176,6 +176,10 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
   const selected = api.selectedSessionId()
   const sessions = visibleProjectSessions(read.sessions, titles, selected)
   const status = sidebarStatus(project, availability)
+  const reason = availability.reason || t(status.key)
+  const blockedTip = t('cannotRun', { reason })
+  const sessionReason = !availability.canRun ? blockedTip : actions.busy ? t('openingSession') : undefined
+  const startReason = actions.busy ? t('starting') : startGuard.settling ? t('reviewStart') : undefined
   const resume = (sessionId: string) => { void api.op('sessions.open', { sessionId, project: project.key }).catch(() => {}) }
   const where = item.runsOn.join(', ')
   return <li data-layerfs-project={idOf(project)} data-ready={availability.canRun || undefined} className={css.projectItem}>
@@ -184,16 +188,16 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
         title={`${nameOf(project)} · ${storeOf(project)}${where ? ` · ${where}` : ''}`} aria-expanded={open} aria-label={t('expandProject', { project: label })} onClick={() => setOpen(!open)}>
         <LeadingSlot open={open} />
         <span className={css.title}>{nameOf(project)}{showStore ? <span className={css.store}> · {storeOf(project)}</span> : null}</span>
-        {!availability.canRun && availability.state !== 'checking' ? <span className={css.why}>{t(status.key)}</span> : null}
+        {!availability.canRun && availability.state !== 'checking' ? <span className={css.why} title={blockedTip}>{t(status.key)}</span> : null}
       </button>
       <span className={css.rowActions}>
         <Button className={css.iconButton} variant="ghost" size="sm" icon={<IconSettingsOutlineRegular size={14} />} aria-label={t('configure', { project: label })} title={t('configure', { project: label })}
           onClick={() => projectDialog.open({ mode: 'configure', project: { key: project.key, projectId: project.projectId, name: nameOf(project), store: storeOf(project) } })} />
         {availability.canStart ? null : <Button className={css.iconButton} variant="ghost" size="sm" disabled={actions.busy || !availability.canRun} icon={<IconPlusOutlineRegular size={14} />}
-          aria-label={t('newSession', { project: label })} title={availability.canRun ? t('newSession', { project: label }) : t('cannotRun', { reason: t(status.key) })}
+          aria-label={t('newSession', { project: label })} aria-description={sessionReason} title={sessionReason ?? t('newSession', { project: label })}
           onClick={() => { setOpen(true); void actions.create(project) }} />}
         {availability.canStart
-          ? <Button className={css.start} variant="ghost" size="sm" disabled={actions.busy || startGuard.settling} aria-disabled={startGuard.settling || undefined} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={startGuard(() => void actions.start(availability.machine!))}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
+          ? <Button className={css.start} variant="ghost" size="sm" disabled={actions.busy || startGuard.settling} aria-disabled={startGuard.settling || undefined} title={startReason} aria-description={startReason} aria-label={t('startMachineFor', { machine: availability.machine ?? '', project: label })} onClick={startGuard(() => void actions.start(availability.machine!))}>{t('startNamed', { machine: availability.machine ?? '' })}</Button>
           : null}
       </span>
     </div>
@@ -234,7 +238,7 @@ export function useSidebarProjects(api: LayerfsApi, sessionSource?: SessionSourc
   return {
     items: rows?.map((r) => ({ ...data.item(r.row), showStore: r.showStore, hideKey: r.hideKey })) ?? null,
     scratchKey: data.scratchKey,
-    error: recent.error,
+    error: recent.error ?? data.catalog.error,
     titles: summaries.byId,
     reload: () => { recent.reload(); data.reload() },
   }
@@ -245,14 +249,13 @@ export type SidebarData = ReturnType<typeof useSidebarProjects>
 export function SidebarProjects({ api, t, data }: { api: LayerfsApi, t: ListT, data: SidebarData }): ReactNode {
   const { items } = data
   return <div className={css.tree}>
-    {data.error && !items ? <div className={css.notice} role="alert">{t('failed', { message: errorMessage(data.error, t) })}<Button variant="ghost" size="sm" onClick={data.reload}>{t('retry')}</Button></div>
-      : !items ? <div className={css.notice}>{t('loading')}</div>
-        : !items.length ? <div className={css.empty}>
-          <div className={css.notice}>{t('emptyRecent')}</div>
-          <div className={css.emptyActions}>
-            <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={14} />} onClick={() => projectDialog.open({ mode: 'new' })}>{t('newProject')}</Button>
-          </div>
-        </div>
-          : <ul className={css.projects}>{items.map((item) => <SidebarRow key={idOf(item.row)} item={item} showStore={item.showStore} api={api} titles={data.titles} t={t} onChanged={data.reload} />)}</ul>}
+    {data.error ? <div className={css.notice} role="alert">{t('failed', { message: errorMessage(data.error, t) })}<Button variant="ghost" size="sm" onClick={data.reload}>{t('retry')}</Button></div> : null}
+    {!items && !data.error && <div className={css.notice}>{t('loading')}</div>}
+    {items && (!items.length ? <div className={css.empty}>
+      <div className={css.notice}>{t('emptyRecent')}</div>
+      <div className={css.emptyActions}>
+        <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={14} />} onClick={() => projectDialog.open({ mode: 'new' })}>{t('newProject')}</Button>
+      </div>
+    </div> : <ul className={css.projects}>{items.map((item) => <SidebarRow key={idOf(item.row)} item={item} showStore={item.showStore} api={api} titles={data.titles} t={t} onChanged={data.reload} />)}</ul>)}
   </div>
 }

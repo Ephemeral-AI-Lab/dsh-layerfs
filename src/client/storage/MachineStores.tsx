@@ -32,19 +32,20 @@
  * The backups badge counts the Store's bucket copies, marks their providers
  * and dots the worst state; it opens Backups (BackupDialogs.tsx).
  */
+import { createPortal } from 'react-dom'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button, IconPlusOutlineRegular, MenuItemButton, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { enc, type LayerfsApi } from '../api.ts'
 import { ago, bytes } from '../files/format.ts'
 import type { Translate } from '../files/types.ts'
-import { Card, LinkButton, MoreMenu } from '../ui/index.tsx'
+import { Card, ExplainedButton, LinkButton, MoreMenu } from '../ui/index.tsx'
 import { useQuery } from '../ui/use-query.ts'
 import { BucketMark } from './BucketPage.tsx'
 import { JobPanel, OpPanel } from './JobProgress.tsx'
 import type { StorageT } from './locale.ts'
 import { loginGroups, machineStores, projectSplit, startKind, type PgLoginGroup, type ProjectSplit, type StoreKind } from './machine-stores.ts'
-import { cardJob, pgStoreBytes, rowMachine, storeStateWords, storeTip } from './model.ts'
-import { MachineGlyph } from '../machines/icons.tsx'
+import { cardJob, pgStoreBytes, rowMachine, storeNoticeTone, storeStateWords, storeTip, storeWaitsFor } from './model.ts'
+import { MachineGlyph, SandboxGlyph } from '../machines/icons.tsx'
 import { HomeGlyph, StoreGlyph } from './parts.tsx'
 import { StoreAction, StoreMenu, stoppedBlock, storeNotice, useStoreTip, type LoginActions, type StoreActions } from './StoreCard.tsx'
 import { backupCounts, backupProviders, storeBackups } from './store-backups.ts'
@@ -102,6 +103,7 @@ interface CardProps {
 /** A board's two kinds: their Stores, the words around them, and each kind's add button. */
 interface BoardProps extends CardProps {
   /** Tile ids and the remembered tile (per machine; `(home)` on Home). */
+  actionHost?: HTMLSpanElement | null
   scope: string
   sqlite: StoreRow[]
   sqliteBytes: number | null
@@ -188,7 +190,8 @@ function StoresBoard(props: BoardProps): ReactNode {
             })}
           </div>
         ) : null}
-        <span className={css.barAction}>{showAlt ? alt.add : words[kind].add}</span>
+        {props.actionHost ? createPortal(showAlt ? alt.add : words[kind].add, props.actionHost) :
+          <span className={css.barAction}>{showAlt ? alt.add : words[kind].add}</span>}
       </div>
       <section id={`lfs-ms-${scope}-panel`} role="tabpanel" aria-labelledby={`lfs-ms-${scope}-${kind}`} className={css.panel}>
         {showAlt ? alt.view
@@ -232,6 +235,7 @@ export function MachineStores(props: MachineStoresProps): ReactNode {
 export interface HomeStoresProps extends Omit<CardProps, 'machine'> {
   /** Every Store, in the Overview's order. */
   stores: readonly StoreRow[]
+  actionHost: HTMLSpanElement | null
   onNewStore: () => void
   /** Connect a database (a new PostgreSQL Store). */
   onConnect: () => void
@@ -278,12 +282,12 @@ function useSplit(api: LayerfsApi, s: StoreRow, total: number | null): ProjectSp
   return q.data ? projectSplit(q.data.projects, total) : null
 }
 
-function Head({ s, on, t, machine, onOpenStore }: { s: StoreRow, on: StoreActions, t: StorageT, machine?: string, onOpenStore: (name: string) => void }): ReactNode {
+function Head({ s, on, t, machine, runningJob, onOpenStore }: { s: StoreRow, on: StoreActions, t: StorageT, machine?: string, runningJob?: boolean, onOpenStore: (name: string) => void }): ReactNode {
   return (
     <div className={css.head}>
       <span className={css.glyph}><StoreGlyph kind={s.kind} size={18} /></span>
       <LinkButton className={css.name} onClick={() => onOpenStore(s.name)} title={s.name}>{s.name}</LinkButton>
-      <StoreMenu store={s} on={on} t={t} machine={machine} />
+      <StoreMenu store={s} on={on} t={t} machine={machine} runningJob={runningJob} />
     </div>
   )
 }
@@ -318,7 +322,7 @@ function MachineChip({ name, view, t, health, title, onOpen }: {
 export function MachineLine({ s, view, t, on }: { s: StoreRow, view: StorageView, t: StorageT, on: StoreActions }): ReactNode {
   const machine = s.machine
   const state = view.machines.find((m) => m.name === machine)?.state ?? null
-  const health = machine === 'native' || state === 'ready' ? 'current' : state ? 'unknown' : null
+  const health = state === 'broken' ? 'problem' : null
   return (
     <div className={css.machines}>
       <span className={css.machinesLabel}>{t('hsStoredOn')}</span>
@@ -365,7 +369,7 @@ function ConnectedFrom({ s, view, t, on, now, sandboxes }: { s: StoreRow, view: 
               <span className={css.metaMark}>{c.machine === null ? <HomeGlyph size={12} /> : <MachineGlyph platform={record?.platform ?? ''} size={12} />}</span>
               <span className={css.chipName}>{c.machine === null ? t('pgThisComputer') : name}</span>
               <span className={css.dot} data-health={health} />
-              {boxes ? <span className={css.chipCount} aria-label={t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes })}>{boxes} ▣</span> : null}
+              {boxes ? <span className={css.chipCount} aria-label={t(boxes === 1 ? 'pgSandboxOne' : 'pgSandboxes', { n: boxes })}>{boxes}<SandboxGlyph size={11} /></span> : null}
             </button>
           )
         })}
@@ -436,16 +440,16 @@ function BackupsBadge({ s, view, t, onBackups, onBackup }: { s: StoreRow, view: 
   )
 }
 
-interface Act { label: string, run: () => void, disabled?: boolean }
+interface Act { label: string, run: () => void, disabled?: boolean, disabledReason?: string | undefined }
 
 /** The foot's actions: one button, the rest in a ⋯ menu. */
 function FootActions({ main, rest, label }: { main: Act, rest: Act[], label: string }): ReactNode {
   return (
     <span className={css.footActions}>
-      <Button size="sm" variant="ghost" disabled={main.disabled} onClick={main.run}>{main.label}</Button>
+      <ExplainedButton size="sm" variant="ghost" disabled={main.disabled} disabledReason={main.disabledReason} onClick={main.run}>{main.label}</ExplainedButton>
       {rest.length ? (
         <MoreMenu label={label}>
-          {(close) => rest.map((a) => <MenuItemButton key={a.label} disabled={a.disabled} onSelect={() => { close(); a.run() }}>{a.label}</MenuItemButton>)}
+          {(close) => rest.map((a) => <MenuItemButton key={a.label} disabled={a.disabled} disabledReason={a.disabledReason} onSelect={() => { close(); a.run() }}>{a.label}</MenuItemButton>)}
         </MoreMenu>
       ) : null}
     </span>
@@ -467,13 +471,14 @@ function SizeFigure({ s, t, now, last }: { s: StoreRow, t: StorageT, now: number
 
 /** A Store's state in words on its card (LayerFS's sentence as the tip) and its fix as the one action. */
 /** The card's status: dot and word, LayerFS's sentence (or its fix) as the tip, and the one fix (R2-2: never a bare sentence). */
-function StoreStatus({ s, t, words, onStart }: { s: StoreRow, t: StorageT, words: string, onStart?: (() => void) | undefined }): ReactNode {
+function StoreStatus({ s, t, words, onStart, machineState }: { s: StoreRow, t: StorageT, words: string, onStart?: (() => void) | undefined, machineState?: string | null | undefined }): ReactNode {
   const tip = useStoreTip(s, t) ?? s.fix ?? undefined
+  const tone = storeNoticeTone(s, machineState)
   return (
-    <div className={css.statusRow} data-tone={s.state === 'broken' ? 'danger' : 'warning'}>
-      <StateDot state={s.state === 'broken' ? 'error' : 'idle'} size={8} />
+    <div className={css.statusRow} data-tone={tone}>
+      {tone === 'danger' ? <StateDot state="error" size={8} /> : null}
       <span className={css.statusText} title={tip}>{words}</span>
-      <StoreAction store={s} t={t} onStart={onStart} />
+      <StoreAction store={s} t={t} onStart={onStart} machineState={machineState} />
     </div>
   )
 }
@@ -482,18 +487,19 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
   const on = actionsFor(s)
   const job = cardJob(jobs, s.name, dismissed, now)
   const split = useSplit(api, s, s.size?.bytes ?? null)
-  const busy = s.state !== 'ready' || !!job && !job.ended
   const running = !!job && !job.ended
+  const footReason = storeWaitsFor(s, t, running)
   const last = split?.lastWrite ? ago(split.lastWrite, now, t as Translate) : null
+  const machineState = view.machines.find((m) => m.name === s.machine)?.state
   // Shown only when something is happening: ready says nothing. A state word with its reason; the fix line is the tip (the one action).
-  const notice = storeNotice(s, null, t)
-  const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
-    : s.op ? <OpPanel store={s} t={t} />
-      : notice ? <StoreStatus s={s} t={t} words={notice} onStart={on.start} />
+  const notice = storeNotice(s, machineState, t)
+  const status = job ? <JobPanel job={job} compact t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
+    : s.op ? <OpPanel store={s} compact t={t} />
+      : notice ? <StoreStatus s={s} t={t} words={notice} onStart={on.start} machineState={machineState} />
         : null
   return (
     <Card className={css.card} data-store={s.name} data-kind="sqlite">
-      <Head s={s} on={on} t={t} onOpenStore={onOpenStore} />
+      <Head s={s} on={on} t={t} runningJob={running} onOpenStore={onOpenStore} />
       <SizeFigure s={s} t={t} now={now} last={last} />
       {machine === null ? <MachineLine s={s} view={view} t={t} on={on} /> : null}
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />
@@ -502,8 +508,8 @@ function SqliteCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor
         <More s={s} shown={status ? 1 : ROWS} t={t} onOpenStore={onOpenStore} />
         {/* the head's ⋯ holds Move, Back up and Remove */}
         {running ? null : s.machine === 'native'
-          ? <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('pushTo'), run: on.push, disabled: s.state !== 'ready' }} rest={[]} />
-          : <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('msPull'), run: on.pull, disabled: busy }} rest={[]} />}
+          ? <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('pushTo'), run: on.push, disabled: footReason !== null, disabledReason: footReason ?? undefined }} rest={[]} />
+          : <FootActions label={t('msMoreActions', { name: s.name })} main={{ label: t('msPull'), run: on.pull, disabled: footReason !== null, disabledReason: footReason ?? undefined }} rest={[]} />}
       </div>
     </Card>
   )
@@ -578,8 +584,8 @@ function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, sa
   const job = cardJob(jobs, s.name, dismissed, now)
   // a broken database: its words, LayerFS's sentence as the tip, its fix as the one action (Save a login…, Update)
   const notice = storeNotice(s, null, t)
-  const status = job ? <JobPanel job={job} t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
-    : s.op ? <OpPanel store={s} t={t} />
+  const status = job ? <JobPanel job={job} compact t={t} onRetry={() => on.retry(job)} onDismiss={() => on.dismiss(job)} />
+    : s.op ? <OpPanel store={s} compact t={t} />
       : notice ? <StoreStatus s={s} t={t} words={notice} /> : null
   // The database's size as LayerFS measures it (store get --with stats), read again when its projects change or a job ends.
   const stats = useQuery(() => api.call<StoreStats>('GET', `/api/stores/${enc(s.name)}/stats`), [api, s.name],
@@ -590,19 +596,19 @@ function PgCard({ s, api, machine, t, view, jobs, dismissed, now, actionsFor, sa
   // Until the size is read: the projects' Commit counters, which leave out what Init saved.
   const counted = split?.rows.filter((r) => r.bytes !== null) ?? []
   const total = size ?? (counted.length ? counted.reduce((n, r) => n + (r.bytes ?? 0), 0) : null)
-  const more = s.projects.length > ROWS
+  const shown = status ? 1 : ROWS
   return (
     <Card className={css.card} data-store={s.name} data-kind="postgresql" tone={s.state === 'broken' ? 'danger' : undefined}>
-      <Head s={s} on={on} t={t} machine={machine ?? undefined} onOpenStore={onOpenStore} />
+      <Head s={s} on={on} t={t} machine={machine ?? undefined} runningJob={!!job && !job.ended} onOpenStore={onOpenStore} />
       {/* refused stats (a broken database): its size is unknown, "—", never the 0 B of its uncounted projects */}
       <Figure big={stats.error && size === null ? '—' : total !== null ? bytes(total) : projectsWords(s.projects.length, t)}
         title={[pg?.server, pg?.binding ? t('pgDatabaseId', { id: pg.binding.slice(0, 8) }) : null].filter(Boolean).join(' · ') || undefined}
         meta={pg?.database ? <span className={css.metaText}>{pg.database}</span> : null} />
       <ConnectedFrom s={s} view={view} t={t} on={on} now={now} sandboxes={sandboxes} />
       <Slot s={s} split={split} t={t} now={now} status={status} onAdd={on.addProject} onOpenProject={onOpenProject} />
-      {more || status ? (
+      {s.projects.length > shown ? (
         <div className={css.foot}>
-          <More s={s} shown={status ? 1 : ROWS} t={t} onOpenStore={onOpenStore} />
+          <More s={s} shown={shown} t={t} onOpenStore={onOpenStore} />
         </div>
       ) : null}
     </Card>

@@ -1,4 +1,4 @@
-<!-- source: 0c0615656dcd -->
+<!-- source: 183cecf750ae -->
 # Store
 
 > **位置：** `LayerFS › 主页 › Store › <store>` · **打开方式：** 主页 › Store 或某台机器的 Store 标签页上 Store 卡片的名称、导航栏的层级切换器、跳转到、项目页上的 Store 链接、存储桶的关联 Store · **源码：** 见文末
@@ -59,12 +59,12 @@ Store 有多大、是谁写的、有没有需要你留意的地方。
 | **服务器**（Server）磁贴（PostgreSQL） | **可连接**（Reachable）、**无法连接**（Unreachable，附原因）或 **未知**（Unknown）；悬停显示修复行 | — | `store list` (读取) | 损坏时为红色 |
 | **项目**（Projects）磁贴 | 项目数和 **n 次提交**（n commits）（账本统计中时为 **已统计 n 次提交**（n commits so far）） | 点击 → 项目标签页 | `project list`、`project stats`、`branch get` (读取) | Store 拒绝时显示 **未读取：…**（Not read: …） |
 | **正在运行**（Running now）磁贴 | 这个 Store 的项目中 daemon 正在运行的 Sandbox | — | `machine list`、`sandbox list` (读取，`GET /api/machines`) | |
-| **上次备份**（Last backup）磁贴（SQLite） | 距今多久，以及存储桶 | 点击 → 备份标签页 | `store list` (读取：其链接) | 琥珀色 **尚未备份**（No backup yet） |
+| **上次备份**（Last backup）磁贴（SQLite） | 距今多久，以及存储桶 | 点击 → 备份标签页 | `store list` (读取：其链接) | 灰色 **尚未备份**（No backup yet） |
 | **连接自**（Connected from）磁贴（PostgreSQL） | 有几台机器连接，以及它们的名称 | 点击 → 连接标签页 | `store list` (读取：`connections`) | |
 | 数据库文件的构成 | 一条横条，显示 **内容**（Content）、**元数据**（Metadata）、**空闲页**（Free pages）的大小和占比；**唯一内容** *x* **打包为** *y*（Unique content *x* packs into *y*）以及 **×** 比例 | — | `store get --with stats` (读取) | **读取中…**（Reading…）、**未读取：…**（Not read: …）、**LayerFS 未报告此 Store 的构成。**（LayerFS did not report this Store's parts.） |
 | Store 的增长 | 文件、内容和元数据在本机过去各次读取中的变化；间隔超过日志记录间隔的地方显示为断开 | — | —（本机对早先 `store get --with stats` 读取的记录） | 至少记录过一次读取后才显示；**图表从本机对此 Store 的读取开始：目前只有一次。**（The chart starts with this host's reads of the Store: one so far.） |
 | 由哪些项目写入 | 每个项目一个方块，大小按打包字节；没有被任何提交计入的字节归为 **初始化及更早**（Init and earlier） | 悬停 → 名称和大小 | `project stats` (读取)、`store get --with stats` (读取) | **还没有项目提交内容。**（No project has committed content yet.） |
-| 健康状况 | **机器**（Machine）（*docker* **正在运行**（is running）/ 已停止）、**备份**（Backups）（最新、自上次备份后已更改、无）、**空闲页**（Free pages）（可重用的比例）；PostgreSQL：**服务器**（Server）、**备份**（Backups）**由服务器自身的备份负责，而非 LayerFS**（covered by the server's own backups, not LayerFS） | — | 来自上面的读取 | 绿、琥珀、红色圆点 |
+| 健康状况 | **机器**（Machine）（*docker* **正在运行**（is running）/ 已停止）、**备份**（Backups）（最新、自上次备份后已更改、存储桶已更改、缺失/冲突、无）、**空闲页**（Free pages）（可重用的比例）；PostgreSQL：**服务器**（Server）、**备份**（Backups）**由服务器自身的备份负责，而非 LayerFS**（covered by the server's own backups, not LayerFS） | — | 来自上面的读取 | 绿、灰、红色圆点 |
 | Store 详情 | **创建时间**（Created）、**数据库文件**（Database file）或 **服务器**（Server）；然后是 **移除 Store**（Remove Store）/ **断开 Store**（Disconnect Store） | **移除…**（Remove…）→ [输入名称确认](#modals-opened-here)；**断开连接…**（Disconnect…）→ 确认 | `store remove` ↻ / `store disconnect` ↻ | 默认折叠 |
 
 ![展开的 Store 详情](../img/store-details.png)
@@ -204,7 +204,7 @@ PostgreSQL 版本和 **可连接 · n 毫秒**（Reachable · n ms））。**机
 | [新建 Store](../img/store-new.png)（New Store） | 导航栏 **添加 › 新建 Store**（Add › New Store）；主页 › Store 的 **新建 Store**（New Store）；native 的 **添加 Store › 新建 Store**（Add Store › New Store） | **SQLite** 或 **PostgreSQL**（后者转到连接数据库）；**空 Store**（Empty Store）或 [**从备份恢复**](../img/store-new-restore.png)（Restore from a backup）（存储桶、**列出存储桶**（List the bucket）、一个文件、**新 Store 的名称**（New Store's name））；**位置**（Location）磁贴，已停止的机器旁有 **启动** *m*（Start *m*）。先在 LayerFS Home 创建，再迁移过去 | `store create` ↻（或 `backup restore`），然后用 `store move` 迁移到其他机器 | 移除 |
 | [连接数据库](../img/store-connect-new.png)（Connect a database） | 导航栏 **添加 › 连接数据库**（Add › Connect a database）；主页 › Store 的 PostgreSQL 一侧 **连接数据库**（Connect a database） | 还没有 PostgreSQL Store 时直接打开新服务器表单：**连接 URL**（Connection URL）（不含登录信息）、**Store 名称**（Store name）、**登录**（Login）（**用户**（User）/**密码**（Password），或 **已保存的登录**（Saved login））、[**更多选项**](../img/store-connect-options.png)（More options）（**synchronous_commit**）。**取消**（Cancel）关闭对话框；有列表时 **返回**（Back）回到列表。之后进入检查界面 | `store save-auth`（新登录）、`store connect`、`store get`，然后 `store doctor --machine` | **断开连接…**（Disconnect…） |
 | 连接数据库：选择 | 同上，已有 PostgreSQL Store 时 | 所有已连接的 Store 按服务器分组，各带 **检查**（Check）（在机器页上为 **连接**（Connect））；**+ 此服务器上的新数据库**（+ New database on this server）（沿用主机和登录）；**+ 新服务器**（+ New server） | 同上 | |
-| 连接数据库：检查 | **检查**（Check）、**连接一台机器**（Connect a machine）、一个状态标签 | **检查来源**（Check from）（一台机器）、机器 → 服务器 → Store 的路径，以及三个步骤 **能连到服务器**（Reaches the server）、**能找到此 Store**（Finds the Store）、**可以写入**（May write it）；按下 **从** *机器* **检查** *store*（Check *store* from *machine*）时运行；服务器一步失败时，**为** *机器* **设置专属地址**（Give *machine* its own address）→ ***机器* 连接的 URL**（URL *machine* dials）→ **保存并检查**（Save and check） | `store doctor --machine` (读取并记录)、`store connect --machine` | 忘记 |
+| 连接数据库：检查 | **检查**（Check）、**连接一台机器**（Connect a machine）、一个状态标签 | **检查来源**（Check from）（一台机器）、机器 → 服务器 → Store 的路径，以及五个步骤 **Store 记录为最新格式**（Store record is up to date）、**能连到服务器**（Reaches the server）、**通过登录验证**（Signs in）、**能找到此 Store**（Finds the Store）、**可以写入**（May write it）；按下 **从** *机器* **检查** *store*（Check *store* from *machine*）时运行。当 LayerFS 明确指出原因时，失败会标出停在哪一步并给出对应修法：[服务器连不上](../img/store-check-server.png)（**为** *机器* **设置专属地址**（Give *machine* its own address）→ ***机器* 连接的 URL**（URL *machine* dials）→ **保存并检查**（Save and check）；在 LayerFS Home 上为 **编辑连接**（Edit connection））、[登录错误](../img/store-check-login.png)（**更换登录…**（Change login…）、**更换密码…**（Rotate password…））、[缺少权限](../img/store-check-privilege.png)（列出缺失权限并提供 **更换登录…**（Change login…））、[记录过旧](../img/store-check-record.png)（**更新**（Update）或 **保存登录…**（Save a login…））。若 LayerFS 未提供足以定位具体步骤的证据，步骤与连线保持中性，仅展示原始拒绝而不猜测修法。修完后可点 **重新检查**（Check again） | `store doctor --machine` (读取并记录)、`store connect --machine`、`store update` | 忘记 |
 | [在 *机器* 上连接数据库](../img/store-connect-machine.png)（Connect a database on *machine*） | 机器 › Store › PostgreSQL 的 **连接数据库**（Connect a database） | 和连接数据库一样；检查从那台机器运行 | 同上 | |
 | 编辑 *store* 的连接（Edit *store*'s connection） | **更换登录…**（Change login…） | **URL（不含密码）**（URL (no password)）、**登录**（Login）（保留、输入新的，或选一个已保存的）、**synchronous_commit**；只发送改动过的部分 | `store connect`、`store save-auth`、`store update` ↻ | 再编辑一次 |
 | *机器* 到 *store* 的专属连接（*machine*'s own connection to *store*） | 连接 › **编辑**（Edit） | 一个 URL；**保存并检查**（Save and check） | `store connect --machine`（LayerFS 先检查） | **忘记**（Forget） |
@@ -227,8 +227,8 @@ PostgreSQL 版本和 **可连接 · n 毫秒**（Reachable · n ms））。**机
   login）时为 **保存登录…**（Save a login…），记录过时为 **更新**（Update））。
 - **继续之前请检查此 Store：某个操作的结果未知。**（Inspect the Store before continuing: an operation's
   outcome is unknown.）：某个任务没有返回结果就结束了；修复方式是再压缩一次。
-- 琥珀色 **尚未备份**（No backup yet）/ 健康状况 **自上次备份后已更改**（changed since the last backup）：
-  备份一下，或者忽略它（没有备份不算错误）。
+- 灰色 **尚未备份**（No backup yet）/ 健康状况 **自上次备份后已更改**（changed since the last backup，灰色圆点）：
+  备份一下，或者忽略它（没有备份或备份较旧都不算错误）；只有 **缺失**（Missing）和 **双方都已更改**（Both changed）显示为红色。
 - **大小读取于** *时间*（size seen *when*）：机器没有响应；显示的是上次读到的大小。
 
 ## 下一步

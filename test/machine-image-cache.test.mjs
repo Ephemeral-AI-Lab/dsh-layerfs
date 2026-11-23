@@ -16,7 +16,7 @@ test('the cache home is passed as XDG_CACHE_HOME, and left alone when unset', { 
   const { execute, managedCli } = await import(pathToFileURL(join(directory, 'cli.mjs')))
   const binary = join(directory, 'fake-cli.mjs'), cache = join(directory, 'cache'), home = join(directory, 'home')
   mkdirSync(cache); mkdirSync(home)
-  writeFileSync(binary, `#!${process.execPath}\nconsole.log(JSON.stringify({ xdg: process.env.XDG_CACHE_HOME ?? null, home: process.env.LAYERFS_HOME }))\n`, { mode: 0o700 })
+  writeFileSync(binary, `#!/usr/bin/env node\nconsole.log(JSON.stringify({ xdg: process.env.XDG_CACHE_HOME ?? null, home: process.env.LAYERFS_HOME }))\n`, { mode: 0o700 })
 
   assert.deepEqual(await execute({ cli: binary, home, cacheHome: cache }, ['machine', 'list'], {}), { xdg: cache, home })
   assert.deepEqual(await execute({ cli: binary, home }, ['machine', 'list'], { env: { XDG_CACHE_HOME: '/host/cache' } }), { xdg: '/host/cache', home }, 'unset: the host value passes through')

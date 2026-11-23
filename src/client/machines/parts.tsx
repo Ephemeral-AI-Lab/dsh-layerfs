@@ -292,7 +292,7 @@ function SettingsDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose:
     } catch (e) { setError(e) }
   }
   return (
-    <Modal open onClose={() => { if (pending === null) onClose() }} title={t('settingsTitle')} description={m.name} closeLabel={t('close')} className={css.dialog}
+    <Modal open onClose={() => { if (pending === null) onClose() }} title={t('settingsTitle')} closeLabel={t('close')} className={css.dialog}
       footer={(
         <>
           <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>

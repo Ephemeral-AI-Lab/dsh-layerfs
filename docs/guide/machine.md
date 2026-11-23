@@ -12,25 +12,24 @@ force stop, settings and remove.
 
 | # | Component | What it is |
 |---|---|---|
-| 1 | Tab bar | **Overview** · **Sandboxes** *n* · **Stores** *n* · **Images** · **Files** · **Worker log**. The last three only show when offered (see [Variants](#variants)) |
-| 2 | Head | The machine's glyph, name (**LayerFS Home** for `native`), state chip and kind line (**Docker · Linux namespaces**) |
-| 3 | Power button | **Stop worker** / **Start worker** (docker), **Stop** / **Start** (a VM), **Start Docker and worker**, or the state's one fix (**Restart worker**, **Check**). Not on LayerFS Home |
-| 4 | ⋯ | The machine menu: [Components › Machine menu](components.md#machine-menu) |
-| 5 | Usage card | Processor, memory and data disk now, with **Healthy** and the time they were read |
-| 6 | **Where it goes** | Opens the [Disk space dialog](#disk-space-dialog) |
-| 7 | Details card | The machine's facts in three groups: Machine, Sandboxes, Store calls and connection |
-| 8 | **Run diagnostics** | Runs the machine's checks on the Doctor page |
-| 9 | **Update settings…** | docker only: the [Settings dialog](#settings-dialog) |
+| 1 | Head | The machine's glyph, name (**LayerFS Home** for `native`), state chip, kind line (**Docker · Linux namespaces**), its power button and its ⋯ menu. Above every tab, the same on every kind of machine |
+| 2 | Tab bar | **Overview** · **Images** · **Files** · **Sandboxes** *n* · **Stores** *n* · **Worker log**. Images, Files and the Worker log only show when offered (see [Variants](#variants)) |
+| 3 | Usage card | Processor, memory and data disk now, with **Healthy** and the time they were read |
+| 4 | **Where it goes** | Opens the [Disk space dialog](#disk-space-dialog) |
+| 5 | Details card | The machine's facts in three groups: Machine, Sandboxes, Store calls and connection |
+| 6 | **Run diagnostics** | Runs the machine's checks on the Doctor page |
+| 7 | **Update settings…** | docker only: the [Settings dialog](#settings-dialog) |
 
-Above the bar is the [nav bar](components.md#nav-bar): `Home › Machines › docker`, whose last
+Above the head is the [nav bar](components.md#nav-bar): `Home › Machines › docker`, whose last
 crumb switches to another machine.
 
 ## Layout
 
-The tab bar comes first; the machine's head (glyph, name, state, power, ⋯) belongs to the
-Overview tab. Notices about the machine (a start in progress, a platform that is not ready, a
-refused action, why it is down) show on every tab, under the bar. The page remembers the
-tab per machine; a link elsewhere (a Sandbox card's **Terminals**, **Open worker log**) can
+The head comes first, then the tab bar. The head stays on every tab, so the machine's state,
+its power button and its ⋯ menu are in reach while you read its Sandboxes, Stores, images
+or log. Notices about the machine (a start in progress, a platform that is not ready, a
+refused action, why it is down) show on every tab, under the bar. The page remembers the tab
+per machine; a link elsewhere (a Sandbox card's **Terminals**, **Open worker log**) can
 switch it.
 
 ### Notices (every tab)
@@ -50,8 +49,8 @@ What the machine is using now and what it is.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Head | Glyph, name, state chip, kind · runtime | — | `home get`, `machine list`, `machine get --with live`, `sandbox list`, `store list` (read: the machines view, polled while the page shows) | **Running**, **Stopped**, **Starting…**, **Starting worker…**, **Stopping… *n*s**, **Needs repair**, **Docker not running**, **Unavailable** |
-| Power button | See the key table (3) | **Stop worker** / **Stop** → stops it | `machine stop` | Off while another power action runs; a press right after the button changed does nothing |
+| Head | Glyph, name, state chip, kind · runtime, above the tab bar | — | `home get`, `machine list`, `machine get --with live`, `sandbox list`, `store list` (read: the machines view, polled while the page shows) | **Running**, **Stopped**, **Starting…**, **Starting worker…**, **Stopping… *n*s**, **Needs repair**, **Docker not running**, **Unavailable** |
+| Power button | See the key table (1) | **Stop worker** / **Stop** → stops it | `machine stop` | Off while another power action runs; a press right after the button changed does nothing |
 | | | **Start worker** / **Start** → starts it, with startup progress | `machine start` | |
 | | | **Start Docker and worker** → opens Docker Desktop, waits for its Engine, then starts | `machine start` (Docker Desktop is launched by the host first) | macOS docker with the Engine down |
 | | | **Restart worker** (the fix for an outdated worker) | `machine get`, then `machine stop` then `machine start` | Refused (InUse) while Sandboxes are on it: off with **copy the fix to stop it anyway** |
@@ -115,7 +114,7 @@ whose Store is on this machine, PostgreSQL projects when the machine supports th
 |---|---|---|---|
 | **Project** | Pick → suggests a free name (*project*-1) | `project list` (read) | **No eligible projects…** with **Open Storage** |
 | **Name** | 1–63 lowercase letters, digits, dots, underscores or hyphens | — | A taken name is refused |
-| **Image** | The images a Sandbox here starts from at once, and this computer's Docker images LayerFS can copy (**From Docker on this Mac**); greyed rows say why | `machine get`, `machine images --with docker`, `sandbox list` (read) | On LayerFS Home: **Sandboxes on this Mac use its own system.** instead |
+| **Image** | The images a Sandbox here starts from at once, and this computer's Docker images LayerFS can copy (**From Docker on this Mac**); greyed rows say why | `machine get`, `machine images --with docker`, `sandbox list` (read) | On a macOS LayerFS Home (host processes, `backend: native`): **Sandboxes on this Mac use its own system.** instead; a Linux LayerFS Home uses images |
 | **Create** / **Start and create** / **Free space** | Creates in the background: the dialog closes and the card shows a creating row | `sandbox create` (`machine start` first for **Start and create**) | **Free space** when the chosen Docker image does not fit: opens [Free space](#free-space-dialog) over the dialog |
 | **Read Sandbox** | After an uncertain create: reads the Sandbox before creating another | `sandbox get` (read) | |
 | **Cancel** | Closes | — | |
@@ -130,8 +129,9 @@ as Home › Stores and is described in
 
 ## Images
 
-Only on a machine that keeps its own copies of Sandbox images (docker and created VMs, not
-LayerFS Home, whose Sandboxes use this Mac's own system).
+Only on a machine that starts its Sandboxes from an image it keeps a copy of: docker, created
+VMs, and a LayerFS Home whose Sandboxes run in Linux namespaces. A macOS LayerFS Home has no
+**Images** tab, because its Sandboxes use the Mac's own system.
 
 ![docker › Images, numbered](img/machine-images.png)
 
@@ -256,8 +256,8 @@ opens (▸) to show what the machine holds; its name opens the machine page.
 | 10 | **New Sandbox** | In the Sandboxes column | Press → [New Sandbox dialog](#new-sandbox-dialog) | — | Off while a start or stop runs |
 | 11 | Sandbox row | Name, **n/16 Workspaces**, state | Click → the Sandbox page; its ⋯ → **Open**, **Delete Sandbox…**, **Force delete Sandbox…** | `sandbox remove` (`--force`) | Those that need you first, red |
 | | Store row | Name, size or **PostgreSQL** | Click → the Store page; its ⋯ → the [Store menu](components.md#store-menu) | | |
-| 12 | **New machine** | On the tab bar while a VM platform is available | Press → [Add machine dialog](#add-machine-dialog) | — | |
-| | ⋯ **More machine actions** | **Diagnose this host** | → the Doctor page runs the host's checks | `home doctor` (on the Doctor page) | |
+| 12 | **New machine** | On the tab bar, always; off with the reason as its tip while no platform can create one | Press → [Add machine dialog](#add-machine-dialog) | — | |
+| | **Diagnose this host** | The **</>** button at the right end of the tab bar, beside **New machine** | → the Doctor page runs the host's checks | `home doctor` (on the Doctor page) | |
 
 An open row also shows why a machine is blocked (with its fix steps), why it is down with
 **Run diagnostics**, a refused action, and a start in progress.
@@ -282,10 +282,11 @@ created.** One row per platform at its step of readiness.
 ## Variants
 
 - **LayerFS Home (`native`)** ([screenshot](img/machine-native.png)): no power button (it is
-  this computer), no Processor column on macOS, no **Images** tab (its Sandboxes use the
-  Mac's own system), no **Worker log** (no worker), no **Update settings…**, and **Remove…**
-  off with **Built in · can’t be removed**. **Force stop…** shows while it has Sandboxes, with
-  the native wording.
+  this computer), no Processor column on macOS, no **Worker log** (no worker), no **Update
+  settings…**, and **Remove…** off with **Built in · can’t be removed**. Its **Images** tab
+  depends on how its Sandboxes run: a macOS LayerFS Home runs them on the Mac's own system and
+  has none, a Linux one runs them in namespaces and has it. **Force stop…** shows while it has
+  Sandboxes, with the native wording.
 - **docker**: power words name the worker (**Start worker**, **Stop worker**, **Restart
   worker**); **Update settings…** for the socket; with the Docker Engine down on macOS the
   state is **Docker not running** and Start becomes **Start Docker and worker**. Remove is off
@@ -294,7 +295,8 @@ created.** One row per platform at its step of readiness.
   when its worker does not answer), a Danger zone with **Remove *name*…**, **Remove…** in the
   menu, no settings.
 - **Tabs that only show sometimes**: **Images** needs a CLI with Sandbox image copies (image
-  stage 1) and a machine that runs images (not LayerFS Home); **Files** needs the CLI's
+  stage 1) and a machine whose Sandboxes start from an image (not a macOS LayerFS Home, which
+  runs them on the Mac's own system); **Files** needs the CLI's
   `machine files`; **Worker log** needs the CLI's `machine log` and a machine LayerFS says has
   a worker log (`supports: log`). Nothing is decided by the platform's name.
 - **Older CLIs** without `machine stats`: the Usage card becomes a fact row of recorded

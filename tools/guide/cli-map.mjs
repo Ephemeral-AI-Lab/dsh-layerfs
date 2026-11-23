@@ -9,10 +9,11 @@
 // (`lfs.<family>.<call>(`, `lfs().<family>.<call>(`, `noCall('<family>.<call>'`),
 // following `this.<helper>(` calls inside the same class three levels deep.
 // A route whose handler makes no call is "host only" (memory, files, jobs).
+import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const root = new URL('../..', import.meta.url).pathname
+const root = fileURLToPath(new URL('../..', import.meta.url))
 const routes = join(root, 'src/host/routes')
 const read = (f) => readFileSync(join(routes, f), 'utf8')
 

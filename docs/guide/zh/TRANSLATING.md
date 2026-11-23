@@ -83,7 +83,7 @@ other word. The last column lists those known variants, so a reviewer does not "
 | LayerFS Home, the native machine: where a Store lives, a machine card, a location, "pull to home" | LayerFS Home（保留英文） | **拉回 Home**（Pull to home） |
 | the LayerFS home as a whole: its records, runtime, machines, call log ("this LayerFS home") | LayerFS 主目录 / 此主目录 | |
 | Overview / Files / History / Stats / Trajectory | 概览 / 文件 / 历史 / 统计 / 轨迹 | |
-| Doctor / Logs / Presets / Settings | 诊断 / 日志 / 预设 / 设置 | Doctor: the Doctor page's title and a few of its sentences say 医生 (**此 LayerFS 还没有医生**) |
+| Doctor / Logs / Presets / Settings | 诊断 / 日志 / 预设 / 设置 | |
 | needs-you notice | 待处理提示 | |
 | refusal / refused | 拒绝 / 被拒绝 | |
 | fix (a LayerFS fix line) | 修复 | |

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { apply as installNativeSubagentControl } from '@deepseek-ai/dsh-tool-subagent-control'
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib/.test-simulation-runtime-'))
 await build({ absWorkingDir: root, stdin: { contents: "export * from './src/host/simulations/model.ts'; export * from './src/host/simulations/runtime.ts'; export { simulationArguments } from './src/host/simulations/index.ts'; export { SimulationExecution } from './src/host/simulations/gate.ts'; export { admitStore } from './src/host/layerfs/cli.ts'", resolveDir: root, loader: 'ts' }, outfile: join(out, 'runtime.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', external: ['@deepseek-ai/*'], logLevel: 'warning' })

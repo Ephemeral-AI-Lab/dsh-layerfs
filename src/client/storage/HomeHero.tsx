@@ -1,80 +1,108 @@
-/**
- * The Overview's header and tabs. The header is one row: the LayerFS × DSH
- * lockup over the pinned runtime, then what needs you most (named,
- * with the verb that fixes it) or that all is well, then the home's pages
- * (Health with its findings count, Logs, Settings) and Refresh as icon
- * buttons. Counts are not repeated here: the tabs under it carry them.
- * The tab bar (Projects, Stores, Machines, Backups) shows each tab's count
- * and a dot when something in it needs you, with the selected tab's actions
- * at its right end; it stays at the top of the scroll while the selected
- * tab's cards scroll under it (the shared ui/TabBar.tsx, as the Doctor page's).
- */
-import type { ReactNode } from 'react'
-import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
-import { LayerfsGlyph } from '../overview/glyph.tsx'
-import { TabBar } from '../ui/TabBar.tsx'
+/** Home identity, primary need, disclosure and underline inventory tabs. */
+import type { KeyboardEvent, ReactNode } from 'react'
 import css from './HomeHero.module.css'
 
 export interface HeroTab {
   key: string
   label: string
   count: ReactNode
-  /** A dot when something in this tab needs you. */
+  /** Semantic tone when something in this tab needs attention. */
   tone?: 'warning' | 'danger' | undefined
 }
 
 /** The id of a tab's panel, for `aria-controls`. */
 export const panelId = (key: string) => `ov-panel-${key}`
 
-/** The LayerFS × DSH lockup: each mark beside its name (brand names, not copy). */
-export function BrandLockup(): ReactNode {
-  return (
-    <span className={css.lockup}>
-      <LayerfsGlyph size={22} />
-      <span className={css.word}>Layer<span className={css.fs}>FS</span></span>
-      <span className={css.times}>×</span>
-      <span className={css.fish}><FishLogo size={24} /></span>
-      <span className={css.word}>DSH</span>
-    </span>
-  )
-}
-
-export function HomeHero({ identity, signal, headline, actions, tools, toolsLabel, tabs, active, onSelect, tabsLabel, tabActions, banner }: {
-  /** The lockup over the pinned runtime. */
-  identity: ReactNode
-  /** The state as one dot (its reason on hover). */
-  signal: ReactNode
+export function HomeHero({ title, identity, titleAside, titleDetail, tone, signal, headline, actions, tools, toolsLabel, tabs, active, onSelect, tabsLabel, tabActions, notices }: {
+  title: string
+  /** Optional runtime version and setup disclosure. */
+  identity?: ReactNode
+  /** Optional inline disclosure beside the title (e.g. Docker status). */
+  titleAside?: ReactNode
+  titleDetail?: ReactNode
+  /** Semantic severity of the active primary need, when present. */
+  tone?: 'danger' | 'warning' | 'neutral' | undefined
+  /** Interactive problem/warning indicator (omitted when healthy). */
+  signal?: ReactNode
   /** What needs you most, or that all is well. */
-  headline: ReactNode
+  headline?: ReactNode
   /** The verb that fixes the headline, and how many more need you. */
   actions?: ReactNode
   /** The home's pages and Refresh, as icon buttons. */
   tools: ReactNode
   toolsLabel: string
-  tabs: readonly HeroTab[]
+  tabs: readonly [HeroTab, ...HeroTab[]]
   active: string
   onSelect: (key: string) => void
   tabsLabel: string
   /** The selected tab's actions, at the right end of the tab bar. */
   tabActions?: ReactNode
-  /** The runtime card when open, between the header and the tabs. */
-  banner?: ReactNode
+  /** Remaining notices, immediately after the disclosure button. */
+  notices?: ReactNode
 }): ReactNode {
+  const onTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return
+    e.preventDefault()
+    const next = e.key === 'Home' ? 0
+      : e.key === 'End' ? tabs.length - 1
+        : (index + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+    const target = tabs[next]
+    if (!target) return
+    onSelect(target.key)
+    document.getElementById(`ov-tab-${target.key}`)?.focus()
+  }
+
+  const showStatus = !!(signal || headline || actions)
+
   return (
     <>
-      <header className={css.hero}>
-        <div className={css.identity}>{identity}</div>
-        <span className={css.rule} aria-hidden="true" />
-        <div className={css.status}>
-          <span className={css.signal}>{signal}</span>
-          <h1 className={css.title}>{headline}</h1>
-          {actions}
+      <header className={css.hero} data-tone={tone && tone !== 'neutral' ? tone : undefined}>
+        <div className={css.heroTop}>
+          <div className={css.heading}>
+            <h1 className={css.title}>{title}</h1>
+            {identity}
+            {titleAside}
+          </div>
+          <div role="group" className={css.tools} aria-label={toolsLabel}>{tools}</div>
         </div>
-        <nav className={css.tools} aria-label={toolsLabel}>{tools}</nav>
+        {titleDetail}
+        {showStatus ? (
+          <div className={css.status} data-alert={tone && tone !== 'neutral' ? tone : undefined}>
+            {signal ? <span className={css.signalWrap}>{signal}</span> : null}
+            {headline ? <span className={css.headline}>{headline}</span> : null}
+            {actions}
+          </div>
+        ) : null}
       </header>
-      {banner}
-      <TabBar tabs={tabs.map((x) => ({ key: x.key, label: x.label, count: x.count, tone: x.tone, controls: panelId(x.key) }))}
-        active={active} onSelect={onSelect} label={tabsLabel} actions={tabActions} />
+      {notices}
+      <div className={css.toolbar}>
+        <div className={css.tabList} role="tablist" aria-label={tabsLabel}>
+          {tabs.map((tab, i) => {
+            const selected = tab.key === active
+            return (
+              <button
+                key={tab.key}
+                id={`ov-tab-${tab.key}`}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-controls={panelId(tab.key)}
+                tabIndex={selected ? 0 : -1}
+                className={css.tab}
+                data-active={selected || undefined}
+                onClick={() => onSelect(tab.key)}
+                onKeyDown={(e) => onTabKeyDown(e, i)}
+              >
+                <span className={css.tabLabel}>
+                  <span>{tab.label}</span>
+                  <span className={css.count} data-tone={tab.tone}>{tab.count}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        {tabActions ? <div className={css.actions}>{tabActions}</div> : null}
+      </div>
     </>
   )
 }

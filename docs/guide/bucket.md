@@ -45,7 +45,7 @@ Which Stores are backed up here, and is each copy current.
 | Linked Store | The Store and where it is (**LayerFS Home**, a machine, **PostgreSQL**) | The Store name → its Store page | — | **Not linked**; `—` for files not in this home |
 | State | **Backed up**, **Store changed**, **Bucket changed**, **Both changed**, **Missing**, **Not checked**, **Not listed**; LayerFS's reason on hover | — | `backup list` (read: `behind`, `changed`, `missing`) | dashed chip until listed |
 | Size, Written | Bytes, and when the object was written | Hover → the exact time | `backup list` (read) | |
-| **Back up now** | | Press → a backup job over that file starts at once; its card shows on the Store | `backup create <store> <bucket> --file`, then `backup list` | only for **Store changed**, **Missing**, or a link not listed yet, on a SQLite Store that is not busy |
+| **Back up now** | | Press → a backup job over that file starts at once; its card shows on the Store | `backup create <store> <bucket> --file`, then `backup list` | only for **Store changed**, **Missing**, or a link not listed yet, on a SQLite Store; disabled with an explanation tip when the Store is stopped, busy, blocked, or broken |
 | **Restore…** | | Press → [Restore](#modals-opened-here) | `backup restore`, then `backup list` | not for **Missing** or unlisted rows |
 | Empty | **No Store files here** / **Not listed yet** | — | — | |
 
@@ -105,8 +105,8 @@ bucket. Home's page is described in [home.md](home.md); the cards are described 
 
 ## States and signals
 
-- **Store changed** (amber): the Store changed since this copy; **Back up now** updates it.
-- **Bucket changed**: someone else rewrote the copy; **Restore…** can bring it in.
+- **Store changed** (neutral): the Store changed since this copy; **Back up now** updates it.
+- **Bucket changed** (neutral): someone else rewrote the copy; **Restore…** can bring it in.
 - **Both changed** (red): both sides moved; restore as a new Store, or back up under a new name.
 - **Missing** (red): the object is gone; back up again under a new file name (LayerFS will
   not reuse the name).

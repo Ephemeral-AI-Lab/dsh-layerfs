@@ -3,6 +3,7 @@
 // the merged build (layerfs-project#164, #180), or the UI checks run against
 // it check nothing. Never evidence about a real build.
 //   node --test test/observe-standin.test.mjs
+import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
@@ -10,13 +11,13 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const shim = new URL('./fixtures/cli-inspect-observe.mjs', import.meta.url).pathname
+const shim = fileURLToPath(new URL('./fixtures/cli-inspect-observe.mjs', import.meta.url))
 
 /** A fixture folder and a last CLI that answers as a CLI before #164 does, recording what it was asked. */
 function fixture(config) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-observe-standin-'))
   const last = join(dir, 'last-cli.mjs')
-  writeFileSync(last, `#!${process.execPath}
+  writeFileSync(last, `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs'
 const a = process.argv.slice(2)
 appendFileSync(${JSON.stringify(join(dir, 'last.log'))}, JSON.stringify(a) + '\\n')

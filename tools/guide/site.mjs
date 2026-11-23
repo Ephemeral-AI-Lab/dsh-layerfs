@@ -5,13 +5,14 @@
 //   node tools/guide/site.mjs                      -> docs/guide/explorer.html (open it in a browser)
 //   node tools/guide/site.mjs --fragment --out X   -> X without <html>/<head>/<body> (for an Artifact)
 // Screenshots are referenced as img/<name>.png, next to the output file.
+import { fileURLToPath } from 'node:url'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 
 const args = process.argv.slice(2)
 const flag = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback }
-const dir = new URL('../../docs/guide/', import.meta.url).pathname
+const dir = fileURLToPath(new URL('../../docs/guide/', import.meta.url))
 const out = resolve(flag('--out', join(dir, 'explorer.html')))
 const fragment = args.includes('--fragment')
 
@@ -164,7 +165,11 @@ function figure(alt, href, ctx) {
   const src = href.replace(/^\.\.\//, '')
   if (!existsSync(join(dir, src))) return `<span class="missing">${alt}</span>`
   ctx.images.push(src)
-  return `<button type="button" class="shot" data-src="${esc(src)}" data-alt="${alt}"><img src="${esc(src)}" alt="${alt}" loading="lazy"></button>`
+  // Reserve the screenshot's space so lazy loading cannot move an anchored section.
+  const png = readFileSync(join(dir, src))
+  const width = png.readUInt32BE(16)
+  const height = png.readUInt32BE(20)
+  return `<button type="button" class="shot" data-src="${esc(src)}" data-alt="${alt}"><img src="${esc(src)}" alt="${alt}" width="${width}" height="${height}" loading="lazy"></button>`
 }
 
 function splitRow(line) {
@@ -400,6 +405,10 @@ const templates = LANGS.map((l) => `<template id="nav-${l}">${built[l].nav}</tem
 
 const body = `<title>LayerFS UI Guide</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<script>
+// The router scrolls to the translated fragment. A late reload restore would overwrite it.
+history.scrollRestoration = 'manual'
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">

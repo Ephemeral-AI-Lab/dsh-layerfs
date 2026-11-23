@@ -1,5 +1,6 @@
 // Live private-home proof: local history survives removal and name reuse;
 // navigation/status reads never recreate execution resources.
+import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -7,7 +8,7 @@ import { openDev, runTurn } from '../tools/e2e-lib.mjs'
 
 const { browser, page, logs } = await openDev()
 page.setDefaultTimeout(20_000)
-const dev = process.env.DSH_LAYERFS_DEV_DIR ?? new URL('../.dev', import.meta.url).pathname
+const dev = process.env.DSH_LAYERFS_DEV_DIR ?? fileURLToPath(new URL('../.dev', import.meta.url))
 const store = `binding${Date.now().toString(36)}`, project = `${store}/app`, encoded = encodeURIComponent(project)
 const op = (name, args = {}) => page.evaluate(([name, args]) => window.__dshLayerfs.op(name, args), [name, args])
 const http = async (method, path, body) => {

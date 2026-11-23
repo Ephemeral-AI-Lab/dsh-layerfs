@@ -1,4 +1,4 @@
-<!-- source: 45ea773d5f5e -->
+<!-- source: def4913d3f30 -->
 # 每个操作及其 LayerFS 调用
 
 每一行是你能做的一件事（或者一个视图为了绘制自己所做的一次读取），它调用的主机路由或操作，以及背后的
@@ -20,9 +20,9 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 操作 | 位置 | 主机路由或 op | LayerFS 调用 |
 |---|---|---|---|
 | 主页绘制 | `LayerFS › 主页` | `GET /api/storage`, `GET /api/projects` | `home get`, `project list`, `store auths`, `store list` (读取) |
-| 诊断计数、主目录检查 | 主页 › 头部卡片 | `GET /api/doctor/results`, `POST /api/doctor/runs` `{kind: home}` | 主机内存；`home doctor` |
-| 头部卡片 **刷新**（Refresh） | 主页 › 头部卡片 | 存储视图、项目和一次诊断运行 | 上面那些读取，然后 `home doctor` |
-| 运行时、设置 | 主页 › 头部卡片 | op `setup.status`, `runtime.status` | `home get`（缺失时再 `home init`）；`--version --json` |
+| 诊断计数、主目录检查 | Center 导航栏 › 诊断（计数）、主页 › 概览头部 › 刷新（重新检查） | `GET /api/doctor/results`, `POST /api/doctor/runs` `{kind: home}` | 主机内存；`home doctor` |
+| 概览头部 **刷新**（Refresh） | 主页 › 概览头部 | 存储视图、项目和一次诊断运行 | 上面那些读取，然后 `home doctor` |
+| 运行时、设置 | 主页 › 概览头部 › 运行时、Center 导航栏 › 设置 | op `setup.status`, `runtime.status` | `home get`（缺失时再 `home init`）；`--version --json` |
 | 跳转到、面包屑切换、后退、前进 | 导航栏 | — | — |
 | **添加 › 新建 Store**（Add › New Store） | 导航栏 | `POST /api/stores` | `store create` |
 | **添加 › 连接数据库**（Add › Connect a database） | 导航栏 | `POST /api/stores/postgresql` | `store save-auth`, `store connect`, `store get` |
@@ -38,7 +38,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 行内电源 **启动**（Start）、**停止**（Stop）→ **确认：停止**（Confirm: Stop） | `主页 › 机器` | `POST /api/machines/:id/stop` / `start` | `machine stop` / `machine start` |
 | 行内 **添加 Store**（Add Store） | `主页 › 机器` | `POST /api/machines/:id/stores` | `store move`（一个任务） |
 | 行内 **新建 Sandbox**（New Sandbox） | `主页 › 机器` | `POST /api/projects/:id/sandboxes` | (`machine start`), `project get`, `sandbox create`, `store get` |
-| **⋯ › 诊断此主机**（⋯ › Diagnose this host） | `主页 › 机器` | `POST /api/doctor/runs` `{kind: home}` | `home doctor` |
+| **诊断此主机**（Diagnose this host） | `主页 › 机器`，标签栏 | `POST /api/doctor/runs` `{kind: home}` | `home doctor` |
 | LayerFS 侧边栏行 | DSH 侧边栏 | — | — |
 | Workspace 切换 | DSH 侧边栏 | — （当前浏览器） | — |
 | LayerFS 视图的行 | DSH 侧边栏，LayerFS 视图 | op `projects.recent`, `projects.catalog`, `GET /api/storage`, `GET /api/machines` | `project list`, `branch list`, `store get` (读取) |
@@ -153,7 +153,7 @@ LayerFS CLI 调用。各页面指南的表格里也写着同样的调用；这�
 | 看板磁盘、用量的磁盘拆分、**磁盘占用**（On disk） | 看板、概览、Sandbox 概览 | `GET /api/machines/:id/space` | `machine stats --with space` (读取，缓存 1 分钟) |
 | 磁盘空间对话框、**刷新**（Refresh） | `… › <machine> › 概览` | `GET /api/machines/:id/space[?fresh=1]` | `machine stats --with space` (读取) |
 | **运行诊断**（Run diagnostics） | 机器概览 | 诊断（`/api/doctor/…`） | `machine doctor` |
-| **诊断此主机**（Diagnose this host） | `主页 › 机器` ⋯ | 诊断 | `home doctor` |
+| **诊断此主机**（Diagnose this host） | `主页 › 机器`，标签栏 | 诊断 | `home doctor` |
 | **启动 worker**（Start worker）/ **启动**（Start） | 机器头部、看板、菜单 | `POST /api/machines/:id/start` | `machine start` |
 | **停止 worker**（Stop worker）/ **停止**（Stop） | 机器头部、看板、菜单 | `POST /api/machines/:id/stop` | `machine stop` |
 | **重启 worker**（Restart worker）（修复） | 机器头部、菜单 | `POST /api/machines/:id/restart` | `machine get`, `machine stop`, `machine start` |

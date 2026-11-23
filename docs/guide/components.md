@@ -1,5 +1,7 @@
 # Components
 
+> Images marked “isolated fixture data” show the current components rendered in a private browser with sample data. Other images come from the earlier demo setup.
+
 These parts appear on more than one page, so each is described once here. Page guides
 link to the sections below instead of repeating them.
 
@@ -7,6 +9,14 @@ link to the sections below instead of repeating them.
 
 The strip across the top of every Center page. It shows where you are, gets you
 elsewhere, and adds things.
+
+On the current Home navigation bar, 1 opens Doctor, 2 opens Logs and 3 opens Settings.
+
+![Home navigation with 1 Doctor, 2 Logs and 3 Settings (current UI, isolated fixture data)](img/home-navigation.png)
+
+*Isolated fixture data.*
+
+The earlier multi-Store example below shows the breadcrumb switcher.
 
 ![The nav bar on a project page](img/home-nav-bar.png)
 
@@ -16,42 +26,55 @@ elsewhere, and adds things.
 | 3 | Breadcrumb | `Home › Stores › demo-starter › bookshelf` | Press a crumb → that page | — | The last crumb is the page you're on |
 | 4 | Crumb switcher | A chevron after a crumb (**Switch from {name}**), or a caret on the current crumb, when that place has siblings | Press → a menu of its siblings (every Store, every project in this Store, …) with their kind and place → open one | — (uses what Center already read) | Only when there is more than one sibling |
 | | Transfers | **{n} transfers**, with a percentage and a progress track, while moves, backups or restores run | Press → that Store's page (one job), or a menu of them (several) | — (the jobs Center already tracks) | Hidden when nothing is running |
-| 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**) | Press it or use the shortcut → **Jump to a project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets and Pages (Doctor, Logs). **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
-| 6 | Refresh | A circular arrow, on every page except Home | Press → the page reads its data again | The page's own reads | A dot while reading |
-| 7 | **+ Add** | **New project**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store save-auth`, `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | **New machine** only shows when a platform can create one |
+| 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**) | Press it or use the shortcut → **Jump to a session, project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets, Pages and Sessions. Session hits show the title and ID and open the conversation. **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
+| 6 | Refresh | A circular arrow, on every page except Home, Doctor and Logs (each has its own) | Press → the page reads its data again | The page's own reads | A dot while reading |
+| 7 | **+ Add** | **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store save-auth`, `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | New machine and New Sandbox stay visible with the reason when unavailable |
+| | Doctor | A shield with a count badge. Title: **Doctor: {n} findings** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, orange for a warning |
+| | Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
+| | Settings | A gear | Press → Set up LayerFS | `home get` (read) | |
 
 ![A crumb's switcher](img/home-crumb-switcher.png)
 
-![Jump to](img/home-jump.png)
+![Jump to (current UI, isolated fixture data)](img/home-jump.png)
 
-![The Add menu](img/home-add-menu.png)
+*Isolated fixture data.*
 
-## Head card
+![Session results with titles and IDs (current UI, isolated fixture data)](img/home-jump-search.png)
 
-The top of Home. It tells you which LayerFS this is and whether anything needs you.
+*Isolated fixture data.*
 
-![The head card](img/home-head-card.png)
+![The Add menu (current UI, isolated fixture data)](img/home-add-menu.png)
+
+*Isolated fixture data.*
+
+## Overview head
+
+The top of Home: the page's title, which LayerFS this is, and whether anything needs
+you. It is one row of text, not a card: no wordmark, no box.
+
+![The Overview head (current UI, isolated fixture data)](img/home-overview-head.png)
+
+*Isolated fixture data.*
 
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
-| 1 | LayerFS × DSH | The logo. Its tip names the LayerFS folder and the prepared images | — | — | |
-| 2 | Runtime | `LayerFS 2.0.0 · b275fc28` (**Show the pinned runtime**) | Press → [Set up LayerFS](entry-points.md#set-up-layerfs) | `--version --json` (read) | **LayerFS unavailable**, **Reading LayerFS…** |
-| 3 | Headline | A dot and the most urgent need, or **Nothing needs your attention** in green | The need's buttons (see [Needs-you notices](#needs-you-notices)) | The button's call | **+{n} more** when there are several |
-| 4 | Doctor | A shield with a count badge. Title: **Doctor: {n} findings** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, orange for a warning |
-| 5 | Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
-| 6 | Try a preset | The preset icon | Press → [Presets](presets.md) | — | |
-| 7 | Settings | A gear | Press → Set up LayerFS | `home get` (read) | |
-| 8 | Refresh | A circular arrow. Tip: **Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}** | Press → reads Stores, machines and buckets again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list` (read), then `home doctor` | Off while the checks run |
+| 1 | Title | **Overview**, the page's name | — | — | |
+| 2 | Runtime | `LayerFS 2.0.0 · 12345678`, the pinned build and its commit (**Show the pinned runtime**, and the LayerFS folder as the tip) | Press → opens [Set up LayerFS](entry-points.md#set-up-layerfs) on the runtime | `--version --json` (read) | **LayerFS unavailable**, **Reading LayerFS…**; a spinner while it is read, a red dot when the runtime is unusable |
+| 3 | Status line | The most urgent need, or **Nothing needs your attention** | The need's buttons (see [Needs-you notices](#needs-you-notices)) | The button's call | A dot before a need: red for a problem, amber for a warning; no dot when nothing needs you. **+{n} more** when there are several |
+| 4 | Try a preset | The preset icon | Press → [Presets](presets.md) | — | |
+| 5 | Refresh | A circular arrow. Tip: **Read the Stores, machines and buckets again, and re-run the home checks · Checked {ago}** | Press → reads Stores, machines and buckets again and re-runs the home checks | `home get`, `project list`, `store auths`, `store list` (read), then `home doctor` | A dot while the checks run |
 
-Items 4–8 form the "Doctor, Logs and Settings" group. If an action is refused, the refusal
-shows under the card with **Dismiss**.
+When Docker cannot run, a **Docker unavailable** chip sits beside the title; press it to
+see why and which docker machines it names. Use **+{n} more** to show or hide the remaining
+needs and their fix buttons under the status line. A refused action appears there with
+**Dismiss**.
 
 ## Needs-you notices
 
-What the head card's headline and its **+{n} more** list hold, most urgent first. Each
-notice names the thing, says why in LayerFS's words (in its tip), and offers the fix.
+What the Overview head's status line and its **+{n} more** list hold, most urgent first.
+Each notice names the thing, says why in LayerFS's words (in its tip), and offers the fix.
 A double click only presses once. If the fix is refused, the refusal shows under the
-head card.
+status line.
 
 | Component | Tone | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
@@ -65,10 +88,53 @@ head card.
 | **{store} is down** / **is unreachable** / **needs its update** / **needs its login** | Danger | The fix, or **Open** → the Store | The fix's calls (`store update`, `store save-auth`, …) | Clears when the Store is ready |
 | **{machine} is stopped and holds {stores}**: its projects can't open until it runs | Warning | **Open** | — | Clears when the machine runs |
 
-Hovering the dot shows **Problem**, **Warning** or **Note**. Doctor findings only count on
-the Doctor button. A Store with no backup isn't listed as a need. The notices come from
-what Center already reads about Stores, machines and platforms (`home get`,
+Hovering a notice's dot shows **Problem**, **Warning** or **Note**. Doctor findings only
+count on the Doctor button. A Store with no backup isn't listed as a need. The notices come
+from what Center already reads about Stores, machines and platforms (`home get`,
 `machine get`, `machine list`, `store list`, all reads).
+
+## Status words and dots
+
+A state is written as a word, and a dot appears only where something is wrong. The rule is
+one line: **a working thing is quiet, a failure keeps its red dot.**
+
+| Where | Everyday state | A failure |
+|---|---|---|
+| The Overview head's status line | **Nothing needs your attention**, no dot | A dot before the need: red for a problem, amber for a warning |
+| A Store card's status row | Nothing at all while the Store is ready; **docker is stopped** as a word, no dot (a stopped machine is stopped, not broken) | **Broken · …** keeps its red dot |
+| The backups badge | **No backup** as a plain word, no dot; a current backup's dot is green | A red dot for a problem backup, a grey one when a backup is out of date or could not be read |
+| A Doctor row | **OK** as a word, no dot before it | The row's check marks keep their dots (green passed, amber notice, red failed, grey not checked) |
+| A machine row or card | **Running** / **Stopped** as words | **Needs repair**, **Docker not running**, **Unavailable** keep their state colour |
+
+## Disabled buttons that say why
+
+A greyed button whose reason only appears in a screen reader is a dead end, so Center's
+disabled actions keep their reason in reach: an `ExplainedButton` (and a menu item with a
+`disabledReason`) stays focusable, is marked `aria-disabled` rather than `disabled`, and
+shows its reason in a tooltip on hover or keyboard focus.
+
+- **Buttons:** a Store card's **Push to…** and **Pull**; a Store page's **Add project**;
+  the Backups tab's **Back up to…**, **Back up now** and **Restore…**; a bucket's
+  **Back up now**.
+- **Menu items:** the Store menu's **Push to…**, **Pull to home**, **Move to another
+  machine…**, **Back up to…**, **Back up now · *bucket*/*file*** and **Compact…**; the
+  PostgreSQL login group's **Remove login** (off while a Store uses the login); the
+  machine menu's **Restart worker** (when its fix needs `--force`) and **Remove…**; the
+  nav bar's **+ Add** and the preset menu's **Stop machines**.
+- **No reason, because they are always pressable:** **Disconnect** (a Store's, a machine's
+  or a bucket's) and a Store menu's **Remove…** confirm before they act instead.
+
+A button that is simply unavailable until something else happens says which thing, as
+**Start docker first** does.
+
+## Monospace
+
+Commands, file paths, commit ids, version ids and source code are set in DSH's code font
+(`--ds-font-family-code`), never in the prose font: they are the parts a reader copies.
+That covers the CLI line in a [fix](components.md#fix-buttons) or a Doctor row's **Call**,
+the pins in [Set up LayerFS](entry-points.md#set-up-layerfs), the paths and ids on the
+[Files tab](project.md#files), a runtime or commit badge, and the folder, Store name,
+database URL, login name and user fields of the [project dialog](entry-points.md#project-dialog).
 
 ## File views
 
@@ -144,10 +210,10 @@ Stores on that machine. Both use the same card.
 | 1 | Name | Glyph and Store name | Click → the [Store page](store.md) | `store list` (read) | |
 | 2 | ⋯ | The [Store menu](#store-menu) | See the Store menu | per row | |
 | | Figure | SQLite: file size and **last write** *when*. PostgreSQL: packed bytes (or **n projects**) and the database name. Hover for the server and **Database id** | — | `store list`; for PostgreSQL also `store get --with stats` (read) | **Size unknown**. A size that may be out of date reads **size seen** *when*, with the tip **…its machine is stopped** or **…does not answer now**. Refused stats show `—` |
-| 3 | **Stored on** chip (SQLite, on Home only) | The machine (or **LayerFS Home**) with a dot that shows whether it is running | Click → the machine page | `home get` (read) | A grey dot means the machine is not running |
-| | **Connected from** chips (PostgreSQL) | One chip per side that connects, **This computer** first: whether it reaches the Store, and **n ▣** Sandboxes. Tip: its own or the default address, **checked** *when*, the PostgreSQL version, latency | Click → the check screen from that machine. A broken machine's chip opens the machine instead. The last chip, **+ Connect a machine**, opens the check from the first running machine that isn't connected yet | `store doctor --machine` | Red: the check failed, or the machine is broken. Grey: **not checked** |
+| 3 | **Stored on** chip (SQLite, on Home only) | The machine (or **LayerFS Home**) and its glyph | Click → the machine page | `home get` (read) | A red dot when the machine is broken; otherwise none (a stopped machine is a word on the chip's tip, not a dot) |
+| | **Connected from** chips (PostgreSQL) | One chip per side that connects, **This computer** first: whether it reaches the Store, and the running Sandbox count with a box icon. Tip: its own or the default address, **checked** *when*, the PostgreSQL version, latency | Click → the check screen from that machine. A broken machine's chip opens the machine instead. The last chip, **+ Connect a machine**, opens the check from the first running machine that isn't connected yet | `store doctor --machine` | Red: the check failed, or the machine is broken. Grey: **not checked** |
 | 4 | Project rows | Up to three projects (one while a status shows), each with packed bytes and a share bar | Click → the project page | `project list`, `project stats`, `branch get` (read; polled every 2 s while counting) | **Reading…**, `—` with **Not counted here**, **No commits since Init**, **No projects · Add project** (`project init`) |
-| | Status row | Shows only when something is happening: a running or just-ended [job card](#job-card), **Another client runs …**, or a word saying what needs you (**Waiting on docker**, **Broken · …**) with its one action (**Start** *m*, a [fix](#fix-buttons), or **Repair** *m*) | That action | `machine start`, or the fix's call | |
+| | Status row | Shows only when something is happening: a running or just-ended [job card](#job-card), **Another client runs …**, or a word saying what needs you (**Waiting on docker**, **Broken · …**) with its one action (**Start** *m*, a [fix](#fix-buttons), or **Repair** *m*). Only a failure keeps a dot ([Status words and dots](#status-words-and-dots)) | That action | `machine start`, or the fix's call | |
 | 5 | Backups badge (SQLite) | Provider marks, **n backup(s)**, and a dot for the worst state. Tip: **x need attention, y out of date, z current, w not listed** | Click → the Backups of *store* dialog. With no backup it reads **No backup** and opens Back up | `backup list` per linked bucket (read), when the dialog opens | |
 | | **+n projects** | The Store has more projects than the card shows | Click → the Store page | — | |
 | 6 | Foot action (SQLite) | **Push to…** for a Store in the LayerFS Home, **Pull** for a Store on a machine | **Push to…** → the Push dialog. **Pull** → a pull job | `store move <s> <m>`, or `store get` then `store move <s> native` | Off unless the Store is Ready. Hidden while a job runs |

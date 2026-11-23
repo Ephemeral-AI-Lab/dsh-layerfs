@@ -180,7 +180,7 @@ function resultOfNode(node: DoctorNode, findings: readonly DoctorFinding[], notC
   return {
     status: node.status, coverage: node.coverage ?? 'shallow', checks,
     blockedBy: blockOf(node.blocked_by) ?? blockOf(whole?.blocked_by),
-    reason: node.reason ?? (node.status === 'not_checked' ? (notChecked.find((n) => n.reason)?.reason ?? null) : null),
+    reason: node.reason ?? (node.status === 'not_checked' ? (whole?.reason ?? (!checks.some((c) => c.r !== 'nc') ? notChecked.find((n) => n.reason)?.reason ?? null : null)) : null),
     code: null, findings: [...findings].sort(bySeverity), at,
   }
 }
@@ -702,7 +702,7 @@ export function viewOf(state: DoctorState, thing: Thing, depth: number, open: bo
     fix: blocked ? null : fixOf(thing, base),
     folder: kids.length > 0,
     inside: kids.length && !open ? within(state, thing) : { bad: 0, warn: 0 },
-    canCheck: DOCTOR_KINDS.includes(thing.kind) && !blocked && !base.stopped,
+    canCheck: DOCTOR_KINDS.includes(thing.kind) && !blocked,
     canFull: FULL_KINDS.includes(thing.kind) && !blocked,
     ownTrouble: seen.st === 'notice' || seen.st === 'problem' || (seen.st === 'nc' && seen.why === 'could') || (seen.stopped && seen.st !== 'run') || !!state.refusals[thing.key],
   }
@@ -712,6 +712,7 @@ export function viewOf(state: DoctorState, thing: Thing, depth: number, open: bo
 
 export interface Head {
   counts: Record<RowState, number>
+  stopped: number
   total: number
   /** The headline: Check all's progress, the problems, nothing checked yet, the notices, no problems so far, or all clear. */
   headline: { kind: 'checking', done: number, total: number } | { kind: 'problems' | 'notices', n: number } | { kind: 'notChecked' | 'noProblems' | 'allClear' }
@@ -721,15 +722,24 @@ export interface Head {
 export function headOf(state: DoctorState): Head {
   const world = state.world!
   const counts: Record<RowState, number> = { ok: 0, notice: 0, problem: 0, run: 0, nc: 0 }
-  for (const thing of world.things) counts[stateOf(state, thing).st] += 1
+  // a machine stopped on purpose reads Stopped on its row whether or not a doctor has looked (Row's stoppedNeutral):
+  // the head counts it as stopped, and one not yet checked still keeps the headline at Not checked
+  let stopped = 0
+  let stoppedNc = 0
+  for (const thing of world.things) {
+    const o = stateOf(state, thing)
+    if (o.stopped && (o.st === 'ok' || o.st === 'nc')) { stopped += 1; if (o.st === 'nc') stoppedNc += 1 }
+    else counts[o.st] += 1
+  }
   const total = world.things.length
+  const unchecked = counts.nc + stoppedNc
   const headline: Head['headline'] = state.all ? { kind: 'checking', done: Object.keys(state.all.done).length, total: Object.keys(state.all.total).length }
     : counts.problem ? { kind: 'problems', n: counts.problem }
-      : counts.nc === total ? { kind: 'notChecked' }
+      : unchecked === total ? { kind: 'notChecked' }
         : counts.notice ? { kind: 'notices', n: counts.notice }
-          : counts.nc || counts.run ? { kind: 'noProblems' } : { kind: 'allClear' }
-  const st: RowState = state.all || counts.run ? 'run' : counts.problem ? 'problem' : counts.nc === total ? 'nc' : counts.notice ? 'notice' : counts.nc ? 'nc' : 'ok'
-  return { counts, total, headline, state: st }
+          : unchecked || counts.run ? { kind: 'noProblems' } : { kind: 'allClear' }
+  const st: RowState = state.all || counts.run ? 'run' : counts.problem ? 'problem' : unchecked === total ? 'nc' : counts.notice ? 'notice' : unchecked ? 'nc' : 'ok'
+  return { counts, stopped, total, headline, state: st }
 }
 
 export const TABS = [['machines', 'machine'], ['stores', 'store'], ['projects', 'project'], ['sandboxes', 'sandbox'], ['backups', 'bucket']] as const

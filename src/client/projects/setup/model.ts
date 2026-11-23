@@ -86,12 +86,41 @@ export function primaryMachine(store: Pick<StoreRow, 'kind' | 'machine' | 'conne
   return store.kind === 'postgresql' ? pgDefaultMachine(store, machines) : store.machine ?? 'native'
 }
 
-/** A free Store name from a project name: itself, else `-2`, `-3`, … */
+const MAX_STORE_NAME = 63
+
+/** A free Store name from a project name: itself, else `<prefix>-2`, `<prefix>-3`, … within 63 chars. */
 export function freeStoreName(base: string, view: Pick<StorageView, 'stores'> | undefined): string {
   const taken = new Set((view?.stores ?? []).map((s) => s.name))
-  const root = base || 'projects'
+  const root = (base || 'projects').slice(0, MAX_STORE_NAME).replace(/[^a-z0-9]+$/, '') || 'projects'
   if (!taken.has(root)) return root
-  for (let n = 2; ; n++) if (!taken.has(`${root}-${n}`.slice(0, 63))) return `${root}-${n}`.slice(0, 63)
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`
+    const maxPrefix = MAX_STORE_NAME - suffix.length
+    const prefix = maxPrefix > 0 ? root.slice(0, maxPrefix).replace(/[^a-z0-9]+$/, '') : ''
+    const candidate = prefix ? `${prefix}${suffix}` : String(n)
+    if (!taken.has(candidate)) return candidate
+  }
+}
+
+export interface NewStoreResolution {
+  slugTaken: boolean
+  autoName: string
+  chosenName: string
+  showField: boolean
+  conflictNotice: boolean
+}
+
+/** Resolve the Store name for a new Store: follows `slug` quietly until `slug` collides with an existing Store, then suggests a free name and exposes the editable field + notice. */
+export function resolveNewStoreName(
+  slug: string,
+  typedStoreName: string | null,
+  view: Pick<StorageView, 'stores'> | undefined,
+): NewStoreResolution {
+  const slugTaken = !!slug && !!view?.stores.some((s) => s.name === slug)
+  const autoName = slugTaken ? freeStoreName(slug, view) : slug
+  const chosenName = (typedStoreName ?? autoName).trim()
+  const showField = slugTaken || typedStoreName !== null
+  return { slugTaken, autoName, chosenName, showField, conflictNotice: slugTaken && typedStoreName === null }
 }
 
 /**

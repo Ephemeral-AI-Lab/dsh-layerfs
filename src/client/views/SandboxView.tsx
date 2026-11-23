@@ -597,9 +597,9 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
     const pw = arc.map((b) => nodes.get(node('branch', b))?.offsetWidth ?? 80)
     const maxPill = Math.max(0, ...pw)
     const hx = f.cz0 + f.leftRoom + f.rh + Math.max(0, (f.czW - f.leftRoom - f.rightRoom - (f.rh + f.Rx + maxPill)) / 2)
-    const contentH = Math.max(leftH, rightH, 2 * f.half + 40, 2 * f.rh + 150, 260)
+    const contentH = Math.max(leftH, rightH, arc.length ? 2 * f.half + 40 : 0, 2 * f.rh + (arc.length ? 150 : 134))
     const H = f.top + contentH + f.bottom
-    const hy = f.top + contentH / 2 - 6
+    const hy = f.top + contentH / 2
     const agentsTop = f.top + Math.max(0, (contentH - leftH) / 2), boxesTop = f.top + Math.max(0, (contentH - rightH) / 2)
     const n = arc.length
     const branch: Layout['branch'] = {}
@@ -986,7 +986,7 @@ export function SandboxMap({ api, t, project, agents, calls, loaded, binding, li
           })}
         </section>
 
-        <div className={css.legend} style={{ left: frame.cz0 + frame.czW / 2 }}>
+        <div className={css.legend} style={{ left: L?.hx ?? frame.cz0 + frame.czW / 2 }}>
           <span><i className={css.legendLane} />{t('legendRequest')}</span>
           <span><i className={css.legendOk} />{t('legendResult')}</span>
           <span><i className={css.legendError} />{t('legendRefused')}</span>

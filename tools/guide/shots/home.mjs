@@ -2,7 +2,7 @@
 // One page serves every shot in a run, so each shot sets the tab, kind and view it needs instead of assuming them.
 
 const bar = (p) => p.locator('header[aria-label="Home navigation"]')
-const tools = (p) => p.locator('nav[class*=tools]')
+const tools = (p) => p.getByRole('group').filter({ has: p.getByRole('button', { name: 'Try a preset', exact: true }) })
 const head = (p) => tools(p).locator('xpath=..')
 const homeTab = (p, name) => p.getByRole('tablist', { name: 'Projects, Stores, backups, connections and machines' }).getByRole('tab', { name: new RegExp(`^${name}\\b`) })
 
@@ -48,10 +48,7 @@ export default [
       (p) => head(p).locator('[class*=identity] [class*=name]'),
       (p) => head(p).getByRole('button', { name: /^LayerFS 2/ }),
       (p) => head(p).locator('h1'),
-      (p) => tools(p).getByRole('button', { name: 'Doctor' }),
-      (p) => tools(p).getByRole('button', { name: 'Logs' }),
       (p) => tools(p).getByRole('button', { name: 'Try a preset' }),
-      (p) => tools(p).getByRole('button', { name: 'Settings' }),
       (p) => tools(p).getByRole('button', { name: 'Refresh' }),
     ],
   },
@@ -68,7 +65,26 @@ export default [
       (p) => bar(p).getByRole('button', { name: /Jump to/ }),
       (p) => bar(p).getByRole('button', { name: 'Refresh' }),
       (p) => bar(p).getByRole('button', { name: 'Add' }),
+      (p) => bar(p).getByRole('button', { name: 'Doctor', exact: true }),
+      (p) => bar(p).getByRole('button', { name: 'Logs', exact: true }),
+      (p) => bar(p).getByRole('button', { name: 'Settings', exact: true }),
     ],
+  },
+  {
+    file: 'home-navigation',
+    run: (_page, h) => h.home(),
+    clip: bar,
+    callouts: ['Doctor', 'Logs', 'Settings'].map(name => p => bar(p).getByRole('button', { name, exact: true })),
+  },
+  {
+    file: 'home-jump-search',
+    run: async (page, h) => {
+      await h.home()
+      await bar(page).getByRole('button', { name: /Jump to/ }).click()
+      await page.getByRole('combobox').fill('Fake session')
+      await page.getByRole('option', { name: /Fake session/i }).first().waitFor()
+    },
+    clip: p => p.getByRole('dialog'),
   },
   {
     file: 'home-crumb-switcher',

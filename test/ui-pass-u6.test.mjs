@@ -7,10 +7,10 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-ui-pass-u6-'))
 await build({
@@ -139,7 +139,9 @@ test('minor: a busy machine says its op once ("Stopping", not "Stopping · stop 
 })
 
 test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row shows no old "data read"', () => {
-  assert.match(src('src/client/storage/StoragePage.tsx'), /<HealthView api=\{api\} t=\{doctorT\} ts=\{t\} refreshKey=\{checks\} \/>/)
+  const page = src('src/client/storage/StoragePage.tsx')
+  assert.match(page, /const refresh = \(\) => \{[^}]*setPageRefresh\(\(n\) => n \+ 1\)/)
+  assert.match(page, /<HealthView api=\{api\} t=\{doctorT\} ts=\{t\} refreshKey=\{pageRefresh\} \/>/)
   const hook = src('src/client/doctor/use-doctor.ts')
   assert.match(hook, /if \(lastKey\.current === refreshKey\) return[\s\S]*readTree\(\)\.then\(\(\) => resync\(\)\)/)
   const t = (key, vars) => fill(M.doctorLocales.en[key] ?? key, vars)

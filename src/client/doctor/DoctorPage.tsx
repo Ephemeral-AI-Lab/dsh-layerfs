@@ -9,8 +9,9 @@
  * until Check, Full check or Check all has run. The model is `model.ts`, the
  * calls are `use-doctor.ts`, the words are `words.ts`.
  */
+import { usePageReading } from '../storage/PaneBar.tsx'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconRefreshOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostError, LayerfsApi } from '../api.ts'
 import { MachinesGlyph, SandboxesGlyph, StoreGlyph } from '../machines/icons.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
@@ -43,6 +44,7 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
   const w = useMemo(() => wordsOf(t), [t])
   const toast = useToast()
   const doctor = useDoctor(api, (what) => toast(w.toast(what)), refreshKey)
+  usePageReading(doctor.loading)
   const { state } = doctor
   const [tab, setTab] = useState<TabKey>('machines')
   const [open, setOpen] = useState<Record<string, boolean>>({})
@@ -133,8 +135,12 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
     : h.kind === 'problems' ? w.n('dpProblems', h.n) : h.kind === 'notices' ? w.n('dpNotices', h.n)
       : h.kind === 'notChecked' ? w.word('nc') : h.kind === 'noProblems' ? w.t('dpHeadNoProblems') : w.t('dpHeadAllClear')
   const counts = [
-    head.counts.ok ? w.t('dpCountOk', { n: head.counts.ok }) : '', head.counts.problem && h.kind !== 'problems' ? w.n('dpProblems', head.counts.problem) : '',
-    head.counts.notice ? w.n('dpNotices', head.counts.notice) : '', head.counts.run ? w.t('dpCountChecking', { n: head.counts.run }) : '', head.counts.nc ? w.t('dpCountNc', { n: head.counts.nc }) : '',
+    head.counts.ok ? w.t('dpCountOk', { n: head.counts.ok }) : '',
+    head.stopped ? w.t('dpCountStopped', { n: head.stopped }) : '',
+    head.counts.problem && h.kind !== 'problems' ? w.n('dpProblems', head.counts.problem) : '',
+    head.counts.notice && h.kind !== 'notices' ? w.n('dpNotices', head.counts.notice) : '',
+    head.counts.run && h.kind !== 'checking' ? w.t('dpCountChecking', { n: head.counts.run }) : '',
+    head.counts.nc && h.kind !== 'notChecked' ? w.t('dpCountNc', { n: head.counts.nc }) : '',
   ].filter(Boolean).join(' · ')
   const plan = allPlan(state)
   const allWhy = state.all ? null : allOffWhy(state)
@@ -155,15 +161,19 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
               <span className={css.sr}>{w.t('dpTitle')}: </span>
               <StatusSignal fid="head" st={head.state} size={10} className={css.headSig} tip={{ title: headline, lines: [w.t('dpHeadTip')], cmds: ['layerfs home get --with tree'] }}>{headline}</StatusSignal>
             </h1>
-            <p className={css.intro}>{counts}</p>
+            {counts ? <p className={css.intro}>{counts}</p> : null}
           </div>
-          <Btn variant="primary" width="all" fid="checkAll" busy={!!state.all} off={!!allWhy} onPress={doctor.checkAll}
-            tip={{
-              title: w.t('dpCheckAll'), wide: true, lines: [allWhyText ?? w.t('dpCheckAllTip'), w.t('dpCheckAllLeftOut')],
-              cmds: ['layerfs home doctor', ...(plan?.stores.length ? [`layerfs store doctor ${w.t('dpEachStore')} ×${plan.stores.length}`] : []), ...(plan?.sandboxes.length ? [`layerfs sandbox doctor ${w.t('dpEachSandbox')} ×${plan.sandboxes.length}`] : [])],
-            }}>
-            {w.t('dpCheckAll')}
-          </Btn>
+          <div className={css.headActions}>
+            <Button variant="ghost" size="sm" aria-label={ts('refresh')} title={ts('refresh')}
+              icon={<IconRefreshOutlineRegular size={15} />} onClick={doctor.reload} />
+            <Btn variant="primary" width="all" fid="checkAll" busy={!!state.all} off={!!allWhy} onPress={doctor.checkAll}
+              tip={{
+                title: w.t('dpCheckAll'), wide: true, lines: [allWhyText ?? w.t('dpCheckAllTip'), w.t('dpCheckAllLeftOut')],
+                cmds: ['layerfs home doctor', ...(plan?.stores.length ? [`layerfs store doctor ${w.t('dpEachStore')} ×${plan.stores.length}`] : []), ...(plan?.sandboxes.length ? [`layerfs sandbox doctor ${w.t('dpEachSandbox')} ×${plan.sandboxes.length}`] : [])],
+              }}>
+              {w.t('dpCheckAll')}
+            </Btn>
+          </div>
         </div>
         <div className={css.homeBox}>
           <Row v={hv} open={homeOpen} ctx={ctx} />
@@ -183,7 +193,6 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
       <div className={css.card} role="tabpanel" id={panel} aria-labelledby={`${panel}-tab-${tab}`} data-rows="">
         {rows.length ? rows.map((x) => <div key={x.key} className={css.group}><Node thing={x} depth={0} ctx={ctx} /></div>) : <p className={css.none}>{w.t('dpTabEmpty')}</p>}
       </div>
-      <p className={css.source}>{splitOn(w.t('dpSource', { command: '\u0000' }), <code>layerfs home get --with tree</code>)}</p>
 
       {confirm ? (
         <Contained><Modal open onClose={() => setConfirm(null)} title={w.t('dpDeleteTitle', { name: confirm.thing.name })} closeLabel={w.t('close')}

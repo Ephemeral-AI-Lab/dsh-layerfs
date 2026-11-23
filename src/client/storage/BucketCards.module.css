@@ -23,7 +23,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
+  height: 28px;
   padding: 0 10px;
   border: 0;
   border-radius: 6px;
@@ -318,4 +318,10 @@ button.storeName {
   font-size: 13px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
+}
+
+.emptyBody {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
 }

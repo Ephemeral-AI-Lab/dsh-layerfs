@@ -81,7 +81,11 @@ function OpenDialog({ api, t, dialog, view, onClose, done, onDialog }: DialogsPr
   const after = <T,>(p: Promise<T>) => p.then((v) => { done(); return v })
   switch (dialog.kind) {
     case 'new-store': return <NewStoreDialog api={api} t={t} view={view} opened={dialog.machine} onClose={onClose} done={done} onDialog={onDialog} />
-    case 'connect': return <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} server={dialog.server} check={dialog.check} onClose={onClose} done={done} />
+    case 'connect': return (
+      <ConnectDatabaseDialog api={api} t={t} view={view} machine={dialog.machine} server={dialog.server} check={dialog.check} onClose={onClose} done={done}
+        onEditLogin={onDialog ? (store) => onDialog({ kind: 'pg-edit', store }) : undefined}
+        onRotateLogin={onDialog ? (auth) => onDialog({ kind: 'pg-rotate', auth }) : undefined} />
+    )
     case 'pg-edit': return <EditConnectionDialog api={api} t={t} view={view} store={dialog.store} machine={dialog.machine} onClose={onClose} done={done} />
     case 'pg-rotate': return <RotateLoginDialog api={api} t={t} view={view} auth={dialog.auth} onClose={onClose} done={done} />
     case 'add-project': return <NewProjectDialog api={api} t={t} store={dialog.store} onClose={onClose} done={done} />
@@ -611,7 +615,6 @@ function BucketDialog({ api, t, again, onClose, done }: { api: LayerfsApi, t: St
       {rotated ? (
         <p className={css.bucketStatus} data-tone="ok" data-rotated role="status">
           <Signal state="ok" size={7} title={t('keyRotated')} detail={t('keyRotatedTip')} />
-          <span className={css.bucketStatusText} title={t('keyRotatedTip')}>{t('keyRotated')}</span>
         </p>
       ) : null}
       <TileChoice label={t('provider')} value={provider} onChange={setProvider}

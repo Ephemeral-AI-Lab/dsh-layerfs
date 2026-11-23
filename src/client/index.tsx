@@ -42,6 +42,7 @@ export function apply(ctx: any): void {
   }, 'dsh-layerfs: remote')
   const workspace = () => ctx.get?.('uiWorkspace')
   const api = createApi(() => ctx.get?.('remote.layerfs'), {
+    createSession: (workspaceId) => ctx.get('sessions').create({ workspaceId }),
     currentSessionId: () => {
       const summaries = ctx.get?.('sessions')?.list?.getSnapshot?.()?.byId ?? {}
       return (Object.values(summaries) as any[]).find((session) => (session.retainedBy?.mainView ?? 0) > 0)?.id

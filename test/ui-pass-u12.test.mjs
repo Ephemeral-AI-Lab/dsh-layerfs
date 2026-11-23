@@ -8,11 +8,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 import { freshState, treeAnswer } from './fixtures/doctor-scenarios.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
 const out = mkdtempSync(join(root, 'lib', '.test-ui-pass-u12-'))
 
@@ -359,7 +359,7 @@ test('F11: a failed job\'s notice goes after a later success on its Store, or wh
   assert.equal(M.sm.failureSuperseded(failed, [failed, { id: 'b', kind: 'compact', store: 's', ended: 5, error: null }], stores), false, 'an earlier success does not')
   assert.equal(M.sm.failureSuperseded(failed, [failed, { id: 'b', kind: 'backup', store: 's', ended: 20, error: null }], stores), false, 'another kind does not')
   assert.equal(M.sm.failureSuperseded(failed, [failed], []), true, 'its Store removed')
-  assert.match(src('src/client/storage/HomeOverview.tsx'), /if \(failureSuperseded\(j, props\.jobs, view\.stores\)\) continue/)
+  assert.match(src('src/client/storage/HomeOverview.tsx'), /visibleFailures\(props\.jobs, view\.stores, props\.dismissed\)/)
 })
 
 test('F10: an in-use compaction is a word, its holders as the tip and Open <Sandbox>; never "failed in mark" or a raw refusal', () => {
@@ -380,7 +380,7 @@ test('F10: an in-use compaction is a word, its holders as the tip and Open <Sand
   assert.equal(M.sm.holderTab({ name: 'x', machine: null }), 'sandbox:native/x')
   const panel = src('src/client/storage/JobProgress.tsx')
   assert.doesNotMatch(panel, /<Refusal error=\{j\.error\}/, 'no raw refusal under the job')
-  assert.match(panel, /title=\{tip\}/)
+  assert.match(panel, /title=\{tip \?\? \(compact \? label : undefined\)\}/)
   for (const lang of ['en', 'zh']) for (const key of ['jobInUse', 'jobInUseHolders', 'jobOpenSandbox']) assert.ok(M.storageLocales[lang][key], `${lang} ${key}`)
   assert.doesNotMatch(M.storageLocales.en.jobFailed, / in \{phase\}/)
 })
@@ -534,9 +534,9 @@ test('R1 F6: a broken PostgreSQL Store makes its sessions unavailable (owner Q-R
   assert.match(sessions, /\{down \? null : <Button variant="outline" size="sm"[^]*t\('sessionsOpen'\)\}<\/Button>\}/)
   assert.match(page, /<Sessions api=\{api\} t=\{t\} project=\{project\} tick=\{tick\} store=\{store\} \/>/)
   const table = src('src/client/storage/ProjectTable.tsx')
-  assert.match(table, /\{sessionsUnavailable\(store\) \? null : <MenuItemButton[^]*?t\('ptNewSession'\)/)
+  assert.match(table, /const blockedSession = sessionsUnavailable\(store\) \? t\('ovSessionBlocked'\) : undefined/)
   assert.match(table, /down=\{sessionsUnavailable\(store\)\}/)
-  assert.match(table, /action=\{down \? undefined :/)
+  assert.match(table, /action=\{<button type="button" disabled=\{down\} title=\{down \? t\(\'ovSessionBlocked\'\)/)
   assert.match(table, /className=\{clsx\(css\.line, css\.sessionLine\)\} disabled=\{down\}/)
   assert.match(table, /store: \{ name: s\.name, kind: s\.kind, state: s\.state \}/)
   assert.match(src('src/client/storage/StorePage.tsx'), /<StoreProjects api=\{api\} store=\{\{ name: s\.name, kind: s\.kind, state: s\.state \}\}/)
@@ -637,10 +637,11 @@ test('M9: a lost VM (missing) is "VM gone": not worker down, no Stop or Restart,
   assert.doesNotMatch(M.storageLocales.en.ovVmGoneStores, /answer/)
 })
 
-test('R2-2: a Store on a stopped machine shows a dot, word, tip and its fix; its size tip says stopped, not "does not answer"', () => {
+test('R2-2: a broken Store shows its red dot, a stopped machine omits the idle dot, and both show word, tip and fix; its size tip says stopped, not "does not answer"', () => {
   const ms = src('src/client/storage/MachineStores.tsx')
   const status = ms.slice(ms.indexOf('function StoreStatus'), ms.indexOf('function SqliteCard'))
-  assert.match(status, /<StateDot state=\{s\.state === 'broken' \? 'error' : 'idle'\} size=\{8\} \/>/)
+  assert.match(status, /const tone = storeNoticeTone\(s, machineState\)/)
+  assert.match(status, /\{tone === 'danger' \? <StateDot state="error" size=\{8\} \/> : null\}/)
   assert.match(status, /const tip = useStoreTip\(s, t\) \?\? s\.fix \?\? undefined/)
   assert.match(ms, /t\(stoppedBlock\(s\) \? 'msSizeStaleStoppedTitle' : 'msSizeStaleTitle'/)
   const card = src('src/client/storage/StoreCard.tsx')
@@ -686,25 +687,25 @@ test('K FAIL 2 (V23-13): a login URL leaves Connect disabled, with its reason be
   assert.match(src('src/client/storage/parts.tsx'), /spellCheck=\{false\} aria-label=\{label\}/, 'TextField inputs (the Connection URL) carry their label as their name')
 })
 
-test('K FAIL 1 (R2-2): a Store blocked by its stopped machine (fix null) reads Waiting on <m>, with a tip and one guarded Start <m>', () => {
+test('K FAIL 1 (R2-2): a Store blocked by its stopped machine (fix null) reads <m> is stopped, with a tip and one guarded Start <m>', () => {
   const t = (key, vars) => `${key} ${JSON.stringify(vars ?? {})}`
   const s = { name: 'demo-build-cache', kind: 'sqlite', state: 'blocked', blockedBy: { machine: 'demo-build', reason: 'stopped' }, fix: null }
   assert.equal(M.stoppedBlock(s), true)
   assert.equal(M.stoppedBlock({ ...s, blockedBy: { machine: 'demo-build', reason: 'not_answering' } }), false, 'a broken machine keeps its Repair/fix route')
-  assert.equal(M.storeNotice(s, null, t), 'waitingOnMachine {"machine":"demo-build"}')
+  assert.equal(M.storeNotice(s, null, t), 'cardMachineStopped {"machine":"demo-build"}')
   const card = src('src/client/storage/StoreCard.tsx')
   assert.match(card, /if \(stoppedBlock\(s\) && s\.blockedBy\?\.machine && !s\.message\) return t\('waitingOnMachineTip', \{ machine: s\.blockedBy\.machine, store: s\.name \}\)/)
-  assert.match(card, /if \(stoppedBlock\(s\) && !s\.fix && s\.blockedBy\?\.machine && onStart\) return <MachineStartAction machine=\{s\.blockedBy\.machine\} t=\{t\} onStart=\{onStart\} \/>/)
+  assert.match(card, /if \(storeMachineStopped\(s, machineState\) && !s\.fix && \(s\.blockedBy\?\.machine \?\? s\.machine\) && onStart\) \{\s*return <MachineStartAction machine=\{s\.blockedBy\?\.machine \?\? s\.machine \?\? ''\} t=\{t\} onStart=\{onStart\} \/>\s*\}/)
   const press = card.slice(card.indexOf('export function MachineStartAction'))
   assert.match(press, /const guard = usePressGuard\(`start:\$\{machine\}`\)/, 'the same press guard (600 ms settle) as other power controls')
   assert.match(press, /disabled=\{guard\.settling\} aria-disabled=\{guard\.settling \|\| undefined\} aria-label=\{t\('startMachineNamed', \{ machine \}\)\}/)
   assert.match(press, /onClick=\{guard\(\(e\) => \{ e\.stopPropagation\(\); onStart\(\) \}\)\}/)
   // the existing Store start (StoragePage's StoreActions.start), so no new machine-start press site (u11 NOTE 3 list unchanged)
   const ms = src('src/client/storage/MachineStores.tsx')
-  assert.match(ms, /<StoreAction store=\{s\} t=\{t\} onStart=\{onStart\} \/>/)
-  assert.equal((ms.match(/words=\{notice\} onStart=\{on\.start\} \/>/g) ?? []).length, 1, 'the sqlite card only')
+  assert.match(ms, /<StoreAction store=\{s\} t=\{t\} onStart=\{onStart\} machineState=\{machineState\} \/>/)
+  assert.equal((ms.match(/words=\{notice\} onStart=\{on\.start\} machineState=\{machineState\} \/>/g) ?? []).length, 1, 'the sqlite card only')
   for (const lang of ['en', 'zh']) {
-    assert.match(M.storageLocales[lang].waitingOnMachine, /\{machine\}/)
+    assert.match(M.storageLocales[lang].cardMachineStopped, /\{machine\}/)
     assert.match(M.storageLocales[lang].waitingOnMachineTip, /\{machine\}[^]*\{store\}/)
     assert.match(M.storageLocales[lang].startMachineNamed, /\{machine\}/)
   }

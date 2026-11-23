@@ -60,7 +60,7 @@ function fakeCli(dir) {
   writeFileSync(join(dir, 'home', 'layerfs.json'), '{}')
   writeFileSync(join(dir, 'help.json'), JSON.stringify({ calls, commands: [], switches: [] }))
   const cli = join(dir, 'layerfs')
-  writeFileSync(cli, `#!${process.execPath}
+  writeFileSync(cli, `#!/usr/bin/env node
 import { appendFileSync, existsSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 const dir = ${JSON.stringify(dir)}, a = process.argv.slice(2), op = a[0] + '.' + a[1]
 if (a[0] === '--version') { console.log(JSON.stringify({ version: '2.0.0', commit: 'a'.repeat(40), dirty: false, features: [] })); process.exit(0) }
@@ -163,7 +163,7 @@ test('a timeout ends the CLI\'s process group, escalating to SIGKILL, and settle
   const cli = join(dir, 'layerfs')
   // ignores SIGTERM, and so does its helper, which holds stdout/stderr open
   const ignore = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"
-  writeFileSync(cli, `#!${process.execPath}
+  writeFileSync(cli, `#!/usr/bin/env node
 import { spawn } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 ${ignore}
@@ -189,7 +189,7 @@ writeFileSync(${JSON.stringify(join(dir, 'helper'))}, String(helper.pid))
 test('a CLI that exits while a helper holds its stdout still answers; child.kill signals the whole group', { timeout: 40000 }, async (t) => {
   const dir = join(root, 'linger'); mkdirSync(join(dir, 'home'), { recursive: true })
   const cli = join(dir, 'layerfs')
-  writeFileSync(cli, `#!/bin/sh\nif [ "$1" = hold ]; then sleep 30 & echo $! > ${dir}/helper; wait; exit 0; fi\nsleep 30 &\necho '{"ok":true}'\nexit 0\n`, { mode: 0o700 })
+  writeFileSync(cli, `#!/bin/sh\nif [ "$1" = hold ]; then sleep 30 & echo $! > "$(dirname "$0")/helper"; wait; exit 0; fi\nsleep 30 &\necho '{"ok":true}'\nexit 0\n`, { mode: 0o700 })
   let group
   t.after(() => { try { process.kill(-group, 'SIGKILL') } catch { /* gone */ } })
   const started = Date.now()

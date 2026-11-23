@@ -17,8 +17,8 @@ export type MachineTab = 'overview' | 'sandboxes' | 'stores' | 'images' | 'files
  * tab).
  */
 export function machineTabs(has: { images: boolean, files: boolean, log: boolean }): MachineTab[] {
-  return ['overview', 'sandboxes', 'stores', ...(has.images ? ['images' as const] : []),
-    ...(has.files ? ['files' as const] : []), ...(has.log ? ['log' as const] : [])]
+  return ['overview', ...(has.images ? ['images' as const] : []),
+    ...(has.files ? ['files' as const] : []), 'sandboxes', 'stores', ...(has.log ? ['log' as const] : [])]
 }
 
 /** What the Sandboxes tab needs of one sampler row (metrics.ts `sandboxTable`): its memory now, null when not read. */

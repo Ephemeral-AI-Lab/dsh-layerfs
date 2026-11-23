@@ -1,5 +1,7 @@
 # LayerFS in DSH: UI guide
 
+> Images marked “isolated fixture data” show the current components rendered in a private browser with sample data. Other images come from the earlier demo setup.
+
 dsh-layerfs adds LayerFS to the DeepSeek Harness (DSH) web app. LayerFS keeps project
 files in Stores and records every change as a Commit on a Branch. Agents work in
 Sandboxes on your machines. DSH stays the chat app it always was, and LayerFS adds one
@@ -19,7 +21,7 @@ call runs behind it.
   (the answer comes from host memory or from what your browser remembers).
   [cli-map.md](cli-map.md) lists every interaction in one place.
 - **Words are the UI's own.** Buttons are in **bold**, spelled as on screen.
-- The screenshots come from a demo setup: the Starter preset's Store `demo-starter`
+- The earlier screenshots come from a demo setup: the Starter preset's Store `demo-starter`
   (project `bookshelf`, 235 commits), a small Store `guide-notes` (project `handbook`, with
   one project conversation), and a bucket `guide-backups`.
 
@@ -73,15 +75,18 @@ flowchart LR
 LayerFS has a single row in DSH's sidebar. It opens **Center**, a page that shows one place
 at a time under its own navigation bar. Center starts on **Home**.
 
-![Center on Home, numbered](img/readme-center.png)
+![Center on Home, numbered (current UI, isolated fixture data)](img/readme-center.png)
+
+*Isolated fixture data.*
 
 | # | Component | What it is | Page |
 |---|---|---|---|
-| 1 | LayerFS sidebar row | Opens Center and folds the sidebar to icons | [Entry points](entry-points.md) |
-| 2 | Nav bar | Back/Forward, breadcrumb, **Jump to…** (⌘K), Refresh, **Add** | [Components › Nav bar](components.md#nav-bar) |
-| 3 | Doctor, Logs and Settings | Health checks, the call log, Presets, setup, refresh | [Components › Head card](components.md#head-card) |
-| 4 | Home's tabs | Projects · Stores · Machines | [Home](home.md) |
-| 5 | Projects table | Every project, with its Store, sessions and Sandboxes | [Home › Projects](home.md#projects) |
+| 1 | LayerFS row | The sidebar row that opens Center | [Entry points](entry-points.md#sidebar-layerfs-row) |
+| 2 | Navigation bar | History, location, Jump to, Doctor, Logs, Settings and Add | [Navigation](components.md#nav-bar) |
+| 3 | Doctor | Opens the checks and shows the findings count | [Doctor](health.md) |
+| 4 | Overview head | The title, the pinned runtime, the most urgent notice, Presets and Refresh | [Home](home.md) |
+| 5 | Tabs | Projects, Stores and Machines | [Home](home.md) |
+| 6 | Projects table | Projects with their Stores, sessions and Sandboxes | [Projects](home.md#projects) |
 
 ```mermaid
 flowchart TD
@@ -90,7 +95,7 @@ flowchart TD
   NS[New Session row] --> PC[Project control]
   L --> H[Home<br/><small>Projects · Stores · Machines</small>]
   H --> ST[Store<br/><small>Overview · Projects · Backups or Connections</small>]
-  H --> MA[Machine<br/><small>Overview · Sandboxes · Stores · Images · Files · Worker log</small>]
+  H --> MA[Machine<br/><small>Overview · Images · Files · Sandboxes · Stores · Worker log</small>]
   H --> PR[Project<br/><small>Files · History · Sandboxes · Sessions · Stats</small>]
   ST --> PR
   ST --> BK[Bucket]
