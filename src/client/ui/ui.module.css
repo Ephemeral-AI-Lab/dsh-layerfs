@@ -247,11 +247,11 @@
 }
 
 .card[data-tone='danger'] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, transparent);
+  border-color: var(--lf-tone-danger-border);
 }
 
 .card[data-tone='warning'] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 45%, transparent);
+  border-color: var(--lf-tone-warning-border);
 }
 
 /* ---------- facts: label at the start, value at the end, one ruled line each ---------- */
@@ -292,7 +292,7 @@
 }
 
 .fact[data-tone='danger'] dd {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .fact[data-tone='muted'] dd,
@@ -322,19 +322,23 @@
 }
 
 .chip[data-tone='success'] {
-  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary));
+  color: var(--lf-tone-success-fg);
 }
 
 .chip[data-tone='info'] {
-  color: var(--dsw-alias-state-business-primary);
+  color: var(--lf-tone-info-fg);
 }
 
 .chip[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .chip[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+  color: var(--lf-tone-warning-fg);
+}
+
+.chip[data-tone='neutral'] {
+  color: var(--lf-tone-neutral-fg);
 }
 
 .chip[data-dashed] .chipLabel {
@@ -378,14 +382,98 @@
 }
 
 .notice[data-tone='danger'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
-  color: var(--dsw-alias-state-error-primary);
+  background: var(--lf-tone-danger-bg);
+  color: var(--lf-tone-danger-fg);
 }
 
 .notice[data-tone='warning'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+  background: var(--lf-tone-warning-bg);
+  color: var(--lf-tone-warning-fg);
 }
+
+.notice[data-tone='success'] {
+  background: var(--lf-tone-success-bg);
+  color: var(--lf-tone-success-fg);
+}
+
+.notice[data-tone='info'] {
+  background: var(--lf-tone-info-bg);
+  color: var(--lf-tone-info-fg);
+}
+
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-module-platform);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.callout[data-tone='danger'] {
+  border-color: var(--lf-tone-danger-border);
+  background: var(--lf-tone-danger-bg);
+  --callout-accent: var(--lf-tone-danger-fg);
+}
+
+.callout[data-tone='warning'] {
+  border-color: var(--lf-tone-warning-border);
+  background: var(--lf-tone-warning-bg);
+  --callout-accent: var(--lf-tone-warning-fg);
+}
+
+.callout[data-tone='success'] {
+  border-color: var(--lf-tone-success-border);
+  background: var(--lf-tone-success-bg);
+  --callout-accent: var(--lf-tone-success-fg);
+}
+
+.callout[data-tone='info'] {
+  border-color: var(--lf-tone-info-border);
+  background: var(--lf-tone-info-bg);
+  --callout-accent: var(--lf-tone-info-fg);
+}
+
+.calloutIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-top: 2px;
+  color: var(--callout-accent, var(--dsw-alias-label-secondary));
+}
+
+.calloutBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.calloutTitle {
+  margin: 0;
+  font-weight: 500;
+  color: var(--callout-accent, var(--dsw-alias-label-primary));
+}
+
+.calloutActions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.toneText[data-tone='success'] { color: var(--lf-tone-success-fg); }
+.toneText[data-tone='warning'] { color: var(--lf-tone-warning-fg); }
+.toneText[data-tone='danger'] { color: var(--lf-tone-danger-fg); }
+.toneText[data-tone='info'] { color: var(--lf-tone-info-fg); }
+.toneText[data-tone='neutral'] { color: var(--lf-tone-neutral-fg); }
 
 .notice p {
   margin: 0;
@@ -515,7 +603,7 @@
   align-items: flex-start;
   gap: 10px;
   padding: 16px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .errorTitle {
@@ -551,11 +639,11 @@
 }
 
 .meter[data-tone='warning'] .meterFill {
-  background: var(--dsw-alias-state-warn-primary);
+  background: var(--lf-tone-warning-dot);
 }
 
 .meter[data-tone='danger'] .meterFill {
-  background: var(--dsw-alias-state-error-primary);
+  background: var(--lf-tone-danger-dot);
 }
 
 /* ---------- inline text link button ---------- */
@@ -610,7 +698,7 @@
 }
 
 .fieldError {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .field > :global(span):has(> input) {
@@ -619,7 +707,7 @@
 }
 
 .field[data-invalid] > :global(span):has(> input) {
-  border-color: var(--dsw-alias-state-error-primary);
+  border-color: var(--lf-tone-danger-dot);
 }
 
 .page button {
@@ -804,13 +892,20 @@
   width: 100%;
 }
 
-.dangerPrimary {
-  color: var(--dsw-alias-label-primary-inverted, var(--dsw-alias-label-primary-foreground));
-  background: var(--dsw-alias-state-error-primary);
+.dangerPrimary,
+.dangerSolid {
+  color: var(--lf-tone-danger-on-solid);
+  background: var(--lf-tone-danger-solid);
+}
+
+.dangerOutline {
+  color: var(--lf-tone-danger-fg);
+  --dsh-button-outline-color: var(--lf-tone-danger-border);
 }
 
 @media (hover: hover) {
-  .dangerPrimary:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 88%, var(--dsw-alias-label-primary));
+  .dangerPrimary:hover:not(:disabled),
+  .dangerSolid:hover:not(:disabled) {
+    background: var(--lf-tone-danger-solid-hover);
   }
 }

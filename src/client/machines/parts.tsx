@@ -5,8 +5,9 @@
  * dialogs, and the startup progress of a create or start.
  */
 import { useContext, useEffect, useMemo, useState, type ReactNode, type SyntheticEvent } from 'react'
-import { Button, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CopyLine, Field, FixAction, FixContext, MoreMenu, Refusal, StateChip, Contained, usePressGuard } from '../ui/index.tsx'
+import { Button, IconCheckOutlineRegular, IconChevronRightOutlineRegular, IconSettingsOutlineRegular, IconTrashOutlineRegular, IconWarningOutlineRegular, Input, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
+import { CopyLine, DangerButton, Field, FixAction, FixContext, MoreMenu, Refusal, StateChip, Contained, usePressGuard } from '../ui/index.tsx'
 import { runnableFix } from '../../shared/doctor.ts'
 import { useMachinesContext } from './context.tsx'
 import type { MachineAction } from './controller.ts'
@@ -256,10 +257,10 @@ function ForceStopDialog({ m, onClose, pending, run }: { m: MachineInfo, onClose
       footer={(
         <>
           <Button variant="outline" disabled={pending !== null} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" className={css.danger} disabled={pending !== null || guard.settling} aria-disabled={guard.settling || undefined}
+          <DangerButton disabled={pending !== null || guard.settling} aria-disabled={guard.settling || undefined}
             onClick={guard(() => void run('stop', { kind: 'stop', name: m.name, force: true }).then(() => onClose()))}>
             {pending === 'stop' ? t('forceStopping') : t('forceStopAction')}
-          </Button>
+          </DangerButton>
         </>
       )} />
   )
@@ -399,9 +400,9 @@ function RemoveDialog({ m, onClose, pending, run, onRemoved }: { m: MachineInfo,
       footer={(
         <>
           <Button variant="outline" disabled={busy} onClick={onClose}>{t('cancel')}</Button>
-          <Button variant="primary" className={css.danger} disabled={busy || !confirmed} onClick={() => void remove()}>
+          <DangerButton disabled={busy || !confirmed} onClick={() => void remove()}>
             {step ?? (pending === 'remove' ? t('removing') : occupied ? t('removeEverything') : t('remove'))}
-          </Button>
+          </DangerButton>
         </>
       )}>
       {occupied ? (
@@ -468,7 +469,7 @@ export function MachineProgress({ name, compact, failedAction }: { name: string,
     <section className={css.progress} data-compact={compact || undefined} data-status={status} aria-label={t('progressFor', { name })}>
       <div className={css.progressHead}>
         <span className={css.progressTitle} role="status" aria-live="polite">
-          {running ? <StateDot state="ongoing" /> : status === 'success' ? <IconCheckOutlineRegular size={14} /> : <IconWarningOutlineRegular size={14} />}
+          {running ? <StatusDot state="ongoing" /> : status === 'success' ? <IconCheckOutlineRegular size={14} /> : <IconWarningOutlineRegular size={14} />}
           <span>{title}</span>
         </span>
         <span className={css.progressElapsed}>{elapsed}</span>

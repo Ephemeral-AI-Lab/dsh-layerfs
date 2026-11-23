@@ -260,6 +260,7 @@
   padding: 0 8px;
   border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
+  corner-shape: round;
   color: var(--dsw-alias-label-primary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -392,10 +393,10 @@
   white-space: nowrap;
 }
 .statusRow[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 .statusRow[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 .foot {
   display: flex;
@@ -426,15 +427,18 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  overflow: hidden;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
+.checkText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .check[data-state='failed'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 .badge {
   all: unset;
@@ -484,16 +488,19 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--dsw-alias-border-l3);
 }
 .dot[data-health='problem'] {
-  background: var(--dsw-alias-state-error-primary);
+  background: var(--lf-tone-danger-dot);
+  box-shadow: var(--lf-tone-danger-halo);
 }
 .dot[data-health='stale'] {
   background: var(--dsw-alias-label-tertiary);
 }
 .dot[data-health='current'] {
-  background: var(--dsw-alias-state-success-primary);
+  background: var(--lf-tone-success-dot);
+  box-shadow: var(--lf-tone-success-halo);
 }
 .muted {
   color: var(--dsw-alias-label-secondary);
@@ -738,10 +745,10 @@
   background: repeating-linear-gradient(90deg, var(--dsw-alias-link) 0 6px, transparent 6px 10px);
 }
 .wire[data-state='ok'] {
-  background: var(--dsw-alias-state-success-primary);
+  background: var(--lf-tone-success-dot);
 }
 .wire[data-state='failed'] {
-  background: var(--dsw-alias-state-error-primary);
+  background: var(--lf-tone-danger-dot);
 }
 .steps {
   display: flex;
@@ -765,7 +772,7 @@
   color: var(--dsw-alias-label-primary);
 }
 .step[data-state='failed'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 .stepMark {
   display: inline-flex;
@@ -787,9 +794,9 @@
   flex-direction: column;
   gap: 10px;
   padding: 12px 14px;
-  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 24%, transparent);
+  border: 0.5px solid var(--lf-tone-danger-border);
   border-radius: var(--dsw-radius-md);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 6%, transparent);
+  background: var(--lf-tone-danger-bg);
 }
 .checkFailureNote {
   margin: 0;
@@ -807,15 +814,16 @@
   overflow: hidden;
   border-radius: 3px;
 }
-.health > [data-health='problem'] { background: var(--dsw-alias-state-error-primary); }
+.health > [data-health='problem'] { background: var(--lf-tone-danger-dot); }
 .health > [data-health='stale'] { background: var(--dsw-alias-label-tertiary); }
 .health > [data-health='unknown'] { background: var(--dsw-alias-border-l3); }
-.health > [data-health='current'] { background: var(--dsw-alias-state-success-primary); }
+.health > [data-health='current'] { background: var(--lf-tone-success-dot); }
 .pill {
   display: inline-flex;
   flex: none;
   padding: 0 7px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--dsw-alias-bg-module-platform);
   color: var(--dsw-alias-label-secondary);
   font-size: 11.5px;
@@ -825,9 +833,9 @@
   border: 0.5px dashed var(--dsw-alias-border-l3);
   background: transparent;
 }
-.pill[data-tone='success'] { color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary)); }
-.pill[data-tone='warning'] { color: var(--dsw-alias-state-warn-primary); }
-.pill[data-tone='danger'] { color: var(--dsw-alias-state-error-primary); }
+.pill[data-tone='success'] { color: var(--lf-tone-success-fg); }
+.pill[data-tone='warning'] { color: var(--lf-tone-warning-fg); }
+.pill[data-tone='danger'] { color: var(--lf-tone-danger-fg); }
 .pick {
   all: unset;
   box-sizing: border-box;
@@ -858,6 +866,7 @@
   height: 14px;
   border: 1.5px solid var(--dsw-alias-border-l3);
   border-radius: 50%;
+  corner-shape: round;
 }
 .radio[data-on='true'] {
   border: 4.5px solid var(--dsw-alias-link);

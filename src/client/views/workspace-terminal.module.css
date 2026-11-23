@@ -22,7 +22,7 @@
 .entry { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 
 .dim { flex-shrink: 0; color: var(--dsw-alias-label-tertiary); }
-.bad { display: inline-flex; align-items: center; gap: 3px; color: var(--dsw-alias-state-error-primary); }
+.bad { display: inline-flex; align-items: center; gap: 3px; color: var(--lf-tone-danger-fg); }
 
 .command, .output {
   margin: 0;
@@ -34,7 +34,7 @@
 .command { color: var(--dsw-alias-label-primary); }
 .prompt { margin-right: 6px; color: var(--lane, var(--dsw-alias-label-tertiary)); font-weight: 600; user-select: none; }
 .output { max-height: 180px; overflow-y: auto; color: var(--dsw-alias-label-secondary); }
-.outputBad { color: var(--dsw-alias-state-error-primary); }
+.outputBad { color: var(--lf-tone-danger-fg); }
 
 .waiting { display: flex; align-items: center; gap: 4px; color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono, ui-monospace, monospace); }
 .cursor { width: 6px; height: 11px; background: var(--lane, var(--dsw-alias-label-secondary)); opacity: 0.7; }

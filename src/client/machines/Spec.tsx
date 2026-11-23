@@ -7,8 +7,8 @@
  * nothing here changes the machine except the buttons.
  */
 import type { ReactNode } from 'react'
-import { Button, IconTrashOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Card, LinkButton } from '../ui/index.tsx'
+import { IconTrashOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Card, DangerButton, LinkButton } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import type { MachinesKey } from './locale.ts'
 import { storeLines } from './Inventory.tsx'
@@ -139,10 +139,10 @@ export function DangerZone({ m, pending, onRemove }: { m: MachineInfo, pending: 
         <span className={css.zoneTitle}>{t('dangerZone')}</span>
         {why && <span className={css.muted} data-remove-off={unreadable ? 'unreadable' : 'held'}>{why}</span>}
       </span>
-      <Button size="sm" variant="outline" className={css.dangerOutline} icon={<IconTrashOutlineRegular size={13} />} disabled={!!why || pending !== null}
+      <DangerButton appearance="outline" size="sm" icon={<IconTrashOutlineRegular size={13} />} disabled={!!why || pending !== null}
         title={why ?? undefined} onClick={onRemove}>
         {t('removeNamed', { name: m.name })}
-      </Button>
+      </DangerButton>
     </Card>
   )
 }

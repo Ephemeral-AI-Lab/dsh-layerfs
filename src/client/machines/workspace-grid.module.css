@@ -48,7 +48,7 @@
 .tag[data-tone='warning'] {
   border-color: transparent;
   background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 
 .run {
@@ -75,7 +75,7 @@
 }
 
 .sub[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
 }
 
 .spark {
@@ -132,6 +132,7 @@
   height: 4px;
   overflow: hidden;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--dsw-alias-bg-module-platform);
 }
 

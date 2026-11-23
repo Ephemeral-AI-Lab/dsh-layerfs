@@ -33,8 +33,8 @@ import { dateTime } from '../ui/locale-sync.ts'
 
 /** Agent hues (`--lane-0` … in sandbox.module.css). */
 const LANES = 6
-const OK = 'var(--dsw-alias-state-success-primary)'
-const BAD = 'var(--dsw-alias-state-error-primary)'
+const OK = 'var(--lf-tone-success-dot)'
+const BAD = 'var(--lf-tone-danger-dot)'
 /** Calls that save a version on their branch. */
 
 const ACTIVITY_KEY = 'dsh-layerfs:sandbox-activity'

@@ -114,7 +114,7 @@
 }
 
 .line[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* Room for five file rows on every card, so a row of cards lines up. */
@@ -202,7 +202,7 @@ button.storeName {
 }
 
 .when[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .dot {
@@ -210,11 +210,13 @@ button.storeName {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--dsw-alias-border-l3);
 }
 
 .dot[data-health='current'] {
-  background: var(--dsw-alias-state-success-primary);
+  background: var(--lf-tone-success-dot);
+  box-shadow: var(--lf-tone-success-halo);
 }
 
 .dot[data-health='stale'] {
@@ -222,7 +224,8 @@ button.storeName {
 }
 
 .dot[data-health='problem'] {
-  background: var(--dsw-alias-state-error-primary);
+  background: var(--lf-tone-danger-dot);
+  box-shadow: var(--lf-tone-danger-halo);
 }
 
 /* Words that act, quiet until hovered. */

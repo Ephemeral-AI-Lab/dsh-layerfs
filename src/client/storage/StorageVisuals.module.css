@@ -13,8 +13,8 @@
   --storage-referenced: var(--dsw-alias-state-business-tertiary);
   --storage-canonical: var(--dsw-alias-state-business-primary);
   --storage-stored: var(--dsw-alias-state-done-primary);
-  --storage-metadata: var(--dsw-alias-state-warn-primary);
-  --storage-overhead: var(--dsw-alias-state-warn-primary);
+  --storage-metadata: var(--lf-tone-warning-dot);
+  --storage-overhead: var(--lf-tone-warning-dot);
   --storage-free: var(--dsw-alias-border-l3);
   --storage-canonical-ink: var(--dsw-alias-label-primary-bluish);
   --storage-stored-ink: var(--dsw-alias-state-done-primary);

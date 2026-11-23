@@ -33,7 +33,7 @@
 }
 
 .chip[data-state='failed'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .chip:disabled {
@@ -145,7 +145,7 @@
 
 .error {
   max-width: 320px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   font-size: 12px;
   line-height: 18px;
   white-space: normal;

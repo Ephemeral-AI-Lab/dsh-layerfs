@@ -7,13 +7,16 @@ import { createContext, useContext, useEffect, useId, useRef, useState, type Com
 import clsx from 'clsx'
 import {
   Button, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconEllipsisOutlineRegular,
-  IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, StateDot, Tooltip,
+  IconRefreshOutlineRegular, IconWarningOutlineRegular, Menu, Tooltip,
   type StateDotState,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { removesSomething, runnableFix, typedNameOf, type RunnableFix } from '../../shared/doctor.ts'
+import { StatusDot, coreOf } from './StatusDot.tsx'
+import tones from './tones.module.css'
 import css from './ui.module.css'
 
-export { css as uiCss }
+export { css as uiCss, StatusDot, coreOf }
+export const toneScope = tones.lfTone
 export { ConfirmDialog, type ConfirmDialogProps, type ConfirmForce, type ConfirmLabels } from './ConfirmDialog.tsx'
 
 // ---------- page shell ----------
@@ -21,7 +24,7 @@ export { ConfirmDialog, type ConfirmDialogProps, type ConfirmForce, type Confirm
 /** The page's scroll container with its centered column. */
 export function Page({ wide, children, label }: { wide?: boolean, children: ReactNode, label?: string }): ReactNode {
   return (
-    <div className={css.page} data-wide={wide || undefined} role="region" aria-label={label}>
+    <div className={clsx(css.page, tones.lfTone)} data-wide={wide || undefined} role="region" aria-label={label}>
       <div className={css.column}>{children}</div>
     </div>
   )
@@ -160,19 +163,19 @@ function dotOf(tone: Tone, live: boolean): StateDotState {
  * A machine's, Store's or Sandbox's state as the SDK gives it: a state dot and
  * the word; an operation in flight follows in mono.
  */
-export function StateChip({ tone, label, live, dashed, op, title, className }: {
+export function StateChip({ tone, label, live, dot, dashed, op, title, className }: {
   tone: Tone
   label: string
   live?: boolean | undefined
+  dot?: boolean | undefined
   dashed?: boolean | undefined
-  /** The operation's words (`machine.start · boot`). */
   op?: string | null | undefined
   title?: string | undefined
   className?: string
 }): ReactNode {
   return (
     <span className={clsx(css.chip, className)} data-tone={tone} data-dashed={dashed || undefined} title={title}>
-      {live ? <span className={css.chipDot}><StateDot state={dotOf(tone, true)} /></span> : null}
+      {live || dot ? <span className={css.chipDot}><StatusDot state={dotOf(tone, !!live)} /></span> : null}
       <span className={css.chipLabel}>{label}</span>
       {op && <span className={css.chipOp}>· {op}</span>}
     </span>
@@ -245,9 +248,41 @@ export function Contained({ children }: { children: ReactNode }): ReactNode {
 
 // ---------- notice ----------
 
-/** A tinted strip for reasons, refusals and clearing calls. */
-export function Notice({ tone, children, className, role }: { tone?: 'danger' | 'warning' | undefined, children: ReactNode, className?: string, role?: string }): ReactNode {
+export function Notice({ tone, children, className, role }: { tone?: 'danger' | 'warning' | 'success' | 'info' | undefined, children: ReactNode, className?: string, role?: string }): ReactNode {
   return <div className={clsx(css.notice, className)} data-tone={tone} role={role}>{children}</div>
+}
+
+export function Callout({ tone, title, icon, actions, children, className, role }: {
+  tone?: 'danger' | 'warning' | 'success' | 'info' | undefined
+  title?: ReactNode
+  icon?: ReactNode
+  actions?: ReactNode
+  children?: ReactNode
+  className?: string
+  role?: string
+}): ReactNode {
+  return (
+    <div className={clsx(css.callout, className)} data-tone={tone} role={role}>
+      {icon ? <span className={css.calloutIcon} aria-hidden="true">{icon}</span> : null}
+      <div className={css.calloutBody}>
+        {title ? <p className={css.calloutTitle}>{title}</p> : null}
+        {children}
+      </div>
+      {actions ? <div className={css.calloutActions}>{actions}</div> : null}
+    </div>
+  )
+}
+
+export function DangerButton({ appearance = 'solid', className, ...rest }: Omit<ComponentProps<typeof Button>, 'variant'> & {
+  appearance?: 'solid' | 'outline'
+}): ReactNode {
+  return (
+    <Button
+      {...rest}
+      variant={appearance === 'solid' ? 'primary' : 'outline'}
+      className={clsx(appearance === 'solid' ? css.dangerSolid : css.dangerOutline, className)}
+    />
+  )
 }
 
 // ---------- refusal ----------
@@ -412,9 +447,8 @@ export function Refusal({ error, labels, compact, className, noFix }: { error: u
 
 // ---------- loading / empty / error ----------
 
-/** A read in flight. */
 export function Loading({ label }: { label: string }): ReactNode {
-  return <p className={css.status} role="status"><StateDot state="ongoing" />{label}</p>
+  return <p className={css.status} role="status"><StatusDot state="ongoing" />{label}</p>
 }
 
 /** Nothing to show, in a card. */
@@ -527,7 +561,7 @@ export function MoreMenu({ label, disabled, children, className }: { label: stri
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
   return (
-    <Menu open={open} onClose={close} align="end" portal autoFocus
+    <Menu open={open} onClose={close} align="end" portal autoFocus listClassName={tones.lfTone}
       anchor={(
         <Button variant="ghost" size="sm" className={clsx(css.iconButton, className)} disabled={disabled} aria-label={label} title={label}
           aria-haspopup="menu" aria-expanded={open} icon={<IconEllipsisOutlineRegular size={16} />}

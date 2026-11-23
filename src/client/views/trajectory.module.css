@@ -6,7 +6,7 @@
 .frame.frame {
   /* Kind column (pill right-aligned) and the indent of lines under a record. */
   --traj-kind: 84px;
-  --traj-model: color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color) 60%, var(--dsw-alias-state-error-secondary));
+  --traj-model: color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color) 60%, var(--lf-tone-danger-dot));
 
   isolation: isolate;
   gap: var(--lfs-section-gap, clamp(22px, 2.5vw, 32px));
@@ -277,11 +277,11 @@
 
 .lane_input { background: var(--dsw-alias-state-business-primary); }
 .lane_model { background: var(--traj-model); opacity: 1; }
-.lane_tools { background: var(--dsw-alias-state-warn-label); opacity: 1; }
+.lane_tools { background: var(--lf-tone-warning-dot); opacity: 1; }
 .lane_layerfs { background: var(--dsw-alias-label-tertiary); }
 
 .tone_created { background: var(--dsw-alias-state-business-primary); opacity: 1; }
-.tone_refused { background: var(--dsw-alias-state-error-primary); opacity: 1; }
+.tone_refused { background: var(--lf-tone-danger-dot); opacity: 1; }
 .tone_running { opacity: 0.45; }
 
 .markSelected {
@@ -501,22 +501,22 @@
 }
 
 .kind_context {
-  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-secondary));
-  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--lf-tone-success-fg);
+  background: var(--lf-tone-success-bg);
 }
 
 .kind_assistant {
   color: var(--traj-model);
   background: color-mix(
     in srgb,
-    color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color) 55%, var(--dsw-alias-state-error-secondary)) 15%,
+    color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color) 55%, var(--lf-tone-danger-dot)) 15%,
     var(--dsw-alias-bg-layer-1)
   );
 }
 
 .kind_tool {
-  color: var(--dsw-alias-state-warn-label);
-  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--lf-tone-warning-fg);
+  background: var(--lf-tone-warning-bg);
 }
 
 /* checkpoint and layerfs keep the neutral platform tint */
@@ -656,11 +656,11 @@
 }
 
 .errorText {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .warnText {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 /* A LayerFS call on one line, and version chips */
@@ -691,7 +691,7 @@
   padding: 1px 6px;
   border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .versions {

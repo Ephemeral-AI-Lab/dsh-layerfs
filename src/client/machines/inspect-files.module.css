@@ -43,7 +43,7 @@
 }
 
 .problem {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .goingLine {
@@ -250,7 +250,7 @@
   padding: 0 5px;
   border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   font-family: var(--ds-font-family-code);
   font-size: 11.5px;
 }
@@ -267,8 +267,8 @@
 }
 
 .chip[data-tone='warning'] {
-  border-color: var(--dsw-alias-state-warn-primary);
-  color: var(--dsw-alias-state-warn-primary);
+  border-color: var(--lf-tone-warning-dot);
+  color: var(--lf-tone-warning-fg);
 }
 
 .hint {

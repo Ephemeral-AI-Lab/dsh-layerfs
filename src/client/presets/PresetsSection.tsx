@@ -9,11 +9,12 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, Checkbox, IconCodeOutlineRegular, IconPlayOutlineRegular, MenuItemButton, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, IconCodeOutlineRegular, IconPlayOutlineRegular, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { enc, type LayerfsApi } from '../api.ts'
 import type { BusySession, DemoPreset, DemoPresets, PresetResetPlan, PresetExecutionMode, PresetJob } from '../../shared/presets.ts'
 import { useQuery } from '../files/use-query.ts'
-import { Card, LinkButton, MoreMenu, Notice, Refusal, usePressGuard } from '../ui/index.tsx'
+import { Card, DangerButton, LinkButton, MoreMenu, Notice, Refusal, usePressGuard } from '../ui/index.tsx'
 import { machinesStarted, presetIdName, refusalLabels } from './labels.ts'
 import type { PresetsKey, PresetsT } from './locale.ts'
 import { count, PresetProgress } from './Progress.tsx'
@@ -182,9 +183,9 @@ export function Library({ api, t, data, preset, onRefresh, className }: { api: L
               : <Button variant="outline" disabled={waiting} data-modal-autofocus="" onClick={close}>{t('cancel')}</Button>}
             {dialog?.kind === 'build' && !dialog.plan
               ? <Button variant="primary" disabled={waiting || data.busy} aria-busy={waiting} onClick={() => { void checkBuild(dialog.mixed) }}>{waiting ? t('checking') : t('continue')}</Button>
-              : <Button variant="primary" className={css.dangerPrimary} disabled={waiting || data.busy || confirmGuard.settling} aria-disabled={confirmGuard.settling || undefined} aria-busy={waiting} onClick={confirmGuard(() => { void execute() })}>
+              : <DangerButton disabled={waiting || data.busy || confirmGuard.settling} aria-disabled={confirmGuard.settling || undefined} aria-busy={waiting} onClick={confirmGuard(() => { void execute() })}>
                   {waiting ? t('starting') : dialog?.kind === 'stop' ? t('stopAction') : t('resetAndBuild')}
-                </Button>}
+                </DangerButton>}
           </div>
         )}>
         {dialog?.kind === 'build' && !dialog.plan && (
@@ -208,20 +209,20 @@ function LibraryStatus({ api, t, preset, checking }: { api: LayerfsApi, t: Prese
       </div>
     )
   }
-  if (checking) return <p className={css.status} role="status"><StateDot state="ongoing" />{t('checking')}</p>
+  if (checking) return <p className={css.status} role="status"><StatusDot state="ongoing" />{t('checking')}</p>
   const last = preset.lastBuild
   if (preset.contentReady) {
     const when = last ? dateTime(last.ended, { dateStyle: 'medium', timeStyle: 'short' }) : ''
     return (
       <p className={css.status} role="status">
-        <StateDot state="done" />
+        <StatusDot state="done" />
         <span>{t(when ? 'statusBuilt' : 'statusBuiltUndated', { when, mode: t(modeKey(last?.executionMode ?? preset.executionMode)) })}</span>
         <LinkButton className={css.statusLink} onClick={() => api.openPanel(STORAGE_PANEL)}>{t('openStorage')}</LinkButton>
       </p>
     )
   }
-  if (preset.built) return <p className={css.status} role="status"><StateDot state="warning" />{t('statusStale')}</p>
-  return <p className={css.status} role="status"><StateDot state="idle" />{preset.projects === 1 ? t('statusNotBuiltOne') : t('statusNotBuilt', { projects: preset.projects })}</p>
+  if (preset.built) return <p className={css.status} role="status"><StatusDot state="warning" />{t('statusStale')}</p>
+  return <p className={css.status} role="status"><StatusDot state="idle" />{preset.projects === 1 ? t('statusNotBuiltOne') : t('statusNotBuilt', { projects: preset.projects })}</p>
 }
 
 /** Build's first step: how the history is written, and what that needs. */

@@ -12,7 +12,8 @@
  */
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type PointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import css from './DoctorPage.module.css'
 
 export type MarkKind = 'ok' | 'bad' | 'warn' | 'nc' | 'run'
@@ -21,7 +22,7 @@ export type MarkKind = 'ok' | 'bad' | 'warn' | 'nc' | 'run'
 export const MARK_DOT: Record<MarkKind, StateDotState> = { ok: 'done', bad: 'error', warn: 'warning', nc: 'idle', run: 'ongoing' }
 
 /** A result's StateDot at check-mark size (a spinner a little larger). */
-export const markDot = (s: MarkKind): ReactNode => <StateDot state={MARK_DOT[s]} size={s === 'run' ? 10 : 7} className={css.mk} />
+export const markDot = (s: MarkKind): ReactNode => <StatusDot state={MARK_DOT[s]} size={s === 'run' ? 10 : 7} className={css.mk} />
 
 /** What a tip says (its lines, checks and commands), in the tip layer or in a Signal's card. */
 export function TipBody({ tip }: { tip: TipData }): ReactNode {

@@ -3,8 +3,9 @@
  * the shared file views, opened on the session's branch.
  */
 import { useEffect, useState, type ReactNode } from 'react'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import clsx from 'clsx'
-import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+
 import type { LayerfsApi } from '../api.ts'
 import { ErrorState, Loading } from '../files/States.tsx'
 import { unsavedCount } from './model.ts'
@@ -85,7 +86,7 @@ function SessionLine({ view, sessionId, t }: { view: SessionStateView, sessionId
   const active = view.binding?.state === 'bound'
   return (
     <div className={css.sessionLine}>
-      {branch ? <span className={css.branchChip} title={branch}><StateDot state={active ? 'done' : 'idle'} size={8} />{branchWords(branch, sessionId, t)}</span> : null}
+      {branch ? <span className={css.branchChip} title={branch}><StatusDot state={active ? 'done' : 'idle'} size={8} />{branchWords(branch, sessionId, t)}</span> : null}
       {active ? <span className={clsx(css.muted, pending > 0 && css.warn)}>{pending > 0 ? t('unsaved', { n: pending }) : t('unsavedNone')}</span> : null}
     </div>
   )

@@ -232,7 +232,7 @@ test('ui/205 HomeStores cards: stopped card stays neutral without grey dot, whil
     assert.ok(!statusOpenTag.includes('data-tone="danger"'), `stopped-store statusRow must not be danger (${lang})`)
     assert.ok(!statusOpenTag.includes('data-tone="warning"'), `stopped-store statusRow must not be warning (${lang})`)
     const statusBlock = stoppedCard.slice(stoppedCard.lastIndexOf('<div', statusIdx), stoppedCard.indexOf('</div>', statusIdx))
-    assert.ok(!statusBlock.includes('data-primitive="StateDot"'), `stopped-store statusRow must not draw a dot (${lang})`)
+    assert.ok(!statusBlock.includes('StatusDot_dot') && !statusBlock.includes('data-primitive="StateDot"'), `stopped-store statusRow must not draw a dot (${lang})`)
     assert.ok(statusBlock.includes(t('cardMachineStopped', { machine: 'docker' })), `stopped-store must show cardMachineStopped copy (${lang})`)
     assert.ok(statusBlock.includes('data-start-machine="docker"'), `stopped-store must render Start docker button (${lang})`)
     const stoppedMachineHtml = renderToStaticMarkup(createElement(M.MachineLine, { s: fixtureStores[1], view: fixtureView, t, on: noopActions() }))
@@ -241,14 +241,14 @@ test('ui/205 HomeStores cards: stopped card stays neutral without grey dot, whil
     // Machine broken store: danger statusRow WITH red StateDot AND problem dot on MachineLine chip
     const mbrokenCard = cardSlice('mbroken-store')
     assert.ok(mbrokenCard.includes('data-tone="danger"'), `mbroken-store statusRow must have data-tone="danger" (${lang})`)
-    assert.ok(mbrokenCard.includes('data-primitive="StateDot" data-state="error"'), `mbroken-store must render red error StateDot (${lang})`)
+    assert.match(mbrokenCard, /StatusDot_dot[^"]*" data-state="error"/, `mbroken-store must render red error StatusDot (${lang})`)
     const mbrokenMachineHtml = renderToStaticMarkup(createElement(M.MachineLine, { s: fixtureStores[2], view: fixtureView, t, on: noopActions() }))
     assert.ok(mbrokenMachineHtml.includes('data-health="problem"'), `broken MachineLine must render problem red dot (${lang})`)
 
     // Store itself broken: danger statusRow WITH red StateDot
     const brokenCard = cardSlice('broken-store')
     assert.ok(brokenCard.includes('data-tone="danger"'), `broken-store statusRow must have data-tone="danger" (${lang})`)
-    assert.ok(brokenCard.includes('data-primitive="StateDot" data-state="error"'), `broken-store must render red error StateDot (${lang})`)
+    assert.match(brokenCard, /StatusDot_dot[^"]*" data-state="error"/, `broken-store must render red error StatusDot (${lang})`)
   }
 })
 
@@ -324,21 +324,21 @@ test('ui/205 CSS & locale: compiled statusRow and notice default colors stay neu
   const statusRule = /\.MachineStores_statusRow\s*\{([^}]*)\}/.exec(builtCss)
   assert.ok(statusRule, 'compiled CSS must contain .MachineStores_statusRow rule')
   assert.match(statusRule[1], /color:\s*var\(--dsw-alias-label-secondary\)/, 'default .statusRow text color must use neutral secondary label token')
-  assert.doesNotMatch(statusRule[1], /state-error|state-warn|#[0-9a-f]{3,8}/i, 'default .statusRow must never paint text red or amber')
+  assert.doesNotMatch(statusRule[1], /state-error|state-warn|tone-danger|tone-warning|#[0-9a-f]{3,8}/i, 'default .statusRow must never paint text red or amber')
   const statusDangerRule = /\.MachineStores_statusRow\[data-tone=["']?danger["']?\]\s*\{([^}]*)\}/.exec(builtCss)
   assert.ok(statusDangerRule, 'compiled CSS must contain .MachineStores_statusRow[data-tone=danger]')
-  assert.match(statusDangerRule[1], /color:\s*var\(--dsw-alias-state-error-primary\)/)
+  assert.match(statusDangerRule[1], /color:\s*var\(--lf-tone-danger-fg\)/)
 
   const noticeRule = /\.ui_notice\s*\{([^}]*)\}/.exec(builtCss)
   assert.ok(noticeRule, 'compiled CSS must contain .ui_notice rule')
   assert.match(noticeRule[1], /color:\s*var\(--dsw-alias-label-secondary\)/, 'default .notice text color must use neutral secondary label token')
-  assert.doesNotMatch(noticeRule[1], /state-error|state-warn/i, 'default .notice must never use error or warn token')
+  assert.doesNotMatch(noticeRule[1], /state-error|state-warn|tone-danger|tone-warning/i, 'default .notice must never use error or warn token')
 
   const spCss = src('src/client/storage/StorePage.module.css')
   assert.match(spCss, /\.noticeRow\s*\{[^}]*flex-direction:\s*row;[^}]*justify-content:\s*space-between;/)
   assert.match(spCss, /\.health li\[data-tone='info'\] > i\s*\{\s*background:\s*var\(--dsw-alias-border-l3\);/)
-  assert.match(spCss, /\.health li\[data-tone='danger'\] > i\s*\{\s*background:\s*var\(--dsw-alias-state-error-primary\);/)
-  assert.match(spCss, /\.health li > i\s*\{[^}]*background:\s*var\(--dsw-alias-state-success-primary\);/)
+  assert.match(spCss, /\.health li\[data-tone='danger'\] > i\s*\{\s*background:\s*var\(--lf-tone-danger-dot\);/)
+  assert.match(spCss, /\.health li > i\s*\{[^}]*background:\s*var\(--lf-tone-success-dot\);/)
 
   for (const lang of ['en', 'zh']) {
     for (const key of ['stateMachineStopped', 'cardMachineStopped', 'storeStoppedNotice', 'spMachineStopped', 'spMachineBroken', 'spMachineUnreadable', 'spMachineBusy', 'spMachineUnknown']) {

@@ -8,10 +8,8 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import {
-  Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderOpenOutlineRegular,
-  IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal, SegmentedControl, StateDot,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconCheckOutlineRegular, IconChevronLeftOutlineRegular, IconCloseOutlineRegular, IconFolderOpenOutlineRegular, IconPlusOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, Input, Modal, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../../api.ts'
 import { useQuery } from '../../files/use-query.ts'
 import { MachineGlyph, StoreKindGlyph } from '../../machines/icons.tsx'
@@ -208,7 +206,7 @@ function Progress({ steps, plan, t, failure, initJob, partTitle, onEdit }: {
     <h3 className={css.label}>{failure ? t('createStopped') : t('creating')}</h3>
     <ol className={css.steps}>
       {steps.map(({ step, state }) => <li key={step.id} className={css.step} data-state={state}>
-        <span className={css.stepMark} aria-hidden="true">{state === 'running' ? <StateDot state="ongoing" size={10} /> : state === 'done' ? <IconCheckOutlineRegular size={11} /> : state === 'failed' ? <IconCloseOutlineRegular size={11} /> : null}</span>
+        <span className={css.stepMark} aria-hidden="true">{state === 'running' ? <StatusDot state="ongoing" size={10} /> : state === 'done' ? <IconCheckOutlineRegular size={11} /> : state === 'failed' ? <IconCloseOutlineRegular size={11} /> : null}</span>
         <span>{stepLabel(step, plan, t)}</span>
         {step.id === 'init' && state === 'running' && initDetail(initJob) ? <span className={css.stepDetail}>{initDetail(initJob)}</span> : null}
       </li>)}
@@ -581,7 +579,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
       <span className={css.footNote}>{firstMissing !== undefined && !running ? t('missing', { part: railTitles[firstMissing], what: summaries[firstMissing] }) : null}</span>
       <div className={css.footActions}>
         <Button type="button" variant="outline" disabled={running} onClick={() => projectDialog.close()}>{t('cancel')}</Button>
-        <Button type="submit" variant="primary" disabled={running || !data} aria-busy={running} icon={running ? <StateDot state="ongoing" size={13} /> : undefined}>
+        <Button type="submit" variant="primary" disabled={running || !data} aria-busy={running} icon={running ? <StatusDot state="ongoing" size={13} /> : undefined}>
           {running ? t('creating') : importing ? t('import') : t('create')}
         </Button>
       </div>
@@ -667,7 +665,7 @@ function Configure({ api, t, project, back, onBusy }: { api: LayerfsApi, t: Setu
           {chosen !== current
             ? <>
               <Button variant="outline" disabled={!!busy} onClick={() => setTarget(null)}>{t('cancel')}</Button>
-              <Button variant="primary" disabled={!!busy || stoppedOf([current, chosen], view.data).length > 0} icon={busy ? <StateDot state="ongoing" size={13} /> : undefined}
+              <Button variant="primary" disabled={!!busy || stoppedOf([current, chosen], view.data).length > 0} icon={busy ? <StatusDot state="ongoing" size={13} /> : undefined}
                 onClick={() => void run('move', () => placeStore(api, store.name, chosen))}>
                 {busy ? t('moving') : t('moveTo', { machine: placeName(chosen, words) })}
               </Button>

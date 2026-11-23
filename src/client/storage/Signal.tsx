@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { HoverCard, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { HoverCard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import css from './Signal.module.css'
 
 export type SignalState = 'ok' | 'warning' | 'error' | 'idle' | 'ongoing'
@@ -30,7 +31,7 @@ export function Signal({ state, title, anchorText, detail, action, size = 8, lab
       <HoverCard inline fitContent openDelayMs={120}
         anchor={(
           <button type="button" className={css.signal} data-state={state} data-dot={dotOnly ? '' : undefined} aria-label={label ?? title} data-fid={fid}>
-            {dotOnly ? <StateDot state={DOT[state]} size={state === 'ongoing' ? size + 3 : size} /> : anchorText ?? title}
+            {dotOnly ? <StatusDot state={DOT[state]} size={state === 'ongoing' ? size + 3 : size} /> : anchorText ?? title}
           </button>
         )}
         content={(

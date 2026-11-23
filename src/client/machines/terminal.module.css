@@ -3,32 +3,6 @@
    light). Output is monospace and not wrapped; hover styles sit under
    @media (hover: hover). */
 
-/* ---------- daemon line ---------- */
-
-.daemonLine {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-  margin: 0;
-  padding: 10px 0 12px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-  --tone: var(--dsw-alias-state-idle-primary);
-}
-
-.daemonLine[data-tone='success'] {
-  --tone: var(--dsw-alias-state-success-primary);
-}
-
-.daemonLine[data-tone='danger'] {
-  --tone: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-state-error-primary);
-}
-
-/* the Sandbox's cgroup usage, under the daemon line */
 .usageLine {
   display: flex;
   flex-wrap: wrap;
@@ -45,14 +19,6 @@
 
 .usageLine > span:first-child {
   color: var(--dsw-alias-label-tertiary);
-}
-
-.daemonDot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--tone);
 }
 
 /* ---------- toolbar and grid ---------- */
@@ -274,8 +240,8 @@
 
 .stderr {
   padding-left: 8px;
-  border-left: 2px solid var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-state-error-primary);
+  border-left: 2px solid var(--lf-tone-danger-dot);
+  color: var(--lf-tone-danger-fg);
 }
 
 .meta {
@@ -283,11 +249,11 @@
 }
 
 .meta[data-fail] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .err {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .running {
@@ -368,7 +334,7 @@
   margin: 0;
   font-size: 12px;
   line-height: 17px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .formActions {
@@ -385,18 +351,7 @@
 }
 
 .dangerText {
-  color: var(--dsw-alias-state-error-primary);
-}
-
-.dangerFill {
-  background: var(--dsw-alias-state-error-primary);
-  color: var(--dsw-alias-label-primary-inverted);
-}
-
-@media (hover: hover) {
-  .dangerFill:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 88%, var(--dsw-alias-label-primary));
-  }
+  color: var(--lf-tone-danger-fg);
 }
 
 .srOnly {
@@ -413,6 +368,7 @@
   padding: 1px 7px;
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: var(--dsw-radius-full, 999px);
+  corner-shape: round;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font: inherit;
@@ -443,8 +399,8 @@
 }
 
 .changes[data-tone='warning'] {
-  border-color: var(--dsw-alias-state-warn-primary);
-  color: var(--dsw-alias-state-warn-primary);
+  border-color: var(--lf-tone-warning-dot);
+  color: var(--lf-tone-warning-fg);
 }
 
 /* a command another client runs here: one line, view only */

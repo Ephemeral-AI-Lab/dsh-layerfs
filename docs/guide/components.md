@@ -29,7 +29,7 @@ The earlier multi-Store example below shows the breadcrumb switcher.
 | 5 | **Jump to…** | A field with **⌘K** (**Ctrl+K**) | Press it or use the shortcut → **Jump to a session, project, Store, machine, Sandbox or bucket**, grouped as Projects, Stores, Machines, Sandboxes, Buckets, Pages and Sessions. Session hits show the title and ID and open the conversation. **↑ ↓ to move · Enter to open · Esc to close** | — (searches what Center already read) | **Nothing matches “{q}”**. At most 60 hits. The shortcut is off while a dialog is open |
 | 6 | Refresh | A circular arrow, on every page except Home, Doctor and Logs (each has its own) | Press → the page reads its data again | The page's own reads | A dot while reading |
 | 7 | **+ Add** | **New session**, **New project**, **Import a folder**, **New Sandbox**, **New Store** (set to the machine when opened from a machine page), **Connect a database**, **New machine**, **Add bucket**, **Try a preset** | Opens that dialog | `store create` · `store save-auth`, `store connect`, `store get` · `machine create` · `backup connect` · the preset's script. New project: `store create`, `project init`, `store move` | New machine and New Sandbox stay visible with the reason when unavailable |
-| | Doctor | A shield with a count badge. Title: **Doctor: {n} findings** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, orange for a warning |
+| | Doctor | A shield with a count badge. Title: **Doctor: {n} findings** | Press → `LayerFS › Doctor` ([Doctor](health.md)) | The results the host holds. When none are held, the home checks run once as Home opens: `home doctor` | Red badge for an error, amber for a warning |
 | | Logs | A list icon | Press → `LayerFS › Logs` ([Logs](logs.md)) | — | |
 | | Settings | A gear | Press → Set up LayerFS | `home get` (read) | |
 
@@ -96,14 +96,22 @@ from what Center already reads about Stores, machines and platforms (`home get`,
 ## Status words and dots
 
 A state is written as a word, and a dot appears only where something is wrong. The rule is
-one line: **a working thing is quiet, a failure keeps its red dot.**
+one line: **a working thing is quiet, a failure keeps its red dot.** Only dots that signal a
+problem carry a soft glow — neutral/stopped dots and passing green marks in a Doctor check row
+stay plain.
+
+All status colours come from the plugin's five `--lf-tone-{success,warning,danger,info,neutral}-*`
+token sets (`fg` for text, `dot` for dots and icons, `bg` and `border` for tinted surfaces,
+`solid` / `solid-hover` / `on-solid` for destructive buttons), rendered through the shared
+`StatusDot`, `StateChip`, `Callout` and `DangerButton` components. Circular dots and pills
+always opt into `corner-shape: round` so they render as true circles rather than squircles.
 
 | Where | Everyday state | A failure |
 |---|---|---|
 | The Overview head's status line | **Nothing needs your attention**, no dot | A dot before the need: red for a problem, amber for a warning |
 | A Store card's status row | Nothing at all while the Store is ready; **docker is stopped** as a word, no dot (a stopped machine is stopped, not broken) | **Broken · …** keeps its red dot |
 | The backups badge | **No backup** as a plain word, no dot; a current backup's dot is green | A red dot for a problem backup, a grey one when a backup is out of date or could not be read |
-| A Doctor row | **OK** as a word, no dot before it | The row's check marks keep their dots (green passed, amber notice, red failed, grey not checked) |
+| A Doctor row | **OK** as a word, no dot before it | The row's check marks keep their dots (plain green passed, glowing amber notice, glowing red failed, plain grey not checked) |
 | A machine row or card | **Running** / **Stopped** as words | **Needs repair**, **Docker not running**, **Unavailable** keep their state colour |
 
 ## Disabled buttons that say why

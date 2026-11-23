@@ -54,7 +54,7 @@
   gap: 12px;
   padding: 12px 14px;
   border-radius: var(--dsw-radius-lg);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 6%, transparent);
+  background: var(--lf-tone-danger-bg);
 }
 
 /* ---------- Store rows ---------- */
@@ -119,7 +119,7 @@
 }
 
 .job[data-state='failed'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 6%, transparent);
+  background: var(--lf-tone-danger-bg);
 }
 
 .jobLine {
@@ -211,7 +211,7 @@
   margin: 0;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   overflow-wrap: anywhere;
 }
 
@@ -438,11 +438,6 @@
   font-weight: 500;
 }
 
-.dangerButton {
-  color: var(--dsw-alias-state-error-primary);
-  --dsh-button-outline-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 30%, transparent);
-}
-
 /* ---------- doctor findings ---------- */
 
 .findings {
@@ -553,11 +548,6 @@
   display: flex;
   flex: none;
   gap: 8px;
-}
-
-.dangerPrimary {
-  color: var(--dsw-alias-label-primary-inverted, var(--dsw-alias-label-primary-foreground));
-  background: var(--dsw-alias-state-error-primary);
 }
 
 .monoInput input {
@@ -1195,13 +1185,13 @@
   line-height: 18px;
 }
 .bucketStatus[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 .bucketStatus[data-tone='ok'] {
   align-items: flex-start;
   margin: 0;
   padding: 10px 12px;
-  color: var(--dsw-alias-state-success-primary);
+  color: var(--lf-tone-success-fg);
 }
 .bucketStatusDetail {
   flex: 1 1 auto;
@@ -1244,7 +1234,7 @@
   margin: 0;
   font-size: 13px;
   line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 /* the login's two inputs, each under its own label */
@@ -1292,7 +1282,7 @@
   min-width: 0;
 }
 .rotateCheck[data-failed] {
-  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, var(--dsw-alias-border-l2));
+  border-color: var(--lf-tone-danger-border);
 }
 .rotateCheckHead {
   display: flex;
@@ -1360,11 +1350,11 @@
   color: var(--dsw-alias-label-secondary);
 }
 .rotateVerdict[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   font-weight: 500;
 }
 .rotateVerdict[data-tone='warning'] {
-  color: var(--dsw-alias-state-warn-primary);
+  color: var(--lf-tone-warning-fg);
   font-weight: 500;
 }
 .rotateSides {
@@ -1405,7 +1395,7 @@
   color: var(--dsw-alias-label-secondary);
 }
 .rotateSideStatus[data-tone='danger'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 .rotateDetail {
   flex-basis: 100%;

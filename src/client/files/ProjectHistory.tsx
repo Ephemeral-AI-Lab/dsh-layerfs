@@ -7,7 +7,8 @@
 import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { Button, IconBranchOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, StateDot, Tag, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconBranchOutlineRegular, IconCompareSplitOutlineRegular, IconChevronRightOutlineRegular, IconCloseOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Modal, Tag, useAnchoredPosition, useDismissOnOutsidePointer } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import type { LayerfsApi } from '../api.ts'
 import { filesApi } from './api.ts'
 import { BranchCompare, type CompareEnd } from './BranchCompare.tsx'
@@ -18,7 +19,7 @@ import { branchParents, treeLayout } from './tree-model.ts'
 import { HistoryGraph } from './HistoryGraph.tsx'
 import { branchLabel } from './labels.ts'
 import { EmptyState, Loading } from './States.tsx'
-import { CopyId } from '../ui/index.tsx'
+import { CopyId, toneScope } from '../ui/index.tsx'
 import type { CommitInfo, HistoryBranch, HistoryPage, Translate } from './types.ts'
 import css from './History.module.css'
 
@@ -514,7 +515,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
   const ready = busy !== 'initial' && (!unread || loadingAll !== ALL || patience) && (drawnPages === pages || patience)
 
   return (
-    <div className={clsx(css.view, className)}>
+    <div className={clsx(toneScope, css.view, className)}>
       {finderOpen ? (
         <BranchFinder anchorRef={finderAnchor} t={t} branches={branches} parents={parents} families={view.families} filtered={view.query} onQuery={(query) => writeView({ query })} onBranch={openBranch} onToggleFamily={toggleFamily} busy={busy} branchNext={branchNext} onMore={() => {
           setBusy('branches')
@@ -557,7 +558,7 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
                 <IconBranchOutlineRegular size={14} />{branches.length}{branchNext !== null ? '+' : ''}
               </button>
             </span>
-            <button type="button" aria-label={t('files_refresh')} title={t('files_refresh')} disabled={!!busy} onClick={() => setRevision((n) => n + 1)}>{busy ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={14} />}</button>
+            <button type="button" aria-label={t('files_refresh')} title={t('files_refresh')} disabled={!!busy} onClick={() => setRevision((n) => n + 1)}>{busy ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={14} />}</button>
           </div>
         </div>
         {branches.length ? (
@@ -576,12 +577,12 @@ export function ProjectHistory({ api, project, t, initialBranch, initialCommit, 
         ) : null}
       </div>
       {compare ? (
-        <Modal open onClose={() => setCompare(null)} title={t('files_compareTitle')} closeLabel={t('files_closeLabel')} className={css.compareModal} contentClassName={css.compareModalBody}>
+        <Modal open onClose={() => setCompare(null)} title={t('files_compareTitle')} closeLabel={t('files_closeLabel')} className={clsx(toneScope, css.compareModal)} contentClassName={css.compareModalBody}>
           <BranchCompare api={api} project={project} t={t} branches={compareEnds} from={compare.from} to={compare.to} onOpenFile={onOpenFile} />
         </Modal>
       ) : null}
       {diffOpen && selectedCommit ? (
-        <Modal open onClose={() => setDiffOpen(false)} title={t('files_diffTitle', { id: shortId(selectedCommit.id) })} closeLabel={t('files_closeLabel')} className={css.diffModal} contentClassName={css.diffModalBody}>
+        <Modal open onClose={() => setDiffOpen(false)} title={t('files_diffTitle', { id: shortId(selectedCommit.id) })} closeLabel={t('files_closeLabel')} className={clsx(toneScope, css.diffModal)} contentClassName={css.diffModalBody}>
           <CommitDiff api={api} project={project} branch={selectedCommit.branch} commit={selectedCommit.id} t={t}
             onOpenFile={onOpenFile && ((path, pin) => onOpenFile(selectedCommit.branch, path, pin))} />
         </Modal>
@@ -641,7 +642,7 @@ function BranchFinder({ anchorRef, t, branches, parents, families, filtered, onQ
           return (
             <div className={css.branchRow} key={b.name}>
               <button type="button" onClick={() => onBranch(b.name)} title={b.name}>
-                <IconBranchOutlineRegular size={13} /><span>{branchLabel(b.name, t)}</span>{busy === b.name ? <StateDot state="ongoing" size={12} /> : null}
+                <IconBranchOutlineRegular size={13} /><span>{branchLabel(b.name, t)}</span>{busy === b.name ? <StatusDot state="ongoing" size={12} /> : null}
               </button>
               {children > 0 && b.name !== 'main' ? (
                 <button type="button" className={css.family} aria-expanded={!families.has(b.name)}

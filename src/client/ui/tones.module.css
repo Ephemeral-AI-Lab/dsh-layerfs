@@ -1,0 +1,136 @@
+/* Status tones (palette A Calm, light and dark). Halos fade from the dot's centre with two blurred layers and no hard ring. */
+
+:global(body) {
+  --lf-glow-room: 10px;
+  --lf-glow-core: 45%;
+  --lf-glow-edge: 24%;
+
+  --lf-tone-success-fg: #2e6e3f;
+  --lf-tone-success-dot: #45a465;
+  --lf-tone-success-bg: #eff9f0;
+  --lf-tone-success-border: #c5e2ca;
+  --lf-tone-success-solid: #2e8046;
+  --lf-tone-success-solid-hover: #29733f;
+  --lf-tone-success-on-solid: #fff;
+  --lf-tone-success-dot-inverse: #6fc884;
+  --lf-tone-success-halo: 0 0 3px 0.5px color-mix(in srgb, var(--lf-tone-success-dot) var(--lf-glow-core), transparent), 0 0 8px 1.5px color-mix(in srgb, var(--lf-tone-success-dot) var(--lf-glow-edge), transparent);
+  --lf-tone-success-halo-tight: 0 0 2px 0.5px color-mix(in srgb, var(--lf-tone-success-dot) var(--lf-glow-core), transparent), 0 0 5px 0.5px color-mix(in srgb, var(--lf-tone-success-dot) var(--lf-glow-edge), transparent);
+
+  --lf-tone-warning-fg: #884f0f;
+  --lf-tone-warning-dot: #cd801c;
+  --lf-tone-warning-bg: #fff5e1;
+  --lf-tone-warning-border: #f2d5a5;
+  --lf-tone-warning-solid: #985e00;
+  --lf-tone-warning-solid-hover: #895500;
+  --lf-tone-warning-on-solid: #fff;
+  --lf-tone-warning-dot-inverse: #f5ad53;
+  --lf-tone-warning-halo: 0 0 3px 0.5px color-mix(in srgb, var(--lf-tone-warning-dot) var(--lf-glow-core), transparent), 0 0 8px 1.5px color-mix(in srgb, var(--lf-tone-warning-dot) var(--lf-glow-edge), transparent);
+  --lf-tone-warning-halo-tight: 0 0 2px 0.5px color-mix(in srgb, var(--lf-tone-warning-dot) var(--lf-glow-core), transparent), 0 0 5px 0.5px color-mix(in srgb, var(--lf-tone-warning-dot) var(--lf-glow-edge), transparent);
+
+  --lf-tone-danger-fg: #a52e2e;
+  --lf-tone-danger-dot: #bd3d3b;
+  --lf-tone-danger-bg: #fff2f0;
+  --lf-tone-danger-border: #f9cdc9;
+  --lf-tone-danger-solid: #bc3737;
+  --lf-tone-danger-solid-hover: #a93232;
+  --lf-tone-danger-on-solid: #fff;
+  --lf-tone-danger-dot-inverse: #de635d;
+  --lf-tone-danger-halo: 0 0 3px 0.5px color-mix(in srgb, var(--lf-tone-danger-dot) var(--lf-glow-core), transparent), 0 0 8px 1.5px color-mix(in srgb, var(--lf-tone-danger-dot) var(--lf-glow-edge), transparent);
+  --lf-tone-danger-halo-tight: 0 0 2px 0.5px color-mix(in srgb, var(--lf-tone-danger-dot) var(--lf-glow-core), transparent), 0 0 5px 0.5px color-mix(in srgb, var(--lf-tone-danger-dot) var(--lf-glow-edge), transparent);
+
+  --lf-tone-info-fg: #2c5ab2;
+  --lf-tone-info-dot: #4174d6;
+  --lf-tone-info-bg: #f0f6ff;
+  --lf-tone-info-border: #c7dafb;
+  --lf-tone-info-solid: #3668c8;
+  --lf-tone-info-solid-hover: #315eb4;
+  --lf-tone-info-on-solid: #fff;
+  --lf-tone-info-dot-inverse: #6796ee;
+  --lf-tone-info-halo: none;
+  --lf-tone-info-halo-tight: none;
+
+  --lf-tone-neutral-fg: #5b5f66;
+  --lf-tone-neutral-dot: #8e9398;
+  --lf-tone-neutral-bg: #f4f6f8;
+  --lf-tone-neutral-border: #d6d9de;
+  --lf-tone-neutral-solid: #696e73;
+  --lf-tone-neutral-solid-hover: #5f6368;
+  --lf-tone-neutral-on-solid: #fff;
+  --lf-tone-neutral-dot-inverse: #82878c;
+  --lf-tone-neutral-halo: none;
+  --lf-tone-neutral-halo-tight: none;
+}
+
+:global(body[data-ds-dark-theme]) {
+  --lf-glow-core: 55%;
+  --lf-glow-edge: 34%;
+
+  --lf-tone-success-fg: #8bd19a;
+  --lf-tone-success-dot: #6fc884;
+  --lf-tone-success-bg: #1b291d;
+  --lf-tone-success-border: #2f5136;
+  --lf-tone-success-solid: #2f8247;
+  --lf-tone-success-solid-hover: #448f59;
+  --lf-tone-success-on-solid: #fff;
+  --lf-tone-success-dot-inverse: #6fc884;
+  --lf-tone-success-halo: 0 0 3px 0.5px color-mix(in srgb, var(--lf-tone-success-dot) var(--lf-glow-core), transparent), 0 0 8px 1.5px color-mix(in srgb, var(--lf-tone-success-dot) var(--lf-glow-edge), transparent);
+  --lf-tone-success-halo-tight: 0 0 2px 0.5px color-mix(in srgb, var(--lf-tone-success-dot) var(--lf-glow-core), transparent), 0 0 5px 0.5px color-mix(in srgb, var(--lf-tone-success-dot) var(--lf-glow-edge), transparent);
+
+  --lf-tone-warning-fg: #e9b364;
+  --lf-tone-warning-dot: #f5ad53;
+  --lf-tone-warning-bg: #302212;
+  --lf-tone-warning-border: #5e411d;
+  --lf-tone-warning-solid: #9a6000;
+  --lf-tone-warning-solid-hover: #a47019;
+  --lf-tone-warning-on-solid: #fff;
+  --lf-tone-warning-dot-inverse: #f5ad53;
+  --lf-tone-warning-halo: 0 0 3px 0.5px color-mix(in srgb, var(--lf-tone-warning-dot) var(--lf-glow-core), transparent), 0 0 8px 1.5px color-mix(in srgb, var(--lf-tone-warning-dot) var(--lf-glow-edge), transparent);
+  --lf-tone-warning-halo-tight: 0 0 2px 0.5px color-mix(in srgb, var(--lf-tone-warning-dot) var(--lf-glow-core), transparent), 0 0 5px 0.5px color-mix(in srgb, var(--lf-tone-warning-dot) var(--lf-glow-edge), transparent);
+
+  --lf-tone-danger-fg: #ffa098;
+  --lf-tone-danger-dot: #de635d;
+  --lf-tone-danger-bg: #341e1d;
+  --lf-tone-danger-border: #6a3633;
+  --lf-tone-danger-solid: #ba3e3c;
+  --lf-tone-danger-solid-hover: #c1514f;
+  --lf-tone-danger-on-solid: #fff;
+  --lf-tone-danger-dot-inverse: #de635d;
+  --lf-tone-danger-halo: 0 0 3px 0.5px color-mix(in srgb, var(--lf-tone-danger-dot) var(--lf-glow-core), transparent), 0 0 8px 1.5px color-mix(in srgb, var(--lf-tone-danger-dot) var(--lf-glow-edge), transparent);
+  --lf-tone-danger-halo-tight: 0 0 2px 0.5px color-mix(in srgb, var(--lf-tone-danger-dot) var(--lf-glow-core), transparent), 0 0 5px 0.5px color-mix(in srgb, var(--lf-tone-danger-dot) var(--lf-glow-edge), transparent);
+
+  --lf-tone-info-fg: #97beff;
+  --lf-tone-info-dot: #6796ee;
+  --lf-tone-info-bg: #1c2536;
+  --lf-tone-info-border: #33476d;
+  --lf-tone-info-solid: #3b6ac5;
+  --lf-tone-info-solid-hover: #4e79ca;
+  --lf-tone-info-on-solid: #fff;
+  --lf-tone-info-dot-inverse: #6796ee;
+  --lf-tone-info-halo: none;
+  --lf-tone-info-halo-tight: none;
+
+  --lf-tone-neutral-fg: #b9bec4;
+  --lf-tone-neutral-dot: #82878c;
+  --lf-tone-neutral-bg: #232528;
+  --lf-tone-neutral-border: #44484d;
+  --lf-tone-neutral-solid: #6b6f75;
+  --lf-tone-neutral-solid-hover: #7a7d83;
+  --lf-tone-neutral-on-solid: #fff;
+  --lf-tone-neutral-dot-inverse: #82878c;
+  --lf-tone-neutral-halo: none;
+  --lf-tone-neutral-halo-tight: none;
+}
+
+/* Scoped remapping for DSH primitives rendered inside plugin surfaces (Tag, Menu danger, DiffBlock). */
+.lfTone {
+  --dsw-alias-state-success-primary: var(--lf-tone-success-fg);
+  --dsw-alias-state-success-secondary: var(--lf-tone-success-dot);
+  --dsw-alias-state-success-tertiary: var(--lf-tone-success-bg);
+  --dsw-alias-state-warn-primary: var(--lf-tone-warning-fg);
+  --dsw-alias-state-warn-secondary: var(--lf-tone-warning-dot);
+  --dsw-alias-state-warn-tertiary: var(--lf-tone-warning-bg);
+  --dsw-alias-state-warn-label: var(--lf-tone-warning-fg);
+  --dsw-alias-state-error-primary: var(--lf-tone-danger-fg);
+  --dsw-alias-state-error-secondary: var(--lf-tone-danger-dot);
+  --dsw-alias-state-idle-primary: var(--lf-tone-neutral-dot);
+}

@@ -20,7 +20,8 @@
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { Button, IconPlusOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { Card, LinkButton, MenuSelect, Meter, StateChip, refusalOf } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { SandboxGlyph } from './icons.tsx'
@@ -97,7 +98,7 @@ function SandboxCardView({ m, card, image, onImages, cpus, memoryTotal, metricsO
   const head = (dot: 'idle' | 'error' | 'done', state: ReactNode, menu?: ReactNode) => (
     <div className={css.sbCardHead}>
       <button type="button" className={css.mxRowName} onClick={() => open()} title={card.name}>
-        <StateDot state={dot} size={6} />
+        <StatusDot state={dot} size={6} />
         <SandboxGlyph size={13} />
         <span className={css.mono}>{shortSandbox(card.name)}</span>
       </button>

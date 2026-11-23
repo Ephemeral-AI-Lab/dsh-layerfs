@@ -11,9 +11,6 @@
 .root,
 .tip,
 .toasts {
-  --doc-ok: #15803d;
-  --doc-bad: #d41414;
-  --doc-warn: #b45309;
   --doc-hollow: #73787f;
   --doc-run: #3767d6;
   --doc-link: #2f5fcf;
@@ -24,9 +21,6 @@
   --doc-tip-fg: #f9fafb;
   --doc-tip-fg-2: #cfd3d6;
   --doc-tip-well: #121316;
-  --doc-tip-ok: #4ade80;
-  --doc-tip-bad: #ff7b7b;
-  --doc-tip-warn: #fbbf24;
   --doc-tip-hollow: #b6bbc1;
   --doc-tip-run: #8fb8ff;
 }
@@ -34,9 +28,6 @@
 :global(body[data-ds-dark-theme]) .root,
 :global(body[data-ds-dark-theme]) .tip,
 :global(body[data-ds-dark-theme]) .toasts {
-  --doc-ok: #22c55e;
-  --doc-bad: #f76a6a;
-  --doc-warn: #f5a524;
   --doc-hollow: #adb2b8;
   --doc-run: #7aaaff;
   --doc-link: #8fb8ff;
@@ -168,6 +159,7 @@
   border: 1.5px solid var(--doc-run);
   border-right-color: transparent;
   border-radius: 50%;
+  corner-shape: round;
   animation: doc-spin 900ms linear infinite;
 }
 
@@ -433,6 +425,7 @@
   padding: 0 8px 0 5px;
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: 999px;
+  corner-shape: round;
   color: var(--doc-link);
   font-size: 12px;
   line-height: 1;
@@ -454,6 +447,9 @@
 /* the mark group: one mark per check, one focusable signal. Its width is kept
    from the number of checks its kind has, so nothing beside it moves when the marks land. */
 .marks {
+  --lf-tone-success-halo: none;
+  --lf-tone-warning-halo: var(--lf-tone-warning-halo-tight);
+  --lf-tone-danger-halo: var(--lf-tone-danger-halo-tight);
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -594,11 +590,15 @@ span.marks { visibility: hidden; }
 
 /* ---------- tip ---------- */
 .tip {
-  --doc-ok: var(--doc-tip-ok);
-  --doc-bad: var(--doc-tip-bad);
-  --doc-warn: var(--doc-tip-warn);
   --doc-hollow: var(--doc-tip-hollow);
   --doc-run: var(--doc-tip-run);
+  --lf-tone-success-dot: var(--lf-tone-success-dot-inverse);
+  --lf-tone-warning-dot: var(--lf-tone-warning-dot-inverse);
+  --lf-tone-danger-dot: var(--lf-tone-danger-dot-inverse);
+  --lf-tone-neutral-dot: var(--lf-tone-neutral-dot-inverse);
+  --lf-tone-success-halo: none;
+  --lf-tone-warning-halo: none;
+  --lf-tone-danger-halo: none;
   position: fixed;
   z-index: 1200;
   display: none;

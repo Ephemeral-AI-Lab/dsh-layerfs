@@ -258,12 +258,12 @@
 
 .count[data-tone='warning'] {
   font-weight: 500;
-  color: var(--ov-warning, var(--dsw-alias-state-warn-primary));
+  color: var(--lf-tone-warning-fg);
 }
 
 .count[data-tone='danger'] {
   font-weight: 500;
-  color: var(--ov-danger, var(--dsw-alias-state-error-primary));
+  color: var(--lf-tone-danger-fg);
 }
 
 .toolbar > .actions {
@@ -292,7 +292,7 @@
 }
 
 .runtime[data-tone='danger'] {
-  color: var(--ov-danger, var(--dsw-alias-state-error-primary));
+  color: var(--lf-tone-danger-fg);
 }
 
 @media (hover: hover) {
@@ -342,9 +342,9 @@
   justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--ov-danger, var(--dsw-alias-state-error-primary)) 24%, transparent);
+  border: 0.5px solid var(--lf-tone-danger-border);
   border-radius: var(--ov-radius-sm, 6px);
-  background: color-mix(in srgb, var(--ov-danger, var(--dsw-alias-state-error-primary)) 7%, transparent);
+  background: var(--lf-tone-danger-bg);
   font-size: 12px;
   line-height: 18px;
 }
@@ -417,7 +417,9 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--ov-warning);
+  corner-shape: round;
+  background: var(--lf-tone-warning-dot);
+  box-shadow: var(--lf-tone-warning-halo);
 }
 .dockerNotice::after {
   content: '';

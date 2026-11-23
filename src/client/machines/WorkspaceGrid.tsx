@@ -8,7 +8,8 @@
  * terminals view. The last tile mounts a new Workspace.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, Checkbox, IconPlusOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { Card } from '../ui/index.tsx'
 import { useMachinesContext } from './context.tsx'
 import { bytes, workspaceChanges, workspaceName, type WorkspaceInfo } from './model.ts'
@@ -85,7 +86,7 @@ function WorkspaceCard({ ws, track, now, chosen, onChoose, onOpen, onOpenFiles }
       <div className={css.sbCardHead}>
         <Checkbox checked={chosen} onChange={onChoose} label="" title={t('wsCardChoose', { name })} className={grid.choose} />
         <button type="button" className={css.mxRowName} onClick={onOpen} title={t('wsCardOpen', { name })}>
-          <StateDot state={running.length ? 'done' : 'idle'} size={6} />
+          <StatusDot state={running.length ? 'done' : 'idle'} size={6} />
           <span className={css.mono}>{name}</span>
         </button>
         <span className={grid.ns}>{mountLabel(ws.path)}</span>

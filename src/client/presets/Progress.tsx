@@ -4,7 +4,8 @@
  * coverage. Unknown totals show an indeterminate segment.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { IconCheckOutlineRegular, IconWarningOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutlineRegular, IconWarningOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import type { PresetJob, PresetProgress as Progress } from '../../shared/presets.ts'
 import type { PresetsT } from './locale.ts'
 import css from './presets.module.css'
@@ -64,7 +65,7 @@ export function PresetProgress({ job, t }: { job: PresetJob, t: PresetsT }): Rea
   return (
     <div className={css.progress} aria-live="polite">
       <div className={css.progressHead}>
-        {running ? <StateDot state="ongoing" /> : complete ? <IconCheckOutlineRegular size={14} className={css.ok} /> : <IconWarningOutlineRegular size={14} className={css.bad} />}
+        {running ? <StatusDot state="ongoing" /> : complete ? <IconCheckOutlineRegular size={14} className={css.ok} /> : <IconWarningOutlineRegular size={14} className={css.bad} />}
         <span className={css.progressLabel}>{label}</span>
         {running && known && <span className={css.progressCount}>{t('stepsCount', { done: count(progress!.historyCompleted ?? progress!.completed), total: count(progress!.historyTotal ?? progress!.total!), unit })}</span>}
       </div>

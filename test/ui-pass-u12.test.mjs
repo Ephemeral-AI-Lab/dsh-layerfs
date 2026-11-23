@@ -657,7 +657,7 @@ test('R2-2: a broken Store shows its red dot, a stopped machine omits the idle d
   const ms = src('src/client/storage/MachineStores.tsx')
   const status = ms.slice(ms.indexOf('function StoreStatus'), ms.indexOf('function SqliteCard'))
   assert.match(status, /const tone = storeNoticeTone\(s, machineState\)/)
-  assert.match(status, /\{tone === 'danger' \? <StateDot state="error" size=\{8\} \/> : null\}/)
+  assert.match(status, /\{tone === 'danger' \? <StatusDot state="error" size=\{8\} \/> : null\}/)
   assert.match(status, /const tip = useStoreTip\(s, t\) \?\? s\.fix \?\? undefined/)
   assert.match(ms, /t\(stoppedBlock\(s\) \? 'msSizeStaleStoppedTitle' : 'msSizeStaleTitle'/)
   const card = src('src/client/storage/StoreCard.tsx')
@@ -685,7 +685,7 @@ test('M8/M1: Delete Sandbox titles and the platform Create name their resource',
 test('M10: a login header follows its Stores\' worst reach (no green Ready over red chips); the reach errors stay in its tip', () => {
   const ms = src('src/client/storage/MachineStores.tsx')
   assert.match(ms, /const failed = g\.state === 'ready' \? g\.stores\.flatMap\(\(st\) => \(st\.connectedFrom \?\? \[\]\)\.filter\(\(c\) => c\.reached === 'failed'\)\) : \[\]/)
-  assert.match(ms, /data-health=\{healthOf\(state\)\} \/>\{failed\.length \? t\('pgLoginNotReached'\) : storeStateWords\(g\.state, t\)\}/)
+  assert.match(ms, /data-health=\{healthOf\(state\)\} \/><span className=\{css\.checkText\}>\{failed\.length \? t\('pgLoginNotReached'\) : storeStateWords\(g\.state, t\)\}<\/span>/)
   assert.match(ms, /title=\{\[loginTip\(g, t, now\), \.\.\.causes\]\.join\('\\n'\)\}/)
   for (const lang of ['en', 'zh']) assert.ok(M.storageLocales[lang].pgLoginNotReached, lang)
 })

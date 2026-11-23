@@ -21,12 +21,12 @@ const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(ma
 const BOUGHS = [
   'var(--dsw-alias-state-business-primary)',
   'var(--dsw-alias-state-done-primary)',
-  'var(--dsw-alias-state-warn-primary)',
-  'color-mix(in srgb, var(--dsw-alias-state-success-primary) 45%, var(--dsw-alias-state-business-primary))',
-  'var(--dsw-alias-state-error-primary)',
-  'color-mix(in srgb, var(--dsw-alias-state-warn-primary) 55%, var(--dsw-alias-state-error-primary))',
+  'var(--lf-tone-warning-dot)',
+  'color-mix(in srgb, var(--lf-tone-success-dot) 45%, var(--dsw-alias-state-business-primary))',
+  'var(--lf-tone-danger-dot)',
+  'color-mix(in srgb, var(--lf-tone-warning-dot) 55%, var(--lf-tone-danger-dot))',
 ]
-const MAIN = 'var(--dsw-alias-state-success-primary)'
+const MAIN = 'var(--lf-tone-success-dot)'
 export const branchColor = (name: string): string => {
   if (name === 'main') return MAIN
   const family = name.startsWith('dsh.') ? name : /^[A-Za-z]+/.exec(name)?.[0] ?? name

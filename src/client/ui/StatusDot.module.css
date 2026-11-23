@@ -1,0 +1,22 @@
+.dot {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  vertical-align: middle;
+}
+
+.dot::after {
+  content: '';
+  width: var(--core);
+  height: var(--core);
+  border-radius: 50%;
+  corner-shape: round;
+  background: currentColor;
+  box-shadow: var(--halo, none);
+}
+
+.dot[data-state='done'] { color: var(--lf-tone-success-dot); --halo: var(--lf-tone-success-halo); }
+.dot[data-state='warning'] { color: var(--lf-tone-warning-dot); --halo: var(--lf-tone-warning-halo); }
+.dot[data-state='error'] { color: var(--lf-tone-danger-dot); --halo: var(--lf-tone-danger-halo); }
+.dot[data-state='info'] { color: var(--lf-tone-info-dot); }
+.dot[data-state='idle'] { color: var(--lf-tone-neutral-dot); }

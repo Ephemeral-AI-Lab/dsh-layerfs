@@ -28,18 +28,19 @@
   margin: 0 -4px;
   padding: 0;
   border-radius: 50%;
+  corner-shape: round;
 }
 
 .signal[data-state='ok'] {
-  color: var(--dsw-alias-state-success-primary);
+  color: var(--lf-tone-success-fg);
 }
 
 .signal[data-state='warning'] {
-  color: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+  color: var(--lf-tone-warning-fg);
 }
 
 .signal[data-state='error'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .signal[data-state='ongoing'] {
@@ -79,11 +80,11 @@
 }
 
 .title[data-state='error'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .title[data-state='warning'] {
-  color: var(--dsw-alias-state-warn-label);
+  color: var(--lf-tone-warning-fg);
 }
 
 .detail {

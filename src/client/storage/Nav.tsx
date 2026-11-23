@@ -12,11 +12,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
-import {
-  Button, IconChevronDownOutlineRegular, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular,
-  IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, IconShieldOutlineRegular, Menu, MenuItemButton, Modal, ShortcutKeys, StateDot,
-  modalSelector,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronLeftOutlineRegular, IconChevronRightOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, IconSettingsOutlineRegular, IconShieldOutlineRegular, Menu, MenuItemButton, Modal, ShortcutKeys, modalSelector } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import type { DoctorFinding } from '../../shared/doctor.ts'
 import { LogsPanelIcon } from '../logs/index.tsx'
 import { setupDialog } from '../setup/store.ts'
@@ -173,7 +170,7 @@ export function NavBar({ t, history, crumbs, jump, sessions, onSession, jobs, fi
         <Button variant="ghost" size="sm" className={css.iconButton} icon={<IconSettingsOutlineRegular size={15} />} onClick={() => setupDialog.open()} aria-label={t('navSettings')} title={t('navSettings')} />
         {onRefresh ? (
           <Button variant="ghost" size="sm" className={css.iconButton} aria-label={t('refresh')} title={t('refresh')} aria-busy={refreshing}
-            icon={refreshing ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />} onClick={onRefresh} />
+            icon={refreshing ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />} onClick={onRefresh} />
         ) : null}
         <AddMenu items={add} t={t} />
       </span>

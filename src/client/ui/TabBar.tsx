@@ -7,8 +7,9 @@
  * as a tablist does; only the selected tab is in the tab order.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { StatusDot } from './StatusDot.tsx'
 import clsx from 'clsx'
-import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+
 import css from './TabBar.module.css'
 
 const TONE = { warning: 'warning', danger: 'error', idle: 'idle', ongoing: 'ongoing' } as const
@@ -114,7 +115,7 @@ export function TabBar({ tabs, active, onSelect, label, actions, className }: {
                 <span className={css.label} data-text={x.label}><span>{x.label}</span></span>
                 {x.count != null ? <span className={css.count}>{x.count}</span> : null}
                 {/* a tab's own mark (Doctor: a problem, a notice, a stopped machine or a check running in it); the reason is the hint */}
-                {x.tone ? <span className={css.dot} aria-hidden="true"><StateDot state={TONE[x.tone]} size={x.tone === 'ongoing' ? 9 : 6} /></span> : null}
+                {x.tone ? <span className={css.dot} aria-hidden="true"><StatusDot state={TONE[x.tone]} size={x.tone === 'ongoing' ? 9 : 6} /></span> : null}
                 {x.hint ? <span className={css.sr}>, {x.hint}</span> : null}
               </button>
             )

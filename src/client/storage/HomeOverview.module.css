@@ -11,9 +11,9 @@
   --ov-border: var(--dsw-alias-border-l2);
   --ov-border-hover: var(--dsw-alias-border-l3);
   --ov-hover: var(--dsw-alias-interactive-bg-hover);
-  --ov-success: var(--dsw-alias-state-success-primary);
-  --ov-warning: var(--dsw-alias-state-warn-primary);
-  --ov-danger: var(--dsw-alias-state-error-primary);
+  --ov-success: var(--lf-tone-success-dot);
+  --ov-warning: var(--lf-tone-warning-dot);
+  --ov-danger: var(--lf-tone-danger-dot);
   --ov-radius-lg: 8px;
   --ov-radius-sm: 6px;
   --ov-shadow: var(--dsw-elevation-soft);

@@ -15,7 +15,7 @@
   gap: 12px;
   padding: 12px 14px;
   border-radius: var(--dsw-radius-lg);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 6%, transparent);
+  background: var(--lf-tone-danger-bg);
 }
 
 .failureText {
@@ -33,7 +33,7 @@
   font-size: 13px;
   line-height: 20px;
   font-weight: 500;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .failureDetail {

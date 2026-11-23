@@ -14,7 +14,7 @@
 .belly { fill: var(--whale-white); opacity: 0.62; }
 .eye { fill: color-mix(in srgb, var(--whale-ink) 88%, var(--dsw-alias-state-business-primary)); }
 .shine { fill: var(--whale-white); }
-.blush { fill: color-mix(in srgb, var(--dsw-alias-state-error-primary) 45%, var(--whale-white)); opacity: 0.8; }
+.blush { fill: color-mix(in srgb, var(--lf-tone-danger-dot) 45%, var(--whale-white)); opacity: 0.8; }
 .mouth { stroke: color-mix(in srgb, var(--whale-ink) 88%, var(--dsw-alias-state-business-primary)); }
 
 .spout {

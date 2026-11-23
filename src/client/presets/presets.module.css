@@ -27,16 +27,16 @@
   margin: 0;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
   overflow-wrap: anywhere;
 }
 
 .ok {
-  color: var(--dsw-alias-state-success-primary);
+  color: var(--lf-tone-success-fg);
 }
 
 .bad {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .grow {
@@ -434,7 +434,7 @@
 }
 
 .select .status[data-tone='failed'] {
-  color: var(--dsw-alias-state-error-primary);
+  color: var(--lf-tone-danger-fg);
 }
 
 .rowAction {
@@ -523,11 +523,6 @@
   justify-content: flex-end;
   gap: 8px;
   width: 100%;
-}
-
-.dangerPrimary {
-  color: var(--dsw-alias-label-primary-inverted, var(--dsw-alias-label-primary-foreground));
-  background: var(--dsw-alias-state-error-primary);
 }
 
 /* ---------- script drawer ---------- */

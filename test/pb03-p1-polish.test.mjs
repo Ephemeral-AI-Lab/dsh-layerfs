@@ -79,7 +79,7 @@ test('P1-3: ProjectDialog keeps Project Name valid on Store collision, shows edi
   assert.match(dialog, /storeNameAutoHint/, 'uses localized auto-rename conflict copy')
 
   const css = src('src/client/projects/setup/dialog.module.css')
-  assert.match(css, /\.storeConflictNotice\s*\{[^}]*--dsw-alias-state-warn-tertiary[^}]*--dsw-alias-state-warn-label/s, 'conflict notice uses DSH semantic warn callout tokens')
+  assert.match(css, /\.storeConflictNotice\s*\{[^}]*--lf-tone-warning-bg[^}]*--lf-tone-warning-fg/s, 'conflict notice uses semantic warning callout tokens')
   assert.match(css, /\.storeModeRow\s*\{/, 'places Store mode switch and Store name input on one responsive row')
 
   for (const lang of ['en', 'zh']) {

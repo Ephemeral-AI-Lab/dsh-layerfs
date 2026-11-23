@@ -1,6 +1,7 @@
 /** Home inventory, ordered notices and the selected frame. Center owns navigation and Doctor results. */
 import { useContext, useId, useRef, useState, type ReactNode } from 'react'
-import { Button, IconAgentPresetOutlineRegular, IconInspectOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconAgentPresetOutlineRegular, IconInspectOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StatusDot } from '../ui/StatusDot.tsx'
 import { ago, bytes } from '../files/format.ts'
 import type { Query } from '../files/use-query.ts'
 import type { Translate } from '../files/types.ts'
@@ -103,7 +104,6 @@ interface Need {
   secondary?: { label: string, title?: string, run: () => void | Promise<unknown>, confirm?: string } | undefined
   extra?: ReactNode
 }
-
 
 export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const { view, error, t, now, doctor, onRefresh } = props
@@ -295,7 +295,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     add: view.buckets.length > 0 ? (
       <>
         <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}
-          icon={props.listingAll ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{t('ovListBuckets')}</Button>
+          icon={props.listingAll ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{t('ovListBuckets')}</Button>
         <Button variant="outline" size="sm" icon={plus} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>
       </>
     ) : null,
@@ -313,7 +313,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
     <button type="button" className={heroCss.runtime} data-tone={runtimeTone} aria-label={runtimeWords}
       title={[t('ovRuntimeToggle'), rt?.home].filter(Boolean).join(' · ')}
       onClick={() => setupDialog.open('runtime')}>
-      {!rt ? <StateDot state="ongoing" size={9} /> : rt.ok ? null : <StateDot state="error" size={6} />}
+      {!rt ? <StatusDot state="ongoing" size={9} /> : rt.ok ? null : <StatusDot state="error" size={6} />}
       <span>{runtimeWords}</span>
       {rt?.commit ? <span>· {rt.commit.slice(0, 8)}</span> : null}
     </button>
@@ -337,7 +337,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
         tools={(
           <>
             <Button variant="ghost" size="sm" className={heroCss.toolButton} icon={<IconAgentPresetOutlineRegular size={15} />} onClick={props.onPresets} aria-label={props.presetsLabel} title={props.presetsLabel} />
-            <Button variant="ghost" size="sm" className={heroCss.toolButton} icon={doctor.loading ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />}
+            <Button variant="ghost" size="sm" className={heroCss.toolButton} icon={doctor.loading ? <StatusDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={15} />}
               disabled={doctor.loading} onClick={refreshAll} aria-label={t('refresh')} title={[t(doctor.loading ? 'ovChecksRunning' : 'ovRefreshTitle'), checked].filter(Boolean).join(' · ')} />
           </>
         )}

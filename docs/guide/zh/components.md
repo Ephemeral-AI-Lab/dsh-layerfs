@@ -1,4 +1,4 @@
-<!-- source: d5e1a145f3fd -->
+<!-- source: 84cfca46c1b9 -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -30,7 +30,7 @@
 | 5 | **跳转到…**（Jump to…） | 一个带 **⌘K**（**Ctrl+K**）的输入框 | 点它或按快捷键 → **跳转到会话、项目、Store、机器、Sandbox 或存储桶**（Jump to a session, project, Store, machine, Sandbox or bucket），按项目、Store、机器、Sandbox、存储桶、页面和会话分组。会话结果显示标题与 ID，选中后打开对话。**↑ ↓ 移动 · Enter 打开 · Esc 关闭**（↑ ↓ to move · Enter to open · Esc to close） | —（在 Center 已读到的内容中搜索） | **没有与“{q}”匹配的项**（Nothing matches “{q}”）。最多 60 条结果。有对话框打开时快捷键不可用 |
 | 6 | 刷新 | 一个环形箭头，除主页、诊断和日志外每个页面都有（这三页各自有刷新） | 按下 → 页面重新读取它的数据 | 页面自己的读取 | 读取时显示一个圆点 |
 | 7 | **+ 添加**（+ Add） | **新建会话**（New session）、**新建项目**（New project）、**导入文件夹**（Import a folder）、**新建 Sandbox**（New Sandbox）、**新建 Store**（New Store，从机器页打开时预选那台机器）、**连接数据库**（Connect a database）、**新建机器**（New machine）、**添加存储桶**（Add bucket）、**试用预设**（Try a preset） | 打开对应的对话框 | `store create` · `store save-auth`、`store connect`、`store get` · `machine create` · `backup connect` · 预设自己的脚本。新建项目：`store create`、`project init`、`store move` | 新建机器和新建 Sandbox 不可用时仍显示，并说明原因 |
-| | 诊断 | 带计数的盾牌图标，提示为 **诊断：{n} 项发现**（Doctor: {n} findings） | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 读取主机保存的结果。如果还没有结果，打开主页时会运行一次 `home doctor` | 有错误时计数为红色，有警告时为橙色 |
+| | 诊断 | 带计数的盾牌图标，提示为 **诊断：{n} 项发现**（Doctor: {n} findings） | 按下 → `LayerFS › 诊断`（[诊断](health.md)） | 读取主机保存的结果。如果还没有结果，打开主页时会运行一次 `home doctor` | 有错误时计数为红色，有警告时为琥珀色 |
 | | 日志 | 列表图标 | 按下 → `LayerFS › 日志`（[日志](logs.md)） | — | |
 | | 设置 | 齿轮图标 | 按下 → 设置 LayerFS | `home get`（读取） | |
 
@@ -95,13 +95,19 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
 ## 状态词与圆点
 
 状态写成词，圆点只出现在出问题的地方。规则一句话：**正常的东西保持安静，故障保留自己的红点。**
+只有出问题的点带柔和光晕——中性/已停止的灰点以及诊断行内一排检查点中通过的绿点都不带光晕。
+
+全站状态色统一取自插件的五组 `--lf-tone-{success,warning,danger,info,neutral}-*` 语义 token
+（`fg` 用于文字、`dot` 用于圆点与图标、`bg` 与 `border` 用于浅底与描边、`solid` / `solid-hover` / `on-solid` 用于危险实底按钮），
+并通过共享组件 `StatusDot`、`StateChip`、`Callout` 与 `DangerButton` 渲染。所有圆形圆点与胶囊都显式声明
+`corner-shape: round`，保证画出来是真正的正圆而不是超椭圆圆角方块。
 
 | 位置 | 平时的状态 | 出故障时 |
 |---|---|---|
 | 概览头部的状态行 | **没有需要处理的事项**（Nothing needs your attention），没有圆点 | 事项前有圆点：故障为红点、警告为琥珀点 |
 | Store 卡片的状态行 | Store 就绪时什么都不显示；**docker 已停止**（docker is stopped）只是一个词，没有圆点（停机就是停机，不是损坏） | **损坏 · …**（Broken · …）保留红点 |
 | 备份徽标 | **没有备份**（No backup）只是普通文字，没有圆点；备份是最新的时候圆点是绿色 | 备份有问题时红点，备份过时或读不到时灰点 |
-| 诊断（Doctor）行 | **正常**（OK）是一个词，前面没有圆点 | 行内的检查点保留圆点（绿色通过、琥珀提醒、红色失败、灰色未检查） |
+| 诊断（Doctor）行 | **正常**（OK）是一个词，前面没有圆点 | 行内的检查点保留圆点（无光晕绿点通过、带光晕琥珀点提醒、带光晕红点失败、无光晕灰点未检查） |
 | 机器行或卡片 | **运行中**（Running） / **已停止**（Stopped）都是词 | **需要修复**（Needs repair）、**Docker 未运行**（Docker not running）、**不可用**（Unavailable）保留状态色 |
 
 ## 会说明原因的禁用按钮
