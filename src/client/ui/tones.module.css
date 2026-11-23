@@ -46,8 +46,8 @@
   --lf-tone-info-solid-hover: #315eb4;
   --lf-tone-info-on-solid: #fff;
   --lf-tone-info-dot-inverse: #6796ee;
-  --lf-tone-info-halo: 0 0 3px 0.5px color-mix(in srgb, var(--lf-tone-info-dot) var(--lf-glow-core), transparent), 0 0 8px 1.5px color-mix(in srgb, var(--lf-tone-info-dot) var(--lf-glow-edge), transparent);
-  --lf-tone-info-halo-tight: 0 0 2px 0.5px color-mix(in srgb, var(--lf-tone-info-dot) var(--lf-glow-core), transparent), 0 0 5px 0.5px color-mix(in srgb, var(--lf-tone-info-dot) var(--lf-glow-edge), transparent);
+  --lf-tone-info-halo: none;
+  --lf-tone-info-halo-tight: none;
 
   --lf-tone-neutral-fg: #5b5f66;
   --lf-tone-neutral-dot: #8e9398;
@@ -106,8 +106,8 @@
   --lf-tone-info-solid-hover: #4e79ca;
   --lf-tone-info-on-solid: #fff;
   --lf-tone-info-dot-inverse: #6796ee;
-  --lf-tone-info-halo: 0 0 3px 0.5px color-mix(in srgb, var(--lf-tone-info-dot) var(--lf-glow-core), transparent), 0 0 8px 1.5px color-mix(in srgb, var(--lf-tone-info-dot) var(--lf-glow-edge), transparent);
-  --lf-tone-info-halo-tight: 0 0 2px 0.5px color-mix(in srgb, var(--lf-tone-info-dot) var(--lf-glow-core), transparent), 0 0 5px 0.5px color-mix(in srgb, var(--lf-tone-info-dot) var(--lf-glow-edge), transparent);
+  --lf-tone-info-halo: none;
+  --lf-tone-info-halo-tight: none;
 
   --lf-tone-neutral-fg: #b9bec4;
   --lf-tone-neutral-dot: #82878c;
