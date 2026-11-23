@@ -14,6 +14,7 @@ import { removesSomething, runnableFix, typedNameOf, type RunnableFix } from '..
 import css from './ui.module.css'
 
 export { css as uiCss }
+export { ConfirmDialog, type ConfirmDialogProps, type ConfirmForce, type ConfirmLabels } from './ConfirmDialog.tsx'
 
 // ---------- page shell ----------
 

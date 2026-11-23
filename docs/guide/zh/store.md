@@ -1,4 +1,4 @@
-<!-- source: 183cecf750ae -->
+<!-- source: 5e34acf8668b -->
 # Store
 
 > **位置：** `LayerFS › 主页 › Store › <store>` · **打开方式：** 主页 › Store 或某台机器的 Store 标签页上 Store 卡片的名称、导航栏的层级切换器、跳转到、项目页上的 Store 链接、存储桶的关联 Store · **源码：** 见文末
@@ -59,12 +59,12 @@ Store 有多大、是谁写的、有没有需要你留意的地方。
 | **服务器**（Server）磁贴（PostgreSQL） | **可连接**（Reachable）、**无法连接**（Unreachable，附原因）或 **未知**（Unknown）；悬停显示修复行 | — | `store list` (读取) | 损坏时为红色 |
 | **项目**（Projects）磁贴 | 项目数和 **n 次提交**（n commits）（账本统计中时为 **已统计 n 次提交**（n commits so far）） | 点击 → 项目标签页 | `project list`、`project stats`、`branch get` (读取) | Store 拒绝时显示 **未读取：…**（Not read: …） |
 | **正在运行**（Running now）磁贴 | 这个 Store 的项目中 daemon 正在运行的 Sandbox | — | `machine list`、`sandbox list` (读取，`GET /api/machines`) | |
-| **上次备份**（Last backup）磁贴（SQLite） | 距今多久，以及存储桶 | 点击 → 备份标签页 | `store list` (读取：其链接) | 灰色 **尚未备份**（No backup yet） |
+| **上次备份**（Last backup）磁贴（SQLite） | 最近一次有时间记录的副本距今多久及其对应存储桶；若无时间戳则显示已知状态 | 点击 → 备份标签页 | `store list` (读取：其链接)、`backup list` (读取) | 未关联备份时显示灰色 **尚未备份**（No backup yet） |
 | **连接自**（Connected from）磁贴（PostgreSQL） | 有几台机器连接，以及它们的名称 | 点击 → 连接标签页 | `store list` (读取：`connections`) | |
-| 数据库文件的构成 | 一条横条，显示 **内容**（Content）、**元数据**（Metadata）、**空闲页**（Free pages）的大小和占比；**唯一内容** *x* **打包为** *y*（Unique content *x* packs into *y*）以及 **×** 比例 | — | `store get --with stats` (读取) | **读取中…**（Reading…）、**未读取：…**（Not read: …）、**LayerFS 未报告此 Store 的构成。**（LayerFS did not report this Store's parts.） |
+| 数据库文件的构成 | 一条堆叠构成条，展示 **内容**（Content）、**元数据**（Metadata，采用中性蓝灰，不用警告橙）和 **空闲页**（Free pages），宽分段直接在条内标出名称与占比、下方列出详细大小，0 字节分段不在条内占位；**唯一内容** *x* **打包为** *y*（Unique content *x* packs into *y*）以及 **×** 比例 | 悬停 → 分段详情与联动高亮 | `store get --with stats` (读取) | **读取中…**（Reading…）、**未读取：…**（Not read: …）、**LayerFS 未报告此 Store 的构成。**（LayerFS did not report this Store's parts.） |
 | Store 的增长 | 文件、内容和元数据在本机过去各次读取中的变化；间隔超过日志记录间隔的地方显示为断开 | — | —（本机对早先 `store get --with stats` 读取的记录） | 至少记录过一次读取后才显示；**图表从本机对此 Store 的读取开始：目前只有一次。**（The chart starts with this host's reads of the Store: one so far.） |
-| 由哪些项目写入 | 每个项目一个方块，大小按打包字节；没有被任何提交计入的字节归为 **初始化及更早**（Init and earlier） | 悬停 → 名称和大小 | `project stats` (读取)、`store get --with stats` (读取) | **还没有项目提交内容。**（No project has committed content yet.） |
-| 健康状况 | **机器**（Machine）（*docker* **正在运行**（is running）/ 已停止）、**备份**（Backups）（最新、自上次备份后已更改、存储桶已更改、缺失/冲突、无）、**空闲页**（Free pages）（可重用的比例）；PostgreSQL：**服务器**（Server）、**备份**（Backups）**由服务器自身的备份负责，而非 LayerFS**（covered by the server's own backups, not LayerFS） | — | 来自上面的读取 | 绿、灰、红色圆点 |
+| 由哪些项目写入 | 纵向列表，展示每个项目的打包字节与占比；没有被任何提交计入的字节归为 **初始化及更早**（Init and earlier） | — | `project stats` (读取)、`store get --with stats` (读取) | **还没有项目提交内容。**（No project has committed content yet.） |
+| 健康状况 | **机器**（Machine）（*docker* **正在运行**（is running）/ 已停止）、**备份**（Backups）（仅全部副本核验最新时亮绿点 **已是最新**；落后副本只用自身时间并标明桶名显示灰色 **自上次备份后已更改**、**桶已更改**、**未检查**、**未列出** 或 **尚未备份**；仅 **缺失** / **两侧均已更改** 标红）、**空闲页**（Free pages）（可重用的比例）；PostgreSQL：**服务器**（Server）、**备份**（Backups）**由服务器自身的备份负责，而非 LayerFS**（covered by the server's own backups, not LayerFS） | — | 来自上面的读取 | 绿、灰、红色圆点 |
 | Store 详情 | **创建时间**（Created）、**数据库文件**（Database file）或 **服务器**（Server）；然后是 **移除 Store**（Remove Store）/ **断开 Store**（Disconnect Store） | **移除…**（Remove…）→ [输入名称确认](#modals-opened-here)；**断开连接…**（Disconnect…）→ 确认 | `store remove` ↻ / `store disconnect` ↻ | 默认折叠 |
 
 ![展开的 Store 详情](../img/store-details.png)

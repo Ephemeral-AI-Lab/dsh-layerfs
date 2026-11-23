@@ -278,22 +278,6 @@
 
 /* ---------- confirmation ---------- */
 
-.confirmModal {
-  width: min(520px, calc(100vw - 32px));
-}
-
-.modalFooter {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  width: 100%;
-}
-
-.dangerPrimary {
-  color: var(--dsw-alias-label-primary-inverted, var(--dsw-alias-label-primary-foreground));
-  background: var(--dsw-alias-state-error-primary);
-}
-
 /* ---------- call detail ---------- */
 
 div.detailModal {

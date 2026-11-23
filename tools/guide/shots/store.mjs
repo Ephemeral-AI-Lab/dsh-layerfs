@@ -74,7 +74,7 @@ export default [
       (page) => page.getByRole('button', { name: 'Check integrity' }),
       (page) => page.getByRole('button', { name: 'demo-starter actions' }),
       (page) => page.getByRole('tablist', { name: 'demo-starter tabs' }),
-      (page) => page.locator('dl[aria-label="Store details"]'),
+      (page) => page.locator('[aria-label="Store details"]'),
       (page) => page.locator('[data-store-file]'),
       (page) => page.locator('[data-store-shares]'),
       (page) => page.locator('[data-store-health]'),
