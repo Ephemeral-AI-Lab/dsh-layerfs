@@ -16,7 +16,9 @@ import type { HostError, LayerfsApi } from '../api.ts'
 import { MachinesGlyph, SandboxesGlyph, StoreGlyph } from '../machines/icons.tsx'
 import { LayerfsGlyph } from '../overview/glyph.tsx'
 import type { StorageT } from '../storage/locale.ts'
+import { cardJob } from '../storage/model.ts'
 import { BucketGlyph, refusalLabels } from '../storage/parts.tsx'
+import type { StorageJob } from '../storage/types.ts'
 import { ConfirmDialog, Empty, LoadError, Loading, Page } from '../ui/index.tsx'
 import { TabBar } from '../ui/TabBar.tsx'
 import type { DoctorT } from './locale.ts'
@@ -28,6 +30,7 @@ import { wordsOf, type Words } from './words.ts'
 import css from './DoctorPage.module.css'
 
 const TAB_LABEL: Record<TabKey, string> = { machines: 'dpTabMachines', stores: 'dpTabStores', projects: 'dpTabProjects', sandboxes: 'dpTabSandboxes', backups: 'dpTabBackups' }
+const EMPTY_DISMISSED: ReadonlySet<string> = new Set()
 
 function TabIcon({ tab }: { tab: TabKey }): ReactNode {
   if (tab === 'machines') return <MachinesGlyph size={15} />
@@ -40,7 +43,17 @@ function TabIcon({ tab }: { tab: TabKey }): ReactNode {
 /** A tab's dot: what starts in it at its worst (a stopped machine marks its tab; a check that runs spins). */
 const TAB_TONE = { bad: 'danger', warn: 'warning', nc: 'idle', run: 'ongoing' } as const
 
-function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: StorageT, refreshKey: number }): ReactNode {
+function Body({ api, t, ts, refreshKey, jobs, dismissed, jobNow, onJobRetry, onJobDismiss }: {
+  api: LayerfsApi
+  t: DoctorT
+  ts: StorageT
+  refreshKey: number
+  jobs?: readonly StorageJob[] | undefined
+  dismissed?: ReadonlySet<string> | undefined
+  jobNow?: number | undefined
+  onJobRetry?: ((job: StorageJob) => void) | undefined
+  onJobDismiss?: ((job: StorageJob) => void) | undefined
+}): ReactNode {
   const w = useMemo(() => wordsOf(t), [t])
   const toast = useToast()
   const doctor = useDoctor(api, (what) => toast(w.toast(what)), refreshKey)
@@ -128,7 +141,9 @@ function Body({ api, t, ts, refreshKey }: { api: LayerfsApi, t: DoctorT, ts: Sto
   }
 
   const world = state.world
-  const ctx: RowContext = { state, w, open, flash, now, on }
+  const backupJobs = (jobs ?? []).filter((j) => j.kind === 'backup')
+  const storeJob = (store: string) => cardJob(backupJobs, store, dismissed ?? EMPTY_DISMISSED, jobNow ?? now)
+  const ctx: RowContext = { state, w, ts, storeJob, onJobRetry, onJobDismiss, open, flash, now, on }
   const head = headOf(state)
   const h = head.headline
   const headline = h.kind === 'checking' ? w.t('dpHeadChecking', { done: h.done, total: h.total })
@@ -221,10 +236,20 @@ function splitOn(text: string, code: ReactNode): ReactNode {
 }
 
 /** `refreshKey`: the top bar's Refresh; each new value reads the tree again. */
-export function DoctorPage({ api, t, ts, refreshKey = 0 }: { api: LayerfsApi, t: DoctorT, ts: StorageT, refreshKey?: number }): ReactNode {
+export function DoctorPage({ api, t, ts, refreshKey = 0, jobs, dismissed, jobNow, onJobRetry, onJobDismiss }: {
+  api: LayerfsApi
+  t: DoctorT
+  ts: StorageT
+  refreshKey?: number
+  jobs?: readonly StorageJob[] | undefined
+  dismissed?: ReadonlySet<string> | undefined
+  jobNow?: number | undefined
+  onJobRetry?: ((job: StorageJob) => void) | undefined
+  onJobDismiss?: ((job: StorageJob) => void) | undefined
+}): ReactNode {
   return (
     <Page label={t('healthTitle')}>
-      <TipLayer><Body api={api} t={t} ts={ts} refreshKey={refreshKey} /></TipLayer>
+      <TipLayer><Body api={api} t={t} ts={ts} refreshKey={refreshKey} jobs={jobs} dismissed={dismissed} jobNow={jobNow} onJobRetry={onJobRetry} onJobDismiss={onJobDismiss} /></TipLayer>
     </Page>
   )
 }

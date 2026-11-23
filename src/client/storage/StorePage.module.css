@@ -724,6 +724,11 @@
   white-space: nowrap;
 }
 
+.statePill[data-dashed] {
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  background: transparent;
+}
+
 .statePill[data-tone='ok'] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
   color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary));
@@ -781,10 +786,15 @@
 
 .linkActions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding-top: 10px;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.linkListBtn {
+  margin-inline-start: auto;
 }
 
 /* ---------- narrow panes ---------- */

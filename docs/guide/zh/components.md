@@ -1,4 +1,4 @@
-<!-- source: 4a414e4d88d2 -->
+<!-- source: 69e85d5aaaba -->
 # 组件
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -79,7 +79,7 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 组件 | 级别 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
 | **完成 LayerFS 设置**（Finish setting up LayerFS，在你选了 **稍后**，Later，之后出现） | 警告 | **设置 LayerFS…**（Set up LayerFS…） → 打开对话框 | `home get` | 设置完成后消失 |
-| 失败的任务：**{what} {place} 在{phase}时失败**（{what} {place} failed while {phase}）、**已中断 · 最终结果不可用**（Interrupted · final result unavailable）、**结果未知 · 请检查 Store**（Outcome unknown · inspect the Store） | 危险 | [修复按钮](#fix-buttons)（**启动 {name}**，Start {name}；**重启 {name}**，Restart {name}；**压缩 {name}**，Compact {name}；**保存登录…**，Save a login…；**重新连接…**，Connect again…；**运行 {n} 步修复…**，Run the {n}-step fix…），或 **打开 {name}**（Open {name}，存放该 Store 的 Sandbox），或 **重试**（Retry）。**关闭**（Dismiss） | 修复的调用（例如 `machine start`）。**重试** 会重复这个任务（`store move` 等） | 之后成功一次、Store 被移除或按了关闭后消失 |
+| 失败的任务：**{what} {place} 在{phase}时失败**（{what} {place} failed while {phase}）、**推送到 {place} 在{phase}时失败 · Store 留在 LayerFS Home**（Push to {place} failed while {phase} · Store stays in LayerFS Home）、**已中断 · 最终结果不可用**（Interrupted · final result unavailable）、**结果未知 · 请检查 Store**（Outcome unknown · inspect the Store） | 危险 | [修复按钮](#fix-buttons)（**启动 {name}**，Start {name}；**重启 {name}**，Restart {name}；**压缩 {name}**，Compact {name}；**保存登录…**，Save a login…；**重新连接…**，Connect again…；**运行 {n} 步修复…**，Run the {n}-step fix…），或 **打开 {name}**（Open {name}，存放该 Store 的 Sandbox），或 **重试**（Retry；迁移已拉回 LayerFS Home 时为 **重试推送**，Retry push）。**关闭**（Dismiss） | 修复的调用（例如 `machine start`）。**重试** 会重复这个任务（`store move` 等）；**重试推送** 直接从 LayerFS Home 推送而不重复拉回 | 之后成功一次（含迁移失败后的推送成功）、Store 被移除或按了关闭后消失 |
 | **{kind} 现在无法在此运行：{reason}**（{kind} can’t run here now: {reason}） | 警告 | **打开**（Open） → 这台机器 | — | 平台可用后消失 |
 | **{machine} 的 worker 无响应[，{stores} 无法打开]**（{machine}'s worker is not answering[, so {stores} cannot open]） | 危险 | **打开**（Open）。**停止 {machine}**（Stop {machine}） → **确认：停止 {machine}**（Confirm: stop {machine}，关闭 {machine} 的虚拟机并记录为已停止） | `machine stop` | worker 有响应后消失 |
 | **{machine} 的虚拟机已不存在[，{stores} 无法打开]**（{machine}’s VM is gone[, so {stores} cannot open]） | 危险 | 修复，或 **打开**（Open） | 修复的调用 | |
@@ -110,9 +110,10 @@ Store、机器和平台信息（`home get`、`machine get`、`machine list`、`s
 `ExplainedButton`（以及带 `disabledReason` 的菜单项）仍可获得焦点，标为 `aria-disabled` 而不是
 `disabled`，悬停或用键盘聚焦时用提示框说明原因。
 
-- **按钮**：Store 卡片的 **推送到…**（Push to…）和 **拉取**（Pull）；Store 页的 **添加项目**
-  （Add project）；备份标签页的 **备份到…**（Back up to…）、**立即备份**（Back up now）和
-  **恢复…**（Restore…）；存储桶页的 **立即备份**。
+- **按钮**：Store 卡片的 **推送到…**（Push to…）和 **拉回**（Pull）；机器 Store 标签页的 **推送 Store 到这里**（Push a Store here）/ **添加 Store**（Add Store）和 **连接数据库**（Connect a database）；Store 页的 **添加项目**
+  （Add project）；备份标签页的 **备份到…**（Back up to…）、**立即备份**（Back up now）、
+  **另存为新文件…**（Back up as new file…）和 **恢复…**（Restore…）；备份对话框的行内按钮与底部
+  **备份到另一个存储桶**（Back up to another bucket）；存储桶页的 **立即备份**。
 - **菜单项**：Store 菜单的 **推送到…**、**拉回 Home**（Pull to home）、**迁移到其他机器…**
   （Move to another machine…）、**备份到…**、**立即备份 · *存储桶*/*文件***（Back up now · …）和
   **压缩…**（Compact…）；PostgreSQL 登录组的 **移除登录**（Remove login，有 Store 在用时不可用）；
@@ -237,13 +238,13 @@ Store 页面头部和每张 Store 卡片上的 ⋯。
 ## 任务卡片
 
 一个 Store 任务（推送、拉取、迁移、备份、恢复或压缩）的进度。它显示在
-Store 页面头部下方，以及 Store 卡片的状态行里。
+Store 页面头部下方、Store 卡片的状态行里，以及在[诊断](health.md)页执行 **立即备份** 修复期间与结束后的对应 Store 行下方（紧凑形式）。
 
 | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|
-| 进行中 | 圆点、任务正在做什么（**正在推送到** / **正在从…拉回** / **正在迁移到** *m*，Pushing to / Pulling from / Moving to；**正在…上创建** *m*，Creating on；**正在备份到** *b*，Backing up to；**正在从…恢复** *b/f*，Restoring from；**压缩中** *s*，Compacting）、**第 n/N 步**（Step n of N）及步骤名（检查、拍快照、发送、校验、安装、记录、清理、上传、下载、计算哈希、标记、构建、交换）、**已完成量 / 总量**，以及一个进度条 | — | 任务自己的调用，它会流式报告进度（`store move`、`backup create`、`backup restore`、`store compact`）。卡片跟随 `storage-job` 事件更新 | |
-| 结束 | **已推送到** / **已从…拉回** / **已迁移到** / **已在…上创建** / **已备份到** / **已从…恢复** / **已压缩** …（Pushed to / Pulled from / Moved to / Created on / Backed up to / Restored from / Compacted；**· 没有可回收的空间**，· nothing to reclaim；**· 释放** *n*，· freed）。失败时：*种类 位置* **在** *步骤* **时失败**（failed while）、**…：正在使用**（… : in use）、**结果未知 · 请检查 Store**（Outcome unknown · inspect the Store），或 **已中断 · 最终结果不可用**（Interrupted · final result unavailable）。拒绝的代码、说明和修复都在提示里 | — | — | 绿色或红色圆点 |
-| 操作（仅失败的任务） | 一个按钮：Center 能运行时是[修复](#fix-buttons)，否则是 **打开** *Sandbox*（Open，存放该 Store 的 Sandbox），再否则是 **重试**（Retry） | **重试** 再运行一次同样的任务。**打开** 去 Sandbox 页 | 重试会重复任务的调用：推送 `store move`；拉取 `store get` + `store move`；迁移 `store move` ×2；备份 `backup create`；恢复 `backup restore`；压缩 `store compact` | |
+| 进行中 | 圆点、任务正在做什么（**正在推送到** / **正在从…拉回** / **正在迁移到** *m*，Pushing to / Pulling from / Moving to；**正在…上创建** *m*，Creating on；**正在备份到** *b*，Backing up to；**正在从…恢复** *b/f*，Restoring from；**压缩中** *s*，Compacting）、按完整步骤表计算的 **第 n/N 步**（Step n of N；迁移带前缀 **1/2 拉回 Home ·** 或 **2/2 推送 ·**）及步骤名（检查、拍快照、发送、校验、安装、记录、清理、上传、下载、计算哈希、标记、构建、交换）、**已完成量 / 总量**、与导航栏传输条及 Home 卡片共用口径的单调递增百分比（结束前上限 99%），以及一个进度条。主页 › Store 紧凑卡片将标题 + 百分比与步骤 + 字节数分作两行 | — | 任务自己的调用，它会流式报告进度（`store move`、`backup create`、`backup restore`、`store compact`）。卡片跟随 `storage-job` 事件更新 | |
+| 结束 | **已推送到** / **已从…拉回** / **已迁移到** / **已在…上创建** / **已备份到** / **已从…恢复** / **已压缩** …（Pushed to / Pulled from / Moved to / Created on / Backed up to / Restored from / Compacted；**· 没有可回收的空间**，· nothing to reclaim；**· 释放** *n*，· freed）。失败时：*种类 位置* **在** *步骤* **时失败**（failed while）、**推送到** *位置* **在** *步骤* **时失败 · Store 留在 LayerFS Home**（拉回半程失败为 **Store 仍留在** *from*；清理阶段失败为 **已移至** *位置* **· LayerFS Home 中的旧副本未删除**）、**…：正在使用**（… : in use）、**结果未知 · 请检查 Store**（Outcome unknown · inspect the Store），或 **已中断 · 最终结果不可用**（Interrupted · final result unavailable）。拒绝的代码、说明和修复都在提示里 | — | — | 绿色或红色圆点 |
+| 操作（仅失败的任务） | 一个按钮：Center 能运行时是[修复](#fix-buttons)，否则是 **打开** *Sandbox*（Open，存放该 Store 的 Sandbox），再否则是 **重试**（Retry；迁移已拉回 LayerFS Home 时为 **重试推送**，Retry push） | **重试** 再运行一次同样的任务；**重试推送** 直接从 LayerFS Home 推送而不重复拉回。**打开** 去 Sandbox 页 | 重试会重复任务的调用：推送 `store move`；拉回 `store get` + `store move`；迁移 `store move` ×2（**重试推送** 为 `store move` ×1）；备份 `backup create`；恢复 `backup restore`；压缩 `store compact` | |
 | **关闭**（Dismiss） | | 隐藏一个已结束的任务 | —（记在这个浏览器里） | |
 | 其他客户端 | **另一个客户端正在此 Store 上运行** *op · phase*（Another client runs *op · phase* on this Store） | — | `store list` (读取) | 没有操作 |
 

@@ -336,6 +336,12 @@ button.crumb[aria-expanded='true'],
   transition: width 300ms ease;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .jobsFill {
+    transition: none;
+  }
+}
+
 @media (max-width: 900px) {
   .jumpField {
     width: auto;

@@ -1,4 +1,4 @@
-<!-- source: 430d6a23ac8e -->
+<!-- source: 5a9d5f461de5 -->
 # 诊断
 
 > **位置：** `LayerFS › 诊断` · **打开方式：** Center [导航栏](components.md#nav-bar)上的诊断按钮（盾牌图标）；机器、Store 或 Sandbox 页面上的 **诊断**（Diagnose） · **源码：** 见文末
@@ -75,7 +75,9 @@ guide-notes`。**修复**（Fix）这一行（4）就是同一条命令，可以
 | **启动**（Start） | 机器已停止（无论是否有意） | `machine start <m>` | `machine doctor <m>`，以及它上面的东西 | `machine stop` |
 | **重启工作进程**（Restart worker） | 机器的 worker 版本过旧（`machine.worker.compatibility`） | 先 `machine stop <m>`，再 `machine start <m>` | 这台机器的各项检查 | — |
 | **删除项目**（Delete project） | 项目的记录里有它，但它的 Store 没有列出它（`project.listed`） | 确认后运行 `project delete <s/p>` | 它所在 Store 的诊断 | 无 |
-| **立即备份**（Back up now） | Store 在某个存储桶里的备份落后了（`store.backups`） | `backup create <store> <bucket>`（作为一个存储任务） | `store doctor <store>` | — |
+| **立即备份**（Back up now） | Store 在某个存储桶里的备份落后了（`store.backups`） | `backup create <store> <bucket> [--file]`（作为一个存储任务；沿用已关联的自定义文件名，并在对应 Store 行下方显示同款紧凑[任务卡片](components.md#job-card)） | `store doctor <store>` | — |
+
+![执行「立即备份」后在 Store 行下方显示的紧凑任务卡片](../img/health-store-job.png)
 
 每一步只尝试一次。被拒绝是确定的结果（什么都没变；再按一次按钮会重试）；而回复丢失时，
 操作可能已经成功，所以不会自动再运行一次：检查这一行，看看它现在是什么状态。

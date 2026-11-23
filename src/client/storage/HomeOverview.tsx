@@ -29,7 +29,7 @@ import { compareNeeds, visibleFailures, worstTone } from './home-notices.ts'
 import { storeTrouble } from './HomeCards.tsx'
 import { Signal } from './Signal.tsx'
 import type { StorageT } from './locale.ts'
-import { brokenWords, endedWords, holderTab, jobEnd, needsLogin, orderStores, type Reconnect } from './model.ts'
+import { brokenWords, endedWords, holderTab, jobEnd, movePushFailed, needsLogin, orderStores, type Reconnect } from './model.ts'
 import { refusalLabels, StoreGlyph } from './parts.tsx'
 import type { StorageJob, StorageView, StoreRow } from './types.ts'
 import type { DoctorCount } from '../../shared/doctor.ts'
@@ -88,6 +88,8 @@ export interface HomeOverviewProps {
   onListAll: () => void
   /** Every bucket is being listed. */
   listingAll: boolean
+  /** Individual buckets currently being listed. */
+  listingBuckets?: ReadonlySet<string> | undefined
 }
 
 /** One thing that needs you: how bad, what, why, and the one verb that fixes it. */
@@ -157,7 +159,7 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
       detail: <>{tip}<br />{ago(j.ended, now, t as Translate)}</>,
       action: fix && fixes ? { label: fixes.label(fix), run: () => fixes.run(fix) }
         : holder ? { label: t('jobOpenSandbox', { name: holder.name }), run: () => props.onOpen(holderTab(holder)) }
-          : { label: t('jobRetry'), run: () => props.onRetry(j) },
+          : { label: t(movePushFailed(j) ? 'jobRetryPush' : 'jobRetry'), run: () => props.onRetry(j) },
       extra: <Button variant="ghost" size="sm" onClick={() => props.onDismiss(j)}>{t('dismiss')}</Button>,
     })
   }
@@ -289,10 +291,11 @@ export function HomeOverview(props: HomeOverviewProps): ReactNode {
   const storesAlt = {
     main: { label: t('hsViewStores'), count: sqlite.length },
     other: { label: t('hsViewBuckets'), count: view.buckets.length },
-    view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onReconnect={props.onReconnect} onRestore={props.onRestore} />,
+    view: <BucketCards view={view} t={t} now={now} jobs={runningJobs} listingBuckets={props.listingBuckets} listingAll={props.listingAll} onOpen={props.onOpen} onAddBucket={props.onAddBucket} onList={props.onListBucket} onReconnect={props.onReconnect} onRestore={props.onRestore} />,
     add: view.buckets.length > 0 ? (
       <>
-        <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}>{t('ovListBuckets')}</Button>
+        <Button variant="outline" size="sm" disabled={props.listingAll} onClick={props.onListAll}
+          icon={props.listingAll ? <StateDot state="ongoing" size={13} /> : <IconRefreshOutlineRegular size={13} />}>{t('ovListBuckets')}</Button>
         <Button variant="outline" size="sm" icon={plus} onClick={props.onAddBucket}>{t('ovAddBucket')}</Button>
       </>
     ) : null,

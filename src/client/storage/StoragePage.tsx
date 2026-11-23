@@ -41,7 +41,7 @@ import { useHostEvents, useNow, useStorageJobs } from './hooks.ts'
 import type { StorageT } from './locale.ts'
 import { MachineStores } from './MachineStores.tsx'
 import { serverKey } from './machine-stores.ts'
-import { bucketFiles, cardJob, connectedMachines, inHome, orderStores, pgPlaceable, type Reconnect } from './model.ts'
+import { bucketFiles, cardJob, connectedMachines, inHome, movePushFailed, orderStores, pgPlaceable, type Reconnect } from './model.ts'
 import { NavBar, useNavHistory, type AddItem, type Crumb, type JumpItem, type NavPage, type Sibling } from './Nav.tsx'
 import { refusalLabels } from './parts.tsx'
 import { ProjectPage } from './ProjectPage.tsx'
@@ -199,7 +199,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   const reconnect = (again: Reconnect) => setDialog({ kind: 'bucket', again })
   reconnectRef.current = reconnect
   const [failed, setFailed] = useState<unknown>(undefined)
-  const [listing, setListing] = useState<string | null>(null)
+  const [listing, setListing] = useState<ReadonlySet<string>>(() => new Set())
   const [listingAll, setListingAll] = useState(false)
   const [sandbox, setSandbox] = useState<'pick' | MachineInfo | null>(null)
   const [newMachine, setNewMachine] = useState(false)
@@ -289,7 +289,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     work().then((v) => { if (v && typeof v === 'object' && 'id' in v && 'kind' in v && 'store' in v) take([v as StorageJob]); reload() }, (e: unknown) => setFailed(e))
   }
   const retry = (j: StorageJob): Promise<unknown> => {
-    if (j.kind === 'push' || (j.kind === 'move' && j.error?.note === 'pulled')) return api.call('POST', `/api/stores/${enc(j.store)}/push`, { machine: j.target })
+    if (j.kind === 'push' || movePushFailed(j)) return api.call('POST', `/api/stores/${enc(j.store)}/push`, { machine: j.target })
     if (j.kind === 'pull') return api.call('POST', `/api/stores/${enc(j.store)}/pull`)
     if (j.kind === 'move') return api.call('POST', `/api/stores/${enc(j.store)}/move`, { machine: j.target })
     if (j.kind === 'backup') return api.call('POST', `/api/stores/${enc(j.store)}/backup`, { bucket: j.target, ...(j.file ? { file: j.file } : {}) })
@@ -305,6 +305,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     move: () => setDialog({ kind: 'move', store: s }),
     // With no bucket yet there is nowhere to back up to: add one first.
     backup: () => setDialog(view && view.buckets.length === 0 ? { kind: 'bucket', then: { kind: 'backup', store: s, known: [] } } : { kind: 'backup', store: s }),
+    backupPick: (bucket) => setDialog({ kind: 'backup', store: s, pick: bucket }),
     backupTo: (l) => act(() => api.call('POST', `/api/stores/${enc(s.name)}/backup`, { bucket: l.bucket, file: l.file })),
     restore: (bucket, file) => setDialog({ kind: 'restore', bucket, file, store: s.name }),
     // only a runtime that has store.compact gets the menu row
@@ -351,9 +352,13 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     }),
   }
   const listBucket = (name: string) => {
-    setListing(name)
-    api.call('GET', `/api/buckets/${enc(name)}/files`).catch(setFailed).finally(() => { setListing(null); reload() })
+    setListing((prev) => new Set(prev).add(name))
+    return api.call('GET', `/api/buckets/${enc(name)}/files`).catch(setFailed).finally(() => {
+      setListing((prev) => { if (!prev.has(name)) return prev; const next = new Set(prev); next.delete(name); return next })
+      reload()
+    })
   }
+  const runningStores = useMemo(() => new Set(jobs.filter((j) => !j.ended).map((j) => j.store)), [jobs])
   const listAll = () => {
     setListingAll(true)
     api.call('POST', '/api/storage/check', {}).catch(setFailed).finally(() => { setListingAll(false); reload() })
@@ -479,7 +484,13 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
   ) : null
 
   const pageOf = (id: TabId): ReactNode => {
-    if (id === 'health') return <HealthView api={api} t={doctorT} ts={t} refreshKey={pageRefresh} />
+    if (id === 'health') {
+      return (
+        <HealthView api={api} t={doctorT} ts={t} refreshKey={pageRefresh}
+          jobs={jobs} dismissed={dismissed} now={now}
+          onRetry={(j) => { dismiss(j.id); act(() => retry(j)) }} onDismiss={(j) => dismiss(j.id)} />
+      )
+    }
     if (id === 'logs') return <LogsPage refreshKey={pageRefresh} api={api} t={more.logs} />
     if (id.startsWith('machine:')) {
       return (
@@ -512,7 +523,7 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
             onRetry={(j) => { dismiss(j.id); act(() => retry(j)) }} onDismiss={(j) => dismiss(j.id)}
             onBackup={(name) => { const s = storeNamed(name); if (s) setDialog({ kind: 'backup', store: s }) }}
             actionsFor={actionsFor} onAddBucket={() => setDialog({ kind: 'bucket' })} onListBucket={listBucket} onReconnect={reconnect} onRestore={(bucket, file) => setDialog({ kind: 'restore', bucket, file, store: null })} refreshKey={pageRefresh}
-            tab={section} onTab={setSection} onListAll={listAll} listingAll={listingAll} />
+            tab={section} onTab={setSection} onListAll={listAll} listingAll={listingAll} listingBuckets={listing} />
         </Page>
       )
     }
@@ -523,7 +534,8 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       return (
         <Page wide label={t('title')}>
           <StorePage refreshKey={pageRefresh} name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} job={cardJob(jobs, name, dismissed, now)} jobs={jobs.filter((j) => j.store === name)}
-            catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} onOpen={open} />
+            catalog={catalog} on={s ? actionsFor(s) : undefined} onOpenProject={(key) => open(`project:${key}`)} onOpen={open}
+            onListBucket={listBucket} listingBucket={listingAll ? '*' : listing} onReconnect={reconnect} />
         </Page>
       )
     }
@@ -544,10 +556,11 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
       if (!view) return <Page label={t('title')}><Loading label={t('readingStores')} /></Page>
       return (
         <Page label={t('title')}>
-          <BackupFilePage bucket={bucket} file={file} view={view} t={t} now={now} listing={listingAll || listing === bucket}
+          <BackupFilePage bucket={bucket} file={file} view={view} t={t} now={now} listing={listingAll || listing.has(bucket)} runningStores={runningStores}
             onList={() => listBucket(bucket)}
             onRestore={(f, store) => setDialog({ kind: 'restore', bucket, file: f, store })}
             onBackup={(store, f) => act(() => api.call('POST', `/api/stores/${enc(store)}/backup`, { bucket, file: f }))}
+            onBackupNewFile={(store, b) => setDialog({ kind: 'backup', store, pick: b })}
             onOpenStore={(store) => open(`store:${store}`)} onOpenProject={(key) => open(`project:${key}`)}
             onOpenBucket={() => open(`bucket:${bucket}`)} onReconnect={reconnect} />
         </Page>
@@ -557,10 +570,11 @@ function StorageIde({ api, doctorT, t, openRef, loginRef, reconnectRef, confirmR
     if (!view) return <Page label={t('title')}><Loading label={t('readingStores')} /></Page>
     return (
       <Page label={t('title')}>
-        <BucketPage name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} listing={listingAll || listing === name}
+        <BucketPage name={name} view={view} t={t} api={api} doctorT={doctorT} now={now} listing={listingAll || listing.has(name)} runningStores={runningStores}
           onList={() => listBucket(name)}
           onRestore={(file, store) => setDialog({ kind: 'restore', bucket: name, file, store })}
           onBackup={(store, file) => act(() => api.call('POST', `/api/stores/${enc(store)}/backup`, { bucket: name, file }))}
+          onBackupNewFile={(store, b) => setDialog({ kind: 'backup', store, pick: b })}
           onDisconnect={() => setDialog({
             kind: 'confirm', title: t('confirmTitleBucket', { name }), body: t('confirmBucketBody'), action: t('disconnectAction'),
             run: () => api.call('DELETE', `/api/buckets/${enc(name)}`).then(() => close(`bucket:${name}`)),

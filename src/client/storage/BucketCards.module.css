@@ -100,11 +100,14 @@
 }
 
 .line {
+  display: flex;
+  align-items: center;
+  gap: 0;
   margin: 0;
   overflow: hidden;
   font-size: 12px;
   line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -144,15 +147,22 @@
 }
 
 .file {
+  min-width: 0;
+  padding: 0;
   overflow: hidden;
+  border: 0;
+  background: none;
+  font: inherit;
   color: var(--dsw-alias-label-primary);
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .size {
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -187,7 +197,7 @@ button.storeName {
 
 .when {
   flex: none;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -223,32 +233,31 @@ button.storeName {
   background: none;
   font: inherit;
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
   text-align: right;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .inline {
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
 }
 
 .job {
   padding: 4px 0 6px;
 }
 
-/* Nothing to list: the kept room says why. */
+/* Nothing to list: clean centered room without nesting a second card border. */
 .none {
   display: flex;
   flex: 1;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   margin: 0;
-  border: 0.5px dashed var(--dsw-alias-border-l3);
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  font-size: 12.5px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .foot {
@@ -260,12 +269,13 @@ button.storeName {
   padding-top: 8px;
   border-top: 0.5px solid var(--dsw-alias-border-l2);
   font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 @media (hover: hover) {
   .seg button[aria-selected='false']:hover,
   .name:hover,
+  .file:hover,
   button.storeName:hover,
   .restore:hover,
   .inline:hover {
@@ -275,6 +285,7 @@ button.storeName {
 
 .seg button:focus-visible,
 .name:focus-visible,
+.file:focus-visible,
 .storeName:focus-visible,
 .restore:focus-visible,
 .inline:focus-visible {

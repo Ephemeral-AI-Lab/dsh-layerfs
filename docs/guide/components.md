@@ -79,7 +79,7 @@ status line.
 | Component | Tone | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | **Finish setting up LayerFS** (after you chose **Later**) | Warning | **Set up LayerFS…** → the dialog | `home get` | Clears when setup is complete |
-| A failed job: **{what} {place} failed while {phase}**, **Interrupted · final result unavailable**, **Outcome unknown · inspect the Store** | Danger | The [fix button](#fix-buttons) (**Start {name}**, **Restart {name}**, **Compact {name}**, **Save a login…**, **Connect again…**, **Run the {n}-step fix…**), or **Open {name}** (the Sandbox holding the Store), or **Retry**. **Dismiss** | The fix's calls (for example `machine start`). **Retry** repeats the job (`store move`, …) | Clears after a later success, when the Store is removed, or on Dismiss |
+| A failed job: **{what} {place} failed while {phase}**, **Push to {place} failed while {phase} · Store stays in LayerFS Home**, **Interrupted · final result unavailable**, **Outcome unknown · inspect the Store** | Danger | The [fix button](#fix-buttons) (**Start {name}**, **Restart {name}**, **Compact {name}**, **Save a login…**, **Connect again…**, **Run the {n}-step fix…**), or **Open {name}** (the Sandbox holding the Store), or **Retry** (**Retry push** when a move already pulled to LayerFS Home). **Dismiss** | The fix's calls (for example `machine start`). **Retry** repeats the job (`store move`, …); **Retry push** pushes from LayerFS Home without pulling again | Clears after a later success (including a push after a failed move), when the Store is removed, or on Dismiss |
 | **{kind} can’t run here now: {reason}** | Warning | **Open** → the machine | — | Clears when the platform is available |
 | **{machine}'s worker is not answering[, so {stores} cannot open]** | Danger | **Open**. **Stop {machine}** → **Confirm: stop {machine}** (shuts down {machine}'s VM and records it as stopped) | `machine stop` | Clears when the worker answers |
 | **{machine}’s VM is gone[, so {stores} cannot open]** | Danger | The fix, or **Open** | The fix's calls | |
@@ -113,9 +113,10 @@ disabled actions keep their reason in reach: an `ExplainedButton` (and a menu it
 `disabledReason`) stays focusable, is marked `aria-disabled` rather than `disabled`, and
 shows its reason in a tooltip on hover or keyboard focus.
 
-- **Buttons:** a Store card's **Push to…** and **Pull**; a Store page's **Add project**;
-  the Backups tab's **Back up to…**, **Back up now** and **Restore…**; a bucket's
-  **Back up now**.
+- **Buttons:** a Store card's **Push to…** and **Pull**; a machine's Stores tab **Push a Store here** / **Add Store** and **Connect a database**; a Store page's **Add project**;
+  the Backups tab's **Back up to…**, **Back up now**, **Back up as new file…** and
+  **Restore…**; the Backups dialog's row actions and **Back up to another bucket**; a
+  bucket's **Back up now**.
 - **Menu items:** the Store menu's **Push to…**, **Pull to home**, **Move to another
   machine…**, **Back up to…**, **Back up now · *bucket*/*file*** and **Compact…**; the
   PostgreSQL login group's **Remove login** (off while a Store uses the login); the
@@ -247,13 +248,14 @@ The ⋯ in a Store page's head and on every Store card.
 ## Job card
 
 The progress of one Store job (a push, pull, move, backup, restore or compaction). It shows
-under a Store page's head and in a Store card's status row.
+under a Store page's head, in a Store card's status row, and compactly under a Store row on
+the [Doctor](health.md) page during and after a **Back up now** fix.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Running line | Dot, what the job is doing (**Pushing to** / **Pulling from** / **Moving to** *m*, **Creating on** *m*, **Backing up to** *b*, **Restoring from** *b/f*, **Compacting** *s*), **Step n of N** with the step (checking, taking a snapshot, sending, verifying, installing, recording, cleaning up, uploading, downloading, hashing, marking, building, swapping), **done of total**, and a progress bar | — | The job's own call, which streams progress (`store move`, `backup create`, `backup restore`, `store compact`). The card follows `storage-job` events | |
-| Ended line | **Pushed to** / **Pulled from** / **Moved to** / **Created on** / **Backed up to** / **Restored from** / **Compacted** … (**· nothing to reclaim**, **· freed** *n*). On failure: *Kind place* **failed while** *step*, **… : in use**, **Outcome unknown · inspect the Store**, or **Interrupted · final result unavailable**. The refusal's code, words and fix are in the tip | — | — | Green or red dot |
-| Action (failed jobs only) | One button: the [fix](#fix-buttons) when Center can run it, otherwise **Open** *Sandbox* (the Sandbox holding the Store), otherwise **Retry** | **Retry** runs the same job again. **Open** goes to the Sandbox page | Retry repeats the job's calls: push `store move`; pull `store get` + `store move`; move `store move` ×2; backup `backup create`; restore `backup restore`; compact `store compact` | |
+| Running line | Dot, what the job is doing (**Pushing to** / **Pulling from** / **Moving to** *m*, **Creating on** *m*, **Backing up to** *b*, **Restoring from** *b/f*, **Compacting** *s*), **Step n of N** across the full step list (for moves prefixed with **1/2 Pulling to Home ·** or **2/2 Pushing ·**) with the step (checking, taking a snapshot, sending, verifying, installing, recording, cleaning up, uploading, downloading, hashing, marking, building, swapping), **done of total**, a monotonic percentage shared with the nav bar's Transfers pill and Home cards (capped at 99% until ended), and a progress bar. Compact cards on Home › Stores split the title + percentage and the step + bytes onto two rows | — | The job's own call, which streams progress (`store move`, `backup create`, `backup restore`, `store compact`). The card follows `storage-job` events | |
+| Ended line | **Pushed to** / **Pulled from** / **Moved to** / **Created on** / **Backed up to** / **Restored from** / **Compacted** … (**· nothing to reclaim**, **· freed** *n*). On failure: *Kind place* **failed while** *step*, **Push to** *place* **failed while** *step* **· Store stays in LayerFS Home** (or **Store stays on** *from* if the pull half failed; **Moved to** *place* **· old copy in LayerFS Home not removed** if cleanup failed), **… : in use**, **Outcome unknown · inspect the Store**, or **Interrupted · final result unavailable**. The refusal's code, words and fix are in the tip | — | — | Green or red dot |
+| Action (failed jobs only) | One button: the [fix](#fix-buttons) when Center can run it, otherwise **Open** *Sandbox* (the Sandbox holding the Store), otherwise **Retry** (**Retry push** when a move already pulled the Store to LayerFS Home) | **Retry** runs the same job again; **Retry push** pushes directly from LayerFS Home without pulling again. **Open** goes to the Sandbox page | Retry repeats the job's calls: push `store move`; pull `store get` + `store move`; move `store move` ×2 (or `store move` ×1 for **Retry push**); backup `backup create`; restore `backup restore`; compact `store compact` | |
 | **Dismiss** | | Hides a finished job | — (remembered in this browser) | |
 | Another client | **Another client runs** *op · phase* **on this Store** | — | `store list` (read) | No actions |
 
