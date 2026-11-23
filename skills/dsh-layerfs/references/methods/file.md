@@ -7,24 +7,23 @@ script that imported `layerfs` from `$DSH_LAYERFS_SDK` and set `P`, `B`, `SB`.
 
 | Call | Command | SDK |
 | --- | --- | --- |
-| read | `layerfs file read <project> <branch> <path> [<commit>] [--start-line N] [--end-line N]` | `file.read(project, branch, path, commit?, { start_line, end_line })` |
-| stat | `layerfs file stat <project> <branch> <path> [<commit>]` | `file.stat(project, branch, path, commit?)` |
-| list | `layerfs file list <project> <branch> <path> [<commit>] [--page-size N] [--page-pos N]` | `file.list(project, branch, path, commit?, { page_size, page_pos })` |
-| glob | `layerfs file glob <project> <branch> <path> <pattern> [<commit>] [--page-size N] [--page-pos N]` | `file.glob(project, branch, path, pattern, commit?, { page_size, page_pos })` |
-| grep | `layerfs file grep <project> <branch> <path> <text> [<commit>] [--page-size N] [--page-pos N]` | `file.grep(project, branch, path, text, commit?, { page_size, page_pos })` |
-| revision | `layerfs file revision <project> <branch> <path> [--at-commit <id>] [--page-size N]` | `file.revision(project, branch, path, { at_commit, page_size })` |
-| blame | `layerfs file blame <project> <branch> <path> [<commit>] [--from-line N] [--line-count N]` | `file.blame(project, branch, path, commit?, { from_line, line_count })` |
-| diff | `layerfs file diff <project> <left-branch> <left-path> <right-branch> <right-path> [--left-commit <id>] [--right-commit <id>]` | `file.diff(project, left_branch, left_path, right_branch, right_path, { left_commit, right_commit })` |
-| write | `layerfs file write <project> <branch> <path> [-m <msg>] [--mode N] [--from <file>]` (content on stdin) | `file.write(project, branch, path, content, { message, mode })` |
-| edit | `layerfs file edit <project> <branch> <path> --old <text> --new <text> [-m <msg>]` | `file.edit(project, branch, path, { old, new, message })` |
-| rm | `layerfs file rm <project> <branch> <path> [-m <msg>]` | `file.rm(project, branch, path, { message })` |
-| mkdir | `layerfs file mkdir <project> <branch> <path> [-m <msg>]` | `file.mkdir(project, branch, path, { message, mode })` |
-| mv | `layerfs file mv <project> <branch> <from-path> <to-path> [-m <msg>]` | `file.mv(project, branch, from_path, to_path, { message })` |
-| cp | `layerfs file cp <project> <branch> <from-path> <to-path> [-m <msg>]` | `file.cp(project, branch, from_path, to_path, { message })` |
-| apply | `layerfs file apply <project> <branch> [-m <msg>] [--from <file>]` (JSON list on stdin) | `file.apply(project, branch, changes, { message })` |
+| read | `layerfs file read <project> <branch> <path> [--at C] [--line 1] [--limit 2000]` | `file.read(project, branch, path, { at, line, limit })` |
+| stat | `layerfs file stat <project> <branch> <path> [--at C]` | `file.stat(project, branch, path, { at })` |
+| list | `layerfs file list <project> <branch> <path> [--at C] [--limit 100] [--cursor C]` | `file.list(project, branch, path, { at, limit, cursor })` |
+| glob | `layerfs file glob <project> <branch> <pattern> [path] [--exclude G] [--at C] [--limit 100] [--cursor C]` | `file.glob(project, branch, pattern, path?, { exclude, at, limit, cursor })` |
+| grep | `layerfs file grep <project> <branch> <pattern> [path] [--include G] [--exclude G] [--ignore-case] [--at C] [--limit 100] [--cursor C]` | `file.grep(project, branch, pattern, path?, { include, exclude, ignore_case, at, limit, cursor })` |
+| history | `layerfs file history <project> <branch> <path> [--at C] [--traversal provenance] [--limit 100] [--cursor C]` | `file.history(project, branch, path, { at, traversal, limit, cursor })` |
+| blame | `layerfs file blame <project> <branch> <path> [--at C] [--line 1] [--limit 2000]` | `file.blame(project, branch, path, { at, line, limit })` |
+| write | `layerfs file write <project> <branch> <path> [--mode M] [--expected C] [-m msg] [--from file]` (content on stdin) | `file.write(project, branch, path, content, { mode, expected, message })` |
+| edit | `layerfs file edit <project> <branch> <path> --old-string S --new-string S [--replace-all] [--expected C] [-m msg]` | `file.edit(project, branch, path, { old_string, new_string, replace_all, expected, message })` |
+| rm | `layerfs file rm <project> <branch> <path> [--recursive] [--expected C] [-m msg]` | `file.rm(project, branch, path, { recursive, expected, message })` |
+| mkdir | `layerfs file mkdir <project> <branch> <path> [--mode M] [--expected C] [-m msg]` | `file.mkdir(project, branch, path, { mode, expected, message })` |
+| mv | `layerfs file mv <project> <branch> <from> <to> [--expected C] [-m msg]` | `file.mv(project, branch, from, to, { expected, message })` |
+| cp | `layerfs file cp <project> <branch> <from> <to> [--expected C] [-m msg]` | `file.cp(project, branch, from, to, { expected, message })` |
+| apply | `layerfs file apply <project> <branch> [--expected C] [-m msg] [--from file]` (JSON list on stdin) | `file.apply(project, branch, changes, { expected, message })` |
 
-In the SDK an optional positional you skip is left out (`file.read(P, B, path, { start_line: 2 })`);
-`layerfs help file <call>` and `layerfs.table` list every option.
+In the SDK an optional positional you skip is left out (`file.glob(P, B, "**/*.js", { limit: 1000 })`);
+to compare a file across two Commits or Branches, use [`commit diff`](commit.md#commit-diff) with `--path` and `--with patch` (`file.revision` and `file.diff` are removed in 2.0).
 
 ## When to use them
 
@@ -34,75 +33,70 @@ In the SDK an optional positional you skip is left out (`file.read(P, B, path, {
 - **Writes** go straight to a Branch as a Commit. They are how you change files, on
   the session Branch `$B` and on side Branches. Use a command in a Workspace instead
   for a batch change with logic (a codemod, `sed -i` across files, a generator, a
-  formatter). Never write to `main` (`ReadOnly`) or to any other `dsh.…` Branch.
+  formatter). Never write to `main` (`InvalidInput`) or to any other `dsh.…` Branch.
 - A Workspace mounted before a write doesn't show it until that Workspace's next
-  Commit. Make the writes a command needs before you mount for it.
+  Commit (`workspace status` sets `branch_moved: true`). Make the writes a command
+  needs before you mount for it.
 
 ## Shared rules
 
 - Paths are absolute and canonical (`/src/cart.js`). A relative path is refused
   `InvalidInput`.
-- Pass a full 66-hex Commit id as `commit` to read an older state. In this build the
-  Commit decides what is read and the Branch is not checked, so pass a Commit of that
-  Branch.
-- A write makes exactly one Commit, or nothing. `UpToDate` means nothing changed and
-  no Commit was made. Parent folders must exist; `file mkdir` creates missing parents.
-- Pages: `list`, `glob` and `grep` answer `{ items, has_more, next_page_pos }`.
-  The page size is 1 to 1000, default 50. A short page is not the end while
-  `has_more` is true. Narrow the path or pattern instead of paging far.
-- Single-path reads start with `{ kind: "ok", snapshot, root, path }`; `snapshot`
-  names what was read, such as `"work@a99d99faf59f"`.
+- Pass `--at <commit>` (`{ at }`, a full 66-hex id or >=8-char prefix) to read an
+  older state on that Branch. An ambiguous prefix is refused `InvalidInput` with
+  `matches`.
+- A write makes exactly one Commit, or nothing. `unchanged: true` (`outcome: "unchanged"`
+  with `--detail`) means nothing changed and no Commit was made. If another writer
+  moved the Branch, the write merges unless `expected` was passed (`merged: true`).
+  Parent folders must exist; `file mkdir` creates missing parents.
+- **Pages:** `list`, `glob`, `grep` and `history` take `--limit` (1 to 1000, default
+  100) and `--cursor` (`{ limit, cursor }`), and answer `{ items, next_cursor? }`.
+  While `next_cursor` is present, pass it as `cursor` to read the next page against
+  the same pinned Commit.
+- `mode` is 4-digit octal text (`"0644"`, `"0755"`), never a decimal number.
 
-**Shared refusals**
+**Shared refusals** (pass `--detail` / `{ detail: true }` for `detail.code`):
 
-| Code | Meaning | Do |
+| `error` | Meaning | Do |
 | --- | --- | --- |
-| `NoSuchPath` | The path, or a write's parent folder, doesn't exist | `file list` the parent; `file mkdir` first |
-| `NoSuchBranch`, `NoSuchCommit` | Wrong Branch or Commit | `branch list`, `commit list` |
-| `ReadOnly` | A write on `main` | Write on `$B` or a side Branch; publish only when the user asks |
-| `HeadMoved` | Another writer committed on the Branch during the write; nothing was written | Read the file again, then redo the change |
-| `IsDirectory`, `NotDirectory` | A folder where a file is needed, or the other way round | `file stat` it |
-| `Binary` | A read of a file that is not UTF-8 text | Look at it or copy it with a command (`xxd`, `cp`) |
-| `InvalidInput` | A bad argument: page bounds, line numbers, a relative path, a short Commit id | Read `message` |
+| `NotFound` | Missing path, parent folder, Branch or Commit (`NoSuchPath`, `NoSuchBranch`, `NoSuchCommit`), or `file edit` `old_string` absent (`NoMatch`) | `file list` the parent, `branch list`, `commit list`, or `file grep` |
+| `InvalidInput` | Writing `main` (`ReadOnly`), `IsDirectory`/`NotDirectory`, non-empty `rm` without `recursive`, `file edit` on a binary file or ambiguous match (`AmbiguousMatch`, carries `matches`), bad option/cursor/mode/short prefix | Read `message` and `fix` |
+| `Conflict` | Write conflicted with a moved head, or head did not match `expected` (`HeadMoved`; carries `commit`) | Read the file again, then redo the change |
+| `Exists` | `cp` or `mv` onto an existing target | Pick another target |
 | `Busy`; `Failed` with `busy before effect` or `Storage(Busy)` | Another writer held the Store; nothing was written | Wait 2–8 s (jittered) and run it again, at most 5 times |
-| `Unknown` with `Busy` in `message` | The Store was busy mid-write; it may have landed | `file read` it (or `commit list`); write again only if it is not there |
+| `Unknown`, `Unresolved` | Outcome uncertain or prior `Unknown` open | Check `file read`/`file stat`/`commit list` before acting again |
 | `Failed` | The call failed before committing | Stop and report `message` |
-
-Write refusals carry `detail.index`: 0 for single writes, the failing change for
-`apply`.
 
 ## `file read`
 
 ```bash
-layerfs file read "$P" "$B" /src/math.js --start-line 2 --end-line 3
+layerfs file read "$P" "$B" /src/math.js --line 2 --limit 2
 ```
 
 ```js
-const r = await layerfs.file.read(P, B, "/src/math.js", { start_line: 2, end_line: 3 });
+const r = await layerfs.file.read(P, B, "/src/math.js", { line: 2, limit: 2 });
 ```
 
-```json
-{"kind":"ok","snapshot":"work@a99d99faf59f","root":"f55fa9660a73…","path":"/src/math.js",
- "text":"  return a + b;\n}\n","start_line":2,"end_line":3,"line_truncated":false,
- "truncated":false,"next_line":null,"size":46}
-```
+Short answer: `{"text":"  return a + b;\n}\n"}` (with `next_line` and
+`line_truncated` when set). Long form (`--detail` / `{ detail: true }`) adds
+`binary`, `size`, `commit`, `root`, `path`, `start_line`, `end_line`.
 
 The command's `--text` prints the text alone. **One answer holds at most 2000 lines
-and 48 KiB**; `truncated: true` and `next_line` say where to continue. A huge single
-line comes back as a prefix (`line_truncated`). Refusals: `IsDirectory`, `Binary`
-(not UTF-8: look at it in a Workspace), plus the shared ones.
+and 48 KiB**; `next_line` says where to continue. Binary files do **not** error:
+`file read` answers `{"binary":true,"size":<bytes>}` (inspect or copy their bytes in
+a Workspace).
 
 Before you write back a file you read in windows, check you have all of it:
-`Buffer.byteLength(text) === (await layerfs.file.stat(P, br, path)).size`. If they
-differ, read it with `cat` in a Workspace and report the mismatch.
+`Buffer.byteLength(text) === (await layerfs.file.stat(P, br, path)).size`.
 
-Read a whole long file window by window:
+Read a whole long text file window by window:
 
 ```js
 let line = 1, text = "";
 for (;;) {
-  const r = await layerfs.file.read(P, B, "/src/cart.js", { start_line: line });
-  text += r.text;
+  const r = await layerfs.file.read(P, B, "/src/cart.js", { line });
+  if (r.binary) throw new Error(`binary file (${r.size} bytes): inspect in a Workspace`);
+  text += r.text ?? "";
   if (r.next_line == null) break;
   line = r.next_line;
 }
@@ -111,128 +105,98 @@ for (;;) {
 ## `file stat`
 
 ```json
-{"kind":"ok","snapshot":"work@a99d99faf59f","root":"f55fa9660a73…","path":"/src/math.js","type":"file","inode":7,"size":46,"mode":420}
+{"type":"file","size":46,"mode":"0644"}
 ```
 
-`type` is `file`, `dir` or `symlink`; `mode` is decimal (420 = `0644`). A missing path
-is refused `NoSuchPath`, which is how to test for existence:
+`type` is `file`, `dir` or `symlink`; `mode` is 4-digit octal text (`"0644"`).
+Long form adds `commit`, `root`, `path`, `inode`, `modified_at`. A missing path is
+refused `NotFound`, which is how to test for existence:
 
 ```js
 const exists = await layerfs.file.stat(P, B, "/package.json").then(
   () => true,
-  (e) => { if (e.code === "NoSuchPath") return false; throw e; },
+  (e) => { if (e.error === "NotFound") return false; throw e; },
 );
 ```
 
 ## `file list`
 
-A folder's entries, as a page. Each item is `{ name, path, type, inode }`.
+A folder's entries, as a page. Each short item is `{ path, type }` (`--detail` adds
+`inode`, plus `skipped_hidden` on the answer).
 
 ```bash
 layerfs file list "$P" "$B" / --text
 ```
 
 ```
-NAME        PATH         TYPE  INODE
-.gitignore  /.gitignore  file  2
-.lww        /.lww        file  3
-src         /src         dir   5
+PATH         TYPE
+/.gitignore  file
+/.lww        file
+/src         dir
 ```
 
 ## `file glob`
 
-Paths under `path` matching `pattern`, as a page of path strings. `*` and `?` match
-within one name; `**` spans folders.
+Paths under `path` (default `/`) matching `pattern`, as a page of path strings.
+**`pattern` comes BEFORE `[path]`!** `*` and `?` match within one name; `**` spans
+folders; `--exclude` skips matching paths/folders (e.g. `node_modules`).
 
 ```bash
-layerfs file glob "$P" "$B" / '**/*.js'
+layerfs file glob "$P" "$B" '**/*.js' /
 ```
 
 ```js
 const all = [];
-for (let pos = 0; pos !== null; ) {
-  const page = await layerfs.file.glob(P, B, "/", "src/**/*.js", { page_size: 1000, page_pos: pos });
+let cursor;
+do {
+  const page = await layerfs.file.glob(P, B, "src/**/*.js", "/", { limit: 1000, cursor });
   all.push(...page.items);
-  pos = page.has_more ? page.next_page_pos : null;
-}
-```
-
-```json
-{"kind":"ok","snapshot":"work@a99d99faf59f","root":"…","path":"/","items":["/src/index.js","/src/math.js"],"has_more":false,"next_page_pos":null}
+  cursor = page.next_cursor;
+} while (cursor);
 ```
 
 ## `file grep`
 
-Lines under `path` that contain the text. **The text is plain, not a regular
-expression**, whatever `layerfs help` says. Each item is `{ path, line, text,
-line_truncated }`; `skipped` counts binary files passed over. It searches everything
-under `path`, `node_modules` included, so keep `path` narrow. For regular expressions,
-run `rg` in the Workspace.
+Lines under `path` (default `/`) that contain `pattern`. **`pattern` comes BEFORE
+`[path]` and is literal plain text, not a regular expression.** Supports
+`--include`, `--exclude`, `--ignore-case`. Each item is `{ path, line, text }`
+(with `line_truncated` when cut); `--detail` adds `skipped_binary` on the answer.
+For regular expressions, run `rg` in a Workspace.
 
 ```bash
-layerfs file grep "$P" "$B" /src 'retries'
+layerfs file grep "$P" "$B" 'retries' /src
 ```
 
-## `file revision`
+## `file history`
 
 The saved changes to one literal path, newest first, from the Branch's head (or
-`at_commit`). Use it to find when a file changed and in which Commit; then
-`file read … <commit>` or `file diff` shows the content.
+`--at C`). `traversal` is `"provenance"` (default, follows the path across forks) or
+`"branch"`. Each item is `{ commit, change, message? }` (`--detail` adds `parent`,
+`created_at`, `type`, `size`, `mode`, `content`, `metadata`, `identity`).
 
 ```bash
-layerfs file revision "$P" "$B" /src/app.js
+layerfs file history "$P" "$B" /src/app.js
 ```
 
 ## `file blame`
 
-The Commit and message of each line, from `from_line` (default 1).
-
-```json
-{"kind":"ok","snapshot":"work@a99d99faf59f","root":"…","path":"/src/index.js",
- "lines":[{"n":1,"text":"export const retries = 1;","line_truncated":false,"clipped":false,
-   "commit":"12a99d99faf5…","message":"one attempt"}],
- "origins":[],"versions":2,"comparison_coarse":false,"next_line":null}
-```
-
-## `file diff`
-
-The difference between two files. Each side is a Branch and a path, with an optional
-Commit per side.
-
-```bash
-layerfs file diff "$P" main /src/index.js "$B" /src/index.js
-layerfs file diff "$P" "$B" /src/a.js "$B" /src/a.js --left-commit <older-id>   # since a checkpoint
-```
-
-```js
-const d = await layerfs.file.diff(P, "main", "/src/index.js", B, "/src/index.js");
-console.log(d.hunks.filter((h) => h.op !== " ").map((h) => h.op + h.text).join("\n"));
-```
-
-```json
-{"kind":"Text","left":{"path":"/src/index.js","snapshot":"main@75838904b659","inode":6},
- "right":{"path":"/src/index.js","snapshot":"work@ad9dd3e33a2f","inode":6},
- "content_equal":false,"same_inode":true,"hunks_omitted":false,
- "hunks":[{"op":"-","text":"export const retries = 3;"},{"op":"+","text":"export const retries = 1;"},{"op":" ","text":""}]}
-```
-
-`kind` is `Text` (line diff in `hunks`), `Equal` or `Binary`. `op` is `" "`, `"-"` or
-`"+"`. `hunks_omitted` is true when the diff was too large to return.
+The Commit and message of each line, from `--line` (default 1) for `--limit` lines
+(default 2000). Short answer: `{ ranges: [{ start, end, commit }], commits: [{ commit, message? }], next_line?, partial? }`;
+`--detail` adds `commit`, `root`, `path` and `commits[].created_at`.
 
 ## Write results
 
-Every write answers one of:
-
-| `kind` | Fields | Meaning |
-| --- | --- | --- |
-| `Committed` | `branch`, `head`, `commit` | A new Commit; `head` is its id; `commit` its record (as in `commit list`) |
-| `UpToDate` | `branch`, `head`, `root` | Nothing changed, so no Commit was made |
+Every write answers `{ commit }` plus, when set, `unchanged: true`, `merged: true`,
+`overwritten` (first 20 `/.lww` paths), `overwritten_count` (when past 20). Long
+form (`--detail` / `{ detail: true }`) adds `outcome` (`"committed"`, `"merged"`, or
+`"unchanged"`), `branch`, `parent`, `root`, `message`, `created_at`.
 
 ## `file write`
 
 Creates or replaces one file. The command reads the content from stdin, or from
 `--from <file>` (a file on this machine, such as one in the scratch folder); the SDK
-takes a string (text) or a `Buffer` (bytes). `mode` sets the permission bits.
+takes a string (text) or a `Buffer` / `Uint8Array` (bytes). `--mode` (`mode`) takes
+octal text such as `"0755"`.
 
 ```bash
 layerfs file write "$P" side /src/math.js -m "add math" <<'EOF'
@@ -250,42 +214,39 @@ await layerfs.file.write(P, "side", "/src/cart.js", source, { message: "cart: ad
 
 ## `file edit`
 
-Replaces exactly one occurrence of `old` with `new`. It is the cheap way to change a
-few lines of a big file. The command also takes `--old-from <file>` and
-`--new-from <file>` for text with quotes or many lines.
+Replaces `old_string` with `new_string` (both required). Without `replace_all`, it
+replaces exactly one unique occurrence. The command also takes `--old-string-from <file>`
+and `--new-string-from <file>` for text with quotes or many lines.
 
 ```bash
-layerfs file edit "$P" side /src/index.js --old "retries = 3" --new "retries = 1" -m "one attempt"
+layerfs file edit "$P" side /src/index.js --old-string "retries = 3" --new-string "retries = 1" -m "one attempt"
 ```
 
 ```js
-await layerfs.file.edit(P, "side", "/src/index.js", { old: "retries = 3", new: "retries = 1", message: "one attempt" });
+await layerfs.file.edit(P, "side", "/src/index.js", { old_string: "retries = 3", new_string: "retries = 1", message: "one attempt" });
 ```
 
-| Code | Meaning | Do |
+| `error` | Meaning | Do |
 | --- | --- | --- |
-| `NoMatch` | `old` doesn't occur (`detail.matches: 0`) | `file grep` then `file read` the area; the text differs |
-| `AmbiguousMatch` | `old` occurs more than once | Include more surrounding lines |
-| `InvalidInput` | `old` is empty | Pass the text to replace |
-| `Binary` | The file is not text | Use a Workspace |
+| `NotFound` | `old_string` doesn't occur (`detail.code: "NoMatch"`) | `file grep` then `file read` the area; the text differs |
+| `InvalidInput` | `old_string` occurs more than once (`matches` count, `fix` adds `--replace-all`), `old_string` is empty, or the file is binary | Include more surrounding lines, pass `--replace-all`, or edit in a Workspace |
 
-On `NoMatch` or `AmbiguousMatch` nothing changed.
+On refusal nothing changed.
 
 ## `file apply`
 
 Applies an ordered list of changes as **one** Commit, or nothing: the way to make a
-multi-file change on a side Branch. The command reads the JSON list from stdin or
+multi-file change on a Branch. The command reads the JSON list from stdin or
 `--from`; the SDK takes the array. Field names are snake_case:
 
-| Change | Fields |
+| `op` | Fields |
 | --- | --- |
-| write | `{ op: "write", path, content, mode? }` (`content` may be a `Buffer` in the SDK) |
-| chmod | `{ op: "chmod", path, mode }` (decimal, 493 = `0755`) |
-| edit | `{ op: "edit", path, old, new }` |
-| mkdir | `{ op: "mkdir", path }` |
-| rm | `{ op: "rm", path }` |
-| cp | `{ op: "cp", from_path, to_path }` |
-| mv | `{ op: "mv", from_path, to_path }` |
+| `write` | `{ op: "write", path, content, mode? }` (`mode` octal string e.g. `"0755"`, `content` string or bytes) |
+| `edit` | `{ op: "edit", path, old_string, new_string, replace_all? }` |
+| `mkdir` | `{ op: "mkdir", path, mode? }` |
+| `chmod` | `{ op: "chmod", path, mode }` (`mode` is octal string e.g. `"0755"`, NOT decimal `493`) |
+| `rm` | `{ op: "rm", path, recursive? }` |
+| `cp`, `mv` | `{ op: "cp" \| "mv", from, to }` |
 
 Later changes see earlier ones: a `mkdir` before a `write` into that folder works.
 
@@ -304,22 +265,21 @@ await layerfs.file.apply(P, "side", [
 
 ```bash
 layerfs file apply "$P" side -m "remove the old config" <<'EOF'
-[{"op":"rm","path":"/config/old.json"},{"op":"mv","from_path":"/config/new.json","to_path":"/config/app.json"}]
+[{"op":"rm","path":"/config/old.json"},{"op":"mv","from":"/config/new.json","to":"/config/app.json"}]
 EOF
 ```
 
-**When a change fails** the refusal is the first failing change's, with
-`detail.index` (zero-based); nothing is committed. Fix that change and apply the whole
-list again.
+When a change fails, nothing is committed; fix that change and apply the whole list again.
 
 ## `file mkdir`, `file rm`, `file cp`, `file mv`
 
 - `mkdir` creates a folder and any missing parents; an existing folder gives
-  `UpToDate`. `NotDirectory` when a file is in the way.
-- `rm` removes a file or a whole folder tree. `NoSuchPath` when it is missing.
+  `unchanged: true`. `InvalidInput` (`NotDirectory`) when a file is in the way.
+- `rm` removes a file or folder (pass `--recursive` / `{ recursive: true }` for a
+  non-empty folder). `NotFound` when missing.
 - `cp` copies a file or folder tree, keeping modes and symlinks.
 - `mv` moves or renames, keeping identity and timestamps.
-- For `cp` and `mv`: `Exists` when the target exists; `InvalidInput` for the same path
+- For `cp` and `mv`: `Exists` when `to` exists; `InvalidInput` for the same path
   or a copy into its own subtree.
 
 ```bash
@@ -327,5 +287,5 @@ layerfs file mv "$P" side /src/basket.js /src/cart.js -m "cart: rename basket"
 ```
 
 ```js
-await layerfs.file.rm(P, "side", "/src/legacy", { message: "remove legacy folder" });
+await layerfs.file.rm(P, "side", "/src/legacy", { recursive: true, message: "remove legacy folder" });
 ```
