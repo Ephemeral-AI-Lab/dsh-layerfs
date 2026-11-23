@@ -526,7 +526,7 @@ test('postgresql: the check from a machine (or this computer) is store doctor, a
     rows = [row(null, null), row('docker', { at: '2026-11-19T10:00:00Z', ok: true, latency_ms: 2, server_version: '17.6', error: null })]
     const ok = await http('GET', '/api/stores/pg/check?machine=docker')
     assert.equal(ok.status, 200)
-    assert.deepEqual(ok.body, { machine: 'docker', host: 'localhost', ok: true, at: Date.parse('2026-11-19T10:00:00Z'), version: '17.6', latencyMs: 2 })
+    assert.deepEqual(ok.body, { machine: 'docker', host: 'localhost', port: 5432, ok: true, at: Date.parse('2026-11-19T10:00:00Z'), version: '17.6', latencyMs: 2 })
     assert.equal(seen[0].machine, 'docker')
     assert.ok(seen[0].timeout_ms > 0, 'its own budget, so it always asks LayerFS')
     // this computer: no --machine, its row is the one without a machine

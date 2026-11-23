@@ -151,8 +151,8 @@ in which part (**Project: Not named yet**, **Store: Needs a name**).
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
 | Store | **New connection** · **Existing · {n}** | — | `GET /api/store-auths` (read, host only) | — |
-| Database URL | "Without a user or password, for example postgres://db.lan:5432/app." | Type | — | **Store: Needs a database URL** beside the buttons |
-| Login | **New login** · **Saved · {n}**; Login name, User, Password ("Typed once. It goes to LayerFS on stdin and is never shown again.") | Type | `store save-auth`, `store connect`, `store get` on create | — |
+| Database URL | "Without a user, password or passfile, for example postgresql://db.lan:5432/app." | Type; a URL naming a login is refused with **LayerFS’s fix** and **Copy**; on Linux a `localhost` URL warns and offers **Use 127.0.0.1** | — | **Store: Needs a database URL** beside the buttons |
+| Login | **Type** · **Saved login** (auto-picks a healthy saved login for the typed server); Login name, User, Password ("Saved as a LayerFS login (store save-auth): the password goes to LayerFS on stdin and is never shown again.") | Type or pick | `store save-auth`, `store connect`, `store get` on create | — |
 | Runs on | The machine its sessions run on (this part is titled **Runs on** for PostgreSQL) | Choose | — | — |
 
 ### Import a folder

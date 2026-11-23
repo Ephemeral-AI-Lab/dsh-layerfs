@@ -102,21 +102,23 @@ Where copies of this Store live, how current each is, and the buttons to refresh
 No PostgreSQL Store exists in the fixture, so this tab is described from its code.
 
 Two cards. **Database**: the server and database (`host:port/db`), **Login** (the saved login
-or **No saved login**), **Id** (the database id LayerFS knows it by), **synchronous_commit**
-(or **Database default**), and a status line (dot, state, **checked** *when*, the PostgreSQL
-version and **Reachable · n ms**). **Machines**: one row per side that connects, **This
-computer** first, each with **own address** or **default address**, its last reach and when,
-its Sandboxes of the Store, and buttons.
+and its user, `auth (user)`, or **No saved login**), **Id** (the database id LayerFS knows it
+by), **synchronous_commit** (or **Database default**), and a status line (dot, state — **Not
+reached · last check failed** when the last check failed — **checked** *when*, `PG x.y` and
+**Reachable · n ms**). **Machines**: one row per side that connects, **This computer** first,
+each with **own address** (and its `host:port`) or **default address**, a **stopped** tag when
+stopped, its last reach (with the failure message on hover) and when, its Sandboxes of the
+Store, and buttons.
 
 | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|
-| Database card | Server, login, id, synchronous_commit, last check | — | `store list` (read), `store auths` (read) | red when broken, with the fix button |
-| **Change login…** | | Press → [Edit connection](#modals-opened-here), or [Save a login](#modals-opened-here) when the Store names no saved login | `store update`, `store save-auth`, `store connect` | |
+| Database card | Server, login (`auth (user)`), id, synchronous_commit, last check | — | `store list` (read), `store auths` (read) | red when broken, with the fix button; error dot and **Not reached · last check failed** when the last check failed |
+| **Edit connection…** / **Save a login…** | | Press → [Edit connection](#modals-opened-here), or [Save a login](#modals-opened-here) when the Store names no saved login | `store update`, `store save-auth`, `store connect` | |
 | **Check** (Database) | | Press → [Connect a database](#modals-opened-here) on its check screen, from this computer; nothing runs until its named **Check … from …** is pressed | `store doctor --machine`, then `store get` | |
-| Machine row | Machine, **own address** / **default address**, reach dot (**Reachable · n ms**, **reached**, **check failed**, **not checked**), when, **n Sandboxes** | — | `store list` (read: `connections`) | red dot when the machine is broken or its last check failed |
+| Machine row | Machine (with **stopped** tag if stopped), **own address** `host:port` / **default address**, reach dot (**Reachable · n ms**, **reached**, **check failed** with error on hover, **not checked**), when, **n Sandboxes** | — | `store list` (read: `connections`) | red dot when the machine is broken or its last check failed |
 | **Check** (row) | | Press → the check screen, from that machine | `store doctor --machine` | |
 | **Edit** (row) | | Press → that machine's own connection | `store connect --machine` (LayerFS checks from the machine first) | only for a machine with its own address |
-| **Forget** (row) | | Press → confirm **Remove** *machine*'s **own connection to** *store*? | `store disconnect --machine` ↻ | only for a machine with an own address or a recorded check |
+| **Forget** (row) | | Press → confirm **Remove** *machine*’s **own address for** *store*? (for an own address) or plain confirm **Forget** *machine*’s **check record for** *store*? (when only a check was recorded) | `store disconnect --machine` ↻ | only for a machine with an own address or a recorded check |
 | **Connect a machine** | | Press → the check screen from the first running machine not yet connected (else this computer) | `store doctor --machine` | |
 
 ## Store menu
@@ -138,8 +140,8 @@ reference: [Components › Store menu](components.md#store-menu).
 | **Compact…** | both, when the LayerFS runtime has `store compact` | [Confirm](#modals-opened-here) → a job card | `store get`, then `store compact` | not Ready (tip: **Start machine** *m* **first**, **Repair machine** *m* **first**, **The Store is not ready**); offered on a Broken Store whose fix is the compaction |
 | **Remove…** | SQLite | [Typed-name confirm](#modals-opened-here) | `store remove` ↻ | never |
 | **Check** | PostgreSQL | The check screen from this computer (on a machine page: from that machine) | `store doctor --machine` | |
-| **Change login…** | PostgreSQL | Edit connection / Save a login | `store update` / `store save-auth` | |
-| **Disconnect** *machine* | PostgreSQL, one row per machine with its own address | Confirm → that machine dials the Store's address again | `store disconnect --machine` ↻ | |
+| **Edit connection…** / **Save a login…** | PostgreSQL | Edit connection, or Save a login when the Store names none | `store update` / `store save-auth` / `store connect` | |
+| **Remove *machine*’s own address…** | PostgreSQL, one row per machine with its own address | Confirm → that machine dials the Store's default address again | `store disconnect --machine` ↻ | |
 | **Disconnect…** | PostgreSQL | Confirm (no typed name) → the home forgets the Store; the database stays | `store disconnect` ↻ | never |
 
 ## Machine › Stores tab
@@ -185,9 +187,9 @@ while any Store names it). A machine page lists only the logins of Stores connec
   docker**, and its size as **size seen** *when*.
 - **PostgreSQL.** The place is the server (`host:port/db`); the head adds **Test connection**;
   the first tile is **Server**, the last **Connected from**; the third tab is **Connection**;
-  Health says backups are the server's own; the menu is Check / Change login… / Disconnect
-  *machine* / Compact… / Disconnect…. A PostgreSQL Store is on no machine: each session picks
-  the machine it runs on.
+  Health says backups are the server's own; the menu is Check / Edit connection… (or Save a
+  login…) / Remove *machine*’s own address… / Compact… / Disconnect…. A PostgreSQL Store is on
+  no machine: each session picks the machine it runs on.
 - **Compact…** appears only when the selected LayerFS runtime has `store compact`.
 
 ## Modals opened here
@@ -204,13 +206,13 @@ while any Store names it). A machine page lists only the logins of Stores connec
 | [Remove *store*?](img/store-remove.png) | ⋯ › **Remove…**, Store details **Remove…** | [Typed-name confirm](components.md#confirm-dialog): **Type** *name* **to confirm** | `store remove` ↻ | none (backups stay in buckets) |
 | Disconnect the PostgreSQL Store *store*? | ⋯ › **Disconnect…** (PostgreSQL) | Confirm; the database and its data stay | `store disconnect` ↻ | Connect a database again |
 | [New Store](img/store-new.png) | Nav bar **Add › New Store**; Home › Stores **New Store**; native's **Add Store › New Store** | **SQLite** or **PostgreSQL** (that tile goes on to Connect a database); **Empty Store** or [**Restore from a backup**](img/store-new-restore.png) (bucket, **List the bucket**, a file, **New Store's name**); **Location** tiles, with **Start** *m* for a stopped one. Creates in the home, then moves | `store create` ↻ (or `backup restore`), then `store move` to another machine | Remove |
-| [Connect a database](img/store-connect-new.png) | Nav bar **Add › Connect a database**; Home › Stores PostgreSQL **Connect a database** | With no PostgreSQL Store it opens on the new-server form: **Connection URL** (no login in it), **Store name**, **Login** (**User**/**Password**, or a **Saved login**), [**More options**](img/store-connect-options.png) (**synchronous_commit**). **Cancel** closes it; **Back** returns to the list when there is one. Then the check screen | `store save-auth` (new login), `store connect`, `store get`, then `store doctor --machine` | **Disconnect…** |
-| Connect a database: pick | Same, when PostgreSQL Stores exist | Every connected Store under its server with **Check** (or **Connect** from a machine page); **+ New database on this server** (host and login reused); **+ New server** | as above | |
-| Connect a database: check | **Check**, **Connect a machine**, a chip | **Check from** (a machine), the path machine → server → Store and five steps **Store record is up to date**, **Reaches the server**, **Signs in**, **Finds the Store**, **May write it**; runs on **Check** *store* **from** *machine*. Failures name the step and offer its fix when LayerFS identifies the cause: [server unreachable](img/store-check-server.png) (**Give** *machine* **its own address** → **URL** *machine* **dials** → **Save and check**; **Edit connection** on LayerFS Home), [wrong login](img/store-check-login.png) (**Change login…**, **Rotate password…**), [missing privilege](img/store-check-privilege.png) (names the missing privilege and offers **Change login…**), or [outdated record](img/store-check-record.png) (**Update** or **Save a login…**). When LayerFS gives no step-specific detail, steps and wires stay neutral and the raw refusal is shown without guessing a fix. **Check again** re-runs after a fix | `store doctor --machine` (read-and-record), `store connect --machine`, `store update` | Forget |
+| [Connect a database](img/store-connect-new.png) | Nav bar **Add › Connect a database**; Home › Stores PostgreSQL **Connect a database** | With no PostgreSQL Store it opens on the new-server form: **Database URL** (no user, password or passfile; a URL naming a login is refused with **LayerFS’s fix** + **Copy**; on Linux a `localhost` URL warns and offers **Use 127.0.0.1**), **Store name**, **Login** (**Type** User/Password, or **Saved login** — shows **Login name** when the default name is already taken), [**More options**](img/store-connect-options.png) (**synchronous_commit**). **Cancel** closes it; **Back** returns to the list when there is one. Then the check screen | `store save-auth` (new login), `store connect`, `store get`, then `store doctor --machine` | **Disconnect…** |
+| Connect a database: pick | Same, when PostgreSQL Stores exist | Every connected Store under its server (showing `auth (user)` once when all Stores share one login, or per row when mixed; error dot when broken or last reach failed) with **Check** (or **Connect** from a machine page); **+ New database on this server** (host and healthy login reused); **+ New server** | as above | |
+| Connect a database: check | **Check**, **Connect a machine**, a chip | **Check from** (a machine), the path machine → server (`host:port`, with **own address** when set; Linux docker does not rewrite loopback to `host.docker.internal`) → Store and five steps **Store record is up to date**, **Reaches the server**, **Signs in**, **Finds the Store**, **May write it**; runs on **Check** *store* **from** *machine*. On Linux, a passing check on `localhost` warns and offers **Use 127.0.0.1 on *machine*** / **Edit connection**. Failures name the step and offer its fix when LayerFS identifies the cause: [server unreachable](img/store-check-server.png) (**Give** *machine* **its own address** → **URL** *machine* **dials**, with unified login-in-URL refusal + `--machine` fix, Linux `localhost` warning, **Save and check** and **Cancel**; **Edit connection** on LayerFS Home), [wrong login](img/store-check-login.png) (**Change login…**, **Rotate password…**), [missing privilege](img/store-check-privilege.png) (names the missing privilege and offers **Change login…**), or [outdated record](img/store-check-record.png) (**Update** or **Save a login…**). When LayerFS gives no step-specific detail, steps and wires stay neutral and the raw refusal is shown without guessing a fix. **Check again** re-runs after a fix | `store doctor --machine` (read-and-record), `store connect --machine`, `store update` | Forget |
 | [Connect a database on *machine*](img/store-connect-machine.png) | machine › Stores › PostgreSQL **Connect a database** | As Connect a database; checks run from that machine | as above | |
-| Edit *store*'s connection | **Change login…** | **URL (no password)**, **Login** (keep, type a new one, pick a saved one), **synchronous_commit**; only what changed is sent | `store connect`, `store save-auth`, `store update` ↻ | edit again |
-| *machine*'s own connection to *store* | Connection › **Edit** | One URL; **Save and check** | `store connect --machine` (LayerFS checks first) | **Forget** |
-| Save a login for *store* | **Change login…** / the **Save a login…** fix on a Store that names no saved login | **User**, **Password**, **Login name**, or a saved login | `store save-auth`, `store update --auth` ↻ | — |
+| Edit *store*'s connection | **Edit connection…** | **Database URL** (no user, password or passfile; unified **LayerFS’s fix** + **Copy** and Linux `localhost` warning), **Login** (keep saved login, type a new password — prefilling the saved user and noting shared rotation — or pick a saved login), **synchronous_commit**; only what changed is sent | `store connect`, `store save-auth`, `store update` ↻ | edit again |
+| *machine*'s own connection to *store* | Connection › **Edit** | **Database URL** (keeps the Store's saved login; unified login-in-URL refusal with `--machine` fix and Linux `localhost` warning); **Save and check** | `store connect --machine` (LayerFS checks first) | **Forget** |
+| Save a login for *store* | **Save a login…** on a Store that names no saved login | **User**, **Password**, **Login name**, or a saved login | `store save-auth`, `store update --auth` ↻ | — |
 | New password for *auth* | Login header **Rotate password…** | **User**, **Password**; then one dot per Store using it (**reached** / **check failed**) | `store save-auth`, `store doctor` per Store, `store get` ↻ | rotate again |
 | [Add a Store to *machine*](img/store-to-machine.png) | machine › Stores **Push a Store here** / **Add Store** | **SQLite** (**Move one here**) or **PostgreSQL** (**Connect one, or run one here**); the SQLite Stores on other machines (busy ones disabled); **Move here**; on native also **New Store** | `store get`, then `store move` (push, pull, or pull then push) | move it back |
 | [Add bucket](img/store-bucket-add.png) | Nav bar **Add › Add bucket**; Back up's **Add a bucket**; Backups tab **Add bucket…** | **MinIO** or **Cloudflare R2**, **Name**, **Bucket**, **Endpoint** or **Account ID** + **Jurisdiction**, **Prefix**, **Access key**, **Secret key**; returns to Back up when opened from it | `backup connect` (secret on stdin) ↻ | Disconnect the bucket |

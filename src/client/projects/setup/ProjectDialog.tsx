@@ -19,9 +19,11 @@ import { LayerfsGlyph } from '../../overview/glyph.tsx'
 import { messageOf, NAME, type ProjectInitJob, type ProjectRow } from '../../picker/NewProjectForm.tsx'
 import { slugify } from '../../picker/location.ts'
 import { useHostEvents } from '../../storage/hooks.ts'
-import { PG_URL_LOGIN } from '../../storage/pg-fields.tsx'
+import { serverLogin } from '../../storage/ConnectDatabase.tsx'
+import { parsePgUrl } from '../../storage/machine-stores.ts'
+import { hasPgUrlLogin, isLinuxLocalhostUrl, PgLocalhostNotice, PgLoginInUrlFix, PgPasswordFields, replaceLocalhostWithIpv4, usePgAuthsQuery, usePgPassword, type PgFieldsCopy } from '../../storage/pg-fields.tsx'
 import { Signal } from '../../storage/Signal.tsx'
-import type { PgAuth, StorageView, StoreRow } from '../../storage/types.ts'
+import type { StorageView, StoreRow } from '../../storage/types.ts'
 import { refusalOf, usePressGuard } from '../../ui/index.tsx'
 import { projectDialog, type DialogRequest, type ProjectRef } from '../dialog.ts'
 import type { ListT } from '../list-locale.ts'
@@ -218,8 +220,19 @@ function Progress({ steps, plan, t, failure, initJob, partTitle, onEdit }: {
 type Part = 0 | 1 | 2
 const PARTS = [0, 1, 2] as const
 type StoreMode = 'new' | 'existing'
-/** A new PostgreSQL Store's login: a new one saved now, or one saved before. */
-type LoginMode = 'new' | 'saved'
+
+const setupPgCopy = (t: SetupT): PgFieldsCopy => ({
+  loginField: t('login'),
+  passwordSame: t('loginSaved'),
+  passwordEntered: t('loginNew'),
+  passwordSaved: t('loginSaved'),
+  user: t('user'),
+  password: t('password'),
+  savedLabel: t('loginSavedLabel'),
+  sameNote: () => t('loginSavedHint'),
+  enteredNote: t('passwordHint'),
+  savedHint: t('loginSavedHint'),
+})
 
 /** What a new PostgreSQL connection still needs, for the rail: its URL, else its login's problem. */
 function pgMissing(problem: PgLoginProblem | 'url' | null, t: SetupT): string {
@@ -264,12 +277,8 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [query, setQuery] = useState('')
   const [storeName, setStoreName] = useState<string | null>(null)
   const [url, setUrl] = useState('')
-  // a PostgreSQL Store's login: a new one (name, user, password typed once) or one saved before
-  const [loginMode, setLoginMode] = useState<LoginMode>('new')
-  const [pickedAuth, setPickedAuth] = useState<string | null>(null)
+  const pw = usePgPassword('entered')
   const [loginName, setLoginName] = useState<string | null>(null)
-  const [pgUser, setPgUser] = useState('')
-  const [pgPassword, setPgPassword] = useState('')
   const [sqliteMachine, setSqliteMachine] = useState<string | null>(null)
   const [pgChoice, setPgChoice] = useState<string | null>(null)
   const [steps, setSteps] = useState<StepState[] | null>(null)
@@ -277,13 +286,27 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   const [error, setError] = useState<string | null>(null)
   const [failure, setFailure] = useState<Failure | null>(null)
   const scratchStore = scratch.data?.scratchKey?.split('/')[0]
-  // the home's saved logins (store auths, never a password), read only for PostgreSQL
-  const authsRead = useQuery(() => (kind === 'postgresql' ? api.call<{ items: PgAuth[] }>('GET', '/api/store-auths').then((r) => (Array.isArray(r?.items) ? r.items : [])) : Promise.resolve([] as PgAuth[])),
-    [api, kind], { cache: kind === 'postgresql' ? 'GET /api/store-auths' : 'setup-auths-off' })
-  const auths = authsRead.data ?? []
+  const { auths, reload: reloadAuths } = usePgAuthsQuery(api, kind === 'postgresql')
   const authNames = auths.map((a) => a.auth)
 
   const data = view.data
+  const parsedPg = kind === 'postgresql' && mode === 'new' ? parsePgUrl(url) : null
+  const pgServer = parsedPg?.host ? (/:\d+$/.test(parsedPg.host) ? parsedPg.host.toLowerCase() : `${parsedPg.host.toLowerCase()}:5432`) : ''
+  const knownAuth = data && pgServer ? serverLogin(data, auths, pgServer) : null
+  const loginChose = useRef(false)
+  const autoAuth = useRef<string | null>(null)
+  useEffect(() => {
+    if (loginChose.current) return
+    if (knownAuth) {
+      pw.setHow('saved')
+      pw.setAuth(knownAuth)
+      autoAuth.current = knownAuth
+    } else if (autoAuth.current !== null) {
+      pw.setHow('entered')
+      pw.setAuth('')
+      autoAuth.current = null
+    }
+  }, [knownAuth])
   const platforms = usePlatforms(api)
   const machines = machinesFor(data, kind)
   // a machine whose platform is not ready here shows blocked; the default is native when docker cannot run now
@@ -333,12 +356,15 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
     ? (!NAME.test(chosenStoreName) ? t('storeNameInvalid') : storeNameTaken ? t('storeTaken', { store: chosenStoreName }) : null)
     : null
   const folderError = importing && source.trim() && !source.trim().startsWith('/') ? t('folderInvalid') : null
-  const urlError = kind === 'postgresql' && mode === 'new' && url.trim() ? (!PG_URL.test(url.trim()) || PG_URL_LOGIN.test(url.trim()) ? t('urlInvalid') : null) : null
-  // a new login is named after the Store unless a saved login has that name; it is never saved over one
+  const loginInUrl = kind === 'postgresql' && mode === 'new' && hasPgUrlLogin(url)
+  const linuxLocalhost = kind === 'postgresql' && mode === 'new' && !loginInUrl && isLinuxLocalhostUrl(url, data?.computer?.os)
+  const urlError = kind === 'postgresql' && mode === 'new' && url.trim()
+    ? (loginInUrl ? t('urlLoginInUrl') : !PG_URL.test(url.trim()) ? t('urlInvalid') : null)
+    : null
   const newLoginName = loginName ?? (authNames.includes(chosenStoreName) ? '' : chosenStoreName)
-  const login: PgLogin = loginMode === 'saved' ? { auth: pickedAuth ?? '' } : { authName: newLoginName, user: pgUser, password: pgPassword }
+  const login: PgLogin = pw.how === 'saved' ? { auth: pw.auth } : { authName: newLoginName, user: pw.user, password: pw.value }
   const loginProblem = kind === 'postgresql' && mode === 'new' ? pgLoginProblem(login, authNames) : null
-  const loginNameError = loginMode === 'new' && loginProblem === 'nameInvalid' ? t('loginNameInvalid') : loginMode === 'new' && loginProblem === 'nameTaken' ? t('loginNameTaken', { auth: newLoginName.trim() }) : null
+  const loginNameError = pw.how === 'entered' && loginProblem === 'nameInvalid' ? t('loginNameInvalid') : pw.how === 'entered' && loginProblem === 'nameTaken' ? t('loginNameTaken', { auth: newLoginName.trim() }) : null
   // the machines Create needs that are not running: each is started by its own Start below, never by Create
   const stopped = needsStart({ kind, store: existing, machines: chosen }, data)
   const startWords = startWordsOf(t)
@@ -376,7 +402,7 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
         setFailure({ step, error: e })
         view.reload()
         // a login saved before an unknown outcome stays: its name reads taken until another is given
-        if (step.id === 'connect') authsRead.reload()
+        if (step.id === 'connect') reloadAuths()
         return
       }
     }
@@ -385,7 +411,6 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
   }
 
   const chooseKind = (next: StoreKind) => { setKind(next); setMode('new'); setPicked(null); setQuery(''); setStoreName(null); setPgChoice(null); setSqliteMachine(null) }
-  const chooseLoginMode = (next: LoginMode) => { setLoginMode(next); if (next === 'saved' && !authNames.includes(pickedAuth ?? '')) setPickedAuth(authNames[0] ?? null) }
   const chooseMode = (next: StoreMode) => {
     setMode(next); setStoreName(null); setPgChoice(null); setSqliteMachine(null)
     if (next === 'existing' && !stores.some((s) => s.name === picked)) setPicked(stores[0]?.name ?? null)
@@ -471,41 +496,23 @@ function Create({ api, t, startFromFolder, back, onBusy }: { api: LayerfsApi, t:
           {mode === 'new' ? <>
             {kind === 'postgresql' ? <>
               <Field label={t('url')} hint={t('urlHint')} error={urlError}>
-                <Input value={url} className={css.mono} placeholder="postgres://db.lan:5432/app" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
+                <Input value={url} className={css.mono} placeholder="postgresql://db.lan:5432/app" autoComplete="off" spellCheck={false} onChange={(e) => setUrl(e.target.value)} />
               </Field>
-              <Group label={t('login')} hint={loginMode === 'saved' && auths.length ? t('loginSavedHint') : undefined}>
-                <SegmentedControl<LoginMode> id={`${id}-login`} className={css.modes} value={loginMode} label={t('login')} onChange={chooseLoginMode}
-                  options={[
-                    { value: 'new', label: t('loginNew') },
-                    { value: 'saved', label: t('loginSaved', { n: auths.length }) },
-                  ]} />
-              </Group>
-              {loginMode === 'saved'
-                ? auths.length === 0
-                  ? <p className={css.empty}>{t('noLogins')}</p>
-                  : <div className={css.storeList}>
-                    <div role="radiogroup" aria-label={t('login')}>
-                      {auths.map((a) => <button key={a.auth} type="button" role="radio" aria-checked={pickedAuth === a.auth} data-login={a.auth}
-                        className={clsx(css.storeRow, pickedAuth === a.auth && css.storeRowOn)} onClick={() => setPickedAuth(a.auth)}>
-                        <span className={css.storeName}>{a.auth}</span>
-                        <span className={css.storeNote}>
-                          {[a.user, a.stores.length === 1 ? t('loginStoresOne') : a.stores.length ? t('loginStores', { n: a.stores.length }) : t('loginUnused')].filter(Boolean).join(' · ')}
-                        </span>
-                        {pickedAuth === a.auth ? <IconCheckOutlineRegular size={14} className={css.storeCheck} /> : null}
-                      </button>)}
-                    </div>
-                  </div>
-                : <>
-                  <Field label={t('loginName')} hint={t('loginNameHint')} error={loginNameError}>
-                    <Input value={newLoginName} className={css.mono} autoComplete="off" spellCheck={false} onChange={(e) => setLoginName(e.target.value)} />
-                  </Field>
-                  <Field label={t('user')}>
-                    <Input value={pgUser} className={css.mono} placeholder="app" autoComplete="off" spellCheck={false} onChange={(e) => setPgUser(e.target.value)} />
-                  </Field>
-                  <Field label={t('password')} hint={t('passwordHint')}>
-                    <Input value={pgPassword} type="password" autoComplete="new-password" onChange={(e) => setPgPassword(e.target.value)} />
-                  </Field>
-                </>}
+              {loginInUrl ? <PgLoginInUrlFix url={url} store={chosenStoreName} label={t('urlLoginFix')} copyLabel={t('copyFix')} copiedLabel={t('copied')} /> : null}
+              {linuxLocalhost ? <PgLocalhostNotice message={t('urlLocalhostWarn')} actionLabel={t('urlLocalhostUseIpv4')} onReplace={() => setUrl(replaceLocalhostWithIpv4(url))} /> : null}
+              <PgPasswordFields id={`${id}-login`} pw={{
+                ...pw,
+                setHow: (h: Parameters<typeof pw.setHow>[0]) => { loginChose.current = true; pw.setHow(h); if (h === 'saved' && !pw.auth && auths[0]) pw.setAuth(auths[0].auth) },
+                setAuth: (a: Parameters<typeof pw.setAuth>[0]) => { loginChose.current = true; pw.setAuth(a) },
+                setUser: (u: Parameters<typeof pw.setUser>[0]) => { loginChose.current = true; pw.setUser(u) },
+                setValue: (v: Parameters<typeof pw.setValue>[0]) => { loginChose.current = true; pw.setValue(v) },
+              }}
+                copy={setupPgCopy(t)} auths={auths} />
+              {pw.how === 'entered' ? (
+                <Field label={t('loginName')} hint={t('loginNameHint')} error={loginNameError}>
+                  <Input value={newLoginName} className={css.mono} autoComplete="off" spellCheck={false} onChange={(e) => setLoginName(e.target.value)} />
+                </Field>
+              ) : null}
             </> : null}
           </> : stores.length === 0
             ? <p className={css.empty}>{kind === 'sqlite' ? t('noSqlite') : t('noPg')}</p>

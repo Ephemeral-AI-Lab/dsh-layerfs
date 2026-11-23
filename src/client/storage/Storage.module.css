@@ -1225,3 +1225,50 @@
   gap: 8px;
   min-width: 0;
 }
+
+/* LayerFS fix block under a URL naming a login (#200); borderless strip to avoid nested-card depth */
+.loginFixBox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-module-platform);
+}
+.loginFixHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.loginFixLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+.loginFixCode {
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: break-word;
+  word-break: break-word;
+  white-space: pre-wrap;
+  user-select: all;
+}
+
+/* Inline Linux localhost warning with one-click replacement (#201) */
+.localhostRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  width: 100%;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.localhostText {
+  flex: 1 1 200px;
+  min-width: 0;
+}

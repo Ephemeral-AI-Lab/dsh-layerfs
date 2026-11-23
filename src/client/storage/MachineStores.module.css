@@ -684,6 +684,20 @@
   font-size: 12px;
   line-height: 16px;
 }
+.hopSub {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 14px;
+}
+.ownForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-module-platform);
+}
 .wire {
   flex: 1;
   height: 2px;
