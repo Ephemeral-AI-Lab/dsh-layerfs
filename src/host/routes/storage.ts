@@ -122,6 +122,10 @@ const skippedMachine = (n: any): string | null | undefined => {
   return undefined
 }
 
+const skippedConnection = (report: any, machine: string | null) =>
+  (Array.isArray(report?.not_checked) ? report.not_checked : [])
+    .find((n: any) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === machine)
+
 /** A bucket URL from its parts: MinIO `<endpoint>/<bucket>/<prefix>`, R2 `r2://<account>/<bucket>/<prefix>[?jurisdiction=…]`. */
 export function bucketUrl({ provider, endpoint, account, jurisdiction, bucket, prefix }: any = {}): string {
   const path = [bucket, ...(prefix ? [String(prefix).replace(/^\/+|\/+$/g, '')] : [])].filter(Boolean).join('/')
@@ -572,7 +576,7 @@ export class Storage {
       ? { machine: who, host, ok: true as const, at: row.reach.at ?? Date.now(), version: row.reach.version, latencyMs: row.reach.latencyMs }
       : { machine: who, host, ok: false as const, error: pgCheckError(report, record, from, row.reach.error) }
     // a not_checked entry is `{ check, blocked_by, reason }`: no message of its own
-    const skipped = (Array.isArray(report?.not_checked) ? report.not_checked : []).find((n: any) => (n?.check === 'store.connection' || !n?.check) && (n?.from === from || !n?.from))
+    const skipped = skippedConnection(report, from)
     return { machine: who, host, ok: false as const, error: { code: String(skipped?.reason ?? skipped?.blocked_by?.reason ?? 'Unknown'), message: `machine ${who} was not checked` } }
   }
 
@@ -633,7 +637,6 @@ export class Storage {
       this.changed()
       const record: any = await this.lfs.store.get(store, { detail: true })
       const findings: any[] = Array.isArray(report?.findings) ? report.findings : []
-      const skippedList: any[] = Array.isArray(report?.not_checked) ? report.not_checked : []
       const recordFailed = findings.some((f) => f?.check === 'store.record' && f?.severity === 'error')
         || (record?.state === 'broken' && (record?.reason === 'outdated' || record?.reason === 'missing'))
       if (recordFailed) {
@@ -654,17 +657,17 @@ export class Storage {
           if (hasTree) {
             return !!treeMatch(c.machine)
               || findings.some((f) => f?.check === 'store.connection' && normMachine(f?.from) === c.machine)
-              || skippedList.some((n) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === c.machine)
+              || !!skippedConnection(report, c.machine)
           }
           return c.machine === null
             || findings.some((f) => f?.check === 'store.connection' && normMachine(f?.from) === c.machine)
-            || skippedList.some((n) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === c.machine)
+            || !!skippedConnection(report, c.machine)
             || (c.reach?.at != null && c.reach.at >= started - 500)
         })
         .map((c: any): RotateSide => {
           const host = c.server?.host ? `${c.server.host}${c.server.port ? `:${c.server.port}` : ''}` : null
           const treeEntry = treeMatch(c.machine)
-          const skipped = skippedList.find((n) => (n?.check === 'store.connection' || !n?.check) && skippedMachine(n) === c.machine)
+          const skipped = skippedConnection(report, c.machine)
           if (skipped || treeEntry?.outcome === 'not_checked') {
             return {
               machine: c.machine, own: c.own, host, status: 'skipped',
