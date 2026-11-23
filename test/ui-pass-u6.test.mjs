@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
+import { miniReact } from './mini-react.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 mkdirSync(join(root, 'lib'), { recursive: true })
@@ -33,7 +34,22 @@ await build({
   outfile: join(out, 'u6.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
   packages: 'external',
 })
+await build({
+  absWorkingDir: root,
+  stdin: {
+    contents: [
+      "export { mount, elements } from 'react'",
+      "export { HealthView } from './src/client/health/index.tsx'",
+      "export { Node } from './src/client/doctor/Row.tsx'",
+      "export { JobPanel } from './src/client/storage/JobProgress.tsx'",
+    ].join('\n'),
+    resolveDir: root, loader: 'tsx',
+  },
+  outfile: join(out, 'u6-ui.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node24', logLevel: 'warning',
+  jsx: 'automatic', loader: { '.module.css': 'local-css', '.css': 'css' }, plugins: [miniReact],
+})
 const M = await import(pathToFileURL(join(out, 'u6.mjs')).href)
+const UI = await import(pathToFileURL(join(out, 'u6-ui.mjs')).href)
 test.after(() => rmSync(out, { recursive: true, force: true }))
 
 const N = M.notices
@@ -138,10 +154,16 @@ test('minor: a busy machine says its op once ("Stopping", not "Stopping · stop 
   assert.equal(N.chipOpWords({ label: 'stateBusy', state: 'busy', op: { ...op, name: 'machine.repair', phase: 'boot' } }), 'machine.repair · boot')
 })
 
-test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row shows no old "data read"', () => {
+test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row shows no old "data read"', async () => {
   const page = src('src/client/storage/StoragePage.tsx')
   assert.match(page, /const refresh = \(\) => \{[^}]*setPageRefresh\(\(n\) => n \+ 1\)/)
-  assert.match(page, /<HealthView api=\{api\} t=\{doctorT\} ts=\{t\} refreshKey=\{pageRefresh\}[\s\S]*?\/>/)
+  const healthCall = page.match(/<HealthView\b[\s\S]*?\/>/)?.[0] ?? ''
+  assert.match(healthCall, /api=\{api\} t=\{doctorT\} ts=\{t\} refreshKey=\{pageRefresh\}/)
+  assert.match(healthCall, /\bjobs=\{jobs\}/)
+  assert.match(healthCall, /\bdismissed=\{dismissed\}/)
+  assert.match(healthCall, /\bnow=\{now\}/)
+  assert.match(healthCall, /\bonRetry=\{/)
+  assert.match(healthCall, /\bonDismiss=\{/)
   const hook = src('src/client/doctor/use-doctor.ts')
   assert.match(hook, /if \(lastKey\.current === refreshKey\) return[\s\S]*readTree\(\)\.then\(\(\) => resync\(\)\)/)
   const t = (key, vars) => fill(M.doctorLocales.en[key] ?? key, vars)
@@ -150,6 +172,41 @@ test('minor: the Doctor page re-reads the tree on Refresh; a Not checked row sho
   const state = { world: { by: { [thing.key]: thing }, kids: {} }, notes: { [thing.key]: { fullAt: Date.parse('2026-11-19T09:03:00Z') } } }
   assert.equal(w.fact(state, { thing, seen: { st: 'nc' }, depth: 1 }), '')
   assert.match(w.fact(state, { thing, seen: { st: 'ok' }, depth: 1 }), /^data read /)
+  const retried = []
+  const dismissedJobs = []
+  const runningJob = { id: 'j1', kind: 'backup', store: 'notes', target: 'lab', started: 1000, phase: 'upload', done: 1024, total: 2048 }
+  const failedJob = { ...runningJob, id: 'j2', ended: 1500, outcome: 'failed', error: { code: 'Conflict', message: 'changed' } }
+  const makeApi = () => ({
+    call: async (_method, path) => path === '/api/doctor/tree'
+      ? { home: { home: 'h' }, tree: { machines: [{ machine: 'native', platform: 'native', stores: [{ store: 'notes', engine: 'sqlite' }, { store: 'other', engine: 'sqlite' }] }] } }
+      : { last: [], running: [], fixes: [] },
+    onEvent: () => () => {},
+  })
+  const renderStorePanel = async (job) => {
+    const hv = UI.mount(UI.HealthView, { api: makeApi(), t, ts: storageT, refreshKey: 1, jobs: [job], dismissed: new Set(), now: 2000, onRetry: (j) => retried.push(j), onDismiss: (j) => dismissedJobs.push(j) })
+    const dp = UI.elements(hv.tree).find((n) => typeof n.type === 'function' && n.type.name === 'DoctorPage')
+    const bodyEl = UI.elements(dp.type(dp.props)).find((n) => typeof n.type === 'function' && n.type.name === 'Body')
+    const body = UI.mount(bodyEl.type, bodyEl.props)
+    await body.settle()
+    UI.elements(body.tree).find((n) => typeof n.props?.onSelect === 'function' && Array.isArray(n.props?.tabs)).props.onSelect('stores')
+    body.render()
+    const nodeFor = (name) => UI.elements(body.tree).find((n) => n.type === UI.Node && n.props?.thing?.key === `store:${name}`)
+    return {
+      notes: UI.elements(UI.mount(UI.Node, nodeFor('notes').props).tree).find((n) => n.type === UI.JobPanel),
+      other: UI.elements(UI.mount(UI.Node, nodeFor('other').props).tree).find((n) => n.type === UI.JobPanel),
+    }
+  }
+  const running = await renderStorePanel(runningJob)
+  assert.equal(running.notes?.props?.compact, true)
+  assert.equal(running.notes?.props?.job?.id, 'j1')
+  assert.equal(running.other, undefined)
+  const failed = await renderStorePanel(failedJob)
+  assert.equal(failed.notes?.props?.compact, true)
+  assert.equal(failed.notes?.props?.job?.id, 'j2')
+  failed.notes.props.onRetry()
+  failed.notes.props.onDismiss()
+  assert.deepEqual(retried.map((j) => j.id), ['j2'])
+  assert.deepEqual(dismissedJobs.map((j) => j.id), ['j2'])
 })
 
 test('minor: the machine Stores tab and Overview count the same PostgreSQL Stores', () => {

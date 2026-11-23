@@ -17,6 +17,7 @@ await build({
   absWorkingDir: root,
   stdin: {
     contents: [
+      "export { mount, elements, text } from 'react'",
       "export { compareFiles } from './src/client/files/BranchCompare.tsx'",
       "export { hunksOf } from './src/client/files/CommitDiff.tsx'",
       "export { pickedCompare, treeCounts } from './src/client/files/ProjectHistory.tsx'",
@@ -25,8 +26,9 @@ await build({
       "export { locales as logsLocales } from './src/client/logs/locale.ts'",
       "export { presetIdName } from './src/client/presets/labels.ts'",
       "export { locales as presetsLocales } from './src/client/presets/locale.ts'",
-      "export { backupChip, placeWords } from './src/client/storage/model.ts'",
+      "export { backupChip, listStatusWords, placeWords } from './src/client/storage/model.ts'",
       "export { providerWords } from './src/client/storage/BucketPage.tsx'",
+      "export { StoreBackups } from './src/client/storage/StoreLinks.tsx'",
       "export { locales as storageLocales } from './src/client/storage/locale.ts'",
     ].join('\n'),
     resolveDir: root, loader: 'tsx',
@@ -74,6 +76,35 @@ test('6: the Store\'s Backups tab says a backup\'s state and provider in the wor
   const links = src('src/client/storage/StoreLinks.tsx')
   assert.match(links, /backupChip\(state, t\)/)
   assert.match(links, /providerWords\(bucket\.provider, t\)/)
+  const noop = () => {}
+  const store = {
+    name: 'notes', kind: 'sqlite', machine: 'native', state: 'ready', projects: [], projectsCount: 0,
+    links: [
+      { bucket: 'ok-b', file: 'notes', last: { op: 'backup', at: 1000, bytes: 1024 } },
+      { bucket: 'unlisted-b', file: 'notes', last: { op: 'backup', at: 1000, bytes: 1024 } },
+      { bucket: 'failed-b', file: 'notes', last: { op: 'backup', at: 1000, bytes: 1024 } },
+    ],
+  }
+  const view = {
+    stores: [store], machines: [], jobs: [], auths: [],
+    buckets: [
+      { name: 'ok-b', provider: 'minio', url: 's3://ok', files: [{ file: 'notes', store: 'notes', behind: false, changed: false, missing: false, bytes: 1024 }] },
+      { name: 'unlisted-b', provider: 'minio', url: 's3://unlisted', files: null },
+      { name: 'failed-b', provider: 'r2', url: 's3://failed', files: null, error: { code: 'timeout', message: 'offline' } },
+    ],
+  }
+  const on = { backup: noop, backupTo: noop, restore: noop, remove: noop, push: noop, pull: noop, move: noop, disconnect: noop, start: noop, addProject: noop, editConnection: noop, check: noop, connectMachine: noop, removeOwn: noop, newOnServer: noop, retry: noop, dismiss: noop, openMachine: noop }
+  const tree = M.mount(M.StoreBackups, { store, view, t, now: 2000, on }).tree
+  const card = (name) => M.elements(tree).find((n) => n.props?.['data-backup-link'] === name)
+  const pill = (name) => M.elements(card(name)).find((n) => n.type === 'span' && ('data-tone' in (n.props ?? {}) || 'data-dashed' in (n.props ?? {})))
+  assert.equal(M.text(pill('ok-b')), 'Backed up')
+  assert.ok(M.elements(card('ok-b')).some((n) => n.type === 'dd' && M.text(n) === 'MinIO'))
+  assert.equal(pill('unlisted-b')?.props?.['data-dashed'], true)
+  assert.equal(M.text(pill('unlisted-b')), M.backupChip(undefined, t).label)
+  assert.equal(pill('failed-b')?.props?.['data-tone'], 'danger')
+  assert.equal(pill('failed-b')?.props?.title, 'offline')
+  assert.equal(M.text(pill('failed-b')), M.listStatusWords('timeout', t))
+  assert.ok(M.elements(card('failed-b')).some((n) => n.type === 'dd' && M.text(n) === 'Cloudflare R2'))
   for (const lang of ['en', 'zh']) assert.equal(Object.keys(M.storageLocales[lang]).some((k) => k.startsWith('spBackupState_')), false)
 })
 

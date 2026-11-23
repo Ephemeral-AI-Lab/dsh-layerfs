@@ -50,6 +50,7 @@ export function StoreBackups({ store: s, view, t, now, on, runningJob, onOpen, o
       .map((l) => l.bucket)
       .filter((name, i, arr) => arr.indexOf(name) === i)
       .filter((name) => {
+        if (listingBucket === name || listingBucket === '*') return false
         const b = view.buckets.find((x) => x.name === name)
         return !!b && b.files === null && !b.error && !autoListed.current.has(`${s.name}:${name}`)
       })

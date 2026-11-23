@@ -118,9 +118,14 @@ function NewStoreDialog({ api, t, view, opened, initialPane, onClose, done, onDi
   const buckets = view?.buckets ?? []
   const [bucketChoice, setBucket] = useState(buckets[0]?.name ?? '')
   const bucket = bucketChoice && buckets.some((b) => b.name === bucketChoice) ? bucketChoice : (buckets[0]?.name ?? '')
-  const [file, setFile] = useState('')
-  const [listing, setListing] = useState(false)
-  const [listError, setListError] = useState<{ code: string, message: string } | null>(null)
+  const [pickedFile, setPickedFile] = useState<{ bucket: string, file: string } | null>(null)
+  const file = pickedFile && pickedFile.bucket === bucket ? pickedFile.file : ''
+  const [listingBucket, setListingBucket] = useState<string | null>(null)
+  const listing = listingBucket === bucket
+  const [listError, setListError] = useState<{ bucket: string, code: string, message: string } | null>(null)
+  const bucketRef = useRef(bucket)
+  bucketRef.current = bucket
+  const listSeq = useRef(0)
   const autoListed = useRef(new Set<string>())
   // Where the new Store lives. LayerFS makes it in the home; another machine is a move after.
   const machines = machinesFor(view, 'sqlite')
@@ -139,31 +144,41 @@ function NewStoreDialog({ api, t, view, opened, initialPane, onClose, done, onDi
   const taken = !!name.trim() && name.trim() !== made && !!view?.stores.some((s) => s.name === name.trim())
   const list = async (targetBucket = bucket) => {
     if (!targetBucket) return
-    setListing(true)
-    setListError(null)
+    const seq = ++listSeq.current
+    setListingBucket(targetBucket)
+    setListError((prev) => (prev?.bucket === targetBucket ? null : prev))
     try {
       const res = await api.call<{ error?: { code?: string, message?: string } | null }>('GET', `/api/buckets/${enc(targetBucket)}/files`)
-      if (res?.error) setListError({ code: res.error.code ?? 'Failed', message: res.error.message ?? res.error.code ?? 'Failed' })
+      if (bucketRef.current === targetBucket && listSeq.current === seq && res?.error) {
+        setListError({ bucket: targetBucket, code: res.error.code ?? 'Failed', message: res.error.message ?? res.error.code ?? 'Failed' })
+      }
     } catch (e: any) {
-      setListError({ code: e?.code ?? 'Failed', message: e?.message ?? String(e) })
+      if (bucketRef.current === targetBucket && listSeq.current === seq) {
+        setListError({ bucket: targetBucket, code: e?.code ?? 'Failed', message: e?.message ?? String(e) })
+      }
     } finally {
-      setListing(false)
+      setListingBucket((cur) => (cur === targetBucket ? null : cur))
       done()
     }
   }
   useEffect(() => {
-    if (pane !== 'restore' || !chosen || chosen.files !== null || chosen.error || listing) return
+    setPickedFile((prev) => (prev && prev.bucket !== bucket ? null : prev))
+    setListError((prev) => (prev && prev.bucket !== bucket ? null : prev))
+  }, [bucket])
+  useEffect(() => {
+    if (pane !== 'restore' || !chosen || chosen.files !== null || chosen.error || listingBucket === chosen.name) return
     if (autoListed.current.has(chosen.name)) return
     autoListed.current.add(chosen.name)
     void list(chosen.name)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pane, chosen?.name, chosen?.files, chosen?.error])
   const choose = (f: string) => {
-    setFile(f)
+    setPickedFile({ bucket, file: f })
     const base = f.replace(/\.[^.]+$/, '')
     setName(view?.stores.some((s) => s.name === base) ? `${base}-restored` : base)
   }
-  const activeError = listError ?? chosen?.error ?? null
+  const scopedError = listError && listError.bucket === bucket ? listError : null
+  const activeError = scopedError ?? chosen?.error ?? null
   const again = chosen && activeError ? reconnectOf({ ...chosen, error: activeError }) : null
   const nameOk = NAME.test(name.trim()) && !taken
   const missing = [
@@ -231,7 +246,7 @@ function NewStoreDialog({ api, t, view, opened, initialPane, onClose, done, onDi
             <Field label={t('bucket')}>
               <div className={css.inline}>
                 <MenuSelect value={bucket} label={t('bucket')} placeholder={t('chooseBucket')} className={css.grow}
-                  options={buckets.map((b) => ({ value: b.name, label: b.name }))} onChange={(v) => { setBucket(v); setFile(''); setListError(null) }} />
+                  options={buckets.map((b) => ({ value: b.name, label: b.name }))} onChange={(v) => { setBucket(v); setPickedFile(null); setListError(null) }} />
                 <Button variant="outline" size="sm" disabled={!bucket || listing} onClick={() => { void list() }}
                   icon={listing ? <StateDot state="ongoing" size={13} /> : undefined}>{chosen?.files !== null ? t('listAgain') : t('listBucket')}</Button>
               </div>
