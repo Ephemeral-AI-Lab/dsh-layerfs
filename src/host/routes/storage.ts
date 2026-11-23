@@ -284,6 +284,7 @@ export class Storage {
   readonly listings = new Map<string, Listing>()
   private readonly listingInFlight = new Map<string, Promise<Listing>>()
   private readonly listingPending = new Set<string>()
+  private readonly listingEpoch = new Map<string, number>()
   lastView: any = null
   /** The StorageView read in flight, shared by concurrent callers; a write (`changed`) bumps `generation` so later callers read anew. */
   private viewing: { promise: ReturnType<Storage['readView']>, generation: number } | null = null
@@ -653,6 +654,7 @@ export class Storage {
     if (!access || !secret || /\s/.test(access + secret)) throw refuse(400, 'InvalidInput', 'Give both the access key and the secret key (no spaces)')
     // the long form says what happened: `rotated` when the name was already connected at this URL (spec v21: the key is replaced, links kept)
     const answer: any = await this.lfs.backup.connect(name, url, { access_key: access, secret_key: secret, detail: true })
+    this.invalidateListing(name)
     // a connect that succeeded answers a remembered refusal ("key refused"): it is no longer the bucket's word,
     // with or without List again (RV4 NOTE 6); its last files stay until the next listing
     const prior = this.listings.get(name)
@@ -665,9 +667,16 @@ export class Storage {
   /** Drops the bucket and its key; LayerFS drops every Store's link to it too. Answers which Stores lost theirs. */
   async disconnectBucket(name: string) {
     const done = await this.lfs.backup.disconnect(name, { detail: true })
+    this.invalidateListing(name)
+    this.listingPending.delete(name)
     this.listings.delete(name)
     this.changed()
     return { unlinked: done?.unlinked ?? [], view: await this.view() }
+  }
+
+  private invalidateListing(name: string) {
+    this.listingEpoch.set(name, (this.listingEpoch.get(name) ?? 0) + 1)
+    this.listingInFlight.delete(name)
   }
 
   /**
@@ -685,7 +694,9 @@ export class Storage {
       if (force) this.listingPending.add(name)
       return inflight
     }
+    const epoch = this.listingEpoch.get(name) ?? 0
     const run = (async (): Promise<Listing> => {
+      let next: Listing
       try {
         const listed = await this.lfs.backup.list({ bucket: name, detail: true })
         const failed = (Array.isArray(listed?.not_listed) ? listed.not_listed : []).find((n: any) => n?.bucket === name)
@@ -695,16 +706,20 @@ export class Storage {
           message: typeof i.message === 'string' ? i.message : null,
         }))
         const prev = this.listings.get(name)
-        this.listings.set(name, failed ? { at: prev?.at ?? null, items: prev?.items ?? null, error: notListedError(failed) } : { at: Date.now(), items, error: null })
+        next = failed ? { at: prev?.at ?? null, items: prev?.items ?? null, error: notListedError(failed) } : { at: Date.now(), items, error: null }
       } catch (error: any) {
         const prev = this.listings.get(name)
-        this.listings.set(name, { at: prev?.at ?? null, items: prev?.items ?? null, error: { code: error?.code ?? 'Failed', message: error?.message ?? String(error) } })
+        next = { at: prev?.at ?? null, items: prev?.items ?? null, error: { code: error?.code ?? 'Failed', message: error?.message ?? String(error) } }
       }
+      if ((this.listingEpoch.get(name) ?? 0) !== epoch) return this.listings.get(name) ?? next
+      this.listings.set(name, next)
       this.changed()
-      return this.listings.get(name)!
+      return next
     })().finally(() => {
-      if (this.listingInFlight.get(name) === run) this.listingInFlight.delete(name)
-      if (this.listingPending.delete(name)) void this.listBucket(name).catch(() => {})
+      if (this.listingInFlight.get(name) === run) {
+        this.listingInFlight.delete(name)
+        if (this.listingPending.delete(name)) void this.listBucket(name).catch(() => {})
+      }
     })
     this.listingInFlight.set(name, run)
     return run
