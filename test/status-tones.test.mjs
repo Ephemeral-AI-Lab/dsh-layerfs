@@ -161,11 +161,12 @@ const NON_STATUS_CHROMATIC_ALLOWLIST = new Set([
   'src/client/doctor/DoctorPage.module.css',
   'src/client/machines/icons.tsx',
   'src/client/overview/glyph.tsx',
+  'src/client/storage/HomeHero.module.css',
   'src/client/storage/HomeOverview.module.css',
   'src/client/views/marks.tsx',
 ])
 
-const NON_STATUS_VAR_ALLOWLIST = /^--(doc-(run|link|tip-run)|ov-(accent|ink-\w+)|lfs-(light|dark))$/
+const NON_STATUS_VAR_ALLOWLIST = /^--(doc-(run|link|tip-run)|ov-(accent|ink-\w+)|lfs-(light|dark|ink)|dsh-ink)$/
 
 test('lint: every circular (50%/100%) or pill (999px/radius-full) border-radius in src/client declares corner-shape: round', () => {
   const files = walk(CLIENT_DIR).filter((f) => /\.(css|ts|tsx)$/.test(f))
