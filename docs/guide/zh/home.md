@@ -1,4 +1,4 @@
-<!-- source: 888b7b77d185 -->
+<!-- source: 9ff8737c57af -->
 # 主页
 
 > 标有「隔离测试数据」的截图来自当前版本的实际组件，使用独立浏览器和示例数据。其余截图来自早期演示环境。
@@ -151,8 +151,8 @@ Docker 无法运行时，标题旁会出现 **Docker 无法运行**（Docker una
 | 1 显示 | 选中了 **存储桶**（Buckets） | — | — | — |
 | 2 列出存储桶文件 | **列出存储桶文件**（List bucket files），在标签栏右端 | 按下 → 重新列出每个存储桶 | `backup list`（每个存储桶一次），然后读取存储视图 | 列出时显示一个圆点 |
 | 3 添加存储桶 | **添加存储桶**（Add bucket），就在旁边 | 按下 → 添加存储桶对话框（[存储桶](bucket.md)） | `backup connect`（密钥通过 stdin 传入） | — |
-| 4 存储桶卡片 | 服务商、名称、`MinIO · 1 Store file · 385 KB · listed {ago}`、其中的文件及其 Store 和日期、**{n} from this home** | 按名称或 **打开存储桶**（Open bucket） → [存储桶](bucket.md)页；对不属于这个主目录的文件按 **恢复…**（Restore…） → 恢复对话框 | `backup list` (读取)；**恢复…** 用 `backup restore` | **文件未知**（Files unknown），带 **重新连接…**（Connect again…） / **重新列出**（List again）；**尚未列出**（not listed yet），带 **列出文件**（List files） |
-| 5 ⋯ | **{bucket} 的更多操作**（More actions for {bucket}） | **列出文件**（List files）、**打开存储桶**（Open bucket） | `backup list` | — |
+| 4 存储桶卡片 | 提供方、名称、`MinIO · 1 个 Store 文件 · 385 KB · 列出于 {ago}`、其中的文件及其 Store 和日期、**{n} 个来自此主目录** | 按名称或 **打开存储桶**（Open bucket） → [存储桶](bucket.md)页；按文件名 → [备份文件](bucket.md#backup-file)页；对不属于这个主目录的文件按 **恢复…**（Restore…） → 恢复对话框 | `backup list` (读取)；**恢复…** 用 `backup restore` | **文件未知**（Files unknown），带 **重新连接…**（Connect again…） / **重新列出**（List again）；**未列出**（Not listed），带 **列出文件**（List files）；列出期间显示 **正在列出…**（Listing…） |
+| 5 ⋯ | **{bucket} 的更多操作**（More actions for {bucket}） | **列出文件**（List files）/ **重新列出**（List again）、**打开存储桶**（Open bucket） | `backup list` | 列出期间禁用 |
 
 ![Store，PostgreSQL](../img/home-stores-pg.png)
 

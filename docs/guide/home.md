@@ -154,8 +154,8 @@ restore one from a backup, or connect a PostgreSQL database." — with **New Sto
 | 1 Show | **Buckets** selected | — | — | — |
 | 2 List bucket files | **List bucket files**, at the right end of the tab bar | Press → every bucket is listed again | `backup list` (one per bucket), then the Storage view | a dot while listing |
 | 3 Add bucket | **Add bucket**, beside it | Press → the Add bucket dialog ([Bucket](bucket.md)) | `backup connect` (keys on stdin) | — |
-| 4 Bucket card | Provider, name, `MinIO · 1 Store file · 385 KB · listed {ago}`, its files with their Store and date, **{n} from this home** | Press the name or **Open bucket** → the [Bucket](bucket.md) page; **Restore…** on a file not from this home → the restore dialog | `backup list` (read); **Restore…** `backup restore` | **Files unknown** with **Connect again…** / **List again**; **not listed yet** with **List files** |
-| 5 ⋯ | **More actions for {bucket}** | **List files**, **Open bucket** | `backup list` | — |
+| 4 Bucket card | Provider, name, `MinIO · 1 Store file · 385 KB · Listed {ago}`, its files with their Store and date, **{n} from this home** | Press the name or **Open bucket** → the [Bucket](bucket.md) page; press a file name → its [Backup file](bucket.md#backup-file) page; **Restore…** on a file not from this home → the restore dialog | `backup list` (read); **Restore…** `backup restore` | **Files unknown** with **Connect again…** / **List again**; **Not listed** with **List files**; **Listing…** while listing |
+| 5 ⋯ | **More actions for {bucket}** | **List files** / **List again**, **Open bucket** | `backup list` | disabled while listing |
 
 ![Stores, PostgreSQL](img/home-stores-pg.png)
 

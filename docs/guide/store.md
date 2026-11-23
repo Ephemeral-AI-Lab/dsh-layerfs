@@ -93,7 +93,7 @@ Where copies of this Store live, how current each is, and the buttons to refresh
 | | Count | **n destination(s)** | — | — | |
 | 1 | **Back up to…** | | Press → [Back up](#modals-opened-here) (no bucket yet: **Add bucket…** → Add bucket, then Back up) | `backup create` | off unless Ready |
 | 2 | Destination card | The bucket, the file name, **Last saved**, **Size**, **Provider** (**MinIO**, **Cloudflare R2**) | — | `store list` (read: links), the bucket's last `backup list` | **No backup destinations configured.** |
-| 3 | State pill | **Backed up**, **Store changed**, **Bucket changed**, **Both changed**, **Missing**, **Not checked** (the words the bucket page uses); LayerFS's sentence on hover | — | `backup list` (read) | no pill until the bucket was listed |
+| 3 | State pill | **Backed up**, **Store changed**, **Bucket changed**, **Both changed**, **Missing**, **Not checked**, **Not listed**, or list failure (**Not listed · key refused**, …) — the same words as the bucket page; LayerFS's sentence on hover | — | `backup list` (read) | dashed **Not listed** until listed; red pill on list failure |
 | 4 | **Back up now** | | Press → a backup job starts at once (no dialog) | `backup create`, then `backup list` | off unless Ready |
 | 5 | **Restore…** | | Press → [Restore](#modals-opened-here) on that file | `backup restore`, then `backup list` | only when the bucket lists the file; off while Busy |
 
@@ -214,7 +214,7 @@ while any Store names it). A machine page lists only the logins of Stores connec
 | New password for *auth* | Login header **Rotate password…** | **User**, **Password**; then one dot per Store using it (**reached** / **check failed**) | `store save-auth`, `store doctor` per Store, `store get` ↻ | rotate again |
 | [Add a Store to *machine*](img/store-to-machine.png) | machine › Stores **Push a Store here** / **Add Store** | **SQLite** (**Move one here**) or **PostgreSQL** (**Connect one, or run one here**); the SQLite Stores on other machines (busy ones disabled); **Move here**; on native also **New Store** | `store get`, then `store move` (push, pull, or pull then push) | move it back |
 | [Add bucket](img/store-bucket-add.png) | Nav bar **Add › Add bucket**; Back up's **Add a bucket**; Backups tab **Add bucket…** | **MinIO** or **Cloudflare R2**, **Name**, **Bucket**, **Endpoint** or **Account ID** + **Jurisdiction**, **Prefix**, **Access key**, **Secret key**; returns to Back up when opened from it | `backup connect` (secret on stdin) ↻ | Disconnect the bucket |
-| Connect *bucket* again | **Connect again…** on a bucket whose key was refused | Same form, name and URL filled; the same URL replaces the key (**Key replaced; links kept**) | `backup connect`, then `backup list` | — |
+| Connect *bucket* again | **Connect again…** on a bucket whose key was refused | Same form, name locked and URL filled; the same URL replaces the key (**Key replaced; links kept**) and relists that bucket | `backup connect`, then `backup list` | — |
 
 ## States and signals
 

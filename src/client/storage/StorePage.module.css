@@ -671,6 +671,11 @@
   white-space: nowrap;
 }
 
+.statePill[data-dashed] {
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  background: transparent;
+}
+
 .statePill[data-tone='ok'] {
   background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
   color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 68%, var(--dsw-alias-label-primary));
