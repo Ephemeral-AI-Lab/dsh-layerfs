@@ -161,10 +161,14 @@ function FileCard({ stats, error, pg, t }: { stats: StoreStats | undefined, erro
       styleEl.textContent = rules.join('\n')
     }
     let lastFont = fontKey()
+    let lastWidth = bar.clientWidth
     measure()
     const onResize = () => {
-      const next = fontKey()
-      if (next !== lastFont) { lastFont = next; measure() }
+      const nextFont = fontKey()
+      const nextWidth = bar.clientWidth
+      const revealed = lastWidth === 0 && nextWidth > 0
+      lastWidth = nextWidth
+      if (nextFont !== lastFont || revealed) { lastFont = nextFont; measure() }
     }
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(onResize) : null
     observer?.observe(bar)
