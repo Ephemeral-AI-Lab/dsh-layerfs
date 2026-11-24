@@ -111,7 +111,7 @@ interface AgentCalls {
  * `LATE_CALL_MS`, as a line is written when its call ends but dated when it
  * started). A hidden page reads nothing until shown.
  */
-function useAgentCalls(api: ViewProps['api'], agents: readonly MapAgent[]) {
+function useAgentCalls(api: ViewProps['api'], agents: readonly MapAgent[], root: string) {
   const ids = agents.map((a) => a.id).join('|')
   const [calls, setCalls] = useState<Record<string, LabeledLine[]>>({})
   const [loaded, setLoaded] = useState(false)
@@ -183,9 +183,12 @@ function useAgentCalls(api: ViewProps['api'], agents: readonly MapAgent[]) {
     kick.current = () => { void read() }
     const shown = () => { if (document.visibilityState === 'visible' && missed) { missed = false; void read() } }
     document.addEventListener('visibilitychange', shown)
-    const offs = [api.onEvent(LOGS_EVENT, () => later()), api.onEvent('layerfs-checkpoint', () => later()), api.onEvent('connection', () => later())]
+    // The logs event names the root session its appended lines belong to; another
+    // conversation's calls (or a window that mixed several) leave this map alone.
+    const mine = (e: { data?: any }) => { if (!e.data?.sessionId || e.data.sessionId === root) later() }
+    const offs = [api.onEvent(LOGS_EVENT, mine), api.onEvent('layerfs-checkpoint', () => later()), api.onEvent('connection', () => later())]
     return () => { stopped = true; kick.current = () => {}; document.removeEventListener('visibilitychange', shown); offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
-  }, [api])
+  }, [api, root])
   useEffect(() => { kick.current() }, [api, ids])
   return { calls, loaded, backfilling }
 }
@@ -318,7 +321,7 @@ function ChatSandboxMap({ api, t, sessionId, project, binding, root, byId, title
   label: (id: string) => string | undefined
 }): ReactNode {
   const agents = useMemo(() => agentTree(root, byId), [root, byId])
-  const { calls, loaded, backfilling } = useAgentCalls(api, agents)
+  const { calls, loaded, backfilling } = useAgentCalls(api, agents, root)
   const name = useCallback((agent: MapAgent) => agent.depth === 0 ? t('mainAgent')
     : label(agent.id) ?? title(agent.id) ?? t('subagent', { n: agents.indexOf(agent) }), [label, title, t, agents])
   const groupTitle = useCallback((head: MapAgent) => title(head.id) ?? t('lead'), [title, t])

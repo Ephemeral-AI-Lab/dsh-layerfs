@@ -28,6 +28,7 @@ import { compactRaw, hasOutput, outputsDir, RAW_DIR, RAW_SETTLE_MS, readOutput, 
 const COMPACT_MS = 10_000
 import type { Checkpoint } from '../sessions/state.ts'
 import { callsSince, listArgs, projectCalls, readCalls, resetCalls, type CallPage } from './source.ts'
+import { readNewCallTags, type Cursor } from './new-lines.ts'
 
 export const name = 'dsh-layerfs-logs'
 export const inject = ['layerfs', 'layerfsRemote']
@@ -208,11 +209,53 @@ export async function listPage(ctx: Context, args: LogsListArgs): Promise<{ page
 export function apply(ctx: Context): void {
   // Stand-in appends (this process, or agent shells' wrappers) → one `logs` event a second at most.
   let timer: NodeJS.Timeout | undefined, dirty = false
-  const fire = () => {
-    if (timer) { dirty = true; return }
-    ctx.layerfs.emit(LOGS_EVENT, { at: Date.now() })
+  // Which session and project the appended lines belong to, when the window has
+  // exactly one of each; every other window announces plain growth (all views read).
+  let cursor: { value: Cursor | null } = { value: null }
+  let pendingTags: string[] = []
+  let pendingUnknown = false
+  /** The root session and project a traced session's calls belong to. */
+  const ownerOf = (id: string): { sessionId: string, project: string } | null => {
+    const state = (ctx.get('layerfsSessions' as never) as any)?.state?.read?.()
+    let cur = id
+    for (let i = 0; i < 8; i++) {
+      const b = state?.sessions?.[cur]
+      if (!b) return null
+      if (b.kind === 'shared' && b.parent) { cur = String(b.parent); continue }
+      return b.project ? { sessionId: cur, project: String(b.project) } : null
+    }
+    return null
+  }
+  const fire = (options: { unknown?: boolean } = {}) => {
+    if (timer) { dirty = true; if (options.unknown) pendingUnknown = true; else collect(); return }
+    collect()
+    // One root session and one project: the views of that session (or project) are
+    // the only ones that changed. Anything else — several sessions in the window,
+    // a rotation, an output write, an untagged line — wakes every open view.
+    let sessionId: string | undefined, project: string | undefined
+    if (!pendingUnknown && pendingTags.length) {
+      const owners = new Set<string>()
+      let root: string | undefined, proj: string | undefined
+      for (const tag of pendingTags) {
+        const session = sessionOfTag(tag)
+        const owner = session ? ownerOf(session) : null
+        if (!owner) { owners.clear(); root = undefined; break }
+        owners.add(`${owner.project}\u0000${owner.sessionId}`)
+        root = owner.sessionId; proj = owner.project
+      }
+      if (owners.size === 1 && root && proj) { sessionId = root; project = proj }
+    }
+    pendingTags = []
+    pendingUnknown = false
+    dirty = false
+    ctx.layerfs.emit(LOGS_EVENT, { at: Date.now(), ...(sessionId ? { sessionId, project } : {}) })
     timer = setTimeout(() => { timer = undefined; if (dirty) { dirty = false; fire() } }, 1000)
     timer.unref?.()
+  }
+  const collect = () => {
+    const tags = readNewCallTags(ctx.layerfs.callLog, cursor)
+    if (tags === null) pendingUnknown = true
+    else if (tags.length) pendingTags.push(...tags)
   }
   ctx.effect(() => () => { clearTimeout(timer); timer = undefined }, 'dsh-layerfs: logs event')
   ctx.effect(() => onCallLogAppend(ctx.layerfs.callLog, fire), 'dsh-layerfs: logs appends')
@@ -278,6 +321,9 @@ export function apply(ctx: Context): void {
     },
     'logs.reset': async () => {
       const answer = await resetCalls(ctx.layerfs)
+      cursor = { value: null }
+      pendingTags = []
+      pendingUnknown = true
       ctx.layerfs.emit(LOGS_EVENT, { at: Date.now() })
       return answer
     },

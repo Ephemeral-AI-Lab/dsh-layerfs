@@ -86,9 +86,12 @@ function useProjectCalls(api: LayerfsApi, project: string, sandboxes: readonly s
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
     const later = () => { if (!timer) timer = setTimeout(() => { timer = undefined; if (document.visibilityState === 'visible') setGrow((n) => n + 1) }, 3000) }
-    const offs = [api.onEvent(LOGS_EVENT, later), api.onEvent('layerfs-checkpoint', later), api.onEvent('connection', later)]
+    // The event names the project of the appended calls when it can; another
+    // project's calls leave this map alone (a window that mixed projects names none).
+    const mine = (e: { data?: any }) => { if (!e.data?.project || e.data.project === project) later() }
+    const offs = [api.onEvent(LOGS_EVENT, mine), api.onEvent('layerfs-checkpoint', later), api.onEvent('connection', later)]
     return () => { offs.forEach((off) => off()); if (timer) clearTimeout(timer) }
-  }, [api])
+  }, [api, project])
   return { lines, error, hasMore }
 }
 
