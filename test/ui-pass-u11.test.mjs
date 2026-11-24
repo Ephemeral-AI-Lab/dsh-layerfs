@@ -144,6 +144,7 @@ const START_SITES = {
   'src/client/machines/parts.tsx': 'the machine card\'s own Start / power button and its own fix',
   'src/client/machines/ImageMenu.tsx': 'that machine\'s own Restart worker (its images menu)',
   'src/client/projects/ProjectList.tsx': 'the project row\'s "Start <machine>"',
+  'src/client/projects/session-readiness.ts': 'the readiness action\'s kind (a type and a classification): sends nothing',
   'src/client/projects/setup/ProjectDialog.tsx': 'StartFirst (twice) and the project row\'s "Start <machine>"',
   'src/client/projects/setup/run.ts': 'startMachine itself (called only from StartFirst)',
   'src/client/storage/HomeOverview.tsx': 'a trouble row\'s "Restart <machine>\'s worker"',

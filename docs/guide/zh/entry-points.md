@@ -50,8 +50,15 @@ DSH 的侧边栏里有 **LayerFS** 行（和 Plugins、Automation tasks、More �
 | 4 ⚙ | **设置 {project}**（Set up {project}，悬停或键盘聚焦时出现） | 按下 → 打开这个项目的[项目对话框](#project-dialog) | —（打开对话框） | — |
 | 5 + | **在 {project} 中新建会话**（New session in {project}，悬停时出现） | 按下 → 一个新的项目对话（见[下文](#new-session-in-a-project)） | `sessions.choose`：`project get`（第一次认领时还有 `branch list`、`branch fork`） | 不可用，并显示 **无法在此新建会话：{reason}**（Can’t start a session here: {reason}） |
 | | **启动 {machine}**（Start {machine}） | 项目的机器停止时代替 + 出现；按下 → 启动它 | `machine start` | 操作结束后才能再按 |
-| 6 会话行 | **New session** | 按下 → 打开那个对话 | `sessions.open`：日志在本机时没有调用；否则 `branch list`、`project export` | **已中断**（Interrupted），提示文字是错误信息 |
+| 6 会话行 | 对话标题，然后是非普通本地会话的说明词：**正在启动**（Starting）、**活动中**（Active）、**已中断**（Interrupted）、**存储在其他位置**（Stored elsewhere）、**不可用**（Unavailable）或 **未开始**（Not started） | 按下 → 打开那个对话；项目不能运行时这一行不能打开，下方的原因说明原因 | `sessions.open`：日志在本机时没有调用；否则 `branch list`、`project export` | **已中断**（Interrupted），提示文字是错误信息；宿主状态没有对应词时不显示 |
+| | 这一行的唯一操作 | **打开**（Open）→ 打开或导入对话；**启动 {machine}**（Start {machine}）→ 启动项目的机器；**打开 Store**（Open Store）→ 打开失败信息里的 Store | **打开**：`sessions.open`；**启动**：`machine start`；**打开 Store**：—（打开存储页） | 操作进行时禁用 |
 | | 归档图标 | **归档 {session}**（Archive {session}）→ 它离开列表（在 DSH 的 Archived 列表里可以找回） | —（DSH 的归档） | **未归档**（Not archived），附 **重试**（Try again） |
+
+会话行的词说明它现在能不能运行。**存储在其他位置**（Stored elsewhere）表示对话只在项目的 Store 里：
+**打开**（Open）会先把它导入这个 DSH。**不可用**（Unavailable）表示项目不能运行（机器已停止或损坏，
+或 Store 打不开）：下方的原因说明为什么，这一行本身不能打开，它的唯一操作会启动机器
+（**启动 {machine}**，Start {machine}）或打开 Store（**打开 Store**，Open Store）。**正在启动**
+（Starting）、**活动中**（Active）和 **未开始**（Not started）是宿主自己的状态；没有对应词的状态不显示。
 
 会话列表每 15 秒读一次本地会话，每 60 秒读一次 Store 里归档的对话（`sessions.list`：`branch list`、
 `file read`，读取）。为空时显示 **还没有项目会话**（No project sessions yet）和 **新建项目**（New project）。

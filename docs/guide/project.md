@@ -178,12 +178,19 @@ a Sandbox.
 | # | Component | What it shows | Interaction → result | LayerFS call | States |
 |---|---|---|---|---|---|
 | 1 | **New session** | | starts a DSH session placed in this project (in the selected local folder, else the managed Scratch folder) and opens it; its Workspace is mounted on its first step | `project get` (read) at press; the session store is synced in the background | disabled while another press runs; absent while the Store is broken |
-| 2 | Sessions table | **Session** (title or **Untitled session**), **State** (**Not started**, **Active**, or LayerFS's word such as `stored`), **Checkpoints** (one per turn that changed files), **Updated** | — | `branch list` of the stored-session Branches, and `project export` of an archive whose head moved (read) | **No sessions on this project yet** with **New session**; **Could not read the sessions** with **Retry** |
+| 2 | Sessions table | **Session** (title or **Untitled session**), **State** (**Not started**, **Active**, or the host's word such as `stored`; the sidebar's session rows also use **Starting**, **Interrupted**, **Stored elsewhere** and **Unavailable**), **Checkpoints** (one per turn that changed files), **Updated** | — | `branch list` of the stored-session Branches, and `project export` of an archive whose head moved (read) | **No sessions on this project yet** with **New session**; **Could not read the sessions** with **Retry** |
 | 3 | **Open** | | opens the conversation; a session stored only in LayerFS (another machine's, or after a reset) is imported first | none for a local session; `project export` of its archive (read) to import one | spinner while it opens |
 
 The table is local first: it lists this DSH's sessions and adds the ones found in the
 project's session store. A session archived in DSH leaves the list until it is
 unarchived.
+
+A session row's readiness word says whether it can run right now. **Stored elsewhere** means
+the conversation is only in the project's Store: **Open** imports it. **Unavailable** means
+the project cannot run: the reason under the row says why, the row cannot open, and its one
+action starts the machine (**Start {machine}**) or opens the Store (**Open Store**).
+**Starting**, **Active** and **Not started** are the host's own states; a state with no word
+stays hidden.
 
 ## Stats
 

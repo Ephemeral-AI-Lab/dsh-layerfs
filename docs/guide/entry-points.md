@@ -51,8 +51,15 @@ this DSH), and back. The choice is remembered in this browser.
 | 4 ⚙ | **Set up {project}** (on hover or keyboard focus) | Press → the [project dialog](#project-dialog) on that project | — (opens a dialog) | — |
 | 5 + | **New session in {project}** (on hover) | Press → a new project conversation (see [below](#new-session-in-a-project)) | `sessions.choose`: `project get` (+ `branch list`, `branch fork` on the first claim) | disabled, with **Can’t start a session here: {reason}** |
 | | **Start {machine}** | Shown in place of + when the project's machine is stopped; press → it starts | `machine start` | settles before it can be pressed again |
-| 6 Session line | **New session** | Press → that conversation | `sessions.open`: none when its log is here; else `branch list`, `project export` | **Interrupted** with the error as its tip |
+| 6 Session line | The conversation's title, then a readiness word when it is not a plain local session: **Starting**, **Active**, **Interrupted**, **Stored elsewhere**, **Unavailable** or **Not started** | Press → that conversation; while the project cannot run the row cannot open, and the reason under it says why | `sessions.open`: none when its log is here; else `branch list`, `project export` | **Interrupted** with its error as the tip; a host state with no word stays hidden |
+| | The row's one action | **Open** → opens or imports the conversation; **Start {machine}** → starts the project's machine; **Open Store** → opens the Store the failure names | **Open**: `sessions.open`; **Start**: `machine start`; **Open Store**: — (opens Storage) | disabled while it runs |
 | | Archive icon | **Archive {session}** → it leaves the list (DSH's Archived list brings it back) | — (DSH's archive) | **Not archived** with **Try again** |
+
+A session row's word says whether it can run right now. **Stored elsewhere** means the conversation is only in the
+project's Store: **Open** imports it into this DSH first. **Unavailable** means the project cannot run (its machine
+is stopped or broken, or its Store does not open): the reason under the row says why, the row itself cannot open,
+and its one action starts the machine (**Start {machine}**) or opens the Store (**Open Store**). **Starting**,
+**Active** and **Not started** are the host's own states; a state with no word stays hidden.
 
 The sessions list reads local sessions every 15 s and the Store's archived conversations every
 60 s (`sessions.list`: `branch list`, `file read`, read). Empty: **No project sessions yet** with

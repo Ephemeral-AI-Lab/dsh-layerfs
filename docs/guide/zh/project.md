@@ -164,11 +164,17 @@ Sandbox 绑定。
 | # | 组件 | 显示内容 | 操作 → 结果 | LayerFS 调用 | 状态 |
 |---|---|---|---|---|---|
 | 1 | **新建会话**（New session） | | 在这个项目里启动一个 DSH 会话（放在选中的本地文件夹里，否则放在托管的 Scratch 文件夹里）并打开；它的 Workspace 在第一步时挂载 | 按下时 `project get` (读取)；会话存储在后台同步 | 另一次按下还在进行时禁用；Store 损坏时不显示 |
-| 2 | 会话表 | **会话**（Session，标题或 **未命名会话**（Untitled session））、**状态**（State：**未开始**（Not started）、**活动中**（Active），或 LayerFS 给出的词，例如 `stored`）、**检查点**（Checkpoints，每个改动了文件的轮次一个）、**更新时间**（Updated） | — | 已存储会话分支的 `branch list`，以及对分支头有变化的归档执行 `project export` (读取) | **此项目还没有会话**（No sessions on this project yet），附 **新建会话**（New session）；**无法读取会话**（Could not read the sessions），附 **重试**（Retry） |
+| 2 | 会话表 | **会话**（Session，标题或 **未命名会话**（Untitled session））、**状态**（State：**未开始**（Not started）、**活动中**（Active），或宿主给出的词，例如 `stored`；侧栏的会话行还会用 **正在启动**（Starting）、**已中断**（Interrupted）、**存储在其他位置**（Stored elsewhere）和 **不可用**（Unavailable））、**检查点**（Checkpoints，每个改动了文件的轮次一个）、**更新时间**（Updated） | — | 已存储会话分支的 `branch list`，以及对分支头有变化的归档执行 `project export` (读取) | **此项目还没有会话**（No sessions on this project yet），附 **新建会话**（New session）；**无法读取会话**（Could not read the sessions），附 **重试**（Retry） |
 | 3 | **打开**（Open） | | 打开对话；只存在于 LayerFS 里的会话（另一台机器的，或重置之后的）会先导入 | 本地会话无调用；导入时对其归档执行 `project export` (读取) | 打开过程中显示转圈 |
 
 这张表以本地为先：它列出这个 DSH 里的会话，再加上在项目会话存储里找到的会话。在 DSH 里归档的
 会话会从列表里消失，取消归档后才会回来。
+
+会话行的说明词表示它现在能不能运行。**存储在其他位置**（Stored elsewhere）表示对话只在项目的
+Store 里：**打开**（Open）会先把它导入。**不可用**（Unavailable）表示项目不能运行：下方的原因说明
+为什么，这一行不能打开，它的唯一操作会启动机器（**启动 {machine}**，Start {machine}）或打开 Store
+（**打开 Store**，Open Store）。**正在启动**（Starting）、**活动中**（Active）和 **未开始**（Not started）
+是宿主自己的状态；没有对应词的状态不显示。
 
 ## 统计
 

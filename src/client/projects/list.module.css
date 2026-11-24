@@ -232,14 +232,26 @@
 
 /* a session row and its Archive action, shown on hover or keyboard focus */
 .sessionItem {
-  position: relative;
   display: flex;
   align-items: center;
+  gap: 4px;
+  padding-inline-end: 6px;
+}
+
+/* A blocked row's one action (Open, Start <machine>, Open Store), then Archive
+   (shown on hover or keyboard focus): both are siblings of the row button. */
+.sessionReadinessAction {
+  flex: none;
+  max-width: 12em;
+  height: 24px;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sessionAction {
-  position: absolute;
-  inset-inline-end: 6px;
+  flex: none;
   opacity: 0;
 }
 
@@ -270,11 +282,21 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.interrupted {
+/* The readiness word beside a session's title, in the small chip style: muted
+   for every state, red for Interrupted (the one the row must not hide). */
+.interrupted,
+.word {
   flex: none;
   font-size: 12px;
   line-height: 16px;
+}
+
+.interrupted {
   color: var(--lf-tone-danger-fg);
+}
+
+.word {
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Notices (no sessions, loading, errors) start where titles start. */
