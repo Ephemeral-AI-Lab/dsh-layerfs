@@ -69,6 +69,8 @@ export function rememberFolder(folder: string): void {
 /** The page's export store, one per api. */
 class Store {
   private jobs: ReadonlyMap<string, ProjectExport> = new Map()
+  /** Dismissed here: a list read or event already in flight never brings them back. */
+  private readonly dismissed = new Set<string>()
   private readonly listeners = new Set<() => void>()
   private off: (() => void) | null = null
   private reading = false
@@ -97,6 +99,7 @@ class Store {
     void this.api.call<{ exports: ProjectExport[] }>('GET', '/api/project-exports').then((r) => {
       const next = new Map<string, ProjectExport>()
       for (const job of r.exports ?? []) {
+        if (this.dismissed.has(job.id)) continue
         const known = this.jobs.get(job.id)
         next.set(job.id, known && known.updatedAt > job.updatedAt ? known : job)
       }
@@ -108,6 +111,7 @@ class Store {
   }
 
   put(job: ProjectExport): void {
+    if (this.dismissed.has(job.id)) return
     const known = this.jobs.get(job.id)
     // an event older than what is shown (the admission answer can overtake it) changes nothing
     if (known && known.updatedAt > job.updatedAt) return
@@ -115,6 +119,7 @@ class Store {
   }
 
   drop(id: string): void {
+    this.dismissed.add(id)
     if (!this.jobs.has(id)) return
     const next = new Map(this.jobs)
     next.delete(id)
