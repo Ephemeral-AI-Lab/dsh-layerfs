@@ -136,7 +136,9 @@ Sandbox daemon 的日志，实时跟随：一个[日志窗格](components.md#log
 
 - **项目对话的 Sandbox**（A project conversation's Sandbox）（名为 `dsh-…`，`handbook` 的在 LayerFS Home 上）：
   它的 Workspace 就是对话的 Workspace。**删除 Sandbox…**（Delete Sandbox…）按对话关闭它的方式来关闭：先保存
-  一个检查点（`workspace status`、`workspace commit`），再 `sandbox remove --force`。
+  一个检查点（`workspace status`、`workspace commit`），再 `sandbox remove --force`。它目前由会话拥有：
+  项目 Sandboxes 标签页上它的卡片带一个安静的 **会话**（Session）标签（悬停：*这个 Sandbox 属于一个对话，
+  对话关闭时会被移除。*），对话关闭时它会被移除。项目拥有的 Sandbox 是后续的改动。
 - **LayerFS Home** 上的 Sandbox 以主机进程运行：镜像一项显示 **无 · 主机进程**（None · host processes），
   用量卡片显示整台机器，以灰色显示并说明原因。
 - **已消失的 Sandbox**（A gone Sandbox）（其 daemon 随机器一起结束了）：没有 **新建 Workspace**（New workspace），

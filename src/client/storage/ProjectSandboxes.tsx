@@ -16,7 +16,7 @@ import { agentTree, rootOf, type LiveSandboxes, type MapAgent } from '../views/m
 import { SandboxMap } from '../views/SandboxView.tsx'
 import type { StorageDialog } from './dialogs.tsx'
 import type { StorageT } from './locale.ts'
-import { refusalLabels } from './parts.tsx'
+import { refusalLabels, SessionTag } from './parts.tsx'
 import type { SandboxInfo } from './types.ts'
 import { sandboxStateWords } from './model.ts'
 
@@ -169,11 +169,14 @@ export function ProjectSandboxes({ api, t: ts, share, project, tick, onDialog }:
     const info = boxes.data?.find((b) => b.name === box)
     if (!info) return null
     return (
-      <Button variant="ghost" size="sm" disabled={info.state === 'gone' || info.state === 'closing'} onClick={() => onDialog({
-        kind: 'confirm', title: ts('closeSandboxConfirm', { name: box }), body: ts('closeSandboxBody'), action: ts('closeSandbox'),
-        force: { label: ts('closeSandboxForce'), action: ts('closeSandboxForceAction') },
-        run: (force) => api.call('DELETE', `/api/sandboxes/${enc(box)}${force ? '?force=1' : ''}`).then(() => setClosed((n) => n + 1)),
-      })}>{ts('closeSandbox')}</Button>
+      <>
+        <SessionTag sessionId={info.sessionId} t={ts} />
+        <Button variant="ghost" size="sm" disabled={info.state === 'gone' || info.state === 'closing'} onClick={() => onDialog({
+          kind: 'confirm', title: ts('closeSandboxConfirm', { name: box }), body: ts('closeSandboxBody'), action: ts('closeSandbox'),
+          force: { label: ts('closeSandboxForce'), action: ts('closeSandboxForceAction') },
+          run: (force) => api.call('DELETE', `/api/sandboxes/${enc(box)}${force ? '?force=1' : ''}`).then(() => setClosed((n) => n + 1)),
+        })}>{ts('closeSandbox')}</Button>
+      </>
     )
   }, [boxes.data, api, onDialog, ts])
 

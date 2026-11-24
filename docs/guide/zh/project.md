@@ -138,7 +138,8 @@ Sandbox 和调用、属于它的 DSH 会话，以及它在 Store 里占了多少
 此刻谁在操作这个项目，在哪里操作。这是把对话的 Sandbox 图扩展到整个项目：每个对这个项目或其
 Sandbox 调用过 LayerFS 的对话（及其子智能体），以及在对话之外发起的调用（**本插件**（This plugin）
 指本主机自己的调用，**其他客户端**（Other clients）），都经由 LayerFS 中枢连到它们碰过的分支和右侧
-的 Sandbox。播放条可以回放这些调用（**暂停**（Pause）/**播放**（Play）、**1×**…**100×**、
+的 Sandbox。属于一个对话的 Sandbox 会带一个安静的小 **会话**（Session）标签（悬停：*这个 Sandbox
+属于一个对话，对话关闭时会被移除。*）。播放条可以回放这些调用（**暂停**（Pause）/**播放**（Play）、**1×**…**100×**、
 **实时**（Live）），**活动**（Activity）把它们列出来。它和机器页共用的部分见
 [组件 › Sandbox 卡片](components.md#sandbox-card)和[终端
 面板](components.md#terminal-pane)。

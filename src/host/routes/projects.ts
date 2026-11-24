@@ -144,20 +144,37 @@ export const refusalOf = (error: any) => ({ code: error?.code ?? 'Failed', messa
 export const STORE_REFUSALS = new Set(['Busy', 'Unresolved', 'Unavailable'])
 
 /**
+ * The conversation a Sandbox belongs to, from the sessions state's bindings:
+ * a project binding's `sandbox` names it. A `shared` subagent binding owns no
+ * Sandbox (it follows its parent's), so it never answers, even when its
+ * inherited fields name one. Never inferred from the Sandbox's name.
+ */
+export function sessionOfSandbox(name: string, sessions: Record<string, any> | undefined | null): string | undefined {
+  for (const binding of Object.values(sessions ?? {})) {
+    if (binding?.kind === 'project' && binding?.sandbox === name) return typeof binding.sessionId === 'string' ? binding.sessionId : undefined
+  }
+  return undefined
+}
+
+/**
  * A 2.0 Sandbox (a `sandbox list --detail` row, or `sandbox get --detail
  * --with stats`) -> SandboxInfo. `state` is one of the six with its
  * companions; `workspaces` are read only from `sandbox get` (a list row
  * leaves them `unread`). Each Workspace is `{ workspace: "<sandbox>:<name>",
  * branch, running, state, op, path, commit, base_layer, branch_moved,
  * pending_merge, commands }`; `stats.workspaces` adds its overlay and usage.
+ * `sessionOf` names the conversation that owns this Sandbox, when one does
+ * (`sessionId`); it is passed in so the function stays a pure row shaper.
  */
-export function sandboxInfo(s: any, workspaces: any[] | null = null) {
+export function sandboxInfo(s: any, workspaces: any[] | null = null, sessionOf?: (name: string) => string | undefined) {
   const name = String(s.sandbox ?? s.name)
+  const sessionId = sessionOf?.(name)
   const stats = s.stats && typeof s.stats === 'object' ? s.stats : null
   const perWorkspace = new Map<string, any>((Array.isArray(stats?.workspaces) ? stats.workspaces : []).map((w: any) => [String(w?.workspace), w]))
   return {
     id: name,
     name,
+    ...(sessionId ? { sessionId } : {}),
     state: typeof s.state === 'string' ? s.state : 'ready',
     op: opOf(s.op),
     ...companionsOf(s),
@@ -332,6 +349,9 @@ export class Projects {
   }
 
   get lfs() { return this.host.lfs() }
+
+  /** The conversation that owns a Sandbox, from the host's sessions state (none: undefined). */
+  private readonly sessionOf = (name: string): string | undefined => this.host.sessionOf?.(name)
 
   private log(line: string): void { this.host.log(line) }
 
@@ -545,7 +565,7 @@ export class Projects {
         project: { ...this.summary(record), ...storeFacts, refusal: listed.refused },
         branches: [],
         layers: [],
-        sandboxes: sandboxes.map((s) => sandboxInfo(s)),
+        sandboxes: sandboxes.map((s) => sandboxInfo(s, null, this.sessionOf)),
         last: null,
         commits: null,
         store,
@@ -560,7 +580,7 @@ export class Projects {
       branches: branchInfos(listed),
       // 2.0 lists none of main's Layers but its newest (§9 Q3)
       layers: main?.commit ? [{ id: main.commit, message: '', at: null, from: null }] : [],
-      sandboxes: sandboxes.map((s) => sandboxInfo(s)),
+      sandboxes: sandboxes.map((s) => sandboxInfo(s, null, this.sessionOf)),
       last: null,
       commits: null,
       store,
@@ -573,7 +593,7 @@ export class Projects {
   async sandboxes(key: string) {
     const { key: project } = projectRef(key)
     const listed = await pages((p) => this.lfs.sandbox.list({ project, ...p, detail: true }))
-    return listed.map((s) => sandboxInfo(s))
+    return listed.map((s) => sandboxInfo(s, null, this.sessionOf))
   }
 
   /**
@@ -654,7 +674,7 @@ export class Projects {
   async sandbox(name: string) {
     if (typeof name !== 'string' || !name) throw refuse(400, 'InvalidInput', 'Name the Sandbox.')
     const record = await sandboxObservation(this.lfs, name)
-    const info = sandboxInfo({ ...record, sandbox: record?.sandbox ?? name }, Array.isArray(record?.workspaces) ? record.workspaces : [])
+    const info = sandboxInfo({ ...record, sandbox: record?.sandbox ?? name }, Array.isArray(record?.workspaces) ? record.workspaces : [], this.sessionOf)
     // running commands: which ones this host's Sandbox pages started (by exact exec id), and whose session a tag names
     const tags = new Set<string>()
     for (const w of info.workspaces) for (const r of w.running ?? []) if (r.tag) tags.add(r.tag)

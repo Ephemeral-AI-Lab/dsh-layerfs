@@ -240,6 +240,8 @@ export interface WorkspaceInfo { ws: string, name?: string | null, branch: strin
 export interface SandboxInfo {
   id: string
   name: string
+  /** The conversation that owns this Sandbox today (a project session's own Sandbox); absent for any other. */
+  sessionId?: string
   state: string
   /** A broken one's reason (`lost`, `missing`: its daemon ended; the machine pages call it Lost). */
   reason?: string

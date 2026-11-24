@@ -23,9 +23,9 @@ const PINNED = [entry('machine', 'list'), entry('machine', 'stop'), entry('sandb
 /** Stage 1's table: images, load, prune, `image` of kind `image`, progress (plus the identity's `sandbox-runtime`). */
 const STAGE1 = [entry('machine', 'list'), entry('machine', 'images'), entry('machine', 'load_image'), entry('machine', 'prune'), entry('machine', 'stop', ['force']), entry('sandbox', 'create', ['image', 'on_progress'], 'image')]
 
-function fixture(lfs, calls = PINNED, features = []) {
+function fixture(lfs, calls = PINNED, features = [], sessionOf = undefined) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-routes-features-'))
-  const t = testHost({ lfs, root, home: join(root, 'home'), discovery: async () => ({ identity: { version: '2.0.0-test', features }, calls }) })
+  const t = testHost({ lfs, root, home: join(root, 'home'), discovery: async () => ({ identity: { version: '2.0.0-test', features }, calls }), sessionOf })
   const groups = R.createGroups(t.host, async () => ({}))
   return { groups, host: t.host, events: t.events, logs: t.logs, http: (method, path, body) => R.handle(groups, { method, path, body }), close: () => rmSync(root, { recursive: true, force: true }) }
 }
@@ -313,6 +313,46 @@ test('Sandbox reads: a cached Busy refusal is dropped by mount, unmount, commit 
       assert.equal(reads, before + 1)
     }
   } finally { Date.now = realNow; f.close() }
+})
+
+test('Sandboxes: a project binding labels its Sandbox with its sessionId; a shared subagent binding owns none', async () => {
+  const head = 'c'.repeat(66)
+  const rows = [
+    { sandbox: 'dsh-own', project: 's1/p', state: 'ready' },
+    { sandbox: 'dsh-sub', project: 's1/p', state: 'ready' },
+    { sandbox: 'plain', project: 's1/p', state: 'ready' },
+  ]
+  const lfs = {
+    project: { get: async (key) => ({ project: key, store: 's1', engine: 'sqlite', machine: 'native', created_at: new Date(7).toISOString() }) },
+    store: { get: async (name) => ({ store: name, machine: 'native', engine: 'sqlite', state: 'ready' }) },
+    branch: { list: async () => ({ items: [{ branch: 'main', commit: head }], next_cursor: null }) },
+    sandbox: {
+      list: async () => ({ items: rows, next_cursor: null }),
+      get: async (name) => ({ sandbox: name, project: 's1/p', workspaces: [] }),
+    },
+  }
+  // a project conversation's binding names its own Sandbox; a shared subagent's names its parent's Sandbox but owns none
+  const sessions = {
+    'session-own': { sessionId: 'session-own', kind: 'project', project: 's1/p', sandbox: 'dsh-own' },
+    'session-sub': { sessionId: 'session-sub', kind: 'shared', parent: 'session-own', project: 's1/p', sandbox: 'dsh-sub' },
+  }
+  const f = fixture(lfs, PINNED, [], (name) => R.sessionOfSandbox(name, sessions))
+  const key = encodeURIComponent('s1/p')
+  const at = (list, name) => list.find((b) => b.name === name)
+  try {
+    const state = (await f.http('GET', `/api/projects/${key}`)).body
+    assert.equal(at(state.sandboxes, 'dsh-own').sessionId, 'session-own')
+    for (const name of ['dsh-sub', 'plain']) assert.ok(!('sessionId' in at(state.sandboxes, name)), `${name} in the project state`)
+    const listed = (await f.http('GET', `/api/projects/${key}/sandboxes`)).body
+    assert.equal(at(listed, 'dsh-own').sessionId, 'session-own')
+    for (const name of ['dsh-sub', 'plain']) assert.ok(!('sessionId' in at(listed, name)), `${name} in the Sandboxes list`)
+    assert.equal((await f.http('GET', '/api/sandboxes/dsh-own')).body.sessionId, 'session-own')
+    for (const name of ['dsh-sub', 'plain']) assert.ok(!('sessionId' in (await f.http('GET', `/api/sandboxes/${name}`)).body), name)
+    // the lookup itself: only a project binding answers, never a shared one, never a name prefix
+    assert.equal(R.sessionOfSandbox('dsh-own', sessions), 'session-own')
+    assert.equal(R.sessionOfSandbox('dsh-sub', { 'session-sub': sessions['session-sub'] }), undefined)
+    assert.equal(R.sessionOfSandbox('dsh-own', undefined), undefined)
+  } finally { f.close() }
 })
 
 test('Branches: main first on page 0 and never again, however many pages', async () => {

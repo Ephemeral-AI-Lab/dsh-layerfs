@@ -150,7 +150,9 @@ drawn for the whole project: every conversation (and its subagents) that called 
 on this project or its Sandboxes, plus the calls made outside conversations (**This
 plugin** for this host's own calls, **Other clients**), wired through the LayerFS hub to
 the Branches they touched and the Sandboxes on the right. The play bar replays the calls
-(**Pause**/**Play**, **1×**…**100×**, **Live**) and **Activity** lists them. See
+(**Pause**/**Play**, **1×**…**100×**, **Live**) and **Activity** lists them. A Sandbox
+that belongs to one conversation carries a small quiet **Session** tag (hover: *This
+Sandbox belongs to one conversation and is removed when it closes.*). See
 [Components › Sandbox card](components.md#sandbox-card) and [Terminal
 pane](components.md#terminal-pane) for the parts it shares with machine pages.
 
