@@ -19,6 +19,7 @@ import { HISTORY_VIEW, useNoComposer, type ViewProps } from './FileViews.tsx'
 import { useSessionRows } from './hooks.ts'
 import type { Translate } from './locale.ts'
 import { TrajectoryInspector, type DetailCache, type Inspected, type InspectorTab } from './TrajectoryInspector.tsx'
+import { openLogs } from '../logs/request.ts'
 import { clock, durationText, KindCell, OpLine, Versions, type OpenVersion } from './TrajectoryParts.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import {
@@ -426,7 +427,8 @@ export function TrajectoryView(props: ViewProps): ReactNode {
         </div>
         {inspected ? (
           <TrajectoryInspector api={api} sessionId={sessionId} inspected={inspected} tab={tab} onTab={setTab} layerfs={layerfs}
-            onClose={() => setSelected(null)} onOpen={onOpen} cache={cache} t={t} />
+            onClose={() => setSelected(null)} onOpen={onOpen} cache={cache} t={t}
+            onOpenLogs={(tag) => openLogs(api, { tag })} />
         ) : null}
       </div>
     </div>

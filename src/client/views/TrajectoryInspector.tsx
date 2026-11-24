@@ -9,6 +9,7 @@ import { Button, IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-prim
 import type { LayerfsApi } from '../api.ts'
 import { ErrorState, Loading } from '../files/States.tsx'
 import type { TraceCheckpoint, TraceOp, TraceVersion, TrajectoryDetail, TrajectoryRecord } from '../../shared/trajectory.ts'
+import { sessionTag } from '../../shared/logs.ts'
 import type { Translate } from './locale.ts'
 import { clock, durationText, KindCell, opOutcome, Version, type OpenVersion } from './TrajectoryParts.tsx'
 import { checkpointVersion, opCommand, prettyArgs, SAVES } from './trajectory-model.ts'
@@ -71,21 +72,29 @@ function VersionLine({ version, t, onOpen }: { version: TraceVersion, t: Transla
   )
 }
 
-/** A call's LayerFS calls, each with its outcome, time and versions. */
-function OpsList({ ops, t, onOpen }: { ops: readonly TraceOp[], t: Translate, onOpen: OpenVersion }): ReactNode {
+/** A call's LayerFS calls, each with its outcome, time and versions (exported for its own test). */
+export function OpsList({ ops, sessionId, t, onOpen, onOpenLogs }: {
+  ops: readonly TraceOp[], sessionId: string, t: Translate, onOpen: OpenVersion
+  /** Opens the Logs page filtered to this call's receipt tag; refused and failed calls offer it. */
+  onOpenLogs?: ((tag: string) => void) | undefined
+}): ReactNode {
   if (!ops.length) return <p className={css.note}>{t('trajNoLayerfs')}</p>
   return (
     <ol className={css.opsList}>
       {ops.map((op) => {
         const outcome = opOutcome(t, op)
+        const failed = op.outcome !== 'success' || (op.exit ?? 0) !== 0
         return (
           <li key={op.id} className={css.opItem}>
             <code className={css.opCommand}>{opCommand(op)}</code>
             <span className={css.opMeta}>
-              {outcome ? <span className={clsx(op.outcome !== 'success' && css.refused)}>{outcome}</span> : null}
+              {outcome ? <span className={clsx(failed && css.refused)}>{outcome}</span> : null}
               {op.at ? <span>{clock(op.at)}</span> : null}
               {op.ms !== undefined ? <span>{durationText(t, op.ms)}</span> : null}
             </span>
+            {failed && onOpenLogs
+              ? <Button variant="ghost" size="sm" className={css.openHistory} onClick={() => onOpenLogs(sessionTag(sessionId, op.id))}>{t('trajOpenInLogs')}</Button>
+              : null}
             {op.versions.length ? <ul className={css.versionList}>{op.versions.map((v) => <VersionLine key={`${v.effect}:${v.id}`} version={v} t={t} onOpen={onOpen} />)}</ul> : null}
           </li>
         )
@@ -111,7 +120,10 @@ function DetailState({ state, t }: { state: ReturnType<typeof useDetail>, t: Tra
   return null
 }
 
-function ToolBody({ record, tab, detail, t, onOpen, layerfs }: { record: Extract<TrajectoryRecord, { kind: 'tool' }>, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate, onOpen: OpenVersion, layerfs: boolean }): ReactNode {
+function ToolBody({ record, tab, detail, t, onOpen, layerfs, sessionId, onOpenLogs }: {
+  record: Extract<TrajectoryRecord, { kind: 'tool' }>, tab: Tab, detail: ReturnType<typeof useDetail>, t: Translate, onOpen: OpenVersion, layerfs: boolean
+  sessionId: string, onOpenLogs?: ((tag: string) => void) | undefined
+}): ReactNode {
   const running = record.result === undefined && record.endedAt === undefined
   if (tab === 'payload') {
     return detail.detail
@@ -128,7 +140,7 @@ function ToolBody({ record, tab, detail, t, onOpen, layerfs }: { record: Extract
       </>
     )
   }
-  if (tab === 'layerfs') return <OpsList ops={record.ops} t={t} onOpen={onOpen} />
+  if (tab === 'layerfs') return <OpsList ops={record.ops} sessionId={sessionId} t={t} onOpen={onOpen} onOpenLogs={onOpenLogs} />
   if (tab === 'timing') return <Timing t={t} start={record.at} end={record.endedAt} running={running} />
   const created = record.ops.flatMap((op) => op.versions)
   return (
@@ -170,8 +182,11 @@ function MessageBody({ record, tab, detail, t }: { record: Exclude<TrajectoryRec
   )
 }
 
-function CheckpointBody({ checkpoint, tab, t, onOpen }: { checkpoint: TraceCheckpoint, tab: Tab, t: Translate, onOpen: OpenVersion }): ReactNode {
-  if (tab === 'layerfs') return <OpsList ops={checkpoint.op ? [checkpoint.op] : []} t={t} onOpen={onOpen} />
+function CheckpointBody({ checkpoint, tab, t, onOpen, sessionId, onOpenLogs }: {
+  checkpoint: TraceCheckpoint, tab: Tab, t: Translate, onOpen: OpenVersion, sessionId: string
+  onOpenLogs?: ((tag: string) => void) | undefined
+}): ReactNode {
+  if (tab === 'layerfs') return <OpsList ops={checkpoint.op ? [checkpoint.op] : []} sessionId={sessionId} t={t} onOpen={onOpen} onOpenLogs={onOpenLogs} />
   if (tab === 'timing') return <Timing t={t} start={checkpoint.op?.at ?? checkpoint.at} end={checkpoint.op?.at !== undefined && checkpoint.op.ms !== undefined ? checkpoint.op.at + checkpoint.op.ms : undefined} />
   const version = checkpointVersion(checkpoint)
   return (
@@ -189,7 +204,7 @@ function CheckpointBody({ checkpoint, tab, t, onOpen }: { checkpoint: TraceCheck
 const TOOL_TABS: Tab[] = ['summary', 'payload', 'result', 'layerfs', 'timing']
 const MESSAGE_TABS: Tab[] = ['summary', 'timing']
 
-export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onClose, onOpen, cache, t, layerfs = true }: {
+export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onClose, onOpen, onOpenLogs, cache, t, layerfs = true }: {
   api: LayerfsApi
   sessionId: string
   inspected: Inspected
@@ -197,6 +212,8 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
   onTab: (tab: Tab) => void
   onClose: () => void
   onOpen: OpenVersion
+  /** Opens the Logs page filtered to one call's receipt tag (a refused call's "check Logs"). */
+  onOpenLogs?: ((tag: string) => void) | undefined
   cache: DetailCache
   t: Translate
   /** A project session: tool calls get the LayerFS tab. */
@@ -244,10 +261,10 @@ export function TrajectoryInspector({ api, sessionId, inspected, tab, onTab, onC
         </div>
       ) : null}
       <div id={`${uid}-panel`} role={tabs.length > 1 ? 'tabpanel' : undefined} aria-labelledby={tabs.length > 1 ? tabId(current) : undefined} className={css.inspectorBody}>
-        {record?.kind === 'tool' ? <ToolBody record={record} tab={current} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} />
+        {record?.kind === 'tool' ? <ToolBody record={record} tab={current} detail={detail} t={t} onOpen={onOpen} layerfs={layerfs} sessionId={sessionId} onOpenLogs={onOpenLogs} />
           : record ? <MessageBody record={record} tab={current} detail={detail} t={t} />
-          : inspected.kind === 'checkpoint' ? <CheckpointBody checkpoint={inspected.checkpoint} tab={current} t={t} onOpen={onOpen} />
-          : inspected.kind === 'ops' ? <OpsList ops={inspected.ops} t={t} onOpen={onOpen} /> : null}
+          : inspected.kind === 'checkpoint' ? <CheckpointBody checkpoint={inspected.checkpoint} tab={current} t={t} onOpen={onOpen} sessionId={sessionId} onOpenLogs={onOpenLogs} />
+          : inspected.kind === 'ops' ? <OpsList ops={inspected.ops} sessionId={sessionId} t={t} onOpen={onOpen} onOpenLogs={onOpenLogs} /> : null}
       </div>
     </aside>
   )
