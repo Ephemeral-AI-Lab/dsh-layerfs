@@ -5,6 +5,20 @@ Status: **settled** — the owner's calls, 2026-11-24. Evidence: the code review
 decisions the refinement's groups 3–5 and 9 build on; each section records the
 call, what it changes and the work it creates.
 
+## Scope: the two work items first
+
+The current work is #185 (session open) and #186 (conversation tabs). Only two
+of these decisions touch them:
+
+- #185 flags the per-session Sandbox and moves on; the project-owned Sandbox
+  is implemented with groups 5 and 9.
+- #186 takes the brand cleanup as polish; the Trajectory parity list is out of
+  its acceptance, so only the `stock.suspend()` guard ships with it.
+- The split view is documentation only (decision 2).
+
+Project-owned Sandboxes and Trajectory parity stay decided but deferred; no
+work item depends on them today.
+
 ## 1. Sandbox ownership: project-owned
 
 **Decision.** One Sandbox per project and machine. Every session mounts its own
@@ -27,8 +41,10 @@ retired.
 - Tests: `test/sessions.test.mjs:339` (the name assertion) and the mount,
   close and import suites change.
 
-**Follow-up.** Host and tests in group 3. Group 5's Sandboxes tab and group 9's
-Sandbox page then show one Sandbox per project with a Workspace per session.
+**Follow-up.** Host and tests with groups 5 and 9, not in #185: #185 only
+flags the per-session Sandbox so nothing builds on it. Group 5's Sandboxes tab
+and group 9's Sandbox page then show one Sandbox per project with a Workspace
+per session.
 
 ## 2. Split view: keep the global mode, document the DSH-side deviation
 
@@ -79,9 +95,9 @@ unblocks: inline LayerFS calls, version chips and refusal links on the stock
 Trajectory, so project sessions keep DSH's token usage, prompt diffs and live
 tool output without duplicating that UI.
 
-**Follow-up.** Parity items are sliced in group 4; the guard can ship on its
-own; the seam request is recorded here and in `layerfs-trajectory.md` for the
-DSH hand-off.
+**Follow-up.** Parity is a later slice: it is not part of #186's Trajectory
+acceptance. The guard ships with #186; the seam request is recorded here and in
+`layerfs-trajectory.md` for the DSH hand-off.
 
 ## 4. Brand colours: a named exception with one source
 
