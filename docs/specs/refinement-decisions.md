@@ -73,9 +73,16 @@ ships until that seam exists; once it does, the inline LayerFS rows can move
 onto the stock view and the custom one becomes a candidate for retirement (or
 a thinner annotation layer over the stock view).
 
-**Parity list** (from `layerfs-trajectory.md` §2): system-prompt and
-request-header records, prompt diffs, tool schemas, token usage, live tool
-output.
+**Parity list** (from `layerfs-trajectory.md` §2, corrected 2026-11-24):
+system-prompt and request-header records, prompt diffs, tool schemas, token
+usage, and assistant text streaming. The earlier list said "live tool output";
+that is not a feature of DSH's stock trajectory (it streams assistant text, not
+tool output), so it is replaced rather than copied.
+
+Feasibility: all five read from the session log (`system/message`,
+`request/header`, `step/end` usage, `tool/call`), which `session.trajectory`
+already opens, so they need no DSH change. The tool-call-level slot request is
+separate: it would move the inline LayerFS rows onto the stock view.
 
 - Host: `session.trajectory` carries the extra records and fields;
   `session.trajectory.record` serves them at the same 64 KiB cut.

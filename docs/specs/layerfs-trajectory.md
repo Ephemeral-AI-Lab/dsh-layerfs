@@ -61,8 +61,11 @@ rows, controls or lane, and keeps its composer.
 
 Parity owed (decided 2026-11-24, `docs/specs/refinement-decisions.md`):
 system-prompt and request-header records, prompt diffs, tool schemas, token
-usage, live tool output are not rendered yet and are to be added to this view;
-until then they remain visible only in the stock Trajectory of normal sessions.
+usage, and assistant text streaming are not rendered yet and are to be added to
+this view; until then they remain visible only in the stock Trajectory of normal
+sessions. (The earlier list said "live tool output"; stock streams assistant
+text, not tool output.) All of them come from session-log events this view
+already reads, so no DSH change is needed for parity.
 
 Seam request: the stock trajectory exposes no inner slot
 (`@deepseek-ai/dsh-client-ui-trajectory` registers only `conversation.view`), so
