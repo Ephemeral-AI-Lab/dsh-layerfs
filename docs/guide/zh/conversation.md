@@ -29,8 +29,10 @@ LayerFS 的几个标签：轨迹，显示每次工具调用在 LayerFS 里做了
 **标签什么时候出现。** 只有项目会话（或它的子智能体）在屏幕上时才会加上这些标签；切到 DSH 会话时
 它们会被移除，DSH 会话恢复 DSH 的 Chat 和自带的轨迹。每个对话标题栏都会问主机：这个会话有没有
 LayerFS 项目（`session.place`，没有 LayerFS 调用），标签稍后跟着出现，所以切换对话时轨迹标签不会闪。
-分屏同时显示一个项目会话和一个 DSH 会话时，两边都有这些标签；DSH 那边的 LayerFS 标签显示
-**不在 LayerFS 项目中**（Not in a LayerFS project），它的轨迹也保留输入框。
+分屏同时显示一个项目会话和一个 DSH 会话时，两边都有这些标签。这是相对普通 DSH 会话的一个已知差异：
+DSH 那边的 LayerFS 标签显示**不在 LayerFS 项目中**（Not in a LayerFS project），它的轨迹是 LayerFS
+的审计视图（不显示 DSH 的 token 用量、prompt 差异和实时工具输出），打开这些 LayerFS 标签还会隐藏
+它的输入框。关掉项目会话即可回到原生 DSH。
 
 ## 轨迹
 

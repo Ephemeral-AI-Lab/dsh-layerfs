@@ -59,9 +59,15 @@ While LayerFS mode is on, a normal session shown beside a project session
 (split view) also gets this view; it then shows its records without LayerFS
 rows, controls or lane, and keeps its composer.
 
-Not copied from DSH: system-prompt and request-header records, prompt diffs,
-tool schemas, token usage, live tool output. Those stay in the stock
-Trajectory of normal sessions.
+Parity owed (decided 2026-11-24, `docs/specs/refinement-decisions.md`):
+system-prompt and request-header records, prompt diffs, tool schemas, token
+usage, live tool output are not rendered yet and are to be added to this view;
+until then they remain visible only in the stock Trajectory of normal sessions.
+
+Seam request: the stock trajectory exposes no inner slot
+(`@deepseek-ai/dsh-client-ui-trajectory` registers only `conversation.view`), so
+inline LayerFS rows force this whole view. A public tool-call-level slot in the
+stock Trajectory would let those rows move there and retire this view.
 
 ## 3. Data
 

@@ -2,8 +2,8 @@
 
 Status: implemented with DSH's public `conversation.view` slot; no DSH change.
 
-Open decisions that shape this page — the split view, replacing or extending
-DSH's Trajectory, and the brand inks — are recorded in
+Decisions that shape this page — the split view's DSH-side deviation, the
+custom Trajectory with its owed parity, and the brand inks — are recorded in
 `docs/specs/refinement-decisions.md`.
 
 A project session's conversation gets four LayerFS tabs beside DSH's own:

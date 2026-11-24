@@ -34,7 +34,10 @@ Chat and stock Trajectory back. Each conversation header asks the host whether i
 has a LayerFS project (`session.place`, no LayerFS call), and the tabs follow a moment later,
 so switching conversations does not flicker the Trajectory tab. In a split view with one
 project session and one DSH session, the tabs show for both; the DSH one's LayerFS tabs say
-**Not in a LayerFS project** and its Trajectory keeps its composer.
+**Not in a LayerFS project**; its Trajectory is the LayerFS audit view (DSH's
+token usage, prompt diffs and live tool output are not shown), and opening one of
+those tabs hides its composer. This is a known deviation from a plain DSH session;
+close the project conversation to get stock DSH back.
 
 ## Trajectory
 
