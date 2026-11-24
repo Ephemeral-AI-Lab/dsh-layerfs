@@ -23,16 +23,16 @@ LayerFS 的几个标签：轨迹，显示每次工具调用在 LayerFS 里做了
 ## 布局
 
 最上面是对话标题栏（标题、**LayerFS** 预设标签，脚本会话还有 **查看脚本**（View script）），然后是标签栏，
-再下面是标签内容。在任何一个 LayerFS 标签上，消息框都会让开：轨迹、文件、历史、Sandbox 或统计显示时，
+再下面是标签内容。在项目会话的 LayerFS 标签上，消息框都会让开：轨迹、文件、历史、Sandbox 或统计显示时，
 输入框是隐藏的，回到 **Chat** 时它会回来，草稿原样保留。审批和提问仍然会显示。
 
 **标签什么时候出现。** 只有项目会话（或它的子智能体）在屏幕上时才会加上这些标签；切到 DSH 会话时
 它们会被移除，DSH 会话恢复 DSH 的 Chat 和自带的轨迹。每个对话标题栏都会问主机：这个会话有没有
 LayerFS 项目（`session.place`，没有 LayerFS 调用），标签稍后跟着出现，所以切换对话时轨迹标签不会闪。
-分屏同时显示一个项目会话和一个 DSH 会话时，两边都有这些标签。这是相对普通 DSH 会话的一个已知差异：
-DSH 那边的 LayerFS 标签显示**不在 LayerFS 项目中**（Not in a LayerFS project），它的轨迹是 LayerFS
-的审计视图（不显示 DSH 的 token 用量、prompt 差异和实时工具输出），打开这些 LayerFS 标签还会隐藏
-它的输入框。关掉项目会话即可回到原生 DSH。
+分屏同时显示一个项目会话和一个 DSH 会话时，两边都有这些标签。DSH 那边的 LayerFS 标签显示
+**不在 LayerFS 项目中**（Not in a LayerFS project），它的轨迹是 LayerFS 的审计视图（不显示 DSH 的
+token 用量、prompt 差异和实时工具输出），而 DSH 那边的输入框一直保留。这五个标签和这条审计轨迹是
+相对普通 DSH 会话的一个已知差异。关掉项目会话即可回到原生 DSH。
 
 DSH 关闭 **显示代码工作视图**（Show coding view，即 Developer tools）设置时，轨迹标签会完全隐藏：
 原生 DSH 和 LayerFS 都一样。Chat 和其余 LayerFS 标签还在，重新打开设置后轨迹就会回来。

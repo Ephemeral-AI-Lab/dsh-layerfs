@@ -305,8 +305,8 @@ export function SandboxView(props: ViewProps): ReactNode {
   // B2 #6: the translator is a stable function, so the memoized rows (Activity's agent and turn words) take a new one on a locale switch
   const revision = useLocaleRevision()
   const t = useMemo<Translate>(() => (key, params) => props.t(key, params), [props.t, revision])
-  useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
+  useNoComposer(props.hideComposer, !!state.view?.binding)
   return (
     <Gate state={state} t={t}>
       {(view, project) => <ChatSandboxMap {...props} t={t} project={project} binding={view.binding} root={state.root} byId={state.byId} title={state.title} label={state.label} />}

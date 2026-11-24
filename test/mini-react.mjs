@@ -23,7 +23,7 @@ export function useReducer(reducer, init) { const [s, set] = useState(init); ret
 export function useRef(v) { const c = cur, i = slot(); if (!(i in c.s)) c.s[i] = { current: v }; return c.s[i] }
 export function useEffect(fn, deps) {
   const c = cur, i = slot(), prev = c.s[i]
-  if (!prev || !deps || deps.length !== prev.length || deps.some((d, k) => !Object.is(d, prev[k]))) c.fx.push(fn)
+  if (!prev || !deps || deps.length !== prev.length || deps.some((d, k) => !Object.is(d, prev[k]))) c.fx.push({ at: i, fn })
   c.s[i] = deps ?? []
 }
 export const useLayoutEffect = useEffect
@@ -42,12 +42,18 @@ export const startTransition = (fn) => fn()
 
 /** Mounts a function component: render() calls it again; effects run after each render. */
 export function mount(Component, props) {
-  const c = { s: [], i: 0, fx: [], dirty: false, props, tree: null }
+  const c = { s: [], i: 0, fx: [], dirty: false, props, tree: null, cleanups: [], unmounted: false }
   const render = (next) => {
+    if (c.unmounted) throw new Error('render() after unmount()')
     if (next !== undefined) c.props = next
     cur = c; c.i = 0; c.fx = []; c.dirty = false
     try { c.tree = Component(c.props) } finally { cur = null }
-    for (const fn of c.fx) fn()
+    // Keep each effect's cleanup so unmount() can run it, as React does.
+    for (const { at, fn } of c.fx) {
+      const cleanup = fn()
+      if (typeof cleanup === 'function') c.cleanups[at] = cleanup
+      else delete c.cleanups[at]
+    }
     return c.tree
   }
   render()
@@ -57,6 +63,14 @@ export function mount(Component, props) {
     render,
     /** Lets pending promises settle, then renders again when a state changed. */
     async settle() { for (let k = 0; k < 5; k++) await new Promise((r) => setTimeout(r, 0)); if (c.dirty) render(); return c.tree },
+    /** Unmounts: runs every effect cleanup still in place (the latest run of each effect). */
+    unmount() {
+      if (c.unmounted) return
+      c.unmounted = true
+      const cleanups = c.cleanups
+      c.cleanups = []
+      for (const cleanup of cleanups) cleanup?.()
+    },
   }
 }
 

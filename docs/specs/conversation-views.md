@@ -48,13 +48,15 @@ Each entry receives the owner props `openView(view, focus)`, `viewRequest` and
 (`{"commit":…,"branch":…,"path":…}`); the target reads `viewRequest` once and
 acknowledges it.
 
-The LayerFS tabs have no chat composer. While one is mounted it registers a
-`conversation.composer` chain entry (priority 100, selected only for its
-session) that renders nothing. A chain elects in ascending priority, so the
-takeovers it must yield to are tried first — approval (1), user questions (0),
-the subagent read-only composer (-10) — and still show; DSH's stock composer
-stays the fallback and is kept mounted, so a draft survives. Switching back to
-Chat unmounts the view and releases the entry.
+A project session's LayerFS tabs have no chat composer. Once `session.state`
+confirms a project binding, a mounted tab registers a `conversation.composer`
+chain entry (priority 100, selected only for its session) that renders nothing;
+while that read is loading or failed, none is registered, so the composer stays.
+A chain elects in ascending priority, so the takeovers it must yield to are
+tried first — approval (1), user questions (0), the subagent read-only composer
+(-10) — and still show; DSH's stock composer stays the fallback and is kept
+mounted, so a draft survives. Switching back to Chat unmounts the view and
+releases the entry.
 
 Constraints of the seam (reported, not worked around):
 
@@ -66,10 +68,12 @@ Constraints of the seam (reported, not worked around):
   workspace sessions show only Chat and the stock Trajectory; a remembered
   LayerFS tab falls back to Chat. In a split view with one project and one
   workspace session the tabs show for both: the DSH pane gets the five tabs and
-  the LayerFS audit Trajectory, and its composer steps aside while one of those
-  tabs is open (its LayerFS tabs say "not in a LayerFS project"). That is an
-  accepted deviation, not a bug: the faithful fix is a DSH seam (a per-session
-  view registration or a tab row filter), recorded as a request in
+  the LayerFS audit Trajectory (its LayerFS tabs say "not in a LayerFS project"),
+  but it keeps its own composer, as plain DSH does: a tab hides the composer only
+  once `session.state` confirms a project binding, and a DSH session has none.
+  The accepted deviation is therefore the five tabs and the audit Trajectory
+  only, not the composer. The faithful fix is a DSH seam (a per-session view
+  registration or a tab row filter), recorded as a request in
   `docs/specs/refinement-decisions.md` §2.
 - Only an entry of `conversation.view` receives `openView`; nothing outside the
   tabs (Chat's messages, the header, the sidebar) can select one. Linking from
@@ -254,5 +258,7 @@ Session row.
   Trajectory entry back, exactly one (stock) Trajectory tab remains, and the
   other four tabs stay.
 - Split view: with one project and one DSH session the DSH pane shows the same
-  five tabs and the audit Trajectory, and no composer while one of those tabs
-  is open — the accepted deviation in §1, not a bug.
+  five tabs and the audit Trajectory while keeping its composer (its tabs show
+  "not in a LayerFS project"); the tabs and the audit Trajectory are the
+  accepted deviation in §1, not a bug. The composer is not hidden while
+  `session.state` is loading or its read failed.

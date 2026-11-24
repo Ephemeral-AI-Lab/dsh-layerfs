@@ -54,6 +54,13 @@ the LayerFS audit Trajectory, and loses its composer while one of those tabs is
 open. Accepted and documented as a deviation from a plain DSH session, not
 engineered around.
 
+**Amendment (owner, 2026-11-24).** The composer is restored to DSH behaviour:
+the DSH pane keeps its own composer while one of those tabs is open. A tab
+hides the composer only once `session.state` confirms the session is in a
+project, so a DSH session beside a project session in split view is not treated
+as a project session for the composer. The deviation stands for the five tabs
+and the LayerFS audit Trajectory, and the per-session seam request stays open.
+
 **Why.** DSH's tab row is global and `conversation.view` has no per-session
 scope. The faithful fix is a DSH seam (a per-session view registration or a tab
 row filter); that seam is recorded as a request. Until it exists, moving the

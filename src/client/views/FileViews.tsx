@@ -102,8 +102,10 @@ function branchWords(branch: string, sessionId: string, t: Translate): string {
 
 export function FilesView(props: ViewProps): ReactNode {
   const { api, t, sessionId, sessions } = props
-  useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
+  // Hide the composer only once the session is confirmed to be in a project:
+  // a DSH pane in split view keeps it, as the audit Trajectory does.
+  useNoComposer(props.hideComposer, !!state.view?.binding)
   const [focus, n] = useFocus(FILES_VIEW, props)
   return (
     <Gate state={state} t={t}>
@@ -122,8 +124,8 @@ export function FilesView(props: ViewProps): ReactNode {
 
 export function HistoryView(props: ViewProps): ReactNode {
   const { api, t, sessionId, sessions, openView } = props
-  useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
+  useNoComposer(props.hideComposer, !!state.view?.binding)
   // The Trajectory tab opens a version here: `{branch, commit}`.
   const [focus, n] = useFocus(HISTORY_VIEW, props)
   return (

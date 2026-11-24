@@ -24,9 +24,9 @@ agent did to the project.
 ## Layout
 
 The conversation header (title, the **LayerFS** preset label, and, for a scripted session,
-**View script**), then the tab row, then the tab's body. On every LayerFS tab the message box
-steps aside: the composer is hidden while Trajectory, Files, History, Sandbox or Stats is on
-screen, and comes back on **Chat** with your draft intact. Approvals and questions still show.
+**View script**), then the tab row, then the tab's body. On a project session's LayerFS tabs
+the message box steps aside: the composer is hidden while Trajectory, Files, History, Sandbox
+or Stats is on screen, and comes back on **Chat** with your draft intact. Approvals and questions still show.
 
 **When the tabs appear.** The tabs are added only while a project session (or one of its
 subagents) is on screen, and removed when you switch to a DSH session, which gets DSH's
@@ -35,9 +35,10 @@ has a LayerFS project (`session.place`, no LayerFS call), and the tabs follow a 
 so switching conversations does not flicker the Trajectory tab. In a split view with one
 project session and one DSH session, the tabs show for both; the DSH one's LayerFS tabs say
 **Not in a LayerFS project**; its Trajectory is the LayerFS audit view (DSH's
-token usage, prompt diffs and live tool output are not shown), and opening one of
-those tabs hides its composer. This is a known deviation from a plain DSH session;
-close the project conversation to get stock DSH back.
+token usage, prompt diffs and live tool output are not shown), and the DSH pane keeps
+its composer while one of those tabs is open. The five tabs and the audit Trajectory are
+the known deviation from a plain DSH session; close the project conversation to get
+stock DSH back.
 
 DSH also hides the Trajectory tab entirely while its **Show coding view** setting
 (Developer tools) is off: stock DSH and LayerFS alike. Chat and the other LayerFS

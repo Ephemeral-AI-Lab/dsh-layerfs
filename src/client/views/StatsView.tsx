@@ -13,8 +13,8 @@ import css from './views.module.css'
 
 export function StatsView(props: ViewProps): ReactNode {
   const { api, t, storageT, sessionId, sessions } = props
-  useNoComposer(props.hideComposer)
   const state = useRootState(api, sessionId, sessions)
+  useNoComposer(props.hideComposer, !!state.view?.binding)
   return (
     <Gate state={state} t={t}>
       {(_view, project) => (
