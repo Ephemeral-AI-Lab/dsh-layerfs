@@ -120,6 +120,12 @@ the tone lint allowlists those two values; the whale drops its `#fff` /
 
 **Follow-up.** Small cleanup in group 4's polish slice; no product behaviour.
 
+## Deferred design
+
+Session/project ownership in the sidebar and the New Session hero (the row
+mark, the DOM row hiding, the hero chip and the per-row `session.place` reads)
+is deferred to its own design: see `docs/specs/session-ownership-ui.md`.
+
 ## What this unblocks
 
 - Group 3: Sandbox host work, session rows and readiness.
