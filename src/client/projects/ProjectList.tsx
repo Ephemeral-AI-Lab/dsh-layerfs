@@ -144,18 +144,39 @@ export function archiveConversation(api: Pick<LayerfsApi, 'op'>, sessionId: stri
 export function SessionLine({ session, title, selected, t, failure, onOpen, onArchive, onOpenStore }: {
   session: ProjectSession, title: string, selected: boolean, t: ListT
   failure?: LocalizedFailure | null
-  onOpen: () => void
+  /** Opens it; a refusal comes back as a rejected promise and is shown under this row. */
+  onOpen: () => void | Promise<unknown>
   /** Archives it: null when done, else the refusal's message. */
   onArchive: () => Promise<string | null>
   onOpenStore?: (() => void) | undefined
 }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
+  // An open can be refused by DSH (a stored-only row, an identity mismatch):
+  // that answer belongs beside this row, not only at the project, and one Retry
+  // asks again. Keeping it per row leaves the other sessions pressable.
+  const [opening, setOpening] = useState(false)
+  const [openFailure, setOpenFailure] = useState<{ sessionId: string, message: string } | null>(null)
   const archive = () => { setBusy(true); setRefusal(null); void onArchive().then(setRefusal).finally(() => setBusy(false)) }
+  const open = () => {
+    if (opening) return
+    setOpening(true)
+    setOpenFailure(null)
+    void Promise.resolve().then(onOpen).then(
+      () => setOpenFailure(null),
+      (e: unknown) => setOpenFailure({ sessionId: session.sessionId, message: String((e as Error)?.message ?? e) }),
+    ).finally(() => setOpening(false))
+  }
+  // The row's session list is read again on events and on a slow poll; a read
+  // that brings new data for this row replaces a refusal about the old data.
+  // `sessions` is rebuilt on every render, so compare the row's contents, not
+  // the object (which would drop a fresh refusal on the next render).
+  const listed = JSON.stringify([session.local, session.state, session.executionState, session.updatedAt, session.title, session.error])
+  useEffect(() => { setOpenFailure(null) }, [listed])
   const interruptedTip = failure?.message ?? session.error ?? t('interruptedHint')
   return <>
     <li className={css.sessionItem}>
-      <button type="button" className={css.session} data-selected={selected || undefined} onClick={onOpen}>
+      <button type="button" className={css.session} data-selected={selected || undefined} data-open-session={session.sessionId} disabled={opening} aria-busy={opening || undefined} onClick={open}>
         <span className={css.slot} aria-hidden="true" />
         <span className={css.title}>{title}</span>
         {session.executionState === 'interrupted' ? <span className={css.interrupted} title={interruptedTip}>{t('interrupted')}</span> : null}
@@ -172,6 +193,10 @@ export function SessionLine({ session, title, selected, t, failure, onOpen, onAr
     {refusal !== null ? <li className={clsx(css.notice, css.error)} data-archive-refused={session.sessionId}>
       <span role="alert" title={refusal}>{t('archiveRefused')}</span>
       <Button variant="ghost" size="sm" disabled={busy} onClick={archive}>{t('archiveAgain')}</Button>
+    </li> : null}
+    {openFailure !== null ? <li className={clsx(css.notice, css.error)} data-open-refused={openFailure.sessionId}>
+      <span role="alert">{openFailure.message}</span>
+      <Button variant="ghost" size="sm" disabled={opening} onClick={open}>{t('openAgain')}</Button>
     </li> : null}
   </>
 }
@@ -196,7 +221,9 @@ function SidebarRow({ item, showStore, api, titles, t, onChanged }: { item: Proj
   const blockedTip = t('cannotRun', { reason })
   const sessionReason = !availability.canRun ? blockedTip : actions.busy ? t('openingSession') : undefined
   const startReason = actions.busy ? t('starting') : startGuard.settling ? t('reviewStart') : undefined
-  const resume = (sessionId: string) => { void api.op('sessions.open', { sessionId, project: project.key }).catch(() => {}) }
+  // The open is tracked by SessionLine, which shows DSH's refusal at that row;
+  // a success reloads the list (the opening state and the refusal live there).
+  const resume = (sessionId: string) => api.op('sessions.open', { sessionId, project: project.key }).then(() => { onChanged() })
   const where = item.runsOn.join(', ')
   const archiveFail = read.error ? formatSessionFailure(null, errorMessage(read.error, t), t, storeName, item.store) : null
   const hasInterruptedFailure = sessions.some((s) => s.executionState === 'interrupted' && !!formatSessionFailure(s.failure, s.error, t, storeName, item.store))
